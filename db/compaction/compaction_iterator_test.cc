@@ -294,6 +294,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
       ASSERT_EQ(expected_values[i], c_iter_->value().ToString()) << info;
       c_iter_->Next();
     }
+    ASSERT_OK(c_iter_->status());
     ASSERT_FALSE(c_iter_->Valid());
   }
 
@@ -318,6 +319,7 @@ TEST_P(CompactionIteratorTest, EmptyResult) {
                  test::KeyStr("a", 3, kTypeValue)},
                 {"", "val"}, {}, {}, 5);
   c_iter_->SeekToFirst();
+  ASSERT_OK(c_iter_->status());
   ASSERT_FALSE(c_iter_->Valid());
 }
 
@@ -339,6 +341,7 @@ TEST_P(CompactionIteratorTest, CorruptionAfterSingleDeletion) {
   ASSERT_TRUE(c_iter_->Valid());
   ASSERT_EQ(test::KeyStr("b", 10, kTypeValue), c_iter_->key().ToString());
   c_iter_->Next();
+  ASSERT_OK(c_iter_->status());
   ASSERT_FALSE(c_iter_->Valid());
 }
 
@@ -355,6 +358,7 @@ TEST_P(CompactionIteratorTest, SimpleRangeDeletion) {
   ASSERT_TRUE(c_iter_->Valid());
   ASSERT_EQ(test::KeyStr("night", 3, kTypeValue), c_iter_->key().ToString());
   c_iter_->Next();
+  ASSERT_OK(c_iter_->status());
   ASSERT_FALSE(c_iter_->Valid());
 }
 
@@ -376,6 +380,7 @@ TEST_P(CompactionIteratorTest, RangeDeletionWithSnapshots) {
   ASSERT_TRUE(c_iter_->Valid());
   ASSERT_EQ(test::KeyStr("night", 40, kTypeValue), c_iter_->key().ToString());
   c_iter_->Next();
+  ASSERT_OK(c_iter_->status());
   ASSERT_FALSE(c_iter_->Valid());
 }
 
@@ -469,6 +474,7 @@ TEST_P(CompactionIteratorTest, CompactionFilterSkipUntil) {
   ASSERT_EQ(test::KeyStr("h", 91, kTypeValue), c_iter_->key().ToString());
   ASSERT_EQ("hv91", c_iter_->value().ToString());
   c_iter_->Next();
+  ASSERT_OK(c_iter_->status());
   ASSERT_FALSE(c_iter_->Valid());
 
   // Check that the compaction iterator did the correct sequence of calls on
@@ -662,6 +668,7 @@ TEST_P(CompactionIteratorTest, SingleMergeOperand) {
   ASSERT_TRUE(c_iter_->Valid());
   ASSERT_EQ("bv1bv2", c_iter_->value().ToString());
   c_iter_->Next();
+  ASSERT_OK(c_iter_->status());
   ASSERT_EQ("cv1cv2", c_iter_->value().ToString());
 }
 

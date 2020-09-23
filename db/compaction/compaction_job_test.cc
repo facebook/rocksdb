@@ -345,8 +345,10 @@ class CompactionJobTest : public testing::Test {
     Status s;
     s = compaction_job.Run();
     ASSERT_OK(s);
+    ASSERT_OK(compaction_job.io_status());
     mutex_.Lock();
     ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions()));
+    ASSERT_OK(compaction_job.io_status());
     mutex_.Unlock();
 
     if (verify) {

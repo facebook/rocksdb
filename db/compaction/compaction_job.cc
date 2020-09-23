@@ -338,7 +338,6 @@ CompactionJob::CompactionJob(
 CompactionJob::~CompactionJob() {
   assert(compact_ == nullptr);
   ThreadStatusUtil::ResetThreadStatus();
-  io_status_.PermitUncheckedError();
 }
 
 void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
@@ -1025,8 +1024,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       RecordDroppedKeys(range_del_out_stats,
                         &sub_compact->compaction_job_stats);
     }
-    // Status is checked in while loop.
-    status.PermitUncheckedError();
   }
 
   sub_compact->compaction_job_stats.num_input_deletion_records =
@@ -1548,6 +1545,9 @@ Status CompactionJob::OpenCompactionOutputFile(
   s = io_s;
   if (sub_compact->io_status.ok()) {
     sub_compact->io_status = io_s;
+    // Since this error is really a copy of the io_s that is checked below as s,
+    // it does not also need to be checked.
+    sub_compact->io_status.PermitUncheckedError();
   }
   if (!s.ok()) {
     ROCKS_LOG_ERROR(
@@ -1643,6 +1643,8 @@ void CompactionJob::CleanupCompaction() {
         TableCache::Evict(table_cache_.get(), out.meta.fd.GetNumber());
       }
     }
+    // TODO: sub_compact.io_status is not checked like status. Not sure if thats
+    // intentional. So ignoring the io_status as of now.
     sub_compact.io_status.PermitUncheckedError();
   }
   delete compact_;

@@ -915,10 +915,9 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     if (s.ok()) {
       TEST_SYNC_POINT("DBImpl::CompactRange:PreRefitLevel");
       s = ReFitLevel(cfd, final_output_level, options.target_level);
-      s.PermitUncheckedError();
       TEST_SYNC_POINT("DBImpl::CompactRange:PostRefitLevel");
-      s = ContinueBackgroundWork();
-      assert(s.ok());
+      // ContinueBackgroundWork always return Status::OK().
+      assert(ContinueBackgroundWork().ok());
     }
     EnableManualCompaction();
   }
@@ -1261,8 +1260,8 @@ void DBImpl::NotifyOnCompactionBegin(ColumnFamilyData* cfd, Compaction* c,
     BuildCompactionJobInfo(cfd, c, st, job_stats, job_id, current, &info);
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnCompactionBegin(this, info);
-      info.status.PermitUncheckedError();
     }
+    info.status.PermitUncheckedError();
   }
   mutex_.Lock();
   current->Unref();
