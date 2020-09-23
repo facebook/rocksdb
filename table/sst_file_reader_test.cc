@@ -128,6 +128,31 @@ TEST_F(SstFileReaderTest, Uint64Comparator) {
   CreateFileAndCheck(keys);
 }
 
+TEST_F(SstFileReaderTest, ReadOptionsOutOfScope) {
+  // Repro a bug where the SstFileReader depended on its configured ReadOptions
+  // outliving it.
+  options_.comparator = test::Uint64Comparator();
+  std::vector<std::string> keys;
+  for (uint64_t i = 0; i < kNumKeys; i++) {
+    keys.emplace_back(EncodeAsUint64(i));
+  }
+  CreateFile(sst_name_, keys);
+
+  SstFileReader reader(options_);
+  ASSERT_OK(reader.Open(sst_name_));
+  std::unique_ptr<Iterator> iter;
+  {
+    // Make sure ReadOptions go out of scope ASAP so we know the iterator
+    // operations do not depend on it.
+    ReadOptions ropts;
+    iter.reset(reader.NewIterator(ropts));
+  }
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    iter->Next();
+  }
+}
+
 TEST_F(SstFileReaderTest, ReadFileWithGlobalSeqno) {
   std::vector<std::string> keys;
   for (uint64_t i = 0; i < kNumKeys; i++) {
