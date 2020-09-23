@@ -122,6 +122,8 @@ struct ImmutableCFOptions {
   FileChecksumGenFactory* file_checksum_gen_factory;
 
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory;
+
+  std::vector<ChecksumHandoffFileType> checksum_handoff_file_types;
 };
 
 struct MutableCFOptions {

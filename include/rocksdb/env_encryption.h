@@ -312,7 +312,19 @@ class EncryptedWritableFile : public WritableFileWrapper {
 
   Status Append(const Slice& data) override;
 
+  Status AppendWithVerify(
+      const Slice& data,
+      const DataVerificationInfo& /* verification_info */) override {
+    return Append(data);
+  }
+
   Status PositionedAppend(const Slice& data, uint64_t offset) override;
+
+  Status PositionedAppendWithVerify(
+      const Slice& data, uint64_t offset,
+      const DataVerificationInfo& /* verification_info */) override {
+    return PositionedAppend(data, offset);
+  }
 
   // Indicates the upper layers if the current WritableFile implementation
   // uses direct IO.

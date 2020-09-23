@@ -1596,10 +1596,16 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->OutputFilePreallocationSize()));
   const auto& listeners =
       sub_compact->compaction->immutable_cf_options()->listeners;
+  bool data_verification = false;
+  for (auto& type : db_options_.checksum_handoff_file_types) {
+    if (type == ChecksumHandoffFileType::kSstFile) {
+      data_verification = true;
+    }
+  }
   sub_compact->outfile.reset(new WritableFileWriter(
       std::move(writable_file), fname, file_options_, env_, io_tracer_,
       db_options_.statistics.get(), listeners,
-      db_options_.file_checksum_gen_factory.get()));
+      db_options_.file_checksum_gen_factory.get(), data_verification));
 
   // If the Column family flag is to only optimize filters for hits,
   // we can skip creating filters if this is the bottommost_level where

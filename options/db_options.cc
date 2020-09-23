@@ -564,7 +564,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       file_checksum_gen_factory(options.file_checksum_gen_factory),
       best_efforts_recovery(options.best_efforts_recovery),
       max_bgerror_resume_count(options.max_bgerror_resume_count),
-      bgerror_resume_retry_interval(options.bgerror_resume_retry_interval) {
+      bgerror_resume_retry_interval(options.bgerror_resume_retry_interval),
+      checksum_handoff_file_types(options.checksum_handoff_file_types) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {

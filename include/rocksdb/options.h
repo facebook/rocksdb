@@ -13,6 +13,7 @@
 
 #include <limits>
 #include <memory>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -346,6 +347,15 @@ struct DbPath {
 
   DbPath() : target_size(0) {}
   DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
+};
+
+// RocksDB provides the checksum handoff from write path to the storaye layer.
+// User can specify the file types they want to enable the checksum handoff
+// by setting the DBOptions::checksum_handoff_file_types.
+enum class ChecksumHandoffFileType {
+  kSstFile,
+  kManifest,
+  kWAL,
 };
 
 struct DBOptions {
@@ -1157,6 +1167,11 @@ struct DBOptions {
   //
   // Default: 1000000 (microseconds).
   uint64_t bgerror_resume_retry_interval = 1000000;
+
+  // Use this if your DB want to enable checksum handoff for specific file
+  // types writes. Make sure that the Env or File_system you use support the
+  // checksum verification.
+  std::vector<ChecksumHandoffFileType> checksum_handoff_file_types;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

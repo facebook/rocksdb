@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "rocksdb/sst_file_writer.h"
+#include "rocksdb/options.h"
 
 #include <vector>
 
@@ -253,11 +254,17 @@ Status SstFileWriter::Open(const std::string& file_path) {
       r->column_family_name, unknown_level, 0 /* creation_time */,
       0 /* oldest_key_time */, 0 /* target_file_size */,
       0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id);
+  bool data_verification = false;
+  for (auto& type : r->ioptions.checksum_handoff_file_types) {
+    if (type == ChecksumHandoffFileType::kSstFile) {
+      data_verification = true;
+    }
+  }
   r->file_writer.reset(new WritableFileWriter(
       NewLegacyWritableFileWrapper(std::move(sst_file)), file_path,
       r->env_options, r->ioptions.env, nullptr /* io_tracer */,
       nullptr /* stats */, r->ioptions.listeners,
-      r->ioptions.file_checksum_gen_factory));
+      r->ioptions.file_checksum_gen_factory, data_verification));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.

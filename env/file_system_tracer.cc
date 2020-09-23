@@ -225,6 +225,11 @@ IOStatus FSWritableFileTracingWrapper::Append(const Slice& data,
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
+IOStatus FSWritableFileTracingWrapper::AppendWithVerify(
+    const Slice& data, const IOOptions& options, IODebugContext* dbg,
+    const DataVerificationInfo& /*verification_info*/) {
+  return Append(data, options, dbg);
+}
 
 IOStatus FSWritableFileTracingWrapper::PositionedAppend(
     const Slice& data, uint64_t offset, const IOOptions& options,
@@ -237,6 +242,12 @@ IOStatus FSWritableFileTracingWrapper::PositionedAppend(
                           __func__, elapsed, s.ToString(), data.size(), offset);
   io_tracer_->WriteIOOp(io_record);
   return s;
+}
+
+IOStatus FSWritableFileTracingWrapper::PositionedAppendWithVerify(
+    const Slice& data, uint64_t offset, const IOOptions& options,
+    IODebugContext* dbg, const DataVerificationInfo& /*verification_info*/) {
+  return PositionedAppend(data, offset, options, dbg);
 }
 
 IOStatus FSWritableFileTracingWrapper::Truncate(uint64_t size,

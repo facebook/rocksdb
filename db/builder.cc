@@ -145,10 +145,16 @@ Status BuildTable(
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
 
+      bool data_verification = false;
+      for (auto& type : ioptions.checksum_handoff_file_types) {
+        if (type == ChecksumHandoffFileType::kSstFile) {
+          data_verification = true;
+        }
+      }
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, env, io_tracer,
           ioptions.statistics, ioptions.listeners,
-          ioptions.file_checksum_gen_factory));
+          ioptions.file_checksum_gen_factory, data_verification));
 
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,

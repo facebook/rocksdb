@@ -245,9 +245,18 @@ class FSWritableFileTracingWrapper : public FSWritableFileWrapper {
   IOStatus Append(const Slice& data, const IOOptions& options,
                   IODebugContext* dbg) override;
 
+  IOStatus AppendWithVerify(
+      const Slice& data, const IOOptions& options, IODebugContext* dbg,
+      const DataVerificationInfo& /*verification_info*/) override;
+
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
                             IODebugContext* dbg) override;
+
+  IOStatus PositionedAppendWithVerify(
+      const Slice& data, uint64_t offset, const IOOptions& options,
+      IODebugContext* dbg,
+      const DataVerificationInfo& /*verification_info*/) override;
 
   IOStatus Truncate(uint64_t size, const IOOptions& options,
                     IODebugContext* dbg) override;
