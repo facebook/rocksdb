@@ -2329,6 +2329,9 @@ else
 depend: $(DEPFILES)
 endif
 
+build_subset_tests: $(ROCKSDBTESTS_SUBSET)
+	$(AM_V_GEN)if [ -n "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}" ]; then echo "$(ROCKSDBTESTS_SUBSET)" > "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}"; else echo "$(ROCKSDBTESTS_SUBSET)"; fi
+
 # if the make goal is either "clean" or "format", we shouldn't
 # try to import the *.d files.
 # TODO(kailiu) The unfamiliarity of Make's conditions leads to the ugly
