@@ -3035,6 +3035,7 @@ FileSystem* DBImpl::GetFileSystem() const {
 
 Status DBImpl::StartIOTrace(Env* env, const TraceOptions& trace_options,
                             std::unique_ptr<TraceWriter>&& trace_writer) {
+  assert(trace_writer != nullptr);
   return io_tracer_->StartIOTrace(env, trace_options, std::move(trace_writer));
 }
 

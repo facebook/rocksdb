@@ -283,6 +283,7 @@ LIB_SOURCES_C =
 endif
 
 TOOL_LIB_SOURCES =                                              \
+  tools/io_tracer_parser_tool.cc                                \
   tools/ldb_cmd.cc                                              \
   tools/ldb_tool.cc                                             \
   tools/sst_dump_tool.cc                                        \
@@ -330,11 +331,13 @@ TOOLS_MAIN_SOURCES =                                                    \
   tools/db_repl_stress.cc                                               \
   tools/db_sanity_test.cc                                               \
   tools/ldb.cc                                                          \
+  tools/io_tracer_parser.cc                                             \
   tools/sst_dump.cc                                                     \
   tools/write_stress.cc                                                 \
   tools/dump/rocksdb_dump.cc                                            \
   tools/dump/rocksdb_undump.cc                                          \
   tools/trace_analyzer.cc                                               \
+  tools/io_tracer_parser_tool.cc                                        \
 
 BENCH_MAIN_SOURCES =                                                    \
   cache/cache_bench.cc                                                  \
@@ -466,6 +469,7 @@ TEST_MAIN_SOURCES =                                                     \
   table/block_fetcher_test.cc                                           \
   test_util/testutil_test.cc                                            \
   tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc         \
+  tools/io_tracer_parser_test.cc                                        \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \

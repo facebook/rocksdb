@@ -316,6 +316,7 @@ cpp_library(
         "test_util/sync_point_impl.cc",
         "test_util/transaction_test_util.cc",
         "tools/dump/db_dump_tool.cc",
+        "tools/io_tracer_parser_tool.cc",
         "tools/ldb_cmd.cc",
         "tools/ldb_tool.cc",
         "tools/sst_dump_tool.cc",
@@ -1209,6 +1210,13 @@ ROCKS_TESTS = [
     [
         "io_posix_test",
         "env/io_posix_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "io_tracer_parser_test",
+        "tools/io_tracer_parser_test.cc",
         "serial",
         [],
         [],

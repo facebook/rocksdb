@@ -737,6 +737,7 @@ set(SOURCES
         test_util/transaction_test_util.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer.cc
         tools/dump/db_dump_tool.cc
+        tools/io_tracer_parser_tool.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
@@ -1147,6 +1148,7 @@ if(WITH_TESTS)
         test_util/testutil_test.cc
         trace_replay/io_tracer_test.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc
+        tools/io_tracer_parser_test.cc
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
         tools/sst_dump_test.cc
