@@ -55,7 +55,15 @@ inline int CountTrailingZeroBits(T v) {
   if (sizeof(T) <= sizeof(uint32_t)) {
     _BitScanForward(&tz, static_cast<uint32_t>(v));
   } else {
+#if defined(_M_X64) || defined(_M_ARM64)
     _BitScanForward64(&tz, static_cast<uint64_t>(v));
+#else
+    _BitScanForward(&tz, static_cast<uint32_t>(v));
+    if (tz == 0) {
+      _BitScanForward(&tz, static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32));
+      tz += 32;
+    }
+#endif
   }
   return static_cast<int>(tz);
 #else
