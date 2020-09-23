@@ -3606,16 +3606,9 @@ class Benchmark {
       CacheAllocationPtr uncompressed;
       switch (FLAGS_compression_type_e) {
         case ROCKSDB_NAMESPACE::kSnappyCompression: {
-          // get size and allocate here to make comparison fair
-          size_t ulength = 0;
-          if (!Snappy_GetUncompressedLength(compressed.data(),
-                                            compressed.size(), &ulength)) {
-            ok = false;
-            break;
-          }
-          uncompressed = AllocateBlock(ulength, nullptr);
-          ok = Snappy_Uncompress(compressed.data(), compressed.size(),
-                                 uncompressed.get());
+          uncompressed = Snappy_Uncompress(compressed.data(), compressed.size(),
+                                           &decompress_size);
+          ok = uncompressed.get() != nullptr;
           break;
         }
         case ROCKSDB_NAMESPACE::kZlibCompression:

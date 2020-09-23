@@ -616,26 +616,30 @@ inline bool Snappy_Compress(const CompressionInfo& /*info*/, const char* input,
 #endif
 }
 
-inline bool Snappy_GetUncompressedLength(const char* input, size_t length,
-                                         size_t* result) {
+inline CacheAllocationPtr Snappy_Uncompress(
+    const char* input, size_t length, int* decompress_size,
+    MemoryAllocator* allocator = nullptr) {
 #ifdef SNAPPY
-  return snappy::GetUncompressedLength(input, length, result);
-#else
-  (void)input;
-  (void)length;
-  (void)result;
-  return false;
-#endif
-}
+  size_t uncompressed_length = 0;
+  if (!snappy::GetUncompressedLength(input, length, &uncompressed_length)) {
+    return nullptr;
+  }
 
-inline bool Snappy_Uncompress(const char* input, size_t length, char* output) {
-#ifdef SNAPPY
-  return snappy::RawUncompress(input, length, output);
+  CacheAllocationPtr output = AllocateBlock(uncompressed_length, allocator);
+
+  if (!snappy::RawUncompress(input, length, output.get())) {
+    return nullptr;
+  }
+
+  *decompress_size = static_cast<int>(uncompressed_length);
+
+  return output;
 #else
   (void)input;
   (void)length;
-  (void)output;
-  return false;
+  (void)decompress_size;
+  (void)allocator;
+  return nullptr;
 #endif
 }
 
@@ -1454,21 +1458,8 @@ inline CacheAllocationPtr UncompressData(
     int* decompress_size, uint32_t compress_format_version,
     MemoryAllocator* allocator) {
   switch (uncompression_info.type()) {
-    case kSnappyCompression: {
-      size_t uncompressed_length = 0;
-      if (!Snappy_GetUncompressedLength(data, n, &uncompressed_length)) {
-        return CacheAllocationPtr();
-      }
-
-      CacheAllocationPtr output = AllocateBlock(uncompressed_length, allocator);
-
-      if (!Snappy_Uncompress(data, n, output.get())) {
-        return CacheAllocationPtr();
-      }
-
-      *decompress_size = static_cast<int>(uncompressed_length);
-      return output;
-    }
+    case kSnappyCompression:
+      return Snappy_Uncompress(data, n, decompress_size, allocator);
     case kZlibCompression:
       return Zlib_Uncompress(uncompression_info, data, n, decompress_size,
                              compress_format_version, allocator);
