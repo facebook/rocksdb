@@ -242,9 +242,9 @@ class PosixWritableFile : public FSWritableFile {
   virtual IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
   virtual IOStatus Append(const Slice& data, const IOOptions& opts,
                           IODebugContext* dbg) override;
-  virtual IOStatus Append(
-      const Slice& data, const IOOptions& opts, IODebugContext* dbg,
-      const DataVerificationInfo& /* verification_info */) override {
+  virtual IOStatus Append(const Slice& data, const IOOptions& opts,
+                          const DataVerificationInfo& /* verification_info */,
+                          IODebugContext* dbg) override {
     return Append(data, opts, dbg);
   }
   virtual IOStatus PositionedAppend(const Slice& data, uint64_t offset,
@@ -252,8 +252,8 @@ class PosixWritableFile : public FSWritableFile {
                                     IODebugContext* dbg) override;
   virtual IOStatus PositionedAppend(
       const Slice& data, uint64_t offset, const IOOptions& opts,
-      IODebugContext* dbg,
-      const DataVerificationInfo& /* verification_info */) override {
+      const DataVerificationInfo& /* verification_info */,
+      IODebugContext* dbg) override {
     return PositionedAppend(data, offset, opts, dbg);
   }
   virtual IOStatus Flush(const IOOptions& opts, IODebugContext* dbg) override;
@@ -342,9 +342,9 @@ class PosixMmapFile : public FSWritableFile {
   virtual IOStatus Close(const IOOptions& opts, IODebugContext* dbg) override;
   virtual IOStatus Append(const Slice& data, const IOOptions& opts,
                           IODebugContext* dbg) override;
-  virtual IOStatus Append(
-      const Slice& data, const IOOptions& opts, IODebugContext* dbg,
-      const DataVerificationInfo& /* verification_info */) override {
+  virtual IOStatus Append(const Slice& data, const IOOptions& opts,
+                          const DataVerificationInfo& /* verification_info */,
+                          IODebugContext* dbg) override {
     return Append(data, opts, dbg);
   }
   virtual IOStatus Flush(const IOOptions& opts, IODebugContext* dbg) override;

@@ -736,6 +736,16 @@ class FSWritableFile {
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;
 
+  // EXPERIMENTAL / CURRENTLY UNUSED
+  // Append data with verification information
+  // Note that this API change is experimental and it might be changed in
+  // the future. Currently, RocksDB does not use this API.
+  virtual IOStatus Append(const Slice& data, const IOOptions& options,
+                          const DataVerificationInfo& /* verification_info */,
+                          IODebugContext* dbg) {
+    return Append(data, options, dbg);
+  }
+
   // PositionedAppend data to the specified offset. The new EOF after append
   // must be larger than the previous EOF. This is to be used when writes are
   // not backed by OS buffers and hence has to always start from the start of
@@ -756,16 +766,6 @@ class FSWritableFile {
   //
   // PositionedAppend() requires aligned buffer to be passed in. The alignment
   // required is queried via GetRequiredBufferAlignment()
-
-  // Append data with verification information
-  // Note that this API change is experimental and it might be changed in
-  // the future. Currently, RocksDB does not use this API.
-  virtual IOStatus Append(const Slice& data, const IOOptions& options,
-                          IODebugContext* dbg,
-                          const DataVerificationInfo& /* verification_info */) {
-    return Append(data, options, dbg);
-  }
-
   virtual IOStatus PositionedAppend(const Slice& /* data */,
                                     uint64_t /* offset */,
                                     const IOOptions& /*options*/,
@@ -773,13 +773,15 @@ class FSWritableFile {
     return IOStatus::NotSupported();
   }
 
+  // EXPERIMENTAL / CURRENTLY UNUSED
   // PositionedAppend data with verification information.
   // Note that this API change is experimental and it might be changed in
   // the future. Currently, RocksDB does not use this API.
   virtual IOStatus PositionedAppend(
       const Slice& /* data */, uint64_t /* offset */,
-      const IOOptions& /*options*/, IODebugContext* /*dbg*/,
-      const DataVerificationInfo& /* verification_info */) {
+      const IOOptions& /*options*/,
+      const DataVerificationInfo& /* verification_info */,
+      IODebugContext* /*dbg*/) {
     return IOStatus::NotSupported();
   }
 
@@ -1314,21 +1316,21 @@ class FSWritableFileWrapper : public FSWritableFile {
     return target_->Append(data, options, dbg);
   }
   IOStatus Append(const Slice& data, const IOOptions& options,
-                  IODebugContext* dbg,
-                  const DataVerificationInfo& verification_info) override {
-    return target_->Append(data, options, dbg, verification_info);
+                  const DataVerificationInfo& verification_info,
+                  IODebugContext* dbg) override {
+    return target_->Append(data, options, verification_info, dbg);
   }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
                             IODebugContext* dbg) override {
     return target_->PositionedAppend(data, offset, options, dbg);
   }
-  IOStatus PositionedAppend(
-      const Slice& data, uint64_t offset, const IOOptions& options,
-      IODebugContext* dbg,
-      const DataVerificationInfo& verification_info) override {
-    return target_->PositionedAppend(data, offset, options, dbg,
-                                     verification_info);
+  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                            const IOOptions& options,
+                            const DataVerificationInfo& verification_info,
+                            IODebugContext* dbg) override {
+    return target_->PositionedAppend(data, offset, options, verification_info,
+                                     dbg);
   }
   IOStatus Truncate(uint64_t size, const IOOptions& options,
                     IODebugContext* dbg) override {
