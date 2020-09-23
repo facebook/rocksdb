@@ -32,13 +32,16 @@ ROCKSDB_EXTERNAL_DEPS = [
     ("gflags", None, "gflags"),
     ("lz4", None, "lz4"),
     ("zstd", None),
-    ("tbb", None),
 ]
 
 ROCKSDB_OS_DEPS = [
     (
         "linux",
-        ["third-party//numa:numa", "third-party//liburing:uring"],
+        ["third-party//numa:numa", "third-party//liburing:uring", "third-party//tbb:tbb"],
+    ),
+    (
+        "macos",
+        ["third-party//tbb:tbb"],
     ),
 ]
 
@@ -56,17 +59,27 @@ ROCKSDB_OS_PREPROCESSOR_FLAGS = [
             "-DHAVE_SSE42",
             "-DLIBURING",
             "-DNUMA",
+            "-DROCKSDB_PLATFORM_POSIX",
+            "-DROCKSDB_LIB_IO_POSIX",
+            "-DTBB",
         ],
     ),
     (
         "macos",
-        ["-DOS_MACOSX"],
+        [
+            "-DOS_MACOSX",
+            "-DROCKSDB_PLATFORM_POSIX",
+            "-DROCKSDB_LIB_IO_POSIX",
+            "-DTBB",
+        ],
+    ),
+    (
+        "windows",
+        [ "-DOS_WIN", "-DWIN32", "-D_MBCS", "-DWIN64", "-DNOMINMAX" ]
     ),
 ]
 
 ROCKSDB_PREPROCESSOR_FLAGS = [
-    "-DROCKSDB_PLATFORM_POSIX",
-    "-DROCKSDB_LIB_IO_POSIX",
     "-DROCKSDB_SUPPORT_THREAD_LOCAL",
 
     # Flags to enable libs we include
@@ -77,7 +90,6 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
     "-DZSTD",
     "-DZSTD_STATIC_LINKING_ONLY",
     "-DGFLAGS=gflags",
-    "-DTBB",
 
     # Added missing flags from output of build_detect_platform
     "-DROCKSDB_BACKTRACE",
@@ -154,12 +166,12 @@ cpp_library(
 
 binary_template = """
 cpp_binary(
-    name = "%s",
-    srcs = [%s],
+    name = "{name}",
+    srcs = [{srcs}],
     arch_preprocessor_flags = ROCKSDB_ARCH_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
-    deps = [%s],
+    deps = [{deps}],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
 """
@@ -176,7 +188,7 @@ test_cfg_template = """    [
 unittests_template = """
 # [test_name, test_src, test_type, extra_deps, extra_compiler_flags]
 ROCKS_TESTS = [
-%s]
+{tests}]
 
 # Generate a test rule for each entry in ROCKS_TESTS
 # Do not build the tests in opt mode, since SyncPoint and other test code

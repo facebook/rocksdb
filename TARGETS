@@ -25,13 +25,16 @@ ROCKSDB_EXTERNAL_DEPS = [
     ("gflags", None, "gflags"),
     ("lz4", None, "lz4"),
     ("zstd", None),
-    ("tbb", None),
 ]
 
 ROCKSDB_OS_DEPS = [
     (
         "linux",
-        ["third-party//numa:numa", "third-party//liburing:uring"],
+        ["third-party//numa:numa", "third-party//liburing:uring", "third-party//tbb:tbb"],
+    ),
+    (
+        "macos",
+        ["third-party//tbb:tbb"],
     ),
 ]
 
@@ -49,17 +52,27 @@ ROCKSDB_OS_PREPROCESSOR_FLAGS = [
             "-DHAVE_SSE42",
             "-DLIBURING",
             "-DNUMA",
+            "-DROCKSDB_PLATFORM_POSIX",
+            "-DROCKSDB_LIB_IO_POSIX",
+            "-DTBB",
         ],
     ),
     (
         "macos",
-        ["-DOS_MACOSX"],
+        [
+            "-DOS_MACOSX",
+            "-DROCKSDB_PLATFORM_POSIX",
+            "-DROCKSDB_LIB_IO_POSIX",
+            "-DTBB",
+        ],
+    ),
+    (
+        "windows",
+        [ "-DOS_WIN", "-DWIN32", "-D_MBCS", "-DWIN64", "-DNOMINMAX" ]
     ),
 ]
 
 ROCKSDB_PREPROCESSOR_FLAGS = [
-    "-DROCKSDB_PLATFORM_POSIX",
-    "-DROCKSDB_LIB_IO_POSIX",
     "-DROCKSDB_SUPPORT_THREAD_LOCAL",
 
     # Flags to enable libs we include
@@ -70,7 +83,6 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
     "-DZSTD",
     "-DZSTD_STATIC_LINKING_ONLY",
     "-DGFLAGS=gflags",
-    "-DTBB",
 
     # Added missing flags from output of build_detect_platform
     "-DROCKSDB_BACKTRACE",
@@ -246,6 +258,12 @@ cpp_library(
         "options/options_parser.cc",
         "port/port_posix.cc",
         "port/stack_trace.cc",
+        "port/win/env_default.cc",
+        "port/win/env_win.cc",
+        "port/win/io_win.cc",
+        "port/win/port_win.cc",
+        "port/win/win_logger.cc",
+        "port/win/win_thread.cc",
         "table/adaptive/adaptive_table_factory.cc",
         "table/block_based/binary_search_index_reader.cc",
         "table/block_based/block.cc",
