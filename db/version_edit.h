@@ -537,6 +537,7 @@ class VersionEdit {
   friend class ListColumnFamiliesHandler;
   friend class VersionEditHandler;
   friend class VersionEditHandlerPointInTime;
+  friend class DumpManifestHandler;
   friend class VersionSet;
   friend class Version;
   friend class AtomicGroupReadBuffer;

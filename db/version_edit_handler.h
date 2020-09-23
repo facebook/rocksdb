@@ -26,16 +26,18 @@ class VersionEditHandlerBase {
   const Status& status() const { return status_; }
 
  protected:
-  virtual Status Initialize() = 0;
+  virtual Status Initialize() { return Status::OK(); }
 
   virtual Status ApplyVersionEdit(VersionEdit& edit,
                                   ColumnFamilyData** cfd) = 0;
 
-  virtual void CheckIterationResult(const log::Reader& reader, Status* s) = 0;
-
-  AtomicGroupReadBuffer read_buffer_;
+  virtual void CheckIterationResult(const log::Reader& /*reader*/,
+                                    Status* /*s*/) {}
 
   Status status_;
+
+ private:
+  AtomicGroupReadBuffer read_buffer_;
 };
 
 class ListColumnFamiliesHandler : public VersionEditHandlerBase {
@@ -49,13 +51,8 @@ class ListColumnFamiliesHandler : public VersionEditHandlerBase {
   }
 
  protected:
-  Status Initialize() override { return Status::OK(); }
-
   Status ApplyVersionEdit(VersionEdit& edit,
                           ColumnFamilyData** /*unused*/) override;
-
-  void CheckIterationResult(const log::Reader& /*reader*/,
-                            Status* /*s*/) override {}
 
  private:
   // default column family is always implicitly there
@@ -86,7 +83,10 @@ class VersionEditHandler : public VersionEditHandlerBase {
       const std::vector<ColumnFamilyDescriptor>& column_families,
       VersionSet* version_set, bool track_missing_files,
       bool no_error_if_table_files_missing,
-      const std::shared_ptr<IOTracer>& io_tracer);
+      const std::shared_ptr<IOTracer>& io_tracer)
+      : VersionEditHandler(read_only, column_families, version_set,
+                           track_missing_files, no_error_if_table_files_missing,
+                           io_tracer, /*skip_load_table_files=*/false) {}
 
   ~VersionEditHandler() override {}
 
@@ -103,6 +103,13 @@ class VersionEditHandler : public VersionEditHandlerBase {
   }
 
  protected:
+  explicit VersionEditHandler(
+      bool read_only,
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      VersionSet* version_set, bool track_missing_files,
+      bool no_error_if_table_files_missing,
+      const std::shared_ptr<IOTracer>& io_tracer, bool skip_load_table_files);
+
   Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override;
 
   Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd);
@@ -150,6 +157,7 @@ class VersionEditHandler : public VersionEditHandlerBase {
       cf_to_missing_files_;
   bool no_error_if_table_files_missing_;
   std::shared_ptr<IOTracer> io_tracer_;
+  bool skip_load_table_files_;
 
  private:
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
@@ -180,6 +188,44 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
 
  private:
   std::unordered_map<uint32_t, Version*> versions_;
+};
+
+class DumpManifestHandler : public VersionEditHandler {
+ public:
+  DumpManifestHandler(
+      const std::vector<ColumnFamilyDescriptor>& column_families,
+      VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer,
+      bool verbose, bool hex, bool json)
+      : VersionEditHandler(
+            /*read_only=*/true, column_families, version_set,
+            /*track_missing_files=*/false,
+            /*no_error_if_table_files_missing=*/false, io_tracer,
+            /*skip_load_table_files=*/true),
+        verbose_(verbose),
+        hex_(hex),
+        json_(json),
+        count_(0) {}
+
+  ~DumpManifestHandler() override {}
+
+  Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override {
+    // Write out each individual edit
+    if (verbose_ && !json_) {
+      fprintf(stdout, "%s\n", edit.DebugString(hex_).c_str());
+    } else if (json_) {
+      fprintf(stdout, "%s\n", edit.DebugJSON(count_, hex_).c_str());
+    }
+    ++count_;
+    return VersionEditHandler::ApplyVersionEdit(edit, cfd);
+  }
+
+  void CheckIterationResult(const log::Reader& reader, Status* s) override;
+
+ private:
+  const bool verbose_;
+  const bool hex_;
+  const bool json_;
+  int count_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

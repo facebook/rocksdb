@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <cinttypes>
+
 #include "db/version_edit_handler.h"
 
 #include "monitoring/persistent_stats_history.h"
@@ -60,6 +62,8 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
     s = *log_read_status;
   }
 
+  read_buffer_.Clear();
+
   CheckIterationResult(reader, &s);
 
   if (!s.ok()) {
@@ -95,7 +99,7 @@ VersionEditHandler::VersionEditHandler(
     bool read_only, const std::vector<ColumnFamilyDescriptor>& column_families,
     VersionSet* version_set, bool track_missing_files,
     bool no_error_if_table_files_missing,
-    const std::shared_ptr<IOTracer>& io_tracer)
+    const std::shared_ptr<IOTracer>& io_tracer, bool skip_load_table_files)
     : VersionEditHandlerBase(),
       read_only_(read_only),
       column_families_(column_families),
@@ -103,6 +107,7 @@ VersionEditHandler::VersionEditHandler(
       track_missing_files_(track_missing_files),
       no_error_if_table_files_missing_(no_error_if_table_files_missing),
       io_tracer_(io_tracer),
+      skip_load_table_files_(skip_load_table_files),
       initialized_(false) {
   assert(version_set_ != nullptr);
 }
@@ -293,7 +298,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
                                               Status* s) {
   assert(s != nullptr);
   if (!s->ok()) {
-    read_buffer_.Clear();
+    // Do nothing here.
   } else if (!version_edit_params_.has_log_number_ ||
              !version_edit_params_.has_next_file_number_ ||
              !version_edit_params_.has_last_sequence_) {
@@ -451,6 +456,9 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
 Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
                                       bool prefetch_index_and_filter_in_cache,
                                       bool is_initial_load) {
+  if (skip_load_table_files_) {
+    return Status::OK();
+  }
   assert(cfd != nullptr);
   assert(!cfd->IsDropped());
   auto builder_iter = builders_.find(cfd->GetID());
@@ -635,6 +643,34 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     }
   }
   return s;
+}
+
+void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
+                                               Status* s) {
+  VersionEditHandler::CheckIterationResult(reader, s);
+  if (!s->ok()) {
+    fprintf(stdout, "%s\n", s->ToString().c_str());
+    return;
+  }
+  for (auto* cfd : *(version_set_->column_family_set_)) {
+    fprintf(stdout,
+            "--------------- Column family \"%s\"  (ID %" PRIu32
+            ") --------------\n",
+            cfd->GetName().c_str(), cfd->GetID());
+    fprintf(stdout, "log number: %" PRIu64 "\n", cfd->GetLogNumber());
+    fprintf(stdout, "comparator: %s\n", cfd->user_comparator()->Name());
+    assert(cfd->current());
+    fprintf(stdout, "%s \n", cfd->current()->DebugString(hex_).c_str());
+  }
+  fprintf(stdout,
+          "next_file_number %" PRIu64 " last_sequence %" PRIu64
+          "  prev_log_number %" PRIu64 " max_column_family %" PRIu32
+          " min_log_number_to_keep "
+          "%" PRIu64 "\n",
+          version_set_->current_next_file_number(),
+          version_set_->LastSequence(), version_set_->prev_log_number(),
+          version_set_->column_family_set_->GetMaxColumnFamily(),
+          version_set_->min_log_number_to_keep_2pc());
 }
 
 }  // namespace ROCKSDB_NAMESPACE
