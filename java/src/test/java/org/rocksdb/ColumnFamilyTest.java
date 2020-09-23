@@ -143,23 +143,17 @@ public class ColumnFamilyTest {
              columnFamilyHandleList)) {
       assertThat(columnFamilyHandleList.size()).isEqualTo(2);
       db.put("dfkey1".getBytes(), "dfvalue".getBytes());
-      db.put(columnFamilyHandleList.get(0), "dfkey2".getBytes(),
-          "dfvalue".getBytes());
-      db.put(columnFamilyHandleList.get(1), "newcfkey1".getBytes(),
-          "newcfvalue".getBytes());
+      db.put(columnFamilyHandleList.get(0), "dfkey2".getBytes(), "dfvalue".getBytes());
+      db.put(columnFamilyHandleList.get(1), "newcfkey1".getBytes(), "newcfvalue".getBytes());
 
-      String retVal = new String(db.get(columnFamilyHandleList.get(1),
-          "newcfkey1".getBytes()));
+      String retVal = new String(db.get(columnFamilyHandleList.get(1), "newcfkey1".getBytes()));
       assertThat(retVal).isEqualTo("newcfvalue");
-      assertThat((db.get(columnFamilyHandleList.get(1),
-          "dfkey1".getBytes()))).isNull();
+      assertThat((db.get(columnFamilyHandleList.get(1), "dfkey1".getBytes()))).isNull();
       db.delete(columnFamilyHandleList.get(1), "newcfkey1".getBytes());
-      assertThat((db.get(columnFamilyHandleList.get(1),
-          "newcfkey1".getBytes()))).isNull();
-      db.delete(columnFamilyHandleList.get(0), new WriteOptions(),
-          "dfkey2".getBytes());
-      assertThat(db.get(columnFamilyHandleList.get(0), new ReadOptions(),
-          "dfkey2".getBytes())).isNull();
+      assertThat((db.get(columnFamilyHandleList.get(1), "newcfkey1".getBytes()))).isNull();
+      db.delete(columnFamilyHandleList.get(0), new WriteOptions(), "dfkey2".getBytes());
+      assertThat(db.get(columnFamilyHandleList.get(0), new ReadOptions(), "dfkey2".getBytes()))
+          .isNull();
     }
   }
 
@@ -176,21 +170,20 @@ public class ColumnFamilyTest {
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
              columnFamilyHandleList)) {
-      db.put(columnFamilyHandleList.get(0), new WriteOptions(),
-          "key1".getBytes(), "value".getBytes());
+      db.put(
+          columnFamilyHandleList.get(0), new WriteOptions(), "key1".getBytes(), "value".getBytes());
       db.put("key2".getBytes(), "12345678".getBytes());
       final byte[] outValue = new byte[5];
       // not found value
       int getResult = db.get("keyNotFound".getBytes(), outValue);
       assertThat(getResult).isEqualTo(RocksDB.NOT_FOUND);
       // found value which fits in outValue
-      getResult = db.get(columnFamilyHandleList.get(0), "key1".getBytes(),
-          outValue);
+      getResult = db.get(columnFamilyHandleList.get(0), "key1".getBytes(), outValue);
       assertThat(getResult).isNotEqualTo(RocksDB.NOT_FOUND);
       assertThat(outValue).isEqualTo("value".getBytes());
       // found value which fits partially
-      getResult = db.get(columnFamilyHandleList.get(0), new ReadOptions(),
-          "key2".getBytes(), outValue);
+      getResult =
+          db.get(columnFamilyHandleList.get(0), new ReadOptions(), "key2".getBytes(), outValue);
       assertThat(getResult).isNotEqualTo(RocksDB.NOT_FOUND);
       assertThat(outValue).isEqualTo("12345".getBytes());
     }
@@ -210,8 +203,7 @@ public class ColumnFamilyTest {
              columnFamilyHandleList)) {
       ColumnFamilyHandle tmpColumnFamilyHandle;
       tmpColumnFamilyHandle = db.createColumnFamily(
-          new ColumnFamilyDescriptor("tmpCF".getBytes(),
-              new ColumnFamilyOptions()));
+          new ColumnFamilyDescriptor("tmpCF".getBytes(), new ColumnFamilyOptions()));
       db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
       db.dropColumnFamily(tmpColumnFamilyHandle);
       assertThat(tmpColumnFamilyHandle.isOwningHandle()).isTrue();
@@ -233,11 +225,9 @@ public class ColumnFamilyTest {
       ColumnFamilyHandle tmpColumnFamilyHandle = null;
       ColumnFamilyHandle tmpColumnFamilyHandle2 = null;
       tmpColumnFamilyHandle = db.createColumnFamily(
-          new ColumnFamilyDescriptor("tmpCF".getBytes(),
-              new ColumnFamilyOptions()));
+          new ColumnFamilyDescriptor("tmpCF".getBytes(), new ColumnFamilyOptions()));
       tmpColumnFamilyHandle2 = db.createColumnFamily(
-          new ColumnFamilyDescriptor("tmpCF2".getBytes(),
-              new ColumnFamilyOptions()));
+          new ColumnFamilyDescriptor("tmpCF2".getBytes(), new ColumnFamilyOptions()));
       db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
       db.put(tmpColumnFamilyHandle2, "key".getBytes(), "value".getBytes());
       db.dropColumnFamilies(Arrays.asList(tmpColumnFamilyHandle, tmpColumnFamilyHandle2));
@@ -265,28 +255,23 @@ public class ColumnFamilyTest {
            final WriteBatch writeBatch = new WriteBatch();
            final WriteOptions writeOpt = new WriteOptions()) {
         writeBatch.put("key".getBytes(), "value".getBytes());
-        writeBatch.put(db.getDefaultColumnFamily(),
-            "mergeKey".getBytes(), "merge".getBytes());
-        writeBatch.merge(db.getDefaultColumnFamily(), "mergeKey".getBytes(),
-            "merge".getBytes());
-        writeBatch.put(columnFamilyHandleList.get(1), "newcfkey".getBytes(),
-            "value".getBytes());
-        writeBatch.put(columnFamilyHandleList.get(1), "newcfkey2".getBytes(),
-            "value2".getBytes());
+        writeBatch.put(db.getDefaultColumnFamily(), "mergeKey".getBytes(), "merge".getBytes());
+        writeBatch.merge(db.getDefaultColumnFamily(), "mergeKey".getBytes(), "merge".getBytes());
+        writeBatch.put(columnFamilyHandleList.get(1), "newcfkey".getBytes(), "value".getBytes());
+        writeBatch.put(columnFamilyHandleList.get(1), "newcfkey2".getBytes(), "value2".getBytes());
         writeBatch.delete("xyz".getBytes());
         writeBatch.delete(columnFamilyHandleList.get(1), "xyz".getBytes());
         db.write(writeOpt, writeBatch);
 
-        assertThat(db.get(columnFamilyHandleList.get(1),
-            "xyz".getBytes()) == null);
-        assertThat(new String(db.get(columnFamilyHandleList.get(1),
-            "newcfkey".getBytes()))).isEqualTo("value");
-        assertThat(new String(db.get(columnFamilyHandleList.get(1),
-            "newcfkey2".getBytes()))).isEqualTo("value2");
+        assertThat(db.get(columnFamilyHandleList.get(1), "xyz".getBytes()) == null);
+        assertThat(new String(db.get(columnFamilyHandleList.get(1), "newcfkey".getBytes())))
+            .isEqualTo("value");
+        assertThat(new String(db.get(columnFamilyHandleList.get(1), "newcfkey2".getBytes())))
+            .isEqualTo("value2");
         assertThat(new String(db.get("key".getBytes()))).isEqualTo("value");
         // check if key is merged
-        assertThat(new String(db.get(db.getDefaultColumnFamily(),
-            "mergeKey".getBytes()))).isEqualTo("merge,merge");
+        assertThat(new String(db.get(db.getDefaultColumnFamily(), "mergeKey".getBytes())))
+            .isEqualTo("merge,merge");
       }
     }
   }
@@ -303,12 +288,9 @@ public class ColumnFamilyTest {
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath(),
              cfDescriptors, columnFamilyHandleList)) {
-      db.put(columnFamilyHandleList.get(1), "newcfkey".getBytes(),
-          "value".getBytes());
-      db.put(columnFamilyHandleList.get(1), "newcfkey2".getBytes(),
-          "value2".getBytes());
-      try (final RocksIterator rocksIterator =
-               db.newIterator(columnFamilyHandleList.get(1))) {
+      db.put(columnFamilyHandleList.get(1), "newcfkey".getBytes(), "value".getBytes());
+      db.put(columnFamilyHandleList.get(1), "newcfkey2".getBytes(), "value2".getBytes());
+      try (final RocksIterator rocksIterator = db.newIterator(columnFamilyHandleList.get(1))) {
         rocksIterator.seekToFirst();
         Map<String, String> refMap = new HashMap<>();
         refMap.put("newcfkey", "value");
@@ -316,8 +298,8 @@ public class ColumnFamilyTest {
         int i = 0;
         while (rocksIterator.isValid()) {
           i++;
-          assertThat(refMap.get(new String(rocksIterator.key()))).
-              isEqualTo(new String(rocksIterator.value()));
+          assertThat(refMap.get(new String(rocksIterator.key())))
+              .isEqualTo(new String(rocksIterator.value()));
           rocksIterator.next();
         }
         assertThat(i).isEqualTo(2);
@@ -337,28 +319,20 @@ public class ColumnFamilyTest {
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath(),
              cfDescriptors, columnFamilyHandleList)) {
-      db.put(columnFamilyHandleList.get(0), "key".getBytes(),
-          "value".getBytes());
-      db.put(columnFamilyHandleList.get(1), "newcfkey".getBytes(),
-          "value".getBytes());
+      db.put(columnFamilyHandleList.get(0), "key".getBytes(), "value".getBytes());
+      db.put(columnFamilyHandleList.get(1), "newcfkey".getBytes(), "value".getBytes());
 
-      final List<byte[]> keys = Arrays.asList(new byte[][]{
-          "key".getBytes(), "newcfkey".getBytes()
-      });
+      final List<byte[]> keys =
+          Arrays.asList(new byte[][] {"key".getBytes(), "newcfkey".getBytes()});
 
       List<byte[]> retValues = db.multiGetAsList(columnFamilyHandleList, keys);
       assertThat(retValues.size()).isEqualTo(2);
-      assertThat(new String(retValues.get(0)))
-          .isEqualTo("value");
-      assertThat(new String(retValues.get(1)))
-          .isEqualTo("value");
-      retValues = db.multiGetAsList(new ReadOptions(), columnFamilyHandleList,
-          keys);
+      assertThat(new String(retValues.get(0))).isEqualTo("value");
+      assertThat(new String(retValues.get(1))).isEqualTo("value");
+      retValues = db.multiGetAsList(new ReadOptions(), columnFamilyHandleList, keys);
       assertThat(retValues.size()).isEqualTo(2);
-      assertThat(new String(retValues.get(0)))
-          .isEqualTo("value");
-      assertThat(new String(retValues.get(1)))
-          .isEqualTo("value");
+      assertThat(new String(retValues.get(0))).isEqualTo("value");
+      assertThat(new String(retValues.get(1))).isEqualTo("value");
     }
   }
 
@@ -374,28 +348,19 @@ public class ColumnFamilyTest {
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath(),
              cfDescriptors, columnFamilyHandleList)) {
-      db.put(columnFamilyHandleList.get(0), "key".getBytes(),
-          "value".getBytes());
-      db.put(columnFamilyHandleList.get(1), "newcfkey".getBytes(),
-          "value".getBytes());
+      db.put(columnFamilyHandleList.get(0), "key".getBytes(), "value".getBytes());
+      db.put(columnFamilyHandleList.get(1), "newcfkey".getBytes(), "value".getBytes());
 
-      final List<byte[]> keys = Arrays.asList(new byte[][]{
-          "key".getBytes(), "newcfkey".getBytes()
-      });
-      List<byte[]> retValues = db.multiGetAsList(columnFamilyHandleList,
-          keys);
+      final List<byte[]> keys =
+          Arrays.asList(new byte[][] {"key".getBytes(), "newcfkey".getBytes()});
+      List<byte[]> retValues = db.multiGetAsList(columnFamilyHandleList, keys);
       assertThat(retValues.size()).isEqualTo(2);
-      assertThat(new String(retValues.get(0)))
-          .isEqualTo("value");
-      assertThat(new String(retValues.get(1)))
-          .isEqualTo("value");
-      retValues = db.multiGetAsList(new ReadOptions(), columnFamilyHandleList,
-          keys);
+      assertThat(new String(retValues.get(0))).isEqualTo("value");
+      assertThat(new String(retValues.get(1))).isEqualTo("value");
+      retValues = db.multiGetAsList(new ReadOptions(), columnFamilyHandleList, keys);
       assertThat(retValues.size()).isEqualTo(2);
-      assertThat(new String(retValues.get(0)))
-          .isEqualTo("value");
-      assertThat(new String(retValues.get(1)))
-          .isEqualTo("value");
+      assertThat(new String(retValues.get(0))).isEqualTo("value");
+      assertThat(new String(retValues.get(1))).isEqualTo("value");
     }
   }
 
@@ -411,23 +376,18 @@ public class ColumnFamilyTest {
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath(),
              cfDescriptors, columnFamilyHandleList)) {
-      assertThat(db.getProperty("rocksdb.estimate-num-keys")).
-          isNotNull();
-      assertThat(db.getLongProperty(columnFamilyHandleList.get(0),
-          "rocksdb.estimate-num-keys")).isGreaterThanOrEqualTo(0);
+      assertThat(db.getProperty("rocksdb.estimate-num-keys")).isNotNull();
+      assertThat(db.getLongProperty(columnFamilyHandleList.get(0), "rocksdb.estimate-num-keys"))
+          .isGreaterThanOrEqualTo(0);
       assertThat(db.getProperty("rocksdb.stats")).isNotNull();
-      assertThat(db.getProperty(columnFamilyHandleList.get(0),
-          "rocksdb.sstables")).isNotNull();
-      assertThat(db.getProperty(columnFamilyHandleList.get(1),
-          "rocksdb.estimate-num-keys")).isNotNull();
-      assertThat(db.getProperty(columnFamilyHandleList.get(1),
-          "rocksdb.stats")).isNotNull();
-      assertThat(db.getProperty(columnFamilyHandleList.get(1),
-          "rocksdb.sstables")).isNotNull();
-      assertThat(db.getAggregatedLongProperty("rocksdb.estimate-num-keys")).
-          isNotNull();
-      assertThat(db.getAggregatedLongProperty("rocksdb.estimate-num-keys")).
-          isGreaterThanOrEqualTo(0);
+      assertThat(db.getProperty(columnFamilyHandleList.get(0), "rocksdb.sstables")).isNotNull();
+      assertThat(db.getProperty(columnFamilyHandleList.get(1), "rocksdb.estimate-num-keys"))
+          .isNotNull();
+      assertThat(db.getProperty(columnFamilyHandleList.get(1), "rocksdb.stats")).isNotNull();
+      assertThat(db.getProperty(columnFamilyHandleList.get(1), "rocksdb.sstables")).isNotNull();
+      assertThat(db.getAggregatedLongProperty("rocksdb.estimate-num-keys")).isNotNull();
+      assertThat(db.getAggregatedLongProperty("rocksdb.estimate-num-keys"))
+          .isGreaterThanOrEqualTo(0);
     }
   }
 
@@ -491,8 +451,7 @@ public class ColumnFamilyTest {
              dbFolder.getRoot().getAbsolutePath(),
              cfDescriptors, columnFamilyHandleList)) {
       db.dropColumnFamily(columnFamilyHandleList.get(1));
-      db.put(columnFamilyHandleList.get(1), "key".getBytes(),
-          "value".getBytes());
+      db.put(columnFamilyHandleList.get(1), "key".getBytes(), "value".getBytes());
     }
   }
 
@@ -559,8 +518,8 @@ public class ColumnFamilyTest {
       final byte[] b2 = new byte[]{(byte) 0x02};
       db.createColumnFamily(new ColumnFamilyDescriptor(b0));
       db.createColumnFamily(new ColumnFamilyDescriptor(b1));
-      final List<byte[]> families = RocksDB.listColumnFamilies(options,
-          dbFolder.getRoot().getAbsolutePath());
+      final List<byte[]> families =
+          RocksDB.listColumnFamilies(options, dbFolder.getRoot().getAbsolutePath());
       assertThat(families).contains("default".getBytes(), b0, b1);
       db.createColumnFamily(new ColumnFamilyDescriptor(b2));
     }
@@ -573,12 +532,12 @@ public class ColumnFamilyTest {
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath());
     ) {
-      final byte[] b0 = new byte[]{0, 0};
-      final byte[] b1 = new byte[]{0, 1};
+      final byte[] b0 = new byte[] {0, 0};
+      final byte[] b1 = new byte[] {0, 1};
       cf1 = db.createColumnFamily(new ColumnFamilyDescriptor(b0));
       cf2 = db.createColumnFamily(new ColumnFamilyDescriptor(b1));
-      final List<byte[]> families = RocksDB.listColumnFamilies(options,
-          dbFolder.getRoot().getAbsolutePath());
+      final List<byte[]> families =
+          RocksDB.listColumnFamilies(options, dbFolder.getRoot().getAbsolutePath());
       assertThat(families).contains("default".getBytes(), b0, b1);
     }
   }
@@ -591,13 +550,12 @@ public class ColumnFamilyTest {
              dbFolder.getRoot().getAbsolutePath());
     ) {
       final String simplifiedChinese = "\u7b80\u4f53\u5b57";
-      columnFamilyHandle = db.createColumnFamily(
-          new ColumnFamilyDescriptor(simplifiedChinese.getBytes()));
+      columnFamilyHandle =
+          db.createColumnFamily(new ColumnFamilyDescriptor(simplifiedChinese.getBytes()));
 
-      final List<byte[]> families = RocksDB.listColumnFamilies(options,
-          dbFolder.getRoot().getAbsolutePath());
-      assertThat(families).contains("default".getBytes(),
-          simplifiedChinese.getBytes());
+      final List<byte[]> families =
+          RocksDB.listColumnFamilies(options, dbFolder.getRoot().getAbsolutePath());
+      assertThat(families).contains("default".getBytes(), simplifiedChinese.getBytes());
     }
   }
 
@@ -608,24 +566,20 @@ public class ColumnFamilyTest {
    *     RocksDB instance will take care of closing its associated ColumnFamilyHandle objects.
    */
   public void testColumnFamilyCloseBeforeDb() throws RocksDBException {
-    final List<ColumnFamilyDescriptor> cfNames = Arrays.asList(
-        new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
-        new ColumnFamilyDescriptor("new_cf".getBytes())
-    );
-    final List<ColumnFamilyHandle> columnFamilyHandleList =
-        new ArrayList<>();
+    final List<ColumnFamilyDescriptor> cfNames =
+        Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+            new ColumnFamilyDescriptor("new_cf".getBytes()));
+    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
 
-    try (final DBOptions options = new DBOptions()
-        .setCreateIfMissing(true)
-        .setCreateMissingColumnFamilies(true);
-         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
-             cfNames, columnFamilyHandleList)){
+    try (final DBOptions options =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(
+             options, dbFolder.getRoot().getAbsolutePath(), cfNames, columnFamilyHandleList)) {
       try {
         db.put("testKey".getBytes(), "tstValue".getBytes());
         // Do something...
       } finally {
-        for (final ColumnFamilyHandle columnFamilyHandle :
-            columnFamilyHandleList) {
+        for (final ColumnFamilyHandle columnFamilyHandle : columnFamilyHandleList) {
           columnFamilyHandle.close();
         }
       }
