@@ -1815,9 +1815,9 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
     assert(cfd_);
     assert(cfd_->ioptions());
 
-    const Status s = BlobFileReader::Create(
-        read_options, *cfd_->ioptions(), file_options_, cfd_->GetID(),
-        blob_file_number, &blob_file_reader);
+    const Status s =
+        BlobFileReader::Create(*cfd_->ioptions(), file_options_, cfd_->GetID(),
+                               blob_file_number, &blob_file_reader);
     if (!s.ok()) {
       return s;
     }
