@@ -310,7 +310,7 @@ Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
   UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
                          compression_type);
 
-  int uncompressed_size = 0;
+  size_t uncompressed_size = 0;
   constexpr uint32_t compression_format_version = 2;
   constexpr MemoryAllocator* allocator = nullptr;
 
