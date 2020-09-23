@@ -15,6 +15,54 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class VersionEditHandlerBase {
+ public:
+  explicit VersionEditHandlerBase() {}
+
+  virtual ~VersionEditHandlerBase() {}
+
+  void Iterate(log::Reader& reader, Status* log_read_status);
+
+  const Status& status() const { return status_; }
+
+ protected:
+  virtual Status Initialize() = 0;
+
+  virtual Status ApplyVersionEdit(VersionEdit& edit,
+                                  ColumnFamilyData** cfd) = 0;
+
+  virtual void CheckIterationResult(const log::Reader& reader, Status* s) = 0;
+
+  AtomicGroupReadBuffer read_buffer_;
+
+  Status status_;
+};
+
+class ListColumnFamiliesHandler : public VersionEditHandlerBase {
+ public:
+  ListColumnFamiliesHandler() : VersionEditHandlerBase() {}
+
+  ~ListColumnFamiliesHandler() override {}
+
+  const std::map<uint32_t, std::string> GetColumnFamilyNames() const {
+    return column_family_names_;
+  }
+
+ protected:
+  Status Initialize() override { return Status::OK(); }
+
+  Status ApplyVersionEdit(VersionEdit& edit,
+                          ColumnFamilyData** /*unused*/) override;
+
+  void CheckIterationResult(const log::Reader& /*reader*/,
+                            Status* /*s*/) override {}
+
+ private:
+  // default column family is always implicitly there
+  std::map<uint32_t, std::string> column_family_names_{
+      {0, kDefaultColumnFamilyName}};
+};
+
 typedef std::unique_ptr<BaseReferencedVersionBuilder> VersionBuilderUPtr;
 
 // A class used for scanning MANIFEST file.
@@ -31,7 +79,7 @@ typedef std::unique_ptr<BaseReferencedVersionBuilder> VersionBuilderUPtr;
 //
 // Not thread-safe, external synchronization is necessary if an object of
 // VersionEditHandler is shared by multiple threads.
-class VersionEditHandler {
+class VersionEditHandler : public VersionEditHandlerBase {
  public:
   explicit VersionEditHandler(
       bool read_only,
@@ -40,12 +88,7 @@ class VersionEditHandler {
       bool no_error_if_table_files_missing,
       const std::shared_ptr<IOTracer>& io_tracer);
 
-  virtual ~VersionEditHandler() {}
-
-  void Iterate(log::Reader& reader, Status* log_read_status,
-               std::string* db_id);
-
-  const Status& status() const { return status_; }
+  ~VersionEditHandler() override {}
 
   const VersionEditParams& GetVersionEditParams() const {
     return version_edit_params_;
@@ -53,8 +96,14 @@ class VersionEditHandler {
 
   bool HasMissingFiles() const;
 
+  void GetDbId(std::string* db_id) const {
+    if (db_id && version_edit_params_.has_db_id_) {
+      *db_id = version_edit_params_.db_id_;
+    }
+  }
+
  protected:
-  Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd);
+  Status ApplyVersionEdit(VersionEdit& edit, ColumnFamilyData** cfd) override;
 
   Status OnColumnFamilyAdd(VersionEdit& edit, ColumnFamilyData** cfd);
 
@@ -66,12 +115,12 @@ class VersionEditHandler {
 
   Status OnWalDeletion(VersionEdit& edit);
 
-  Status Initialize();
+  Status Initialize() override;
 
   void CheckColumnFamilyId(const VersionEdit& edit, bool* cf_in_not_found,
                            bool* cf_in_builders) const;
 
-  virtual void CheckIterationResult(const log::Reader& reader, Status* s);
+  void CheckIterationResult(const log::Reader& reader, Status* s) override;
 
   ColumnFamilyData* CreateCfAndInit(const ColumnFamilyOptions& cf_options,
                                     const VersionEdit& edit);
@@ -88,9 +137,7 @@ class VersionEditHandler {
 
   const bool read_only_;
   const std::vector<ColumnFamilyDescriptor>& column_families_;
-  Status status_;
   VersionSet* version_set_;
-  AtomicGroupReadBuffer read_buffer_;
   std::unordered_map<uint32_t, VersionBuilderUPtr> builders_;
   std::unordered_map<std::string, ColumnFamilyOptions> name_to_options_;
   // Keeps track of column families in manifest that were not found in

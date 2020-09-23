@@ -13,24 +13,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-VersionEditHandler::VersionEditHandler(
-    bool read_only, const std::vector<ColumnFamilyDescriptor>& column_families,
-    VersionSet* version_set, bool track_missing_files,
-    bool no_error_if_table_files_missing,
-    const std::shared_ptr<IOTracer>& io_tracer)
-    : read_only_(read_only),
-      column_families_(column_families),
-      status_(),
-      version_set_(version_set),
-      track_missing_files_(track_missing_files),
-      no_error_if_table_files_missing_(no_error_if_table_files_missing),
-      io_tracer_(io_tracer),
-      initialized_(false) {
-  assert(version_set_ != nullptr);
-}
-
-void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
-                                 std::string* db_id) {
+void VersionEditHandlerBase::Iterate(log::Reader& reader,
+                                     Status* log_read_status) {
   Slice record;
   std::string scratch;
   assert(log_read_status);
@@ -45,12 +29,7 @@ void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
     if (!s.ok()) {
       break;
     }
-    if (edit.has_db_id_) {
-      version_set_->db_id_ = edit.GetDbId();
-      if (db_id != nullptr) {
-        *db_id = version_set_->db_id_;
-      }
-    }
+
     s = read_buffer_.AddEdit(&edit);
     if (!s.ok()) {
       break;
@@ -88,6 +67,44 @@ void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
   }
   TEST_SYNC_POINT_CALLBACK("VersionEditHandler::Iterate:Finish",
                            &recovered_edits);
+}
+
+Status ListColumnFamiliesHandler::ApplyVersionEdit(
+    VersionEdit& edit, ColumnFamilyData** /*unused*/) {
+  Status s;
+  if (edit.is_column_family_add_) {
+    if (column_family_names_.find(edit.column_family_) !=
+        column_family_names_.end()) {
+      s = Status::Corruption("Manifest adding the same column family twice");
+    } else {
+      column_family_names_.insert(
+          {edit.column_family_, edit.column_family_name_});
+    }
+  } else if (edit.is_column_family_drop_) {
+    if (column_family_names_.find(edit.column_family_) ==
+        column_family_names_.end()) {
+      s = Status::Corruption("Manifest - dropping non-existing column family");
+    } else {
+      column_family_names_.erase(edit.column_family_);
+    }
+  }
+  return s;
+}
+
+VersionEditHandler::VersionEditHandler(
+    bool read_only, const std::vector<ColumnFamilyDescriptor>& column_families,
+    VersionSet* version_set, bool track_missing_files,
+    bool no_error_if_table_files_missing,
+    const std::shared_ptr<IOTracer>& io_tracer)
+    : VersionEditHandlerBase(),
+      read_only_(read_only),
+      column_families_(column_families),
+      version_set_(version_set),
+      track_missing_files_(track_missing_files),
+      no_error_if_table_files_missing_(no_error_if_table_files_missing),
+      io_tracer_(io_tracer),
+      initialized_(false) {
+  assert(version_set_ != nullptr);
 }
 
 Status VersionEditHandler::Initialize() {
@@ -460,10 +477,11 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
 Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                                                       const VersionEdit& edit) {
   Status s;
+  if (edit.has_db_id_) {
+    version_set_->db_id_ = edit.GetDbId();
+    version_edit_params_.SetDBId(edit.db_id_);
+  }
   if (cfd != nullptr) {
-    if (edit.has_db_id_) {
-      version_edit_params_.SetDBId(edit.db_id_);
-    }
     if (edit.has_log_number_) {
       if (cfd->GetLogNumber() > edit.log_number_) {
         ROCKS_LOG_WARN(

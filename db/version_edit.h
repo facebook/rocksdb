@@ -533,6 +533,8 @@ class VersionEdit {
 
  private:
   friend class ReactiveVersionSet;
+  friend class VersionEditHandlerBase;
+  friend class ListColumnFamiliesHandler;
   friend class VersionEditHandler;
   friend class VersionEditHandlerPointInTime;
   friend class VersionSet;
