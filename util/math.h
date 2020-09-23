@@ -22,13 +22,23 @@ inline int FloorLog2(T v) {
   assert(v > 0);
 #ifdef _MSC_VER
   static_assert(sizeof(T) <= sizeof(uint64_t), "type too big");
-  unsigned long lz = 0;
+  unsigned long idx = 0;
   if (sizeof(T) <= sizeof(uint32_t)) {
-    _BitScanReverse(&lz, static_cast<uint32_t>(v));
+    _BitScanReverse(&idx, static_cast<uint32_t>(v));
   } else {
-    _BitScanReverse64(&lz, static_cast<uint64_t>(v));
+#if defined(_M_X64) || defined(_M_ARM64)
+    _BitScanReverse64(&idx, static_cast<uint64_t>(v));
+#else
+    const auto vh = static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32);
+    if (vh != 0) {
+      _BitScanReverse(&idx, static_cast<uint32_t>(vh));
+      idx += 32;
+    } else {
+      _BitScanReverse(&idx, static_cast<uint32_t>(v));
+    }
+#endif
   }
-  return 63 - static_cast<int>(lz);
+  return idx;
 #else
   static_assert(sizeof(T) <= sizeof(unsigned long long), "type too big");
   if (sizeof(T) <= sizeof(unsigned int)) {
