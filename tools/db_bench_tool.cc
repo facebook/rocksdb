@@ -2443,40 +2443,10 @@ class Benchmark {
 
   inline bool CompressSlice(const CompressionInfo& compression_info,
                             const Slice& input, std::string* compressed) {
-    bool ok = true;
-    switch (FLAGS_compression_type_e) {
-      case ROCKSDB_NAMESPACE::kSnappyCompression:
-        ok = Snappy_Compress(compression_info, input.data(), input.size(),
-                             compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kZlibCompression:
-        ok = Zlib_Compress(compression_info, 2, input.data(), input.size(),
-                           compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kBZip2Compression:
-        ok = BZip2_Compress(compression_info, 2, input.data(), input.size(),
-                            compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kLZ4Compression:
-        ok = LZ4_Compress(compression_info, 2, input.data(), input.size(),
-                          compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kLZ4HCCompression:
-        ok = LZ4HC_Compress(compression_info, 2, input.data(), input.size(),
-                            compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kXpressCompression:
-        ok = XPRESS_Compress(input.data(),
-          input.size(), compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kZSTD:
-        ok = ZSTD_Compress(compression_info, input.data(), input.size(),
-                           compressed);
-        break;
-      default:
-        ok = false;
-    }
-    return ok;
+    constexpr uint32_t compress_format_version = 2;
+
+    return CompressData(input, compression_info, compress_format_version,
+                        compressed);
   }
 
   void PrintHeader() {
