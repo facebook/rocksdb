@@ -19,6 +19,7 @@ class Status;
 struct ReadOptions;
 struct ImmutableCFOptions;
 struct FileOptions;
+class HistogramImpl;
 class Slice;
 class GetContext;
 class RandomAccessFileReader;
@@ -27,7 +28,9 @@ class BlobFileReader {
  public:
   static Status Create(const ImmutableCFOptions& immutable_cf_options,
                        const FileOptions& file_options,
-                       uint32_t column_family_id, uint64_t blob_file_number,
+                       uint32_t column_family_id,
+                       HistogramImpl* blob_file_read_hist,
+                       uint64_t blob_file_number,
                        std::unique_ptr<BlobFileReader>* reader);
 
   BlobFileReader(const BlobFileReader&) = delete;
@@ -46,6 +49,7 @@ class BlobFileReader {
 
   static Status OpenFile(const ImmutableCFOptions& immutable_cf_options,
                          const FileOptions& file_opts,
+                         HistogramImpl* blob_file_read_hist,
                          uint64_t blob_file_number,
                          std::unique_ptr<RandomAccessFileReader>* file_reader);
 

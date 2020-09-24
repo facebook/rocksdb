@@ -23,7 +23,7 @@ namespace ROCKSDB_NAMESPACE {
 Status BlobFileReader::Create(
     const ImmutableCFOptions& immutable_cf_options,
     const FileOptions& file_options, uint32_t column_family_id,
-    uint64_t blob_file_number,
+    HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
     std::unique_ptr<BlobFileReader>* blob_file_reader) {
   assert(blob_file_reader);
   assert(!*blob_file_reader);
@@ -31,8 +31,9 @@ Status BlobFileReader::Create(
   std::unique_ptr<RandomAccessFileReader> file_reader;
 
   {
-    const Status s = OpenFile(immutable_cf_options, file_options,
-                              blob_file_number, &file_reader);
+    const Status s =
+        OpenFile(immutable_cf_options, file_options, blob_file_read_hist,
+                 blob_file_number, &file_reader);
     if (!s.ok()) {
       return s;
     }
@@ -65,7 +66,8 @@ Status BlobFileReader::Create(
 
 Status BlobFileReader::OpenFile(
     const ImmutableCFOptions& immutable_cf_options,
-    const FileOptions& file_opts, uint64_t blob_file_number,
+    const FileOptions& file_opts, HistogramImpl* blob_file_read_hist,
+    uint64_t blob_file_number,
     std::unique_ptr<RandomAccessFileReader>* file_reader) {
   assert(file_reader);
 
@@ -96,14 +98,10 @@ Status BlobFileReader::OpenFile(
     file->Hint(FSRandomAccessFile::kRandom);
   }
 
-  // TODO
-  constexpr IOTracer* io_tracer = nullptr;
-  constexpr HistogramImpl* file_read_hist = nullptr;
-
   file_reader->reset(new RandomAccessFileReader(
       std::move(file), blob_file_path, immutable_cf_options.env,
-      std::shared_ptr<IOTracer>(io_tracer), immutable_cf_options.statistics,
-      BLOB_DB_BLOB_FILE_READ_MICROS, file_read_hist,
+      std::shared_ptr<IOTracer>(), immutable_cf_options.statistics,
+      BLOB_DB_BLOB_FILE_READ_MICROS, blob_file_read_hist,
       immutable_cf_options.rate_limiter, immutable_cf_options.listeners));
 
   return Status::OK();
