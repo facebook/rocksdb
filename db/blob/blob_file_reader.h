@@ -53,6 +53,9 @@ class BlobFileReader {
                            uint32_t column_family_id,
                            CompressionType* compression_type);
 
+  static Status ReadFooter(const ImmutableCFOptions& immutable_cf_options,
+                           RandomAccessFileReader* file_reader);
+
   static Status ReadFromFile(RandomAccessFileReader* file_reader,
                              uint64_t read_offset, size_t read_size,
                              Slice* slice, std::string* buf,

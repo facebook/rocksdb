@@ -50,6 +50,13 @@ Status BlobFileReader::Create(
     }
   }
 
+  {
+    const Status s = ReadFooter(immutable_cf_options, file_reader.get());
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
   blob_file_reader->reset(
       new BlobFileReader(std::move(file_reader), compression_type));
 
@@ -62,18 +69,20 @@ Status BlobFileReader::OpenFile(
     std::unique_ptr<RandomAccessFileReader>* file_reader) {
   assert(file_reader);
 
-  FileSystem* const fs = immutable_cf_options.fs;
-  assert(fs);
-
   const auto& cf_paths = immutable_cf_options.cf_paths;
   assert(!cf_paths.empty());
 
   const std::string blob_file_path =
       BlobFileName(cf_paths.front().path, blob_file_number);
+
   std::unique_ptr<FSRandomAccessFile> file;
-  constexpr IODebugContext* dbg = nullptr;
 
   {
+    FileSystem* const fs = immutable_cf_options.fs;
+    assert(fs);
+
+    constexpr IODebugContext* dbg = nullptr;
+
     const Status s =
         fs->NewRandomAccessFile(blob_file_path, file_opts, &file, dbg);
     if (!s.ok()) {
@@ -141,6 +150,64 @@ Status BlobFileReader::ReadHeader(RandomAccessFileReader* file_reader,
   }
 
   *compression_type = header.compression;
+
+  return Status::OK();
+}
+
+Status BlobFileReader::ReadFooter(
+    const ImmutableCFOptions& immutable_cf_options,
+    RandomAccessFileReader* file_reader) {
+  assert(file_reader);
+
+  uint64_t file_size = 0;
+
+  {
+    FileSystem* const fs = immutable_cf_options.fs;
+    assert(fs);
+
+    const std::string& blob_file_path = file_reader->file_name();
+    constexpr IODebugContext* dbg = nullptr;
+
+    const Status s =
+        fs->GetFileSize(blob_file_path, IOOptions(), &file_size, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
+    return Status::Corruption("Malformed blob file");
+  }
+
+  Slice footer_slice;
+  std::string buf;
+  AlignedBuf aligned_buf;
+
+  {
+    const uint64_t read_offset = file_size - BlobLogFooter::kSize;
+    constexpr size_t read_size = BlobLogFooter::kSize;
+
+    const Status s = ReadFromFile(file_reader, read_offset, read_size,
+                                  &footer_slice, &buf, &aligned_buf);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  BlobLogFooter footer;
+
+  {
+    const Status s = footer.DecodeFrom(footer_slice);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  constexpr ExpirationRange no_expiration_range;
+
+  if (footer.expiration_range != no_expiration_range) {
+    return Status::Corruption("Unexpected TTL blob file");
+  }
 
   return Status::OK();
 }
@@ -217,14 +284,15 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
           ? BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size)
           : 0;
   assert(offset >= adjustment);
-  const uint64_t record_offset = offset - adjustment;
-  const uint64_t record_size = value_size + adjustment;
 
   Slice record_slice;
   std::string buf;
   AlignedBuf aligned_buf;
 
   {
+    const uint64_t record_offset = offset - adjustment;
+    const uint64_t record_size = value_size + adjustment;
+
     const Status s = ReadFromFile(file_reader_.get(), record_offset,
                                   static_cast<size_t>(record_size),
                                   &record_slice, &buf, &aligned_buf);
