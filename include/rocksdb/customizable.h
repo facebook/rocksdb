@@ -17,6 +17,20 @@ namespace ROCKSDB_NAMESPACE {
  * standard way of configuring and creating objects.  Customizable objects
  * are configurable objects that can be created from an ObjectRegistry.
  *
+ * Customizable classes are used when there are multiple potential
+ * implementations of a class for use by RocksDB (e.g. Table, Cache,
+ * MergeOperator, etc).  The abstract base class is expected to define a method
+ * declaring its type and a factory method for creating one of these, such as:
+ * static const char *Type() { return "Table"; }
+ * static Status CreateFromString(const ConfigOptions& options,
+ *                                const std::string& id,
+ *                                std::shared_ptr<TableFactory>* result);
+ * The "Type" string is expected to be unique (no two base classes are the same
+ * type). This factory is expected, based on the options and id, create and
+ * return the appropriate derived type of the customizable class (e.g.
+ * BlockBasedTableFactory, PlainTableFactory, etc). For extension developers,
+ * helper classes and methods are provided for writing this factory.
+ *
  * When a Customizable is being created, the "name" property specifies
  * the name of the instance being created.
  * For custom objects, their configuration and name can be specified by:

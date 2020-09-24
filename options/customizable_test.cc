@@ -219,13 +219,13 @@ static std::unordered_map<std::string, OptionTypeInfo> simple_option_info = {
     {"bool",
      {offsetof(struct SimpleOptions, b), OptionType::kBoolean,
       OptionVerificationType::kNormal, OptionTypeFlags::kNone}},
-    {"unique", OptionTypeInfo::AsCustomU<TestCustomizable>(
+    {"unique", OptionTypeInfo::AsCustomUniquePtr<TestCustomizable>(
                    offsetof(struct SimpleOptions, cu),
                    OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
-    {"shared", OptionTypeInfo::AsCustomS<TestCustomizable>(
+    {"shared", OptionTypeInfo::AsCustomSharedPtr<TestCustomizable>(
                    offsetof(struct SimpleOptions, cs),
                    OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
-    {"pointer", OptionTypeInfo::AsCustomP<TestCustomizable>(
+    {"pointer", OptionTypeInfo::AsCustomRawPtr<TestCustomizable>(
                     offsetof(struct SimpleOptions, cp),
                     OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
 #endif  // ROCKSDB_LITE
@@ -491,7 +491,7 @@ TEST_F(CustomizableTest, IsInstanceOfTest) {
 static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
 #ifndef ROCKSDB_LITE
     {"inner",
-     OptionTypeInfo::AsCustomS<TestCustomizable>(
+     OptionTypeInfo::AsCustomSharedPtr<TestCustomizable>(
          0, OptionVerificationType::kNormal, OptionTypeFlags::kStringNameOnly)}
 #endif  // ROCKSDB_LITE
 };

@@ -418,16 +418,18 @@ class OptionTypeInfo {
   // @param _sfunc Optional function for serializing this option
   // @param _efunc Optional function for comparing this option
   template <typename T>
-  static OptionTypeInfo AsCustomS(int offset, OptionVerificationType ovt,
-                                  OptionTypeFlags flags) {
-    return AsCustomS<T>(offset, ovt, flags, nullptr, nullptr);
+  static OptionTypeInfo AsCustomSharedPtr(int offset,
+                                          OptionVerificationType ovt,
+                                          OptionTypeFlags flags) {
+    return AsCustomSharedPtr<T>(offset, ovt, flags, nullptr, nullptr);
   }
 
   template <typename T>
-  static OptionTypeInfo AsCustomS(int offset, OptionVerificationType ovt,
-                                  OptionTypeFlags flags,
-                                  const SerializeFunc& serialize_func,
-                                  const EqualsFunc& equals_func) {
+  static OptionTypeInfo AsCustomSharedPtr(int offset,
+                                          OptionVerificationType ovt,
+                                          OptionTypeFlags flags,
+                                          const SerializeFunc& serialize_func,
+                                          const EqualsFunc& equals_func) {
     return OptionTypeInfo(
         offset, OptionType::kCustomizable, ovt,
         flags | OptionTypeFlags::kShared,
@@ -449,16 +451,18 @@ class OptionTypeInfo {
   // @param _sfunc Optional function for serializing this option
   // @param _efunc Optional function for comparing this option
   template <typename T>
-  static OptionTypeInfo AsCustomU(int offset, OptionVerificationType ovt,
-                                  OptionTypeFlags flags) {
-    return AsCustomU<T>(offset, ovt, flags, nullptr, nullptr);
+  static OptionTypeInfo AsCustomUniquePtr(int offset,
+                                          OptionVerificationType ovt,
+                                          OptionTypeFlags flags) {
+    return AsCustomUniquePtr<T>(offset, ovt, flags, nullptr, nullptr);
   }
 
   template <typename T>
-  static OptionTypeInfo AsCustomU(int offset, OptionVerificationType ovt,
-                                  OptionTypeFlags flags,
-                                  const SerializeFunc& serialize_func,
-                                  const EqualsFunc& equals_func) {
+  static OptionTypeInfo AsCustomUniquePtr(int offset,
+                                          OptionVerificationType ovt,
+                                          OptionTypeFlags flags,
+                                          const SerializeFunc& serialize_func,
+                                          const EqualsFunc& equals_func) {
     return OptionTypeInfo(
         offset, OptionType::kCustomizable, ovt,
         flags | OptionTypeFlags::kUnique,
@@ -480,16 +484,16 @@ class OptionTypeInfo {
   // @param _sfunc Optional function for serializing this option
   // @param _efunc Optional function for comparing this option
   template <typename T>
-  static OptionTypeInfo AsCustomP(int offset, OptionVerificationType ovt,
-                                  OptionTypeFlags flags) {
-    return AsCustomP<T>(offset, ovt, flags, nullptr, nullptr);
+  static OptionTypeInfo AsCustomRawPtr(int offset, OptionVerificationType ovt,
+                                       OptionTypeFlags flags) {
+    return AsCustomRawPtr<T>(offset, ovt, flags, nullptr, nullptr);
   }
 
   template <typename T>
-  static OptionTypeInfo AsCustomP(int offset, OptionVerificationType ovt,
-                                  OptionTypeFlags flags,
-                                  const SerializeFunc& serialize_func,
-                                  const EqualsFunc& equals_func) {
+  static OptionTypeInfo AsCustomRawPtr(int offset, OptionVerificationType ovt,
+                                       OptionTypeFlags flags,
+                                       const SerializeFunc& serialize_func,
+                                       const EqualsFunc& equals_func) {
     return OptionTypeInfo(
         offset, OptionType::kCustomizable, ovt,
         flags | OptionTypeFlags::kRawPointer,

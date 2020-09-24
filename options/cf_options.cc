@@ -563,7 +563,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
             }
             return s;
           }}},
-        {"table_factory", OptionTypeInfo::AsCustomS<TableFactory>(
+        {"table_factory", OptionTypeInfo::AsCustomSharedPtr<TableFactory>(
                               offset_of(&ColumnFamilyOptions::table_factory),
                               OptionVerificationType::kByName,
                               (OptionTypeFlags::kCompareLoose |
