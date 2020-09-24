@@ -384,7 +384,7 @@ Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
       UncompressData(info, value_slice.data(), value_slice.size(),
                      &uncompressed_size, compression_format_version, allocator);
   if (!output) {
-    return Status::Corruption("Unable to decompress blob");
+    return Status::Corruption("Unable to uncompress blob");
   }
 
   get_context->SaveValue(Slice(output.get(), uncompressed_size),
