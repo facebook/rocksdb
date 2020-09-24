@@ -28,12 +28,13 @@ Status BlobFileReader::Create(
   assert(blob_file_reader);
   assert(!*blob_file_reader);
 
+  uint64_t file_size = 0;
   std::unique_ptr<RandomAccessFileReader> file_reader;
 
   {
     const Status s =
         OpenFile(immutable_cf_options, file_options, blob_file_read_hist,
-                 blob_file_number, &file_reader);
+                 blob_file_number, &file_size, &file_reader);
     if (!s.ok()) {
       return s;
     }
@@ -52,7 +53,7 @@ Status BlobFileReader::Create(
   }
 
   {
-    const Status s = ReadFooter(immutable_cf_options, file_reader.get());
+    const Status s = ReadFooter(file_size, file_reader.get());
     if (!s.ok()) {
       return s;
     }
@@ -67,8 +68,9 @@ Status BlobFileReader::Create(
 Status BlobFileReader::OpenFile(
     const ImmutableCFOptions& immutable_cf_options,
     const FileOptions& file_opts, HistogramImpl* blob_file_read_hist,
-    uint64_t blob_file_number,
+    uint64_t blob_file_number, uint64_t* file_size,
     std::unique_ptr<RandomAccessFileReader>* file_reader) {
+  assert(file_size);
   assert(file_reader);
 
   const auto& cf_paths = immutable_cf_options.cf_paths;
@@ -77,14 +79,26 @@ Status BlobFileReader::OpenFile(
   const std::string blob_file_path =
       BlobFileName(cf_paths.front().path, blob_file_number);
 
+  FileSystem* const fs = immutable_cf_options.fs;
+  assert(fs);
+
+  constexpr IODebugContext* dbg = nullptr;
+
+  {
+    const Status s =
+        fs->GetFileSize(blob_file_path, IOOptions(), file_size, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (*file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
+    return Status::Corruption("Malformed blob file");
+  }
+
   std::unique_ptr<FSRandomAccessFile> file;
 
   {
-    FileSystem* const fs = immutable_cf_options.fs;
-    assert(fs);
-
-    constexpr IODebugContext* dbg = nullptr;
-
     const Status s =
         fs->NewRandomAccessFile(blob_file_path, file_opts, &file, dbg);
     if (!s.ok()) {
@@ -152,30 +166,10 @@ Status BlobFileReader::ReadHeader(RandomAccessFileReader* file_reader,
   return Status::OK();
 }
 
-Status BlobFileReader::ReadFooter(
-    const ImmutableCFOptions& immutable_cf_options,
-    RandomAccessFileReader* file_reader) {
+Status BlobFileReader::ReadFooter(uint64_t file_size,
+                                  RandomAccessFileReader* file_reader) {
+  assert(file_size >= BlobLogHeader::kSize + BlobLogFooter::kSize);
   assert(file_reader);
-
-  uint64_t file_size = 0;
-
-  {
-    FileSystem* const fs = immutable_cf_options.fs;
-    assert(fs);
-
-    const std::string& blob_file_path = file_reader->file_name();
-    constexpr IODebugContext* dbg = nullptr;
-
-    const Status s =
-        fs->GetFileSize(blob_file_path, IOOptions(), &file_size, dbg);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
-  if (file_size < BlobLogHeader::kSize + BlobLogFooter::kSize) {
-    return Status::Corruption("Malformed blob file");
-  }
 
   Slice footer_slice;
   std::string buf;

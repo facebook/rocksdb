@@ -50,14 +50,14 @@ class BlobFileReader {
   static Status OpenFile(const ImmutableCFOptions& immutable_cf_options,
                          const FileOptions& file_opts,
                          HistogramImpl* blob_file_read_hist,
-                         uint64_t blob_file_number,
+                         uint64_t blob_file_number, uint64_t* file_size,
                          std::unique_ptr<RandomAccessFileReader>* file_reader);
 
   static Status ReadHeader(RandomAccessFileReader* file_reader,
                            uint32_t column_family_id,
                            CompressionType* compression_type);
 
-  static Status ReadFooter(const ImmutableCFOptions& immutable_cf_options,
+  static Status ReadFooter(uint64_t file_size,
                            RandomAccessFileReader* file_reader);
 
   static Status ReadFromFile(RandomAccessFileReader* file_reader,
