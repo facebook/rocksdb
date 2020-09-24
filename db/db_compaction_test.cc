@@ -5788,10 +5788,10 @@ TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
   {
     CompactRangeOptions cro;
     cro.change_level = true;
-    cro.target_level = 0;
+    cro.target_level = 1;
     ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
   }
-  ASSERT_EQ("5", FilesPerLevel(0));
+  ASSERT_EQ("0,5", FilesPerLevel(0));
 }
 
 #endif  // !defined(ROCKSDB_LITE)
