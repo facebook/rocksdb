@@ -5756,8 +5756,10 @@ TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
 
   // Trigger a refit to L1 first
   {
-    Slice begin(Key(start_idx));
-    Slice end(Key(end_idx));
+    std::string begin_string = Key(start_idx);
+    std::string end_string = Key(end_idx);
+    Slice begin(begin_string);
+    Slice end(end_string);
 
     CompactRangeOptions cro;
     cro.change_level = true;
@@ -5770,8 +5772,10 @@ TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
   // RefitLevel()
   {
     // Select key range that matches the bottom most level
-    Slice begin(Key(0));
-    Slice end(Key(start_idx - 1));
+    std::string begin_string = Key(0);
+    std::string end_string = Key(start_idx - 1);
+    Slice begin(begin_string);
+    Slice end(end_string);
 
     CompactRangeOptions cro;
     cro.change_level = true;
