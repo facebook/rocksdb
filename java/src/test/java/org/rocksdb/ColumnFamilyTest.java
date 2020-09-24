@@ -5,15 +5,16 @@
 
 package org.rocksdb;
 
-import java.util.*;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
+import java.util.*;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.assertj.core.api.Assertions.assertThat;
 
 public class ColumnFamilyTest {
 
@@ -556,6 +557,26 @@ public class ColumnFamilyTest {
       final List<byte[]> families =
           RocksDB.listColumnFamilies(options, dbFolder.getRoot().getAbsolutePath());
       assertThat(families).contains("default".getBytes(), simplifiedChinese.getBytes());
+    }
+  }
+
+  @Test
+  public void testDestroyColumnFamilyHandle() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());) {
+      final byte[] name1 = "cf1".getBytes();
+      final byte[] name2 = "cf2".getBytes();
+      final ColumnFamilyDescriptor desc1 = new ColumnFamilyDescriptor(name1);
+      final ColumnFamilyDescriptor desc2 = new ColumnFamilyDescriptor(name2);
+      final ColumnFamilyHandle cf1 = db.createColumnFamily(desc1);
+      final ColumnFamilyHandle cf2 = db.createColumnFamily(desc2);
+      assertTrue(cf1.isOwningHandle());
+      assertTrue(cf2.isOwningHandle());
+      assertFalse(cf1.isDefaultColumnFamily());
+      db.destroyColumnFamilyHandle(cf1);
+      // At this point cf1 should not be used!
+      assertFalse(cf1.isOwningHandle());
+      assertTrue(cf2.isOwningHandle());
     }
   }
 

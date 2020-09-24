@@ -780,7 +780,22 @@ public class RocksDB extends RocksObject {
     dropColumnFamilies(nativeHandle_, cfHandles);
   }
 
-  //TODO(AR) what about DestroyColumnFamilyHandle
+  /**
+   * Deletes native column family handle of given {@link ColumnFamilyHandle} Java object
+   * and removes reference from {@link RocksDB#ownedColumnFamilyHandles}.
+   *
+   * @param columnFamilyHandle column family handle object.
+   */
+  public void destroyColumnFamilyHandle(final ColumnFamilyHandle columnFamilyHandle) {
+    for (int i = 0; i < ownedColumnFamilyHandles.size(); ++i) {
+      final ColumnFamilyHandle ownedHandle = ownedColumnFamilyHandles.get(i);
+      if (ownedHandle.equals(columnFamilyHandle)) {
+        columnFamilyHandle.close();
+        ownedColumnFamilyHandles.remove(i);
+        return;
+      }
+    }
+  }
 
   /**
    * Set the database entry for "key" to "value".
@@ -4506,7 +4521,6 @@ public class RocksDB extends RocksObject {
       final long handle, final long cfHandle) throws RocksDBException;
   private native void dropColumnFamilies(final long handle,
       final long[] cfHandles) throws RocksDBException;
-  //TODO(AR) best way to express DestroyColumnFamilyHandle? ...maybe in ColumnFamilyHandle?
   private native void put(final long handle, final byte[] key,
       final int keyOffset, final int keyLength, final byte[] value,
       final int valueOffset, int valueLength) throws RocksDBException;
