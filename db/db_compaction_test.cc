@@ -5743,25 +5743,21 @@ TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
     cro.target_level = 2;
     ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
   }
-  // VRK - TODO - Doubt -how is this 0,0,2 and not 0,0,1?
   ASSERT_EQ("0,0,2", FilesPerLevel(0));
 
   auto start_idx = key_idx;
   GenerateNewFile(&rnd, &key_idx);
   GenerateNewFile(&rnd, &key_idx);
   auto end_idx = key_idx - 1;
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());  // VRK - why is this needed?
   ASSERT_EQ("1,1,2", FilesPerLevel(0));
 
   // Next two CompactRange() calls are used to test exercise error paths within
   // RefitLevel() before triggering a valid RefitLevel() call
-  //
+
   // Trigger a refit to L1 first
   {
-    std::string begin_string = Key(start_idx);
-    std::string end_string = Key(end_idx);
-    Slice begin(begin_string);
-    Slice end(end_string);
+    Slice begin(Key(start_idx));
+    Slice end(Key(end_idx));
 
     CompactRangeOptions cro;
     cro.change_level = true;
@@ -5773,11 +5769,9 @@ TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
   // Try a refit from L2->L1 - this should fail and exercise error paths in
   // RefitLevel()
   {
-    std::string begin_string = Key(0);
-    std::string end_string =
-        Key(start_idx - 1);  // Pick all keys in the bottom level
-    Slice begin(begin_string);
-    Slice end(end_string);
+    // Select key range that matches the bottom most level
+    Slice begin(Key(0));
+    Slice end(Key(start_idx - 1));
 
     CompactRangeOptions cro;
     cro.change_level = true;
@@ -5787,63 +5781,13 @@ TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
   ASSERT_EQ("0,3,2", FilesPerLevel(0));
 
   // Try a valid Refit request to ensure, the path is still working
-
-  // The background thread will refit L2->L1 while the
-  // foreground thread will try to simultaneously compact L0->L1.
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
-      // The first two dependencies ensure the foreground creates an L0 file
-      // between the background compaction's L0->L1 and its L1->L2.
-      {
-          "DBImpl::RunManualCompaction()::1",
-          "DBCompactionTest::ChangeLevelErrorPathTest:"
-          "PutFG",
-      },
-      {
-          "DBCompactionTest::ChangeLevelErrorPathTest:"
-          "FlushedFG",
-          "DBImpl::RunManualCompaction()::2",
-      },
-      // The next two dependencies ensure the foreground invokes
-      // `CompactRange()` while the background is refitting. The
-      // foreground's `CompactRange()` is guaranteed to attempt an L0->L1
-      // as we set it up with an empty memtable and a new L0 file.
-      {
-          "DBImpl::CompactRange:PreRefitLevel",
-          "DBCompactionTest::ChangeLevelErrorPathTest:"
-          "CompactFG",
-      },
-      {
-          "DBCompactionTest::ChangeLevelErrorPathTest:"
-          "CompactedFG",
-          "DBImpl::CompactRange:PostRefitLevel",
-      },
-  });
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-
-  ROCKSDB_NAMESPACE::port::Thread refit_level_thread([&] {
+  {
     CompactRangeOptions cro;
     cro.change_level = true;
-    cro.target_level = 1;
+    cro.target_level = 0;
     ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
-  });
-
-  TEST_SYNC_POINT("DBCompactionTest::ChangeLevelErrorPathTest:PutFG");
-  // Make sure we have something new to compact in the foreground.
-  // Note key 1 is carefully chosen as it ensures the file we create here
-  // overlaps with one of the files being refitted L2->L1 in the background.
-  // If we chose key 0, the file created here would not overlap.
-  ASSERT_OK(Put(Key(1), "val"));
-  ASSERT_OK(Flush());
-  TEST_SYNC_POINT("DBCompactionTest::ChangeLevelErrorPathTest:FlushedFG");
-
-  TEST_SYNC_POINT("DBCompactionTest::ChangeLevelErrorPathTest:CompactFG");
-  ASSERT_TRUE(dbfull()
-                  ->CompactRange(CompactRangeOptions(), nullptr, nullptr)
-                  .IsIncomplete());
-  TEST_SYNC_POINT(
-      "DBCompactionTest::ChangeLevelErrorPathTest:"
-      "CompactedFG");
-  refit_level_thread.join();
+  }
+  ASSERT_EQ("5", FilesPerLevel(0));
 }
 
 #endif  // !defined(ROCKSDB_LITE)
