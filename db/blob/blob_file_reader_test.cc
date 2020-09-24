@@ -23,16 +23,60 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+namespace {
+
+void WriteBlobFile(const ImmutableCFOptions& immutable_cf_options,
+                   uint32_t column_family_id, uint64_t blob_file_number,
+                   const Slice& key, const Slice& blob, uint64_t* blob_offset) {
+  assert(!immutable_cf_options.cf_paths.empty());
+
+  const std::string blob_file_path = BlobFileName(
+      immutable_cf_options.cf_paths.front().path, blob_file_number);
+
+  std::unique_ptr<FSWritableFile> file;
+  ASSERT_OK(NewWritableFile(immutable_cf_options.fs, blob_file_path, &file,
+                            FileOptions()));
+
+  std::unique_ptr<WritableFileWriter> file_writer(
+      new WritableFileWriter(std::move(file), blob_file_path, FileOptions(),
+                             immutable_cf_options.env));
+
+  constexpr Statistics* statistics = nullptr;
+  constexpr bool use_fsync = false;
+
+  BlobLogWriter blob_log_writer(std::move(file_writer),
+                                immutable_cf_options.env, statistics,
+                                blob_file_number, use_fsync);
+
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+
+  BlobLogHeader header(column_family_id, kNoCompression, has_ttl,
+                       expiration_range);
+
+  ASSERT_OK(blob_log_writer.WriteHeader(header));
+
+  uint64_t key_offset = 0;
+
+  ASSERT_OK(blob_log_writer.AddRecord(key, blob, &key_offset, blob_offset));
+
+  BlobLogFooter footer;
+  footer.blob_count = 1;
+
+  std::string checksum_method;
+  std::string checksum_value;
+
+  ASSERT_OK(
+      blob_log_writer.AppendFooter(footer, &checksum_method, &checksum_value));
+}
+
+}  // anonymous namespace
+
 class BlobFileReaderTest : public testing::Test {
  protected:
-  BlobFileReaderTest()
-      : mock_env_(Env::Default()), fs_(mock_env_.GetFileSystem().get()) {
-    assert(fs_);
-  }
+  BlobFileReaderTest() : mock_env_(Env::Default()) {}
 
   MockEnv mock_env_;
-  FileSystem* fs_;
-  FileOptions file_options_;
 };
 
 TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
@@ -46,59 +90,27 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
   ImmutableCFOptions immutable_cf_options(options);
 
-  constexpr uint64_t blob_file_number = 1;
-
-  const std::string blob_file_path = BlobFileName(
-      immutable_cf_options.cf_paths.front().path, blob_file_number);
-
-  std::unique_ptr<FSWritableFile> file;
-  ASSERT_OK(NewWritableFile(fs_, blob_file_path, &file, file_options_));
-
-  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-      std::move(file), blob_file_path, file_options_, &mock_env_));
-
-  constexpr Statistics* statistics = nullptr;
-  constexpr bool use_fsync = false;
-
-  std::unique_ptr<BlobLogWriter> blob_log_writer(
-      new BlobLogWriter(std::move(file_writer), &mock_env_, statistics,
-                        blob_file_number, use_fsync));
-
   constexpr uint32_t column_family_id = 1;
-  constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range;
-
-  BlobLogHeader header(column_family_id, kNoCompression, has_ttl,
-                       expiration_range);
-
-  ASSERT_OK(blob_log_writer->WriteHeader(header));
-
+  constexpr uint64_t blob_file_number = 1;
   constexpr char key[] = "key";
   constexpr char blob[] = "blob";
-  uint64_t key_offset = 0;
+
   uint64_t blob_offset = 0;
 
-  ASSERT_OK(blob_log_writer->AddRecord(key, blob, &key_offset, &blob_offset));
-
-  BlobLogFooter footer;
-  footer.blob_count = 1;
-
-  std::string checksum_method;
-  std::string checksum_value;
-
-  ASSERT_OK(
-      blob_log_writer->AppendFooter(footer, &checksum_method, &checksum_value));
+  WriteBlobFile(immutable_cf_options, column_family_id, blob_file_number, key,
+                blob, &blob_offset);
 
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
   std::unique_ptr<BlobFileReader> reader;
 
-  ASSERT_OK(BlobFileReader::Create(immutable_cf_options, file_options_,
+  ASSERT_OK(BlobFileReader::Create(immutable_cf_options, FileOptions(),
                                    column_family_id, blob_file_read_hist,
                                    blob_file_number, &reader));
 
   constexpr const MergeOperator* merge_operator = nullptr;
   constexpr Logger* logger = nullptr;
+  constexpr Statistics* statistics = nullptr;
   constexpr bool* value_found = nullptr;
   constexpr MergeContext* merge_context = nullptr;
   constexpr bool do_merge = true;
