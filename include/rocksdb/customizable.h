@@ -96,9 +96,9 @@ class Customizable : public Configurable {
     if (IsInstanceOf(name)) {
       return static_cast<T*>(this);
     } else {
-      const auto inner = static_cast<const Customizable*>(Inner());
+      const auto inner = Inner();
       if (inner != nullptr) {
-        return (const_cast<Customizable*>(inner))->CastAs<T>(name);
+        return inner->CastAs<T>(name);
       } else {
         return nullptr;
       }
@@ -115,12 +115,24 @@ class Customizable : public Configurable {
   bool AreEquivalent(const ConfigOptions& config_options,
                      const Configurable* other,
                      std::string* name) const override;
+  Status PrepareOptions(const ConfigOptions& config_options) override;
+  bool IsPrepared() const override;
+  Status ValidateOptions(const DBOptions& db_opts,
+                         const ColumnFamilyOptions& cf_opts) const override;
 #ifndef ROCKSDB_LITE
   Status GetOption(const ConfigOptions& config_options, const std::string& name,
                    std::string* value) const override;
 
 #endif  // ROCKSDB_LITE
  protected:
+  // If this class is a wrapper (has-a), this method should be
+  // over-written to return the inner customizable (like an EnvWrapper).
+  // This method should NOT recurse, but should instead return the
+  // direct Inner object.
+  virtual Customizable* Inner() const { return nullptr; }
+
+  const void* GetOptionsPtr(const std::string& name) const override;
+
   std::string GetOptionName(const std::string& long_name) const override;
 #ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& options,

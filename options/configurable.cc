@@ -60,12 +60,6 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
   }
 #endif  // ROCKSDB_LITE
   if (status.ok()) {
-    auto inner = Inner();
-    if (inner != nullptr) {
-      status = inner->PrepareOptions(opts);
-    }
-  }
-  if (status.ok()) {
     prepared_ = true;
   }
   return status;
@@ -96,12 +90,6 @@ Status Configurable::ValidateOptions(const DBOptions& db_opts,
     }
   }
 #endif  // ROCKSDB_LITE
-  if (status.ok()) {
-    const auto inner = Inner();
-    if (inner != nullptr) {
-      status = inner->ValidateOptions(db_opts, cf_opts);
-    }
-  }
   return status;
 }
 
@@ -117,12 +105,7 @@ const void* Configurable::GetOptionsPtr(const std::string& name) const {
       return o.opt_ptr;
     }
   }
-  auto inner = Inner();
-  if (inner != nullptr) {
-    return inner->GetOptionsPtr(name);
-  } else {
-    return nullptr;
-  }
+  return nullptr;
 }
 
 std::string Configurable::GetOptionName(const std::string& opt_name) const {

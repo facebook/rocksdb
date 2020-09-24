@@ -11,6 +11,51 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+Status Customizable::PrepareOptions(const ConfigOptions& opts) {
+  Status status = Configurable::PrepareOptions(opts);
+  if (status.ok()) {
+    auto inner = Inner();
+    if (inner != nullptr) {
+      status = inner->PrepareOptions(opts);
+    }
+  }
+  return status;
+}
+
+bool Customizable::IsPrepared() const {
+  bool is_prepared = Configurable::IsPrepared();
+  if (is_prepared) {
+    const auto inner = Inner();
+    if (inner != nullptr) {
+      is_prepared = inner->IsPrepared();
+    }
+  }
+  return is_prepared;
+}
+
+Status Customizable::ValidateOptions(const DBOptions& db_opts,
+                                     const ColumnFamilyOptions& cf_opts) const {
+  Status status = Configurable::ValidateOptions(db_opts, cf_opts);
+  if (status.ok()) {
+    const auto inner = Inner();
+    if (inner != nullptr) {
+      status = inner->ValidateOptions(db_opts, cf_opts);
+    }
+  }
+  return status;
+}
+
+const void* Customizable::GetOptionsPtr(const std::string& name) const {
+  const void* result = Configurable::GetOptionsPtr(name);
+  if (result == nullptr) {
+    auto inner = Inner();
+    if (inner != nullptr) {
+      result = inner->GetOptionsPtr(name);
+    }
+  }
+  return result;
+}
+
 std::string Customizable::GetOptionName(const std::string& long_name) const {
   const std::string& name = Name();
   size_t name_len = name.size();

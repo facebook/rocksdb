@@ -465,7 +465,7 @@ class WrappedCustomizable : public Customizable {
   const char* Name() const override { return "Wrapped"; }
 
  protected:
-  Configurable* Inner() const override { return inner.get(); }
+  Customizable* Inner() const override { return inner.get(); }
 
  private:
   std::shared_ptr<Customizable> inner;
