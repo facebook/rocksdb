@@ -1,5 +1,7 @@
 # Rocksdb Change Log
-## 6.13 (09/22/2020)
+## Unreleased
+
+## 6.13 (09/24/2020)
 ### Bug fixes
 * Fix a performance regression introduced in 6.4 that makes a upper bound check for every Next() even if keys are within a data block that is within the upper bound.
 * Fix a possible corruption to the LSM state (overlapping files within a level) when a `CompactRange()` for refitting levels (`CompactRangeOptions::change_level == true`) and another manual compaction are executed in parallel.
