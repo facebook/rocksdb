@@ -1045,6 +1045,7 @@ if(WITH_TESTS)
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
         db/blob/blob_file_garbage_test.cc
+        db/blob/blob_file_reader_test.cc
         db/blob/db_blob_index_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc

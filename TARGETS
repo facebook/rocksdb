@@ -864,6 +864,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "blob_file_reader_test",
+        "db/blob/blob_file_reader_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "block_based_filter_block_test",
         "table/block_based/block_based_filter_block_test.cc",
         "serial",
