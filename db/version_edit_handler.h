@@ -17,7 +17,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class VersionEditHandlerBase {
  public:
-  explicit VersionEditHandlerBase() {}
+  explicit VersionEditHandlerBase()
+      : max_manifest_read_size_(std::numeric_limits<uint64_t>::max()) {}
 
   virtual ~VersionEditHandlerBase() {}
 
@@ -26,6 +27,8 @@ class VersionEditHandlerBase {
   const Status& status() const { return status_; }
 
  protected:
+  explicit VersionEditHandlerBase(uint64_t max_read_size)
+      : max_manifest_read_size_(max_read_size) {}
   virtual Status Initialize() { return Status::OK(); }
 
   virtual Status ApplyVersionEdit(VersionEdit& edit,
@@ -38,6 +41,7 @@ class VersionEditHandlerBase {
 
  private:
   AtomicGroupReadBuffer read_buffer_;
+  const uint64_t max_manifest_read_size_;
 };
 
 class ListColumnFamiliesHandler : public VersionEditHandlerBase {
@@ -58,6 +62,23 @@ class ListColumnFamiliesHandler : public VersionEditHandlerBase {
   // default column family is always implicitly there
   std::map<uint32_t, std::string> column_family_names_{
       {0, kDefaultColumnFamilyName}};
+};
+
+class FileChecksumRetriever : public VersionEditHandlerBase {
+ public:
+  FileChecksumRetriever(uint64_t max_read_size,
+                        FileChecksumList& file_checksum_list)
+      : VersionEditHandlerBase(max_read_size),
+        file_checksum_list_(file_checksum_list) {}
+
+  ~FileChecksumRetriever() override {}
+
+ protected:
+  Status ApplyVersionEdit(VersionEdit& edit,
+                          ColumnFamilyData** /*unused*/) override;
+
+ private:
+  FileChecksumList& file_checksum_list_;
 };
 
 typedef std::unique_ptr<BaseReferencedVersionBuilder> VersionBuilderUPtr;

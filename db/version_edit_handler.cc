@@ -24,8 +24,8 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
 
   size_t recovered_edits = 0;
   Status s = Initialize();
-  while (s.ok() && reader.ReadRecord(&record, &scratch) &&
-         log_read_status->ok()) {
+  while (reader.LastRecordEnd() < max_manifest_read_size_ && s.ok() &&
+         reader.ReadRecord(&record, &scratch) && log_read_status->ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(record);
     if (!s.ok()) {
@@ -93,6 +93,19 @@ Status ListColumnFamiliesHandler::ApplyVersionEdit(
     }
   }
   return s;
+}
+
+Status FileChecksumRetriever::ApplyVersionEdit(VersionEdit& edit,
+                                               ColumnFamilyData** /*unused*/) {
+  for (const auto& deleted_file : edit.GetDeletedFiles()) {
+    file_checksum_list_.RemoveOneFileChecksum(deleted_file.second);
+  }
+  for (const auto& new_file : edit.GetNewFiles()) {
+    file_checksum_list_.InsertOneFileChecksum(
+        new_file.second.fd.GetNumber(), new_file.second.file_checksum,
+        new_file.second.file_checksum_func_name);
+  }
+  return Status::OK();
 }
 
 VersionEditHandler::VersionEditHandler(
