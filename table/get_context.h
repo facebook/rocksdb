@@ -136,6 +136,10 @@ class GetContext {
   // know that the operation is a Put.
   void SaveValue(const Slice& value, SequenceNumber seq);
 
+  // Another simplified version, used for replacing blob references with
+  // the real value (i.e. the retrieved blob).
+  void SaveRealValue(const Slice& value);
+
   GetState State() const { return state_; }
 
   SequenceNumber* max_covering_tombstone_seq() {
