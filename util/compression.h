@@ -1473,12 +1473,9 @@ inline CacheAllocationPtr UncompressData(
       return BZip2_Uncompress(data, n, uncompressed_size,
                               compress_format_version, allocator);
     case kLZ4Compression:
-      return LZ4_Uncompress(uncompression_info, data, n, uncompressed_size,
-                            compress_format_version, allocator);
     case kLZ4HCCompression:
       return LZ4_Uncompress(uncompression_info, data, n, uncompressed_size,
                             compress_format_version, allocator);
-      break;
     case kXpressCompression:
       // XPRESS allocates memory internally, thus no support for custom
       // allocator.
