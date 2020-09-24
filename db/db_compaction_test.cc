@@ -5655,7 +5655,6 @@ TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
 
   GenerateNewFile(&rnd, &key_idx);
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("1,1,2", FilesPerLevel(0));
 
   // The background thread will refit L2->L1 while the
@@ -5771,7 +5770,7 @@ TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
   // Try a refit from L2->L1 - this should fail and exercise error paths in
   // RefitLevel()
   {
-    // Select key range that matches the bottom most level
+    // Select key range that matches the bottom most level (L2)
     std::string begin_string = Key(0);
     std::string end_string = Key(start_idx - 1);
     Slice begin(begin_string);
