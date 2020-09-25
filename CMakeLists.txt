@@ -391,6 +391,12 @@ if(NOT WITH_DYNAMIC_EXTENSION)
   add_definitions(-DROCKSDB_NO_DYNAMIC_EXTENSION)
 endif()
 
+option(ASSERT_STATUS_CHECKED "build with assert status checked" OFF)
+if (ASSERT_STATUS_CHECKED)
+  message(STATUS "Build with assert status checked")
+  add_definitions(-DROCKSDB_ASSERT_STATUS_CHECKED)
+endif()
+
 if(DEFINED USE_RTTI)
   if(USE_RTTI)
     message(STATUS "Enabling RTTI")
