@@ -81,7 +81,7 @@ class FileChecksumRetriever : public VersionEditHandlerBase {
   FileChecksumList& file_checksum_list_;
 };
 
-typedef std::unique_ptr<BaseReferencedVersionBuilder> VersionBuilderUPtr;
+using VersionBuilderUPtr = std::unique_ptr<BaseReferencedVersionBuilder>;
 
 // A class used for scanning MANIFEST file.
 // VersionEditHandler reads a MANIFEST file, parses the version edits, and
