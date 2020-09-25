@@ -114,11 +114,28 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
                                    column_family_id, blob_file_read_hist,
                                    blob_file_number, &reader));
 
-  PinnableSlice value;
+  // Make sure the blob can be retrieved with and without checksum verification
+  ReadOptions read_options;
 
-  ASSERT_OK(reader->GetBlob(ReadOptions(), key, blob_offset, sizeof(blob) - 1,
-                            kNoCompression, &value));
-  ASSERT_EQ(value, blob);
+  {
+    PinnableSlice value;
+
+    read_options.verify_checksums = false;
+
+    ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, sizeof(blob) - 1,
+                              kNoCompression, &value));
+    ASSERT_EQ(value, blob);
+  }
+
+  {
+    PinnableSlice value;
+
+    read_options.verify_checksums = true;
+
+    ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, sizeof(blob) - 1,
+                              kNoCompression, &value));
+    ASSERT_EQ(value, blob);
+  }
 }
 
 class BlobFileReaderIOErrorTest
