@@ -27,8 +27,11 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 
 void WriteBlobFile(const ImmutableCFOptions& immutable_cf_options,
-                   uint32_t column_family_id, uint64_t blob_file_number,
-                   const Slice& key, const Slice& blob, uint64_t* blob_offset) {
+                   uint32_t column_family_id, bool has_ttl,
+                   const ExpirationRange& expiration_range_header,
+                   const ExpirationRange& expiration_range_footer,
+                   uint64_t blob_file_number, const Slice& key,
+                   const Slice& blob, uint64_t* blob_offset) {
   assert(!immutable_cf_options.cf_paths.empty());
 
   const std::string blob_file_path = BlobFileName(
@@ -49,11 +52,8 @@ void WriteBlobFile(const ImmutableCFOptions& immutable_cf_options,
                                 immutable_cf_options.env, statistics,
                                 blob_file_number, use_fsync);
 
-  constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range;
-
   BlobLogHeader header(column_family_id, kNoCompression, has_ttl,
-                       expiration_range);
+                       expiration_range_header);
 
   ASSERT_OK(blob_log_writer.WriteHeader(header));
 
@@ -63,6 +63,7 @@ void WriteBlobFile(const ImmutableCFOptions& immutable_cf_options,
 
   BlobLogFooter footer;
   footer.blob_count = 1;
+  footer.expiration_range = expiration_range_footer;
 
   std::string checksum_method;
   std::string checksum_value;
@@ -98,8 +99,12 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
   uint64_t blob_offset = 0;
 
-  WriteBlobFile(immutable_cf_options, column_family_id, blob_file_number, key,
-                blob, &blob_offset);
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+
+  WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
+                expiration_range, expiration_range, blob_file_number, key, blob,
+                &blob_offset);
 
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
@@ -130,6 +135,111 @@ class BlobFileReaderIOErrorTest
   std::string sync_point_;
 };
 
+TEST_F(BlobFileReaderTest, TTL) {
+  Options options;
+  options.env = &mock_env_;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_TTL"), 0);
+  options.enable_blob_files = true;
+
+  ImmutableCFOptions immutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr uint64_t blob_file_number = 1;
+  constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
+
+  uint64_t blob_offset = 0;
+
+  constexpr bool has_ttl = true;
+  constexpr ExpirationRange expiration_range;
+
+  WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
+                expiration_range, expiration_range, blob_file_number, key, blob,
+                &blob_offset);
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileReader> reader;
+
+  ASSERT_TRUE(BlobFileReader::Create(immutable_cf_options, FileOptions(),
+                                     column_family_id, blob_file_read_hist,
+                                     blob_file_number, &reader)
+                  .IsCorruption());
+}
+
+TEST_F(BlobFileReaderTest, ExpirationRangeInHeader) {
+  Options options;
+  options.env = &mock_env_;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&mock_env_,
+                            "BlobFileReaderTest_ExpirationRangeInHeader"),
+      0);
+  options.enable_blob_files = true;
+
+  ImmutableCFOptions immutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr uint64_t blob_file_number = 1;
+  constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
+
+  uint64_t blob_offset = 0;
+
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range_header(1, 2);
+  constexpr ExpirationRange expiration_range_footer;
+
+  WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
+                expiration_range_header, expiration_range_footer,
+                blob_file_number, key, blob, &blob_offset);
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileReader> reader;
+
+  ASSERT_TRUE(BlobFileReader::Create(immutable_cf_options, FileOptions(),
+                                     column_family_id, blob_file_read_hist,
+                                     blob_file_number, &reader)
+                  .IsCorruption());
+}
+
+TEST_F(BlobFileReaderTest, ExpirationRangeInFooter) {
+  Options options;
+  options.env = &mock_env_;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&mock_env_,
+                            "BlobFileReaderTest_ExpirationRangeInFooter"),
+      0);
+  options.enable_blob_files = true;
+
+  ImmutableCFOptions immutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr uint64_t blob_file_number = 1;
+  constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
+
+  uint64_t blob_offset = 0;
+
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range_header;
+  constexpr ExpirationRange expiration_range_footer(1, 2);
+
+  WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
+                expiration_range_header, expiration_range_footer,
+                blob_file_number, key, blob, &blob_offset);
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileReader> reader;
+
+  ASSERT_TRUE(BlobFileReader::Create(immutable_cf_options, FileOptions(),
+                                     column_family_id, blob_file_read_hist,
+                                     blob_file_number, &reader)
+                  .IsCorruption());
+}
+
 INSTANTIATE_TEST_CASE_P(BlobFileReaderTest, BlobFileReaderIOErrorTest,
                         ::testing::ValuesIn(std::vector<std::string>{
                             "BlobFileReader::OpenFile:GetFileSize",
@@ -158,8 +268,12 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
 
   uint64_t blob_offset = 0;
 
-  WriteBlobFile(immutable_cf_options, column_family_id, blob_file_number, key,
-                blob, &blob_offset);
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+
+  WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
+                expiration_range, expiration_range, blob_file_number, key, blob,
+                &blob_offset);
 
   SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
     fault_injection_env_.SetFilesystemActive(false,
