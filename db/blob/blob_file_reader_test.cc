@@ -136,6 +136,47 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
                               kNoCompression, &value));
     ASSERT_EQ(value, blob);
   }
+
+  // Invalid offset
+  {
+    PinnableSlice value;
+
+    ASSERT_TRUE(reader
+                    ->GetBlob(read_options, key, blob_offset - 1,
+                              sizeof(blob) - 1, kNoCompression, &value)
+                    .IsCorruption());
+  }
+
+  // Incorrect compression type
+  {
+    PinnableSlice value;
+
+    ASSERT_TRUE(reader
+                    ->GetBlob(read_options, key, blob_offset, sizeof(blob) - 1,
+                              kZSTD, &value)
+                    .IsCorruption());
+  }
+
+  // Incorrect key
+  {
+    constexpr char incorrect_key[] = "foo";
+    PinnableSlice value;
+
+    ASSERT_TRUE(reader
+                    ->GetBlob(read_options, incorrect_key, blob_offset,
+                              sizeof(blob) - 1, kNoCompression, &value)
+                    .IsCorruption());
+  }
+
+  // Incorrect value size
+  {
+    PinnableSlice value;
+
+    ASSERT_TRUE(reader
+                    ->GetBlob(read_options, key, blob_offset, sizeof(blob),
+                              kNoCompression, &value)
+                    .IsCorruption());
+  }
 }
 
 class BlobFileReaderIOErrorTest
