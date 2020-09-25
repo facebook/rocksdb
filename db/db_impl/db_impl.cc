@@ -1815,6 +1815,9 @@ std::vector<Status> DBImpl::MultiGet(
           read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
           &consistent_seqnum);
 
+  TEST_SYNC_POINT("DBImpl::MultiGet:AfterGetSeqNum1");
+  TEST_SYNC_POINT("DBImpl::MultiGet:AfterGetSeqNum2");
+
   // Contain a list of merge operations if merge occurs.
   MergeContext merge_context;
 
@@ -1837,6 +1840,14 @@ std::vector<Status> DBImpl::MultiGet(
   size_t num_found = 0;
   size_t keys_read;
   uint64_t curr_value_size = 0;
+
+  GetWithTimestampReadCallback timestamp_read_callback(0);
+  ReadCallback* read_callback = nullptr;
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
+    timestamp_read_callback.Refresh(consistent_seqnum);
+    read_callback = &timestamp_read_callback;
+  }
+
   for (keys_read = 0; keys_read < num_keys; ++keys_read) {
     merge_context.Clear();
     Status& s = stat_list[keys_read];
@@ -1857,12 +1868,14 @@ std::vector<Status> DBImpl::MultiGet(
     bool done = false;
     if (!skip_memtable) {
       if (super_version->mem->Get(lkey, value, timestamp, &s, &merge_context,
-                                  &max_covering_tombstone_seq, read_options)) {
+                                  &max_covering_tombstone_seq, read_options,
+                                  read_callback)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
-      } else if (super_version->imm->Get(
-                     lkey, value, timestamp, &s, &merge_context,
-                     &max_covering_tombstone_seq, read_options)) {
+      } else if (super_version->imm->Get(lkey, value, timestamp, &s,
+                                         &merge_context,
+                                         &max_covering_tombstone_seq,
+                                         read_options, read_callback)) {
         done = true;
         RecordTick(stats_, MEMTABLE_HIT);
       }
@@ -1870,9 +1883,11 @@ std::vector<Status> DBImpl::MultiGet(
     if (!done) {
       PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->Get(read_options, lkey, &pinnable_val, timestamp,
-                                  &s, &merge_context,
-                                  &max_covering_tombstone_seq);
+      super_version->current->Get(
+          read_options, lkey, &pinnable_val, timestamp, &s, &merge_context,
+          &max_covering_tombstone_seq, /*value_found=*/nullptr,
+          /*key_exists=*/nullptr,
+          /*seq=*/nullptr, read_callback);
       value->assign(pinnable_val.data(), pinnable_val.size());
       RecordTick(stats_, MEMTABLE_MISS);
     }
@@ -2130,12 +2145,19 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
       read_options, nullptr, iter_deref_lambda, &multiget_cf_data,
       &consistent_seqnum);
 
+  GetWithTimestampReadCallback timestamp_read_callback(0);
+  ReadCallback* read_callback = nullptr;
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
+    timestamp_read_callback.Refresh(consistent_seqnum);
+    read_callback = &timestamp_read_callback;
+  }
+
   Status s;
   auto cf_iter = multiget_cf_data.begin();
   for (; cf_iter != multiget_cf_data.end(); ++cf_iter) {
     s = MultiGetImpl(read_options, cf_iter->start, cf_iter->num_keys,
                      &sorted_keys, cf_iter->super_version, consistent_seqnum,
-                     nullptr, nullptr);
+                     read_callback, nullptr);
     if (!s.ok()) {
       break;
     }
@@ -2298,9 +2320,16 @@ void DBImpl::MultiGetWithCallback(
     consistent_seqnum = callback->max_visible_seq();
   }
 
+  GetWithTimestampReadCallback timestamp_read_callback(0);
+  ReadCallback* read_callback = nullptr;
+  if (read_options.timestamp && read_options.timestamp->size() > 0) {
+    timestamp_read_callback.Refresh(consistent_seqnum);
+    read_callback = &timestamp_read_callback;
+  }
+
   Status s = MultiGetImpl(read_options, 0, num_keys, sorted_keys,
                           multiget_cf_data[0].super_version, consistent_seqnum,
-                          nullptr, nullptr);
+                          read_callback, nullptr);
   assert(s.ok() || s.IsTimedOut() || s.IsAborted());
   ReturnAndCleanupSuperVersion(multiget_cf_data[0].cfd,
                                multiget_cf_data[0].super_version);
