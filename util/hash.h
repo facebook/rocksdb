@@ -23,7 +23,6 @@
 #include <cstdint>
 
 #include "rocksdb/slice.h"
-
 #include "util/fastrange.h"
 
 namespace ROCKSDB_NAMESPACE {
