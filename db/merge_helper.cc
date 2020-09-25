@@ -140,15 +140,17 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   ParsedInternalKey orig_ikey;
   bool succ = ParseInternalKey(original_key, &orig_ikey);
   assert(succ);
+  Status s;
   if (!succ) {
-    return Status::Corruption("Cannot parse key in MergeUntil");
+    s = Status::Corruption("Cannot parse key in MergeUntil");
+    return s;
   }
 
-  Status s;
   bool hit_the_next_user_key = false;
   for (; iter->Valid(); iter->Next(), original_key_is_iter = false) {
     if (IsShuttingDown()) {
-      return Status::ShutdownInProgress();
+      s = Status::ShutdownInProgress();
+      return s;
     }
 
     ParsedInternalKey ikey;
@@ -158,7 +160,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // stop at corrupted key
       if (assert_valid_internal_key_) {
         assert(!"Corrupted internal key not expected.");
-        return Status::Corruption("Corrupted internal key not expected.");
+        s = Status::Corruption("Corrupted internal key not expected.");
+        return s;
       }
       break;
     } else if (first_key) {
@@ -193,7 +196,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // the compaction iterator to write out the key we're currently at, which
       // is the put/delete we just encountered.
       if (keys_.empty()) {
-        return Status::OK();
+        return s;
       }
 
       // TODO(noetzli) If the merge operator returns false, we are currently
@@ -284,14 +287,14 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         keys_.clear();
         merge_context_.Clear();
         has_compaction_filter_skip_until_ = true;
-        return Status::OK();
+        return s;
       }
     }
   }
 
   if (merge_context_.GetNumOperands() == 0) {
     // we filtered out all the merge operands
-    return Status::OK();
+    return s;
   }
 
   // We are sure we have seen this key's entire history if:

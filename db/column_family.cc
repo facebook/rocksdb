@@ -1102,10 +1102,12 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
       super_version->mem->NewRangeTombstoneIterator(read_opts, read_seq);
   range_del_agg.AddTombstones(
       std::unique_ptr<FragmentedRangeTombstoneIterator>(active_range_del_iter));
-  super_version->imm->AddRangeTombstoneIterators(read_opts, nullptr /* arena */,
-                                                 &range_del_agg);
-
   Status status;
+  status = super_version->imm->AddRangeTombstoneIterators(
+      read_opts, nullptr /* arena */, &range_del_agg);
+  // AddRangeTombstoneIterators always return Status::OK.
+  assert(status.ok());
+
   for (size_t i = 0; i < ranges.size() && status.ok() && !*overlap; ++i) {
     auto* vstorage = super_version->current->storage_info();
     auto* ucmp = vstorage->InternalComparator()->user_comparator();
