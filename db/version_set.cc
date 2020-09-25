@@ -1783,14 +1783,13 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       io_tracer_(io_tracer) {}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                        const Slice& index_entry,
-                        GetContext* get_context) const {
-  assert(get_context);
+                        PinnableSlice* value) const {
+  assert(value);
 
   BlobIndex blob_index;
 
   {
-    Status s = blob_index.DecodeFrom(index_entry);
+    Status s = blob_index.DecodeFrom(*value);
     if (!s.ok()) {
       return s;
     }
@@ -1828,7 +1827,7 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   assert(blob_file_reader);
   const Status s = blob_file_reader->GetBlob(
       read_options, user_key, blob_index.offset(), blob_index.size(),
-      blob_index.compression(), get_context);
+      blob_index.compression(), value);
 
   return s;
 }
@@ -1926,8 +1925,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         break;
       case GetContext::kFound:
         if (is_blob_index) {
-          if (value) {
-            *status = GetBlob(read_options, user_key, *value, &get_context);
+          if (do_merge && value) {
+            *status = GetBlob(read_options, user_key, value);
             if (!status->ok()) {
               return;
             }

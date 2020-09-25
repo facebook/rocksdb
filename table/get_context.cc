@@ -105,19 +105,6 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber /*seq*/) {
   }
 }
 
-void GetContext::SaveRealValue(const Slice& value) {
-  assert(state_ == kFound);
-  appendToReplayLog(replay_log_, kTypeValue, value);
-
-  if (LIKELY(pinnable_val_ != nullptr)) {
-    if (pinnable_val_->IsPinned()) {
-      pinnable_val_->Reset();
-    }
-
-    pinnable_val_->PinSelf(value);
-  }
-}
-
 void GetContext::ReportCounters() {
   if (get_context_stats_.num_cache_hit > 0) {
     RecordTick(statistics_, BLOCK_CACHE_HIT, get_context_stats_.num_cache_hit);
