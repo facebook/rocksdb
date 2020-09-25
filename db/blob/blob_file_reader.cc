@@ -15,6 +15,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "table/get_context.h"
+#include "test_util/sync_point.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
 
@@ -85,6 +86,8 @@ Status BlobFileReader::OpenFile(
   constexpr IODebugContext* dbg = nullptr;
 
   {
+    TEST_SYNC_POINT("BlobFileReader::OpenFile:GetFileSize");
+
     const Status s =
         fs->GetFileSize(blob_file_path, IOOptions(), file_size, dbg);
     if (!s.ok()) {
@@ -99,6 +102,8 @@ Status BlobFileReader::OpenFile(
   std::unique_ptr<FSRandomAccessFile> file;
 
   {
+    TEST_SYNC_POINT("BlobFileReader::OpenFile:NewRandomAccessFile");
+
     const Status s =
         fs->NewRandomAccessFile(blob_file_path, file_opts, &file, dbg);
     if (!s.ok()) {
@@ -132,6 +137,8 @@ Status BlobFileReader::ReadHeader(RandomAccessFileReader* file_reader,
   AlignedBuf aligned_buf;
 
   {
+    TEST_SYNC_POINT("BlobFileReader::ReadHeader:ReadFromFile");
+
     constexpr uint64_t read_offset = 0;
     constexpr size_t read_size = BlobLogHeader::kSize;
 
@@ -176,6 +183,8 @@ Status BlobFileReader::ReadFooter(uint64_t file_size,
   AlignedBuf aligned_buf;
 
   {
+    TEST_SYNC_POINT("BlobFileReader::ReadFooter:ReadFromFile");
+
     const uint64_t read_offset = file_size - BlobLogFooter::kSize;
     constexpr size_t read_size = BlobLogFooter::kSize;
 
@@ -282,6 +291,8 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   AlignedBuf aligned_buf;
 
   {
+    TEST_SYNC_POINT("BlobFileReader::GetBlob:ReadFromFile");
+
     const uint64_t record_offset = offset - adjustment;
     const uint64_t record_size = value_size + adjustment;
 

@@ -20,6 +20,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
 #include "test_util/testharness.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -123,9 +124,103 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
                          GetContext::kFound, key, &value, value_found,
                          merge_context, do_merge, max_covering_tombstone_seq,
                          env);
+
   ASSERT_OK(reader->GetBlob(ReadOptions(), key, blob_offset, sizeof(blob) - 1,
                             kNoCompression, &get_context));
   ASSERT_EQ(value, blob);
+}
+
+class BlobFileReaderIOErrorTest
+    : public testing::Test,
+      public testing::WithParamInterface<std::string> {
+ protected:
+  BlobFileReaderIOErrorTest()
+      : mock_env_(Env::Default()),
+        fault_injection_env_(&mock_env_),
+        sync_point_(GetParam()) {}
+
+  MockEnv mock_env_;
+  FaultInjectionTestEnv fault_injection_env_;
+  std::string sync_point_;
+};
+
+INSTANTIATE_TEST_CASE_P(BlobFileReaderTest, BlobFileReaderIOErrorTest,
+                        ::testing::ValuesIn(std::vector<std::string>{
+                            "BlobFileReader::OpenFile:GetFileSize",
+                            "BlobFileReader::OpenFile:NewRandomAccessFile",
+                            "BlobFileReader::ReadHeader:ReadFromFile",
+                            "BlobFileReader::ReadFooter:ReadFromFile",
+                            "BlobFileReader::GetBlob:ReadFromFile"}));
+
+TEST_P(BlobFileReaderIOErrorTest, IOError) {
+  // Simulates an I/O error during the specified step
+
+  Options options;
+  options.env = &fault_injection_env_;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&fault_injection_env_,
+                            "BlobFileReaderIOErrorTest_IOError"),
+      0);
+  options.enable_blob_files = true;
+
+  ImmutableCFOptions immutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr uint64_t blob_file_number = 1;
+  constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
+
+  uint64_t blob_offset = 0;
+
+  WriteBlobFile(immutable_cf_options, column_family_id, blob_file_number, key,
+                blob, &blob_offset);
+
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_.SetFilesystemActive(false,
+                                             Status::IOError(sync_point_));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileReader> reader;
+
+  const Status s = BlobFileReader::Create(immutable_cf_options, FileOptions(),
+                                          column_family_id, blob_file_read_hist,
+                                          blob_file_number, &reader);
+
+  const bool fail_during_create =
+      (sync_point_ != "BlobFileReader::GetBlob:ReadFromFile");
+
+  if (fail_during_create) {
+    ASSERT_TRUE(s.IsIOError());
+  } else {
+    ASSERT_OK(s);
+
+    constexpr const MergeOperator* merge_operator = nullptr;
+    constexpr Logger* logger = nullptr;
+    constexpr Statistics* statistics = nullptr;
+    constexpr bool* value_found = nullptr;
+    constexpr MergeContext* merge_context = nullptr;
+    constexpr bool do_merge = true;
+    constexpr SequenceNumber* max_covering_tombstone_seq = nullptr;
+    constexpr Env* env = nullptr;
+
+    PinnableSlice value;
+
+    GetContext get_context(options.comparator, merge_operator, logger,
+                           statistics, GetContext::kFound, key, &value,
+                           value_found, merge_context, do_merge,
+                           max_covering_tombstone_seq, env);
+
+    ASSERT_TRUE(reader
+                    ->GetBlob(ReadOptions(), key, blob_offset, sizeof(blob) - 1,
+                              kNoCompression, &get_context)
+                    .IsIOError());
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
