@@ -12,6 +12,7 @@
 #include <map>
 #include <ostream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "logging/event_logger.h"
@@ -149,6 +150,16 @@ class WalSet {
   void Reset();
 
   const std::map<WalNumber, WalMetadata>& GetWals() const { return wals_; }
+
+  // Checks whether there are missing or corrupted WALs.
+  // Returns Status::OK if there is no missing nor corrupted WAL,
+  // otherwise returns Status::Corruption.
+  // logs_on_disk is a map from log number to the log filename.
+  // Note that logs_on_disk may contain logs that is obsolete but
+  // haven't been deleted from disk.
+  Status CheckWals(
+      Env* env,
+      const std::unordered_map<WalNumber, std::string>& logs_on_disk) const;
 
  private:
   std::map<WalNumber, WalMetadata> wals_;

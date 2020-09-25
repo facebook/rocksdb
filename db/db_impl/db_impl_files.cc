@@ -58,7 +58,7 @@ Status DBImpl::EnableFileDeletions(bool force) {
   // Job id == 0 means that this is not our background process, but rather
   // user thread
   JobContext job_context(0);
-  bool file_deletion_enabled = false;
+  int saved_counter;  // initialize on all paths
   {
     InstrumentedMutexLock l(&mutex_);
     if (force) {
@@ -67,13 +67,13 @@ Status DBImpl::EnableFileDeletions(bool force) {
     } else if (disable_delete_obsolete_files_ > 0) {
       --disable_delete_obsolete_files_;
     }
-    if (disable_delete_obsolete_files_ == 0) {
-      file_deletion_enabled = true;
+    saved_counter = disable_delete_obsolete_files_;
+    if (saved_counter == 0) {
       FindObsoleteFiles(&job_context, true);
       bg_cv_.SignalAll();
     }
   }
-  if (file_deletion_enabled) {
+  if (saved_counter == 0) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Enabled");
     if (job_context.HaveSomethingToDelete()) {
       PurgeObsoleteFiles(job_context);
@@ -81,7 +81,7 @@ Status DBImpl::EnableFileDeletions(bool force) {
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "File Deletions Enable, but not really enabled. Counter: %d",
-                   disable_delete_obsolete_files_);
+                   saved_counter);
   }
   job_context.Clean();
   LogFlush(immutable_db_options_.info_log);

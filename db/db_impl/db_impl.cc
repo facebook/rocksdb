@@ -1625,9 +1625,11 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
     // data for the snapshot, so the reader would see neither data that was be
     // visible to the snapshot before compaction nor the newer data inserted
     // afterwards.
-    snapshot = last_seq_same_as_publish_seq_
-                   ? versions_->LastSequence()
-                   : versions_->LastPublishedSequence();
+    if (last_seq_same_as_publish_seq_) {
+      snapshot = versions_->LastSequence();
+    } else {
+      snapshot = versions_->LastPublishedSequence();
+    }
     if (get_impl_options.callback) {
       // The unprep_seqs are not published for write unprepared, so it could be
       // that max_visible_seq is larger. Seek to the std::max of the two.
@@ -1984,9 +1986,11 @@ bool DBImpl::MultiCFSnapshot(
       // version because a flush happening in between may compact away data for
       // the snapshot, but the snapshot is earlier than the data overwriting it,
       // so users may see wrong results.
-      *snapshot = last_seq_same_as_publish_seq_
-                      ? versions_->LastSequence()
-                      : versions_->LastPublishedSequence();
+      if (last_seq_same_as_publish_seq_) {
+        *snapshot = versions_->LastSequence();
+      } else {
+        *snapshot = versions_->LastPublishedSequence();
+      }
     }
   } else {
     // If we end up with the same issue of memtable geting sealed during 2
@@ -2017,9 +2021,11 @@ bool DBImpl::MultiCFSnapshot(
           // acquire the lock so we're sure to succeed
           mutex_.Lock();
         }
-        *snapshot = last_seq_same_as_publish_seq_
-                        ? versions_->LastSequence()
-                        : versions_->LastPublishedSequence();
+        if (last_seq_same_as_publish_seq_) {
+          *snapshot = versions_->LastSequence();
+        } else {
+          *snapshot = versions_->LastPublishedSequence();
+        }
       } else {
         *snapshot = reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
                         ->number_;
@@ -2961,9 +2967,11 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
     snapshots_.Delete(casted_s);
     uint64_t oldest_snapshot;
     if (snapshots_.empty()) {
-      oldest_snapshot = last_seq_same_as_publish_seq_
-                            ? versions_->LastSequence()
-                            : versions_->LastPublishedSequence();
+      if (last_seq_same_as_publish_seq_) {
+        oldest_snapshot = versions_->LastSequence();
+      } else {
+        oldest_snapshot = versions_->LastPublishedSequence();
+      }
     } else {
       oldest_snapshot = snapshots_.oldest()->number_;
     }

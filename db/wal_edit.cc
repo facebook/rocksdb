@@ -189,4 +189,46 @@ Status WalSet::DeleteWals(const WalDeletions& wals) {
 
 void WalSet::Reset() { wals_.clear(); }
 
+Status WalSet::CheckWals(
+    Env* env,
+    const std::unordered_map<WalNumber, std::string>& logs_on_disk) const {
+  assert(env != nullptr);
+
+  Status s;
+  for (const auto& wal : wals_) {
+    const uint64_t log_number = wal.first;
+    const WalMetadata& wal_meta = wal.second;
+
+    if (!wal_meta.HasSyncedSize()) {
+      // The WAL and WAL directory is not even synced,
+      // so the WAL's inode may not be persisted,
+      // then the WAL might not show up when listing WAL directory.
+      continue;
+    }
+
+    if (logs_on_disk.find(log_number) == logs_on_disk.end()) {
+      std::stringstream ss;
+      ss << "Missing WAL with log number: " << log_number << ".";
+      s = Status::Corruption(ss.str());
+      break;
+    }
+
+    uint64_t log_file_size = 0;
+    s = env->GetFileSize(logs_on_disk.at(log_number), &log_file_size);
+    if (!s.ok()) {
+      break;
+    }
+    if (log_file_size < wal_meta.GetSyncedSizeInBytes()) {
+      std::stringstream ss;
+      ss << "Size mismatch: WAL (log number: " << log_number
+         << ") in MANIFEST is " << wal_meta.GetSyncedSizeInBytes()
+         << " bytes , but actually is " << log_file_size << " bytes on disk.";
+      s = Status::Corruption(ss.str());
+      break;
+    }
+  }
+
+  return s;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
