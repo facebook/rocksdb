@@ -69,7 +69,7 @@ void VersionEditHandlerBase::Iterate(log::Reader& reader,
   if (!s.ok()) {
     status_ = s;
   }
-  TEST_SYNC_POINT_CALLBACK("VersionEditHandler::Iterate:Finish",
+  TEST_SYNC_POINT_CALLBACK("VersionEditHandlerBase::Iterate:Finish",
                            &recovered_edits);
 }
 

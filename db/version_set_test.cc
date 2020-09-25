@@ -1751,7 +1751,7 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
           last_in_atomic_group_ = true;
         });
     SyncPoint::GetInstance()->SetCallBack(
-        "VersionEditHandler::Iterate:Finish", [&](void* arg) {
+        "VersionEditHandlerBase::Iterate:Finish", [&](void* arg) {
           num_recovered_edits_ = *reinterpret_cast<int*>(arg);
         });
     SyncPoint::GetInstance()->SetCallBack(
