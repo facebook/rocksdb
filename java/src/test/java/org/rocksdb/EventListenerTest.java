@@ -285,7 +285,7 @@ public class EventListenerTest {
         new ExternalFileIngestionInfo("columnFamilyName", "/external/file/path",
             "/internal/file/path", TEST_LONG_VAL, tablePropertiesTestData);
 
-    final int CALLBACKS_COUNT = 17;
+    final int CALLBACKS_COUNT = 22;
     final AtomicBoolean[] wasCalled = new AtomicBoolean[CALLBACKS_COUNT];
     for (int i = 0; i < CALLBACKS_COUNT; ++i) {
       wasCalled[i] = new AtomicBoolean();

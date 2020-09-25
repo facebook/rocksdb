@@ -1818,9 +1818,9 @@ static jobjectArray rocksdb_get_event_listeners_helper(
     return nullptr;
   }
   for (jsize i = 0; i < sz; ++i) {
-    const auto* jni_cb = dynamic_cast<ROCKSDB_NAMESPACE::JniCallback*>(
-        listener_sptr_vec[i].get());
-    // jclass clazz = env->GetObjectClass(jni_cb->GetJavaObject());
+    const auto* jni_cb =
+        static_cast<ROCKSDB_NAMESPACE::EventListenerJniCallback*>(
+            listener_sptr_vec[i].get());
     env->SetObjectArrayElement(jlisteners, i, jni_cb->GetJavaObject());
   }
   return jlisteners;
