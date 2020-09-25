@@ -14,7 +14,6 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "table/get_context.h"
 #include "test_util/sync_point.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -263,8 +262,8 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
                                const Slice& user_key, uint64_t offset,
                                uint64_t value_size,
                                CompressionType compression_type,
-                               GetContext* get_context) const {
-  assert(get_context);
+                               PinnableSlice* value) const {
+  assert(value);
 
   const uint64_t key_size = user_key.size();
 
@@ -315,7 +314,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 
   {
     const Status s =
-        UncompressBlobIfNeeded(value_slice, compression_type, get_context);
+        UncompressBlobIfNeeded(value_slice, compression_type, value);
     if (!s.ok()) {
       return s;
     }
@@ -368,11 +367,11 @@ Status BlobFileReader::VerifyBlob(const Slice& record_slice,
 
 Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
                                               CompressionType compression_type,
-                                              GetContext* get_context) {
-  assert(get_context);
+                                              PinnableSlice* value) {
+  assert(value);
 
   if (compression_type == kNoCompression) {
-    get_context->SaveValue(value_slice, kMaxSequenceNumber);
+    SaveValue(value, value_slice);
 
     return Status::OK();
   }
@@ -392,10 +391,19 @@ Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
     return Status::Corruption("Unable to uncompress blob");
   }
 
-  get_context->SaveValue(Slice(output.get(), uncompressed_size),
-                         kMaxSequenceNumber);
+  SaveValue(value, Slice(output.get(), uncompressed_size));
 
   return Status::OK();
+}
+
+void BlobFileReader::SaveValue(PinnableSlice* dst, const Slice& src) {
+  assert(dst);
+
+  if (dst->IsPinned()) {
+    dst->Reset();
+  }
+
+  dst->PinSelf(src);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

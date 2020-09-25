@@ -21,7 +21,7 @@ struct ImmutableCFOptions;
 struct FileOptions;
 class HistogramImpl;
 class Slice;
-class GetContext;
+class PinnableSlice;
 class RandomAccessFileReader;
 
 class BlobFileReader {
@@ -40,8 +40,7 @@ class BlobFileReader {
 
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
                  uint64_t offset, uint64_t value_size,
-                 CompressionType compression_type,
-                 GetContext* get_context) const;
+                 CompressionType compression_type, PinnableSlice* value) const;
 
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
@@ -70,7 +69,9 @@ class BlobFileReader {
 
   static Status UncompressBlobIfNeeded(const Slice& value_slice,
                                        CompressionType compression_type,
-                                       GetContext* get_context);
+                                       PinnableSlice* value);
+
+  static void SaveValue(PinnableSlice* dst, const Slice& src);
 
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   CompressionType compression_type_;

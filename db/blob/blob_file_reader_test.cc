@@ -109,24 +109,10 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
                                    column_family_id, blob_file_read_hist,
                                    blob_file_number, &reader));
 
-  constexpr const MergeOperator* merge_operator = nullptr;
-  constexpr Logger* logger = nullptr;
-  constexpr Statistics* statistics = nullptr;
-  constexpr bool* value_found = nullptr;
-  constexpr MergeContext* merge_context = nullptr;
-  constexpr bool do_merge = true;
-  constexpr SequenceNumber* max_covering_tombstone_seq = nullptr;
-  constexpr Env* env = nullptr;
-
   PinnableSlice value;
 
-  GetContext get_context(options.comparator, merge_operator, logger, statistics,
-                         GetContext::kFound, key, &value, value_found,
-                         merge_context, do_merge, max_covering_tombstone_seq,
-                         env);
-
   ASSERT_OK(reader->GetBlob(ReadOptions(), key, blob_offset, sizeof(blob) - 1,
-                            kNoCompression, &get_context));
+                            kNoCompression, &value));
   ASSERT_EQ(value, blob);
 }
 
@@ -197,25 +183,11 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
   } else {
     ASSERT_OK(s);
 
-    constexpr const MergeOperator* merge_operator = nullptr;
-    constexpr Logger* logger = nullptr;
-    constexpr Statistics* statistics = nullptr;
-    constexpr bool* value_found = nullptr;
-    constexpr MergeContext* merge_context = nullptr;
-    constexpr bool do_merge = true;
-    constexpr SequenceNumber* max_covering_tombstone_seq = nullptr;
-    constexpr Env* env = nullptr;
-
     PinnableSlice value;
-
-    GetContext get_context(options.comparator, merge_operator, logger,
-                           statistics, GetContext::kFound, key, &value,
-                           value_found, merge_context, do_merge,
-                           max_covering_tombstone_seq, env);
 
     ASSERT_TRUE(reader
                     ->GetBlob(ReadOptions(), key, blob_offset, sizeof(blob) - 1,
-                              kNoCompression, &get_context)
+                              kNoCompression, &value)
                     .IsIOError());
   }
 
