@@ -116,21 +116,21 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
   // Make sure the blob can be retrieved with and without checksum verification
   ReadOptions read_options;
+  read_options.verify_checksums = false;
 
   {
     PinnableSlice value;
 
-    read_options.verify_checksums = false;
 
     ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, sizeof(blob) - 1,
                               kNoCompression, &value));
     ASSERT_EQ(value, blob);
   }
 
+  read_options.verify_checksums = true;
+
   {
     PinnableSlice value;
-
-    read_options.verify_checksums = true;
 
     ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, sizeof(blob) - 1,
                               kNoCompression, &value));
