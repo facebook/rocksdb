@@ -631,6 +631,7 @@ ifdef ASSERT_STATUS_CHECKED
 		block_cache_tracer_test \
 		cache_simulator_test \
 		sim_cache_test \
+		version_builder_test \
 		version_edit_test \
 		work_queue_test \
 		write_controller_test \
