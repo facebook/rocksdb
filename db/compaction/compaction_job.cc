@@ -109,10 +109,6 @@ const char* GetCompactionReasonString(CompactionReason compaction_reason) {
 
 // Maintains state for each sub-compaction
 struct CompactionJob::SubcompactionState {
-  ~SubcompactionState() {
-    status.PermitUncheckedError();
-    io_status.PermitUncheckedError();
-  }
   const Compaction* compaction;
   std::unique_ptr<CompactionIterator> c_iter;
 
@@ -1039,7 +1035,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       RecordDroppedKeys(range_del_out_stats,
                         &sub_compact->compaction_job_stats);
     }
-    input_status.PermitUncheckedError();
   }
 
   sub_compact->compaction_job_stats.num_input_deletion_records =
@@ -1470,6 +1465,7 @@ Status CompactionJob::FinishCompactionOutputFile(
           "CompactionJob::FinishCompactionOutputFile:"
           "MaxAllowedSpaceReached");
       InstrumentedMutexLock l(db_mutex_);
+      // Should handle return error?
       db_error_handler_->SetBGError(s, BackgroundErrorReason::kCompaction)
           .PermitUncheckedError();
     }

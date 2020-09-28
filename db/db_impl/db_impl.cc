@@ -2609,7 +2609,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
     NewThreadStatusCfInfo(
         static_cast_with_check<ColumnFamilyHandleImpl>(*handle)->cfd());
   }
-  persist_options_status.PermitUncheckedError();
   return s;
 }
 
@@ -4554,6 +4553,7 @@ Status DBImpl::IngestExternalFiles(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       const IOStatus& io_s = versions_->io_status();
+      // Should handle return error?
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
           .PermitUncheckedError();
     }

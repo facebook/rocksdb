@@ -3073,7 +3073,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     m->in_progress = false;  // not being processed anymore
   }
   TEST_SYNC_POINT("DBImpl::BackgroundCompaction:Finish");
-  io_s.PermitUncheckedError();
   return status;
 }
 

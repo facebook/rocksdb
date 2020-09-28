@@ -4133,9 +4133,9 @@ Status VersionSet::ProcessManifestWrites(
                      "Deleting manifest %" PRIu64 " current manifest %" PRIu64
                      "\n",
                      manifest_file_number_, pending_manifest_file_number_);
-      Status tmp_s = env_->DeleteFile(
-          DescriptorFileName(dbname_, pending_manifest_file_number_));
-      tmp_s.PermitUncheckedError();
+      env_->DeleteFile(
+              DescriptorFileName(dbname_, pending_manifest_file_number_))
+          .PermitUncheckedError();
     }
   }
 

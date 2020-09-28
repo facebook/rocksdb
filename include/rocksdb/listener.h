@@ -52,7 +52,6 @@ struct TableFileCreationInfo : public TableFileCreationBriefInfo {
   TableFileCreationInfo() = default;
   explicit TableFileCreationInfo(TableProperties&& prop)
       : table_properties(prop) {}
-  ~TableFileCreationInfo() { status.PermitUncheckedError(); }
   // the size of the file.
   uint64_t file_size;
   // Detailed properties of the created file.
