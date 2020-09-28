@@ -374,6 +374,11 @@ TEST(FastRangeGenericTest, Values) {
             uint16_t{6234});
   EXPECT_EQ(FastRangeGeneric(uint32_t{0x80000000}, uint16_t{12468}),
             uint16_t{6234});
+  // Not recommended for typical use because for example this could fail on
+  // some platforms and pass on others:
+  //EXPECT_EQ(FastRangeGeneric(static_cast<unsigned long>(0x80000000),
+  //                           uint16_t{12468}),
+  //          uint16_t{6234});
 }
 
 // for inspection of disassembly

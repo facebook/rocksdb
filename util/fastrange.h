@@ -80,18 +80,31 @@ struct FastRangeGenericImpl<uint64_t, Range> {
 
 }  // namespace detail
 
-// Now an omnibus templated function (yay parameter inference)
+// Now an omnibus templated function (yay parameter inference).
+//
+// NOTICE:
+// This templated version is not recommended for typical use because
+// of the potential to mix a 64-bit FastRange with a 32-bit bit hash,
+// most likely because you put your 32-bit hash in an "unsigned long"
+// which is 64 bits on some platforms. That doesn't really matter for
+// an operation like %, but 64-bit FastRange gives extremely bad results,
+// mostly zero, on 32-bit hash values. And because good hashing is not
+// generally required for correctness, this kind of mistake could go
+// unnoticed with just unit tests. Plus it could vary by platform.
 template <typename Hash, typename Range>
 inline Range FastRangeGeneric(Hash hash, Range range) {
   return detail::FastRangeGenericImpl<Hash, Range>::Fn(hash, range);
 }
 
 // The most popular / convenient / recommended variants:
-// size_t is standard for mapping to things in memory
+
+// Map a quality 64-bit hash value down to an arbitrary size_t range.
+// (size_t is standard for mapping to things in memory.)
 inline size_t FastRange64(uint64_t hash, size_t range) {
   return FastRangeGeneric(hash, range);
 }
 
+// Map a quality 32-bit hash value down to an arbitrary uint32_t range.
 inline uint32_t FastRange32(uint32_t hash, uint32_t range) {
   return FastRangeGeneric(hash, range);
 }
