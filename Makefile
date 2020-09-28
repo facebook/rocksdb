@@ -613,6 +613,7 @@ ifdef ASSERT_STATUS_CHECKED
 		options_test \
 		random_test \
 		range_del_aggregator_test \
+		sst_file_reader_test \
 		range_tombstone_fragmenter_test \
 		repeatable_thread_test \
 		skiplist_test \
