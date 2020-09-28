@@ -20,6 +20,7 @@ void CompactionJobStats::Reset() {
   num_output_records = 0;
   num_output_files = 0;
 
+  is_full_compaction = 0;
   is_manual_compaction = 0;
 
   total_input_bytes = 0;
