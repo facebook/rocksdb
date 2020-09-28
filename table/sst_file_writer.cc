@@ -137,7 +137,7 @@ struct SstFileWriter::Rep {
   }
 
   Status InvalidatePageCache(bool closing) {
-    Status s;
+    Status s = Status::OK();
     if (invalidate_page_cache == false) {
       // Fadvise disabled
       return s;
@@ -158,7 +158,6 @@ struct SstFileWriter::Rep {
     }
     return s;
   }
-
 };
 
 SstFileWriter::SstFileWriter(const EnvOptions& env_options,
