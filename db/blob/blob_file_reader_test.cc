@@ -157,6 +157,18 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
                     .IsCorruption());
   }
 
+  // Incorrect key size
+  {
+    constexpr char shorter_key[] = "k";
+    PinnableSlice value;
+
+    ASSERT_TRUE(reader
+                    ->GetBlob(read_options, shorter_key,
+                              blob_offset - (sizeof(key) - sizeof(shorter_key)),
+                              sizeof(blob) - 1, kNoCompression, &value)
+                    .IsCorruption());
+  }
+
   // Incorrect key
   {
     constexpr char incorrect_key[] = "foo";
