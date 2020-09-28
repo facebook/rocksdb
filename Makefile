@@ -641,6 +641,7 @@ ifdef ASSERT_STATUS_CHECKED
 	        io_tracer_test \
 		merge_helper_test \
 		memtable_list_test \
+		flush_job_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
