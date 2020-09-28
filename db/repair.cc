@@ -641,6 +641,7 @@ class Repairer {
     new_file.append("/");
     new_file.append((slash == nullptr) ? fname.c_str() : slash + 1);
     Status s = env_->RenameFile(fname, new_file);
+    s.PermitUncheckedError();
     ROCKS_LOG_INFO(db_options_.info_log, "Archiving %s: %s\n", fname.c_str(),
                    s.ToString().c_str());
   }

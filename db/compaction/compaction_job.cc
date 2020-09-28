@@ -943,6 +943,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::string last_key_for_partitioner;
 
   while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
+    assert(c_iter->status().ok());
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
     const Slice& key = c_iter->key();
@@ -1073,6 +1074,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
   if (status.ok()) {
     status = c_iter->status();
+  } else {
+    c_iter->status().PermitUncheckedError();
   }
 
   if (status.ok() && sub_compact->builder == nullptr &&

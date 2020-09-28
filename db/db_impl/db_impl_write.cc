@@ -1925,10 +1925,10 @@ Status DB::DeleteRange(const WriteOptions& opt,
                        const Slice& begin_key, const Slice& end_key) {
   WriteBatch batch;
   Status s = batch.DeleteRange(column_family, begin_key, end_key);
-  if (!s.ok()) {
-    return s;
+  if (s.ok()) {
+    s = Write(opt, &batch);
   }
-  return Write(opt, &batch);
+  return s;
 }
 
 Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,

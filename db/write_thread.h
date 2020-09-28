@@ -84,6 +84,8 @@ class WriteThread {
     std::atomic<size_t> running;
     size_t size = 0;
 
+    ~WriteGroup() { status.PermitUncheckedError(); }
+
     struct Iterator {
       Writer* writer;
       Writer* last_writer;
