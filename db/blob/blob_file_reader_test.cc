@@ -191,20 +191,6 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   }
 }
 
-class BlobFileReaderIOErrorTest
-    : public testing::Test,
-      public testing::WithParamInterface<std::string> {
- protected:
-  BlobFileReaderIOErrorTest()
-      : mock_env_(Env::Default()),
-        fault_injection_env_(&mock_env_),
-        sync_point_(GetParam()) {}
-
-  MockEnv mock_env_;
-  FaultInjectionTestEnv fault_injection_env_;
-  std::string sync_point_;
-};
-
 TEST_F(BlobFileReaderTest, TTL) {
   Options options;
   options.env = &mock_env_;
@@ -347,6 +333,20 @@ TEST_F(BlobFileReaderTest, IncorrectColumnFamily) {
                                      &reader)
                   .IsCorruption());
 }
+
+class BlobFileReaderIOErrorTest
+    : public testing::Test,
+      public testing::WithParamInterface<std::string> {
+ protected:
+  BlobFileReaderIOErrorTest()
+      : mock_env_(Env::Default()),
+        fault_injection_env_(&mock_env_),
+        sync_point_(GetParam()) {}
+
+  MockEnv mock_env_;
+  FaultInjectionTestEnv fault_injection_env_;
+  std::string sync_point_;
+};
 
 INSTANTIATE_TEST_CASE_P(BlobFileReaderTest, BlobFileReaderIOErrorTest,
                         ::testing::ValuesIn(std::vector<std::string>{
