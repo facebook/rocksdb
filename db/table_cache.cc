@@ -169,7 +169,7 @@ Status TableCache::FindTable(const ReadOptions& ro,
                            const_cast<bool*>(&no_io));
 
   if (*handle == nullptr) {
-    if (no_io) {  // Don't do IO and return a not-found status
+    if (no_io) {  // Don't do IO and return an incomplete status
       s.PermitUncheckedError();
       return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
