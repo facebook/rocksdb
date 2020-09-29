@@ -386,6 +386,14 @@ TEST_F(BlobFileReaderTest, BlobCRCError) {
                 expiration_range, expiration_range, blob_file_number, key, blob,
                 kNoCompression, &blob_offset, &blob_size);
 
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileReader> reader;
+
+  ASSERT_OK(BlobFileReader::Create(immutable_cf_options, FileOptions(),
+                                   column_family_id, blob_file_read_hist,
+                                   blob_file_number, &reader));
+
   SyncPoint::GetInstance()->SetCallBack(
       "BlobFileReader::VerifyBlob:CheckBlobCRC", [](void* arg) {
         BlobLogRecord* const record = static_cast<BlobLogRecord*>(arg);
@@ -395,14 +403,6 @@ TEST_F(BlobFileReaderTest, BlobCRCError) {
       });
 
   SyncPoint::GetInstance()->EnableProcessing();
-
-  constexpr HistogramImpl* blob_file_read_hist = nullptr;
-
-  std::unique_ptr<BlobFileReader> reader;
-
-  ASSERT_OK(BlobFileReader::Create(immutable_cf_options, FileOptions(),
-                                   column_family_id, blob_file_read_hist,
-                                   blob_file_number, &reader));
 
   PinnableSlice value;
 
