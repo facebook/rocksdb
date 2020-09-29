@@ -170,7 +170,6 @@ Status TableCache::FindTable(const ReadOptions& ro,
 
   if (*handle == nullptr) {
     if (no_io) {  // Don't do IO and return an incomplete status
-      s.PermitUncheckedError();
       return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
     MutexLock load_lock(loader_mutex_.get(key));
