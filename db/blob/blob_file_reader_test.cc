@@ -20,6 +20,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
 #include "test_util/testharness.h"
+#include "util/compression.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -31,8 +32,11 @@ void WriteBlobFile(const ImmutableCFOptions& immutable_cf_options,
                    const ExpirationRange& expiration_range_header,
                    const ExpirationRange& expiration_range_footer,
                    uint64_t blob_file_number, const Slice& key,
-                   const Slice& blob, uint64_t* blob_offset) {
+                   const Slice& blob, CompressionType compression_type,
+                   uint64_t* blob_offset, uint64_t* blob_size) {
   assert(!immutable_cf_options.cf_paths.empty());
+  assert(blob_offset);
+  assert(blob_size);
 
   const std::string blob_file_path = BlobFileName(
       immutable_cf_options.cf_paths.front().path, blob_file_number);
@@ -52,14 +56,38 @@ void WriteBlobFile(const ImmutableCFOptions& immutable_cf_options,
                                 immutable_cf_options.env, statistics,
                                 blob_file_number, use_fsync);
 
-  BlobLogHeader header(column_family_id, kNoCompression, has_ttl,
+  BlobLogHeader header(column_family_id, compression_type, has_ttl,
                        expiration_range_header);
 
   ASSERT_OK(blob_log_writer.WriteHeader(header));
 
+  std::string compressed_blob;
+  Slice blob_to_write;
+
+  if (compression_type == kNoCompression) {
+    blob_to_write = blob;
+    *blob_size = blob.size();
+  } else {
+    CompressionOptions opts;
+    CompressionContext context(compression_type);
+    constexpr uint64_t sample_for_compression = 0;
+
+    CompressionInfo info(opts, context, CompressionDict::GetEmptyDict(),
+                         compression_type, sample_for_compression);
+
+    constexpr uint32_t compression_format_version = 2;
+
+    ASSERT_TRUE(
+        CompressData(blob, info, compression_format_version, &compressed_blob));
+
+    blob_to_write = compressed_blob;
+    *blob_size = compressed_blob.size();
+  }
+
   uint64_t key_offset = 0;
 
-  ASSERT_OK(blob_log_writer.AddRecord(key, blob, &key_offset, blob_offset));
+  ASSERT_OK(
+      blob_log_writer.AddRecord(key, blob_to_write, &key_offset, blob_offset));
 
   BlobLogFooter footer;
   footer.blob_count = 1;
@@ -93,18 +121,18 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   ImmutableCFOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
   constexpr uint64_t blob_file_number = 1;
   constexpr char key[] = "key";
   constexpr char blob[] = "blob";
 
   uint64_t blob_offset = 0;
-
-  constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range;
+  uint64_t blob_size = 0;
 
   WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
                 expiration_range, expiration_range, blob_file_number, key, blob,
-                &blob_offset);
+                kNoCompression, &blob_offset, &blob_size);
 
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
@@ -121,7 +149,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   {
     PinnableSlice value;
 
-    ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, sizeof(blob) - 1,
+    ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, blob_size,
                               kNoCompression, &value));
     ASSERT_EQ(value, blob);
   }
@@ -131,7 +159,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   {
     PinnableSlice value;
 
-    ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, sizeof(blob) - 1,
+    ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, blob_size,
                               kNoCompression, &value));
     ASSERT_EQ(value, blob);
   }
@@ -141,8 +169,8 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     PinnableSlice value;
 
     ASSERT_TRUE(reader
-                    ->GetBlob(read_options, key, blob_offset - 1,
-                              sizeof(blob) - 1, kNoCompression, &value)
+                    ->GetBlob(read_options, key, blob_offset - 1, blob_size,
+                              kNoCompression, &value)
                     .IsCorruption());
   }
 
@@ -150,10 +178,10 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   {
     PinnableSlice value;
 
-    ASSERT_TRUE(reader
-                    ->GetBlob(read_options, key, blob_offset, sizeof(blob) - 1,
-                              kZSTD, &value)
-                    .IsCorruption());
+    ASSERT_TRUE(
+        reader
+            ->GetBlob(read_options, key, blob_offset, blob_size, kZSTD, &value)
+            .IsCorruption());
   }
 
   // Incorrect key size
@@ -164,7 +192,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, shorter_key,
                               blob_offset - (sizeof(key) - sizeof(shorter_key)),
-                              sizeof(blob) - 1, kNoCompression, &value)
+                              blob_size, kNoCompression, &value)
                     .IsCorruption());
   }
 
@@ -175,7 +203,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, incorrect_key, blob_offset,
-                              sizeof(blob) - 1, kNoCompression, &value)
+                              blob_size, kNoCompression, &value)
                     .IsCorruption());
   }
 
@@ -184,7 +212,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     PinnableSlice value;
 
     ASSERT_TRUE(reader
-                    ->GetBlob(read_options, key, blob_offset, sizeof(blob),
+                    ->GetBlob(read_options, key, blob_offset, blob_size + 1,
                               kNoCompression, &value)
                     .IsCorruption());
   }
@@ -200,18 +228,18 @@ TEST_F(BlobFileReaderTest, TTL) {
   ImmutableCFOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = true;
+  constexpr ExpirationRange expiration_range;
   constexpr uint64_t blob_file_number = 1;
   constexpr char key[] = "key";
   constexpr char blob[] = "blob";
 
   uint64_t blob_offset = 0;
-
-  constexpr bool has_ttl = true;
-  constexpr ExpirationRange expiration_range;
+  uint64_t blob_size = 0;
 
   WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
                 expiration_range, expiration_range, blob_file_number, key, blob,
-                &blob_offset);
+                kNoCompression, &blob_offset, &blob_size);
 
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
@@ -235,19 +263,20 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInHeader) {
   ImmutableCFOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range_header(1, 2);
+  constexpr ExpirationRange expiration_range_footer;
   constexpr uint64_t blob_file_number = 1;
   constexpr char key[] = "key";
   constexpr char blob[] = "blob";
 
   uint64_t blob_offset = 0;
-
-  constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range_header(1, 2);
-  constexpr ExpirationRange expiration_range_footer;
+  uint64_t blob_size = 0;
 
   WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
                 expiration_range_header, expiration_range_footer,
-                blob_file_number, key, blob, &blob_offset);
+                blob_file_number, key, blob, kNoCompression, &blob_offset,
+                &blob_size);
 
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
@@ -271,19 +300,20 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInFooter) {
   ImmutableCFOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range_header;
+  constexpr ExpirationRange expiration_range_footer(1, 2);
   constexpr uint64_t blob_file_number = 1;
   constexpr char key[] = "key";
   constexpr char blob[] = "blob";
 
   uint64_t blob_offset = 0;
-
-  constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range_header;
-  constexpr ExpirationRange expiration_range_footer(1, 2);
+  uint64_t blob_size = 0;
 
   WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
                 expiration_range_header, expiration_range_footer,
-                blob_file_number, key, blob, &blob_offset);
+                blob_file_number, key, blob, kNoCompression, &blob_offset,
+                &blob_size);
 
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
@@ -307,18 +337,18 @@ TEST_F(BlobFileReaderTest, IncorrectColumnFamily) {
   ImmutableCFOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
   constexpr uint64_t blob_file_number = 1;
   constexpr char key[] = "key";
   constexpr char blob[] = "blob";
 
   uint64_t blob_offset = 0;
-
-  constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range;
+  uint64_t blob_size = 0;
 
   WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
                 expiration_range, expiration_range, blob_file_number, key, blob,
-                &blob_offset);
+                kNoCompression, &blob_offset, &blob_size);
 
   constexpr HistogramImpl* blob_file_read_hist = nullptr;
 
@@ -343,18 +373,18 @@ TEST_F(BlobFileReaderTest, BlobCRCError) {
   ImmutableCFOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
   constexpr uint64_t blob_file_number = 1;
   constexpr char key[] = "key";
   constexpr char blob[] = "blob";
 
   uint64_t blob_offset = 0;
-
-  constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range;
+  uint64_t blob_size = 0;
 
   WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
                 expiration_range, expiration_range, blob_file_number, key, blob,
-                &blob_offset);
+                kNoCompression, &blob_offset, &blob_size);
 
   SyncPoint::GetInstance()->SetCallBack(
       "BlobFileReader::VerifyBlob:CheckBlobCRC", [](void* arg) {
@@ -377,12 +407,70 @@ TEST_F(BlobFileReaderTest, BlobCRCError) {
   PinnableSlice value;
 
   ASSERT_TRUE(reader
-                  ->GetBlob(ReadOptions(), key, blob_offset, sizeof(blob) - 1,
+                  ->GetBlob(ReadOptions(), key, blob_offset, blob_size,
                             kNoCompression, &value)
                   .IsCorruption());
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(BlobFileReaderTest, Compression) {
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Options options;
+  options.env = &mock_env_;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_Compression"), 0);
+  options.enable_blob_files = true;
+
+  ImmutableCFOptions immutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  constexpr uint64_t blob_file_number = 1;
+  constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
+
+  uint64_t blob_offset = 0;
+  uint64_t blob_size = 0;
+
+  WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
+                expiration_range, expiration_range, blob_file_number, key, blob,
+                kSnappyCompression, &blob_offset, &blob_size);
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileReader> reader;
+
+  ASSERT_OK(BlobFileReader::Create(immutable_cf_options, FileOptions(),
+                                   column_family_id, blob_file_read_hist,
+                                   blob_file_number, &reader));
+
+  // Make sure the blob can be retrieved with and without checksum verification
+  ReadOptions read_options;
+  read_options.verify_checksums = false;
+
+  {
+    PinnableSlice value;
+
+    ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, blob_size,
+                              kSnappyCompression, &value));
+    ASSERT_EQ(value, blob);
+  }
+
+  read_options.verify_checksums = true;
+
+  {
+    PinnableSlice value;
+
+    ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, blob_size,
+                              kSnappyCompression, &value));
+    ASSERT_EQ(value, blob);
+  }
 }
 
 class BlobFileReaderIOErrorTest
@@ -421,18 +509,18 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
   ImmutableCFOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
   constexpr uint64_t blob_file_number = 1;
   constexpr char key[] = "key";
   constexpr char blob[] = "blob";
 
   uint64_t blob_offset = 0;
-
-  constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range;
+  uint64_t blob_size = 0;
 
   WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
                 expiration_range, expiration_range, blob_file_number, key, blob,
-                &blob_offset);
+                kNoCompression, &blob_offset, &blob_size);
 
   SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
     fault_injection_env_.SetFilesystemActive(false,
@@ -459,7 +547,7 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
     PinnableSlice value;
 
     ASSERT_TRUE(reader
-                    ->GetBlob(ReadOptions(), key, blob_offset, sizeof(blob) - 1,
+                    ->GetBlob(ReadOptions(), key, blob_offset, blob_size,
                               kNoCompression, &value)
                     .IsIOError());
   }
@@ -497,18 +585,18 @@ TEST_P(BlobFileReaderDecodingErrorTest, DecodingError) {
   ImmutableCFOptions immutable_cf_options(options);
 
   constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
   constexpr uint64_t blob_file_number = 1;
   constexpr char key[] = "key";
   constexpr char blob[] = "blob";
 
   uint64_t blob_offset = 0;
-
-  constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range;
+  uint64_t blob_size = 0;
 
   WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
                 expiration_range, expiration_range, blob_file_number, key, blob,
-                &blob_offset);
+                kNoCompression, &blob_offset, &blob_size);
 
   SyncPoint::GetInstance()->SetCallBack(sync_point_, [](void* arg) {
     Slice* const slice = static_cast<Slice*>(arg);
@@ -539,7 +627,7 @@ TEST_P(BlobFileReaderDecodingErrorTest, DecodingError) {
     PinnableSlice value;
 
     ASSERT_TRUE(reader
-                    ->GetBlob(ReadOptions(), key, blob_offset, sizeof(blob) - 1,
+                    ->GetBlob(ReadOptions(), key, blob_offset, blob_size,
                               kNoCompression, &value)
                     .IsCorruption());
   }
