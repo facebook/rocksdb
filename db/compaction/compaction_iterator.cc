@@ -617,11 +617,11 @@ void CompactionIterator::NextFromInput() {
         //       These will be correctly set below.
         key_ = merge_out_iter_.key();
         value_ = merge_out_iter_.value();
-        Status status = ParseInternalKey(key_, &ikey_);
+        Status pikStatus = ParseInternalKey(key_, &ikey_);
         // MergeUntil stops when it encounters a corrupt key and does not
         // include them in the result, so we expect the keys here to valid.
-        assert(status.ok());
-        if (!status.ok()) {
+        assert(pikStatus.ok());
+        if (!pikStatus.ok()) {
           ROCKS_LOG_FATAL(info_log_, "Invalid key (%s) in compaction",
                           key_.ToString(true).c_str());
         }
