@@ -106,7 +106,7 @@ struct BlobLogRecord {
 
   // Note that the offset field of BlobIndex actually points to the blob value
   // as opposed to the start of the blob record. The following method can
-  // be used to calculate the adjustment needed to read the blob CRC field.
+  // be used to calculate the adjustment needed to read the blob record header.
   static uint64_t CalculateAdjustmentForRecordHeader(uint64_t key_size);
 
   uint64_t key_size = 0;
