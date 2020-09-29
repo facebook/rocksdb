@@ -16,10 +16,10 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Status;
-struct ReadOptions;
 struct ImmutableCFOptions;
 struct FileOptions;
 class HistogramImpl;
+struct ReadOptions;
 class Slice;
 class PinnableSlice;
 
