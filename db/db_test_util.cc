@@ -1182,9 +1182,9 @@ void DBTestBase::FillLevels(const std::string& smallest,
 void DBTestBase::MoveFilesToLevel(int level, int cf) {
   for (int l = 0; l < level; ++l) {
     if (cf > 0) {
-      dbfull()->TEST_CompactRange(l, nullptr, nullptr, handles_[cf]);
+      EXPECT_OK(dbfull()->TEST_CompactRange(l, nullptr, nullptr, handles_[cf]));
     } else {
-      dbfull()->TEST_CompactRange(l, nullptr, nullptr);
+      EXPECT_OK(dbfull()->TEST_CompactRange(l, nullptr, nullptr));
     }
   }
 }
@@ -1436,7 +1436,7 @@ std::vector<std::uint64_t> DBTestBase::ListTableFiles(Env* env,
                                                       const std::string& path) {
   std::vector<std::string> files;
   std::vector<uint64_t> file_numbers;
-  env->GetChildren(path, &files);
+  EXPECT_OK(env->GetChildren(path, &files));
   uint64_t number;
   FileType type;
   for (size_t i = 0; i < files.size(); ++i) {

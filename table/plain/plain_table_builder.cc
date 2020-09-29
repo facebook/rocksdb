@@ -116,6 +116,10 @@ PlainTableBuilder::PlainTableBuilder(
 }
 
 PlainTableBuilder::~PlainTableBuilder() {
+  // They are supposed to have been passed to users through Finish()
+  // if the file succeeds.
+  status_.PermitUncheckedError();
+  io_status_.PermitUncheckedError();
 }
 
 void PlainTableBuilder::Add(const Slice& key, const Slice& value) {

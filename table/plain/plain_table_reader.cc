@@ -113,6 +113,8 @@ PlainTableReader::PlainTableReader(
       table_properties_(nullptr) {}
 
 PlainTableReader::~PlainTableReader() {
+  // Should fix?
+  status_.PermitUncheckedError();
 }
 
 Status PlainTableReader::Open(
