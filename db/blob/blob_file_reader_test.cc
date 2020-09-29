@@ -473,6 +473,65 @@ TEST_F(BlobFileReaderTest, Compression) {
   }
 }
 
+TEST_F(BlobFileReaderTest, UncompressionError) {
+  if (!Snappy_Supported()) {
+    return;
+  }
+
+  Options options;
+  options.env = &mock_env_;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&mock_env_,
+                            "BlobFileReaderTest_UncompressionError"),
+      0);
+  options.enable_blob_files = true;
+
+  ImmutableCFOptions immutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+  constexpr uint64_t blob_file_number = 1;
+  constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
+
+  uint64_t blob_offset = 0;
+  uint64_t blob_size = 0;
+
+  WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
+                expiration_range, expiration_range, blob_file_number, key, blob,
+                kSnappyCompression, &blob_offset, &blob_size);
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileReader> reader;
+
+  ASSERT_OK(BlobFileReader::Create(immutable_cf_options, FileOptions(),
+                                   column_family_id, blob_file_read_hist,
+                                   blob_file_number, &reader));
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileReader::UncompressBlobIfNeeded:TamperWithResult", [](void* arg) {
+        CacheAllocationPtr* const output =
+            static_cast<CacheAllocationPtr*>(arg);
+        assert(output);
+
+        output->reset();
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  PinnableSlice value;
+
+  ASSERT_TRUE(reader
+                  ->GetBlob(ReadOptions(), key, blob_offset, blob_size,
+                            kSnappyCompression, &value)
+                  .IsCorruption());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 class BlobFileReaderIOErrorTest
     : public testing::Test,
       public testing::WithParamInterface<std::string> {

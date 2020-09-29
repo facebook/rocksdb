@@ -399,6 +399,10 @@ Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
   CacheAllocationPtr output =
       UncompressData(info, value_slice.data(), value_slice.size(),
                      &uncompressed_size, compression_format_version, allocator);
+
+  TEST_SYNC_POINT_CALLBACK(
+      "BlobFileReader::UncompressBlobIfNeeded:TamperWithResult", &output);
+
   if (!output) {
     return Status::Corruption("Unable to uncompress blob");
   }
