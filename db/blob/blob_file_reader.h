@@ -22,7 +22,6 @@ struct FileOptions;
 class HistogramImpl;
 class Slice;
 class PinnableSlice;
-class RandomAccessFileReader;
 
 class BlobFileReader {
  public:
