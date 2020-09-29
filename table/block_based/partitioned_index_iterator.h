@@ -38,7 +38,7 @@ class PartitionedIndexIterator : public InternalIteratorBase<IndexValue> {
         lookup_context_(caller),
         block_prefetcher_(compaction_readahead_size) {}
 
-  ~PartitionedIndexIterator() {}
+  ~PartitionedIndexIterator() override {}
 
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice&) override {
