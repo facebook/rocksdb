@@ -170,7 +170,8 @@ Status TableCache::FindTable(const ReadOptions& ro,
 
   if (*handle == nullptr) {
     if (no_io) {  // Don't do IO and return a not-found status
-      return Status::Incomplete("Table not found in table_cache, no_io is set");
+      s = Status::Incomplete("Table not found in table_cache, no_io is set");
+      return s;
     }
     MutexLock load_lock(loader_mutex_.get(key));
     // We check the cache again under loading mutex
