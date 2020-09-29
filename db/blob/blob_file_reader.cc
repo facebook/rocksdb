@@ -124,7 +124,7 @@ Status BlobFileReader::OpenFile(
   return Status::OK();
 }
 
-Status BlobFileReader::ReadHeader(RandomAccessFileReader* file_reader,
+Status BlobFileReader::ReadHeader(const RandomAccessFileReader* file_reader,
                                   uint32_t column_family_id,
                                   CompressionType* compression_type) {
   assert(file_reader);
@@ -175,7 +175,7 @@ Status BlobFileReader::ReadHeader(RandomAccessFileReader* file_reader,
 }
 
 Status BlobFileReader::ReadFooter(uint64_t file_size,
-                                  RandomAccessFileReader* file_reader) {
+                                  const RandomAccessFileReader* file_reader) {
   assert(file_size >= BlobLogHeader::kSize + BlobLogFooter::kSize);
   assert(file_reader);
 
@@ -217,7 +217,7 @@ Status BlobFileReader::ReadFooter(uint64_t file_size,
   return Status::OK();
 }
 
-Status BlobFileReader::ReadFromFile(RandomAccessFileReader* file_reader,
+Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
                                     uint64_t read_offset, size_t read_size,
                                     Slice* slice, std::string* buf,
                                     AlignedBuf* aligned_buf) {

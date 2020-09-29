@@ -52,14 +52,14 @@ class BlobFileReader {
                          uint64_t blob_file_number, uint64_t* file_size,
                          std::unique_ptr<RandomAccessFileReader>* file_reader);
 
-  static Status ReadHeader(RandomAccessFileReader* file_reader,
+  static Status ReadHeader(const RandomAccessFileReader* file_reader,
                            uint32_t column_family_id,
                            CompressionType* compression_type);
 
   static Status ReadFooter(uint64_t file_size,
-                           RandomAccessFileReader* file_reader);
+                           const RandomAccessFileReader* file_reader);
 
-  static Status ReadFromFile(RandomAccessFileReader* file_reader,
+  static Status ReadFromFile(const RandomAccessFileReader* file_reader,
                              uint64_t read_offset, size_t read_size,
                              Slice* slice, std::string* buf,
                              AlignedBuf* aligned_buf);
