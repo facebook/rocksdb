@@ -417,6 +417,86 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+class BlobFileReaderDecodingErrorTest
+    : public testing::Test,
+      public testing::WithParamInterface<std::string> {
+ protected:
+  BlobFileReaderDecodingErrorTest()
+      : mock_env_(Env::Default()), sync_point_(GetParam()) {}
+
+  MockEnv mock_env_;
+  std::string sync_point_;
+};
+
+INSTANTIATE_TEST_CASE_P(BlobFileReaderTest, BlobFileReaderDecodingErrorTest,
+                        ::testing::ValuesIn(std::vector<std::string>{
+                            "BlobFileReader::ReadHeader:TamperWithResult",
+                            "BlobFileReader::ReadFooter:TamperWithResult",
+                            "BlobFileReader::GetBlob:TamperWithResult"}));
+
+TEST_P(BlobFileReaderDecodingErrorTest, DecodingError) {
+  Options options;
+  options.env = &mock_env_;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&mock_env_,
+                            "BlobFileReaderDecodingErrorTest_DecodingError"),
+      0);
+  options.enable_blob_files = true;
+
+  ImmutableCFOptions immutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr uint64_t blob_file_number = 1;
+  constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
+
+  uint64_t blob_offset = 0;
+
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+
+  WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
+                expiration_range, expiration_range, blob_file_number, key, blob,
+                &blob_offset);
+
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [](void* arg) {
+    Slice* const slice = static_cast<Slice*>(arg);
+    assert(slice);
+    assert(!slice->empty());
+
+    slice->remove_prefix(1);
+  });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileReader> reader;
+
+  const Status s = BlobFileReader::Create(immutable_cf_options, FileOptions(),
+                                          column_family_id, blob_file_read_hist,
+                                          blob_file_number, &reader);
+
+  const bool fail_during_create =
+      sync_point_ != "BlobFileReader::GetBlob:TamperWithResult";
+
+  if (fail_during_create) {
+    ASSERT_TRUE(s.IsCorruption());
+  } else {
+    ASSERT_OK(s);
+
+    PinnableSlice value;
+
+    ASSERT_TRUE(reader
+                    ->GetBlob(ReadOptions(), key, blob_offset, sizeof(blob) - 1,
+                              kNoCompression, &value)
+                    .IsCorruption());
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -146,6 +146,9 @@ Status BlobFileReader::ReadHeader(RandomAccessFileReader* file_reader,
     if (!s.ok()) {
       return s;
     }
+
+    TEST_SYNC_POINT_CALLBACK("BlobFileReader::ReadHeader:TamperWithResult",
+                             &header_slice);
   }
 
   BlobLogHeader header;
@@ -192,6 +195,9 @@ Status BlobFileReader::ReadFooter(uint64_t file_size,
     if (!s.ok()) {
       return s;
     }
+
+    TEST_SYNC_POINT_CALLBACK("BlobFileReader::ReadFooter:TamperWithResult",
+                             &footer_slice);
   }
 
   BlobLogFooter footer;
@@ -301,6 +307,9 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
     if (!s.ok()) {
       return s;
     }
+
+    TEST_SYNC_POINT_CALLBACK("BlobFileReader::GetBlob:TamperWithResult",
+                             &record_slice);
   }
 
   if (read_options.verify_checksums) {
