@@ -145,8 +145,8 @@ class DBIter final : public Iterator {
     if (valid_) {
       status_.PermitUncheckedError();
     }
-    return valid_;
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+    return valid_;
   }
   Slice key() const override {
     assert(valid_);
