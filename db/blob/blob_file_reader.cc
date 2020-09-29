@@ -8,7 +8,6 @@
 #include <cassert>
 
 #include "db/blob/blob_log_format.h"
-#include "file/file_util.h"
 #include "file/filename.h"
 #include "options/cf_options.h"
 #include "rocksdb/file_system.h"
