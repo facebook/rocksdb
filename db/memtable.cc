@@ -786,13 +786,10 @@ static bool SaveValue(void* arg, const char* entry) {
           msg.append("User key: " + user_key_slice.ToString(/*hex=*/true) +
                      ". ");
           msg.append("seq: " + std::to_string(seq) + ".");
-          *(s->status) = Status::Corruption(msg.c_str());
-          return false;
         }
         *(s->status) = Status::Corruption(msg.c_str());
+        return false;
       }
-        assert(false);
-        return true;
     }
   }
 

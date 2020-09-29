@@ -283,12 +283,9 @@ void CompactionIterator::NextFromInput() {
                      ". ");
           msg.append("key type: " + std::to_string(ikey_.type) + ".");
           msg.append("seq: " + std::to_string(ikey_.sequence) + ".");
-          status_ = Status::Corruption(msg.c_str());
-          return;
         }
         status_ = Status::Corruption(msg.c_str());
-        assert(false);
-        break;
+        return;
       }
       key_ = current_key_.SetInternalKey(key_);
       has_current_user_key_ = false;

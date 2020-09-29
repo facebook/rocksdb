@@ -622,13 +622,12 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
 TEST_F(CorruptionTest, LogCorruptionErrorsInCompactionIterator) {
   Options options;
   options.create_if_missing = true;
-
-  Status s;
   options.allow_data_in_errors = true;
   auto mode = mock::MockTableFactory::kCorruptKey;
   delete db_;
   db_ = nullptr;
-  s = DestroyDB(dbname_, options);
+  ASSERT_OK(DestroyDB(dbname_, options));
+
   std::shared_ptr<mock::MockTableFactory> mock =
       std::make_shared<mock::MockTableFactory>();
   mock->SetCorruptionMode(mode);
@@ -640,7 +639,7 @@ TEST_F(CorruptionTest, LogCorruptionErrorsInCompactionIterator) {
 
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   ASSERT_OK(dbi->TEST_FlushMemTable());
-  s = dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true);
+  Status s = dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsCorruption());
 }
