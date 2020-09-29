@@ -220,4 +220,9 @@ inline Unsigned128 DecodeFixed128(const char* ptr) {
   return (rv << 64) | DecodeFixed64(ptr);
 }
 
+template <typename T>
+struct IsUnsignedUpTo128
+    : std::integral_constant<bool, std::is_unsigned<T>::value ||
+                                       std::is_same<T, Unsigned128>::value> {};
+
 }  // namespace ROCKSDB_NAMESPACE
