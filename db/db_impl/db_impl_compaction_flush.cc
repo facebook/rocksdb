@@ -126,10 +126,12 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
     MarkLogsSynced(current_log_number - 1, true, io_s);
     if (!io_s.ok()) {
       if (total_log_size_ > 0) {
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
+            .PermitUncheckedError();
       } else {
         // If the WAL is empty, we use different error reason
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL)
+            .PermitUncheckedError();
       }
       TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return io_s;
@@ -186,7 +188,8 @@ Status DBImpl::FlushMemTableToOutputFile(
     s = io_s;
     if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
         !io_s.IsColumnFamilyDropped()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
+          .PermitUncheckedError();
     }
   } else {
     TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Skip");
@@ -1197,9 +1200,11 @@ Status DBImpl::CompactFilesImpl(
                    job_context->job_id, status.ToString().c_str());
     IOStatus io_s = compaction_job.io_status();
     if (!io_s.ok()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kCompaction);
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kCompaction)
+          .PermitUncheckedError();
     } else {
-      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
+      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction)
+          .PermitUncheckedError();
     }
   }
 
@@ -2947,7 +2952,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     mutex_.Unlock();
     TEST_SYNC_POINT_CALLBACK(
         "DBImpl::BackgroundCompaction:NonTrivial:BeforeRun", nullptr);
-    compaction_job.Run();
+    // Should handle erorr?
+    compaction_job.Run().PermitUncheckedError();
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
 
@@ -2965,6 +2971,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   if (status.ok() && !io_s.ok()) {
     status = io_s;
+  } else {
+    io_s.PermitUncheckedError();
   }
 
   if (c != nullptr) {
@@ -3001,9 +3009,10 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       auto err_reason = versions_->io_status().ok()
                             ? BackgroundErrorReason::kCompaction
                             : BackgroundErrorReason::kManifestWrite;
-      error_handler_.SetBGError(io_s, err_reason);
+      error_handler_.SetBGError(io_s, err_reason).PermitUncheckedError();
     } else {
-      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
+      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction)
+          .PermitUncheckedError();
     }
     if (c != nullptr && !is_manual && !error_handler_.IsBGWorkStopped()) {
       // Put this cfd back in the compaction queue so we can retry after some

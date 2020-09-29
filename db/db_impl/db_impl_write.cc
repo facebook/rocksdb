@@ -203,7 +203,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       *seq_used = w.sequence;
     }
     // write is complete and leader has updated sequence
-    assert(status.ok());
+    // Should we handle it?
+    status.PermitUncheckedError();
     return w.FinalStatus();
   }
   // else we are the leader of the write batch group
@@ -456,7 +457,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (status.ok()) {
     status = w.FinalStatus();
   }
-  //  io_s.PermitUncheckedError();
   return status;
 }
 
