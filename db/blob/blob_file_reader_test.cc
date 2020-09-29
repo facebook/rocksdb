@@ -121,7 +121,6 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
   {
     PinnableSlice value;
 
-
     ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, sizeof(blob) - 1,
                               kNoCompression, &value));
     ASSERT_EQ(value, blob);
@@ -332,6 +331,58 @@ TEST_F(BlobFileReaderTest, IncorrectColumnFamily) {
                                      blob_file_read_hist, blob_file_number,
                                      &reader)
                   .IsCorruption());
+}
+
+TEST_F(BlobFileReaderTest, BlobCRCError) {
+  Options options;
+  options.env = &mock_env_;
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&mock_env_, "BlobFileReaderTest_BlobCRCError"), 0);
+  options.enable_blob_files = true;
+
+  ImmutableCFOptions immutable_cf_options(options);
+
+  constexpr uint32_t column_family_id = 1;
+  constexpr uint64_t blob_file_number = 1;
+  constexpr char key[] = "key";
+  constexpr char blob[] = "blob";
+
+  uint64_t blob_offset = 0;
+
+  constexpr bool has_ttl = false;
+  constexpr ExpirationRange expiration_range;
+
+  WriteBlobFile(immutable_cf_options, column_family_id, has_ttl,
+                expiration_range, expiration_range, blob_file_number, key, blob,
+                &blob_offset);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileReader::VerifyBlob:CheckBlobCRC", [](void* arg) {
+        BlobLogRecord* const record = static_cast<BlobLogRecord*>(arg);
+        assert(record);
+
+        record->blob_crc = 0xfaceb00c;
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  std::unique_ptr<BlobFileReader> reader;
+
+  ASSERT_OK(BlobFileReader::Create(immutable_cf_options, FileOptions(),
+                                   column_family_id, blob_file_read_hist,
+                                   blob_file_number, &reader));
+
+  PinnableSlice value;
+
+  ASSERT_TRUE(reader
+                  ->GetBlob(ReadOptions(), key, blob_offset, sizeof(blob) - 1,
+                            kNoCompression, &value)
+                  .IsCorruption());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 class BlobFileReaderIOErrorTest

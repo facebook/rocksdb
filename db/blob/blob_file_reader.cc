@@ -365,6 +365,9 @@ Status BlobFileReader::VerifyBlob(const Slice& record_slice,
   record.value = Slice(record.key.data() + key_size, value_size);
 
   {
+    TEST_SYNC_POINT_CALLBACK("BlobFileReader::VerifyBlob:CheckBlobCRC",
+                             &record);
+
     const Status s = record.CheckBlobCRC();
     if (!s.ok()) {
       return s;
