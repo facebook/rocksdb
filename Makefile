@@ -609,6 +609,7 @@ ifdef ASSERT_STATUS_CHECKED
 		merger_test \
 		mock_env_test \
 		object_registry_test \
+		repair_test \
 		configurable_test \
 		options_settable_test \
 		options_test \
