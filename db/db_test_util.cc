@@ -1419,8 +1419,8 @@ Status DBTestBase::GetAllSSTFiles(
     for (auto& file_name : files) {
       uint64_t number;
       FileType type;
-      std::string file_path = dbname_ + "/" + file_name;
       if (ParseFileName(file_name, &number, &type) && type == kTableFile) {
+        std::string file_path = dbname_ + "/" + file_name;
         uint64_t file_size = 0;
         s = env_->GetFileSize(file_path, &file_size);
         if (!s.ok()) {
