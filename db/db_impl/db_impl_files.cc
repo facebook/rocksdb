@@ -762,10 +762,13 @@ Status DBImpl::FinishBestEffortsRecovery() {
   uint64_t next_file_number = versions_->current_next_file_number();
   uint64_t largest_file_number = next_file_number;
   std::set<std::string> files_to_delete;
+  Status s;
   for (const auto& path : paths) {
     std::vector<std::string> files;
-    // Should we handle it?
-    env_->GetChildren(path, &files).PermitUncheckedError();
+    s = env_->GetChildren(path, &files);
+    if (!s.ok()) {
+      break;
+    }
     for (const auto& fname : files) {
       uint64_t number = 0;
       FileType type;
@@ -781,6 +784,10 @@ Status DBImpl::FinishBestEffortsRecovery() {
       }
     }
   }
+  if (!s.ok()) {
+    return s;
+  }
+
   if (largest_file_number > next_file_number) {
     versions_->next_file_number_.store(largest_file_number + 1);
   }
@@ -792,7 +799,7 @@ Status DBImpl::FinishBestEffortsRecovery() {
   assert(default_cfd);
   // Even if new_descriptor_log is false, we will still switch to a new
   // MANIFEST and update CURRENT file, since this is in recovery.
-  Status s = versions_->LogAndApply(
+  s = versions_->LogAndApply(
       default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
       directories_.GetDbDir(), /*new_descriptor_log*/ false);
   if (!s.ok()) {
