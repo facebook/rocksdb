@@ -1999,7 +1999,6 @@ bool BlockBasedTable::PrefixMayMatch(
   }
 
   bool may_match = true;
-  Status s;
 
   // First, try check with full filter
   FilterBlockReader* const filter = rep_->filter.get();
@@ -2585,6 +2584,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
                 read_options, results[idx_in_batch], &first_biter,
                 statuses[idx_in_batch]);
             reusing_block = false;
+          } else {
+            // If handler is null and result is empty, then the status is never
+            // set, which should be the initial value: ok().
+            assert(statuses[idx_in_batch].ok());
           }
           biter = &first_biter;
           idx_in_batch++;
