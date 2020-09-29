@@ -63,9 +63,9 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ROCKSDB_NAMESPACE::ParsedInternalKey ikey;
     ikey.clear();
-    bool parsed = ROCKSDB_NAMESPACE::ParseInternalKey(iter->key(), &ikey);
-    if (!parsed) {
-      assert(parsed);
+    Status s = ROCKSDB_NAMESPACE::ParseInternalKey(iter->key(), &ikey);
+    if (s != Status::OK()) {
+      assert(0); // TODO VRK
     }
     switch (ikey.type) {
       case ROCKSDB_NAMESPACE::kTypeValue:

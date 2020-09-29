@@ -33,7 +33,7 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
   if (smallest != nullptr) {
     pinned_bounds_.emplace_back();
     auto& parsed_smallest = pinned_bounds_.back();
-    if (!ParseInternalKey(smallest->Encode(), &parsed_smallest)) {
+    if (ParseInternalKey(smallest->Encode(), &parsed_smallest) != Status::OK()) {
       assert(false);
     }
     smallest_ = &parsed_smallest;
@@ -41,7 +41,7 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
   if (largest != nullptr) {
     pinned_bounds_.emplace_back();
     auto& parsed_largest = pinned_bounds_.back();
-    if (!ParseInternalKey(largest->Encode(), &parsed_largest)) {
+    if (ParseInternalKey(largest->Encode(), &parsed_largest) != Status::OK()) {
       assert(false);
     }
     if (parsed_largest.type == kTypeRangeDeletion &&

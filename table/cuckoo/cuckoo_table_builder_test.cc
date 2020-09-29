@@ -47,7 +47,7 @@ class CuckooBuilderTest : public testing::Test {
     uint64_t num_deletions = 0;
     for (const auto& key : keys) {
       ParsedInternalKey parsed;
-      if (ParseInternalKey(key, &parsed) && parsed.type == kTypeDeletion) {
+      if (ParseInternalKey(key, &parsed) == Status::OK() && parsed.type == kTypeDeletion) {
         num_deletions++;
       }
     }

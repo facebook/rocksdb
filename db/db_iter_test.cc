@@ -99,8 +99,8 @@ class TestIterator : public InternalIterator {
     }
     for (auto it = data_.begin(); it != data_.end(); ++it) {
       ParsedInternalKey ikey;
-      bool ok __attribute__((__unused__)) = ParseInternalKey(it->first, &ikey);
-      assert(ok);
+      Status s __attribute__((__unused__)) = ParseInternalKey(it->first, &ikey);
+      assert(s.ok());
       if (ikey.user_key != _key) {
         continue;
       }
