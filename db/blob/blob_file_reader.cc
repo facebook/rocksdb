@@ -274,7 +274,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 
   const uint64_t key_size = user_key.size();
 
-  if (!IsValidBlobOffset(offset, key_size)) {
+  if (!IsValidBlobOffset(offset, key_size, value_size, file_size_)) {
     return Status::Corruption("Invalid blob offset");
   }
 

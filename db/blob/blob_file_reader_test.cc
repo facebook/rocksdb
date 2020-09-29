@@ -164,12 +164,22 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
     ASSERT_EQ(value, blob);
   }
 
-  // Invalid offset
+  // Invalid offset (too close to start of file)
   {
     PinnableSlice value;
 
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, key, blob_offset - 1, blob_size,
+                              kNoCompression, &value)
+                    .IsCorruption());
+  }
+
+  // Invalid offset (too close to end of file)
+  {
+    PinnableSlice value;
+
+    ASSERT_TRUE(reader
+                    ->GetBlob(read_options, key, blob_offset + 1, blob_size,
                               kNoCompression, &value)
                     .IsCorruption());
   }
