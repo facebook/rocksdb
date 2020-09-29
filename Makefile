@@ -589,6 +589,7 @@ ifdef ASSERT_STATUS_CHECKED
 		db_basic_test \
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
+		db_universal_compaction_test \
 		db_options_test \
 		db_properties_test \
 		db_secondary_test \
@@ -661,6 +662,7 @@ ifdef ASSERT_STATUS_CHECKED
 		column_family_test \
 		file_reader_writer_test \
 		corruption_test \
+		db_universal_compaction_test
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
