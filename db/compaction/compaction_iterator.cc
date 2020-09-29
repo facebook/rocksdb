@@ -430,7 +430,8 @@ void CompactionIterator::NextFromInput() {
 
       // Check whether the next key exists, is not corrupt, and is the same key
       // as the single delete.
-      if (input_->Valid() && ParseInternalKey(input_->key(), &next_ikey) == Status::OK() &&
+      if (input_->Valid() &&
+          ParseInternalKey(input_->key(), &next_ikey) == Status::OK() &&
           cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
         // Check whether the next key belongs to the same snapshot as the
         // SingleDelete.
@@ -577,7 +578,8 @@ void CompactionIterator::NextFromInput() {
       // Skip over all versions of this key that happen to occur in the same snapshot
       // range as the delete
       while (!IsPausingManualCompaction() && !IsShuttingDown() &&
-             input_->Valid() && (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
+             input_->Valid() &&
+             (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
              cmp_->Equal(ikey_.user_key, next_ikey.user_key) &&
              (prev_snapshot == 0 ||
               DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
@@ -585,7 +587,8 @@ void CompactionIterator::NextFromInput() {
       }
       // If you find you still need to output a row with this key, we need to output the
       // delete too
-      if (input_->Valid() && (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
+      if (input_->Valid() &&
+          (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
           cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
         valid_ = true;
         at_next_ = true;
@@ -602,8 +605,8 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      s = merge_helper_->MergeUntil(input_, range_del_agg_,
-                                           prev_snapshot, bottommost_level_);
+      s = merge_helper_->MergeUntil(input_, range_del_agg_, prev_snapshot,
+                                    bottommost_level_);
       merge_out_iter_.SeekToFirst();
 
       if (!s.ok() && !s.IsMergeInProgress()) {

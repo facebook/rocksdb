@@ -279,7 +279,7 @@ Status PlainTableKeyDecoder::ReadInternalKey(
       return file_reader_.status();
     }
     *internal_key_valid = true;
-    if (ParseInternalKey(*internal_key, parsed_key) != Status::OK() ) {
+    if (ParseInternalKey(*internal_key, parsed_key) != Status::OK()) {
       return Status::Corruption(
           Slice("Incorrect value type found when reading the next key"));
     }

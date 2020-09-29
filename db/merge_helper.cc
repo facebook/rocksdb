@@ -141,8 +141,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
 
   Status s = ParseInternalKey(original_key, &orig_ikey);
   assert(s.ok());
-  if (!s.ok())
-    return s;
+  if (!s.ok()) return s;
 
   bool hit_the_next_user_key = false;
   for (; iter->Valid(); iter->Next(), original_key_is_iter = false) {
@@ -269,7 +268,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         if (keys_.size() == 1) {
           // we need to re-anchor the orig_ikey because it was anchored by
           // original_key before
-          ParseInternalKey(keys_.back(), &orig_ikey); //TODO - VRK
+          ParseInternalKey(keys_.back(), &orig_ikey);  // TODO - VRK
         }
         if (filter == CompactionFilter::Decision::kKeep) {
           merge_context_.PushOperand(

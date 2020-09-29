@@ -33,7 +33,8 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
   if (smallest != nullptr) {
     pinned_bounds_.emplace_back();
     auto& parsed_smallest = pinned_bounds_.back();
-    if (ParseInternalKey(smallest->Encode(), &parsed_smallest) != Status::OK()) {
+    if (ParseInternalKey(smallest->Encode(), &parsed_smallest) !=
+        Status::OK()) {
       assert(false);
     }
     smallest_ = &parsed_smallest;

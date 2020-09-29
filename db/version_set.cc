@@ -93,8 +93,7 @@ Status OverlapWithIterator(const Comparator* ucmp,
   if (iter->Valid()) {
     ParsedInternalKey seek_result;
     Status s = ParseInternalKey(iter->key(), &seek_result);
-    if (s != Status::OK())
-      return s;
+    if (s != Status::OK()) return s;
 
     if (ucmp->CompareWithoutTimestamp(seek_result.user_key, largest_user_key) <=
         0) {

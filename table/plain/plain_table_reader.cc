@@ -456,8 +456,7 @@ Status PlainTableReader::GetOffset(PlainTableKeyDecoder* decoder,
   ParsedInternalKey mid_key;
   ParsedInternalKey parsed_target;
   Status s = ParseInternalKey(target, &parsed_target);
-  if (!s.ok())
-    return s;
+  if (!s.ok()) return s;
 
   // The key is between [low, high). Do a binary search between it.
   while (high - low > 1) {
@@ -593,8 +592,7 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
   ParsedInternalKey found_key;
   ParsedInternalKey parsed_target;
   s = ParseInternalKey(target, &parsed_target);
-  if (!s.ok())
-    return Status::Corruption(Slice());
+  if (!s.ok()) return Status::Corruption(Slice());
 
   Slice found_value;
   while (offset < file_info_.data_end_offset) {
