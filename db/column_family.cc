@@ -1120,7 +1120,7 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
       if (memtable_iter->Valid() &&
           ParseInternalKey(memtable_iter->key(), &seek_result) !=
               Status::OK()) {
-        status = Status::Corruption("DB have corrupted keys");  // TODO - VRK
+        status = Status::Corruption("DB have corrupted keys");
       }
     }
     if (status.ok()) {

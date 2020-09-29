@@ -1374,7 +1374,7 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   while (iter->Valid()) {
     ParsedInternalKey ikey;
     ikey.clear();
-    ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), Status::OK());
+    ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
 
     // checks sequence number for updates
     ASSERT_EQ(ikey.sequence, (unsigned)seq--);
@@ -1575,7 +1575,7 @@ void DBTestBase::VerifyDBInternal(
   for (auto p : true_data) {
     ASSERT_TRUE(iter->Valid());
     ParsedInternalKey ikey;
-    ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), Status::OK());
+    ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
     ASSERT_EQ(p.first, ikey.user_key);
     ASSERT_EQ(p.second, iter->value());
     iter->Next();

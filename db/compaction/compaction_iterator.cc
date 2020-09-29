@@ -269,8 +269,8 @@ void CompactionIterator::NextFromInput() {
     value_ = input_->value();
     iter_stats_.num_input_records++;
 
-    Status s = ParseInternalKey(key_, &ikey_);
-    if (!s.ok()) {
+    Status pikStatus = ParseInternalKey(key_, &ikey_);
+    if (!pikStatus.ok()) {
       iter_stats_.num_input_corrupt_records++;
       // If `expect_valid_internal_key_` is false, return the corrupted key
       // and let the caller decide what to do with it.
@@ -605,8 +605,8 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      s = merge_helper_->MergeUntil(input_, range_del_agg_, prev_snapshot,
-                                    bottommost_level_);
+      Status s = merge_helper_->MergeUntil(input_, range_del_agg_,
+                                           prev_snapshot, bottommost_level_);
       merge_out_iter_.SeekToFirst();
 
       if (!s.ok() && !s.IsMergeInProgress()) {
@@ -617,7 +617,7 @@ void CompactionIterator::NextFromInput() {
         //       These will be correctly set below.
         key_ = merge_out_iter_.key();
         value_ = merge_out_iter_.value();
-        Status pikStatus = ParseInternalKey(key_, &ikey_);
+        pikStatus = ParseInternalKey(key_, &ikey_);
         // MergeUntil stops when it encounters a corrupt key and does not
         // include them in the result, so we expect the keys here to valid.
         assert(pikStatus.ok());
