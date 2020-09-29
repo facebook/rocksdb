@@ -60,7 +60,7 @@ Status BlobFileReader::Create(
   }
 
   blob_file_reader->reset(
-      new BlobFileReader(std::move(file_reader), compression_type));
+      new BlobFileReader(std::move(file_reader), file_size, compression_type));
 
   return Status::OK();
 }
@@ -255,9 +255,10 @@ Status BlobFileReader::ReadFromFile(RandomAccessFileReader* file_reader,
 }
 
 BlobFileReader::BlobFileReader(
-    std::unique_ptr<RandomAccessFileReader>&& file_reader,
+    std::unique_ptr<RandomAccessFileReader>&& file_reader, uint64_t file_size,
     CompressionType compression_type)
     : file_reader_(std::move(file_reader)),
+      file_size_(file_size),
       compression_type_(compression_type) {
   assert(file_reader_);
 }

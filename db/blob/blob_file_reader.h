@@ -44,7 +44,7 @@ class BlobFileReader {
 
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
-                 CompressionType compression_type);
+                 uint64_t file_size, CompressionType compression_type);
 
   static Status OpenFile(const ImmutableCFOptions& immutable_cf_options,
                          const FileOptions& file_opts,
@@ -74,6 +74,7 @@ class BlobFileReader {
   static void SaveValue(PinnableSlice* dst, const Slice& src);
 
   std::unique_ptr<RandomAccessFileReader> file_reader_;
+  uint64_t file_size_;
   CompressionType compression_type_;
 };
 
