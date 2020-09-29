@@ -6,6 +6,7 @@
 #include "db/blob/blob_file_reader.h"
 
 #include <cassert>
+#include <string>
 
 #include "db/blob/blob_log_format.h"
 #include "file/filename.h"
@@ -131,7 +132,7 @@ Status BlobFileReader::ReadHeader(const RandomAccessFileReader* file_reader,
   assert(compression_type);
 
   Slice header_slice;
-  std::string buf;
+  Buffer buf;
   AlignedBuf aligned_buf;
 
   {
@@ -180,7 +181,7 @@ Status BlobFileReader::ReadFooter(uint64_t file_size,
   assert(file_reader);
 
   Slice footer_slice;
-  std::string buf;
+  Buffer buf;
   AlignedBuf aligned_buf;
 
   {
@@ -219,7 +220,7 @@ Status BlobFileReader::ReadFooter(uint64_t file_size,
 
 Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
                                     uint64_t read_offset, size_t read_size,
-                                    Slice* slice, std::string* buf,
+                                    Slice* slice, Buffer* buf,
                                     AlignedBuf* aligned_buf) {
   assert(slice);
   assert(buf);
@@ -235,11 +236,11 @@ Status BlobFileReader::ReadFromFile(const RandomAccessFileReader* file_reader,
     s = file_reader->Read(IOOptions(), read_offset, read_size, slice, scratch,
                           aligned_buf);
   } else {
-    buf->reserve(read_size);
+    buf->reset(new char[read_size]);
     constexpr AlignedBuf* aligned_scratch = nullptr;
 
     s = file_reader->Read(IOOptions(), read_offset, read_size, slice,
-                          &(*buf)[0], aligned_scratch);
+                          buf->get(), aligned_scratch);
   }
 
   if (!s.ok()) {
@@ -292,7 +293,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   assert(offset >= adjustment);
 
   Slice record_slice;
-  std::string buf;
+  Buffer buf;
   AlignedBuf aligned_buf;
 
   {

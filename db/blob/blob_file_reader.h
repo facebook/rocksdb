@@ -7,7 +7,6 @@
 
 #include <cinttypes>
 #include <memory>
-#include <string>
 
 #include "file/random_access_file_reader.h"
 #include "rocksdb/compression_type.h"
@@ -58,9 +57,11 @@ class BlobFileReader {
   static Status ReadFooter(uint64_t file_size,
                            const RandomAccessFileReader* file_reader);
 
+  using Buffer = std::unique_ptr<char[]>;
+
   static Status ReadFromFile(const RandomAccessFileReader* file_reader,
                              uint64_t read_offset, size_t read_size,
-                             Slice* slice, std::string* buf,
+                             Slice* slice, Buffer* buf,
                              AlignedBuf* aligned_buf);
 
   static Status VerifyBlob(const Slice& record_slice, const Slice& user_key,
