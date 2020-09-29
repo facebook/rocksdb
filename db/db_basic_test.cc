@@ -35,9 +35,9 @@ class DBBasicTest : public DBTestBase {
 TEST_F(DBBasicTest, OpenWhenOpen) {
   Options options = CurrentOptions();
   options.env = env_;
-  ROCKSDB_NAMESPACE::DB* db2 = nullptr;
-  ROCKSDB_NAMESPACE::Status s = DB::Open(options, dbname_, &db2);
-
+  DB* db2 = nullptr;
+  Status s = DB::Open(options, dbname_, &db2);
+  ASSERT_NOK(s);
   ASSERT_EQ(Status::Code::kIOError, s.code());
   ASSERT_EQ(Status::SubCode::kNone, s.subcode());
   ASSERT_TRUE(strstr(s.getState(), "lock ") != nullptr);
@@ -49,13 +49,13 @@ TEST_F(DBBasicTest, UniqueSession) {
   Options options = CurrentOptions();
   std::string sid1, sid2, sid3, sid4;
 
-  db_->GetDbSessionId(sid1);
+  ASSERT_OK(db_->GetDbSessionId(sid1));
   Reopen(options);
-  db_->GetDbSessionId(sid2);
+  ASSERT_OK(db_->GetDbSessionId(sid2));
   ASSERT_OK(Put("foo", "v1"));
-  db_->GetDbSessionId(sid4);
+  ASSERT_OK(db_->GetDbSessionId(sid4));
   Reopen(options);
-  db_->GetDbSessionId(sid3);
+  ASSERT_OK(db_->GetDbSessionId(sid3));
 
   ASSERT_NE(sid1, sid2);
   ASSERT_NE(sid1, sid3);
@@ -73,14 +73,14 @@ TEST_F(DBBasicTest, UniqueSession) {
 #ifndef ROCKSDB_LITE
   Close();
   ASSERT_OK(ReadOnlyReopen(options));
-  db_->GetDbSessionId(sid1);
+  ASSERT_OK(db_->GetDbSessionId(sid1));
   // Test uniqueness between readonly open (sid1) and regular open (sid3)
   ASSERT_NE(sid1, sid3);
   Close();
   ASSERT_OK(ReadOnlyReopen(options));
-  db_->GetDbSessionId(sid2);
+  ASSERT_OK(db_->GetDbSessionId(sid2));
   ASSERT_EQ("v1", Get("foo"));
-  db_->GetDbSessionId(sid3);
+  ASSERT_OK(db_->GetDbSessionId(sid3));
 
   ASSERT_NE(sid1, sid2);
 
@@ -88,13 +88,13 @@ TEST_F(DBBasicTest, UniqueSession) {
 #endif  // ROCKSDB_LITE
 
   CreateAndReopenWithCF({"goku"}, options);
-  db_->GetDbSessionId(sid1);
+  ASSERT_OK(db_->GetDbSessionId(sid1));
   ASSERT_OK(Put("bar", "e1"));
-  db_->GetDbSessionId(sid2);
+  ASSERT_OK(db_->GetDbSessionId(sid2));
   ASSERT_EQ("e1", Get("bar"));
-  db_->GetDbSessionId(sid3);
+  ASSERT_OK(db_->GetDbSessionId(sid3));
   ReopenWithColumnFamilies({"default", "goku"}, options);
-  db_->GetDbSessionId(sid4);
+  ASSERT_OK(db_->GetDbSessionId(sid4));
 
   ASSERT_EQ(sid1, sid2);
   ASSERT_EQ(sid2, sid3);
@@ -163,7 +163,7 @@ TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
   assert(options.env == env_);
   ASSERT_OK(ReadOnlyReopen(options));
   std::string db_id1;
-  db_->GetDbIdentity(db_id1);
+  ASSERT_OK(db_->GetDbIdentity(db_id1));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
   Iterator* iter = db_->NewIterator(ReadOptions());
@@ -186,7 +186,7 @@ TEST_F(DBBasicTest, ReadOnlyDBWithWriteDBIdToManifestSet) {
   ASSERT_EQ("v2", Get("bar"));
   ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
   std::string db_id2;
-  db_->GetDbIdentity(db_id2);
+  ASSERT_OK(db_->GetDbIdentity(db_id2));
   ASSERT_EQ(db_id1, db_id2);
 }
 
@@ -241,7 +241,7 @@ TEST_F(DBBasicTest, CompactedDB) {
   ASSERT_OK(Put("hhh", DummyString(kFileSize / 2, 'h')));
   ASSERT_OK(Put("iii", DummyString(kFileSize / 2, 'i')));
   ASSERT_OK(Put("jjj", DummyString(kFileSize / 2, 'j')));
-  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(3, NumTableFilesAtLevel(1));
   Close();
 
@@ -299,8 +299,8 @@ TEST_F(DBBasicTest, LevelLimitReopen) {
   int i = 0;
   while (NumTableFilesAtLevel(2, 1) == 0) {
     ASSERT_OK(Put(1, Key(i++), value));
-    dbfull()->TEST_WaitForFlushMemTable();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 
   options.num_levels = 1;
@@ -354,8 +354,8 @@ TEST_F(DBBasicTest, EmptyFlush) {
     options.disable_auto_compactions = true;
     CreateAndReopenWithCF({"pikachu"}, options);
 
-    Put(1, "a", Slice());
-    SingleDelete(1, "a");
+    ASSERT_OK(Put(1, "a", Slice()));
+    ASSERT_OK(SingleDelete(1, "a"));
     ASSERT_OK(Flush(1));
 
     ASSERT_EQ("[ ]", AllEntriesFor("a", 1));
@@ -605,16 +605,16 @@ TEST_F(DBBasicTest, Snapshot) {
   options_override.skip_policy = kSkipNoSnapshot;
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions(options_override));
-    Put(0, "foo", "0v1");
-    Put(1, "foo", "1v1");
+    ASSERT_OK(Put(0, "foo", "0v1"));
+    ASSERT_OK(Put(1, "foo", "1v1"));
 
     const Snapshot* s1 = db_->GetSnapshot();
     ASSERT_EQ(1U, GetNumSnapshots());
     uint64_t time_snap1 = GetTimeOldestSnapshots();
     ASSERT_GT(time_snap1, 0U);
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
-    Put(0, "foo", "0v2");
-    Put(1, "foo", "1v2");
+    ASSERT_OK(Put(0, "foo", "0v2"));
+    ASSERT_OK(Put(1, "foo", "1v2"));
 
     env_->MockSleepForSeconds(1);
 
@@ -622,8 +622,8 @@ TEST_F(DBBasicTest, Snapshot) {
     ASSERT_EQ(2U, GetNumSnapshots());
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
-    Put(0, "foo", "0v3");
-    Put(1, "foo", "1v3");
+    ASSERT_OK(Put(0, "foo", "0v3"));
+    ASSERT_OK(Put(1, "foo", "1v3"));
 
     {
       ManagedSnapshot s3(db_);
@@ -631,8 +631,8 @@ TEST_F(DBBasicTest, Snapshot) {
       ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
       ASSERT_EQ(GetSequenceOldestSnapshots(), s1->GetSequenceNumber());
 
-      Put(0, "foo", "0v4");
-      Put(1, "foo", "1v4");
+      ASSERT_OK(Put(0, "foo", "0v4"));
+      ASSERT_OK(Put(1, "foo", "1v4"));
       ASSERT_EQ("0v1", Get(0, "foo", s1));
       ASSERT_EQ("1v1", Get(1, "foo", s1));
       ASSERT_EQ("0v2", Get(0, "foo", s2));
@@ -698,14 +698,14 @@ TEST_P(DBBasicMultiConfigs, CompactBetweenSnapshots) {
   Random rnd(301);
   FillLevels("a", "z", 1);
 
-  Put(1, "foo", "first");
+  ASSERT_OK(Put(1, "foo", "first"));
   const Snapshot* snapshot1 = db_->GetSnapshot();
-  Put(1, "foo", "second");
-  Put(1, "foo", "third");
-  Put(1, "foo", "fourth");
+  ASSERT_OK(Put(1, "foo", "second"));
+  ASSERT_OK(Put(1, "foo", "third"));
+  ASSERT_OK(Put(1, "foo", "fourth"));
   const Snapshot* snapshot2 = db_->GetSnapshot();
-  Put(1, "foo", "fifth");
-  Put(1, "foo", "sixth");
+  ASSERT_OK(Put(1, "foo", "fifth"));
+  ASSERT_OK(Put(1, "foo", "sixth"));
 
   // All entries (including duplicates) exist
   // before any compaction or flush is triggered.
@@ -723,7 +723,8 @@ TEST_P(DBBasicMultiConfigs, CompactBetweenSnapshots) {
   // after we release the snapshot1, only two values left
   db_->ReleaseSnapshot(snapshot1);
   FillLevels("a", "z", 1);
-  dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                                   nullptr));
 
   // We have only one valid snapshot snapshot2. Since snapshot1 is
   // not valid anymore, "first" should be removed by a compaction.
@@ -734,7 +735,8 @@ TEST_P(DBBasicMultiConfigs, CompactBetweenSnapshots) {
   // after we release the snapshot2, only one value should be left
   db_->ReleaseSnapshot(snapshot2);
   FillLevels("a", "z", 1);
-  dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                                   nullptr));
   ASSERT_EQ("sixth", Get(1, "foo"));
   ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth ]");
 }
@@ -790,18 +792,18 @@ TEST_F(DBBasicTest, CompactOnFlush) {
     options.disable_auto_compactions = true;
     CreateAndReopenWithCF({"pikachu"}, options);
 
-    Put(1, "foo", "v1");
+    ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_OK(Flush(1));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v1 ]");
 
     // Write two new keys
-    Put(1, "a", "begin");
-    Put(1, "z", "end");
-    Flush(1);
+    ASSERT_OK(Put(1, "a", "begin"));
+    ASSERT_OK(Put(1, "z", "end"));
+    ASSERT_OK(Flush(1));
 
     // Case1: Delete followed by a put
-    Delete(1, "foo");
-    Put(1, "foo", "v2");
+    ASSERT_OK(Delete(1, "foo"));
+    ASSERT_OK(Put(1, "foo", "v2"));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v2, DEL, v1 ]");
 
     // After the current memtable is flushed, the DEL should
@@ -809,66 +811,66 @@ TEST_F(DBBasicTest, CompactOnFlush) {
     ASSERT_OK(Flush(1));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v2, v1 ]");
 
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[1],
+                                     nullptr, nullptr));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v2 ]");
 
     // Case 2: Delete followed by another delete
-    Delete(1, "foo");
-    Delete(1, "foo");
+    ASSERT_OK(Delete(1, "foo"));
+    ASSERT_OK(Delete(1, "foo"));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ DEL, DEL, v2 ]");
     ASSERT_OK(Flush(1));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ DEL, v2 ]");
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[1],
+                                     nullptr, nullptr));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ ]");
 
     // Case 3: Put followed by a delete
-    Put(1, "foo", "v3");
-    Delete(1, "foo");
+    ASSERT_OK(Put(1, "foo", "v3"));
+    ASSERT_OK(Delete(1, "foo"));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ DEL, v3 ]");
     ASSERT_OK(Flush(1));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ DEL ]");
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[1],
+                                     nullptr, nullptr));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ ]");
 
     // Case 4: Put followed by another Put
-    Put(1, "foo", "v4");
-    Put(1, "foo", "v5");
+    ASSERT_OK(Put(1, "foo", "v4"));
+    ASSERT_OK(Put(1, "foo", "v5"));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v5, v4 ]");
     ASSERT_OK(Flush(1));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v5 ]");
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[1],
+                                     nullptr, nullptr));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v5 ]");
 
     // clear database
-    Delete(1, "foo");
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
+    ASSERT_OK(Delete(1, "foo"));
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[1],
+                                     nullptr, nullptr));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ ]");
 
     // Case 5: Put followed by snapshot followed by another Put
     // Both puts should remain.
-    Put(1, "foo", "v6");
+    ASSERT_OK(Put(1, "foo", "v6"));
     const Snapshot* snapshot = db_->GetSnapshot();
-    Put(1, "foo", "v7");
+    ASSERT_OK(Put(1, "foo", "v7"));
     ASSERT_OK(Flush(1));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v7, v6 ]");
     db_->ReleaseSnapshot(snapshot);
 
     // clear database
-    Delete(1, "foo");
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
+    ASSERT_OK(Delete(1, "foo"));
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[1],
+                                     nullptr, nullptr));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ ]");
 
     // Case 5: snapshot followed by a put followed by another Put
     // Only the last put should remain.
     const Snapshot* snapshot1 = db_->GetSnapshot();
-    Put(1, "foo", "v8");
-    Put(1, "foo", "v9");
+    ASSERT_OK(Put(1, "foo", "v8"));
+    ASSERT_OK(Put(1, "foo", "v9"));
     ASSERT_OK(Flush(1));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v9 ]");
     db_->ReleaseSnapshot(snapshot1);
@@ -891,7 +893,7 @@ TEST_F(DBBasicTest, FlushOneColumnFamily) {
   ASSERT_OK(Put(7, "popovich", "popovich"));
 
   for (int i = 0; i < 8; ++i) {
-    Flush(i);
+    ASSERT_OK(Flush(i));
     auto tables = ListTableFiles(env_, dbname_);
     ASSERT_EQ(tables.size(), i + 1U);
   }
@@ -1033,7 +1035,7 @@ class TestEnv : public EnvWrapper {
     explicit TestLogger(TestEnv* env_ptr) : Logger() { env = env_ptr; }
     ~TestLogger() override {
       if (!closed_) {
-        CloseHelper();
+        CloseHelper().PermitUncheckedError();
       }
     }
     void Logv(const char* /*format*/, va_list /*ap*/) override {}
@@ -2231,12 +2233,14 @@ TEST_F(DBBasicTest, RecoverWithMissingFiles) {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts, handles_[0]));
     iter->SeekToFirst();
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
     iter.reset(db_->NewIterator(read_opts, handles_[1]));
     iter->SeekToFirst();
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ("a", iter->key());
     iter->Next();
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
     iter.reset(db_->NewIterator(read_opts, handles_[2]));
     iter->SeekToFirst();
     ASSERT_TRUE(iter->Valid());
@@ -2246,6 +2250,7 @@ TEST_F(DBBasicTest, RecoverWithMissingFiles) {
     ASSERT_EQ("b", iter->key());
     iter->Next();
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
   }
 }
 
@@ -2358,12 +2363,14 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts, handles_[0]));
   iter->SeekToFirst();
   ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
   iter.reset(db_->NewIterator(read_opts, handles_[1]));
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("a", iter->key());
   iter->Next();
   ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
 }
 #endif  // !ROCKSDB_LITE
 
@@ -2893,9 +2900,8 @@ class DeadlineFS : public FileSystemWrapper {
                                std::unique_ptr<FSRandomAccessFile>* result,
                                IODebugContext* dbg) override {
     std::unique_ptr<FSRandomAccessFile> file;
-    IOStatus s;
-
-    s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    IOStatus s = target()->NewRandomAccessFile(fname, opts, &file, dbg);
+    EXPECT_OK(s);
     result->reset(new DeadlineRandomAccessFile(*this, file));
 
     const std::chrono::microseconds deadline = GetDeadline();
@@ -3266,7 +3272,7 @@ TEST_P(DBBasicTestDeadline, PointLookupDeadline) {
     Random rnd(301);
     for (int i = 0; i < 400; ++i) {
       std::string key = "k" + ToString(i);
-      Put(key, rnd.RandomString(100));
+      ASSERT_OK(Put(key, rnd.RandomString(100)));
     }
     Flush();
 
@@ -3349,9 +3355,9 @@ TEST_P(DBBasicTestDeadline, IteratorDeadline) {
     Random rnd(301);
     for (int i = 0; i < 400; ++i) {
       std::string key = "k" + ToString(i);
-      Put(key, rnd.RandomString(100));
+      ASSERT_OK(Put(key, rnd.RandomString(100)));
     }
-    Flush();
+    ASSERT_OK(Flush());
 
     bool timedout = true;
     // A timeout will be forced when the IO counter reaches this value

@@ -246,16 +246,24 @@ Status DBImpl::FlushMemTableToOutputFile(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
+        // Should handle return error?
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
+            .PermitUncheckedError();
       } else if (total_log_size_ > 0) {
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+        // Should handle return error?
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
+            .PermitUncheckedError();
       } else {
         // If the WAL is empty, we use different error reason
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+        // Should handle return error?
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL)
+            .PermitUncheckedError();
       }
     } else {
       Status new_bg_error = s;
-      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+      // Should handle return error?
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush)
+          .PermitUncheckedError();
     }
   } else {
     // If we got here, then we decided not to care about the i_os status (either
@@ -280,7 +288,9 @@ Status DBImpl::FlushMemTableToOutputFile(
         TEST_SYNC_POINT_CALLBACK(
             "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
             &new_bg_error);
-        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+        // Should handle this error?
+        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush)
+            .PermitUncheckedError();
       }
     }
 #endif  // ROCKSDB_LITE
@@ -628,8 +638,9 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
             error_handler_.GetBGError().ok()) {
           Status new_bg_error =
               Status::SpaceLimit("Max allowed space was reached");
-          error_handler_.SetBGError(new_bg_error,
-                                    BackgroundErrorReason::kFlush);
+          // Should Handle this error?
+          error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush)
+              .PermitUncheckedError();
         }
       }
     }
@@ -646,16 +657,24 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
+        // Should Handle this error?
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
+            .PermitUncheckedError();
       } else if (total_log_size_ > 0) {
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+        // Should Handle this error?
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
+            .PermitUncheckedError();
       } else {
         // If the WAL is empty, we use different error reason
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
+        // Should Handle this error?
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL)
+            .PermitUncheckedError();
       }
     } else {
       Status new_bg_error = s;
-      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+      // Should Handle this error?
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush)
+          .PermitUncheckedError();
     }
   }
 

@@ -195,6 +195,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
   }
   void SetFilesystemActiveNoLock(bool active,
       Status error = Status::Corruption("Not active")) {
+    error.PermitUncheckedError();
     filesystem_active_ = active;
     if (!active) {
       error_ = error;
@@ -202,6 +203,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
   }
   void SetFilesystemActive(bool active,
       Status error = Status::Corruption("Not active")) {
+    error.PermitUncheckedError();
     MutexLock l(&mutex_);
     SetFilesystemActiveNoLock(active, error);
   }

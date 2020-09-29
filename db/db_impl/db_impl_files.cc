@@ -215,7 +215,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     if (immutable_db_options_.wal_dir != dbname_) {
       std::vector<std::string> log_files;
       env_->GetChildren(immutable_db_options_.wal_dir,
-                        &log_files);  // Ignore errors
+                        &log_files)
+          .PermitUncheckedError();  // Ignore errors
       for (const std::string& log_file : log_files) {
         job_context->full_scan_candidate_files.emplace_back(
             log_file, immutable_db_options_.wal_dir);
@@ -226,7 +227,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
         immutable_db_options_.db_log_dir != dbname_) {
       std::vector<std::string> info_log_files;
       // Ignore errors
-      env_->GetChildren(immutable_db_options_.db_log_dir, &info_log_files);
+      env_->GetChildren(immutable_db_options_.db_log_dir, &info_log_files)
+          .PermitUncheckedError();
       for (std::string& log_file : info_log_files) {
         job_context->full_scan_candidate_files.emplace_back(
             log_file, immutable_db_options_.db_log_dir);
@@ -762,7 +764,8 @@ Status DBImpl::FinishBestEffortsRecovery() {
   std::set<std::string> files_to_delete;
   for (const auto& path : paths) {
     std::vector<std::string> files;
-    env_->GetChildren(path, &files);
+    // Should we handle it?
+    env_->GetChildren(path, &files).PermitUncheckedError();
     for (const auto& fname : files) {
       uint64_t number = 0;
       FileType type;

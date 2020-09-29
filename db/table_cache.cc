@@ -162,7 +162,6 @@ Status TableCache::FindTable(const ReadOptions& ro,
                              int level, bool prefetch_index_and_filter_in_cache,
                              size_t max_file_size_for_l0_meta_pin) {
   PERF_TIMER_GUARD_WITH_ENV(find_table_nanos, ioptions_.env);
-  Status s;
   uint64_t number = fd.GetNumber();
   Slice key = GetSliceForFileNumber(&number);
   *handle = cache_->Lookup(key);
@@ -177,15 +176,15 @@ Status TableCache::FindTable(const ReadOptions& ro,
     // We check the cache again under loading mutex
     *handle = cache_->Lookup(key);
     if (*handle != nullptr) {
-      return s;
+      return Status::OK();
     }
 
     std::unique_ptr<TableReader> table_reader;
-    s = GetTableReader(ro, file_options, internal_comparator, fd,
-                       false /* sequential mode */, record_read_stats,
-                       file_read_hist, &table_reader, prefix_extractor,
-                       skip_filters, level, prefetch_index_and_filter_in_cache,
-                       max_file_size_for_l0_meta_pin);
+    Status s = GetTableReader(
+        ro, file_options, internal_comparator, fd, false /* sequential mode */,
+        record_read_stats, file_read_hist, &table_reader, prefix_extractor,
+        skip_filters, level, prefetch_index_and_filter_in_cache,
+        max_file_size_for_l0_meta_pin);
     if (!s.ok()) {
       assert(table_reader == nullptr);
       RecordTick(ioptions_.statistics, NO_FILE_ERRORS);
@@ -199,8 +198,9 @@ Status TableCache::FindTable(const ReadOptions& ro,
         table_reader.release();
       }
     }
+    return s;
   }
-  return s;
+  return Status::OK();
 }
 
 InternalIterator* TableCache::NewIterator(
@@ -413,7 +413,8 @@ Status TableCache::Get(const ReadOptions& options,
   Status s;
   TableReader* t = fd.table_reader;
   Cache::Handle* handle = nullptr;
-  if (!done && s.ok()) {
+  if (!done) {
+    assert(s.ok());
     if (t == nullptr) {
       s = FindTable(options, file_options_, internal_comparator, fd, &handle,
                     prefix_extractor,
@@ -455,8 +456,11 @@ Status TableCache::Get(const ReadOptions& options,
     size_t charge =
         row_cache_key.Size() + row_cache_entry->size() + sizeof(std::string);
     void* row_ptr = new std::string(std::move(*row_cache_entry));
-    ioptions_.row_cache->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
-                                &DeleteEntry<std::string>);
+    // If row cache is full, it's OK to continue.
+    ioptions_.row_cache
+        ->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
+                 &DeleteEntry<std::string>)
+        .PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 
@@ -575,8 +579,11 @@ Status TableCache::MultiGet(const ReadOptions& options,
         size_t charge =
             row_cache_key.Size() + row_cache_entry.size() + sizeof(std::string);
         void* row_ptr = new std::string(std::move(row_cache_entry));
-        ioptions_.row_cache->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
-                                    &DeleteEntry<std::string>);
+        // If row cache is full, it's OK.
+        ioptions_.row_cache
+            ->Insert(row_cache_key.GetUserKey(), row_ptr, charge,
+                     &DeleteEntry<std::string>)
+            .PermitUncheckedError();
       }
     }
   }
@@ -593,18 +600,17 @@ Status TableCache::GetTableProperties(
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
     std::shared_ptr<const TableProperties>* properties,
     const SliceTransform* prefix_extractor, bool no_io) {
-  Status s;
   auto table_reader = fd.table_reader;
   // table already been pre-loaded?
   if (table_reader) {
     *properties = table_reader->GetTableProperties();
 
-    return s;
+    return Status::OK();
   }
 
   Cache::Handle* table_handle = nullptr;
-  s = FindTable(ReadOptions(), file_options, internal_comparator, fd,
-                &table_handle, prefix_extractor, no_io);
+  Status s = FindTable(ReadOptions(), file_options, internal_comparator, fd,
+                       &table_handle, prefix_extractor, no_io);
   if (!s.ok()) {
     return s;
   }

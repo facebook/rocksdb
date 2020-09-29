@@ -496,7 +496,12 @@ struct BlockBasedTableBuilder::Rep {
   Rep(const Rep&) = delete;
   Rep& operator=(const Rep&) = delete;
 
-  ~Rep() {}
+  ~Rep() {
+    // They are supposed to be passed back to users through Finish()
+    // if the file finishes.
+    status.PermitUncheckedError();
+    io_status.PermitUncheckedError();
+  }
 
  private:
   Status status;
@@ -1090,6 +1095,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
         static_cast<char*>(trailer));
     io_s = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (io_s.ok()) {
+      assert(s.ok());
       s = InsertBlockInCache(block_contents, type, handle);
       if (!s.ok()) {
         r->SetStatus(s);
@@ -1264,13 +1270,16 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
               static_cast<size_t>(end - r->compressed_cache_key_prefix));
 
     // Insert into compressed block cache.
-    block_cache_compressed->Insert(
-        key, block_contents_to_cache,
-        block_contents_to_cache->ApproximateMemoryUsage(),
-        &DeleteCachedBlockContents);
+    // How should we deal with compressed cache full?
+    block_cache_compressed
+        ->Insert(key, block_contents_to_cache,
+                 block_contents_to_cache->ApproximateMemoryUsage(),
+                 &DeleteCachedBlockContents)
+        .PermitUncheckedError();
 
     // Invalidate OS cache.
-    r->file->InvalidateCache(static_cast<size_t>(r->get_offset()), size);
+    r->file->InvalidateCache(static_cast<size_t>(r->get_offset()), size)
+        .PermitUncheckedError();
   }
   return Status::OK();
 }
@@ -1677,7 +1686,9 @@ Status BlockBasedTableBuilder::Finish() {
     WriteFooter(metaindex_block_handle, index_block_handle);
   }
   r->state = Rep::State::kClosed;
-  return r->GetStatus();
+  Status ret_status = r->GetStatus();
+  assert(!ret_status.ok() || io_status().ok());
+  return ret_status;
 }
 
 void BlockBasedTableBuilder::Abandon() {
