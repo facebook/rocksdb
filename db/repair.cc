@@ -169,6 +169,7 @@ class Repairer {
     if (!closed_) {
       if (db_lock_ != nullptr) {
         s = env_->UnlockFile(db_lock_);
+        db_lock_ = nullptr;
       }
       closed_ = true;
     }
