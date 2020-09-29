@@ -338,7 +338,7 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   }
   if (BackgroundErrorReason::kManifestWrite == reason) {
     // Always returns ok
-    db_->DisableFileDeletionsWithLock();
+    db_->DisableFileDeletionsWithLock().PermitUncheckedError();
   }
 
   Status new_bg_io_err = bg_io_err;
