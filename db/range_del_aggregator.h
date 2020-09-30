@@ -285,8 +285,10 @@ class RangeDelAggregator {
     ParsedInternalKey parsed;
 
     Status pikStatus = ParseInternalKey(key, &parsed);
-    pikStatus.PermitUncheckedError();
     assert(pikStatus.ok());
+    if (!pikStatus.ok()) {
+      return false;
+    }
 
     return ShouldDelete(parsed, mode);
   }
