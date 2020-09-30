@@ -284,7 +284,7 @@ class RangeDelAggregator {
   bool ShouldDelete(const Slice& key, RangeDelPositioningMode mode) {
     ParsedInternalKey parsed;
 
-    pikStatus = ParseInternalKey(key, &parsed);
+    Status pikStatus = ParseInternalKey(key, &parsed);
     pikStatus.PermitUncheckedError();
     assert(pikStatus.ok());
 
