@@ -647,6 +647,10 @@ ifdef ASSERT_STATUS_CHECKED
 		merge_helper_test \
 		memtable_list_test \
 		flush_job_test \
+		block_based_filter_block_test \
+		block_fetcher_test \
+		full_filter_block_test \
+		partitioned_filter_block_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
