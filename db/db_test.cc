@@ -5291,6 +5291,13 @@ TEST_F(DBTest, DynamicMiscOptions) {
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
   ASSERT_TRUE(mutable_cf_options.report_bg_io_stats);
+  ASSERT_TRUE(mutable_cf_options.check_flush_compaction_key_order);
+
+  ASSERT_OK(dbfull()->SetOptions(
+      handles_[1], {{"check_flush_compaction_key_order", "false"}}));
+  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
+                                                     &mutable_cf_options));
+  ASSERT_FALSE(mutable_cf_options.check_flush_compaction_key_order);
 }
 #endif  // ROCKSDB_LITE
 
