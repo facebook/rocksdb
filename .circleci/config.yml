@@ -336,7 +336,7 @@ jobs:
             sed -i 's/[[:space:]]*$//; s/ / \.\//g; s/.*/.\/&/' /tmp/test_list
             cat /tmp/test_list
             export TEST_TMPDIR=/tmp/rocksdb_test_tmp
-            /usr/bin/python ../gtest-parallel/gtest-parallel $(</tmp/test_list) --output_dir=/tmp | cat
+            /usr/bin/python ../gtest-parallel/gtest-parallel $(</tmp/test_list) --output_dir=/tmp | cat  # pipe to cat to continuously output status on circleci UI. Otherwise, no status will be printed while the job is running.
       - post-steps
 
 workflows:
