@@ -18,10 +18,12 @@
 // hash inputs.
 
 #pragma once
-#include <stddef.h>
-#include <stdint.h>
+
+#include <cstddef>
+#include <cstdint>
 
 #include "rocksdb/slice.h"
+#include "util/fastrange.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -64,6 +66,10 @@ inline uint64_t GetSliceNPHash64(const Slice& s) {
   return NPHash64(s.data(), s.size());
 }
 
+inline size_t GetSliceRangedNPHash(const Slice& s, size_t range) {
+  return FastRange64(NPHash64(s.data(), s.size()), range);
+}
+
 // TODO: consider rename to GetSliceHash32
 inline uint32_t GetSliceHash(const Slice& s) {
   return Hash(s.data(), s.size(), 397);
@@ -80,45 +86,5 @@ inline uint32_t Lower32of64(uint64_t v) { return static_cast<uint32_t>(v); }
 struct SliceHasher {
   uint32_t operator()(const Slice& s) const { return GetSliceHash(s); }
 };
-
-// An alternative to % for mapping a hash value to an arbitrary range. See
-// https://github.com/lemire/fastrange
-inline uint32_t fastrange32(uint32_t hash, uint32_t range) {
-  uint64_t product = uint64_t{range} * hash;
-  return static_cast<uint32_t>(product >> 32);
-}
-
-#ifdef TEST_UINT128_COMPAT
-#undef HAVE_UINT128_EXTENSION
-#endif
-
-// An alternative to % for mapping a 64-bit hash value to an arbitrary range
-// that fits in size_t. See https://github.com/lemire/fastrange
-// We find size_t more convenient than uint64_t for the range, with side
-// benefit of better optimization on 32-bit platforms.
-inline size_t fastrange64(uint64_t hash, size_t range) {
-#ifdef HAVE_UINT128_EXTENSION
-  // Can use compiler's 128-bit type. Trust it to do the right thing.
-  __uint128_t wide = __uint128_t{range} * hash;
-  return static_cast<size_t>(wide >> 64);
-#else
-  // Fall back: full decomposition.
-  // NOTE: GCC seems to fully understand this code as 64-bit x {32 or 64}-bit
-  // -> {96 or 128}-bit multiplication and optimize it down to a single
-  // wide-result multiplication (64-bit platform) or two wide-result
-  // multiplications (32-bit platforms, where range64 >> 32 is zero).
-  uint64_t range64 = range;  // ok to shift by 32, even if size_t is 32-bit
-  uint64_t tmp = uint64_t{range64 & 0xffffFFFF} * uint64_t{hash & 0xffffFFFF};
-  tmp >>= 32;
-  tmp += uint64_t{range64 & 0xffffFFFF} * uint64_t{hash >> 32};
-  // Avoid overflow: first add lower 32 of tmp2, and later upper 32
-  uint64_t tmp2 = uint64_t{range64 >> 32} * uint64_t{hash & 0xffffFFFF};
-  tmp += static_cast<uint32_t>(tmp2);
-  tmp >>= 32;
-  tmp += (tmp2 >> 32);
-  tmp += uint64_t{range64 >> 32} * uint64_t{hash >> 32};
-  return static_cast<size_t>(tmp);
-#endif
-}
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -492,14 +492,19 @@ Status WalManager::ReadFirstLine(const std::string& fname,
       // TODO read record's till the first no corrupt entry?
     } else {
       WriteBatch batch;
-      WriteBatchInternal::SetContents(&batch, record);
-      *sequence = WriteBatchInternal::Sequence(&batch);
-      return Status::OK();
+      // We can overwrite an existing non-OK Status since it'd only reach here
+      // with `paranoid_checks == false`.
+      status = WriteBatchInternal::SetContents(&batch, record);
+      if (status.ok()) {
+        *sequence = WriteBatchInternal::Sequence(&batch);
+        return status;
+      }
     }
   }
 
-  // ReadRecord returns false on EOF, which means that the log file is empty. we
-  // return status.ok() in that case and set sequence number to 0
+  // ReadRecord might have returned false on EOF, which means that the log file
+  // is empty. Or, a failure may have occurred while processing the first entry.
+  // In any case, return status and set sequence number to 0.
   *sequence = 0;
   return status;
 }

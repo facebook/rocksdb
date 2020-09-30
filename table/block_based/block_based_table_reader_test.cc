@@ -293,7 +293,7 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   }
   ASSERT_OK(iiter->status());
   iiter->SeekToFirst();
-  BlockHandle handle = static_cast<ParititionedIndexIterator*>(iiter)
+  BlockHandle handle = static_cast<PartitionedIndexIterator*>(iiter)
                            ->index_iter_->value()
                            .handle;
   table.reset();

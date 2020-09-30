@@ -586,6 +586,9 @@ ifdef ASSERT_STATUS_CHECKED
 		coding_test \
 		crc32c_test \
 		dbformat_test \
+		db_basic_test \
+		db_with_timestamp_basic_test \
+		db_with_timestamp_compaction_test \
 		db_options_test \
 		options_file_test \
 		defer_test \
@@ -608,11 +611,13 @@ ifdef ASSERT_STATUS_CHECKED
 		merger_test \
 		mock_env_test \
 		object_registry_test \
+		repair_test \
 		configurable_test \
 		options_settable_test \
 		options_test \
 		random_test \
 		range_del_aggregator_test \
+		sst_file_reader_test \
 		range_tombstone_fragmenter_test \
 		repeatable_thread_test \
 		skiplist_test \
@@ -631,6 +636,7 @@ ifdef ASSERT_STATUS_CHECKED
 		block_cache_tracer_test \
 		cache_simulator_test \
 		sim_cache_test \
+		version_builder_test \
 		version_edit_test \
 		work_queue_test \
 		write_controller_test \
@@ -640,6 +646,7 @@ ifdef ASSERT_STATUS_CHECKED
 	        io_tracer_test \
 		merge_helper_test \
 		memtable_list_test \
+		flush_job_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test

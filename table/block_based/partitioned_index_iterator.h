@@ -18,11 +18,11 @@ namespace ROCKSDB_NAMESPACE {
 // Some upper and lower bound tricks played in block based table iterators
 // could be played here, but it's too complicated to reason about index
 // keys with upper or lower bound, so we skip it for simplicity.
-class ParititionedIndexIterator : public InternalIteratorBase<IndexValue> {
+class PartitionedIndexIterator : public InternalIteratorBase<IndexValue> {
   // compaction_readahead_size: its value will only be used if for_compaction =
   // true
  public:
-  ParititionedIndexIterator(
+  PartitionedIndexIterator(
       const BlockBasedTable* table, const ReadOptions& read_options,
       const InternalKeyComparator& icomp,
       std::unique_ptr<InternalIteratorBase<IndexValue>>&& index_iter,
@@ -38,7 +38,7 @@ class ParititionedIndexIterator : public InternalIteratorBase<IndexValue> {
         lookup_context_(caller),
         block_prefetcher_(compaction_readahead_size) {}
 
-  ~ParititionedIndexIterator() {}
+  ~PartitionedIndexIterator() override {}
 
   void Seek(const Slice& target) override;
   void SeekForPrev(const Slice&) override {

@@ -122,6 +122,8 @@ struct ImmutableCFOptions {
   FileChecksumGenFactory* file_checksum_gen_factory;
 
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory;
+
+  bool allow_data_in_errors;
 };
 
 struct MutableCFOptions {

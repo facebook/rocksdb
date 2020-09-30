@@ -131,6 +131,7 @@ Status BuildTable(
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
       IOStatus io_s = NewWritableFile(fs, fname, &file, file_options);
+      assert(s.ok());
       s = io_s;
       if (io_status->ok()) {
         *io_status = io_s;
@@ -179,7 +180,7 @@ Status BuildTable(
         &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
         ShouldReportDetailedTime(env, ioptions.statistics),
         true /* internal key corruption is not ok */, range_del_agg.get(),
-        blob_file_builder.get());
+        blob_file_builder.get(), ioptions.allow_data_in_errors);
 
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
@@ -314,17 +315,18 @@ Status BuildTable(
     constexpr IODebugContext* dbg = nullptr;
 
     Status ignored = fs->DeleteFile(fname, IOOptions(), dbg);
+    ignored.PermitUncheckedError();
 
     assert(blob_file_additions || blob_file_paths.empty());
 
     if (blob_file_additions) {
       for (const std::string& blob_file_path : blob_file_paths) {
         ignored = fs->DeleteFile(blob_file_path, IOOptions(), dbg);
+        ignored.PermitUncheckedError();
       }
 
       blob_file_additions->clear();
     }
-    ignored.PermitUncheckedError();
   }
 
   if (meta->fd.GetFileSize() == 0) {
