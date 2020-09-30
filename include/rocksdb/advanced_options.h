@@ -652,10 +652,10 @@ struct AdvancedColumnFamilyOptions {
   bool paranoid_file_checks = false;
 
   // In debug mode, RocksDB runs consistency checks on the LSM every time the
-  // LSM changes (Flush, Compaction, AddFile). These checks were historically
+  // LSM changes (Flush, Compaction, AddFile). When this option is true, these
+  // checks are also enabled in release mode. These checks were historically
   // disabled in release mode, but are now enabled by default for proactive
-  // corruption detection. (On one production workload, these checks cost
-  // about two millionths of all CPU cycles in RocksDB.)
+  // corruption detection, at almost no cost in extra CPU.
   // Default: true
   bool force_consistency_checks = true;
 
