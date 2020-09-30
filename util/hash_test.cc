@@ -267,109 +267,128 @@ TEST(HashTest, Hash64LargeValueSchema) {
       "eMFlxCIYUpTCsal2qsmnGOWa8WCcefrohMjDj1fjzSvSaQwlpyR1GZHF2uPOoQagiCpHpm");
 }
 
-TEST(Fastrange32Test, Values) {
-  using ROCKSDB_NAMESPACE::fastrange32;
+TEST(FastRange32Test, Values) {
+  using ROCKSDB_NAMESPACE::FastRange32;
   // Zero range
-  EXPECT_EQ(fastrange32(0, 0), 0U);
-  EXPECT_EQ(fastrange32(123, 0), 0U);
-  EXPECT_EQ(fastrange32(0xffffffff, 0), 0U);
+  EXPECT_EQ(FastRange32(0, 0), 0U);
+  EXPECT_EQ(FastRange32(123, 0), 0U);
+  EXPECT_EQ(FastRange32(0xffffffff, 0), 0U);
 
   // One range
-  EXPECT_EQ(fastrange32(0, 1), 0U);
-  EXPECT_EQ(fastrange32(123, 1), 0U);
-  EXPECT_EQ(fastrange32(0xffffffff, 1), 0U);
+  EXPECT_EQ(FastRange32(0, 1), 0U);
+  EXPECT_EQ(FastRange32(123, 1), 0U);
+  EXPECT_EQ(FastRange32(0xffffffff, 1), 0U);
 
   // Two range
-  EXPECT_EQ(fastrange32(0, 2), 0U);
-  EXPECT_EQ(fastrange32(123, 2), 0U);
-  EXPECT_EQ(fastrange32(0x7fffffff, 2), 0U);
-  EXPECT_EQ(fastrange32(0x80000000, 2), 1U);
-  EXPECT_EQ(fastrange32(0xffffffff, 2), 1U);
+  EXPECT_EQ(FastRange32(0, 2), 0U);
+  EXPECT_EQ(FastRange32(123, 2), 0U);
+  EXPECT_EQ(FastRange32(0x7fffffff, 2), 0U);
+  EXPECT_EQ(FastRange32(0x80000000, 2), 1U);
+  EXPECT_EQ(FastRange32(0xffffffff, 2), 1U);
 
   // Seven range
-  EXPECT_EQ(fastrange32(0, 7), 0U);
-  EXPECT_EQ(fastrange32(123, 7), 0U);
-  EXPECT_EQ(fastrange32(613566756, 7), 0U);
-  EXPECT_EQ(fastrange32(613566757, 7), 1U);
-  EXPECT_EQ(fastrange32(1227133513, 7), 1U);
-  EXPECT_EQ(fastrange32(1227133514, 7), 2U);
+  EXPECT_EQ(FastRange32(0, 7), 0U);
+  EXPECT_EQ(FastRange32(123, 7), 0U);
+  EXPECT_EQ(FastRange32(613566756, 7), 0U);
+  EXPECT_EQ(FastRange32(613566757, 7), 1U);
+  EXPECT_EQ(FastRange32(1227133513, 7), 1U);
+  EXPECT_EQ(FastRange32(1227133514, 7), 2U);
   // etc.
-  EXPECT_EQ(fastrange32(0xffffffff, 7), 6U);
+  EXPECT_EQ(FastRange32(0xffffffff, 7), 6U);
 
   // Big
-  EXPECT_EQ(fastrange32(1, 0x80000000), 0U);
-  EXPECT_EQ(fastrange32(2, 0x80000000), 1U);
-  EXPECT_EQ(fastrange32(4, 0x7fffffff), 1U);
-  EXPECT_EQ(fastrange32(4, 0x80000000), 2U);
-  EXPECT_EQ(fastrange32(0xffffffff, 0x7fffffff), 0x7ffffffeU);
-  EXPECT_EQ(fastrange32(0xffffffff, 0x80000000), 0x7fffffffU);
+  EXPECT_EQ(FastRange32(1, 0x80000000), 0U);
+  EXPECT_EQ(FastRange32(2, 0x80000000), 1U);
+  EXPECT_EQ(FastRange32(4, 0x7fffffff), 1U);
+  EXPECT_EQ(FastRange32(4, 0x80000000), 2U);
+  EXPECT_EQ(FastRange32(0xffffffff, 0x7fffffff), 0x7ffffffeU);
+  EXPECT_EQ(FastRange32(0xffffffff, 0x80000000), 0x7fffffffU);
 }
 
-TEST(Fastrange64Test, Values) {
-  using ROCKSDB_NAMESPACE::fastrange64;
+TEST(FastRange64Test, Values) {
+  using ROCKSDB_NAMESPACE::FastRange64;
   // Zero range
-  EXPECT_EQ(fastrange64(0, 0), 0U);
-  EXPECT_EQ(fastrange64(123, 0), 0U);
-  EXPECT_EQ(fastrange64(0xffffFFFF, 0), 0U);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0), 0U);
+  EXPECT_EQ(FastRange64(0, 0), 0U);
+  EXPECT_EQ(FastRange64(123, 0), 0U);
+  EXPECT_EQ(FastRange64(0xffffFFFF, 0), 0U);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 0), 0U);
 
   // One range
-  EXPECT_EQ(fastrange64(0, 1), 0U);
-  EXPECT_EQ(fastrange64(123, 1), 0U);
-  EXPECT_EQ(fastrange64(0xffffFFFF, 1), 0U);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 1), 0U);
+  EXPECT_EQ(FastRange64(0, 1), 0U);
+  EXPECT_EQ(FastRange64(123, 1), 0U);
+  EXPECT_EQ(FastRange64(0xffffFFFF, 1), 0U);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 1), 0U);
 
   // Two range
-  EXPECT_EQ(fastrange64(0, 2), 0U);
-  EXPECT_EQ(fastrange64(123, 2), 0U);
-  EXPECT_EQ(fastrange64(0xffffFFFF, 2), 0U);
-  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 2), 0U);
-  EXPECT_EQ(fastrange64(0x8000000000000000, 2), 1U);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 2), 1U);
+  EXPECT_EQ(FastRange64(0, 2), 0U);
+  EXPECT_EQ(FastRange64(123, 2), 0U);
+  EXPECT_EQ(FastRange64(0xffffFFFF, 2), 0U);
+  EXPECT_EQ(FastRange64(0x7fffFFFFffffFFFF, 2), 0U);
+  EXPECT_EQ(FastRange64(0x8000000000000000, 2), 1U);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 2), 1U);
 
   // Seven range
-  EXPECT_EQ(fastrange64(0, 7), 0U);
-  EXPECT_EQ(fastrange64(123, 7), 0U);
-  EXPECT_EQ(fastrange64(0xffffFFFF, 7), 0U);
-  EXPECT_EQ(fastrange64(2635249153387078802, 7), 0U);
-  EXPECT_EQ(fastrange64(2635249153387078803, 7), 1U);
-  EXPECT_EQ(fastrange64(5270498306774157604, 7), 1U);
-  EXPECT_EQ(fastrange64(5270498306774157605, 7), 2U);
-  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 7), 3U);
-  EXPECT_EQ(fastrange64(0x8000000000000000, 7), 3U);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 7), 6U);
+  EXPECT_EQ(FastRange64(0, 7), 0U);
+  EXPECT_EQ(FastRange64(123, 7), 0U);
+  EXPECT_EQ(FastRange64(0xffffFFFF, 7), 0U);
+  EXPECT_EQ(FastRange64(2635249153387078802, 7), 0U);
+  EXPECT_EQ(FastRange64(2635249153387078803, 7), 1U);
+  EXPECT_EQ(FastRange64(5270498306774157604, 7), 1U);
+  EXPECT_EQ(FastRange64(5270498306774157605, 7), 2U);
+  EXPECT_EQ(FastRange64(0x7fffFFFFffffFFFF, 7), 3U);
+  EXPECT_EQ(FastRange64(0x8000000000000000, 7), 3U);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 7), 6U);
 
   // Big but 32-bit range
-  EXPECT_EQ(fastrange64(0x100000000, 0x80000000), 0U);
-  EXPECT_EQ(fastrange64(0x200000000, 0x80000000), 1U);
-  EXPECT_EQ(fastrange64(0x400000000, 0x7fffFFFF), 1U);
-  EXPECT_EQ(fastrange64(0x400000000, 0x80000000), 2U);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0x7fffFFFF), 0x7fffFFFEU);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0x80000000), 0x7fffFFFFU);
+  EXPECT_EQ(FastRange64(0x100000000, 0x80000000), 0U);
+  EXPECT_EQ(FastRange64(0x200000000, 0x80000000), 1U);
+  EXPECT_EQ(FastRange64(0x400000000, 0x7fffFFFF), 1U);
+  EXPECT_EQ(FastRange64(0x400000000, 0x80000000), 2U);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 0x7fffFFFF), 0x7fffFFFEU);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 0x80000000), 0x7fffFFFFU);
 
   // Big, > 32-bit range
 #if SIZE_MAX == UINT64_MAX
-  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 0x4200000002), 0x2100000000U);
-  EXPECT_EQ(fastrange64(0x8000000000000000, 0x4200000002), 0x2100000001U);
+  EXPECT_EQ(FastRange64(0x7fffFFFFffffFFFF, 0x4200000002), 0x2100000000U);
+  EXPECT_EQ(FastRange64(0x8000000000000000, 0x4200000002), 0x2100000001U);
 
-  EXPECT_EQ(fastrange64(0x0000000000000000, 420000000002), 0U);
-  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 420000000002), 210000000000U);
-  EXPECT_EQ(fastrange64(0x8000000000000000, 420000000002), 210000000001U);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 420000000002), 420000000001U);
+  EXPECT_EQ(FastRange64(0x0000000000000000, 420000000002), 0U);
+  EXPECT_EQ(FastRange64(0x7fffFFFFffffFFFF, 420000000002), 210000000000U);
+  EXPECT_EQ(FastRange64(0x8000000000000000, 420000000002), 210000000001U);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 420000000002), 420000000001U);
 
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0xffffFFFFffffFFFF),
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 0xffffFFFFffffFFFF),
             0xffffFFFFffffFFFEU);
 #endif
 }
 
-// for inspection of disassembly
-uint32_t fastrange32(uint32_t hash, uint32_t range) {
-  return ROCKSDB_NAMESPACE::fastrange32(hash, range);
+TEST(FastRangeGenericTest, Values) {
+  using ROCKSDB_NAMESPACE::FastRangeGeneric;
+  // Generic (including big and small)
+  // Note that FastRangeGeneric is also tested indirectly above via
+  // FastRange32 and FastRange64.
+  EXPECT_EQ(
+      FastRangeGeneric(uint64_t{0x8000000000000000}, uint64_t{420000000002}),
+      uint64_t{210000000001});
+  EXPECT_EQ(FastRangeGeneric(uint64_t{0x8000000000000000}, uint16_t{12468}),
+            uint16_t{6234});
+  EXPECT_EQ(FastRangeGeneric(uint32_t{0x80000000}, uint16_t{12468}),
+            uint16_t{6234});
+  // Not recommended for typical use because for example this could fail on
+  // some platforms and pass on others:
+  //EXPECT_EQ(FastRangeGeneric(static_cast<unsigned long>(0x80000000),
+  //                           uint16_t{12468}),
+  //          uint16_t{6234});
 }
 
 // for inspection of disassembly
-size_t fastrange64(uint64_t hash, size_t range) {
-  return ROCKSDB_NAMESPACE::fastrange64(hash, range);
+uint32_t FastRange32(uint32_t hash, uint32_t range) {
+  return ROCKSDB_NAMESPACE::FastRange32(hash, range);
+}
+
+// for inspection of disassembly
+size_t FastRange64(uint64_t hash, size_t range) {
+  return ROCKSDB_NAMESPACE::FastRange64(hash, range);
 }
 
 // Tests for math.h / math128.h (not worth a separate test binary)

@@ -1692,7 +1692,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         req.status = s;
       }
     } else {
-      file->MultiRead(opts, &read_reqs[0], read_reqs.size(), &direct_io_buf);
+      // How to handle this status code?
+      file->MultiRead(opts, &read_reqs[0], read_reqs.size(), &direct_io_buf)
+          .PermitUncheckedError();
     }
   }
 
@@ -1800,6 +1802,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // block cache is configured. In that case, fall
         // through and set up the block explicitly
         if (block_entry->GetValue() != nullptr) {
+          s.PermitUncheckedError();
           continue;
         }
       }
@@ -1996,7 +1999,6 @@ bool BlockBasedTable::PrefixMayMatch(
   }
 
   bool may_match = true;
-  Status s;
 
   // First, try check with full filter
   FilterBlockReader* const filter = rep_->filter.get();
@@ -2440,6 +2442,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
 
       CachableEntry<UncompressionDict> uncompression_dict;
       Status uncompression_dict_status;
+      uncompression_dict_status.PermitUncheckedError();
       bool uncompression_dict_inited = false;
       size_t total_len = 0;
       ReadOptions ro = read_options;
@@ -2581,6 +2584,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
                 read_options, results[idx_in_batch], &first_biter,
                 statuses[idx_in_batch]);
             reusing_block = false;
+          } else {
+            // If handler is null and result is empty, then the status is never
+            // set, which should be the initial value: ok().
+            assert(statuses[idx_in_batch].ok());
           }
           biter = &first_biter;
           idx_in_batch++;
@@ -2707,6 +2714,12 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       }
       *(miter->s) = s;
     }
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    // Not sure why we need to do it. Should investigate more.
+    for (auto& st : statuses) {
+      st.PermitUncheckedError();
+    }
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
   }
 }
 

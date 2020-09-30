@@ -6,11 +6,13 @@
 #pragma once
 
 #include <assert.h>
-#include <stdint.h>
 #ifdef _MSC_VER
 #include <intrin.h>
 #include <limits>
 #endif
+
+#include <cstdint>
+#include <type_traits>
 
 namespace ROCKSDB_NAMESPACE {
 

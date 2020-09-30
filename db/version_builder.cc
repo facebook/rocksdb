@@ -962,6 +962,11 @@ class VersionBuilder::Rep {
     for (auto& t : threads) {
       t.join();
     }
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    for (const auto& s : statuses) {
+      s.PermitUncheckedError();
+    }
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
     for (const auto& s : statuses) {
       if (!s.ok()) {
         return s;

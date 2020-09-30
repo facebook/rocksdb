@@ -68,6 +68,12 @@ class PlainTableFileReader {
  public:
   explicit PlainTableFileReader(const PlainTableReaderFileInfo* _file_info)
       : file_info_(_file_info), num_buf_(0) {}
+
+  ~PlainTableFileReader() {
+    // Should fix.
+    status_.PermitUncheckedError();
+  }
+
   // In mmaped mode, the results point to mmaped area of the file, which
   // means it is always valid before closing the file.
   // In non-mmap mode, the results point to an internal buffer. If the caller
@@ -146,6 +152,7 @@ class PlainTableKeyDecoder {
         fixed_user_key_len_(user_key_len),
         prefix_extractor_(prefix_extractor),
         in_prefix_(false) {}
+
   // Find the next key.
   // start: char array where the key starts.
   // limit: boundary of the char array

@@ -487,7 +487,6 @@ Status PlainTableKeyDecoder::NextKeyNoValue(uint32_t start_offset,
   if (seekable != nullptr) {
     *seekable = true;
   }
-  Status s;
   if (encoding_type_ == kPlain) {
     return NextPlainEncodingKey(start_offset, parsed_key, internal_key,
                                 bytes_read, seekable);

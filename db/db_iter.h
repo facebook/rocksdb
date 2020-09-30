@@ -140,7 +140,14 @@ class DBIter final : public Iterator {
   }
   ReadRangeDelAggregator* GetRangeDelAggregator() { return &range_del_agg_; }
 
-  bool Valid() const override { return valid_; }
+  bool Valid() const override {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    if (valid_) {
+      status_.PermitUncheckedError();
+    }
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+    return valid_;
+  }
   Slice key() const override {
     assert(valid_);
     if (start_seqnum_ > 0 || timestamp_lb_) {

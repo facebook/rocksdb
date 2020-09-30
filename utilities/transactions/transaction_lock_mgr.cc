@@ -173,7 +173,7 @@ TransactionLockMgr::~TransactionLockMgr() {}
 
 size_t LockMap::GetStripe(const std::string& key) const {
   assert(num_stripes_ > 0);
-  return fastrange64(GetSliceNPHash64(key), num_stripes_);
+  return FastRange64(GetSliceNPHash64(key), num_stripes_);
 }
 
 void TransactionLockMgr::AddColumnFamily(uint32_t column_family_id) {
