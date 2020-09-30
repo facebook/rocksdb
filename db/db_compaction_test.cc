@@ -5345,8 +5345,8 @@ TEST_P(DBCompactionTestWithParam,
 
   // Ingest 5 L0 sst. And this files would trigger PickIntraL0Compaction.
   for (int i = 5; i < 10; i++) {
+    ASSERT_EQ(i, NumTableFilesAtLevel(0));
     IngestOneKeyValue(dbfull(), Key(i), value, options);
-    ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
   }
 
   // Put one key, to make biggest log sequence number in this memtable is bigger
@@ -5436,7 +5436,6 @@ TEST_P(DBCompactionTestWithParam,
     ASSERT_EQ(i, NumTableFilesAtLevel(0));
     IngestOneKeyValue(dbfull(), Key(i), value2, options);
   }
-  ASSERT_EQ(10, NumTableFilesAtLevel(0));
 
   // Wake up flush job
   sleeping_tasks.WakeUp();
