@@ -618,6 +618,7 @@ ifdef ASSERT_STATUS_CHECKED
 		mock_env_test \
 		object_registry_test \
 		prefix_test \
+		plain_table_db_test \
 		repair_test \
 		configurable_test \
 		options_settable_test \
