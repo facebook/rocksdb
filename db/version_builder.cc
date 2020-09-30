@@ -270,14 +270,7 @@ class VersionBuilder::Rep {
     (*expected_linked_ssts)[blob_file_number].emplace(table_file_number);
   }
 
-  Status CheckConsistency(VersionStorageInfo* vstorage) {
-#ifdef NDEBUG
-    if (!vstorage->force_consistency_checks()) {
-      // Dont run consistency checks in release mode except if
-      // explicitly asked to
-      return Status::OK();
-    }
-#endif
+  Status CheckConsistencyDetails(VersionStorageInfo* vstorage) {
     // Make sure the files are sorted correctly and that the links between
     // table files and blob files are consistent. The latter is checked using
     // the following mapping, which is built using the forward links
@@ -387,6 +380,30 @@ class VersionBuilder::Rep {
     TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistencyBeforeReturn",
                              &ret_s);
     return ret_s;
+  }
+
+  Status CheckConsistency(VersionStorageInfo* vstorage) {
+    // Always run consistency checks in debug build
+#ifdef NDEBUG
+    if (!vstorage->force_consistency_checks()) {
+      return Status::OK();
+    }
+#endif
+    Status s = CheckConsistencyDetails(vstorage);
+    if (s.IsCorruption() && s.getState()) {
+      // Make it clear the error is due to force_consistency_checks = 1 or
+      // debug build
+#ifdef NDEBUG
+      auto prefix = "force_consistency_checks";
+#else
+      auto prefix = "force_consistency_checks(DEBUG)";
+#endif
+      s = Status::Corruption(prefix, s.getState());
+    } else {
+      // was only expecting corruption with message, or OK
+      assert(s.ok());
+    }
+    return s;
   }
 
   bool CheckConsistencyForNumLevels() const {
