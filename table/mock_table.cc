@@ -16,9 +16,14 @@
 namespace ROCKSDB_NAMESPACE {
 namespace mock {
 
-KVVector MakeMockFile(
-    std::initializer_list<std::pair<std::string, std::string>> l) {
-  return KVVector(l);
+KVVector MakeMockFile(std::initializer_list<KVPair> l) { return KVVector(l); }
+
+void SortKVVector(KVVector* kv_vector) {
+  InternalKeyComparator icmp(BytewiseComparator());
+  std::sort(kv_vector->begin(), kv_vector->end(),
+            [icmp](KVPair a, KVPair b) -> bool {
+              return icmp.Compare(a.first, b.first) < 0;
+            });
 }
 
 class MockTableReader : public TableReader {
@@ -74,13 +79,21 @@ class MockTableIterator : public InternalIterator {
   }
 
   void Seek(const Slice& target) override {
-    std::pair<std::string, std::string> target_pair(target.ToString(), "");
-    itr_ = std::lower_bound(table_.begin(), table_.end(), target_pair);
+    KVPair target_pair(target.ToString(), "");
+    InternalKeyComparator icmp(BytewiseComparator());
+    itr_ = std::lower_bound(table_.begin(), table_.end(), target_pair,
+                            [icmp](KVPair a, KVPair b) -> bool {
+                              return icmp.Compare(a.first, b.first) < 0;
+                            });
   }
 
   void SeekForPrev(const Slice& target) override {
-    std::pair<std::string, std::string> target_pair(target.ToString(), "");
-    itr_ = std::upper_bound(table_.begin(), table_.end(), target_pair);
+    KVPair target_pair(target.ToString(), "");
+    InternalKeyComparator icmp(BytewiseComparator());
+    itr_ = std::upper_bound(table_.begin(), table_.end(), target_pair,
+                            [icmp](KVPair a, KVPair b) -> bool {
+                              return icmp.Compare(a.first, b.first) < 0;
+                            });
     Prev();
   }
 

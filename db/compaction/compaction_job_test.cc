@@ -206,7 +206,7 @@ class CompactionJobTest : public testing::Test {
 
   // returns expected result after compaction
   mock::KVVector CreateTwoFiles(bool gen_corrupted_keys) {
-    auto expected_results = mock::MakeMockFile();
+    stl_wrappers::KVMap expected_results;
     const int kKeysPerFile = 10000;
     const int kCorruptKeysPerFile = 200;
     const int kMatchingKeys = kKeysPerFile / 2;
@@ -234,17 +234,23 @@ class CompactionJobTest : public testing::Test {
         }
         contents.push_back({internal_key.Encode().ToString(), value});
         if (i == 1 || k < kMatchingKeys || corrupt_id(k - kMatchingKeys)) {
-          expected_results.push_back(
+          expected_results.insert(
               {bottommost_internal_key.Encode().ToString(), value});
         }
       }
+      mock::SortKVVector(&contents);
 
       AddMockFile(contents);
     }
 
     SetLastSequence(sequence_number);
 
-    return expected_results;
+    mock::KVVector expected_results_kvvector;
+    for (auto& kv : expected_results) {
+      expected_results_kvvector.push_back({kv.first, kv.second});
+    }
+
+    return expected_results_kvvector;
   }
 
   void NewDB() {

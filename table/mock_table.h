@@ -27,10 +27,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 namespace mock {
-using KVVector = std::vector<std::pair<std::string, std::string>>;
+using KVPair = std::pair<std::string, std::string>;
+using KVVector = std::vector<KVPair>;
 
-KVVector MakeMockFile(
-    std::initializer_list<std::pair<std::string, std::string>> l = {});
+KVVector MakeMockFile(std::initializer_list<KVPair> l = {});
+void SortKVVector(KVVector* kv_vector);
 
 struct MockTableFileSystem {
   port::Mutex mutex;

@@ -207,7 +207,7 @@ TEST_F(FlushJobTest, NonEmpty) {
     InternalKey internal_key(key, seq, kTypeBlobIndex);
     inserted_keys.push_back({internal_key.Encode().ToString(), blob_index});
   }
-  std::sort(inserted_keys.begin(), inserted_keys.end());
+  mock::SortKVVector(&inserted_keys);
 
   autovector<MemTable*> to_delete;
   cfd->imm()->Add(new_mem, &to_delete);
@@ -458,7 +458,7 @@ TEST_F(FlushJobTest, Snapshots) {
       }
     }
   }
-  std::sort(inserted_keys.begin(), inserted_keys.end());
+  mock::SortKVVector(&inserted_keys);
 
   autovector<MemTable*> to_delete;
   cfd->imm()->Add(new_mem, &to_delete);
