@@ -17,7 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace mock {
 
 KVVector MakeMockFile(
-    std::initializer_list<std::pair<const std::string, std::string>> l) {
+    std::initializer_list<std::pair<std::string, std::string>> l) {
   return KVVector(l);
 }
 
@@ -74,14 +74,12 @@ class MockTableIterator : public InternalIterator {
   }
 
   void Seek(const Slice& target) override {
-    std::pair<const std::string, std::string> target_pair(target.ToString(),
-                                                          "");
+    std::pair<std::string, std::string> target_pair(target.ToString(), "");
     itr_ = std::lower_bound(table_.begin(), table_.end(), target_pair);
   }
 
   void SeekForPrev(const Slice& target) override {
-    std::pair<const std::string, std::string> target_pair(target.ToString(),
-                                                          "");
+    std::pair<std::string, std::string> target_pair(target.ToString(), "");
     itr_ = std::upper_bound(table_.begin(), table_.end(), target_pair);
     Prev();
   }
