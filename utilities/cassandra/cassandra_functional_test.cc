@@ -96,8 +96,8 @@ class CassandraStore {
 
 class TestCompactionFilterFactory : public CompactionFilterFactory {
 public:
- explicit TestCompactionFilterFactory(bool purge_ttl_on_expiration,
-                                      int32_t gc_grace_period_in_seconds)
+ TestCompactionFilterFactory(bool purge_ttl_on_expiration,
+                             int32_t gc_grace_period_in_seconds)
      : purge_ttl_on_expiration_(purge_ttl_on_expiration),
        gc_grace_period_in_seconds_(gc_grace_period_in_seconds) {}
 

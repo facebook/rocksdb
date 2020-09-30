@@ -81,7 +81,7 @@ namespace ROCKSDB_NAMESPACE {
 // pipeline queues. This is the maximum backlog size after which ops are dropped
 // from queue
 struct PersistentCacheConfig {
-  explicit PersistentCacheConfig(
+  PersistentCacheConfig(
       Env* const _env, const std::string& _path, const uint64_t _cache_size,
       const std::shared_ptr<Logger>& _log,
       const uint32_t _write_buffer_size = 1 * 1024 * 1024 /*1MB*/) {

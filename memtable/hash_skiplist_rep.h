@@ -15,7 +15,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class HashSkipListRepFactory : public MemTableRepFactory {
  public:
-  explicit HashSkipListRepFactory(
+  HashSkipListRepFactory(
     size_t bucket_count,
     int32_t skiplist_height,
     int32_t skiplist_branching_factor)

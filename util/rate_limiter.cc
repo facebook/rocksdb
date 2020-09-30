@@ -35,7 +35,7 @@ size_t RateLimiter::RequestToken(size_t bytes, size_t alignment,
 
 // Pending request
 struct GenericRateLimiter::Req {
-  explicit Req(int64_t _bytes, port::Mutex* _mu)
+  Req(int64_t _bytes, port::Mutex* _mu)
       : request_bytes(_bytes), bytes(_bytes), cv(_mu), granted(false) {}
   int64_t request_bytes;
   int64_t bytes;

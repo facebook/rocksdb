@@ -15,11 +15,11 @@ namespace ROCKSDB_NAMESPACE {
 
 class SstFileDumper {
  public:
-  explicit SstFileDumper(const Options& options, const std::string& file_name,
-                         size_t readahead_size, bool verify_checksum,
-                         bool output_hex, bool decode_blob_index,
-                         const EnvOptions& soptions = EnvOptions(),
-                         bool silent = false);
+SstFileDumper(const Options& options, const std::string& file_name,
+              size_t readahead_size, bool verify_checksum,
+              bool output_hex, bool decode_blob_index,
+              const EnvOptions& soptions = EnvOptions(),
+              bool silent = false);
 
   Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
                         const std::string& from_key, bool has_to,

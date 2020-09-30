@@ -730,7 +730,7 @@ namespace {
 // FilterPolicy selecting among configurations based on context.
 class LevelAndStyleCustomFilterPolicy : public FilterPolicy {
  public:
-  explicit LevelAndStyleCustomFilterPolicy(int bpk_fifo, int bpk_l0_other,
+  LevelAndStyleCustomFilterPolicy(int bpk_fifo, int bpk_l0_other,
                                            int bpk_otherwise)
       : policy_fifo_(NewBloomFilterPolicy(bpk_fifo)),
         policy_l0_other_(NewBloomFilterPolicy(bpk_l0_other)),
@@ -774,8 +774,7 @@ class LevelAndStyleCustomFilterPolicy : public FilterPolicy {
 class TestingContextCustomFilterPolicy
     : public LevelAndStyleCustomFilterPolicy {
  public:
-  explicit TestingContextCustomFilterPolicy(int bpk_fifo, int bpk_l0_other,
-                                            int bpk_otherwise)
+  TestingContextCustomFilterPolicy(int bpk_fifo, int bpk_l0_other, int bpk_otherwise)
       : LevelAndStyleCustomFilterPolicy(bpk_fifo, bpk_l0_other, bpk_otherwise) {
   }
 

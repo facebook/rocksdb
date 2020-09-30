@@ -2089,7 +2089,7 @@ static void UniqueIdCallback(void* arg) {
 
 class MockPersistentCache : public PersistentCache {
  public:
-  explicit MockPersistentCache(const bool is_compressed, const size_t max_size)
+  MockPersistentCache(const bool is_compressed, const size_t max_size)
       : is_compressed_(is_compressed), max_size_(max_size) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(

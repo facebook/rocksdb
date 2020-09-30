@@ -23,7 +23,7 @@ const uint32_t kMb = 1 << 20;
 TEST_F(WritableFileWriterTest, RangeSync) {
   class FakeWF : public WritableFile {
    public:
-    explicit FakeWF() : size_(0), last_synced_(0) {}
+    FakeWF() : size_(0), last_synced_(0) {}
     ~FakeWF() override {}
 
     Status Append(const Slice& data) override {
@@ -190,7 +190,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
 TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   class FakeWF : public WritableFile {
    public:
-    explicit FakeWF() : use_direct_io_(false), io_error_(false) {}
+    FakeWF() : use_direct_io_(false), io_error_(false) {}
 
     bool use_direct_io() const override { return use_direct_io_; }
     Status Append(const Slice& /*data*/) override {

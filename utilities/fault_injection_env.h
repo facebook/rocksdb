@@ -68,9 +68,9 @@ class TestRandomAccessFile : public RandomAccessFile {
 // is written to or sync'ed.
 class TestWritableFile : public WritableFile {
  public:
-  explicit TestWritableFile(const std::string& fname,
-                            std::unique_ptr<WritableFile>&& f,
-                            FaultInjectionTestEnv* env);
+  TestWritableFile(const std::string& fname,
+                   std::unique_ptr<WritableFile>&& f,
+                   FaultInjectionTestEnv* env);
   virtual ~TestWritableFile();
   virtual Status Append(const Slice& data) override;
   virtual Status Truncate(uint64_t size) override {

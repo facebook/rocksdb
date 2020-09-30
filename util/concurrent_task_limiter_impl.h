@@ -20,8 +20,8 @@ class TaskLimiterToken;
 
 class ConcurrentTaskLimiterImpl : public ConcurrentTaskLimiter {
  public:
-  explicit ConcurrentTaskLimiterImpl(const std::string& name,
-                                     int32_t max_outstanding_task);
+  ConcurrentTaskLimiterImpl(const std::string& name,
+                            int32_t max_outstanding_task);
   // No copying allowed
   ConcurrentTaskLimiterImpl(const ConcurrentTaskLimiterImpl&) = delete;
   ConcurrentTaskLimiterImpl& operator=(const ConcurrentTaskLimiterImpl&) =

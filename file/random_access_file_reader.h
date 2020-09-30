@@ -75,7 +75,7 @@ class RandomAccessFileReader {
   std::vector<std::shared_ptr<EventListener>> listeners_;
 
  public:
-  explicit RandomAccessFileReader(
+  RandomAccessFileReader(
       std::unique_ptr<FSRandomAccessFile>&& raf, const std::string& _file_name,
       Env* _env = nullptr, const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       Statistics* stats = nullptr, uint32_t hist_type = 0,

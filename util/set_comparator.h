@@ -8,7 +8,7 @@
 namespace ROCKSDB_NAMESPACE {
 // A comparator to be used in std::set
 struct SetComparator {
-  explicit SetComparator() : user_comparator_(BytewiseComparator()) {}
+  SetComparator() : user_comparator_(BytewiseComparator()) {}
   explicit SetComparator(const Comparator* user_comparator)
       : user_comparator_(user_comparator ? user_comparator
                                          : BytewiseComparator()) {}

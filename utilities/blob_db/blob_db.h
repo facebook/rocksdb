@@ -254,7 +254,7 @@ class BlobDB : public StackableDB {
   virtual ~BlobDB() {}
 
  protected:
-  explicit BlobDB();
+  BlobDB();
 };
 
 // Destroy the content of the database.

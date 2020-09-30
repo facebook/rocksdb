@@ -20,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class TestFilterBitsBuilder : public FilterBitsBuilder {
  public:
-  explicit TestFilterBitsBuilder() {}
+  TestFilterBitsBuilder() {}
 
   // Add Key to filter
   void AddKey(const Slice& key) override {

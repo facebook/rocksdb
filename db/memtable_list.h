@@ -43,11 +43,11 @@ struct FlushJobInfo;
 // (such as holding the db mutex or being on the write thread).
 class MemTableListVersion {
  public:
-  explicit MemTableListVersion(size_t* parent_memtable_list_memory_usage,
-                               const MemTableListVersion& old);
-  explicit MemTableListVersion(size_t* parent_memtable_list_memory_usage,
-                               int max_write_buffer_number_to_maintain,
-                               int64_t max_write_buffer_size_to_maintain);
+  MemTableListVersion(size_t* parent_memtable_list_memory_usage,
+                      const MemTableListVersion& old);
+  MemTableListVersion(size_t* parent_memtable_list_memory_usage,
+                      int max_write_buffer_number_to_maintain,
+                      int64_t max_write_buffer_size_to_maintain);
 
   void Ref();
   void Unref(autovector<MemTable*>* to_delete = nullptr);

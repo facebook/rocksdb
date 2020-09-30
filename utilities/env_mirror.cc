@@ -98,7 +98,7 @@ class WritableFileMirror : public WritableFile {
  public:
   std::unique_ptr<WritableFile> a_, b_;
   std::string fname;
-  explicit WritableFileMirror(std::string f, const EnvOptions& options)
+  WritableFileMirror(std::string f, const EnvOptions& options)
       : WritableFile(options), fname(f) {}
 
   Status Append(const Slice& data) override {

@@ -75,7 +75,7 @@ class DBIter final : public Iterator {
   // The purpose of this approach is to avoid perf regression happening
   // when multiple threads bump the atomic counters from a DBIter::Next().
   struct LocalStatistics {
-    explicit LocalStatistics() { ResetCounters(); }
+    LocalStatistics() { ResetCounters(); }
 
     void ResetCounters() {
       next_count_ = 0;

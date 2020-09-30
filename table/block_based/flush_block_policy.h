@@ -25,7 +25,7 @@ class FlushBlockEveryKeyPolicy : public FlushBlockPolicy {
 
 class FlushBlockEveryKeyPolicyFactory : public FlushBlockPolicyFactory {
  public:
-  explicit FlushBlockEveryKeyPolicyFactory() {}
+  FlushBlockEveryKeyPolicyFactory() {}
 
   const char* Name() const override {
     return "FlushBlockEveryKeyPolicyFactory";

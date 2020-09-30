@@ -29,7 +29,7 @@ namespace {
 class FastLocalBloomBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
   // Non-null aggregate_rounding_balance implies optimize_filters_for_memory
-  explicit FastLocalBloomBitsBuilder(
+  FastLocalBloomBitsBuilder(
       const int millibits_per_key,
       std::atomic<int64_t>* aggregate_rounding_balance)
       : millibits_per_key_(millibits_per_key),
@@ -345,7 +345,7 @@ using LegacyBloomImpl = LegacyLocalityBloomImpl</*ExtraRotates*/ false>;
 
 class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
-  explicit LegacyBloomBitsBuilder(const int bits_per_key, Logger* info_log);
+  LegacyBloomBitsBuilder(const int bits_per_key, Logger* info_log);
 
   // No Copy allowed
   LegacyBloomBitsBuilder(const LegacyBloomBitsBuilder&) = delete;

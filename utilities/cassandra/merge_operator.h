@@ -15,8 +15,8 @@ namespace cassandra {
  */
 class CassandraValueMergeOperator : public MergeOperator {
 public:
- explicit CassandraValueMergeOperator(int32_t gc_grace_period_in_seconds,
-                                      size_t operands_limit = 0)
+ CassandraValueMergeOperator(int32_t gc_grace_period_in_seconds,
+                             size_t operands_limit = 0)
      : gc_grace_period_in_seconds_(gc_grace_period_in_seconds),
        operands_limit_(operands_limit) {}
 

@@ -22,7 +22,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
  public:
-  explicit PartitionedFilterBlockBuilder(
+  PartitionedFilterBlockBuilder(
       const SliceTransform* prefix_extractor, bool whole_key_filtering,
       FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
       const bool use_value_delta_encoding,

@@ -3571,9 +3571,9 @@ struct VersionSet::ManifestWriter {
   const MutableCFOptions mutable_cf_options;
   const autovector<VersionEdit*>& edit_list;
 
-  explicit ManifestWriter(InstrumentedMutex* mu, ColumnFamilyData* _cfd,
-                          const MutableCFOptions& cf_options,
-                          const autovector<VersionEdit*>& e)
+  ManifestWriter(InstrumentedMutex* mu, ColumnFamilyData* _cfd,
+                 const MutableCFOptions& cf_options,
+                 const autovector<VersionEdit*>& e)
       : done(false),
         cv(mu),
         cfd(_cfd),
@@ -4741,8 +4741,8 @@ Status VersionSet::Recover(
 namespace {
 class ManifestPicker {
  public:
-  explicit ManifestPicker(const std::string& dbname,
-                          const std::vector<std::string>& files_in_dbname);
+  ManifestPicker(const std::string& dbname,
+                 const std::vector<std::string>& files_in_dbname);
   // REQUIRES Valid() == true
   std::string GetNextManifest(uint64_t* file_number, std::string* file_name);
   bool Valid() const { return manifest_file_iter_ != manifest_files_.end(); }

@@ -275,7 +275,7 @@ class CompositeEnvWrapper : public Env {
  public:
   // Initialize a CompositeEnvWrapper that delegates all thread/time related
   // calls to env, and all file operations to fs
-  explicit CompositeEnvWrapper(Env* env, std::shared_ptr<FileSystem> fs)
+  CompositeEnvWrapper(Env* env, std::shared_ptr<FileSystem> fs)
       : Env(fs), env_target_(env) {}
   ~CompositeEnvWrapper() {}
 

@@ -15,11 +15,11 @@ namespace ROCKSDB_NAMESPACE {
 
 class HashLinkListRepFactory : public MemTableRepFactory {
  public:
-  explicit HashLinkListRepFactory(size_t bucket_count,
-                                  uint32_t threshold_use_skiplist,
-                                  size_t huge_page_tlb_size,
-                                  int bucket_entries_logging_threshold,
-                                  bool if_log_bucket_dist_when_flash)
+  HashLinkListRepFactory(size_t bucket_count,
+                         uint32_t threshold_use_skiplist,
+                         size_t huge_page_tlb_size,
+                         int bucket_entries_logging_threshold,
+                         bool if_log_bucket_dist_when_flash)
       : bucket_count_(bucket_count),
         threshold_use_skiplist_(threshold_use_skiplist),
         huge_page_tlb_size_(huge_page_tlb_size),

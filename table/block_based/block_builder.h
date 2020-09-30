@@ -22,12 +22,12 @@ class BlockBuilder {
   BlockBuilder(const BlockBuilder&) = delete;
   void operator=(const BlockBuilder&) = delete;
 
-  explicit BlockBuilder(int block_restart_interval,
-                        bool use_delta_encoding = true,
-                        bool use_value_delta_encoding = false,
-                        BlockBasedTableOptions::DataBlockIndexType index_type =
-                            BlockBasedTableOptions::kDataBlockBinarySearch,
-                        double data_block_hash_table_util_ratio = 0.75);
+  BlockBuilder(int block_restart_interval,
+               bool use_delta_encoding = true,
+               bool use_value_delta_encoding = false,
+               BlockBasedTableOptions::DataBlockIndexType index_type =
+                   BlockBasedTableOptions::kDataBlockBinarySearch,
+               double data_block_hash_table_util_ratio = 0.75);
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();

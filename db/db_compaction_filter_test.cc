@@ -145,7 +145,7 @@ class ConditionalFilter : public CompactionFilter {
 
 class ChangeFilter : public CompactionFilter {
  public:
-  explicit ChangeFilter() {}
+  ChangeFilter() {}
 
   bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
               std::string* new_value, bool* value_changed) const override {
@@ -160,8 +160,7 @@ class ChangeFilter : public CompactionFilter {
 
 class KeepFilterFactory : public CompactionFilterFactory {
  public:
-  explicit KeepFilterFactory(bool check_context = false,
-                             bool check_context_cf_id = false)
+  KeepFilterFactory(bool check_context = false, bool check_context_cf_id = false)
       : check_context_(check_context),
         check_context_cf_id_(check_context_cf_id),
         compaction_filter_created_(false) {}
@@ -252,7 +251,7 @@ class ConditionalFilterFactory : public CompactionFilterFactory {
 
 class ChangeFilterFactory : public CompactionFilterFactory {
  public:
-  explicit ChangeFilterFactory() {}
+  ChangeFilterFactory() {}
 
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& /*context*/) override {

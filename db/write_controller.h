@@ -22,8 +22,8 @@ class WriteControllerToken;
 // to be called while holding DB mutex
 class WriteController {
  public:
-  explicit WriteController(uint64_t _delayed_write_rate = 1024u * 1024u * 32u,
-                           int64_t low_pri_rate_bytes_per_sec = 1024 * 1024)
+  WriteController(uint64_t _delayed_write_rate = 1024u * 1024u * 32u,
+                  int64_t low_pri_rate_bytes_per_sec = 1024 * 1024)
       : total_stopped_(0),
         total_delayed_(0),
         total_compaction_pressure_(0),

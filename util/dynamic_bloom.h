@@ -44,9 +44,9 @@ class DynamicBloom {
   //                      it to be allocated, like:
   //                         sysctl -w vm.nr_hugepages=20
   //                     See linux doc Documentation/vm/hugetlbpage.txt
-  explicit DynamicBloom(Allocator* allocator, uint32_t total_bits,
-                        uint32_t num_probes = 6, size_t huge_page_tlb_size = 0,
-                        Logger* logger = nullptr);
+  DynamicBloom(Allocator* allocator, uint32_t total_bits,
+               uint32_t num_probes = 6, size_t huge_page_tlb_size = 0,
+               Logger* logger = nullptr);
 
   ~DynamicBloom() {}
 

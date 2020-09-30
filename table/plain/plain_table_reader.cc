@@ -53,7 +53,7 @@ inline uint32_t GetFixed32Element(const char* base, size_t offset) {
 // Iterator to iterate IndexedTable
 class PlainTableIterator : public InternalIterator {
  public:
-  explicit PlainTableIterator(PlainTableReader* table, bool use_prefix_seek);
+  PlainTableIterator(PlainTableReader* table, bool use_prefix_seek);
   // No copying allowed
   PlainTableIterator(const PlainTableIterator&) = delete;
   void operator=(const Iterator&) = delete;

@@ -44,9 +44,9 @@ class ConcurrentArena : public Allocator {
   // in fact just passed to the constructor of arena_.  The core-local
   // shards compute their shard_block_size as a fraction of block_size
   // that varies according to the hardware concurrency level.
-  explicit ConcurrentArena(size_t block_size = Arena::kMinBlockSize,
-                           AllocTracker* tracker = nullptr,
-                           size_t huge_page_size = 0);
+  ConcurrentArena(size_t block_size = Arena::kMinBlockSize,
+                  AllocTracker* tracker = nullptr,
+                  size_t huge_page_size = 0);
 
   char* Allocate(size_t bytes) override {
     return AllocateImpl(bytes, false /*force_arena*/,

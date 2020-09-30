@@ -38,8 +38,8 @@ class Arena : public Allocator {
   // huge_page_size: if 0, don't use huge page TLB. If > 0 (should set to the
   // supported hugepage size of the system), block allocation will try huge
   // page TLB first. If allocation fails, will fall back to normal case.
-  explicit Arena(size_t block_size = kMinBlockSize,
-                 AllocTracker* tracker = nullptr, size_t huge_page_size = 0);
+  Arena(size_t block_size = kMinBlockSize,
+        AllocTracker* tracker = nullptr, size_t huge_page_size = 0);
   ~Arena();
 
   char* Allocate(size_t bytes) override;

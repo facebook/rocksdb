@@ -85,7 +85,7 @@ struct WriteBatchIndexEntry {
 
 class ReadableWriteBatch : public WriteBatch {
  public:
-  explicit ReadableWriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0)
+  ReadableWriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0)
       : WriteBatch(reserved_bytes, max_bytes) {}
   // Retrieve some information from a write entry in the write batch, given
   // the start offset of the write entry.

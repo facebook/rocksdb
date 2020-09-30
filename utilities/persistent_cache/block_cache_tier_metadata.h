@@ -38,7 +38,7 @@ namespace ROCKSDB_NAMESPACE {
 // This is a forward index that maps a given cache-id to a cache file object.
 // Typically you would lookup using LBA and use the object to read or write
 struct BlockInfo {
-  explicit BlockInfo(const Slice& key, const LBA& lba = LBA())
+  BlockInfo(const Slice& key, const LBA& lba = LBA())
       : key_(key.ToString()), lba_(lba) {}
 
   std::string key_;

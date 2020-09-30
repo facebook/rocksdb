@@ -21,7 +21,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class MemFile {
  public:
-  explicit MemFile(Env* env, const std::string& fn, bool _is_lock_file = false)
+  MemFile(Env* env, const std::string& fn, bool _is_lock_file = false)
       : env_(env),
         fn_(fn),
         refs_(0),

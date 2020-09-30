@@ -88,8 +88,8 @@ struct ShardState {
 
 struct Reader {
  public:
-  explicit Reader(std::vector<ShardState>* shard_states,
-                  ROCKSDB_NAMESPACE::DB* db)
+  Reader(std::vector<ShardState>* shard_states,
+         ROCKSDB_NAMESPACE::DB* db)
       : shard_states_(shard_states), db_(db) {
     sem_init(&sem_, 0, 0);
     thread_ = port::Thread(&Reader::run, this);
@@ -202,8 +202,8 @@ struct Reader {
 };
 
 struct Writer {
-  explicit Writer(std::vector<ShardState>* shard_states,
-                  ROCKSDB_NAMESPACE::DB* db)
+  Writer(std::vector<ShardState>* shard_states,
+         ROCKSDB_NAMESPACE::DB* db)
       : shard_states_(shard_states), db_(db) {}
 
   void start() { thread_ = port::Thread(&Writer::run, this); }

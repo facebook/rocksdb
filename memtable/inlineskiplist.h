@@ -71,9 +71,8 @@ class InlineSkipList {
   // keys, and will allocate memory using "*allocator".  Objects allocated
   // in the allocator must remain allocated for the lifetime of the
   // skiplist object.
-  explicit InlineSkipList(Comparator cmp, Allocator* allocator,
-                          int32_t max_height = 12,
-                          int32_t branching_factor = 4);
+  InlineSkipList(Comparator cmp, Allocator* allocator,
+                 int32_t max_height = 12, int32_t branching_factor = 4);
   // No copying allowed
   InlineSkipList(const InlineSkipList&) = delete;
   InlineSkipList& operator=(const InlineSkipList&) = delete;

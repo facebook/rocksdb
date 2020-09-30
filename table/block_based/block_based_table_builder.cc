@@ -198,7 +198,7 @@ const uint64_t kLegacyBlockBasedTableMagicNumber = 0xdb4775248b80fb57ull;
 class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
     : public IntTblPropCollector {
  public:
-  explicit BlockBasedTablePropertiesCollector(
+  BlockBasedTablePropertiesCollector(
       BlockBasedTableOptions::IndexType index_type, bool whole_key_filtering,
       bool prefix_filtering)
       : index_type_(index_type),

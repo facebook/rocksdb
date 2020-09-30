@@ -18,7 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
  public:
-  explicit OptimisticTransactionDBImpl(
+  OptimisticTransactionDBImpl(
       DB* db, const OptimisticTransactionDBOptions& occ_options,
       bool take_ownership = true)
       : OptimisticTransactionDB(db),

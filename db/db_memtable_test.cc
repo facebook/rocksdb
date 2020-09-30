@@ -22,7 +22,7 @@ class DBMemTableTest : public DBTestBase {
 
 class MockMemTableRep : public MemTableRep {
  public:
-  explicit MockMemTableRep(Allocator* allocator, MemTableRep* rep)
+  MockMemTableRep(Allocator* allocator, MemTableRep* rep)
       : MemTableRep(allocator), rep_(rep), num_insert_with_hint_(0) {}
 
   KeyHandle Allocate(const size_t len, char** buf) override {

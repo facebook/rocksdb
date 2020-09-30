@@ -120,7 +120,7 @@ class IndexBuilder {
 //     substitute key that serves the same function.
 class ShortenedIndexBuilder : public IndexBuilder {
  public:
-  explicit ShortenedIndexBuilder(
+  ShortenedIndexBuilder(
       const InternalKeyComparator* comparator,
       const int index_block_restart_interval, const uint32_t format_version,
       const bool use_value_delta_encoding,
@@ -254,7 +254,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
 // data copy or small heap allocations for prefixes.
 class HashIndexBuilder : public IndexBuilder {
  public:
-  explicit HashIndexBuilder(
+  HashIndexBuilder(
       const InternalKeyComparator* comparator,
       const SliceTransform* hash_key_extractor,
       int index_block_restart_interval, int format_version,
@@ -370,7 +370,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
       const bool use_value_delta_encoding,
       const BlockBasedTableOptions& table_opt);
 
-  explicit PartitionedIndexBuilder(const InternalKeyComparator* comparator,
+  PartitionedIndexBuilder(const InternalKeyComparator* comparator,
                                    const BlockBasedTableOptions& table_opt,
                                    const bool use_value_delta_encoding);
 

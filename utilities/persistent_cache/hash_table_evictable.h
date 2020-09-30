@@ -26,9 +26,9 @@ class EvictableHashTable : private HashTable<T*, Hash, Equal> {
  public:
   typedef HashTable<T*, Hash, Equal> hash_table;
 
-  explicit EvictableHashTable(const size_t capacity = 1024 * 1024,
-                              const float load_factor = 2.0,
-                              const uint32_t nlocks = 256)
+  EvictableHashTable(const size_t capacity = 1024 * 1024,
+                     const float load_factor = 2.0,
+                     const uint32_t nlocks = 256)
       : HashTable<T*, Hash, Equal>(capacity, load_factor, nlocks),
         lru_lists_(new LRUList<T>[hash_table::nlocks_]) {
     assert(lru_lists_);

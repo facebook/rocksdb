@@ -252,7 +252,7 @@ class BlockBasedTable : public TableReader {
 
  protected:
   Rep* rep_;
-  explicit BlockBasedTable(Rep* rep, BlockCacheTracer* const block_cache_tracer)
+  BlockBasedTable(Rep* rep, BlockCacheTracer* const block_cache_tracer)
       : rep_(rep), block_cache_tracer_(block_cache_tracer) {}
   // No copying allowed
   explicit BlockBasedTable(const TableReader&) = delete;

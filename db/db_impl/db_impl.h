@@ -770,9 +770,9 @@ class DBImpl : public DB {
     // other write policies, it must be of size 1.
     std::map<SequenceNumber, BatchInfo> batches_;
 
-    explicit RecoveredTransaction(const uint64_t log, const std::string& name,
-                                  WriteBatch* batch, SequenceNumber seq,
-                                  size_t batch_cnt, bool unprepared)
+    RecoveredTransaction(const uint64_t log, const std::string& name,
+                         WriteBatch* batch, SequenceNumber seq,
+                         size_t batch_cnt, bool unprepared)
         : name_(name), unprepared_(unprepared) {
       batches_[seq] = {log, batch, batch_cnt};
     }

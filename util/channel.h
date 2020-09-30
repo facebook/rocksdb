@@ -15,7 +15,7 @@ namespace ROCKSDB_NAMESPACE {
 template <class T>
 class channel {
  public:
-  explicit channel() : eof_(false) {}
+  channel() : eof_(false) {}
 
   channel(const channel&) = delete;
   void operator=(const channel&) = delete;

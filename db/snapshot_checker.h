@@ -37,7 +37,7 @@ class DisableGCSnapshotChecker : public SnapshotChecker {
 
  protected:
   static DisableGCSnapshotChecker instance_;
-  explicit DisableGCSnapshotChecker() {}
+  DisableGCSnapshotChecker() {}
 };
 
 class WritePreparedTxnDB;

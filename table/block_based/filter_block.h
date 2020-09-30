@@ -51,7 +51,7 @@ using MultiGetRange = MultiGetContext::Range;
 // BlockBased/Full FilterBlock would be called in the same way.
 class FilterBlockBuilder {
  public:
-  explicit FilterBlockBuilder() {}
+  FilterBlockBuilder() {}
   // No copying allowed
   FilterBlockBuilder(const FilterBlockBuilder&) = delete;
   void operator=(const FilterBlockBuilder&) = delete;

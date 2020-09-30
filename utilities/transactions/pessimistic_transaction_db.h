@@ -28,11 +28,9 @@ namespace ROCKSDB_NAMESPACE {
 
 class PessimisticTransactionDB : public TransactionDB {
  public:
-  explicit PessimisticTransactionDB(DB* db,
-                                    const TransactionDBOptions& txn_db_options);
+  PessimisticTransactionDB(DB* db, const TransactionDBOptions& txn_db_options);
 
-  explicit PessimisticTransactionDB(StackableDB* db,
-                                    const TransactionDBOptions& txn_db_options);
+  PessimisticTransactionDB(StackableDB* db, const TransactionDBOptions& txn_db_options);
 
   virtual ~PessimisticTransactionDB();
 

@@ -32,7 +32,7 @@ typedef std::unique_ptr<BaseReferencedVersionBuilder> VersionBuilderUPtr;
 // VersionEditHandler is shared by multiple threads.
 class VersionEditHandler {
  public:
-  explicit VersionEditHandler(
+  VersionEditHandler(
       bool read_only,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       VersionSet* version_set, bool track_missing_files,

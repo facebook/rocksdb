@@ -536,7 +536,7 @@ class LibradosDirectory : public Directory {
   librados::IoCtx * _io_ctx;
   std::string _fid;
 public:
-  explicit LibradosDirectory(librados::IoCtx * io_ctx, std::string fid):
+  LibradosDirectory(librados::IoCtx * io_ctx, std::string fid):
     _io_ctx(io_ctx), _fid(fid) {}
 
   // Fsync directory. Can be called concurrently from multiple threads.

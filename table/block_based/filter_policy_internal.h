@@ -79,7 +79,7 @@ class BloomFilterPolicy : public FilterPolicy {
   // tests should prefer using NewBloomFilterPolicy (user-exposed).
   static const std::vector<Mode> kAllUserModes;
 
-  explicit BloomFilterPolicy(double bits_per_key, Mode mode);
+  BloomFilterPolicy(double bits_per_key, Mode mode);
 
   ~BloomFilterPolicy() override;
 

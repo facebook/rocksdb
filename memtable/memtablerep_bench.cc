@@ -198,10 +198,10 @@ class KeyGenerator {
 
 class BenchmarkThread {
  public:
-  explicit BenchmarkThread(MemTableRep* table, KeyGenerator* key_gen,
-                           uint64_t* bytes_written, uint64_t* bytes_read,
-                           uint64_t* sequence, uint64_t num_ops,
-                           uint64_t* read_hits)
+  BenchmarkThread(MemTableRep* table, KeyGenerator* key_gen,
+                  uint64_t* bytes_written, uint64_t* bytes_read,
+                  uint64_t* sequence, uint64_t num_ops,
+                  uint64_t* read_hits)
       : table_(table),
         key_gen_(key_gen),
         bytes_written_(bytes_written),
@@ -403,8 +403,8 @@ class SeqConcurrentReadBenchmarkThread : public SeqReadBenchmarkThread {
 
 class Benchmark {
  public:
-  explicit Benchmark(MemTableRep* table, KeyGenerator* key_gen,
-                     uint64_t* sequence, uint32_t num_threads)
+  Benchmark(MemTableRep* table, KeyGenerator* key_gen,
+            uint64_t* sequence, uint32_t num_threads)
       : table_(table),
         key_gen_(key_gen),
         sequence_(sequence),
@@ -459,8 +459,8 @@ class Benchmark {
 
 class FillBenchmark : public Benchmark {
  public:
-  explicit FillBenchmark(MemTableRep* table, KeyGenerator* key_gen,
-                         uint64_t* sequence)
+  FillBenchmark(MemTableRep* table, KeyGenerator* key_gen,
+                uint64_t* sequence)
       : Benchmark(table, key_gen, sequence, 1) {
     num_write_ops_per_thread_ = FLAGS_num_operations;
   }
@@ -475,8 +475,8 @@ class FillBenchmark : public Benchmark {
 
 class ReadBenchmark : public Benchmark {
  public:
-  explicit ReadBenchmark(MemTableRep* table, KeyGenerator* key_gen,
-                         uint64_t* sequence)
+  ReadBenchmark(MemTableRep* table, KeyGenerator* key_gen,
+                uint64_t* sequence)
       : Benchmark(table, key_gen, sequence, FLAGS_num_threads) {
     num_read_ops_per_thread_ = FLAGS_num_operations / FLAGS_num_threads;
   }
@@ -500,7 +500,7 @@ class ReadBenchmark : public Benchmark {
 
 class SeqReadBenchmark : public Benchmark {
  public:
-  explicit SeqReadBenchmark(MemTableRep* table, uint64_t* sequence)
+  SeqReadBenchmark(MemTableRep* table, uint64_t* sequence)
       : Benchmark(table, nullptr, sequence, FLAGS_num_threads) {
     num_read_ops_per_thread_ = FLAGS_num_scans;
   }
@@ -522,8 +522,8 @@ class SeqReadBenchmark : public Benchmark {
 template <class ReadThreadType>
 class ReadWriteBenchmark : public Benchmark {
  public:
-  explicit ReadWriteBenchmark(MemTableRep* table, KeyGenerator* key_gen,
-                              uint64_t* sequence)
+  ReadWriteBenchmark(MemTableRep* table, KeyGenerator* key_gen,
+                     uint64_t* sequence)
       : Benchmark(table, key_gen, sequence, FLAGS_num_threads) {
     num_read_ops_per_thread_ =
         FLAGS_num_threads <= 1

@@ -59,7 +59,7 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
     size_t force_eof_position_;
     bool returned_partial_;
     bool fail_after_read_partial_;
-    explicit StringSource(Slice& contents, bool fail_after_read_partial)
+    StringSource(Slice& contents, bool fail_after_read_partial)
         : contents_(contents),
           force_error_(false),
           force_error_position_(0),

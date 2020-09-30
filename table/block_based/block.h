@@ -43,8 +43,7 @@ class BlockPrefixIndex;
 // READ_AMP_ESTIMATE_USEFUL_BYTES.
 class BlockReadAmpBitmap {
  public:
-  explicit BlockReadAmpBitmap(size_t block_size, size_t bytes_per_bit,
-                              Statistics* statistics)
+  BlockReadAmpBitmap(size_t block_size, size_t bytes_per_bit, Statistics* statistics)
       : bitmap_(nullptr),
         bytes_per_bit_pow_(0),
         statistics_(statistics),
@@ -151,7 +150,7 @@ class BlockReadAmpBitmap {
 class Block {
  public:
   // Initialize the block with the specified contents.
-  explicit Block(BlockContents&& contents, size_t read_amp_bytes_per_bit = 0,
+   Block(BlockContents&& contents, size_t read_amp_bytes_per_bit = 0,
                  Statistics* statistics = nullptr);
   // No copying allowed
   Block(const Block&) = delete;
@@ -558,8 +557,8 @@ class DataBlockIter final : public BlockIter<Slice> {
   // last `current_` value we report to read-amp bitmp
   mutable uint32_t last_bitmap_offset_;
   struct CachedPrevEntry {
-    explicit CachedPrevEntry(uint32_t _offset, const char* _key_ptr,
-                             size_t _key_offset, size_t _key_size, Slice _value)
+    CachedPrevEntry(uint32_t _offset, const char* _key_ptr,
+                    size_t _key_offset, size_t _key_size, Slice _value)
         : offset(_offset),
           key_ptr(_key_ptr),
           key_offset(_key_offset),

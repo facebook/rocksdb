@@ -120,9 +120,9 @@ struct InfoLogPrefix {
   char buf[260];
   Slice prefix;
   // Prefix with DB absolute path encoded
-  explicit InfoLogPrefix(bool has_log_dir, const std::string& db_absolute_path);
+  InfoLogPrefix(bool has_log_dir, const std::string& db_absolute_path);
   // Default Prefix
-  explicit InfoLogPrefix();
+  InfoLogPrefix();
 };
 
 // Return the name of the info log file for "dbname".

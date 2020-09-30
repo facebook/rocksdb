@@ -38,8 +38,8 @@ class MemTableIterator;
 class MergeContext;
 
 struct ImmutableMemTableOptions {
-  explicit ImmutableMemTableOptions(const ImmutableCFOptions& ioptions,
-                                    const MutableCFOptions& mutable_cf_options);
+  ImmutableMemTableOptions(const ImmutableCFOptions& ioptions,
+                           const MutableCFOptions& mutable_cf_options);
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;
   size_t memtable_huge_page_size;
@@ -100,11 +100,11 @@ class MemTable {
   // If the earliest sequence number is not known, kMaxSequenceNumber may be
   // used, but this may prevent some transactions from succeeding until the
   // first key is inserted into the memtable.
-  explicit MemTable(const InternalKeyComparator& comparator,
-                    const ImmutableCFOptions& ioptions,
-                    const MutableCFOptions& mutable_cf_options,
-                    WriteBufferManager* write_buffer_manager,
-                    SequenceNumber earliest_seq, uint32_t column_family_id);
+  MemTable(const InternalKeyComparator& comparator,
+           const ImmutableCFOptions& ioptions,
+           const MutableCFOptions& mutable_cf_options,
+           WriteBufferManager* write_buffer_manager,
+           SequenceNumber earliest_seq, uint32_t column_family_id);
   // No copying allowed
   MemTable(const MemTable&) = delete;
   MemTable& operator=(const MemTable&) = delete;

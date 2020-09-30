@@ -28,10 +28,10 @@ enum PlainTableEntryType : unsigned char;
 // The class is used in PlainTableBuilder.
 class PlainTableKeyEncoder {
  public:
-  explicit PlainTableKeyEncoder(EncodingType encoding_type,
-                                uint32_t user_key_len,
-                                const SliceTransform* prefix_extractor,
-                                size_t index_sparseness)
+  PlainTableKeyEncoder(EncodingType encoding_type,
+                       uint32_t user_key_len,
+                       const SliceTransform* prefix_extractor,
+                       size_t index_sparseness)
       : encoding_type_((prefix_extractor != nullptr) ? encoding_type : kPlain),
         fixed_user_key_len_(user_key_len),
         prefix_extractor_(prefix_extractor),
@@ -142,10 +142,10 @@ class PlainTableFileReader {
 // The class is used by PlainTableBuilder.
 class PlainTableKeyDecoder {
  public:
-  explicit PlainTableKeyDecoder(const PlainTableReaderFileInfo* file_info,
-                                EncodingType encoding_type,
-                                uint32_t user_key_len,
-                                const SliceTransform* prefix_extractor)
+  PlainTableKeyDecoder(const PlainTableReaderFileInfo* file_info,
+                       EncodingType encoding_type,
+                       uint32_t user_key_len,
+                       const SliceTransform* prefix_extractor)
       : file_reader_(file_info),
         encoding_type_(encoding_type),
         prefix_len_(0),

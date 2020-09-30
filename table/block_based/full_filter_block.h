@@ -37,9 +37,9 @@ class FilterBitsReader;
 //
 class FullFilterBlockBuilder : public FilterBlockBuilder {
  public:
-  explicit FullFilterBlockBuilder(const SliceTransform* prefix_extractor,
-                                  bool whole_key_filtering,
-                                  FilterBitsBuilder* filter_bits_builder);
+  FullFilterBlockBuilder(const SliceTransform* prefix_extractor,
+                         bool whole_key_filtering,
+                         FilterBitsBuilder* filter_bits_builder);
   // No copying allowed
   FullFilterBlockBuilder(const FullFilterBlockBuilder&) = delete;
   void operator=(const FullFilterBlockBuilder&) = delete;

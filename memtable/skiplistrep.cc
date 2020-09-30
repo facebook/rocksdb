@@ -18,9 +18,9 @@ class SkipListRep : public MemTableRep {
 
   friend class LookaheadIterator;
 public:
- explicit SkipListRep(const MemTableRep::KeyComparator& compare,
-                      Allocator* allocator, const SliceTransform* transform,
-                      const size_t lookahead)
+ SkipListRep(const MemTableRep::KeyComparator& compare,
+             Allocator* allocator, const SliceTransform* transform,
+             const size_t lookahead)
      : MemTableRep(allocator),
        skip_list_(compare, allocator),
        cmp_(compare),

@@ -54,7 +54,7 @@ class VectorRep : public MemTableRep {
     bool mutable sorted_;
     void DoSort() const;
    public:
-    explicit Iterator(class VectorRep* vrep,
+    Iterator(class VectorRep* vrep,
       std::shared_ptr<std::vector<const char*>> bucket,
       const KeyComparator& compare);
 

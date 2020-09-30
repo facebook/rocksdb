@@ -237,7 +237,7 @@ class DBImplSecondary : public DBImpl {
     }
 
    public:
-    explicit ColumnFamilyCollector() {}
+    ColumnFamilyCollector() {}
 
     ~ColumnFamilyCollector() override {}
 

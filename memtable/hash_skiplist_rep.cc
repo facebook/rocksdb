@@ -80,8 +80,7 @@ class HashSkipListRep : public MemTableRep {
 
   class Iterator : public MemTableRep::Iterator {
    public:
-    explicit Iterator(Bucket* list, bool own_list = true,
-                      Arena* arena = nullptr)
+    Iterator(Bucket* list, bool own_list = true, Arena* arena = nullptr)
         : list_(list), iter_(list), own_list_(own_list), arena_(arena) {}
 
     ~Iterator() override {

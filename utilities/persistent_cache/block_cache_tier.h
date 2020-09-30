@@ -87,7 +87,7 @@ class BlockCacheTier : public PersistentCacheTier {
   // Pipelined operation
   struct InsertOp {
     explicit InsertOp(const bool signal) : signal_(signal) {}
-    explicit InsertOp(std::string&& key, const std::string& data)
+    InsertOp(std::string&& key, const std::string& data)
         : key_(std::move(key)), data_(data) {}
     ~InsertOp() {}
 

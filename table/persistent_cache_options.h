@@ -17,7 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 // This is used to pass the context for caching and the cache handle
 struct PersistentCacheOptions {
   PersistentCacheOptions() {}
-  explicit PersistentCacheOptions(
+  PersistentCacheOptions(
       const std::shared_ptr<PersistentCache>& _persistent_cache,
       const std::string _key_prefix, Statistics* const _statistics)
       : persistent_cache(_persistent_cache),

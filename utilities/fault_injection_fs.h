@@ -58,9 +58,9 @@ struct FSFileState {
 // is written to or sync'ed.
 class TestFSWritableFile : public FSWritableFile {
  public:
-  explicit TestFSWritableFile(const std::string& fname,
-                              std::unique_ptr<FSWritableFile>&& f,
-                              FaultInjectionTestFS* fs);
+  TestFSWritableFile(const std::string& fname,
+                     std::unique_ptr<FSWritableFile>&& f,
+                     FaultInjectionTestFS* fs);
   virtual ~TestFSWritableFile();
   virtual IOStatus Append(const Slice& data, const IOOptions&,
                           IODebugContext*) override;
@@ -133,9 +133,9 @@ class TestFSRandomRWFile : public FSRandomRWFile {
 
 class TestFSRandomAccessFile : public FSRandomAccessFile {
  public:
-  explicit TestFSRandomAccessFile(const std::string& fname,
-                              std::unique_ptr<FSRandomAccessFile>&& f,
-                              FaultInjectionTestFS* fs);
+  TestFSRandomAccessFile(const std::string& fname,
+                         std::unique_ptr<FSRandomAccessFile>&& f,
+                         FaultInjectionTestFS* fs);
   ~TestFSRandomAccessFile() override {}
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,

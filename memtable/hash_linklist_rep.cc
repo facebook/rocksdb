@@ -31,7 +31,7 @@ struct BucketHeader {
   Pointer next;
   std::atomic<uint32_t> num_entries;
 
-  explicit BucketHeader(void* n, uint32_t count)
+  BucketHeader(void* n, uint32_t count)
       : next(n), num_entries(count) {}
 
   bool IsSkipListBucket() {
@@ -55,8 +55,8 @@ struct SkipListBucketHeader {
   BucketHeader Counting_header;
   MemtableSkipList skip_list;
 
-  explicit SkipListBucketHeader(const MemTableRep::KeyComparator& cmp,
-                                Allocator* allocator, uint32_t count)
+  SkipListBucketHeader(const MemTableRep::KeyComparator& cmp,
+                       Allocator* allocator, uint32_t count)
       : Counting_header(this,  // Pointing to itself to indicate header type.
                         count),
         skip_list(cmp, allocator) {}
@@ -260,7 +260,7 @@ class HashLinkListRep : public MemTableRep {
 
   class FullListIterator : public MemTableRep::Iterator {
    public:
-    explicit FullListIterator(MemtableSkipList* list, Allocator* allocator)
+    FullListIterator(MemtableSkipList* list, Allocator* allocator)
         : iter_(list), full_list_(list), allocator_(allocator) {}
 
     ~FullListIterator() override {}
@@ -324,8 +324,7 @@ class HashLinkListRep : public MemTableRep {
 
   class LinkListIterator : public MemTableRep::Iterator {
    public:
-    explicit LinkListIterator(const HashLinkListRep* const hash_link_list_rep,
-                              Node* head)
+    LinkListIterator(const HashLinkListRep* const hash_link_list_rep, Node* head)
         : hash_link_list_rep_(hash_link_list_rep),
           head_(head),
           node_(nullptr) {}

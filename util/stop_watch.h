@@ -88,7 +88,7 @@ class StopWatch {
 // a nano second precision stopwatch
 class StopWatchNano {
  public:
-  explicit StopWatchNano(Env* const env, bool auto_start = false)
+  StopWatchNano(Env* const env, bool auto_start = false)
       : env_(env), start_(0) {
     if (auto_start) {
       Start();

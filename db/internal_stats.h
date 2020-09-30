@@ -173,7 +173,7 @@ class InternalStats {
     // Number of compactions done per CompactionReason
     int counts[static_cast<int>(CompactionReason::kNumOfReasons)];
 
-    explicit CompactionStats()
+    CompactionStats()
         : micros(0),
           cpu_micros(0),
           bytes_read_non_output_levels(0),
@@ -646,9 +646,9 @@ class InternalStats {
     uint64_t num_dropped_records;
     int count;
 
-    explicit CompactionStats() {}
+    CompactionStats() {}
 
-    explicit CompactionStats(CompactionReason /*reason*/, int /*c*/) {}
+    CompactionStats(CompactionReason /*reason*/, int /*c*/) {}
 
     explicit CompactionStats(const CompactionStats& /*c*/) {}
 

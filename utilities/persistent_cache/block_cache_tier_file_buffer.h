@@ -61,8 +61,8 @@ class CacheWriteBuffer {
 //
 class CacheWriteBufferAllocator {
  public:
-  explicit CacheWriteBufferAllocator(const size_t buffer_size,
-                                     const size_t buffer_count)
+  CacheWriteBufferAllocator(const size_t buffer_size,
+                            const size_t buffer_count)
       : cond_empty_(&lock_), buffer_size_(buffer_size) {
     MutexLock _(&lock_);
     buffer_size_ = buffer_size;

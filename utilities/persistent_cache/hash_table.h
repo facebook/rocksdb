@@ -64,8 +64,8 @@ namespace ROCKSDB_NAMESPACE {
 template <class T, class Hash, class Equal>
 class HashTable {
  public:
-  explicit HashTable(const size_t capacity = 1024 * 1024,
-                     const float load_factor = 2.0, const uint32_t nlocks = 256)
+  HashTable(const size_t capacity = 1024 * 1024,
+            const float load_factor = 2.0, const uint32_t nlocks = 256)
       : nbuckets_(
             static_cast<uint32_t>(load_factor ? capacity / load_factor : 0)),
         nlocks_(nlocks) {

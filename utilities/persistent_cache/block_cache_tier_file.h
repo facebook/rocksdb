@@ -56,8 +56,7 @@ struct BlockInfo;
 // (L)ogical (B)lock (Address = { cache-file-id, offset, size }
 struct LogicalBlockAddress {
   LogicalBlockAddress() {}
-  explicit LogicalBlockAddress(const uint32_t cache_id, const uint32_t off,
-                               const uint16_t size)
+  LogicalBlockAddress(const uint32_t cache_id, const uint32_t off, const uint16_t size)
       : cache_id_(cache_id), off_(off), size_(size) {}
 
   uint32_t cache_id_ = 0;
@@ -94,8 +93,7 @@ class BlockCacheFile : public LRUElement<BlockCacheFile> {
   explicit BlockCacheFile(const uint32_t cache_id)
       : LRUElement<BlockCacheFile>(), cache_id_(cache_id) {}
 
-  explicit BlockCacheFile(Env* const env, const std::string& dir,
-                          const uint32_t cache_id)
+  BlockCacheFile(Env* const env, const std::string& dir, const uint32_t cache_id)
       : LRUElement<BlockCacheFile>(),
         env_(env),
         dir_(dir),
@@ -148,9 +146,9 @@ class BlockCacheFile : public LRUElement<BlockCacheFile> {
 // Thread safe implementation for reading random data from file
 class RandomAccessCacheFile : public BlockCacheFile {
  public:
-  explicit RandomAccessCacheFile(Env* const env, const std::string& dir,
-                                 const uint32_t cache_id,
-                                 const std::shared_ptr<Logger>& log)
+  RandomAccessCacheFile(Env* const env, const std::string& dir,
+                        const uint32_t cache_id,
+                        const std::shared_ptr<Logger>& log)
       : BlockCacheFile(env, dir, cache_id), log_(log) {}
 
   virtual ~RandomAccessCacheFile() {}

@@ -228,7 +228,7 @@ class FlushBlockEveryThreePolicy : public FlushBlockPolicy {
 
 class FlushBlockEveryThreePolicyFactory : public FlushBlockPolicyFactory {
  public:
-  explicit FlushBlockEveryThreePolicyFactory() {}
+  FlushBlockEveryThreePolicyFactory() {}
 
   const char* Name() const override {
     return "FlushBlockEveryThreePolicyFactory";

@@ -1978,7 +1978,7 @@ TEST_P(EnvPosixTestWithParam, PosixRandomRWFileRandomized) {
 
 class TestEnv : public EnvWrapper {
   public:
-    explicit TestEnv() : EnvWrapper(Env::Default()),
+    TestEnv() : EnvWrapper(Env::Default()),
                 close_count(0) { }
 
   class TestLogger : public Logger {

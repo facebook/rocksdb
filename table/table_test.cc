@@ -214,8 +214,8 @@ class Constructor {
 // A helper class that converts internal format keys into user keys
 class KeyConvertingIterator : public InternalIterator {
  public:
-  explicit KeyConvertingIterator(InternalIterator* iter,
-                                 bool arena_mode = false)
+  KeyConvertingIterator(InternalIterator* iter,
+                        bool arena_mode = false)
       : iter_(iter), arena_mode_(arena_mode) {}
   ~KeyConvertingIterator() override {
     if (arena_mode_) {
@@ -321,9 +321,9 @@ class BlockConstructor : public Constructor {
 
 class TableConstructor : public Constructor {
  public:
-  explicit TableConstructor(const Comparator* cmp,
-                            bool convert_to_internal_key = false,
-                            int level = -1, SequenceNumber largest_seqno = 0)
+  TableConstructor(const Comparator* cmp,
+                   bool convert_to_internal_key = false,
+                   int level = -1, SequenceNumber largest_seqno = 0)
       : Constructor(cmp),
         largest_seqno_(largest_seqno),
         convert_to_internal_key_(convert_to_internal_key),
@@ -472,7 +472,7 @@ uint64_t TableConstructor::cur_uniq_id_ = 1;
 
 class MemTableConstructor: public Constructor {
  public:
-  explicit MemTableConstructor(const Comparator* cmp, WriteBufferManager* wb)
+  MemTableConstructor(const Comparator* cmp, WriteBufferManager* wb)
       : Constructor(cmp),
         internal_comparator_(cmp),
         write_buffer_manager_(wb),

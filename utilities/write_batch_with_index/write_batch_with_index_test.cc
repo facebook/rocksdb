@@ -25,7 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
  public:
-  explicit ColumnFamilyHandleImplDummy(int id, const Comparator* comparator)
+  ColumnFamilyHandleImplDummy(int id, const Comparator* comparator)
       : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr),
         id_(id),
         comparator_(comparator) {}

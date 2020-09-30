@@ -21,7 +21,7 @@ namespace {
 
 class TwoLevelIndexIterator : public InternalIteratorBase<IndexValue> {
  public:
-  explicit TwoLevelIndexIterator(
+  TwoLevelIndexIterator(
       TwoLevelIteratorState* state,
       InternalIteratorBase<IndexValue>* first_level_iter);
 

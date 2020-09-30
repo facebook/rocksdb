@@ -28,12 +28,12 @@ class SequentialFileReader {
   std::atomic<size_t> offset_{0};  // read offset
 
  public:
-  explicit SequentialFileReader(
+  SequentialFileReader(
       std::unique_ptr<FSSequentialFile>&& _file, const std::string& _file_name,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr)
       : file_name_(_file_name), file_(std::move(_file), io_tracer) {}
 
-  explicit SequentialFileReader(
+  SequentialFileReader(
       std::unique_ptr<FSSequentialFile>&& _file, const std::string& _file_name,
       size_t _readahead_size,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr)

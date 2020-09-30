@@ -98,7 +98,7 @@ class LoggingForwardVectorIterator : public InternalIterator {
     Type type;
     std::string arg;
 
-    explicit Action(Type _type, std::string _arg = "")
+    Action(Type _type, std::string _arg = "")
         : type(_type), arg(_arg) {}
 
     bool operator==(const Action& rhs) const {
@@ -184,7 +184,7 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
 // last visible sequence.
 class TestSnapshotChecker : public SnapshotChecker {
  public:
-  explicit TestSnapshotChecker(
+  TestSnapshotChecker(
       SequenceNumber last_committed_sequence,
       const std::unordered_map<SequenceNumber, SequenceNumber>& snapshots = {{}})
       : last_committed_sequence_(last_committed_sequence),

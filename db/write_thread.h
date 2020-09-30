@@ -87,7 +87,7 @@ class WriteThread {
       Writer* writer;
       Writer* last_writer;
 
-      explicit Iterator(Writer* w, Writer* last)
+      Iterator(Writer* w, Writer* last)
           : writer(w), last_writer(last) {}
 
       Writer* operator*() const { return writer; }

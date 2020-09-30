@@ -230,9 +230,9 @@ class PosixWritableFile : public FSWritableFile {
 #endif  // ROCKSDB_RANGESYNC_PRESENT
 
  public:
-  explicit PosixWritableFile(const std::string& fname, int fd,
-                             size_t logical_block_size,
-                             const EnvOptions& options);
+  PosixWritableFile(const std::string& fname, int fd,
+                    size_t logical_block_size,
+                    const EnvOptions& options);
   virtual ~PosixWritableFile();
 
   // Need to implement this so the file is truncated correctly
@@ -362,8 +362,8 @@ class PosixMmapFile : public FSWritableFile {
 
 class PosixRandomRWFile : public FSRandomRWFile {
  public:
-  explicit PosixRandomRWFile(const std::string& fname, int fd,
-                             const EnvOptions& options);
+  PosixRandomRWFile(const std::string& fname, int fd,
+                    const EnvOptions& options);
   virtual ~PosixRandomRWFile();
 
   virtual IOStatus Write(uint64_t offset, const Slice& data,
