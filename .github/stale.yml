@@ -1,0 +1,21 @@
+# Number of days of inactivity before an issue becomes stale
+daysUntilStale: 90
+# Number of days of inactivity before a stale issue is closed
+daysUntilClose: 90
+# Issues with these labels will never be considered stale
+exemptLabels:
+  - donotreap
+  - security
+# Label to use when marking an issue as stale
+staleLabel: stale
+# Comment to post when marking an issue as stale. Set to `false` to disable
+markComment: >
+  This issue/PR has been automatically marked as stale because it has not been
+  updated in more than three months.
+  I will close this issue/PR if it isn't updated in the next three months.
+  Apply the 'donotreap' tag if you want me to permanently ignore this task.
+  Thank you for your contributions.
+# Comment to post when closing a stale issue. Set to `false` to disable
+closeComment: >
+  Another three months with no update. Reaping.
+  
