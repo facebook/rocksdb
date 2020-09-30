@@ -24,28 +24,33 @@ class RepairTest : public DBTestBase {
  public:
   RepairTest() : DBTestBase("/repair_test", /*env_do_fsync=*/true) {}
 
-  std::string GetFirstSstPath() {
+  Status GetFirstSstPath(std::string* first_sst_path) {
+    assert(first_sst_path != nullptr);
+    first_sst_path->clear();
     uint64_t manifest_size;
     std::vector<std::string> files;
-    db_->GetLiveFiles(files, &manifest_size);
-    auto sst_iter =
-        std::find_if(files.begin(), files.end(), [](const std::string& file) {
-          uint64_t number;
-          FileType type;
-          bool ok = ParseFileName(file, &number, &type);
-          return ok && type == kTableFile;
-        });
-    return sst_iter == files.end() ? "" : dbname_ + *sst_iter;
+    Status s = db_->GetLiveFiles(files, &manifest_size);
+    if (s.ok()) {
+      auto sst_iter =
+          std::find_if(files.begin(), files.end(), [](const std::string& file) {
+            uint64_t number;
+            FileType type;
+            bool ok = ParseFileName(file, &number, &type);
+            return ok && type == kTableFile;
+          });
+      *first_sst_path = sst_iter == files.end() ? "" : dbname_ + *sst_iter;
+    }
+    return s;
   }
 };
 
 TEST_F(RepairTest, LostManifest) {
   // Add a couple SST files, delete the manifest, and verify RepairDB() saves
   // the day.
-  Put("key", "val");
-  Flush();
-  Put("key2", "val2");
-  Flush();
+  ASSERT_OK(Put("key", "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
   // Need to get path before Close() deletes db_, but delete it after Close() to
   // ensure Close() didn't change the manifest.
   std::string manifest_path =
@@ -63,10 +68,10 @@ TEST_F(RepairTest, LostManifest) {
 
 TEST_F(RepairTest, CorruptManifest) {
   // Manifest is in an invalid format. Expect a full recovery.
-  Put("key", "val");
-  Flush();
-  Put("key2", "val2");
-  Flush();
+  ASSERT_OK(Put("key", "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
   // Need to get path before Close() deletes db_, but overwrite it after Close()
   // to ensure Close() didn't change the manifest.
   std::string manifest_path =
@@ -76,7 +81,7 @@ TEST_F(RepairTest, CorruptManifest) {
   ASSERT_OK(env_->FileExists(manifest_path));
 
   LegacyFileSystemWrapper fs(env_);
-  CreateFile(&fs, manifest_path, "blah", false /* use_fsync */);
+  ASSERT_OK(CreateFile(&fs, manifest_path, "blah", false /* use_fsync */));
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
   Reopen(CurrentOptions());
 
@@ -87,13 +92,13 @@ TEST_F(RepairTest, CorruptManifest) {
 TEST_F(RepairTest, IncompleteManifest) {
   // In this case, the manifest is valid but does not reference all of the SST
   // files. Expect a full recovery.
-  Put("key", "val");
-  Flush();
+  ASSERT_OK(Put("key", "val"));
+  ASSERT_OK(Flush());
   std::string orig_manifest_path =
       DescriptorFileName(dbname_, dbfull()->TEST_Current_Manifest_FileNo());
   CopyFile(orig_manifest_path, orig_manifest_path + ".tmp");
-  Put("key2", "val2");
-  Flush();
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
   // Need to get path before Close() deletes db_, but overwrite it after Close()
   // to ensure Close() didn't change the manifest.
   std::string new_manifest_path =
@@ -113,10 +118,10 @@ TEST_F(RepairTest, IncompleteManifest) {
 TEST_F(RepairTest, PostRepairSstFileNumbering) {
   // Verify after a DB is repaired, new files will be assigned higher numbers
   // than old files.
-  Put("key", "val");
-  Flush();
-  Put("key2", "val2");
-  Flush();
+  ASSERT_OK(Put("key", "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
   uint64_t pre_repair_file_num = dbfull()->TEST_Current_Next_FileNo();
   Close();
 
@@ -130,11 +135,12 @@ TEST_F(RepairTest, PostRepairSstFileNumbering) {
 TEST_F(RepairTest, LostSst) {
   // Delete one of the SST files but preserve the manifest that refers to it,
   // then verify the DB is still usable for the intact SST.
-  Put("key", "val");
-  Flush();
-  Put("key2", "val2");
-  Flush();
-  auto sst_path = GetFirstSstPath();
+  ASSERT_OK(Put("key", "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
+  std::string sst_path;
+  ASSERT_OK(GetFirstSstPath(&sst_path));
   ASSERT_FALSE(sst_path.empty());
   ASSERT_OK(env_->DeleteFile(sst_path));
 
@@ -149,15 +155,16 @@ TEST_F(RepairTest, LostSst) {
 TEST_F(RepairTest, CorruptSst) {
   // Corrupt one of the SST files but preserve the manifest that refers to it,
   // then verify the DB is still usable for the intact SST.
-  Put("key", "val");
-  Flush();
-  Put("key2", "val2");
-  Flush();
-  auto sst_path = GetFirstSstPath();
+  ASSERT_OK(Put("key", "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("key2", "val2"));
+  ASSERT_OK(Flush());
+  std::string sst_path;
+  ASSERT_OK(GetFirstSstPath(&sst_path));
   ASSERT_FALSE(sst_path.empty());
 
   LegacyFileSystemWrapper fs(env_);
-  CreateFile(&fs, sst_path, "blah", false /* use_fsync */);
+  ASSERT_OK(CreateFile(&fs, sst_path, "blah", false /* use_fsync */));
 
   Close();
   ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
@@ -170,13 +177,16 @@ TEST_F(RepairTest, CorruptSst) {
 TEST_F(RepairTest, UnflushedSst) {
   // This test case invokes repair while some data is unflushed, then verifies
   // that data is in the db.
-  Put("key", "val");
+  ASSERT_OK(Put("key", "val"));
   VectorLogPtr wal_files;
   ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
   ASSERT_EQ(wal_files.size(), 1);
-  uint64_t total_ssts_size;
-  GetAllSSTFiles(&total_ssts_size);
-  ASSERT_EQ(total_ssts_size, 0);
+  {
+    uint64_t total_ssts_size;
+    std::unordered_map<std::string, uint64_t> sst_files;
+    ASSERT_OK(GetAllSSTFiles(&sst_files, &total_ssts_size));
+    ASSERT_EQ(total_ssts_size, 0);
+  }
   // Need to get path before Close() deletes db_, but delete it after Close() to
   // ensure Close() didn't change the manifest.
   std::string manifest_path =
@@ -190,8 +200,12 @@ TEST_F(RepairTest, UnflushedSst) {
 
   ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
   ASSERT_EQ(wal_files.size(), 0);
-  GetAllSSTFiles(&total_ssts_size);
-  ASSERT_GT(total_ssts_size, 0);
+  {
+    uint64_t total_ssts_size;
+    std::unordered_map<std::string, uint64_t> sst_files;
+    ASSERT_OK(GetAllSSTFiles(&sst_files, &total_ssts_size));
+    ASSERT_GT(total_ssts_size, 0);
+  }
   ASSERT_EQ(Get("key"), "val");
 }
 
@@ -199,14 +213,17 @@ TEST_F(RepairTest, SeparateWalDir) {
   do {
     Options options = CurrentOptions();
     DestroyAndReopen(options);
-    Put("key", "val");
-    Put("foo", "bar");
+    ASSERT_OK(Put("key", "val"));
+    ASSERT_OK(Put("foo", "bar"));
     VectorLogPtr wal_files;
     ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
     ASSERT_EQ(wal_files.size(), 1);
-    uint64_t total_ssts_size;
-    GetAllSSTFiles(&total_ssts_size);
-    ASSERT_EQ(total_ssts_size, 0);
+    {
+      uint64_t total_ssts_size;
+      std::unordered_map<std::string, uint64_t> sst_files;
+      ASSERT_OK(GetAllSSTFiles(&sst_files, &total_ssts_size));
+      ASSERT_EQ(total_ssts_size, 0);
+    }
     std::string manifest_path =
       DescriptorFileName(dbname_, dbfull()->TEST_Current_Manifest_FileNo());
 
@@ -221,8 +238,12 @@ TEST_F(RepairTest, SeparateWalDir) {
     Reopen(options);
     ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
     ASSERT_EQ(wal_files.size(), 0);
-    GetAllSSTFiles(&total_ssts_size);
-    ASSERT_GT(total_ssts_size, 0);
+    {
+      uint64_t total_ssts_size;
+      std::unordered_map<std::string, uint64_t> sst_files;
+      ASSERT_OK(GetAllSSTFiles(&sst_files, &total_ssts_size));
+      ASSERT_GT(total_ssts_size, 0);
+    }
     ASSERT_EQ(Get("key"), "val");
     ASSERT_EQ(Get("foo"), "bar");
 
@@ -238,13 +259,13 @@ TEST_F(RepairTest, RepairMultipleColumnFamilies) {
   CreateAndReopenWithCF({"pikachu1", "pikachu2"}, CurrentOptions());
   for (int i = 0; i < kNumCfs; ++i) {
     for (int j = 0; j < kEntriesPerCf; ++j) {
-      Put(i, "key" + ToString(j), "val" + ToString(j));
+      ASSERT_OK(Put(i, "key" + ToString(j), "val" + ToString(j)));
       if (j == kEntriesPerCf - 1 && i == kNumCfs - 1) {
         // Leave one unflushed so we can verify WAL entries are properly
         // associated with column families.
         continue;
       }
-      Flush(i);
+      ASSERT_OK(Flush(i));
     }
   }
 
@@ -283,12 +304,12 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
                            std::vector<Options>{opts, rev_opts});
   for (int i = 0; i < kNumCfs; ++i) {
     for (int j = 0; j < kEntriesPerCf; ++j) {
-      Put(i, "key" + ToString(j), "val" + ToString(j));
+      ASSERT_OK(Put(i, "key" + ToString(j), "val" + ToString(j)));
       if (i == kNumCfs - 1 && j == kEntriesPerCf - 1) {
         // Leave one unflushed so we can verify RepairDB's flush logic
         continue;
       }
-      Flush(i);
+      ASSERT_OK(Flush(i));
     }
   }
   Close();
@@ -308,7 +329,7 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
   // Examine table properties to verify RepairDB() used the right options when
   // converting WAL->SST
   TablePropertiesCollection fname_to_props;
-  db_->GetPropertiesOfAllTables(handles_[1], &fname_to_props);
+  ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[1], &fname_to_props));
   ASSERT_EQ(fname_to_props.size(), 2U);
   for (const auto& fname_and_props : fname_to_props) {
     std::string comparator_name (
@@ -342,8 +363,8 @@ TEST_F(RepairTest, DbNameContainsTrailingSlash) {
     }
   }
 
-  Put("key", "val");
-  Flush();
+  ASSERT_OK(Put("key", "val"));
+  ASSERT_OK(Flush());
   Close();
 
   ASSERT_OK(RepairDB(dbname_ + "/", CurrentOptions()));
