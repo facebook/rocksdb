@@ -589,7 +589,6 @@ ifdef ASSERT_STATUS_CHECKED
 		db_basic_test \
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
-		db_universal_compaction_test \
 		db_options_test \
 		db_properties_test \
 		db_secondary_test \
