@@ -102,6 +102,9 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (!props.db_session_id.empty()) {
     Add(TablePropertiesNames::kDbSessionId, props.db_session_id);
   }
+  if (!props.db_host_location.empty()) {
+    Add(TablePropertiesNames::kDbHostLocation, props.db_host_location);
+  }
 
   if (!props.filter_policy_name.empty()) {
     Add(TablePropertiesNames::kFilterPolicy, props.filter_policy_name);
@@ -322,6 +325,8 @@ Status ReadProperties(const ReadOptions& read_options,
       new_table_properties->db_id = raw_val.ToString();
     } else if (key == TablePropertiesNames::kDbSessionId) {
       new_table_properties->db_session_id = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kDbHostLocation) {
+      new_table_properties->db_host_location = raw_val.ToString();
     } else if (key == TablePropertiesNames::kFilterPolicy) {
       new_table_properties->filter_policy_name = raw_val.ToString();
     } else if (key == TablePropertiesNames::kColumnFamilyName) {

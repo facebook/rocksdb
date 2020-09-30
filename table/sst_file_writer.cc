@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "env/composite_env_wrapper.h"
 #include "file/writable_file_writer.h"
@@ -31,7 +32,7 @@ struct SstFileWriter::Rep {
       Env::IOPriority _io_priority, const Comparator* _user_comparator,
       ColumnFamilyHandle* _cfh, bool _invalidate_page_cache, bool _skip_filters)
       : env_options(_env_options),
-        ioptions(options),
+        ioptions(SanitizeOptions("", options)),
         mutable_cf_options(options),
         io_priority(_io_priority),
         internal_comparator(_user_comparator),

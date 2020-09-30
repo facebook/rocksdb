@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "db/db_test_util.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
@@ -273,6 +274,54 @@ TEST_F(DBTablePropertiesTest, GetDbIdentifiersProperty) {
     ASSERT_EQ(sid, fname_to_props.begin()->second->db_session_id);
   }
 }
+
+class DBTableHostnamePropertyTest
+    : public DBTestBase,
+      public ::testing::WithParamInterface<std::tuple<int, bool>> {
+ public:
+  DBTableHostnamePropertyTest()
+      : DBTestBase("/db_table_hostname_property_test",
+                   /*env_do_fsync=*/false) {}
+};
+
+TEST_P(DBTableHostnamePropertyTest, DbHostLocationProperty) {
+  option_config_ = std::get<0>(GetParam());
+  Options opts = CurrentOptions();
+  std::string expected_host_name;
+  if (std::get<1>(GetParam())) {
+    // override db_host_location
+    opts.db_host_location = "foobar";
+    expected_host_name = opts.db_host_location;
+  } else {
+    expected_host_name.resize(HOST_NAME_MAX, 0);
+    ASSERT_OK(env_->GetHostName(&expected_host_name.at(0), HOST_NAME_MAX));
+  }
+  CreateAndReopenWithCF({"goku"}, opts);
+
+  for (uint32_t cf = 0; cf < 2; ++cf) {
+    Put(cf, "key", "val");
+    Put(cf, "foo", "bar");
+    Flush(cf);
+
+    TablePropertiesCollection fname_to_props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[cf], &fname_to_props));
+    ASSERT_EQ(1U, fname_to_props.size());
+
+    ASSERT_EQ(fname_to_props.begin()->second->db_host_location,
+              expected_host_name);
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    DBTableHostnamePropertyTest, DBTableHostnamePropertyTest,
+    ::testing::Values(
+        // OptionConfig, override db_host_location
+        std::make_tuple(DBTestBase::OptionConfig::kDefault, false),
+        std::make_tuple(DBTestBase::OptionConfig::kDefault, true),
+        std::make_tuple(DBTestBase::OptionConfig::kPlainTableFirstBytePrefix,
+                        false),
+        std::make_tuple(DBTestBase::OptionConfig::kPlainTableFirstBytePrefix,
+                        true)));
 
 class DeletionTriggeredCompactionTestListener : public EventListener {
  public:

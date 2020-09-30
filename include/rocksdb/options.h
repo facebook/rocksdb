@@ -1180,6 +1180,13 @@ struct DBOptions {
   //
   // Default: false
   bool allow_data_in_errors = false;
+
+  // A string identifying the location of the machine hosting the DB. This
+  // will be written as a property in every SST file written by the DB (or
+  // by offline writers such as SstFileWriter and RepairDB)
+  //
+  // Default: hostname
+  std::string db_host_location;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

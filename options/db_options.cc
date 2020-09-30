@@ -389,6 +389,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, bgerror_resume_retry_interval),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"db_host_location",
+         {offsetof(struct ImmutableDBOptions, db_host_location),
+          OptionType::kString, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         // The following properties were handled as special cases in ParseOption
         // This means that the properties could be read from the options file
         // but never written to the file or compared to each other.
@@ -576,7 +580,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       best_efforts_recovery(options.best_efforts_recovery),
       max_bgerror_resume_count(options.max_bgerror_resume_count),
       bgerror_resume_retry_interval(options.bgerror_resume_retry_interval),
-      allow_data_in_errors(options.allow_data_in_errors) {
+      allow_data_in_errors(options.allow_data_in_errors),
+      db_host_location(options.db_host_location) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {

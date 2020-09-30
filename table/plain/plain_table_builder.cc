@@ -100,6 +100,7 @@ PlainTableBuilder::PlainTableBuilder(
   properties_.column_family_name = column_family_name;
   properties_.db_id = db_id;
   properties_.db_session_id = db_session_id;
+  properties_.db_host_location = ioptions.db_host_location;
   properties_.prefix_extractor_name = moptions_.prefix_extractor != nullptr
                                           ? moptions_.prefix_extractor->Name()
                                           : "nullptr";
