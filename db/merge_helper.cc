@@ -268,7 +268,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         if (keys_.size() == 1) {
           // we need to re-anchor the orig_ikey because it was anchored by
           // original_key before
-          ParseInternalKey(keys_.back(), &orig_ikey);  // TODO - VRK
+          Status pikStatus = ParseInternalKey(keys_.back(), &orig_ikey);
+          if (!pikStatus.ok()) {
+            assert(false);  // TODO
+          }
         }
         if (filter == CompactionFilter::Decision::kKeep) {
           merge_context_.PushOperand(
