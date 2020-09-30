@@ -8,7 +8,6 @@
 #include <assert.h>
 #ifdef _MSC_VER
 #include <intrin.h>
-#include <limits>
 #endif
 
 #include <cstdint>
@@ -95,18 +94,20 @@ inline int CountTrailingZeroBits(T v) {
 namespace detail {
 template <typename T>
 int BitsSetToOneFallback(T v) {
-  const int kDigits = std::numeric_limits<T>::digits;
+  const int kBits = static_cast<int>(sizeof(T)) * 8;
+  static_assert((kBits & (kBits - 1)) == 0, "must be power of two bits");
   // we static_cast these bit patterns in order to truncate them to the correct
   // size
   v = static_cast<T>(v - ((v >> 1) & static_cast<T>(0x5555555555555555ull)));
   v = static_cast<T>((v & static_cast<T>(0x3333333333333333ull)) +
                      ((v >> 2) & static_cast<T>(0x3333333333333333ull)));
   v = static_cast<T>((v + (v >> 4)) & static_cast<T>(0x0F0F0F0F0F0F0F0Full));
-  for (int shift_digits = 8; shift_digits < kDigits; shift_digits <<= 1) {
-    v = static_cast<T>(v + static_cast<T>(v >> shift_digits));
+  for (int shift_bits = 8; shift_bits < kBits; shift_bits <<= 1) {
+    v += static_cast<T>(v >> shift_bits);
   }
-  // we want the bottom "slot" that's big enough to store kDigits
-  return static_cast<int>(v & static_cast<T>(kDigits + kDigits - 1));
+  // we want the bottom "slot" that's big enough to represent a value up to
+  // (and including) kBits.
+  return static_cast<int>(v & static_cast<T>(kBits | (kBits - 1)));
 }
 
 }  // namespace detail
