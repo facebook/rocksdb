@@ -30,21 +30,24 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
       icmp_(icmp),
       smallest_ikey_(smallest),
       largest_ikey_(largest) {
+  Status pikStatus;
   if (smallest != nullptr) {
     pinned_bounds_.emplace_back();
     auto& parsed_smallest = pinned_bounds_.back();
-    if (ParseInternalKey(smallest->Encode(), &parsed_smallest) !=
-        Status::OK()) {
-      assert(false);
-    }
+    pikStatus = ParseInternalKey(smallest->Encode(), &parsed_smallest);
+    pikStatus.PermitUncheckedError();
+    assert(pikStatus.ok());
+
     smallest_ = &parsed_smallest;
   }
   if (largest != nullptr) {
     pinned_bounds_.emplace_back();
     auto& parsed_largest = pinned_bounds_.back();
-    if (ParseInternalKey(largest->Encode(), &parsed_largest) != Status::OK()) {
-      assert(false);
-    }
+
+    pikStatus = ParseInternalKey(largest->Encode(), &parsed_largest);
+    pikStatus.PermitUncheckedError();
+    assert(pikStatus.ok());
+
     if (parsed_largest.type == kTypeRangeDeletion &&
         parsed_largest.sequence == kMaxSequenceNumber) {
       // The file boundary has been artificially extended by a range tombstone.
