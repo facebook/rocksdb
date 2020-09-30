@@ -180,7 +180,7 @@ Status BuildTable(
         &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
         ShouldReportDetailedTime(env, ioptions.statistics),
         true /* internal key corruption is not ok */, range_del_agg.get(),
-        blob_file_builder.get());
+        blob_file_builder.get(), ioptions.allow_data_in_errors);
 
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {

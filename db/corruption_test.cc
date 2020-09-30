@@ -619,6 +619,31 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
   }
 }
 
+TEST_F(CorruptionTest, LogCorruptionErrorsInCompactionIterator) {
+  Options options;
+  options.create_if_missing = true;
+  options.allow_data_in_errors = true;
+  auto mode = mock::MockTableFactory::kCorruptKey;
+  delete db_;
+  db_ = nullptr;
+  ASSERT_OK(DestroyDB(dbname_, options));
+
+  std::shared_ptr<mock::MockTableFactory> mock =
+      std::make_shared<mock::MockTableFactory>();
+  mock->SetCorruptionMode(mode);
+  options.table_factory = mock;
+
+  ASSERT_OK(DB::Open(options, dbname_, &db_));
+  assert(db_ != nullptr);
+  Build(100, 2);
+
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+  Status s = dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsCorruption());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
