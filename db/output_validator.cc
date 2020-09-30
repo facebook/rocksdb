@@ -5,7 +5,7 @@
 //
 #include "db/output_validator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 Status OutputValidator::Add(const Slice& key, const Slice& value) {
   if (enable_hash_) {
     // Generate a rolling 64-bit hash of the key and values
@@ -27,4 +27,4 @@ Status OutputValidator::Add(const Slice& key, const Slice& value) {
   }
   return Status::OK();
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

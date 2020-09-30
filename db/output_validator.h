@@ -9,7 +9,7 @@
 #include "test_util/sync_point.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // A class that validates key/value that is inserted to an SST file.
 // Pass every key/value of the file using OutputValidator::Add()
 // and the class validates key order and optionally calculate a hash
@@ -42,4 +42,4 @@ class OutputValidator {
   bool enable_order_check_;
   bool enable_hash_;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
