@@ -339,144 +339,83 @@ jobs:
             /usr/bin/python ../gtest-parallel/gtest-parallel $(</tmp/test_list) --output_dir=/tmp | cat  # pipe to cat to continuously output status on circleci UI. Otherwise, no status will be printed while the job is running.
       - post-steps
 
-  repeat-test:
-    machine:
-      image: ubuntu-1604:202007-01
-    resource_class: 2xlarge
-    parameters:
-      test_name:
-        type: string
-      repeat:
-        type: integer
-        default: 1
-      workers:
-        type: integer
-        default: 32
-      gtest_filter:
-        type: string
-        default: ""
-      build_setting:
-        type: string
-        default: ""
-    steps:
-      - pre-steps
-      - install-gflags
-      - install-clang-10
-      - install-gtest-parallel
-      - run:
-          name: "build test"
-          command: |
-            echo "env: $(env)"
-            echo "** done env"
-            << parameters.build_setting >> make V=1 -j32 --output-sync=target << parameters.test_name >>
-      - run:
-          name: "run tests"
-          command: |
-            /usr/bin/python ../gtest-parallel/gtest-parallel ./<< parameters.test_name >> --repeat << parameters.repeat >> --workers << parameters.workers >> --output_dir=/tmp --gtest_filter << parameters.gtest_filter >> --print_task_status_continuously
-
 workflows:
-#  compaction-test:
-#    jobs:
-#      - repeat-test:
-#          test_name: "db_compaction_test"
-#          repeat: 100
-
-#  env-test:
-#    jobs:
-#      - repeat-test:
-#          test_name: "env_test"
-#          repeat: 3000
-#
-#  fs-test:
-#    jobs:
-#      - repeat-test:
-#          test_name: "error_handler_fs_test"
-#          repeat: 3000
-#          build_setting: "COMPILE_WITH_UBSAN=1 OPT=\"-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt\" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1"
-
-  backupable_db_test:
+  build-linux:
     jobs:
-      - repeat-test:
-          test_name: "backupable_db_test"
-          repeat: 100
-          build_setting: "COMPILE_WITH_TSAN=1 CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1"
-
-#  build-linux:
-#    jobs:
-#      - build-linux
-#  build-linux-shared_lib-alt_namespace-status_checked:
-#    jobs:
-#      - build-linux-shared_lib-alt_namespace-status_checked
-#  build-linux-lite:
-#    jobs:
-#      - build-linux-lite
-#  build-linux-release:
-#    jobs:
-#      - build-linux-release
-#  build-linux-release-rtti:
-#    jobs:
-#      - build-linux-release-rtti
-#  build-linux-lite-release:
-#    jobs:
-#      - build-linux-lite-release
-#  build-linux-clang-no-test:
-#    jobs:
-#      - build-linux-clang-no-test
-#  build-linux-clang10-asan:
-#    jobs:
-#      - build-linux-clang10-asan
-#  build-linux-clang10-mini-tsan:
-#    jobs:
-#      - build-linux-clang10-mini-tsan
-#  build-linux-clang10-ubsan:
-#    jobs:
-#      - build-linux-clang10-ubsan
-#  build-linux-clang10-clang-analyze:
-#    jobs:
-#      - build-linux-clang10-clang-analyze
-#  build-linux-cmake:
-#    jobs:
-#      - build-linux-cmake
-#  build-linux-unity:
-#    jobs:
-#      - build-linux-unity
-#  build-windows:
-#    jobs:
-#      - build-windows
-#  build-windows-vs2017:
-#    jobs:
-#      - build-windows:
-#          vs_year: "2017"
-#          cmake_generator: "Visual Studio 15 Win64"
-#  build-windows-vs2015:
-#    jobs:
-#      - build-windows:
-#          vs_year: "2015"
-#          cmake_generator: "Visual Studio 14 Win64"
-#  build-windows-cxx20:
-#    jobs:
-#      - build-windows:
-#          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
-#  build-java:
-#    jobs:
-#      - build-linux-java
-#  build-examples:
-#    jobs:
-#      - build-examples
-#  build-linux-non-shm:
-#    jobs:
-#      - build-linux-non-shm:
-#          start_test: ""
-#          end_test: "db_options_test" # make sure unique in src.mk
-#      - build-linux-non-shm:
-#          start_test: "db_options_test" # make sure unique in src.mk
-#          end_test: "filename_test" # make sure unique in src.mk
-#      - build-linux-non-shm:
-#          start_test: "filename_test" # make sure unique in src.mk
-#          end_test: "statistics_test" # make sure unique in src.mk
-#      - build-linux-non-shm:
-#          start_test: "statistics_test" # make sure unique in src.mk
-#          end_test: ""
-#  build-linux-gcc-4-8:
-#    jobs:
-#      - build-linux-gcc-4-8
+      - build-linux
+  build-linux-shared_lib-alt_namespace-status_checked:
+    jobs:
+      - build-linux-shared_lib-alt_namespace-status_checked
+  build-linux-lite:
+    jobs:
+      - build-linux-lite
+  build-linux-release:
+    jobs:
+      - build-linux-release
+  build-linux-release-rtti:
+    jobs:
+      - build-linux-release-rtti
+  build-linux-lite-release:
+    jobs:
+      - build-linux-lite-release
+  build-linux-clang-no-test:
+    jobs:
+      - build-linux-clang-no-test
+  build-linux-clang10-asan:
+    jobs:
+      - build-linux-clang10-asan
+  build-linux-clang10-mini-tsan:
+    jobs:
+      - build-linux-clang10-mini-tsan
+  build-linux-clang10-ubsan:
+    jobs:
+      - build-linux-clang10-ubsan
+  build-linux-clang10-clang-analyze:
+    jobs:
+      - build-linux-clang10-clang-analyze
+  build-linux-cmake:
+    jobs:
+      - build-linux-cmake
+  build-linux-unity:
+    jobs:
+      - build-linux-unity
+  build-windows:
+    jobs:
+      - build-windows
+  build-windows-vs2017:
+    jobs:
+      - build-windows:
+          vs_year: "2017"
+          cmake_generator: "Visual Studio 15 Win64"
+  build-windows-vs2015:
+    jobs:
+      - build-windows:
+          vs_year: "2015"
+          cmake_generator: "Visual Studio 14 Win64"
+  build-windows-cxx20:
+    jobs:
+      - build-windows:
+          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
+  build-java:
+    jobs:
+      - build-linux-java
+  build-examples:
+    jobs:
+      - build-examples
+  build-linux-non-shm:
+    jobs:
+      - build-linux-non-shm:
+          start_test: ""
+          end_test: "db_options_test" # make sure unique in src.mk
+      - build-linux-non-shm:
+          start_test: "db_options_test" # make sure unique in src.mk
+          end_test: "filename_test" # make sure unique in src.mk
+      - build-linux-non-shm:
+          start_test: "filename_test" # make sure unique in src.mk
+          end_test: "statistics_test" # make sure unique in src.mk
+      - build-linux-non-shm:
+          start_test: "statistics_test" # make sure unique in src.mk
+          end_test: ""
+  build-linux-gcc-4-8:
+    jobs:
+      - build-linux-gcc-4-8
