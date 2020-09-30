@@ -145,7 +145,6 @@ class CompactionJobTest : public testing::Test {
       std::string value;
       std::tie(skey, value) = kv;
       const Status pikStatus = ParseInternalKey(skey, &key);
-      assert(pikStatus.ok());
 
       smallest_seqno = std::min(smallest_seqno, key.sequence);
       largest_seqno = std::max(largest_seqno, key.sequence);

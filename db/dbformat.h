@@ -106,7 +106,6 @@ struct ParsedInternalKey {
   ParsedInternalKey()
       : sequence(kMaxSequenceNumber),
         type(kTypeDeletion)  // Make code analyzer happy
-                             // TODO VRK
   {}                         // Intentionally left uninitialized (for speed)
   // u contains timestamp if user timestamp feature is enabled.
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
