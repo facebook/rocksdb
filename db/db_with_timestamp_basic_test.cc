@@ -468,8 +468,8 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
   {
     std::string ts_str = Timestamp(static_cast<uint64_t>(kNumKeys + 1), 0);
     WriteBatch batch(0, 0, kTimestampSize);
-    batch.Put("a", "new_value");
-    batch.Put("b", "new_value");
+    ASSERT_OK(batch.Put("a", "new_value"));
+    ASSERT_OK(batch.Put("b", "new_value"));
     s = batch.AssignTimestamp(ts_str);
     ASSERT_OK(s);
     s = db_->Write(write_opts, &batch);
@@ -1485,9 +1485,9 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
           // at higher levels.
           CompactionOptions compact_opt;
           compact_opt.compression = kNoCompression;
-          db_->CompactFiles(compact_opt, handles_[cf],
-                            collector->GetFlushedFiles(),
-                            static_cast<int>(kNumTimestamps - i));
+          ASSERT_OK(db_->CompactFiles(compact_opt, handles_[cf],
+                                      collector->GetFlushedFiles(),
+                                      static_cast<int>(kNumTimestamps - i)));
           collector->ClearFlushedFiles();
         }
       }
@@ -1576,7 +1576,7 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
             batch.Put(handles_[cf], Key1(j),
                       "value_" + std::to_string(j) + "_" + std::to_string(i)));
       }
-      batch.AssignTimestamp(write_ts);
+      ASSERT_OK(batch.AssignTimestamp(write_ts));
       ASSERT_OK(db_->Write(wopts, &batch));
 
       verify_records_func(i, handles_[cf]);

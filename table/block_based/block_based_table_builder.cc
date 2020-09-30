@@ -727,7 +727,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     if (r->props.num_entries > r->props.num_range_deletions) {
       assert(r->internal_comparator.Compare(key, Slice(r->last_key)) > 0);
     }
-#endif  // NDEBUG
+#endif  // !NDEBUG
 
     auto should_flush = r->flush_block_policy->Update(key, value);
     if (should_flush) {
@@ -1653,6 +1653,11 @@ Status BlockBasedTableBuilder::Finish() {
     r->pc_rep->write_queue.finish();
     r->pc_rep->write_thread->join();
     r->pc_rep->finished = true;
+#ifndef NDEBUG
+    for (const auto& br : r->pc_rep->block_rep_buf) {
+      assert(br.status.ok());
+    }
+#endif  // !NDEBUG
   } else {
     // To make sure properties block is able to keep the accurate size of index
     // block, we will finish writing all index entries first.

@@ -88,7 +88,7 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
             index_has_first_key(), index_key_includes_seq(),
             index_value_is_full()));
 
-    it = new ParititionedIndexIterator(
+    it = new PartitionedIndexIterator(
         table(), ro, *internal_comparator(), std::move(index_iter),
         lookup_context ? lookup_context->caller
                        : TableReaderCaller::kUncategorized);

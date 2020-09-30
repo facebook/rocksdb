@@ -587,6 +587,8 @@ ifdef ASSERT_STATUS_CHECKED
 		crc32c_test \
 		dbformat_test \
 		db_basic_test \
+		db_with_timestamp_basic_test \
+		db_with_timestamp_compaction_test \
 		db_options_test \
 		options_file_test \
 		defer_test \
@@ -609,6 +611,7 @@ ifdef ASSERT_STATUS_CHECKED
 		merger_test \
 		mock_env_test \
 		object_registry_test \
+		repair_test \
 		configurable_test \
 		options_settable_test \
 		options_test \
