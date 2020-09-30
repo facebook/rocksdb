@@ -104,7 +104,7 @@ struct BlockAccessInfo {
         if (referenced_data_size > block_size && block_size != 0) {
           ParsedInternalKey internal_key;
           Status s = ParseInternalKey(access.referenced_key, &internal_key);
-          assert(s.ok());
+          assert(s.ok());  // TODO
         }
       } else {
         non_exist_key_num_access_map[access.referenced_key][access.caller]++;

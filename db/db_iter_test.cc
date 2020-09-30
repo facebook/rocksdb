@@ -99,9 +99,9 @@ class TestIterator : public InternalIterator {
     }
     for (auto it = data_.begin(); it != data_.end(); ++it) {
       ParsedInternalKey ikey;
-      Status s __attribute__((__unused__)) = ParseInternalKey(it->first, &ikey);
-      assert(s.ok());
-      if (ikey.user_key != _key) {
+      Status pikStatus = ParseInternalKey(it->first, &ikey);
+      assert(pikStatus.ok());
+      if (!pikStatus.ok() || ikey.user_key != _key) {
         continue;
       }
       if (valid_ && data_.begin() + iter_ > it) {
