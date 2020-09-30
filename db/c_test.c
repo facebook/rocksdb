@@ -59,9 +59,9 @@ static const char* GetTempDir(void) {
     const char* ret = getenv("TEST_TMPDIR");
     if (ret == NULL || ret[0] == '\0')
 #ifdef OS_WIN
-        ret = getenv("TEMP");
-#else    
-        ret = "/tmp";
+      ret = getenv("TEMP");
+#else
+      ret = "/tmp";
 #endif
     return ret;
 }

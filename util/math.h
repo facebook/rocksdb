@@ -70,7 +70,8 @@ inline int CountTrailingZeroBits(T v) {
 #else
     _BitScanForward(&tz, static_cast<uint32_t>(v));
     if (tz == 0) {
-      _BitScanForward(&tz, static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32));
+      _BitScanForward(&tz,
+                      static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32));
       tz += 32;
     }
 #endif
@@ -90,22 +91,23 @@ inline int CountTrailingZeroBits(T v) {
 
 #if defined(_MSC_VER) && !defined(_M_X64)
 namespace detail {
-  template <typename T>
-  int BitsSetToOneFallback(T v) {
-    const int kDigits = std::numeric_limits<T>::digits;
-    // we static_cast these bit patterns in order to truncate them to the correct size
-    v = static_cast<T>(v - ((v >> 1) & static_cast<T>(0x5555555555555555ull)));
-    v = static_cast<T>((v & static_cast<T>(0x3333333333333333ull))
-                            + ((v >> 2) & static_cast<T>(0x3333333333333333ull)));
-    v = static_cast<T>((v + (v >> 4)) & static_cast<T>(0x0F0F0F0F0F0F0F0Full));
-    for (int shift_digits = 8; shift_digits < kDigits; shift_digits <<= 1) {
-      v = static_cast<T>(v + static_cast<T>(v >> shift_digits));
-    }
-    // we want the bottom "slot" that's big enough to store kDigits
-    return static_cast<int>(v & static_cast<T>(kDigits + kDigits - 1));
+template <typename T>
+int BitsSetToOneFallback(T v) {
+  const int kDigits = std::numeric_limits<T>::digits;
+  // we static_cast these bit patterns in order to truncate them to the correct
+  // size
+  v = static_cast<T>(v - ((v >> 1) & static_cast<T>(0x5555555555555555ull)));
+  v = static_cast<T>((v & static_cast<T>(0x3333333333333333ull)) +
+                     ((v >> 2) & static_cast<T>(0x3333333333333333ull)));
+  v = static_cast<T>((v + (v >> 4)) & static_cast<T>(0x0F0F0F0F0F0F0F0Full));
+  for (int shift_digits = 8; shift_digits < kDigits; shift_digits <<= 1) {
+    v = static_cast<T>(v + static_cast<T>(v >> shift_digits));
+  }
+  // we want the bottom "slot" that's big enough to store kDigits
+  return static_cast<int>(v & static_cast<T>(kDigits + kDigits - 1));
 }
 
-} // namespace detail
+}  // namespace detail
 #endif
 
 // Number of bits set to 1. Also known as "population count".

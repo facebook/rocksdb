@@ -100,7 +100,8 @@ bool CondVar::TimedWait(uint64_t abs_time_us) {
   std::unique_lock<std::mutex> lk(mu_->getLock(), std::adopt_lock);
 
   // Work around https://github.com/microsoft/STL/issues/369
-#if defined(_MSC_VER) && (!defined(_MSVC_STL_UPDATE) || _MSVC_STL_UPDATE < 202008L)
+#if defined(_MSC_VER) && \
+    (!defined(_MSVC_STL_UPDATE) || _MSVC_STL_UPDATE < 202008L)
   if (relTimeUs == microseconds::zero()) {
     lk.unlock();
     lk.lock();
