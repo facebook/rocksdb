@@ -52,8 +52,7 @@ commands:
       - run:
           name: Install gtest-parallel
           command: |
-            echo "Currently using a forked version to print task status in circleCI output, pending: https://github.com/google/gtest-parallel/pull/79"
-            git clone --single-branch --branch master --depth 1 https://github.com/jay-zhuang/gtest-parallel.git ~/gtest-parallel
+            git clone --single-branch --branch master --depth 1 https://github.com/google/gtest-parallel.git ~/gtest-parallel
             echo "export PATH=$HOME/gtest-parallel:$PATH" >> $BASH_ENV
 
 executors:
@@ -337,7 +336,7 @@ jobs:
             sed -i 's/[[:space:]]*$//; s/ / \.\//g; s/.*/.\/&/' /tmp/test_list
             cat /tmp/test_list
             export TEST_TMPDIR=/tmp/rocksdb_test_tmp
-            /usr/bin/python ../gtest-parallel/gtest-parallel $(</tmp/test_list) --output_dir=/tmp --print_task_status_continuously
+            /usr/bin/python ../gtest-parallel/gtest-parallel $(</tmp/test_list) --output_dir=/tmp | cat  # pipe to cat to continuously output status on circleci UI. Otherwise, no status will be printed while the job is running.
       - post-steps
 
 workflows:
