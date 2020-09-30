@@ -102,7 +102,7 @@ class TestIterator : public InternalIterator {
       Status pikStatus = ParseInternalKey(it->first, &ikey);
       pikStatus.PermitUncheckedError();
       assert(pikStatus.ok());
-      if (ikey.user_key != _key) {
+      if (!pikStatus.ok() || ikey.user_key != _key) {
         continue;
       }
       if (valid_ && data_.begin() + iter_ > it) {
