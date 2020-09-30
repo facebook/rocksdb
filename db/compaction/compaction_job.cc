@@ -679,8 +679,8 @@ Status CompactionJob::Run() {
           if (s.ok()) {
             s = iter->status();
           }
-          if (s.ok() && validator.GetHash() !=
-                            files_output[file_idx]->validator.GetHash()) {
+          if (s.ok() &&
+              !validator.CompareValidator(files_output[file_idx]->validator)) {
             s = Status::Corruption("Paranoid checksums do not match");
           }
         }
@@ -1290,8 +1290,10 @@ Status CompactionJob::FinishCompactionOutputFile(
       auto kv = tombstone.Serialize();
       assert(lower_bound == nullptr ||
              ucmp->Compare(*lower_bound, kv.second) < 0);
-      sub_compact->AddToBuilder(kv.first.Encode(), kv.second)
-          .PermitUncheckedError();
+      s = sub_compact->AddToBuilder(kv.first.Encode(), kv.second);
+      if (!s.ok()) {
+        break;
+      }
       InternalKey smallest_candidate = std::move(kv.first);
       if (lower_bound != nullptr &&
           ucmp->Compare(smallest_candidate.user_key(), *lower_bound) <= 0) {
@@ -1615,7 +1617,7 @@ Status CompactionJob::OpenCompactionOutputFile(
     meta.file_creation_time = current_time;
     sub_compact->outputs.emplace_back(
         std::move(meta), cfd->internal_comparator(),
-        /*enable_order_check*/
+        /*enable_order_check=*/
         sub_compact->compaction->mutable_cf_options()
             ->check_flush_compaction_key_order,
         /*enable_hash=*/paranoid_file_checks_);

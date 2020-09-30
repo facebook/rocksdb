@@ -652,10 +652,9 @@ TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
   options.paranoid_file_checks = false;
   options.create_if_missing = true;
   options.check_flush_compaction_key_order = false;
-  Status s;
   delete db_;
   db_ = nullptr;
-  s = DestroyDB(dbname_, options);
+  ASSERT_OK(DestroyDB(dbname_, options));
   std::shared_ptr<mock::MockTableFactory> mock =
       std::make_shared<mock::MockTableFactory>();
   options.table_factory = mock;
@@ -663,14 +662,12 @@ TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
   assert(db_ != nullptr);
   mock->SetCorruptionMode(mock::MockTableFactory::kCorruptReorderKey);
   Build(100, 2);
-  // ASSERT_OK(db_->Flush(FlushOptions()));
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
   mock->SetCorruptionMode(mock::MockTableFactory::kCorruptNone);
   ASSERT_OK(db_->SetOptions({{"check_flush_compaction_key_order", "true"}}));
-  s = dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true);
-  ASSERT_NOK(s);
+  ASSERT_NOK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
 }
 
 TEST_F(CorruptionTest, FlushKeyOrderCheck) {
@@ -685,6 +682,7 @@ TEST_F(CorruptionTest, FlushKeyOrderCheck) {
   ASSERT_OK(db_->Put(WriteOptions(), "foo4", "v1"));
 
   int cnt = 0;
+  // Generate some out of order keys from the memtable
   SyncPoint::GetInstance()->SetCallBack(
       "MemTableIterator::Next:0", [&](void* arg) {
         MemTableRep::Iterator* mem_iter =
@@ -698,6 +696,7 @@ TEST_F(CorruptionTest, FlushKeyOrderCheck) {
   Status s = static_cast_with_check<DBImpl>(db_)->TEST_FlushMemTable();
   ASSERT_NOK(s);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_F(CorruptionTest, DisableKeyOrderCheck) {
@@ -717,6 +716,7 @@ TEST_F(CorruptionTest, DisableKeyOrderCheck) {
   ASSERT_OK(dbi->TEST_FlushMemTable());
   ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

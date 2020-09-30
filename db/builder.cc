@@ -99,7 +99,7 @@ Status BuildTable(
   const size_t kReportFlushIOStatsEvery = 1048576;
   OutputValidator output_validator(
       internal_comparator,
-      /*enable_order_check*/
+      /*enable_order_check=*/
       mutable_cf_options.check_flush_compaction_key_order,
       /*enable_hash=*/paranoid_file_checks);
   Status s;
@@ -305,7 +305,7 @@ Status BuildTable(
           file_validator.Add(it->key(), it->value()).PermitUncheckedError();
         }
         s = it->status();
-        if (s.ok() && output_validator.GetHash() != file_validator.GetHash()) {
+        if (s.ok() && !output_validator.CompareValidator(file_validator)) {
           s = Status::Corruption("Paranoid checksums do not match");
         }
       }
