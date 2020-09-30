@@ -259,7 +259,8 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
         earliest_write_conflict_snapshot, snapshot_checker_.get(),
         Env::Default(), false /* report_detailed_time */, false,
         range_del_agg_.get(), nullptr /* blob_file_builder */,
-        std::move(compaction), filter, &shutting_down_));
+        false /*allow_data_in_errors*/, std::move(compaction), filter,
+        &shutting_down_));
   }
 
   void AddSnapshot(SequenceNumber snapshot,
