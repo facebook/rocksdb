@@ -33,13 +33,13 @@ class OutputValidator {
     return GetHash() == other_validator.GetHash();
   }
 
-private:
- uint64_t GetHash() const { return paranoid_hash_; }
+ private:
+  uint64_t GetHash() const { return paranoid_hash_; }
 
- const InternalKeyComparator& icmp_;
- std::string prev_key_;
- uint64_t paranoid_hash_ = 0;
- bool enable_order_check_;
- bool enable_hash_;
+  const InternalKeyComparator& icmp_;
+  std::string prev_key_;
+  uint64_t paranoid_hash_ = 0;
+  bool enable_order_check_;
+  bool enable_hash_;
 };
-} // namespace rocksdb
+}  // namespace rocksdb
