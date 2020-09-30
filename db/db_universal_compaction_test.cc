@@ -1239,13 +1239,13 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   options.num_levels = 1;
 
   std::vector<std::string> filenames;
-  env_->GetChildren(options.db_paths[1].path, &filenames)
-      .PermitUncheckedError();
-  // Delete archival files.
-  for (size_t i = 0; i < filenames.size(); ++i) {
-    ASSERT_OK(env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]));
+  if (env_->GetChildren(options.db_paths[1].path, &filenames).ok()) {
+    // Delete archival files.
+    for (size_t i = 0; i < filenames.size(); ++i) {
+      ASSERT_OK(env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]));
+    }
+    ASSERT_OK(env_->DeleteDir(options.db_paths[1].path));
   }
-  env_->DeleteDir(options.db_paths[1].path).PermitUncheckedError();
   Reopen(options);
 
   Random rnd(301);
@@ -1581,13 +1581,13 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
       new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
 
   std::vector<std::string> filenames;
-  env_->GetChildren(options.db_paths[1].path, &filenames)
-      .PermitUncheckedError();
-  // Delete archival files.
-  for (size_t i = 0; i < filenames.size(); ++i) {
-    ASSERT_OK(env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]));
+  if (env_->GetChildren(options.db_paths[1].path, &filenames).ok()) {
+    // Delete archival files.
+    for (size_t i = 0; i < filenames.size(); ++i) {
+      ASSERT_OK(env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]));
+    }
+    ASSERT_OK(env_->DeleteDir(options.db_paths[1].path));
   }
-  env_->DeleteDir(options.db_paths[1].path).PermitUncheckedError();
   Reopen(options);
 
   Random rnd(301);
