@@ -294,8 +294,7 @@ struct CompactionJobInfo {
   // Compression algorithm used for output files
   CompressionType compression;
 
-  // If non-null, this variable stores detailed information
-  // about this compaction.
+  // Statistics and other additional details on the compaction
   CompactionJobStats stats;
 };
 
