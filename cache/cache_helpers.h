@@ -30,4 +30,72 @@ Slice GetSlice(const T* t) {
   return Slice(reinterpret_cast<const char*>(t), sizeof(T));
 }
 
+template <typename T>
+class CacheHandleGuard {
+ public:
+  CacheHandleGuard() = default;
+
+  CacheHandleGuard(Cache* cache, Cache::Handle* handle)
+      : cache_(cache),
+        handle_(handle),
+        value_(GetFromHandle<T>(cache, handle)) {
+    assert(cache_ && handle_ && value_);
+  }
+
+  CacheHandleGuard(const CacheHandleGuard&) = delete;
+  CacheHandleGuard& operator=(const CacheHandleGuard&) = delete;
+
+  CacheHandleGuard(CacheHandleGuard&& rhs) noexcept
+      : cache_(rhs.cache_), handle_(rhs.handle_), value_(rhs.value_) {
+    assert(IsEmpty() || (cache_ && handle_ && value_));
+
+    rhs.ResetFields();
+  }
+
+  CacheHandleGuard& operator=(CacheHandleGuard&& rhs) noexcept {
+    if (this == &rhs) {
+      return *this;
+    }
+
+    ReleaseHandle();
+
+    cache_ = rhs.cache_;
+    handle_ = rhs.handle_;
+    value_ = rhs.value_;
+
+    assert(IsEmpty() || (cache_ && handle_ && value_));
+
+    rhs.ResetFields();
+
+    return *this;
+  }
+
+  ~CacheHandleGuard() { ReleaseHandle(); }
+
+  bool IsEmpty() const { return !cache_ && !handle_ && !value_; }
+
+  Cache* GetCache() const { return cache_; }
+  Cache::Handle* GetCacheHandle() const { return handle_; }
+  T* GetValue() const { return value_; }
+
+ private:
+  void ReleaseHandle() {
+    if (handle_) {
+      assert(cache_);
+      cache_->Release(handle_);
+    }
+  }
+
+  void ResetFields() {
+    cache_ = nullptr;
+    handle_ = nullptr;
+    value_ = nullptr;
+  }
+
+ private:
+  Cache* cache_ = nullptr;
+  Cache::Handle* handle_ = nullptr;
+  T* value_ = nullptr;
+};
+
 }  // namespace ROCKSDB_NAMESPACE
