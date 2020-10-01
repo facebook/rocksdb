@@ -654,6 +654,7 @@ ifdef ASSERT_STATUS_CHECKED
 		block_fetcher_test \
 		full_filter_block_test \
 		partitioned_filter_block_test \
+		column_family_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test

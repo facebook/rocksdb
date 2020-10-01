@@ -1211,7 +1211,7 @@ std::string DBTestBase::DumpSSTableList() {
 
 void DBTestBase::GetSstFiles(Env* env, std::string path,
                              std::vector<std::string>* files) {
-  env->GetChildren(path, files);
+  EXPECT_OK(env->GetChildren(path, files));
 
   files->erase(
       std::remove_if(files->begin(), files->end(), [](std::string name) {
