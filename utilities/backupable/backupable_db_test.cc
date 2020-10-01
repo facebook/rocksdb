@@ -1423,7 +1423,7 @@ TEST_F(BackupableDBTest, TableFileWithoutDbChecksumCorruptedDuringBackup) {
                         kShareWithChecksum);
 
   FillDB(db_.get(), 0, keys_iteration);
-  bool corrupted = false;
+  std::atomic<bool> corrupted{false};
   // corrupt files when copying to the backup directory
   SyncPoint::GetInstance()->SetCallBack(
       "BackupEngineImpl::CopyOrCreateFile:CorruptionDuringBackup",
