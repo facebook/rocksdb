@@ -8,6 +8,7 @@
 #include <cassert>
 #include <memory>
 
+#include "cache/cache_helpers.h"
 #include "db/blob/blob_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/cache.h"
@@ -15,28 +16,6 @@
 #include "util/hash.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-namespace {
-
-BlobFileReader* GetBlobFileReaderFromHandle(Cache* cache,
-                                            Cache::Handle* handle) {
-  assert(cache);
-  assert(handle);
-
-  return static_cast<BlobFileReader*>(cache->Value(handle));
-}
-
-template <class T>
-void DeleteEntry(const Slice& /*key*/, void* value) {
-  delete static_cast<T*>(value);
-}
-
-Slice GetSliceForFileNumber(const uint64_t* file_number) {
-  return Slice(reinterpret_cast<const char*>(file_number),
-               sizeof(*file_number));
-}
-
-}  // anonymous namespace
 
 BlobFileCache::BlobFileCache(Cache* cache,
                              const ImmutableCFOptions* immutable_cf_options,
@@ -59,13 +38,13 @@ Status BlobFileCache::GetBlobFileReader(uint64_t blob_file_number,
                                         BlobFileReader** blob_file_reader) {
   assert(blob_file_reader);
 
-  const Slice key = GetSliceForFileNumber(&blob_file_number);
+  const Slice key = GetSlice(&blob_file_number);
 
   assert(cache_);
 
   Cache::Handle* handle = cache_->Lookup(key);
   if (handle) {
-    *blob_file_reader = GetBlobFileReaderFromHandle(cache_, handle);
+    *blob_file_reader = GetFromHandle<BlobFileReader>(cache_, handle);
     return Status::OK();
   }
 
@@ -74,7 +53,7 @@ Status BlobFileCache::GetBlobFileReader(uint64_t blob_file_number,
 
   handle = cache_->Lookup(key);
   if (handle) {
-    *blob_file_reader = GetBlobFileReaderFromHandle(cache_, handle);
+    *blob_file_reader = GetFromHandle<BlobFileReader>(cache_, handle);
     return Status::OK();
   }
 
@@ -105,7 +84,7 @@ Status BlobFileCache::GetBlobFileReader(uint64_t blob_file_number,
 
   reader.release();
 
-  *blob_file_reader = GetBlobFileReaderFromHandle(cache_, handle);
+  *blob_file_reader = GetFromHandle<BlobFileReader>(cache_, handle);
 
   return Status::OK();
 }
