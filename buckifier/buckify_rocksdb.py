@@ -136,6 +136,15 @@ def generate_targets(repo_path, deps_map):
         "rocksdb_lib",
         src_mk["LIB_SOURCES"] +
         src_mk["TOOL_LIB_SOURCES"])
+    # rocksdb_whole_archive_lib
+    TARGETS.add_library(
+        "rocksdb_whole_archive_lib",
+        src_mk["LIB_SOURCES"] +
+        src_mk["TOOL_LIB_SOURCES"],
+        deps=None,
+        headers=None,
+        extra_external_deps="",
+        link_whole=True)
     # rocksdb_test_lib
     TARGETS.add_library(
         "rocksdb_test_lib",
