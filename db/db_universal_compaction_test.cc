@@ -1242,7 +1242,8 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   if (env_->GetChildren(options.db_paths[1].path, &filenames).ok()) {
     // Delete archival files.
     for (size_t i = 0; i < filenames.size(); ++i) {
-      ASSERT_OK(env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]));
+      ASSERT_OK(
+          env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]));
     }
     ASSERT_OK(env_->DeleteDir(options.db_paths[1].path));
   }
@@ -1584,7 +1585,8 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   if (env_->GetChildren(options.db_paths[1].path, &filenames).ok()) {
     // Delete archival files.
     for (size_t i = 0; i < filenames.size(); ++i) {
-      ASSERT_OK(env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]));
+      ASSERT_OK(
+          env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]));
     }
     ASSERT_OK(env_->DeleteDir(options.db_paths[1].path));
   }
