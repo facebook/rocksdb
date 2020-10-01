@@ -668,8 +668,8 @@ Status CompactionJob::Run() {
 
         if (s.ok() && paranoid_file_checks_) {
           OutputValidator validator(cfd->internal_comparator(),
-                                    /*enable_order_check=*/true,
-                                    /*enable_hash=*/true);
+                                    /*_enable_order_check=*/true,
+                                    /*_enable_hash=*/true);
           for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
             s = validator.Add(iter->key(), iter->value());
             if (!s.ok()) {

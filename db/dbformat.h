@@ -96,7 +96,7 @@ static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
 static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
 
-static const uint64_t kNumInternalBytes = 8;
+constexpr uint64_t kNumInternalBytes = 8;
 
 // The data structure that represents an internal key in the way that user_key,
 // sequence number and type are stored in separated forms.
@@ -330,7 +330,9 @@ inline int InternalKeyComparator::Compare(const InternalKey& a,
 inline Status ParseInternalKey(const Slice& internal_key,
                                ParsedInternalKey* result) {
   const size_t n = internal_key.size();
-  if (n < kNumInternalBytes) return Status::Corruption("Internal Key too small");
+  if (n < kNumInternalBytes) {
+    return Status::Corruption("Internal Key too small");
+  }
   uint64_t num = DecodeFixed64(internal_key.data() + n - kNumInternalBytes);
   unsigned char c = num & 0xff;
   result->sequence = num >> 8;
