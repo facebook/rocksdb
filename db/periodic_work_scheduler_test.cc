@@ -32,7 +32,7 @@ class PeriodicWorkSchedulerTest : public DBTestBase {
 };
 
 TEST_F(PeriodicWorkSchedulerTest, Basic) {
-  constexpr int kPeriodSec =
+  constexpr unsigned int kPeriodSec =
       PeriodicWorkScheduler::kDefaultFlushInfoLogPeriodSec;
   Close();
   Options options;
@@ -60,9 +60,9 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
   ASSERT_EQ(kPeriodSec, dbfull()->GetDBOptions().stats_dump_period_sec);
   ASSERT_EQ(kPeriodSec, dbfull()->GetDBOptions().stats_persist_period_sec);
 
-  ASSERT_GT(kPeriodSec, 1);
+  ASSERT_GT(kPeriodSec, 1u);
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->MockSleepForSeconds(kPeriodSec - 1); });
+      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec) - 1); });
 
   auto scheduler = dbfull()->TEST_GetPeriodicWorkScheduler();
   ASSERT_NE(nullptr, scheduler);
@@ -73,14 +73,14 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
   ASSERT_EQ(1, flush_info_log_counter);
 
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
+      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
 
   ASSERT_EQ(2, dump_st_counter);
   ASSERT_EQ(2, pst_st_counter);
   ASSERT_EQ(2, flush_info_log_counter);
 
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
+      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
 
   ASSERT_EQ(3, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
@@ -94,7 +94,7 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
 
   // Info log flush should still run.
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
+      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
   ASSERT_EQ(3, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
   ASSERT_EQ(4, flush_info_log_counter);
@@ -112,7 +112,7 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
   ASSERT_EQ(2, scheduler->TEST_GetValidTaskNum());
 
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
+      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
   ASSERT_EQ(4, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
   ASSERT_EQ(5, flush_info_log_counter);
