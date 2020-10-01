@@ -1810,7 +1810,7 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
     return Status::Corruption("Invalid blob file number");
   }
 
-  BlobFileReader* blob_file_reader = nullptr;
+  CacheHandleGuard<BlobFileReader> blob_file_reader;
 
   {
     assert(blob_file_cache_);
@@ -1821,8 +1821,8 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
     }
   }
 
-  assert(blob_file_reader);
-  const Status s = blob_file_reader->GetBlob(
+  assert(blob_file_reader.GetValue());
+  const Status s = blob_file_reader.GetValue()->GetBlob(
       read_options, user_key, blob_index.offset(), blob_index.size(),
       blob_index.compression(), value);
 

@@ -7,6 +7,7 @@
 
 #include <cinttypes>
 
+#include "cache/cache_helpers.h"
 #include "rocksdb/rocksdb_namespace.h"
 #include "util/mutexlock.h"
 
@@ -30,7 +31,7 @@ class BlobFileCache {
   BlobFileCache& operator=(const BlobFileCache&) = delete;
 
   Status GetBlobFileReader(uint64_t blob_file_number,
-                           BlobFileReader** blob_file_reader);
+                           CacheHandleGuard<BlobFileReader>* blob_file_reader);
 
  private:
   Cache* cache_;

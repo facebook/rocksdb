@@ -8,7 +8,6 @@
 #include <cassert>
 #include <memory>
 
-#include "cache/cache_helpers.h"
 #include "db/blob/blob_file_reader.h"
 #include "options/cf_options.h"
 #include "rocksdb/cache.h"
@@ -34,9 +33,11 @@ BlobFileCache::BlobFileCache(Cache* cache,
   assert(blob_file_read_hist_);
 }
 
-Status BlobFileCache::GetBlobFileReader(uint64_t blob_file_number,
-                                        BlobFileReader** blob_file_reader) {
+Status BlobFileCache::GetBlobFileReader(
+    uint64_t blob_file_number,
+    CacheHandleGuard<BlobFileReader>* blob_file_reader) {
   assert(blob_file_reader);
+  assert(blob_file_reader->IsEmpty());
 
   const Slice key = GetSlice(&blob_file_number);
 
@@ -44,7 +45,7 @@ Status BlobFileCache::GetBlobFileReader(uint64_t blob_file_number,
 
   Cache::Handle* handle = cache_->Lookup(key);
   if (handle) {
-    *blob_file_reader = GetFromHandle<BlobFileReader>(cache_, handle);
+    *blob_file_reader = CacheHandleGuard<BlobFileReader>(cache_, handle);
     return Status::OK();
   }
 
@@ -53,7 +54,7 @@ Status BlobFileCache::GetBlobFileReader(uint64_t blob_file_number,
 
   handle = cache_->Lookup(key);
   if (handle) {
-    *blob_file_reader = GetFromHandle<BlobFileReader>(cache_, handle);
+    *blob_file_reader = CacheHandleGuard<BlobFileReader>(cache_, handle);
     return Status::OK();
   }
 
@@ -84,7 +85,7 @@ Status BlobFileCache::GetBlobFileReader(uint64_t blob_file_number,
 
   reader.release();
 
-  *blob_file_reader = GetFromHandle<BlobFileReader>(cache_, handle);
+  *blob_file_reader = CacheHandleGuard<BlobFileReader>(cache_, handle);
 
   return Status::OK();
 }
