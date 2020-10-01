@@ -170,14 +170,14 @@ TEST_F(FlushJobTest, NonEmpty) {
     new_mem->Add(SequenceNumber(i), kTypeValue, key, value);
     if ((i + 1000) % 10000 < 9995) {
       InternalKey internal_key(key, SequenceNumber(i), kTypeValue);
-      inserted_keys.insert({internal_key.Encode().ToString(), value});
+      inserted_keys.push_back({internal_key.Encode().ToString(), value});
     }
   }
 
   {
     new_mem->Add(SequenceNumber(10000), kTypeRangeDeletion, "9995", "9999a");
     InternalKey internal_key("9995", SequenceNumber(10000), kTypeRangeDeletion);
-    inserted_keys.insert({internal_key.Encode().ToString(), "9999a"});
+    inserted_keys.push_back({internal_key.Encode().ToString(), "9999a"});
   }
 
   // Note: the first two blob references will not be considered when resolving
@@ -205,9 +205,9 @@ TEST_F(FlushJobTest, NonEmpty) {
     new_mem->Add(seq, kTypeBlobIndex, key, blob_index);
 
     InternalKey internal_key(key, seq, kTypeBlobIndex);
-    inserted_keys.emplace_hint(inserted_keys.end(),
-                               internal_key.Encode().ToString(), blob_index);
+    inserted_keys.push_back({internal_key.Encode().ToString(), blob_index});
   }
+  mock::SortKVVector(&inserted_keys);
 
   autovector<MemTable*> to_delete;
   cfd->imm()->Add(new_mem, &to_delete);
@@ -454,10 +454,11 @@ TEST_F(FlushJobTest, Snapshots) {
                      (snapshots_set.find(seqno) != snapshots_set.end());
       if (visible) {
         InternalKey internal_key(key, seqno, kTypeValue);
-        inserted_keys.insert({internal_key.Encode().ToString(), value});
+        inserted_keys.push_back({internal_key.Encode().ToString(), value});
       }
     }
   }
+  mock::SortKVVector(&inserted_keys);
 
   autovector<MemTable*> to_delete;
   cfd->imm()->Add(new_mem, &to_delete);

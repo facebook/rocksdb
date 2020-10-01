@@ -19,6 +19,7 @@
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
+#include "db/output_validator.h"
 #include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
@@ -96,7 +97,11 @@ Status BuildTable(
          column_family_name.empty());
   // Reports the IOStats for flush for every following bytes.
   const size_t kReportFlushIOStatsEvery = 1048576;
-  uint64_t paranoid_hash = 0;
+  OutputValidator output_validator(
+      internal_comparator,
+      /*enable_order_check=*/
+      mutable_cf_options.check_flush_compaction_key_order,
+      /*enable_hash=*/paranoid_file_checks);
   Status s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
@@ -187,10 +192,10 @@ Status BuildTable(
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
-      if (paranoid_file_checks) {
-        // Generate a rolling 64-bit hash of the key and values
-        paranoid_hash = Hash64(key.data(), key.size(), paranoid_hash);
-        paranoid_hash = Hash64(value.data(), value.size(), paranoid_hash);
+      // Generate a rolling 64-bit hash of the key and values
+      s = output_validator.Add(key, value);
+      if (!s.ok()) {
+        break;
       }
       builder->Add(key, value);
       meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
@@ -202,23 +207,24 @@ Status BuildTable(
             ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
       }
     }
+    if (s.ok()) {
+      auto range_del_it = range_del_agg->NewIterator();
+      for (range_del_it->SeekToFirst(); range_del_it->Valid();
+           range_del_it->Next()) {
+        auto tombstone = range_del_it->Tombstone();
+        auto kv = tombstone.Serialize();
+        builder->Add(kv.first.Encode(), kv.second);
+        meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
+                                       tombstone.seq_, internal_comparator);
+      }
 
-    auto range_del_it = range_del_agg->NewIterator();
-    for (range_del_it->SeekToFirst(); range_del_it->Valid();
-         range_del_it->Next()) {
-      auto tombstone = range_del_it->Tombstone();
-      auto kv = tombstone.Serialize();
-      builder->Add(kv.first.Encode(), kv.second);
-      meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
-                                     tombstone.seq_, internal_comparator);
-    }
+      // Finish and check for builder errors
+      s = c_iter.status();
 
-    // Finish and check for builder errors
-    s = c_iter.status();
-
-    if (blob_file_builder) {
-      if (s.ok()) {
-        s = blob_file_builder->Finish();
+      if (blob_file_builder) {
+        if (s.ok()) {
+          s = blob_file_builder->Finish();
+        }
       }
     }
 
@@ -291,15 +297,15 @@ Status BuildTable(
           /*allow_unprepared_value*/ false));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
-        uint64_t check_hash = 0;
+        OutputValidator file_validator(internal_comparator,
+                                       /*enable_order_check=*/true,
+                                       /*enable_hash=*/true);
         for (it->SeekToFirst(); it->Valid(); it->Next()) {
           // Generate a rolling 64-bit hash of the key and values
-          check_hash = Hash64(it->key().data(), it->key().size(), check_hash);
-          check_hash =
-              Hash64(it->value().data(), it->value().size(), check_hash);
+          file_validator.Add(it->key(), it->value()).PermitUncheckedError();
         }
         s = it->status();
-        if (s.ok() && check_hash != paranoid_hash) {
+        if (s.ok() && !output_validator.CompareValidator(file_validator)) {
           s = Status::Corruption("Paranoid checksums do not match");
         }
       }

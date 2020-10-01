@@ -32,6 +32,7 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
+#include "db/output_validator.h"
 #include "db/range_del_aggregator.h"
 #include "db/version_set.h"
 #include "file/filename.h"
@@ -124,9 +125,14 @@ struct CompactionJob::SubcompactionState {
 
   // Files produced by this subcompaction
   struct Output {
+    Output(FileMetaData&& _meta, const InternalKeyComparator& _icmp,
+           bool _enable_order_check, bool _enable_hash)
+        : meta(std::move(_meta)),
+          validator(_icmp, _enable_order_check, _enable_hash),
+          finished(false) {}
     FileMetaData meta;
+    OutputValidator validator;
     bool finished;
-    uint64_t paranoid_hash;
     std::shared_ptr<const TableProperties> table_properties;
   };
 
@@ -170,17 +176,16 @@ struct CompactionJob::SubcompactionState {
 
   // Adds the key and value to the builder
   // If paranoid is true, adds the key-value to the paranoid hash
-  void AddToBuilder(const Slice& key, const Slice& value, bool paranoid) {
+  Status AddToBuilder(const Slice& key, const Slice& value) {
     auto curr = current_output();
     assert(builder != nullptr);
     assert(curr != nullptr);
-    if (paranoid) {
-      // Generate a rolling 64-bit hash of the key and values
-      curr->paranoid_hash = Hash64(key.data(), key.size(), curr->paranoid_hash);
-      curr->paranoid_hash =
-          Hash64(value.data(), value.size(), curr->paranoid_hash);
+    Status s = curr->validator.Add(key, value);
+    if (!s.ok()) {
+      return s;
     }
     builder->Add(key, value);
+    return Status::OK();
   }
 
   // Returns true iff we should stop building the current output
@@ -662,14 +667,20 @@ Status CompactionJob::Run() {
         auto s = iter->status();
 
         if (s.ok() && paranoid_file_checks_) {
-          uint64_t hash = 0;
+          OutputValidator validator(cfd->internal_comparator(),
+                                    /*_enable_order_check=*/true,
+                                    /*_enable_hash=*/true);
           for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-            // Generate a rolling 64-bit hash of the key and values, using the
-            hash = Hash64(iter->key().data(), iter->key().size(), hash);
-            hash = Hash64(iter->value().data(), iter->value().size(), hash);
+            s = validator.Add(iter->key(), iter->value());
+            if (!s.ok()) {
+              break;
+            }
           }
-          s = iter->status();
-          if (s.ok() && hash != files_output[file_idx]->paranoid_hash) {
+          if (s.ok()) {
+            s = iter->status();
+          }
+          if (s.ok() &&
+              !validator.CompareValidator(files_output[file_idx]->validator)) {
             s = Status::Corruption("Paranoid checksums do not match");
           }
         }
@@ -961,7 +972,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         break;
       }
     }
-    sub_compact->AddToBuilder(key, value, paranoid_file_checks_);
+    status = sub_compact->AddToBuilder(key, value);
+    if (!status.ok()) {
+      break;
+    }
 
     sub_compact->current_output_file_size =
         sub_compact->builder->EstimatedFileSize();
@@ -1276,8 +1290,8 @@ Status CompactionJob::FinishCompactionOutputFile(
       auto kv = tombstone.Serialize();
       assert(lower_bound == nullptr ||
              ucmp->Compare(*lower_bound, kv.second) < 0);
-      sub_compact->AddToBuilder(kv.first.Encode(), kv.second,
-                                paranoid_file_checks_);
+      // Range tombstone is not supported by output validator yet.
+      sub_compact->builder->Add(kv.first.Encode(), kv.second);
       InternalKey smallest_candidate = std::move(kv.first);
       if (lower_bound != nullptr &&
           ucmp->Compare(smallest_candidate.user_key(), *lower_bound) <= 0) {
@@ -1594,14 +1608,17 @@ Status CompactionJob::OpenCompactionOutputFile(
 
   // Initialize a SubcompactionState::Output and add it to sub_compact->outputs
   {
-    SubcompactionState::Output out;
-    out.meta.fd = FileDescriptor(file_number,
-                                 sub_compact->compaction->output_path_id(), 0);
-    out.meta.oldest_ancester_time = oldest_ancester_time;
-    out.meta.file_creation_time = current_time;
-    out.finished = false;
-    out.paranoid_hash = 0;
-    sub_compact->outputs.push_back(out);
+    FileMetaData meta;
+    meta.fd = FileDescriptor(file_number,
+                             sub_compact->compaction->output_path_id(), 0);
+    meta.oldest_ancester_time = oldest_ancester_time;
+    meta.file_creation_time = current_time;
+    sub_compact->outputs.emplace_back(
+        std::move(meta), cfd->internal_comparator(),
+        /*enable_order_check=*/
+        sub_compact->compaction->mutable_cf_options()
+            ->check_flush_compaction_key_order,
+        /*enable_hash=*/paranoid_file_checks_);
   }
 
   writable_file->SetIOPriority(Env::IOPriority::IO_LOW);

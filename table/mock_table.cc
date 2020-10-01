@@ -16,20 +16,19 @@
 namespace ROCKSDB_NAMESPACE {
 namespace mock {
 
-namespace {
+KVVector MakeMockFile(std::initializer_list<KVPair> l) { return KVVector(l); }
 
-const InternalKeyComparator icmp_(BytewiseComparator());
-
-}  // namespace
-
-stl_wrappers::KVMap MakeMockFile(
-    std::initializer_list<std::pair<const std::string, std::string>> l) {
-  return stl_wrappers::KVMap(l, stl_wrappers::LessOfComparator(&icmp_));
+void SortKVVector(KVVector* kv_vector) {
+  InternalKeyComparator icmp(BytewiseComparator());
+  std::sort(kv_vector->begin(), kv_vector->end(),
+            [icmp](KVPair a, KVPair b) -> bool {
+              return icmp.Compare(a.first, b.first) < 0;
+            });
 }
 
 class MockTableReader : public TableReader {
  public:
-  explicit MockTableReader(const stl_wrappers::KVMap& table) : table_(table) {}
+  explicit MockTableReader(const KVVector& table) : table_(table) {}
 
   InternalIterator* NewIterator(const ReadOptions&,
                                 const SliceTransform* prefix_extractor,
@@ -61,12 +60,12 @@ class MockTableReader : public TableReader {
   ~MockTableReader() {}
 
  private:
-  const stl_wrappers::KVMap& table_;
+  const KVVector& table_;
 };
 
 class MockTableIterator : public InternalIterator {
  public:
-  explicit MockTableIterator(const stl_wrappers::KVMap& table) : table_(table) {
+  explicit MockTableIterator(const KVVector& table) : table_(table) {
     itr_ = table_.end();
   }
 
@@ -80,13 +79,21 @@ class MockTableIterator : public InternalIterator {
   }
 
   void Seek(const Slice& target) override {
-    std::string str_target(target.data(), target.size());
-    itr_ = table_.lower_bound(str_target);
+    KVPair target_pair(target.ToString(), "");
+    InternalKeyComparator icmp(BytewiseComparator());
+    itr_ = std::lower_bound(table_.begin(), table_.end(), target_pair,
+                            [icmp](KVPair a, KVPair b) -> bool {
+                              return icmp.Compare(a.first, b.first) < 0;
+                            });
   }
 
   void SeekForPrev(const Slice& target) override {
-    std::string str_target(target.data(), target.size());
-    itr_ = table_.upper_bound(str_target);
+    KVPair target_pair(target.ToString(), "");
+    InternalKeyComparator icmp(BytewiseComparator());
+    itr_ = std::upper_bound(table_.begin(), table_.end(), target_pair,
+                            [icmp](KVPair a, KVPair b) -> bool {
+                              return icmp.Compare(a.first, b.first) < 0;
+                            });
     Prev();
   }
 
@@ -107,8 +114,8 @@ class MockTableIterator : public InternalIterator {
   Status status() const override { return Status::OK(); }
 
  private:
-  const stl_wrappers::KVMap& table_;
-  stl_wrappers::KVMap::const_iterator itr_;
+  const KVVector& table_;
+  KVVector::const_iterator itr_;
 };
 
 class MockTableBuilder : public TableBuilder {
@@ -129,13 +136,22 @@ class MockTableBuilder : public TableBuilder {
   void Add(const Slice& key, const Slice& value) override {
     if (corrupt_mode_ == MockTableFactory::kCorruptValue) {
       // Corrupt the value
-      table_.insert({key.ToString(), value.ToString() + " "});
+      table_.push_back({key.ToString(), value.ToString() + " "});
       corrupt_mode_ = MockTableFactory::kCorruptNone;
     } else if (corrupt_mode_ == MockTableFactory::kCorruptKey) {
-      table_.insert({key.ToString() + " ", value.ToString()});
+      table_.push_back({key.ToString() + " ", value.ToString()});
       corrupt_mode_ = MockTableFactory::kCorruptNone;
+    } else if (corrupt_mode_ == MockTableFactory::kCorruptReorderKey) {
+      if (prev_key_.empty()) {
+        prev_key_ = key.ToString();
+        prev_value_ = value.ToString();
+      } else {
+        table_.push_back({key.ToString(), value.ToString()});
+        table_.push_back({prev_key_, prev_value_});
+        corrupt_mode_ = MockTableFactory::kCorruptNone;
+      }
     } else {
-      table_.insert({key.ToString(), value.ToString()});
+      table_.push_back({key.ToString(), value.ToString()});
     }
   }
 
@@ -170,9 +186,11 @@ class MockTableBuilder : public TableBuilder {
 
  private:
   uint32_t id_;
+  std::string prev_key_;
+  std::string prev_value_;
   MockTableFileSystem* file_system_;
   int corrupt_mode_;
-  stl_wrappers::KVMap table_;
+  KVVector table_;
 };
 
 InternalIterator* MockTableReader::NewIterator(
@@ -238,7 +256,7 @@ TableBuilder* MockTableFactory::NewTableBuilder(
 }
 
 Status MockTableFactory::CreateMockTable(Env* env, const std::string& fname,
-                                         stl_wrappers::KVMap file_contents) {
+                                         KVVector file_contents) {
   std::unique_ptr<WritableFile> file;
   auto s = env->NewWritableFile(fname, &file, EnvOptions());
   if (!s.ok()) {
@@ -269,14 +287,12 @@ uint32_t MockTableFactory::GetIDFromFile(RandomAccessFileReader* file) const {
   return DecodeFixed32(buf);
 }
 
-void MockTableFactory::AssertSingleFile(
-    const stl_wrappers::KVMap& file_contents) {
+void MockTableFactory::AssertSingleFile(const KVVector& file_contents) {
   ASSERT_EQ(file_system_.files.size(), 1U);
   ASSERT_EQ(file_contents, file_system_.files.begin()->second);
 }
 
-void MockTableFactory::AssertLatestFile(
-    const stl_wrappers::KVMap& file_contents) {
+void MockTableFactory::AssertLatestFile(const KVVector& file_contents) {
   ASSERT_GE(file_system_.files.size(), 1U);
   auto latest = file_system_.files.end();
   --latest;

@@ -96,6 +96,8 @@ static const SequenceNumber kMaxSequenceNumber = ((0x1ull << 56) - 1);
 
 static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
 
+constexpr uint64_t kNumInternalBytes = 8;
+
 // The data structure that represents an internal key in the way that user_key,
 // sequence number and type are stored in separated forms.
 struct ParsedInternalKey {
@@ -121,7 +123,7 @@ struct ParsedInternalKey {
 
 // Return the length of the encoding of "key".
 inline size_t InternalKeyEncodingLength(const ParsedInternalKey& key) {
-  return key.user_key.size() + 8;
+  return key.user_key.size() + kNumInternalBytes;
 }
 
 // Pack a sequence number and a ValueType into a uint64_t
@@ -168,14 +170,15 @@ extern Status ParseInternalKey(const Slice& internal_key,
 
 // Returns the user key portion of an internal key.
 inline Slice ExtractUserKey(const Slice& internal_key) {
-  assert(internal_key.size() >= 8);
-  return Slice(internal_key.data(), internal_key.size() - 8);
+  assert(internal_key.size() >= kNumInternalBytes);
+  return Slice(internal_key.data(), internal_key.size() - kNumInternalBytes);
 }
 
 inline Slice ExtractUserKeyAndStripTimestamp(const Slice& internal_key,
                                              size_t ts_sz) {
-  assert(internal_key.size() >= 8 + ts_sz);
-  return Slice(internal_key.data(), internal_key.size() - 8 - ts_sz);
+  assert(internal_key.size() >= kNumInternalBytes + ts_sz);
+  return Slice(internal_key.data(),
+               internal_key.size() - kNumInternalBytes - ts_sz);
 }
 
 inline Slice StripTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
@@ -189,9 +192,9 @@ inline Slice ExtractTimestampFromUserKey(const Slice& user_key, size_t ts_sz) {
 }
 
 inline uint64_t ExtractInternalKeyFooter(const Slice& internal_key) {
-  assert(internal_key.size() >= 8);
+  assert(internal_key.size() >= kNumInternalBytes);
   const size_t n = internal_key.size();
-  return DecodeFixed64(internal_key.data() + n - 8);
+  return DecodeFixed64(internal_key.data() + n - kNumInternalBytes);
 }
 
 inline ValueType ExtractValueType(const Slice& internal_key) {
@@ -327,13 +330,15 @@ inline int InternalKeyComparator::Compare(const InternalKey& a,
 inline Status ParseInternalKey(const Slice& internal_key,
                                ParsedInternalKey* result) {
   const size_t n = internal_key.size();
-  if (n < 8) return Status::Corruption("Internal Key too small");
-  uint64_t num = DecodeFixed64(internal_key.data() + n - 8);
+  if (n < kNumInternalBytes) {
+    return Status::Corruption("Internal Key too small");
+  }
+  uint64_t num = DecodeFixed64(internal_key.data() + n - kNumInternalBytes);
   unsigned char c = num & 0xff;
   result->sequence = num >> 8;
   result->type = static_cast<ValueType>(c);
   assert(result->type <= ValueType::kMaxValue);
-  result->user_key = Slice(internal_key.data(), n - 8);
+  result->user_key = Slice(internal_key.data(), n - kNumInternalBytes);
   return IsExtendedValueType(result->type)
              ? Status::OK()
              : Status::Corruption("Invalid Key Type");
@@ -343,19 +348,19 @@ inline Status ParseInternalKey(const Slice& internal_key,
 // Guarantees not to invalidate ikey.data().
 inline void UpdateInternalKey(std::string* ikey, uint64_t seq, ValueType t) {
   size_t ikey_sz = ikey->size();
-  assert(ikey_sz >= 8);
+  assert(ikey_sz >= kNumInternalBytes);
   uint64_t newval = (seq << 8) | t;
 
   // Note: Since C++11, strings are guaranteed to be stored contiguously and
   // string::operator[]() is guaranteed not to change ikey.data().
-  EncodeFixed64(&(*ikey)[ikey_sz - 8], newval);
+  EncodeFixed64(&(*ikey)[ikey_sz - kNumInternalBytes], newval);
 }
 
 // Get the sequence number from the internal key
 inline uint64_t GetInternalKeySeqno(const Slice& internal_key) {
   const size_t n = internal_key.size();
-  assert(n >= 8);
-  uint64_t num = DecodeFixed64(internal_key.data() + n - 8);
+  assert(n >= kNumInternalBytes);
+  uint64_t num = DecodeFixed64(internal_key.data() + n - kNumInternalBytes);
   return num >> 8;
 }
 
@@ -394,8 +399,8 @@ class IterKey {
     if (IsUserKey()) {
       return Slice(key_, key_size_);
     } else {
-      assert(key_size_ >= 8);
-      return Slice(key_, key_size_ - 8);
+      assert(key_size_ >= kNumInternalBytes);
+      return Slice(key_, key_size_ - kNumInternalBytes);
     }
   }
 
@@ -453,9 +458,9 @@ class IterKey {
   // and returns a Slice referencing the new copy.
   Slice SetInternalKey(const Slice& key, ParsedInternalKey* ikey) {
     size_t key_n = key.size();
-    assert(key_n >= 8);
+    assert(key_n >= kNumInternalBytes);
     SetInternalKey(key);
-    ikey->user_key = Slice(key_, key_n - 8);
+    ikey->user_key = Slice(key_, key_n - kNumInternalBytes);
     return Slice(key_, key_n);
   }
 
@@ -472,9 +477,9 @@ class IterKey {
   // invalidate slices to the key (and the user key).
   void UpdateInternalKey(uint64_t seq, ValueType t) {
     assert(!IsKeyPinned());
-    assert(key_size_ >= 8);
+    assert(key_size_ >= kNumInternalBytes);
     uint64_t newval = (seq << 8) | t;
-    EncodeFixed64(&buf_[key_size_ - 8], newval);
+    EncodeFixed64(&buf_[key_size_ - kNumInternalBytes], newval);
   }
 
   bool IsKeyPinned() const { return (key_ != buf_); }
@@ -679,8 +684,10 @@ inline int InternalKeyComparator::Compare(const Slice& akey,
   //    decreasing type (though sequence# should be enough to disambiguate)
   int r = user_comparator_.Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
   if (r == 0) {
-    const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8);
-    const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8);
+    const uint64_t anum =
+        DecodeFixed64(akey.data() + akey.size() - kNumInternalBytes);
+    const uint64_t bnum =
+        DecodeFixed64(bkey.data() + bkey.size() - kNumInternalBytes);
     if (anum > bnum) {
       r = -1;
     } else if (anum < bnum) {
@@ -698,8 +705,10 @@ inline int InternalKeyComparator::CompareKeySeq(const Slice& akey,
   int r = user_comparator_.Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
   if (r == 0) {
     // Shift the number to exclude the last byte which contains the value type
-    const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8) >> 8;
-    const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8) >> 8;
+    const uint64_t anum =
+        DecodeFixed64(akey.data() + akey.size() - kNumInternalBytes) >> 8;
+    const uint64_t bnum =
+        DecodeFixed64(bkey.data() + bkey.size() - kNumInternalBytes) >> 8;
     if (anum > bnum) {
       r = -1;
     } else if (anum < bnum) {

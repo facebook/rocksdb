@@ -376,6 +376,7 @@ class MemTableIterator : public InternalIterator {
     PERF_COUNTER_ADD(next_on_memtable_count, 1);
     assert(Valid());
     iter_->Next();
+    TEST_SYNC_POINT_CALLBACK("MemTableIterator::Next:0", iter_);
     valid_ = iter_->Valid();
   }
   bool NextAndGetResult(IterateResult* result) override {

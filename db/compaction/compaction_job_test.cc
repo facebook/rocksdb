@@ -130,7 +130,7 @@ class CompactionJobTest : public testing::Test {
     return blob_index;
   }
 
-  void AddMockFile(const stl_wrappers::KVMap& contents, int level = 0) {
+  void AddMockFile(const mock::KVVector& contents, int level = 0) {
     assert(contents.size() > 0);
 
     bool first_key = true;
@@ -205,8 +205,8 @@ class CompactionJobTest : public testing::Test {
   }
 
   // returns expected result after compaction
-  stl_wrappers::KVMap CreateTwoFiles(bool gen_corrupted_keys) {
-    auto expected_results = mock::MakeMockFile();
+  mock::KVVector CreateTwoFiles(bool gen_corrupted_keys) {
+    stl_wrappers::KVMap expected_results;
     const int kKeysPerFile = 10000;
     const int kCorruptKeysPerFile = 200;
     const int kMatchingKeys = kKeysPerFile / 2;
@@ -232,19 +232,25 @@ class CompactionJobTest : public testing::Test {
           test::CorruptKeyType(&internal_key);
           test::CorruptKeyType(&bottommost_internal_key);
         }
-        contents.insert({ internal_key.Encode().ToString(), value });
+        contents.push_back({internal_key.Encode().ToString(), value});
         if (i == 1 || k < kMatchingKeys || corrupt_id(k - kMatchingKeys)) {
           expected_results.insert(
-              { bottommost_internal_key.Encode().ToString(), value });
+              {bottommost_internal_key.Encode().ToString(), value});
         }
       }
+      mock::SortKVVector(&contents);
 
       AddMockFile(contents);
     }
 
     SetLastSequence(sequence_number);
 
-    return expected_results;
+    mock::KVVector expected_results_kvvector;
+    for (auto& kv : expected_results) {
+      expected_results_kvvector.push_back({kv.first, kv.second});
+    }
+
+    return expected_results_kvvector;
   }
 
   void NewDB() {
@@ -299,7 +305,7 @@ class CompactionJobTest : public testing::Test {
 
   void RunCompaction(
       const std::vector<std::vector<FileMetaData*>>& input_files,
-      const stl_wrappers::KVMap& expected_results,
+      const mock::KVVector& expected_results,
       const std::vector<SequenceNumber>& snapshots = {},
       SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber,
       int output_level = 1, bool verify = true,
@@ -644,7 +650,7 @@ TEST_F(CompactionJobTest, FilterAllMergeOperands) {
   SetLastSequence(11U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
 
-  stl_wrappers::KVMap empty_map;
+  mock::KVVector empty_map;
   RunCompaction({files}, empty_map);
 }
 
