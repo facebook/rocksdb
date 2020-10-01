@@ -625,6 +625,7 @@ ifdef ASSERT_STATUS_CHECKED
 		sst_dump_test \
 		statistics_test \
 		thread_local_test \
+		trace_analyzer_test \
 		env_timed_test \
 		filelock_test \
 		timer_queue_test \
