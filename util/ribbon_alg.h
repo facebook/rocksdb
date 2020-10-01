@@ -731,14 +731,13 @@ typename SimpleSolutionStorage::ResultRow SimpleQueryHelper(
     typename SimpleSolutionStorage::CoeffRow cr,
     const SimpleSolutionStorage &sss) {
   using CoeffRow = typename SimpleSolutionStorage::CoeffRow;
-  using Index = typename SimpleSolutionStorage::Index;
   using ResultRow = typename SimpleSolutionStorage::ResultRow;
 
-  constexpr auto kCoeffBits = static_cast<Index>(sizeof(CoeffRow) * 8U);
+  constexpr unsigned kCoeffBits = static_cast<unsigned>(sizeof(CoeffRow) * 8U);
 
   ResultRow result = 0;
-  for (Index i = 0; i < kCoeffBits; ++i) {
-    if ((cr >> i) & 1U) {
+  for (unsigned i = 0; i < kCoeffBits; ++i) {
+    if (static_cast<unsigned>(cr >> i) & 1U) {
       result ^= sss.Load(start_slot + i);
     }
   }
