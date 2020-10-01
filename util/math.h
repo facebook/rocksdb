@@ -23,13 +23,23 @@ inline int FloorLog2(T v) {
   assert(v > 0);
 #ifdef _MSC_VER
   static_assert(sizeof(T) <= sizeof(uint64_t), "type too big");
-  unsigned long lz = 0;
+  unsigned long idx = 0;
   if (sizeof(T) <= sizeof(uint32_t)) {
-    _BitScanReverse(&lz, static_cast<uint32_t>(v));
+    _BitScanReverse(&idx, static_cast<uint32_t>(v));
   } else {
-    _BitScanReverse64(&lz, static_cast<uint64_t>(v));
+#if defined(_M_X64) || defined(_M_ARM64)
+    _BitScanReverse64(&idx, static_cast<uint64_t>(v));
+#else
+    const auto vh = static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32);
+    if (vh != 0) {
+      _BitScanReverse(&idx, static_cast<uint32_t>(vh));
+      idx += 32;
+    } else {
+      _BitScanReverse(&idx, static_cast<uint32_t>(v));
+    }
+#endif
   }
-  return 63 - static_cast<int>(lz);
+  return idx;
 #else
   static_assert(sizeof(T) <= sizeof(unsigned long long), "type too big");
   if (sizeof(T) <= sizeof(unsigned int)) {
@@ -56,7 +66,16 @@ inline int CountTrailingZeroBits(T v) {
   if (sizeof(T) <= sizeof(uint32_t)) {
     _BitScanForward(&tz, static_cast<uint32_t>(v));
   } else {
+#if defined(_M_X64) || defined(_M_ARM64)
     _BitScanForward64(&tz, static_cast<uint64_t>(v));
+#else
+    _BitScanForward(&tz, static_cast<uint32_t>(v));
+    if (tz == 0) {
+      _BitScanForward(&tz,
+                      static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32));
+      tz += 32;
+    }
+#endif
   }
   return static_cast<int>(tz);
 #else
@@ -71,6 +90,29 @@ inline int CountTrailingZeroBits(T v) {
 #endif
 }
 
+#if defined(_MSC_VER) && !defined(_M_X64)
+namespace detail {
+template <typename T>
+int BitsSetToOneFallback(T v) {
+  const int kBits = static_cast<int>(sizeof(T)) * 8;
+  static_assert((kBits & (kBits - 1)) == 0, "must be power of two bits");
+  // we static_cast these bit patterns in order to truncate them to the correct
+  // size
+  v = static_cast<T>(v - ((v >> 1) & static_cast<T>(0x5555555555555555ull)));
+  v = static_cast<T>((v & static_cast<T>(0x3333333333333333ull)) +
+                     ((v >> 2) & static_cast<T>(0x3333333333333333ull)));
+  v = static_cast<T>((v + (v >> 4)) & static_cast<T>(0x0F0F0F0F0F0F0F0Full));
+  for (int shift_bits = 8; shift_bits < kBits; shift_bits <<= 1) {
+    v += static_cast<T>(v >> shift_bits);
+  }
+  // we want the bottom "slot" that's big enough to represent a value up to
+  // (and including) kBits.
+  return static_cast<int>(v & static_cast<T>(kBits | (kBits - 1)));
+}
+
+}  // namespace detail
+#endif
+
 // Number of bits set to 1. Also known as "population count".
 template <typename T>
 inline int BitsSetToOne(T v) {
@@ -82,11 +124,27 @@ inline int BitsSetToOne(T v) {
     constexpr auto mm = 8 * sizeof(uint32_t) - 1;
     // The bit mask is to neutralize sign extension on small signed types
     constexpr uint32_t m = (uint32_t{1} << ((8 * sizeof(T)) & mm)) - 1;
+#if defined(_M_X64) || defined(_M_IX86)
     return static_cast<int>(__popcnt(static_cast<uint32_t>(v) & m));
+#else
+    return static_cast<int>(detail::BitsSetToOneFallback(v) & m);
+#endif
   } else if (sizeof(T) == sizeof(uint32_t)) {
+#if defined(_M_X64) || defined(_M_IX86)
     return static_cast<int>(__popcnt(static_cast<uint32_t>(v)));
+#else
+    return detail::BitsSetToOneFallback(static_cast<uint32_t>(v));
+#endif
   } else {
+#ifdef _M_X64
     return static_cast<int>(__popcnt64(static_cast<uint64_t>(v)));
+#elif defined(_M_IX86)
+    return static_cast<int>(
+        __popcnt(static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32) +
+                 __popcnt(static_cast<uint32_t>(v))));
+#else
+    return detail::BitsSetToOneFallback(static_cast<uint64_t>(v));
+#endif
   }
 #else
   static_assert(sizeof(T) <= sizeof(unsigned long long), "type too big");

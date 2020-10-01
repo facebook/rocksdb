@@ -1757,6 +1757,10 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           "DB::Open() failed --- Unable to persist Options file",
           persist_options_status.ToString());
     }
+  } else {
+    ROCKS_LOG_WARN(impl->immutable_db_options_.info_log,
+                   "Persisting Option File error: %s",
+                   persist_options_status.ToString().c_str());
   }
   if (s.ok()) {
     impl->StartStatsDumpScheduler();

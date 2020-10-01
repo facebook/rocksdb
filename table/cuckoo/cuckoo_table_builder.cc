@@ -90,7 +90,7 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
     return;
   }
   ParsedInternalKey ikey;
-  if (!ParseInternalKey(key, &ikey)) {
+  if (ParseInternalKey(key, &ikey) != Status::OK()) {
     status_ = Status::Corruption("Unable to parse key into inernal key.");
     return;
   }
