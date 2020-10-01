@@ -70,9 +70,9 @@ class ArenaWrappedDBIter;
 class InMemoryStatsHistoryIterator;
 class MemTable;
 class PersistentStatsHistoryIterator;
-class StatsDumpScheduler;
+class PeriodicWorkScheduler;
 #ifndef NDEBUG
-class StatsDumpTestScheduler;
+class PeriodicWorkTestScheduler;
 #endif  // !NDEBUG
 class TableCache;
 class TaskLimiterToken;
@@ -1002,7 +1002,7 @@ class DBImpl : public DB {
   }
 
 #ifndef ROCKSDB_LITE
-  StatsDumpTestScheduler* TEST_GetStatsDumpScheduler() const;
+  PeriodicWorkTestScheduler* TEST_GetPeriodicWorkScheduler() const;
 #endif  // !ROCKSDB_LITE
 
 #endif  // NDEBUG
@@ -1012,6 +1012,9 @@ class DBImpl : public DB {
 
   // dump rocksdb.stats to LOG
   void DumpStats();
+
+  // flush LOG out of application buffer
+  void FlushInfoLog();
 
  protected:
   const std::string dbname_;
@@ -1652,7 +1655,7 @@ class DBImpl : public DB {
                               LogBuffer* log_buffer);
 
   // Schedule background tasks
-  void StartStatsDumpScheduler();
+  void StartPeriodicWorkScheduler();
 
   void PrintStatistics();
 
@@ -2111,10 +2114,11 @@ class DBImpl : public DB {
   std::unique_ptr<PreReleaseCallback> recoverable_state_pre_release_callback_;
 
 #ifndef ROCKSDB_LITE
-  // Scheduler to run DumpStats() and PersistStats(). Currently, it always use
-  // a global instance from StatsDumpScheduler::Default(). Only in unittest, it
-  // can be overrided by StatsDumpTestSchduler.
-  StatsDumpScheduler* stats_dump_scheduler_;
+  // Scheduler to run DumpStats(), PersistStats(), and FlushInfoLog().
+  // Currently, it always use a global instance from
+  // PeriodicWorkScheduler::Default(). Only in unittest, it can be overrided by
+  // PeriodicWorkTestScheduler.
+  PeriodicWorkScheduler* periodic_work_scheduler_;
 #endif
 
   // When set, we use a separate queue for writes that don't write to memtable.
