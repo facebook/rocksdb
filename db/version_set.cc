@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "compaction/compaction.h"
+#include "db/blob/blob_file_cache.h"
 #include "db/blob/blob_file_reader.h"
 #include "db/blob/blob_index.h"
 #include "db/internal_stats.h"
@@ -1809,17 +1810,12 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
     return Status::Corruption("Invalid blob file number");
   }
 
-  std::unique_ptr<BlobFileReader> blob_file_reader;
+  BlobFileReader* blob_file_reader = nullptr;
 
   {
-    assert(cfd_);
-    assert(cfd_->ioptions());
-    assert(cfd_->internal_stats());
-
-    const Status s =
-        BlobFileReader::Create(*cfd_->ioptions(), file_options_, cfd_->GetID(),
-                               cfd_->internal_stats()->GetBlobFileReadHist(),
-                               blob_file_number, &blob_file_reader);
+    assert(blob_file_cache_);
+    const Status s = blob_file_cache_->GetBlobFileReader(blob_file_number,
+                                                         &blob_file_reader);
     if (!s.ok()) {
       return s;
     }
