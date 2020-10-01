@@ -1183,7 +1183,10 @@ struct DBOptions {
 
   // A string identifying the location of the machine hosting the DB. This
   // will be written as a property in every SST file written by the DB (or
-  // by offline writers such as SstFileWriter and RepairDB)
+  // by offline writers such as SstFileWriter and RepairDB). It can be useful
+  // for troubleshooting in memory corruption caused by a failing host when
+  // writing a file, by tracing back to the writing host. These corruptions
+  // may not be caught by the checksum since they happen before checksumming.
   //
   // Default: hostname
   std::string db_host_location;

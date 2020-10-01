@@ -288,13 +288,14 @@ TEST_P(DBTableHostnamePropertyTest, DbHostLocationProperty) {
   option_config_ = std::get<0>(GetParam());
   Options opts = CurrentOptions();
   std::string expected_host_name;
+  const size_t kMaxHostNameLen = 256;
   if (std::get<1>(GetParam())) {
     // override db_host_location
     opts.db_host_location = "foobar";
     expected_host_name = opts.db_host_location;
   } else {
-    expected_host_name.resize(HOST_NAME_MAX, 0);
-    ASSERT_OK(env_->GetHostName(&expected_host_name.at(0), HOST_NAME_MAX));
+    expected_host_name.resize(kMaxHostNameLen, 0);
+    ASSERT_OK(env_->GetHostName(&expected_host_name.at(0), kMaxHostNameLen));
   }
   CreateAndReopenWithCF({"goku"}, opts);
 

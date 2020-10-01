@@ -23,6 +23,8 @@
 #include "test_util/sync_point.h"
 #include "util/rate_limiter.h"
 
+#define MAX_HOST_NAME_LEN 256
+
 namespace ROCKSDB_NAMESPACE {
 Options SanitizeOptions(const std::string& dbname, const Options& src) {
   auto db_options = SanitizeOptions(dbname, DBOptions(src));
@@ -182,13 +184,14 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   }
 
   if (result.db_host_location.empty()) {
-    result.db_host_location.resize(HOST_NAME_MAX, 0);
-    if (!result.env->GetHostName(&result.db_host_location.at(0), HOST_NAME_MAX)
+    result.db_host_location.resize(MAX_HOST_NAME_LEN, 0);
+    if (!result.env
+             ->GetHostName(&result.db_host_location.at(0), MAX_HOST_NAME_LEN)
              .ok()) {
       ROCKS_LOG_INFO(result.info_log,
                      "db_host_location property will not be set");
     } else {
-      result.db_host_location.at(HOST_NAME_MAX - 1) = 0;
+      result.db_host_location.at(MAX_HOST_NAME_LEN - 1) = 0;
     }
   }
 
