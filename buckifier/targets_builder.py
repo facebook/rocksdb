@@ -39,7 +39,7 @@ class TARGETSBuilder(object):
         self.targets_file.close()
 
     def add_library(self, name, srcs, deps=None, headers=None,
-                    extra_external_deps=""):
+                    extra_external_deps="", link_whole=False):
         headers_attr_prefix = ""
         if headers is None:
             headers_attr_prefix = "auto_"
@@ -52,7 +52,8 @@ class TARGETSBuilder(object):
             headers_attr_prefix=headers_attr_prefix,
             headers=headers,
             deps=pretty_list(deps),
-            extra_external_deps=extra_external_deps).encode("utf-8"))
+            extra_external_deps=extra_external_deps,
+            link_whole=link_whole).encode("utf-8"))
         self.total_lib = self.total_lib + 1
 
     def add_rocksdb_library(self, name, srcs, headers=None):

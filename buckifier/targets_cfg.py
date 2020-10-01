@@ -146,6 +146,7 @@ cpp_library(
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
     deps = [{deps}],
     external_deps = ROCKSDB_EXTERNAL_DEPS{extra_external_deps},
+    link_whole = {link_whole},
 )
 """
 
