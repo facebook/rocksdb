@@ -61,8 +61,9 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
   ASSERT_EQ(kPeriodSec, dbfull()->GetDBOptions().stats_persist_period_sec);
 
   ASSERT_GT(kPeriodSec, 1u);
-  dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec) - 1); });
+  dbfull()->TEST_WaitForStatsDumpRun([&] {
+    mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec) - 1);
+  });
 
   auto scheduler = dbfull()->TEST_GetPeriodicWorkScheduler();
   ASSERT_NE(nullptr, scheduler);
