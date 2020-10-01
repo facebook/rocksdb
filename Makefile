@@ -590,6 +590,7 @@ ifdef ASSERT_STATUS_CHECKED
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
 		db_options_test \
+		db_properties_test \
 		options_file_test \
 		defer_test \
 		filename_test \

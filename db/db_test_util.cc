@@ -1235,8 +1235,8 @@ void DBTestBase::GenerateNewFile(int cf, Random* rnd, int* key_idx,
     (*key_idx)++;
   }
   if (!nowait) {
-    dbfull()->TEST_WaitForFlushMemTable();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 }
 
@@ -1247,8 +1247,8 @@ void DBTestBase::GenerateNewFile(Random* rnd, int* key_idx, bool nowait) {
     (*key_idx)++;
   }
   if (!nowait) {
-    dbfull()->TEST_WaitForFlushMemTable();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 }
 
