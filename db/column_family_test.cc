@@ -77,13 +77,16 @@ class ColumnFamilyTestBase : public testing::Test {
 
   ~ColumnFamilyTestBase() override {
     std::vector<ColumnFamilyDescriptor> column_families;
-#ifndef ROCKSDB_LITE
     for (auto h : handles_) {
       ColumnFamilyDescriptor cfdescriptor;
-      EXPECT_OK(h->GetDescriptor(&cfdescriptor));
+      Status s = h->GetDescriptor(&cfdescriptor);
+#ifdef ROCKSDB_LITE
+      EXPECT_TRUE(s.IsNotSupported());
+#else
+      EXPECT_OK(s);
+#endif  // ROCKSDB_LITE
       column_families.push_back(cfdescriptor);
     }
-#endif  // !ROCKSDB_LITE
     Close();
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     Destroy(column_families);
@@ -281,10 +284,11 @@ class ColumnFamilyTestBase : public testing::Test {
       // Verify the CF options of the returned CF handle.
       ColumnFamilyDescriptor desc;
       ASSERT_OK(handles_[cfi]->GetDescriptor(&desc));
-      RocksDBOptionsParser::VerifyCFOptions(ConfigOptions(), desc.options,
-                                            current_cf_opt)
-          .PermitUncheckedError();
-
+      // Need to sanitize the default column family options before comparing
+      // them.
+      ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
+          ConfigOptions(), desc.options,
+          SanitizeOptions(dbfull()->immutable_db_options(), current_cf_opt)));
 #endif  // !ROCKSDB_LITE
       cfi++;
     }
@@ -331,7 +335,7 @@ class ColumnFamilyTestBase : public testing::Test {
         ASSERT_OK(Put(cf, key, rnd_.RandomString(key_value_size - 10)));
       }
     }
-    ASSERT_OK(db_->FlushWAL(false));
+    ASSERT_OK(db_->FlushWAL(/*sync=*/false));
   }
 
 #ifndef ROCKSDB_LITE  // TEST functions in DB are not supported in lite
@@ -653,7 +657,7 @@ TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest) {
   Flush(0);
   ASSERT_OK(Put(1, "bar", "v3"));  // seqID 4
   ASSERT_OK(Put(1, "foo", "v4"));  // seqID 5
-  ASSERT_OK(db_->FlushWAL(false));
+  ASSERT_OK(db_->FlushWAL(/*sync=*/false));
 
   // Preserve file system state up to here to simulate a crash condition.
   fault_env->SetFilesystemActive(false);
@@ -716,7 +720,7 @@ TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest2) {
   // Write to log file D
   ASSERT_OK(Put(1, "bar", "v4"));  // seqID 7
   ASSERT_OK(Put(1, "bar", "v5"));  // seqID 8
-  ASSERT_OK(db_->FlushWAL(false));
+  ASSERT_OK(db_->FlushWAL(/*sync=*/false));
   // Preserve file system state up to here to simulate a crash condition.
   fault_env->SetFilesystemActive(false);
   std::vector<std::string> names;
