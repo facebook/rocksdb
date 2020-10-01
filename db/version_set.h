@@ -807,6 +807,7 @@ class Version {
   Logger* info_log_;
   Statistics* db_statistics_;
   TableCache* table_cache_;
+  BlobFileCache* blob_file_cache_;
   const MergeOperator* merge_operator_;
 
   VersionStorageInfo storage_info_;

@@ -1759,6 +1759,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       db_statistics_((cfd_ == nullptr) ? nullptr
                                        : cfd_->ioptions()->statistics),
       table_cache_((cfd_ == nullptr) ? nullptr : cfd_->table_cache()),
+      blob_file_cache_(cfd_ ? cfd_->blob_file_cache() : nullptr),
       merge_operator_((cfd_ == nullptr) ? nullptr
                                         : cfd_->ioptions()->merge_operator),
       storage_info_(
