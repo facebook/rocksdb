@@ -5156,12 +5156,13 @@ TEST_F(DBTest, FileCreationRandomFailure) {
   DestroyAndReopen(options);
   Random rnd(301);
 
-  const int kCDTKeysPerBuffer = 4;
-  const int kTestSize = kCDTKeysPerBuffer * 4096;
-  const int kTotalIteration = 100;
+  constexpr int kCDTKeysPerBuffer = 4;
+  constexpr int kTestSize = kCDTKeysPerBuffer * 4096;
+  constexpr int kTotalIteration = 20;
   // the second half of the test involves in random failure
   // of file creation.
-  const int kRandomFailureTest = kTotalIteration / 2;
+  constexpr int kRandomFailureTest = kTotalIteration / 2;
+
   std::vector<std::string> values;
   for (int i = 0; i < kTestSize; ++i) {
     values.push_back("NOT_FOUND");
