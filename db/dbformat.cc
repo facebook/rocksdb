@@ -49,7 +49,7 @@ EntryType GetEntryType(ValueType value_type) {
 
 bool ParseFullKey(const Slice& internal_key, FullKey* fkey) {
   ParsedInternalKey ikey;
-  if (!ParseInternalKey(internal_key, &ikey)) {
+  if (ParseInternalKey(internal_key, &ikey) != Status::OK()) {
     return false;
   }
   fkey->user_key = ikey.user_key;
@@ -90,7 +90,7 @@ std::string ParsedInternalKey::DebugString(bool hex) const {
 std::string InternalKey::DebugString(bool hex) const {
   std::string result;
   ParsedInternalKey parsed;
-  if (ParseInternalKey(rep_, &parsed)) {
+  if (ParseInternalKey(rep_, &parsed) == Status::OK()) {
     result = parsed.DebugString(hex);
   } else {
     result = "(bad)";

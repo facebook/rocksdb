@@ -554,7 +554,7 @@ class Repairer {
       ParsedInternalKey parsed;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
-        if (!ParseInternalKey(key, &parsed)) {
+        if (ParseInternalKey(key, &parsed) != Status::OK()) {
           ROCKS_LOG_ERROR(db_options_.info_log,
                           "Table #%" PRIu64 ": unparsable key %s",
                           t->meta.fd.GetNumber(), EscapeString(key).c_str());

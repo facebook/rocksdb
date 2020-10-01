@@ -141,7 +141,7 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
     ukey_and_ts.assign(expected_ukey.data(), expected_ukey.size());
     ukey_and_ts.append(expected_ts.data(), expected_ts.size());
     ParsedInternalKey parsed_ikey;
-    ASSERT_TRUE(ParseInternalKey(it->key(), &parsed_ikey));
+    ASSERT_OK(ParseInternalKey(it->key(), &parsed_ikey));
     ASSERT_EQ(ukey_and_ts, parsed_ikey.user_key);
     ASSERT_EQ(expected_val_type, parsed_ikey.type);
     ASSERT_EQ(expected_seq, parsed_ikey.sequence);
@@ -161,7 +161,7 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
     ukey_and_ts.append(expected_ts.data(), expected_ts.size());
 
     ParsedInternalKey parsed_ikey;
-    ASSERT_TRUE(ParseInternalKey(it->key(), &parsed_ikey));
+    ASSERT_OK(ParseInternalKey(it->key(), &parsed_ikey));
     ASSERT_EQ(expected_val_type, parsed_ikey.type);
     ASSERT_EQ(Slice(ukey_and_ts), parsed_ikey.user_key);
     if (expected_val_type == kTypeValue) {

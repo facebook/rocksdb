@@ -62,7 +62,7 @@ static std::string PrintContents(WriteBatch* b) {
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ParsedInternalKey ikey;
       ikey.clear();
-      EXPECT_TRUE(ParseInternalKey(iter->key(), &ikey));
+      EXPECT_OK(ParseInternalKey(iter->key(), &ikey));
       switch (ikey.type) {
         case kTypeValue:
           state.append("Put(");

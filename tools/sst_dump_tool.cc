@@ -238,7 +238,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       Slice sl_key = ROCKSDB_NAMESPACE::Slice(in_key);
       ParsedInternalKey ikey;
       int retc = 0;
-      if (!ParseInternalKey(sl_key, &ikey)) {
+      if (ParseInternalKey(sl_key, &ikey) != Status::OK()) {
         std::cerr << "Internal Key [" << sl_key.ToString(true /* in hex*/)
                   << "] parse error!\n";
         retc = -1;

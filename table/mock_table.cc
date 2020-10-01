@@ -189,7 +189,7 @@ Status MockTableReader::Get(const ReadOptions&, const Slice& key,
   std::unique_ptr<MockTableIterator> iter(new MockTableIterator(table_));
   for (iter->Seek(key); iter->Valid(); iter->Next()) {
     ParsedInternalKey parsed_key;
-    if (!ParseInternalKey(iter->key(), &parsed_key)) {
+    if (ParseInternalKey(iter->key(), &parsed_key) != Status::OK()) {
       return Status::Corruption(Slice());
     }
 
@@ -287,7 +287,7 @@ void MockTableFactory::AssertLatestFile(
       ParsedInternalKey ikey;
       std::string key, value;
       std::tie(key, value) = kv;
-      ParseInternalKey(Slice(key), &ikey);
+      ASSERT_OK(ParseInternalKey(Slice(key), &ikey));
       std::cout << ikey.DebugString(false) << " -> " << value << std::endl;
     }
     FAIL();

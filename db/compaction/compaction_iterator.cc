@@ -151,11 +151,11 @@ void CompactionIterator::Next() {
     if (merge_out_iter_.Valid()) {
       key_ = merge_out_iter_.key();
       value_ = merge_out_iter_.value();
-      bool valid_key = ParseInternalKey(key_, &ikey_);
+      Status s = ParseInternalKey(key_, &ikey_);
       // MergeUntil stops when it encounters a corrupt key and does not
       // include them in the result, so we expect the keys here to be valid.
-      assert(valid_key);
-      if (!valid_key) {
+      assert(s.ok());
+      if (!s.ok()) {
         ROCKS_LOG_FATAL(info_log_, "Invalid key (%s) in compaction",
                         key_.ToString(true).c_str());
       }
@@ -270,7 +270,8 @@ void CompactionIterator::NextFromInput() {
     value_ = input_->value();
     iter_stats_.num_input_records++;
 
-    if (!ParseInternalKey(key_, &ikey_)) {
+    Status pikStatus = ParseInternalKey(key_, &ikey_);
+    if (!pikStatus.ok()) {
       iter_stats_.num_input_corrupt_records++;
 
       // If `expect_valid_internal_key_` is false, return the corrupted key
@@ -437,7 +438,8 @@ void CompactionIterator::NextFromInput() {
 
       // Check whether the next key exists, is not corrupt, and is the same key
       // as the single delete.
-      if (input_->Valid() && ParseInternalKey(input_->key(), &next_ikey) &&
+      if (input_->Valid() &&
+          ParseInternalKey(input_->key(), &next_ikey) == Status::OK() &&
           cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
         // Check whether the next key belongs to the same snapshot as the
         // SingleDelete.
@@ -584,7 +586,8 @@ void CompactionIterator::NextFromInput() {
       // Skip over all versions of this key that happen to occur in the same snapshot
       // range as the delete
       while (!IsPausingManualCompaction() && !IsShuttingDown() &&
-             input_->Valid() && ParseInternalKey(input_->key(), &next_ikey) &&
+             input_->Valid() &&
+             (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
              cmp_->Equal(ikey_.user_key, next_ikey.user_key) &&
              (prev_snapshot == 0 ||
               DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
@@ -592,7 +595,8 @@ void CompactionIterator::NextFromInput() {
       }
       // If you find you still need to output a row with this key, we need to output the
       // delete too
-      if (input_->Valid() && ParseInternalKey(input_->key(), &next_ikey) &&
+      if (input_->Valid() &&
+          (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
           cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
         valid_ = true;
         at_next_ = true;
@@ -621,11 +625,11 @@ void CompactionIterator::NextFromInput() {
         //       These will be correctly set below.
         key_ = merge_out_iter_.key();
         value_ = merge_out_iter_.value();
-        bool valid_key = ParseInternalKey(key_, &ikey_);
+        pikStatus = ParseInternalKey(key_, &ikey_);
         // MergeUntil stops when it encounters a corrupt key and does not
         // include them in the result, so we expect the keys here to valid.
-        assert(valid_key);
-        if (!valid_key) {
+        assert(pikStatus.ok());
+        if (!pikStatus.ok()) {
           ROCKS_LOG_FATAL(info_log_, "Invalid key (%s) in compaction",
                           key_.ToString(true).c_str());
         }

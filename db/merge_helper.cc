@@ -138,13 +138,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   // orig_ikey is backed by original_key if keys_.empty()
   // orig_ikey is backed by keys_.back() if !keys_.empty()
   ParsedInternalKey orig_ikey;
-  bool succ = ParseInternalKey(original_key, &orig_ikey);
-  assert(succ);
-  Status s;
-  if (!succ) {
-    s = Status::Corruption("Cannot parse key in MergeUntil");
-    return s;
-  }
+
+  Status s = ParseInternalKey(original_key, &orig_ikey);
+  assert(s.ok());
+  if (!s.ok()) return s;
 
   bool hit_the_next_user_key = false;
   for (; iter->Valid(); iter->Next(), original_key_is_iter = false) {
@@ -156,7 +153,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     ParsedInternalKey ikey;
     assert(keys_.size() == merge_context_.GetNumOperands());
 
-    if (!ParseInternalKey(iter->key(), &ikey)) {
+    if (ParseInternalKey(iter->key(), &ikey) != Status::OK()) {
       // stop at corrupted key
       if (assert_valid_internal_key_) {
         assert(!"Corrupted internal key not expected.");
@@ -271,7 +268,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         if (keys_.size() == 1) {
           // we need to re-anchor the orig_ikey because it was anchored by
           // original_key before
-          ParseInternalKey(keys_.back(), &orig_ikey);
+          Status pikStatus = ParseInternalKey(keys_.back(), &orig_ikey);
+          pikStatus.PermitUncheckedError();
+          assert(pikStatus.ok());
         }
         if (filter == CompactionFilter::Decision::kKeep) {
           merge_context_.PushOperand(

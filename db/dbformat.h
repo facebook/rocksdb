@@ -104,8 +104,9 @@ struct ParsedInternalKey {
   ValueType type;
 
   ParsedInternalKey()
-      : sequence(kMaxSequenceNumber)  // Make code analyzer happy
-  {}  // Intentionally left uninitialized (for speed)
+      : sequence(kMaxSequenceNumber),
+        type(kTypeDeletion)  // Make code analyzer happy
+  {}                         // Intentionally left uninitialized (for speed)
   // u contains timestamp if user timestamp feature is enabled.
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
       : user_key(u), sequence(seq), type(t) {}
@@ -162,8 +163,8 @@ extern void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
 // stores the parsed data in "*result", and returns true.
 //
 // On error, returns false, leaves "*result" in an undefined state.
-extern bool ParseInternalKey(const Slice& internal_key,
-                             ParsedInternalKey* result);
+extern Status ParseInternalKey(const Slice& internal_key,
+                               ParsedInternalKey* result);
 
 // Returns the user key portion of an internal key.
 inline Slice ExtractUserKey(const Slice& internal_key) {
@@ -281,7 +282,8 @@ class InternalKey {
 
   bool Valid() const {
     ParsedInternalKey parsed;
-    return ParseInternalKey(Slice(rep_), &parsed);
+    return (ParseInternalKey(Slice(rep_), &parsed) == Status::OK()) ? true
+                                                                    : false;
   }
 
   void DecodeFrom(const Slice& s) { rep_.assign(s.data(), s.size()); }
@@ -322,17 +324,19 @@ inline int InternalKeyComparator::Compare(const InternalKey& a,
   return Compare(a.Encode(), b.Encode());
 }
 
-inline bool ParseInternalKey(const Slice& internal_key,
-                             ParsedInternalKey* result) {
+inline Status ParseInternalKey(const Slice& internal_key,
+                               ParsedInternalKey* result) {
   const size_t n = internal_key.size();
-  if (n < 8) return false;
+  if (n < 8) return Status::Corruption("Internal Key too small");
   uint64_t num = DecodeFixed64(internal_key.data() + n - 8);
   unsigned char c = num & 0xff;
   result->sequence = num >> 8;
   result->type = static_cast<ValueType>(c);
   assert(result->type <= ValueType::kMaxValue);
   result->user_key = Slice(internal_key.data(), n - 8);
-  return IsExtendedValueType(result->type);
+  return IsExtendedValueType(result->type)
+             ? Status::OK()
+             : Status::Corruption("Invalid Key Type");
 }
 
 // Update the sequence number in the internal key.

@@ -128,7 +128,7 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   size_t meta_bytes_buf_size = 0;
 
   ParsedInternalKey internal_key;
-  if (!ParseInternalKey(key, &internal_key)) {
+  if (ParseInternalKey(key, &internal_key) != Status::OK()) {
     assert(false);
     return;
   }

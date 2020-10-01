@@ -457,16 +457,15 @@ Status PlainTableReader::GetOffset(PlainTableKeyDecoder* decoder,
   uint32_t high = upper_bound;
   ParsedInternalKey mid_key;
   ParsedInternalKey parsed_target;
-  if (!ParseInternalKey(target, &parsed_target)) {
-    return Status::Corruption(Slice());
-  }
+  Status s = ParseInternalKey(target, &parsed_target);
+  if (!s.ok()) return s;
 
   // The key is between [low, high). Do a binary search between it.
   while (high - low > 1) {
     uint32_t mid = (high + low) / 2;
     uint32_t file_offset = GetFixed32Element(base_ptr, mid);
     uint32_t tmp;
-    Status s = decoder->NextKeyNoValue(file_offset, &mid_key, nullptr, &tmp);
+    s = decoder->NextKeyNoValue(file_offset, &mid_key, nullptr, &tmp);
     if (!s.ok()) {
       return s;
     }
@@ -491,7 +490,7 @@ Status PlainTableReader::GetOffset(PlainTableKeyDecoder* decoder,
   ParsedInternalKey low_key;
   uint32_t tmp;
   uint32_t low_key_offset = GetFixed32Element(base_ptr, low);
-  Status s = decoder->NextKeyNoValue(low_key_offset, &low_key, nullptr, &tmp);
+  s = decoder->NextKeyNoValue(low_key_offset, &low_key, nullptr, &tmp);
   if (!s.ok()) {
     return s;
   }
@@ -594,9 +593,9 @@ Status PlainTableReader::Get(const ReadOptions& /*ro*/, const Slice& target,
   }
   ParsedInternalKey found_key;
   ParsedInternalKey parsed_target;
-  if (!ParseInternalKey(target, &parsed_target)) {
-    return Status::Corruption(Slice());
-  }
+  s = ParseInternalKey(target, &parsed_target);
+  if (!s.ok()) return Status::Corruption(Slice());
+
   Slice found_value;
   while (offset < file_info_.data_end_offset) {
     s = Next(&decoder, &offset, &found_key, nullptr, &found_value);

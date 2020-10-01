@@ -85,7 +85,7 @@ IOStatus PlainTableKeyEncoder::AppendKey(const Slice& key,
                                          uint64_t* offset, char* meta_bytes_buf,
                                          size_t* meta_bytes_buf_size) {
   ParsedInternalKey parsed_key;
-  if (!ParseInternalKey(key, &parsed_key)) {
+  if (ParseInternalKey(key, &parsed_key) != Status::OK()) {
     return IOStatus::Corruption(Slice());
   }
 
@@ -279,7 +279,7 @@ Status PlainTableKeyDecoder::ReadInternalKey(
       return file_reader_.status();
     }
     *internal_key_valid = true;
-    if (!ParseInternalKey(*internal_key, parsed_key)) {
+    if (ParseInternalKey(*internal_key, parsed_key) != Status::OK()) {
       return Status::Corruption(
           Slice("Incorrect value type found when reading the next key"));
     }
