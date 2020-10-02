@@ -15,8 +15,8 @@
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "db/periodic_work_scheduler.h"
 #include "monitoring/persistent_stats_history.h"
-#include "monitoring/stats_dump_scheduler.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -41,11 +41,11 @@ class StatsHistoryTest : public DBTestBase {
   void SetUp() override {
     mock_env_->InstallTimedWaitFixCallback();
     SyncPoint::GetInstance()->SetCallBack(
-        "DBImpl::StartStatsDumpScheduler:Init", [&](void* arg) {
-          auto* stats_dump_scheduler_ptr =
-              reinterpret_cast<StatsDumpScheduler**>(arg);
-          *stats_dump_scheduler_ptr =
-              StatsDumpTestScheduler::Default(mock_env_.get());
+        "DBImpl::StartPeriodicWorkScheduler:Init", [&](void* arg) {
+          auto* periodic_work_scheduler_ptr =
+              reinterpret_cast<PeriodicWorkScheduler**>(arg);
+          *periodic_work_scheduler_ptr =
+              PeriodicWorkTestScheduler::Default(mock_env_.get());
         });
   }
 };

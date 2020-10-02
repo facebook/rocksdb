@@ -625,7 +625,6 @@ size_t TableCache::GetMemoryUsageByTableReader(
     const FileOptions& file_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
     const SliceTransform* prefix_extractor) {
-  Status s;
   auto table_reader = fd.table_reader;
   // table already been pre-loaded?
   if (table_reader) {
@@ -633,8 +632,8 @@ size_t TableCache::GetMemoryUsageByTableReader(
   }
 
   Cache::Handle* table_handle = nullptr;
-  s = FindTable(ReadOptions(), file_options, internal_comparator, fd,
-                &table_handle, prefix_extractor, true);
+  Status s = FindTable(ReadOptions(), file_options, internal_comparator, fd,
+                       &table_handle, prefix_extractor, true);
   if (!s.ok()) {
     return 0;
   }

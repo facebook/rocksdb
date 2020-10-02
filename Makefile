@@ -590,6 +590,7 @@ ifdef ASSERT_STATUS_CHECKED
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
 		db_options_test \
+		db_properties_test \
 		options_file_test \
 		defer_test \
 		filename_test \
@@ -626,6 +627,7 @@ ifdef ASSERT_STATUS_CHECKED
 		sst_dump_test \
 		statistics_test \
 		thread_local_test \
+		trace_analyzer_test \
 		env_timed_test \
 		filelock_test \
 		timer_queue_test \
@@ -1907,7 +1909,7 @@ blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRA
 timer_test: $(OBJ_DIR)/util/timer_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-stats_dump_scheduler_test: $(OBJ_DIR)/monitoring/stats_dump_scheduler_test.o $(TEST_LIBRARY) $(LIBRARY)
+periodic_work_scheduler_test: $(OBJ_DIR)/db/periodic_work_scheduler_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 testutil_test: $(OBJ_DIR)/test_util/testutil_test.o $(TEST_LIBRARY) $(LIBRARY)

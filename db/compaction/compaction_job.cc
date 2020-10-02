@@ -276,10 +276,8 @@ void CompactionJob::AggregateStatistics() {
     compact_->total_bytes += sc.total_bytes;
     compact_->num_output_records += sc.num_output_records;
   }
-  if (compaction_job_stats_) {
-    for (SubcompactionState& sc : compact_->sub_compact_states) {
-      compaction_job_stats_->Add(sc.compaction_job_stats);
-    }
+  for (SubcompactionState& sc : compact_->sub_compact_states) {
+    compaction_job_stats_->Add(sc.compaction_job_stats);
   }
 }
 
@@ -332,6 +330,7 @@ CompactionJob::CompactionJob(
       measure_io_stats_(measure_io_stats),
       write_hint_(Env::WLTH_NOT_SET),
       thread_pri_(thread_pri) {
+  assert(compaction_job_stats_ != nullptr);
   assert(log_buffer_ != nullptr);
   const auto* cfd = compact_->compaction->column_family_data();
   ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
@@ -383,10 +382,9 @@ void CompactionJob::ReportStartedCompaction(Compaction* compaction) {
   // to ensure GetThreadList() can always show them all together.
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
 
-  if (compaction_job_stats_) {
-    compaction_job_stats_->is_manual_compaction =
-        compaction->is_manual_compaction();
-  }
+  compaction_job_stats_->is_manual_compaction =
+      compaction->is_manual_compaction();
+  compaction_job_stats_->is_full_compaction = compaction->is_full_compaction();
 }
 
 void CompactionJob::Prepare() {
@@ -804,14 +802,12 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
          << compact_->sub_compact_states.size() << "output_compression"
          << CompressionTypeToString(compact_->compaction->output_compression());
 
-  if (compaction_job_stats_ != nullptr) {
-    stream << "num_single_delete_mismatches"
-           << compaction_job_stats_->num_single_del_mismatch;
-    stream << "num_single_delete_fallthrough"
-           << compaction_job_stats_->num_single_del_fallthru;
-  }
+  stream << "num_single_delete_mismatches"
+         << compaction_job_stats_->num_single_del_mismatch;
+  stream << "num_single_delete_fallthrough"
+         << compaction_job_stats_->num_single_del_fallthru;
 
-  if (measure_io_stats_ && compaction_job_stats_ != nullptr) {
+  if (measure_io_stats_) {
     stream << "file_write_nanos" << compaction_job_stats_->file_write_nanos;
     stream << "file_range_sync_nanos"
            << compaction_job_stats_->file_range_sync_nanos;
@@ -1750,32 +1746,29 @@ void CompactionJob::UpdateCompactionInputStatsHelper(int* num_files,
 void CompactionJob::UpdateCompactionJobStats(
     const InternalStats::CompactionStats& stats) const {
 #ifndef ROCKSDB_LITE
-  if (compaction_job_stats_) {
-    compaction_job_stats_->elapsed_micros = stats.micros;
+  compaction_job_stats_->elapsed_micros = stats.micros;
 
-    // input information
-    compaction_job_stats_->total_input_bytes =
-        stats.bytes_read_non_output_levels + stats.bytes_read_output_level;
-    compaction_job_stats_->num_input_records = stats.num_input_records;
-    compaction_job_stats_->num_input_files =
-        stats.num_input_files_in_non_output_levels +
-        stats.num_input_files_in_output_level;
-    compaction_job_stats_->num_input_files_at_output_level =
-        stats.num_input_files_in_output_level;
+  // input information
+  compaction_job_stats_->total_input_bytes =
+      stats.bytes_read_non_output_levels + stats.bytes_read_output_level;
+  compaction_job_stats_->num_input_records = stats.num_input_records;
+  compaction_job_stats_->num_input_files =
+      stats.num_input_files_in_non_output_levels +
+      stats.num_input_files_in_output_level;
+  compaction_job_stats_->num_input_files_at_output_level =
+      stats.num_input_files_in_output_level;
 
-    // output information
-    compaction_job_stats_->total_output_bytes = stats.bytes_written;
-    compaction_job_stats_->num_output_records = compact_->num_output_records;
-    compaction_job_stats_->num_output_files = stats.num_output_files;
+  // output information
+  compaction_job_stats_->total_output_bytes = stats.bytes_written;
+  compaction_job_stats_->num_output_records = compact_->num_output_records;
+  compaction_job_stats_->num_output_files = stats.num_output_files;
 
-    if (compact_->NumOutputFiles() > 0U) {
-      CopyPrefix(compact_->SmallestUserKey(),
-                 CompactionJobStats::kMaxPrefixLength,
-                 &compaction_job_stats_->smallest_output_key_prefix);
-      CopyPrefix(compact_->LargestUserKey(),
-                 CompactionJobStats::kMaxPrefixLength,
-                 &compaction_job_stats_->largest_output_key_prefix);
-    }
+  if (compact_->NumOutputFiles() > 0U) {
+    CopyPrefix(compact_->SmallestUserKey(),
+               CompactionJobStats::kMaxPrefixLength,
+               &compaction_job_stats_->smallest_output_key_prefix);
+    CopyPrefix(compact_->LargestUserKey(), CompactionJobStats::kMaxPrefixLength,
+               &compaction_job_stats_->largest_output_key_prefix);
   }
 #else
   (void)stats;
