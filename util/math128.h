@@ -41,13 +41,9 @@ struct Unsigned128 {
     hi = upper;
   }
 
-  explicit operator uint64_t() {
-    return lo;
-  }
+  explicit operator uint64_t() { return lo; }
 
-  explicit operator uint32_t() {
-    return static_cast<uint32_t>(lo);
-  }
+  explicit operator uint32_t() { return static_cast<uint32_t>(lo); }
 };
 
 inline Unsigned128 operator<<(const Unsigned128& lhs, unsigned shift) {
