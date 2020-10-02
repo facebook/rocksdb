@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "cache/cache_helpers.h"
 #include "db/blob/blob_file_meta.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction.h"
@@ -1158,6 +1159,10 @@ class VersionSet {
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
   void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
+    assert(table_cache_);
+
+    table_cache_->Erase(GetSlice(&blob_file_number));
+
     obsolete_blob_files_.emplace_back(blob_file_number, std::move(path));
   }
 
@@ -1273,6 +1278,7 @@ class VersionSet {
   WalSet wals_;
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
+  Cache* table_cache_;
   Env* const env_;
   FileSystemPtr const fs_;
   const std::string dbname_;

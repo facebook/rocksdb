@@ -3726,6 +3726,7 @@ VersionSet::VersionSet(const std::string& dbname,
           new ColumnFamilySet(dbname, _db_options, storage_options, table_cache,
                               write_buffer_manager, write_controller,
                               block_cache_tracer, io_tracer)),
+      table_cache_(table_cache),
       env_(_db_options->env),
       fs_(_db_options->fs, io_tracer),
       dbname_(dbname),
@@ -3747,12 +3748,11 @@ VersionSet::VersionSet(const std::string& dbname,
 VersionSet::~VersionSet() {
   // we need to delete column_family_set_ because its destructor depends on
   // VersionSet
-  Cache* table_cache = column_family_set_->get_table_cache();
   column_family_set_.reset();
   for (auto& file : obsolete_files_) {
     if (file.metadata->table_reader_handle) {
-      table_cache->Release(file.metadata->table_reader_handle);
-      TableCache::Evict(table_cache, file.metadata->fd.GetNumber());
+      table_cache_->Release(file.metadata->table_reader_handle);
+      TableCache::Evict(table_cache_, file.metadata->fd.GetNumber());
     }
     file.DeleteMetadata();
   }
@@ -3762,11 +3762,10 @@ VersionSet::~VersionSet() {
 
 void VersionSet::Reset() {
   if (column_family_set_) {
-    Cache* table_cache = column_family_set_->get_table_cache();
     WriteBufferManager* wbm = column_family_set_->write_buffer_manager();
     WriteController* wc = column_family_set_->write_controller();
     column_family_set_.reset(
-        new ColumnFamilySet(dbname_, db_options_, file_options_, table_cache,
+        new ColumnFamilySet(dbname_, db_options_, file_options_, table_cache_,
                             wbm, wc, block_cache_tracer_, io_tracer_));
   }
   db_id_.clear();
