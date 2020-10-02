@@ -340,9 +340,10 @@ uint32_t WriteBatch::ComputeContentFlags() const {
   auto rv = content_flags_.load(std::memory_order_relaxed);
   if ((rv & ContentFlags::DEFERRED) != 0) {
     BatchContentClassifier classifier;
-    // Should we handle status here?
+    // TODO: Should we handle status here?  Sometimes this returns a bad
+    // status...
     Status s = Iterate(&classifier);
-    assert(s.ok());
+    s.PermitUncheckedError();
     rv = classifier.content_flags;
 
     // this method is conceptually const, because it is performing a lazy
