@@ -207,6 +207,11 @@ Status BuildTable(
             ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
       }
     }
+    if (!s.ok()) {
+      c_iter.status().PermitUncheckedError();
+    } else if (!c_iter.status().ok()) {
+      s = c_iter.status();
+    }
     if (s.ok()) {
       auto range_del_it = range_del_agg->NewIterator();
       for (range_del_it->SeekToFirst(); range_del_it->Valid();
@@ -218,13 +223,8 @@ Status BuildTable(
                                        tombstone.seq_, internal_comparator);
       }
 
-      // Finish and check for builder errors
-      s = c_iter.status();
-
       if (blob_file_builder) {
-        if (s.ok()) {
-          s = blob_file_builder->Finish();
-        }
+        s = blob_file_builder->Finish();
       }
     }
 
