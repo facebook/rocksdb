@@ -600,8 +600,10 @@ ifdef ASSERT_STATUS_CHECKED
 		env_test \
 		env_logger_test \
 		event_logger_test \
+		error_handler_fs_test \
 		auto_roll_logger_test \
 		file_indexer_test \
+		flush_job_test \
 		hash_table_test \
 		hash_test \
 		heap_test \

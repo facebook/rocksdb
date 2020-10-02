@@ -31,7 +31,10 @@ class DBErrorHandlingFSTest : public DBTestBase {
     std::vector<std::string> live_files;
     uint64_t manifest_size;
 
-    dbfull()->GetLiveFiles(live_files, &manifest_size, false);
+    Status s = dbfull()->GetLiveFiles(live_files, &manifest_size, false);
+    if (!s.ok()) {
+      return "";
+    }
     for (auto& file : live_files) {
       uint64_t num = 0;
       FileType type;
@@ -69,6 +72,10 @@ class ErrorHandlerFSListener : public EventListener {
         override_bg_error_(false),
         file_count_(0),
         fault_fs_(nullptr) {}
+  ~ErrorHandlerFSListener() {
+    file_creation_error_.PermitUncheckedError();
+    bg_error_.PermitUncheckedError();
+  }
 
   void OnTableFileCreationStarted(
       const TableFileCreationBriefInfo& /*ti*/) override {
@@ -83,17 +90,19 @@ class ErrorHandlerFSListener : public EventListener {
     cv_.SignalAll();
   }
 
-  void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/,
-                            Status /*bg_error*/, bool* auto_recovery) override {
+  void OnErrorRecoveryBegin(BackgroundErrorReason /*reason*/, Status bg_error,
+                            bool* auto_recovery) override {
+    bg_error.PermitUncheckedError();
     if (*auto_recovery && no_auto_recovery_) {
       *auto_recovery = false;
     }
   }
 
-  void OnErrorRecoveryCompleted(Status /*old_bg_error*/) override {
+  void OnErrorRecoveryCompleted(Status old_bg_error) override {
     InstrumentedMutexLock l(&mutex_);
     recovery_complete_ = true;
     cv_.SignalAll();
+    old_bg_error.PermitUncheckedError();
   }
 
   bool WaitForRecovery(uint64_t /*abs_time_us*/) {
@@ -166,7 +175,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
   listener->EnableAutoRecovery(false);
   DestroyAndReopen(options);
 
-  Put(Key(0), "val");
+  ASSERT_OK(Put(Key(0), "val"));
   SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
     fault_fs->SetFilesystemActive(false, IOStatus::NoSpace("Out of space"));
   });
@@ -202,7 +211,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableError) {
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
 
-  Put(Key(1), "val1");
+  ASSERT_OK(Put(Key(1), "val1"));
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeFinishBuildTable",
       [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
@@ -216,7 +225,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableError) {
   Reopen(options);
   ASSERT_EQ("val1", Get(Key(1)));
 
-  Put(Key(2), "val2");
+  ASSERT_OK(Put(Key(2), "val2"));
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeSyncTable",
       [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
@@ -230,7 +239,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableError) {
   Reopen(options);
   ASSERT_EQ("val2", Get(Key(2)));
 
-  Put(Key(3), "val3");
+  ASSERT_OK(Put(Key(3), "val3"));
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeCloseTableFile",
       [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
@@ -268,13 +277,13 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
 
   WriteOptions wo = WriteOptions();
   wo.disableWAL = true;
-  Put(Key(1), "val1", wo);
+  ASSERT_OK(Put(Key(1), "val1", wo));
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeFinishBuildTable",
       [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
-  Put(Key(2), "val2", wo);
+  ASSERT_OK(Put(Key(2), "val2", wo));
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
   ASSERT_EQ("val2", Get(Key(2)));
   SyncPoint::GetInstance()->DisableProcessing();
@@ -283,7 +292,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_EQ("val2", Get(Key(2)));
-  Put(Key(3), "val3", wo);
+  ASSERT_OK(Put(Key(3), "val3", wo));
   ASSERT_EQ("val3", Get(Key(3)));
   s = Flush();
   ASSERT_OK(s);
@@ -314,13 +323,13 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError2) {
   WriteOptions wo = WriteOptions();
   wo.disableWAL = true;
 
-  Put(Key(1), "val1", wo);
+  ASSERT_OK(Put(Key(1), "val1", wo));
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeSyncTable",
       [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
-  Put(Key(2), "val2", wo);
+  ASSERT_OK(Put(Key(2), "val2", wo));
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
   ASSERT_EQ("val2", Get(Key(2)));
   SyncPoint::GetInstance()->DisableProcessing();
@@ -329,7 +338,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError2) {
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_EQ("val2", Get(Key(2)));
-  Put(Key(3), "val3", wo);
+  ASSERT_OK(Put(Key(3), "val3", wo));
   ASSERT_EQ("val3", Get(Key(3)));
   s = Flush();
   ASSERT_OK(s);
@@ -360,13 +369,13 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError3) {
   WriteOptions wo = WriteOptions();
   wo.disableWAL = true;
 
-  Put(Key(1), "val1", wo);
+  ASSERT_OK(Put(Key(1), "val1", wo));
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeCloseTableFile",
       [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
-  Put(Key(2), "val2", wo);
+  ASSERT_OK(Put(Key(2), "val2", wo));
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
   ASSERT_EQ("val2", Get(Key(2)));
   SyncPoint::GetInstance()->DisableProcessing();
@@ -375,7 +384,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError3) {
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_EQ("val2", Get(Key(2)));
-  Put(Key(3), "val3", wo);
+  ASSERT_OK(Put(Key(3), "val3", wo));
   ASSERT_EQ("val3", Get(Key(3)));
   s = Flush();
   ASSERT_OK(s);
@@ -402,9 +411,9 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteError) {
   DestroyAndReopen(options);
   old_manifest = GetManifestNameFromLiveFiles();
 
-  Put(Key(0), "val");
-  Flush();
-  Put(Key(1), "val");
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(1), "val"));
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:WriteManifest", [&](void*) {
         fault_fs->SetFilesystemActive(false, IOStatus::NoSpace("Out of space"));
@@ -449,9 +458,9 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableError) {
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
 
-  Put(Key(0), "val");
-  Flush();
-  Put(Key(1), "val");
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(1), "val"));
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:WriteManifest",
       [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
@@ -491,9 +500,9 @@ TEST_F(DBErrorHandlingFSTest, DoubleManifestWriteError) {
   DestroyAndReopen(options);
   old_manifest = GetManifestNameFromLiveFiles();
 
-  Put(Key(0), "val");
-  Flush();
-  Put(Key(1), "val");
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(1), "val"));
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:WriteManifest", [&](void*) {
         fault_fs->SetFilesystemActive(false, IOStatus::NoSpace("Out of space"));
@@ -541,8 +550,8 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
   DestroyAndReopen(options);
   old_manifest = GetManifestNameFromLiveFiles();
 
-  Put(Key(0), "val");
-  Put(Key(2), "val");
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_OK(Put(Key(2), "val"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -570,7 +579,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  Put(Key(1), "val");
+  ASSERT_OK(Put(Key(1), "val"));
   // This Flush will trigger a compaction, which will fail when appending to
   // the manifest
   s = Flush();
@@ -618,8 +627,8 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
 
-  Put(Key(0), "val");
-  Put(Key(2), "val");
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_OK(Put(Key(2), "val"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -645,7 +654,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  Put(Key(1), "val");
+  ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -685,8 +694,8 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
   Status s;
   DestroyAndReopen(options);
 
-  Put(Key(0), "va;");
-  Put(Key(2), "va;");
+  ASSERT_OK(Put(Key(0), "va;"));
+  ASSERT_OK(Put(Key(2), "va;"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -702,7 +711,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  Put(Key(1), "val");
+  ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -733,8 +742,8 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableError) {
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
 
-  Put(Key(0), "va;");
-  Put(Key(2), "va;");
+  ASSERT_OK(Put(Key(0), "va;"));
+  ASSERT_OK(Put(Key(2), "va;"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -748,7 +757,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableError) {
       [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  Put(Key(1), "val");
+  ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -774,8 +783,8 @@ TEST_F(DBErrorHandlingFSTest, CorruptionError) {
   Status s;
   DestroyAndReopen(options);
 
-  Put(Key(0), "va;");
-  Put(Key(2), "va;");
+  ASSERT_OK(Put(Key(0), "va;"));
+  ASSERT_OK(Put(Key(2), "va;"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -789,7 +798,7 @@ TEST_F(DBErrorHandlingFSTest, CorruptionError) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  Put(Key(1), "val");
+  ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -818,7 +827,7 @@ TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
   listener->EnableAutoRecovery();
   DestroyAndReopen(options);
 
-  Put(Key(0), "val");
+  ASSERT_OK(Put(Key(0), "val"));
   SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
     fault_fs->SetFilesystemActive(false, IOStatus::NoSpace("Out of space"));
   });
@@ -853,7 +862,7 @@ TEST_F(DBErrorHandlingFSTest, FailRecoverFlushError) {
   listener->EnableAutoRecovery();
   DestroyAndReopen(options);
 
-  Put(Key(0), "val");
+  ASSERT_OK(Put(Key(0), "val"));
   SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
     fault_fs->SetFilesystemActive(false, IOStatus::NoSpace("Out of space"));
   });
@@ -887,7 +896,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
     WriteBatch batch;
 
     for (auto i = 0; i < 100; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
 
     WriteOptions wopts;
@@ -900,7 +909,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
     int write_error = 0;
 
     for (auto i = 100; i < 199; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -964,7 +973,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
     WriteBatch batch;
 
     for (auto i = 0; i < 100; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
 
     WriteOptions wopts;
@@ -979,7 +988,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
     int write_error = 0;
 
     for (auto i = 100; i < 200; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -1015,7 +1024,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
     WriteBatch batch;
 
     for (auto i = 200; i < 300; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
 
     WriteOptions wopts;
@@ -1056,7 +1065,7 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
 
     for (auto i = 1; i < 4; ++i) {
       for (auto j = 0; j < 100; ++j) {
-        batch.Put(handles_[i], Key(j), rnd.RandomString(1024));
+        ASSERT_OK(batch.Put(handles_[i], Key(j), rnd.RandomString(1024)));
       }
     }
 
@@ -1071,7 +1080,7 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
 
     // Write to one CF
     for (auto i = 100; i < 199; ++i) {
-      batch.Put(handles_[2], Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(handles_[2], Key(i), rnd.RandomString(1024)));
     }
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -1160,7 +1169,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     WriteBatch batch;
 
     for (auto j = 0; j <= 100; ++j) {
-      batch.Put(Key(j), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(j), rnd.RandomString(1024)));
     }
 
     WriteOptions wopts;
@@ -1175,7 +1184,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
 
     // Write to one CF
     for (auto j = 100; j < 199; ++j) {
-      batch.Put(Key(j), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(j), rnd.RandomString(1024)));
     }
 
     WriteOptions wopts;
@@ -1273,7 +1282,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
     WriteBatch batch;
 
     for (auto j = 0; j <= 100; ++j) {
-      batch.Put(Key(j), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(j), rnd.RandomString(1024)));
     }
 
     WriteOptions wopts;
@@ -1288,7 +1297,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
 
     // Write to one CF
     for (auto j = 100; j < 199; ++j) {
-      batch.Put(Key(j), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(j), rnd.RandomString(1024)));
     }
 
     WriteOptions wopts;
@@ -1378,7 +1387,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableeErrorAutoRecover1) {
 
   WriteOptions wo = WriteOptions();
   wo.disableWAL = true;
-  Put(Key(1), "val1", wo);
+  ASSERT_OK(Put(Key(1), "val1", wo));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"RecoverFromRetryableBGIOError:LoopOut",
         "FLushWritNoWALRetryableeErrorAutoRecover1:1"}});
@@ -1395,7 +1404,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableeErrorAutoRecover1) {
   ASSERT_EQ("val1", Get(Key(1)));
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs->SetFilesystemActive(true);
-  Put(Key(2), "val2", wo);
+  ASSERT_OK(Put(Key(2), "val2", wo));
   s = Flush();
   // Since auto resume fails, the bg error is not cleand, flush will
   // return the bg_error set before.
@@ -1405,7 +1414,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableeErrorAutoRecover1) {
   // call auto resume
   s = dbfull()->Resume();
   ASSERT_EQ(s, Status::OK());
-  Put(Key(3), "val3", wo);
+  ASSERT_OK(Put(Key(3), "val3", wo));
   s = Flush();
   // After resume is successful, the flush should be ok.
   ASSERT_EQ(s, Status::OK());
@@ -1436,7 +1445,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableeErrorAutoRecover2) {
 
   WriteOptions wo = WriteOptions();
   wo.disableWAL = true;
-  Put(Key(1), "val1", wo);
+  ASSERT_OK(Put(Key(1), "val1", wo));
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeFinishBuildTable",
       [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
@@ -1449,7 +1458,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableeErrorAutoRecover2) {
   fault_fs->SetFilesystemActive(true);
   ASSERT_EQ(listener->WaitForRecovery(5000000), true);
   ASSERT_EQ("val1", Get(Key(1)));
-  Put(Key(2), "val2", wo);
+  ASSERT_OK(Put(Key(2), "val2", wo));
   s = Flush();
   // Since auto resume is successful, the bg error is cleaned, flush will
   // be successful.
@@ -1479,7 +1488,7 @@ TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover1) {
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
 
-  Put(Key(1), "val1");
+  ASSERT_OK(Put(Key(1), "val1"));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"RecoverFromRetryableBGIOError:BeforeWait0",
         "FLushWritRetryableeErrorAutoRecover1:0"},
@@ -1503,7 +1512,7 @@ TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover1) {
   ASSERT_EQ("val1", Get(Key(1)));
   Reopen(options);
   ASSERT_EQ("val1", Get(Key(1)));
-  Put(Key(2), "val2");
+  ASSERT_OK(Put(Key(2), "val2"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ("val2", Get(Key(2)));
@@ -1532,7 +1541,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover2) {
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
 
-  Put(Key(1), "val1");
+  ASSERT_OK(Put(Key(1), "val1"));
   SyncPoint::GetInstance()->SetCallBack(
       "BuildTable:BeforeFinishBuildTable",
       [&](void*) { fault_fs->SetFilesystemActive(false, error_msg); });
@@ -1547,7 +1556,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover2) {
   ASSERT_EQ("val1", Get(Key(1)));
   Reopen(options);
   ASSERT_EQ("val1", Get(Key(1)));
-  Put(Key(2), "val2");
+  ASSERT_OK(Put(Key(2), "val2"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ("val2", Get(Key(2)));
@@ -1576,7 +1585,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover3) {
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
 
-  Put(Key(1), "val1");
+  ASSERT_OK(Put(Key(1), "val1"));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"FLushWritRetryableeErrorAutoRecover3:0",
         "RecoverFromRetryableBGIOError:BeforeStart"},
@@ -1600,7 +1609,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover3) {
   s = dbfull()->Resume();
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_EQ(s, Status::OK());
-  Put(Key(2), "val2");
+  ASSERT_OK(Put(Key(2), "val2"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ("val2", Get(Key(2)));
@@ -1632,7 +1641,7 @@ TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover4) {
   IOStatus nr_msg = IOStatus::IOError("No Retryable Fatal IO Error");
   nr_msg.SetRetryable(false);
 
-  Put(Key(1), "val1");
+  ASSERT_OK(Put(Key(1), "val1"));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"RecoverFromRetryableBGIOError:BeforeStart",
         "FLushWritRetryableeErrorAutoRecover4:0"},
@@ -1659,14 +1668,14 @@ TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover4) {
   s = dbfull()->Resume();
   ASSERT_NE(s, Status::OK());
   ASSERT_EQ("val1", Get(Key(1)));
-  Put(Key(2), "val2");
+  ASSERT_OK(Put(Key(2), "val2"));
   s = Flush();
   ASSERT_NE(s, Status::OK());
   ASSERT_EQ("NOT_FOUND", Get(Key(2)));
 
   Reopen(options);
   ASSERT_EQ("val1", Get(Key(1)));
-  Put(Key(2), "val2");
+  ASSERT_OK(Put(Key(2), "val2"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ("val2", Get(Key(2)));
@@ -1696,10 +1705,8 @@ TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover5) {
 
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
-  IOStatus nr_msg = IOStatus::IOError("No Retryable Fatal IO Error");
-  nr_msg.SetRetryable(false);
 
-  Put(Key(1), "val1");
+  ASSERT_OK(Put(Key(1), "val1"));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"RecoverFromRetryableBGIOError:BeforeStart",
         "FLushWritRetryableeErrorAutoRecover5:0"}});
@@ -1720,7 +1727,7 @@ TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover5) {
 
   Reopen(options);
   ASSERT_NE("val1", Get(Key(1)));
-  Put(Key(2), "val2");
+  ASSERT_OK(Put(Key(2), "val2"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ("val2", Get(Key(2)));
@@ -1750,10 +1757,8 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover6) {
 
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
-  IOStatus nr_msg = IOStatus::IOError("No Retryable Fatal IO Error");
-  nr_msg.SetRetryable(false);
 
-  Put(Key(1), "val1");
+  ASSERT_OK(Put(Key(1), "val1"));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"FLushWritRetryableeErrorAutoRecover6:0",
         "RecoverFromRetryableBGIOError:BeforeStart"},
@@ -1783,7 +1788,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover6) {
 
   Reopen(options);
   ASSERT_EQ("val1", Get(Key(1)));
-  Put(Key(2), "val2");
+  ASSERT_OK(Put(Key(2), "val2"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
   ASSERT_EQ("val2", Get(Key(2)));
@@ -1815,9 +1820,9 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableErrorAutoRecover) {
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
 
-  Put(Key(0), "val");
-  Flush();
-  Put(Key(1), "val");
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(1), "val"));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"RecoverFromRetryableBGIOError:BeforeStart",
         "ManifestWriteRetryableErrorAutoRecover:0"},
@@ -1871,8 +1876,8 @@ TEST_F(DBErrorHandlingFSTest,
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
 
-  Put(Key(0), "val");
-  Put(Key(2), "val");
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_OK(Put(Key(2), "val"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -1909,7 +1914,7 @@ TEST_F(DBErrorHandlingFSTest,
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  Put(Key(1), "val");
+  ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -1961,8 +1966,8 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableErrorAutoRecover) {
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
 
-  Put(Key(0), "va;");
-  Put(Key(2), "va;");
+  ASSERT_OK(Put(Key(0), "va;"));
+  ASSERT_OK(Put(Key(2), "va;"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -1987,7 +1992,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableErrorAutoRecover) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  Put(Key(1), "val");
+  ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -2027,7 +2032,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
     WriteBatch batch;
 
     for (auto i = 0; i < 100; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
 
     WriteOptions wopts;
@@ -2042,7 +2047,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
     int write_error = 0;
 
     for (auto i = 100; i < 200; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
         {{"RecoverFromRetryableBGIOError:BeforeResume0", "WALWriteError1:0"},
@@ -2084,7 +2089,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
     WriteBatch batch;
 
     for (auto i = 200; i < 300; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
 
     WriteOptions wopts;
@@ -2131,7 +2136,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
     WriteBatch batch;
 
     for (auto i = 0; i < 100; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
 
     WriteOptions wopts;
@@ -2146,7 +2151,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
     int write_error = 0;
 
     for (auto i = 100; i < 200; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
         {{"RecoverFromRetryableBGIOError:BeforeWait0", "WALWriteError2:0"},
@@ -2188,7 +2193,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
     WriteBatch batch;
 
     for (auto i = 200; i < 300; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
 
     WriteOptions wopts;
@@ -2226,7 +2231,7 @@ TEST_P(DBErrorHandlingFencingTest, FLushWriteFenced) {
   listener->EnableAutoRecovery(true);
   DestroyAndReopen(options);
 
-  Put(Key(0), "val");
+  ASSERT_OK(Put(Key(0), "val"));
   SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
     fault_fs->SetFilesystemActive(false, IOStatus::IOFenced("IO fenced"));
   });
@@ -2260,9 +2265,9 @@ TEST_P(DBErrorHandlingFencingTest, ManifestWriteFenced) {
   DestroyAndReopen(options);
   old_manifest = GetManifestNameFromLiveFiles();
 
-  Put(Key(0), "val");
+  ASSERT_OK(Put(Key(0), "val"));
   Flush();
-  Put(Key(1), "val");
+  ASSERT_OK(Put(Key(1), "val"));
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:WriteManifest", [&](void*) {
         fault_fs->SetFilesystemActive(false, IOStatus::IOFenced("IO fenced"));
@@ -2294,8 +2299,8 @@ TEST_P(DBErrorHandlingFencingTest, CompactionWriteFenced) {
   Status s;
   DestroyAndReopen(options);
 
-  Put(Key(0), "va;");
-  Put(Key(2), "va;");
+  ASSERT_OK(Put(Key(0), "va;"));
+  ASSERT_OK(Put(Key(2), "va;"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -2309,7 +2314,7 @@ TEST_P(DBErrorHandlingFencingTest, CompactionWriteFenced) {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  Put(Key(1), "val");
+  ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
 
@@ -2345,7 +2350,7 @@ TEST_P(DBErrorHandlingFencingTest, WALWriteFenced) {
     WriteBatch batch;
 
     for (auto i = 0; i < 100; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
 
     WriteOptions wopts;
@@ -2358,7 +2363,7 @@ TEST_P(DBErrorHandlingFencingTest, WALWriteFenced) {
     int write_error = 0;
 
     for (auto i = 100; i < 199; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
 
     SyncPoint::GetInstance()->SetCallBack(
@@ -2381,7 +2386,7 @@ TEST_P(DBErrorHandlingFencingTest, WALWriteFenced) {
     WriteBatch batch;
 
     for (auto i = 0; i < 100; ++i) {
-      batch.Put(Key(i), rnd.RandomString(1024));
+      ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
 
     WriteOptions wopts;

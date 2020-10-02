@@ -217,12 +217,14 @@ class FaultInjectionTestEnv : public EnvWrapper {
     if (!active) {
       error_ = error;
     }
+    error.PermitUncheckedError();
   }
   void SetFilesystemActive(bool active,
       Status error = Status::Corruption("Not active")) {
     error.PermitUncheckedError();
     MutexLock l(&mutex_);
     SetFilesystemActiveNoLock(active, error);
+    error.PermitUncheckedError();
   }
   void AssertNoOpenFile() { assert(open_files_.empty()); }
   Status GetError() { return error_; }

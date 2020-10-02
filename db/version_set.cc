@@ -4134,7 +4134,8 @@ Status VersionSet::ProcessManifestWrites(
                      "\n",
                      manifest_file_number_, pending_manifest_file_number_);
       env_->DeleteFile(
-          DescriptorFileName(dbname_, pending_manifest_file_number_));
+              DescriptorFileName(dbname_, pending_manifest_file_number_))
+          .PermitUncheckedError();
     }
   }
 
