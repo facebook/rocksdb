@@ -4710,8 +4710,10 @@ Status DBImpl::CreateColumnFamilyWithImport(
 
   import_job.Cleanup(status);
   if (!status.ok()) {
-    DropColumnFamily(*handle);
-    DestroyColumnFamilyHandle(*handle);
+    // TODO: Should handle this error or log this?
+    DropColumnFamily(*handle).PermitUncheckedError();
+    // Always returns Status::OK()
+    assert(DestroyColumnFamilyHandle(*handle).ok());
     *handle = nullptr;
   }
   return status;
