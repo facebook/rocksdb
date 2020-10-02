@@ -125,7 +125,7 @@ struct ImmutableCFOptions {
 
   bool allow_data_in_errors;
 
-  std::string db_host_location;
+  std::string db_host_id;
 };
 
 struct MutableCFOptions {

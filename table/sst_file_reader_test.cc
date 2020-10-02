@@ -90,7 +90,7 @@ class SstFileReaderTest : public testing::Test {
     if (check_global_seqno) {
       auto properties = reader.GetTableProperties();
       ASSERT_TRUE(properties);
-      ASSERT_FALSE(properties->db_host_location.empty());
+      ASSERT_FALSE(properties->db_host_id.empty());
       auto& user_properties = properties->user_collected_properties;
       ASSERT_TRUE(
           user_properties.count(ExternalSstFilePropertyNames::kGlobalSeqno));

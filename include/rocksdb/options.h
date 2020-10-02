@@ -348,6 +348,8 @@ struct DbPath {
   DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
 };
 
+static const std::string kDbHostId = "__hostname__";
+
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
   DBOptions* OldDefaults(int rocksdb_major_version = 4,
@@ -1181,15 +1183,17 @@ struct DBOptions {
   // Default: false
   bool allow_data_in_errors = false;
 
-  // A string identifying the location of the machine hosting the DB. This
+  // A string identifying the machine hosting the DB. This
   // will be written as a property in every SST file written by the DB (or
   // by offline writers such as SstFileWriter and RepairDB). It can be useful
   // for troubleshooting in memory corruption caused by a failing host when
   // writing a file, by tracing back to the writing host. These corruptions
   // may not be caught by the checksum since they happen before checksumming.
+  // If left as default, the table writer will substitute it with the actual
+  // hostname when writing the SST file.
   //
   // Default: hostname
-  std::string db_host_location;
+  std::string db_host_id = kDbHostId;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

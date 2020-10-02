@@ -19,6 +19,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/persistent_cache_helper.h"
@@ -403,4 +404,17 @@ Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
                                                    ioptions, allocator);
 }
 
+Status SanitizeDbHostIdProperty(Env* env, std::string& db_host_id) {
+  if (db_host_id == kDbHostId) {
+    db_host_id.clear();
+    db_host_id.resize(kMaxHostNameLen);
+    Status s = env->GetHostName(&db_host_id.at(0), kMaxHostNameLen);
+    if (!s.ok()) {
+      return s;
+    }
+    db_host_id.at(kMaxHostNameLen - 1) = 0;
+  }
+
+  return Status::OK();
+}
 }  // namespace ROCKSDB_NAMESPACE

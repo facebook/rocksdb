@@ -331,6 +331,11 @@ extern Status UncompressBlockContentsForCompressionType(
     BlockContents* contents, uint32_t compress_format_version,
     const ImmutableCFOptions& ioptions, MemoryAllocator* allocator = nullptr);
 
+static const size_t kMaxHostNameLen = 256;
+
+// Replace db_host_id contents with the real hostname if necessary
+extern Status SanitizeDbHostIdProperty(Env* env, std::string& db_host_id);
+
 // Implementation details follow.  Clients should ignore,
 
 // TODO(andrewkr): we should prefer one way of representing a null/uninitialized

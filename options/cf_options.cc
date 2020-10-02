@@ -854,7 +854,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       file_checksum_gen_factory(db_options.file_checksum_gen_factory.get()),
       sst_partitioner_factory(cf_options.sst_partitioner_factory),
       allow_data_in_errors(db_options.allow_data_in_errors),
-      db_host_location(db_options.db_host_location) {}
+      db_host_id(db_options.db_host_id) {}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {

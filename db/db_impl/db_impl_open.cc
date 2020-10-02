@@ -183,18 +183,6 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
                    "file size check will be skipped during open.");
   }
 
-  if (result.db_host_location.empty()) {
-    result.db_host_location.resize(MAX_HOST_NAME_LEN, 0);
-    if (!result.env
-             ->GetHostName(&result.db_host_location.at(0), MAX_HOST_NAME_LEN)
-             .ok()) {
-      ROCKS_LOG_INFO(result.info_log,
-                     "db_host_location property will not be set");
-    } else {
-      result.db_host_location.at(MAX_HOST_NAME_LEN - 1) = 0;
-    }
-  }
-
   return result;
 }
 
