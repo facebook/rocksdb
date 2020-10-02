@@ -40,6 +40,8 @@ class BlobFileCache {
   const FileOptions* file_options_;
   uint32_t column_family_id_;
   HistogramImpl* blob_file_read_hist_;
+
+  static constexpr size_t kNumberOfMutexStripes = 1 << 7;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
