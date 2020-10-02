@@ -52,7 +52,7 @@ class DBSecondaryTest : public DBTestBase {
 
   void CloseSecondary() {
     for (auto h : handles_secondary_) {
-      db_secondary_->DestroyColumnFamilyHandle(h);
+      ASSERT_OK(db_secondary_->DestroyColumnFamilyHandle(h));
     }
     handles_secondary_.clear();
     delete db_secondary_;
@@ -97,7 +97,7 @@ void DBSecondaryTest::CheckFileTypeCounts(const std::string& dir,
                                           int expected_log, int expected_sst,
                                           int expected_manifest) const {
   std::vector<std::string> filenames;
-  env_->GetChildren(dir, &filenames);
+  ASSERT_OK(env_->GetChildren(dir, &filenames));
 
   int log_cnt = 0, sst_cnt = 0, manifest_cnt = 0;
   for (auto file : filenames) {
@@ -777,8 +777,8 @@ TEST_F(DBSecondaryTest, CatchUpAfterFlush) {
 
   WriteOptions write_opts;
   WriteBatch wb;
-  wb.Put("key0", "value0");
-  wb.Put("key1", "value1");
+  ASSERT_OK(wb.Put("key0", "value0"));
+  ASSERT_OK(wb.Put("key1", "value1"));
   ASSERT_OK(dbfull()->Write(write_opts, &wb));
   ReadOptions read_opts;
   std::unique_ptr<Iterator> iter1(db_secondary_->NewIterator(read_opts));
@@ -791,25 +791,27 @@ TEST_F(DBSecondaryTest, CatchUpAfterFlush) {
   ASSERT_FALSE(iter1->Valid());
   iter1->Seek("key1");
   ASSERT_FALSE(iter1->Valid());
+  ASSERT_OK(iter1->status());
   std::unique_ptr<Iterator> iter2(db_secondary_->NewIterator(read_opts));
   iter2->Seek("key0");
   ASSERT_TRUE(iter2->Valid());
   ASSERT_EQ("value0", iter2->value());
   iter2->Seek("key1");
   ASSERT_TRUE(iter2->Valid());
+  ASSERT_OK(iter2->status());
   ASSERT_EQ("value1", iter2->value());
 
   {
     WriteBatch wb1;
-    wb1.Put("key0", "value01");
-    wb1.Put("key1", "value11");
+    ASSERT_OK(wb1.Put("key0", "value01"));
+    ASSERT_OK(wb1.Put("key1", "value11"));
     ASSERT_OK(dbfull()->Write(write_opts, &wb1));
   }
 
   {
     WriteBatch wb2;
-    wb2.Put("key0", "new_value0");
-    wb2.Delete("key1");
+    ASSERT_OK(wb2.Put("key0", "new_value0"));
+    ASSERT_OK(wb2.Delete("key1"));
     ASSERT_OK(dbfull()->Write(write_opts, &wb2));
   }
 
@@ -823,6 +825,7 @@ TEST_F(DBSecondaryTest, CatchUpAfterFlush) {
   ASSERT_EQ("new_value0", iter3->value());
   iter3->Seek("key1");
   ASSERT_FALSE(iter3->Valid());
+  ASSERT_OK(iter3->status());
 }
 
 TEST_F(DBSecondaryTest, CheckConsistencyWhenOpen) {
