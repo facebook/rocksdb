@@ -94,6 +94,14 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
   if (!s.ok()) {
     return s;
   }
+
+#ifndef NDEBUG
+  if (result.size() < read_len) {
+    // Fake an IO error to force db_stress fault injection to ignore
+    // truncated read errors
+    IGNORE_STATUS_IF_ERROR(Status::IOError());
+  }
+#endif
   buffer_offset_ = rounddown_offset;
   buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
   return s;
