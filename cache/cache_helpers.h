@@ -47,7 +47,7 @@ class CacheHandleGuard {
 
   CacheHandleGuard(CacheHandleGuard&& rhs) noexcept
       : cache_(rhs.cache_), handle_(rhs.handle_), value_(rhs.value_) {
-    assert(IsEmpty() || (cache_ && handle_ && value_));
+    assert((!cache_ && !handle_ && !value_) || (cache_ && handle_ && value_));
 
     rhs.ResetFields();
   }
@@ -63,7 +63,7 @@ class CacheHandleGuard {
     handle_ = rhs.handle_;
     value_ = rhs.value_;
 
-    assert(IsEmpty() || (cache_ && handle_ && value_));
+    assert((!cache_ && !handle_ && !value_) || (cache_ && handle_ && value_));
 
     rhs.ResetFields();
 
@@ -72,18 +72,25 @@ class CacheHandleGuard {
 
   ~CacheHandleGuard() { ReleaseHandle(); }
 
-  bool IsEmpty() const { return !cache_ && !handle_ && !value_; }
+  bool IsEmpty() const { return !handle_; }
 
   Cache* GetCache() const { return cache_; }
   Cache::Handle* GetCacheHandle() const { return handle_; }
   T* GetValue() const { return value_; }
 
+  void Reset() {
+    ReleaseHandle();
+    ResetFields();
+  }
+
  private:
   void ReleaseHandle() {
-    if (handle_) {
-      assert(cache_);
-      cache_->Release(handle_);
+    if (IsEmpty()) {
+      return;
     }
+
+    assert(cache_);
+    cache_->Release(handle_);
   }
 
   void ResetFields() {
