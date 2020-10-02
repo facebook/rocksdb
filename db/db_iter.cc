@@ -846,6 +846,7 @@ bool DBIter::FindValueForCurrentKey() {
   }
 
   Status s;
+  s.PermitUncheckedError();
   is_blob_ = false;
   switch (last_key_entry_type) {
     case kTypeDeletion:
