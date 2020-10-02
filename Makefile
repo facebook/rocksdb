@@ -625,6 +625,7 @@ ifdef ASSERT_STATUS_CHECKED
 		slice_test \
 		sst_dump_test \
 		statistics_test \
+		stats_history_test \
 		thread_local_test \
 		trace_analyzer_test \
 		env_timed_test \

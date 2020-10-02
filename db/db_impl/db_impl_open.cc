@@ -685,41 +685,56 @@ Status DBImpl::PersistentStatsProcessFormatVersion() {
         (kStatsCFCurrentFormatVersion < format_version_recovered &&
          kStatsCFCompatibleFormatVersion < compatible_version_recovered)) {
       if (!s_format.ok() || !s_compatible.ok()) {
-        ROCKS_LOG_INFO(
+        ROCKS_LOG_WARN(
             immutable_db_options_.info_log,
-            "Reading persistent stats version key failed. Format key: %s, "
-            "compatible key: %s",
+            "Recreating persistent stats column family since reading "
+            "persistent stats version key failed. Format key: %s, compatible "
+            "key: %s",
             s_format.ToString().c_str(), s_compatible.ToString().c_str());
       } else {
-        ROCKS_LOG_INFO(
+        ROCKS_LOG_WARN(
             immutable_db_options_.info_log,
-            "Disable persistent stats due to corrupted or incompatible format "
-            "version\n");
+            "Recreating persistent stats column family due to corrupted or "
+            "incompatible format version. Recovered format: %" PRIu64
+            "; recovered format compatible since: %" PRIu64 "\n",
+            format_version_recovered, compatible_version_recovered);
       }
-      DropColumnFamily(persist_stats_cf_handle_);
-      DestroyColumnFamilyHandle(persist_stats_cf_handle_);
+      s = DropColumnFamily(persist_stats_cf_handle_);
+      if (s.ok()) {
+        s = DestroyColumnFamilyHandle(persist_stats_cf_handle_);
+      }
       ColumnFamilyHandle* handle = nullptr;
-      ColumnFamilyOptions cfo;
-      OptimizeForPersistentStats(&cfo);
-      s = CreateColumnFamily(cfo, kPersistentStatsColumnFamilyName, &handle);
-      persist_stats_cf_handle_ = static_cast<ColumnFamilyHandleImpl*>(handle);
-      // should also persist version here because old stats CF is discarded
-      should_persist_format_version = true;
+      if (s.ok()) {
+        ColumnFamilyOptions cfo;
+        OptimizeForPersistentStats(&cfo);
+        s = CreateColumnFamily(cfo, kPersistentStatsColumnFamilyName, &handle);
+      }
+      if (s.ok()) {
+        persist_stats_cf_handle_ = static_cast<ColumnFamilyHandleImpl*>(handle);
+        // should also persist version here because old stats CF is discarded
+        should_persist_format_version = true;
+      }
     }
   }
-  if (s.ok() && should_persist_format_version) {
+  if (should_persist_format_version) {
     // Persistent stats CF being created for the first time, need to write
     // format version key
     WriteBatch batch;
-    batch.Put(persist_stats_cf_handle_, kFormatVersionKeyString,
-              ToString(kStatsCFCurrentFormatVersion));
-    batch.Put(persist_stats_cf_handle_, kCompatibleVersionKeyString,
-              ToString(kStatsCFCompatibleFormatVersion));
-    WriteOptions wo;
-    wo.low_pri = true;
-    wo.no_slowdown = true;
-    wo.sync = false;
-    s = Write(wo, &batch);
+    if (s.ok()) {
+      s = batch.Put(persist_stats_cf_handle_, kFormatVersionKeyString,
+                    ToString(kStatsCFCurrentFormatVersion));
+    }
+    if (s.ok()) {
+      s = batch.Put(persist_stats_cf_handle_, kCompatibleVersionKeyString,
+                    ToString(kStatsCFCompatibleFormatVersion));
+    }
+    if (s.ok()) {
+      WriteOptions wo;
+      wo.low_pri = true;
+      wo.no_slowdown = true;
+      wo.sync = false;
+      s = Write(wo, &batch);
+    }
   }
   mutex_.Lock();
   return s;
@@ -1619,7 +1634,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
   }
   if (s.ok() && impl->immutable_db_options_.persist_stats_to_disk) {
-    // try to read format version but no need to fail Open() even if it fails
+    // try to read format version
     s = impl->PersistentStatsProcessFormatVersion();
   }
 
