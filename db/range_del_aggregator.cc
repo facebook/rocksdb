@@ -349,7 +349,7 @@ bool RangeDelAggregator::StripeRep::ShouldDelete(
 PartialRangeTombstoneEndpoint RangeDelAggregator::StripeRep::GetEndpoint(
     const Slice& key, RangeDelPositioningMode mode) {
   ParsedInternalKey parsed_key;
-  if (!ParseInternalKey(key, &parsed_key)) {
+  if (!ParseInternalKey(key, &parsed_key).ok()) {
     assert(false);
     return PartialRangeTombstoneEndpoint(
         nullptr, static_cast<RangeDelPositioningMode>(0), 0);
