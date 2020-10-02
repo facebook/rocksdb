@@ -391,10 +391,8 @@ workflows:
   env-test:
     jobs:
       - repeat-test:
-          test_name: "env_test"
-          repeat: 200
-          gtest_filter: "DefaultEnvWithoutDirectIO/EnvPosixTestWithParam*"
-          with_filter: true
+          test_name: "db_write_test"
+          repeat: 1000
 
 #  fs-test:
 #    jobs:
