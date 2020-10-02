@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <array>
+
 #include "util/math128.h"
 
 namespace ROCKSDB_NAMESPACE {
