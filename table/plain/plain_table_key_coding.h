@@ -69,10 +69,6 @@ class PlainTableFileReader {
   explicit PlainTableFileReader(const PlainTableReaderFileInfo* _file_info)
       : file_info_(_file_info), num_buf_(0) {}
 
-  ~PlainTableFileReader() {
-    // Should fix.
-    status_.PermitUncheckedError();
-  }
 
   // In mmaped mode, the results point to mmaped area of the file, which
   // means it is always valid before closing the file.

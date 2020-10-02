@@ -43,7 +43,6 @@ SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<FileSystem> fs,
 
 SstFileManagerImpl::~SstFileManagerImpl() {
   Close();
-  bg_err_.PermitUncheckedError();
 }
 
 void SstFileManagerImpl::Close() {

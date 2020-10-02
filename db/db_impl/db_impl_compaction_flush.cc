@@ -1326,6 +1326,7 @@ void DBImpl::NotifyOnCompactionCompleted(
     for (auto listener : immutable_db_options_.listeners) {
       listener->OnCompactionCompleted(this, info);
     }
+    info.status.PermitUncheckedError();
   }
   mutex_.Lock();
   current->Unref();
@@ -2970,10 +2971,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                              c->column_family_data());
   }
 
-  if (status.ok() && !io_s.ok()) {
+  if (!io_s.ok() && status.ok()) {
     status = io_s;
-  } else {
-    io_s.PermitUncheckedError();
   }
 
   if (c != nullptr) {

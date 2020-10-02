@@ -2442,7 +2442,6 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
 
       CachableEntry<UncompressionDict> uncompression_dict;
       Status uncompression_dict_status;
-      uncompression_dict_status.PermitUncheckedError();
       bool uncompression_dict_inited = false;
       size_t total_len = 0;
       ReadOptions ro = read_options;

@@ -3576,6 +3576,7 @@ struct VersionSet::ManifestWriter {
         cfd(_cfd),
         mutable_cf_options(cf_options),
         edit_list(e) {}
+
   ~ManifestWriter() { status.PermitUncheckedError(); }
 };
 
@@ -3666,7 +3667,6 @@ VersionSet::~VersionSet() {
     file.DeleteMetadata();
   }
   obsolete_files_.clear();
-  io_status_.PermitUncheckedError();
 }
 
 void VersionSet::Reset() {
@@ -4219,6 +4219,7 @@ Status VersionSet::LogAndApply(
 #ifndef NDEBUG
     for (const auto& writer : writers) {
       assert(writer.done);
+      writer.status.PermitUncheckedError();  // Ignore all but the first
     }
 #endif /* !NDEBUG */
     return first_writer.status;

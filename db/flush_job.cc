@@ -130,7 +130,6 @@ FlushJob::FlushJob(
 }
 
 FlushJob::~FlushJob() {
-  io_status_.PermitUncheckedError();
   ThreadStatusUtil::ResetThreadStatus();
 }
 

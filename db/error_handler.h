@@ -42,9 +42,6 @@ class ErrorHandler {
          recovery_in_prog_(false),
          soft_error_no_bg_work_(false) {}
    ~ErrorHandler() {
-     bg_error_.PermitUncheckedError();
-     recovery_error_.PermitUncheckedError();
-     recovery_io_error_.PermitUncheckedError();
    }
 
    void EnableAutoRecovery() { auto_recovery_ = true; }

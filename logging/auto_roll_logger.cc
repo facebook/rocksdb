@@ -25,7 +25,6 @@ AutoRollLogger::AutoRollLogger(Env* env, const std::string& dbname,
       dbname_(dbname),
       db_log_dir_(db_log_dir),
       env_(env),
-      status_(Status::OK()),
       kMaxLogFileSize(log_max_size),
       kLogFileTimeToRoll(log_file_time_to_roll),
       kKeepLogFileNum(keep_log_file_num),
@@ -37,7 +36,7 @@ AutoRollLogger::AutoRollLogger(Env* env, const std::string& dbname,
   Status s = env->GetAbsolutePath(dbname, &db_absolute_path_);
   if (s.IsNotSupported()) {
     db_absolute_path_ = dbname;
-  } else {
+  } else if (!s.ok()) {
     status_ = s;
   }
   log_fname_ = InfoLogFileName(dbname_, db_absolute_path_, db_log_dir_);
@@ -46,8 +45,11 @@ AutoRollLogger::AutoRollLogger(Env* env, const std::string& dbname,
   }
   GetExistingFiles();
   s = ResetLogger();
-  if (s.ok() && status_.ok()) {
-    status_ = TrimOldLogFiles();
+  if (s.ok()) {
+    s = TrimOldLogFiles();
+  }
+  if (!s.ok()) {
+    status_ = s;
   }
 }
 

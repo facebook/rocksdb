@@ -341,7 +341,8 @@ uint32_t WriteBatch::ComputeContentFlags() const {
   if ((rv & ContentFlags::DEFERRED) != 0) {
     BatchContentClassifier classifier;
     // Should we handle status here?
-    Iterate(&classifier).PermitUncheckedError();
+    Status s = Iterate(&classifier);
+    assert(s.ok());
     rv = classifier.content_flags;
 
     // this method is conceptually const, because it is performing a lazy

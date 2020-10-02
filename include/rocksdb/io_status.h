@@ -36,7 +36,12 @@ class IOStatus : public Status {
   };
 
   // Create a success status.
-  IOStatus() : IOStatus(kOk, kNone) {}
+  IOStatus()
+      : Status(),
+        retryable_(false),
+        data_loss_(false),
+        scope_(kIOErrorScopeFileSystem) {}
+
   ~IOStatus() {}
 
   // Copy the specified status.

@@ -71,7 +71,6 @@ class AutoRollLogger : public Logger {
     if (logger_ && !closed_) {
       logger_->Close().PermitUncheckedError();
     }
-    status_.PermitUncheckedError();
   }
 
   using Logger::GetInfoLogLevel;

@@ -26,7 +26,6 @@ class CacheActivityLogger {
     MutexLock l(&mutex_);
 
     StopLoggingInternal();
-    bg_status_.PermitUncheckedError();
   }
 
   Status StartLogging(const std::string& activity_log_file, Env* env,

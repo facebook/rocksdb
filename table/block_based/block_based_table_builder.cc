@@ -496,12 +496,6 @@ struct BlockBasedTableBuilder::Rep {
   Rep(const Rep&) = delete;
   Rep& operator=(const Rep&) = delete;
 
-  ~Rep() {
-    // They are supposed to be passed back to users through Finish()
-    // if the file finishes.
-    status.PermitUncheckedError();
-    io_status.PermitUncheckedError();
-  }
 
  private:
   Status status;
