@@ -63,6 +63,13 @@ class InternalIteratorBase : public Cleanable {
   // 'target' contains user timestamp if timestamp is enabled.
   virtual void Seek(const Slice& target) = 0;
 
+  // TODO(ajkr): This interface is temporarily needed for pushing info about the
+  // the current global range tombstone down to the sub-iterators, who use the
+  // info to potentially skip forwards. Once we disaggregate the range
+  // tombstones by sorted run, we can simply call `Seek()` on sorted runs
+  // beneath a range tombstone, relying on the LSM invariant that the skipped
+  // keys must be older.
+  //
   // Seek all underlying iterators forwards as far as the first key in the
   // source at or after `target`, only skipping over keys with seqnos strictly
   // less than `limit`.  The implementation can be a no-op or seek only part of
@@ -82,6 +89,13 @@ class InternalIteratorBase : public Cleanable {
   // an entry that comes at or before target.
   virtual void SeekForPrev(const Slice& target) = 0;
 
+  // TODO(ajkr): This interface is temporarily needed for pushing info about the
+  // the current global range tombstone down to the sub-iterators, who use the
+  // info to potentially skip backwards. Once we disaggregate the range
+  // tombstones by sorted run, we can simply call `SeekForPrev()` on sorted runs
+  // beneath a range tombstone, relying on the LSM invariant that the skipped
+  // keys must be older.
+  //
   // Seek all underlying iterators backwards as far as the last key in the
   // source at or before `target`, only skipping over keys with seqnos strictly
   // less than `limit`.  The implementation can be a no-op or seek only part of
