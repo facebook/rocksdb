@@ -185,8 +185,9 @@ class StandardHasher {
   }
   inline ResultRow GetResultRowMask() const {
     // TODO: will be used with InterleavedSolutionStorage
-    // For now, all bits set
-    return ResultRow{0} - ResultRow{1};
+    // For now, all bits set (note: might be a small type so might need to
+    // narrow after promotion)
+    return static_cast<ResultRow>(~ResultRow{0});
   }
   inline ResultRow GetResultRowFromHash(Hash h) const {
     if (TypesAndSettings::kIsFilter) {
