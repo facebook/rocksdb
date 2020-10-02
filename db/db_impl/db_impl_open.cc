@@ -11,12 +11,12 @@
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
+#include "db/periodic_work_scheduler.h"
 #include "env/composite_env_wrapper.h"
 #include "file/read_write_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "file/writable_file_writer.h"
 #include "monitoring/persistent_stats_history.h"
-#include "monitoring/stats_dump_scheduler.h"
 #include "options/options_helper.h"
 #include "rocksdb/table.h"
 #include "rocksdb/wal_filter.h"
@@ -1763,7 +1763,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
                    persist_options_status.ToString().c_str());
   }
   if (s.ok()) {
-    impl->StartStatsDumpScheduler();
+    impl->StartPeriodicWorkScheduler();
   } else {
     for (auto* h : *handles) {
       delete h;
