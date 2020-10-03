@@ -379,6 +379,19 @@ jobs:
             /usr/bin/python ../gtest-parallel/gtest-parallel ./<< parameters.test_name >> --repeat << parameters.repeat >> --workers << parameters.workers >> --output_dir=/tmp <<# parameters.with_filter >> --gtest_filter=<< parameters.gtest_filter >> <</ parameters.with_filter >> | cat
 
 workflows:
+  build-linux-clang10-ubsan:
+    jobs:
+      - build-linux-clang10-ubsan
+      - build-linux-clang10-ubsan
+      - build-linux-clang10-ubsan
+      - build-linux-clang10-ubsan
+      - build-linux-clang10-ubsan
+      - build-linux-clang10-ubsan
+      - build-linux-clang10-ubsan
+      - build-linux-clang10-ubsan
+      - build-linux-clang10-ubsan
+      - build-linux-clang10-ubsan
+
 #  compaction-test:
 #    jobs:
 #      - repeat-test:
@@ -388,14 +401,14 @@ workflows:
 #          gtest_filter: "DBCompactionTest.DeleteFileRange"
 #          with_filter: true
 
-  env-test:
-    jobs:
-      - repeat-test:
-          test_name: "db_write_test"
-          repeat: 100000
-          gtest_filter: "DBWriteTestInstance/DBWriteTest.WriteThreadHangOnWriteStall/2"
-          with_filter: true
-          build_setting: "COMPILE_WITH_UBSAN=1 OPT=\"-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt\" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1"
+#  env-test:
+#    jobs:
+#      - repeat-test:
+#          test_name: "db_write_test"
+#          repeat: 100000
+#          gtest_filter: "DBWriteTestInstance/DBWriteTest.WriteThreadHangOnWriteStall/2"
+#          with_filter: true
+#          build_setting: "COMPILE_WITH_UBSAN=1 OPT=\"-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt\" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1"
 
 #  fs-test:
 #    jobs:
