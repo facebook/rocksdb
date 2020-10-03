@@ -4710,8 +4710,12 @@ Status DBImpl::CreateColumnFamilyWithImport(
 
   import_job.Cleanup(status);
   if (!status.ok()) {
-    // TODO: Should handle this error or log this?
-    DropColumnFamily(*handle).PermitUncheckedError();
+    Status temp_s = DropColumnFamily(*handle);
+    if (!temp_s.ok()) {
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                      "DropColumnFamily failed with error %s",
+                      temp_s.ToString().c_str());
+    }
     // Always returns Status::OK()
     assert(DestroyColumnFamilyHandle(*handle).ok());
     *handle = nullptr;
