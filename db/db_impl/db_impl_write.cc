@@ -1001,6 +1001,7 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
       if (!writer->CallbackFailed()) {
         Status s = WriteBatchInternal::Append(merged_batch, writer->batch,
                                               /*WAL_only*/ true);
+        // Always returns Status::OK.
         assert(s.ok());
         if (WriteBatchInternal::IsLatestPersistentState(writer->batch)) {
           // We only need to cache the last of such write batch
@@ -1926,10 +1927,10 @@ Status DB::DeleteRange(const WriteOptions& opt,
                        const Slice& begin_key, const Slice& end_key) {
   WriteBatch batch;
   Status s = batch.DeleteRange(column_family, begin_key, end_key);
-  if (s.ok()) {
-    s = Write(opt, &batch);
+  if (!s.ok()) {
+    return s;
   }
-  return s;
+  return Write(opt, &batch);
 }
 
 Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
