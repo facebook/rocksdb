@@ -396,8 +396,9 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
       }
 
       tmp_new_value = (*partial_merge_)(
-          state_, key.data(), key.size(), &operand_pointers[0], &operand_sizes[0],
-          static_cast<int>(operand_count), &success, &new_value_len);
+          state_, key.data(), key.size(), &operand_pointers[0],
+          &operand_sizes[0], static_cast<int>(operand_count), &success,
+          &new_value_len);
       new_value->assign(tmp_new_value, new_value_len);
 
       if (delete_value_ != nullptr) {
