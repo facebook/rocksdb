@@ -392,7 +392,10 @@ workflows:
     jobs:
       - repeat-test:
           test_name: "db_write_test"
-          repeat: 1000
+          repeat: 100000
+          gtest_filter: "DBWriteTestInstance/DBWriteTest.WriteThreadHangOnWriteStall/2"
+          with_filter: true
+          build_setting: "COMPILE_WITH_UBSAN=1 OPT=\"-fsanitize-blacklist=.circleci/ubsan_suppression_list.txt\" CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 USE_CLANG=1"
 
 #  fs-test:
 #    jobs:
