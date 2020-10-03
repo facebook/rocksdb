@@ -1678,6 +1678,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     *dbptr = impl;
     impl->opened_successfully_ = true;
     impl->MaybeScheduleFlushOrCompaction();
+  } else {
+    persist_options_status.PermitUncheckedError();
   }
   impl->mutex_.Unlock();
 

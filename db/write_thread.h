@@ -292,7 +292,7 @@ class WriteThread {
   //
   // WriteGroup* write_group: the write group
   // Status status:           Status of write operation
-  void ExitAsBatchGroupLeader(WriteGroup& write_group, Status status);
+  void ExitAsBatchGroupLeader(WriteGroup& write_group, Status& status);
 
   // Exit batch group on behalf of batch group leader.
   void ExitAsBatchGroupFollower(Writer* w);

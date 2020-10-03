@@ -979,17 +979,15 @@ class VersionBuilder::Rep {
     for (auto& t : threads) {
       t.join();
     }
-#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
-    for (const auto& s : statuses) {
-      s.PermitUncheckedError();
-    }
-#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+    Status ret;
     for (const auto& s : statuses) {
       if (!s.ok()) {
-        return s;
+        if (ret.ok()) {
+          ret = s;
+        }
       }
     }
-    return Status::OK();
+    return ret;
   }
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {

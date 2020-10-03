@@ -659,6 +659,8 @@ ifdef ASSERT_STATUS_CHECKED
 		full_filter_block_test \
 		partitioned_filter_block_test \
 		column_family_test \
+		file_reader_writer_test \
+		corruption_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test

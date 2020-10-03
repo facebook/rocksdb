@@ -4132,10 +4132,15 @@ Status VersionSet::ProcessManifestWrites(
       ROCKS_LOG_INFO(db_options_->info_log,
                      "Deleting manifest %" PRIu64 " current manifest %" PRIu64
                      "\n",
-                     manifest_file_number_, pending_manifest_file_number_);
-      env_->DeleteFile(
-              DescriptorFileName(dbname_, pending_manifest_file_number_))
-          .PermitUncheckedError();
+                     pending_manifest_file_number_, manifest_file_number_);
+      Status manifest_del_status = env_->DeleteFile(
+          DescriptorFileName(dbname_, pending_manifest_file_number_));
+      if (!manifest_del_status.ok()) {
+        ROCKS_LOG_WARN(db_options_->info_log,
+                       "Failed to delete manifest %" PRIu64 ": %s",
+                       pending_manifest_file_number_,
+                       manifest_del_status.ToString().c_str());
+      }
     }
   }
 

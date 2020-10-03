@@ -56,7 +56,8 @@ class CorruptionTest : public testing::Test {
     options_.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
     options_.env = &env_;
     dbname_ = test::PerThreadDBPath("corruption_test");
-    DestroyDB(dbname_, options_);
+    Status s = DestroyDB(dbname_, options_);
+    EXPECT_OK(s);
 
     db_ = nullptr;
     options_.create_if_missing = true;
@@ -111,12 +112,12 @@ class CorruptionTest : public testing::Test {
     for (int i = 0; i < n; i++) {
       if (flush_every != 0 && i != 0 && i % flush_every == 0) {
         DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
-        dbi->TEST_FlushMemTable();
+        ASSERT_OK(dbi->TEST_FlushMemTable());
       }
       //if ((i % 100) == 0) fprintf(stderr, "@ %d of %d\n", i, n);
       Slice key = Key(i, &key_space);
       batch.Clear();
-      batch.Put(key, Value(i, &value_space));
+      ASSERT_OK(batch.Put(key, Value(i, &value_space)));
       ASSERT_OK(db_->Write(WriteOptions(), &batch));
     }
   }
@@ -135,6 +136,7 @@ class CorruptionTest : public testing::Test {
     // occurred.
     Iterator* iter = db_->NewIterator(ReadOptions(false, true));
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ASSERT_OK(iter->status());
       uint64_t key;
       Slice in(iter->key());
       if (!ConsumeDecimalNumber(&in, &key) ||
@@ -151,6 +153,7 @@ class CorruptionTest : public testing::Test {
         correct++;
       }
     }
+    iter->status().PermitUncheckedError();
     delete iter;
 
     fprintf(stderr,
@@ -270,7 +273,7 @@ TEST_F(CorruptionTest, NewFileErrorDuringWrite) {
   bool failed = false;
   for (int i = 0; i < num; i++) {
     WriteBatch batch;
-    batch.Put("a", Value(100, &value_storage));
+    ASSERT_OK(batch.Put("a", Value(100, &value_storage)));
     s = db_->Write(WriteOptions(), &batch);
     if (!s.ok()) {
       failed = true;
@@ -286,9 +289,9 @@ TEST_F(CorruptionTest, NewFileErrorDuringWrite) {
 TEST_F(CorruptionTest, TableFile) {
   Build(100);
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
-  dbi->TEST_FlushMemTable();
-  dbi->TEST_CompactRange(0, nullptr, nullptr);
-  dbi->TEST_CompactRange(1, nullptr, nullptr);
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+  ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr));
+  ASSERT_OK(dbi->TEST_CompactRange(1, nullptr, nullptr));
 
   Corrupt(kTableFile, 100, 1);
   Check(99, 99);
@@ -309,9 +312,9 @@ TEST_F(CorruptionTest, VerifyChecksumReadahead) {
 
   Build(10000);
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
-  dbi->TEST_FlushMemTable();
-  dbi->TEST_CompactRange(0, nullptr, nullptr);
-  dbi->TEST_CompactRange(1, nullptr, nullptr);
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+  ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr));
+  ASSERT_OK(dbi->TEST_CompactRange(1, nullptr, nullptr));
 
   senv.count_random_reads_ = true;
   senv.random_read_counter_.Reset();
@@ -356,7 +359,7 @@ TEST_F(CorruptionTest, TableFileIndexData) {
   // build 2 tables, flush at 5000
   Build(10000, 5000);
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
-  dbi->TEST_FlushMemTable();
+  ASSERT_OK(dbi->TEST_FlushMemTable());
 
   // corrupt an index block of an entire file
   Corrupt(kTableFile, -2000, 500);
@@ -403,8 +406,8 @@ TEST_F(CorruptionTest, SequenceNumberRecovery) {
 TEST_F(CorruptionTest, CorruptedDescriptor) {
   ASSERT_OK(db_->Put(WriteOptions(), "foo", "hello"));
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
-  dbi->TEST_FlushMemTable();
-  dbi->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+  ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr));
 
   Corrupt(kDescriptorFile, 0, 1000);
   Status s = TryReopen();
@@ -422,9 +425,9 @@ TEST_F(CorruptionTest, CompactionInputError) {
   Reopen(&options);
   Build(10);
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
-  dbi->TEST_FlushMemTable();
-  dbi->TEST_CompactRange(0, nullptr, nullptr);
-  dbi->TEST_CompactRange(1, nullptr, nullptr);
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+  ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr));
+  ASSERT_OK(dbi->TEST_CompactRange(1, nullptr, nullptr));
   ASSERT_EQ(1, Property("rocksdb.num-files-at-level2"));
 
   Corrupt(kTableFile, 100, 1);
@@ -447,12 +450,12 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
 
   // Fill levels >= 1
   for (int level = 1; level < dbi->NumberLevels(); level++) {
-    dbi->Put(WriteOptions(), "", "begin");
-    dbi->Put(WriteOptions(), "~", "end");
-    dbi->TEST_FlushMemTable();
+    ASSERT_OK(dbi->Put(WriteOptions(), "", "begin"));
+    ASSERT_OK(dbi->Put(WriteOptions(), "~", "end"));
+    ASSERT_OK(dbi->TEST_FlushMemTable());
     for (int comp_level = 0; comp_level < dbi->NumberLevels() - level;
          ++comp_level) {
-      dbi->TEST_CompactRange(comp_level, nullptr, nullptr);
+      ASSERT_OK(dbi->TEST_CompactRange(comp_level, nullptr, nullptr));
     }
   }
 
@@ -460,8 +463,8 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
 
   dbi = static_cast_with_check<DBImpl>(db_);
   Build(10);
-  dbi->TEST_FlushMemTable();
-  dbi->TEST_WaitForCompact();
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+  ASSERT_OK(dbi->TEST_WaitForCompact());
   ASSERT_EQ(1, Property("rocksdb.num-files-at-level0"));
 
   CorruptTableFileAtLevel(0, 100, 1);
@@ -486,7 +489,7 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
 TEST_F(CorruptionTest, UnrelatedKeys) {
   Build(10);
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
-  dbi->TEST_FlushMemTable();
+  ASSERT_OK(dbi->TEST_FlushMemTable());
   Corrupt(kTableFile, 100, 1);
   ASSERT_NOK(dbi->VerifyChecksum());
 
@@ -495,7 +498,7 @@ TEST_F(CorruptionTest, UnrelatedKeys) {
   std::string v;
   ASSERT_OK(db_->Get(ReadOptions(), Key(1000, &tmp1), &v));
   ASSERT_EQ(Value(1000, &tmp2).ToString(), v);
-  dbi->TEST_FlushMemTable();
+  ASSERT_OK(dbi->TEST_FlushMemTable());
   ASSERT_OK(db_->Get(ReadOptions(), Key(1000, &tmp1), &v));
   ASSERT_EQ(Value(1000, &tmp2).ToString(), v);
 }
@@ -548,17 +551,17 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
     if (iter == 0) {  // corrupt file size
       std::unique_ptr<WritableFile> file;
       env_.NewWritableFile(filename, &file, EnvOptions());
-      file->Append(Slice("corrupted sst"));
+      ASSERT_OK(file->Append(Slice("corrupted sst")));
       file.reset();
       Status x = TryReopen(&options);
       ASSERT_TRUE(x.IsCorruption());
     } else {  // delete the file
-      env_.DeleteFile(filename);
+      ASSERT_OK(env_.DeleteFile(filename));
       Status x = TryReopen(&options);
       ASSERT_TRUE(x.IsPathNotFound());
     }
 
-    DestroyDB(dbname_, options_);
+    ASSERT_OK(DestroyDB(dbname_, options_));
   }
 }
 
@@ -577,6 +580,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnFlush) {
     delete db_;
     db_ = nullptr;
     s = DestroyDB(dbname_, options);
+    ASSERT_OK(s);
     std::shared_ptr<mock::MockTableFactory> mock =
         std::make_shared<mock::MockTableFactory>();
     options.table_factory = mock;

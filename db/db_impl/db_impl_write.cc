@@ -999,8 +999,10 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
     merged_batch = tmp_batch;
     for (auto writer : write_group) {
       if (!writer->CallbackFailed()) {
-        WriteBatchInternal::Append(merged_batch, writer->batch,
-                                   /*WAL_only*/ true);
+        Status s = WriteBatchInternal::Append(merged_batch, writer->batch,
+                                              /*WAL_only*/ true);
+        // Always returns Status::OK.
+        assert(s.ok());
         if (WriteBatchInternal::IsLatestPersistentState(writer->batch)) {
           // We only need to cache the last of such write batch
           *to_be_cached_state = writer->batch;
