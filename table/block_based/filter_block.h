@@ -153,9 +153,7 @@ class FilterBlockReader {
     return error_msg;
   }
 
-  virtual Status CacheDependencies(const ReadOptions& /*ro*/, bool /*pin*/) {
-    return Status::OK();
-  }
+  virtual void CacheDependencies(const ReadOptions& /*ro*/, bool /*pin*/) {}
 
   virtual bool RangeMayExist(const Slice* /*iterate_upper_bound*/,
                              const Slice& user_key,

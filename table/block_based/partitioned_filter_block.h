@@ -130,7 +130,7 @@ class PartitionedFilterBlockReader : public FilterBlockReaderCommon<Block> {
                          uint64_t block_offset, BlockHandle filter_handle,
                          bool no_io, BlockCacheLookupContext* lookup_context,
                          FilterManyFunction filter_function) const;
-  Status CacheDependencies(const ReadOptions& ro, bool pin) override;
+  void CacheDependencies(const ReadOptions& ro, bool pin) override;
 
   const InternalKeyComparator* internal_comparator() const;
   bool index_key_includes_seq() const;

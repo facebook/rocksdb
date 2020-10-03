@@ -1038,16 +1038,13 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     auto filter = new_table->CreateFilterBlockReader(
         ro, prefetch_buffer, use_cache, prefetch_filter, pin_filter,
         lookup_context);
-
     if (filter) {
-      rep_->filter = std::move(filter);
       // Refer to the comment above about paritioned indexes always being cached
       if (prefetch_all) {
-        s = rep_->filter->CacheDependencies(ro, pin_all);
-        if (!s.ok()) {
-          return s;
-        }
+        filter->CacheDependencies(ro, pin_all);
       }
+
+      rep_->filter = std::move(filter);
     }
   }
 

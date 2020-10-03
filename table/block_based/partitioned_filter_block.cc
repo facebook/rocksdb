@@ -412,8 +412,8 @@ size_t PartitionedFilterBlockReader::ApproximateMemoryUsage() const {
 }
 
 // TODO(myabandeh): merge this with the same function in IndexReader
-Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
-                                                       bool pin) {
+void PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
+                                                     bool pin) {
   assert(table());
 
   const BlockBasedTable::Rep* const rep = table()->get_rep();
@@ -426,11 +426,12 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   Status s = GetOrReadFilterBlock(false /* no_io */, nullptr /* get_context */,
                                   &lookup_context, &filter_block);
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(rep->ioptions.info_log,
-                    "Error retrieving top-level filter block while trying to "
-                    "cache filter partitions: %s",
-                    s.ToString().c_str());
-    return s;
+    ROCKS_LOG_WARN(rep->ioptions.info_log,
+                   "Error retrieving top-level filter block while trying to "
+                   "cache filter partitions: %s",
+                   s.ToString().c_str());
+    IGNORE_STATUS_IF_ERROR(s);
+    return;
   }
 
   // Before read partitions, prefetch them to avoid lots of IOs
@@ -464,9 +465,6 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
     s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
                                   static_cast<size_t>(prefetch_len));
   }
-  if (!s.ok()) {
-    return s;
-  }
 
   // After prefetch, read the partitions one by one
   for (biter.SeekToFirst(); biter.Valid(); biter.Next()) {
@@ -479,20 +477,17 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
         prefetch_buffer.get(), ro, handle, UncompressionDict::GetEmptyDict(),
         &block, BlockType::kFilter, nullptr /* get_context */, &lookup_context,
         nullptr /* contents */);
-    if (!s.ok()) {
-      return s;
-    }
-    assert(s.ok() || block.GetValue() == nullptr);
 
-    if (block.GetValue() != nullptr) {
+    assert(s.ok() || block.GetValue() == nullptr);
+    if (s.ok() && block.GetValue() != nullptr) {
       if (block.IsCached()) {
         if (pin) {
           filter_map_[handle.offset()] = std::move(block);
         }
       }
     }
+    IGNORE_STATUS_IF_ERROR(s);
   }
-  return biter.status();
 }
 
 const InternalKeyComparator* PartitionedFilterBlockReader::internal_comparator()
