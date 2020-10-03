@@ -379,18 +379,43 @@ jobs:
             /usr/bin/python ../gtest-parallel/gtest-parallel ./<< parameters.test_name >> --repeat << parameters.repeat >> --workers << parameters.workers >> --output_dir=/tmp <<# parameters.with_filter >> --gtest_filter=<< parameters.gtest_filter >> <</ parameters.with_filter >> | cat
 
 workflows:
-  build-linux-clang10-ubsan:
+  ubsan0:
     jobs:
       - build-linux-clang10-ubsan
+  ubsan1:
+    jobs:
       - build-linux-clang10-ubsan
+  ubsan2:
+    jobs:
       - build-linux-clang10-ubsan
+  ubsan3:
+    jobs:
       - build-linux-clang10-ubsan
+  ubsan4:
+    jobs:
       - build-linux-clang10-ubsan
+  ubsan5:
+    jobs:
       - build-linux-clang10-ubsan
+  ubsan6:
+    jobs:
       - build-linux-clang10-ubsan
+  ubsan7:
+    jobs:
       - build-linux-clang10-ubsan
+  ubsan8:
+    jobs:
       - build-linux-clang10-ubsan
+  ubsan9:
+    jobs:
       - build-linux-clang10-ubsan
+  ubsan10:
+    jobs:
+      - build-linux-clang10-ubsan
+  ubsan11:
+    jobs:
+      - build-linux-clang10-ubsan
+
 
 #  compaction-test:
 #    jobs:
