@@ -67,6 +67,10 @@ class Status {
   bool operator==(const Status& rhs) const;
   bool operator!=(const Status& rhs) const;
 
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+  inline bool Checked() const { return checked_; }
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+
   // In case of intentionally swallowing an error, user must explicitly call
   // this function. That way we are easily able to search the code to find where
   // error swallowing occurs.
@@ -155,7 +159,7 @@ class Status {
   }
 
   // Return a success status.
-  static Status OK() { return Status(); }
+  static Status OK() { return Status(kOk, kNone); }
 
   // Successful, though an existing something was overwritten
   // Note: using variants of OK status for program logic is discouraged,

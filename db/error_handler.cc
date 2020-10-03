@@ -244,10 +244,11 @@ void ErrorHandler::CancelErrorRecovery() {
 // This can also get called as part of a recovery operation. In that case, we
 // also track the error separately in recovery_error_ so we can tell in the
 // end whether recovery succeeded or not
-Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reason) {
+const Status& ErrorHandler::SetBGError(const Status& bg_err,
+                                       BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
   if (bg_err.ok()) {
-    return Status::OK();
+    return bg_err;
   }
 
   bool paranoid = db_options_.paranoid_checks;
@@ -324,11 +325,11 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
   return bg_error_;
 }
 
-Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
-                                BackgroundErrorReason reason) {
+const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
+                                       BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
   if (bg_io_err.ok()) {
-    return Status::OK();
+    return bg_io_err;
   }
   ROCKS_LOG_WARN(db_options_.info_log, "Background IO error %s",
                  bg_io_err.ToString().c_str());
@@ -405,12 +406,11 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       return StartRecoverFromRetryableBGIOError(bg_io_err);
     }
   } else {
-    s = SetBGError(new_bg_io_err, reason);
+    return SetBGError(new_bg_io_err, reason);
   }
-  return s;
 }
 
-Status ErrorHandler::OverrideNoSpaceError(Status bg_error,
+Status ErrorHandler::OverrideNoSpaceError(const Status& bg_error,
                                           bool* auto_recovery) {
 #ifndef ROCKSDB_LITE
   if (bg_error.severity() >= Status::Severity::kFatalError) {
@@ -537,14 +537,16 @@ Status ErrorHandler::RecoverFromBGError(bool is_manual) {
 #endif
 }
 
-Status ErrorHandler::StartRecoverFromRetryableBGIOError(IOStatus io_error) {
+const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
+    const IOStatus& io_error) {
 #ifndef ROCKSDB_LITE
   db_mutex_->AssertHeld();
-  if (bg_error_.ok() || io_error.ok()) {
-    return Status::OK();
-  }
-  if (db_options_.max_bgerror_resume_count <= 0 || recovery_in_prog_ ||
-      recovery_thread_) {
+  if (bg_error_.ok()) {
+    return bg_error_;
+  } else if (io_error.ok()) {
+    return io_error;
+  } else if (db_options_.max_bgerror_resume_count <= 0 || recovery_in_prog_ ||
+             recovery_thread_) {
     // Auto resume BG error is not enabled, directly return bg_error_.
     return bg_error_;
   }
@@ -554,7 +556,7 @@ Status ErrorHandler::StartRecoverFromRetryableBGIOError(IOStatus io_error) {
       new port::Thread(&ErrorHandler::RecoverFromRetryableBGIOError, this));
 
   if (recovery_io_error_.ok() && recovery_error_.ok()) {
-    return Status::OK();
+    return recovery_error_;
   } else {
     TEST_SYNC_POINT("StartRecoverRetryableBGIOError:RecoverFail");
     return bg_error_;

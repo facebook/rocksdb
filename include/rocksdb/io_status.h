@@ -69,7 +69,7 @@ class IOStatus : public Status {
   IOErrorScope GetScope() const { return scope_; }
 
   // Return a success status.
-  static IOStatus OK() { return IOStatus(); }
+  static IOStatus OK() { return IOStatus(kOk, kNone); }
 
   static IOStatus NotSupported(const Slice& msg, const Slice& msg2 = Slice()) {
     return IOStatus(kNotSupported, msg, msg2);
