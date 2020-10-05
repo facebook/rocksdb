@@ -3496,6 +3496,25 @@ INSTANTIATE_TEST_CASE_P(DBBasicTestDeadline, DBBasicTestDeadline,
                         ::testing::Values(std::make_tuple(true, false),
                                           std::make_tuple(false, true),
                                           std::make_tuple(true, true)));
+
+TEST_F(DBBasicTest, GetBlob) {
+  Options options;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  ASSERT_OK(Put(key, blob_value));
+
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(Get(key), blob_value);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
