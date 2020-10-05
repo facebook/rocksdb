@@ -27,38 +27,33 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBOptionsTest : public DBTestBase {
  public:
-  DBOptionsTest() : DBTestBase("/db_options_test") {}
+  DBOptionsTest() : DBTestBase("/db_options_test", /*env_do_fsync=*/true) {}
 
 #ifndef ROCKSDB_LITE
   std::unordered_map<std::string, std::string> GetMutableDBOptionsMap(
       const DBOptions& options) {
     std::string options_str;
-    GetStringFromDBOptions(&options_str, options);
-    std::unordered_map<std::string, std::string> options_map;
-    StringToMap(options_str, &options_map);
     std::unordered_map<std::string, std::string> mutable_map;
-    for (const auto opt : db_options_type_info) {
-      if (opt.second.is_mutable &&
-          opt.second.verification != OptionVerificationType::kDeprecated) {
-        mutable_map[opt.first] = options_map[opt.first];
-      }
-    }
+    ConfigOptions config_options;
+    config_options.delimiter = "; ";
+
+    EXPECT_OK(GetStringFromMutableDBOptions(
+        config_options, MutableDBOptions(options), &options_str));
+    EXPECT_OK(StringToMap(options_str, &mutable_map));
+
     return mutable_map;
   }
 
   std::unordered_map<std::string, std::string> GetMutableCFOptionsMap(
       const ColumnFamilyOptions& options) {
     std::string options_str;
-    GetStringFromColumnFamilyOptions(&options_str, options);
-    std::unordered_map<std::string, std::string> options_map;
-    StringToMap(options_str, &options_map);
+    ConfigOptions config_options;
+    config_options.delimiter = "; ";
+
     std::unordered_map<std::string, std::string> mutable_map;
-    for (const auto opt : cf_options_type_info) {
-      if (opt.second.is_mutable &&
-          opt.second.verification != OptionVerificationType::kDeprecated) {
-        mutable_map[opt.first] = options_map[opt.first];
-      }
-    }
+    EXPECT_OK(GetStringFromMutableCFOptions(
+        config_options, MutableCFOptions(options), &options_str));
+    EXPECT_OK(StringToMap(options_str, &mutable_map));
     return mutable_map;
   }
 
@@ -140,7 +135,7 @@ TEST_F(DBOptionsTest, SetBytesPerSync) {
   WriteOptions write_opts;
   // should sync approximately 40MB/1MB ~= 40 times.
   for (i = 0; i < 40; i++) {
-    Put(Key(i), kValue, write_opts);
+    ASSERT_OK(Put(Key(i), kValue, write_opts));
   }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -156,7 +151,7 @@ TEST_F(DBOptionsTest, SetBytesPerSync) {
   // should sync approximately 40MB*2/8MB ~= 10 times.
   // data will be 40*2MB because of previous Puts too.
   for (i = 0; i < 40; i++) {
-    Put(Key(i), kValue, write_opts);
+    ASSERT_OK(Put(Key(i), kValue, write_opts));
   }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -187,7 +182,7 @@ TEST_F(DBOptionsTest, SetWalBytesPerSync) {
   const std::string kValue(kValueSize, 'v');
   int i = 0;
   for (; i < 10; i++) {
-    Put(Key(i), kValue);
+    ASSERT_OK(Put(Key(i), kValue));
   }
   // Do not flush. If we flush here, SwitchWAL will reuse old WAL file since its
   // empty and will not get the new wal_bytes_per_sync value.
@@ -198,7 +193,7 @@ TEST_F(DBOptionsTest, SetWalBytesPerSync) {
   counter = 0;
   i = 0;
   for (; i < 10; i++) {
-    Put(Key(i), kValue);
+    ASSERT_OK(Put(Key(i), kValue));
   }
   ASSERT_GT(counter, 0);
   ASSERT_GT(low_bytes_per_sync, 0);
@@ -233,9 +228,9 @@ TEST_F(DBOptionsTest, WritableFileMaxBufferSize) {
   for (; i < 3; i++) {
     ASSERT_OK(Put("foo", ToString(i)));
     ASSERT_OK(Put("bar", ToString(i)));
-    Flush();
+    ASSERT_OK(Flush());
   }
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(unmatch_cnt, 0);
   ASSERT_GE(match_cnt, 11);
 
@@ -251,9 +246,9 @@ TEST_F(DBOptionsTest, WritableFileMaxBufferSize) {
   for (; i < 3; i++) {
     ASSERT_OK(Put("foo", ToString(i)));
     ASSERT_OK(Put("bar", ToString(i)));
-    Flush();
+    ASSERT_OK(Flush());
   }
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(unmatch_cnt, 0);
   ASSERT_GE(match_cnt, 11);
 }
@@ -289,14 +284,14 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
       DestroyAndReopen(options);
       int i = 0;
       for (; i < 1024; i++) {
-        Put(Key(i), kValue);
+        ASSERT_OK(Put(Key(i), kValue));
       }
-      Flush();
+      ASSERT_OK(Flush());
       for (; i < 1024 * 2; i++) {
-        Put(Key(i), kValue);
+        ASSERT_OK(Put(Key(i), kValue));
       }
-      Flush();
-      dbfull()->TEST_WaitForFlushMemTable();
+      ASSERT_OK(Flush());
+      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
       ASSERT_EQ(2, NumTableFilesAtLevel(0));
       uint64_t l0_size = SizeAtLevel(0);
 
@@ -318,7 +313,7 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
           break;
       }
       Reopen(options);
-      dbfull()->TEST_WaitForCompact();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
       ASSERT_FALSE(dbfull()->TEST_write_controler().IsStopped());
       ASSERT_FALSE(dbfull()->TEST_write_controler().NeedsDelay());
 
@@ -365,7 +360,7 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
       TEST_SYNC_POINT("DBOptionsTest::EnableAutoCompactionAndTriggerStall:3");
 
       // Background compaction executed.
-      dbfull()->TEST_WaitForCompact();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
       ASSERT_FALSE(dbfull()->TEST_write_controler().IsStopped());
       ASSERT_FALSE(dbfull()->TEST_write_controler().NeedsDelay());
     }
@@ -382,12 +377,12 @@ TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
     // Need to insert two keys to avoid trivial move.
     ASSERT_OK(Put("foo", ToString(i)));
     ASSERT_OK(Put("bar", ToString(i)));
-    Flush();
+    ASSERT_OK(Flush());
   }
   ASSERT_EQ("3", FilesPerLevel());
   ASSERT_OK(
       dbfull()->SetOptions({{"level0_file_num_compaction_trigger", "3"}}));
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,1", FilesPerLevel());
 }
 
@@ -403,6 +398,20 @@ TEST_F(DBOptionsTest, SetBackgroundCompactionThreads) {
   auto stop_token = dbfull()->TEST_write_controler().GetStopToken();
   ASSERT_EQ(3, dbfull()->TEST_BGCompactionsAllowed());
 }
+
+TEST_F(DBOptionsTest, SetBackgroundFlushThreads) {
+  Options options;
+  options.create_if_missing = true;
+  options.max_background_flushes = 1;
+  options.env = env_;
+  Reopen(options);
+  ASSERT_EQ(1, dbfull()->TEST_BGFlushesAllowed());
+  ASSERT_EQ(1, env_->GetBackgroundThreads(Env::Priority::HIGH));
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_background_flushes", "3"}}));
+  ASSERT_EQ(3, env_->GetBackgroundThreads(Env::Priority::HIGH));
+  ASSERT_EQ(3, dbfull()->TEST_BGFlushesAllowed());
+}
+
 
 TEST_F(DBOptionsTest, SetBackgroundJobs) {
   Options options;
@@ -476,8 +485,7 @@ TEST_F(DBOptionsTest, SetDelayedWriteRateOption) {
 TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
   Random rnd(1044);
   const auto value_size = size_t(1024);
-  std::string value;
-  test::RandomString(&rnd, value_size, &value);
+  std::string value = rnd.RandomString(value_size);
 
   Options options;
   options.create_if_missing = true;
@@ -496,7 +504,7 @@ TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
   ASSERT_OK(dbfull()->SetDBOptions({{"max_total_wal_size", "10"}}));
 
   for (size_t cf = 0; cf < handles_.size(); ++cf) {
-    dbfull()->TEST_WaitForFlushMemTable(handles_[cf]);
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[cf]));
     ASSERT_EQ("1", FilesPerLevel(static_cast<int>(cf)));
   }
 }
@@ -547,10 +555,9 @@ static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
 }
 
 TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
-  SpecialEnv env(env_);
-  env.time_elapse_only_sleep_ = true;
   Options options;
-  options.env = &env;
+  options.env = env_;
+  SetTimeElapseOnlySleepOnReopen(&options);
   options.create_if_missing = true;
   ASSERT_OK(TryReopen(options));
 
@@ -569,10 +576,10 @@ TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
 
   assert_candidate_files_empty(dbfull(), true);
 
-  env.addon_time_.store(20);
+  env_->MockSleepForMicroseconds(20);
   assert_candidate_files_empty(dbfull(), true);
 
-  env.addon_time_.store(21);
+  env_->MockSleepForMicroseconds(1);
   assert_candidate_files_empty(dbfull(), false);
 
   Close();
@@ -686,11 +693,12 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   options.compression = kNoCompression;
   options.create_if_missing = true;
   options.compaction_options_fifo.allow_compaction = false;
-  env_->time_elapse_only_sleep_ = false;
+  env_->SetMockSleep();
   options.env = env_;
 
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   // Test dynamically changing ttl.
-  env_->addon_time_.store(0);
   options.ttl = 1 * 60 * 60;  // 1 hour
   ASSERT_OK(TryReopen(options));
 
@@ -698,30 +706,30 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
     Flush();
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
-  // Add 61 seconds to the time.
-  env_->addon_time_.fetch_add(61);
+  env_->MockSleepForSeconds(61);
 
   // No files should be compacted as ttl is set to 1 hour.
   ASSERT_EQ(dbfull()->GetOptions().ttl, 3600);
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
   // Set ttl to 1 minute. So all files should get deleted.
   ASSERT_OK(dbfull()->SetOptions({{"ttl", "60"}}));
   ASSERT_EQ(dbfull()->GetOptions().ttl, 60);
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   // Test dynamically changing compaction_options_fifo.max_table_files_size
-  env_->addon_time_.store(0);
   options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 00KB
   options.ttl = 0;
   DestroyAndReopen(options);
@@ -729,9 +737,9 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
-    Flush();
+    ASSERT_OK(Flush());
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
@@ -739,7 +747,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   // No files should be compacted as max_table_files_size is set to 500 KB.
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
             500 << 10);
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
   // Set max_table_files_size to 12 KB. So only 1 file should remain now.
@@ -747,7 +755,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
       {{"compaction_options_fifo", "{max_table_files_size=12288;}"}}));
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
             12 << 10);
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
 
@@ -761,9 +769,9 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
-    Flush();
+    ASSERT_OK(Flush());
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
@@ -772,7 +780,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   // allow_compaction is false
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
             false);
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
 
   // Set allow_compaction to true. So number of files should be between 1 and 5.
@@ -780,7 +788,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
       {{"compaction_options_fifo", "{allow_compaction=true;}"}}));
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.allow_compaction,
             true);
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_GE(NumTableFilesAtLevel(0), 1);
   ASSERT_LE(NumTableFilesAtLevel(0), 5);
@@ -801,14 +809,14 @@ TEST_F(DBOptionsTest, CompactionReadaheadSizeChange) {
   ASSERT_OK(dbfull()->SetDBOptions({{"compaction_readahead_size", "256"}}));
   ASSERT_EQ(256, dbfull()->GetDBOptions().compaction_readahead_size);
   for (int i = 0; i < 1024; i++) {
-    Put(Key(i), kValue);
+    ASSERT_OK(Put(Key(i), kValue));
   }
-  Flush();
+  ASSERT_OK(Flush());
   for (int i = 0; i < 1024 * 2; i++) {
-    Put(Key(i), kValue);
+    ASSERT_OK(Put(Key(i), kValue));
   }
-  Flush();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(256, env_->compaction_readahead_size_);
   Close();
 }
@@ -825,9 +833,9 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   for (int i = 0; i < 10; i++) {
     // Generate and flush a file about 10KB.
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(ToString(i * 20 + j), RandomString(&rnd, 980)));
+      ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
-    Flush();
+    ASSERT_OK(Flush());
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);
@@ -857,6 +865,66 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   ASSERT_EQ(dbfull()->GetOptions().compaction_options_fifo.max_table_files_size,
             1024);
   ASSERT_EQ(dbfull()->GetOptions().ttl, 191);
+}
+
+TEST_F(DBOptionsTest, ChangeCompression) {
+  if (!Snappy_Supported() || !LZ4_Supported()) {
+    return;
+  }
+  Options options;
+  options.write_buffer_size = 10 << 10;  // 10KB
+  options.level0_file_num_compaction_trigger = 2;
+  options.create_if_missing = true;
+  options.compression = CompressionType::kLZ4Compression;
+  options.bottommost_compression = CompressionType::kNoCompression;
+  options.bottommost_compression_opts.level = 2;
+  options.bottommost_compression_opts.parallel_threads = 1;
+
+  ASSERT_OK(TryReopen(options));
+
+  CompressionType compression_used = CompressionType::kLZ4Compression;
+  CompressionOptions compression_opt_used;
+  bool compacted = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* c = reinterpret_cast<Compaction*>(arg);
+        compression_used = c->output_compression();
+        compression_opt_used = c->output_compression_opts();
+        compacted = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put("foo", "foofoofoo"));
+  ASSERT_OK(Put("bar", "foofoofoo"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "foofoofoo"));
+  ASSERT_OK(Put("bar", "foofoofoo"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_TRUE(compacted);
+  ASSERT_EQ(CompressionType::kNoCompression, compression_used);
+  ASSERT_EQ(options.compression_opts.level, compression_opt_used.level);
+  ASSERT_EQ(options.compression_opts.parallel_threads,
+            compression_opt_used.parallel_threads);
+
+  compression_used = CompressionType::kLZ4Compression;
+  compacted = false;
+  ASSERT_OK(dbfull()->SetOptions(
+      {{"bottommost_compression", "kSnappyCompression"},
+       {"bottommost_compression_opts", "0:6:0:0:4:true"}}));
+  ASSERT_OK(Put("foo", "foofoofoo"));
+  ASSERT_OK(Put("bar", "foofoofoo"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "foofoofoo"));
+  ASSERT_OK(Put("bar", "foofoofoo"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_TRUE(compacted);
+  ASSERT_EQ(CompressionType::kSnappyCompression, compression_used);
+  ASSERT_EQ(6, compression_opt_used.level);
+  // Right now parallel_level is not yet allowed to be changed.
+
+  SyncPoint::GetInstance()->DisableProcessing();
 }
 
 #endif  // ROCKSDB_LITE

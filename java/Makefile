@@ -25,6 +25,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.CompactRangeOptions\
 	org.rocksdb.ComparatorOptions\
 	org.rocksdb.CompressionOptions\
+	org.rocksdb.ConfigOptions\
 	org.rocksdb.DBOptions\
 	org.rocksdb.DirectSlice\
 	org.rocksdb.Env\
@@ -35,6 +36,8 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.HashLinkedListMemTableConfig\
 	org.rocksdb.HashSkipListMemTableConfig\
 	org.rocksdb.HdfsEnv\
+	org.rocksdb.ConcurrentTaskLimiter\
+	org.rocksdb.ConcurrentTaskLimiterImpl\
 	org.rocksdb.Logger\
 	org.rocksdb.LRUCache\
 	org.rocksdb.MemoryUsageType\
@@ -62,6 +65,8 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.SstFileWriter\
 	org.rocksdb.SstFileReader\
 	org.rocksdb.SstFileReaderIterator\
+	org.rocksdb.SstPartitionerFactory\
+	org.rocksdb.SstPartitionerFixedPrefixFactory\
 	org.rocksdb.Statistics\
 	org.rocksdb.ThreadStatus\
 	org.rocksdb.TimedEnv\
@@ -132,6 +137,7 @@ JAVA_TESTS = \
 	org.rocksdb.FlushTest\
 	org.rocksdb.InfoLogLevelTest\
 	org.rocksdb.KeyMayExistTest\
+	org.rocksdb.ConcurrentTaskLimiterTest\
 	org.rocksdb.LoggerTest\
 	org.rocksdb.LRUCacheTest\
 	org.rocksdb.MemoryUtilTest\
@@ -158,11 +164,13 @@ JAVA_TESTS = \
 	org.rocksdb.RocksIteratorTest\
 	org.rocksdb.RocksMemEnvTest\
 	org.rocksdb.util.SizeUnitTest\
+	org.rocksdb.SecondaryDBTest\
 	org.rocksdb.SliceTest\
 	org.rocksdb.SnapshotTest\
 	org.rocksdb.SstFileManagerTest\
 	org.rocksdb.SstFileWriterTest\
 	org.rocksdb.SstFileReaderTest\
+	org.rocksdb.SstPartitionerTest\
 	org.rocksdb.TableFilterTest\
 	org.rocksdb.TimedEnvTest\
 	org.rocksdb.TransactionTest\
@@ -207,21 +215,19 @@ JAVA_TESTCLASSPATH = $(JAVA_JUNIT_JAR):$(JAVA_HAMCR_JAR):$(JAVA_MOCKITO_JAR):$(J
 MVN_LOCAL = ~/.m2/repository
 
 # Set the default JAVA_ARGS to "" for DEBUG_LEVEL=0
-JAVA_ARGS? =
+JAVA_ARGS ?=
 
-JAVAC_ARGS? =
+JAVAC_ARGS ?=
 
 # When debugging add -Xcheck:jni to the java args
 ifneq ($(DEBUG_LEVEL),0)
-	JAVA_ARGS = -ea -Xcheck:jni
-	JAVAC_ARGS = -Xlint:deprecation -Xlint:unchecked
+	JAVA_ARGS += -ea -Xcheck:jni
+	JAVAC_ARGS += -Xlint:deprecation -Xlint:unchecked
 endif
 
-# This is a URL for artifacts from a "fake" release on pdillinger's fork,
-# so as not to put binaries in git (ew). We should move to hosting these
-# under the facebook account on github, or something else more reliable
-# than maven.org, which has been failing frequently from Travis.
-DEPS_URL?=https://github.com/pdillinger/rocksdb/releases/download/v6.6.x-java-deps
+# Using a Facebook AWS account for S3 storage. (maven.org has a history
+# of failing in Travis builds.)
+DEPS_URL?=https://rocksdb-deps.s3-us-west-2.amazonaws.com/jars
 
 clean: clean-not-downloaded clean-downloaded
 

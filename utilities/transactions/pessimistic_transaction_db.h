@@ -75,8 +75,7 @@ class PessimisticTransactionDB : public TransactionDB {
     Transaction* txn = BeginInternalTransaction(opts);
     txn->DisableIndexing();
 
-    auto txn_impl =
-        static_cast_with_check<PessimisticTransaction, Transaction>(txn);
+    auto txn_impl = static_cast_with_check<PessimisticTransaction>(txn);
 
     // Since commitBatch sorts the keys before locking, concurrent Write()
     // operations will not cause a deadlock.
@@ -100,7 +99,7 @@ class PessimisticTransactionDB : public TransactionDB {
   Status TryLock(PessimisticTransaction* txn, uint32_t cfh_id,
                  const std::string& key, bool exclusive);
 
-  void UnLock(PessimisticTransaction* txn, const TransactionKeyMap* keys);
+  void UnLock(PessimisticTransaction* txn, const LockTracker& keys);
   void UnLock(PessimisticTransaction* txn, uint32_t cfh_id,
               const std::string& key);
 

@@ -172,6 +172,10 @@ struct TransactionOptions {
   // Default: false
   bool skip_concurrency_control = false;
 
+  // In pessimistic transaction, if this is true, then you can skip Prepare
+  // before Commit, otherwise, you must Prepare before Commit.
+  bool skip_prepare = true;
+
   // See TransactionDBOptions::default_write_batch_flush_threshold for
   // description. If a negative value is specified, then the default value from
   // TransactionDBOptions is used.

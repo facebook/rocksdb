@@ -65,12 +65,14 @@ class MemTableListTest : public testing::Test {
   ~MemTableListTest() override {
     if (db) {
       std::vector<ColumnFamilyDescriptor> cf_descs(handles.size());
+#ifndef ROCKSDB_LITE
       for (int i = 0; i != static_cast<int>(handles.size()); ++i) {
-        handles[i]->GetDescriptor(&cf_descs[i]);
+        EXPECT_OK(handles[i]->GetDescriptor(&cf_descs[i]));
       }
+#endif  // !ROCKSDB_LITE
       for (auto h : handles) {
         if (h) {
-          db->DestroyColumnFamilyHandle(h);
+          EXPECT_OK(db->DestroyColumnFamilyHandle(h));
         }
       }
       handles.clear();
@@ -92,7 +94,6 @@ class MemTableListTest : public testing::Test {
     CreateDB();
     // Create a mock VersionSet
     DBOptions db_options;
-    db_options.file_system = FileSystem::Default();
     ImmutableDBOptions immutable_db_options(db_options);
     EnvOptions env_options;
     std::shared_ptr<Cache> table_cache(NewLRUCache(50000, 16));
@@ -101,7 +102,8 @@ class MemTableListTest : public testing::Test {
 
     VersionSet versions(dbname, &immutable_db_options, env_options,
                         table_cache.get(), &write_buffer_manager,
-                        &write_controller, /*block_cache_tracer=*/nullptr);
+                        &write_controller, /*block_cache_tracer=*/nullptr,
+                        /*io_tracer=*/nullptr);
     std::vector<ColumnFamilyDescriptor> cf_descs;
     cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
     cf_descs.emplace_back("one", ColumnFamilyOptions());
@@ -115,13 +117,15 @@ class MemTableListTest : public testing::Test {
     auto cfd = column_family_set->GetDefault();
     EXPECT_TRUE(nullptr != cfd);
     uint64_t file_num = file_number.fetch_add(1);
+    IOStatus io_s;
     // Create dummy mutex.
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
     std::list<std::unique_ptr<FlushJobInfo>> flush_jobs_info;
     Status s = list->TryInstallMemtableFlushResults(
         cfd, mutable_cf_options, m, &dummy_prep_tracker, &versions, &mutex,
-        file_num, to_delete, nullptr, &log_buffer, &flush_jobs_info);
+        file_num, to_delete, nullptr, &log_buffer, &flush_jobs_info, &io_s);
+    EXPECT_OK(io_s);
     return s;
   }
 
@@ -139,7 +143,6 @@ class MemTableListTest : public testing::Test {
     CreateDB();
     // Create a mock VersionSet
     DBOptions db_options;
-    db_options.file_system.reset(new LegacyFileSystemWrapper(db_options.env));
 
     ImmutableDBOptions immutable_db_options(db_options);
     EnvOptions env_options;
@@ -149,7 +152,8 @@ class MemTableListTest : public testing::Test {
 
     VersionSet versions(dbname, &immutable_db_options, env_options,
                         table_cache.get(), &write_buffer_manager,
-                        &write_controller, /*block_cache_tracer=*/nullptr);
+                        &write_controller, /*block_cache_tracer=*/nullptr,
+                        /*io_tracer=*/nullptr);
     std::vector<ColumnFamilyDescriptor> cf_descs;
     cf_descs.emplace_back(kDefaultColumnFamilyName, ColumnFamilyOptions());
     cf_descs.emplace_back("one", ColumnFamilyOptions());

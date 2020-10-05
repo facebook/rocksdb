@@ -23,6 +23,8 @@
 #include <thread>
 #include <vector>
 
+// TODO: port this example to other systems. It should be straightforward for
+// POSIX-compliant systems.
 #if defined(OS_LINUX)
 #include <dirent.h>
 #include <signal.h>
@@ -30,7 +32,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#endif  // !OS_LINUX
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -136,9 +137,6 @@ static Slice GenerateRandomValue(const size_t max_length, char scratch[]) {
 
 static bool ShouldCloseDB() { return true; }
 
-// TODO: port this example to other systems. It should be straightforward for
-// POSIX-compliant systems.
-#if defined(OS_LINUX)
 void CreateDB() {
   long my_pid = static_cast<long>(getpid());
   Options options;
@@ -301,7 +299,7 @@ void RunSecondary() {
       std::string value;
       db->Get(ropts, key, &value);
     }
-    fprintf(stdout, "[process %ld] Point lookup thread finished\n");
+    fprintf(stdout, "[process %ld] Point lookup thread finished\n", my_pid);
   });
 
   uint64_t curr_key = 0;
@@ -389,7 +387,7 @@ int main(int argc, char** argv) {
 }
 #else   // OS_LINUX
 int main() {
-  fpritnf(stderr, "Not implemented.\n");
+  fprintf(stderr, "Not implemented.\n");
   return 0;
 }
 #endif  // !OS_LINUX

@@ -87,9 +87,9 @@ class FullFilterBlockReader
                         CachableEntry<ParsedFullFilterBlock>&& filter_block);
 
   static std::unique_ptr<FilterBlockReader> Create(
-      const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
-      bool use_cache, bool prefetch, bool pin,
-      BlockCacheLookupContext* lookup_context);
+      const BlockBasedTable* table, const ReadOptions& ro,
+      FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
+      bool pin, BlockCacheLookupContext* lookup_context);
 
   bool IsBlockBased() override { return false; }
 
@@ -119,7 +119,7 @@ class FullFilterBlockReader
                      const SliceTransform* prefix_extractor,
                      const Comparator* comparator,
                      const Slice* const const_ikey_ptr, bool* filter_checked,
-                     bool need_upper_bound_check,
+                     bool need_upper_bound_check, bool no_io,
                      BlockCacheLookupContext* lookup_context) override;
 
  private:

@@ -20,22 +20,6 @@ namespace ROCKSDB_NAMESPACE {
 // Options::env only, whereas in the latter case, the user will specify
 // Options::env and Options::file_system.
 
-inline IOStatus status_to_io_status(Status&& status) {
-  if (status.ok()) {
-    // Fast path
-    return IOStatus::OK();
-  } else {
-    const char* state = status.getState();
-    if (state) {
-      return IOStatus(status.code(), status.subcode(),
-                      Slice(state, strlen(status.getState()) + 1),
-                      Slice());
-    } else {
-      return IOStatus(status.code(), status.subcode());
-    }
-  }
-}
-
 class CompositeSequentialFileWrapper : public SequentialFile {
  public:
   explicit CompositeSequentialFileWrapper(
@@ -291,14 +275,19 @@ class CompositeEnvWrapper : public Env {
  public:
   // Initialize a CompositeEnvWrapper that delegates all thread/time related
   // calls to env, and all file operations to fs
-  explicit CompositeEnvWrapper(Env* env, FileSystem* fs)
-      : env_target_(env), fs_env_target_(fs) {}
+  explicit CompositeEnvWrapper(Env* env, std::shared_ptr<FileSystem> fs)
+      : Env(fs), env_target_(env) {}
   ~CompositeEnvWrapper() {}
 
   // Return the target to which this Env forwards all calls
   Env* env_target() const { return env_target_; }
 
-  FileSystem* fs_env_target() const { return fs_env_target_; }
+  Status RegisterDbPaths(const std::vector<std::string>& paths) override {
+    return file_system_->RegisterDbPaths(paths);
+  }
+  Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
+    return file_system_->UnregisterDbPaths(paths);
+  }
 
   // The following text is boilerplate that forwards all methods to target()
   Status NewSequentialFile(const std::string& f,
@@ -308,7 +297,7 @@ class CompositeEnvWrapper : public Env {
     std::unique_ptr<FSSequentialFile> file;
     Status status;
     status =
-        fs_env_target_->NewSequentialFile(f, FileOptions(options), &file, &dbg);
+        file_system_->NewSequentialFile(f, FileOptions(options), &file, &dbg);
     if (status.ok()) {
       r->reset(new CompositeSequentialFileWrapper(file));
     }
@@ -320,8 +309,8 @@ class CompositeEnvWrapper : public Env {
     IODebugContext dbg;
     std::unique_ptr<FSRandomAccessFile> file;
     Status status;
-    status = fs_env_target_->NewRandomAccessFile(f, FileOptions(options), &file,
-                                                 &dbg);
+    status =
+        file_system_->NewRandomAccessFile(f, FileOptions(options), &file, &dbg);
     if (status.ok()) {
       r->reset(new CompositeRandomAccessFileWrapper(file));
     }
@@ -333,7 +322,7 @@ class CompositeEnvWrapper : public Env {
     std::unique_ptr<FSWritableFile> file;
     Status status;
     status =
-        fs_env_target_->NewWritableFile(f, FileOptions(options), &file, &dbg);
+        file_system_->NewWritableFile(f, FileOptions(options), &file, &dbg);
     if (status.ok()) {
       r->reset(new CompositeWritableFileWrapper(file));
     }
@@ -345,8 +334,8 @@ class CompositeEnvWrapper : public Env {
     IODebugContext dbg;
     Status status;
     std::unique_ptr<FSWritableFile> file;
-    status = fs_env_target_->ReopenWritableFile(fname, FileOptions(options),
-                                                &file, &dbg);
+    status = file_system_->ReopenWritableFile(fname, FileOptions(options),
+                                              &file, &dbg);
     if (status.ok()) {
       result->reset(new CompositeWritableFileWrapper(file));
     }
@@ -359,8 +348,8 @@ class CompositeEnvWrapper : public Env {
     IODebugContext dbg;
     Status status;
     std::unique_ptr<FSWritableFile> file;
-    status = fs_env_target_->ReuseWritableFile(
-        fname, old_fname, FileOptions(options), &file, &dbg);
+    status = file_system_->ReuseWritableFile(fname, old_fname,
+                                             FileOptions(options), &file, &dbg);
     if (status.ok()) {
       r->reset(new CompositeWritableFileWrapper(file));
     }
@@ -372,8 +361,8 @@ class CompositeEnvWrapper : public Env {
     IODebugContext dbg;
     std::unique_ptr<FSRandomRWFile> file;
     Status status;
-    status = fs_env_target_->NewRandomRWFile(fname, FileOptions(options), &file,
-                                             &dbg);
+    status =
+        file_system_->NewRandomRWFile(fname, FileOptions(options), &file, &dbg);
     if (status.ok()) {
       result->reset(new CompositeRandomRWFileWrapper(file));
     }
@@ -382,7 +371,7 @@ class CompositeEnvWrapper : public Env {
   Status NewMemoryMappedFileBuffer(
       const std::string& fname,
       std::unique_ptr<MemoryMappedFileBuffer>* result) override {
-    return fs_env_target_->NewMemoryMappedFileBuffer(fname, result);
+    return file_system_->NewMemoryMappedFileBuffer(fname, result);
   }
   Status NewDirectory(const std::string& name,
                       std::unique_ptr<Directory>* result) override {
@@ -390,7 +379,7 @@ class CompositeEnvWrapper : public Env {
     IODebugContext dbg;
     std::unique_ptr<FSDirectory> dir;
     Status status;
-    status = fs_env_target_->NewDirectory(name, io_opts, &dir, &dbg);
+    status = file_system_->NewDirectory(name, io_opts, &dir, &dbg);
     if (status.ok()) {
       result->reset(new CompositeDirectoryWrapper(dir));
     }
@@ -399,102 +388,114 @@ class CompositeEnvWrapper : public Env {
   Status FileExists(const std::string& f) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->FileExists(f, io_opts, &dbg);
+    return file_system_->FileExists(f, io_opts, &dbg);
   }
   Status GetChildren(const std::string& dir,
                      std::vector<std::string>* r) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->GetChildren(dir, io_opts, r, &dbg);
+    return file_system_->GetChildren(dir, io_opts, r, &dbg);
   }
   Status GetChildrenFileAttributes(
       const std::string& dir, std::vector<FileAttributes>* result) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->GetChildrenFileAttributes(dir, io_opts, result,
-                                                     &dbg);
+    return file_system_->GetChildrenFileAttributes(dir, io_opts, result, &dbg);
   }
   Status DeleteFile(const std::string& f) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->DeleteFile(f, io_opts, &dbg);
+    return file_system_->DeleteFile(f, io_opts, &dbg);
   }
   Status Truncate(const std::string& fname, size_t size) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->Truncate(fname, size, io_opts, &dbg);
+    return file_system_->Truncate(fname, size, io_opts, &dbg);
   }
   Status CreateDir(const std::string& d) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->CreateDir(d, io_opts, &dbg);
+    return file_system_->CreateDir(d, io_opts, &dbg);
   }
   Status CreateDirIfMissing(const std::string& d) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->CreateDirIfMissing(d, io_opts, &dbg);
+    return file_system_->CreateDirIfMissing(d, io_opts, &dbg);
   }
   Status DeleteDir(const std::string& d) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->DeleteDir(d, io_opts, &dbg);
+    return file_system_->DeleteDir(d, io_opts, &dbg);
   }
   Status GetFileSize(const std::string& f, uint64_t* s) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->GetFileSize(f, io_opts, s, &dbg);
+    return file_system_->GetFileSize(f, io_opts, s, &dbg);
   }
 
   Status GetFileModificationTime(const std::string& fname,
                                  uint64_t* file_mtime) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->GetFileModificationTime(fname, io_opts, file_mtime,
-                                                   &dbg);
+    return file_system_->GetFileModificationTime(fname, io_opts, file_mtime,
+                                                 &dbg);
   }
 
   Status RenameFile(const std::string& s, const std::string& t) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->RenameFile(s, t, io_opts, &dbg);
+    return file_system_->RenameFile(s, t, io_opts, &dbg);
   }
 
   Status LinkFile(const std::string& s, const std::string& t) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->LinkFile(s, t, io_opts, &dbg);
+    return file_system_->LinkFile(s, t, io_opts, &dbg);
   }
 
   Status NumFileLinks(const std::string& fname, uint64_t* count) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->NumFileLinks(fname, io_opts, count, &dbg);
+    return file_system_->NumFileLinks(fname, io_opts, count, &dbg);
   }
 
   Status AreFilesSame(const std::string& first, const std::string& second,
                       bool* res) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->AreFilesSame(first, second, io_opts, res, &dbg);
+    return file_system_->AreFilesSame(first, second, io_opts, res, &dbg);
   }
 
   Status LockFile(const std::string& f, FileLock** l) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->LockFile(f, io_opts, l, &dbg);
+    return file_system_->LockFile(f, io_opts, l, &dbg);
   }
 
   Status UnlockFile(FileLock* l) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->UnlockFile(l, io_opts, &dbg);
+    return file_system_->UnlockFile(l, io_opts, &dbg);
   }
 
   Status GetAbsolutePath(const std::string& db_path,
                          std::string* output_path) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->GetAbsolutePath(db_path, io_opts, output_path, &dbg);
+    return file_system_->GetAbsolutePath(db_path, io_opts, output_path, &dbg);
+  }
+
+  Status NewLogger(const std::string& fname,
+                   std::shared_ptr<Logger>* result) override {
+    IOOptions io_opts;
+    IODebugContext dbg;
+    return file_system_->NewLogger(fname, io_opts, result, &dbg);
+  }
+
+  Status IsDirectory(const std::string& path, bool* is_dir) override {
+    IOOptions io_opts;
+    IODebugContext dbg;
+    return file_system_->IsDirectory(path, io_opts, is_dir, &dbg);
   }
 
 #if !defined(OS_WIN) && !defined(ROCKSDB_NO_DYNAMIC_EXTENSION)
@@ -522,11 +523,9 @@ class CompositeEnvWrapper : public Env {
     return env_target_->GetThreadPoolQueueLen(pri);
   }
   Status GetTestDirectory(std::string* path) override {
-    return env_target_->GetTestDirectory(path);
-  }
-  Status NewLogger(const std::string& fname,
-                   std::shared_ptr<Logger>* result) override {
-    return env_target_->NewLogger(fname, result);
+    IOOptions io_opts;
+    IODebugContext dbg;
+    return file_system_->GetTestDirectory(io_opts, path, &dbg);
   }
   uint64_t NowMicros() override { return env_target_->NowMicros(); }
   uint64_t NowNanos() override { return env_target_->NowNanos(); }
@@ -556,12 +555,16 @@ class CompositeEnvWrapper : public Env {
     return env_target_->IncBackgroundThreadsIfNeeded(num, pri);
   }
 
-  void LowerThreadPoolIOPriority(Priority pool = LOW) override {
+  void LowerThreadPoolIOPriority(Priority pool) override {
     env_target_->LowerThreadPoolIOPriority(pool);
   }
 
-  void LowerThreadPoolCPUPriority(Priority pool = LOW) override {
+  void LowerThreadPoolCPUPriority(Priority pool) override {
     env_target_->LowerThreadPoolCPUPriority(pool);
+  }
+
+  Status LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
+    return env_target_->LowerThreadPoolCPUPriority(pool, pri);
   }
 
   std::string TimeToString(uint64_t time) override {
@@ -583,46 +586,46 @@ class CompositeEnvWrapper : public Env {
   }
 
   EnvOptions OptimizeForLogRead(const EnvOptions& env_options) const override {
-    return fs_env_target_->OptimizeForLogRead(FileOptions(env_options));
+    return file_system_->OptimizeForLogRead(FileOptions(env_options));
   }
   EnvOptions OptimizeForManifestRead(
       const EnvOptions& env_options) const override {
-    return fs_env_target_->OptimizeForManifestRead(
-                                FileOptions(env_options));
+    return file_system_->OptimizeForManifestRead(FileOptions(env_options));
   }
   EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
                                  const DBOptions& db_options) const override {
-    return fs_env_target_->OptimizeForLogWrite(FileOptions(env_options),
-                                               db_options);
+    return file_system_->OptimizeForLogWrite(FileOptions(env_options),
+                                             db_options);
   }
   EnvOptions OptimizeForManifestWrite(
       const EnvOptions& env_options) const override {
-    return fs_env_target_->OptimizeForManifestWrite(
-                                FileOptions(env_options));
+    return file_system_->OptimizeForManifestWrite(FileOptions(env_options));
   }
   EnvOptions OptimizeForCompactionTableWrite(
       const EnvOptions& env_options,
       const ImmutableDBOptions& immutable_ops) const override {
-    return fs_env_target_->OptimizeForCompactionTableWrite(
-                                FileOptions(env_options),
-                                immutable_ops);
+    return file_system_->OptimizeForCompactionTableWrite(
+        FileOptions(env_options), immutable_ops);
   }
   EnvOptions OptimizeForCompactionTableRead(
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const override {
-    return fs_env_target_->OptimizeForCompactionTableRead(
-                                FileOptions(env_options),
-                                db_options);
+    return file_system_->OptimizeForCompactionTableRead(
+        FileOptions(env_options), db_options);
   }
+
+  // This seems to clash with a macro on Windows, so #undef it here
+#ifdef GetFreeSpace
+#undef GetFreeSpace
+#endif
   Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override {
     IOOptions io_opts;
     IODebugContext dbg;
-    return fs_env_target_->GetFreeSpace(path, io_opts, diskfree, &dbg);
+    return file_system_->GetFreeSpace(path, io_opts, diskfree, &dbg);
   }
 
  private:
   Env* env_target_;
-  FileSystem* fs_env_target_;
 };
 
 class LegacySequentialFileWrapper : public FSSequentialFile {
@@ -724,8 +727,19 @@ class LegacyWritableFileWrapper : public FSWritableFile {
                   IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->Append(data));
   }
+  IOStatus Append(const Slice& data, const IOOptions& /*options*/,
+                  const DataVerificationInfo& /*verification_info*/,
+                  IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Append(data));
+  }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& /*options*/,
+                            IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->PositionedAppend(data, offset));
+  }
+  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                            const IOOptions& /*options*/,
+                            const DataVerificationInfo& /*verification_info*/,
                             IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->PositionedAppend(data, offset));
   }
@@ -1060,6 +1074,10 @@ class LegacyFileSystemWrapper : public FileSystem {
     return status_to_io_status(target_->NewLogger(fname, result));
   }
 
+  void SanitizeFileOptions(FileOptions* opts) const override {
+    target_->SanitizeEnvOptions(opts);
+  }
+
   FileOptions OptimizeForLogRead(
                   const FileOptions& file_options) const override {
     return target_->OptimizeForLogRead(file_options);
@@ -1087,9 +1105,18 @@ class LegacyFileSystemWrapper : public FileSystem {
       const ImmutableDBOptions& db_options) const override {
     return target_->OptimizeForCompactionTableRead(file_options, db_options);
   }
+
+// This seems to clash with a macro on Windows, so #undef it here
+#ifdef GetFreeSpace
+#undef GetFreeSpace
+#endif
   IOStatus GetFreeSpace(const std::string& path, const IOOptions& /*options*/,
                         uint64_t* diskfree, IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->GetFreeSpace(path, diskfree));
+  }
+  IOStatus IsDirectory(const std::string& path, const IOOptions& /*options*/,
+                       bool* is_dir, IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->IsDirectory(path, is_dir));
   }
 
  private:

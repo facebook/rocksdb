@@ -4,25 +4,27 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <atomic>
+#include <fstream>
 #include <memory>
 #include <thread>
 #include <vector>
-#include <fstream>
+
 #include "db/db_test_util.h"
 #include "db/write_batch_internal.h"
 #include "db/write_thread.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
+#include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 // Test variations of WriteImpl.
 class DBWriteTest : public DBTestBase, public testing::WithParamInterface<int> {
  public:
-  DBWriteTest() : DBTestBase("/db_write_test") {}
+  DBWriteTest() : DBTestBase("/db_write_test", /*env_do_fsync=*/true) {}
 
   Options GetOptions() { return DBTestBase::GetOptions(GetParam()); }
 
@@ -47,6 +49,8 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
   std::atomic<int> thread_num(0);
   port::Mutex mutex;
   port::CondVar cv(&mutex);
+  // Guarded by mutex
+  int writers = 0;
 
   Reopen(options);
 
@@ -66,6 +70,7 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
   };
   std::function<void(void *)> unblock_main_thread_func = [&](void *) {
     mutex.Lock();
+    ++writers;
     cv.SignalAll();
     mutex.Unlock();
   };
@@ -104,18 +109,18 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
   mutex.Lock();
   // First leader
   threads.emplace_back(write_slowdown_func);
-  cv.Wait();
+  while (writers != 1) {
+    cv.Wait();
+  }
   // Second leader. Will stall writes
   threads.emplace_back(write_slowdown_func);
-  cv.Wait();
   threads.emplace_back(write_no_slowdown_func);
-  cv.Wait();
   threads.emplace_back(write_slowdown_func);
-  cv.Wait();
   threads.emplace_back(write_no_slowdown_func);
-  cv.Wait();
   threads.emplace_back(write_slowdown_func);
-  cv.Wait();
+  while (writers != 6) {
+    cv.Wait();
+  }
   mutex.Unlock();
 
   TEST_SYNC_POINT("DBWriteTest::WriteThreadHangOnWriteStall:1");
@@ -129,6 +134,8 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
   for (auto& t : threads) {
     t.join();
   }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
@@ -246,7 +253,7 @@ TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
   mock_env->SetFilesystemActive(false, Status::IOError("Not active"));
   Status s;
   for (int i = 0; i < 4 * 512; ++i) {
-    s = Put(Key(i), RandomString(&rnd, 1024));
+    s = Put(Key(i), rnd.RandomString(1024));
     if (!s.ok()) {
       break;
     }

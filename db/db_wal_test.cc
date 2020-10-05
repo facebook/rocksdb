@@ -12,15 +12,17 @@
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
-class DBWALTest : public DBTestBase {
- public:
-  DBWALTest() : DBTestBase("/db_wal_test") {}
+class DBWALTestBase : public DBTestBase {
+ protected:
+  explicit DBWALTestBase(const std::string& dir_name)
+      : DBTestBase(dir_name, /*env_do_fsync=*/true) {}
 
 #if defined(ROCKSDB_PLATFORM_POSIX)
+ public:
   uint64_t GetAllocatedFileSize(std::string file_name) {
     struct stat sbuf;
     int err = stat(file_name.c_str(), &sbuf);
@@ -28,6 +30,11 @@ class DBWALTest : public DBTestBase {
     return sbuf.st_blocks * 512;
   }
 #endif
+};
+
+class DBWALTest : public DBWALTestBase {
+ public:
+  DBWALTest() : DBWALTestBase("/db_wal_test") {}
 };
 
 // A SpecialEnv enriched to give more insight about deleted files
@@ -86,7 +93,8 @@ class EnrichedSpecialEnv : public SpecialEnv {
 
 class DBWALTestWithEnrichedEnv : public DBTestBase {
  public:
-  DBWALTestWithEnrichedEnv() : DBTestBase("/db_wal_test") {
+  DBWALTestWithEnrichedEnv()
+      : DBTestBase("/db_wal_test", /*env_do_fsync=*/true) {
     enriched_env_ = new EnrichedSpecialEnv(env_->target());
     auto options = CurrentOptions();
     options.env = enriched_env_;
@@ -330,6 +338,163 @@ TEST_F(DBWALTest, RecoverWithTableHandle) {
   } while (ChangeWalOptions());
 }
 
+TEST_F(DBWALTest, RecoverWithBlob) {
+  // Write a value that's below the prospective size limit for blobs and another
+  // one that's above. Note that blob files are not actually enabled at this
+  // point.
+  constexpr uint64_t min_blob_size = 10;
+
+  constexpr char short_value[] = "short";
+  static_assert(sizeof(short_value) - 1 < min_blob_size,
+                "short_value too long");
+
+  constexpr char long_value[] = "long_value";
+  static_assert(sizeof(long_value) - 1 >= min_blob_size,
+                "long_value too short");
+
+  ASSERT_OK(Put("key1", short_value));
+  ASSERT_OK(Put("key2", long_value));
+
+  // There should be no files just yet since we haven't flushed.
+  {
+    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+    assert(versions);
+
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    assert(cfd);
+
+    Version* const current = cfd->current();
+    assert(current);
+
+    const VersionStorageInfo* const storage_info = current->storage_info();
+    assert(storage_info);
+
+    ASSERT_EQ(storage_info->num_non_empty_levels(), 0);
+    ASSERT_TRUE(storage_info->GetBlobFiles().empty());
+  }
+
+  // Reopen the database with blob files enabled. A new table file/blob file
+  // pair should be written during recovery.
+  Options options;
+  options.enable_blob_files = true;
+  options.min_blob_size = min_blob_size;
+  options.avoid_flush_during_recovery = false;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  ASSERT_EQ(Get("key1"), short_value);
+
+  // TODO: enable once Get support is implemented for blobs
+  // ASSERT_EQ(Get("key2"), long_value);
+
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  Version* const current = cfd->current();
+  assert(current);
+
+  const VersionStorageInfo* const storage_info = current->storage_info();
+  assert(storage_info);
+
+  const auto& l0_files = storage_info->LevelFiles(0);
+  ASSERT_EQ(l0_files.size(), 1);
+
+  const FileMetaData* const table_file = l0_files[0];
+  assert(table_file);
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+
+  const auto& blob_file = blob_files.begin()->second;
+  assert(blob_file);
+
+  ASSERT_EQ(table_file->smallest.user_key(), "key1");
+  ASSERT_EQ(table_file->largest.user_key(), "key2");
+  ASSERT_EQ(table_file->fd.smallest_seqno, 1);
+  ASSERT_EQ(table_file->fd.largest_seqno, 2);
+  ASSERT_EQ(table_file->oldest_blob_file_number,
+            blob_file->GetBlobFileNumber());
+
+  ASSERT_EQ(blob_file->GetTotalBlobCount(), 1);
+
+#ifndef ROCKSDB_LITE
+  const InternalStats* const internal_stats = cfd->internal_stats();
+  assert(internal_stats);
+
+  const uint64_t expected_bytes =
+      table_file->fd.GetFileSize() + blob_file->GetTotalBlobBytes();
+
+  const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
+  ASSERT_FALSE(compaction_stats.empty());
+  ASSERT_EQ(compaction_stats[0].bytes_written, expected_bytes);
+  ASSERT_EQ(compaction_stats[0].num_output_files, 2);
+
+  const uint64_t* const cf_stats_value = internal_stats->TEST_GetCFStatsValue();
+  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED], expected_bytes);
+#endif  // ROCKSDB_LITE
+}
+
+class DBRecoveryTestBlobError
+    : public DBWALTest,
+      public testing::WithParamInterface<std::string> {
+ public:
+  DBRecoveryTestBlobError() : fault_injection_env_(env_) {}
+  ~DBRecoveryTestBlobError() { Close(); }
+
+  FaultInjectionTestEnv fault_injection_env_;
+};
+
+INSTANTIATE_TEST_CASE_P(DBRecoveryTestBlobError, DBRecoveryTestBlobError,
+                        ::testing::ValuesIn(std::vector<std::string>{
+                            "BlobFileBuilder::WriteBlobToFile:AddRecord",
+                            "BlobFileBuilder::WriteBlobToFile:AppendFooter"}));
+
+TEST_P(DBRecoveryTestBlobError, RecoverWithBlobError) {
+  // Write a value. Note that blob files are not actually enabled at this point.
+  ASSERT_OK(Put("key", "blob"));
+
+  // Reopen with blob files enabled but make blob file writing fail during
+  // recovery.
+  SyncPoint::GetInstance()->SetCallBack(GetParam(), [this](void* /* arg */) {
+    fault_injection_env_.SetFilesystemActive(false, Status::IOError());
+  });
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeFinishBuildTable", [this](void* /* arg */) {
+        fault_injection_env_.SetFilesystemActive(true);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options;
+  options.enable_blob_files = true;
+  options.avoid_flush_during_recovery = false;
+  options.disable_auto_compactions = true;
+  options.env = &fault_injection_env_;
+
+  ASSERT_NOK(TryReopen(options));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Make sure the files generated by the failed recovery have been deleted.
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  for (const auto& file : files) {
+    uint64_t number = 0;
+    FileType type = kTableFile;
+
+    if (!ParseFileName(file, &number, &type)) {
+      continue;
+    }
+
+    ASSERT_NE(type, kTableFile);
+    ASSERT_NE(type, kBlobFile);
+  }
+}
+
 TEST_F(DBWALTest, IgnoreRecoveredLog) {
   std::string backup_logs = dbname_ + "/backup_logs";
 
@@ -522,7 +687,10 @@ TEST_F(DBWALTest, PreallocateBlock) {
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
 #ifndef ROCKSDB_LITE
-TEST_F(DBWALTest, FullPurgePreservesRecycledLog) {
+TEST_F(DBWALTest, DISABLED_FullPurgePreservesRecycledLog) {
+  // TODO(ajkr): Disabled until WAL recycling is fixed for
+  // `kPointInTimeRecovery`.
+
   // For github issue #1303
   for (int i = 0; i < 2; ++i) {
     Options options = CurrentOptions();
@@ -558,7 +726,10 @@ TEST_F(DBWALTest, FullPurgePreservesRecycledLog) {
   }
 }
 
-TEST_F(DBWALTest, FullPurgePreservesLogPendingReuse) {
+TEST_F(DBWALTest, DISABLED_FullPurgePreservesLogPendingReuse) {
+  // TODO(ajkr): Disabled until WAL recycling is fixed for
+  // `kPointInTimeRecovery`.
+
   // Ensures full purge cannot delete a WAL while it's in the process of being
   // recycled. In particular, we force the full purge after a file has been
   // chosen for reuse, but before it has been renamed.
@@ -905,16 +1076,16 @@ TEST_F(DBWALTest, PartOfWritesWithWALDisabled) {
 class RecoveryTestHelper {
  public:
   // Number of WAL files to generate
-  static const int kWALFilesCount = 10;
+  static constexpr int kWALFilesCount = 10;
   // Starting number for the WAL file name like 00010.log
-  static const int kWALFileOffset = 10;
+  static constexpr int kWALFileOffset = 10;
   // Keys to be written per WAL file
-  static const int kKeysPerWALFile = 133;
+  static constexpr int kKeysPerWALFile = 133;
   // Size of the value
-  static const int kValueSize = 96;
+  static constexpr int kValueSize = 96;
 
   // Create WAL files with values filled in
-  static void FillData(DBWALTest* test, const Options& options,
+  static void FillData(DBWALTestBase* test, const Options& options,
                        const size_t wal_count, size_t* count) {
     // Calling internal functions requires sanitized options.
     Options sanitized_options = SanitizeOptions(test->dbname_, options);
@@ -930,12 +1101,13 @@ class RecoveryTestHelper {
     std::unique_ptr<WalManager> wal_manager;
     WriteController write_controller;
 
-    versions.reset(new VersionSet(test->dbname_, &db_options, env_options,
-                                  table_cache.get(), &write_buffer_manager,
-                                  &write_controller,
-                                  /*block_cache_tracer=*/nullptr));
+    versions.reset(new VersionSet(
+        test->dbname_, &db_options, env_options, table_cache.get(),
+        &write_buffer_manager, &write_controller,
+        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
 
-    wal_manager.reset(new WalManager(db_options, env_options));
+    wal_manager.reset(
+        new WalManager(db_options, env_options, /*io_tracer=*/nullptr));
 
     std::unique_ptr<log::Writer> current_log_writer;
 
@@ -968,7 +1140,7 @@ class RecoveryTestHelper {
   }
 
   // Recreate and fill the store with some data
-  static size_t FillData(DBWALTest* test, Options* options) {
+  static size_t FillData(DBWALTestBase* test, Options* options) {
     options->create_if_missing = true;
     test->DestroyAndReopen(*options);
     test->Close();
@@ -979,7 +1151,7 @@ class RecoveryTestHelper {
   }
 
   // Read back all the keys we wrote and return the number of keys found
-  static size_t GetData(DBWALTest* test) {
+  static size_t GetData(DBWALTestBase* test) {
     size_t count = 0;
     for (size_t i = 0; i < kWALFilesCount * kKeysPerWALFile; i++) {
       if (test->Get("key" + ToString(i)) != "NOT_FOUND") {
@@ -990,7 +1162,7 @@ class RecoveryTestHelper {
   }
 
   // Manuall corrupt the specified WAL
-  static void CorruptWAL(DBWALTest* test, const Options& options,
+  static void CorruptWAL(DBWALTestBase* test, const Options& options,
                          const double off, const double len,
                          const int wal_file_id, const bool trunc = false) {
     Env* env = options.env;
@@ -1035,76 +1207,101 @@ class RecoveryTestHelper {
   }
 };
 
+class DBWALTestWithParams
+    : public DBWALTestBase,
+      public ::testing::WithParamInterface<std::tuple<bool, int, int>> {
+ public:
+  DBWALTestWithParams() : DBWALTestBase("/db_wal_test_with_params") {}
+};
+
+INSTANTIATE_TEST_CASE_P(
+    Wal, DBWALTestWithParams,
+    ::testing::Combine(::testing::Bool(), ::testing::Range(0, 4, 1),
+                       ::testing::Range(RecoveryTestHelper::kWALFileOffset,
+                                        RecoveryTestHelper::kWALFileOffset +
+                                            RecoveryTestHelper::kWALFilesCount,
+                                        1)));
+
+class DBWALTestWithParamsVaryingRecoveryMode
+    : public DBWALTestBase,
+      public ::testing::WithParamInterface<
+          std::tuple<bool, int, int, WALRecoveryMode>> {
+ public:
+  DBWALTestWithParamsVaryingRecoveryMode()
+      : DBWALTestBase("/db_wal_test_with_params_mode") {}
+};
+
+INSTANTIATE_TEST_CASE_P(
+    Wal, DBWALTestWithParamsVaryingRecoveryMode,
+    ::testing::Combine(
+        ::testing::Bool(), ::testing::Range(0, 4, 1),
+        ::testing::Range(RecoveryTestHelper::kWALFileOffset,
+                         RecoveryTestHelper::kWALFileOffset +
+                             RecoveryTestHelper::kWALFilesCount,
+                         1),
+        ::testing::Values(WALRecoveryMode::kTolerateCorruptedTailRecords,
+                          WALRecoveryMode::kAbsoluteConsistency,
+                          WALRecoveryMode::kPointInTimeRecovery,
+                          WALRecoveryMode::kSkipAnyCorruptedRecords)));
+
 // Test scope:
 // - We expect to open the data store when there is incomplete trailing writes
 // at the end of any of the logs
 // - We do not expect to open the data store for corruption
-TEST_F(DBWALTest, kTolerateCorruptedTailRecords) {
-  const int jstart = RecoveryTestHelper::kWALFileOffset;
-  const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
+TEST_P(DBWALTestWithParams, kTolerateCorruptedTailRecords) {
+  bool trunc = std::get<0>(GetParam());  // Corruption style
+  // Corruption offset position
+  int corrupt_offset = std::get<1>(GetParam());
+  int wal_file_id = std::get<2>(GetParam());  // WAL file
 
-  for (auto trunc : {true, false}) {        /* Corruption style */
-    for (int i = 0; i < 3; i++) {           /* Corruption offset position */
-      for (int j = jstart; j < jend; j++) { /* WAL file */
-        // Fill data for testing
-        Options options = CurrentOptions();
-        const size_t row_count = RecoveryTestHelper::FillData(this, &options);
-        // test checksum failure or parsing
-        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
-                                       /*len%=*/.1, /*wal=*/j, trunc);
+  // Fill data for testing
+  Options options = CurrentOptions();
+  const size_t row_count = RecoveryTestHelper::FillData(this, &options);
+  // test checksum failure or parsing
+  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
+                                 /*len%=*/.1, wal_file_id, trunc);
 
-        if (trunc) {
-          options.wal_recovery_mode =
-              WALRecoveryMode::kTolerateCorruptedTailRecords;
-          options.create_if_missing = false;
-          ASSERT_OK(TryReopen(options));
-          const size_t recovered_row_count = RecoveryTestHelper::GetData(this);
-          ASSERT_TRUE(i == 0 || recovered_row_count > 0);
-          ASSERT_LT(recovered_row_count, row_count);
-        } else {
-          options.wal_recovery_mode =
-              WALRecoveryMode::kTolerateCorruptedTailRecords;
-          ASSERT_NOK(TryReopen(options));
-        }
-      }
-    }
+  options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
+  if (trunc) {
+    options.create_if_missing = false;
+    ASSERT_OK(TryReopen(options));
+    const size_t recovered_row_count = RecoveryTestHelper::GetData(this);
+    ASSERT_TRUE(corrupt_offset == 0 || recovered_row_count > 0);
+    ASSERT_LT(recovered_row_count, row_count);
+  } else {
+    ASSERT_NOK(TryReopen(options));
   }
 }
 
 // Test scope:
 // We don't expect the data store to be opened if there is any corruption
 // (leading, middle or trailing -- incomplete writes or corruption)
-TEST_F(DBWALTest, kAbsoluteConsistency) {
-  const int jstart = RecoveryTestHelper::kWALFileOffset;
-  const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
-
+TEST_P(DBWALTestWithParams, kAbsoluteConsistency) {
   // Verify clean slate behavior
   Options options = CurrentOptions();
   const size_t row_count = RecoveryTestHelper::FillData(this, &options);
-  options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
   options.create_if_missing = false;
   ASSERT_OK(TryReopen(options));
   ASSERT_EQ(RecoveryTestHelper::GetData(this), row_count);
 
-  for (auto trunc : {true, false}) { /* Corruption style */
-    for (int i = 0; i < 4; i++) {    /* Corruption offset position */
-      if (trunc && i == 0) {
-        continue;
-      }
+  bool trunc = std::get<0>(GetParam());  // Corruption style
+  // Corruption offset position
+  int corrupt_offset = std::get<1>(GetParam());
+  int wal_file_id = std::get<2>(GetParam());  // WAL file
 
-      for (int j = jstart; j < jend; j++) { /* wal files */
-        // fill with new date
-        RecoveryTestHelper::FillData(this, &options);
-        // corrupt the wal
-        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
-                                       /*len%=*/.1, j, trunc);
-        // verify
-        options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
-        options.create_if_missing = false;
-        ASSERT_NOK(TryReopen(options));
-      }
-    }
+  if (trunc && corrupt_offset == 0) {
+    return;
   }
+
+  // fill with new date
+  RecoveryTestHelper::FillData(this, &options);
+  // corrupt the wal
+  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
+                                 /*len%=*/.1, wal_file_id, trunc);
+  // verify
+  options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
+  options.create_if_missing = false;
+  ASSERT_NOK(TryReopen(options));
 }
 
 // Test scope:
@@ -1143,86 +1340,79 @@ TEST_F(DBWALTest, kPointInTimeRecoveryCFConsistency) {
 // Test scope:
 // - We expect to open data store under all circumstances
 // - We expect only data upto the point where the first error was encountered
-TEST_F(DBWALTest, kPointInTimeRecovery) {
-  const int jstart = RecoveryTestHelper::kWALFileOffset;
-  const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
+TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
   const int maxkeys =
       RecoveryTestHelper::kWALFilesCount * RecoveryTestHelper::kKeysPerWALFile;
 
-  for (auto trunc : {true, false}) {        /* Corruption style */
-    for (int i = 0; i < 4; i++) {           /* Offset of corruption */
-      for (int j = jstart; j < jend; j++) { /* WAL file */
-        // Fill data for testing
-        Options options = CurrentOptions();
-        const size_t row_count = RecoveryTestHelper::FillData(this, &options);
+  bool trunc = std::get<0>(GetParam());  // Corruption style
+  // Corruption offset position
+  int corrupt_offset = std::get<1>(GetParam());
+  int wal_file_id = std::get<2>(GetParam());  // WAL file
 
-        // Corrupt the wal
-        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
-                                       /*len%=*/.1, j, trunc);
+  // Fill data for testing
+  Options options = CurrentOptions();
+  const size_t row_count = RecoveryTestHelper::FillData(this, &options);
 
-        // Verify
-        options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
-        options.create_if_missing = false;
-        ASSERT_OK(TryReopen(options));
+  // Corrupt the wal
+  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
+                                 /*len%=*/.1, wal_file_id, trunc);
 
-        // Probe data for invariants
-        size_t recovered_row_count = RecoveryTestHelper::GetData(this);
-        ASSERT_LT(recovered_row_count, row_count);
+  // Verify
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  options.create_if_missing = false;
+  ASSERT_OK(TryReopen(options));
 
-        bool expect_data = true;
-        for (size_t k = 0; k < maxkeys; ++k) {
-          bool found = Get("key" + ToString(i)) != "NOT_FOUND";
-          if (expect_data && !found) {
-            expect_data = false;
-          }
-          ASSERT_EQ(found, expect_data);
-        }
+  // Probe data for invariants
+  size_t recovered_row_count = RecoveryTestHelper::GetData(this);
+  ASSERT_LT(recovered_row_count, row_count);
 
-        const size_t min = RecoveryTestHelper::kKeysPerWALFile *
-                           (j - RecoveryTestHelper::kWALFileOffset);
-        ASSERT_GE(recovered_row_count, min);
-        if (!trunc && i != 0) {
-          const size_t max = RecoveryTestHelper::kKeysPerWALFile *
-                             (j - RecoveryTestHelper::kWALFileOffset + 1);
-          ASSERT_LE(recovered_row_count, max);
-        }
-      }
+  bool expect_data = true;
+  for (size_t k = 0; k < maxkeys; ++k) {
+    bool found = Get("key" + ToString(corrupt_offset)) != "NOT_FOUND";
+    if (expect_data && !found) {
+      expect_data = false;
     }
+    ASSERT_EQ(found, expect_data);
+  }
+
+  const size_t min = RecoveryTestHelper::kKeysPerWALFile *
+                     (wal_file_id - RecoveryTestHelper::kWALFileOffset);
+  ASSERT_GE(recovered_row_count, min);
+  if (!trunc && corrupt_offset != 0) {
+    const size_t max = RecoveryTestHelper::kKeysPerWALFile *
+                       (wal_file_id - RecoveryTestHelper::kWALFileOffset + 1);
+    ASSERT_LE(recovered_row_count, max);
   }
 }
 
 // Test scope:
 // - We expect to open the data store under all scenarios
 // - We expect to have recovered records past the corruption zone
-TEST_F(DBWALTest, kSkipAnyCorruptedRecords) {
-  const int jstart = RecoveryTestHelper::kWALFileOffset;
-  const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
+TEST_P(DBWALTestWithParams, kSkipAnyCorruptedRecords) {
+  bool trunc = std::get<0>(GetParam());  // Corruption style
+  // Corruption offset position
+  int corrupt_offset = std::get<1>(GetParam());
+  int wal_file_id = std::get<2>(GetParam());  // WAL file
 
-  for (auto trunc : {true, false}) {        /* Corruption style */
-    for (int i = 0; i < 4; i++) {           /* Corruption offset */
-      for (int j = jstart; j < jend; j++) { /* wal files */
-        // Fill data for testing
-        Options options = CurrentOptions();
-        const size_t row_count = RecoveryTestHelper::FillData(this, &options);
+  // Fill data for testing
+  Options options = CurrentOptions();
+  const size_t row_count = RecoveryTestHelper::FillData(this, &options);
 
-        // Corrupt the WAL
-        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
-                                       /*len%=*/.1, j, trunc);
+  // Corrupt the WAL
+  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
+                                 /*len%=*/.1, wal_file_id, trunc);
 
-        // Verify behavior
-        options.wal_recovery_mode = WALRecoveryMode::kSkipAnyCorruptedRecords;
-        options.create_if_missing = false;
-        ASSERT_OK(TryReopen(options));
+  // Verify behavior
+  options.wal_recovery_mode = WALRecoveryMode::kSkipAnyCorruptedRecords;
+  options.create_if_missing = false;
+  ASSERT_OK(TryReopen(options));
 
-        // Probe data for invariants
-        size_t recovered_row_count = RecoveryTestHelper::GetData(this);
-        ASSERT_LT(recovered_row_count, row_count);
+  // Probe data for invariants
+  size_t recovered_row_count = RecoveryTestHelper::GetData(this);
+  ASSERT_LT(recovered_row_count, row_count);
 
-        if (!trunc) {
-          ASSERT_TRUE(i != 0 || recovered_row_count > 0);
-        }
-      }
-    }
+  if (!trunc) {
+    ASSERT_TRUE(corrupt_offset != 0 || recovered_row_count > 0);
   }
 }
 
@@ -1401,9 +1591,8 @@ TEST_F(DBWALTest, RecoverWithoutFlushMultipleCF) {
 //   2. Open with avoid_flush_during_recovery = true;
 //   3. Append more data without flushing, which creates new WAL log.
 //   4. Open again. See if it can correctly handle previous corruption.
-TEST_F(DBWALTest, RecoverFromCorruptedWALWithoutFlush) {
-  const int jstart = RecoveryTestHelper::kWALFileOffset;
-  const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
+TEST_P(DBWALTestWithParamsVaryingRecoveryMode,
+       RecoverFromCorruptedWALWithoutFlush) {
   const int kAppendKeys = 100;
   Options options = CurrentOptions();
   options.avoid_flush_during_recovery = true;
@@ -1422,41 +1611,39 @@ TEST_F(DBWALTest, RecoverFromCorruptedWALWithoutFlush) {
     delete iter;
     return data;
   };
-  for (auto& mode : wal_recovery_mode_string_map) {
-    options.wal_recovery_mode = mode.second;
-    for (auto trunc : {true, false}) {
-      for (int i = 0; i < 4; i++) {
-        for (int j = jstart; j < jend; j++) {
-          // Create corrupted WAL
-          RecoveryTestHelper::FillData(this, &options);
-          RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
-                                         /*len%=*/.1, /*wal=*/j, trunc);
-          // Skip the test if DB won't open.
-          if (!TryReopen(options).ok()) {
-            ASSERT_TRUE(options.wal_recovery_mode ==
-                            WALRecoveryMode::kAbsoluteConsistency ||
-                        (!trunc &&
-                         options.wal_recovery_mode ==
-                             WALRecoveryMode::kTolerateCorruptedTailRecords));
-            continue;
-          }
-          ASSERT_OK(TryReopen(options));
-          // Append some more data.
-          for (int k = 0; k < kAppendKeys; k++) {
-            std::string key = "extra_key" + ToString(k);
-            std::string value = DummyString(RecoveryTestHelper::kValueSize);
-            ASSERT_OK(Put(key, value));
-          }
-          // Save data for comparison.
-          auto data = getAll();
-          // Reopen. Verify data.
-          ASSERT_OK(TryReopen(options));
-          auto actual_data = getAll();
-          ASSERT_EQ(data, actual_data);
-        }
-      }
-    }
+
+  bool trunc = std::get<0>(GetParam());  // Corruption style
+  // Corruption offset position
+  int corrupt_offset = std::get<1>(GetParam());
+  int wal_file_id = std::get<2>(GetParam());  // WAL file
+  WALRecoveryMode recovery_mode = std::get<3>(GetParam());
+
+  options.wal_recovery_mode = recovery_mode;
+  // Create corrupted WAL
+  RecoveryTestHelper::FillData(this, &options);
+  RecoveryTestHelper::CorruptWAL(this, options, corrupt_offset * .3,
+                                 /*len%=*/.1, wal_file_id, trunc);
+  // Skip the test if DB won't open.
+  if (!TryReopen(options).ok()) {
+    ASSERT_TRUE(options.wal_recovery_mode ==
+                    WALRecoveryMode::kAbsoluteConsistency ||
+                (!trunc && options.wal_recovery_mode ==
+                               WALRecoveryMode::kTolerateCorruptedTailRecords));
+    return;
   }
+  ASSERT_OK(TryReopen(options));
+  // Append some more data.
+  for (int k = 0; k < kAppendKeys; k++) {
+    std::string key = "extra_key" + ToString(k);
+    std::string value = DummyString(RecoveryTestHelper::kValueSize);
+    ASSERT_OK(Put(key, value));
+  }
+  // Save data for comparison.
+  auto data = getAll();
+  // Reopen. Verify data.
+  ASSERT_OK(TryReopen(options));
+  auto actual_data = getAll();
+  ASSERT_EQ(data, actual_data);
 }
 
 // Tests that total log size is recovered if we set

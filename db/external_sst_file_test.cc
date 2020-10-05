@@ -6,13 +6,17 @@
 #ifndef ROCKSDB_LITE
 
 #include <functional>
+
 #include "db/db_test_util.h"
+#include "db/dbformat.h"
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/sst_file_reader.h"
 #include "rocksdb/sst_file_writer.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -40,10 +44,10 @@ class ExternSSTFileLinkFailFallbackTest
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   ExternSSTFileLinkFailFallbackTest()
-      : DBTestBase("/external_sst_file_test"),
+      : DBTestBase("/external_sst_file_test", /*env_do_fsync=*/true),
         test_env_(new ExternalSSTTestEnv(env_, true)) {
     sst_files_dir_ = dbname_ + "/sst_files/";
-    test::DestroyDir(env_, sst_files_dir_);
+    DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
     options_ = CurrentOptions();
     options_.disable_auto_compactions = true;
@@ -68,13 +72,14 @@ class ExternalSSTFileTest
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  ExternalSSTFileTest() : DBTestBase("/external_sst_file_test") {
+  ExternalSSTFileTest()
+      : DBTestBase("/external_sst_file_test", /*env_do_fsync=*/true) {
     sst_files_dir_ = dbname_ + "/sst_files/";
     DestroyAndRecreateExternalSSTFilesDir();
   }
 
   void DestroyAndRecreateExternalSSTFilesDir() {
-    test::DestroyDir(env_, sst_files_dir_);
+    DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
   }
 
@@ -277,7 +282,7 @@ class ExternalSSTFileTest
     return db_->IngestExternalFile(files, opts);
   }
 
-  ~ExternalSSTFileTest() override { test::DestroyDir(env_, sst_files_dir_); }
+  ~ExternalSSTFileTest() override { DestroyDir(env_, sst_files_dir_); }
 
  protected:
   int last_file_id_ = 0;
@@ -985,6 +990,7 @@ TEST_F(ExternalSSTFileTest, SkipSnapshot) {
 }
 
 TEST_F(ExternalSSTFileTest, MultiThreaded) {
+  env_->skip_fsync_ = true;
   // Bulk load 10 files every file contain 1000 keys
   int num_files = 10;
   int keys_per_file = 1000;
@@ -1097,6 +1103,7 @@ TEST_F(ExternalSSTFileTest, MultiThreaded) {
 }
 
 TEST_F(ExternalSSTFileTest, OverlappingRanges) {
+  env_->skip_fsync_ = true;
   Random rnd(301);
   SequenceNumber assigned_seqno = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -1120,6 +1127,7 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   do {
     Options options = CurrentOptions();
+    env_->skip_fsync_ = true;
     DestroyAndReopen(options);
 
     SstFileWriter sst_file_writer(EnvOptions(), options);
@@ -1228,6 +1236,7 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
 }
 
 TEST_P(ExternalSSTFileTest, PickedLevel) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 4;
@@ -1294,6 +1303,7 @@ TEST_P(ExternalSSTFileTest, PickedLevel) {
 }
 
 TEST_F(ExternalSSTFileTest, PickedLevelBug) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 3;
@@ -1414,6 +1424,7 @@ TEST_F(ExternalSSTFileTest, IngestNonExistingFile) {
 }
 
 TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 2;
@@ -1471,6 +1482,7 @@ TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
 }
 
 TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 4;
@@ -1730,6 +1742,7 @@ TEST_F(ExternalSSTFileTest, WithUnorderedWrite) {
 }
 
 TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.IncreaseParallelism(20);
   options.level0_slowdown_writes_trigger = 256;
@@ -1746,10 +1759,8 @@ TEST_P(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
     for (int i = 0; i < 500; i++) {
       std::vector<std::pair<std::string, std::string>> random_data;
       for (int j = 0; j < 100; j++) {
-        std::string k;
-        std::string v;
-        test::RandomString(&rnd, rnd.Next() % 20, &k);
-        test::RandomString(&rnd, rnd.Next() % 50, &v);
+        std::string k = rnd.RandomString(rnd.Next() % 20);
+        std::string v = rnd.RandomString(rnd.Next() % 50);
         random_data.emplace_back(k, v);
       }
 
@@ -2383,12 +2394,46 @@ TEST_F(ExternalSSTFileTest, IngestFileWrittenWithCompressionDictionary) {
   Random rnd(301);
   std::vector<std::pair<std::string, std::string>> random_data;
   for (int i = 0; i < kNumEntries; i++) {
-    std::string val;
-    test::RandomString(&rnd, kNumBytesPerEntry, &val);
+    std::string val = rnd.RandomString(kNumBytesPerEntry);
     random_data.emplace_back(Key(i), std::move(val));
   }
   ASSERT_OK(GenerateAndAddExternalFile(options, std::move(random_data)));
   ASSERT_EQ(1, num_compression_dicts);
+}
+
+// Very slow, not worth the cost to run regularly
+TEST_F(ExternalSSTFileTest, DISABLED_HugeBlockChecksum) {
+  int max_checksum = static_cast<int>(kxxHash64);
+  for (int i = 0; i <= max_checksum; ++i) {
+    BlockBasedTableOptions table_options;
+    table_options.checksum = static_cast<ChecksumType>(i);
+    Options options = CurrentOptions();
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    SstFileWriter sst_file_writer(EnvOptions(), options);
+
+    // 2^32 - 1, will lead to data block with more than 2^32 bytes
+    size_t huge_size = port::kMaxUint32;
+
+    std::string f = sst_files_dir_ + "f.sst";
+    ASSERT_OK(sst_file_writer.Open(f));
+    {
+      Random64 r(123);
+      std::string huge(huge_size, 0);
+      for (size_t j = 0; j + 7 < huge_size; j += 8) {
+        EncodeFixed64(&huge[j], r.Next());
+      }
+      ASSERT_OK(sst_file_writer.Put("Huge", huge));
+    }
+
+    ExternalSstFileInfo f_info;
+    ASSERT_OK(sst_file_writer.Finish(&f_info));
+    ASSERT_GT(f_info.file_size, uint64_t{huge_size} + 10);
+
+    SstFileReader sst_file_reader(options);
+    ASSERT_OK(sst_file_reader.Open(f));
+    ASSERT_OK(sst_file_reader.VerifyChecksum());
+  }
 }
 
 TEST_P(ExternalSSTFileTest, IngestFilesIntoMultipleColumnFamilies_Success) {
@@ -2797,6 +2842,102 @@ TEST_P(ExternalSSTFileTest, IngestFilesTriggerFlushingWithTwoWriteQueue) {
   std::vector<std::pair<std::string, std::string>> data;
   data.push_back(std::make_pair("1001", "v2"));
   GenerateAndAddExternalFile(options, data);
+}
+
+TEST_P(ExternalSSTFileTest, DeltaEncodingWhileGlobalSeqnoPresent) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  constexpr size_t kValueSize = 8;
+  Random rnd(301);
+  std::string value = rnd.RandomString(kValueSize);
+
+  // Write some key to make global seqno larger than zero
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Put("ab" + Key(i), value));
+  }
+  // Get a Snapshot to make RocksDB assign global seqno to ingested sst files.
+  auto snap = dbfull()->GetSnapshot();
+
+  std::string fname = sst_files_dir_ + "test_file";
+  ROCKSDB_NAMESPACE::SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.Open(fname));
+  std::string key1 = "ab";
+  std::string key2 = "ab";
+
+  // Make the prefix of key2 is same with key1 add zero seqno. The tail of every
+  // key is composed as (seqno << 8 | value_type), and here `1` represents
+  // ValueType::kTypeValue
+
+  PutFixed64(&key2, PackSequenceAndType(0, kTypeValue));
+  key2 += "cdefghijkl";
+
+  ASSERT_OK(writer.Put(key1, value));
+  ASSERT_OK(writer.Put(key2, value));
+
+  ExternalSstFileInfo info;
+  ASSERT_OK(writer.Finish(&info));
+
+  ASSERT_OK(dbfull()->IngestExternalFile({info.file_path},
+                                         IngestExternalFileOptions()));
+  dbfull()->ReleaseSnapshot(snap);
+  ASSERT_EQ(value, Get(key1));
+  // You will get error here
+  ASSERT_EQ(value, Get(key2));
+}
+
+TEST_P(ExternalSSTFileTest,
+       DeltaEncodingWhileGlobalSeqnoPresentIteratorSwitch) {
+  // Regression test for bug where global seqno corrupted the shared bytes
+  // buffer when switching from reverse iteration to forward iteration.
+  constexpr size_t kValueSize = 8;
+  Options options = CurrentOptions();
+
+  Random rnd(301);
+  std::string value = rnd.RandomString(kValueSize);
+
+  std::string key0 = "aa";
+  std::string key1 = "ab";
+  // Make the prefix of key2 is same with key1 add zero seqno. The tail of every
+  // key is composed as (seqno << 8 | value_type), and here `1` represents
+  // ValueType::kTypeValue
+  std::string key2 = "ab";
+  PutFixed64(&key2, PackSequenceAndType(0, kTypeValue));
+  key2 += "cdefghijkl";
+  std::string key3 = key2 + "_";
+
+  // Write some key to make global seqno larger than zero
+  ASSERT_OK(Put(key0, value));
+
+  std::string fname = sst_files_dir_ + "test_file";
+  ROCKSDB_NAMESPACE::SstFileWriter writer(EnvOptions(), options);
+  ASSERT_OK(writer.Open(fname));
+
+  // key0 is a dummy to ensure the turnaround point (key1) comes from Prev
+  // cache rather than block (restart keys are pinned in block).
+  ASSERT_OK(writer.Put(key0, value));
+  ASSERT_OK(writer.Put(key1, value));
+  ASSERT_OK(writer.Put(key2, value));
+  ASSERT_OK(writer.Put(key3, value));
+
+  ExternalSstFileInfo info;
+  ASSERT_OK(writer.Finish(&info));
+
+  ASSERT_OK(dbfull()->IngestExternalFile({info.file_path},
+                                         IngestExternalFileOptions()));
+  ReadOptions read_opts;
+  // Prevents Seek() when switching directions, which circumvents the bug.
+  read_opts.total_order_seek = true;
+  Iterator* iter = db_->NewIterator(read_opts);
+  // Scan backwards to key2. File iterator will then be positioned at key1.
+  iter->Seek(key3);
+  ASSERT_EQ(key3, iter->key());
+  iter->Prev();
+  ASSERT_EQ(key2, iter->key());
+  // Scan forwards and make sure key3 is present. Previously key3 would be
+  // corrupted by the global seqno from key1.
+  iter->Next();
+  ASSERT_EQ(key3, iter->key());
+  delete iter;
 }
 
 INSTANTIATE_TEST_CASE_P(ExternalSSTFileTest, ExternalSSTFileTest,

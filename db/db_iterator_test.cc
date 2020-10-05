@@ -17,6 +17,7 @@
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
 #include "table/block_based/flush_block_policy.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -33,14 +34,15 @@ class DummyReadCallback : public ReadCallback {
 class DBIteratorTest : public DBTestBase,
                        public testing::WithParamInterface<bool> {
  public:
-  DBIteratorTest() : DBTestBase("/db_iterator_test") {}
+  DBIteratorTest() : DBTestBase("/db_iterator_test", /*env_do_fsync=*/true) {}
 
   Iterator* NewIterator(const ReadOptions& read_options,
                         ColumnFamilyHandle* column_family = nullptr) {
     if (column_family == nullptr) {
       column_family = db_->DefaultColumnFamily();
     }
-    auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+    auto* cfd =
+        static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
     SequenceNumber seq = read_options.snapshot != nullptr
                              ? read_options.snapshot->GetSequenceNumber()
                              : db_->GetLatestSequenceNumber();
@@ -193,10 +195,10 @@ TEST_P(DBIteratorTest, IterReseekNewUpperBound) {
   options.compression = kNoCompression;
   Reopen(options);
 
-  ASSERT_OK(Put("a", RandomString(&rnd, 400)));
-  ASSERT_OK(Put("aabb", RandomString(&rnd, 400)));
-  ASSERT_OK(Put("aaef", RandomString(&rnd, 400)));
-  ASSERT_OK(Put("b", RandomString(&rnd, 400)));
+  ASSERT_OK(Put("a", rnd.RandomString(400)));
+  ASSERT_OK(Put("aabb", rnd.RandomString(400)));
+  ASSERT_OK(Put("aaef", rnd.RandomString(400)));
+  ASSERT_OK(Put("b", rnd.RandomString(400)));
   dbfull()->Flush(FlushOptions());
   ReadOptions opts;
   Slice ub = Slice("aa");
@@ -1167,32 +1169,62 @@ TEST_P(DBIteratorTest, IndexWithFirstKey) {
     ropt.tailing = tailing;
     std::unique_ptr<Iterator> iter(NewIterator(ropt));
 
+    ropt.read_tier = ReadTier::kBlockCacheTier;
+    std::unique_ptr<Iterator> nonblocking_iter(NewIterator(ropt));
+
     iter->Seek("b10");
     ASSERT_TRUE(iter->Valid());
     EXPECT_EQ("b2", iter->key().ToString());
     EXPECT_EQ("y2", iter->value().ToString());
     EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
 
+    // The cache-only iterator should succeed too, using the blocks pulled into
+    // the cache by the previous iterator.
+    nonblocking_iter->Seek("b10");
+    ASSERT_TRUE(nonblocking_iter->Valid());
+    EXPECT_EQ("b2", nonblocking_iter->key().ToString());
+    EXPECT_EQ("y2", nonblocking_iter->value().ToString());
+    EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    // ... but it shouldn't be able to step forward since the next block is
+    // not in cache yet.
+    nonblocking_iter->Next();
+    ASSERT_FALSE(nonblocking_iter->Valid());
+    ASSERT_TRUE(nonblocking_iter->status().IsIncomplete());
+
+    // ... nor should a seek to the next key succeed.
+    nonblocking_iter->Seek("b20");
+    ASSERT_FALSE(nonblocking_iter->Valid());
+    ASSERT_TRUE(nonblocking_iter->status().IsIncomplete());
+
     iter->Next();
     ASSERT_TRUE(iter->Valid());
     EXPECT_EQ("b3", iter->key().ToString());
     EXPECT_EQ("y3", iter->value().ToString());
-    EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
-    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(4, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    // After the blocking iterator loaded the next block, the nonblocking
+    // iterator's seek should succeed.
+    nonblocking_iter->Seek("b20");
+    ASSERT_TRUE(nonblocking_iter->Valid());
+    EXPECT_EQ("b3", nonblocking_iter->key().ToString());
+    EXPECT_EQ("y3", nonblocking_iter->value().ToString());
+    EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
 
     iter->Seek("c0");
     ASSERT_TRUE(iter->Valid());
     EXPECT_EQ("c0", iter->key().ToString());
     EXPECT_EQ("z1,z2", iter->value().ToString());
-    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
-    EXPECT_EQ(4, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(6, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
 
     iter->Next();
     ASSERT_TRUE(iter->Valid());
     EXPECT_EQ("c3", iter->key().ToString());
     EXPECT_EQ("z3", iter->value().ToString());
-    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
-    EXPECT_EQ(5, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(7, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
 
     iter.reset();
 
@@ -1207,13 +1239,13 @@ TEST_P(DBIteratorTest, IndexWithFirstKey) {
     ASSERT_TRUE(iter->Valid());
     EXPECT_EQ("b2", iter->key().ToString());
     EXPECT_EQ("y2", iter->value().ToString());
-    EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
-    EXPECT_EQ(5, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(3, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(7, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
 
     iter->Next();
     ASSERT_FALSE(iter->Valid());
-    EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
-    EXPECT_EQ(5, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(3, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(7, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
   }
 }
 
@@ -1329,7 +1361,7 @@ class DBIteratorTestForPinnedData : public DBIteratorTest {
 
     std::vector<std::string> generated_keys(key_pool);
     for (int i = 0; i < key_pool; i++) {
-      generated_keys[i] = RandomString(&rnd, key_size);
+      generated_keys[i] = rnd.RandomString(key_size);
     }
 
     std::map<std::string, std::string> true_data;
@@ -1337,7 +1369,7 @@ class DBIteratorTestForPinnedData : public DBIteratorTest {
     std::vector<std::string> deleted_keys;
     for (int i = 0; i < puts; i++) {
       auto& k = generated_keys[rnd.Next() % key_pool];
-      auto v = RandomString(&rnd, val_size);
+      auto v = rnd.RandomString(val_size);
 
       // Insert data to true_data map and to DB
       true_data[k] = v;
@@ -1500,7 +1532,7 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
   Random rnd(301);
   for (int i = 1; i <= 1000; i++) {
     std::string k = Key(i * 3);
-    std::string v = RandomString(&rnd, 100);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(Put(k, v));
     true_data[k] = v;
     if (i % 250 == 0) {
@@ -1514,7 +1546,7 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
   // Generate 4 sst files in L0
   for (int i = 1; i <= 1000; i++) {
     std::string k = Key(i * 2);
-    std::string v = RandomString(&rnd, 100);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(Put(k, v));
     true_data[k] = v;
     if (i % 250 == 0) {
@@ -1526,7 +1558,7 @@ TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
   // Add some keys/values in memtables
   for (int i = 1; i <= 1000; i++) {
     std::string k = Key(i);
-    std::string v = RandomString(&rnd, 100);
+    std::string v = rnd.RandomString(100);
     ASSERT_OK(Put(k, v));
     true_data[k] = v;
   }
@@ -1628,8 +1660,8 @@ TEST_P(DBIteratorTest, PinnedDataIteratorReadAfterUpdate) {
 
   std::map<std::string, std::string> true_data;
   for (int i = 0; i < 1000; i++) {
-    std::string k = RandomString(&rnd, 10);
-    std::string v = RandomString(&rnd, 1000);
+    std::string k = rnd.RandomString(10);
+    std::string v = rnd.RandomString(1000);
     ASSERT_OK(Put(k, v));
     true_data[k] = v;
   }
@@ -1643,7 +1675,7 @@ TEST_P(DBIteratorTest, PinnedDataIteratorReadAfterUpdate) {
     if (rnd.OneIn(2)) {
       ASSERT_OK(Delete(kv.first));
     } else {
-      std::string new_val = RandomString(&rnd, 1000);
+      std::string new_val = rnd.RandomString(1000);
       ASSERT_OK(Put(kv.first, new_val));
     }
   }
@@ -1900,7 +1932,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
 
   for (int i = 0; i < kNumKeys; i++) {
     gen_key = Key(i);
-    gen_val = RandomString(&rnd, kValSize);
+    gen_val = rnd.RandomString(kValSize);
 
     ASSERT_OK(Put(gen_key, gen_val));
     true_data[gen_key] = gen_val;
@@ -1918,7 +1950,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
 
     for (int j = 0; j < kNumMergeOperands; j++) {
       gen_key = Key(i);
-      gen_val = RandomString(&rnd, kValSize);
+      gen_val = rnd.RandomString(kValSize);
 
       ASSERT_OK(db_->Merge(WriteOptions(), gen_key, gen_val));
       true_data[gen_key] += "," + gen_val;
@@ -2018,7 +2050,7 @@ TEST_P(DBIteratorTest, IteratorWithLocalStatistics) {
   Random rnd(301);
   for (int i = 0; i < 1000; i++) {
     // Key 10 bytes / Value 10 bytes
-    ASSERT_OK(Put(RandomString(&rnd, 10), RandomString(&rnd, 10)));
+    ASSERT_OK(Put(rnd.RandomString(10), rnd.RandomString(10)));
   }
 
   std::atomic<uint64_t> total_next(0);
@@ -2114,7 +2146,7 @@ TEST_P(DBIteratorTest, ReadAhead) {
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
   table_options.no_block_cache = true;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
 
   std::string value(1024, 'a');
@@ -2674,7 +2706,7 @@ TEST_P(DBIteratorTest, AvoidReseekLevelIterator) {
   Reopen(options);
 
   Random rnd(301);
-  std::string random_str = RandomString(&rnd, 180);
+  std::string random_str = rnd.RandomString(180);
 
   ASSERT_OK(Put("1", random_str));
   ASSERT_OK(Put("2", random_str));
@@ -2881,7 +2913,7 @@ TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
 
   SequenceNumber seq2 = db_->GetLatestSequenceNumber();
   auto* cfd =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
           ->cfd();
   // The iterator are suppose to see data before seq1.
   Iterator* iter =

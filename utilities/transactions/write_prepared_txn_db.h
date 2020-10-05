@@ -1078,10 +1078,9 @@ SnapshotBackup WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
                                                     SequenceNumber* min,
                                                     SequenceNumber* max) {
   if (snapshot != nullptr) {
-    *min = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-               ->min_uncommitted_;
-    *max = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-               ->number_;
+    *min =
+        static_cast_with_check<const SnapshotImpl>(snapshot)->min_uncommitted_;
+    *max = static_cast_with_check<const SnapshotImpl>(snapshot)->number_;
     return kBackedByDBSnapshot;
   } else {
     *min = SmallestUnCommittedSeq();

@@ -438,6 +438,7 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
   // (newest_writer) is inclusive. Iteration goes from old to new.
   Writer* w = leader;
   while (w != newest_writer) {
+    assert(w->link_newer);
     w = w->link_newer;
 
     if (w->sync && !leader->sync) {
@@ -512,6 +513,7 @@ void WriteThread::EnterAsMemTableWriter(Writer* leader,
 
     Writer* w = leader;
     while (w != newest_writer) {
+      assert(w->link_newer);
       w = w->link_newer;
 
       if (w->batch == nullptr) {
@@ -568,6 +570,7 @@ void WriteThread::ExitAsMemTableWriter(Writer* /*self*/,
     if (w == last_writer) {
       break;
     }
+    assert(next);
     w = next;
   }
   // Note that leader has to exit last, since it owns the write group.
@@ -599,6 +602,8 @@ bool WriteThread::CompleteParallelMemTableWriter(Writer* w) {
   }
   // else we're the last parallel worker and should perform exit duties.
   w->status = write_group->status;
+  // Callers of this function must ensure w->status is checked.
+  write_group->status.PermitUncheckedError();
   return true;
 }
 
@@ -615,10 +620,16 @@ void WriteThread::ExitAsBatchGroupFollower(Writer* w) {
 
 static WriteThread::AdaptationContext eabgl_ctx("ExitAsBatchGroupLeader");
 void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
-                                         Status status) {
+                                         Status& status) {
   Writer* leader = write_group.leader;
   Writer* last_writer = write_group.last_writer;
   assert(leader->link_older == nullptr);
+
+  // If status is non-ok already, then write_group.status won't have the chance
+  // of being propagated to caller.
+  if (!status.ok()) {
+    write_group.status.PermitUncheckedError();
+  }
 
   // Propagate memtable write error to the whole group.
   if (status.ok() && !write_group.status.ok()) {
@@ -721,6 +732,7 @@ void WriteThread::ExitAsBatchGroupLeader(WriteGroup& write_group,
     // leader now
 
     while (last_writer != leader) {
+      assert(last_writer);
       last_writer->status = status;
       // we need to read link_older before calling SetState, because as soon
       // as it is marked committed the other thread's Await may return and

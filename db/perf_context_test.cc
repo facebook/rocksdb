@@ -251,7 +251,7 @@ void ProfileQueries(bool enabled_time = false) {
   }
 
   if (FLAGS_random_key) {
-    std::random_shuffle(keys.begin(), keys.end());
+    RandomShuffle(std::begin(keys), std::end(keys));
   }
 #ifndef NDEBUG
   ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 1U);
@@ -524,7 +524,7 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
   }
 
   if (FLAGS_random_key) {
-    std::random_shuffle(keys.begin(), keys.end());
+    RandomShuffle(std::begin(keys), std::end(keys));
   }
 
   HistogramImpl hist_put_time;
@@ -817,6 +817,13 @@ TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
 }
 
 TEST_F(PerfContextTest, CPUTimer) {
+  if (Env::Default()->NowCPUNanos() == 0) {
+    // TODO: This should be a GTEST_SKIP when the embedded gtest is updated
+    // to 1.10 or higher.
+    GTEST_SUCCESS_("Skipped on target without NowCPUNanos support");
+    return;
+  }
+
   DestroyDB(kDbName, Options());
   auto db = OpenDb();
   WriteOptions write_options;

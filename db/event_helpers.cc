@@ -51,6 +51,7 @@ void EventHelpers::NotifyOnBackgroundError(
   db_mutex->Unlock();
   for (auto& listener : listeners) {
     listener->OnBackgroundError(reason, bg_error);
+    bg_error->PermitUncheckedError();
     if (*auto_recovery) {
       listener->OnErrorRecoveryBegin(reason, *bg_error, auto_recovery);
     }
@@ -71,14 +72,17 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
     const std::string& db_name, const std::string& cf_name,
     const std::string& file_path, int job_id, const FileDescriptor& fd,
     uint64_t oldest_blob_file_number, const TableProperties& table_properties,
-    TableFileCreationReason reason, const Status& s) {
+    TableFileCreationReason reason, const Status& s,
+    const std::string& file_checksum,
+    const std::string& file_checksum_func_name) {
   if (s.ok() && event_logger) {
     JSONWriter jwriter;
     AppendCurrentTime(&jwriter);
     jwriter << "cf_name" << cf_name << "job" << job_id << "event"
             << "table_file_creation"
             << "file_number" << fd.GetNumber() << "file_size"
-            << fd.GetFileSize();
+            << fd.GetFileSize() << "file_checksum" << file_checksum
+            << "file_checksum_func_name" << file_checksum_func_name;
 
     // table_properties
     {
@@ -121,7 +125,9 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << table_properties.compression_options << "creation_time"
               << table_properties.creation_time << "oldest_key_time"
               << table_properties.oldest_key_time << "file_creation_time"
-              << table_properties.file_creation_time;
+              << table_properties.file_creation_time << "db_id"
+              << table_properties.db_id << "db_session_id"
+              << table_properties.db_session_id;
 
       // user collected properties
       for (const auto& prop : table_properties.readable_properties) {
@@ -152,9 +158,12 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
   info.table_properties = table_properties;
   info.reason = reason;
   info.status = s;
+  info.file_checksum = file_checksum;
+  info.file_checksum_func_name = file_checksum_func_name;
   for (auto& listener : listeners) {
     listener->OnTableFileCreated(info);
   }
+  info.status.PermitUncheckedError();
 #else
   (void)listeners;
   (void)db_name;
@@ -192,6 +201,7 @@ void EventHelpers::LogAndNotifyTableFileDeletion(
   for (auto& listener : listeners) {
     listener->OnTableFileDeleted(info);
   }
+  info.status.PermitUncheckedError();
 #else
   (void)file_path;
   (void)dbname;
@@ -212,6 +222,7 @@ void EventHelpers::NotifyOnErrorRecoveryCompleted(
   for (auto& listener : listeners) {
     listener->OnErrorRecoveryCompleted(old_bg_error);
   }
+  old_bg_error.PermitUncheckedError();
   db_mutex->Lock();
 #else
   (void)listeners;

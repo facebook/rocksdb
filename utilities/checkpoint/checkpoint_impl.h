@@ -28,7 +28,8 @@ class CheckpointImpl : public Checkpoint {
   // The directory will be an absolute path
   using Checkpoint::CreateCheckpoint;
   virtual Status CreateCheckpoint(const std::string& checkpoint_dir,
-                                  uint64_t log_size_for_flush) override;
+                                  uint64_t log_size_for_flush,
+                                  uint64_t* sequence_number_ptr) override;
 
   // Exports all live SST files of a specified Column Family onto export_dir
   // and returning SST files information in metadata.
@@ -50,12 +51,14 @@ class CheckpointImpl : public Checkpoint {
           link_file_cb,
       std::function<Status(const std::string& src_dirname,
                            const std::string& fname, uint64_t size_limit_bytes,
-                           FileType type)>
+                           FileType type, const std::string& checksum_func_name,
+                           const std::string& checksum_val)>
           copy_file_cb,
       std::function<Status(const std::string& fname,
                            const std::string& contents, FileType type)>
           create_file_cb,
-      uint64_t* sequence_number, uint64_t log_size_for_flush);
+      uint64_t* sequence_number, uint64_t log_size_for_flush,
+      bool get_live_table_checksum = false);
 
  private:
   void CleanStagingDirectory(const std::string& path, Logger* info_log);

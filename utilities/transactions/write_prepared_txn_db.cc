@@ -30,7 +30,7 @@ namespace ROCKSDB_NAMESPACE {
 Status WritePreparedTxnDB::Initialize(
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles) {
-  auto dbimpl = static_cast_with_check<DBImpl, DB>(GetRootDB());
+  auto dbimpl = static_cast_with_check<DBImpl>(GetRootDB());
   assert(dbimpl != nullptr);
   auto rtxns = dbimpl->recovered_transactions();
   std::map<SequenceNumber, SequenceNumber> ordered_seq_cnt;
@@ -294,8 +294,7 @@ std::vector<Status> WritePreparedTxnDB::MultiGet(
 
   std::vector<Status> stat_list(num_keys);
   for (size_t i = 0; i < num_keys; ++i) {
-    std::string* value = values ? &(*values)[i] : nullptr;
-    stat_list[i] = this->Get(options, column_family[i], keys[i], value);
+    stat_list[i] = this->Get(options, column_family[i], keys[i], &(*values)[i]);
   }
   return stat_list;
 }
@@ -328,8 +327,7 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
   if (options.snapshot != nullptr) {
     snapshot_seq = options.snapshot->GetSequenceNumber();
     min_uncommitted =
-        static_cast_with_check<const SnapshotImpl, const Snapshot>(
-            options.snapshot)
+        static_cast_with_check<const SnapshotImpl>(options.snapshot)
             ->min_uncommitted_;
   } else {
     auto* snapshot = GetSnapshot();
@@ -337,12 +335,12 @@ Iterator* WritePreparedTxnDB::NewIterator(const ReadOptions& options,
     // are not deleted.
     snapshot_seq = snapshot->GetSequenceNumber();
     min_uncommitted =
-        static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-            ->min_uncommitted_;
+        static_cast_with_check<const SnapshotImpl>(snapshot)->min_uncommitted_;
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
   }
   assert(snapshot_seq != kMaxSequenceNumber);
-  auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  auto* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   auto* state =
       new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
   auto* db_iter =
@@ -363,9 +361,9 @@ Status WritePreparedTxnDB::NewIterators(
   SequenceNumber min_uncommitted = 0;
   if (options.snapshot != nullptr) {
     snapshot_seq = options.snapshot->GetSequenceNumber();
-    min_uncommitted = static_cast_with_check<const SnapshotImpl, const Snapshot>(
-                        options.snapshot)
-                        ->min_uncommitted_;
+    min_uncommitted =
+        static_cast_with_check<const SnapshotImpl>(options.snapshot)
+            ->min_uncommitted_;
   } else {
     auto* snapshot = GetSnapshot();
     // We take a snapshot to make sure that the related data in the commit map
@@ -373,13 +371,13 @@ Status WritePreparedTxnDB::NewIterators(
     snapshot_seq = snapshot->GetSequenceNumber();
     own_snapshot = std::make_shared<ManagedSnapshot>(db_impl_, snapshot);
     min_uncommitted =
-        static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-            ->min_uncommitted_;
+        static_cast_with_check<const SnapshotImpl>(snapshot)->min_uncommitted_;
   }
   iterators->clear();
   iterators->reserve(column_families.size());
   for (auto* column_family : column_families) {
-    auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+    auto* cfd =
+        static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
     auto* state =
         new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted);
     auto* db_iter =

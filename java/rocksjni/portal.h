@@ -22,6 +22,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/rate_limiter.h"
@@ -1291,9 +1292,9 @@ class ByteBufferJni : public JavaClass {
     return constructWith(env, direct, nullptr, capacity, jbytebuffer_clazz);
   }
 
-  static jobject constructWith(
-      JNIEnv* env, const bool direct, const char* buf, const size_t capacity, 
-      jclass jbytebuffer_clazz = nullptr) {
+  static jobject constructWith(JNIEnv* env, const bool direct, const char* buf,
+                               const size_t capacity,
+                               jclass jbytebuffer_clazz = nullptr) {
     if (direct) {
       bool allocated = false;
       if (buf == nullptr) {
@@ -4944,6 +4945,23 @@ class TickerTypeJni {
         return -0x0C;
       case ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN:
         return -0x0D;
+      case ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH:
+        return -0x0E;
+      case ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY:
+        return -0X0F;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_MARKED:
+        return -0x10;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_PERIODIC:
+        return -0x11;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_TTL:
+        return -0x12;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_MARKED:
+        return -0x13;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_PERIODIC:
+        return -0x14;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL:
+        return -0x15;
+
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F for backwards compatibility on current minor version.
         return 0x5F;
@@ -5239,6 +5257,22 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::TXN_SNAPSHOT_MUTEX_OVERHEAD;
       case -0x0D:
         return ROCKSDB_NAMESPACE::Tickers::TXN_GET_TRY_AGAIN;
+      case -0x0E:
+        return ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH;
+      case -0x0F:
+        return ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY;
+      case -0x10:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_MARKED;
+      case -0x11:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_PERIODIC;
+      case -0x12:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_TTL;
+      case -0x13:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_MARKED;
+      case -0x14:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_PERIODIC;
+      case -0x15:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL;
       case 0x5F:
         // 0x5F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX;
@@ -6361,6 +6395,51 @@ class ChecksumTypeJni {
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::ChecksumType::kCRC32c;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.IndexShorteningMode
+class IndexShorteningModeJni {
+ public:
+  // Returns the equivalent org.rocksdb.IndexShorteningMode for the provided
+  // C++ ROCKSDB_NAMESPACE::IndexShorteningMode enum
+  static jbyte toJavaIndexShorteningMode(
+      const ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode&
+          index_shortening_mode) {
+    switch (index_shortening_mode) {
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+          kNoShortening:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+          kShortenSeparators:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+          kShortenSeparatorsAndSuccessor:
+        return 0x2;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::IndexShorteningMode enum for
+  // the provided Java org.rocksdb.IndexShorteningMode
+  static ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode
+  toCppIndexShorteningMode(jbyte jindex_shortening_mode) {
+    switch (jindex_shortening_mode) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+            kNoShortening;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+            kShortenSeparators;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+            kShortenSeparatorsAndSuccessor;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+            kShortenSeparators;
     }
   }
 };
@@ -7527,6 +7606,42 @@ class ReusedSynchronisationTypeJni {
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::ReusedSynchronisationType::ADAPTIVE_MUTEX;
+    }
+  }
+};
+// The portal class for org.rocksdb.SanityLevel
+class SanityLevelJni {
+ public:
+  // Returns the equivalent org.rocksdb.SanityLevel for the provided
+  // C++ ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel enum
+  static jbyte toJavaSanityLevel(
+      const ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel &sanity_level) {
+    switch (sanity_level) {
+      case ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel::kSanityLevelNone:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel::
+          kSanityLevelLooselyCompatible:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel::
+          kSanityLevelExactMatch:
+        return -0x01;
+      default:
+        return -0x01;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel enum for
+  // the provided Java org.rocksdb.SanityLevel
+  static ROCKSDB_NAMESPACE::ConfigOptions::SanityLevel toCppSanityLevel(
+      jbyte sanity_level) {
+    switch (sanity_level) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::ConfigOptions::kSanityLevelNone;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::ConfigOptions::kSanityLevelLooselyCompatible;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::ConfigOptions::kSanityLevelExactMatch;
     }
   }
 };

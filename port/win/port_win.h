@@ -18,12 +18,14 @@
 
 #include <windows.h>
 #include <string>
+#include <thread>
 #include <string.h>
 #include <mutex>
 #include <limits>
 #include <condition_variable>
 #include <malloc.h>
 #include <intrin.h>
+#include <process.h>
 
 #include <stdint.h>
 
@@ -217,9 +219,14 @@ class CondVar {
   Mutex* mu_;
 };
 
+
+#ifdef _POSIX_THREADS
+using Thread = std::thread;
+#else
 // Wrapper around the platform efficient
 // or otherwise preferrable implementation
 using Thread = WindowsThread;
+#endif
 
 // OnceInit type helps emulate
 // Posix semantics with initialization
@@ -276,7 +283,7 @@ extern const size_t kPageSize;
 #endif
 
 static inline void AsmVolatilePause() {
-#if defined(_M_IX86) || defined(_M_X64)
+#if defined(_M_IX86) || defined(_M_X64) || defined(_M_ARM64) || defined(_M_ARM)
   YieldProcessor();
 #endif
   // it would be nice to get "wfe" on ARM here
@@ -336,6 +343,10 @@ extern int GetMaxOpenFiles();
 std::string utf16_to_utf8(const std::wstring& utf16);
 std::wstring utf8_to_utf16(const std::string& utf8);
 
+using ThreadId = int;
+
+extern void SetCpuPriority(ThreadId id, CpuPriority priority);
+
 }  // namespace port
 
 
@@ -361,6 +372,7 @@ std::wstring utf8_to_utf16(const std::string& utf8);
 #define RX_PathIsRelative PathIsRelativeW
 #define RX_GetCurrentDirectory GetCurrentDirectoryW
 #define RX_GetDiskFreeSpaceEx GetDiskFreeSpaceExW
+#define RX_PathIsDirectory PathIsDirectoryW
 
 #else
 
@@ -385,6 +397,7 @@ std::wstring utf8_to_utf16(const std::string& utf8);
 #define RX_PathIsRelative PathIsRelativeA
 #define RX_GetCurrentDirectory GetCurrentDirectoryA
 #define RX_GetDiskFreeSpaceEx GetDiskFreeSpaceExA
+#define RX_PathIsDirectory PathIsDirectoryA
 
 #endif
 

@@ -5,8 +5,6 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/transactions/transaction_test.h"
-
 #include <algorithm>
 #include <atomic>
 #include <cinttypes>
@@ -16,6 +14,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
@@ -23,7 +22,6 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -31,12 +29,12 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/transaction_test.h"
 #include "utilities/transactions/write_prepared_txn_db.h"
-
-#include "port/port.h"
 
 using std::string;
 
@@ -277,8 +275,8 @@ TEST(WriteBatchWithIndex, SubBatchCnt) {
       for (size_t k = 0; k < 10; k++) {  // 10 key per batch
         size_t ki = static_cast<size_t>(rnd.Uniform(TOTAL_KEYS));
         Slice key = Slice(keys[ki]);
-        std::string buffer;
-        Slice value = Slice(test::RandomString(&rnd, 16, &buffer));
+        std::string tmp = rnd.RandomString(16);
+        Slice value = Slice(tmp);
         rndbatch.Put(key, value);
       }
       SubBatchCounter batch_counter(comparators);
@@ -575,7 +573,9 @@ class SeqAdvanceConcurrentTest
             std::get<0>(GetParam()), std::get<1>(GetParam()),
             std::get<2>(GetParam()), std::get<3>(GetParam())),
         split_id_(std::get<4>(GetParam())),
-        split_cnt_(std::get<5>(GetParam())){};
+        split_cnt_(std::get<5>(GetParam())) {
+    special_env.skip_fsync_ = true;
+  };
 
  protected:
   // A test is split into split_cnt_ tests, each identified with split_id_ where
@@ -1107,7 +1107,7 @@ TEST_P(WritePreparedTransactionTest, CheckAgainstSnapshots) {
                                       355l, 450l, 455l, 550l, 555l, 650l, 655l,
                                       750l, 755l, 850l, 855l, 950l, 955l};
   assert(seqs.size() > 1);
-  for (size_t i = 0; i < seqs.size() - 1; i++) {
+  for (size_t i = 0; i + 1 < seqs.size(); i++) {
     wp_db->old_commit_map_empty_ = true;  // reset
     CommitEntry commit_entry = {seqs[i], seqs[i + 1]};
     wp_db->CheckAgainstSnapshots(commit_entry);
@@ -1676,7 +1676,7 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
     if (n % 1000 == 0) {
       printf("Tested %" ROCKSDB_PRIszt " cases so far\n", n);
     }
-    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     auto seq = db_impl->TEST_GetLastVisibleSequence();
     with_empty_commits = 0;
     exp_seq = seq;
@@ -1768,7 +1768,7 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
     db_impl->FlushWAL(true);
     ReOpenNoDelete();
     assert(db != nullptr);
-    db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     seq = db_impl->TEST_GetLastVisibleSequence();
     ASSERT_LE(exp_seq, seq + with_empty_commits);
 
@@ -1781,7 +1781,7 @@ TEST_P(SeqAdvanceConcurrentTest, SeqAdvanceConcurrent) {
     db_impl->FlushWAL(true);
     ReOpenNoDelete();
     assert(db != nullptr);
-    db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     seq = db_impl->GetLatestSequenceNumber();
     ASSERT_LE(exp_seq, seq + with_empty_commits);
   }
@@ -1947,7 +1947,7 @@ TEST_P(WritePreparedTransactionTest, IsInSnapshotEmptyMap) {
       delete txn;
     }
     dynamic_cast<WritePreparedTxnDB*>(db)->TEST_Crash();
-    auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    auto db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     db_impl->FlushWAL(true);
     ReOpenNoDelete();
     WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
@@ -2285,7 +2285,7 @@ TEST_P(WritePreparedTransactionTest, Rollback) {
 
         if (crash) {
           delete txn;
-          auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+          auto db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
           db_impl->FlushWAL(true);
           dynamic_cast<WritePreparedTxnDB*>(db)->TEST_Crash();
           ReOpenNoDelete();
@@ -2344,7 +2344,7 @@ TEST_P(WritePreparedTransactionTest, DisableGCDuringRecovery) {
   }
   std::reverse(std::begin(versions), std::end(versions));
   VerifyInternalKeys(versions);
-  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
   db_impl->FlushWAL(true);
   // Use small buffer to ensure memtable flush during recovery
   options.write_buffer_size = 1024;
@@ -2376,7 +2376,7 @@ TEST_P(WritePreparedTransactionTest, SequenceNumberZero) {
 TEST_P(WritePreparedTransactionTest, CompactionShouldKeepUncommittedKeys) {
   options.disable_auto_compactions = true;
   ReOpen();
-  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
   // Snapshots to avoid keys get evicted.
   std::vector<const Snapshot*> snapshots;
   // Keep track of expected sequence number.
@@ -2475,7 +2475,7 @@ TEST_P(WritePreparedTransactionTest, CompactionShouldKeepSnapshotVisibleKeys) {
   ASSERT_OK(txn1->Prepare());
   ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   ASSERT_OK(txn1->Commit());
-  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
   ASSERT_EQ(++expected_seq, db_impl->TEST_GetLastVisibleSequence());
   delete txn1;
   // Take a snapshots to avoid keys get evicted before compaction.
@@ -2881,7 +2881,7 @@ TEST_P(WritePreparedTransactionTest,
   ASSERT_EQ(++expected_seq, db->GetLatestSequenceNumber());
   SequenceNumber seq1 = expected_seq;
   ASSERT_OK(db->Put(WriteOptions(), "key2", "value2"));
-  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
   expected_seq++;  // one for data
   if (options.two_write_queues) {
     expected_seq++;  // one for commit
@@ -3019,7 +3019,7 @@ TEST_P(WritePreparedTransactionTest, NonAtomicCommitOfDelayedPrepared) {
       UpdateTransactionDBOptions(snapshot_cache_bits, commit_cache_bits);
       ReOpen();
       WritePreparedTxnDB* wp_db = dynamic_cast<WritePreparedTxnDB*>(db);
-      DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+      DBImpl* db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
       // Fill up the commit cache
       std::string init_value("value1");
       for (int i = 0; i < 10; i++) {

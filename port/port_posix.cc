@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#if !defined(OS_WIN)
+
 #include "port/port_posix.h"
 
 #include <assert.h>
@@ -19,6 +21,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <sys/syscall.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <cstdlib>
@@ -230,5 +233,36 @@ static size_t GetPageSize() {
 
 const size_t kPageSize = GetPageSize();
 
+void SetCpuPriority(ThreadId id, CpuPriority priority) {
+#ifdef OS_LINUX
+  sched_param param;
+  param.sched_priority = 0;
+  switch (priority) {
+    case CpuPriority::kHigh:
+      sched_setscheduler(id, SCHED_OTHER, &param);
+      setpriority(PRIO_PROCESS, id, -20);
+      break;
+    case CpuPriority::kNormal:
+      sched_setscheduler(id, SCHED_OTHER, &param);
+      setpriority(PRIO_PROCESS, id, 0);
+      break;
+    case CpuPriority::kLow:
+      sched_setscheduler(id, SCHED_OTHER, &param);
+      setpriority(PRIO_PROCESS, id, 19);
+      break;
+    case CpuPriority::kIdle:
+      sched_setscheduler(id, SCHED_IDLE, &param);
+      break;
+    default:
+      assert(false);
+  }
+#else
+  (void)id;
+  (void)priority;
+#endif
+}
+
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
+
+#endif

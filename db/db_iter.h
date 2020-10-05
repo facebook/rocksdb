@@ -140,10 +140,17 @@ class DBIter final : public Iterator {
   }
   ReadRangeDelAggregator* GetRangeDelAggregator() { return &range_del_agg_; }
 
-  bool Valid() const override { return valid_; }
+  bool Valid() const override {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    if (valid_) {
+      status_.PermitUncheckedError();
+    }
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+    return valid_;
+  }
   Slice key() const override {
     assert(valid_);
-    if (start_seqnum_ > 0) {
+    if (start_seqnum_ > 0 || timestamp_lb_) {
       return saved_key_.GetInternalKey();
     } else {
       const Slice ukey_and_ts = saved_key_.GetUserKey();
@@ -231,7 +238,8 @@ class DBIter final : public Iterator {
   // entry can be found within the prefix.
   void PrevInternal(const Slice* prefix);
   bool TooManyInternalKeysSkipped(bool increment = true);
-  bool IsVisible(SequenceNumber sequence, const Slice& ts);
+  bool IsVisible(SequenceNumber sequence, const Slice& ts,
+                 bool* more_recent = nullptr);
 
   // Temporarily pin the blocks that we encounter until ReleaseTempPinnedData()
   // is called
@@ -268,6 +276,15 @@ class DBIter final : public Iterator {
   bool expect_total_order_inner_iter() {
     assert(expect_total_order_inner_iter_ || prefix_extractor_ != nullptr);
     return expect_total_order_inner_iter_;
+  }
+
+  // If lower bound of timestamp is given by ReadOptions.iter_start_ts, we need
+  // to return versions of the same key. We cannot just skip if the key value
+  // is the same but timestamps are different but fall in timestamp range.
+  inline int CompareKeyForSkip(const Slice& a, const Slice& b) {
+    return timestamp_lb_ != nullptr
+               ? user_comparator_.Compare(a, b)
+               : user_comparator_.CompareWithoutTimestamp(a, b);
   }
 
   const SliceTransform* prefix_extractor_;
@@ -338,6 +355,7 @@ class DBIter final : public Iterator {
   // if this value > 0 iterator will return internal keys
   SequenceNumber start_seqnum_;
   const Slice* const timestamp_ub_;
+  const Slice* const timestamp_lb_;
   const size_t timestamp_size_;
 };
 

@@ -18,24 +18,60 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// FileChecksumFunc is the function class to generates the checksum value
+// The unknown file checksum.
+constexpr char kUnknownFileChecksum[] = "";
+// The unknown sst file checksum function name.
+constexpr char kUnknownFileChecksumFuncName[] = "Unknown";
+// The standard DB file checksum function name.
+// This is the name of the checksum function returned by
+// GetFileChecksumGenCrc32cFactory();
+constexpr char kStandardDbFileChecksumFuncName[] = "FileChecksumCrc32c";
+
+struct FileChecksumGenContext {
+  std::string file_name;
+  // The name of the requested checksum generator.
+  // Checksum factories may use or ignore requested_checksum_func_name,
+  // and checksum factories written before this field was available are still
+  // compatible.
+  std::string requested_checksum_func_name;
+};
+
+// FileChecksumGenerator is the class to generates the checksum value
 // for each file when the file is written to the file system.
-class FileChecksumFunc {
+// Implementations may assume that
+// * Finalize is called at most once during the life of the object
+// * All calls to Update come before Finalize
+// * All calls to GetChecksum come after Finalize
+class FileChecksumGenerator {
  public:
-  virtual ~FileChecksumFunc() {}
-  // Return the checksum of concat (A, data[0,n-1]) where init_checksum is the
-  // returned value of some string A. It is used to maintain the checksum of a
-  // stream of data
-  virtual std::string Extend(const std::string& init_checksum, const char* data,
-                             size_t n) = 0;
+  virtual ~FileChecksumGenerator() {}
 
-  // Return the checksum value of data[0,n-1]
-  virtual std::string Value(const char* data, size_t n) = 0;
+  // Update the current result after process the data. For different checksum
+  // functions, the temporal results may be stored and used in Update to
+  // include the new data.
+  virtual void Update(const char* data, size_t n) = 0;
 
-  // Return a processed value of the checksum for store in somewhere
-  virtual std::string ProcessChecksum(const std::string& checksum) = 0;
+  // Generate the final results if no further new data will be updated.
+  virtual void Finalize() = 0;
+
+  // Get the checksum. The result should not be the empty string and may
+  // include arbitrary bytes, including non-printable characters.
+  virtual std::string GetChecksum() const = 0;
 
   // Returns a name that identifies the current file checksum function.
+  virtual const char* Name() const = 0;
+};
+
+// Create the FileChecksumGenerator object for each SST file.
+class FileChecksumGenFactory {
+ public:
+  virtual ~FileChecksumGenFactory() {}
+
+  // Create a new FileChecksumGenerator.
+  virtual std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& context) = 0;
+
+  // Return the name of this FileChecksumGenFactory.
   virtual const char* Name() const = 0;
 };
 
@@ -80,7 +116,14 @@ class FileChecksumList {
 // Create a new file checksum list.
 extern FileChecksumList* NewFileChecksumList();
 
-// Create a Crc32c based file checksum function
-extern FileChecksumFunc* CreateFileChecksumFuncCrc32c();
+// Return a shared_ptr of the builtin Crc32c based file checksum generatory
+// factory object, which can be shared to create the Crc32c based checksum
+// generator object.
+// Note: this implementation is compatible with many other crc32c checksum
+// implementations and uses big-endian encoding of the result, unlike most
+// other crc32c checksums in RocksDB, which alter the result with
+// crc32c::Mask and use little-endian encoding.
+extern std::shared_ptr<FileChecksumGenFactory>
+GetFileChecksumGenCrc32cFactory();
 
 }  // namespace ROCKSDB_NAMESPACE

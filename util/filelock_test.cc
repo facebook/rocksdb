@@ -7,9 +7,14 @@
 #include "rocksdb/env.h"
 
 #include <fcntl.h>
+#ifdef __FreeBSD__
+#include <sys/types.h>
+#include <sys/wait.h>
+#endif
 #include <vector>
 #include "test_util/testharness.h"
 #include "util/coding.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -120,7 +125,13 @@ TEST_F(LockTest, LockBySameThread) {
   ASSERT_TRUE( AssertFileIsLocked() );
 
   // re-acquire the lock on the same file. This should fail.
-  ASSERT_TRUE(LockFile(&lock2).IsIOError());
+  Status s = LockFile(&lock2);
+  ASSERT_TRUE(s.IsIOError());
+#ifndef OS_WIN
+  // Validate that error message contains current thread ID.
+  ASSERT_TRUE(s.ToString().find(ToString(Env::Default()->GetThreadID())) !=
+              std::string::npos);
+#endif
 
   // check the file is locked
   ASSERT_TRUE( AssertFileIsLocked() );

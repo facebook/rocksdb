@@ -15,8 +15,8 @@
 #include <nmmintrin.h>
 #include <wmmintrin.h>
 #endif
+#include "port/lang.h"
 #include "util/coding.h"
-#include "util/util.h"
 
 #include "util/crc32c_arm64.h"
 
@@ -39,6 +39,10 @@
 
 #endif /* __linux__ */
 
+#endif
+
+#if defined(__linux__) && defined(HAVE_ARM64_CRC)
+bool pmull_runtime_flag = false;
 #endif
 
 namespace ROCKSDB_NAMESPACE {
@@ -494,6 +498,7 @@ std::string IsFastCrc32Supported() {
   if (crc32c_runtime_check()) {
     has_fast_crc = true;
     arch = "Arm64";
+    pmull_runtime_flag = crc32c_pmull_runtime_check();
   } else {
     has_fast_crc = false;
     arch = "Arm64";
@@ -725,29 +730,29 @@ uint32_t crc32c_3way(uint32_t crc, const char* buf, size_t len) {
           do {
             // jumps here for a full block of len 128
             CRCtriplet(crc, next, -128);
-	    FALLTHROUGH_INTENDED;
+            FALLTHROUGH_INTENDED;
             case 127:
               // jumps here or below for the first block smaller
               CRCtriplet(crc, next, -127);
-	      FALLTHROUGH_INTENDED;
+              FALLTHROUGH_INTENDED;
             case 126:
               CRCtriplet(crc, next, -126); // than 128
-	      FALLTHROUGH_INTENDED;
+              FALLTHROUGH_INTENDED;
             case 125:
               CRCtriplet(crc, next, -125);
-	      FALLTHROUGH_INTENDED;
+              FALLTHROUGH_INTENDED;
             case 124:
               CRCtriplet(crc, next, -124);
-	      FALLTHROUGH_INTENDED;
+              FALLTHROUGH_INTENDED;
             case 123:
               CRCtriplet(crc, next, -123);
-	      FALLTHROUGH_INTENDED;
+              FALLTHROUGH_INTENDED;
             case 122:
               CRCtriplet(crc, next, -122);
-	      FALLTHROUGH_INTENDED;
+              FALLTHROUGH_INTENDED;
             case 121:
               CRCtriplet(crc, next, -121);
-	      FALLTHROUGH_INTENDED;
+              FALLTHROUGH_INTENDED;
             case 120:
               CRCtriplet(crc, next, -120);
               FALLTHROUGH_INTENDED;
@@ -1224,6 +1229,7 @@ static inline Function Choose_Extend() {
   return isAltiVec() ? ExtendPPCImpl : ExtendImpl<Slow_CRC32>;
 #elif defined(__linux__) && defined(HAVE_ARM64_CRC)
   if(crc32c_runtime_check()) {
+    pmull_runtime_flag = crc32c_pmull_runtime_check();
     return ExtendARMImpl;
   } else {
     return ExtendImpl<Slow_CRC32>;

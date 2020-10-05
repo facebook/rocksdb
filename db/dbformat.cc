@@ -23,14 +23,8 @@ namespace ROCKSDB_NAMESPACE {
 // and the value type is embedded as the low 8 bits in the sequence
 // number in internal keys, we need to use the highest-numbered
 // ValueType, not the lowest).
-const ValueType kValueTypeForSeek = kTypeBlobIndex;
+const ValueType kValueTypeForSeek = kTypeDeletionWithTimestamp;
 const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
-
-uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
-  assert(seq <= kMaxSequenceNumber);
-  assert(IsExtendedValueType(t));
-  return (seq << 8) | t;
-}
 
 EntryType GetEntryType(ValueType value_type) {
   switch (value_type) {
@@ -38,6 +32,8 @@ EntryType GetEntryType(ValueType value_type) {
       return kEntryPut;
     case kTypeDeletion:
       return kEntryDelete;
+    case kTypeDeletionWithTimestamp:
+      return kEntryDeleteWithTimestamp;
     case kTypeSingleDeletion:
       return kEntrySingleDelete;
     case kTypeMerge:
@@ -53,21 +49,13 @@ EntryType GetEntryType(ValueType value_type) {
 
 bool ParseFullKey(const Slice& internal_key, FullKey* fkey) {
   ParsedInternalKey ikey;
-  if (!ParseInternalKey(internal_key, &ikey)) {
+  if (ParseInternalKey(internal_key, &ikey) != Status::OK()) {
     return false;
   }
   fkey->user_key = ikey.user_key;
   fkey->sequence = ikey.sequence;
   fkey->type = GetEntryType(ikey.type);
   return true;
-}
-
-void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t) {
-  *seq = packed >> 8;
-  *t = static_cast<ValueType>(packed & 0xff);
-
-  assert(*seq <= kMaxSequenceNumber);
-  assert(IsExtendedValueType(*t));
 }
 
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
@@ -102,7 +90,7 @@ std::string ParsedInternalKey::DebugString(bool hex) const {
 std::string InternalKey::DebugString(bool hex) const {
   std::string result;
   ParsedInternalKey parsed;
-  if (ParseInternalKey(rep_, &parsed)) {
+  if (ParseInternalKey(rep_, &parsed) == Status::OK()) {
     result = parsed.DebugString(hex);
   } else {
     result = "(bad)";
@@ -111,7 +99,12 @@ std::string InternalKey::DebugString(bool hex) const {
   return result;
 }
 
-const char* InternalKeyComparator::Name() const { return name_.c_str(); }
+const char* InternalKeyComparator::Name() const {
+  if (name_.empty()) {
+    return "rocksdb.anonymous.InternalKeyComparator";
+  }
+  return name_.c_str();
+}
 
 int InternalKeyComparator::Compare(const ParsedInternalKey& a,
                                    const ParsedInternalKey& b) const {

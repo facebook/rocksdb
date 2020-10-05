@@ -1,20 +1,23 @@
 #ifndef ROCKSDB_LITE
 
 #include <functional>
+
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class ImportColumnFamilyTest : public DBTestBase {
  public:
-  ImportColumnFamilyTest() : DBTestBase("/import_column_family_test") {
+  ImportColumnFamilyTest()
+      : DBTestBase("/import_column_family_test", /*env_do_fsync=*/true) {
     sst_files_dir_ = dbname_ + "/sst_files/";
     DestroyAndRecreateExternalSSTFilesDir();
-    export_files_dir_ = test::TmpDir(env_) + "/export";
+    export_files_dir_ = test::PerThreadDBPath(env_, "export");
     import_cfh_ = nullptr;
     import_cfh2_ = nullptr;
     metadata_ptr_ = nullptr;
@@ -35,14 +38,14 @@ class ImportColumnFamilyTest : public DBTestBase {
       delete metadata_ptr_;
       metadata_ptr_ = nullptr;
     }
-    test::DestroyDir(env_, sst_files_dir_);
-    test::DestroyDir(env_, export_files_dir_);
+    DestroyDir(env_, sst_files_dir_);
+    DestroyDir(env_, export_files_dir_);
   }
 
   void DestroyAndRecreateExternalSSTFilesDir() {
-    test::DestroyDir(env_, sst_files_dir_);
+    DestroyDir(env_, sst_files_dir_);
     env_->CreateDir(sst_files_dir_);
-    test::DestroyDir(env_, export_files_dir_);
+    DestroyDir(env_, export_files_dir_);
   }
 
   LiveFileMetaData LiveFileMetaDataInit(std::string name, std::string path,
@@ -411,7 +414,7 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherDB) {
 
   // Create a new db and import the files.
   DB* db_copy;
-  test::DestroyDir(env_, dbname_ + "/db_copy");
+  DestroyDir(env_, dbname_ + "/db_copy");
   ASSERT_OK(DB::Open(options, dbname_ + "/db_copy", &db_copy));
   ColumnFamilyHandle* cfh = nullptr;
   ASSERT_OK(db_copy->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
@@ -427,7 +430,69 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherDB) {
   db_copy->DropColumnFamily(cfh);
   db_copy->DestroyColumnFamilyHandle(cfh);
   delete db_copy;
-  test::DestroyDir(env_, dbname_ + "/db_copy");
+  DestroyDir(env_, dbname_ + "/db_copy");
+}
+
+TEST_F(ImportColumnFamilyTest, LevelFilesOverlappingAtEndpoints) {
+  // Imports a column family containing a level where two files overlap at their
+  // endpoints. "Overlap" means the largest user key in one file is the same as
+  // the smallest user key in the second file.
+  const int kFileBytes = 128 << 10;  // 128KB
+  const int kValueBytes = 1 << 10;   // 1KB
+  const int kNumFiles = 4;
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 2;
+  CreateAndReopenWithCF({"koko"}, options);
+
+  Random rnd(301);
+  // Every key is snapshot protected to ensure older versions will not be
+  // dropped during compaction.
+  std::vector<const Snapshot*> snapshots;
+  snapshots.reserve(kFileBytes / kValueBytes * kNumFiles);
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kFileBytes / kValueBytes; ++j) {
+      auto value = rnd.RandomString(kValueBytes);
+      ASSERT_OK(Put(1, "key", value));
+      snapshots.push_back(db_->GetSnapshot());
+    }
+    ASSERT_OK(Flush(1));
+  }
+
+  // Compact to create overlapping L1 files.
+  ASSERT_OK(
+      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr));
+  ASSERT_GT(NumTableFilesAtLevel(1, 1), 1);
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->ExportColumnFamily(handles_[1], export_files_dir_,
+                                           &metadata_ptr_));
+  ASSERT_NE(metadata_ptr_, nullptr);
+  delete checkpoint;
+
+  // Create a new db and import the files.
+  DB* db_copy;
+  DestroyDir(env_, dbname_ + "/db_copy");
+  ASSERT_OK(DB::Open(options, dbname_ + "/db_copy", &db_copy));
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db_copy->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
+                                                  ImportColumnFamilyOptions(),
+                                                  *metadata_ptr_, &cfh));
+  ASSERT_NE(cfh, nullptr);
+
+  {
+    std::string value;
+    ASSERT_OK(db_copy->Get(ReadOptions(), cfh, "key", &value));
+  }
+  db_copy->DropColumnFamily(cfh);
+  db_copy->DestroyColumnFamilyHandle(cfh);
+  delete db_copy;
+  DestroyDir(env_, dbname_ + "/db_copy");
+  for (const Snapshot* snapshot : snapshots) {
+    db_->ReleaseSnapshot(snapshot);
+  }
 }
 
 TEST_F(ImportColumnFamilyTest, ImportColumnFamilyNegativeTest) {

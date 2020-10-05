@@ -16,21 +16,176 @@
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/wal_filter.h"
-#include "test_util/fault_injection_test_env.h"
+#include "util/random.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class DBTest2 : public DBTestBase {
  public:
-  DBTest2() : DBTestBase("/db_test2") {}
+  DBTest2() : DBTestBase("/db_test2", /*env_do_fsync=*/true) {}
 };
+
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest2, OpenForReadOnly) {
+  DB* db_ptr = nullptr;
+  std::string dbname = test::PerThreadDBPath("db_readonly");
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  // OpenForReadOnly should fail but will create <dbname> in the file system
+  ASSERT_NOK(DB::OpenForReadOnly(options, dbname, &db_ptr));
+  // Since <dbname> is created, we should be able to delete the dir
+  // We first get the list files under <dbname>
+  // There should not be any subdirectories -- this is not checked here
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname, &files));
+  for (auto& f : files) {
+    if (f != "." && f != "..") {
+      ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
+    }
+  }
+  // <dbname> should be empty now and we should be able to delete it
+  ASSERT_OK(env_->DeleteDir(dbname));
+  options.create_if_missing = false;
+  // OpenForReadOnly should fail since <dbname> was successfully deleted
+  ASSERT_NOK(DB::OpenForReadOnly(options, dbname, &db_ptr));
+  // With create_if_missing false, there should not be a dir in the file system
+  ASSERT_NOK(env_->FileExists(dbname));
+}
+
+TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
+  DB* db_ptr = nullptr;
+  std::string dbname = test::PerThreadDBPath("db_readonly");
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+
+  ColumnFamilyOptions cf_options(options);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  column_families.push_back(ColumnFamilyDescriptor("goku", cf_options));
+  std::vector<ColumnFamilyHandle*> handles;
+  // OpenForReadOnly should fail but will create <dbname> in the file system
+  ASSERT_NOK(
+      DB::OpenForReadOnly(options, dbname, column_families, &handles, &db_ptr));
+  // Since <dbname> is created, we should be able to delete the dir
+  // We first get the list files under <dbname>
+  // There should not be any subdirectories -- this is not checked here
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname, &files));
+  for (auto& f : files) {
+    if (f != "." && f != "..") {
+      ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
+    }
+  }
+  // <dbname> should be empty now and we should be able to delete it
+  ASSERT_OK(env_->DeleteDir(dbname));
+  options.create_if_missing = false;
+  // OpenForReadOnly should fail since <dbname> was successfully deleted
+  ASSERT_NOK(
+      DB::OpenForReadOnly(options, dbname, column_families, &handles, &db_ptr));
+  // With create_if_missing false, there should not be a dir in the file system
+  ASSERT_NOK(env_->FileExists(dbname));
+}
+
+class TestReadOnlyWithCompressedCache
+    : public DBTestBase,
+      public testing::WithParamInterface<std::tuple<int, bool>> {
+ public:
+  TestReadOnlyWithCompressedCache()
+      : DBTestBase("/test_readonly_with_compressed_cache",
+                   /*env_do_fsync=*/true) {
+    max_open_files_ = std::get<0>(GetParam());
+    use_mmap_ = std::get<1>(GetParam());
+  }
+  int max_open_files_;
+  bool use_mmap_;
+};
+
+TEST_P(TestReadOnlyWithCompressedCache, ReadOnlyWithCompressedCache) {
+  if (use_mmap_ && !IsMemoryMappedAccessSupported()) {
+    return;
+  }
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("foo2", "barbarbarbarbarbarbarbar"));
+  ASSERT_OK(Flush());
+
+  DB* db_ptr = nullptr;
+  Options options = CurrentOptions();
+  options.allow_mmap_reads = use_mmap_;
+  options.max_open_files = max_open_files_;
+  options.compression = kSnappyCompression;
+  BlockBasedTableOptions table_options;
+  table_options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
+  table_options.no_block_cache = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.statistics = CreateDBStatistics();
+
+  ASSERT_OK(DB::OpenForReadOnly(options, dbname_, &db_ptr));
+
+  std::string v;
+  ASSERT_OK(db_ptr->Get(ReadOptions(), "foo", &v));
+  ASSERT_EQ("bar", v);
+  ASSERT_EQ(0, options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
+  ASSERT_OK(db_ptr->Get(ReadOptions(), "foo", &v));
+  ASSERT_EQ("bar", v);
+  if (Snappy_Supported()) {
+    if (use_mmap_) {
+      ASSERT_EQ(0,
+                options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
+    } else {
+      ASSERT_EQ(1,
+                options.statistics->getTickerCount(BLOCK_CACHE_COMPRESSED_HIT));
+    }
+  }
+
+  delete db_ptr;
+}
+
+INSTANTIATE_TEST_CASE_P(TestReadOnlyWithCompressedCache,
+                        TestReadOnlyWithCompressedCache,
+                        ::testing::Combine(::testing::Values(-1, 100),
+                                           ::testing::Bool()));
+
+class PartitionedIndexTestListener : public EventListener {
+ public:
+  void OnFlushCompleted(DB* /*db*/, const FlushJobInfo& info) override {
+    ASSERT_GT(info.table_properties.index_partitions, 1);
+    ASSERT_EQ(info.table_properties.index_key_is_user_key, 0);
+  }
+};
+
+TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
+  BlockBasedTableOptions table_options;
+  Options options = CurrentOptions();
+  table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+  PartitionedIndexTestListener* listener = new PartitionedIndexTestListener();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.listeners.emplace_back(listener);
+  std::vector<const Snapshot*> snapshots;
+  Reopen(options);
+  Random rnd(301);
+
+  for (int i = 0; i < 3000; i++) {
+    int j = i % 30;
+    std::string value = rnd.RandomString(10500);
+    ASSERT_OK(Put("keykey_" + std::to_string(j), value));
+    snapshots.push_back(db_->GetSnapshot());
+  }
+  Flush();
+  for (auto s : snapshots) {
+    db_->ReleaseSnapshot(s);
+  }
+}
+
+#endif  // ROCKSDB_LITE
 
 class PrefixFullBloomWithReverseComparator
     : public DBTestBase,
       public ::testing::WithParamInterface<bool> {
  public:
   PrefixFullBloomWithReverseComparator()
-      : DBTestBase("/prefix_bloom_reverse") {}
+      : DBTestBase("/prefix_bloom_reverse", /*env_do_fsync=*/true) {}
   void SetUp() override { if_cache_filter_ = GetParam(); }
   bool if_cache_filter_;
 };
@@ -170,7 +325,7 @@ class DBTestSharedWriteBufferAcrossCFs
       public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   DBTestSharedWriteBufferAcrossCFs()
-      : DBTestBase("/db_test_shared_write_buffer") {}
+      : DBTestBase("/db_test_shared_write_buffer", /*env_do_fsync=*/true) {}
   void SetUp() override {
     use_old_interface_ = std::get<0>(GetParam());
     cost_cache_ = std::get<1>(GetParam());
@@ -1121,7 +1276,7 @@ TEST_F(DBTest2, PresetCompressionDict) {
       std::string seq_datas[10];
       for (int j = 0; j < 10; ++j) {
         seq_datas[j] =
-            RandomString(&rnd, kBlockSizeBytes - kApproxPerBlockOverheadBytes);
+            rnd.RandomString(kBlockSizeBytes - kApproxPerBlockOverheadBytes);
       }
 
       ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
@@ -1196,7 +1351,7 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
   for (int i = 0; i < kNumFiles; ++i) {
     for (int j = 0; j < kNumEntriesPerFile; ++j) {
       ASSERT_OK(Put(Key(i * kNumEntriesPerFile + j),
-                    RandomString(&rnd, kNumBytesPerEntry)));
+                    rnd.RandomString(kNumBytesPerEntry)));
     }
     ASSERT_OK(Flush());
     MoveFilesToLevel(1);
@@ -1268,6 +1423,151 @@ class CompactionCompressionListener : public EventListener {
   const Options* db_options_;
 };
 
+enum CompressionFailureType {
+  kTestCompressionFail,
+  kTestDecompressionFail,
+  kTestDecompressionCorruption
+};
+
+class CompressionFailuresTest
+    : public DBTest2,
+      public testing::WithParamInterface<std::tuple<
+          CompressionFailureType, CompressionType, uint32_t, uint32_t>> {
+ public:
+  CompressionFailuresTest() {
+    std::tie(compression_failure_type_, compression_type_,
+             compression_max_dict_bytes_, compression_parallel_threads_) =
+        GetParam();
+  }
+
+  CompressionFailureType compression_failure_type_ = kTestCompressionFail;
+  CompressionType compression_type_ = kNoCompression;
+  uint32_t compression_max_dict_bytes_ = 0;
+  uint32_t compression_parallel_threads_ = 0;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    DBTest2, CompressionFailuresTest,
+    ::testing::Combine(::testing::Values(kTestCompressionFail,
+                                         kTestDecompressionFail,
+                                         kTestDecompressionCorruption),
+                       ::testing::ValuesIn(GetSupportedCompressions()),
+                       ::testing::Values(0, 10), ::testing::Values(1, 4)));
+
+TEST_P(CompressionFailuresTest, CompressionFailures) {
+  if (compression_type_ == kNoCompression) {
+    return;
+  }
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  options.max_bytes_for_level_base = 1024;
+  options.max_bytes_for_level_multiplier = 2;
+  options.num_levels = 7;
+  options.max_background_compactions = 1;
+  options.target_file_size_base = 512;
+
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 512;
+  table_options.verify_compression = true;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+
+  options.compression = compression_type_;
+  options.compression_opts.parallel_threads = compression_parallel_threads_;
+  options.compression_opts.max_dict_bytes = compression_max_dict_bytes_;
+  options.bottommost_compression_opts.parallel_threads =
+      compression_parallel_threads_;
+  options.bottommost_compression_opts.max_dict_bytes =
+      compression_max_dict_bytes_;
+
+  if (compression_failure_type_ == kTestCompressionFail) {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "CompressData:TamperWithReturnValue", [](void* arg) {
+          bool* ret = static_cast<bool*>(arg);
+          *ret = false;
+        });
+  } else if (compression_failure_type_ == kTestDecompressionFail) {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "UncompressBlockContentsForCompressionType:TamperWithReturnValue",
+        [](void* arg) {
+          Status* ret = static_cast<Status*>(arg);
+          ASSERT_OK(*ret);
+          *ret = Status::Corruption("kTestDecompressionFail");
+        });
+  } else if (compression_failure_type_ == kTestDecompressionCorruption) {
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "UncompressBlockContentsForCompressionType:"
+        "TamperWithDecompressionOutput",
+        [](void* arg) {
+          BlockContents* contents = static_cast<BlockContents*>(arg);
+          // Ensure uncompressed data != original data
+          const size_t len = contents->data.size() + 1;
+          std::unique_ptr<char[]> fake_data(new char[len]());
+          *contents = BlockContents(std::move(fake_data), len);
+        });
+  }
+
+  std::map<std::string, std::string> key_value_written;
+
+  const int kKeySize = 5;
+  const int kValUnitSize = 16;
+  const int kValSize = 256;
+  Random rnd(405);
+
+  Status s = Status::OK();
+
+  DestroyAndReopen(options);
+  // Write 10 random files
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 5; j++) {
+      std::string key = rnd.RandomString(kKeySize);
+      // Ensure good compression ratio
+      std::string valueUnit = rnd.RandomString(kValUnitSize);
+      std::string value;
+      for (int k = 0; k < kValSize; k += kValUnitSize) {
+        value += valueUnit;
+      }
+      s = Put(key, value);
+      if (compression_failure_type_ == kTestCompressionFail) {
+        key_value_written[key] = value;
+        ASSERT_OK(s);
+      }
+    }
+    s = Flush();
+    if (compression_failure_type_ == kTestCompressionFail) {
+      ASSERT_OK(s);
+    }
+    s = dbfull()->TEST_WaitForCompact();
+    if (compression_failure_type_ == kTestCompressionFail) {
+      ASSERT_OK(s);
+    }
+    if (i == 4) {
+      // Make compression fail at the mid of table building
+      ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+    }
+  }
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  if (compression_failure_type_ == kTestCompressionFail) {
+    // Should be kNoCompression, check content consistency
+    std::unique_ptr<Iterator> db_iter(db_->NewIterator(ReadOptions()));
+    for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
+      std::string key = db_iter->key().ToString();
+      std::string value = db_iter->value().ToString();
+      ASSERT_NE(key_value_written.find(key), key_value_written.end());
+      ASSERT_EQ(key_value_written[key], value);
+      key_value_written.erase(key);
+    }
+    ASSERT_EQ(0, key_value_written.size());
+  } else if (compression_failure_type_ == kTestDecompressionFail) {
+    ASSERT_EQ(std::string(s.getState()),
+              "Could not decompress: kTestDecompressionFail");
+  } else if (compression_failure_type_ == kTestDecompressionCorruption) {
+    ASSERT_EQ(std::string(s.getState()),
+              "Decompressed block did not match raw block");
+  }
+}
+
 TEST_F(DBTest2, CompressionOptions) {
   if (!Zlib_Supported() || !Snappy_Supported()) {
     return;
@@ -1287,6 +1587,10 @@ TEST_F(DBTest2, CompressionOptions) {
   const int kKeySize = 5;
   const int kValSize = 20;
   Random rnd(301);
+
+  std::vector<uint32_t> compression_parallel_threads = {1, 4};
+
+  std::map<std::string, std::string> key_value_written;
 
   for (int iter = 0; iter <= 2; iter++) {
     listener->max_level_checked = 0;
@@ -1312,19 +1616,37 @@ TEST_F(DBTest2, CompressionOptions) {
       options.bottommost_compression = kDisableCompressionOption;
     }
 
-    DestroyAndReopen(options);
-    // Write 10 random files
-    for (int i = 0; i < 10; i++) {
-      for (int j = 0; j < 5; j++) {
-        ASSERT_OK(
-            Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValSize)));
-      }
-      ASSERT_OK(Flush());
-      dbfull()->TEST_WaitForCompact();
-    }
+    for (auto num_threads : compression_parallel_threads) {
+      options.compression_opts.parallel_threads = num_threads;
+      options.bottommost_compression_opts.parallel_threads = num_threads;
 
-    // Make sure that we wrote enough to check all 7 levels
-    ASSERT_EQ(listener->max_level_checked, 6);
+      DestroyAndReopen(options);
+      // Write 10 random files
+      for (int i = 0; i < 10; i++) {
+        for (int j = 0; j < 5; j++) {
+          std::string key = rnd.RandomString(kKeySize);
+          std::string value = rnd.RandomString(kValSize);
+          key_value_written[key] = value;
+          ASSERT_OK(Put(key, value));
+        }
+        ASSERT_OK(Flush());
+        dbfull()->TEST_WaitForCompact();
+      }
+
+      // Make sure that we wrote enough to check all 7 levels
+      ASSERT_EQ(listener->max_level_checked, 6);
+
+      // Make sure database content is the same as key_value_written
+      std::unique_ptr<Iterator> db_iter(db_->NewIterator(ReadOptions()));
+      for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
+        std::string key = db_iter->key().ToString();
+        std::string value = db_iter->value().ToString();
+        ASSERT_NE(key_value_written.find(key), key_value_written.end());
+        ASSERT_EQ(key_value_written[key], value);
+        key_value_written.erase(key);
+      }
+      ASSERT_EQ(0, key_value_written.size());
+    }
   }
 }
 
@@ -1375,7 +1697,7 @@ TEST_F(DBTest2, CompactionStall) {
   // 4 Files in L0
   for (int i = 0; i < 4; i++) {
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(RandomString(&rnd, 10), RandomString(&rnd, 10)));
+      ASSERT_OK(Put(rnd.RandomString(10), rnd.RandomString(10)));
     }
     ASSERT_OK(Flush());
   }
@@ -1390,7 +1712,7 @@ TEST_F(DBTest2, CompactionStall) {
   // Another 6 L0 files to trigger compaction again
   for (int i = 0; i < 6; i++) {
     for (int j = 0; j < 10; j++) {
-      ASSERT_OK(Put(RandomString(&rnd, 10), RandomString(&rnd, 10)));
+      ASSERT_OK(Put(rnd.RandomString(10), rnd.RandomString(10)));
     }
     ASSERT_OK(Flush());
   }
@@ -1436,7 +1758,7 @@ TEST_F(DBTest2, DuplicateSnapshot) {
   Options options;
   options = CurrentOptions(options);
   std::vector<const Snapshot*> snapshots;
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   SequenceNumber oldest_ww_snap, first_ww_snap;
 
   Put("k", "v");  // inc seq
@@ -1469,7 +1791,8 @@ class PinL0IndexAndFilterBlocksTest
     : public DBTestBase,
       public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  PinL0IndexAndFilterBlocksTest() : DBTestBase("/db_pin_l0_index_bloom_test") {}
+  PinL0IndexAndFilterBlocksTest()
+      : DBTestBase("/db_pin_l0_index_bloom_test", /*env_do_fsync=*/true) {}
   void SetUp() override {
     infinite_max_files_ = std::get<0>(GetParam());
     disallow_preload_ = std::get<1>(GetParam());
@@ -1779,6 +2102,10 @@ class MockPersistentCache : public PersistentCache {
     return PersistentCache::StatsType();
   }
 
+  uint64_t NewId() override {
+    return last_id_.fetch_add(1, std::memory_order_relaxed);
+  }
+
   Status Insert(const Slice& page_key, const char* data,
                 const size_t size) override {
     MutexLock _(&lock_);
@@ -1819,6 +2146,7 @@ class MockPersistentCache : public PersistentCache {
   const bool is_compressed_ = true;
   size_t size_ = 0;
   const size_t max_size_ = 10 * 1024;  // 10KiB
+  std::atomic<uint64_t> last_id_{1};
 };
 
 #ifdef OS_LINUX
@@ -1831,6 +2159,9 @@ TEST_F(DBTest2, TestPerfContextGetCpuTime) {
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Flush());
   env_->now_cpu_count_.store(0);
+  env_->SetMockSleep();
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   // CPU timing is not enabled with kEnableTimeExceptForMutex
   SetPerfLevel(PerfLevel::kEnableTimeExceptForMutex);
@@ -1838,19 +2169,20 @@ TEST_F(DBTest2, TestPerfContextGetCpuTime) {
   ASSERT_EQ(0, get_perf_context()->get_cpu_nanos);
   ASSERT_EQ(0, env_->now_cpu_count_.load());
 
-  uint64_t kDummyAddonTime = uint64_t{1000000000000};
+  constexpr uint64_t kDummyAddonSeconds = uint64_t{1000000};
+  constexpr uint64_t kDummyAddonNanos = 1000000000U * kDummyAddonSeconds;
 
   // Add time to NowNanos() reading.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "TableCache::FindTable:0",
-      [&](void* /*arg*/) { env_->addon_time_.fetch_add(kDummyAddonTime); });
+      [&](void* /*arg*/) { env_->MockSleepForSeconds(kDummyAddonSeconds); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
   ASSERT_EQ("bar", Get("foo"));
   ASSERT_GT(env_->now_cpu_count_.load(), 2);
-  ASSERT_LT(get_perf_context()->get_cpu_nanos, kDummyAddonTime);
-  ASSERT_GT(get_perf_context()->find_table_nanos, kDummyAddonTime);
+  ASSERT_LT(get_perf_context()->get_cpu_nanos, kDummyAddonNanos);
+  ASSERT_GT(get_perf_context()->find_table_nanos, kDummyAddonNanos);
 
   SetPerfLevel(PerfLevel::kDisable);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -1873,6 +2205,9 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   std::string last_key = "k" + ToString(kNumEntries - 1);
   std::string last_value = "v" + ToString(kNumEntries - 1);
   env_->now_cpu_count_.store(0);
+  env_->SetMockSleep();
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   // CPU timing is not enabled with kEnableTimeExceptForMutex
   SetPerfLevel(PerfLevel::kEnableTimeExceptForMutex);
@@ -1900,12 +2235,13 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   ASSERT_EQ(0, env_->now_cpu_count_.load());
   delete iter;
 
-  uint64_t kDummyAddonTime = uint64_t{1000000000000};
+  constexpr uint64_t kDummyAddonSeconds = uint64_t{1000000};
+  constexpr uint64_t kDummyAddonNanos = 1000000000U * kDummyAddonSeconds;
 
   // Add time to NowNanos() reading.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "TableCache::FindTable:0",
-      [&](void* /*arg*/) { env_->addon_time_.fetch_add(kDummyAddonTime); });
+      [&](void* /*arg*/) { env_->MockSleepForSeconds(kDummyAddonSeconds); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
@@ -1922,19 +2258,19 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v0", iter->value().ToString());
   ASSERT_GT(get_perf_context()->iter_seek_cpu_nanos, 0);
-  ASSERT_LT(get_perf_context()->iter_seek_cpu_nanos, kDummyAddonTime);
+  ASSERT_LT(get_perf_context()->iter_seek_cpu_nanos, kDummyAddonNanos);
   iter->Next();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v1", iter->value().ToString());
   ASSERT_GT(get_perf_context()->iter_next_cpu_nanos, 0);
-  ASSERT_LT(get_perf_context()->iter_next_cpu_nanos, kDummyAddonTime);
+  ASSERT_LT(get_perf_context()->iter_next_cpu_nanos, kDummyAddonNanos);
   iter->Prev();
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v0", iter->value().ToString());
   ASSERT_GT(get_perf_context()->iter_prev_cpu_nanos, 0);
-  ASSERT_LT(get_perf_context()->iter_prev_cpu_nanos, kDummyAddonTime);
+  ASSERT_LT(get_perf_context()->iter_prev_cpu_nanos, kDummyAddonNanos);
   ASSERT_GE(env_->now_cpu_count_.load(), 12);
-  ASSERT_GT(get_perf_context()->find_table_nanos, kDummyAddonTime);
+  ASSERT_GT(get_perf_context()->find_table_nanos, kDummyAddonNanos);
 
   SetPerfLevel(PerfLevel::kDisable);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -1942,10 +2278,7 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
 }
 #endif  // OS_LINUX
 
-// GetUniqueIdFromFile is not implemented on these platforms. Persistent cache
-// breaks when that function is not implemented and no regular block cache is
-// provided.
-#if !defined(OS_SOLARIS) && !defined(OS_WIN)
+#if !defined OS_SOLARIS
 TEST_F(DBTest2, PersistentCache) {
   int num_iter = 80;
 
@@ -1988,7 +2321,7 @@ TEST_F(DBTest2, PersistentCache) {
       std::string str;
       for (int i = 0; i < num_iter; i++) {
         if (i % 4 == 0) {  // high compression ratio
-          str = RandomString(&rnd, 1000);
+          str = rnd.RandomString(1000);
         }
         values.push_back(str);
         ASSERT_OK(Put(1, Key(i), values[i]));
@@ -2009,7 +2342,7 @@ TEST_F(DBTest2, PersistentCache) {
     }
   }
 }
-#endif  // !defined(OS_SOLARIS) && !defined(OS_WIN)
+#endif  // !defined OS_SOLARIS
 
 namespace {
 void CountSyncPoint() {
@@ -2086,7 +2419,7 @@ TEST_F(DBTest2, ReadAmpBitmap) {
 
     Random rnd(301);
     for (size_t i = 0; i < kNumEntries; i++) {
-      ASSERT_OK(Put(Key(static_cast<int>(i)), RandomString(&rnd, 100)));
+      ASSERT_OK(Put(Key(static_cast<int>(i)), rnd.RandomString(100)));
     }
     ASSERT_OK(Flush());
 
@@ -2193,7 +2526,7 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
 
     Random rnd(301);
     for (int i = 0; i < kNumEntries; i++) {
-      ASSERT_OK(Put(Key(i), RandomString(&rnd, 100)));
+      ASSERT_OK(Put(Key(i), rnd.RandomString(100)));
     }
     ASSERT_OK(Flush());
 
@@ -2416,22 +2749,22 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   Random rnd(301);
   // Generate a file containing 10 keys.
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(50)));
   }
   ASSERT_OK(Flush());
 
   // Generate another file containing same keys
   for (int i = 0; i < 10; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(50)));
   }
   ASSERT_OK(Flush());
 
   int manual_compactions_paused = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():PausingManualCompaction:1", [&](void* arg) {
-        auto paused = reinterpret_cast<std::atomic<bool>*>(arg);
-        ASSERT_FALSE(paused->load(std::memory_order_acquire));
-        paused->store(true, std::memory_order_release);
+        auto paused = static_cast<std::atomic<int>*>(arg);
+        ASSERT_EQ(0, paused->load(std::memory_order_acquire));
+        paused->fetch_add(1, std::memory_order_release);
         manual_compactions_paused += 1;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -2495,7 +2828,7 @@ TEST_F(DBTest2, PausingManualCompaction2) {
   for (int i = 0; i < 2; i++) {
     // Generate a file containing 10 keys.
     for (int j = 0; j < 100; j++) {
-      ASSERT_OK(Put(Key(j), RandomString(&rnd, 50)));
+      ASSERT_OK(Put(Key(j), rnd.RandomString(50)));
     }
     ASSERT_OK(Flush());
   }
@@ -2517,7 +2850,7 @@ TEST_F(DBTest2, PausingManualCompaction3) {
     for (int i = 0; i < options.num_levels; i++) {
       for (int j = 0; j < options.num_levels - i + 1; j++) {
         for (int k = 0; k < 1000; k++) {
-          ASSERT_OK(Put(Key(k + j * 1000), RandomString(&rnd, 50)));
+          ASSERT_OK(Put(Key(k + j * 1000), rnd.RandomString(50)));
         }
         Flush();
       }
@@ -2571,7 +2904,7 @@ TEST_F(DBTest2, PausingManualCompaction4) {
     for (int i = 0; i < options.num_levels; i++) {
       for (int j = 0; j < options.num_levels - i + 1; j++) {
         for (int k = 0; k < 1000; k++) {
-          ASSERT_OK(Put(Key(k + j * 1000), RandomString(&rnd, 50)));
+          ASSERT_OK(Put(Key(k + j * 1000), rnd.RandomString(50)));
         }
         Flush();
       }
@@ -2590,14 +2923,13 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   int run_manual_compactions = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():PausingManualCompaction:2", [&](void* arg) {
-        auto paused = reinterpret_cast<std::atomic<bool>*>(arg);
-        ASSERT_FALSE(paused->load(std::memory_order_acquire));
-        paused->store(true, std::memory_order_release);
+        auto paused = static_cast<std::atomic<int>*>(arg);
+        ASSERT_EQ(0, paused->load(std::memory_order_acquire));
+        paused->fetch_add(1, std::memory_order_release);
         run_manual_compactions++;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  dbfull()->EnableManualCompaction();
   dbfull()->CompactRange(compact_options, nullptr, nullptr);
   dbfull()->TEST_WaitForCompact(true);
   ASSERT_EQ(run_manual_compactions, 1);
@@ -2635,11 +2967,11 @@ TEST_F(DBTest2, OptimizeForSmallDB) {
   options.OptimizeForSmallDb();
 
   // Find the cache object
-  ASSERT_EQ(std::string(BlockBasedTableFactory::kName),
-            std::string(options.table_factory->Name()));
-  BlockBasedTableOptions* table_options =
-      reinterpret_cast<BlockBasedTableOptions*>(
-          options.table_factory->GetOptions());
+  ASSERT_TRUE(options.table_factory->IsInstanceOf(
+      TableFactory::kBlockBasedTableName()));
+  auto table_options =
+      options.table_factory->GetOptions<BlockBasedTableOptions>();
+
   ASSERT_TRUE(table_options != nullptr);
   std::shared_ptr<Cache> cache = table_options->block_cache;
 
@@ -2665,6 +2997,94 @@ TEST_F(DBTest2, OptimizeForSmallDB) {
 }
 
 #endif  // ROCKSDB_LITE
+
+TEST_F(DBTest2, IterRaceFlush1) {
+  ASSERT_OK(Put("foo", "v1"));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::NewIterator:1", "DBTest2::IterRaceFlush:1"},
+       {"DBTest2::IterRaceFlush:2", "DBImpl::NewIterator:2"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ROCKSDB_NAMESPACE::port::Thread t1([&] {
+    TEST_SYNC_POINT("DBTest2::IterRaceFlush:1");
+    ASSERT_OK(Put("foo", "v2"));
+    Flush();
+    TEST_SYNC_POINT("DBTest2::IterRaceFlush:2");
+  });
+
+  // iterator is created after the first Put(), so it should see either
+  // "v1" or "v2".
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->Seek("foo");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ("foo", it->key().ToString());
+  }
+
+  t1.join();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, IterRaceFlush2) {
+  ASSERT_OK(Put("foo", "v1"));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::NewIterator:3", "DBTest2::IterRaceFlush2:1"},
+       {"DBTest2::IterRaceFlush2:2", "DBImpl::NewIterator:4"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ROCKSDB_NAMESPACE::port::Thread t1([&] {
+    TEST_SYNC_POINT("DBTest2::IterRaceFlush2:1");
+    ASSERT_OK(Put("foo", "v2"));
+    Flush();
+    TEST_SYNC_POINT("DBTest2::IterRaceFlush2:2");
+  });
+
+  // iterator is created after the first Put(), so it should see either
+  // "v1" or "v2".
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->Seek("foo");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ("foo", it->key().ToString());
+  }
+
+  t1.join();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, IterRefreshRaceFlush) {
+  ASSERT_OK(Put("foo", "v1"));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"ArenaWrappedDBIter::Refresh:1", "DBTest2::IterRefreshRaceFlush:1"},
+       {"DBTest2::IterRefreshRaceFlush:2", "ArenaWrappedDBIter::Refresh:2"}});
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ROCKSDB_NAMESPACE::port::Thread t1([&] {
+    TEST_SYNC_POINT("DBTest2::IterRefreshRaceFlush:1");
+    ASSERT_OK(Put("foo", "v2"));
+    Flush();
+    TEST_SYNC_POINT("DBTest2::IterRefreshRaceFlush:2");
+  });
+
+  // iterator is created after the first Put(), so it should see either
+  // "v1" or "v2".
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->Refresh();
+    it->Seek("foo");
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ("foo", it->key().ToString());
+  }
+
+  t1.join();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+}
 
 TEST_F(DBTest2, GetRaceFlush1) {
   ASSERT_OK(Put("foo", "v1"));
@@ -3187,7 +3607,7 @@ TEST_F(DBTest2, TraceAndReplay) {
 
   // Open another db, replay, and verify the data
   std::string value;
-  std::string dbname2 = test::TmpDir(env_) + "/db_replay";
+  std::string dbname2 = test::PerThreadDBPath(env_, "/db_replay");
   ASSERT_OK(DestroyDB(dbname2, options));
 
   // Using a different name than db2, to pacify infer's use-after-lifetime
@@ -3261,7 +3681,7 @@ TEST_F(DBTest2, TraceWithLimit) {
   ASSERT_OK(Put(0, "c", "1"));
   ASSERT_OK(db_->EndTrace());
 
-  std::string dbname2 = test::TmpDir(env_) + "/db_replay2";
+  std::string dbname2 = test::PerThreadDBPath(env_, "/db_replay2");
   std::string value;
   ASSERT_OK(DestroyDB(dbname2, options));
 
@@ -3330,7 +3750,7 @@ TEST_F(DBTest2, TraceWithSampling) {
   ASSERT_OK(Put(0, "e", "5"));
   ASSERT_OK(db_->EndTrace());
 
-  std::string dbname2 = test::TmpDir(env_) + "/db_replay_sampling";
+  std::string dbname2 = test::PerThreadDBPath(env_, "/db_replay_sampling");
   std::string value;
   ASSERT_OK(DestroyDB(dbname2, options));
 
@@ -3610,7 +4030,7 @@ TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
   Reopen(options);
 
   Random rnd(301);
-  std::string v = RandomString(&rnd, 400);
+  std::string v = rnd.RandomString(400);
 
   // Since v is the size of a block, each key should take a block
   // of 400+ bytes.
@@ -3797,7 +4217,7 @@ TEST_F(DBTest2, TestGetColumnFamilyHandleUnlocked) {
   CreateColumnFamilies({"test1", "test2"}, Options());
   ASSERT_EQ(handles_.size(), 2);
 
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
   port::Thread user_thread1([&]() {
     auto cfh = dbi->GetColumnFamilyHandleUnlocked(handles_[0]->GetID());
     ASSERT_EQ(cfh->GetID(), handles_[0]->GetID());
@@ -4306,6 +4726,24 @@ TEST_F(DBTest2, SameSmallestInSameLevel) {
   ASSERT_EQ("2,3,4,5,6,7,8", Get("key"));
 }
 
+TEST_F(DBTest2, FileConsistencyCheckInOpen) {
+  Put("foo", "bar");
+  Flush();
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistencyBeforeReturn", [&](void* arg) {
+        Status* ret_s = static_cast<Status*>(arg);
+        *ret_s = Status::Corruption("fcc");
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options = CurrentOptions();
+  options.force_consistency_checks = true;
+  ASSERT_NOK(TryReopen(options));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
   // create a DB with block prefix index
   BlockBasedTableOptions table_options;
@@ -4320,7 +4758,7 @@ TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
   Reopen(options);
 
   Random rnd(301);
-  std::string large_value = RandomString(&rnd, 500);
+  std::string large_value = rnd.RandomString(500);
 
   ASSERT_OK(Put("a1", large_value));
   ASSERT_OK(Put("x1", large_value));
@@ -4365,6 +4803,45 @@ TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
     ASSERT_TRUE(iterator->Valid());
     ASSERT_EQ("y1", iterator->key().ToString());
   }
+}
+
+TEST_F(DBTest2, PartitionedIndexPrefetchFailure) {
+  Options options = last_options_;
+  options.max_open_files = 20;
+  BlockBasedTableOptions bbto;
+  bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  bbto.metadata_block_size = 128;
+  bbto.block_size = 128;
+  bbto.block_cache = NewLRUCache(16777216);
+  bbto.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Force no table cache so every read will preload the SST file.
+  dbfull()->TEST_table_cache()->SetCapacity(0);
+  bbto.block_cache->SetCapacity(0);
+
+  Random rnd(301);
+  for (int i = 0; i < 4096; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(32)));
+  }
+  ASSERT_OK(Flush());
+
+  // Try different random failures in table open for 300 times.
+  for (int i = 0; i < 300; i++) {
+    env_->num_reads_fails_ = 0;
+    env_->rand_reads_fail_odd_ = 8;
+
+    std::string value;
+    Status s = dbfull()->Get(ReadOptions(), Key(1), &value);
+    if (env_->num_reads_fails_ > 0) {
+      ASSERT_NOK(s);
+    } else {
+      ASSERT_OK(s);
+    }
+  }
+
+  env_->rand_reads_fail_odd_ = 0;
 }
 
 TEST_F(DBTest2, ChangePrefixExtractor) {
@@ -4582,7 +5059,7 @@ TEST_F(DBTest2, AutoPrefixMode1) {
   Reopen(options);
 
   Random rnd(301);
-  std::string large_value = RandomString(&rnd, 500);
+  std::string large_value = rnd.RandomString(500);
 
   ASSERT_OK(Put("a1", large_value));
   ASSERT_OK(Put("x1", large_value));
@@ -4677,6 +5154,32 @@ TEST_F(DBTest2, AutoPrefixMode1) {
   }
 }
 #endif  // ROCKSDB_LITE
+
+// WAL recovery mode is WALRecoveryMode::kPointInTimeRecovery.
+TEST_F(DBTest2, PointInTimeRecoveryWithIOErrorWhileReadingWal) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value0"));
+  Close();
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  bool should_inject_error = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RecoverLogFiles:BeforeReadWal",
+      [&](void* /*arg*/) { should_inject_error = true; });
+  SyncPoint::GetInstance()->SetCallBack(
+      "LogReader::ReadMore:AfterReadFile", [&](void* arg) {
+        if (should_inject_error) {
+          ASSERT_NE(nullptr, arg);
+          *reinterpret_cast<Status*>(arg) = Status::IOError("Injected IOError");
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  options.avoid_flush_during_recovery = true;
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  Status s = TryReopen(options);
+  ASSERT_TRUE(s.IsIOError());
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS

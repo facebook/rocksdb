@@ -10,11 +10,14 @@
 #pragma once
 #include <atomic>
 #include <string>
+
 #include "db/version_edit.h"
+#include "env/file_system_tracer.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/rate_limiter.h"
 #include "test_util/sync_point.h"
@@ -33,26 +36,91 @@ class Statistics;
 class WritableFileWriter {
  private:
 #ifndef ROCKSDB_LITE
-  void NotifyOnFileWriteFinish(uint64_t offset, size_t length,
-                               const FileOperationInfo::TimePoint& start_ts,
-                               const FileOperationInfo::TimePoint& finish_ts,
-                               const Status& status) {
-    FileOperationInfo info(file_name_, start_ts, finish_ts);
+  void NotifyOnFileWriteFinish(
+      uint64_t offset, size_t length,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kWrite, file_name_, start_ts,
+                           finish_ts, io_status);
     info.offset = offset;
     info.length = length;
-    info.status = status;
 
     for (auto& listener : listeners_) {
       listener->OnFileWriteFinish(info);
     }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileFlushFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kFlush, file_name_, start_ts,
+                           finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileFlushFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileSyncFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status,
+      FileOperationType type = FileOperationType::kSync) {
+    FileOperationInfo info(type, file_name_, start_ts, finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileSyncFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileRangeSyncFinish(
+      uint64_t offset, size_t length,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kRangeSync, file_name_, start_ts,
+                           finish_ts, io_status);
+    info.offset = offset;
+    info.length = length;
+
+    for (auto& listener : listeners_) {
+      listener->OnFileRangeSyncFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileTruncateFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kTruncate, file_name_, start_ts,
+                           finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileTruncateFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileCloseFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kClose, file_name_, start_ts,
+                           finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileCloseFinish(info);
+    }
+    info.status.PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
-  void CalculateFileChecksum(const Slice& data);
+  void UpdateFileChecksum(const Slice& data);
 
-  std::unique_ptr<FSWritableFile> writable_file_;
   std::string file_name_;
+  FSWritableFilePtr writable_file_;
   Env* env_;
   AlignedBuffer buf_;
   size_t max_buffer_size_;
@@ -71,19 +139,19 @@ class WritableFileWriter {
   RateLimiter* rate_limiter_;
   Statistics* stats_;
   std::vector<std::shared_ptr<EventListener>> listeners_;
-  FileChecksumFunc* checksum_func_;
-  std::string file_checksum_ = kUnknownFileChecksum;
-  bool is_first_checksum_ = true;
+  std::unique_ptr<FileChecksumGenerator> checksum_generator_;
+  bool checksum_finalized_;
 
  public:
   WritableFileWriter(
       std::unique_ptr<FSWritableFile>&& file, const std::string& _file_name,
       const FileOptions& options, Env* env = nullptr,
+      const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
-      FileChecksumFunc* checksum_func = nullptr)
-      : writable_file_(std::move(file)),
-        file_name_(_file_name),
+      FileChecksumGenFactory* file_checksum_gen_factory = nullptr)
+      : file_name_(_file_name),
+        writable_file_(std::move(file), io_tracer),
         env_(env),
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
@@ -97,7 +165,8 @@ class WritableFileWriter {
         rate_limiter_(options.rate_limiter),
         stats_(stats),
         listeners_(),
-        checksum_func_(checksum_func) {
+        checksum_generator_(nullptr),
+        checksum_finalized_(false) {
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
@@ -112,34 +181,44 @@ class WritableFileWriter {
 #else  // !ROCKSDB_LITE
     (void)listeners;
 #endif
+    if (file_checksum_gen_factory != nullptr) {
+      FileChecksumGenContext checksum_gen_context;
+      checksum_gen_context.file_name = _file_name;
+      checksum_generator_ =
+          file_checksum_gen_factory->CreateFileChecksumGenerator(
+              checksum_gen_context);
+    }
   }
 
   WritableFileWriter(const WritableFileWriter&) = delete;
 
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;
 
-  ~WritableFileWriter() { Close(); }
+  ~WritableFileWriter() {
+    auto s = Close();
+    s.PermitUncheckedError();
+  }
 
   std::string file_name() const { return file_name_; }
 
-  Status Append(const Slice& data);
+  IOStatus Append(const Slice& data);
 
-  Status Pad(const size_t pad_bytes);
+  IOStatus Pad(const size_t pad_bytes);
 
-  Status Flush();
+  IOStatus Flush();
 
-  Status Close();
+  IOStatus Close();
 
-  Status Sync(bool use_fsync);
+  IOStatus Sync(bool use_fsync);
 
   // Sync only the data that was already Flush()ed. Safe to call concurrently
   // with Append() and Flush(). If !writable_file_->IsSyncThreadSafe(),
   // returns NotSupported status.
-  Status SyncWithoutFlush(bool use_fsync);
+  IOStatus SyncWithoutFlush(bool use_fsync);
 
   uint64_t GetFileSize() const { return filesize_; }
 
-  Status InvalidateCache(size_t offset, size_t length) {
+  IOStatus InvalidateCache(size_t offset, size_t length) {
     return writable_file_->InvalidateCache(offset, length);
   }
 
@@ -149,11 +228,12 @@ class WritableFileWriter {
 
   bool TEST_BufferIsEmpty() { return buf_.CurrentSize() == 0; }
 
-  void TEST_SetFileChecksumFunc(FileChecksumFunc* checksum_func) {
-    checksum_func_ = checksum_func;
+  void TEST_SetFileChecksumGenerator(
+      FileChecksumGenerator* checksum_generator) {
+    checksum_generator_.reset(checksum_generator);
   }
 
-  const std::string& GetFileChecksum() const { return file_checksum_; }
+  std::string GetFileChecksum();
 
   const char* GetFileChecksumFuncName() const;
 
@@ -161,11 +241,11 @@ class WritableFileWriter {
   // Used when os buffering is OFF and we are writing
   // DMA such as in Direct I/O mode
 #ifndef ROCKSDB_LITE
-  Status WriteDirect();
+  IOStatus WriteDirect();
 #endif  // !ROCKSDB_LITE
   // Normal write
-  Status WriteBuffered(const char* data, size_t size);
-  Status RangeSync(uint64_t offset, uint64_t nbytes);
-  Status SyncInternal(bool use_fsync);
+  IOStatus WriteBuffered(const char* data, size_t size);
+  IOStatus RangeSync(uint64_t offset, uint64_t nbytes);
+  IOStatus SyncInternal(bool use_fsync);
 };
 }  // namespace ROCKSDB_NAMESPACE

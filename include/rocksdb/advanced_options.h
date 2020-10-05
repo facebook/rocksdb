@@ -10,6 +10,7 @@
 
 #include <memory>
 
+#include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/universal_compaction.h"
 
@@ -17,7 +18,6 @@ namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class SliceTransform;
-enum CompressionType : unsigned char;
 class TablePropertiesCollectorFactory;
 class TableFactory;
 struct Options;
@@ -117,6 +117,21 @@ struct CompressionOptions {
   // Default: 0.
   uint32_t zstd_max_train_bytes;
 
+  // Number of threads for parallel compression.
+  // Parallel compression is enabled only if threads > 1.
+  // THE FEATURE IS STILL EXPERIMENTAL
+  //
+  // This option is valid only when BlockBasedTable is used.
+  //
+  // When parallel compression is enabled, SST size file sizes might be
+  // more inflated compared to the target size, because more data of unknown
+  // compressed size is in flight when compression is parallelized. To be
+  // reasonably accurate, this inflation is also estimated by using historical
+  // compression ratio and current bytes inflight.
+  //
+  // Default: 1.
+  uint32_t parallel_threads;
+
   // When the compression options are set by the user, it will be set to "true".
   // For bottommost_compression_opts, to enable it, user must set enabled=true.
   // Otherwise, bottommost compression will use compression_opts as default
@@ -134,14 +149,17 @@ struct CompressionOptions {
         strategy(0),
         max_dict_bytes(0),
         zstd_max_train_bytes(0),
+        parallel_threads(1),
         enabled(false) {}
   CompressionOptions(int wbits, int _lev, int _strategy, int _max_dict_bytes,
-                     int _zstd_max_train_bytes, bool _enabled)
+                     int _zstd_max_train_bytes, int _parallel_threads,
+                     bool _enabled)
       : window_bits(wbits),
         level(_lev),
         strategy(_strategy),
         max_dict_bytes(_max_dict_bytes),
         zstd_max_train_bytes(_zstd_max_train_bytes),
+        parallel_threads(_parallel_threads),
         enabled(_enabled) {}
 };
 
@@ -624,18 +642,30 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   bool optimize_filters_for_hits = false;
 
+  // During flush or compaction, check whether keys inserted to output files
+  // are in order.
+  //
+  // Default: true
+  //
+  // Dynamically changeable through SetOptions() API
+  bool check_flush_compaction_key_order = true;
+
   // After writing every SST file, reopen it and read all the keys.
+  // Checks the hash of all of the keys and values written versus the
+  // keys in the file and signals a corruption if they do not match
   //
   // Default: false
   //
   // Dynamically changeable through SetOptions() API
   bool paranoid_file_checks = false;
 
-  // In debug mode, RocksDB run consistency checks on the LSM every time the LSM
-  // change (Flush, Compaction, AddFile). These checks are disabled in release
-  // mode, use this option to enable them in release mode as well.
-  // Default: false
-  bool force_consistency_checks = false;
+  // In debug mode, RocksDB runs consistency checks on the LSM every time the
+  // LSM changes (Flush, Compaction, AddFile). When this option is true, these
+  // checks are also enabled in release mode. These checks were historically
+  // disabled in release mode, but are now enabled by default for proactive
+  // corruption detection, at almost no cost in extra CPU.
+  // Default: true
+  bool force_consistency_checks = true;
 
   // Measure IO stats in compactions and flushes, if true.
   //
@@ -696,6 +726,51 @@ struct AdvancedColumnFamilyOptions {
   // The compressibility is reported as stats and the stored
   // data is left uncompressed (unless compression is also requested).
   uint64_t sample_for_compression = 0;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // When set, large values (blobs) are written to separate blob files, and
+  // only pointers to them are stored in SST files. This can reduce write
+  // amplification for large-value use cases at the cost of introducing a level
+  // of indirection for reads. See also the options min_blob_size,
+  // blob_file_size, and blob_compression_type below.
+  //
+  // Default: false
+  //
+  // Dynamically changeable through the SetOptions() API
+  bool enable_blob_files = false;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The size of the smallest value to be stored separately in a blob file.
+  // Values which have an uncompressed size smaller than this threshold are
+  // stored alongside the keys in SST files in the usual fashion. A value of
+  // zero for this option means that all values are stored in blob files. Note
+  // that enable_blob_files has to be set in order for this option to have any
+  // effect.
+  //
+  // Default: 0
+  //
+  // Dynamically changeable through the SetOptions() API
+  uint64_t min_blob_size = 0;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The size limit for blob files. When writing blob files, a new file is
+  // opened once this limit is reached. Note that enable_blob_files has to be
+  // set in order for this option to have any effect.
+  //
+  // Default: 256 MB
+  //
+  // Dynamically changeable through the SetOptions() API
+  uint64_t blob_file_size = 1ULL << 28;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The compression algorithm to use for large values stored in blob files.
+  // Note that enable_blob_files has to be set in order for this option to have
+  // any effect.
+  //
+  // Default: no compression
+  //
+  // Dynamically changeable through the SetOptions() API
+  CompressionType blob_compression_type = kNoCompression;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

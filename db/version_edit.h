@@ -13,8 +13,11 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "db/blob_file_state.h"
+
+#include "db/blob/blob_file_addition.h"
+#include "db/blob/blob_file_garbage.h"
 #include "db/dbformat.h"
+#include "db/wal_edit.h"
 #include "memory/arena.h"
 #include "rocksdb/cache.h"
 #include "table/table_reader.h"
@@ -22,14 +25,70 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Tag numbers for serialized VersionEdit.  These numbers are written to
+// disk and should not be changed. The number should be forward compatible so
+// users can down-grade RocksDB safely. A future Tag is ignored by doing '&'
+// between Tag and kTagSafeIgnoreMask field.
+enum Tag : uint32_t {
+  kComparator = 1,
+  kLogNumber = 2,
+  kNextFileNumber = 3,
+  kLastSequence = 4,
+  kCompactPointer = 5,
+  kDeletedFile = 6,
+  kNewFile = 7,
+  // 8 was used for large value refs
+  kPrevLogNumber = 9,
+  kMinLogNumberToKeep = 10,
+
+  // these are new formats divergent from open source leveldb
+  kNewFile2 = 100,
+  kNewFile3 = 102,
+  kNewFile4 = 103,      // 4th (the latest) format version of adding files
+  kColumnFamily = 200,  // specify column family for version edit
+  kColumnFamilyAdd = 201,
+  kColumnFamilyDrop = 202,
+  kMaxColumnFamily = 203,
+
+  kInAtomicGroup = 300,
+
+  // Mask for an unidentified tag from the future which can be safely ignored.
+  kTagSafeIgnoreMask = 1 << 13,
+
+  // Forward compatible (aka ignorable) records
+  kDbId,
+  kBlobFileAddition,
+  kBlobFileGarbage,
+  kWalAddition,
+  kWalDeletion,
+};
+
+enum NewFileCustomTag : uint32_t {
+  kTerminate = 1,  // The end of customized fields
+  kNeedCompaction = 2,
+  // Since Manifest is not entirely forward-compatible, we currently encode
+  // kMinLogNumberToKeep as part of NewFile as a hack. This should be removed
+  // when manifest becomes forward-comptabile.
+  kMinLogNumberToKeepHack = 3,
+  kOldestBlobFileNumber = 4,
+  kOldestAncesterTime = 5,
+  kFileCreationTime = 6,
+  kFileChecksum = 7,
+  kFileChecksumFuncName = 8,
+
+  // If this bit for the custom tag is set, opening DB should fail if
+  // we don't know this field.
+  kCustomTagNonSafeIgnoreMask = 1 << 6,
+
+  // Forward incompatible (aka unignorable) fields
+  kPathId,
+};
+
 class VersionSet;
 
 constexpr uint64_t kFileNumberMask = 0x3FFFFFFFFFFFFFFF;
 constexpr uint64_t kUnknownOldestAncesterTime = 0;
 constexpr uint64_t kUnknownFileCreationTime = 0;
-
-extern const std::string kUnknownFileChecksum;
-extern const std::string kUnknownFileChecksumFuncName;
 
 extern uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id);
 
@@ -346,25 +405,75 @@ class VersionEdit {
   using NewFiles = std::vector<std::pair<int, FileMetaData>>;
   const NewFiles& GetNewFiles() const { return new_files_; }
 
-  // Add blob file state for the specified file.
-  void AddBlobFileState(uint64_t blob_file_number, uint64_t total_blob_count,
-                        uint64_t total_blob_bytes, uint64_t garbage_blob_count,
-                        uint64_t garbage_blob_bytes,
-                        std::string checksum_method,
-                        std::string checksum_value) {
-    blob_file_states_.emplace_back(
+  // Add a new blob file.
+  void AddBlobFile(uint64_t blob_file_number, uint64_t total_blob_count,
+                   uint64_t total_blob_bytes, std::string checksum_method,
+                   std::string checksum_value) {
+    blob_file_additions_.emplace_back(
         blob_file_number, total_blob_count, total_blob_bytes,
-        garbage_blob_count, garbage_blob_bytes, std::move(checksum_method),
-        std::move(checksum_value));
+        std::move(checksum_method), std::move(checksum_value));
   }
 
-  // Retrieve all the blob file states added.
-  using BlobFileStates = std::vector<BlobFileState>;
-  const BlobFileStates& GetBlobFileStates() const { return blob_file_states_; }
+  void AddBlobFile(BlobFileAddition blob_file_addition) {
+    blob_file_additions_.emplace_back(std::move(blob_file_addition));
+  }
+
+  // Retrieve all the blob files added.
+  using BlobFileAdditions = std::vector<BlobFileAddition>;
+  const BlobFileAdditions& GetBlobFileAdditions() const {
+    return blob_file_additions_;
+  }
+
+  void SetBlobFileAdditions(BlobFileAdditions blob_file_additions) {
+    blob_file_additions_ = std::move(blob_file_additions);
+  }
+
+  // Add garbage for an existing blob file.  Note: intentionally broken English
+  // follows.
+  void AddBlobFileGarbage(uint64_t blob_file_number,
+                          uint64_t garbage_blob_count,
+                          uint64_t garbage_blob_bytes) {
+    blob_file_garbages_.emplace_back(blob_file_number, garbage_blob_count,
+                                     garbage_blob_bytes);
+  }
+
+  void AddBlobFileGarbage(BlobFileGarbage blob_file_garbage) {
+    blob_file_garbages_.emplace_back(std::move(blob_file_garbage));
+  }
+
+  // Retrieve all the blob file garbage added.
+  using BlobFileGarbages = std::vector<BlobFileGarbage>;
+  const BlobFileGarbages& GetBlobFileGarbages() const {
+    return blob_file_garbages_;
+  }
+
+  void SetBlobFileGarbages(BlobFileGarbages blob_file_garbages) {
+    blob_file_garbages_ = std::move(blob_file_garbages);
+  }
+
+  // Add a WAL (either just created or closed).
+  void AddWal(WalNumber number, WalMetadata metadata = WalMetadata()) {
+    wal_additions_.emplace_back(number, std::move(metadata));
+  }
+
+  // Retrieve all the added WALs.
+  const WalAdditions& GetWalAdditions() const { return wal_additions_; }
+
+  bool HasWalAddition() const { return !wal_additions_.empty(); }
+
+  // Delete a WAL (either directly deleted or archived).
+  void DeleteWal(WalNumber number) { wal_deletions_.emplace_back(number); }
+
+  // Retrieve all the deleted WALs.
+  const WalDeletions& GetWalDeletions() const { return wal_deletions_; }
+
+  bool HasWalDeletion() const { return !wal_deletions_.empty(); }
 
   // Number of edits
   size_t NumEntries() const {
-    return new_files_.size() + deleted_files_.size() + blob_file_states_.size();
+    return new_files_.size() + deleted_files_.size() +
+           blob_file_additions_.size() + blob_file_garbages_.size() +
+           wal_additions_.size() + wal_deletions_.size();
   }
 
   void SetColumnFamily(uint32_t column_family_id) {
@@ -393,6 +502,10 @@ class VersionEdit {
     return is_column_family_add_ || is_column_family_drop_;
   }
 
+  bool IsColumnFamilyAdd() const { return is_column_family_add_; }
+
+  bool IsColumnFamilyDrop() const { return is_column_family_drop_; }
+
   void MarkAtomicGroup(uint32_t remaining_entries) {
     is_in_atomic_group_ = true;
     remaining_entries_ = remaining_entries;
@@ -409,6 +522,8 @@ class VersionEdit {
 
  private:
   friend class ReactiveVersionSet;
+  friend class VersionEditHandler;
+  friend class VersionEditHandlerPointInTime;
   friend class VersionSet;
   friend class Version;
   friend class AtomicGroupReadBuffer;
@@ -439,7 +554,11 @@ class VersionEdit {
   DeletedFiles deleted_files_;
   NewFiles new_files_;
 
-  BlobFileStates blob_file_states_;
+  BlobFileAdditions blob_file_additions_;
+  BlobFileGarbages blob_file_garbages_;
+
+  WalAdditions wal_additions_;
+  WalDeletions wal_deletions_;
 
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)

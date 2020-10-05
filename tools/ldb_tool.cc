@@ -13,7 +13,7 @@ namespace ROCKSDB_NAMESPACE {
 LDBOptions::LDBOptions() {}
 
 void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
-                                 const char* /*exec_name*/) {
+                                 const char* /*exec_name*/, bool to_stderr) {
   std::string ret;
 
   ret.append(ldb_options.print_help_header);
@@ -46,6 +46,8 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
              " : DB supports ttl and value is internally timestamp-suffixed\n");
   ret.append("  --" + LDBCommand::ARG_TRY_LOAD_OPTIONS +
              " : Try to load option file from DB.\n");
+  ret.append("  --" + LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS +
+             " : Set options.force_consistency_checks = false.\n");
   ret.append("  --" + LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS +
              " : Ignore unknown options when loading option file.\n");
   ret.append("  --" + LDBCommand::ARG_BLOOM_BITS + "=<int,e.g.:14>\n");
@@ -96,23 +98,37 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   CheckPointCommand::Help(ret);
   WriteExternalSstFilesCommand::Help(ret);
   IngestExternalSstFilesCommand::Help(ret);
+  UnsafeRemoveSstFileCommand::Help(ret);
 
-  fprintf(stderr, "%s\n", ret.c_str());
+  fprintf(to_stderr ? stderr : stdout, "%s\n", ret.c_str());
 }
 
 int LDBCommandRunner::RunCommand(
-    int argc, char** argv, Options options, const LDBOptions& ldb_options,
+    int argc, char const* const* argv, Options options,
+    const LDBOptions& ldb_options,
     const std::vector<ColumnFamilyDescriptor>* column_families) {
   if (argc <= 2) {
-    PrintHelp(ldb_options, argv[0]);
-    return 1;
+    if (argc <= 1) {
+      PrintHelp(ldb_options, argv[0], /*to_stderr*/ true);
+      return 1;
+    } else if (std::string(argv[1]) == "--version") {
+      printf("ldb from RocksDB %d.%d.%d\n", ROCKSDB_MAJOR, ROCKSDB_MINOR,
+             ROCKSDB_PATCH);
+      return 0;
+    } else if (std::string(argv[1]) == "--help") {
+      PrintHelp(ldb_options, argv[0], /*to_stderr*/ false);
+      return 0;
+    } else {
+      PrintHelp(ldb_options, argv[0], /*to_stderr*/ true);
+      return 1;
+    }
   }
 
   LDBCommand* cmdObj = LDBCommand::InitFromCmdLineArgs(
       argc, argv, options, ldb_options, column_families);
   if (cmdObj == nullptr) {
     fprintf(stderr, "Unknown command\n");
-    PrintHelp(ldb_options, argv[0]);
+    PrintHelp(ldb_options, argv[0], /*to_stderr*/ true);
     return 1;
   }
 
@@ -122,7 +138,9 @@ int LDBCommandRunner::RunCommand(
 
   cmdObj->Run();
   LDBCommandExecuteResult ret = cmdObj->GetExecuteState();
-  fprintf(stderr, "%s\n", ret.ToString().c_str());
+  if (!ret.ToString().empty()) {
+    fprintf(stderr, "%s\n", ret.ToString().c_str());
+  }
   delete cmdObj;
 
   return ret.IsFailed() ? 1 : 0;

@@ -44,7 +44,7 @@ struct FlushJobInfo;
 class MemTableListVersion {
  public:
   explicit MemTableListVersion(size_t* parent_memtable_list_memory_usage,
-                               MemTableListVersion* old = nullptr);
+                               const MemTableListVersion& old);
   explicit MemTableListVersion(size_t* parent_memtable_list_memory_usage,
                                int max_write_buffer_number_to_maintain,
                                int64_t max_write_buffer_size_to_maintain);
@@ -148,7 +148,8 @@ class MemTableListVersion {
   // REQUIRE: m is an immutable memtable
   void Remove(MemTable* m, autovector<MemTable*>* to_delete);
 
-  void TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
+  // Return true if memtable is trimmed
+  bool TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
                    std::string* value, std::string* timestamp, Status* s,
@@ -266,7 +267,8 @@ class MemTableList {
       VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
       autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer,
-      std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info);
+      std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info,
+      IOStatus* io_s);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().
@@ -290,7 +292,9 @@ class MemTableList {
   // max_write_buffer_size_to_maintain is used, total size of mutable and
   // immutable memtables is checked against it to decide whether to trim
   // memtable list.
-  void TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
+  //
+  // Return true if memtable is trimmed
+  bool TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   // Returns an estimate of the number of bytes of data used by
   // the unflushed mem-tables.

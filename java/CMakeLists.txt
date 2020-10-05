@@ -4,6 +4,8 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
     message("Please consider switching to CMake 3.11.4 or newer")
 endif()
 
+set(CMAKE_JAVA_COMPILE_FLAGS -source 7)
+
 set(JNI_NATIVE_SOURCES
         rocksjni/backupablejni.cc
         rocksjni/backupenginejni.cc
@@ -24,6 +26,8 @@ set(JNI_NATIVE_SOURCES
         rocksjni/comparator.cc
         rocksjni/comparatorjnicallback.cc
         rocksjni/compression_options.cc
+        rocksjni/concurrent_task_limiter.cc
+        rocksjni/config_options.cc
         rocksjni/env.cc
         rocksjni/env_options.cc
         rocksjni/filter.cc
@@ -53,6 +57,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/sst_file_writerjni.cc
         rocksjni/sst_file_readerjni.cc
         rocksjni/sst_file_reader_iterator.cc
+        rocksjni/sst_partitioner.cc
         rocksjni/statistics.cc
         rocksjni/statisticsjni.cc
         rocksjni/table.cc
@@ -126,6 +131,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/ComparatorType.java
   src/main/java/org/rocksdb/CompressionOptions.java
   src/main/java/org/rocksdb/CompressionType.java
+  src/main/java/org/rocksdb/ConfigOptions.java
   src/main/java/org/rocksdb/DataBlockIndexType.java
   src/main/java/org/rocksdb/DBOptionsInterface.java
   src/main/java/org/rocksdb/DBOptions.java
@@ -143,10 +149,13 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/HistogramData.java
   src/main/java/org/rocksdb/HistogramType.java
   src/main/java/org/rocksdb/Holder.java
+  src/main/java/org/rocksdb/IndexShorteningMode.java
   src/main/java/org/rocksdb/IndexType.java
   src/main/java/org/rocksdb/InfoLogLevel.java
   src/main/java/org/rocksdb/IngestExternalFileOptions.java
   src/main/java/org/rocksdb/LevelMetaData.java
+  src/main/java/org/rocksdb/ConcurrentTaskLimiter.java
+  src/main/java/org/rocksdb/ConcurrentTaskLimiterImpl.java
   src/main/java/org/rocksdb/LiveFileMetaData.java
   src/main/java/org/rocksdb/LogFile.java
   src/main/java/org/rocksdb/Logger.java
@@ -189,15 +198,18 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/RocksMemEnv.java
   src/main/java/org/rocksdb/RocksMutableObject.java
   src/main/java/org/rocksdb/RocksObject.java
+  src/main/java/org/rocksdb/SanityLevel.java
   src/main/java/org/rocksdb/SizeApproximationFlag.java
   src/main/java/org/rocksdb/SkipListMemTableConfig.java
   src/main/java/org/rocksdb/Slice.java
   src/main/java/org/rocksdb/Snapshot.java
   src/main/java/org/rocksdb/SstFileManager.java
   src/main/java/org/rocksdb/SstFileMetaData.java
-  src/main/java/org/rocksdb/SstFileWriter.java
   src/main/java/org/rocksdb/SstFileReader.java
   src/main/java/org/rocksdb/SstFileReaderIterator.java
+  src/main/java/org/rocksdb/SstFileWriter.java
+  src/main/java/org/rocksdb/SstPartitionerFactory.java
+  src/main/java/org/rocksdb/SstPartitionerFixedPrefixFactory.java
   src/main/java/org/rocksdb/StateType.java
   src/main/java/org/rocksdb/StatisticsCollectorCallback.java
   src/main/java/org/rocksdb/StatisticsCollector.java
@@ -316,19 +328,18 @@ endif()
 if (DEFINED CUSTOM_DEPS_URL)
   set(DEPS_URL ${CUSTOM_DEPS_URL}/)
 else ()
-  # This is a URL for artifacts from a "fake" release on pdillinger's fork,
-  # so as not to put binaries in git (ew). We should move to hosting these
-  # under the facebook account on github, or something else more reliable
-  # than maven.org, which has been failing frequently from Travis.
-  set(DEPS_URL "https://github.com/pdillinger/rocksdb/releases/download/v6.6.x-java-deps")
+  # Using a Facebook AWS account for S3 storage. (maven.org has a history
+  # of failing in Travis builds.)
+  set(DEPS_URL "https://rocksdb-deps.s3-us-west-2.amazonaws.com/jars")
 endif()
 
 if(NOT EXISTS ${JAVA_JUNIT_JAR})
   message("Downloading ${JAVA_JUNIT_JAR}")
   file(DOWNLOAD ${DEPS_URL}/junit-4.12.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_JUNIT_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_JUNIT_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_JUNIT_JAR})
 endif()
@@ -336,8 +347,9 @@ if(NOT EXISTS ${JAVA_HAMCR_JAR})
   message("Downloading ${JAVA_HAMCR_JAR}")
   file(DOWNLOAD ${DEPS_URL}/hamcrest-core-1.3.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_HAMCR_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_HAMCR_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_HAMCR_JAR})
 endif()
@@ -345,8 +357,9 @@ if(NOT EXISTS ${JAVA_MOCKITO_JAR})
   message("Downloading ${JAVA_MOCKITO_JAR}")
   file(DOWNLOAD ${DEPS_URL}/mockito-all-1.10.19.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_MOCKITO_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_MOCKITO_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_MOCKITO_JAR})
 endif()
@@ -354,8 +367,9 @@ if(NOT EXISTS ${JAVA_CGLIB_JAR})
   message("Downloading ${JAVA_CGLIB_JAR}")
   file(DOWNLOAD ${DEPS_URL}/cglib-2.2.2.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_CGLIB_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_CGLIB_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_CGLIB_JAR})
 endif()
@@ -363,8 +377,9 @@ if(NOT EXISTS ${JAVA_ASSERTJ_JAR})
   message("Downloading ${JAVA_ASSERTJ_JAR}")
   file(DOWNLOAD ${DEPS_URL}/assertj-core-1.7.1.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_ASSERTJ_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_ASSERTJ_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_ASSERTJ_JAR})
 endif()
@@ -443,6 +458,8 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.SstFileWriter
           org.rocksdb.SstFileReader
           org.rocksdb.SstFileReaderIterator
+          org.rocksdb.SstPartitionerFactory
+          org.rocksdb.SstPartitionerFixedPrefixFactory
           org.rocksdb.Statistics
           org.rocksdb.StringAppendOperator
           org.rocksdb.TableFormatConfig

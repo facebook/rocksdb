@@ -8,6 +8,15 @@
 #include "rocksdb/utilities/ldb_cmd.h"
 
 #include <cinttypes>
+#include <cstdlib>
+#include <ctime>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <sstream>
+#include <stdexcept>
+#include <string>
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
@@ -26,8 +35,8 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
+#include "table/sst_file_dumper.h"
 #include "tools/ldb_cmd_impl.h"
-#include "tools/sst_dump_tool_imp.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/file_checksum_helper.h"
@@ -36,19 +45,10 @@
 #include "utilities/merge_operators.h"
 #include "utilities/ttl/db_ttl_impl.h"
 
-#include <cstdlib>
-#include <ctime>
-#include <fstream>
-#include <functional>
-#include <iostream>
-#include <limits>
-#include <sstream>
-#include <stdexcept>
-#include <string>
-
 namespace ROCKSDB_NAMESPACE {
 
-class FileChecksumFuncCrc32c;
+class FileChecksumGenCrc32c;
+class FileChecksumGenCrc32cFactory;
 
 const std::string LDBCommand::ARG_ENV_URI = "env_uri";
 const std::string LDBCommand::ARG_DB = "db";
@@ -63,6 +63,8 @@ const std::string LDBCommand::ARG_TTL_START = "start_time";
 const std::string LDBCommand::ARG_TTL_END = "end_time";
 const std::string LDBCommand::ARG_TIMESTAMP = "timestamp";
 const std::string LDBCommand::ARG_TRY_LOAD_OPTIONS = "try_load_options";
+const std::string LDBCommand::ARG_DISABLE_CONSISTENCY_CHECKS =
+    "disable_consistency_checks";
 const std::string LDBCommand::ARG_IGNORE_UNKNOWN_OPTIONS =
     "ignore_unknown_options";
 const std::string LDBCommand::ARG_FROM = "from";
@@ -94,7 +96,7 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
 };
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
-    int argc, char** argv, const Options& options,
+    int argc, char const* const* argv, const Options& options,
     const LDBOptions& ldb_options,
     const std::vector<ColumnFamilyDescriptor>* column_families) {
   std::vector<std::string> args;
@@ -274,6 +276,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   } else if (parsed_params.cmd == ListFileRangeDeletesCommand::Name()) {
     return new ListFileRangeDeletesCommand(parsed_params.option_map,
                                            parsed_params.flags);
+  } else if (parsed_params.cmd == UnsafeRemoveSstFileCommand::Name()) {
+    return new UnsafeRemoveSstFileCommand(parsed_params.cmd_params,
+                                          parsed_params.option_map,
+                                          parsed_params.flags);
   }
   return nullptr;
 }
@@ -294,8 +300,6 @@ void LDBCommand::Run() {
     }
     options_.env = env;
   }
-
-  options_.file_system.reset(new LegacyFileSystemWrapper(options_.env));
 
   if (db_ == nullptr && !NoDBOpen()) {
     OpenDB();
@@ -331,7 +335,6 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
       is_db_ttl_(false),
       timestamp_(false),
       try_load_options_(false),
-      ignore_unknown_options_(false),
       create_if_missing_(false),
       option_map_(options),
       flags_(flags),
@@ -364,37 +367,14 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
   timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   try_load_options_ = IsFlagPresent(flags, ARG_TRY_LOAD_OPTIONS);
-  ignore_unknown_options_ = IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
+  force_consistency_checks_ =
+      !IsFlagPresent(flags, ARG_DISABLE_CONSISTENCY_CHECKS);
+  config_options_.ignore_unknown_options =
+      IsFlagPresent(flags, ARG_IGNORE_UNKNOWN_OPTIONS);
 }
 
 void LDBCommand::OpenDB() {
-  if (!create_if_missing_ && try_load_options_) {
-    Status s = LoadLatestOptions(db_path_, options_.env, &options_,
-                                 &column_families_, ignore_unknown_options_);
-    if (!s.ok() && !s.IsNotFound()) {
-      // Option file exists but load option file error.
-      std::string msg = s.ToString();
-      exec_state_ = LDBCommandExecuteResult::Failed(msg);
-      db_ = nullptr;
-      return;
-    }
-    if (options_.env->FileExists(options_.wal_dir).IsNotFound()) {
-      options_.wal_dir = db_path_;
-      fprintf(
-          stderr,
-          "wal_dir loaded from the option file doesn't exist. Ignore it.\n");
-    }
-
-    // If merge operator is not set, set a string append operator. There is
-    // no harm doing it.
-    for (auto& cf_entry : column_families_) {
-      if (!cf_entry.options.merge_operator) {
-        cf_entry.options.merge_operator =
-            MergeOperators::CreateStringAppendOperator(':');
-      }
-    }
-  }
-  options_ = PrepareOptionsForOpenDB();
+  PrepareOptions();
   if (!exec_state_.IsNotStarted()) {
     return;
   }
@@ -422,21 +402,6 @@ void LDBCommand::OpenDB() {
     }
     db_ = db_ttl_;
   } else {
-    if (column_families_.empty()) {
-      // Try to figure out column family lists
-      std::vector<std::string> cf_list;
-      st = DB::ListColumnFamilies(options_, db_path_, &cf_list);
-      // There is possible the DB doesn't exist yet, for "create if not
-      // "existing case". The failure is ignored here. We rely on DB::Open()
-      // to give us the correct error message for problem with opening
-      // existing DB.
-      if (st.ok() && cf_list.size() > 1) {
-        // Ignore single column family DB.
-        for (auto cf_name : cf_list) {
-          column_families_.emplace_back(cf_name, options_);
-        }
-      }
-    }
     if (is_read_only_ && secondary_path_.empty()) {
       if (column_families_.empty()) {
         st = DB::OpenForReadOnly(options_, db_path_, &db_);
@@ -527,6 +492,7 @@ std::vector<std::string> LDBCommand::BuildCmdLineOptions(
                                   ARG_FILE_SIZE,
                                   ARG_FIX_PREFIX_LEN,
                                   ARG_TRY_LOAD_OPTIONS,
+                                  ARG_DISABLE_CONSISTENCY_CHECKS,
                                   ARG_IGNORE_UNKNOWN_OPTIONS,
                                   ARG_CF_NAME};
   ret.insert(ret.end(), options.begin(), options.end());
@@ -581,22 +547,8 @@ bool LDBCommand::ParseStringOption(
   return false;
 }
 
-Options LDBCommand::PrepareOptionsForOpenDB() {
-  ColumnFamilyOptions* cf_opts;
-  auto column_families_iter =
-      std::find_if(column_families_.begin(), column_families_.end(),
-                   [this](const ColumnFamilyDescriptor& cf_desc) {
-                     return cf_desc.name == column_family_name_;
-                   });
-  if (column_families_iter != column_families_.end()) {
-    cf_opts = &column_families_iter->options;
-  } else {
-    cf_opts = static_cast<ColumnFamilyOptions*>(&options_);
-  }
-  DBOptions* db_opts = static_cast<DBOptions*>(&options_);
-  db_opts->create_if_missing = false;
-
-  std::map<std::string, std::string>::const_iterator itr;
+void LDBCommand::OverrideBaseOptions() {
+  options_.create_if_missing = false;
 
   BlockBasedTableOptions table_options;
   bool use_table_options = false;
@@ -622,34 +574,35 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
     }
   }
 
+  options_.force_consistency_checks = force_consistency_checks_;
   if (use_table_options) {
-    cf_opts->table_factory.reset(NewBlockBasedTableFactory(table_options));
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
 
-  itr = option_map_.find(ARG_AUTO_COMPACTION);
+  auto itr = option_map_.find(ARG_AUTO_COMPACTION);
   if (itr != option_map_.end()) {
-    cf_opts->disable_auto_compactions = !StringToBool(itr->second);
+    options_.disable_auto_compactions = !StringToBool(itr->second);
   }
 
   itr = option_map_.find(ARG_COMPRESSION_TYPE);
   if (itr != option_map_.end()) {
     std::string comp = itr->second;
     if (comp == "no") {
-      cf_opts->compression = kNoCompression;
+      options_.compression = kNoCompression;
     } else if (comp == "snappy") {
-      cf_opts->compression = kSnappyCompression;
+      options_.compression = kSnappyCompression;
     } else if (comp == "zlib") {
-      cf_opts->compression = kZlibCompression;
+      options_.compression = kZlibCompression;
     } else if (comp == "bzip2") {
-      cf_opts->compression = kBZip2Compression;
+      options_.compression = kBZip2Compression;
     } else if (comp == "lz4") {
-      cf_opts->compression = kLZ4Compression;
+      options_.compression = kLZ4Compression;
     } else if (comp == "lz4hc") {
-      cf_opts->compression = kLZ4HCCompression;
+      options_.compression = kLZ4HCCompression;
     } else if (comp == "xpress") {
-      cf_opts->compression = kXpressCompression;
+      options_.compression = kXpressCompression;
     } else if (comp == "zstd") {
-      cf_opts->compression = kZSTD;
+      options_.compression = kZSTD;
     } else {
       // Unknown compression.
       exec_state_ =
@@ -661,7 +614,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   if (ParseIntOption(option_map_, ARG_COMPRESSION_MAX_DICT_BYTES,
                      compression_max_dict_bytes, exec_state_)) {
     if (compression_max_dict_bytes >= 0) {
-      cf_opts->compression_opts.max_dict_bytes = compression_max_dict_bytes;
+      options_.compression_opts.max_dict_bytes = compression_max_dict_bytes;
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(
           ARG_COMPRESSION_MAX_DICT_BYTES + " must be >= 0.");
@@ -672,7 +625,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   if (ParseIntOption(option_map_, ARG_DB_WRITE_BUFFER_SIZE,
         db_write_buffer_size, exec_state_)) {
     if (db_write_buffer_size >= 0) {
-      db_opts->db_write_buffer_size = db_write_buffer_size;
+      options_.db_write_buffer_size = db_write_buffer_size;
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(ARG_DB_WRITE_BUFFER_SIZE +
                                                     " must be >= 0.");
@@ -683,7 +636,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   if (ParseIntOption(option_map_, ARG_WRITE_BUFFER_SIZE, write_buffer_size,
         exec_state_)) {
     if (write_buffer_size > 0) {
-      cf_opts->write_buffer_size = write_buffer_size;
+      options_.write_buffer_size = write_buffer_size;
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(ARG_WRITE_BUFFER_SIZE +
                                                     " must be > 0.");
@@ -693,15 +646,15 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   int file_size;
   if (ParseIntOption(option_map_, ARG_FILE_SIZE, file_size, exec_state_)) {
     if (file_size > 0) {
-      cf_opts->target_file_size_base = file_size;
+      options_.target_file_size_base = file_size;
     } else {
       exec_state_ =
           LDBCommandExecuteResult::Failed(ARG_FILE_SIZE + " must be > 0.");
     }
   }
 
-  if (db_opts->db_paths.size() == 0) {
-    db_opts->db_paths.emplace_back(db_path_,
+  if (options_.db_paths.size() == 0) {
+    options_.db_paths.emplace_back(db_path_,
                                    std::numeric_limits<uint64_t>::max());
   }
 
@@ -709,18 +662,83 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   if (ParseIntOption(option_map_, ARG_FIX_PREFIX_LEN, fix_prefix_len,
                      exec_state_)) {
     if (fix_prefix_len > 0) {
-      cf_opts->prefix_extractor.reset(
+      options_.prefix_extractor.reset(
           NewFixedPrefixTransform(static_cast<size_t>(fix_prefix_len)));
     } else {
       exec_state_ =
           LDBCommandExecuteResult::Failed(ARG_FIX_PREFIX_LEN + " must be > 0.");
     }
   }
+}
 
-  // TODO(ajkr): this return value doesn't reflect the CF options changed, so
-  // subcommands that rely on this won't see the effect of CF-related CLI args.
-  // Such subcommands need to be changed to properly support CFs.
-  return options_;
+// First, initializes the options state using the OPTIONS file when enabled.
+// Second, overrides the options according to the CLI arguments and the
+// specific subcommand being run.
+void LDBCommand::PrepareOptions() {
+  if (!create_if_missing_ && try_load_options_) {
+    config_options_.env = options_.env;
+    Status s = LoadLatestOptions(config_options_, db_path_, &options_,
+                                 &column_families_);
+    if (!s.ok() && !s.IsNotFound()) {
+      // Option file exists but load option file error.
+      std::string msg = s.ToString();
+      exec_state_ = LDBCommandExecuteResult::Failed(msg);
+      db_ = nullptr;
+      return;
+    }
+    if (options_.env->FileExists(options_.wal_dir).IsNotFound()) {
+      options_.wal_dir = db_path_;
+      fprintf(
+          stderr,
+          "wal_dir loaded from the option file doesn't exist. Ignore it.\n");
+    }
+
+    // If merge operator is not set, set a string append operator.
+    for (auto& cf_entry : column_families_) {
+      if (!cf_entry.options.merge_operator) {
+        cf_entry.options.merge_operator =
+            MergeOperators::CreateStringAppendOperator(':');
+      }
+    }
+  }
+
+  OverrideBaseOptions();
+  if (exec_state_.IsFailed()) {
+    return;
+  }
+
+  if (column_families_.empty()) {
+    // Reads the MANIFEST to figure out what column families exist. In this
+    // case, the option overrides from the CLI argument/specific subcommand
+    // apply to all column families.
+    std::vector<std::string> cf_list;
+    Status st = DB::ListColumnFamilies(options_, db_path_, &cf_list);
+    // It is possible the DB doesn't exist yet, for "create if not
+    // existing" case. The failure is ignored here. We rely on DB::Open()
+    // to give us the correct error message for problem with opening
+    // existing DB.
+    if (st.ok() && cf_list.size() > 1) {
+      // Ignore single column family DB.
+      for (auto cf_name : cf_list) {
+        column_families_.emplace_back(cf_name, options_);
+      }
+    }
+  } else {
+    // We got column families from the OPTIONS file. In this case, the option
+    // overrides from the CLI argument/specific subcommand only apply to the
+    // column family specified by `--column_family_name`.
+    auto column_families_iter =
+        std::find_if(column_families_.begin(), column_families_.end(),
+                     [this](const ColumnFamilyDescriptor& cf_desc) {
+                       return cf_desc.name == column_family_name_;
+                     });
+    if (column_families_iter == column_families_.end()) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Non-existing column family " + column_family_name_);
+      return;
+    }
+    column_families_iter->options = options_;
+  }
 }
 
 bool LDBCommand::ParseKeyValue(const std::string& line, std::string* key,
@@ -959,13 +977,12 @@ void DBLoaderCommand::Help(std::string& ret) {
   ret.append("\n");
 }
 
-Options DBLoaderCommand::PrepareOptionsForOpenDB() {
-  Options opt = LDBCommand::PrepareOptionsForOpenDB();
-  opt.create_if_missing = create_if_missing_;
+void DBLoaderCommand::OverrideBaseOptions() {
+  LDBCommand::OverrideBaseOptions();
+  options_.create_if_missing = create_if_missing_;
   if (bulk_load_) {
-    opt.PrepareForBulkLoad();
+    options_.PrepareForBulkLoad();
   }
-  return opt;
 }
 
 void DBLoaderCommand::DoCommand() {
@@ -1025,7 +1042,7 @@ void DumpManifestFile(Options options, std::string file, bool verbose, bool hex,
   WriteBufferManager wb(options.db_write_buffer_size);
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
-                      /*block_cache_tracer=*/nullptr);
+                      /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr);
   Status s = versions.DumpManifest(options, file, verbose, hex, json);
   if (!s.ok()) {
     fprintf(stderr, "Error in processing file %s %s\n", file.c_str(),
@@ -1167,10 +1184,10 @@ void GetLiveFilesChecksumInfoFromVersionSet(Options options,
   WriteBufferManager wb(options.db_write_buffer_size);
   ImmutableDBOptions immutable_db_options(options);
   VersionSet versions(dbname, &immutable_db_options, sopt, tc.get(), &wb, &wc,
-                      /*block_cache_tracer=*/nullptr);
+                      /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr);
   std::vector<std::string> cf_name_list;
   s = versions.ListColumnFamilies(&cf_name_list, db_path,
-                                  options.file_system.get());
+                                  immutable_db_options.fs.get());
   if (s.ok()) {
     std::vector<ColumnFamilyDescriptor> cf_list;
     for (const auto& name : cf_name_list) {
@@ -1296,6 +1313,10 @@ CreateColumnFamilyCommand::CreateColumnFamilyCommand(
 }
 
 void CreateColumnFamilyCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
   ColumnFamilyHandle* new_cf_handle = nullptr;
   Status st = db_->CreateColumnFamily(options_, new_cf_name_, &new_cf_handle);
   if (st.ok()) {
@@ -1329,6 +1350,10 @@ DropColumnFamilyCommand::DropColumnFamilyCommand(
 }
 
 void DropColumnFamilyCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
   auto iter = cf_handles_.find(cf_name_to_drop_);
   if (iter == cf_handles_.end()) {
     exec_state_ = LDBCommandExecuteResult::Failed(
@@ -1748,7 +1773,7 @@ void DBDumperCommand::DoDumpCommand() {
     if (max_keys == 0)
       break;
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(iter);
+      TtlIterator* it_ttl = static_cast_with_check<TtlIterator>(iter);
       rawtime = it_ttl->ttl_timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
@@ -1859,14 +1884,14 @@ void ReduceDBLevelsCommand::Help(std::string& ret) {
   ret.append("\n");
 }
 
-Options ReduceDBLevelsCommand::PrepareOptionsForOpenDB() {
-  Options opt = LDBCommand::PrepareOptionsForOpenDB();
-  opt.num_levels = old_levels_;
-  opt.max_bytes_for_level_multiplier_additional.resize(opt.num_levels, 1);
+void ReduceDBLevelsCommand::OverrideBaseOptions() {
+  LDBCommand::OverrideBaseOptions();
+  options_.num_levels = old_levels_;
+  options_.max_bytes_for_level_multiplier_additional.resize(options_.num_levels,
+                                                            1);
   // Disable size compaction
-  opt.max_bytes_for_level_base = 1ULL << 50;
-  opt.max_bytes_for_level_multiplier = 1;
-  return opt;
+  options_.max_bytes_for_level_base = 1ULL << 50;
+  options_.max_bytes_for_level_multiplier = 1;
 }
 
 Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
@@ -1879,7 +1904,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   WriteController wc(opt.delayed_write_rate);
   WriteBufferManager wb(opt.db_write_buffer_size);
   VersionSet versions(db_path_, &db_options, soptions, tc.get(), &wb, &wc,
-                      /*block_cache_tracer=*/nullptr);
+                      /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr);
   std::vector<ColumnFamilyDescriptor> dummy;
   ColumnFamilyDescriptor dummy_descriptor(kDefaultColumnFamilyName,
                                           ColumnFamilyOptions(opt));
@@ -1911,11 +1936,9 @@ void ReduceDBLevelsCommand::DoCommand() {
   }
 
   Status st;
-  Options opt = PrepareOptionsForOpenDB();
+  PrepareOptions();
   int old_level_num = -1;
-  opt.file_system.reset(new LegacyFileSystemWrapper(opt.env));
-  ;
-  st = GetOldNumOfLevels(opt, &old_level_num);
+  st = GetOldNumOfLevels(options_, &old_level_num);
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
     return;
@@ -1942,7 +1965,8 @@ void ReduceDBLevelsCommand::DoCommand() {
   CloseDB();
 
   EnvOptions soptions;
-  st = VersionSet::ReduceNumberOfLevels(db_path_, &opt, soptions, new_levels_);
+  st = VersionSet::ReduceNumberOfLevels(db_path_, &options_, soptions,
+                                        new_levels_);
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
     return;
@@ -2009,24 +2033,26 @@ void ChangeCompactionStyleCommand::Help(std::string& ret) {
   ret.append("\n");
 }
 
-Options ChangeCompactionStyleCommand::PrepareOptionsForOpenDB() {
-  Options opt = LDBCommand::PrepareOptionsForOpenDB();
+void ChangeCompactionStyleCommand::OverrideBaseOptions() {
+  LDBCommand::OverrideBaseOptions();
 
   if (old_compaction_style_ == kCompactionStyleLevel &&
       new_compaction_style_ == kCompactionStyleUniversal) {
     // In order to convert from level compaction to universal compaction, we
     // need to compact all data into a single file and move it to level 0.
-    opt.disable_auto_compactions = true;
-    opt.target_file_size_base = INT_MAX;
-    opt.target_file_size_multiplier = 1;
-    opt.max_bytes_for_level_base = INT_MAX;
-    opt.max_bytes_for_level_multiplier = 1;
+    options_.disable_auto_compactions = true;
+    options_.target_file_size_base = INT_MAX;
+    options_.target_file_size_multiplier = 1;
+    options_.max_bytes_for_level_base = INT_MAX;
+    options_.max_bytes_for_level_multiplier = 1;
   }
-
-  return opt;
 }
 
 void ChangeCompactionStyleCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
   // print db stats before we have made any change
   std::string property;
   std::string files_per_level;
@@ -2441,6 +2467,7 @@ void BatchPutCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(BatchPutCommand::Name());
   ret.append(" <key> <value> [<key> <value>] [..]");
+  ret.append(" [--" + ARG_CREATE_IF_MISSING + "]");
   ret.append(" [--" + ARG_TTL + "]");
   ret.append("\n");
 }
@@ -2465,10 +2492,9 @@ void BatchPutCommand::DoCommand() {
   }
 }
 
-Options BatchPutCommand::PrepareOptionsForOpenDB() {
-  Options opt = LDBCommand::PrepareOptionsForOpenDB();
-  opt.create_if_missing = create_if_missing_;
-  return opt;
+void BatchPutCommand::OverrideBaseOptions() {
+  LDBCommand::OverrideBaseOptions();
+  options_.create_if_missing = create_if_missing_;
 }
 
 // ----------------------------------------------------------------------------
@@ -2577,7 +2603,7 @@ void ScanCommand::DoCommand() {
         it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
         it->Next()) {
     if (is_db_ttl_) {
-      TtlIterator* it_ttl = static_cast_with_check<TtlIterator, Iterator>(it);
+      TtlIterator* it_ttl = static_cast_with_check<TtlIterator>(it);
       int rawtime = it_ttl->ttl_timestamp();
       if (rawtime < ttl_start || rawtime >= ttl_end) {
         continue;
@@ -2727,7 +2753,8 @@ PutCommand::PutCommand(const std::vector<std::string>& params,
 void PutCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(PutCommand::Name());
-  ret.append(" <key> <value> ");
+  ret.append(" <key> <value>");
+  ret.append(" [--" + ARG_CREATE_IF_MISSING + "]");
   ret.append(" [--" + ARG_TTL + "]");
   ret.append("\n");
 }
@@ -2745,10 +2772,9 @@ void PutCommand::DoCommand() {
   }
 }
 
-Options PutCommand::PrepareOptionsForOpenDB() {
-  Options opt = LDBCommand::PrepareOptionsForOpenDB();
-  opt.create_if_missing = create_if_missing_;
-  return opt;
+void PutCommand::OverrideBaseOptions() {
+  LDBCommand::OverrideBaseOptions();
+  options_.create_if_missing = create_if_missing_;
 }
 
 // ----------------------------------------------------------------------------
@@ -2841,7 +2867,7 @@ CheckConsistencyCommand::CheckConsistencyCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false, BuildCmdLineOptions({})) {}
+    : LDBCommand(options, flags, true, BuildCmdLineOptions({})) {}
 
 void CheckConsistencyCommand::Help(std::string& ret) {
   ret.append("  ");
@@ -2850,19 +2876,13 @@ void CheckConsistencyCommand::Help(std::string& ret) {
 }
 
 void CheckConsistencyCommand::DoCommand() {
-  Options opt = PrepareOptionsForOpenDB();
-  opt.paranoid_checks = true;
-  if (!exec_state_.IsNotStarted()) {
-    return;
-  }
-  DB* db;
-  Status st = DB::OpenForReadOnly(opt, db_path_, &db, false);
-  delete db;
-  if (st.ok()) {
+  options_.paranoid_checks = true;
+  options_.num_levels = 64;
+  OpenDB();
+  if (exec_state_.IsSucceed() || exec_state_.IsNotStarted()) {
     fprintf(stdout, "OK\n");
-  } else {
-    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
   }
+  CloseDB();
 }
 
 // ----------------------------------------------------------------------------
@@ -2916,10 +2936,14 @@ void RepairCommand::Help(std::string& ret) {
   ret.append("\n");
 }
 
+void RepairCommand::OverrideBaseOptions() {
+  LDBCommand::OverrideBaseOptions();
+  options_.info_log.reset(new StderrLogger(InfoLogLevel::WARN_LEVEL));
+}
+
 void RepairCommand::DoCommand() {
-  Options options = PrepareOptionsForOpenDB();
-  options.info_log.reset(new StderrLogger(InfoLogLevel::WARN_LEVEL));
-  Status status = RepairDB(db_path_, options);
+  PrepareOptions();
+  Status status = RepairDB(db_path_, options_);
   if (status.ok()) {
     fprintf(stdout, "OK\n");
   } else {
@@ -3083,7 +3107,8 @@ void DumpSstFile(Options options, std::string filename, bool output_hex,
   // no verification
   // TODO: add support for decoding blob indexes in ldb as well
   ROCKSDB_NAMESPACE::SstFileDumper dumper(
-      options, filename, /* verify_checksum */ false, output_hex,
+      options, filename, 2 * 1024 * 1024 /* readahead_size */,
+      /* verify_checksum */ false, output_hex,
       /* decode_blob_index */ false);
   Status st = dumper.ReadSequential(true, std::numeric_limits<uint64_t>::max(),
                                     false,            // has_from
@@ -3261,10 +3286,9 @@ void WriteExternalSstFilesCommand::DoCommand() {
       "external SST file written to " + output_sst_path_);
 }
 
-Options WriteExternalSstFilesCommand::PrepareOptionsForOpenDB() {
-  Options opt = LDBCommand::PrepareOptionsForOpenDB();
-  opt.create_if_missing = create_if_missing_;
-  return opt;
+void WriteExternalSstFilesCommand::OverrideBaseOptions() {
+  LDBCommand::OverrideBaseOptions();
+  options_.create_if_missing = create_if_missing_;
 }
 
 const std::string IngestExternalSstFilesCommand::ARG_MOVE_FILES = "move_files";
@@ -3376,10 +3400,9 @@ void IngestExternalSstFilesCommand::DoCommand() {
   }
 }
 
-Options IngestExternalSstFilesCommand::PrepareOptionsForOpenDB() {
-  Options opt = LDBCommand::PrepareOptionsForOpenDB();
-  opt.create_if_missing = create_if_missing_;
-  return opt;
+void IngestExternalSstFilesCommand::OverrideBaseOptions() {
+  LDBCommand::OverrideBaseOptions();
+  options_.create_if_missing = create_if_missing_;
 }
 
 ListFileRangeDeletesCommand::ListFileRangeDeletesCommand(
@@ -3418,7 +3441,7 @@ void ListFileRangeDeletesCommand::DoCommand() {
     return;
   }
 
-  DBImpl* db_impl = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_->GetRootDB());
 
   std::string out_str;
 
@@ -3428,8 +3451,87 @@ void ListFileRangeDeletesCommand::DoCommand() {
     TEST_SYNC_POINT_CALLBACK(
         "ListFileRangeDeletesCommand::DoCommand:BeforePrint", &out_str);
     fprintf(stdout, "%s\n", out_str.c_str());
+  }
+}
+
+void UnsafeRemoveSstFileCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(UnsafeRemoveSstFileCommand::Name());
+  ret.append(" <SST file number>");
+  ret.append("\n");
+  ret.append("    MUST NOT be used on a live DB.");
+  ret.append("\n");
+}
+
+UnsafeRemoveSstFileCommand::UnsafeRemoveSstFileCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false /* is_read_only */,
+                 BuildCmdLineOptions({})) {
+  if (params.size() != 1) {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("SST file number must be specified");
   } else {
-    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+    char* endptr = nullptr;
+    sst_file_number_ = strtoull(params.at(0).c_str(), &endptr, 10 /* base */);
+    if (endptr == nullptr || *endptr != '\0') {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Failed to parse SST file number " + params.at(0));
+    }
+  }
+}
+
+void UnsafeRemoveSstFileCommand::DoCommand() {
+  // Instead of opening a `DB` and calling `DeleteFile()`, this implementation
+  // uses the underlying `VersionSet` API to read and modify the MANIFEST. This
+  // allows us to use the user's real options, while not having to worry about
+  // the DB persisting new SST files via flush/compaction or attempting to read/
+  // compact files which may fail, particularly for the file we intend to remove
+  // (the user may want to remove an already deleted file from MANIFEST).
+  PrepareOptions();
+
+  if (options_.db_paths.empty()) {
+    // `VersionSet` expects options that have been through `SanitizeOptions()`,
+    // which would sanitize an empty `db_paths`.
+    options_.db_paths.emplace_back(db_path_, 0 /* target_size */);
+  }
+
+  WriteController wc(options_.delayed_write_rate);
+  WriteBufferManager wb(options_.db_write_buffer_size);
+  ImmutableDBOptions immutable_db_options(options_);
+  std::shared_ptr<Cache> tc(
+      NewLRUCache(1 << 20 /* capacity */, options_.table_cache_numshardbits));
+  EnvOptions sopt;
+  VersionSet versions(db_path_, &immutable_db_options, sopt, tc.get(), &wb, &wc,
+                      /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr);
+  Status s = versions.Recover(column_families_);
+
+  ColumnFamilyData* cfd = nullptr;
+  int level = -1;
+  if (s.ok()) {
+    FileMetaData* metadata = nullptr;
+    s = versions.GetMetadataForFile(sst_file_number_, &level, &metadata, &cfd);
+  }
+
+  if (s.ok()) {
+    VersionEdit edit;
+    edit.SetColumnFamily(cfd->GetID());
+    edit.DeleteFile(level, sst_file_number_);
+    // Use `mutex` to imitate a locked DB mutex when calling `LogAndApply()`.
+    InstrumentedMutex mutex;
+    mutex.Lock();
+    s = versions.LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
+                             &mutex, nullptr /* db_directory */,
+                             false /* new_descriptor_log */);
+    mutex.Unlock();
+  }
+
+  if (!s.ok()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "failed to unsafely remove SST file: " + s.ToString());
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Succeed("unsafely removed SST file");
   }
 }
 

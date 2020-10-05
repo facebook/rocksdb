@@ -110,9 +110,9 @@ CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
 
   // If bottommost_compression is set and we are compacting to the
   // bottommost level then we should use it.
-  if (ioptions.bottommost_compression != kDisableCompressionOption &&
+  if (mutable_cf_options.bottommost_compression != kDisableCompressionOption &&
       level >= (vstorage->num_non_empty_levels() - 1)) {
-    return ioptions.bottommost_compression;
+    return mutable_cf_options.bottommost_compression;
   }
   // If the user has specified a different compression level for each level,
   // then pick the compression for that level.
@@ -132,22 +132,22 @@ CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
   }
 }
 
-CompressionOptions GetCompressionOptions(const ImmutableCFOptions& ioptions,
+CompressionOptions GetCompressionOptions(const MutableCFOptions& cf_options,
                                          const VersionStorageInfo* vstorage,
                                          int level,
                                          const bool enable_compression) {
   if (!enable_compression) {
-    return ioptions.compression_opts;
+    return cf_options.compression_opts;
   }
   // If bottommost_compression is set and we are compacting to the
   // bottommost level then we should use the specified compression options
   // for the bottmomost_compression.
-  if (ioptions.bottommost_compression != kDisableCompressionOption &&
+  if (cf_options.bottommost_compression != kDisableCompressionOption &&
       level >= (vstorage->num_non_empty_levels() - 1) &&
-      ioptions.bottommost_compression_opts.enabled) {
-    return ioptions.bottommost_compression_opts;
+      cf_options.bottommost_compression_opts.enabled) {
+    return cf_options.bottommost_compression_opts;
   }
-  return ioptions.compression_opts;
+  return cf_options.compression_opts;
 }
 
 CompactionPicker::CompactionPicker(const ImmutableCFOptions& ioptions,
@@ -332,7 +332,7 @@ Compaction* CompactionPicker::CompactFiles(
     const CompactionOptions& compact_options,
     const std::vector<CompactionInputFiles>& input_files, int output_level,
     VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
-    uint32_t output_path_id) {
+    const MutableDBOptions& mutable_db_options, uint32_t output_path_id) {
   assert(input_files.size());
   // This compaction output should not overlap with a running compaction as
   // `SanitizeCompactionInputFiles` should've checked earlier and db mutex
@@ -356,10 +356,10 @@ Compaction* CompactionPicker::CompactFiles(
     compression_type = compact_options.compression;
   }
   auto c = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, input_files, output_level,
-      compact_options.output_file_size_limit,
+      vstorage, ioptions_, mutable_cf_options, mutable_db_options, input_files,
+      output_level, compact_options.output_file_size_limit,
       mutable_cf_options.max_compaction_bytes, output_path_id, compression_type,
-      GetCompressionOptions(ioptions_, vstorage, output_level),
+      GetCompressionOptions(mutable_cf_options, vstorage, output_level),
       compact_options.max_subcompactions,
       /* grandparents */ {}, true);
   RegisterCompaction(c);
@@ -563,7 +563,8 @@ void CompactionPicker::GetGrandparents(
 
 Compaction* CompactionPicker::CompactRange(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, int input_level, int output_level,
+    const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+    int input_level, int output_level,
     const CompactRangeOptions& compact_range_options, const InternalKey* begin,
     const InternalKey* end, InternalKey** compaction_end, bool* manual_conflict,
     uint64_t max_file_num_to_ignore) {
@@ -626,18 +627,19 @@ Compaction* CompactionPicker::CompactRange(
     }
 
     Compaction* c = new Compaction(
-        vstorage, ioptions_, mutable_cf_options, std::move(inputs),
-        output_level,
+        vstorage, ioptions_, mutable_cf_options, mutable_db_options,
+        std::move(inputs), output_level,
         MaxFileSizeForLevel(mutable_cf_options, output_level,
                             ioptions_.compaction_style),
         /* max_compaction_bytes */ LLONG_MAX,
         compact_range_options.target_path_id,
         GetCompressionType(ioptions_, vstorage, mutable_cf_options,
                            output_level, 1),
-        GetCompressionOptions(ioptions_, vstorage, output_level),
+        GetCompressionOptions(mutable_cf_options, vstorage, output_level),
         compact_range_options.max_subcompactions, /* grandparents */ {},
         /* is manual */ true);
     RegisterCompaction(c);
+    vstorage->ComputeCompactionScore(ioptions_, mutable_cf_options);
     return c;
   }
 
@@ -778,8 +780,8 @@ Compaction* CompactionPicker::CompactRange(
   std::vector<FileMetaData*> grandparents;
   GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
   Compaction* compaction = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(compaction_inputs),
-      output_level,
+      vstorage, ioptions_, mutable_cf_options, mutable_db_options,
+      std::move(compaction_inputs), output_level,
       MaxFileSizeForLevel(mutable_cf_options, output_level,
                           ioptions_.compaction_style, vstorage->base_level(),
                           ioptions_.level_compaction_dynamic_level_bytes),
@@ -787,7 +789,7 @@ Compaction* CompactionPicker::CompactRange(
       compact_range_options.target_path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
                          vstorage->base_level()),
-      GetCompressionOptions(ioptions_, vstorage, output_level),
+      GetCompressionOptions(mutable_cf_options, vstorage, output_level),
       compact_range_options.max_subcompactions, std::move(grandparents),
       /* is manual compaction */ true);
 
@@ -1085,6 +1087,8 @@ void CompactionPicker::PickFilesMarkedForCompaction(
   Random64 rnd(/* seed */ reinterpret_cast<uint64_t>(vstorage));
   size_t random_file_index = static_cast<size_t>(rnd.Uniform(
       static_cast<uint64_t>(vstorage->FilesMarkedForCompaction().size())));
+  TEST_SYNC_POINT_CALLBACK("CompactionPicker::PickFilesMarkedForCompaction",
+                           &random_file_index);
 
   if (continuation(vstorage->FilesMarkedForCompaction()[random_file_index])) {
     // found the compaction!

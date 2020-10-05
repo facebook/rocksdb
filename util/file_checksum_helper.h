@@ -6,84 +6,59 @@
 #pragma once
 #include <cassert>
 #include <unordered_map>
+
 #include "port/port.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/status.h"
+#include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 // This is the class to generate the file checksum based on Crc32. It
 // will be used as the default checksum method for SST file checksum
-class FileChecksumFuncCrc32c : public FileChecksumFunc {
+class FileChecksumGenCrc32c : public FileChecksumGenerator {
  public:
-  std::string Extend(const std::string& init_checksum, const char* data,
-                     size_t n) override {
-    assert(data != nullptr);
-    uint32_t checksum_value = StringToUint32(init_checksum);
-    return Uint32ToString(crc32c::Extend(checksum_value, data, n));
+  FileChecksumGenCrc32c(const FileChecksumGenContext& /*context*/) {
+    checksum_ = 0;
   }
 
-  std::string Value(const char* data, size_t n) override {
-    assert(data != nullptr);
-    return Uint32ToString(crc32c::Value(data, n));
+  void Update(const char* data, size_t n) override {
+    checksum_ = crc32c::Extend(checksum_, data, n);
   }
 
-  std::string ProcessChecksum(const std::string& checksum) override {
-    uint32_t checksum_value = StringToUint32(checksum);
-    return Uint32ToString(crc32c::Mask(checksum_value));
+  void Finalize() override {
+    assert(checksum_str_.empty());
+    // Store as big endian raw bytes
+    PutFixed32(&checksum_str_, EndianSwapValue(checksum_));
+  }
+
+  std::string GetChecksum() const override {
+    assert(!checksum_str_.empty());
+    return checksum_str_;
   }
 
   const char* Name() const override { return "FileChecksumCrc32c"; }
 
-  // Convert a uint32_t type data into a 4 bytes string.
-  static std::string Uint32ToString(uint32_t v) {
-    std::string s;
-    if (port::kLittleEndian) {
-      s.append(reinterpret_cast<char*>(&v), sizeof(v));
+ private:
+  uint32_t checksum_;
+  std::string checksum_str_;
+};
+
+class FileChecksumGenCrc32cFactory : public FileChecksumGenFactory {
+ public:
+  std::unique_ptr<FileChecksumGenerator> CreateFileChecksumGenerator(
+      const FileChecksumGenContext& context) override {
+    if (context.requested_checksum_func_name.empty() ||
+        context.requested_checksum_func_name == "FileChecksumCrc32c") {
+      return std::unique_ptr<FileChecksumGenerator>(
+          new FileChecksumGenCrc32c(context));
     } else {
-      char buf[sizeof(v)];
-      buf[0] = v & 0xff;
-      buf[1] = (v >> 8) & 0xff;
-      buf[2] = (v >> 16) & 0xff;
-      buf[3] = (v >> 24) & 0xff;
-      s.append(buf, sizeof(v));
+      return nullptr;
     }
-    size_t i = 0, j = s.size() - 1;
-    while (i < j) {
-      char tmp = s[i];
-      s[i] = s[j];
-      s[j] = tmp;
-      ++i;
-      --j;
-    }
-    return s;
   }
 
-  // Convert a 4 bytes size string into a uint32_t type data.
-  static uint32_t StringToUint32(std::string s) {
-    assert(s.size() == sizeof(uint32_t));
-    size_t i = 0, j = s.size() - 1;
-    while (i < j) {
-      char tmp = s[i];
-      s[i] = s[j];
-      s[j] = tmp;
-      ++i;
-      --j;
-    }
-    uint32_t v = 0;
-    if (port::kLittleEndian) {
-      memcpy(&v, s.c_str(), sizeof(uint32_t));
-    } else {
-      const char* buf = s.c_str();
-      v |= static_cast<uint32_t>(buf[0]);
-      v |= (static_cast<uint32_t>(buf[1]) << 8);
-      v |= (static_cast<uint32_t>(buf[2]) << 16);
-      v |= (static_cast<uint32_t>(buf[3]) << 24);
-    }
-    return v;
-  }
+  const char* Name() const override { return "FileChecksumGenCrc32cFactory"; }
 };
 
 // The default implementaion of FileChecksumList
@@ -113,5 +88,11 @@ class FileChecksumListImpl : public FileChecksumList {
   std::unordered_map<uint64_t, std::pair<std::string, std::string>>
       checksum_map_;
 };
+
+// If manifest_file_size < std::numeric_limits<uint64_t>::max(), only use
+// that length prefix of the manifest file.
+Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
+                                    uint64_t manifest_file_size,
+                                    FileChecksumList* checksum_list);
 
 }  // namespace ROCKSDB_NAMESPACE
