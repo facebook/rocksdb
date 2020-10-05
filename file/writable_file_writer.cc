@@ -18,6 +18,7 @@
 #include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
+#include "util/crc32c.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
 
@@ -395,6 +396,7 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   assert(!use_direct_io());
   const char* src = data;
   size_t left = size;
+  DataVerificationInfo v_info;
 
   while (left > 0) {
     size_t allowed;
@@ -420,8 +422,17 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 #endif
       {
         auto prev_perf_level = GetPerfLevel();
+
         IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, clock_);
-        s = writable_file_->Append(Slice(src, allowed), IOOptions(), nullptr);
+        if (perform_data_verification_) {
+          std::string checksum;
+          DataChecksumCalculation(src, allowed, &checksum);
+          v_info.checksum = Slice(checksum);
+          s = writable_file_->Append(Slice(src, allowed), IOOptions(), v_info,
+                                     nullptr);
+        } else {
+          s = writable_file_->Append(Slice(src, allowed), IOOptions(), nullptr);
+        }
         SetPerfLevel(prev_perf_level);
       }
 #ifndef ROCKSDB_LITE
@@ -449,6 +460,12 @@ void WritableFileWriter::UpdateFileChecksum(const Slice& data) {
   if (checksum_generator_ != nullptr) {
     checksum_generator_->Update(data.data(), data.size());
   }
+}
+
+void WritableFileWriter::DataChecksumCalculation(const char* data, size_t size,
+                                                 std::string* checksum) {
+  uint32_t v_crc32c = crc32c::Extend(0, data, size);
+  PutFixed32(checksum, v_crc32c);
 }
 
 // This flushes the accumulated data in the buffer. We pad data with zeros if
@@ -481,6 +498,7 @@ IOStatus WritableFileWriter::WriteDirect() {
   const char* src = buf_.BufferStart();
   uint64_t write_offset = next_write_offset_;
   size_t left = buf_.CurrentSize();
+  DataVerificationInfo v_info;
 
   while (left > 0) {
     // Check how much is allowed
@@ -501,8 +519,17 @@ IOStatus WritableFileWriter::WriteDirect() {
         start_ts = FileOperationInfo::StartNow();
       }
       // direct writes must be positional
-      s = writable_file_->PositionedAppend(Slice(src, size), write_offset,
-                                           IOOptions(), nullptr);
+      if (perform_data_verification_) {
+        std::string checksum;
+        DataChecksumCalculation(src, size, &checksum);
+        v_info.checksum = Slice(checksum);
+        s = writable_file_->PositionedAppend(Slice(src, size), write_offset,
+                                             IOOptions(), v_info, nullptr);
+      } else {
+        s = writable_file_->PositionedAppend(Slice(src, size), write_offset,
+                                             IOOptions(), nullptr);
+      }
+
       if (ShouldNotifyListeners()) {
         auto finish_ts = std::chrono::steady_clock::now();
         NotifyOnFileWriteFinish(write_offset, size, start_ts, finish_ts, s);

@@ -118,6 +118,8 @@ class WritableFileWriter {
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
   void UpdateFileChecksum(const Slice& data);
+  void DataChecksumCalculation(const char* data, size_t size,
+                               std::string* checksum);
 
   std::string file_name_;
   FSWritableFilePtr writable_file_;
@@ -141,6 +143,7 @@ class WritableFileWriter {
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::unique_ptr<FileChecksumGenerator> checksum_generator_;
   bool checksum_finalized_;
+  bool perform_data_verification_;
 
  public:
   WritableFileWriter(

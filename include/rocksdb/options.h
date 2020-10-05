@@ -53,6 +53,7 @@ class Statistics;
 class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
+enum FileType : unsigned char;
 
 struct Options;
 struct DbPath;
@@ -1191,6 +1192,12 @@ struct DBOptions {
   //
   // Default: hostname
   std::string db_host_id = kHostnameForDbHostId;
+
+  // Use this if your DB want to enable checksum handoff for specific file
+  // types writes. Make sure that the Env or File_system you use support the
+  // checksum verification.
+  // Currently supported file tyes: kLogFile, kTableFile, kDescriptorFile.
+  std::vector<FileType> checksum_handoff_file_types;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

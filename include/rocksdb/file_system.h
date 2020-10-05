@@ -47,6 +47,21 @@ class RateLimiter;
 using AccessPattern = RandomAccessFile::AccessPattern;
 using FileAttributes = Env::FileAttributes;
 
+// File types in current RocksDB
+enum FileType : unsigned char {
+  kLogFile,
+  kDBLockFile,
+  kTableFile,
+  kDescriptorFile,
+  kCurrentFile,
+  kTempFile,
+  kInfoLogFile,  // Either the current one, or an old one
+  kMetaDatabase,
+  kIdentityFile,
+  kOptionsFile,
+  kBlobFile
+};
+
 // Priority of an IO request. This is a hint and does not guarantee any
 // particular QoS.
 // IO_LOW - Typically background reads/writes such as compaction/flush
