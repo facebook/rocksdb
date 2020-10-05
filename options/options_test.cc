@@ -3723,6 +3723,76 @@ TEST_F(OptionTypeInfoTest, TestVectorType) {
   ASSERT_EQ(vec1[2], "c1|c2|{d1|d2}");
 }
 #endif  // !ROCKSDB_LITE
+
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED  
+class StatusTest : public testing::Test {};
+TEST_F(StatusTest, AssertStatusChecked) {
+  Status unchecked;
+  Status status(Status::OK());
+
+  ASSERT_TRUE(unchecked.Checked()); // Uninitialized status is checked
+  ASSERT_FALSE(status.Checked());   // An initialized one is checked
+  status = Status::OK();            // Replace the value
+  ASSERT_FALSE(status.Checked());   // Still unchecked
+  Status other = status;            // Assign a new status to the old value
+  ASSERT_TRUE(status.Checked());    // The old status is checked
+  ASSERT_FALSE(other.Checked());    // The new status is not checked
+  status = unchecked;               // Assign a status to one that is checked
+  ASSERT_FALSE(status.Checked());   // The new status does not inherit checked
+  
+  status = Status::NotFound("NF");  // Create a new status
+  ASSERT_FALSE(status.Checked());   // New Status is not checked
+  ASSERT_FALSE(status.ok());        // Do an operation on the status
+  ASSERT_TRUE(status.Checked());    // It is now checked
+  other  = status;                  // Assign a status to one that is checked
+  ASSERT_FALSE(other.Checked());    // The new sttus is not checked
+  ASSERT_FALSE(other.ok());         // Do an operation on the status
+  ASSERT_TRUE(other.Checked());     // It is now checked
+}
+
+TEST_F(StatusTest, AssertIOStatusChecked) {
+  IOStatus unchecked;
+  IOStatus status(IOStatus::OK());
+
+  ASSERT_TRUE(unchecked.Checked()); // Uninitialized status is checked
+  ASSERT_FALSE(status.Checked());   // An initialized one is checked
+  status = IOStatus::OK();          // Replace the value
+  ASSERT_FALSE(status.Checked());   // Still unchecked
+  Status other = status;            // Assign a new status to the old value
+  ASSERT_TRUE(status.Checked());    // The old status is checked
+  ASSERT_FALSE(other.Checked());    // The new status is not checked
+  status = unchecked;               // Assign a status to one that is checked
+  ASSERT_FALSE(status.Checked());   // The new status does not inherit checked
+
+  status = IOStatus::OK();          // Create a new status
+  ASSERT_FALSE(status.Checked());   // New Status is not checked
+  ASSERT_TRUE(status.ok());         // Do an operation on the status
+  ASSERT_TRUE(status.Checked());    // It is now checked
+  other  = status;                  // Assign a status to one that is checked
+  ASSERT_FALSE(other.Checked());    // The new sttus is not checked
+  ASSERT_TRUE(other.ok());          // Do an operation on the status
+  ASSERT_TRUE(other.Checked());     // It is now checked
+}
+
+int IgnoreStatusVal(int i, Status s) { return s.ok() ? i + 1 : i - 1; }
+int IgnoreStatusRef(int i, Status& /*s*/) { return i+1; }
+int CheckStatusRef(int i, const Status& s) { return (s.ok() ? i+1 : i - 1; }
+
+TEST_F(StatusTest, StatusAsFuncArg) {
+  Status status = Status::OK();     // Create a new Status
+  ASSERT_FALSE(status.Checked());   // New Status is not checked
+  IgnoreStatusRef(0, status);
+  ASSERT_FALSE(status.Checked());   // New Status is still not checked
+  CheckStatusRef(0, status);
+  ASSERT_TRUE(status.Checked());   // New Status is still not checked
+  
+  status = Status::OK();     // Create a new Status
+  IgnoreStatusVal(0, status);
+  ASSERT_TRUE(status.Checked());   // New Status is checked
+}
+  
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
