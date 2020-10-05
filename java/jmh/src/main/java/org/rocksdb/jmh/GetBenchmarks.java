@@ -11,13 +11,15 @@ import org.rocksdb.*;
 import org.rocksdb.util.FileUtils;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeUnit;
 
-import static org.rocksdb.util.KVUtils.ba;
+import static org.rocksdb.util.KVUtils.*;
 
 @State(Scope.Benchmark)
 public class GetBenchmarks {
@@ -40,6 +42,8 @@ public class GetBenchmarks {
   ColumnFamilyHandle[] cfHandles;
   RocksDB db;
   private final AtomicInteger keyIndex = new AtomicInteger();
+  private ByteBuffer keyBuf;
+  private ByteBuffer valueBuf;
 
   @Setup(Level.Trial)
   public void setup() throws IOException, RocksDBException {
@@ -74,7 +78,7 @@ public class GetBenchmarks {
     cfHandles = cfHandlesList.toArray(new ColumnFamilyHandle[0]);
 
     // store initial data for retrieving via get
-    for (int i = 0; i < cfs; i++) {
+    for (int i = 0; i <= cfs; i++) {
       for (int j = 0; j < keyCount; j++) {
         db.put(cfHandles[i], ba("key" + j), ba("value" + j));
       }
@@ -84,6 +88,9 @@ public class GetBenchmarks {
             .setWaitForFlush(true)) {
       db.flush(flushOptions);
     }
+
+    keyBuf = ByteBuffer.allocateDirect(10);
+    valueBuf = ByteBuffer.allocateDirect(12);
   }
 
   @TearDown(Level.Trial)
@@ -132,8 +139,27 @@ public class GetBenchmarks {
   }
 
   @Benchmark
-  public byte[] get() throws RocksDBException {
+  public void get() throws RocksDBException {
     final int keyIdx = next();
-    return db.get(getColumnFamily(), ba("key" + keyIdx));
+    db.get(getColumnFamily(), ba("key" + keyIdx));
+  }
+
+  @Benchmark
+  public void getPreallocated() throws RocksDBException {
+    final int keyIdx = next();
+    // Here we assume that we know that the size of array is at most 16 bytes
+    final byte[] value = new byte[16];
+    db.get(getColumnFamily(), ba("key" + keyIdx), value);
+  }
+
+  @Benchmark
+  public void getPreallocatedByteBuffer() throws RocksDBException {
+    final int keyIdx = next();
+    final byte[] key = ba("key" + keyIdx);
+    keyBuf.position(0).limit(10);
+    keyBuf.put(key);
+    keyBuf.flip();
+    valueBuf.flip();
+    db.get(getColumnFamily(), new ReadOptions(), keyBuf, valueBuf);
   }
 }
