@@ -414,7 +414,7 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
     s = env->RenameFile(tmp, IdentityFileName(dbname));
   }
   if (!s.ok()) {
-    env->DeleteFile(tmp);
+    env->DeleteFile(tmp).PermitUncheckedError();
   }
   return s;
 }
