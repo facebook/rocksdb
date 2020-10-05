@@ -13,6 +13,8 @@ import java.util.*;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 public class RocksDBTest {
@@ -248,6 +250,26 @@ public class RocksDBTest {
       Assert.assertTrue(value0.isSamePayload(db.get(key3.data, key3.offset, key3.len)));
       Assert.assertTrue(value1.isSamePayload(db.get(key4.data, key4.offset, key4.len)));
     }
+  }
+
+  @Test
+  public void getDirectByteBuffer() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final ReadOptions optr = new ReadOptions()) {
+      final byte[] key = "key1".getBytes();
+      final byte[] value = "value".getBytes();
+      db.put(key, value);
+      ByteBuffer keyBuf = ByteBuffer.allocateDirect(4);
+      keyBuf.put(key);
+      keyBuf.position(0);
+      ByteBuffer valueBuf = ByteBuffer.allocateDirect(12);
+      int len = db.get(optr, keyBuf, valueBuf);
+      assertEquals(5, len);
+      byte[] retValue = new byte[len];
+      valueBuf.get(retValue);
+      assertArrayEquals(value, retValue);
+    }
+
   }
 
   private static Segment sliceSegment(String key) {
