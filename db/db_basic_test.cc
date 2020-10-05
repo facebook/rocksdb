@@ -3513,6 +3513,16 @@ TEST_F(DBBasicTest, GetBlob) {
   ASSERT_OK(Flush());
 
   ASSERT_EQ(Get(key), blob_value);
+
+  // Try again with no I/O allowed. The table and the necessary blocks should
+  // already be in their respective caches; however, the blob itself can only be
+  // read from the blob file, so the read should return Incomplete.
+  ReadOptions read_options;
+  read_options.read_tier = kBlockCacheTier;
+
+  PinnableSlice result;
+  ASSERT_TRUE(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result)
+                  .IsIncomplete());
 }
 
 }  // namespace ROCKSDB_NAMESPACE
