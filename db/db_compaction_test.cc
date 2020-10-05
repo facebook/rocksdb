@@ -5345,8 +5345,8 @@ TEST_P(DBCompactionTestWithParam,
 
   // Ingest 5 L0 sst. And this files would trigger PickIntraL0Compaction.
   for (int i = 5; i < 10; i++) {
+    ASSERT_EQ(i, NumTableFilesAtLevel(0));
     IngestOneKeyValue(dbfull(), Key(i), value, options);
-    ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
   }
 
   // Put one key, to make biggest log sequence number in this memtable is bigger
@@ -5436,7 +5436,6 @@ TEST_P(DBCompactionTestWithParam,
     ASSERT_EQ(i, NumTableFilesAtLevel(0));
     IngestOneKeyValue(dbfull(), Key(i), value2, options);
   }
-  ASSERT_EQ(10, NumTableFilesAtLevel(0));
 
   // Wake up flush job
   sleeping_tasks.WakeUp();
@@ -5655,7 +5654,6 @@ TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
 
   GenerateNewFile(&rnd, &key_idx);
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("1,1,2", FilesPerLevel(0));
 
   // The background thread will refit L2->L1 while the
@@ -5717,6 +5715,81 @@ TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
       "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:"
       "CompactedFG");
   refit_level_thread.join();
+}
+
+TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
+  // This test is added to ensure that RefitLevel() error paths are clearing
+  // internal flags and to test that subsequent valid RefitLevel() calls
+  // succeeds
+  Options options = CurrentOptions();
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 3;
+  Reopen(options);
+
+  ASSERT_EQ("", FilesPerLevel(0));
+
+  // Setup an LSM with three levels populated.
+  Random rnd(301);
+  int key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1", FilesPerLevel(0));
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  }
+  ASSERT_EQ("0,0,2", FilesPerLevel(0));
+
+  auto start_idx = key_idx;
+  GenerateNewFile(&rnd, &key_idx);
+  GenerateNewFile(&rnd, &key_idx);
+  auto end_idx = key_idx - 1;
+  ASSERT_EQ("1,1,2", FilesPerLevel(0));
+
+  // Next two CompactRange() calls are used to test exercise error paths within
+  // RefitLevel() before triggering a valid RefitLevel() call
+
+  // Trigger a refit to L1 first
+  {
+    std::string begin_string = Key(start_idx);
+    std::string end_string = Key(end_idx);
+    Slice begin(begin_string);
+    Slice end(end_string);
+
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 1;
+    ASSERT_OK(dbfull()->CompactRange(cro, &begin, &end));
+  }
+  ASSERT_EQ("0,3,2", FilesPerLevel(0));
+
+  // Try a refit from L2->L1 - this should fail and exercise error paths in
+  // RefitLevel()
+  {
+    // Select key range that matches the bottom most level (L2)
+    std::string begin_string = Key(0);
+    std::string end_string = Key(start_idx - 1);
+    Slice begin(begin_string);
+    Slice end(end_string);
+
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 1;
+    ASSERT_NOK(dbfull()->CompactRange(cro, &begin, &end));
+  }
+  ASSERT_EQ("0,3,2", FilesPerLevel(0));
+
+  // Try a valid Refit request to ensure, the path is still working
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 1;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  }
+  ASSERT_EQ("0,5", FilesPerLevel(0));
 }
 
 #endif  // !defined(ROCKSDB_LITE)

@@ -203,8 +203,8 @@ TEST_F(VersionBuilderTest, ApplyAndSaveTo) {
 
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
-  version_builder.Apply(&version_edit);
-  version_builder.SaveTo(&new_vstorage);
+  ASSERT_OK(version_builder.Apply(&version_edit));
+  ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
   ASSERT_EQ(400U, new_vstorage.NumLevelBytes(2));
   ASSERT_EQ(300U, new_vstorage.NumLevelBytes(3));
@@ -244,8 +244,8 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic) {
 
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
-  version_builder.Apply(&version_edit);
-  version_builder.SaveTo(&new_vstorage);
+  ASSERT_OK(version_builder.Apply(&version_edit));
+  ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
   ASSERT_EQ(0U, new_vstorage.NumLevelBytes(0));
   ASSERT_EQ(100U, new_vstorage.NumLevelBytes(3));
@@ -290,8 +290,8 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic2) {
 
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
-  version_builder.Apply(&version_edit);
-  version_builder.SaveTo(&new_vstorage);
+  ASSERT_OK(version_builder.Apply(&version_edit));
+  ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
   ASSERT_EQ(0U, new_vstorage.NumLevelBytes(0));
   ASSERT_EQ(100U, new_vstorage.NumLevelBytes(4));
@@ -339,8 +339,8 @@ TEST_F(VersionBuilderTest, ApplyMultipleAndSaveTo) {
 
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
-  version_builder.Apply(&version_edit);
-  version_builder.SaveTo(&new_vstorage);
+  ASSERT_OK(version_builder.Apply(&version_edit));
+  ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
   ASSERT_EQ(500U, new_vstorage.NumLevelBytes(2));
 
@@ -386,7 +386,7 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
                        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
                        kUnknownFileCreationTime, kUnknownFileChecksum,
                        kUnknownFileChecksumFuncName);
-  version_builder.Apply(&version_edit);
+  ASSERT_OK(version_builder.Apply(&version_edit));
 
   VersionEdit version_edit2;
   version_edit.AddFile(2, 808, 0, 100U, GetInternalKey("901"),
@@ -401,9 +401,9 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
                        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
                        kUnknownFileCreationTime, kUnknownFileChecksum,
                        kUnknownFileChecksumFuncName);
-  version_builder.Apply(&version_edit2);
 
-  version_builder.SaveTo(&new_vstorage);
+  ASSERT_OK(version_builder.Apply(&version_edit2));
+  ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
   ASSERT_EQ(300U, new_vstorage.NumLevelBytes(2));
 

@@ -271,7 +271,7 @@ uint64_t FSWritableFileTracingWrapper::GetFileSize(const IOOptions& options,
   uint64_t file_size = target()->GetFileSize(options, dbg);
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOFileNameAndFileSize,
-                          "GetFileSize", elapsed, "" /* file_name */,
+                          "GetFileSize", elapsed, "OK", "" /* file_name */,
                           file_size);
   io_tracer_->WriteIOOp(io_record);
   return file_size;

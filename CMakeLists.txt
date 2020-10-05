@@ -391,6 +391,12 @@ if(NOT WITH_DYNAMIC_EXTENSION)
   add_definitions(-DROCKSDB_NO_DYNAMIC_EXTENSION)
 endif()
 
+option(ASSERT_STATUS_CHECKED "build with assert status checked" OFF)
+if (ASSERT_STATUS_CHECKED)
+  message(STATUS "Build with assert status checked")
+  add_definitions(-DROCKSDB_ASSERT_STATUS_CHECKED)
+endif()
+
 if(DEFINED USE_RTTI)
   if(USE_RTTI)
     message(STATUS "Enabling RTTI")
@@ -614,6 +620,8 @@ set(SOURCES
         db/memtable_list.cc
         db/merge_helper.cc
         db/merge_operator.cc
+        db/output_validator.cc
+        db/periodic_work_scheduler.cc
         db/range_del_aggregator.cc
         db/range_tombstone_fragmenter.cc
         db/repair.cc
@@ -671,7 +679,6 @@ set(SOURCES
         monitoring/perf_level.cc
         monitoring/persistent_stats_history.cc
         monitoring/statistics.cc
-        monitoring/stats_dump_scheduler.cc
         monitoring/thread_status_impl.cc
         monitoring/thread_status_updater.cc
         monitoring/thread_status_util.cc
@@ -737,6 +744,7 @@ set(SOURCES
         test_util/transaction_test_util.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer.cc
         tools/dump/db_dump_tool.cc
+        tools/io_tracer_parser_tool.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
@@ -1019,6 +1027,7 @@ option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
 if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
+  test_util/mock_time_env.cc
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
 endif()
@@ -1094,6 +1103,7 @@ if(WITH_TESTS)
         db/merge_test.cc
         db/options_file_test.cc
         db/perf_context_test.cc
+        db/periodic_work_scheduler_test.cc
         db/plain_table_db_test.cc
         db/prefix_test.cc
         db/range_del_aggregator_test.cc
@@ -1125,7 +1135,6 @@ if(WITH_TESTS)
         monitoring/histogram_test.cc
         monitoring/iostats_context_test.cc
         monitoring/statistics_test.cc
-        monitoring/stats_dump_scheduler_test.cc
         monitoring/stats_history_test.cc
         options/configurable_test.cc
         options/options_settable_test.cc
@@ -1146,6 +1155,7 @@ if(WITH_TESTS)
         test_util/testutil_test.cc
         trace_replay/io_tracer_test.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc
+        tools/io_tracer_parser_test.cc
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
         tools/sst_dump_test.cc

@@ -2443,40 +2443,10 @@ class Benchmark {
 
   inline bool CompressSlice(const CompressionInfo& compression_info,
                             const Slice& input, std::string* compressed) {
-    bool ok = true;
-    switch (FLAGS_compression_type_e) {
-      case ROCKSDB_NAMESPACE::kSnappyCompression:
-        ok = Snappy_Compress(compression_info, input.data(), input.size(),
-                             compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kZlibCompression:
-        ok = Zlib_Compress(compression_info, 2, input.data(), input.size(),
-                           compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kBZip2Compression:
-        ok = BZip2_Compress(compression_info, 2, input.data(), input.size(),
-                            compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kLZ4Compression:
-        ok = LZ4_Compress(compression_info, 2, input.data(), input.size(),
-                          compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kLZ4HCCompression:
-        ok = LZ4HC_Compress(compression_info, 2, input.data(), input.size(),
-                            compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kXpressCompression:
-        ok = XPRESS_Compress(input.data(),
-          input.size(), compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kZSTD:
-        ok = ZSTD_Compress(compression_info, input.data(), input.size(),
-                           compressed);
-        break;
-      default:
-        ok = false;
-    }
-    return ok;
+    constexpr uint32_t compress_format_version = 2;
+
+    return CompressData(input, compression_info, compress_format_version,
+                        compressed);
   }
 
   void PrintHeader() {
@@ -3601,57 +3571,15 @@ class Benchmark {
 
     bool ok = CompressSlice(compression_info, input, &compressed);
     int64_t bytes = 0;
-    int decompress_size;
+    size_t uncompressed_size = 0;
     while (ok && bytes < 1024 * 1048576) {
-      CacheAllocationPtr uncompressed;
-      switch (FLAGS_compression_type_e) {
-        case ROCKSDB_NAMESPACE::kSnappyCompression: {
-          // get size and allocate here to make comparison fair
-          size_t ulength = 0;
-          if (!Snappy_GetUncompressedLength(compressed.data(),
-                                            compressed.size(), &ulength)) {
-            ok = false;
-            break;
-          }
-          uncompressed = AllocateBlock(ulength, nullptr);
-          ok = Snappy_Uncompress(compressed.data(), compressed.size(),
-                                 uncompressed.get());
-          break;
-        }
-        case ROCKSDB_NAMESPACE::kZlibCompression:
-          uncompressed =
-              Zlib_Uncompress(uncompression_info, compressed.data(),
-                              compressed.size(), &decompress_size, 2);
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kBZip2Compression:
-          uncompressed = BZip2_Uncompress(compressed.data(), compressed.size(),
-                                          &decompress_size, 2);
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kLZ4Compression:
-          uncompressed = LZ4_Uncompress(uncompression_info, compressed.data(),
-                                        compressed.size(), &decompress_size, 2);
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kLZ4HCCompression:
-          uncompressed = LZ4_Uncompress(uncompression_info, compressed.data(),
-                                        compressed.size(), &decompress_size, 2);
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kXpressCompression:
-          uncompressed.reset(XPRESS_Uncompress(
-              compressed.data(), compressed.size(), &decompress_size));
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kZSTD:
-          uncompressed = ZSTD_Uncompress(uncompression_info, compressed.data(),
-                                         compressed.size(), &decompress_size);
-          ok = uncompressed.get() != nullptr;
-          break;
-        default:
-          ok = false;
-      }
+      constexpr uint32_t compress_format_version = 2;
+
+      CacheAllocationPtr uncompressed = UncompressData(
+          uncompression_info, compressed.data(), compressed.size(),
+          &uncompressed_size, compress_format_version);
+
+      ok = uncompressed.get() != nullptr;
       bytes += input.size();
       thread->stats.FinishedOps(nullptr, nullptr, 1, kUncompress);
     }

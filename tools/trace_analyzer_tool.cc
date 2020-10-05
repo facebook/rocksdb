@@ -1162,15 +1162,18 @@ Status TraceAnalyzer::ReProcessing() {
 
 // End the processing, print the requested results
 Status TraceAnalyzer::EndProcessing() {
+  Status s;
   if (trace_sequence_f_) {
-    trace_sequence_f_->Close();
+    s = trace_sequence_f_->Close();
   }
   if (FLAGS_no_print) {
-    return Status::OK();
+    return s;
   }
   PrintStatistics();
-  CloseOutputFiles();
-  return Status::OK();
+  if (s.ok()) {
+    s = CloseOutputFiles();
+  }
+  return s;
 }
 
 // Insert the corresponding key statistics to the correct type
@@ -1324,7 +1327,7 @@ Status TraceAnalyzer::KeyStatsInsertion(const uint32_t& type,
     ta_[type].stats[cf_id].time_series.push_back(trace_u);
   }
 
-  return Status::OK();
+  return s;
 }
 
 // Update the correlation unit of each key if enabled
@@ -1428,7 +1431,7 @@ Status TraceAnalyzer::OpenStatsOutputFiles(const std::string& type,
                          &new_stats.a_qps_f);
   }
 
-  return Status::OK();
+  return s;
 }
 
 // create the output path of the files to be opened
@@ -1449,57 +1452,58 @@ Status TraceAnalyzer::CreateOutputFile(
 }
 
 // Close the output files in the TraceStats if they are opened
-void TraceAnalyzer::CloseOutputFiles() {
+Status TraceAnalyzer::CloseOutputFiles() {
+  Status s;
   for (int type = 0; type < kTaTypeNum; type++) {
     if (!ta_[type].enabled) {
       continue;
     }
     for (auto& stat : ta_[type].stats) {
-      if (stat.second.time_series_f) {
-        stat.second.time_series_f->Close();
+      if (s.ok() && stat.second.time_series_f) {
+        s = stat.second.time_series_f->Close();
       }
 
-      if (stat.second.a_key_f) {
-        stat.second.a_key_f->Close();
+      if (s.ok() && stat.second.a_key_f) {
+        s = stat.second.a_key_f->Close();
       }
 
-      if (stat.second.a_key_num_f) {
-        stat.second.a_key_num_f->Close();
+      if (s.ok() && stat.second.a_key_num_f) {
+        s = stat.second.a_key_num_f->Close();
       }
 
-      if (stat.second.a_count_dist_f) {
-        stat.second.a_count_dist_f->Close();
+      if (s.ok() && stat.second.a_count_dist_f) {
+        s = stat.second.a_count_dist_f->Close();
       }
 
-      if (stat.second.a_prefix_cut_f) {
-        stat.second.a_prefix_cut_f->Close();
+      if (s.ok() && stat.second.a_prefix_cut_f) {
+        s = stat.second.a_prefix_cut_f->Close();
       }
 
-      if (stat.second.a_value_size_f) {
-        stat.second.a_value_size_f->Close();
+      if (s.ok() && stat.second.a_value_size_f) {
+        s = stat.second.a_value_size_f->Close();
       }
 
-      if (stat.second.a_key_size_f) {
-        stat.second.a_key_size_f->Close();
+      if (s.ok() && stat.second.a_key_size_f) {
+        s = stat.second.a_key_size_f->Close();
       }
 
-      if (stat.second.a_qps_f) {
-        stat.second.a_qps_f->Close();
+      if (s.ok() && stat.second.a_qps_f) {
+        s = stat.second.a_qps_f->Close();
       }
 
-      if (stat.second.a_top_qps_prefix_f) {
-        stat.second.a_top_qps_prefix_f->Close();
+      if (s.ok() && stat.second.a_top_qps_prefix_f) {
+        s = stat.second.a_top_qps_prefix_f->Close();
       }
 
-      if (stat.second.w_key_f) {
-        stat.second.w_key_f->Close();
+      if (s.ok() && stat.second.w_key_f) {
+        s = stat.second.w_key_f->Close();
       }
-      if (stat.second.w_prefix_cut_f) {
-        stat.second.w_prefix_cut_f->Close();
+      if (s.ok() && stat.second.w_prefix_cut_f) {
+        s = stat.second.w_prefix_cut_f->Close();
       }
     }
   }
-  return;
+  return s;
 }
 
 // Handle the Get request in the trace

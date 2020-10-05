@@ -2145,6 +2145,7 @@ void StressTest::Open() {
       std::make_shared<DbStressTablePropertiesCollectorFactory>());
 
   options_.best_efforts_recovery = FLAGS_best_efforts_recovery;
+  options_.paranoid_file_checks = FLAGS_paranoid_file_checks;
 
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 

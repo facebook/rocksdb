@@ -47,6 +47,23 @@ struct FileState {
   Status DropRandomUnsyncedData(Env* env, Random* rand) const;
 };
 
+class TestRandomAccessFile : public RandomAccessFile {
+ public:
+  TestRandomAccessFile(std::unique_ptr<RandomAccessFile>&& target,
+                       FaultInjectionTestEnv* env);
+
+  Status Read(uint64_t offset, size_t n, Slice* result,
+              char* scratch) const override;
+
+  Status Prefetch(uint64_t offset, size_t n) override;
+
+  Status MultiRead(ReadRequest* reqs, size_t num_reqs) override;
+
+ private:
+  std::unique_ptr<RandomAccessFile> target_;
+  FaultInjectionTestEnv* env_;
+};
+
 // A wrapper around WritableFileWriter* file
 // is written to or sync'ed.
 class TestWritableFile : public WritableFile {
@@ -195,15 +212,19 @@ class FaultInjectionTestEnv : public EnvWrapper {
   }
   void SetFilesystemActiveNoLock(bool active,
       Status error = Status::Corruption("Not active")) {
+    error.PermitUncheckedError();
     filesystem_active_ = active;
     if (!active) {
       error_ = error;
     }
+    error.PermitUncheckedError();
   }
   void SetFilesystemActive(bool active,
       Status error = Status::Corruption("Not active")) {
+    error.PermitUncheckedError();
     MutexLock l(&mutex_);
     SetFilesystemActiveNoLock(active, error);
+    error.PermitUncheckedError();
   }
   void AssertNoOpenFile() { assert(open_files_.empty()); }
   Status GetError() { return error_; }

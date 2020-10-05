@@ -54,6 +54,7 @@ struct ImmutableMemTableOptions {
   Statistics* statistics;
   MergeOperator* merge_operator;
   Logger* info_log;
+  bool allow_data_in_errors;
 };
 
 // Batched counters to updated when inserting keys in one write batch.

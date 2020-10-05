@@ -26,8 +26,7 @@ bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
   }
   // We use spatial downsampling so that we have a complete access history for a
   // block.
-  return 0 == fastrange64(GetSliceNPHash64(block_key),
-                          trace_options.sampling_frequency);
+  return 0 == GetSliceRangedNPHash(block_key, trace_options.sampling_frequency);
 }
 }  // namespace
 

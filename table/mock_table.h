@@ -27,13 +27,15 @@
 
 namespace ROCKSDB_NAMESPACE {
 namespace mock {
+using KVPair = std::pair<std::string, std::string>;
+using KVVector = std::vector<KVPair>;
 
-stl_wrappers::KVMap MakeMockFile(
-    std::initializer_list<std::pair<const std::string, std::string>> l = {});
+KVVector MakeMockFile(std::initializer_list<KVPair> l = {});
+void SortKVVector(KVVector* kv_vector);
 
 struct MockTableFileSystem {
   port::Mutex mutex;
-  std::map<uint32_t, stl_wrappers::KVMap> files;
+  std::map<uint32_t, KVVector> files;
 };
 
 class MockTableFactory : public TableFactory {
@@ -42,6 +44,7 @@ class MockTableFactory : public TableFactory {
     kCorruptNone,
     kCorruptKey,
     kCorruptValue,
+    kCorruptReorderKey,
   };
 
   MockTableFactory();
@@ -60,7 +63,7 @@ class MockTableFactory : public TableFactory {
   // MockTableBuilder. file_contents has to have a format of <internal_key,
   // value>. Those key-value pairs will then be inserted into the mock table.
   Status CreateMockTable(Env* env, const std::string& fname,
-                         stl_wrappers::KVMap file_contents);
+                         KVVector file_contents);
 
   virtual std::string GetPrintableOptions() const override {
     return std::string();
@@ -69,8 +72,8 @@ class MockTableFactory : public TableFactory {
   void SetCorruptionMode(MockCorruptionMode mode) { corrupt_mode_ = mode; }
   // This function will assert that only a single file exists and that the
   // contents are equal to file_contents
-  void AssertSingleFile(const stl_wrappers::KVMap& file_contents);
-  void AssertLatestFile(const stl_wrappers::KVMap& file_contents);
+  void AssertSingleFile(const KVVector& file_contents);
+  void AssertLatestFile(const KVVector& file_contents);
 
  private:
   uint32_t GetAndWriteNextID(WritableFileWriter* file) const;

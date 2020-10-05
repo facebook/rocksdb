@@ -371,9 +371,11 @@ TEST_F(PrefixTest, TestResult) {
       ASSERT_TRUE(v16 == iter->value());
       iter->Next();
       ASSERT_TRUE(!iter->Valid());
+      ASSERT_OK(iter->status());
 
       SeekIterator(iter.get(), 2, 0);
       ASSERT_TRUE(!iter->Valid());
+      ASSERT_OK(iter->status());
 
       ASSERT_EQ(v16.ToString(), Get(db.get(), read_options, 1, 6));
       ASSERT_EQ(kNotFoundResult, Get(db.get(), read_options, 1, 5));
@@ -397,9 +399,11 @@ TEST_F(PrefixTest, TestResult) {
       ASSERT_TRUE(v17 == iter->value());
       iter->Next();
       ASSERT_TRUE(!iter->Valid());
+      ASSERT_OK(iter->status());
 
       SeekIterator(iter.get(), 2, 0);
       ASSERT_TRUE(!iter->Valid());
+      ASSERT_OK(iter->status());
 
       // 3. Insert an entry for the same prefix as the head of the bucket.
       Slice v15("v15");
@@ -542,8 +546,8 @@ TEST_F(PrefixTest, PrefixValid) {
       db->Flush(FlushOptions());
       TestKey test_key(12346, 8);
       std::string s;
-      db->Delete(write_options, TestKeyToSlice(s, test_key));
-      db->Flush(FlushOptions());
+      ASSERT_OK(db->Delete(write_options, TestKeyToSlice(s, test_key)));
+      ASSERT_OK(db->Flush(FlushOptions()));
       read_options.prefix_same_as_start = true;
       std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
       SeekIterator(iter.get(), 12345, 6);
@@ -568,6 +572,7 @@ TEST_F(PrefixTest, PrefixValid) {
       // Verify seeking past the prefix won't return a result.
       SeekIterator(iter.get(), 12345, 10);
       ASSERT_TRUE(!iter->Valid());
+      ASSERT_OK(iter->status());
     }
   }
 }
@@ -665,6 +670,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       hist_no_seek_time.Add(timer.ElapsedNanos());
       hist_no_seek_comparison.Add(get_perf_context()->user_key_comparison_count);
       ASSERT_TRUE(!iter->Valid());
+      ASSERT_OK(iter->status());
     }
 
     std::cout << "non-existing Seek key comparison: \n"
@@ -768,6 +774,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev) {
             SliceToTestKey(iter->key()).prefix != stored_prefix) {
           break;
         }
+        ASSERT_OK(iter->status());
         stored_prefix = SliceToTestKey(iter->key()).prefix;
         ASSERT_TRUE(iter->Valid());
         ASSERT_NE(it, whole_map.end());
@@ -799,7 +806,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev2) {
   options.memtable_factory.reset(new SkipListFactory);
   options.write_buffer_size = 1024 * 1024;
   std::string v13("v13");
-  DestroyDB(kDbName, Options());
+  ASSERT_OK(DestroyDB(kDbName, Options()));
   auto db = OpenDb();
   WriteOptions write_options;
   ReadOptions read_options;
@@ -807,17 +814,20 @@ TEST_F(PrefixTest, PrefixSeekModePrev2) {
   PutKey(db.get(), write_options, TestKey(1, 4), "v14");
   PutKey(db.get(), write_options, TestKey(3, 3), "v33");
   PutKey(db.get(), write_options, TestKey(3, 4), "v34");
-  db->Flush(FlushOptions());
-  static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable();
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_OK(
+      static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable());
   PutKey(db.get(), write_options, TestKey(1, 1), "v11");
   PutKey(db.get(), write_options, TestKey(1, 3), "v13");
   PutKey(db.get(), write_options, TestKey(2, 1), "v21");
   PutKey(db.get(), write_options, TestKey(2, 2), "v22");
-  db->Flush(FlushOptions());
-  static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable();
+  ASSERT_OK(db->Flush(FlushOptions()));
+  ASSERT_OK(
+      static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable());
   std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
   SeekIterator(iter.get(), 1, 5);
   iter->Prev();
+  ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->value(), v13);
 }
 
@@ -832,27 +842,29 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
   Slice upper_bound = TestKeyToSlice(s, upper_bound_key);
 
   {
-    DestroyDB(kDbName, Options());
+    ASSERT_OK(DestroyDB(kDbName, Options()));
     auto db = OpenDb();
     WriteOptions write_options;
     ReadOptions read_options;
     read_options.iterate_upper_bound = &upper_bound;
     PutKey(db.get(), write_options, TestKey(1, 2), "v12");
     PutKey(db.get(), write_options, TestKey(1, 4), "v14");
-    db->Flush(FlushOptions());
-    static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable();
+    ASSERT_OK(db->Flush(FlushOptions()));
+    ASSERT_OK(
+        static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable());
     PutKey(db.get(), write_options, TestKey(1, 1), "v11");
     PutKey(db.get(), write_options, TestKey(1, 3), "v13");
     PutKey(db.get(), write_options, TestKey(2, 1), "v21");
     PutKey(db.get(), write_options, TestKey(2, 2), "v22");
-    db->Flush(FlushOptions());
-    static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable();
+    ASSERT_OK(db->Flush(FlushOptions()));
+    ASSERT_OK(
+        static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable());
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
     iter->SeekToLast();
     ASSERT_EQ(iter->value(), v14);
   }
   {
-    DestroyDB(kDbName, Options());
+    ASSERT_OK(DestroyDB(kDbName, Options()));
     auto db = OpenDb();
     WriteOptions write_options;
     ReadOptions read_options;
@@ -861,12 +873,14 @@ TEST_F(PrefixTest, PrefixSeekModePrev3) {
     PutKey(db.get(), write_options, TestKey(1, 4), "v14");
     PutKey(db.get(), write_options, TestKey(3, 3), "v33");
     PutKey(db.get(), write_options, TestKey(3, 4), "v34");
-    db->Flush(FlushOptions());
-    static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable();
+    ASSERT_OK(db->Flush(FlushOptions()));
+    ASSERT_OK(
+        static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable());
     PutKey(db.get(), write_options, TestKey(1, 1), "v11");
     PutKey(db.get(), write_options, TestKey(1, 3), "v13");
-    db->Flush(FlushOptions());
-    static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable();
+    ASSERT_OK(db->Flush(FlushOptions()));
+    ASSERT_OK(
+        static_cast_with_check<DBImpl>(db.get())->TEST_WaitForFlushMemTable());
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
     iter->SeekToLast();
     ASSERT_EQ(iter->value(), v14);

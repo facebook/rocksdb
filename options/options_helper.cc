@@ -230,6 +230,8 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   // Misc options
   cf_opts.max_sequential_skip_in_iterations =
       mutable_cf_options.max_sequential_skip_in_iterations;
+  cf_opts.check_flush_compaction_key_order =
+      mutable_cf_options.check_flush_compaction_key_order;
   cf_opts.paranoid_file_checks = mutable_cf_options.paranoid_file_checks;
   cf_opts.report_bg_io_stats = mutable_cf_options.report_bg_io_stats;
   cf_opts.compression = mutable_cf_options.compression;

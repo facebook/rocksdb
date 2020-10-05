@@ -37,7 +37,8 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
           comparator, table_opt.index_block_restart_interval,
           table_opt.format_version, use_value_delta_encoding,
           table_opt.index_shortening, /* include_first_key */ false);
-    } break;
+      break;
+    }
     case BlockBasedTableOptions::kHashSearch: {
       // Currently kHashSearch is incompatible with index_block_restart_interval
       // > 1
@@ -46,20 +47,24 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
           comparator, int_key_slice_transform,
           table_opt.index_block_restart_interval, table_opt.format_version,
           use_value_delta_encoding, table_opt.index_shortening);
-    } break;
+      break;
+    }
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
       result = PartitionedIndexBuilder::CreateIndexBuilder(
           comparator, use_value_delta_encoding, table_opt);
-    } break;
+      break;
+    }
     case BlockBasedTableOptions::kBinarySearchWithFirstKey: {
       result = new ShortenedIndexBuilder(
           comparator, table_opt.index_block_restart_interval,
           table_opt.format_version, use_value_delta_encoding,
           table_opt.index_shortening, /* include_first_key */ true);
-    } break;
+      break;
+    }
     default: {
       assert(!"Do not recognize the index type ");
-    } break;
+      break;
+    }
   }
   return result;
 }

@@ -129,7 +129,7 @@ struct BackupableDBOptions {
   // table file names when the table files are stored in the shared_checksum
   // directory (i.e., both share_table_files and share_files_with_checksum
   // are true).
-  enum ShareFilesNaming : int {
+  enum ShareFilesNaming : uint32_t {
     // Backup SST filenames are <file_number>_<crc32c>_<file_size>.sst
     // where <crc32c> is an unsigned decimal integer. This is the
     // original/legacy naming scheme for share_files_with_checksum,
@@ -140,7 +140,7 @@ struct BackupableDBOptions {
     //   so generally requires reading the whole file even if the file
     //   is already backed up.
     // ** ONLY RECOMMENDED FOR PRESERVING OLD BEHAVIOR **
-    kLegacyCrc32cAndFileSize = 1,
+    kLegacyCrc32cAndFileSize = 1U,
 
     // Backup SST filenames are <file_number>_s<db_session_id>.sst. This
     // pair of values should be very strongly unique for a given SST file
@@ -152,9 +152,9 @@ struct BackupableDBOptions {
     //   will be used instead, matching the names assigned by RocksDB versions
     //   not supporting the newer naming scheme.
     // * See also flags below.
-    kUseDbSessionId = 2,
+    kUseDbSessionId = 2U,
 
-    kMaskNoNamingFlags = 0xffff,
+    kMaskNoNamingFlags = 0xffffU,
 
     // If not already part of the naming scheme, insert
     //   _<file_size>
@@ -165,7 +165,7 @@ struct BackupableDBOptions {
     //
     // We do not consider SST file sizes to have sufficient entropy to
     // contribute significantly to naming uniqueness.
-    kFlagIncludeFileSize = 1 << 31,
+    kFlagIncludeFileSize = 1U << 31,
 
     // When encountering an SST file from a Facebook-internal early
     // release of 6.12, use the default naming scheme in effect for
@@ -175,7 +175,7 @@ struct BackupableDBOptions {
     // and ignores kFlagIncludeFileSize setting.
     // NOTE: This flag is intended to be temporary and should be removed
     // in a later release.
-    kFlagMatchInterimNaming = 1 << 30,
+    kFlagMatchInterimNaming = 1U << 30,
 
     kMaskNamingFlags = ~kMaskNoNamingFlags,
   };
@@ -234,8 +234,8 @@ struct BackupableDBOptions {
 inline BackupableDBOptions::ShareFilesNaming operator&(
     BackupableDBOptions::ShareFilesNaming lhs,
     BackupableDBOptions::ShareFilesNaming rhs) {
-  int l = static_cast<int>(lhs);
-  int r = static_cast<int>(rhs);
+  uint32_t l = static_cast<uint32_t>(lhs);
+  uint32_t r = static_cast<uint32_t>(rhs);
   assert(r == BackupableDBOptions::kMaskNoNamingFlags ||
          (r & BackupableDBOptions::kMaskNoNamingFlags) == 0);
   return static_cast<BackupableDBOptions::ShareFilesNaming>(l & r);
@@ -244,8 +244,8 @@ inline BackupableDBOptions::ShareFilesNaming operator&(
 inline BackupableDBOptions::ShareFilesNaming operator|(
     BackupableDBOptions::ShareFilesNaming lhs,
     BackupableDBOptions::ShareFilesNaming rhs) {
-  int l = static_cast<int>(lhs);
-  int r = static_cast<int>(rhs);
+  uint32_t l = static_cast<uint32_t>(lhs);
+  uint32_t r = static_cast<uint32_t>(rhs);
   assert((r & BackupableDBOptions::kMaskNoNamingFlags) == 0);
   return static_cast<BackupableDBOptions::ShareFilesNaming>(l | r);
 }
