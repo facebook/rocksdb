@@ -21,7 +21,7 @@ T* GetFromHandle(Cache* cache, Cache::Handle* handle) {
 }
 
 template <typename T>
-void DeleteEntry(const Slice& /*key*/, void* value) {
+void DeleteEntry(const Slice& /* key */, void* value) {
   delete static_cast<T*>(value);
 }
 
