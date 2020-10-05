@@ -134,6 +134,8 @@ default_params = {
     "read_fault_one_in": lambda: random.choice([0, 1000]),
     "sync_fault_injection": False,
     "get_property_one_in": 1000000,
+    # paranoid_file_checks has a bug so it's not yet passed.
+    "paranoid_file_checks": 0,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -198,6 +200,8 @@ simple_default_params = {
     "test_batches_snapshots": 0,
     "write_buffer_size": 32 * 1024 * 1024,
     "level_compaction_dynamic_level_bytes": False,
+    # "paranoid_file_checks" has a bug so it's not yet passed.
+    "paranoid_file_checks": 0,
 }
 
 blackbox_simple_default_params = {

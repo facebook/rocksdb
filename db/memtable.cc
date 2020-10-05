@@ -58,7 +58,8 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
       max_successive_merges(mutable_cf_options.max_successive_merges),
       statistics(ioptions.statistics),
       merge_operator(ioptions.merge_operator),
-      info_log(ioptions.info_log) {}
+      info_log(ioptions.info_log),
+      allow_data_in_errors(ioptions.allow_data_in_errors) {}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
@@ -375,6 +376,7 @@ class MemTableIterator : public InternalIterator {
     PERF_COUNTER_ADD(next_on_memtable_count, 1);
     assert(Valid());
     iter_->Next();
+    TEST_SYNC_POINT_CALLBACK("MemTableIterator::Next:0", iter_);
     valid_ = iter_->Valid();
   }
   bool NextAndGetResult(IterateResult* result) override {
@@ -454,7 +456,7 @@ FragmentedRangeTombstoneIterator* MemTable::NewRangeTombstoneIterator(
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {
-  return &locks_[fastrange64(GetSliceNPHash64(key), locks_.size())];
+  return &locks_[GetSliceRangedNPHash(key, locks_.size())];
 }
 
 MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
@@ -623,7 +625,7 @@ struct Saver {
   Env* env_;
   ReadCallback* callback_;
   bool* is_blob_index;
-
+  bool allow_data_in_errors;
   bool CheckCallback(SequenceNumber _seq) {
     if (callback_) {
       return callback_->IsVisible(_seq);
@@ -778,14 +780,17 @@ static bool SaveValue(void* arg, const char* entry) {
         return true;
       }
       default: {
-        std::string msg("Unrecognized value type: " +
-                        std::to_string(static_cast<int>(type)) + ". ");
-        msg.append("User key: " + user_key_slice.ToString(/*hex=*/true) + ". ");
-        msg.append("seq: " + std::to_string(seq) + ".");
+        std::string msg("Corrupted value not expected.");
+        if (s->allow_data_in_errors) {
+          msg.append("Unrecognized value type: " +
+                     std::to_string(static_cast<int>(type)) + ". ");
+          msg.append("User key: " + user_key_slice.ToString(/*hex=*/true) +
+                     ". ");
+          msg.append("seq: " + std::to_string(seq) + ".");
+        }
         *(s->status) = Status::Corruption(msg.c_str());
+        return false;
       }
-        assert(false);
-        return true;
     }
   }
 
@@ -881,6 +886,7 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.callback_ = callback;
   saver.is_blob_index = is_blob_index;
   saver.do_merge = do_merge;
+  saver.allow_data_in_errors = moptions_.allow_data_in_errors;
   table_->Get(key, &saver, SaveValue);
   *seq = saver.seq;
 }

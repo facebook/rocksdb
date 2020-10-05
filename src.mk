@@ -56,6 +56,8 @@ LIB_SOURCES =                                                   \
   db/memtable_list.cc                                           \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
+  db/output_validator.cc                                        \
+  db/periodic_work_scheduler.cc                                 \
   db/range_del_aggregator.cc                                    \
   db/range_tombstone_fragmenter.cc                              \
   db/repair.cc                                                  \
@@ -116,7 +118,6 @@ LIB_SOURCES =                                                   \
   monitoring/perf_level.cc                                      \
   monitoring/persistent_stats_history.cc                        \
   monitoring/statistics.cc                                      \
-  monitoring/stats_dump_scheduler.cc                            \
   monitoring/thread_status_impl.cc                              \
   monitoring/thread_status_updater.cc                           \
   monitoring/thread_status_updater_debug.cc                     \
@@ -129,6 +130,12 @@ LIB_SOURCES =                                                   \
   options/options_helper.cc                                     \
   options/options_parser.cc                                     \
   port/port_posix.cc                                            \
+  port/win/env_default.cc                                       \
+  port/win/env_win.cc                                           \
+  port/win/io_win.cc                                            \
+  port/win/port_win.cc                                          \
+  port/win/win_logger.cc                                        \
+  port/win/win_thread.cc                                        \
   port/stack_trace.cc                                           \
   table/adaptive/adaptive_table_factory.cc                      \
   table/block_based/binary_search_index_reader.cc               \
@@ -277,6 +284,7 @@ LIB_SOURCES_C =
 endif
 
 TOOL_LIB_SOURCES =                                              \
+  tools/io_tracer_parser_tool.cc                                \
   tools/ldb_cmd.cc                                              \
   tools/ldb_tool.cc                                             \
   tools/sst_dump_tool.cc                                        \
@@ -305,6 +313,7 @@ STRESS_LIB_SOURCES =                                            \
 
 TEST_LIB_SOURCES =                                              \
   db/db_test_util.cc                                            \
+  test_util/mock_time_env.cc                                    \
   test_util/testharness.cc                                      \
   test_util/testutil.cc                                         \
   utilities/cassandra/test_utils.cc                             \
@@ -323,11 +332,13 @@ TOOLS_MAIN_SOURCES =                                                    \
   tools/db_repl_stress.cc                                               \
   tools/db_sanity_test.cc                                               \
   tools/ldb.cc                                                          \
+  tools/io_tracer_parser.cc                                             \
   tools/sst_dump.cc                                                     \
   tools/write_stress.cc                                                 \
   tools/dump/rocksdb_dump.cc                                            \
   tools/dump/rocksdb_undump.cc                                          \
   tools/trace_analyzer.cc                                               \
+  tools/io_tracer_parser_tool.cc                                        \
 
 BENCH_MAIN_SOURCES =                                                    \
   cache/cache_bench.cc                                                  \
@@ -408,6 +419,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/obsolete_files_test.cc                                             \
   db/options_file_test.cc                                               \
   db/perf_context_test.cc                                               \
+  db/periodic_work_scheduler_test.cc                                    \
   db/plain_table_db_test.cc                                             \
   db/prefix_test.cc                                                     \
   db/repair_test.cc                                                     \
@@ -439,7 +451,6 @@ TEST_MAIN_SOURCES =                                                     \
   monitoring/histogram_test.cc                                          \
   monitoring/iostats_context_test.cc                                    \
   monitoring/statistics_test.cc                                         \
-  monitoring/stats_dump_scheduler_test.cc                               \
   monitoring/stats_history_test.cc                                      \
   options/configurable_test.cc                                          \
   options/options_settable_test.cc                                      \
@@ -459,6 +470,7 @@ TEST_MAIN_SOURCES =                                                     \
   table/block_fetcher_test.cc                                           \
   test_util/testutil_test.cc                                            \
   tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc         \
+  tools/io_tracer_parser_test.cc                                        \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \

@@ -58,7 +58,11 @@ static void StartPhase(const char* name) {
 static const char* GetTempDir(void) {
     const char* ret = getenv("TEST_TMPDIR");
     if (ret == NULL || ret[0] == '\0')
-        ret = "/tmp";
+#ifdef OS_WIN
+      ret = getenv("TEMP");
+#else
+      ret = "/tmp";
+#endif
     return ret;
 }
 #ifdef _MSC_VER

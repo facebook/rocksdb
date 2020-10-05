@@ -3,7 +3,7 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "monitoring/stats_dump_scheduler.h"
+#include "db/periodic_work_scheduler.h"
 
 #include "db/db_impl/db_impl.h"
 #include "util/cast_util.h"
@@ -11,16 +11,16 @@
 #ifndef ROCKSDB_LITE
 namespace ROCKSDB_NAMESPACE {
 
-StatsDumpScheduler::StatsDumpScheduler(Env* env) {
+PeriodicWorkScheduler::PeriodicWorkScheduler(Env* env) {
   timer = std::unique_ptr<Timer>(new Timer(env));
 }
 
-void StatsDumpScheduler::Register(DBImpl* dbi,
-                                  unsigned int stats_dump_period_sec,
-                                  unsigned int stats_persist_period_sec) {
+void PeriodicWorkScheduler::Register(DBImpl* dbi,
+                                     unsigned int stats_dump_period_sec,
+                                     unsigned int stats_persist_period_sec) {
   static std::atomic<uint64_t> initial_delay(0);
+  timer->Start();
   if (stats_dump_period_sec > 0) {
-    timer->Start();
     timer->Add([dbi]() { dbi->DumpStats(); }, GetTaskName(dbi, "dump_st"),
                initial_delay.fetch_add(1) %
                    static_cast<uint64_t>(stats_dump_period_sec) *
@@ -28,33 +28,38 @@ void StatsDumpScheduler::Register(DBImpl* dbi,
                static_cast<uint64_t>(stats_dump_period_sec) * kMicrosInSecond);
   }
   if (stats_persist_period_sec > 0) {
-    timer->Start();
     timer->Add(
         [dbi]() { dbi->PersistStats(); }, GetTaskName(dbi, "pst_st"),
         initial_delay.fetch_add(1) %
             static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond,
         static_cast<uint64_t>(stats_persist_period_sec) * kMicrosInSecond);
   }
+  timer->Add([dbi]() { dbi->FlushInfoLog(); },
+             GetTaskName(dbi, "flush_info_log"),
+             initial_delay.fetch_add(1) % kDefaultFlushInfoLogPeriodSec *
+                 kMicrosInSecond,
+             kDefaultFlushInfoLogPeriodSec * kMicrosInSecond);
 }
 
-void StatsDumpScheduler::Unregister(DBImpl* dbi) {
+void PeriodicWorkScheduler::Unregister(DBImpl* dbi) {
   timer->Cancel(GetTaskName(dbi, "dump_st"));
   timer->Cancel(GetTaskName(dbi, "pst_st"));
+  timer->Cancel(GetTaskName(dbi, "flush_info_log"));
   if (!timer->HasPendingTask()) {
     timer->Shutdown();
   }
 }
 
-StatsDumpScheduler* StatsDumpScheduler::Default() {
+PeriodicWorkScheduler* PeriodicWorkScheduler::Default() {
   // Always use the default Env for the scheduler, as we only use the NowMicros
   // which is the same for all env.
   // The Env could only be overridden in test.
-  static StatsDumpScheduler scheduler(Env::Default());
+  static PeriodicWorkScheduler scheduler(Env::Default());
   return &scheduler;
 }
 
-std::string StatsDumpScheduler::GetTaskName(DBImpl* dbi,
-                                            const std::string& func_name) {
+std::string PeriodicWorkScheduler::GetTaskName(DBImpl* dbi,
+                                               const std::string& func_name) {
   std::string db_session_id;
   // TODO: Should this error be ignored?
   dbi->GetDbSessionId(db_session_id).PermitUncheckedError();
@@ -67,8 +72,8 @@ std::string StatsDumpScheduler::GetTaskName(DBImpl* dbi,
 // timer, so only re-create it when there's no running task. Otherwise, return
 // the existing scheduler. Which means if the unittest needs to update MockEnv,
 // Close all db instances and then re-open them.
-StatsDumpTestScheduler* StatsDumpTestScheduler::Default(Env* env) {
-  static StatsDumpTestScheduler scheduler(env);
+PeriodicWorkTestScheduler* PeriodicWorkTestScheduler::Default(Env* env) {
+  static PeriodicWorkTestScheduler scheduler(env);
   static port::Mutex mutex;
   {
     MutexLock l(&mutex);
@@ -81,22 +86,22 @@ StatsDumpTestScheduler* StatsDumpTestScheduler::Default(Env* env) {
   return &scheduler;
 }
 
-void StatsDumpTestScheduler::TEST_WaitForRun(
+void PeriodicWorkTestScheduler::TEST_WaitForRun(
     std::function<void()> callback) const {
   if (timer != nullptr) {
     timer->TEST_WaitForRun(callback);
   }
 }
 
-size_t StatsDumpTestScheduler::TEST_GetValidTaskNum() const {
+size_t PeriodicWorkTestScheduler::TEST_GetValidTaskNum() const {
   if (timer != nullptr) {
     return timer->TEST_GetPendingTaskNum();
   }
   return 0;
 }
 
-StatsDumpTestScheduler::StatsDumpTestScheduler(Env* env)
-    : StatsDumpScheduler(env) {}
+PeriodicWorkTestScheduler::PeriodicWorkTestScheduler(Env* env)
+    : PeriodicWorkScheduler(env) {}
 
 #endif  // !NDEBUG
 }  // namespace ROCKSDB_NAMESPACE

@@ -1,15 +1,21 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug fixes
+* Fixed a bug after a `CompactRange()` with `CompactRangeOptions::change_level` set fails due to a conflict in the level change step, which caused all subsequent calls to `CompactRange()` with `CompactRangeOptions::change_level` set to incorrectly fail with a `Status::NotSupported("another thread is refitting")` error.
 ### Public API Change
 * The methods to create and manage EncrypedEnv have been changed.  The EncryptionProvider is now passed to NewEncryptedEnv as a shared pointer, rather than a raw pointer.  Comparably, the CTREncryptedProvider now takes a shared pointer, rather than a reference, to a BlockCipher.  CreateFromString methods have been added to BlockCipher and EncryptionProvider to provide a single API by which different ciphers and providers can be created, respectively.
 * The internal classes (CTREncryptionProvider, ROT13BlockCipher, CTRCipherStream) associated with the EncryptedEnv have been moved out of the public API.  To create a CTREncryptionProvider, one can either use EncryptionProvider::NewCTRProvider, or EncryptionProvider::CreateFromString("CTR").  To create a new ROT13BlockCipher, one can either use BlockCipher::NewROT13Cipher or BlockCipher::CreateFromString("ROT13").
 * The EncryptionProvider::AddCipher method has been added to allow keys to be added to an EncryptionProvider.  This API will allow future providers to support multiple cipher keys.
+* Add a new option "allow_data_in_errors". When this new option is set by users, it allows users to opt-in to get error messages containing corrupted keys/values. Corrupt keys, values will be logged in the messages, logs, status etc. that will help users with the useful information regarding affected data. By default value of this option is set false to prevent users data to be exposed in the messages so currently, data will be redacted from logs, messages, status by default.
+* AdvancedColumnFamilyOptions::force_consistency_checks is now true by default, for more proactive DB corruption detection at virtually no cost (estimated two extra CPU cycles per million on a major production workload). Corruptions reported by these checks now mention "force_consistency_checks" in case a false positive corruption report is suspected and the option needs to be disabled (unlikely). Since existing column families have a saved setting for force_consistency_checks, only new column families will pick up the new default.
 
 ### General Improvements
 * The settings of the DBOptions and ColumnFamilyOptions are now managed by Configurable objects (see New Features).  The same convenience methods to configure these options still exist but the backend implementation has been unified under a common implementation.
 
 ### New Features
 * Methods to configure serialize, and compare -- such as TableFactory -- are exposed directly through the Configurable base class (from which these objects inherit).  This change will allow for better and more thorough configuration management and retrieval in the future.  The options for a Configurable object can be set via the ConfigureFromMap, ConfigureFromString, or ConfigureOption method.  The serialized version of the options of an object can be retrieved via the GetOptionString, ToString, or GetOption methods.  The list of options supported by an object can be obtained via the GetOptionNames method.  The "raw" object (such as the BlockBasedTableOption) for an option may be retrieved via the GetOptions method.  Configurable options can be compared via the AreEquivalent method.  The settings within a Configurable object may be validated via the ValidateOptions method.  The object may be intialized (at which point only mutable options may be updated) via the PrepareOptions method.
+* Introduce options.check_flush_compaction_key_order with default value to be true. With this option, during flush and compaction, key order will be checked when writing to each SST file. If the order is violated, the flush or compaction will fail.
+* Added is_full_compaction to CompactionJobStats, so that the information is available through the EventListener interface.
 
 ## 6.13 (09/12/2020)
 ### Bug fixes

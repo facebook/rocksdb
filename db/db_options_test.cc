@@ -900,7 +900,7 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   ASSERT_OK(Put("foo", "foofoofoo"));
   ASSERT_OK(Put("bar", "foofoofoo"));
   ASSERT_OK(Flush());
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_TRUE(compacted);
   ASSERT_EQ(CompressionType::kNoCompression, compression_used);
   ASSERT_EQ(options.compression_opts.level, compression_opt_used.level);
@@ -918,7 +918,7 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   ASSERT_OK(Put("foo", "foofoofoo"));
   ASSERT_OK(Put("bar", "foofoofoo"));
   ASSERT_OK(Flush());
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_TRUE(compacted);
   ASSERT_EQ(CompressionType::kSnappyCompression, compression_used);
   ASSERT_EQ(6, compression_opt_used.level);

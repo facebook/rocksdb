@@ -338,14 +338,14 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   }
   if (BackgroundErrorReason::kManifestWrite == reason) {
     // Always returns ok
-    db_->DisableFileDeletionsWithLock();
+    db_->DisableFileDeletionsWithLock().PermitUncheckedError();
   }
 
   Status new_bg_io_err = bg_io_err;
   Status s;
   DBRecoverContext context;
   if (bg_io_err.GetDataLoss()) {
-    // FIrst, data loss is treated as unrecoverable error. So it can directly
+    // First, data loss is treated as unrecoverable error. So it can directly
     // overwrite any existing bg_error_.
     bool auto_recovery = false;
     Status bg_err(new_bg_io_err, Status::Severity::kUnrecoverableError);

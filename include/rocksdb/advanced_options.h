@@ -642,6 +642,14 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   bool optimize_filters_for_hits = false;
 
+  // During flush or compaction, check whether keys inserted to output files
+  // are in order.
+  //
+  // Default: true
+  //
+  // Dynamically changeable through SetOptions() API
+  bool check_flush_compaction_key_order = true;
+
   // After writing every SST file, reopen it and read all the keys.
   // Checks the hash of all of the keys and values written versus the
   // keys in the file and signals a corruption if they do not match
@@ -651,11 +659,13 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool paranoid_file_checks = false;
 
-  // In debug mode, RocksDB run consistency checks on the LSM every time the LSM
-  // change (Flush, Compaction, AddFile). These checks are disabled in release
-  // mode, use this option to enable them in release mode as well.
-  // Default: false
-  bool force_consistency_checks = false;
+  // In debug mode, RocksDB runs consistency checks on the LSM every time the
+  // LSM changes (Flush, Compaction, AddFile). When this option is true, these
+  // checks are also enabled in release mode. These checks were historically
+  // disabled in release mode, but are now enabled by default for proactive
+  // corruption detection, at almost no cost in extra CPU.
+  // Default: true
+  bool force_consistency_checks = true;
 
   // Measure IO stats in compactions and flushes, if true.
   //

@@ -128,14 +128,35 @@ class IOTracer {
   IOTracer(IOTracer&&) = delete;
   IOTracer& operator=(IOTracer&&) = delete;
 
+  // no_sanitize is added for tracing_enabled. writer_ is protected under mutex
+  // so even if user call Start/EndIOTrace and tracing_enabled is not updated in
+  // the meanwhile, WriteIOOp will anyways check the writer_ protected under
+  // mutex and ignore the operation if writer_is null. So its ok if
+  // tracing_enabled shows non updated value.
+
+#if defined(__clang__)
+#if defined(__has_feature) && __has_feature(thread_sanitizer)
+#define TSAN_SUPPRESSION __attribute__((no_sanitize("thread")))
+#endif  // __has_feature(thread_sanitizer)
+#else   // __clang__
+#ifdef __SANITIZE_THREAD__
+#define TSAN_SUPPRESSION __attribute__((no_sanitize("thread")))
+#endif  // __SANITIZE_THREAD__
+#endif  // __clang__
+
+#ifndef TSAN_SUPPRESSION
+#define TSAN_SUPPRESSION
+#endif  // TSAN_SUPPRESSION
+
   // Start writing IO operations to the trace_writer.
-  Status StartIOTrace(Env* env, const TraceOptions& trace_options,
-                      std::unique_ptr<TraceWriter>&& trace_writer);
+  TSAN_SUPPRESSION Status
+  StartIOTrace(Env* env, const TraceOptions& trace_options,
+               std::unique_ptr<TraceWriter>&& trace_writer);
 
   // Stop writing IO operations to the trace_writer.
-  void EndIOTrace();
+  TSAN_SUPPRESSION void EndIOTrace();
 
-  bool is_tracing_enabled() const { return tracing_enabled; }
+  TSAN_SUPPRESSION bool is_tracing_enabled() const { return tracing_enabled; }
 
   Status WriteIOOp(const IOTraceRecord& record);
 

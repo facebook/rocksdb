@@ -250,6 +250,7 @@ struct CompactionFileInfo {
 };
 
 struct CompactionJobInfo {
+  ~CompactionJobInfo() { status.PermitUncheckedError(); }
   // the id of the column family where the compaction happened.
   uint32_t cf_id;
   // the name of the column family where the compaction happened.
@@ -293,8 +294,7 @@ struct CompactionJobInfo {
   // Compression algorithm used for output files
   CompressionType compression;
 
-  // If non-null, this variable stores detailed information
-  // about this compaction.
+  // Statistics and other additional details on the compaction
   CompactionJobStats stats;
 };
 

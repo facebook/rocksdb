@@ -6,6 +6,9 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors
+
+#if !defined(OS_WIN)
+
 #include <dirent.h>
 #ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
 #include <dlfcn.h>
@@ -1060,3 +1063,5 @@ static FactoryFunc<FileSystem> posix_filesystem_reg =
 #endif
 
 }  // namespace ROCKSDB_NAMESPACE
+
+#endif
