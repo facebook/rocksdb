@@ -1788,6 +1788,10 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         PinnableSlice* value) const {
   assert(value);
 
+  if (read_options.read_tier == kBlockCacheTier) {
+    return Status::Incomplete("Cannot read blob: no disk I/O allowed");
+  }
+
   BlobIndex blob_index;
 
   {
@@ -1925,6 +1929,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
           if (do_merge && value) {
             *status = GetBlob(read_options, user_key, value);
             if (!status->ok()) {
+              if (status->IsIncomplete()) {
+                get_context.MarkKeyMayExist();
+              }
               return;
             }
           }
