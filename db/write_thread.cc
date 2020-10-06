@@ -344,7 +344,13 @@ void WriteThread::BeginWriteStall() {
       prev->link_older = w->link_older;
       w->status = Status::Incomplete("Write stall");
       SetState(w, STATE_COMPLETED);
-      if (prev->link_older) {
+      // Only update `link_newer` if it's already set.
+      // `CreateMissingNewerLinks()` will update the nullptr `link_newer` later,
+      // which assumes the the first non-nullptr `link_newer` is the last
+      // nullptr link in the writer list.
+      // If `link_newer` is set here, `CreateMissingNewerLinks()` may stop
+      // updating the whole list when it sees the first non nullptr link.
+      if (prev->link_older && prev->link_older->link_newer) {
         prev->link_older->link_newer = prev;
       }
       w = prev->link_older;
