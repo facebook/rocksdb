@@ -1113,6 +1113,16 @@ class VersionSet {
     return min_log_num;
   }
 
+  // In either 2pc mode or not, this is the minimum log number to keep.
+  // All logs with log number smaller than this number can be deleted.
+  uint64_t MinLogNumberToKeep() const {
+    if (db_options()->allow_2pc) {
+      return min_log_number_to_keep_2pc();
+    } else {
+      return MinLogNumberWithUnflushedData();
+    }
+  }
+
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
   // @param read_options Must outlive the returned iterator.
@@ -1262,6 +1272,30 @@ class VersionSet {
   Status VerifyFileMetadata(const std::string& fpath,
                             const FileMetaData& meta) const;
 
+  // Note on synchronization:
+  //
+  // In the thread running DB recovery:
+  //
+  // when recovering from MANIFEST, the WALs tracked in
+  // MANIFEST are written to wals_ while holding DB mutex;
+  // after recovering from MANIFEST and before replaying the WALs,
+  // wals_ is read through WalSet::CheckWals,
+  // since the write and read happen in the same thread,
+  // there is no need for synchronization.
+  //
+  // LogAndApply may also be called during recovery, in this case,
+  // wals_ may be read when creating a new MANIFEST, even if this
+  // happens in another thread other than the recovery thread,
+  // since DB mutex is acquired before entering ProcessManifestWrite,
+  // the wals_ written in the recovery thread while holding the DB mutex
+  // is visible to the ProcessManifestWrite thread because the acquire and
+  // release of the DB mutex establish a happens-before relationship between the
+  // two threads.
+  //
+  // After recovery, wals_ is written and read only when LogAndApply
+  // is called, which is synchronized through `manifest_writers_` queue.
+  // Similar to the above reasoning about LogAndApply, the wals_ is always
+  // visible to the write thread.
   WalSet wals_;
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
@@ -1328,7 +1362,6 @@ class VersionSet {
                                bool new_descriptor_log,
                                const ColumnFamilyOptions* new_cf_options);
 
-  void LogAndApplyWalHelper(VersionEdit* edit);
   void LogAndApplyCFHelper(VersionEdit* edit);
   Status LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b,
                            VersionEdit* edit, InstrumentedMutex* mu);

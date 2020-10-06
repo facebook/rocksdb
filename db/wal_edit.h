@@ -35,10 +35,6 @@ class WalMetadata {
   explicit WalMetadata(uint64_t synced_size_bytes)
       : synced_size_bytes_(synced_size_bytes) {}
 
-  bool IsClosed() const { return closed_; }
-
-  void SetClosed() { closed_ = true; }
-
   bool HasSyncedSize() const { return synced_size_bytes_ != kUnknownWalSize; }
 
   void SetSyncedSizeInBytes(uint64_t bytes) { synced_size_bytes_ = bytes; }
@@ -52,9 +48,6 @@ class WalMetadata {
 
   // Size of the most recently synced WAL in bytes.
   uint64_t synced_size_bytes_ = kUnknownWalSize;
-
-  // Whether the WAL is closed.
-  bool closed_ = false;
 };
 
 // These tags are persisted to MANIFEST, so it's part of the user API.
@@ -63,8 +56,6 @@ enum class WalAdditionTag : uint32_t {
   kTerminate = 1,
   // Synced Size in bytes.
   kSyncedSize = 2,
-  // Whether the WAL is closed.
-  kClosed = 3,
   // Add tags in the future, such as checksum?
 };
 
@@ -98,14 +89,16 @@ JSONWriter& operator<<(JSONWriter& jw, const WalAddition& wal);
 
 using WalAdditions = std::vector<WalAddition>;
 
-// Records the event of deleting/archiving a WAL in VersionEdit.
+// Records the event of deleting WALs with smaller log numbers in VersionEdit.
 class WalDeletion {
  public:
-  WalDeletion() : number_(0) {}
+  WalDeletion() : number_(EMPTY_) {}
 
   explicit WalDeletion(WalNumber number) : number_(number) {}
 
   WalNumber GetLogNumber() const { return number_; }
+
+  void SetLogNumber(WalNumber number) { number_ = number; }
 
   void EncodeTo(std::string* dst) const;
 
@@ -113,14 +106,18 @@ class WalDeletion {
 
   std::string DebugString() const;
 
+  void Reset() { number_ = EMPTY_; }
+
+  bool IsEmpty() const { return number_ == EMPTY_; }
+
  private:
+  static constexpr WalNumber EMPTY_ = 0;
+
   WalNumber number_;
 };
 
 std::ostream& operator<<(std::ostream& os, const WalDeletion& wal);
 JSONWriter& operator<<(JSONWriter& jw, const WalDeletion& wal);
-
-using WalDeletions = std::vector<WalDeletion>;
 
 // Used in VersionSet to keep the current set of WALs.
 //
@@ -132,21 +129,16 @@ using WalDeletions = std::vector<WalDeletion>;
 class WalSet {
  public:
   // Add WAL(s).
-  // If recovery is false and the WAL is closed,
+  // If the WAL is closed,
   // then there must be an existing unclosed WAL,
   // otherwise, return Status::Corruption.
-  // If recovery is true, there is no such constraint.
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
-  // If recovery is true, then the WAL
-  Status AddWal(const WalAddition& wal, bool recovery = false);
-  Status AddWals(const WalAdditions& wals, bool recovery = false);
+  Status AddWal(const WalAddition& wal);
+  Status AddWals(const WalAdditions& wals);
 
-  // Delete WAL(s).
-  // The WAL to be deleted must exist and be closed, otherwise,
-  // return Status::Corruption.
+  // Delete WALs with log number < the number in WalDeletion.
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
-  Status DeleteWal(const WalDeletion& wal);
-  Status DeleteWals(const WalDeletions& wals);
+  Status DeleteWalsBefore(const WalDeletion& wal);
 
   // Resets the internal state.
   void Reset();

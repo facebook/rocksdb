@@ -1185,7 +1185,6 @@ TEST_F(VersionSetTest, WalAddition) {
     const auto& wals = versions_->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
     ASSERT_TRUE(wals.find(kLogNumber) != wals.end());
-    ASSERT_FALSE(wals.at(kLogNumber).IsClosed());
     ASSERT_FALSE(wals.at(kLogNumber).HasSyncedSize());
   }
 
@@ -1202,7 +1201,6 @@ TEST_F(VersionSetTest, WalAddition) {
       const auto& wals = versions_->GetWalSet().GetWals();
       ASSERT_EQ(wals.size(), 1);
       ASSERT_TRUE(wals.find(kLogNumber) != wals.end());
-      ASSERT_FALSE(wals.at(kLogNumber).IsClosed());
       ASSERT_TRUE(wals.at(kLogNumber).HasSyncedSize());
       ASSERT_EQ(wals.at(kLogNumber).GetSyncedSizeInBytes(), size);
     }
@@ -1211,7 +1209,6 @@ TEST_F(VersionSetTest, WalAddition) {
   // The WAL is closed.
   {
     WalMetadata wal(kSizeInBytes);
-    wal.SetClosed();
     VersionEdit edit;
     edit.AddWal(kLogNumber, wal);
 
@@ -1220,7 +1217,6 @@ TEST_F(VersionSetTest, WalAddition) {
     const auto& wals = versions_->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
     ASSERT_TRUE(wals.find(kLogNumber) != wals.end());
-    ASSERT_TRUE(wals.at(kLogNumber).IsClosed());
     ASSERT_TRUE(wals.at(kLogNumber).HasSyncedSize());
     ASSERT_EQ(wals.at(kLogNumber).GetSyncedSizeInBytes(), kSizeInBytes);
   }
@@ -1235,7 +1231,6 @@ TEST_F(VersionSetTest, WalAddition) {
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
     ASSERT_TRUE(wals.find(kLogNumber) != wals.end());
-    ASSERT_TRUE(wals.at(kLogNumber).IsClosed());
     ASSERT_TRUE(wals.at(kLogNumber).HasSyncedSize());
     ASSERT_EQ(wals.at(kLogNumber).GetSyncedSizeInBytes(), kSizeInBytes);
   }
@@ -1258,7 +1253,6 @@ TEST_F(VersionSetTest, WalCloseWithoutSync) {
     const auto& wals = versions_->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
     ASSERT_TRUE(wals.find(kLogNumber) != wals.end());
-    ASSERT_FALSE(wals.at(kLogNumber).IsClosed());
     ASSERT_FALSE(wals.at(kLogNumber).HasSyncedSize());
   }
 
@@ -1273,26 +1267,16 @@ TEST_F(VersionSetTest, WalCloseWithoutSync) {
     const auto& wals = versions_->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
     ASSERT_TRUE(wals.find(kLogNumber) != wals.end());
-    ASSERT_FALSE(wals.at(kLogNumber).IsClosed());
     ASSERT_TRUE(wals.at(kLogNumber).HasSyncedSize());
     ASSERT_EQ(wals.at(kLogNumber).GetSyncedSizeInBytes(), kSyncedSizeInBytes);
   }
 
-  // The WAL is closed without syncing.
+  // A new WAL with larger log number is created,
+  // implicitly marking the current WAL closed.
   {
-    WalMetadata wal;
-    wal.SetClosed();
     VersionEdit edit;
-    edit.AddWal(kLogNumber, wal);
-
+    edit.AddWal(kLogNumber + 1);
     ASSERT_OK(LogAndApplyToDefaultCF(edit));
-
-    const auto& wals = versions_->GetWalSet().GetWals();
-    ASSERT_EQ(wals.size(), 1);
-    ASSERT_TRUE(wals.find(kLogNumber) != wals.end());
-    ASSERT_TRUE(wals.at(kLogNumber).IsClosed());
-    ASSERT_TRUE(wals.at(kLogNumber).HasSyncedSize());
-    ASSERT_EQ(wals.at(kLogNumber).GetSyncedSizeInBytes(), kSyncedSizeInBytes);
   }
 
   // Recover a new VersionSet.
@@ -1303,9 +1287,8 @@ TEST_F(VersionSetTest, WalCloseWithoutSync) {
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
     ASSERT_OK(new_versions->Recover(column_families_, false));
     const auto& wals = new_versions->GetWalSet().GetWals();
-    ASSERT_EQ(wals.size(), 1);
+    ASSERT_EQ(wals.size(), 2);
     ASSERT_TRUE(wals.find(kLogNumber) != wals.end());
-    ASSERT_TRUE(wals.at(kLogNumber).IsClosed());
     ASSERT_TRUE(wals.at(kLogNumber).HasSyncedSize());
     ASSERT_EQ(wals.at(kLogNumber).GetSyncedSizeInBytes(), kSyncedSizeInBytes);
   }
@@ -1314,18 +1297,15 @@ TEST_F(VersionSetTest, WalCloseWithoutSync) {
 TEST_F(VersionSetTest, WalDeletion) {
   NewDB();
 
-  constexpr WalNumber kNonClosedLogNumber = 10;
-  constexpr WalNumber kClosedLogNumber = 20;
+  constexpr WalNumber kClosedLogNumber = 10;
+  constexpr WalNumber kNonClosedLogNumber = 20;
   constexpr uint64_t kSizeInBytes = 111;
 
   // Add a non-closed and a closed WAL.
   {
     VersionEdit edit;
+    edit.AddWal(kClosedLogNumber, WalMetadata(kSizeInBytes));
     edit.AddWal(kNonClosedLogNumber);
-    edit.AddWal(kClosedLogNumber);
-    WalMetadata closed_wal(kSizeInBytes);
-    closed_wal.SetClosed();
-    edit.AddWal(kClosedLogNumber, closed_wal);
 
     ASSERT_OK(LogAndApplyToDefaultCF(edit));
 
@@ -1333,9 +1313,7 @@ TEST_F(VersionSetTest, WalDeletion) {
     ASSERT_EQ(wals.size(), 2);
     ASSERT_TRUE(wals.find(kNonClosedLogNumber) != wals.end());
     ASSERT_TRUE(wals.find(kClosedLogNumber) != wals.end());
-    ASSERT_FALSE(wals.at(kNonClosedLogNumber).IsClosed());
     ASSERT_FALSE(wals.at(kNonClosedLogNumber).HasSyncedSize());
-    ASSERT_TRUE(wals.at(kClosedLogNumber).IsClosed());
     ASSERT_TRUE(wals.at(kClosedLogNumber).HasSyncedSize());
     ASSERT_EQ(wals.at(kClosedLogNumber).GetSyncedSizeInBytes(), kSizeInBytes);
   }
@@ -1343,15 +1321,14 @@ TEST_F(VersionSetTest, WalDeletion) {
   // Delete the closed WAL.
   {
     VersionEdit edit;
-    edit.DeleteWal(kClosedLogNumber);
+    edit.DeleteWalsBefore(kNonClosedLogNumber);
 
     ASSERT_OK(LogAndApplyToDefaultCF(edit));
 
     const auto& wals = versions_->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
     ASSERT_TRUE(wals.find(kNonClosedLogNumber) != wals.end());
-    ASSERT_FALSE(wals.at(kNonClosedLogNumber).IsClosed());
-    ASSERT_FALSE(wals.at(kClosedLogNumber).HasSyncedSize());
+    ASSERT_FALSE(wals.at(kNonClosedLogNumber).HasSyncedSize());
   }
 
   // Recover a new VersionSet, only the non-closed WAL should show up.
@@ -1364,8 +1341,7 @@ TEST_F(VersionSetTest, WalDeletion) {
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
     ASSERT_TRUE(wals.find(kNonClosedLogNumber) != wals.end());
-    ASSERT_FALSE(wals.at(kNonClosedLogNumber).IsClosed());
-    ASSERT_FALSE(wals.at(kClosedLogNumber).HasSyncedSize());
+    ASSERT_FALSE(wals.at(kNonClosedLogNumber).HasSyncedSize());
   }
 
   // Force the creation of a new MANIFEST file,
@@ -1389,7 +1365,6 @@ TEST_F(VersionSetTest, WalDeletion) {
 
     ASSERT_EQ(wal_additions.size(), 1);
     ASSERT_EQ(wal_additions[0].GetLogNumber(), kNonClosedLogNumber);
-    ASSERT_FALSE(wal_additions[0].GetMetadata().IsClosed());
     ASSERT_FALSE(wal_additions[0].GetMetadata().HasSyncedSize());
   }
 
@@ -1403,8 +1378,7 @@ TEST_F(VersionSetTest, WalDeletion) {
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
     ASSERT_TRUE(wals.find(kNonClosedLogNumber) != wals.end());
-    ASSERT_FALSE(wals.at(kNonClosedLogNumber).IsClosed());
-    ASSERT_FALSE(wals.at(kClosedLogNumber).HasSyncedSize());
+    ASSERT_FALSE(wals.at(kNonClosedLogNumber).HasSyncedSize());
   }
 }
 
@@ -1425,54 +1399,6 @@ TEST_F(VersionSetTest, WalCreateTwice) {
       << s.ToString();
 }
 
-TEST_F(VersionSetTest, WalCloseTwice) {
-  NewDB();
-
-  constexpr WalNumber kLogNumber = 10;
-  constexpr uint64_t kSizeInBytes = 111;
-
-  {
-    VersionEdit edit;
-    edit.AddWal(kLogNumber);
-    WalMetadata wal(kSizeInBytes);
-    wal.SetClosed();
-    edit.AddWal(kLogNumber, wal);
-
-    ASSERT_OK(LogAndApplyToDefaultCF(edit));
-  }
-
-  {
-    VersionEdit edit;
-    WalMetadata wal(kSizeInBytes);
-    wal.SetClosed();
-    edit.AddWal(kLogNumber, wal);
-
-    Status s = LogAndApplyToDefaultCF(edit);
-    ASSERT_TRUE(s.IsCorruption());
-    ASSERT_TRUE(s.ToString().find("WAL 10 is closed more than once") !=
-                std::string::npos)
-        << s.ToString();
-  }
-}
-
-TEST_F(VersionSetTest, WalCloseBeforeCreate) {
-  NewDB();
-
-  constexpr WalNumber kLogNumber = 10;
-  constexpr uint64_t kSizeInBytes = 111;
-
-  VersionEdit edit;
-  WalMetadata wal(kSizeInBytes);
-  wal.SetClosed();
-  edit.AddWal(kLogNumber, wal);
-
-  Status s = LogAndApplyToDefaultCF(edit);
-  ASSERT_TRUE(s.IsCorruption());
-  ASSERT_TRUE(s.ToString().find("WAL 10 is not created before closing") !=
-              std::string::npos)
-      << s.ToString();
-}
-
 TEST_F(VersionSetTest, WalCreateAfterClose) {
   NewDB();
 
@@ -1484,7 +1410,6 @@ TEST_F(VersionSetTest, WalCreateAfterClose) {
     VersionEdit edit;
     edit.AddWal(kLogNumber);
     WalMetadata wal(kSizeInBytes);
-    wal.SetClosed();
     edit.AddWal(kLogNumber, wal);
 
     ASSERT_OK(LogAndApplyToDefaultCF(edit));
@@ -1498,45 +1423,6 @@ TEST_F(VersionSetTest, WalCreateAfterClose) {
     Status s = LogAndApplyToDefaultCF(edit);
     ASSERT_TRUE(s.IsCorruption());
     ASSERT_TRUE(s.ToString().find("WAL 10 is created more than once") !=
-                std::string::npos)
-        << s.ToString();
-  }
-}
-
-TEST_F(VersionSetTest, WalDeleteNonExistingLog) {
-  NewDB();
-
-  constexpr WalNumber kLogNumber = 10;
-
-  VersionEdit edit;
-  edit.DeleteWal(kLogNumber);
-
-  Status s = LogAndApplyToDefaultCF(edit);
-  ASSERT_TRUE(s.IsCorruption());
-  ASSERT_TRUE(s.ToString().find("WAL 10 must exist before deletion") !=
-              std::string::npos)
-      << s.ToString();
-}
-
-TEST_F(VersionSetTest, WalDeleteNonClosedLog) {
-  NewDB();
-
-  constexpr WalNumber kLogNumber = 10;
-
-  {
-    VersionEdit edit;
-    edit.AddWal(kLogNumber);
-
-    ASSERT_OK(LogAndApplyToDefaultCF(edit));
-  }
-
-  {
-    VersionEdit edit;
-    edit.DeleteWal(kLogNumber);
-
-    Status s = LogAndApplyToDefaultCF(edit);
-    ASSERT_TRUE(s.IsCorruption());
-    ASSERT_TRUE(s.ToString().find("WAL 10 must be closed before deletion") !=
                 std::string::npos)
         << s.ToString();
   }

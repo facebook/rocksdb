@@ -3746,36 +3746,12 @@ Status VersionSet::ProcessManifestWrites(
     // No group commits for column family add or drop
     LogAndApplyCFHelper(first_writer.edit_list.front());
     batch_edits.push_back(first_writer.edit_list.front());
-  } else if (first_writer.edit_list.front()->IsWalManipulation()) {
-    // WAL addition/deletion won't appear together with other kinds of edits,
-    // and its column family will be default, so there should be just
-    // one writer.
-    assert(writers.size() == 1);
-    assert(first_writer.cfd->GetID() == 0);  // default CF
-    // Write to MANIFEST without applying to default CF's versions.
-    for (VersionEdit* edit : first_writer.edit_list) {
-      Status s;
-      if (edit->IsWalAddition()) {
-        s = wals_.AddWals(edit->GetWalAdditions());
-      } else if (edit->IsWalDeletion()) {
-        s = wals_.DeleteWals(edit->GetWalDeletions());
-      }
-      if (!s.ok()) {
-        return s;
-      }
-      LogAndApplyWalHelper(edit);
-      batch_edits.push_back(edit);
-    }
   } else {
     auto it = manifest_writers_.cbegin();
     size_t group_start = std::numeric_limits<size_t>::max();
     while (it != manifest_writers_.cend()) {
-      auto first_edit = (*it)->edit_list.front();
-      if (first_edit->IsColumnFamilyManipulation() ||
-          first_edit->IsWalManipulation()) {
-        // no group commits for
-        // 1. column family add or drop
-        // 2. WAL addition or deletion
+      if ((*it)->edit_list.front()->IsColumnFamilyManipulation()) {
+        // no group commits for column family add or drop
         break;
       }
       last_writer = *(it++);
@@ -3830,16 +3806,26 @@ Status VersionSet::ProcessManifestWrites(
         }
       }
       if (version == nullptr) {
-        version = new Version(last_writer->cfd, this, file_options_,
-                              last_writer->mutable_cf_options, io_tracer_,
-                              current_version_number_++);
-        versions.push_back(version);
-        mutable_cf_options_ptrs.push_back(&last_writer->mutable_cf_options);
-        builder_guards.emplace_back(
-            new BaseReferencedVersionBuilder(last_writer->cfd));
-        builder = builder_guards.back()->version_builder();
+        bool is_all_wal_maniputations = true;
+        for (const auto& e : last_writer->edit_list) {
+          if (!e->IsWalManipulation()) {
+            is_all_wal_maniputations = false;
+            break;
+          }
+        }
+        // WAL manipulations do not need to be applied to versions.
+        if (!is_all_wal_maniputations) {
+          version = new Version(last_writer->cfd, this, file_options_,
+                                last_writer->mutable_cf_options, io_tracer_,
+                                current_version_number_++);
+          versions.push_back(version);
+          mutable_cf_options_ptrs.push_back(&last_writer->mutable_cf_options);
+          builder_guards.emplace_back(
+              new BaseReferencedVersionBuilder(last_writer->cfd));
+          builder = builder_guards.back()->version_builder();
+        }
       }
-      assert(builder != nullptr);  // make checker happy
+      (void)builder;  // potentially unused var, make checker happy
       for (const auto& e : last_writer->edit_list) {
         if (e->is_in_atomic_group_) {
           if (batch_edits.empty() || !batch_edits.back()->is_in_atomic_group_ ||
@@ -3877,10 +3863,6 @@ Status VersionSet::ProcessManifestWrites(
   }
 
 #ifndef NDEBUG
-  if (first_writer.edit_list.front()->IsWalManipulation()) {
-    assert(versions.empty());
-  }
-
   // Verify that version edits of atomic groups have correct
   // remaining_entries_.
   size_t k = 0;
@@ -4014,6 +3996,18 @@ Status VersionSet::ProcessManifestWrites(
       size_t idx = 0;
 #endif
       for (auto& e : batch_edits) {
+        if (e->IsWalAddition()) {
+          s = wals_.AddWals(e->GetWalAdditions());
+          if (!s.ok()) {
+            break;
+          }
+        } else if (e->IsWalDeletion()) {
+          s = wals_.DeleteWalsBefore(e->GetWalDeletion());
+          if (!s.ok()) {
+            break;
+          }
+        }
+
         std::string record;
         if (!e->EncodeTo(&record)) {
           s = Status::Corruption("Unable to encode VersionEdit:" +
@@ -4301,15 +4295,6 @@ Status VersionSet::LogAndApply(
                                new_cf_options);
 }
 
-void VersionSet::LogAndApplyWalHelper(VersionEdit* edit) {
-  assert(edit->IsWalManipulation());
-
-  edit->SetPrevLogNumber(prev_log_number_);
-  edit->SetNextFile(next_file_number_.load());
-  edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
-                                                      : last_sequence_);
-}
-
 void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
   assert(edit->IsColumnFamilyManipulation());
   edit->SetNextFile(next_file_number_.load());
@@ -4353,9 +4338,7 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
                                                       : last_sequence_);
 
-  Status s = builder->Apply(edit);
-
-  return s;
+  return builder ? builder->Apply(edit) : Status::OK();
 }
 
 Status VersionSet::ApplyOneVersionEditToBuilder(
@@ -4556,9 +4539,9 @@ Status VersionSet::ReadAndRecover(
     }
     if (edit.IsWalManipulation()) {
       if (edit.IsWalAddition()) {
-        s = wals_.AddWals(edit.GetWalAdditions(), /* recovery = */ true);
+        s = wals_.AddWals(edit.GetWalAdditions());
       } else if (edit.IsWalDeletion()) {
-        s = wals_.DeleteWals(edit.GetWalDeletions());
+        s = wals_.DeleteWalsBefore(edit.GetWalDeletion());
       }
       if (!s.ok()) {
         break;
@@ -4710,6 +4693,14 @@ Status VersionSet::Recover(
     MarkMinLogNumberToKeep2PC(version_edit_params.min_log_number_to_keep_);
     MarkFileNumberUsed(version_edit_params.prev_log_number_);
     MarkFileNumberUsed(version_edit_params.log_number_);
+
+    // Consider the case:
+    // 1. DB is opened with tracking WAL in MANIFEST is enabled,
+    // 2. then DB is reopened with tracking WAL disabled,
+    // 3. then DB is reopened with tracking WAL enabled.
+    // In step 2, the deleted WALs are not tracked in MANIFEST,
+    // so in step 3, during recovery, we should delete the WALs.
+    wals_.DeleteWalsBefore(WalDeletion(MinLogNumberToKeep()));
   }
 
   // there were some column families in the MANIFEST that weren't specified
@@ -5384,6 +5375,7 @@ Status VersionSet::WriteCurrentStateToManifest(
   // This is done without DB mutex lock held, but only within single-threaded
   // LogAndApply. Column family manipulations can only happen within LogAndApply
   // (the same single thread), so we're safe to iterate.
+  // Same argument holds for accessing wals_.
 
   assert(io_s.ok());
   if (db_options_->write_dbid_to_manifest) {
@@ -5403,16 +5395,18 @@ Status VersionSet::WriteCurrentStateToManifest(
 
   {
     // Save WALs.
-    for (const auto& wal : wals_.GetWals()) {
-      std::unique_ptr<VersionEdit> wal_addition(new VersionEdit());
-      wal_addition->AddWal(wal.first, wal.second);
+    if (!wals_.GetWals().empty()) {
+      std::unique_ptr<VersionEdit> wal_additions(new VersionEdit());
+      for (const auto& wal : wals_.GetWals()) {
+        wal_additions->AddWal(wal.first, wal.second);
+      }
       TEST_SYNC_POINT_CALLBACK(
           "VersionSet::WriteCurrentStateToManifest:SaveWal",
-          wal_addition.get());
+          wal_additions.get());
       std::string record;
-      if (!wal_addition->EncodeTo(&record)) {
+      if (!wal_additions->EncodeTo(&record)) {
         return Status::Corruption("Unable to Encode VersionEdit: " +
-                                  wal_addition->DebugString(true));
+                                  wal_additions->DebugString(true));
       }
       io_s = log->AddRecord(record);
       if (!io_s.ok()) {
