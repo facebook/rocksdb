@@ -15,9 +15,9 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.TimeUnit;
 
 import static org.rocksdb.util.KVUtils.*;
 
@@ -35,6 +35,12 @@ public class GetBenchmarks {
   @Param("100000")
   int keyCount;
 
+  @Param({"12", "64", "128"})
+  int keySize;
+
+  @Param({"64", "1024", "65536"})
+  int valueSize;
+
   Path dbDir;
   DBOptions options;
   int cfs = 0;  // number of column families
@@ -44,6 +50,8 @@ public class GetBenchmarks {
   private final AtomicInteger keyIndex = new AtomicInteger();
   private ByteBuffer keyBuf;
   private ByteBuffer valueBuf;
+  private byte[] keyArr;
+  private byte[] valueArr;
 
   @Setup(Level.Trial)
   public void setup() throws IOException, RocksDBException {
@@ -78,9 +86,17 @@ public class GetBenchmarks {
     cfHandles = cfHandlesList.toArray(new ColumnFamilyHandle[0]);
 
     // store initial data for retrieving via get
+    keyArr = new byte[keySize];
+    valueArr = new byte[valueSize];
+    Arrays.fill(keyArr, (byte)0x30);
+    Arrays.fill(valueArr, (byte)0x30);
     for (int i = 0; i <= cfs; i++) {
       for (int j = 0; j < keyCount; j++) {
-        db.put(cfHandles[i], ba("key" + j), ba("value" + j));
+        final byte[] keyPrefix = ba("key" + j);
+        final byte[] valuePrefix = ba("value" + j);
+        System.arraycopy(keyPrefix, 0, keyArr, 0, keyPrefix.length);
+        System.arraycopy(valuePrefix, 0, valueArr, 0, valuePrefix.length);
+        db.put(cfHandles[i], keyArr, valueArr);
       }
     }
 
@@ -89,8 +105,14 @@ public class GetBenchmarks {
       db.flush(flushOptions);
     }
 
-    keyBuf = ByteBuffer.allocateDirect(10);
-    valueBuf = ByteBuffer.allocateDirect(12);
+    keyBuf = ByteBuffer.allocateDirect(keySize);
+    valueBuf = ByteBuffer.allocateDirect(valueSize);
+    Arrays.fill(keyArr, (byte)0x30);
+    Arrays.fill(valueArr, (byte)0x30);
+    keyBuf.put(keyArr);
+    keyBuf.flip();
+    valueBuf.put(valueArr);
+    valueBuf.flip();
   }
 
   @TearDown(Level.Trial)
@@ -138,28 +160,58 @@ public class GetBenchmarks {
     return idx;
   }
 
+  // String -> byte[]
+  private byte[] getKeyArr() {
+    final int MAX_LEN = 9; // key100000
+    final int keyIdx = next();
+    final byte[] keyPrefix = ba("key" + keyIdx);
+    System.arraycopy(keyPrefix, 0, keyArr, 0, keyPrefix.length);
+    Arrays.fill(keyArr, keyPrefix.length, MAX_LEN, (byte)0x30);
+    return keyArr;
+  }
+
+  // String -> ByteBuffer
+  private ByteBuffer getKeyBuf() {
+    final int MAX_LEN = 9; // key100000
+    final int keyIdx = next();
+    final String keyStr = "key" + keyIdx;
+    for (int i = 0; i < keyStr.length(); ++i) {
+      keyBuf.put(i, (byte)keyStr.charAt(i));
+    }
+    for (int i = keyStr.length(); i < MAX_LEN; ++i) {
+      keyBuf.put(i, (byte)0x30);
+    }
+    // Reset position for future reading
+    keyBuf.position(0);
+    return keyBuf;
+  }
+
+  private byte[] getValueArr() {
+    return valueArr;
+  }
+
+  private ByteBuffer getValueBuf() {
+    return valueBuf;
+  }
+
   @Benchmark
   public void get() throws RocksDBException {
-    final int keyIdx = next();
-    db.get(getColumnFamily(), ba("key" + keyIdx));
+    db.get(getColumnFamily(), getKeyArr());
   }
 
   @Benchmark
   public void getPreallocated() throws RocksDBException {
-    final int keyIdx = next();
-    // Here we assume that we know that the size of array is at most 16 bytes
-    final byte[] value = new byte[16];
-    db.get(getColumnFamily(), ba("key" + keyIdx), value);
+    db.get(getColumnFamily(), getKeyArr(), getValueArr());
   }
 
   @Benchmark
   public void getPreallocatedByteBuffer() throws RocksDBException {
-    final int keyIdx = next();
-    final byte[] key = ba("key" + keyIdx);
-    keyBuf.position(0).limit(10);
-    keyBuf.put(key);
-    keyBuf.flip();
-    valueBuf.flip();
-    db.get(getColumnFamily(), new ReadOptions(), keyBuf, valueBuf);
+    int res = db.get(getColumnFamily(), new ReadOptions(), getKeyBuf(), getValueBuf());
+    // For testing correctness:
+//    assert res > 0;
+//    final byte[] ret = new byte[valueSize];
+//    valueBuf.get(ret);
+//    System.out.println(str(ret));
+//    valueBuf.flip();
   }
 }
