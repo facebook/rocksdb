@@ -205,6 +205,11 @@ public class GetBenchmarks {
   }
 
   @Benchmark
+  public void preallocatedCriticalGet() throws RocksDBException {
+    db.getCritical(getColumnFamily(), getKeyArr(), getValueArr());
+  }
+
+  @Benchmark
   public void preallocatedByteBufferGet() throws RocksDBException {
     int res = db.get(getColumnFamily(), new ReadOptions(), getKeyBuf(), getValueBuf());
     // For testing correctness:

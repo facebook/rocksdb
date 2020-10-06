@@ -1705,11 +1705,11 @@ jint rocksdb_get_helper(
   jbyte* key = new jbyte[jkey_len];
   env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
   if (env->ExceptionCheck()) {
-    // exception thrown: OutOfMemoryError
+    // exception thrown: ArrayIndexOutOfBoundsException
     delete[] key;
-    *has_exception = true;
     return kStatusError;
   }
+
   ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
 
   // TODO(yhchiang): we might save one memory allocation here by adding
@@ -1759,6 +1759,84 @@ jint rocksdb_get_helper(
   return cvalue_len;
 }
 
+jint rocksdb_get_critical_helper(
+    JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
+    const ROCKSDB_NAMESPACE::ReadOptions& read_options,
+    ROCKSDB_NAMESPACE::ColumnFamilyHandle* column_family_handle,
+    jbyteArray jkey, jint jkey_off, jint jkey_len, jbyteArray jval,
+    jint jval_off, jint jval_len, bool* has_exception) {
+  static const int kNotFound = -1;
+  static const int kStatusError = -2;
+
+  jboolean is_copy;
+  char* key = reinterpret_cast<char*>(
+      env->GetPrimitiveArrayCritical(jkey, &is_copy));
+  if (nullptr == key) {
+    // Exception occurred
+    *has_exception = true;
+    return kStatusError;
+  }
+
+  char* key_start_ptr = key + jkey_off;
+  ROCKSDB_NAMESPACE::Slice key_slice(key_start_ptr, jkey_len);
+
+  // TODO(yhchiang): we might save one memory allocation here by adding
+  // a DB::Get() function which takes preallocated jbyte* as input.
+  std::string cvalue;
+  ROCKSDB_NAMESPACE::Status s;
+  if (column_family_handle != nullptr) {
+    s = db->Get(read_options, column_family_handle, key_slice, &cvalue);
+  } else {
+    // backwards compatibility
+    s = db->Get(read_options, key_slice, &cvalue);
+  }
+
+  // cleanup
+  env->ReleasePrimitiveArrayCritical(jkey, key, JNI_ABORT);
+
+  if (s.IsNotFound()) {
+    *has_exception = false;
+    return kNotFound;
+  } else if (!s.ok()) {
+    *has_exception = true;
+    // Here since we are throwing a Java exception from c++ side.
+    // As a result, c++ does not know calling this function will in fact
+    // throwing an exception.  As a result, the execution flow will
+    // not stop here, and codes after this throw will still be
+    // executed.
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(env, s);
+
+    // Return a dummy const value to avoid compilation error, although
+    // java side might not have a chance to get the return value :)
+    return kStatusError;
+  }
+
+  const jint cvalue_len = static_cast<jint>(cvalue.size());
+  const jint length = std::min(jval_len, cvalue_len);
+
+  is_copy = JNI_FALSE;
+  jbyte* value_out = reinterpret_cast<jbyte*>(
+      env->GetPrimitiveArrayCritical(jval, &is_copy));
+  if (nullptr == value_out) {
+        // exception thrown: OutOfMemoryError
+        *has_exception = true;
+        return kStatusError;
+  }
+  if (JNI_TRUE == is_copy) {
+    // Copy is less likely according to Oracle JNI docs
+    std::cerr << "Warning: potentially inefficient - GetPrimitiveArrayCritical is returning a copy" << std::endl;
+  }
+
+  jbyte* value_start_ptr = value_out + jval_off;
+  memcpy(value_start_ptr, cvalue.c_str(), length);
+
+  // Cleanup
+  env->ReleasePrimitiveArrayCritical(jval, value_out, 0);
+
+  *has_exception = false;
+  return cvalue_len;
+}
+
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    get
@@ -1791,6 +1869,28 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BIIJ(
   if (cf_handle != nullptr) {
     bool has_exception = false;
     return rocksdb_get_helper(env, db_handle, ROCKSDB_NAMESPACE::ReadOptions(),
+                              cf_handle, jkey, jkey_off, jkey_len, jval,
+                              jval_off, jval_len, &has_exception);
+  } else {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
+                 "Invalid ColumnFamilyHandle."));
+    // will never be evaluated
+    return 0;
+  }
+}
+
+jint Java_org_rocksdb_RocksDB_getCritical(
+    JNIEnv* env, jclass, jlong jdb_handle,
+    jbyteArray jkey, jint jkey_off, jint jkey_len,
+    jbyteArray jval, jint jval_off, jint jval_len,
+    jlong jcf_handle) {
+  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto* cf_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  if (cf_handle != nullptr) {
+    bool has_exception = false;
+    return rocksdb_get_critical_helper(env, db_handle, ROCKSDB_NAMESPACE::ReadOptions(),
                               cf_handle, jkey, jkey_off, jkey_len, jval,
                               jval_off, jval_len, &has_exception);
   } else {
