@@ -3770,11 +3770,12 @@ Status VersionSet::ProcessManifestWrites(
     auto it = manifest_writers_.cbegin();
     size_t group_start = std::numeric_limits<size_t>::max();
     while (it != manifest_writers_.cend()) {
-      if ((*it)->edit_list.front()->IsColumnFamilyManipulation()) {
-        // no group commits for column family add or drop
-        break;
-      }
-      if ((*it)->edit_list.front()->IsWalManipulation()) {
+      auto first_edit = (*it)->edit_list.front();
+      if (first_edit->IsColumnFamilyManipulation() ||
+          first_edit->IsWalManipulation()) {
+        // no group commits for
+        // 1. column family add or drop
+        // 2. WAL addition or deletion
         break;
       }
       last_writer = *(it++);
@@ -3928,7 +3929,6 @@ Status VersionSet::ProcessManifestWrites(
   // reads its content after releasing db mutex to avoid race with
   // SwitchMemtable().
   std::unordered_map<uint32_t, MutableCFState> curr_state;
-  std::vector<std::unique_ptr<VersionEdit>> wal_additions;
   if (new_descriptor_log) {
     pending_manifest_file_number_ = NewFileNumber();
     batch_edits.back()->SetNextFile(next_file_number_.load());
@@ -3942,14 +3942,6 @@ Status VersionSet::ProcessManifestWrites(
     for (const auto* cfd : *column_family_set_) {
       assert(curr_state.find(cfd->GetID()) == curr_state.end());
       curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
-    }
-
-    for (const auto& wal : wals_.GetWals()) {
-      WalNumber number = wal.first;
-      const WalMetadata& meta = wal.second;
-      VersionEdit* edit = new VersionEdit();
-      edit->AddWal(number, meta);
-      wal_additions.emplace_back(edit);
     }
   }
 
@@ -4003,8 +3995,8 @@ Status VersionSet::ProcessManifestWrites(
             io_tracer_, nullptr, db_options_->listeners));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
-        s = WriteCurrentStateToManifest(curr_state, wal_additions,
-                                        descriptor_log_.get(), io_s);
+        s = WriteCurrentStateToManifest(curr_state, descriptor_log_.get(),
+                                        io_s);
       } else {
         s = io_s;
       }
@@ -4314,11 +4306,6 @@ void VersionSet::LogAndApplyWalHelper(VersionEdit* edit) {
 
   edit->SetPrevLogNumber(prev_log_number_);
   edit->SetNextFile(next_file_number_.load());
-  // The log might have data that is not visible to memtbale and hence have not
-  // updated the last_sequence_ yet. It is also possible that the log has is
-  // expecting some new data that is not written yet. Since LastSequence is an
-  // upper bound on the sequence, it is ok to record
-  // last_allocated_sequence_ as the last sequence.
   edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
                                                       : last_sequence_);
 }
@@ -4569,13 +4556,7 @@ Status VersionSet::ReadAndRecover(
     }
     if (edit.IsWalManipulation()) {
       if (edit.IsWalAddition()) {
-        for (const WalAddition& wal : edit.GetWalAdditions()) {
-          if (wal.GetMetadata().HasSize()) {
-            // Create WAL before closing.
-            wals_.AddWal(WalAddition(wal.GetLogNumber()));
-          }
-          wals_.AddWal(wal);
-        }
+        s = wals_.AddWals(edit.GetWalAdditions(), /* recovery = */ true);
       } else if (edit.IsWalDeletion()) {
         s = wals_.DeleteWals(edit.GetWalDeletions());
       }
@@ -5395,7 +5376,6 @@ void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
 
 Status VersionSet::WriteCurrentStateToManifest(
     const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-    const std::vector<std::unique_ptr<VersionEdit>>& wal_additions,
     log::Writer* log, IOStatus& io_s) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
@@ -5423,7 +5403,9 @@ Status VersionSet::WriteCurrentStateToManifest(
 
   {
     // Save WALs.
-    for (const auto& wal_addition : wal_additions) {
+    for (const auto& wal : wals_.GetWals()) {
+      std::unique_ptr<VersionEdit> wal_addition(new VersionEdit());
+      wal_addition->AddWal(wal.first, wal.second);
       TEST_SYNC_POINT_CALLBACK(
           "VersionSet::WriteCurrentStateToManifest:SaveWal",
           wal_addition.get());

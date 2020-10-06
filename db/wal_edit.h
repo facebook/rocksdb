@@ -132,12 +132,14 @@ using WalDeletions = std::vector<WalDeletion>;
 class WalSet {
  public:
   // Add WAL(s).
-  // If the WAL is closed,
+  // If recovery is false and the WAL is closed,
   // then there must be an existing unclosed WAL,
   // otherwise, return Status::Corruption.
+  // If recovery is true, there is no such constraint.
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
-  Status AddWal(const WalAddition& wal);
-  Status AddWals(const WalAdditions& wals);
+  // If recovery is true, then the WAL
+  Status AddWal(const WalAddition& wal, bool recovery = false);
+  Status AddWals(const WalAdditions& wals, bool recovery = false);
 
   // Delete WAL(s).
   // The WAL to be deleted must exist and be closed, otherwise,

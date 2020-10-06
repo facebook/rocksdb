@@ -114,17 +114,18 @@ std::string WalDeletion::DebugString() const {
   return oss.str();
 }
 
-Status WalSet::AddWal(const WalAddition& wal) {
+Status WalSet::AddWal(const WalAddition& wal, bool recovery) {
   auto it = wals_.lower_bound(wal.GetLogNumber());
   bool existing = it != wals_.end() && it->first == wal.GetLogNumber();
   if (wal.GetMetadata().IsClosed()) {
-    // The WAL must exist and not closed.
-    if (!existing) {
+    // Recovery mode: the WAL may not exist.
+    // Non-recovery mode: the WAL must exist and not closed.
+    if (!recovery && !existing) {
       std::stringstream ss;
       ss << "WAL " << wal.GetLogNumber() << " is not created before closing";
       return Status::Corruption("WalSet", ss.str());
     }
-    if (it->second.IsClosed()) {
+    if (existing && it->second.IsClosed()) {
       std::stringstream ss;
       ss << "WAL " << wal.GetLogNumber() << " is closed more than once";
       return Status::Corruption("WalSet", ss.str());
@@ -148,10 +149,10 @@ Status WalSet::AddWal(const WalAddition& wal) {
   return Status::OK();
 }
 
-Status WalSet::AddWals(const WalAdditions& wals) {
+Status WalSet::AddWals(const WalAdditions& wals, bool recovery) {
   Status s;
   for (const WalAddition& wal : wals) {
-    s = AddWal(wal);
+    s = AddWal(wal, recovery);
     if (!s.ok()) {
       break;
     }
