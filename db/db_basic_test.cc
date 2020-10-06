@@ -10,6 +10,7 @@
 #include <cstring>
 #include <regex>
 
+#include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/merge_operator.h"
@@ -3523,6 +3524,70 @@ TEST_F(DBBasicTest, GetBlob) {
   PinnableSlice result;
   ASSERT_TRUE(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result)
                   .IsIncomplete());
+}
+
+TEST_F(DBBasicTest, GetBlob_InlinedTTLIndex) {
+  constexpr uint64_t min_blob_size = 10;
+
+  Options options;
+  options.enable_blob_files = true;
+  options.min_blob_size = min_blob_size;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char blob[] = "short";
+  static_assert(sizeof(short) - 1 < min_blob_size,
+                "Blob too long to be inlined");
+
+  // Fake an inlined TTL blob index.
+  std::string blob_index;
+
+  constexpr uint64_t expiration = 1234567890;
+
+  BlobIndex::EncodeInlinedTTL(&blob_index, expiration, blob);
+
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, key, blob_index));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  ASSERT_OK(Flush());
+
+  PinnableSlice result;
+  ASSERT_TRUE(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result)
+                  .IsCorruption());
+}
+
+TEST_F(DBBasicTest, GetBlob_IndexWithInvalidFileNumber) {
+  Options options;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+
+  // Fake a blob index referencing a non-existent blob file.
+  std::string blob_index;
+
+  constexpr uint64_t blob_file_number = 1000;
+  constexpr uint64_t offset = 1234;
+  constexpr uint64_t size = 5678;
+
+  BlobIndex::EncodeBlob(&blob_index, blob_file_number, offset, size,
+                        kNoCompression);
+
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, key, blob_index));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  ASSERT_OK(Flush());
+
+  PinnableSlice result;
+  ASSERT_TRUE(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result)
+                  .IsCorruption());
 }
 
 }  // namespace ROCKSDB_NAMESPACE
