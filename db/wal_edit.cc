@@ -130,12 +130,18 @@ Status WalSet::AddWal(const WalAddition& wal, bool recovery) {
       ss << "WAL " << wal.GetLogNumber() << " is closed more than once";
       return Status::Corruption("WalSet", ss.str());
     }
+  } else {
+    if (existing && !wal.GetMetadata().HasSyncedSize()) {
+      std::stringstream ss;
+      ss << "WAL " << wal.GetLogNumber() << " is created more than once";
+      return Status::Corruption("WalSet", ss.str());
+    }
   }
   // If the WAL has synced size, it must >= the previous size.
-  if (existing && it->second.HasSyncedSize() &&
-      (!wal.GetMetadata().HasSyncedSize() ||
-       wal.GetMetadata().GetSyncedSizeInBytes() <
-           it->second.GetSyncedSizeInBytes())) {
+  if (wal.GetMetadata().HasSyncedSize() && existing &&
+      it->second.HasSyncedSize() &&
+      wal.GetMetadata().GetSyncedSizeInBytes() <
+          it->second.GetSyncedSizeInBytes()) {
     std::stringstream ss;
     ss << "WAL " << wal.GetLogNumber()
        << " must not have smaller synced size than previous one";

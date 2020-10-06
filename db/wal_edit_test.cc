@@ -72,6 +72,16 @@ TEST(WalSet, SmallerSyncedSize) {
       std::string::npos);
 }
 
+TEST(WalSet, CreateTwice) {
+  constexpr WalNumber kNumber = 100;
+  WalSet wals;
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber)));
+  Status s = wals.AddWal(WalAddition(kNumber));
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("WAL 100 is created more than once") !=
+              std::string::npos);
+}
+
 TEST(WalSet, CloseTwice) {
   constexpr WalNumber kNumber = 100;
   constexpr uint64_t kBytes = 200;
@@ -86,7 +96,21 @@ TEST(WalSet, CloseTwice) {
               std::string::npos);
 }
 
-TEST(WalSet, CloseBeforeCreate) {
+TEST(WalSet, CloseTwiceDuringRecovery) {
+  constexpr WalNumber kNumber = 100;
+  constexpr uint64_t kBytes = 200;
+  WalSet wals;
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber)));
+  WalMetadata wal(kBytes);
+  wal.SetClosed();
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber, wal), /* recovery = */ true));
+  Status s = wals.AddWal(WalAddition(kNumber, wal), /* recovery = */ true);
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("WAL 100 is closed more than once") !=
+              std::string::npos);
+}
+
+TEST(WalSet, CloseWithoutCreate) {
   constexpr WalNumber kNumber = 100;
   constexpr uint64_t kBytes = 200;
   WalSet wals;
@@ -96,6 +120,15 @@ TEST(WalSet, CloseBeforeCreate) {
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_TRUE(s.ToString().find("WAL 100 is not created before closing") !=
               std::string::npos);
+}
+
+TEST(WalSet, CloseWithoutCreateDuringRecovery) {
+  constexpr WalNumber kNumber = 100;
+  constexpr uint64_t kBytes = 200;
+  WalSet wals;
+  WalMetadata wal(kBytes);
+  wal.SetClosed();
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber, wal), /* recovery = */ true));
 }
 
 TEST(WalSet, CreateAfterClose) {
