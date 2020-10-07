@@ -6,7 +6,6 @@
 #include "db/blob/blob_file_reader.h"
 
 #include <cassert>
-#include <cinttypes>
 #include <string>
 
 #include "db/blob/blob_log_format.h"
