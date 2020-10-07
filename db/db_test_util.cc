@@ -684,7 +684,8 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
   if (delete_cf_paths) {
     for (size_t i = 0; i < handles_.size(); ++i) {
       ColumnFamilyDescriptor cfdescriptor;
-      handles_[i]->GetDescriptor(&cfdescriptor);
+      // GetDescriptor is not implemented for ROCKSDB_LITE
+      handles_[i]->GetDescriptor(&cfdescriptor).PermitUncheckedError();
       column_families.push_back(cfdescriptor);
     }
   }
