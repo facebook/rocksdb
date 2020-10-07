@@ -160,6 +160,16 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
 }
 
 #ifndef ROCKSDB_LITE
+
+const std::string kOptNameCachePinningOpts = "cache_pinning_options";
+
+static std::unordered_map<std::string, PinningTier>
+    pinning_tier_type_string_map = {
+        {"kFallback", PinningTier::kFallback},
+        {"kNone", PinningTier::kNone},
+        {"kMaybeFlushed", PinningTier::kMaybeFlushed},
+        {"kAll", PinningTier::kAll}};
+
 static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
     block_base_table_index_type_string_map = {
         {"kBinarySearch", BlockBasedTableOptions::IndexType::kBinarySearch},
@@ -187,6 +197,24 @@ static std::unordered_map<std::string,
         {"kShortenSeparatorsAndSuccessor",
          BlockBasedTableOptions::IndexShorteningMode::
              kShortenSeparatorsAndSuccessor}};
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    cache_pinning_options_type_info = {
+        {"metablock_top_level_index_pinning",
+         OptionTypeInfo::Enum<PinningTier>(
+             offsetof(struct CachePinningOptions,
+                      metablock_top_level_index_pinning),
+             &pinning_tier_type_string_map)},
+        {"metablock_partition_pinning",
+         OptionTypeInfo::Enum<PinningTier>(
+             offsetof(struct CachePinningOptions, metablock_partition_pinning),
+             &pinning_tier_type_string_map)},
+        {"unpartitioned_metablock_pinning",
+         OptionTypeInfo::Enum<PinningTier>(
+             offsetof(struct CachePinningOptions,
+                      unpartitioned_metablock_pinning),
+             &pinning_tier_type_string_map)}};
+
 #endif  // ROCKSDB_LITE
 
 static std::unordered_map<std::string, OptionTypeInfo>
@@ -348,6 +376,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    pin_top_level_index_and_filter),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {kOptNameCachePinningOpts,
+         OptionTypeInfo::Struct(
+             kOptNameCachePinningOpts, &cache_pinning_options_type_info,
+             offsetof(struct BlockBasedTableOptions, cache_pinning_options),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
         {"block_cache",
          {offsetof(struct BlockBasedTableOptions, block_cache),
           OptionType::kUnknown, OptionVerificationType::kNormal,
