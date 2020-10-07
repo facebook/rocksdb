@@ -374,11 +374,8 @@ struct DBOptions {
   // Default: true
   bool paranoid_checks = true;
 
-  // If true, check on-disk WALs against WAL information stored in MANIFEST
-  // during recovery.
+  // If true, track WALs in MANIFEST and verify them on recovery.
   // It checks whether there are missing or corrupted WALs.
-  // No matter whether this is true or false, the WAL information are always
-  // tracked by MANIFEST.
   // Default: false
   bool track_and_verify_wals_in_manifest = false;
 
