@@ -398,7 +398,7 @@ struct DBOptions {
   //
   // If a WAL is not tracked in MANIFEST, then no verification will happen
   // during recovery.
-  // 
+  //
   // Default: false
   bool track_and_verify_wals_in_manifest = false;
 
