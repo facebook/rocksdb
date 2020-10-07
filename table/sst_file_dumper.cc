@@ -442,7 +442,7 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
 
     ParsedInternalKey ikey;
     Status pikStatus = ParseInternalKey(key, &ikey);
-    if (pikStatus != Status::OK()) {
+    if (!pikStatus.ok()) {
       std::cerr << "Internal Key [" << pikStatus.getState()
                 << "] parse error!\n";
       continue;

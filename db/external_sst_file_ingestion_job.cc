@@ -614,7 +614,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
 
     iter->SeekToLast();
     pikStatus = ParseInternalKey(iter->key(), &key, log_data);
-    if (pikStatus != Status::OK()) {
+    if (!pikStatus.ok()) {
       return Status::Corruption("Corrupted key in external file. ",
                                 pikStatus.getState());
     }
@@ -634,7 +634,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
          range_del_iter->Next()) {
       Status pikStatus =
           ParseInternalKey(range_del_iter->key(), &key, log_data);
-      if (pikStatus != Status::OK()) {
+      if (!pikStatus.ok()) {
         return Status::Corruption("Corrupted key in external file. ",
                                   pikStatus.getState());
       }

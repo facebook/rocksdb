@@ -239,7 +239,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       ParsedInternalKey ikey;
       int retc = 0;
       Status pikStatus = ParseInternalKey(sl_key, &ikey);
-      if (pikStatus != Status::OK()) {
+      if (!pikStatus.ok()) {
         std::cerr << "Internal Key [" << pikStatus.getState()
                   << "] parse error!\n";
         retc = -1;

@@ -254,7 +254,7 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   iter->SeekToFirst();
   Status pikStatus =
       ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
-  if (pikStatus != Status::OK()) {
+  if (!pikStatus.ok()) {
     return Status::Corruption("Corrupted Key in external file. ",
                               pikStatus.getState());
   }
@@ -264,7 +264,7 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   iter->SeekToLast();
   pikStatus =
       ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
-  if (pikStatus != Status::OK()) {
+  if (!pikStatus.ok()) {
     return Status::Corruption("Corrupted Key in external file. ",
                               pikStatus.getState());
   }
