@@ -1322,7 +1322,7 @@ public class RocksDB extends RocksObject {
    *    native library.
    */
   public int get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
-      final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
+                 final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
     assert key.isDirect() && value.isDirect();
     int result = getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(), key.remaining(),
         value, value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
@@ -1330,6 +1330,17 @@ public class RocksDB extends RocksObject {
       value.limit(Math.min(value.limit(), value.position() + result));
     }
     key.position(key.limit());
+    return result;
+  }
+
+  public int get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
+                 final byte[] key, final ByteBuffer value) throws RocksDBException {
+    assert value.isDirect();
+    int result = getDirect(nativeHandle_, opt.nativeHandle_, key, 0, key.length,
+        value, value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
+    if (result != NOT_FOUND) {
+      value.limit(Math.min(value.limit(), value.position() + result));
+    }
     return result;
   }
 
@@ -4657,7 +4668,10 @@ public class RocksDB extends RocksObject {
       final long cfHandle, final String property, final int propertyLength)
       throws RocksDBException;
   private native int getDirect(long handle, long readOptHandle, ByteBuffer key, int keyOffset,
-      int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
+                               int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
+      throws RocksDBException;
+  private native int getDirect(long handle, long readOptHandle, final byte[] key, int keyOffset,
+                               int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
       throws RocksDBException;
   private native void deleteDirect(long handle, long optHandle, ByteBuffer key, int keyOffset,
       int keyLength, long cfHandle) throws RocksDBException;

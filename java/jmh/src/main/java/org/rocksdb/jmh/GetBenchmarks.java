@@ -214,4 +214,9 @@ public class GetBenchmarks {
 //    System.out.println(str(ret));
 //    valueBuf.flip();
   }
+
+  @Benchmark
+  public void getPreallocatedByteBufferValueOnly() throws RocksDBException {
+    int res = db.get(getColumnFamily(), new ReadOptions(), getKeyArr(), getValueBuf());
+  }
 }
