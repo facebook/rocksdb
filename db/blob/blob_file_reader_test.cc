@@ -26,6 +26,9 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
+// Creates a test blob file with a single blob in it. Note: this method
+// makes it possible to test various corner cases by allowing the caller
+// to specify the contents of various blob file header/footer fields.
 void WriteBlobFile(const ImmutableCFOptions& immutable_cf_options,
                    uint32_t column_family_id, bool has_ttl,
                    const ExpirationRange& expiration_range_header,
