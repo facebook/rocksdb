@@ -29,6 +29,9 @@ expected_values_file = tempfile.NamedTemporaryFile()
 
 default_params = {
     "acquire_snapshot_one_in": 10000,
+    "backup_max_size": 100 * 1024 * 1024,
+    # Consider larger number when backups considered more stable
+    "backup_one_in": 100000,
     "block_size": 16384,
     "bloom_bits": lambda: random.choice([random.randint(0,19),
                                          random.lognormvariate(2.3, 1.3)]),
@@ -58,6 +61,7 @@ default_params = {
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
+    "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_one_in": 1000000,
     # Note: the following two are intentionally disabled as the corresponding
     # APIs are not guaranteed to succeed.
@@ -130,6 +134,8 @@ default_params = {
     "read_fault_one_in": lambda: random.choice([0, 1000]),
     "sync_fault_injection": False,
     "get_property_one_in": 1000000,
+    # paranoid_file_checks has a bug so it's not yet passed.
+    "paranoid_file_checks": 0,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -194,6 +200,8 @@ simple_default_params = {
     "test_batches_snapshots": 0,
     "write_buffer_size": 32 * 1024 * 1024,
     "level_compaction_dynamic_level_bytes": False,
+    # "paranoid_file_checks" has a bug so it's not yet passed.
+    "paranoid_file_checks": 0,
 }
 
 blackbox_simple_default_params = {

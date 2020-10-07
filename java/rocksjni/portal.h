@@ -5385,6 +5385,13 @@ class HistogramTypeJni {
         return 0x2D;
       case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS:
         return 0x2E;
+      case ROCKSDB_NAMESPACE::Histograms::
+          NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL:
+        return 0x2F;
+      case ROCKSDB_NAMESPACE::Histograms::NUM_DATA_BLOCKS_READ_PER_LEVEL:
+        return 0x30;
+      case ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL:
+        return 0x31;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5492,6 +5499,13 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_COMPRESSION_MICROS;
       case 0x2E:
         return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS;
+      case 0x2F:
+        return ROCKSDB_NAMESPACE::Histograms::
+            NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL;
+      case 0x30:
+        return ROCKSDB_NAMESPACE::Histograms::NUM_DATA_BLOCKS_READ_PER_LEVEL;
+      case 0x31:
+        return ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;

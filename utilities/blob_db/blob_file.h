@@ -189,7 +189,9 @@ class BlobFile {
 
   // All Get functions which are not atomic, will need ReadLock on the mutex
 
-  ExpirationRange GetExpirationRange() const { return expiration_range_; }
+  const ExpirationRange& GetExpirationRange() const {
+    return expiration_range_;
+  }
 
   void ExtendExpirationRange(uint64_t expiration) {
     expiration_range_.first = std::min(expiration_range_.first, expiration);

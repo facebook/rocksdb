@@ -21,6 +21,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class BlobFileBuilder;
+
 class CompactionIterator {
  public:
   // A wrapper around Compaction. Has a much smaller interface, only what
@@ -66,6 +68,8 @@ class CompactionIterator {
                      const SnapshotChecker* snapshot_checker, Env* env,
                      bool report_detailed_time, bool expect_valid_internal_key,
                      CompactionRangeDelAggregator* range_del_agg,
+                     BlobFileBuilder* blob_file_builder,
+                     bool allow_data_in_errors,
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
@@ -81,6 +85,8 @@ class CompactionIterator {
                      const SnapshotChecker* snapshot_checker, Env* env,
                      bool report_detailed_time, bool expect_valid_internal_key,
                      CompactionRangeDelAggregator* range_del_agg,
+                     BlobFileBuilder* blob_file_builder,
+                     bool allow_data_in_errors,
                      std::unique_ptr<CompactionProxy> compaction,
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
@@ -163,6 +169,7 @@ class CompactionIterator {
   bool report_detailed_time_;
   bool expect_valid_internal_key_;
   CompactionRangeDelAggregator* range_del_agg_;
+  BlobFileBuilder* blob_file_builder_;
   std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
   const std::atomic<bool>* shutting_down_;
@@ -211,6 +218,7 @@ class CompactionIterator {
   // PinnedIteratorsManager used to pin input_ Iterator blocks while reading
   // merge operands and then releasing them after consuming them.
   PinnedIteratorsManager pinned_iters_mgr_;
+  std::string blob_index_;
   std::string compaction_filter_value_;
   InternalKey compaction_filter_skip_until_;
   // "level_ptrs" holds indices that remember which file of an associated
@@ -226,6 +234,8 @@ class CompactionIterator {
   // uncommitted values by providing a SnapshotChecker object.
   bool current_key_committed_;
   std::shared_ptr<Logger> info_log_;
+
+  bool allow_data_in_errors_;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.

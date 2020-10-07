@@ -79,6 +79,7 @@ class MergingIterator : public InternalIterator {
     for (auto& child : children_) {
       child.DeleteIter(is_arena_mode_);
     }
+    status_.PermitUncheckedError();
   }
 
   bool Valid() const override { return current_ != nullptr && status_.ok(); }

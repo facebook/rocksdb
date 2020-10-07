@@ -633,10 +633,12 @@ class FSRandomAccessFile {
                         IODebugContext* dbg) const = 0;
 
   // Readahead the file starting from offset by n bytes for caching.
+  // If it's not implemented (default: `NotSupported`), RocksDB will create
+  // internal prefetch buffer to improve read performance.
   virtual IOStatus Prefetch(uint64_t /*offset*/, size_t /*n*/,
                             const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) {
-    return IOStatus::OK();
+    return IOStatus::NotSupported();
   }
 
   // Read a bunch of blocks as described by reqs. The blocks can
@@ -700,6 +702,13 @@ class FSRandomAccessFile {
   // RandomAccessFileWrapper too.
 };
 
+// A data structure brings the data verification information, which is
+// used togther with data being written to a file.
+struct DataVerificationInfo {
+  // checksum of the data being written.
+  Slice checksum;
+};
+
 // A file abstraction for sequential writing.  The implementation
 // must provide buffering since callers may append small fragments
 // at a time to the file.
@@ -727,6 +736,16 @@ class FSWritableFile {
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;
 
+  // EXPERIMENTAL / CURRENTLY UNUSED
+  // Append data with verification information
+  // Note that this API change is experimental and it might be changed in
+  // the future. Currently, RocksDB does not use this API.
+  virtual IOStatus Append(const Slice& data, const IOOptions& options,
+                          const DataVerificationInfo& /* verification_info */,
+                          IODebugContext* dbg) {
+    return Append(data, options, dbg);
+  }
+
   // PositionedAppend data to the specified offset. The new EOF after append
   // must be larger than the previous EOF. This is to be used when writes are
   // not backed by OS buffers and hence has to always start from the start of
@@ -751,6 +770,18 @@ class FSWritableFile {
                                     uint64_t /* offset */,
                                     const IOOptions& /*options*/,
                                     IODebugContext* /*dbg*/) {
+    return IOStatus::NotSupported();
+  }
+
+  // EXPERIMENTAL / CURRENTLY UNUSED
+  // PositionedAppend data with verification information.
+  // Note that this API change is experimental and it might be changed in
+  // the future. Currently, RocksDB does not use this API.
+  virtual IOStatus PositionedAppend(
+      const Slice& /* data */, uint64_t /* offset */,
+      const IOOptions& /*options*/,
+      const DataVerificationInfo& /* verification_info */,
+      IODebugContext* /*dbg*/) {
     return IOStatus::NotSupported();
   }
 
@@ -1284,10 +1315,22 @@ class FSWritableFileWrapper : public FSWritableFile {
                   IODebugContext* dbg) override {
     return target_->Append(data, options, dbg);
   }
+  IOStatus Append(const Slice& data, const IOOptions& options,
+                  const DataVerificationInfo& verification_info,
+                  IODebugContext* dbg) override {
+    return target_->Append(data, options, verification_info, dbg);
+  }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
                             IODebugContext* dbg) override {
     return target_->PositionedAppend(data, offset, options, dbg);
+  }
+  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                            const IOOptions& options,
+                            const DataVerificationInfo& verification_info,
+                            IODebugContext* dbg) override {
+    return target_->PositionedAppend(data, offset, options, verification_info,
+                                     dbg);
   }
   IOStatus Truncate(uint64_t size, const IOOptions& options,
                     IODebugContext* dbg) override {

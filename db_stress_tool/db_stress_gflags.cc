@@ -479,6 +479,10 @@ DEFINE_int32(backup_one_in, 0,
              "every N operations on average.  0 indicates CreateNewBackup() "
              "is disabled.");
 
+DEFINE_uint64(backup_max_size, 100 * 1024 * 1024,
+              "If non-zero, skip checking backup/restore when DB size in "
+              "bytes exceeds this setting.");
+
 DEFINE_int32(checkpoint_one_in, 0,
              "If non-zero, then CreateCheckpoint() will be called once for "
              "every N operations on average.  0 indicates CreateCheckpoint() "
@@ -723,5 +727,13 @@ DEFINE_bool(skip_verifydb, false, "If true, skip VerifyDb() calls.");
 DEFINE_bool(enable_compaction_filter, false,
             "If true, configures a compaction filter that returns a kRemove "
             "decision for deleted keys.");
+
+DEFINE_bool(paranoid_file_checks, true,
+            "After writing every SST file, reopen it and read all the keys "
+            "and validate checksums");
+
+DEFINE_string(file_checksum_impl, "none",
+              "Name of an implementation for file_checksum_gen_factory, or "
+              "\"none\" for null.");
 
 #endif  // GFLAGS

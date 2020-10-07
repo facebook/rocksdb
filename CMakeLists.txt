@@ -254,11 +254,29 @@ endif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
 
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
+option(FORCE_AVX "force building with AVX, even when PORTABLE=ON" OFF)
+option(FORCE_AVX2 "force building with AVX2, even when PORTABLE=ON" OFF)
 if(PORTABLE)
   # MSVC does not need a separate compiler flag to enable SSE4.2; if nmmintrin.h
   # is available, it is available by default.
   if(FORCE_SSE42 AND NOT MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -msse4.2 -mpclmul")
+  endif()
+  if(MSVC)
+    if(FORCE_AVX)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX")
+    endif()
+    # MSVC automatically enables BMI / lzcnt with AVX2.
+    if(FORCE_AVX2)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
+    endif()
+  else()
+    if(FORCE_AVX)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx")
+    endif()
+    if(FORCE_AVX2)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2 -mbmi -mlzcnt")
+    endif()
   endif()
 else()
   if(MSVC)
@@ -371,6 +389,12 @@ endif()
 option(WITH_DYNAMIC_EXTENSION "build with dynamic extension support" OFF)
 if(NOT WITH_DYNAMIC_EXTENSION)
   add_definitions(-DROCKSDB_NO_DYNAMIC_EXTENSION)
+endif()
+
+option(ASSERT_STATUS_CHECKED "build with assert status checked" OFF)
+if (ASSERT_STATUS_CHECKED)
+  message(STATUS "Build with assert status checked")
+  add_definitions(-DROCKSDB_ASSERT_STATUS_CHECKED)
 endif()
 
 if(DEFINED USE_RTTI)
@@ -546,6 +570,7 @@ set(SOURCES
         cache/sharded_cache.cc
         db/arena_wrapped_db_iter.cc
         db/blob/blob_file_addition.cc
+        db/blob/blob_file_builder.cc
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
         db/blob/blob_log_format.cc
@@ -595,6 +620,8 @@ set(SOURCES
         db/memtable_list.cc
         db/merge_helper.cc
         db/merge_operator.cc
+        db/output_validator.cc
+        db/periodic_work_scheduler.cc
         db/range_del_aggregator.cc
         db/range_tombstone_fragmenter.cc
         db/repair.cc
@@ -652,12 +679,12 @@ set(SOURCES
         monitoring/perf_level.cc
         monitoring/persistent_stats_history.cc
         monitoring/statistics.cc
-        monitoring/stats_dump_scheduler.cc
         monitoring/thread_status_impl.cc
         monitoring/thread_status_updater.cc
         monitoring/thread_status_util.cc
         monitoring/thread_status_util_debug.cc
         options/cf_options.cc
+        options/configurable.cc
         options/db_options.cc
         options/options.cc
         options/options_helper.cc
@@ -708,6 +735,7 @@ set(SOURCES
         table/sst_file_dumper.cc
         table/sst_file_reader.cc
         table/sst_file_writer.cc
+        table/table_factory.cc
         table/table_properties.cc
         table/two_level_iterator.cc
         test_util/sync_point.cc
@@ -716,6 +744,7 @@ set(SOURCES
         test_util/transaction_test_util.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer.cc
         tools/dump/db_dump_tool.cc
+        tools/io_tracer_parser_tool.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
         tools/sst_dump_tool.cc
@@ -998,6 +1027,7 @@ option(WITH_ALL_TESTS "Build all test, rather than a small subset" ON)
 if(WITH_TESTS OR WITH_BENCHMARK_TOOLS)
   add_subdirectory(third-party/gtest-1.8.1/fused-src/gtest)
   add_library(testharness STATIC
+  test_util/mock_time_env.cc
   test_util/testharness.cc)
   target_link_libraries(testharness gtest)
 endif()
@@ -1012,6 +1042,7 @@ if(WITH_TESTS)
         cache/cache_test.cc
         cache/lru_cache_test.cc
         db/blob/blob_file_addition_test.cc
+        db/blob/blob_file_builder_test.cc
         db/blob/blob_file_garbage_test.cc
         db/blob/db_blob_index_test.cc
         db/column_family_test.cc
@@ -1072,6 +1103,7 @@ if(WITH_TESTS)
         db/merge_test.cc
         db/options_file_test.cc
         db/perf_context_test.cc
+        db/periodic_work_scheduler_test.cc
         db/plain_table_db_test.cc
         db/prefix_test.cc
         db/range_del_aggregator_test.cc
@@ -1090,6 +1122,7 @@ if(WITH_TESTS)
         env/io_posix_test.cc
         env/mock_env_test.cc
         file/delete_scheduler_test.cc
+        file/prefetch_test.cc
         file/random_access_file_reader_test.cc
         logging/auto_roll_logger_test.cc
         logging/env_logger_test.cc
@@ -1102,8 +1135,8 @@ if(WITH_TESTS)
         monitoring/histogram_test.cc
         monitoring/iostats_context_test.cc
         monitoring/statistics_test.cc
-        monitoring/stats_dump_scheduler_test.cc
         monitoring/stats_history_test.cc
+        options/configurable_test.cc
         options/options_settable_test.cc
         options/options_test.cc
         table/block_based/block_based_filter_block_test.cc
@@ -1122,6 +1155,7 @@ if(WITH_TESTS)
         test_util/testutil_test.cc
         trace_replay/io_tracer_test.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc
+        tools/io_tracer_parser_test.cc
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
         tools/sst_dump_test.cc
@@ -1209,7 +1243,7 @@ if(WITH_TESTS)
         EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
         OUTPUT_NAME ${exename}${ARTIFACT_SUFFIX}
       )
-      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${GFLAGS_LIB} ${ROCKSDB_LIB})
+      target_link_libraries(${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} testharness gtest ${THIRDPARTY_LIBS} ${ROCKSDB_LIB})
       if(NOT "${exename}" MATCHES "db_sanity_test")
         add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
         add_dependencies(check ${CMAKE_PROJECT_NAME}_${exename}${ARTIFACT_SUFFIX})
@@ -1245,7 +1279,7 @@ if(WITH_BENCHMARK_TOOLS)
     tools/db_bench.cc
     tools/db_bench_tool.cc)
   target_link_libraries(db_bench
-    ${ROCKSDB_LIB} ${GFLAGS_LIB})
+    ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
   add_executable(cache_bench
     cache/cache_bench.cc)

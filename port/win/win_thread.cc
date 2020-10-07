@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#if defined(OS_WIN)
+
 #include "port/win/win_thread.h"
 
 #include <assert.h>
@@ -177,3 +179,5 @@ unsigned int __stdcall  WindowsThread::Data::ThreadProc(void* arg) {
 }
 } // namespace port
 }  // namespace ROCKSDB_NAMESPACE
+
+#endif

@@ -21,7 +21,8 @@ static std::string NEW_VALUE = "NewValue";
 
 class DBTestCompactionFilter : public DBTestBase {
  public:
-  DBTestCompactionFilter() : DBTestBase("/db_compaction_filter_test") {}
+  DBTestCompactionFilter()
+      : DBTestBase("/db_compaction_filter_test", /*env_do_fsync=*/true) {}
 };
 
 // Param variant of DBTestBase::ChangeCompactOptions
@@ -313,7 +314,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
       total++;
       if (ikey.sequence != 0) {
         count++;
@@ -404,7 +405,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
       ASSERT_NE(ikey.sequence, (unsigned)0);
       count++;
       iter->Next();
@@ -623,7 +624,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
       total++;
       if (ikey.sequence != 0) {
         count++;

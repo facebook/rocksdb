@@ -99,9 +99,7 @@ struct SstFileWriter::Rep {
     file_info.largest_key.assign(user_key.data(), user_key.size());
     file_info.file_size = builder->FileSize();
 
-    InvalidatePageCache(false /* closing */);
-
-    return Status::OK();
+    return InvalidatePageCache(false /* closing */);
   }
 
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
@@ -135,15 +133,14 @@ struct SstFileWriter::Rep {
     file_info.num_range_del_entries++;
     file_info.file_size = builder->FileSize();
 
-    InvalidatePageCache(false /* closing */);
-
-    return Status::OK();
+    return InvalidatePageCache(false /* closing */);
   }
 
-  void InvalidatePageCache(bool closing) {
+  Status InvalidatePageCache(bool closing) {
+    Status s = Status::OK();
     if (invalidate_page_cache == false) {
       // Fadvise disabled
-      return;
+      return s;
     }
     uint64_t bytes_since_last_fadvise =
       builder->FileSize() - last_fadvise_size;
@@ -151,11 +148,16 @@ struct SstFileWriter::Rep {
       TEST_SYNC_POINT_CALLBACK("SstFileWriter::Rep::InvalidatePageCache",
                                &(bytes_since_last_fadvise));
       // Tell the OS that we don't need this file in page cache
-      file_writer->InvalidateCache(0, 0);
+      s = file_writer->InvalidateCache(0, 0);
+      if (s.IsNotSupported()) {
+        // NotSupported is fine as it could be a file type that doesn't use page
+        // cache.
+        s = Status::OK();
+      }
       last_fadvise_size = builder->FileSize();
     }
+    return s;
   }
-
 };
 
 SstFileWriter::SstFileWriter(const EnvOptions& env_options,
@@ -255,8 +257,9 @@ Status SstFileWriter::Open(const std::string& file_path) {
       0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id);
   r->file_writer.reset(new WritableFileWriter(
       NewLegacyWritableFileWrapper(std::move(sst_file)), file_path,
-      r->env_options, r->ioptions.env, nullptr /* stats */,
-      r->ioptions.listeners, r->ioptions.file_checksum_gen_factory));
+      r->env_options, r->ioptions.env, nullptr /* io_tracer */,
+      nullptr /* stats */, r->ioptions.listeners,
+      r->ioptions.file_checksum_gen_factory));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.
@@ -305,7 +308,9 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
 
   if (s.ok()) {
     s = r->file_writer->Sync(r->ioptions.use_fsync);
-    r->InvalidatePageCache(true /* closing */);
+    if (s.ok()) {
+      s = r->InvalidatePageCache(true /* closing */);
+    }
     if (s.ok()) {
       s = r->file_writer->Close();
     }

@@ -815,9 +815,12 @@ class Version {
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
   uint64_t version_number_;
+  std::shared_ptr<IOTracer> io_tracer_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
-          MutableCFOptions mutable_cf_options, uint64_t version_number = 0);
+          MutableCFOptions mutable_cf_options,
+          const std::shared_ptr<IOTracer>& io_tracer,
+          uint64_t version_number = 0);
 
   ~Version();
 
@@ -1032,23 +1035,8 @@ class VersionSet {
     return next_file_number_.fetch_add(n);
   }
 
-// TSAN failure is suppressed in most sequence read/write functions when
-// clang is used, because it would show a warning of conflcit for those
-// updates. Since we haven't figured out a correctnes violation caused
-// by those sharing, we suppress them for now to keep the build clean.
-#if defined(__clang__)
-#if defined(__has_feature)
-#if __has_feature(thread_sanitizer)
-#define SUPPRESS_TSAN __attribute__((no_sanitize("thread")))
-#endif  // __has_feature(thread_sanitizer)
-#endif  // efined(__has_feature)
-#endif  // defined(__clang__)
-#ifndef SUPPRESS_TSAN
-#define SUPPRESS_TSAN
-#endif  // SUPPRESS_TSAN
-
   // Return the last sequence number.
-  SUPPRESS_TSAN uint64_t LastSequence() const {
+  uint64_t LastSequence() const {
     return last_sequence_.load(std::memory_order_acquire);
   }
 
@@ -1058,12 +1046,12 @@ class VersionSet {
   }
 
   // Note: memory_order_acquire must be sufficient.
-  SUPPRESS_TSAN uint64_t LastPublishedSequence() const {
+  uint64_t LastPublishedSequence() const {
     return last_published_sequence_.load(std::memory_order_seq_cst);
   }
 
   // Set the last sequence number to s.
-  SUPPRESS_TSAN void SetLastSequence(uint64_t s) {
+  void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
     // Last visible sequence must always be less than last written seq
     assert(!db_options_->two_write_queues || s <= last_allocated_sequence_);
@@ -1071,7 +1059,7 @@ class VersionSet {
   }
 
   // Note: memory_order_release must be sufficient
-  SUPPRESS_TSAN void SetLastPublishedSequence(uint64_t s) {
+  void SetLastPublishedSequence(uint64_t s) {
     assert(s >= last_published_sequence_);
     last_published_sequence_.store(s, std::memory_order_seq_cst);
   }
@@ -1193,7 +1181,7 @@ class VersionSet {
 
     const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
     Version* const version =
-        new Version(cfd, this, file_options_, mutable_cf_options);
+        new Version(cfd, this, file_options_, mutable_cf_options, io_tracer_);
 
     constexpr bool update_stats = false;
     version->PrepareApply(mutable_cf_options, update_stats);

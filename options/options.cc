@@ -88,7 +88,11 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       report_bg_io_stats(options.report_bg_io_stats),
       ttl(options.ttl),
       periodic_compaction_seconds(options.periodic_compaction_seconds),
-      sample_for_compression(options.sample_for_compression) {
+      sample_for_compression(options.sample_for_compression),
+      enable_blob_files(options.enable_blob_files),
+      min_blob_size(options.min_blob_size),
+      blob_file_size(options.blob_file_size),
+      blob_compression_type(options.blob_compression_type) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -131,7 +135,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "           Options.table_factory: %s",
                    table_factory->Name());
   ROCKS_LOG_HEADER(log, "           table_factory options: %s",
-                   table_factory->GetPrintableTableOptions().c_str());
+                   table_factory->GetPrintableOptions().c_str());
   ROCKS_LOG_HEADER(log, "       Options.write_buffer_size: %" ROCKSDB_PRIszt,
                    write_buffer_size);
   ROCKS_LOG_HEADER(log, " Options.max_write_buffer_number: %d",
@@ -369,6 +373,16 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "         Options.periodic_compaction_seconds: %" PRIu64,
                      periodic_compaction_seconds);
+    ROCKS_LOG_HEADER(log, "                   Options.enable_blob_files: %s",
+                     enable_blob_files ? "true" : "false");
+    ROCKS_LOG_HEADER(log,
+                     "                       Options.min_blob_size: %" PRIu64,
+                     min_blob_size);
+    ROCKS_LOG_HEADER(log,
+                     "                      Options.blob_file_size: %" PRIu64,
+                     blob_file_size);
+    ROCKS_LOG_HEADER(log, "               Options.blob_compression_type: %s",
+                     CompressionTypeToString(blob_compression_type).c_str());
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

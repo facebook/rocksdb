@@ -38,9 +38,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
-#include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
-#include "table/plain/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
@@ -488,12 +486,44 @@ class SpecialEnv : public EnvWrapper {
       std::atomic<size_t>* bytes_read_;
     };
 
+    class RandomFailureFile : public RandomAccessFile {
+     public:
+      RandomFailureFile(std::unique_ptr<RandomAccessFile>&& target,
+                        std::atomic<uint64_t>* failure_cnt, uint32_t fail_odd)
+          : target_(std::move(target)),
+            fail_cnt_(failure_cnt),
+            fail_odd_(fail_odd) {}
+      virtual Status Read(uint64_t offset, size_t n, Slice* result,
+                          char* scratch) const override {
+        if (Random::GetTLSInstance()->OneIn(fail_odd_)) {
+          fail_cnt_->fetch_add(1);
+          return Status::IOError("random error");
+        }
+        return target_->Read(offset, n, result, scratch);
+      }
+
+      virtual Status Prefetch(uint64_t offset, size_t n) override {
+        return target_->Prefetch(offset, n);
+      }
+
+     private:
+      std::unique_ptr<RandomAccessFile> target_;
+      std::atomic<uint64_t>* fail_cnt_;
+      uint32_t fail_odd_;
+    };
+
     Status s = target()->NewRandomAccessFile(f, r, soptions);
     random_file_open_counter_++;
-    if (s.ok() && count_random_reads_) {
-      r->reset(new CountingFile(std::move(*r), &random_read_counter_,
-                                &random_read_bytes_counter_));
+    if (s.ok()) {
+      if (count_random_reads_) {
+        r->reset(new CountingFile(std::move(*r), &random_read_counter_,
+                                  &random_read_bytes_counter_));
+      } else if (rand_reads_fail_odd_ > 0) {
+        r->reset(new RandomFailureFile(std::move(*r), &num_reads_fails_,
+                                       rand_reads_fail_odd_));
+      }
     }
+
     if (s.ok() && soptions.compaction_readahead_size > 0) {
       compaction_readahead_size_ = soptions.compaction_readahead_size;
     }
@@ -636,6 +666,8 @@ class SpecialEnv : public EnvWrapper {
   std::atomic<int> num_open_wal_file_;
 
   bool count_random_reads_;
+  uint32_t rand_reads_fail_odd_ = 0;
+  std::atomic<uint64_t> num_reads_fails_;
   anon::AtomicCounter random_read_counter_;
   std::atomic<size_t> random_read_bytes_counter_;
   std::atomic<int> random_file_open_counter_;
@@ -877,7 +909,10 @@ class DBTestBase : public testing::Test {
       // requires.
       kSkipMmapReads;
 
-  explicit DBTestBase(const std::string path);
+  // `env_do_fsync` decides whether the special Env would do real
+  // fsync for files and directories. Skipping fsync can speed up
+  // tests, but won't cover the exact fsync logic.
+  DBTestBase(const std::string path, bool env_do_fsync);
 
   ~DBTestBase();
 
@@ -1110,8 +1145,8 @@ class DBTestBase : public testing::Test {
   void CopyFile(const std::string& source, const std::string& destination,
                 uint64_t size = 0);
 
-  std::unordered_map<std::string, uint64_t> GetAllSSTFiles(
-      uint64_t* total_size = nullptr);
+  Status GetAllSSTFiles(std::unordered_map<std::string, uint64_t>* sst_files,
+                        uint64_t* total_size = nullptr);
 
   std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path);
 
@@ -1145,30 +1180,6 @@ class DBTestBase : public testing::Test {
   void MaybeInstallTimeElapseOnlySleep(const DBOptions& options);
 
   bool time_elapse_only_sleep_on_reopen_ = false;
-};
-
-class SafeMockTimeEnv : public MockTimeEnv {
- public:
-  explicit SafeMockTimeEnv(Env* base) : MockTimeEnv(base) {
-    SyncPoint::GetInstance()->DisableProcessing();
-    SyncPoint::GetInstance()->ClearAllCallBacks();
-#if defined(OS_MACOSX) && !defined(NDEBUG)
-    // This is an alternate way (vs. SpecialEnv) of dealing with the fact
-    // that on some platforms, pthread_cond_timedwait does not appear to
-    // release the lock for other threads to operate if the deadline time
-    // is already passed. (TimedWait calls are currently a bad abstraction
-    // because the deadline parameter is usually computed from Env time,
-    // but is interpreted in real clock time.)
-    SyncPoint::GetInstance()->SetCallBack(
-        "InstrumentedCondVar::TimedWaitInternal", [&](void* arg) {
-          uint64_t time_us = *reinterpret_cast<uint64_t*>(arg);
-          if (time_us < this->RealNowMicros()) {
-            *reinterpret_cast<uint64_t*>(arg) = this->RealNowMicros() + 1000;
-          }
-        });
-#endif  // OS_MACOSX && !NDEBUG
-    SyncPoint::GetInstance()->EnableProcessing();
-  }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

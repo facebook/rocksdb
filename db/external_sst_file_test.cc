@@ -44,7 +44,7 @@ class ExternSSTFileLinkFailFallbackTest
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   ExternSSTFileLinkFailFallbackTest()
-      : DBTestBase("/external_sst_file_test"),
+      : DBTestBase("/external_sst_file_test", /*env_do_fsync=*/true),
         test_env_(new ExternalSSTTestEnv(env_, true)) {
     sst_files_dir_ = dbname_ + "/sst_files/";
     DestroyDir(env_, sst_files_dir_);
@@ -72,7 +72,8 @@ class ExternalSSTFileTest
     : public DBTestBase,
       public ::testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  ExternalSSTFileTest() : DBTestBase("/external_sst_file_test") {
+  ExternalSSTFileTest()
+      : DBTestBase("/external_sst_file_test", /*env_do_fsync=*/true) {
     sst_files_dir_ = dbname_ + "/sst_files/";
     DestroyAndRecreateExternalSSTFilesDir();
   }
@@ -989,6 +990,7 @@ TEST_F(ExternalSSTFileTest, SkipSnapshot) {
 }
 
 TEST_F(ExternalSSTFileTest, MultiThreaded) {
+  env_->skip_fsync_ = true;
   // Bulk load 10 files every file contain 1000 keys
   int num_files = 10;
   int keys_per_file = 1000;
@@ -1101,6 +1103,7 @@ TEST_F(ExternalSSTFileTest, MultiThreaded) {
 }
 
 TEST_F(ExternalSSTFileTest, OverlappingRanges) {
+  env_->skip_fsync_ = true;
   Random rnd(301);
   SequenceNumber assigned_seqno = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -1233,6 +1236,7 @@ TEST_F(ExternalSSTFileTest, OverlappingRanges) {
 }
 
 TEST_P(ExternalSSTFileTest, PickedLevel) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 4;
@@ -1299,6 +1303,7 @@ TEST_P(ExternalSSTFileTest, PickedLevel) {
 }
 
 TEST_F(ExternalSSTFileTest, PickedLevelBug) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 3;
@@ -1419,6 +1424,7 @@ TEST_F(ExternalSSTFileTest, IngestNonExistingFile) {
 }
 
 TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 2;
@@ -1476,6 +1482,7 @@ TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
 }
 
 TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
+  env_->skip_fsync_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 4;

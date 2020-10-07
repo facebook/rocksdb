@@ -124,7 +124,7 @@ using ROCKSDB_NAMESPACE::BloomHash;
 using ROCKSDB_NAMESPACE::BuiltinFilterBitsBuilder;
 using ROCKSDB_NAMESPACE::CachableEntry;
 using ROCKSDB_NAMESPACE::EncodeFixed32;
-using ROCKSDB_NAMESPACE::fastrange32;
+using ROCKSDB_NAMESPACE::FastRange32;
 using ROCKSDB_NAMESPACE::FilterBitsReader;
 using ROCKSDB_NAMESPACE::FilterBuildingContext;
 using ROCKSDB_NAMESPACE::FullFilterBlockReader;
@@ -161,7 +161,7 @@ struct KeyMaker {
     if (FLAGS_vary_key_size_log2_interval < 30) {
       // To get range [avg_size - 2, avg_size + 2]
       // use range [smallest_size, smallest_size + 4]
-      len += fastrange32(
+      len += FastRange32(
           (val_num >> FLAGS_vary_key_size_log2_interval) * 1234567891, 5);
     }
     char * data = buf_.get() + start;
@@ -365,7 +365,7 @@ void FilterBench::Go() {
          total_keys_added < max_total_keys) {
     uint32_t filter_id = random_.Next();
     uint32_t keys_to_add = FLAGS_average_keys_per_filter +
-                           fastrange32(random_.Next(), variance_range) -
+                           FastRange32(random_.Next(), variance_range) -
                            variance_offset;
     if (max_total_keys - total_keys_added < keys_to_add) {
       keys_to_add = static_cast<uint32_t>(max_total_keys - total_keys_added);

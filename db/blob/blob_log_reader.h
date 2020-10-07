@@ -56,6 +56,8 @@ class BlobLogReader {
   Status ReadRecord(BlobLogRecord* record, ReadLevel level = kReadHeader,
                     uint64_t* blob_offset = nullptr);
 
+  Status ReadFooter(BlobLogFooter* footer);
+
   void ResetNextByte() { next_byte_ = 0; }
 
   uint64_t GetNextByte() const { return next_byte_; }

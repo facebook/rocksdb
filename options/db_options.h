@@ -13,6 +13,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 struct ImmutableDBOptions {
+  static const char* kName() { return "ImmutableDBOptions"; }
   ImmutableDBOptions();
   explicit ImmutableDBOptions(const DBOptions& options);
 
@@ -90,9 +91,11 @@ struct ImmutableDBOptions {
   bool best_efforts_recovery;
   int max_bgerror_resume_count;
   uint64_t bgerror_resume_retry_interval;
+  bool allow_data_in_errors;
 };
 
 struct MutableDBOptions {
+  static const char* kName() { return "MutableDBOptions"; }
   MutableDBOptions();
   explicit MutableDBOptions(const MutableDBOptions& options) = default;
   explicit MutableDBOptions(const DBOptions& options);

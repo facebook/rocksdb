@@ -24,26 +24,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// The default DB file checksum function name.
+constexpr char kDbFileChecksumFuncName[] = "FileChecksumCrc32c";
 // The default BackupEngine file checksum function name.
-constexpr char kDefaultBackupFileChecksumFuncName[] = "crc32c";
-
-// BackupTableNameOption describes possible naming schemes for backup
-// table file names when the table files are stored in the shared_checksum
-// directory (i.e., both share_table_files and share_files_with_checksum
-// are true).
-enum BackupTableNameOption : unsigned char {
-  // Backup SST filenames are <file_number>_<crc32c>_<file_size>.sst
-  // where <crc32c> is uint32_t.
-  kChecksumAndFileSize = 0,
-  // Backup SST filenames are <file_number>_<crc32c>_<db_session_id>.sst
-  // where <crc32c> is hexidecimally encoded.
-  // When DBOptions::file_checksum_gen_factory is not set to
-  // GetFileChecksumGenCrc32cFactory(), the filenames will be
-  // <file_number>_<db_session_id>.sst
-  // When there are no db session ids available in the table file, this
-  // option will use kChecksumAndFileSize as a fallback.
-  kOptionalChecksumAndDbSessionId = 1
-};
+constexpr char kBackupFileChecksumFuncName[] = "crc32c";
 
 struct BackupableDBOptions {
   // Where to keep the backup files. Has to be different than dbname_
@@ -108,19 +92,16 @@ struct BackupableDBOptions {
   // Default: nullptr
   std::shared_ptr<RateLimiter> restore_rate_limiter{nullptr};
 
-  // Only used if share_table_files is set to true. If true, will consider that
-  // backups can come from different databases, hence an sst is not uniquely
-  // identifed by its name, but by the triple
-  // (file name, crc32c, db session id or file length)
+  // Only used if share_table_files is set to true. If true, will consider
+  // that backups can come from different databases, even differently mutated
+  // databases with the same DB ID. See share_files_with_checksum_naming and
+  // ShareFilesNaming for details on how table files names are made
+  // unique between databases.
   //
-  // Note: If this option is set to true, we recommend setting
-  // share_files_with_checksum_naming to kOptionalChecksumAndDbSessionId, which
-  // is also our default option. Otherwise, there is a non-negligible chance of
-  // filename collision when sharing tables in shared_checksum among several
-  // DBs.
-  // *turn it on only if you know what you're doing*
+  // Using 'true' is fundamentally safer, and performance improvements vs.
+  // original design should leave almost no reason to use the 'false' setting.
   //
-  // Default: false
+  // Default (only for historical reasons): false
   bool share_files_with_checksum;
 
   // Up to this many background threads will copy files for CreateNewBackup()
@@ -144,51 +125,79 @@ struct BackupableDBOptions {
   // Default: INT_MAX
   int max_valid_backups_to_open;
 
-  // Naming option for share_files_with_checksum table files. This option
-  // can be set to kChecksumAndFileSize or kOptionalChecksumAndDbSessionId.
-  // kChecksumAndFileSize is susceptible to collision as file size is not a
-  // good source of entroy.
-  // kOptionalChecksumAndDbSessionId is immune to collision.
+  // ShareFilesNaming describes possible naming schemes for backup
+  // table file names when the table files are stored in the shared_checksum
+  // directory (i.e., both share_table_files and share_files_with_checksum
+  // are true).
+  enum ShareFilesNaming : uint32_t {
+    // Backup SST filenames are <file_number>_<crc32c>_<file_size>.sst
+    // where <crc32c> is an unsigned decimal integer. This is the
+    // original/legacy naming scheme for share_files_with_checksum,
+    // with two problems:
+    // * At massive scale, collisions on this triple with different file
+    //   contents is plausible.
+    // * Determining the name to use requires computing the checksum,
+    //   so generally requires reading the whole file even if the file
+    //   is already backed up.
+    // ** ONLY RECOMMENDED FOR PRESERVING OLD BEHAVIOR **
+    kLegacyCrc32cAndFileSize = 1U,
+
+    // Backup SST filenames are <file_number>_s<db_session_id>.sst. This
+    // pair of values should be very strongly unique for a given SST file
+    // and easily determined before computing a checksum. The 's' indicates
+    // the value is a DB session id, not a checksum.
+    //
+    // Exceptions:
+    // * For old SST files without a DB session id, kLegacyCrc32cAndFileSize
+    //   will be used instead, matching the names assigned by RocksDB versions
+    //   not supporting the newer naming scheme.
+    // * See also flags below.
+    kUseDbSessionId = 2U,
+
+    kMaskNoNamingFlags = 0xffffU,
+
+    // If not already part of the naming scheme, insert
+    //   _<file_size>
+    // before .sst in the name. In case of user code actually parsing the
+    // last _<whatever> before the .sst as the file size, this preserves that
+    // feature of kLegacyCrc32cAndFileSize. In other words, this option makes
+    // official that unofficial feature of the backup metadata.
+    //
+    // We do not consider SST file sizes to have sufficient entropy to
+    // contribute significantly to naming uniqueness.
+    kFlagIncludeFileSize = 1U << 31,
+
+    // When encountering an SST file from a Facebook-internal early
+    // release of 6.12, use the default naming scheme in effect for
+    // when the SST file was generated (assuming full file checksum
+    // was not set to GetFileChecksumGenCrc32cFactory()). That naming is
+    // <file_number>_<db_session_id>.sst
+    // and ignores kFlagIncludeFileSize setting.
+    // NOTE: This flag is intended to be temporary and should be removed
+    // in a later release.
+    kFlagMatchInterimNaming = 1U << 30,
+
+    kMaskNamingFlags = ~kMaskNoNamingFlags,
+  };
+
+  // Naming option for share_files_with_checksum table files. See
+  // ShareFilesNaming for details.
   //
   // Modifying this option cannot introduce a downgrade compatibility issue
   // because RocksDB can read, restore, and delete backups using different file
   // names, and it's OK for a backup directory to use a mixture of table file
   // naming schemes.
   //
-  // Default: kOptionalChecksumAndDbSessionId
+  // However, modifying this option and saving more backups to the same
+  // directory can lead to the same file getting saved again to that
+  // directory, under the new shared name in addition to the old shared
+  // name.
+  //
+  // Default: kUseDbSessionId | kFlagIncludeFileSize | kFlagMatchInterimNaming
   //
   // Note: This option comes into effect only if both share_files_with_checksum
-  // and share_table_files are true. In the cases of old table files where no
-  // db_session_id is stored, we use the file_size to replace the empty
-  // db_session_id as a fallback.
-  BackupTableNameOption share_files_with_checksum_naming;
-
-  // Option for custom checksum functions.
-  // When this option is nullptr, BackupEngine will use its default crc32c as
-  // the checksum function.
-  //
-  // When it is not nullptr, BackupEngine will try to find in the factory the
-  // checksum function that DB used to calculate the file checksums. If such a
-  // function is found, BackupEngine will use it to create, verify, or restore
-  // backups, in addition to the default crc32c checksum function. If such a
-  // function is not found, BackupEngine will return Status::InvalidArgument().
-  // Therefore, this option comes into effect only if DB has a custom checksum
-  // factory and this option is set to the same factory.
-  //
-  //
-  // Note: If share_files_with_checksum and share_table_files are true,
-  // the <checksum> appeared in the table filenames will be the custom checksum
-  // value if db session ids are available (namely, table file naming options
-  // is kOptionalChecksumAndDbSessionId and the db session ids obtained from
-  // the table files are nonempty).
-  //
-  // Note: We do not require the same setting to this option for backup
-  // restoration or verification as was set during backup creation but we
-  // strongly recommend setting it to the same as the DB file checksum function
-  // for all BackupEngine interactions when practical.
-  //
-  // Default: nullptr
-  std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory;
+  // and share_table_files are true.
+  ShareFilesNaming share_files_with_checksum_naming;
 
   void Dump(Logger* logger) const;
 
@@ -200,10 +209,9 @@ struct BackupableDBOptions {
       uint64_t _restore_rate_limit = 0, int _max_background_operations = 1,
       uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
       int _max_valid_backups_to_open = INT_MAX,
-      BackupTableNameOption _share_files_with_checksum_naming =
-          kOptionalChecksumAndDbSessionId,
-      std::shared_ptr<FileChecksumGenFactory> _file_checksum_gen_factory =
-          nullptr)
+      ShareFilesNaming _share_files_with_checksum_naming =
+          static_cast<ShareFilesNaming>(kUseDbSessionId | kFlagIncludeFileSize |
+                                        kFlagMatchInterimNaming))
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
@@ -217,11 +225,30 @@ struct BackupableDBOptions {
         max_background_operations(_max_background_operations),
         callback_trigger_interval_size(_callback_trigger_interval_size),
         max_valid_backups_to_open(_max_valid_backups_to_open),
-        share_files_with_checksum_naming(_share_files_with_checksum_naming),
-        file_checksum_gen_factory(_file_checksum_gen_factory) {
+        share_files_with_checksum_naming(_share_files_with_checksum_naming) {
     assert(share_table_files || !share_files_with_checksum);
+    assert((share_files_with_checksum_naming & kMaskNoNamingFlags) != 0);
   }
 };
+
+inline BackupableDBOptions::ShareFilesNaming operator&(
+    BackupableDBOptions::ShareFilesNaming lhs,
+    BackupableDBOptions::ShareFilesNaming rhs) {
+  uint32_t l = static_cast<uint32_t>(lhs);
+  uint32_t r = static_cast<uint32_t>(rhs);
+  assert(r == BackupableDBOptions::kMaskNoNamingFlags ||
+         (r & BackupableDBOptions::kMaskNoNamingFlags) == 0);
+  return static_cast<BackupableDBOptions::ShareFilesNaming>(l & r);
+}
+
+inline BackupableDBOptions::ShareFilesNaming operator|(
+    BackupableDBOptions::ShareFilesNaming lhs,
+    BackupableDBOptions::ShareFilesNaming rhs) {
+  uint32_t l = static_cast<uint32_t>(lhs);
+  uint32_t r = static_cast<uint32_t>(rhs);
+  assert((r & BackupableDBOptions::kMaskNoNamingFlags) == 0);
+  return static_cast<BackupableDBOptions::ShareFilesNaming>(l | r);
+}
 
 struct CreateBackupOptions {
   // Flush will always trigger if 2PC is enabled.
@@ -229,7 +256,7 @@ struct CreateBackupOptions {
   // avoid losing unflushed key/value pairs from the memtable.
   bool flush_before_backup = false;
 
-  // Callback for reporting progress.
+  // Callback for reporting progress, based on callback_trigger_interval_size.
   std::function<void()> progress_callback = []() {};
 
   // If false, background_thread_cpu_priority is ignored.
@@ -355,18 +382,16 @@ class BackupEngineReadOnly {
   }
 
   // If verify_with_checksum is true, this function
-  // inspects the default crc32c checksums and file sizes of backup files to
-  // see if they match our expectation. This function further inspects the
-  // custom checksums if BackupableDBOptions::file_checksum_gen_factory is
-  // the same as DBOptions::file_checksum_gen_factory.
+  // inspects the current checksums and file sizes of backup files to see if
+  // they match our expectation.
   //
   // If verify_with_checksum is false, this function
   // checks that each file exists and that the size of the file matches our
   // expectation. It does not check file checksum.
   //
   // If this BackupEngine created the backup, it compares the files' current
-  // sizes (and current checksums) against the number of bytes written to
-  // them (and the checksums calculated) during creation.
+  // sizes (and current checksum) against the number of bytes written to
+  // them (and the checksum calculated) during creation.
   // Otherwise, it compares the files' current sizes (and checksums) against
   // their sizes (and checksums) when the BackupEngine was opened.
   //
@@ -486,9 +511,7 @@ class BackupEngine {
 
   // If verify_with_checksum is true, this function
   // inspects the current checksums and file sizes of backup files to see if
-  // they match our expectation. It further inspects the custom checksums
-  // if BackupableDBOptions::file_checksum_gen_factory is the same as
-  // DBOptions::file_checksum_gen_factory.
+  // they match our expectation.
   //
   // If verify_with_checksum is false, this function
   // checks that each file exists and that the size of the file matches our

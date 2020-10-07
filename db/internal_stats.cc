@@ -19,7 +19,7 @@
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
-#include "table/block_based/block_based_table_factory.h"
+#include "rocksdb/table.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -907,19 +907,9 @@ bool InternalStats::HandleBlockCacheStat(Cache** block_cache) {
   assert(block_cache != nullptr);
   auto* table_factory = cfd_->ioptions()->table_factory;
   assert(table_factory != nullptr);
-  if (BlockBasedTableFactory::kName != table_factory->Name()) {
-    return false;
-  }
-  auto* table_options =
-      reinterpret_cast<BlockBasedTableOptions*>(table_factory->GetOptions());
-  if (table_options == nullptr) {
-    return false;
-  }
-  *block_cache = table_options->block_cache.get();
-  if (table_options->no_block_cache || *block_cache == nullptr) {
-    return false;
-  }
-  return true;
+  *block_cache =
+      table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
+  return *block_cache != nullptr;
 }
 
 bool InternalStats::HandleBlockCacheCapacity(uint64_t* value, DBImpl* /*db*/,
