@@ -1269,6 +1269,89 @@ jint Java_org_rocksdb_RocksDB_getDirect__JJ_3BIILjava_nio_ByteBuffer_2IIJ(
   return cvalue_len;
 }
 
+jlongArray rocksdb_get_unsafe_helper(
+    JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
+    const ROCKSDB_NAMESPACE::ReadOptions& read_options,
+    ROCKSDB_NAMESPACE::ColumnFamilyHandle* column_family_handle,
+    jbyteArray jkey, jint jkey_off, jint jkey_len, bool* has_exception) {
+  jbyte* key = new jbyte[jkey_len];
+  env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
+  if (env->ExceptionCheck()) {
+    // exception thrown: OutOfMemoryError
+    delete[] key;
+    *has_exception = true;
+    return nullptr;
+  }
+  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+
+  std::string cvalue;
+  ROCKSDB_NAMESPACE::Status s;
+  s = db->Get(read_options, column_family_handle, key_slice, &cvalue);
+
+  // cleanup
+  delete[] key;
+
+  if (s.IsNotFound()) {
+    *has_exception = false;
+    return nullptr;
+  } else if (!s.ok()) {
+    *has_exception = true;
+    return nullptr;
+  }
+
+  // TODO: check if we need to copy
+  jbyte* ret = new jbyte[cvalue.size()];
+  memcpy(ret, cvalue.c_str(), cvalue.size());
+  const jlong jsz = static_cast<jlong>(cvalue.size());
+  jlongArray jret_arr = env->NewLongArray(2);
+  if (nullptr == jret_arr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
+  env->SetLongArrayRegion(
+      jret_arr, 0, 1, reinterpret_cast<jlong*>(&ret));
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    env->DeleteLocalRef(jret_arr);
+    return nullptr;
+  }
+  env->SetLongArrayRegion(
+      jret_arr, 1, 1, const_cast<jlong*>(reinterpret_cast<const jlong*>(&jsz)));
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    env->DeleteLocalRef(jret_arr);
+    return nullptr;
+  }
+  *has_exception = false;
+  return jret_arr;
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getUnsafe
+ * Signature: (JJ[BIIJ)J
+ */
+jlongArray Java_org_rocksdb_RocksDB_getUnsafe
+  (JNIEnv *env, jclass, jlong jdb_handle, jlong jropt_handle,
+  jbyteArray jkey, jint jkey_off, jint jkey_len, jlong jcf_handle) {
+  auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
+  auto& ro_opt =
+      *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle);
+  auto* cf_handle =
+      reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
+  if (cf_handle != nullptr) {
+    bool has_exception = false;
+    return rocksdb_get_unsafe_helper(env, db_handle, ro_opt, cf_handle,
+        jkey, jkey_off, jkey_len,
+        &has_exception);
+  } else {
+    ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
+        env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
+                 "Invalid ColumnFamilyHandle."));
+    // will never be evaluated
+    return nullptr;
+  }
+}
 
 //////////////////////////////////////////////////////////////////////////////
 // ROCKSDB_NAMESPACE::DB::Merge

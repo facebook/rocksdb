@@ -200,12 +200,12 @@ public class GetBenchmarks {
   }
 
   @Benchmark
-  public void getPreallocated() throws RocksDBException {
+  public void preallocatedGet() throws RocksDBException {
     db.get(getColumnFamily(), getKeyArr(), getValueArr());
   }
 
   @Benchmark
-  public void getPreallocatedByteBuffer() throws RocksDBException {
+  public void preallocatedByteBufferGet() throws RocksDBException {
     int res = db.get(getColumnFamily(), new ReadOptions(), getKeyBuf(), getValueBuf());
     // For testing correctness:
 //    assert res > 0;
@@ -216,7 +216,12 @@ public class GetBenchmarks {
   }
 
   @Benchmark
-  public void getPreallocatedByteBufferValueOnly() throws RocksDBException {
+  public void preallocatedByteBufferValueOnlyGet() throws RocksDBException {
     int res = db.get(getColumnFamily(), new ReadOptions(), getKeyArr(), getValueBuf());
+  }
+
+  @Benchmark
+  public void unsafeGet() throws RocksDBException {
+    long[] ret = db.getUnsafe(getColumnFamily(), new ReadOptions(), getKeyArr());
   }
 }

@@ -1344,6 +1344,11 @@ public class RocksDB extends RocksObject {
     return result;
   }
 
+  public long[] getUnsafe(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
+                 final byte[] key) throws RocksDBException {
+    return getUnsafe(nativeHandle_, opt.nativeHandle_, key, 0, key.length, columnFamilyHandle.nativeHandle_);
+  }
+
   /**
    * Remove the database entry for {@code key}. Requires that the key exists
    * and was not overwritten. It is not an error if the key did not exist
@@ -4672,6 +4677,9 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private native int getDirect(long handle, long readOptHandle, final byte[] key, int keyOffset,
                                int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
+      throws RocksDBException;
+  private static native long[] getUnsafe(final long handle, final long readOptHandle, final byte[] key,
+      final int keyOffset, final int keyLength, final long cfHandle)
       throws RocksDBException;
   private native void deleteDirect(long handle, long optHandle, ByteBuffer key, int keyOffset,
       int keyLength, long cfHandle) throws RocksDBException;
