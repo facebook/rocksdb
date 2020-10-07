@@ -61,8 +61,8 @@ class BlobFileBuilderTest : public testing::Test {
                                    &mock_env_));
 
     constexpr Statistics* statistics = nullptr;
-    BlobLogReader blob_log_reader(std::move(file_reader), &mock_env_,
-                                  statistics);
+    BlobLogSequentialReader blob_log_reader(std::move(file_reader), &mock_env_,
+                                            statistics);
 
     BlobLogHeader header;
     ASSERT_OK(blob_log_reader.ReadHeader(&header));
@@ -77,7 +77,7 @@ class BlobFileBuilderTest : public testing::Test {
       uint64_t blob_offset = 0;
 
       ASSERT_OK(blob_log_reader.ReadRecord(
-          &record, BlobLogReader::kReadHeaderKeyBlob, &blob_offset));
+          &record, BlobLogSequentialReader::kReadHeaderKeyBlob, &blob_offset));
 
       // Check the contents of the blob file
       const auto& expected_key_value = expected_key_value_pairs[i];
