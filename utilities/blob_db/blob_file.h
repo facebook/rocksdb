@@ -216,10 +216,6 @@ class BlobFile {
                    bool* fresh_open);
 
  private:
-  std::shared_ptr<BlobLogReader> OpenRandomAccessReader(
-      Env* env, const DBOptions& db_options,
-      const EnvOptions& env_options) const;
-
   Status ReadFooter(BlobLogFooter* footer);
 
   Status WriteFooterAndCloseLocked(SequenceNumber sequence);
