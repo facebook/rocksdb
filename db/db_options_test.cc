@@ -79,9 +79,7 @@ class DBOptionsTest : public DBTestBase {
 #endif  // ROCKSDB_LITE
 };
 
-TEST_F(DBOptionsTest, CheckWalImmutable) {
-  ASSERT_FALSE(
-      db_options_type_info.at("track_and_verify_wals_in_manifest").IsMutable());
+TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
   Options options;
   options.track_and_verify_wals_in_manifest = true;
 
