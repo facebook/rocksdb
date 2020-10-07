@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#include "db/blob/blob_log_reader.h"
+#include "db/blob/blob_log_sequential_reader.h"
 
 #include <algorithm>
 
