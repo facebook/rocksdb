@@ -55,12 +55,12 @@ enum ChecksumType : char {
 // be affected by a block cache pinning setting (see `CachePinningOptinos`
 // below).
 enum class PinningTier {
-  // For compatibility, the default behavior currently is to select based on
-  // the deprecated options, `pin_l0_filter_and_index_blocks_in_cache` and
+  // For compatibility, this value specifies to fallback to the behavior
+  // indicated by the deprecated options,
+  // `pin_l0_filter_and_index_blocks_in_cache` and
   // `pin_top_level_index_and_filter`. When no overrides occur from those
-  // options being set (see their API documentation for exact overrides),
-  // the default setting is `kNone`.
-  kDefault,
+  // options (see their API documentation for exact overrides), `kNone` is used.
+  kFallback,
 
   // This tier contains no block-based tables.
   kNone,
@@ -85,14 +85,14 @@ struct CachePinningOptions {
   // Note `cache_index_and_filter_blocks` must be true for this option to have
   // any effect. Otherwise the top-level index of partitioned meta-blocks would
   // be held in table reader memory, outside the block cache.
-  PinningTier metablock_top_level_index_pinning = PinningTier::kDefault;
+  PinningTier metablock_top_level_index_pinning = PinningTier::kFallback;
 
   // The tier of block-based tables whose meta-block partitions will be pinned.
-  PinningTier metablock_partition_pinning = PinningTier::kDefault;
+  PinningTier metablock_partition_pinning = PinningTier::kFallback;
 
   // The tier of block-based tables whose unpartitioned meta-blocks will be
   // pinned.
-  PinningTier unpartitioned_metablock_pinning = PinningTier::kDefault;
+  PinningTier unpartitioned_metablock_pinning = PinningTier::kFallback;
 };
 
 // For advanced user only
