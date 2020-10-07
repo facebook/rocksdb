@@ -116,7 +116,8 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
 Status MergeHelper::MergeUntil(InternalIterator* iter,
                                CompactionRangeDelAggregator* range_del_agg,
                                const SequenceNumber stop_before,
-                               const bool at_bottom) {
+                               const bool at_bottom,
+                               const bool allow_data_in_errors) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   assert(HasOperator());
@@ -139,7 +140,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   // orig_ikey is backed by keys_.back() if !keys_.empty()
   ParsedInternalKey orig_ikey;
 
-  Status s = ParseInternalKey(original_key, &orig_ikey);
+  Status s = ParseInternalKey(original_key, &orig_ikey, allow_data_in_errors);
   assert(s.ok());
   if (!s.ok()) return s;
 
@@ -153,13 +154,12 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     ParsedInternalKey ikey;
     assert(keys_.size() == merge_context_.GetNumOperands());
 
-    Status pikStatus = ParseInternalKey(iter->key(), &ikey);
-    if (pikStatus != Status::OK()) {
+    Status pikStatus =
+        ParseInternalKey(iter->key(), &ikey, allow_data_in_errors);
+    if (!pikStatus.ok()) {
       // stop at corrupted key
       if (assert_valid_internal_key_) {
-        assert(!"Corrupted internal key not expected.");
-        return Status::Corruption("Corrupted internal key not expected. ",
-                                  pikStatus.getState());
+        return pikStatus;
       }
       break;
     } else if (first_key) {
@@ -269,7 +269,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         if (keys_.size() == 1) {
           // we need to re-anchor the orig_ikey because it was anchored by
           // original_key before
-          pikStatus = ParseInternalKey(keys_.back(), &orig_ikey);
+          pikStatus =
+              ParseInternalKey(keys_.back(), &orig_ikey, allow_data_in_errors);
           pikStatus.PermitUncheckedError();
           assert(pikStatus.ok());
         }

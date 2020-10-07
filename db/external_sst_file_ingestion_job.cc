@@ -313,8 +313,8 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
     ranges.emplace_back(file_to_ingest.smallest_internal_key.user_key(),
                         file_to_ingest.largest_internal_key.user_key());
   }
-  Status status =
-      cfd_->RangesOverlapWithMemtables(ranges, super_version, flush_needed);
+  Status status = cfd_->RangesOverlapWithMemtables(
+      ranges, super_version, flush_needed, db_options_.allow_data_in_errors);
   if (status.ok() && *flush_needed &&
       !ingestion_options_.allow_blocking_flush) {
     status = Status::InvalidArgument("External file requires flush");
@@ -603,7 +603,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   iter->SeekToFirst();
   if (iter->Valid()) {
     Status pikStatus = ParseInternalKey(iter->key(), &key, log_data);
-    if (pikStatus != Status::OK()) {
+    if (!pikStatus.ok()) {
       return Status::Corruption("Corrupted key in external file. ",
                                 pikStatus.getState());
     }

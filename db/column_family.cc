@@ -1082,8 +1082,8 @@ bool ColumnFamilyData::RangeOverlapWithCompaction(
 }
 
 Status ColumnFamilyData::RangesOverlapWithMemtables(
-    const autovector<Range>& ranges, SuperVersion* super_version,
-    bool* overlap) {
+    const autovector<Range>& ranges, SuperVersion* super_version, bool* overlap,
+    bool allow_data_in_errors) {
   assert(overlap != nullptr);
   *overlap = false;
   // Create an InternalIterator over all unflushed memtables
@@ -1118,8 +1118,8 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
     ParsedInternalKey seek_result;
 
     if (status.ok() && memtable_iter->Valid()) {
-      status =
-          ParseInternalKey(memtable_iter->key(), &seek_result, false);  // TODO
+      status = ParseInternalKey(memtable_iter->key(), &seek_result,
+                                allow_data_in_errors);
     }
 
     if (status.ok()) {

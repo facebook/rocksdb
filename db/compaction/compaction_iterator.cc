@@ -432,8 +432,8 @@ void CompactionIterator::NextFromInput() {
       // Check whether the next key exists, is not corrupt, and is the same key
       // as the single delete.
       if (input_->Valid() &&
-          ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_) ==
-              Status::OK() &&
+          ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_)
+              .ok() &&
           cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
         // Check whether the next key belongs to the same snapshot as the
         // SingleDelete.
@@ -581,8 +581,8 @@ void CompactionIterator::NextFromInput() {
       // range as the delete
       while (!IsPausingManualCompaction() && !IsShuttingDown() &&
              input_->Valid() &&
-             (ParseInternalKey(input_->key(), &next_ikey,
-                               allow_data_in_errors_) == Status::OK()) &&
+             ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_)
+                 .ok() &&
              cmp_->Equal(ikey_.user_key, next_ikey.user_key) &&
              (prev_snapshot == 0 ||
               DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
@@ -591,8 +591,8 @@ void CompactionIterator::NextFromInput() {
       // If you find you still need to output a row with this key, we need to output the
       // delete too
       if (input_->Valid() &&
-          (ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_) ==
-           Status::OK()) &&
+          ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_)
+              .ok() &&
           cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
         valid_ = true;
         at_next_ = true;
@@ -609,8 +609,9 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      Status s = merge_helper_->MergeUntil(input_, range_del_agg_,
-                                           prev_snapshot, bottommost_level_);
+      Status s =
+          merge_helper_->MergeUntil(input_, range_del_agg_, prev_snapshot,
+                                    bottommost_level_, allow_data_in_errors_);
       merge_out_iter_.SeekToFirst();
 
       if (!s.ok() && !s.IsMergeInProgress()) {

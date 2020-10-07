@@ -286,8 +286,7 @@ class InternalKey {
 
   bool Valid() const {
     ParsedInternalKey parsed;
-    return (ParseInternalKey(Slice(rep_), &parsed) == Status::OK()) ? true
-                                                                    : false;
+    return ParseInternalKey(Slice(rep_), &parsed).ok() ? true : false;
   }
 
   void DecodeFrom(const Slice& s) { rep_.assign(s.data(), s.size()); }
@@ -329,14 +328,14 @@ inline int InternalKeyComparator::Compare(const InternalKey& a,
 }
 
 inline Status ReturnCorruptKeyInfo(ParsedInternalKey* ikey, bool log_err_key) {
-  std::string msg("Invalid Key Type. ");
+  std::string msg("Corrupted Key. ");
 
   if (log_err_key) {
-    msg.append("Corrupt key: " + ikey->user_key.ToString(/*hex=*/true) + ". ");
+    msg.append("Key: " + ikey->user_key.ToString(/*hex=*/true) + ". ");
   }
 
-  msg.append("key type: " + std::to_string(ikey->type) + ".");
-  msg.append("seq: " + std::to_string(ikey->sequence) + ".");
+  msg.append("Key type: " + std::to_string(ikey->type) + ".");
+  msg.append("Seq: " + std::to_string(ikey->sequence) + ".");
 
   return Status::Corruption(msg.c_str());
 }
