@@ -71,7 +71,7 @@ class BlobFileReader {
                                        CompressionType compression_type,
                                        PinnableSlice* value);
 
-  static void SaveValue(PinnableSlice* dst, const Slice& src);
+  static void SaveValue(const Slice& src, PinnableSlice* dst);
 
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   uint64_t file_size_;

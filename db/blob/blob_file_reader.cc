@@ -384,7 +384,7 @@ Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
   assert(value);
 
   if (compression_type == kNoCompression) {
-    SaveValue(value, value_slice);
+    SaveValue(value_slice, value);
 
     return Status::OK();
   }
@@ -408,12 +408,12 @@ Status BlobFileReader::UncompressBlobIfNeeded(const Slice& value_slice,
     return Status::Corruption("Unable to uncompress blob");
   }
 
-  SaveValue(value, Slice(output.get(), uncompressed_size));
+  SaveValue(Slice(output.get(), uncompressed_size), value);
 
   return Status::OK();
 }
 
-void BlobFileReader::SaveValue(PinnableSlice* dst, const Slice& src) {
+void BlobFileReader::SaveValue(const Slice& src, PinnableSlice* dst) {
   assert(dst);
 
   if (dst->IsPinned()) {
