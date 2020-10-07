@@ -92,6 +92,10 @@ struct CachePinningOptions {
 
   // The tier of block-based tables whose unpartitioned meta-blocks will be
   // pinned.
+  //
+  // Note `cache_index_and_filter_blocks` must be true for this option to have
+  // any effect. Otherwise the unpartitioned meta-blocks would be held in table
+  // reader memory, outside the block cache.
   PinningTier unpartitioned_metablock_pinning = PinningTier::kFallback;
 };
 
