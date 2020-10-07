@@ -502,7 +502,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       create_missing_column_families(options.create_missing_column_families),
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
-      check_wal(options.track_and_verify_wals_in_manifest),
+      track_and_verify_wals_in_manifest(
+          options.track_and_verify_wals_in_manifest),
       env(options.env),
       fs(options.env->GetFileSystem()),
       rate_limiter(options.rate_limiter),
@@ -585,8 +586,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    create_if_missing);
   ROCKS_LOG_HEADER(log, "                        Options.paranoid_checks: %d",
                    paranoid_checks);
-  ROCKS_LOG_HEADER(log, "                              Options.check_wal: %d",
-                   check_wal);
+  ROCKS_LOG_HEADER(log,
+                   "                              "
+                   "Options.track_and_verify_wals_in_manifest: %d",
+                   track_and_verify_wals_in_manifest);
   ROCKS_LOG_HEADER(log, "                                    Options.env: %p",
                    env);
   ROCKS_LOG_HEADER(log, "                                     Options.fs: %s",
