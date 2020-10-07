@@ -314,7 +314,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
   }
 
   if (read_options.verify_checksums) {
-    const Status s = VerifyBlob(record_slice, user_key, key_size, value_size);
+    const Status s = VerifyBlob(record_slice, user_key, value_size);
     if (!s.ok()) {
       return s;
     }
@@ -334,10 +334,7 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
 }
 
 Status BlobFileReader::VerifyBlob(const Slice& record_slice,
-                                  const Slice& user_key, uint64_t key_size,
-                                  uint64_t value_size) {
-  assert(user_key.size() == key_size);
-
+                                  const Slice& user_key, uint64_t value_size) {
   BlobLogRecord record;
 
   const Slice header_slice(record_slice.data(), BlobLogRecord::kHeaderSize);
@@ -349,7 +346,7 @@ Status BlobFileReader::VerifyBlob(const Slice& record_slice,
     }
   }
 
-  if (record.key_size != key_size) {
+  if (record.key_size != user_key.size()) {
     return Status::Corruption("Key size mismatch when reading blob");
   }
 
@@ -363,7 +360,7 @@ Status BlobFileReader::VerifyBlob(const Slice& record_slice,
     return Status::Corruption("Key mismatch when reading blob");
   }
 
-  record.value = Slice(record.key.data() + key_size, value_size);
+  record.value = Slice(record.key.data() + record.key_size, value_size);
 
   {
     TEST_SYNC_POINT_CALLBACK("BlobFileReader::VerifyBlob:CheckBlobCRC",

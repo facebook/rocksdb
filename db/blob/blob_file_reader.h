@@ -65,7 +65,7 @@ class BlobFileReader {
                              AlignedBuf* aligned_buf);
 
   static Status VerifyBlob(const Slice& record_slice, const Slice& user_key,
-                           uint64_t key_size, uint64_t value_size);
+                           uint64_t value_size);
 
   static Status UncompressBlobIfNeeded(const Slice& value_slice,
                                        CompressionType compression_type,
