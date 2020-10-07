@@ -90,13 +90,13 @@ class DBOptionsTest : public DBTestBase {
 TEST_F(DBOptionsTest, CheckWalImmutable) {
   ASSERT_FALSE(db_options_type_info.at("check_wal").IsMutable());
   Options options;
-  options.check_wal = true;
+  options.track_and_verify_wals_in_manifest = true;
 
   ImmutableDBOptions db_options(options);
   ASSERT_TRUE(db_options.check_wal);
 
   Reopen(options);
-  ASSERT_TRUE(dbfull()->GetDBOptions().check_wal);
+  ASSERT_TRUE(dbfull()->GetDBOptions().track_and_verify_wals_in_manifest);
 
   Status s = dbfull()->SetDBOptions({{"check_wal", "false"}});
   ASSERT_TRUE(s.IsInvalidArgument());

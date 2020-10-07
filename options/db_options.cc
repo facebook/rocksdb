@@ -407,7 +407,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       create_missing_column_families(options.create_missing_column_families),
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
-      check_wal(options.check_wal),
+      check_wal(options.track_and_verify_wals_in_manifest),
       env(options.env),
       fs(options.env->GetFileSystem()),
       rate_limiter(options.rate_limiter),

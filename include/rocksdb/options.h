@@ -380,7 +380,7 @@ struct DBOptions {
   // No matter whether this is true or false, the WAL information are always
   // tracked by MANIFEST.
   // Default: false
-  bool check_wal = false;
+  bool track_and_verify_wals_in_manifest = false;
 
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc. In the near
