@@ -1899,7 +1899,7 @@ TEST_F(DBBasicTest, MultiGetStats) {
   for (int i = 0; i < 500; ++i) {
     keys_str[i] = "k" + std::to_string(i);
     keys[i] = Slice(keys_str[i]);
-    Put(1, "k" + std::to_string(i), rnd.RandomString(1000));
+    ASSERT_OK(Put(1, "k" + std::to_string(i), rnd.RandomString(1000)));
     if (i % 100 == 0) {
       Flush(1);
     }
@@ -1910,7 +1910,7 @@ TEST_F(DBBasicTest, MultiGetStats) {
   for (int i = 501; i < 1000; ++i) {
     keys_str[i] = "k" + std::to_string(i);
     keys[i] = Slice(keys_str[i]);
-    Put(1, "k" + std::to_string(i), rnd.RandomString(1000));
+    ASSERT_OK(Put(1, "k" + std::to_string(i), rnd.RandomString(1000)));
     if (i % 100 == 0) {
       Flush(1);
     }
@@ -1922,7 +1922,7 @@ TEST_F(DBBasicTest, MultiGetStats) {
   for (int i = 1001; i < total_keys; ++i) {
     keys_str[i] = "k" + std::to_string(i);
     keys[i] = Slice(keys_str[i]);
-    Put(1, "k" + std::to_string(i), rnd.RandomString(1000));
+    ASSERT_OK(Put(1, "k" + std::to_string(i), rnd.RandomString(1000)));
     if (i % 100 == 0) {
       Flush(1);
     }
@@ -1931,7 +1931,7 @@ TEST_F(DBBasicTest, MultiGetStats) {
   Close();
 
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  options.statistics->Reset();
+  ASSERT_OK(options.statistics->Reset());
 
   db_->MultiGet(read_opts, handles_[1], total_keys, keys.data(), values.data(),
                 s.data(), false);
