@@ -51,6 +51,50 @@ enum ChecksumType : char {
   kxxHash64 = 0x3,
 };
 
+// `PinningTier` is used to specify which tier of block-based tables should
+// be affected by a block cache pinning setting (see `CachePinningOptinos`
+// below).
+enum class PinningTier {
+  // For compatibility, the default behavior currently is to select based on
+  // the deprecated options, `pin_l0_filter_and_index_blocks_in_cache` and
+  // `pin_top_level_index_and_filter`. When no overrides occur from those
+  // options being set (see their API documentation for exact overrides),
+  // the default setting is `kNone`.
+  kDefault,
+
+  // This tier contains no block-based tables.
+  kNone,
+
+  // This tier contains block-based tables that may have originated from a
+  // memtable flush. In particular, it includes tables from L0 that are smaller
+  // than 1.5 times the current `write_buffer_size`. Note these criteria imply
+  // it can include intra-L0 compaction outputs and ingested files, as long as
+  // they are not abnormally large for L0.
+  kMaybeFlushed,
+
+  // This tier contains all block-based tables.
+  kAll,
+};
+
+// `CachePinningOptions` contains members indicating the desired block cache
+// pinning behavior for the different categories of blocks.
+struct CachePinningOptions {
+  // The tier of block-based tables whose top-level index of partitioned
+  // meta-blocks will be pinned.
+  //
+  // Note `cache_index_and_filter_blocks` must be true for this option to have
+  // any effect. Otherwise the top-level index of partitioned meta-blocks would
+  // be held in table reader memory, outside the block cache.
+  PinningTier metablock_top_level_index_pinning = PinningTier::kDefault;
+
+  // The tier of block-based tables whose meta-block partitions will be pinned.
+  PinningTier metablock_partition_pinning = PinningTier::kDefault;
+
+  // The tier of block-based tables whose unpartitioned meta-blocks will be
+  // pinned.
+  PinningTier unpartitioned_metablock_pinning = PinningTier::kDefault;
+};
+
 // For advanced user only
 struct BlockBasedTableOptions {
   static const char* kName() { return "BlockTableOptions"; };
@@ -79,18 +123,44 @@ struct BlockBasedTableOptions {
   // than data blocks.
   bool cache_index_and_filter_blocks_with_high_priority = true;
 
+  // DEPRECATED: This option will be removed in a future version. For now, this
+  // option still takes effect on relevant `CachePinningOptions` members that
+  // are set to `PinningTier::kDefault`. In particular, the overrides from
+  // setting this option (and the changes users should make to migrate away from
+  // setting this option) are:
+  //
+  // - `metablock_partition_pinning == PinningTier::kDefault` ->
+  //   `metablock_partition_pinning == PinningTier::kMaybeFlushed`
+  // - `unpartitioned_metablock_pinning == PinningTier::kDefault` ->
+  //   `unpartitioned_metablock_pinning == PinningTier::kMaybeFlushed`
+  //
   // if cache_index_and_filter_blocks is true and the below is true, then
   // filter and index blocks are stored in the cache, but a reference is
   // held in the "table reader" object so the blocks are pinned and only
   // evicted from cache when the table reader is freed.
   bool pin_l0_filter_and_index_blocks_in_cache = false;
 
+  // DEPRECATED: This option will be removed in a future version. For now, this
+  // option still takes effect on relevant `CachePinningOptions` members that
+  // are set to `PinningTier::kDefault`. In particular, the override from
+  // setting this option (and the change users should make to migrate away from
+  // setting this option) is:
+  //
+  // - `metablock_top_level_index_pinning == PinningTier::kDefault` ->
+  //   `metablock_top_level_index_pinning == PinningTier::kAll`
+  //
   // If cache_index_and_filter_blocks is true and the below is true, then
   // the top-level index of partitioned filter and index blocks are stored in
   // the cache, but a reference is held in the "table reader" object so the
   // blocks are pinned and only evicted from cache when the table reader is
   // freed. This is not limited to l0 in LSM tree.
   bool pin_top_level_index_and_filter = true;
+
+  // The desired block cache pinning behavior for the different categories of
+  // blocks. While pinning can reduce block cache contention, users must take
+  // care not to pin excessive amounts of data, which risks overflowing block
+  // cache.
+  CachePinningOptions cache_pinning_options;
 
   // The index type that will be used for this table.
   enum IndexType : char {
