@@ -661,6 +661,7 @@ ifdef ASSERT_STATUS_CHECKED
 		column_family_test \
 		file_reader_writer_test \
 		corruption_test \
+		db_universal_compaction_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
