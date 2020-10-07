@@ -11,7 +11,6 @@
 #include <unordered_set>
 
 #include "db/blob/blob_log_format.h"
-#include "db/blob/blob_log_reader.h"
 #include "db/blob/blob_log_writer.h"
 #include "file/random_access_file_reader.h"
 #include "port/port.h"
