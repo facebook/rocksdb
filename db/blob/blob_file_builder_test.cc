@@ -14,7 +14,7 @@
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
-#include "db/blob/blob_log_reader.h"
+#include "db/blob/blob_log_sequential_reader.h"
 #include "env/composite_env_wrapper.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
