@@ -277,8 +277,7 @@ void CompactionIterator::NextFromInput() {
       // If `expect_valid_internal_key_` is false, return the corrupted key
       // and let the caller decide what to do with it.
       if (expect_valid_internal_key_) {
-        status_ = Status::Corruption("Corrupted internal key not expected. ",
-                                     pikStatus.getState());
+        status_ = pikStatus;
         return;
       }
       key_ = current_key_.SetInternalKey(key_);
