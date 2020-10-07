@@ -88,19 +88,22 @@ class DBOptionsTest : public DBTestBase {
 };
 
 TEST_F(DBOptionsTest, CheckWalImmutable) {
-  ASSERT_FALSE(db_options_type_info.at("check_wal").IsMutable());
+  ASSERT_FALSE(
+      db_options_type_info.at("track_and_verify_wals_in_manifest").IsMutable());
   Options options;
   options.track_and_verify_wals_in_manifest = true;
 
   ImmutableDBOptions db_options(options);
-  ASSERT_TRUE(db_options.check_wal);
+  ASSERT_TRUE(db_options.track_and_verify_wals_in_manifest);
 
   Reopen(options);
   ASSERT_TRUE(dbfull()->GetDBOptions().track_and_verify_wals_in_manifest);
 
-  Status s = dbfull()->SetDBOptions({{"check_wal", "false"}});
+  Status s =
+      dbfull()->SetDBOptions({{"track_and_verify_wals_in_manifest", "false"}});
   ASSERT_TRUE(s.IsInvalidArgument());
-  ASSERT_TRUE(s.ToString().find("Option not changeable: check_wal") !=
+  ASSERT_TRUE(s.ToString().find(
+                  "Option not changeable: track_and_verify_wals_in_manifest") !=
               std::string::npos);
 }
 
