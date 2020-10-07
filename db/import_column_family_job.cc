@@ -252,15 +252,21 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
 
   // Get first (smallest) key from file
   iter->SeekToFirst();
-  if (ParseInternalKey(iter->key(), &key) != Status::OK()) {
-    return Status::Corruption("external file have corrupted keys");
+  Status pikStatus =
+      ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
+  if (pikStatus != Status::OK()) {
+    return Status::Corruption("Corrupted Key in external file. ",
+                              pikStatus.getState());
   }
   file_to_import->smallest_internal_key.SetFrom(key);
 
   // Get last (largest) key from file
   iter->SeekToLast();
-  if (ParseInternalKey(iter->key(), &key) != Status::OK()) {
-    return Status::Corruption("external file have corrupted keys");
+  pikStatus =
+      ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
+  if (pikStatus != Status::OK()) {
+    return Status::Corruption("Corrupted Key in external file. ",
+                              pikStatus.getState());
   }
   file_to_import->largest_internal_key.SetFrom(key);
 

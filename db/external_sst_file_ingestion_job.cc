@@ -599,22 +599,27 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   file_to_ingest->largest_internal_key =
       InternalKey("", 0, ValueType::kTypeValue);
   bool bounds_set = false;
+  bool log_data = db_options_.allow_data_in_errors;
   iter->SeekToFirst();
   if (iter->Valid()) {
-    if (ParseInternalKey(iter->key(), &key) != Status::OK()) {
-      return Status::Corruption("external file have corrupted keys");
+    Status pikStatus = ParseInternalKey(iter->key(), &key, log_data);
+    if (pikStatus != Status::OK()) {
+      return Status::Corruption("Corrupted key in external file. ",
+                                pikStatus.getState());
     }
     if (key.sequence != 0) {
-      return Status::Corruption("external file have non zero sequence number");
+      return Status::Corruption("External file has non zero sequence number");
     }
     file_to_ingest->smallest_internal_key.SetFrom(key);
 
     iter->SeekToLast();
-    if (ParseInternalKey(iter->key(), &key) != Status::OK()) {
-      return Status::Corruption("external file have corrupted keys");
+    pikStatus = ParseInternalKey(iter->key(), &key, log_data);
+    if (pikStatus != Status::OK()) {
+      return Status::Corruption("Corrupted key in external file. ",
+                                pikStatus.getState());
     }
     if (key.sequence != 0) {
-      return Status::Corruption("external file have non zero sequence number");
+      return Status::Corruption("External file has non zero sequence number");
     }
     file_to_ingest->largest_internal_key.SetFrom(key);
 
@@ -627,8 +632,11 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   if (range_del_iter != nullptr) {
     for (range_del_iter->SeekToFirst(); range_del_iter->Valid();
          range_del_iter->Next()) {
-      if (ParseInternalKey(range_del_iter->key(), &key) != Status::OK()) {
-        return Status::Corruption("external file have corrupted keys");
+      Status pikStatus =
+          ParseInternalKey(range_del_iter->key(), &key, log_data);
+      if (pikStatus != Status::OK()) {
+        return Status::Corruption("Corrupted key in external file. ",
+                                  pikStatus.getState());
       }
       RangeTombstone tombstone(key, range_del_iter->value());
 

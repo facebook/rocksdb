@@ -166,7 +166,8 @@ extern void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
 //
 // On error, returns false, leaves "*result" in an undefined state.
 extern Status ParseInternalKey(const Slice& internal_key,
-                               ParsedInternalKey* result);
+                               ParsedInternalKey* result,
+                               bool log_err_key = true);
 
 // Returns the user key portion of an internal key.
 inline Slice ExtractUserKey(const Slice& internal_key) {
@@ -327,21 +328,41 @@ inline int InternalKeyComparator::Compare(const InternalKey& a,
   return Compare(a.Encode(), b.Encode());
 }
 
-inline Status ParseInternalKey(const Slice& internal_key,
-                               ParsedInternalKey* result) {
-  const size_t n = internal_key.size();
-  if (n < kNumInternalBytes) {
-    return Status::Corruption("Internal Key too small");
+inline Status ReturnCorruptKeyInfo(ParsedInternalKey* ikey, bool log_err_key) {
+  std::string msg("Invalid Key Type. ");
+
+  if (log_err_key) {
+    msg.append("Corrupt key: " + ikey->user_key.ToString(/*hex=*/true) + ". ");
   }
+
+  msg.append("key type: " + std::to_string(ikey->type) + ".");
+  msg.append("seq: " + std::to_string(ikey->sequence) + ".");
+
+  return Status::Corruption(msg.c_str());
+}
+
+inline Status ParseInternalKey(const Slice& internal_key,
+                               ParsedInternalKey* result, bool log_err_key) {
+  const size_t n = internal_key.size();
+
+  if (n < kNumInternalBytes) {
+    std::string msg("Internal Key too small. ");
+    msg.append("Size: " + std::to_string(n) + ". ");
+    return Status::Corruption(msg.c_str());
+  }
+
   uint64_t num = DecodeFixed64(internal_key.data() + n - kNumInternalBytes);
   unsigned char c = num & 0xff;
   result->sequence = num >> 8;
   result->type = static_cast<ValueType>(c);
   assert(result->type <= ValueType::kMaxValue);
   result->user_key = Slice(internal_key.data(), n - kNumInternalBytes);
-  return IsExtendedValueType(result->type)
-             ? Status::OK()
-             : Status::Corruption("Invalid Key Type");
+
+  if (IsExtendedValueType(result->type)) {
+    return Status::OK();
+  } else {
+    return ReturnCorruptKeyInfo(result, log_err_key);
+  }
 }
 
 // Update the sequence number in the internal key.
