@@ -894,7 +894,7 @@ class DBBlockCachePinningTest
           std::tuple<PinningTier, PinningTier, PinningTier>> {
  public:
   DBBlockCachePinningTest()
-      : DBTestBase("/db_block_cache_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("/db_block_cache_test", /*env_do_fsync=*/false) {}
 
   void SetUp() override {
     metablock_top_level_index_pinning_ = std::get<0>(GetParam());
@@ -908,13 +908,20 @@ class DBBlockCachePinningTest
 };
 
 TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
+  // Creates one file in L0 and one file in L1. Both files have enough data that
+  // their index and filter blocks are partitioned. The L1 file will also have
+  // a compression dictionary (those are trained only during compaction), which
+  // must be unpartitioned.
   const int kKeySize = 32;
   const int kBlockSize = 128;
   const int kNumBlocksPerFile = 128;
   const int kNumKeysPerFile = kBlockSize * kNumBlocksPerFile / kKeySize;
 
   Options options = CurrentOptions();
-  options.compression = kZSTD;
+  // `kNoCompression` makes the unit test more portable. But it relies on the
+  // current behavior of persisting/accessing dictionary even when there's no
+  // (de)compression happening, which seems fairly likely to change over time.
+  options.compression = kNoCompression;
   options.compression_opts.max_dict_bytes = 4 << 10;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
@@ -936,10 +943,6 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
 
-  // Creates one file in L0 and one file in L1. Both files have enough data that
-  // their index and filter blocks are partitioned. The L1 file will also have
-  // a compression dictionary (those are trained only during compaction), which
-  // must be unpartitioned.
   Random rnd(301);
   for (int i = 0; i < 2; ++i) {
     for (int j = 0; j < kNumKeysPerFile; ++j) {

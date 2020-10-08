@@ -129,13 +129,13 @@ struct BlockBasedTableOptions {
 
   // DEPRECATED: This option will be removed in a future version. For now, this
   // option still takes effect on relevant `CachePinningOptions` members that
-  // are set to `PinningTier::kDefault`. In particular, the overrides from
+  // are set to `PinningTier::kFallback`. In particular, the overrides from
   // setting this option (and the changes users should make to migrate away from
   // setting this option) are:
   //
-  // - `metablock_partition_pinning == PinningTier::kDefault` ->
+  // - `metablock_partition_pinning == PinningTier::kFallback` ->
   //   `metablock_partition_pinning == PinningTier::kMaybeFlushed`
-  // - `unpartitioned_metablock_pinning == PinningTier::kDefault` ->
+  // - `unpartitioned_metablock_pinning == PinningTier::kFallback` ->
   //   `unpartitioned_metablock_pinning == PinningTier::kMaybeFlushed`
   //
   // if cache_index_and_filter_blocks is true and the below is true, then
@@ -146,11 +146,11 @@ struct BlockBasedTableOptions {
 
   // DEPRECATED: This option will be removed in a future version. For now, this
   // option still takes effect on relevant `CachePinningOptions` members that
-  // are set to `PinningTier::kDefault`. In particular, the override from
+  // are set to `PinningTier::kFallback`. In particular, the override from
   // setting this option (and the change users should make to migrate away from
   // setting this option) is:
   //
-  // - `metablock_top_level_index_pinning == PinningTier::kDefault` ->
+  // - `metablock_top_level_index_pinning == PinningTier::kFallback` ->
   //   `metablock_top_level_index_pinning == PinningTier::kAll`
   //
   // If cache_index_and_filter_blocks is true and the below is true, then
