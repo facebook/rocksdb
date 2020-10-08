@@ -1,8 +1,8 @@
 /**
  * Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
- *  This source code is licensed under both the GPLv2 (found in the
- *  COPYING file in the root directory) and Apache 2.0 License
- *  (found in the LICENSE.Apache file in the root directory).
+ * This source code is licensed under both the GPLv2 (found in the
+ * COPYING file in the root directory) and Apache 2.0 License
+ * (found in the LICENSE.Apache file in the root directory).
  */
 package org.rocksdb.jmh;
 
@@ -19,7 +19,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.rocksdb.util.KVUtils.*;
+import static org.rocksdb.util.KVUtils.ba;
 
 @State(Scope.Benchmark)
 public class GetBenchmarks {
@@ -43,6 +43,7 @@ public class GetBenchmarks {
 
   Path dbDir;
   DBOptions options;
+  ReadOptions readOptions;
   int cfs = 0;  // number of column families
   private AtomicInteger cfHandlesIdx;
   ColumnFamilyHandle[] cfHandles;
@@ -62,6 +63,7 @@ public class GetBenchmarks {
     options = new DBOptions()
         .setCreateIfMissing(true)
         .setCreateMissingColumnFamilies(true);
+    readOptions = new ReadOptions();
 
     final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
     cfDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
@@ -88,8 +90,8 @@ public class GetBenchmarks {
     // store initial data for retrieving via get
     keyArr = new byte[keySize];
     valueArr = new byte[valueSize];
-    Arrays.fill(keyArr, (byte)0x30);
-    Arrays.fill(valueArr, (byte)0x30);
+    Arrays.fill(keyArr, (byte) 0x30);
+    Arrays.fill(valueArr, (byte) 0x30);
     for (int i = 0; i <= cfs; i++) {
       for (int j = 0; j < keyCount; j++) {
         final byte[] keyPrefix = ba("key" + j);
@@ -101,14 +103,14 @@ public class GetBenchmarks {
     }
 
     try (final FlushOptions flushOptions = new FlushOptions()
-            .setWaitForFlush(true)) {
+        .setWaitForFlush(true)) {
       db.flush(flushOptions);
     }
 
     keyBuf = ByteBuffer.allocateDirect(keySize);
     valueBuf = ByteBuffer.allocateDirect(valueSize);
-    Arrays.fill(keyArr, (byte)0x30);
-    Arrays.fill(valueArr, (byte)0x30);
+    Arrays.fill(keyArr, (byte) 0x30);
+    Arrays.fill(valueArr, (byte) 0x30);
     keyBuf.put(keyArr);
     keyBuf.flip();
     valueBuf.put(valueArr);
@@ -122,13 +124,14 @@ public class GetBenchmarks {
     }
     db.close();
     options.close();
+    readOptions.close();
     FileUtils.delete(dbDir);
   }
 
   private ColumnFamilyHandle getColumnFamily() {
     if (cfs == 0) {
       return cfHandles[0];
-    }  else if (cfs == 1) {
+    } else if (cfs == 1) {
       return cfHandles[1];
     } else {
       int idx = cfHandlesIdx.getAndIncrement();
@@ -166,7 +169,7 @@ public class GetBenchmarks {
     final int keyIdx = next();
     final byte[] keyPrefix = ba("key" + keyIdx);
     System.arraycopy(keyPrefix, 0, keyArr, 0, keyPrefix.length);
-    Arrays.fill(keyArr, keyPrefix.length, MAX_LEN, (byte)0x30);
+    Arrays.fill(keyArr, keyPrefix.length, MAX_LEN, (byte) 0x30);
     return keyArr;
   }
 
@@ -176,10 +179,10 @@ public class GetBenchmarks {
     final int keyIdx = next();
     final String keyStr = "key" + keyIdx;
     for (int i = 0; i < keyStr.length(); ++i) {
-      keyBuf.put(i, (byte)keyStr.charAt(i));
+      keyBuf.put(i, (byte) keyStr.charAt(i));
     }
     for (int i = keyStr.length(); i < MAX_LEN; ++i) {
-      keyBuf.put(i, (byte)0x30);
+      keyBuf.put(i, (byte) 0x30);
     }
     // Reset position for future reading
     keyBuf.position(0);
@@ -211,7 +214,7 @@ public class GetBenchmarks {
 
   @Benchmark
   public void preallocatedByteBufferGet() throws RocksDBException {
-    int res = db.get(getColumnFamily(), new ReadOptions(), getKeyBuf(), getValueBuf());
+    int res = db.get(getColumnFamily(), readOptions, getKeyBuf(), getValueBuf());
     // For testing correctness:
 //    assert res > 0;
 //    final byte[] ret = new byte[valueSize];
@@ -222,11 +225,13 @@ public class GetBenchmarks {
 
   @Benchmark
   public void preallocatedByteBufferValueOnlyGet() throws RocksDBException {
-    int res = db.get(getColumnFamily(), new ReadOptions(), getKeyArr(), getValueBuf());
+    int res = db.get(getColumnFamily(), readOptions, getKeyArr(), getValueBuf());
   }
 
   @Benchmark
   public void unsafeGet() throws RocksDBException {
-    long[] ret = db.getUnsafe(getColumnFamily(), new ReadOptions(), getKeyArr());
+    PinnableSlice pinnableSlice = db.getUnsafe(getColumnFamily(), readOptions, getKeyArr());
+    // assert pinnableSlice.capacity() > 0;
+    pinnableSlice.close();
   }
 }

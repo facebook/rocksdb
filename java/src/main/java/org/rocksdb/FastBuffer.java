@@ -11,11 +11,11 @@ import java.nio.BufferUnderflowException;
  * Internally it operates on off-heap memory via {@link sun.misc.Unsafe}.
  */
 public class FastBuffer extends RocksMutableObject {
-  private static Unsafe unsafe = null;
+  private static Unsafe unsafe;
 
   private boolean isUnsafeAllocated;
 
-  private int position = 0;
+  private int position;
   private int limit;
   private int capacity;
 
@@ -28,6 +28,7 @@ public class FastBuffer extends RocksMutableObject {
     this.isUnsafeAllocated = isUnsafeAllocated;
     this.limit = capacity;
     this.capacity = capacity;
+    this.position = 0;
 
     if (null == unsafe) {
       initializeUnsafe();
@@ -53,7 +54,7 @@ public class FastBuffer extends RocksMutableObject {
   }
 
   /**
-   * Returns this buffer's capacity. </p>
+   * Returns this buffer's capacity.
    *
    * @return  The capacity of this buffer
    */
@@ -62,7 +63,7 @@ public class FastBuffer extends RocksMutableObject {
   }
 
   /**
-   * Returns this buffer's position. </p>
+   * Returns this buffer's position.
    *
    * @return  The position of this buffer
    */
@@ -71,8 +72,8 @@ public class FastBuffer extends RocksMutableObject {
   }
 
   /**
-   * Sets this buffer's position.  If the mark is defined and larger than the
-   * new position then it is discarded. </p>
+   * Sets this buffer's position. If the mark is defined and larger than the
+   * new position then it is discarded.
    *
    * @param  newPosition
    *         The new position value; must be non-negative
@@ -91,7 +92,7 @@ public class FastBuffer extends RocksMutableObject {
   }
 
   /**
-   * Returns this buffer's limit. </p>
+   * Returns this buffer's limit.
    *
    * @return  The limit of this buffer
    */
@@ -102,7 +103,7 @@ public class FastBuffer extends RocksMutableObject {
   /**
    * Sets this buffer's limit.  If the position is larger than the new limit
    * then it is set to the new limit.  If the mark is defined and larger than
-   * the new limit then it is discarded. </p>
+   * the new limit then it is discarded.
    *
    * @param  newLimit
    *         The new limit value; must be non-negative
@@ -149,7 +150,7 @@ public class FastBuffer extends RocksMutableObject {
 
   /**
    * Returns the number of elements between the current position and the
-   * limit. </p>
+   * limit.
    *
    * @return  The number of elements remaining in this buffer
    */
@@ -159,7 +160,7 @@ public class FastBuffer extends RocksMutableObject {
 
   /**
    * Tells whether there are any elements between the current position and
-   * the limit. </p>
+   * the limit.
    *
    * @return  <tt>true</tt> if, and only if, there is at least one element
    *          remaining in this buffer
@@ -170,7 +171,7 @@ public class FastBuffer extends RocksMutableObject {
 
   /**
    * Relative <i>get</i> method.  Reads the byte at this buffer's
-   * current position, and then increments the position. </p>
+   * current position, and then increments the position.
    *
    * @return The byte at the buffer's current position
    * @throws BufferUnderflowException If the buffer's current position is not smaller than its limit
@@ -179,7 +180,7 @@ public class FastBuffer extends RocksMutableObject {
     if (position >= limit) {
       throw new BufferUnderflowException();
     }
-    return unsafe.getByte(getNativeHandle() + position);
+    return unsafe.getByte(getNativeHandle() + position++);
   }
 
   /**
@@ -202,7 +203,7 @@ public class FastBuffer extends RocksMutableObject {
 
   /**
    * Absolute <i>get</i> method.  Reads the byte at the given
-   * index. </p>
+   * index.
    *
    * @param index The index from which the byte will be read
    * @return The byte at the given index
@@ -237,7 +238,7 @@ public class FastBuffer extends RocksMutableObject {
   }
 
   @Override
-  protected void disposeInternal(long handle) {
+  protected void disposeInternal(final long handle) {
     if (isUnsafeAllocated) {
       assert getNativeHandle() == handle;
       unsafe.freeMemory(handle);

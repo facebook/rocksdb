@@ -291,25 +291,16 @@ public class RocksDBTest {
 
   @Test
   public void getUnsafe() throws RocksDBException {
-    Unsafe unsafe;
-    try {
-      Field f = Unsafe.class.getDeclaredField("theUnsafe");
-      f.setAccessible(true);
-      unsafe = (Unsafe) f.get(null);
-    } catch(Exception e) {
-      throw new RuntimeException(e);
-    }
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
          final ReadOptions optr = new ReadOptions()) {
       final byte[] key1 = "key1".getBytes();
       final byte[] value1 = "value1".getBytes();
       db.put(key1, value1);
-      long[] memory = db.getUnsafe(db.getDefaultColumnFamily(), optr, key1);
-      byte[] ret = new byte[(int)memory[1]];
-      for (int i = 0; i < memory[1]; ++i) {
-        ret[i] = unsafe.getByte(memory[0] + i);
+      try (PinnableSlice pinnableSlice = db.getUnsafe(db.getDefaultColumnFamily(), optr, key1)) {
+        for (int i = 0; i < pinnableSlice.capacity(); ++i) {
+          assertEquals(value1[i], pinnableSlice.get());
+        }
       }
-      assertArrayEquals(value1, ret);
     }
   }
 

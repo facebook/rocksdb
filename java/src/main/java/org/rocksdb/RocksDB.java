@@ -1333,6 +1333,26 @@ public class RocksDB extends RocksObject {
     return result;
   }
 
+  /**
+   * Get the value associated with the specified key within column family.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
+   * @param key the key to retrieve the value.
+   * @param value the out-value to receive the retrieved value.
+   *     It is using position and limit. Limit is set according to value size.
+   *     Supports direct buffer only.
+   * @return The size of the actual value that matches the specified
+   *     {@code key} in byte.  If the return value is greater than the
+   *     length of {@code value}, then it indicates that the size of the
+   *     input buffer {@code value} is insufficient and partial result will
+   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
+   *     found.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
   public int get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
                  final byte[] key, final ByteBuffer value) throws RocksDBException {
     assert value.isDirect();
@@ -1344,9 +1364,26 @@ public class RocksDB extends RocksObject {
     return result;
   }
 
-  public long[] getUnsafe(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
+  /**
+   * Get the value associated with the specified key within column family.
+   * This method has best performance with large values
+   * with at least a couple of kilobytes.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
+   * @param key the key to retrieve the value.
+   * @return An object, which has ownership of native array
+   *     and uses {@link sun.misc.Unsafe} to access it.
+   *     Once you finish using it, call {@link PinnableSlice#close()}
+   *     to free the memory.
+   */
+  @Experimental("Performance optimization for retrieving large values")
+  public PinnableSlice getUnsafe(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
                  final byte[] key) throws RocksDBException {
-    return getUnsafe(nativeHandle_, opt.nativeHandle_, key, 0, key.length, columnFamilyHandle.nativeHandle_);
+    long[] valData = new long[2];
+    int size = getUnsafe(nativeHandle_, opt.nativeHandle_, key, 0, key.length, valData, columnFamilyHandle.nativeHandle_);
+    return new PinnableSlice(valData[0], valData[1], size);
   }
 
   /**
@@ -4712,8 +4749,9 @@ public class RocksDB extends RocksObject {
   private native int getDirect(long handle, long readOptHandle, final byte[] key, int keyOffset,
                                int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
       throws RocksDBException;
-  private static native long[] getUnsafe(final long handle, final long readOptHandle, final byte[] key,
-      final int keyOffset, final int keyLength, final long cfHandle)
+  private static native int getUnsafe(final long handle, final long readOptHandle, final byte[] key,
+                                         final int keyOffset, final int keyLength, final long[] valData,
+                                         final long cfHandle)
       throws RocksDBException;
   private native void deleteDirect(long handle, long optHandle, ByteBuffer key, int keyOffset,
       int keyLength, long cfHandle) throws RocksDBException;

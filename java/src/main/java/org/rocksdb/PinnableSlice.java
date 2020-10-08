@@ -1,5 +1,9 @@
 package org.rocksdb;
 
+/**
+ * Object for using and managing native PinnableSlice object.
+ * See {@link FastBuffer} for methods to access its data.
+ */
 public class PinnableSlice extends FastBuffer {
 
   private long pinnableSliceHandle;
@@ -13,7 +17,7 @@ public class PinnableSlice extends FastBuffer {
 
   @SuppressWarnings("unused")
   @Override
-  protected void disposeInternal(long handle) {
+  protected void disposeInternal(final long handle) {
     deletePinnableSlice(pinnableSliceHandle);
   }
 

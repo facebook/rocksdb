@@ -1269,71 +1269,65 @@ jint Java_org_rocksdb_RocksDB_getDirect__JJ_3BIILjava_nio_ByteBuffer_2IIJ(
   return cvalue_len;
 }
 
-jlongArray rocksdb_get_unsafe_helper(
+jint rocksdb_get_unsafe_helper(
     JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
     const ROCKSDB_NAMESPACE::ReadOptions& read_options,
     ROCKSDB_NAMESPACE::ColumnFamilyHandle* column_family_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len, bool* has_exception) {
-  jbyte* key = new jbyte[jkey_len];
-  env->GetByteArrayRegion(jkey, jkey_off, jkey_len, key);
-  if (env->ExceptionCheck()) {
-    // exception thrown: OutOfMemoryError
-    delete[] key;
-    *has_exception = true;
-    return nullptr;
-  }
-  ROCKSDB_NAMESPACE::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+    jbyteArray jkey, jint jkey_off, jint jkey_len, jlongArray jret_data, bool* has_exception) {
+  static const int kNotFound = -1;
+  static const int kStatusError = -2;
 
-  std::string cvalue;
+  char* key = reinterpret_cast<char*>(
+      env->GetPrimitiveArrayCritical(jkey, nullptr));
+  if (nullptr == key) {
+    // Exception occurred
+    *has_exception = true;
+    return kStatusError;
+  }
+
+  char* key_start_ptr = key + jkey_off;
+  ROCKSDB_NAMESPACE::Slice key_slice(key_start_ptr, jkey_len);
+
+  auto* value_slice = new ROCKSDB_NAMESPACE::PinnableSlice();
   ROCKSDB_NAMESPACE::Status s;
-  s = db->Get(read_options, column_family_handle, key_slice, &cvalue);
+  s = db->Get(read_options, column_family_handle, key_slice, value_slice);
 
   // cleanup
-  delete[] key;
+  env->ReleasePrimitiveArrayCritical(jkey, key, JNI_ABORT);
 
   if (s.IsNotFound()) {
     *has_exception = false;
-    return nullptr;
+    return kNotFound;
   } else if (!s.ok()) {
     *has_exception = true;
-    return nullptr;
+    return kStatusError;
   }
 
-  // TODO: check if we need to copy
-  jbyte* ret = new jbyte[cvalue.size()];
-  memcpy(ret, cvalue.c_str(), cvalue.size());
-  const jlong jsz = static_cast<jlong>(cvalue.size());
-  jlongArray jret_arr = env->NewLongArray(2);
-  if (nullptr == jret_arr) {
-    // exception thrown: OutOfMemoryError
-    return nullptr;
+  jboolean is_copy;
+  jlong* ret_arr = reinterpret_cast<jlong*>(env->GetPrimitiveArrayCritical(jret_data, &is_copy));
+  if (nullptr == ret_arr) {
+    // Exception occurred
+    *has_exception = true;
+    return kStatusError;
   }
-  env->SetLongArrayRegion(
-      jret_arr, 0, 1, reinterpret_cast<jlong*>(&ret));
-  if (env->ExceptionCheck()) {
-    // exception thrown: ArrayIndexOutOfBoundsException
-    env->DeleteLocalRef(jret_arr);
-    return nullptr;
-  }
-  env->SetLongArrayRegion(
-      jret_arr, 1, 1, const_cast<jlong*>(reinterpret_cast<const jlong*>(&jsz)));
-  if (env->ExceptionCheck()) {
-    // exception thrown: ArrayIndexOutOfBoundsException
-    env->DeleteLocalRef(jret_arr);
-    return nullptr;
-  }
+  ret_arr[0] = reinterpret_cast<jlong>(value_slice);
+  ret_arr[1] = reinterpret_cast<jlong>(value_slice->data());
+
+  env->ReleasePrimitiveArrayCritical(jret_data, ret_arr, is_copy ? 0 : JNI_ABORT);
+
   *has_exception = false;
-  return jret_arr;
+
+  return static_cast<jint>(value_slice->size_);
 }
 
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    getUnsafe
- * Signature: (JJ[BIIJ)J
+ * Signature: (JJ[BII[JJ)V
  */
-jlongArray Java_org_rocksdb_RocksDB_getUnsafe
+jint Java_org_rocksdb_RocksDB_getUnsafe
   (JNIEnv *env, jclass, jlong jdb_handle, jlong jropt_handle,
-  jbyteArray jkey, jint jkey_off, jint jkey_len, jlong jcf_handle) {
+  jbyteArray jkey, jint jkey_off, jint jkey_len, jlongArray jret_data, jlong jcf_handle) {
   auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto& ro_opt =
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle);
@@ -1342,14 +1336,14 @@ jlongArray Java_org_rocksdb_RocksDB_getUnsafe
   if (cf_handle != nullptr) {
     bool has_exception = false;
     return rocksdb_get_unsafe_helper(env, db_handle, ro_opt, cf_handle,
-        jkey, jkey_off, jkey_len,
+        jkey, jkey_off, jkey_len, jret_data,
         &has_exception);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
                  "Invalid ColumnFamilyHandle."));
-    // will never be evaluated
-    return nullptr;
+    return 0;
+
   }
 }
 
@@ -1707,6 +1701,7 @@ jint rocksdb_get_helper(
   if (env->ExceptionCheck()) {
     // exception thrown: ArrayIndexOutOfBoundsException
     delete[] key;
+    *has_exception = true;
     return kStatusError;
   }
 

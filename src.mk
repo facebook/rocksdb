@@ -577,6 +577,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/remove_emptyvalue_compactionfilterjni.cc      \
   java/rocksjni/cassandra_compactionfilterjni.cc              \
   java/rocksjni/cassandra_value_operator.cc                   \
+  java/rocksjni/pinnable_slice.cc                             \
   java/rocksjni/restorejni.cc                                 \
   java/rocksjni/rocks_callback_object.cc                      \
   java/rocksjni/rocksjni.cc                                   \
