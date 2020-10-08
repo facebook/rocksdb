@@ -578,6 +578,7 @@ ifdef ASSERT_STATUS_CHECKED
 		blob_file_addition_test \
 		blob_file_builder_test \
 		blob_file_garbage_test \
+		blob_file_reader_test \
 		bloom_test \
 		cassandra_format_test \
 		cassandra_row_merge_test \
@@ -611,6 +612,7 @@ ifdef ASSERT_STATUS_CHECKED
 		inlineskiplist_test \
 		io_posix_test \
 		iostats_context_test \
+		ldb_cmd_test \
 		memkind_kmem_allocator_test \
 		merger_test \
 		mock_env_test \
@@ -662,6 +664,9 @@ ifdef ASSERT_STATUS_CHECKED
 		file_reader_writer_test \
 		corruption_test \
 		db_universal_compaction_test \
+		import_column_family_test \
+		memory_test \
+		table_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
@@ -1908,6 +1913,9 @@ blob_file_builder_test: $(OBJ_DIR)/db/blob/blob_file_builder_test.o $(TEST_LIBRA
 	$(AM_LINK)
 
 blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+blob_file_reader_test: $(OBJ_DIR)/db/blob/blob_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 timer_test: $(OBJ_DIR)/util/timer_test.o $(TEST_LIBRARY) $(LIBRARY)

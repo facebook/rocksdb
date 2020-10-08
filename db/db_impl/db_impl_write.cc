@@ -125,7 +125,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                                      ? batch_cnt
                                      // every key is a sub-batch consuming a seq
                                      : WriteBatchInternal::Count(my_batch);
-    uint64_t seq;
+    uint64_t seq = 0;
     // Use a write thread to i) optimize for WAL write, ii) publish last
     // sequence in in increasing order, iii) call pre_release_callback serially
     Status status = WriteImplWALOnly(
