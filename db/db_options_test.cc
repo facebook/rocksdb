@@ -606,6 +606,7 @@ TEST_F(DBOptionsTest, MaxOpenFilesChange) {
 
 TEST_F(DBOptionsTest, SanitizeDelayedWriteRate) {
   Options options;
+  options.env = CurrentOptions().env;
   options.delayed_write_rate = 0;
   Reopen(options);
   ASSERT_EQ(16 * 1024 * 1024, dbfull()->GetDBOptions().delayed_write_rate);
@@ -617,6 +618,7 @@ TEST_F(DBOptionsTest, SanitizeDelayedWriteRate) {
 
 TEST_F(DBOptionsTest, SanitizeUniversalTTLCompaction) {
   Options options;
+  options.env = CurrentOptions().env;
   options.compaction_style = kCompactionStyleUniversal;
 
   options.ttl = 0;
@@ -646,6 +648,7 @@ TEST_F(DBOptionsTest, SanitizeUniversalTTLCompaction) {
 
 TEST_F(DBOptionsTest, SanitizeTtlDefault) {
   Options options;
+  options.env = CurrentOptions().env;
   Reopen(options);
   ASSERT_EQ(30 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
 
@@ -662,6 +665,7 @@ TEST_F(DBOptionsTest, SanitizeTtlDefault) {
 TEST_F(DBOptionsTest, SanitizeFIFOPeriodicCompaction) {
   Options options;
   options.compaction_style = kCompactionStyleFIFO;
+  options.env = CurrentOptions().env;
   options.ttl = 0;
   Reopen(options);
   ASSERT_EQ(30 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
@@ -687,6 +691,7 @@ TEST_F(DBOptionsTest, SanitizeFIFOPeriodicCompaction) {
 
 TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   Options options;
+  options.env = CurrentOptions().env;
   options.compaction_style = kCompactionStyleFIFO;
   options.write_buffer_size = 10 << 10;  // 10KB
   options.arena_block_size = 4096;
@@ -826,6 +831,7 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   options.compaction_style = kCompactionStyleFIFO;
   options.write_buffer_size = 10 << 10;  // 10KB
   options.create_if_missing = true;
+  options.env = CurrentOptions().env;
 
   ASSERT_OK(TryReopen(options));
 
@@ -879,6 +885,7 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   options.bottommost_compression = CompressionType::kNoCompression;
   options.bottommost_compression_opts.level = 2;
   options.bottommost_compression_opts.parallel_threads = 1;
+  options.env = CurrentOptions().env;
 
   ASSERT_OK(TryReopen(options));
 

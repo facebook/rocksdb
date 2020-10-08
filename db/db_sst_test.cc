@@ -125,6 +125,7 @@ TEST_F(DBSSTTest, SSTsWithLdbSuffixHandling) {
   }
   ASSERT_GT(num_ldb_files, 0);
   ASSERT_EQ(num_files, GetSstFileCount(dbname_));
+  printf("MJR: Reopening ldb=%d total=%d\n", num_ldb_files, num_files);
 
   Reopen(options);
   for (int k = 0; k < key_id; ++k) {
@@ -141,6 +142,7 @@ TEST_F(DBSSTTest, SkipCheckingSSTFileSizesOnDBOpen) {
 
   // Just open the DB with the option set to true and check that we don't crash.
   Options options;
+  options.env = env_;
   options.skip_checking_sst_file_sizes_on_db_open = true;
   Reopen(options);
 
@@ -519,7 +521,7 @@ TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
     bool fake_log_delete;
   };
 
-  std::unique_ptr<MyEnv> env(new MyEnv(Env::Default()));
+  std::unique_ptr<MyEnv> env(new MyEnv(env_));
   Destroy(last_options_);
 
   env->set_fake_log_delete(true);

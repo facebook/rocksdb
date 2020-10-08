@@ -262,7 +262,7 @@ class FileSystem {
   virtual IOStatus ReopenWritableFile(
       const std::string& /*fname*/, const FileOptions& /*options*/,
       std::unique_ptr<FSWritableFile>* /*result*/, IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported();
+    return IOStatus::NotSupported("ReopenWritableFile");
   }
 
   // Reuse an existing file by renaming it and opening it as writable.
@@ -523,7 +523,7 @@ class FileSystem {
                                 const IOOptions& /*options*/,
                                 uint64_t* /*diskfree*/,
                                 IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported();
+    return IOStatus::NotSupported("GetFreeSpace");
   }
 
   virtual IOStatus IsDirectory(const std::string& /*path*/,
@@ -584,7 +584,7 @@ class FSSequentialFile {
                                   const IOOptions& /*options*/,
                                   Slice* /*result*/, char* /*scratch*/,
                                   IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported();
+    return IOStatus::NotSupported("PositionedRead");
   }
 
   // If you're adding methods here, remember to add them to
@@ -638,7 +638,7 @@ class FSRandomAccessFile {
   virtual IOStatus Prefetch(uint64_t /*offset*/, size_t /*n*/,
                             const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported();
+    return IOStatus::NotSupported("Prefetch");
   }
 
   // Read a bunch of blocks as described by reqs. The blocks can
@@ -770,7 +770,7 @@ class FSWritableFile {
                                     uint64_t /* offset */,
                                     const IOOptions& /*options*/,
                                     IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported();
+    return IOStatus::NotSupported("PositionedAppend");
   }
 
   // EXPERIMENTAL / CURRENTLY UNUSED
@@ -782,7 +782,7 @@ class FSWritableFile {
       const IOOptions& /*options*/,
       const DataVerificationInfo& /* verification_info */,
       IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported();
+    return IOStatus::NotSupported("PositionedAppend");
   }
 
   // Truncate is necessary to trim the file to the correct size

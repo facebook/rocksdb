@@ -721,8 +721,8 @@ class VersionSetTestBase {
     }
     env_ = mem_env_ ? mem_env_ : base_env;
 
-    fs_ = std::make_shared<LegacyFileSystemWrapper>(env_);
-    EXPECT_OK(env_->CreateDirIfMissing(dbname_));
+    fs_ = env_->GetFileSystem();
+    EXPECT_OK(fs_->CreateDirIfMissing(dbname_, IOOptions(), nullptr));
 
     db_options_.env = env_;
     db_options_.fs = fs_;
