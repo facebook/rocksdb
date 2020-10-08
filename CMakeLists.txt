@@ -575,7 +575,7 @@ set(SOURCES
         db/blob/blob_file_meta.cc
         db/blob/blob_file_reader.cc
         db/blob/blob_log_format.cc
-        db/blob/blob_log_reader.cc
+        db/blob/blob_log_sequential_reader.cc
         db/blob/blob_log_writer.cc
         db/builder.cc
         db/c.cc
