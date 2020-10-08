@@ -91,10 +91,7 @@ TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
 
   Status s =
       dbfull()->SetDBOptions({{"track_and_verify_wals_in_manifest", "false"}});
-  ASSERT_TRUE(s.IsInvalidArgument());
-  ASSERT_TRUE(s.ToString().find(
-                  "Option not changeable: track_and_verify_wals_in_manifest") !=
-              std::string::npos);
+  ASSERT_TRUE(s.IsNotFound());
 }
 
 // RocksDB lite don't support dynamic options.
