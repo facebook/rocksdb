@@ -888,6 +888,140 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
 
 #endif  // ROCKSDB_LITE
 
+class DBBlockCachePinningTest
+    : public DBTestBase,
+      public testing::WithParamInterface<
+          std::tuple<PinningTier, PinningTier, PinningTier>> {
+ public:
+  DBBlockCachePinningTest()
+      : DBTestBase("/db_block_cache_test", /*env_do_fsync=*/true) {}
+
+  void SetUp() override {
+    metablock_top_level_index_pinning_ = std::get<0>(GetParam());
+    metablock_partition_pinning_ = std::get<1>(GetParam());
+    unpartitioned_metablock_pinning_ = std::get<2>(GetParam());
+  }
+
+  PinningTier metablock_top_level_index_pinning_;
+  PinningTier metablock_partition_pinning_;
+  PinningTier unpartitioned_metablock_pinning_;
+};
+
+TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
+  const int kKeySize = 32;
+  const int kBlockSize = 128;
+  const int kNumBlocksPerFile = 128;
+  const int kNumKeysPerFile = kBlockSize * kNumBlocksPerFile / kKeySize;
+
+  Options options = CurrentOptions();
+  options.compression = kZSTD;
+  options.compression_opts.max_dict_bytes = 4 << 10;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(1 << 20 /* capacity */);
+  table_options.block_size = kBlockSize;
+  table_options.metadata_block_size = kBlockSize;
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.cache_pinning_options.metablock_top_level_index_pinning =
+      metablock_top_level_index_pinning_;
+  table_options.cache_pinning_options.metablock_partition_pinning =
+      metablock_partition_pinning_;
+  table_options.cache_pinning_options.unpartitioned_metablock_pinning =
+      unpartitioned_metablock_pinning_;
+  table_options.filter_policy.reset(
+      NewBloomFilterPolicy(10 /* bits_per_key */));
+  table_options.index_type =
+      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  table_options.partition_filters = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  // Creates one file in L0 and one file in L1. Both files have enough data that
+  // their index and filter blocks are partitioned. The L1 file will also have
+  // a compression dictionary (those are trained only during compaction), which
+  // must be unpartitioned.
+  Random rnd(301);
+  for (int i = 0; i < 2; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kKeySize)));
+    }
+    ASSERT_OK(Flush());
+    if (i == 0) {
+      // Prevent trivial move so file will be rewritten with dictionary and
+      // reopened with L1's pinning settings.
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    }
+  }
+
+  // Clear all unpinned blocks so pinned blocks will count as a cache hit upon
+  // access.
+  table_options.block_cache->EraseUnRefEntries();
+
+  // Get base cache values
+  uint64_t filter_misses = TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
+  uint64_t index_misses = TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS);
+  uint64_t compression_dict_misses =
+      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS);
+
+  // Read a key from the L0 file
+  Get(Key(kNumKeysPerFile));
+  uint64_t expected_filter_misses = filter_misses;
+  uint64_t expected_index_misses = index_misses;
+  uint64_t expected_compression_dict_misses = compression_dict_misses;
+  if (metablock_top_level_index_pinning_ == PinningTier::kNone) {
+    ++expected_filter_misses;
+    ++expected_index_misses;
+  }
+  if (metablock_partition_pinning_ == PinningTier::kNone) {
+    ++expected_filter_misses;
+    ++expected_index_misses;
+  }
+  ASSERT_EQ(expected_filter_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(expected_index_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(expected_compression_dict_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
+
+  // Clear all unpinned blocks so they will count as a cache miss upon access.
+  table_options.block_cache->EraseUnRefEntries();
+
+  // Read a key from the L1 file
+  Get(Key(0));
+  if (metablock_top_level_index_pinning_ == PinningTier::kNone ||
+      metablock_top_level_index_pinning_ == PinningTier::kMaybeFlushed) {
+    ++expected_filter_misses;
+    ++expected_index_misses;
+  }
+  if (metablock_partition_pinning_ == PinningTier::kNone ||
+      metablock_partition_pinning_ == PinningTier::kMaybeFlushed) {
+    ++expected_filter_misses;
+    ++expected_index_misses;
+  }
+  if (unpartitioned_metablock_pinning_ == PinningTier::kNone ||
+      unpartitioned_metablock_pinning_ == PinningTier::kMaybeFlushed) {
+    ++expected_compression_dict_misses;
+  }
+  ASSERT_EQ(expected_filter_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(expected_index_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(expected_compression_dict_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
+}
+
+INSTANTIATE_TEST_CASE_P(
+    DBBlockCachePinningTest, DBBlockCachePinningTest,
+    ::testing::Combine(
+        ::testing::Values(PinningTier::kNone, PinningTier::kMaybeFlushed,
+                          PinningTier::kAll),
+        ::testing::Values(PinningTier::kNone, PinningTier::kMaybeFlushed,
+                          PinningTier::kAll),
+        ::testing::Values(PinningTier::kNone, PinningTier::kMaybeFlushed,
+                          PinningTier::kAll)));
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
