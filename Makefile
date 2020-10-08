@@ -612,6 +612,7 @@ ifdef ASSERT_STATUS_CHECKED
 		inlineskiplist_test \
 		io_posix_test \
 		iostats_context_test \
+		ldb_cmd_test \
 		memkind_kmem_allocator_test \
 		merger_test \
 		mock_env_test \

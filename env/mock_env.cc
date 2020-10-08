@@ -394,9 +394,11 @@ class TestMemLogger : public Logger {
       assert(p <= limit);
       const size_t write_size = p - base;
 
-      file_->Append(Slice(base, write_size));
-      flush_pending_ = true;
-      log_size_ += write_size;
+      Status s = file_->Append(Slice(base, write_size));
+      if (s.ok()) {
+        flush_pending_ = true;
+        log_size_ += write_size;
+      }
       uint64_t now_micros =
           static_cast<uint64_t>(now_tv.tv_sec) * 1000000 + now_tv.tv_usec;
       if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {
