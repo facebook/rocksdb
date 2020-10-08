@@ -588,6 +588,7 @@ ifdef ASSERT_STATUS_CHECKED
 		crc32c_test \
 		dbformat_test \
 		db_basic_test \
+		db_blob_basic_test \
 		db_flush_test \
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
@@ -687,6 +688,7 @@ endif
 # Not necessarily well thought out or up-to-date, but matches old list
 TESTS_PLATFORM_DEPENDENT := \
 	db_basic_test \
+	db_blob_basic_test \
 	db_with_timestamp_basic_test \
 	db_encryption_test \
 	db_test2 \
@@ -1460,6 +1462,9 @@ slice_transform_test: $(OBJ_DIR)/util/slice_transform_test.o $(TEST_LIBRARY) $(L
 	$(AM_LINK)
 
 db_basic_test: $(OBJ_DIR)/db/db_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+db_blob_basic_test: $(OBJ_DIR)/db/blob/db_blob_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_with_timestamp_basic_test: $(OBJ_DIR)/db/db_with_timestamp_basic_test.o $(TEST_LIBRARY) $(LIBRARY)

@@ -1098,6 +1098,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "db_blob_basic_test",
+        "db/blob/db_blob_basic_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "db_blob_index_test",
         "db/blob/db_blob_index_test.cc",
         "serial",
