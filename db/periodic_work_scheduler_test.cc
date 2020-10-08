@@ -13,8 +13,9 @@ namespace ROCKSDB_NAMESPACE {
 class PeriodicWorkSchedulerTest : public DBTestBase {
  public:
   PeriodicWorkSchedulerTest()
-      : DBTestBase("/periodic_work_scheduler_test", /*env_do_fsync=*/true),
-        mock_env_(new MockTimeEnv(Env::Default())) {}
+      : DBTestBase("/periodic_work_scheduler_test", /*env_do_fsync=*/true) {
+    mock_env_.reset(new MockTimeEnv(env_));
+  }
 
  protected:
   std::unique_ptr<MockTimeEnv> mock_env_;

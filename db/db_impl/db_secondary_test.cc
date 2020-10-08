@@ -469,6 +469,7 @@ TEST_F(DBSecondaryTest, MissingTableFile) {
         if (s.IsPathNotFound()) {
           ++table_files_not_exist;
         } else if (!s.ok()) {
+          printf("MJR: Status=%s\b", s.ToString().c_str());
           assert(false);  // Should not reach here
         }
       });
@@ -883,6 +884,7 @@ TEST_F(DBSecondaryTest, StartFromInconsistent) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   Options options1;
+  options1.env = env_;
   Status s = TryOpenSecondary(options1);
   ASSERT_TRUE(s.IsCorruption());
 }
@@ -894,6 +896,7 @@ TEST_F(DBSecondaryTest, InconsistencyDuringCatchUp) {
   ASSERT_OK(Flush());
 
   Options options1;
+  options1.env = env_;
   OpenSecondary(options1);
 
   {

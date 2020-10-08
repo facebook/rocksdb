@@ -5023,7 +5023,7 @@ TEST_F(DBCompactionTest, ManualCompactionFailsInReadOnlyMode) {
   // is in read-only mode. Verify it now at least returns, despite failing.
   const int kNumL0Files = 4;
   std::unique_ptr<FaultInjectionTestEnv> mock_env(
-      new FaultInjectionTestEnv(Env::Default()));
+      new FaultInjectionTestEnv(env_));
   Options opts = CurrentOptions();
   opts.disable_auto_compactions = true;
   opts.env = mock_env.get();

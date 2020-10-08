@@ -2976,7 +2976,7 @@ class DeadlineFS : public FileSystemWrapper {
   // or to simply delay but return success anyway. The latter mimics the
   // behavior of PosixFileSystem, which does not enforce any timeout
   explicit DeadlineFS(SpecialEnv* env, bool error_on_delay)
-      : FileSystemWrapper(FileSystem::Default()),
+      : FileSystemWrapper(env->GetFileSystem()),
         deadline_(std::chrono::microseconds::zero()),
         io_timeout_(std::chrono::microseconds::zero()),
         env_(env),

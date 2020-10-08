@@ -676,7 +676,7 @@ class TableFileCreationListener : public EventListener {
  public:
   class TestEnv : public EnvWrapper {
    public:
-    TestEnv() : EnvWrapper(Env::Default()) {}
+    TestEnv(Env* target) : EnvWrapper(target) {}
 
     void SetStatus(Status s) { status_ = s; }
 
@@ -688,7 +688,7 @@ class TableFileCreationListener : public EventListener {
           return status_;
         }
       }
-      return Env::Default()->NewWritableFile(fname, result, options);
+      return target()->NewWritableFile(fname, result, options);
     }
 
    private:
@@ -766,7 +766,6 @@ class TableFileCreationListener : public EventListener {
     }
   }
 
-  TestEnv test_env;
   int started_[2];
   int finished_[2];
   int failure_[2];
@@ -775,9 +774,11 @@ class TableFileCreationListener : public EventListener {
 TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   auto listener = std::make_shared<TableFileCreationListener>();
   Options options;
+  std::unique_ptr<TableFileCreationListener::TestEnv> test_env(
+      new TableFileCreationListener::TestEnv(CurrentOptions().env));
   options.create_if_missing = true;
   options.listeners.push_back(listener);
-  options.env = &listener->test_env;
+  options.env = test_env.get();
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("foo", "aaa"));
@@ -785,13 +786,12 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   ASSERT_OK(Flush());
   dbfull()->TEST_WaitForFlushMemTable();
   listener->CheckAndResetCounters(1, 1, 0, 0, 0, 0);
-
   ASSERT_OK(Put("foo", "aaa1"));
   ASSERT_OK(Put("bar", "bbb1"));
-  listener->test_env.SetStatus(Status::NotSupported("not supported"));
+  test_env->SetStatus(Status::NotSupported("not supported"));
   ASSERT_NOK(Flush());
   listener->CheckAndResetCounters(1, 1, 1, 0, 0, 0);
-  listener->test_env.SetStatus(Status::OK());
+  test_env->SetStatus(Status::OK());
 
   Reopen(options);
   ASSERT_OK(Put("foo", "aaa2"));
@@ -809,10 +809,11 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   ASSERT_OK(Put("foo", "aaa3"));
   ASSERT_OK(Put("bar", "bbb3"));
   ASSERT_OK(Flush());
-  listener->test_env.SetStatus(Status::NotSupported("not supported"));
+  test_env->SetStatus(Status::NotSupported("not supported"));
   dbfull()->CompactRange(CompactRangeOptions(), &kRangeStart, &kRangeEnd);
   dbfull()->TEST_WaitForCompact();
   listener->CheckAndResetCounters(1, 1, 0, 1, 1, 1);
+  Close();
 }
 
 class MemTableSealedListener : public EventListener {
@@ -833,6 +834,7 @@ public:
 TEST_F(EventListenerTest, MemTableSealedListenerTest) {
   auto listener = std::make_shared<MemTableSealedListener>();
   Options options;
+  options.env = CurrentOptions().env;
   options.create_if_missing = true;
   options.listeners.push_back(listener);
   DestroyAndReopen(options);
@@ -1066,7 +1068,7 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
   TestFileOperationListener* listener = new TestFileOperationListener();
   options.listeners.emplace_back(listener);
 
-  options.use_direct_io_for_flush_and_compaction = true;
+  options.use_direct_io_for_flush_and_compaction = false;
   Status s = TryReopen(options);
   if (s.IsInvalidArgument()) {
     options.use_direct_io_for_flush_and_compaction = false;
@@ -1104,7 +1106,27 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
 
 #endif  // ROCKSDB_LITE
 
+#include <execinfo.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+void handler(int sig) {
+  void* array[10];
+  size_t size;
+
+  // get void*'s for all entries on the stack
+  size = backtrace(array, 10);
+
+  // print out all the frames to stderr
+  fprintf(stderr, "Error: signal %d:\n", sig);
+  backtrace_symbols_fd(array, (int)size, STDERR_FILENO);
+  exit(1);
+}
+
 int main(int argc, char** argv) {
+  signal(SIGSEGV, handler);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
