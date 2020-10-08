@@ -91,7 +91,7 @@ TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
 
   Status s =
       dbfull()->SetDBOptions({{"track_and_verify_wals_in_manifest", "false"}});
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_FALSE(s.ok());
 }
 
 // RocksDB lite don't support dynamic options.
