@@ -56,7 +56,9 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
   for (; iter->Valid(); iter->Next()) {
     ParsedInternalKey ikey;
     Status pikStatus = ParseInternalKey(iter->key(), &ikey);
-    if (!pikStatus.ok()) return pikStatus;
+    if (!pikStatus.ok()) {
+      return pikStatus;
+    }
 
     if (!end_key.empty() &&
         icmp.user_comparator()->Compare(ikey.user_key, end_key) > 0) {
