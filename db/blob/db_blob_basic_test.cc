@@ -43,6 +43,30 @@ TEST_F(DBBlobBasicTest, GetBlob) {
                   .IsIncomplete());
 }
 
+TEST_F(DBBlobBasicTest, GetBlob_CorruptIndex) {
+  Options options;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+
+  // Fake a corrupt blob index.
+  const std::string blob_index("foobar");
+
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, key, blob_index));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  ASSERT_OK(Flush());
+
+  PinnableSlice result;
+  ASSERT_TRUE(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result)
+                  .IsCorruption());
+}
+
 TEST_F(DBBlobBasicTest, GetBlob_InlinedTTLIndex) {
   constexpr uint64_t min_blob_size = 10;
 
