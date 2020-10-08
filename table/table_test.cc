@@ -252,9 +252,11 @@ class KeyConvertingIterator : public InternalIterator {
   Slice key() const override {
     assert(Valid());
     ParsedInternalKey parsed_key;
-    if (ParseInternalKey(iter_->key(), &parsed_key) != Status::OK()) {
-      status_ = Status::Corruption("malformed internal key");
-      return Slice("corrupted key");
+    Status pikStatus = ParseInternalKey(iter_->key(), &parsed_key);
+    if (!pikStatus.ok()) {
+      status_ =
+          Status::Corruption("malformed internal key. ", pikStatus.getState());
+      return Slice(pikStatus.getState());
     }
     return parsed_key.user_key;
   }

@@ -207,8 +207,9 @@ Status MockTableReader::Get(const ReadOptions&, const Slice& key,
   std::unique_ptr<MockTableIterator> iter(new MockTableIterator(table_));
   for (iter->Seek(key); iter->Valid(); iter->Next()) {
     ParsedInternalKey parsed_key;
-    if (ParseInternalKey(iter->key(), &parsed_key) != Status::OK()) {
-      return Status::Corruption(Slice());
+    Status pikStatus = ParseInternalKey(iter->key(), &parsed_key);
+    if (!pikStatus.ok()) {
+      return pikStatus;
     }
 
     bool dont_care __attribute__((__unused__));

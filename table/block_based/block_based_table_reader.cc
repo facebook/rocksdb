@@ -2352,7 +2352,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         // Call the *saver function on each entry/block until it returns false
         for (; biter.Valid(); biter.Next()) {
           ParsedInternalKey parsed_key;
-          if (ParseInternalKey(biter.key(), &parsed_key) != Status::OK()) {
+          if (!ParseInternalKey(biter.key(), &parsed_key, false)
+                   .ok()) {  // TODO
             s = Status::Corruption(Slice());
           }
 
@@ -2673,7 +2674,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           ParsedInternalKey parsed_key;
           Cleanable dummy;
           Cleanable* value_pinner = nullptr;
-          if (ParseInternalKey(biter->key(), &parsed_key) != Status::OK()) {
+          if (!ParseInternalKey(biter->key(), &parsed_key).ok(),
+              false) {  // TODO
             s = Status::Corruption(Slice());
           }
           if (biter->IsValuePinned()) {

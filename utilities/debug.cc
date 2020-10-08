@@ -55,10 +55,8 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
   size_t num_keys = 0;
   for (; iter->Valid(); iter->Next()) {
     ParsedInternalKey ikey;
-    if (ParseInternalKey(iter->key(), &ikey) != Status::OK()) {
-      return Status::Corruption("Internal Key [" + iter->key().ToString() +
-                                "] parse error!");
-    }
+    Status pikStatus = ParseInternalKey(iter->key(), &ikey);
+    if (!pikStatus.ok()) return pikStatus;
 
     if (!end_key.empty() &&
         icmp.user_comparator()->Compare(ikey.user_key, end_key) > 0) {

@@ -33,7 +33,8 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
   if (smallest != nullptr) {
     pinned_bounds_.emplace_back();
     auto& parsed_smallest = pinned_bounds_.back();
-    Status pikStatus = ParseInternalKey(smallest->Encode(), &parsed_smallest);
+    Status pikStatus =
+        ParseInternalKey(smallest->Encode(), &parsed_smallest, false);  // TODO
     pikStatus.PermitUncheckedError();
     assert(pikStatus.ok());
 
@@ -43,7 +44,8 @@ TruncatedRangeDelIterator::TruncatedRangeDelIterator(
     pinned_bounds_.emplace_back();
     auto& parsed_largest = pinned_bounds_.back();
 
-    Status pikStatus = ParseInternalKey(largest->Encode(), &parsed_largest);
+    Status pikStatus =
+        ParseInternalKey(largest->Encode(), &parsed_largest, false);  // TODO
     pikStatus.PermitUncheckedError();
     assert(pikStatus.ok());
 
