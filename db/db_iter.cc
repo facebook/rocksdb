@@ -436,11 +436,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               &last_key,
               ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion));
         } else {
-          std::string min_ts(timestamp_size_, static_cast<char>(0));
+          const std::string kTsMin(timestamp_size_, static_cast<char>(0));
           AppendInternalKeyWithDifferentTimestamp(
               &last_key,
               ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion),
-              min_ts);
+              kTsMin);
         }
         // Don't set skipping_saved_key = false because we may still see more
         // user-keys equal to saved_key_.
