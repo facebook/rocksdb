@@ -42,6 +42,7 @@
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/persistent_stats_history.h"
+#include "options/options_helper.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -4120,6 +4121,8 @@ Status VersionSet::ProcessManifestWrites(
         descriptor_file->SetPreallocationBlockSize(
             db_options_->manifest_preallocation_size);
 
+        bool should_checksum_handoff = ShouldChecksumHandoff(FileType::kDescriptorFile,
+                                    db_options_->checksum_handoff_file_types);
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
             std::move(descriptor_file), descriptor_fname, opt_file_opts, clock_,
             io_tracer_, nullptr, db_options_->listeners));

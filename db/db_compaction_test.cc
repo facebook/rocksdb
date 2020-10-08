@@ -22,6 +22,7 @@
 #include "util/concurrent_task_limiter_impl.h"
 #include "util/random.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -6272,6 +6273,96 @@ TEST_F(DBCompactionTest, CompactionWithBlobGCError_IndexWithInvalidFileNumber) {
 
   ASSERT_TRUE(
       db_->CompactRange(CompactRangeOptions(), begin, end).IsCorruption());
+}
+
+TEST_F(DBCompactionTest, CompactionWithChecksumHandoff) {
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 3;
+  options.env = fault_fs_env.get();
+  options.create_if_missing = true;
+  options.checksum_handoff_file_types.push_back(FileType::kTableFile);
+  Status s;
+  Reopen(options);
+
+  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  ASSERT_OK(Put(Key(0), "value1"));
+  ASSERT_OK(Put(Key(2), "value2"));
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(Put(Key(1), "value3"));
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+  s = dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(s, Status::OK());
+  Destroy(options);
+  Reopen(options);
+
+  // The hash does not match, compaction write fails
+  // fault_fs->SetChecksumHandoffFuncName("xxhash");
+  // Since the file system returns IOStatus::Corruption, it is an
+  // unrecoverable error.
+  ASSERT_OK(Put(Key(0), "value1"));
+  ASSERT_OK(Put(Key(2), "value2"));
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::FlushMemTable:FlushMemTableFinished",
+        "BackgroundCallCompaction:0"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:0", [&](void*) {
+        fault_fs->SetChecksumHandoffFuncName("xxhash");
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put(Key(1), "value3"));
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+  s = dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  Destroy(options);
+  Reopen(options);
+
+  // The file system does not support checksum handoff. The check
+  // will be ignored.
+  fault_fs->SetChecksumHandoffFuncName("");
+  ASSERT_OK(Put(Key(0), "value1"));
+  ASSERT_OK(Put(Key(2), "value2"));
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(Put(Key(1), "value3"));
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+  s = dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(s, Status::OK());
+
+  // Each write will be similated as corrupted.
+  // Since the file system returns IOStatus::Corruption, it is an
+  // unrecoverable error.
+  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  ASSERT_OK(Put(Key(0), "value1"));
+  ASSERT_OK(Put(Key(2), "value2"));
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::FlushMemTable:FlushMemTableFinished",
+        "BackgroundCallCompaction:0"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BackgroundCallCompaction:0", [&](void*) {
+        fault_fs->IngestDataCorruptionBeforeWrite();
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Put(Key(1), "value3"));
+  s = Flush();
+  ASSERT_EQ(s, Status::OK());
+  s = dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  Destroy(options);
 }
 
 #endif  // !defined(ROCKSDB_LITE)

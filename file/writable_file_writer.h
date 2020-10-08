@@ -153,7 +153,8 @@ class WritableFileWriter {
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
-      FileChecksumGenFactory* file_checksum_gen_factory = nullptr)
+      FileChecksumGenFactory* file_checksum_gen_factory = nullptr,
+      bool perform_data_verification = false)
       : file_name_(_file_name),
         writable_file_(std::move(file), io_tracer, _file_name),
         clock_(clock),
@@ -170,7 +171,8 @@ class WritableFileWriter {
         stats_(stats),
         listeners_(),
         checksum_generator_(nullptr),
-        checksum_finalized_(false) {
+        checksum_finalized_(false),
+        perform_data_verification_(perform_data_verification) {
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());

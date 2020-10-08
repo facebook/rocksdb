@@ -46,6 +46,7 @@
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -1738,10 +1739,12 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->OutputFilePreallocationSize()));
   const auto& listeners =
       sub_compact->compaction->immutable_cf_options()->listeners;
+  bool should_checksum_handoff = ShouldChecksumHandoff(FileType::kTableFile,
+                                    db_options_.checksum_handoff_file_types);
   sub_compact->outfile.reset(new WritableFileWriter(
       std::move(writable_file), fname, file_options_, clock_, io_tracer_,
       db_options_.statistics.get(), listeners,
-      db_options_.file_checksum_gen_factory.get()));
+      db_options_.file_checksum_gen_factory.get(), should_checksum_handoff));
 
   // If the Column family flag is to only optimize filters for hits,
   // we can skip creating filters if this is the bottommost_level where

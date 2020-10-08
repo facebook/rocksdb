@@ -64,11 +64,9 @@ class TestFSWritableFile : public FSWritableFile {
   virtual ~TestFSWritableFile();
   virtual IOStatus Append(const Slice& data, const IOOptions&,
                           IODebugContext*) override;
-  virtual IOStatus Append(const Slice& data, const IOOptions& options,
-                          const DataVerificationInfo& /*verification_info*/,
-                          IODebugContext* dbg) override {
-    return Append(data, options, dbg);
-  }
+  virtual IOStatus Append(const Slice& data, const IOOptions&,
+                          const DataVerificationInfo& verification_info,
+                          IODebugContext*) override;
   virtual IOStatus Truncate(uint64_t size, const IOOptions& options,
                             IODebugContext* dbg) override {
     return target_->Truncate(size, options, dbg);
@@ -174,7 +172,9 @@ class FaultInjectionTestFS : public FileSystemWrapper {
         filesystem_writable_(false),
         thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)),
         enable_write_error_injection_(false),
-        write_error_rand_(0) {}
+        write_error_rand_(0),
+        ingest_data_corruption_before_write_(false) {
+  }
   virtual ~FaultInjectionTestFS() { error_.PermitUncheckedError(); }
 
   const char* Name() const override { return "FaultInjectionTestFS"; }
@@ -289,6 +289,32 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     MutexLock l(&mutex_);
     io_error.PermitUncheckedError();
     error_ = io_error;
+  }
+
+  // To simulate the data corruption before data is written in FS
+  void IngestDataCorruptionBeforeWrite() {
+    MutexLock l(&mutex_);
+    ingest_data_corruption_before_write_ = true;
+  }
+
+  void NoDataCorruptionBeforeWrite() {
+    MutexLock l(&mutex_);
+    ingest_data_corruption_before_write_ = false;
+  }
+
+  bool ShouldDataCorruptionBeforeWrite() {
+    MutexLock l(&mutex_);
+    return ingest_data_corruption_before_write_;
+  }
+
+  void SetChecksumHandoffFuncName(const std::string& func_name) {
+    MutexLock l(&mutex_);
+    checksum_handoff_func_name = func_name;
+  }
+
+  const std::string& GetChecksumHandoffFuncName() {
+    MutexLock l(&mutex_);
+    return checksum_handoff_func_name;
   }
 
   // Specify what the operation, so we can inject the right type of error
@@ -432,6 +458,8 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   Random write_error_rand_;
   int write_error_one_in_;
   std::vector<FileType> write_error_allowed_types_;
+  bool ingest_data_corruption_before_write_;
+  std::string checksum_handoff_func_name;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

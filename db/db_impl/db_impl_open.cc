@@ -291,6 +291,8 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     }
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
+  bool should_checksum_handoff = ShouldChecksumHandoff(FileType::kDescriptorFile,
+                                    immutable_db_options_.checksum_handoff_file_types);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(file), manifest, file_options, clock_, io_tracer_,
         nullptr /* stats */, immutable_db_options_.listeners));
@@ -1487,6 +1489,8 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
     lfile->SetPreallocationBlockSize(preallocate_block_size);
 
     const auto& listeners = immutable_db_options_.listeners;
+    bool should_checksum_handoff = ShouldChecksumHandoff(FileType::kLogFile,
+                                    immutable_db_options_.checksum_handoff_file_types);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(lfile), log_fname, opt_file_options, clock_, io_tracer_,
         nullptr /* stats */, listeners));

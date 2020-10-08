@@ -70,6 +70,11 @@ bool ParseSliceTransform(
     const std::string& value,
     std::shared_ptr<const SliceTransform>* slice_transform);
 
+// Check if the current file type should apply checksum handoff during
+// file writes.
+bool ShouldChecksumHandoff(const FileType& cur_type,
+    const std::vector<FileType>& supported_types);
+
 extern Status StringToMap(
     const std::string& opts_str,
     std::unordered_map<std::string, std::string>* opts_map);

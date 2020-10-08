@@ -373,6 +373,17 @@ bool ParseSliceTransform(
   return false;
 }
 
+bool ShouldChecksumHandoff(const FileType& cur_type,
+    const std::vector<FileType>& supported_types) {
+  bool should_handoff = false;
+  for (auto& type : supported_types) {
+    if (type == cur_type) {
+      should_handoff = true;
+    }
+  }
+  return should_handoff;
+}
+
 static bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
                               const std::string& value) {
   switch (opt_type) {

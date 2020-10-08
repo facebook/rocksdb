@@ -22,7 +22,10 @@
 #include "env/composite_env_wrapper.h"
 #include "port/lang.h"
 #include "port/stack_trace.h"
+#include "util/coding.h"
+#include "util/crc32c.h"
 #include "util/random.h"
+#include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -51,6 +54,21 @@ std::pair<std::string, std::string> TestFSGetDirAndName(
   std::string dirname = TestFSGetDirName(name);
   std::string fname = name.substr(dirname.size() + 1);
   return std::make_pair(dirname, fname);
+}
+
+// Calculate the checksum of the data with corresponding checksum
+// name. If name does not match, no checksum is returned.
+void CalculateNamedChecksum (const std::string& checksum_name,
+          const char* data, size_t size, std::string* checksum){
+  if (checksum_name == "crc32c") {
+    uint32_t v_crc32c = crc32c::Extend(0, data, size);
+    PutFixed32(checksum, v_crc32c);
+    return;
+  } else if (checksum_name == "xxhash") {
+    uint32_t v = XXH32(data, size, 0);
+    PutFixed32(checksum, v);
+  }
+  return;
 }
 
 IOStatus FSFileState::DropUnsyncedData() {
@@ -101,6 +119,40 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions&,
   fs_->WritableFileAppended(state_);
   IOStatus io_s = fs_->InjectWriteError(state_.filename_);
   return io_s;
+}
+
+// By setting the IngestDataCorruptionBeforeWrite(), the data corruption is
+// simulated.
+IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions&,
+                          const DataVerificationInfo& verification_info,
+                          IODebugContext*) {
+  MutexLock l(&mutex_);
+    printf("append\n");
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  if (fs_->ShouldDataCorruptionBeforeWrite()) {
+    return IOStatus::Corruption("Data is corrupted!");
+  }
+
+  // Calculate the checksum
+  std::string checksum;
+  CalculateNamedChecksum(fs_->GetChecksumHandoffFuncName(), data.data(),
+                  data.size(), &checksum);
+  if (fs_->GetChecksumHandoffFuncName() != "" &&
+      checksum != verification_info.checksum.ToString()) {
+    std::string msg = "Data is corrupted! Origin data checksum: " +
+                      verification_info.checksum.ToString() +
+                      "current data checksum: " + checksum;
+    printf("mismatch checksum\n");
+    return IOStatus::Corruption(msg);
+  }
+
+  printf("regular writes\n");
+  state_.buffer_.append(data.data(), data.size());
+  state_.pos_ += data.size();
+  fs_->WritableFileAppended(state_);
+  return IOStatus::OK();
 }
 
 IOStatus TestFSWritableFile::Close(const IOOptions& options,

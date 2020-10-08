@@ -28,6 +28,7 @@
 #include "file/writable_file_writer.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_util.h"
+#include "options/options_helper.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -151,11 +152,13 @@ Status BuildTable(
       }
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
+      bool should_checksum_handoff = ShouldChecksumHandoff(FileType::kTableFile,
+                                    ioptions.checksum_handoff_file_types);
 
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, clock, io_tracer,
           ioptions.statistics, ioptions.listeners,
-          ioptions.file_checksum_gen_factory));
+          ioptions.file_checksum_gen_factory, should_checksum_handoff));
 
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
