@@ -331,11 +331,11 @@ inline Status ReturnCorruptKeyInfo(ParsedInternalKey* ikey, bool log_err_key) {
   std::string msg("Corrupted Key. ");
 
   if (log_err_key) {
-    msg.append("Key: " + ikey->user_key.ToString(/*hex=*/true) + ". ");
+    msg.append("Key=" + ikey->user_key.ToString(/*hex=*/true) + ", ");
   }
 
-  msg.append("Key type: " + std::to_string(ikey->type) + ".");
-  msg.append("Seq: " + std::to_string(ikey->sequence) + ".");
+  msg.append("Key type=" + std::to_string(ikey->type) + ", ");
+  msg.append("Seq=" + std::to_string(ikey->sequence) + ".");
 
   return Status::Corruption(msg.c_str());
 }
@@ -346,7 +346,7 @@ inline Status ParseInternalKey(const Slice& internal_key,
 
   if (n < kNumInternalBytes) {
     std::string msg("Internal Key too small. ");
-    msg.append("Size: " + std::to_string(n) + ". ");
+    msg.append("Size=" + std::to_string(n) + ". ");
     return Status::Corruption(msg.c_str());
   }
 
