@@ -2674,8 +2674,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           ParsedInternalKey parsed_key;
           Cleanable dummy;
           Cleanable* value_pinner = nullptr;
-          if (!ParseInternalKey(biter->key(), &parsed_key).ok(),
-              false) {  // TODO
+          if (!ParseInternalKey(biter->key(), &parsed_key, false)
+                   .ok()) {  // TODO
             s = Status::Corruption(Slice());
           }
           if (biter->IsValuePinned()) {
