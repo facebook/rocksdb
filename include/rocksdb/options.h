@@ -1194,9 +1194,11 @@ struct DBOptions {
   std::string db_host_id = kHostnameForDbHostId;
 
   // Use this if your DB want to enable checksum handoff for specific file
-  // types writes. Make sure that the Env or File_system you use support the
+  // types writes. Make sure that the File_system you use support the
   // checksum verification.
   // Currently supported file tyes: kLogFile, kTableFile, kDescriptorFile.
+  // NOTE: currently RocksDB only generates crc32c based checksum for the
+  // handoff.
   std::vector<FileType> checksum_handoff_file_types;
 };
 

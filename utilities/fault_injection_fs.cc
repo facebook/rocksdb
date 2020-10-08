@@ -127,7 +127,6 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions&,
                           const DataVerificationInfo& verification_info,
                           IODebugContext*) {
   MutexLock l(&mutex_);
-    printf("append\n");
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
@@ -144,11 +143,9 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions&,
     std::string msg = "Data is corrupted! Origin data checksum: " +
                       verification_info.checksum.ToString() +
                       "current data checksum: " + checksum;
-    printf("mismatch checksum\n");
     return IOStatus::Corruption(msg);
   }
 
-  printf("regular writes\n");
   state_.buffer_.append(data.data(), data.size());
   state_.pos_ += data.size();
   fs_->WritableFileAppended(state_);

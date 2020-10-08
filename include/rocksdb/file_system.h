@@ -755,10 +755,10 @@ class FSWritableFile {
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;
 
-  // EXPERIMENTAL / CURRENTLY UNUSED
   // Append data with verification information
   // Note that this API change is experimental and it might be changed in
-  // the future. Currently, RocksDB does not use this API.
+  // the future. Currently, RocksDB only generates crc32c based checksum for
+  // the file writes when the option is set.
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           const DataVerificationInfo& /* verification_info */,
                           IODebugContext* dbg) {
@@ -792,10 +792,10 @@ class FSWritableFile {
     return IOStatus::NotSupported("PositionedAppend");
   }
 
-  // EXPERIMENTAL / CURRENTLY UNUSED
   // PositionedAppend data with verification information.
   // Note that this API change is experimental and it might be changed in
-  // the future. Currently, RocksDB does not use this API.
+  // the future. Currently, RocksDB only generates crc32c based checksum for
+  // the file writes when the option is set.
   virtual IOStatus PositionedAppend(
       const Slice& /* data */, uint64_t /* offset */,
       const IOOptions& /*options*/,

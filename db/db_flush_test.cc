@@ -526,7 +526,7 @@ TEST_F(DBFlushTest, FlushWithBlob) {
 #endif  // ROCKSDB_LITE
 }
 
-TEST_F(DBFlushTest, FlushWithChecksumHandoff) {
+TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
@@ -579,6 +579,129 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoff) {
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  Destroy(options);
+}
+
+TEST_F(DBFlushTest, FlushWithChecksumHandoff2) {
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_fs_env.get();
+  Reopen(options);
+
+  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(Flush());
+
+  // options is not set, the checksum handoff will not be triggered
+  SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
+    fault_fs->SetChecksumHandoffFuncName("xxhash");
+  });
+  ASSERT_OK(Put("key3", "value3"));
+  ASSERT_OK(Put("key4", "value4"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  Destroy(options);
+  Reopen(options);
+
+  // The file system does not support checksum handoff. The check
+  // will be ignored.
+  fault_fs->SetChecksumHandoffFuncName("");
+  ASSERT_OK(Put("key5", "value5"));
+  ASSERT_OK(Put("key6", "value6"));
+  ASSERT_OK(Flush());
+
+  // options is not set, the checksum handoff will not be triggered
+  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
+      fault_fs->IngestDataCorruptionBeforeWrite();
+  });
+  ASSERT_OK(Put("key7", "value7"));
+  ASSERT_OK(Put("key8", "value8"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  Destroy(options);
+}
+
+TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest1) {
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_fs_env.get();
+  options.checksum_handoff_file_types.push_back(FileType::kDescriptorFile);
+  Reopen(options);
+
+  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(Flush());
+
+  // The hash does not match, write fails
+  // fault_fs->SetChecksumHandoffFuncName("xxhash");
+  // Since the file system returns IOStatus::Corruption, it is mapped to
+  // kFatalError error.
+  ASSERT_OK(Put("key3", "value3"));
+  SyncPoint::GetInstance()->SetCallBack(
+        "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+    fault_fs->SetChecksumHandoffFuncName("xxhash");
+  });
+  ASSERT_OK(Put("key3", "value3"));
+  ASSERT_OK(Put("key4", "value4"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  Destroy(options);
+}
+
+TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest2) {
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_fs_env.get();
+  options.checksum_handoff_file_types.push_back(FileType::kDescriptorFile);
+  Reopen(options);
+  // The file system does not support checksum handoff. The check
+  // will be ignored.
+  fault_fs->SetChecksumHandoffFuncName("");
+  ASSERT_OK(Put("key5", "value5"));
+  ASSERT_OK(Put("key6", "value6"));
+  ASSERT_OK(Flush());
+
+  // Each write will be similated as corrupted.
+  // Since the file system returns IOStatus::Corruption, it is mapped to
+  // kFatalError error.
+  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  SyncPoint::GetInstance()->SetCallBack(
+        "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+      fault_fs->IngestDataCorruptionBeforeWrite();
+  });
+  ASSERT_OK(Put("key7", "value7"));
+  ASSERT_OK(Put("key8", "value8"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
   SyncPoint::GetInstance()->DisableProcessing();
 
   Destroy(options);
