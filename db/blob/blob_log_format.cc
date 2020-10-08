@@ -95,6 +95,10 @@ Status BlobLogFooter::DecodeFrom(Slice src) {
   return Status::OK();
 }
 
+uint64_t BlobLogRecord::CalculateAdjustmentForRecordHeader(uint64_t key_size) {
+  return key_size + kHeaderSize;
+}
+
 void BlobLogRecord::EncodeHeaderTo(std::string* dst) {
   assert(dst != nullptr);
   dst->clear();
