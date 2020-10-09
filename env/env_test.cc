@@ -1148,7 +1148,9 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
   }
 }
 
-TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDDeletes) {
+// TODO: Disable the flaky test, it's a known issue that ext4 may return same
+// key after file deletion. The issue is tracked in #7405, #7470.
+TEST_P(EnvPosixTestWithParam, DISABLED_RandomAccessUniqueIDDeletes) {
   if (env_ == Env::Default()) {
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
