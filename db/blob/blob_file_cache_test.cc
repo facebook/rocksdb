@@ -166,6 +166,46 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);
 }
 
+TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
+  Options options;
+  options.env = &mock_env_;
+  options.statistics = CreateDBStatistics();
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&mock_env_,
+                            "BlobFileCacheTest_GetBlobFileReader_CacheFull"),
+      0);
+  options.enable_blob_files = true;
+
+  constexpr uint32_t column_family_id = 1;
+  ImmutableCFOptions immutable_cf_options(options);
+  constexpr uint64_t blob_file_number = 123;
+
+  WriteBlobFile(column_family_id, immutable_cf_options, blob_file_number);
+
+  constexpr size_t capacity = 0;
+  constexpr int num_shard_bits = -1;  // determined automatically
+  constexpr bool strict_capacity_limit = true;
+  std::shared_ptr<Cache> backing_cache =
+      NewLRUCache(capacity, num_shard_bits, strict_capacity_limit);
+
+  FileOptions file_options;
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
+                                &file_options, column_family_id,
+                                blob_file_read_hist);
+
+  // Insert into cache should fail since it has zero capacity and
+  // strict_capacity_limit is set
+  CacheHandleGuard<BlobFileReader> reader;
+
+  ASSERT_TRUE(blob_file_cache.GetBlobFileReader(blob_file_number, &reader)
+                  .IsIncomplete());
+  ASSERT_EQ(reader.GetValue(), nullptr);
+  ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
+  ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
