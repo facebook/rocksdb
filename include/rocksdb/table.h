@@ -68,8 +68,8 @@ enum class PinningTier {
   // memtable flush. In particular, it includes tables from L0 that are smaller
   // than 1.5 times the current `write_buffer_size`. Note these criteria imply
   // it can include intra-L0 compaction outputs and ingested files, as long as
-  // they are not abnormally large for L0.
-  kMaybeFlushed,
+  // they are not abnormally large compared to flushed files in L0.
+  kFlushedAndSimilar,
 
   // This tier contains all block-based tables.
   kAll,
@@ -140,7 +140,7 @@ struct BlockBasedTableOptions {
   // - `pin_l0_filter_and_index_blocks_in_cache == false` ->
   //   `PinningTier::kNone`
   // - `pin_l0_filter_and_index_blocks_in_cache == true` ->
-  //   `PinningTier::kMaybeFlushed`
+  //   `PinningTier::kFlushedAndSimilar`
   //
   // To migrate away from this flag, explicitly configure
   // `MetadataCachePinningOptions` as described above.

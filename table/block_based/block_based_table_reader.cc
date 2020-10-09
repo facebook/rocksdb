@@ -1001,7 +1001,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
                              PinningTier::kNone /* fallback_pinning_tier */);
           case PinningTier::kNone:
             return false;
-          case PinningTier::kMaybeFlushed:
+          case PinningTier::kFlushedAndSimilar:
             return maybe_flushed;
           case PinningTier::kAll:
             return true;
@@ -1019,12 +1019,12 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   const bool pin_partition =
       is_pinned(table_options.metadata_cache_pinning_options.partition_pinning,
                 table_options.pin_l0_filter_and_index_blocks_in_cache
-                    ? PinningTier::kMaybeFlushed
+                    ? PinningTier::kFlushedAndSimilar
                     : PinningTier::kNone);
   const bool pin_unpartitioned = is_pinned(
       table_options.metadata_cache_pinning_options.unpartitioned_pinning,
       table_options.pin_l0_filter_and_index_blocks_in_cache
-          ? PinningTier::kMaybeFlushed
+          ? PinningTier::kFlushedAndSimilar
           : PinningTier::kNone);
 
   // prefetch the first level of index

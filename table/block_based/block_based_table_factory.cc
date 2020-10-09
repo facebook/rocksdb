@@ -168,7 +168,7 @@ static std::unordered_map<std::string, PinningTier>
     pinning_tier_type_string_map = {
         {"kFallback", PinningTier::kFallback},
         {"kNone", PinningTier::kNone},
-        {"kMaybeFlushed", PinningTier::kMaybeFlushed},
+        {"kFlushedAndSimilar", PinningTier::kFlushedAndSimilar},
         {"kAll", PinningTier::kAll}};
 
 static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>

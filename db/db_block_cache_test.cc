@@ -995,17 +995,17 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
   // Read a key from the L1 file
   Get(Key(0));
   if (top_level_index_pinning_ == PinningTier::kNone ||
-      top_level_index_pinning_ == PinningTier::kMaybeFlushed) {
+      top_level_index_pinning_ == PinningTier::kFlushedAndSimilar) {
     ++expected_filter_misses;
     ++expected_index_misses;
   }
   if (partition_pinning_ == PinningTier::kNone ||
-      partition_pinning_ == PinningTier::kMaybeFlushed) {
+      partition_pinning_ == PinningTier::kFlushedAndSimilar) {
     ++expected_filter_misses;
     ++expected_index_misses;
   }
   if (unpartitioned_pinning_ == PinningTier::kNone ||
-      unpartitioned_pinning_ == PinningTier::kMaybeFlushed) {
+      unpartitioned_pinning_ == PinningTier::kFlushedAndSimilar) {
     ++expected_compression_dict_misses;
   }
   ASSERT_EQ(expected_filter_misses,
@@ -1019,11 +1019,11 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
 INSTANTIATE_TEST_CASE_P(
     DBBlockCachePinningTest, DBBlockCachePinningTest,
     ::testing::Combine(
-        ::testing::Values(PinningTier::kNone, PinningTier::kMaybeFlushed,
+        ::testing::Values(PinningTier::kNone, PinningTier::kFlushedAndSimilar,
                           PinningTier::kAll),
-        ::testing::Values(PinningTier::kNone, PinningTier::kMaybeFlushed,
+        ::testing::Values(PinningTier::kNone, PinningTier::kFlushedAndSimilar,
                           PinningTier::kAll),
-        ::testing::Values(PinningTier::kNone, PinningTier::kMaybeFlushed,
+        ::testing::Values(PinningTier::kNone, PinningTier::kFlushedAndSimilar,
                           PinningTier::kAll)));
 
 }  // namespace ROCKSDB_NAMESPACE
