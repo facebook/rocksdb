@@ -974,6 +974,9 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       }
     }
   }
+  // Partition filters cannot be enabled without partition indexes
+  assert(rep_->filter_type != Rep::FilterType::kPartitionedFilter ||
+         rep_->index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
 
   // Find compression dictionary handle
   bool found_compression_dict = false;
@@ -1027,16 +1030,13 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
                     ? PinningTier::kFlushedAndSimilar
                     : PinningTier::kNone);
 
-  // prefetch the first level of index
-  const bool prefetch_index =
-      prefetch_all ||
-      (pin_top_level_index &&
-       index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
   // pin the first level of index
   const bool pin_index =
       index_type == BlockBasedTableOptions::kTwoLevelIndexSearch
           ? pin_top_level_index
           : pin_unpartitioned;
+  // prefetch the first level of index
+  const bool prefetch_index = prefetch_all || pin_index;
 
   std::unique_ptr<IndexReader> index_reader;
   s = new_table->CreateIndexReader(ro, prefetch_buffer, meta_iter, use_cache,
@@ -1058,18 +1058,13 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     return s;
   }
 
-  // prefetch the first level of filter
-  const bool prefetch_filter =
-      prefetch_all ||
-      (pin_top_level_index &&
-       rep_->filter_type == Rep::FilterType::kPartitionedFilter);
-  // Partition fitlers cannot be enabled without partition indexes
-  assert(!prefetch_filter || prefetch_index);
   // pin the first level of filter
   const bool pin_filter =
       rep_->filter_type == Rep::FilterType::kPartitionedFilter
           ? pin_top_level_index
           : pin_unpartitioned;
+  // prefetch the first level of filter
+  const bool prefetch_filter = prefetch_all || pin_filter;
 
   if (rep_->filter_policy) {
     auto filter = new_table->CreateFilterBlockReader(
@@ -1088,8 +1083,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   if (!rep_->compression_dict_handle.IsNull()) {
     std::unique_ptr<UncompressionDictReader> uncompression_dict_reader;
     s = UncompressionDictReader::Create(
-        this, ro, prefetch_buffer, use_cache, prefetch_all, pin_unpartitioned,
-        lookup_context, &uncompression_dict_reader);
+        this, ro, prefetch_buffer, use_cache, prefetch_all || pin_unpartitioned,
+        pin_unpartitioned, lookup_context, &uncompression_dict_reader);
     if (!s.ok()) {
       return s;
     }
