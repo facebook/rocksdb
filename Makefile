@@ -587,12 +587,17 @@ ifdef ASSERT_STATUS_CHECKED
 		coding_test \
 		crc32c_test \
 		dbformat_test \
-		db_basic_test \
+		db_encryption_test \
+		db_iter_test \
+		db_iter_stress_test \
+		db_log_iter_test \
+		db_bloom_filter_test \
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
 		db_options_test \
 		db_properties_test \
 		db_secondary_test \
+		perf_context_test \
 		options_file_test \
 		defer_test \
 		filename_test \
@@ -662,9 +667,14 @@ ifdef ASSERT_STATUS_CHECKED
 		partitioned_filter_block_test \
 		column_family_test \
 		file_reader_writer_test \
+		rate_limiter_test \
 		corruption_test \
 		db_universal_compaction_test \
 		import_column_family_test \
+		option_change_migration_test \
+		cuckoo_table_builder_test \
+		cuckoo_table_db_test \
+		cuckoo_table_reader_test \
 		memory_test \
 		table_test \
 

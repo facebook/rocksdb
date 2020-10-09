@@ -60,9 +60,9 @@ Status CompactToLevel(const Options& options, const std::string& dbname,
     // generate one output file
     cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   }
-  db->CompactRange(cro, nullptr, nullptr);
+  s = db->CompactRange(cro, nullptr, nullptr);
 
-  if (need_reopen) {
+  if (s.ok() && need_reopen) {
     // Need to restart DB to rewrite the manifest file.
     // In order to open a DB with specific num_levels, the manifest file should
     // contain no record that mentiones any level beyond num_levels. Issuing a
