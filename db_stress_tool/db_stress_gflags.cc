@@ -287,6 +287,13 @@ DEFINE_int64(cache_size, 2LL * KB * KB * KB,
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "True if indexes/filters should be cached in block cache.");
 
+DEFINE_bool(pin_l0_filter_and_index_blocks_in_cache, false,
+            "Hold a reference to cached index/filter blocks in table reader");
+
+DEFINE_bool(pin_top_level_index_and_filter, true,
+            "Hold references to top-level indexes into metadata partitions in "
+            "table reader");
+
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 

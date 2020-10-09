@@ -132,6 +132,8 @@ DECLARE_int32(set_options_one_in);
 DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
 DECLARE_bool(cache_index_and_filter_blocks);
+DECLARE_bool(pin_l0_filter_and_index_blocks_in_cache);
+DECLARE_bool(pin_top_level_index_and_filter );
 DECLARE_bool(use_clock_cache);
 DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);

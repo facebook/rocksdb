@@ -81,6 +81,8 @@ default_params = {
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
     "pause_background_one_in": 1000000,
+    "pin_l0_filter_and_index_blocks_in_cache": lambda: random.randint(0, 1),
+    "pin_top_level_index_and_filter": lambda: random.randint(0, 1),
     "prefixpercent": 5,
     "progress_reports": 0,
     "readpercent": 45,

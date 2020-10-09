@@ -1964,6 +1964,10 @@ void StressTest::Open() {
     block_based_options.block_cache = cache_;
     block_based_options.cache_index_and_filter_blocks =
         FLAGS_cache_index_and_filter_blocks;
+    block_based_options.pin_l0_filter_and_index_blocks_in_cache =
+        FLAGS_pin_l0_filter_and_index_blocks_in_cache;
+    block_based_options.pin_top_level_index_and_filter =
+        FLAGS_pin_top_level_index_and_filter;
     block_based_options.block_cache_compressed = compressed_cache_;
     block_based_options.checksum = checksum_type_e;
     block_based_options.block_size = FLAGS_block_size;
