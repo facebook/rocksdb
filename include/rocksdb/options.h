@@ -400,6 +400,8 @@ struct DBOptions {
   // during recovery.
   //
   // Default: false
+  // FIXME(cheng): This option is part of a work in progress and does not yet
+  // work
   bool track_and_verify_wals_in_manifest = false;
 
   // Use the specified object to interact with the environment,
