@@ -399,15 +399,19 @@ Status DBImpl::Recover(
         s = io_s;
         files_in_dbname.clear();
       }
+      uint64_t max_manifest_number = 0;
       for (const std::string& file : files_in_dbname) {
         uint64_t number = 0;
         FileType type = kLogFile;  // initialize
         if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
           // Found MANIFEST (descriptor log), thus best-efforts recovery does
           // not have to treat the db as empty.
-          s = Status::OK();
-          manifest_path = dbname_ + "/" + file;
-          break;
+          if (max_manifest_number == 0) {
+            s = Status::OK();
+            manifest_path = dbname_ + "/" + file;
+          } else if (number > max_manifest_number) {
+            manifest_path = dbname_ + "/" + file;
+          }
         }
       }
     }
