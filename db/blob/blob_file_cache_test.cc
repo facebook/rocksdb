@@ -132,6 +132,40 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
 }
 
+TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
+  Options options;
+  options.env = &mock_env_;
+  options.statistics = CreateDBStatistics();
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&mock_env_,
+                            "BlobFileCacheTest_GetBlobFileReader_IOError"),
+      0);
+  options.enable_blob_files = true;
+
+  constexpr size_t capacity = 10;
+  std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
+
+  ImmutableCFOptions immutable_cf_options(options);
+  FileOptions file_options;
+  constexpr uint32_t column_family_id = 1;
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
+                                &file_options, column_family_id,
+                                blob_file_read_hist);
+
+  // Note: there is no blob file with the below number
+  constexpr uint64_t blob_file_number = 123;
+
+  CacheHandleGuard<BlobFileReader> reader;
+
+  ASSERT_TRUE(
+      blob_file_cache.GetBlobFileReader(blob_file_number, &reader).IsIOError());
+  ASSERT_EQ(reader.GetValue(), nullptr);
+  ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
+  ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 1);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
