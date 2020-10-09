@@ -891,23 +891,25 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
 class DBBlockCachePinningTest
     : public DBTestBase,
       public testing::WithParamInterface<
-          std::tuple<PinningTier, PinningTier, PinningTier>> {
+          std::tuple<bool, PinningTier, PinningTier, PinningTier>> {
  public:
   DBBlockCachePinningTest()
       : DBTestBase("/db_block_cache_test", /*env_do_fsync=*/false) {}
 
   void SetUp() override {
-    top_level_index_pinning_ = std::get<0>(GetParam());
-    partition_pinning_ = std::get<1>(GetParam());
-    unpartitioned_pinning_ = std::get<2>(GetParam());
+    partition_index_and_filters_ = std::get<0>(GetParam());
+    top_level_index_pinning_ = std::get<1>(GetParam());
+    partition_pinning_ = std::get<2>(GetParam());
+    unpartitioned_pinning_ = std::get<3>(GetParam());
   }
 
+  bool partition_index_and_filters_;
   PinningTier top_level_index_pinning_;
   PinningTier partition_pinning_;
   PinningTier unpartitioned_pinning_;
 };
 
-TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
+TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
   // Creates one file in L0 and one file in L1. Both files have enough data that
   // their index and filter blocks are partitioned. The L1 file will also have
   // a compression dictionary (those are trained only during compaction), which
@@ -936,9 +938,11 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
       unpartitioned_pinning_;
   table_options.filter_policy.reset(
       NewBloomFilterPolicy(10 /* bits_per_key */));
-  table_options.index_type =
-      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
-  table_options.partition_filters = true;
+  if (partition_index_and_filters_) {
+    table_options.index_type =
+        BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    table_options.partition_filters = true;
+  }
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
 
@@ -972,13 +976,20 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
   uint64_t expected_filter_misses = filter_misses;
   uint64_t expected_index_misses = index_misses;
   uint64_t expected_compression_dict_misses = compression_dict_misses;
-  if (top_level_index_pinning_ == PinningTier::kNone) {
-    ++expected_filter_misses;
-    ++expected_index_misses;
-  }
-  if (partition_pinning_ == PinningTier::kNone) {
-    ++expected_filter_misses;
-    ++expected_index_misses;
+  if (partition_index_and_filters_) {
+    if (top_level_index_pinning_ == PinningTier::kNone) {
+      ++expected_filter_misses;
+      ++expected_index_misses;
+    }
+    if (partition_pinning_ == PinningTier::kNone) {
+      ++expected_filter_misses;
+      ++expected_index_misses;
+    }
+  } else {
+    if (unpartitioned_pinning_ == PinningTier::kNone) {
+      ++expected_filter_misses;
+      ++expected_index_misses;
+    }
   }
   ASSERT_EQ(expected_filter_misses,
             TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
@@ -993,15 +1004,23 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
 
   // Read a key from the L1 file
   Get(Key(0));
-  if (top_level_index_pinning_ == PinningTier::kNone ||
-      top_level_index_pinning_ == PinningTier::kFlushedAndSimilar) {
-    ++expected_filter_misses;
-    ++expected_index_misses;
-  }
-  if (partition_pinning_ == PinningTier::kNone ||
-      partition_pinning_ == PinningTier::kFlushedAndSimilar) {
-    ++expected_filter_misses;
-    ++expected_index_misses;
+  if (partition_index_and_filters_) {
+    if (top_level_index_pinning_ == PinningTier::kNone ||
+        top_level_index_pinning_ == PinningTier::kFlushedAndSimilar) {
+      ++expected_filter_misses;
+      ++expected_index_misses;
+    }
+    if (partition_pinning_ == PinningTier::kNone ||
+        partition_pinning_ == PinningTier::kFlushedAndSimilar) {
+      ++expected_filter_misses;
+      ++expected_index_misses;
+    }
+  } else {
+    if (unpartitioned_pinning_ == PinningTier::kNone ||
+        unpartitioned_pinning_ == PinningTier::kFlushedAndSimilar) {
+      ++expected_filter_misses;
+      ++expected_index_misses;
+    }
   }
   if (unpartitioned_pinning_ == PinningTier::kNone ||
       unpartitioned_pinning_ == PinningTier::kFlushedAndSimilar) {
@@ -1018,6 +1037,7 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
 INSTANTIATE_TEST_CASE_P(
     DBBlockCachePinningTest, DBBlockCachePinningTest,
     ::testing::Combine(
+        ::testing::Bool(),
         ::testing::Values(PinningTier::kNone, PinningTier::kFlushedAndSimilar,
                           PinningTier::kAll),
         ::testing::Values(PinningTier::kNone, PinningTier::kFlushedAndSimilar,
