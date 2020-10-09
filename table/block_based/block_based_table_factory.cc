@@ -161,7 +161,8 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
 
 #ifndef ROCKSDB_LITE
 
-const std::string kOptNameCachePinningOpts = "cache_pinning_options";
+const std::string kOptNameMetadataCachePinningOpts =
+    "metadata_cache_pinning_options";
 
 static std::unordered_map<std::string, PinningTier>
     pinning_tier_type_string_map = {
@@ -199,7 +200,7 @@ static std::unordered_map<std::string,
              kShortenSeparatorsAndSuccessor}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
-    cache_pinning_options_type_info = {
+    metadata_cache_pinning_options_type_info = {
         {"top_level_index_pinning",
          OptionTypeInfo::Enum<PinningTier>(
              offsetof(struct MetadataCachePinningOptions,
@@ -376,11 +377,13 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    pin_top_level_index_and_filter),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-        {kOptNameCachePinningOpts,
-         OptionTypeInfo::Struct(
-             kOptNameCachePinningOpts, &cache_pinning_options_type_info,
-             offsetof(struct BlockBasedTableOptions, cache_pinning_options),
-             OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
+        {kOptNameMetadataCachePinningOpts,
+         OptionTypeInfo::Struct(kOptNameMetadataCachePinningOpts,
+                                &metadata_cache_pinning_options_type_info,
+                                offsetof(struct BlockBasedTableOptions,
+                                         metadata_cache_pinning_options),
+                                OptionVerificationType::kNormal,
+                                OptionTypeFlags::kNone)},
         {"block_cache",
          {offsetof(struct BlockBasedTableOptions, block_cache),
           OptionType::kUnknown, OptionVerificationType::kNormal,

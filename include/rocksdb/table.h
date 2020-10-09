@@ -58,8 +58,7 @@ enum class PinningTier {
   // For compatibility, this value specifies to fallback to the behavior
   // indicated by the deprecated options,
   // `pin_l0_filter_and_index_blocks_in_cache` and
-  // `pin_top_level_index_and_filter`. When no overrides occur from those
-  // options (see their API documentation for exact overrides), `kNone` is used.
+  // `pin_top_level_index_and_filter`.
   kFallback,
 
   // This tier contains no block-based tables.
@@ -79,18 +78,20 @@ enum class PinningTier {
 // `MetadataCachePinningOptions` contains members indicating the desired block
 // cache pinning behavior for the different categories of metadata blocks.
 struct MetadataCachePinningOptions {
-  // The tier of block-based tables whose top-level index of partitioned
-  // meta-blocks will be pinned.
+  // The tier of block-based tables whose top-level index into metadata
+  // partitions will be pinned. Currently indexes and filters may be
+  // partitioned.
   //
   // Note `cache_index_and_filter_blocks` must be true for this option to have
-  // any effect. Otherwise the top-level index of partitioned meta-blocks would
-  // be held in table reader memory, outside the block cache.
+  // any effect. Otherwise any top-level index into metadata partitions would be
+  // held in table reader memory, outside the block cache.
   PinningTier top_level_index_pinning = PinningTier::kFallback;
 
-  // The tier of block-based tables whose meta-block partitions will be pinned.
+  // The tier of block-based tables whose metadata partitions will be pinned.
+  // Currently indexes and filters may be partitioned.
   PinningTier partition_pinning = PinningTier::kFallback;
 
-  // The tier of block-based tables whose unpartitioned meta-blocks will be
+  // The tier of block-based tables whose unpartitioned metadata blocks will be
   // pinned.
   //
   // Note `cache_index_and_filter_blocks` must be true for this option to have
@@ -176,7 +177,7 @@ struct BlockBasedTableOptions {
   // metadata blocks. While pinning can reduce block cache contention, users
   // must take care not to pin excessive amounts of data, which risks
   // overflowing block cache.
-  MetadataCachePinningOptions cache_pinning_options;
+  MetadataCachePinningOptions metadata_cache_pinning_options;
 
   // The index type that will be used for this table.
   enum IndexType : char {

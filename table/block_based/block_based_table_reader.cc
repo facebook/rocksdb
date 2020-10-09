@@ -1012,31 +1012,31 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
         assert(false);
         return false;
       };
-  const bool pin_metablock_top_level_index = is_pinned(
-      table_options.cache_pinning_options.top_level_index_pinning,
+  const bool pin_top_level_index = is_pinned(
+      table_options.metadata_cache_pinning_options.top_level_index_pinning,
       table_options.pin_top_level_index_and_filter ? PinningTier::kAll
                                                    : PinningTier::kNone);
-  const bool pin_metablock_partition =
-      is_pinned(table_options.cache_pinning_options.partition_pinning,
+  const bool pin_partition =
+      is_pinned(table_options.metadata_cache_pinning_options.partition_pinning,
                 table_options.pin_l0_filter_and_index_blocks_in_cache
                     ? PinningTier::kMaybeFlushed
                     : PinningTier::kNone);
-  const bool pin_unpartitioned_metablock =
-      is_pinned(table_options.cache_pinning_options.unpartitioned_pinning,
-                table_options.pin_l0_filter_and_index_blocks_in_cache
-                    ? PinningTier::kMaybeFlushed
-                    : PinningTier::kNone);
+  const bool pin_unpartitioned = is_pinned(
+      table_options.metadata_cache_pinning_options.unpartitioned_pinning,
+      table_options.pin_l0_filter_and_index_blocks_in_cache
+          ? PinningTier::kMaybeFlushed
+          : PinningTier::kNone);
 
   // prefetch the first level of index
   const bool prefetch_index =
       prefetch_all ||
-      (pin_metablock_top_level_index &&
+      (pin_top_level_index &&
        index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
   // pin the first level of index
   const bool pin_index =
       index_type == BlockBasedTableOptions::kTwoLevelIndexSearch
-          ? pin_metablock_top_level_index
-          : pin_unpartitioned_metablock;
+          ? pin_top_level_index
+          : pin_unpartitioned;
 
   std::unique_ptr<IndexReader> index_reader;
   s = new_table->CreateIndexReader(ro, prefetch_buffer, meta_iter, use_cache,
@@ -1052,7 +1052,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // are hence follow the configuration for pin and prefetch regardless of
   // the value of cache_index_and_filter_blocks
   if (prefetch_all) {
-    s = rep_->index_reader->CacheDependencies(ro, pin_metablock_partition);
+    s = rep_->index_reader->CacheDependencies(ro, pin_partition);
   }
   if (!s.ok()) {
     return s;
@@ -1061,15 +1061,15 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // prefetch the first level of filter
   const bool prefetch_filter =
       prefetch_all ||
-      (pin_metablock_top_level_index &&
+      (pin_top_level_index &&
        rep_->filter_type == Rep::FilterType::kPartitionedFilter);
   // Partition fitlers cannot be enabled without partition indexes
   assert(!prefetch_filter || prefetch_index);
   // pin the first level of filter
   const bool pin_filter =
       rep_->filter_type == Rep::FilterType::kPartitionedFilter
-          ? pin_metablock_top_level_index
-          : pin_unpartitioned_metablock;
+          ? pin_top_level_index
+          : pin_unpartitioned;
 
   if (rep_->filter_policy) {
     auto filter = new_table->CreateFilterBlockReader(
@@ -1078,7 +1078,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
     if (filter) {
       // Refer to the comment above about paritioned indexes always being cached
       if (prefetch_all) {
-        filter->CacheDependencies(ro, pin_metablock_partition);
+        filter->CacheDependencies(ro, pin_partition);
       }
 
       rep_->filter = std::move(filter);
@@ -1088,9 +1088,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   if (!rep_->compression_dict_handle.IsNull()) {
     std::unique_ptr<UncompressionDictReader> uncompression_dict_reader;
     s = UncompressionDictReader::Create(
-        this, ro, prefetch_buffer, use_cache, prefetch_all,
-        pin_unpartitioned_metablock, lookup_context,
-        &uncompression_dict_reader);
+        this, ro, prefetch_buffer, use_cache, prefetch_all, pin_unpartitioned,
+        lookup_context, &uncompression_dict_reader);
     if (!s.ok()) {
       return s;
     }
