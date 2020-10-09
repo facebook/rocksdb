@@ -587,6 +587,7 @@ ifdef ASSERT_STATUS_CHECKED
 		coding_test \
 		crc32c_test \
 		dbformat_test \
+		db_basic_test \
 		db_encryption_test \
 		db_iter_test \
 		db_iter_stress_test \
