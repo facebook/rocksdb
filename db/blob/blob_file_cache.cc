@@ -80,6 +80,7 @@ Status BlobFileCache::GetBlobFileReader(
     const Status s = cache_->Insert(key, reader.get(), charge,
                                     &DeleteEntry<BlobFileReader>, &handle);
     if (!s.ok()) {
+      RecordTick(immutable_cf_options_->statistics, NO_FILE_ERRORS);
       return s;
     }
   }
