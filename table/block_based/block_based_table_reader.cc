@@ -1013,19 +1013,19 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
         return false;
       };
   const bool pin_metablock_top_level_index = is_pinned(
-      table_options.cache_pinning_options.metablock_top_level_index_pinning,
+      table_options.cache_pinning_options.top_level_index_pinning,
       table_options.pin_top_level_index_and_filter ? PinningTier::kAll
                                                    : PinningTier::kNone);
   const bool pin_metablock_partition =
-      is_pinned(table_options.cache_pinning_options.metablock_partition_pinning,
+      is_pinned(table_options.cache_pinning_options.partition_pinning,
                 table_options.pin_l0_filter_and_index_blocks_in_cache
                     ? PinningTier::kMaybeFlushed
                     : PinningTier::kNone);
-  const bool pin_unpartitioned_metablock = is_pinned(
-      table_options.cache_pinning_options.unpartitioned_metablock_pinning,
-      table_options.pin_l0_filter_and_index_blocks_in_cache
-          ? PinningTier::kMaybeFlushed
-          : PinningTier::kNone);
+  const bool pin_unpartitioned_metablock =
+      is_pinned(table_options.cache_pinning_options.unpartitioned_pinning,
+                table_options.pin_l0_filter_and_index_blocks_in_cache
+                    ? PinningTier::kMaybeFlushed
+                    : PinningTier::kNone);
 
   // prefetch the first level of index
   const bool prefetch_index =

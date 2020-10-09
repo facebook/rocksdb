@@ -897,14 +897,14 @@ class DBBlockCachePinningTest
       : DBTestBase("/db_block_cache_test", /*env_do_fsync=*/false) {}
 
   void SetUp() override {
-    metablock_top_level_index_pinning_ = std::get<0>(GetParam());
-    metablock_partition_pinning_ = std::get<1>(GetParam());
-    unpartitioned_metablock_pinning_ = std::get<2>(GetParam());
+    top_level_index_pinning_ = std::get<0>(GetParam());
+    partition_pinning_ = std::get<1>(GetParam());
+    unpartitioned_pinning_ = std::get<2>(GetParam());
   }
 
-  PinningTier metablock_top_level_index_pinning_;
-  PinningTier metablock_partition_pinning_;
-  PinningTier unpartitioned_metablock_pinning_;
+  PinningTier top_level_index_pinning_;
+  PinningTier partition_pinning_;
+  PinningTier unpartitioned_pinning_;
 };
 
 TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
@@ -929,12 +929,11 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
   table_options.block_size = kBlockSize;
   table_options.metadata_block_size = kBlockSize;
   table_options.cache_index_and_filter_blocks = true;
-  table_options.cache_pinning_options.metablock_top_level_index_pinning =
-      metablock_top_level_index_pinning_;
-  table_options.cache_pinning_options.metablock_partition_pinning =
-      metablock_partition_pinning_;
-  table_options.cache_pinning_options.unpartitioned_metablock_pinning =
-      unpartitioned_metablock_pinning_;
+  table_options.cache_pinning_options.top_level_index_pinning =
+      top_level_index_pinning_;
+  table_options.cache_pinning_options.partition_pinning = partition_pinning_;
+  table_options.cache_pinning_options.unpartitioned_pinning =
+      unpartitioned_pinning_;
   table_options.filter_policy.reset(
       NewBloomFilterPolicy(10 /* bits_per_key */));
   table_options.index_type =
@@ -973,11 +972,11 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
   uint64_t expected_filter_misses = filter_misses;
   uint64_t expected_index_misses = index_misses;
   uint64_t expected_compression_dict_misses = compression_dict_misses;
-  if (metablock_top_level_index_pinning_ == PinningTier::kNone) {
+  if (top_level_index_pinning_ == PinningTier::kNone) {
     ++expected_filter_misses;
     ++expected_index_misses;
   }
-  if (metablock_partition_pinning_ == PinningTier::kNone) {
+  if (partition_pinning_ == PinningTier::kNone) {
     ++expected_filter_misses;
     ++expected_index_misses;
   }
@@ -994,18 +993,18 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
 
   // Read a key from the L1 file
   Get(Key(0));
-  if (metablock_top_level_index_pinning_ == PinningTier::kNone ||
-      metablock_top_level_index_pinning_ == PinningTier::kMaybeFlushed) {
+  if (top_level_index_pinning_ == PinningTier::kNone ||
+      top_level_index_pinning_ == PinningTier::kMaybeFlushed) {
     ++expected_filter_misses;
     ++expected_index_misses;
   }
-  if (metablock_partition_pinning_ == PinningTier::kNone ||
-      metablock_partition_pinning_ == PinningTier::kMaybeFlushed) {
+  if (partition_pinning_ == PinningTier::kNone ||
+      partition_pinning_ == PinningTier::kMaybeFlushed) {
     ++expected_filter_misses;
     ++expected_index_misses;
   }
-  if (unpartitioned_metablock_pinning_ == PinningTier::kNone ||
-      unpartitioned_metablock_pinning_ == PinningTier::kMaybeFlushed) {
+  if (unpartitioned_pinning_ == PinningTier::kNone ||
+      unpartitioned_pinning_ == PinningTier::kMaybeFlushed) {
     ++expected_compression_dict_misses;
   }
   ASSERT_EQ(expected_filter_misses,

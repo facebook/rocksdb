@@ -200,19 +200,19 @@ static std::unordered_map<std::string,
 
 static std::unordered_map<std::string, OptionTypeInfo>
     cache_pinning_options_type_info = {
-        {"metablock_top_level_index_pinning",
+        {"top_level_index_pinning",
          OptionTypeInfo::Enum<PinningTier>(
-             offsetof(struct CachePinningOptions,
-                      metablock_top_level_index_pinning),
+             offsetof(struct MetadataCachePinningOptions,
+                      top_level_index_pinning),
              &pinning_tier_type_string_map)},
-        {"metablock_partition_pinning",
+        {"partition_pinning",
          OptionTypeInfo::Enum<PinningTier>(
-             offsetof(struct CachePinningOptions, metablock_partition_pinning),
+             offsetof(struct MetadataCachePinningOptions, partition_pinning),
              &pinning_tier_type_string_map)},
-        {"unpartitioned_metablock_pinning",
+        {"unpartitioned_pinning",
          OptionTypeInfo::Enum<PinningTier>(
-             offsetof(struct CachePinningOptions,
-                      unpartitioned_metablock_pinning),
+             offsetof(struct MetadataCachePinningOptions,
+                      unpartitioned_pinning),
              &pinning_tier_type_string_map)}};
 
 #endif  // ROCKSDB_LITE
