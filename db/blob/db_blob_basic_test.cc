@@ -6,11 +6,13 @@
 #include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "test_util/sync_point.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class DBBlobBasicTest : public DBTestBase {
- public:
+ protected:
   DBBlobBasicTest()
       : DBTestBase("/db_blob_basic_test", /* env_do_fsync */ false) {}
 };
@@ -129,6 +131,52 @@ TEST_F(DBBlobBasicTest, GetBlob_IndexWithInvalidFileNumber) {
   PinnableSlice result;
   ASSERT_TRUE(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result)
                   .IsCorruption());
+}
+
+class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
+                               public testing::WithParamInterface<std::string> {
+ protected:
+  DBBlobBasicIOErrorTest()
+      : fault_injection_env_(Env::Default()), sync_point_(GetParam()) {}
+  ~DBBlobBasicIOErrorTest() { Close(); }
+
+  FaultInjectionTestEnv fault_injection_env_;
+  std::string sync_point_;
+};
+
+INSTANTIATE_TEST_CASE_P(DBBlobBasicTest, DBBlobBasicIOErrorTest,
+                        ::testing::ValuesIn(std::vector<std::string>{
+                            "BlobFileReader::OpenFile:NewRandomAccessFile",
+                            "BlobFileReader::GetBlob:ReadFromFile"}));
+
+TEST_P(DBBlobBasicIOErrorTest, GetBlob_IOError) {
+  Options options;
+  options.env = &fault_injection_env_;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  ASSERT_OK(Put(key, blob_value));
+
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_.SetFilesystemActive(false,
+                                             Status::IOError(sync_point_));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  PinnableSlice result;
+  ASSERT_TRUE(db_->Get(ReadOptions(), db_->DefaultColumnFamily(), key, &result)
+                  .IsIOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
