@@ -577,6 +577,7 @@ ifdef ASSERT_STATUS_CHECKED
 		lru_cache_test \
 		blob_file_addition_test \
 		blob_file_builder_test \
+		blob_file_cache_test \
 		blob_file_garbage_test \
 		blob_file_reader_test \
 		bloom_test \
@@ -1917,6 +1918,9 @@ blob_file_addition_test: $(OBJ_DIR)/db/blob/blob_file_addition_test.o $(TEST_LIB
 	$(AM_LINK)
 
 blob_file_builder_test: $(OBJ_DIR)/db/blob/blob_file_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+blob_file_cache_test: $(OBJ_DIR)/db/blob/blob_file_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRARY) $(LIBRARY)
