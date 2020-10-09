@@ -128,15 +128,21 @@ struct BlockBasedTableOptions {
   bool cache_index_and_filter_blocks_with_high_priority = true;
 
   // DEPRECATED: This option will be removed in a future version. For now, this
-  // option still takes effect on relevant `MetadataCachePinningOptions` members
-  // that are set to `PinningTier::kFallback`. In particular, the overrides from
-  // setting this option (and the changes users should make to migrate away from
-  // setting this option) are:
+  // option still takes effect by updating each of the following variables that
+  // has the default value, `PinningTier::kFallback`:
   //
-  // - `partition_pinning == PinningTier::kFallback` ->
-  //   `partition_pinning == PinningTier::kMaybeFlushed`
-  // - `unpartitioned_pinning == PinningTier::kFallback` ->
-  //   `unpartitioned_pinning == PinningTier::kMaybeFlushed`
+  // - `MetadataCachePinningOptions::partition_pinning`
+  // - `MetadataCachePinningOptions::unpartitioned_pinning`
+  //
+  // The updated value is chosen as follows:
+  //
+  // - `pin_l0_filter_and_index_blocks_in_cache == false` ->
+  //   `PinningTier::kNone`
+  // - `pin_l0_filter_and_index_blocks_in_cache == true` ->
+  //   `PinningTier::kMaybeFlushed`
+  //
+  // To migrate away from this flag, explicitly configure
+  // `MetadataCachePinningOptions` as described above.
   //
   // if cache_index_and_filter_blocks is true and the below is true, then
   // filter and index blocks are stored in the cache, but a reference is
@@ -145,13 +151,19 @@ struct BlockBasedTableOptions {
   bool pin_l0_filter_and_index_blocks_in_cache = false;
 
   // DEPRECATED: This option will be removed in a future version. For now, this
-  // option still takes effect on relevant `MetadataCachePinningOptions` members
-  // that are set to `PinningTier::kFallback`. In particular, the override from
-  // setting this option (and the change users should make to migrate away from
-  // setting this option) is:
+  // option still takes effect by updating
+  // `MetadataCachePinningOptions::top_level_index_pinning` when it has the
+  // default value, `PinningTier::kFallback`.
   //
-  // - `top_level_index_pinning == PinningTier::kFallback` ->
-  //   `top_level_index_pinning == PinningTier::kAll`
+  // The updated value is chosen as follows:
+  //
+  // - `pin_top_level_index_and_filter == false` ->
+  //   `PinningTier::kNone`
+  // - `pin_top_level_index_and_filter == true` ->
+  //   `PinningTier::kAll`
+  //
+  // To migrate away from this flag, explicitly configure
+  // `MetadataCachePinningOptions` as described above.
   //
   // If cache_index_and_filter_blocks is true and the below is true, then
   // the top-level index of partitioned filter and index blocks are stored in
