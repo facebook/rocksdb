@@ -30,7 +30,6 @@ BlobFileCache::BlobFileCache(Cache* cache,
   assert(cache_);
   assert(immutable_cf_options_);
   assert(file_options_);
-  assert(blob_file_read_hist_);
 }
 
 Status BlobFileCache::GetBlobFileReader(
