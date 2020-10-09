@@ -161,8 +161,7 @@ size_t TailPrefetchStats::GetSuggestedPrefetchSize() {
 
 #ifndef ROCKSDB_LITE
 
-const std::string kOptNameMetadataCachePinningOpts =
-    "metadata_cache_pinning_options";
+const std::string kOptNameMetadataCacheOpts = "metadata_cache_options";
 
 static std::unordered_map<std::string, PinningTier>
     pinning_tier_type_string_map = {
@@ -200,20 +199,18 @@ static std::unordered_map<std::string,
              kShortenSeparatorsAndSuccessor}};
 
 static std::unordered_map<std::string, OptionTypeInfo>
-    metadata_cache_pinning_options_type_info = {
+    metadata_cache_options_type_info = {
         {"top_level_index_pinning",
          OptionTypeInfo::Enum<PinningTier>(
-             offsetof(struct MetadataCachePinningOptions,
-                      top_level_index_pinning),
+             offsetof(struct MetadataCacheOptions, top_level_index_pinning),
              &pinning_tier_type_string_map)},
         {"partition_pinning",
          OptionTypeInfo::Enum<PinningTier>(
-             offsetof(struct MetadataCachePinningOptions, partition_pinning),
+             offsetof(struct MetadataCacheOptions, partition_pinning),
              &pinning_tier_type_string_map)},
         {"unpartitioned_pinning",
          OptionTypeInfo::Enum<PinningTier>(
-             offsetof(struct MetadataCachePinningOptions,
-                      unpartitioned_pinning),
+             offsetof(struct MetadataCacheOptions, unpartitioned_pinning),
              &pinning_tier_type_string_map)}};
 
 #endif  // ROCKSDB_LITE
@@ -377,13 +374,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
                    pin_top_level_index_and_filter),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
-        {kOptNameMetadataCachePinningOpts,
-         OptionTypeInfo::Struct(kOptNameMetadataCachePinningOpts,
-                                &metadata_cache_pinning_options_type_info,
-                                offsetof(struct BlockBasedTableOptions,
-                                         metadata_cache_pinning_options),
-                                OptionVerificationType::kNormal,
-                                OptionTypeFlags::kNone)},
+        {kOptNameMetadataCacheOpts,
+         OptionTypeInfo::Struct(
+             kOptNameMetadataCacheOpts, &metadata_cache_options_type_info,
+             offsetof(struct BlockBasedTableOptions, metadata_cache_options),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone)},
         {"block_cache",
          {offsetof(struct BlockBasedTableOptions, block_cache),
           OptionType::kUnknown, OptionVerificationType::kNormal,

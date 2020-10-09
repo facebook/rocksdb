@@ -929,11 +929,10 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
   table_options.block_size = kBlockSize;
   table_options.metadata_block_size = kBlockSize;
   table_options.cache_index_and_filter_blocks = true;
-  table_options.metadata_cache_pinning_options.top_level_index_pinning =
+  table_options.metadata_cache_options.top_level_index_pinning =
       top_level_index_pinning_;
-  table_options.metadata_cache_pinning_options.partition_pinning =
-      partition_pinning_;
-  table_options.metadata_cache_pinning_options.unpartitioned_pinning =
+  table_options.metadata_cache_options.partition_pinning = partition_pinning_;
+  table_options.metadata_cache_options.unpartitioned_pinning =
       unpartitioned_pinning_;
   table_options.filter_policy.reset(
       NewBloomFilterPolicy(10 /* bits_per_key */));
