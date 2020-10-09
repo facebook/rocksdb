@@ -481,20 +481,23 @@ Status MemTableList::TryInstallMemtableFlushResults(
             vset, *cfd, edit_list, memtables_to_flush, prep_tracker));
       }
 
-      // Track obsolete WALs in MANIFEST.
-      VersionEdit wal_deletions;
-      const std::map<WalNumber, WalMetadata>& wals =
-          vset->GetWalSet().GetWals();
-      auto end = wals.lower_bound(vset->MinLogNumberToKeep());
-      for (auto it = wals.begin(); it != end; it++) {
-        wal_deletions.DeleteWal(it->first);
-      }
-      edit_list.push_back(&wal_deletions);
-
       // this can release and reacquire the mutex.
       s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
                             db_directory);
       if (s.ok()) {
+        // Track obsolete WALs in MANIFEST.
+        VersionEdit wal_deletions;
+        const std::map<WalNumber, WalMetadata>& wals =
+            vset->GetWalSet().GetWals();
+        auto end = wals.lower_bound(vset->MinLogNumberToKeep());
+        for (auto it = wals.begin(); it != end; it++) {
+          wal_deletions.DeleteWal(it->first);
+        }
+        ColumnFamilyData* default_cf = vset->GetColumnFamilySet()->GetDefault();
+        const MutableCFOptions* cf_opts =
+            default_cf->GetLatestMutableCFOptions();
+        s = vset->LogAndApply(default_cf, *cf_opts, &wal_deletions, mu,
+                              db_directory);
       }
       *io_s = vset->io_status();
 
