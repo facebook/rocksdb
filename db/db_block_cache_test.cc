@@ -958,8 +958,8 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
     }
   }
 
-  // Clear all unpinned blocks so pinned blocks will count as a cache hit upon
-  // access.
+  // Clear all unpinned blocks so unpinned blocks will show up as cache misses
+  // when reading a key from a file.
   table_options.block_cache->EraseUnRefEntries();
 
   // Get base cache values
@@ -988,7 +988,8 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDBWithPartitionedIndexesAndFilters) {
   ASSERT_EQ(expected_compression_dict_misses,
             TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
 
-  // Clear all unpinned blocks so they will count as a cache miss upon access.
+  // Clear all unpinned blocks so unpinned blocks will show up as cache misses
+  // when reading a key from a file.
   table_options.block_cache->EraseUnRefEntries();
 
   // Read a key from the L1 file
