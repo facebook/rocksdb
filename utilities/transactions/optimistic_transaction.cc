@@ -107,7 +107,7 @@ Status OptimisticTransaction::CommitWithParallelValidate() {
     assert(key_it != nullptr);
     while (key_it->HasNext()) {
       const std::string& key = key_it->Next();
-      lk_idxes.insert(fastrange64(GetSliceNPHash64(key), space));
+      lk_idxes.insert(FastRange64(GetSliceNPHash64(key), space));
     }
   }
   // NOTE: in a single txn, all bucket-locks are taken in ascending order.

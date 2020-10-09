@@ -41,8 +41,11 @@ Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
                          GetContext::kNotFound, key, value, nullptr, nullptr,
                          nullptr, true, nullptr, nullptr);
   LookupKey lkey(key, kMaxSequenceNumber);
-  files_.files[FindFile(key)].fd.table_reader->Get(options, lkey.internal_key(),
-                                                   &get_context, nullptr);
+  Status s = files_.files[FindFile(key)].fd.table_reader->Get(
+      options, lkey.internal_key(), &get_context, nullptr);
+  if (!s.ok() && !s.IsNotFound()) {
+    return s;
+  }
   if (get_context.State() == GetContext::kFound) {
     return Status::OK();
   }
@@ -74,10 +77,14 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
                              GetContext::kNotFound, keys[idx], &pinnable_val,
                              nullptr, nullptr, nullptr, true, nullptr, nullptr);
       LookupKey lkey(keys[idx], kMaxSequenceNumber);
-      r->Get(options, lkey.internal_key(), &get_context, nullptr);
-      value.assign(pinnable_val.data(), pinnable_val.size());
-      if (get_context.State() == GetContext::kFound) {
-        statuses[idx] = Status::OK();
+      Status s = r->Get(options, lkey.internal_key(), &get_context, nullptr);
+      if (!s.ok() && !s.IsNotFound()) {
+        statuses[idx] = s;
+      } else {
+        value.assign(pinnable_val.data(), pinnable_val.size());
+        if (get_context.State() == GetContext::kFound) {
+          statuses[idx] = Status::OK();
+        }
       }
     }
     ++idx;
@@ -149,7 +156,7 @@ Status CompactedDBImpl::Open(const Options& options,
   std::unique_ptr<CompactedDBImpl> db(new CompactedDBImpl(db_options, dbname));
   Status s = db->Init(options);
   if (s.ok()) {
-    db->StartStatsDumpScheduler();
+    db->StartPeriodicWorkScheduler();
     ROCKS_LOG_INFO(db->immutable_db_options_.info_log,
                    "Opened the db as fully compacted mode");
     LogFlush(db->immutable_db_options_.info_log);

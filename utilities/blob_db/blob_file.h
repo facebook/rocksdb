@@ -11,7 +11,6 @@
 #include <unordered_set>
 
 #include "db/blob/blob_log_format.h"
-#include "db/blob/blob_log_reader.h"
 #include "db/blob/blob_log_writer.h"
 #include "file/random_access_file_reader.h"
 #include "port/port.h"
@@ -216,10 +215,6 @@ class BlobFile {
                    bool* fresh_open);
 
  private:
-  std::shared_ptr<BlobLogReader> OpenRandomAccessReader(
-      Env* env, const DBOptions& db_options,
-      const EnvOptions& env_options) const;
-
   Status ReadFooter(BlobLogFooter* footer);
 
   Status WriteFooterAndCloseLocked(SequenceNumber sequence);

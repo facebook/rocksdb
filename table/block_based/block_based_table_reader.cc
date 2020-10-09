@@ -1482,6 +1482,21 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         s = block_fetcher.ReadBlockContents();
         raw_block_comp_type = block_fetcher.get_compression_type();
         contents = &raw_block_contents;
+        if (get_context) {
+          switch (block_type) {
+            case BlockType::kIndex:
+              ++get_context->get_context_stats_.num_index_read;
+              break;
+            case BlockType::kFilter:
+              ++get_context->get_context_stats_.num_filter_read;
+              break;
+            case BlockType::kData:
+              ++get_context->get_context_stats_.num_data_read;
+              break;
+            default:
+              break;
+          }
+        }
       } else {
         raw_block_comp_type = contents->get_compression_type();
       }
@@ -1692,7 +1707,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         req.status = s;
       }
     } else {
-      file->MultiRead(opts, &read_reqs[0], read_reqs.size(), &direct_io_buf);
+      // How to handle this status code?
+      file->MultiRead(opts, &read_reqs[0], read_reqs.size(), &direct_io_buf)
+          .PermitUncheckedError();
     }
   }
 
@@ -1800,6 +1817,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // block cache is configured. In that case, fall
         // through and set up the block explicitly
         if (block_entry->GetValue() != nullptr) {
+          s.PermitUncheckedError();
           continue;
         }
       }
@@ -1886,6 +1904,22 @@ Status BlockBasedTable::RetrieveBlock(
         GetMemoryAllocator(rep_->table_options), for_compaction,
         rep_->blocks_definitely_zstd_compressed,
         rep_->table_options.filter_policy.get());
+
+    if (get_context) {
+      switch (block_type) {
+        case BlockType::kIndex:
+          ++(get_context->get_context_stats_.num_index_read);
+          break;
+        case BlockType::kFilter:
+          ++(get_context->get_context_stats_.num_filter_read);
+          break;
+        case BlockType::kData:
+          ++(get_context->get_context_stats_.num_data_read);
+          break;
+        default:
+          break;
+      }
+    }
   }
 
   if (!s.ok()) {
@@ -1996,7 +2030,6 @@ bool BlockBasedTable::PrefixMayMatch(
   }
 
   bool may_match = true;
-  Status s;
 
   // First, try check with full filter
   FilterBlockReader* const filter = rep_->filter.get();
@@ -2319,7 +2352,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         // Call the *saver function on each entry/block until it returns false
         for (; biter.Valid(); biter.Next()) {
           ParsedInternalKey parsed_key;
-          if (!ParseInternalKey(biter.key(), &parsed_key)) {
+          if (ParseInternalKey(biter.key(), &parsed_key) != Status::OK()) {
             s = Status::Corruption(Slice());
           }
 
@@ -2440,6 +2473,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
 
       CachableEntry<UncompressionDict> uncompression_dict;
       Status uncompression_dict_status;
+      uncompression_dict_status.PermitUncheckedError();
       bool uncompression_dict_inited = false;
       size_t total_len = 0;
       ReadOptions ro = read_options;
@@ -2550,6 +2584,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         }
         RetrieveMultipleBlocks(read_options, &data_block_range, &block_handles,
                                &statuses, &results, scratch, dict);
+        if (sst_file_range.begin()->get_context) {
+          ++(sst_file_range.begin()
+                 ->get_context->get_context_stats_.num_sst_read);
+        }
       }
     }
 
@@ -2581,6 +2619,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
                 read_options, results[idx_in_batch], &first_biter,
                 statuses[idx_in_batch]);
             reusing_block = false;
+          } else {
+            // If handler is null and result is empty, then the status is never
+            // set, which should be the initial value: ok().
+            assert(statuses[idx_in_batch].ok());
           }
           biter = &first_biter;
           idx_in_batch++;
@@ -2631,7 +2673,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           ParsedInternalKey parsed_key;
           Cleanable dummy;
           Cleanable* value_pinner = nullptr;
-          if (!ParseInternalKey(biter->key(), &parsed_key)) {
+          if (ParseInternalKey(biter->key(), &parsed_key) != Status::OK()) {
             s = Status::Corruption(Slice());
           }
           if (biter->IsValuePinned()) {
@@ -2707,6 +2749,12 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       }
       *(miter->s) = s;
     }
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    // Not sure why we need to do it. Should investigate more.
+    for (auto& st : statuses) {
+      st.PermitUncheckedError();
+    }
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
   }
 }
 

@@ -107,7 +107,7 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
 }
 
 bool DBIter::ParseKey(ParsedInternalKey* ikey) {
-  if (!ParseInternalKey(iter_.key(), ikey)) {
+  if (ParseInternalKey(iter_.key(), ikey) != Status::OK()) {
     status_ = Status::Corruption("corrupted internal key in DBIter");
     valid_ = false;
     ROCKS_LOG_ERROR(logger_, "corrupted internal key in DBIter: %s",
@@ -147,13 +147,13 @@ void DBIter::Next() {
 
   local_stats_.next_count_++;
   if (ok && iter_.Valid()) {
-    Slice prefix;
     if (prefix_same_as_start_) {
       assert(prefix_extractor_ != nullptr);
-      prefix = prefix_.GetUserKey();
+      const Slice prefix = prefix_.GetUserKey();
+      FindNextUserEntry(true /* skipping the current user key */, &prefix);
+    } else {
+      FindNextUserEntry(true /* skipping the current user key */, nullptr);
     }
-    FindNextUserEntry(true /* skipping the current user key */,
-                      prefix_same_as_start_ ? &prefix : nullptr);
   } else {
     is_key_seqnum_zero_ = false;
     valid_ = false;
@@ -384,8 +384,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             }
             break;
           default:
-            assert(false);
-            break;
+            valid_ = false;
+            status_ = Status::Corruption(
+                "Unknown value type: " +
+                std::to_string(static_cast<unsigned int>(ikey_.type)));
+            return false;
         }
       }
     } else {
@@ -556,7 +559,11 @@ bool DBIter::MergeValuesNewToOld() {
       valid_ = false;
       return false;
     } else {
-      assert(false);
+      valid_ = false;
+      status_ = Status::Corruption(
+          "Unrecognized value type: " +
+          std::to_string(static_cast<unsigned int>(ikey.type)));
+      return false;
     }
   }
 
@@ -832,7 +839,11 @@ bool DBIter::FindValueForCurrentKey() {
         }
         break;
       default:
-        assert(false);
+        valid_ = false;
+        status_ = Status::Corruption(
+            "Unknown value type: " +
+            std::to_string(static_cast<unsigned int>(last_key_entry_type)));
+        return false;
     }
 
     PERF_COUNTER_ADD(internal_key_skipped_count, 1);
@@ -846,6 +857,7 @@ bool DBIter::FindValueForCurrentKey() {
   }
 
   Status s;
+  s.PermitUncheckedError();
   is_blob_ = false;
   switch (last_key_entry_type) {
     case kTypeDeletion:
@@ -897,8 +909,11 @@ bool DBIter::FindValueForCurrentKey() {
       is_blob_ = true;
       break;
     default:
-      assert(false);
-      break;
+      valid_ = false;
+      status_ = Status::Corruption(
+          "Unknown value type: " +
+          std::to_string(static_cast<unsigned int>(last_key_entry_type)));
+      return false;
   }
   if (!s.ok()) {
     valid_ = false;
@@ -1047,7 +1062,11 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       valid_ = false;
       return false;
     } else {
-      assert(false);
+      valid_ = false;
+      status_ = Status::Corruption(
+          "Unknown value type: " +
+          std::to_string(static_cast<unsigned int>(ikey.type)));
+      return false;
     }
   }
 

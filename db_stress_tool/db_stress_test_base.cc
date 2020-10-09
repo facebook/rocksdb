@@ -1223,9 +1223,6 @@ Status StressTest::TestBackupRestore(
   // For debugging, get info_log from live options
   backup_opts.info_log = db_->GetDBOptions().info_log.get();
   assert(backup_opts.info_log);
-  if (thread->rand.OneIn(2)) {
-    backup_opts.file_checksum_gen_factory = options_.file_checksum_gen_factory;
-  }
   if (thread->rand.OneIn(10)) {
     backup_opts.share_table_files = false;
   } else {
@@ -1236,11 +1233,22 @@ Status StressTest::TestBackupRestore(
       backup_opts.share_files_with_checksum = true;
       if (thread->rand.OneIn(2)) {
         // old
-        backup_opts.share_files_with_checksum_naming = kChecksumAndFileSize;
+        backup_opts.share_files_with_checksum_naming =
+            BackupableDBOptions::kLegacyCrc32cAndFileSize;
       } else {
         // new
         backup_opts.share_files_with_checksum_naming =
-            kOptionalChecksumAndDbSessionId;
+            BackupableDBOptions::kUseDbSessionId;
+      }
+      if (thread->rand.OneIn(2)) {
+        backup_opts.share_files_with_checksum_naming =
+            backup_opts.share_files_with_checksum_naming |
+            BackupableDBOptions::kFlagIncludeFileSize;
+      }
+      if (thread->rand.OneIn(2)) {
+        backup_opts.share_files_with_checksum_naming =
+            backup_opts.share_files_with_checksum_naming |
+            BackupableDBOptions::kFlagMatchInterimNaming;
       }
     }
   }
@@ -2137,6 +2145,7 @@ void StressTest::Open() {
       std::make_shared<DbStressTablePropertiesCollectorFactory>());
 
   options_.best_efforts_recovery = FLAGS_best_efforts_recovery;
+  options_.paranoid_file_checks = FLAGS_paranoid_file_checks;
 
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 

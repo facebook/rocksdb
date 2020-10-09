@@ -3,17 +3,17 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include "monitoring/stats_dump_scheduler.h"
+#include "db/periodic_work_scheduler.h"
 
 #include "db/db_test_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
-class StatsDumpSchedulerTest : public DBTestBase {
+class PeriodicWorkSchedulerTest : public DBTestBase {
  public:
-  StatsDumpSchedulerTest()
-      : DBTestBase("/stats_dump_scheduler_test", /*env_do_fsync=*/true),
+  PeriodicWorkSchedulerTest()
+      : DBTestBase("/periodic_work_scheduler_test", /*env_do_fsync=*/true),
         mock_env_(new MockTimeEnv(Env::Default())) {}
 
  protected:
@@ -22,17 +22,18 @@ class StatsDumpSchedulerTest : public DBTestBase {
   void SetUp() override {
     mock_env_->InstallTimedWaitFixCallback();
     SyncPoint::GetInstance()->SetCallBack(
-        "DBImpl::StartStatsDumpScheduler:Init", [&](void* arg) {
-          auto* stats_dump_scheduler_ptr =
-              reinterpret_cast<StatsDumpScheduler**>(arg);
-          *stats_dump_scheduler_ptr =
-              StatsDumpTestScheduler::Default(mock_env_.get());
+        "DBImpl::StartPeriodicWorkScheduler:Init", [&](void* arg) {
+          auto* periodic_work_scheduler_ptr =
+              reinterpret_cast<PeriodicWorkScheduler**>(arg);
+          *periodic_work_scheduler_ptr =
+              PeriodicWorkTestScheduler::Default(mock_env_.get());
         });
   }
 };
 
-TEST_F(StatsDumpSchedulerTest, Basic) {
-  constexpr int kPeriodSec = 5;
+TEST_F(PeriodicWorkSchedulerTest, Basic) {
+  constexpr unsigned int kPeriodSec =
+      PeriodicWorkScheduler::kDefaultFlushInfoLogPeriodSec;
   Close();
   Options options;
   options.stats_dump_period_sec = kPeriodSec;
@@ -47,34 +48,44 @@ TEST_F(StatsDumpSchedulerTest, Basic) {
   int pst_st_counter = 0;
   SyncPoint::GetInstance()->SetCallBack("DBImpl::PersistStats:StartRunning",
                                         [&](void*) { pst_st_counter++; });
+
+  int flush_info_log_counter = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushInfoLog:StartRunning",
+      [&](void*) { flush_info_log_counter++; });
   SyncPoint::GetInstance()->EnableProcessing();
 
   Reopen(options);
 
-  ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
-  ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_persist_period_sec);
+  ASSERT_EQ(kPeriodSec, dbfull()->GetDBOptions().stats_dump_period_sec);
+  ASSERT_EQ(kPeriodSec, dbfull()->GetDBOptions().stats_persist_period_sec);
 
-  dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->MockSleepForSeconds(kPeriodSec - 1); });
+  ASSERT_GT(kPeriodSec, 1u);
+  dbfull()->TEST_WaitForStatsDumpRun([&] {
+    mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec) - 1);
+  });
 
-  auto scheduler = dbfull()->TEST_GetStatsDumpScheduler();
+  auto scheduler = dbfull()->TEST_GetPeriodicWorkScheduler();
   ASSERT_NE(nullptr, scheduler);
-  ASSERT_EQ(2, scheduler->TEST_GetValidTaskNum());
+  ASSERT_EQ(3, scheduler->TEST_GetValidTaskNum());
 
   ASSERT_EQ(1, dump_st_counter);
   ASSERT_EQ(1, pst_st_counter);
+  ASSERT_EQ(1, flush_info_log_counter);
 
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
+      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
 
   ASSERT_EQ(2, dump_st_counter);
   ASSERT_EQ(2, pst_st_counter);
+  ASSERT_EQ(2, flush_info_log_counter);
 
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
+      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
 
   ASSERT_EQ(3, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
+  ASSERT_EQ(3, flush_info_log_counter);
 
   // Disable scheduler with SetOption
   ASSERT_OK(dbfull()->SetDBOptions(
@@ -82,27 +93,35 @@ TEST_F(StatsDumpSchedulerTest, Basic) {
   ASSERT_EQ(0u, dbfull()->GetDBOptions().stats_dump_period_sec);
   ASSERT_EQ(0u, dbfull()->GetDBOptions().stats_persist_period_sec);
 
-  scheduler = dbfull()->TEST_GetStatsDumpScheduler();
-  ASSERT_EQ(0u, scheduler->TEST_GetValidTaskNum());
+  // Info log flush should still run.
+  dbfull()->TEST_WaitForStatsDumpRun(
+      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
+  ASSERT_EQ(3, dump_st_counter);
+  ASSERT_EQ(3, pst_st_counter);
+  ASSERT_EQ(4, flush_info_log_counter);
+
+  scheduler = dbfull()->TEST_GetPeriodicWorkScheduler();
+  ASSERT_EQ(1u, scheduler->TEST_GetValidTaskNum());
 
   // Re-enable one task
   ASSERT_OK(dbfull()->SetDBOptions({{"stats_dump_period_sec", "5"}}));
   ASSERT_EQ(5u, dbfull()->GetDBOptions().stats_dump_period_sec);
   ASSERT_EQ(0u, dbfull()->GetDBOptions().stats_persist_period_sec);
 
-  scheduler = dbfull()->TEST_GetStatsDumpScheduler();
+  scheduler = dbfull()->TEST_GetPeriodicWorkScheduler();
   ASSERT_NE(nullptr, scheduler);
-  ASSERT_EQ(1, scheduler->TEST_GetValidTaskNum());
+  ASSERT_EQ(2, scheduler->TEST_GetValidTaskNum());
 
-  dump_st_counter = 0;
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
-  ASSERT_EQ(1, dump_st_counter);
+      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
+  ASSERT_EQ(4, dump_st_counter);
+  ASSERT_EQ(3, pst_st_counter);
+  ASSERT_EQ(5, flush_info_log_counter);
 
   Close();
 }
 
-TEST_F(StatsDumpSchedulerTest, MultiInstances) {
+TEST_F(PeriodicWorkSchedulerTest, MultiInstances) {
   constexpr int kPeriodSec = 5;
   const int kInstanceNum = 10;
 
@@ -129,8 +148,8 @@ TEST_F(StatsDumpSchedulerTest, MultiInstances) {
   }
 
   auto dbi = static_cast_with_check<DBImpl>(dbs[kInstanceNum - 1]);
-  auto scheduler = dbi->TEST_GetStatsDumpScheduler();
-  ASSERT_EQ(kInstanceNum * 2, scheduler->TEST_GetValidTaskNum());
+  auto scheduler = dbi->TEST_GetPeriodicWorkScheduler();
+  ASSERT_EQ(kInstanceNum * 3, scheduler->TEST_GetValidTaskNum());
 
   int expected_run = kInstanceNum;
   dbi->TEST_WaitForStatsDumpRun(
@@ -170,7 +189,7 @@ TEST_F(StatsDumpSchedulerTest, MultiInstances) {
   }
 }
 
-TEST_F(StatsDumpSchedulerTest, MultiEnv) {
+TEST_F(PeriodicWorkSchedulerTest, MultiEnv) {
   constexpr int kDumpPeriodSec = 5;
   constexpr int kPersistPeriodSec = 10;
   Close();
@@ -194,8 +213,8 @@ TEST_F(StatsDumpSchedulerTest, MultiEnv) {
   ASSERT_OK(DB::Open(options2, dbname, &db));
   DBImpl* dbi = static_cast_with_check<DBImpl>(db);
 
-  ASSERT_EQ(dbi->TEST_GetStatsDumpScheduler(),
-            dbfull()->TEST_GetStatsDumpScheduler());
+  ASSERT_EQ(dbi->TEST_GetPeriodicWorkScheduler(),
+            dbfull()->TEST_GetPeriodicWorkScheduler());
 
   db->Close();
   delete db;

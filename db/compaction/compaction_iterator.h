@@ -69,6 +69,7 @@ class CompactionIterator {
                      bool report_detailed_time, bool expect_valid_internal_key,
                      CompactionRangeDelAggregator* range_del_agg,
                      BlobFileBuilder* blob_file_builder,
+                     bool allow_data_in_errors,
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
@@ -85,6 +86,7 @@ class CompactionIterator {
                      bool report_detailed_time, bool expect_valid_internal_key,
                      CompactionRangeDelAggregator* range_del_agg,
                      BlobFileBuilder* blob_file_builder,
+                     bool allow_data_in_errors,
                      std::unique_ptr<CompactionProxy> compaction,
                      const CompactionFilter* compaction_filter = nullptr,
                      const std::atomic<bool>* shutting_down = nullptr,
@@ -232,6 +234,8 @@ class CompactionIterator {
   // uncommitted values by providing a SnapshotChecker object.
   bool current_key_committed_;
   std::shared_ptr<Logger> info_log_;
+
+  bool allow_data_in_errors_;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.

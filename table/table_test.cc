@@ -70,7 +70,7 @@ const std::string kDummyValue(10000, 'o');
 // DummyPropertiesCollector used to test BlockBasedTableProperties
 class DummyPropertiesCollector : public TablePropertiesCollector {
  public:
-  const char* Name() const override { return ""; }
+  const char* Name() const override { return "DummyPropertiesCollector"; }
 
   Status Finish(UserCollectedProperties* /*properties*/) override {
     return Status::OK();
@@ -92,7 +92,9 @@ class DummyPropertiesCollectorFactory1
       TablePropertiesCollectorFactory::Context /*context*/) override {
     return new DummyPropertiesCollector();
   }
-  const char* Name() const override { return "DummyPropertiesCollector1"; }
+  const char* Name() const override {
+    return "DummyPropertiesCollectorFactory1";
+  }
 };
 
 class DummyPropertiesCollectorFactory2
@@ -102,7 +104,9 @@ class DummyPropertiesCollectorFactory2
       TablePropertiesCollectorFactory::Context /*context*/) override {
     return new DummyPropertiesCollector();
   }
-  const char* Name() const override { return "DummyPropertiesCollector2"; }
+  const char* Name() const override {
+    return "DummyPropertiesCollectorFactory2";
+  }
 };
 
 // Return reverse of "key".
@@ -248,7 +252,7 @@ class KeyConvertingIterator : public InternalIterator {
   Slice key() const override {
     assert(Valid());
     ParsedInternalKey parsed_key;
-    if (!ParseInternalKey(iter_->key(), &parsed_key)) {
+    if (ParseInternalKey(iter_->key(), &parsed_key) != Status::OK()) {
       status_ = Status::Corruption("malformed internal key");
       return Slice("corrupted key");
     }
@@ -1498,8 +1502,9 @@ TEST_P(BlockBasedTableTest, BlockBasedTableProperties2) {
     ASSERT_EQ("rocksdb.ReverseBytewiseComparator", props.comparator_name);
     ASSERT_EQ("UInt64AddOperator", props.merge_operator_name);
     ASSERT_EQ("rocksdb.Noop", props.prefix_extractor_name);
-    ASSERT_EQ("[DummyPropertiesCollector1,DummyPropertiesCollector2]",
-              props.property_collectors_names);
+    ASSERT_EQ(
+        "[DummyPropertiesCollectorFactory1,DummyPropertiesCollectorFactory2]",
+        props.property_collectors_names);
     ASSERT_EQ("", props.filter_policy_name);  // no filter policy is used
     c.ResetTableReader();
   }
@@ -1552,7 +1557,7 @@ TEST_P(BlockBasedTableTest, RangeDelBlock) {
     for (size_t i = 0; i < expected_tombstones.size(); i++) {
       ASSERT_TRUE(iter->Valid());
       ParsedInternalKey parsed_key;
-      ASSERT_TRUE(ParseInternalKey(iter->key(), &parsed_key));
+      ASSERT_OK(ParseInternalKey(iter->key(), &parsed_key));
       RangeTombstone t(parsed_key, iter->value());
       const auto& expected_t = expected_tombstones[i];
       ASSERT_EQ(t.start_key_, expected_t.start_key_);
@@ -2186,7 +2191,8 @@ class CustomFlushBlockPolicy : public FlushBlockPolicyFactory,
   explicit CustomFlushBlockPolicy(std::vector<int> keys_per_block)
       : keys_per_block_(keys_per_block) {}
 
-  const char* Name() const override { return "table_test"; }
+  const char* Name() const override { return "CustomFlushBlockPolicy"; }
+
   FlushBlockPolicy* NewFlushBlockPolicy(const BlockBasedTableOptions&,
                                         const BlockBuilder&) const override {
     return new CustomFlushBlockPolicy(keys_per_block_);
@@ -4102,7 +4108,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   char current_c = 'a';
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ParsedInternalKey pik;
-    ASSERT_TRUE(ParseInternalKey(iter->key(), &pik));
+    ASSERT_OK(ParseInternalKey(iter->key(), &pik));
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 0);
@@ -4123,7 +4129,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   current_c = 'a';
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ParsedInternalKey pik;
-    ASSERT_TRUE(ParseInternalKey(iter->key(), &pik));
+    ASSERT_OK(ParseInternalKey(iter->key(), &pik));
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 10);
@@ -4141,7 +4147,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
     ASSERT_TRUE(iter->Valid());
 
     ParsedInternalKey pik;
-    ASSERT_TRUE(ParseInternalKey(iter->key(), &pik));
+    ASSERT_OK(ParseInternalKey(iter->key(), &pik));
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 10);
@@ -4160,7 +4166,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   current_c = 'a';
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ParsedInternalKey pik;
-    ASSERT_TRUE(ParseInternalKey(iter->key(), &pik));
+    ASSERT_OK(ParseInternalKey(iter->key(), &pik));
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 3);
@@ -4179,7 +4185,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
     ASSERT_TRUE(iter->Valid());
 
     ParsedInternalKey pik;
-    ASSERT_TRUE(ParseInternalKey(iter->key(), &pik));
+    ASSERT_OK(ParseInternalKey(iter->key(), &pik));
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 3);

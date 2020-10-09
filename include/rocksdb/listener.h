@@ -115,6 +115,9 @@ enum class FlushReason : int {
   kAutoCompaction = 0x09,
   kManualFlush = 0x0a,
   kErrorRecovery = 0xb,
+  // When set the flush reason to kErrorRecoveryRetryFlush, SwitchMemtable
+  // will not be called to avoid many small immutable memtables.
+  kErrorRecoveryRetryFlush = 0xc,
 };
 
 enum class BackgroundErrorReason {
@@ -123,6 +126,7 @@ enum class BackgroundErrorReason {
   kWriteCallback,
   kMemTable,
   kManifestWrite,
+  kFlushNoWAL,
 };
 
 enum class WriteStallCondition {
@@ -246,6 +250,7 @@ struct CompactionFileInfo {
 };
 
 struct CompactionJobInfo {
+  ~CompactionJobInfo() { status.PermitUncheckedError(); }
   // the id of the column family where the compaction happened.
   uint32_t cf_id;
   // the name of the column family where the compaction happened.
@@ -289,8 +294,7 @@ struct CompactionJobInfo {
   // Compression algorithm used for output files
   CompressionType compression;
 
-  // If non-null, this variable stores detailed information
-  // about this compaction.
+  // Statistics and other additional details on the compaction
   CompactionJobStats stats;
 };
 

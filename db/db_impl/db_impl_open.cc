@@ -11,12 +11,12 @@
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
+#include "db/periodic_work_scheduler.h"
 #include "env/composite_env_wrapper.h"
 #include "file/read_write_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "file/writable_file_writer.h"
 #include "monitoring/persistent_stats_history.h"
-#include "monitoring/stats_dump_scheduler.h"
 #include "options/options_helper.h"
 #include "rocksdb/table.h"
 #include "rocksdb/wal_filter.h"
@@ -364,7 +364,7 @@ IOStatus Directories::SetDirectories(FileSystem* fs, const std::string& dbname,
 
 Status DBImpl::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
-    bool error_if_log_file_exist, bool error_if_data_exists_in_logs,
+    bool error_if_wal_file_exists, bool error_if_data_exists_in_wals,
     uint64_t* recovered_seq) {
   mutex_.AssertHeld();
 
@@ -588,11 +588,11 @@ Status DBImpl::Recover(
     }
 
     if (logs.size() > 0) {
-      if (error_if_log_file_exist) {
+      if (error_if_wal_file_exists) {
         return Status::Corruption(
-            "The db was opened in readonly mode with error_if_log_file_exist"
-            "flag but a log file already exists");
-      } else if (error_if_data_exists_in_logs) {
+            "The db was opened in readonly mode with error_if_wal_file_exists"
+            "flag but a WAL file already exists");
+      } else if (error_if_data_exists_in_wals) {
         for (auto& log : logs) {
           std::string fname = LogFileName(immutable_db_options_.wal_dir, log);
           uint64_t bytes;
@@ -600,8 +600,8 @@ Status DBImpl::Recover(
           if (s.ok()) {
             if (bytes > 0) {
               return Status::Corruption(
-                  "error_if_data_exists_in_logs is set but there are data "
-                  " in log files.");
+                  "error_if_data_exists_in_wals is set but there are data "
+                  " in WAL files.");
             }
           }
         }
@@ -685,41 +685,56 @@ Status DBImpl::PersistentStatsProcessFormatVersion() {
         (kStatsCFCurrentFormatVersion < format_version_recovered &&
          kStatsCFCompatibleFormatVersion < compatible_version_recovered)) {
       if (!s_format.ok() || !s_compatible.ok()) {
-        ROCKS_LOG_INFO(
+        ROCKS_LOG_WARN(
             immutable_db_options_.info_log,
-            "Reading persistent stats version key failed. Format key: %s, "
-            "compatible key: %s",
+            "Recreating persistent stats column family since reading "
+            "persistent stats version key failed. Format key: %s, compatible "
+            "key: %s",
             s_format.ToString().c_str(), s_compatible.ToString().c_str());
       } else {
-        ROCKS_LOG_INFO(
+        ROCKS_LOG_WARN(
             immutable_db_options_.info_log,
-            "Disable persistent stats due to corrupted or incompatible format "
-            "version\n");
+            "Recreating persistent stats column family due to corrupted or "
+            "incompatible format version. Recovered format: %" PRIu64
+            "; recovered format compatible since: %" PRIu64 "\n",
+            format_version_recovered, compatible_version_recovered);
       }
-      DropColumnFamily(persist_stats_cf_handle_);
-      DestroyColumnFamilyHandle(persist_stats_cf_handle_);
+      s = DropColumnFamily(persist_stats_cf_handle_);
+      if (s.ok()) {
+        s = DestroyColumnFamilyHandle(persist_stats_cf_handle_);
+      }
       ColumnFamilyHandle* handle = nullptr;
-      ColumnFamilyOptions cfo;
-      OptimizeForPersistentStats(&cfo);
-      s = CreateColumnFamily(cfo, kPersistentStatsColumnFamilyName, &handle);
-      persist_stats_cf_handle_ = static_cast<ColumnFamilyHandleImpl*>(handle);
-      // should also persist version here because old stats CF is discarded
-      should_persist_format_version = true;
+      if (s.ok()) {
+        ColumnFamilyOptions cfo;
+        OptimizeForPersistentStats(&cfo);
+        s = CreateColumnFamily(cfo, kPersistentStatsColumnFamilyName, &handle);
+      }
+      if (s.ok()) {
+        persist_stats_cf_handle_ = static_cast<ColumnFamilyHandleImpl*>(handle);
+        // should also persist version here because old stats CF is discarded
+        should_persist_format_version = true;
+      }
     }
   }
-  if (s.ok() && should_persist_format_version) {
+  if (should_persist_format_version) {
     // Persistent stats CF being created for the first time, need to write
     // format version key
     WriteBatch batch;
-    batch.Put(persist_stats_cf_handle_, kFormatVersionKeyString,
-              ToString(kStatsCFCurrentFormatVersion));
-    batch.Put(persist_stats_cf_handle_, kCompatibleVersionKeyString,
-              ToString(kStatsCFCompatibleFormatVersion));
-    WriteOptions wo;
-    wo.low_pri = true;
-    wo.no_slowdown = true;
-    wo.sync = false;
-    s = Write(wo, &batch);
+    if (s.ok()) {
+      s = batch.Put(persist_stats_cf_handle_, kFormatVersionKeyString,
+                    ToString(kStatsCFCurrentFormatVersion));
+    }
+    if (s.ok()) {
+      s = batch.Put(persist_stats_cf_handle_, kCompatibleVersionKeyString,
+                    ToString(kStatsCFCompatibleFormatVersion));
+    }
+    if (s.ok()) {
+      WriteOptions wo;
+      wo.low_pri = true;
+      wo.no_slowdown = true;
+      wo.sync = false;
+      s = Write(wo, &batch);
+    }
   }
   mutex_.Lock();
   return s;
@@ -1619,7 +1634,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     }
   }
   if (s.ok() && impl->immutable_db_options_.persist_stats_to_disk) {
-    // try to read format version but no need to fail Open() even if it fails
+    // try to read format version
     s = impl->PersistentStatsProcessFormatVersion();
   }
 
@@ -1663,6 +1678,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     *dbptr = impl;
     impl->opened_successfully_ = true;
     impl->MaybeScheduleFlushOrCompaction();
+  } else {
+    persist_options_status.PermitUncheckedError();
   }
   impl->mutex_.Unlock();
 
@@ -1757,9 +1774,13 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
           "DB::Open() failed --- Unable to persist Options file",
           persist_options_status.ToString());
     }
+  } else {
+    ROCKS_LOG_WARN(impl->immutable_db_options_.info_log,
+                   "Persisting Option File error: %s",
+                   persist_options_status.ToString().c_str());
   }
   if (s.ok()) {
-    impl->StartStatsDumpScheduler();
+    impl->StartPeriodicWorkScheduler();
   } else {
     for (auto* h : *handles) {
       delete h;

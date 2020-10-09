@@ -58,7 +58,7 @@ Status DBImpl::EnableFileDeletions(bool force) {
   // Job id == 0 means that this is not our background process, but rather
   // user thread
   JobContext job_context(0);
-  bool file_deletion_enabled = false;
+  int saved_counter;  // initialize on all paths
   {
     InstrumentedMutexLock l(&mutex_);
     if (force) {
@@ -67,13 +67,13 @@ Status DBImpl::EnableFileDeletions(bool force) {
     } else if (disable_delete_obsolete_files_ > 0) {
       --disable_delete_obsolete_files_;
     }
-    if (disable_delete_obsolete_files_ == 0) {
-      file_deletion_enabled = true;
+    saved_counter = disable_delete_obsolete_files_;
+    if (saved_counter == 0) {
       FindObsoleteFiles(&job_context, true);
       bg_cv_.SignalAll();
     }
   }
-  if (file_deletion_enabled) {
+  if (saved_counter == 0) {
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Enabled");
     if (job_context.HaveSomethingToDelete()) {
       PurgeObsoleteFiles(job_context);
@@ -81,7 +81,7 @@ Status DBImpl::EnableFileDeletions(bool force) {
   } else {
     ROCKS_LOG_WARN(immutable_db_options_.info_log,
                    "File Deletions Enable, but not really enabled. Counter: %d",
-                   disable_delete_obsolete_files_);
+                   saved_counter);
   }
   job_context.Clean();
   LogFlush(immutable_db_options_.info_log);
@@ -215,7 +215,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     if (immutable_db_options_.wal_dir != dbname_) {
       std::vector<std::string> log_files;
       env_->GetChildren(immutable_db_options_.wal_dir,
-                        &log_files);  // Ignore errors
+                        &log_files)
+          .PermitUncheckedError();  // Ignore errors
       for (const std::string& log_file : log_files) {
         job_context->full_scan_candidate_files.emplace_back(
             log_file, immutable_db_options_.wal_dir);
@@ -226,7 +227,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
         immutable_db_options_.db_log_dir != dbname_) {
       std::vector<std::string> info_log_files;
       // Ignore errors
-      env_->GetChildren(immutable_db_options_.db_log_dir, &info_log_files);
+      env_->GetChildren(immutable_db_options_.db_log_dir, &info_log_files)
+          .PermitUncheckedError();
       for (std::string& log_file : info_log_files) {
         job_context->full_scan_candidate_files.emplace_back(
             log_file, immutable_db_options_.db_log_dir);
@@ -760,9 +762,13 @@ Status DBImpl::FinishBestEffortsRecovery() {
   uint64_t next_file_number = versions_->current_next_file_number();
   uint64_t largest_file_number = next_file_number;
   std::set<std::string> files_to_delete;
+  Status s;
   for (const auto& path : paths) {
     std::vector<std::string> files;
-    env_->GetChildren(path, &files);
+    s = env_->GetChildren(path, &files);
+    if (!s.ok()) {
+      break;
+    }
     for (const auto& fname : files) {
       uint64_t number = 0;
       FileType type;
@@ -778,6 +784,10 @@ Status DBImpl::FinishBestEffortsRecovery() {
       }
     }
   }
+  if (!s.ok()) {
+    return s;
+  }
+
   if (largest_file_number > next_file_number) {
     versions_->next_file_number_.store(largest_file_number + 1);
   }
@@ -789,7 +799,7 @@ Status DBImpl::FinishBestEffortsRecovery() {
   assert(default_cfd);
   // Even if new_descriptor_log is false, we will still switch to a new
   // MANIFEST and update CURRENT file, since this is in recovery.
-  Status s = versions_->LogAndApply(
+  s = versions_->LogAndApply(
       default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
       directories_.GetDbDir(), /*new_descriptor_log*/ false);
   if (!s.ok()) {

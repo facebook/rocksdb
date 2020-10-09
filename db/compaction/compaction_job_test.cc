@@ -130,7 +130,7 @@ class CompactionJobTest : public testing::Test {
     return blob_index;
   }
 
-  void AddMockFile(const stl_wrappers::KVMap& contents, int level = 0) {
+  void AddMockFile(const mock::KVVector& contents, int level = 0) {
     assert(contents.size() > 0);
 
     bool first_key = true;
@@ -144,7 +144,7 @@ class CompactionJobTest : public testing::Test {
       std::string skey;
       std::string value;
       std::tie(skey, value) = kv;
-      bool parsed = ParseInternalKey(skey, &key);
+      const Status pikStatus = ParseInternalKey(skey, &key);
 
       smallest_seqno = std::min(smallest_seqno, key.sequence);
       largest_seqno = std::max(largest_seqno, key.sequence);
@@ -162,7 +162,7 @@ class CompactionJobTest : public testing::Test {
 
       first_key = false;
 
-      if (parsed && key.type == kTypeBlobIndex) {
+      if (pikStatus.ok() && key.type == kTypeBlobIndex) {
         BlobIndex blob_index;
         const Status s = blob_index.DecodeFrom(value);
         if (!s.ok()) {
@@ -192,8 +192,9 @@ class CompactionJobTest : public testing::Test {
                  kUnknownFileChecksum, kUnknownFileChecksumFuncName);
 
     mutex_.Lock();
-    versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                           mutable_cf_options_, &edit, &mutex_);
+    EXPECT_OK(
+        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                               mutable_cf_options_, &edit, &mutex_));
     mutex_.Unlock();
   }
 
@@ -204,8 +205,8 @@ class CompactionJobTest : public testing::Test {
   }
 
   // returns expected result after compaction
-  stl_wrappers::KVMap CreateTwoFiles(bool gen_corrupted_keys) {
-    auto expected_results = mock::MakeMockFile();
+  mock::KVVector CreateTwoFiles(bool gen_corrupted_keys) {
+    stl_wrappers::KVMap expected_results;
     const int kKeysPerFile = 10000;
     const int kCorruptKeysPerFile = 200;
     const int kMatchingKeys = kKeysPerFile / 2;
@@ -231,19 +232,25 @@ class CompactionJobTest : public testing::Test {
           test::CorruptKeyType(&internal_key);
           test::CorruptKeyType(&bottommost_internal_key);
         }
-        contents.insert({ internal_key.Encode().ToString(), value });
+        contents.push_back({internal_key.Encode().ToString(), value});
         if (i == 1 || k < kMatchingKeys || corrupt_id(k - kMatchingKeys)) {
           expected_results.insert(
-              { bottommost_internal_key.Encode().ToString(), value });
+              {bottommost_internal_key.Encode().ToString(), value});
         }
       }
+      mock::SortKVVector(&contents);
 
       AddMockFile(contents);
     }
 
     SetLastSequence(sequence_number);
 
-    return expected_results;
+    mock::KVVector expected_results_kvvector;
+    for (auto& kv : expected_results) {
+      expected_results_kvvector.push_back({kv.first, kv.second});
+    }
+
+    return expected_results_kvvector;
   }
 
   void NewDB() {
@@ -284,6 +291,8 @@ class CompactionJobTest : public testing::Test {
     // Make "CURRENT" file that points to the new manifest file.
     s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
 
+    ASSERT_OK(s);
+
     std::vector<ColumnFamilyDescriptor> column_families;
     cf_options_.table_factory = mock_table_factory_;
     cf_options_.merge_operator = merge_op_;
@@ -296,7 +305,7 @@ class CompactionJobTest : public testing::Test {
 
   void RunCompaction(
       const std::vector<std::vector<FileMetaData*>>& input_files,
-      const stl_wrappers::KVMap& expected_results,
+      const mock::KVVector& expected_results,
       const std::vector<SequenceNumber>& snapshots = {},
       SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber,
       int output_level = 1, bool verify = true,
@@ -342,8 +351,10 @@ class CompactionJobTest : public testing::Test {
     Status s;
     s = compaction_job.Run();
     ASSERT_OK(s);
+    ASSERT_OK(compaction_job.io_status());
     mutex_.Lock();
     ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions()));
+    ASSERT_OK(compaction_job.io_status());
     mutex_.Unlock();
 
     if (verify) {
@@ -639,7 +650,7 @@ TEST_F(CompactionJobTest, FilterAllMergeOperands) {
   SetLastSequence(11U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
 
-  stl_wrappers::KVMap empty_map;
+  mock::KVVector empty_map;
   RunCompaction({files}, empty_map);
 }
 

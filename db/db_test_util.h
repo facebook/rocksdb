@@ -1145,8 +1145,8 @@ class DBTestBase : public testing::Test {
   void CopyFile(const std::string& source, const std::string& destination,
                 uint64_t size = 0);
 
-  std::unordered_map<std::string, uint64_t> GetAllSSTFiles(
-      uint64_t* total_size = nullptr);
+  Status GetAllSSTFiles(std::unordered_map<std::string, uint64_t>* sst_files,
+                        uint64_t* total_size = nullptr);
 
   std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path);
 

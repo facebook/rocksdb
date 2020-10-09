@@ -33,8 +33,9 @@ Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
                                                     const Slice& value,
                                                     uint64_t file_size) {
   ParsedInternalKey ikey;
-  if (!ParseInternalKey(key, &ikey)) {
-    return Status::InvalidArgument("Invalid internal key");
+  Status s = ParseInternalKey(key, &ikey);
+  if (s != Status::OK()) {
+    return s;
   }
 
   return collector_->AddUserKey(ikey.user_key, value, GetEntryType(ikey.type),

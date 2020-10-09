@@ -1157,6 +1157,15 @@ struct DBOptions {
   //
   // Default: 1000000 (microseconds).
   uint64_t bgerror_resume_retry_interval = 1000000;
+
+  // It allows user to opt-in to get error messages containing corrupted
+  // keys/values. Corrupt keys, values will be logged in the
+  // messages/logs/status that will help users with the useful information
+  // regarding affected data. By default value is set false to prevent users
+  // data to be exposed in the logs/messages etc.
+  //
+  // Default: false
+  bool allow_data_in_errors = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

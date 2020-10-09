@@ -136,7 +136,7 @@ extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_with_ttl(
 
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_for_read_only(
     const rocksdb_options_t* options, const char* name,
-    unsigned char error_if_log_file_exist, char** errptr);
+    unsigned char error_if_wal_file_exists, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_as_secondary(
     const rocksdb_options_t* options, const char* name,
@@ -232,7 +232,7 @@ rocksdb_open_for_read_only_column_families(
     const char* const* column_family_names,
     const rocksdb_options_t* const* column_family_options,
     rocksdb_column_family_handle_t** column_family_handles,
-    unsigned char error_if_log_file_exist, char** errptr);
+    unsigned char error_if_wal_file_exists, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_as_secondary_column_families(
     const rocksdb_options_t* options, const char* name,

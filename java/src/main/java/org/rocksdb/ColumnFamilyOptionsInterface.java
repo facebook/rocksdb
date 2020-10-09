@@ -487,9 +487,13 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * partitioning of sst files. This helps compaction to split the files
    * on interesting boundaries (key prefixes) to make propagation of sst
    * files less write amplifying (covering the whole key space).
+   *
+   * Default: nullptr
+   *
    * @param factory The factory reference
    * @return the reference of the current options.
    */
+  @Experimental("Caution: this option is experimental")
   T setSstPartitionerFactory(SstPartitionerFactory factory);
 
   /**
@@ -497,6 +501,7 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    *
    * @return SST partitioner factory
    */
+  @Experimental("Caution: this option is experimental")
   SstPartitionerFactory sstPartitionerFactory();
 
   /**

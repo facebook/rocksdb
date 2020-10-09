@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#if defined(OS_WIN)
+
 #ifndef ROCKSDB_JEMALLOC
 # error This file can only be part of jemalloc aware build
 #endif
@@ -73,3 +75,5 @@ void operator delete[](void* p) {
     je_free(p);
   }
 }
+
+#endif

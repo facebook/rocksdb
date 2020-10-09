@@ -241,6 +241,7 @@ DECLARE_bool(sync_fault_injection);
 DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
 DECLARE_bool(enable_compaction_filter);
+DECLARE_bool(paranoid_file_checks);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;

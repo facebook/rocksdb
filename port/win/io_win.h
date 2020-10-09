@@ -409,7 +409,7 @@ class WinRandomRWFile : private WinFileData,
 
   virtual Status Sync() override;
 
-  virtual Status Fsync() { return Sync(); }
+  virtual Status Fsync() override { return Sync(); }
 
   virtual Status Close() override;
 };

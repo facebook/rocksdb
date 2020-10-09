@@ -295,8 +295,9 @@ class BlockFetcherTest : public testing::Test {
     uint64_t file_size = 0;
     ASSERT_OK(env_->GetFileSize(file->file_name(), &file_size));
     IOOptions opts;
-    ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */, file_size,
-                       footer, kBlockBasedTableMagicNumber);
+    ASSERT_OK(ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */,
+                                 file_size, footer,
+                                 kBlockBasedTableMagicNumber));
   }
 
   // NOTE: compression_type returns the compression type of the fetched block
