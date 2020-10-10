@@ -130,6 +130,8 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   ASSERT_NE(second.GetValue(), nullptr);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
+
+  ASSERT_EQ(first.GetValue(), second.GetValue());
 }
 
 TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
