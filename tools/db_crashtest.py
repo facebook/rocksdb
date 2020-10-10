@@ -308,11 +308,9 @@ def finalize_and_sanitize(src_params):
         dest_params["test_batches_snapshots"] = 0
     if dest_params["format_version"] > 2:
         # TODO(ajkr): this prevents failing on a known bug, where
-        # `TwoLevelIndexIterator` currently cannot handle index blocks
-        # containing user keys.
-        dest_params["partition_pinning"] = 0
-        dest_params["top_level_index_pinning"] = 0
-        dest_params["unpartitioned_pinning"] = 0
+        # `TwoLevelIndexIterator` currently cannot handle index partitions
+        # containing user keys. Value 1 means `PinningTier::kNone`.
+        dest_params["partition_pinning"] = 1
     return dest_params
 
 def gen_cmd_params(args):
