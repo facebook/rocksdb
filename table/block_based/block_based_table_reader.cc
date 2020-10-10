@@ -1051,7 +1051,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // The partitions of partitioned index are always stored in cache. They
   // are hence follow the configuration for pin and prefetch regardless of
   // the value of cache_index_and_filter_blocks
-  if (prefetch_all) {
+  if (prefetch_all || pin_partition) {
     s = rep_->index_reader->CacheDependencies(ro, pin_partition);
   }
   if (!s.ok()) {
@@ -1072,7 +1072,7 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
         lookup_context);
     if (filter) {
       // Refer to the comment above about paritioned indexes always being cached
-      if (prefetch_all) {
+      if (prefetch_all || pin_partition) {
         filter->CacheDependencies(ro, pin_partition);
       }
 
