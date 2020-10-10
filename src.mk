@@ -250,7 +250,6 @@ LIB_SOURCES =                                                   \
   utilities/simulator_cache/sim_cache.cc                        \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
   utilities/trace/file_trace_reader_writer.cc                   \
-  utilities/transactions/lock/lock_tracker.cc                   \
   utilities/transactions/lock/lock_manager.cc                   \
   utilities/transactions/lock/point/point_lock_tracker.cc       \
   utilities/transactions/lock/point/point_lock_manager.cc       \

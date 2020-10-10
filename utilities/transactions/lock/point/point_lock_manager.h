@@ -55,7 +55,7 @@ class PointLockManager : public LockManager {
                    const TransactionDBOptions& opt);
   // No copying allowed
   PointLockManager(const PointLockManager&) = delete;
-  void operator=(const PointLockManager&) = delete;
+  PointLockManager& operator=(const PointLockManager&) = delete;
 
   ~PointLockManager() override;
 

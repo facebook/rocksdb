@@ -345,7 +345,7 @@ Status TransactionDB::WrapStackableDB(
   return s;
 }
 
-// Let TransactionLockMgr know that this column family exists so it can
+// Let LockManager know that this column family exists so it can
 // allocate a LockMap for it.
 void PessimisticTransactionDB::AddColumnFamily(
     const ColumnFamilyHandle* handle) {
@@ -370,7 +370,7 @@ Status PessimisticTransactionDB::CreateColumnFamily(
   return s;
 }
 
-// Let TransactionLockMgr know that it can deallocate the LockMap for this
+// Let LockManager know that it can deallocate the LockMap for this
 // column family.
 Status PessimisticTransactionDB::DropColumnFamily(
     ColumnFamilyHandle* column_family) {

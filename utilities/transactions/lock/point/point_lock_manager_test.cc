@@ -22,7 +22,7 @@ class PointLockManagerTest : public testing::Test {
  public:
   void SetUp() override {
     env_ = Env::Default();
-    db_dir_ = test::PerThreadDBPath("transaction_lock_mgr_test");
+    db_dir_ = test::PerThreadDBPath("point_lock_manager_test");
     ASSERT_OK(env_->CreateDir(db_dir_));
     mutex_factory_ = std::make_shared<TransactionDBMutexFactoryImpl>();
 
@@ -201,7 +201,7 @@ TEST_F(PointLockManagerTest, LockConflict) {
 port::Thread BlockUntilWaitingTxn(std::function<void()> f) {
   std::atomic<bool> reached(false);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "TransactionLockMgr::AcquireWithTimeout:WaitingTxn",
+      "PointLockManager::AcquireWithTimeout:WaitingTxn",
       [&](void* /*arg*/) { reached.store(true); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
