@@ -132,6 +132,58 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
   ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
 }
 
+TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
+  Options options;
+  options.env = &mock_env_;
+  options.statistics = CreateDBStatistics();
+  options.cf_paths.emplace_back(
+      test::PerThreadDBPath(&mock_env_,
+                            "BlobFileCacheTest_GetBlobFileReader_Race"),
+      0);
+  options.enable_blob_files = true;
+
+  constexpr uint32_t column_family_id = 1;
+  ImmutableCFOptions immutable_cf_options(options);
+  constexpr uint64_t blob_file_number = 123;
+
+  WriteBlobFile(column_family_id, immutable_cf_options, blob_file_number);
+
+  constexpr size_t capacity = 10;
+  std::shared_ptr<Cache> backing_cache = NewLRUCache(capacity);
+
+  FileOptions file_options;
+  constexpr HistogramImpl* blob_file_read_hist = nullptr;
+
+  BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
+                                &file_options, column_family_id,
+                                blob_file_read_hist);
+
+  CacheHandleGuard<BlobFileReader> first;
+  CacheHandleGuard<BlobFileReader> second;
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobFileCache::GetBlobFileReader:DoubleCheck", [&](void* /* arg */) {
+        // Disabling sync points to prevent infinite recursion
+        SyncPoint::GetInstance()->DisableProcessing();
+
+        ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &second));
+        ASSERT_NE(second.GetValue(), nullptr);
+        ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
+        ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(blob_file_cache.GetBlobFileReader(blob_file_number, &first));
+  ASSERT_NE(first.GetValue(), nullptr);
+  ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_OPENS), 1);
+  ASSERT_EQ(options.statistics->getTickerCount(NO_FILE_ERRORS), 0);
+
+  ASSERT_EQ(first.GetValue(), second.GetValue());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
   Options options;
   options.env = &mock_env_;

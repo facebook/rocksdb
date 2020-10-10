@@ -12,6 +12,7 @@
 #include "options/cf_options.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
+#include "test_util/sync_point.h"
 #include "util/hash.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -47,6 +48,8 @@ Status BlobFileCache::GetBlobFileReader(
     *blob_file_reader = CacheHandleGuard<BlobFileReader>(cache_, handle);
     return Status::OK();
   }
+
+  TEST_SYNC_POINT("BlobFileCache::GetBlobFileReader:DoubleCheck");
 
   // Check again while holding mutex
   MutexLock lock(mutex_.get(key));
