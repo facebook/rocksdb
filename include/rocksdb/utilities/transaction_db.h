@@ -202,6 +202,13 @@ struct KeyLockInfo {
   bool exclusive;
 };
 
+struct RangeLockInfo {
+  Endpoint start;
+  Endpoint end;
+  std::vector<TransactionID> ids;
+  bool exclusive;
+};
+
 struct DeadlockInfo {
   TransactionID m_txn_id;
   uint32_t m_cf_id;

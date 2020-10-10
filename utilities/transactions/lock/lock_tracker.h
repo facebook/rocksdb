@@ -13,8 +13,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-using ColumnFamilyId = uint32_t;
-
 // Request for locking a single key.
 struct PointLockRequest {
   // The id of the key's column family.
