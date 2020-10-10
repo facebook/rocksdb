@@ -7,8 +7,8 @@
 
 #include "utilities/transactions/lock/point/point_lock_manager.h"
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <mutex>
 
 #include "monitoring/perf_context_imp.h"
@@ -18,8 +18,8 @@
 #include "util/cast_util.h"
 #include "util/hash.h"
 #include "util/thread_local.h"
-#include "utilities/transactions/transaction_db_mutex_impl.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/transaction_db_mutex_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -156,17 +156,17 @@ void UnrefLockMapsCache(void* ptr) {
 }
 }  // anonymous namespace
 
-PointLockManager::PointLockManager(
-    PessimisticTransactionDB* txn_db, const TransactionDBOptions& opt)
+PointLockManager::PointLockManager(PessimisticTransactionDB* txn_db,
+                                   const TransactionDBOptions& opt)
     : txn_db_impl_(txn_db),
       default_num_stripes_(opt.num_stripes),
       max_num_locks_(opt.max_num_locks),
       lock_maps_cache_(new ThreadLocalPtr(&UnrefLockMapsCache)),
       dlock_buffer_(opt.max_num_deadlocks),
       mutex_factory_(opt.custom_mutex_factory
-                    ? opt.custom_mutex_factory
-                    : std::shared_ptr<TransactionDBMutexFactory>(
-                          new TransactionDBMutexFactoryImpl())) {}
+                         ? opt.custom_mutex_factory
+                         : std::shared_ptr<TransactionDBMutexFactory>(
+                               new TransactionDBMutexFactoryImpl())) {}
 
 PointLockManager::~PointLockManager() {}
 
@@ -248,8 +248,8 @@ std::shared_ptr<LockMap> PointLockManager::GetLockMap(
 // If false, sets *expire_time to the expiration time of the lock according
 // to Env->GetMicros() or 0 if no expiration.
 bool PointLockManager::IsLockExpired(TransactionID txn_id,
-                                       const LockInfo& lock_info, Env* env,
-                                       uint64_t* expire_time) {
+                                     const LockInfo& lock_info, Env* env,
+                                     uint64_t* expire_time) {
   if (lock_info.expiration_time == 0) {
     *expire_time = 0;
     return false;
@@ -279,9 +279,9 @@ bool PointLockManager::IsLockExpired(TransactionID txn_id,
 }
 
 Status PointLockManager::TryLock(PessimisticTransaction* txn,
-                                   ColumnFamilyId column_family_id,
-                                   const std::string& key, Env* env,
-                                   bool exclusive) {
+                                 ColumnFamilyId column_family_id,
+                                 const std::string& key, Env* env,
+                                 bool exclusive) {
   // Lookup lock map for this column family id
   std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(column_family_id);
   LockMap* lock_map = lock_map_ptr.get();
@@ -512,12 +512,11 @@ bool PointLockManager::IncrementWaiters(
 // Sets *expire_time to the expiration time in microseconds
 //  or 0 if no expiration.
 // REQUIRED:  Stripe mutex must be held.
-Status PointLockManager::AcquireLocked(LockMap* lock_map,
-                                         LockMapStripe* stripe,
-                                         const std::string& key, Env* env,
-                                         LockInfo&& txn_lock_info,
-                                         uint64_t* expire_time,
-                                         autovector<TransactionID>* txn_ids) {
+Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
+                                       const std::string& key, Env* env,
+                                       LockInfo&& txn_lock_info,
+                                       uint64_t* expire_time,
+                                       autovector<TransactionID>* txn_ids) {
   assert(txn_lock_info.txn_ids.size() == 1);
 
   Status result;
@@ -580,9 +579,8 @@ Status PointLockManager::AcquireLocked(LockMap* lock_map,
 }
 
 void PointLockManager::UnLockKey(PessimisticTransaction* txn,
-                                   const std::string& key,
-                                   LockMapStripe* stripe, LockMap* lock_map,
-                                   Env* env) {
+                                 const std::string& key, LockMapStripe* stripe,
+                                 LockMap* lock_map, Env* env) {
 #ifdef NDEBUG
   (void)env;
 #endif
@@ -619,8 +617,8 @@ void PointLockManager::UnLockKey(PessimisticTransaction* txn,
 }
 
 void PointLockManager::UnLock(PessimisticTransaction* txn,
-                                ColumnFamilyId column_family_id,
-                                const std::string& key, Env* env) {
+                              ColumnFamilyId column_family_id,
+                              const std::string& key, Env* env) {
   std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(column_family_id);
   LockMap* lock_map = lock_map_ptr.get();
   if (lock_map == nullptr) {
@@ -642,7 +640,7 @@ void PointLockManager::UnLock(PessimisticTransaction* txn,
 }
 
 void PointLockManager::UnLock(PessimisticTransaction* txn,
-                                const LockTracker& tracker, Env* env) {
+                              const LockTracker& tracker, Env* env) {
   std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
       tracker.GetColumnFamilyIterator());
   assert(cf_it != nullptr);
@@ -743,14 +741,18 @@ PointLockManager::RangeLockStatus PointLockManager::GetRangeLockStatus() {
 }
 
 Status PointLockManager::TryLock(PessimisticTransaction* /* txn */,
-                                   ColumnFamilyId /* cf_id */,
-                                   const Endpoint& /* start */, const Endpoint& /* end */, Env* /* env */,
-                                   bool /* exclusive */) {
-  return Status::NotSupported("PointLockManager does not support range locking");
+                                 ColumnFamilyId /* cf_id */,
+                                 const Endpoint& /* start */,
+                                 const Endpoint& /* end */, Env* /* env */,
+                                 bool /* exclusive */) {
+  return Status::NotSupported(
+      "PointLockManager does not support range locking");
 }
 
-void PointLockManager::UnLock(PessimisticTransaction* /* txn */, ColumnFamilyId /* cf_id */,
-                 const Endpoint& /* start */, const Endpoint& /* end */, Env* /* env */) {
+void PointLockManager::UnLock(PessimisticTransaction* /* txn */,
+                              ColumnFamilyId /* cf_id */,
+                              const Endpoint& /* start */,
+                              const Endpoint& /* end */, Env* /* env */) {
   // no-op
 }
 

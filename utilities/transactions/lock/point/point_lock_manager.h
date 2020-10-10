@@ -6,9 +6,9 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include <memory>
 #include <string>
 #include <unordered_map>
-#include <memory>
 #include <utility>
 #include <vector>
 
@@ -18,6 +18,7 @@
 #include "util/hash_map.h"
 #include "util/thread_local.h"
 #include "utilities/transactions/lock/lock_manager.h"
+#include "utilities/transactions/lock/point/point_lock_tracker.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -50,19 +51,20 @@ struct TrackedTrxInfo {
 
 class PointLockManager : public LockManager {
  public:
-  PointLockManager(PessimisticTransactionDB* db, const TransactionDBOptions& opt);
+  PointLockManager(PessimisticTransactionDB* db,
+                   const TransactionDBOptions& opt);
   // No copying allowed
   PointLockManager(const PointLockManager&) = delete;
   void operator=(const PointLockManager&) = delete;
 
   ~PointLockManager() override;
 
-  bool IsPointLockSupported() const override {
-    return true;
-  }
+  bool IsPointLockSupported() const override { return true; }
 
-  bool IsRangeLockSupported() const override {
-    return false;
+  bool IsRangeLockSupported() const override { return false; }
+
+  const LockTrackerFactory& GetLockTrackerFactory() const override {
+    return PointLockTrackerFactory::Get();
   }
 
   void AddColumnFamily(ColumnFamilyId column_family_id) override;
@@ -71,14 +73,15 @@ class PointLockManager : public LockManager {
   Status TryLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
                  const std::string& key, Env* env, bool exclusive) override;
   Status TryLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
-                 const Endpoint& start, const Endpoint& end, Env* env, bool exclusive) override;
+                 const Endpoint& start, const Endpoint& end, Env* env,
+                 bool exclusive) override;
 
   void UnLock(PessimisticTransaction* txn, const LockTracker& tracker,
               Env* env) override;
   void UnLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
               const std::string& key, Env* env) override;
   void UnLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
-                 const Endpoint& start, const Endpoint& end, Env* env) override;
+              const Endpoint& start, const Endpoint& end, Env* env) override;
 
   PointLockStatus GetPointLockStatus() override;
 

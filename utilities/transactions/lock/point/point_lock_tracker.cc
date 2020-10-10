@@ -40,6 +40,8 @@ class TrackedKeysIterator : public LockTracker::KeyIterator {
 
 }  // namespace
 
+PointLockTrackerFactory PointLockTrackerFactory::instance_;
+
 void PointLockTracker::Track(const PointLockRequest& r) {
   auto& keys = tracked_keys_[r.column_family_id];
 #ifdef __cpp_lib_unordered_map_try_emplace

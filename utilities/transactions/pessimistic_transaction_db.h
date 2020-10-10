@@ -142,6 +142,11 @@ class PessimisticTransactionDB : public TransactionDB {
   virtual void UpdateCFComparatorMap(const std::vector<ColumnFamilyHandle*>&) {}
   virtual void UpdateCFComparatorMap(ColumnFamilyHandle*) {}
 
+  // Use the returned factory to create LockTrackers in transactions.
+  const LockTrackerFactory& GetLockTrackerFactory() const {
+    return lock_manager_->GetLockTrackerFactory();
+  }
+
  protected:
   DBImpl* db_impl_;
   std::shared_ptr<Logger> info_log_;

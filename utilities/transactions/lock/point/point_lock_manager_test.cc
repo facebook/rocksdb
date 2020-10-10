@@ -13,8 +13,8 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
-#include "utilities/transactions/transaction_db_mutex_impl.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/transaction_db_mutex_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -33,7 +33,8 @@ class PointLockManagerTest : public testing::Test {
     txn_opt.custom_mutex_factory = mutex_factory_;
     ASSERT_OK(TransactionDB::Open(opt, txn_opt, db_dir_, &db_));
 
-    locker_.reset(new PointLockManager(static_cast<PessimisticTransactionDB*>(db_), txn_opt));
+    locker_.reset(new PointLockManager(
+        static_cast<PessimisticTransactionDB*>(db_), txn_opt));
   }
 
   void TearDown() override {
