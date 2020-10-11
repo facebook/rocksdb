@@ -74,7 +74,6 @@ jobs:
   build-macos:
     macos:  # indicate that we are using the macOS executor
       xcode: 11.3.0 # indicate our selected version of Xcode
-    resource_class: xlarge
     steps:
       - install-homebrew-on-macos
       - install-pyenv-on-macos
