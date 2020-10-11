@@ -158,6 +158,9 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       *bbto,
       "cache_index_and_filter_blocks=1;"
       "cache_index_and_filter_blocks_with_high_priority=true;"
+      "metadata_cache_options={top_level_index_pinning=kFallback;"
+      "partition_pinning=kAll;"
+      "unpartitioned_pinning=kFlushedAndSimilar;};"
       "pin_l0_filter_and_index_blocks_in_cache=1;"
       "pin_top_level_index_and_filter=1;"
       "index_type=kHashSearch;"
