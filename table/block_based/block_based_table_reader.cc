@@ -1482,6 +1482,21 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         s = block_fetcher.ReadBlockContents();
         raw_block_comp_type = block_fetcher.get_compression_type();
         contents = &raw_block_contents;
+        if (get_context) {
+          switch (block_type) {
+            case BlockType::kIndex:
+              ++get_context->get_context_stats_.num_index_read;
+              break;
+            case BlockType::kFilter:
+              ++get_context->get_context_stats_.num_filter_read;
+              break;
+            case BlockType::kData:
+              ++get_context->get_context_stats_.num_data_read;
+              break;
+            default:
+              break;
+          }
+        }
       } else {
         raw_block_comp_type = contents->get_compression_type();
       }
@@ -1553,9 +1568,11 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
           no_insert, lookup_context->get_id,
           lookup_context->get_from_user_specified_snapshot,
           /*referenced_key=*/"");
-      block_cache_tracer_->WriteBlockAccess(access_record, key,
-                                            rep_->cf_name_for_tracing(),
-                                            lookup_context->referenced_key);
+      // TODO: Should handle this error?
+      block_cache_tracer_
+          ->WriteBlockAccess(access_record, key, rep_->cf_name_for_tracing(),
+                             lookup_context->referenced_key)
+          .PermitUncheckedError();
     }
   }
 
@@ -1889,6 +1906,22 @@ Status BlockBasedTable::RetrieveBlock(
         GetMemoryAllocator(rep_->table_options), for_compaction,
         rep_->blocks_definitely_zstd_compressed,
         rep_->table_options.filter_policy.get());
+
+    if (get_context) {
+      switch (block_type) {
+        case BlockType::kIndex:
+          ++(get_context->get_context_stats_.num_index_read);
+          break;
+        case BlockType::kFilter:
+          ++(get_context->get_context_stats_.num_filter_read);
+          break;
+        case BlockType::kData:
+          ++(get_context->get_context_stats_.num_data_read);
+          break;
+        default:
+          break;
+      }
+    }
   }
 
   if (!s.ok()) {
@@ -2361,9 +2394,12 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
             /*referenced_key=*/"", referenced_data_size,
             lookup_data_block_context.num_keys_in_block,
             does_referenced_key_exist);
-        block_cache_tracer_->WriteBlockAccess(
-            access_record, lookup_data_block_context.block_key,
-            rep_->cf_name_for_tracing(), referenced_key);
+        // TODO: Should handle status here?
+        block_cache_tracer_
+            ->WriteBlockAccess(access_record,
+                               lookup_data_block_context.block_key,
+                               rep_->cf_name_for_tracing(), referenced_key)
+            .PermitUncheckedError();
       }
 
       if (done) {
@@ -2553,6 +2589,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         }
         RetrieveMultipleBlocks(read_options, &data_block_range, &block_handles,
                                &statuses, &results, scratch, dict);
+        if (sst_file_range.begin()->get_context) {
+          ++(sst_file_range.begin()
+                 ->get_context->get_context_stats_.num_sst_read);
+        }
       }
     }
 
@@ -2688,9 +2728,12 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
               /*referenced_key=*/"", referenced_data_size,
               lookup_data_block_context.num_keys_in_block,
               does_referenced_key_exist);
-          block_cache_tracer_->WriteBlockAccess(
-              access_record, lookup_data_block_context.block_key,
-              rep_->cf_name_for_tracing(), referenced_key);
+          // TODO: Should handle status here?
+          block_cache_tracer_
+              ->WriteBlockAccess(access_record,
+                                 lookup_data_block_context.block_key,
+                                 rep_->cf_name_for_tracing(), referenced_key)
+              .PermitUncheckedError();
         }
         s = biter->status();
         if (done) {

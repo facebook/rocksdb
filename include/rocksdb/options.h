@@ -390,6 +390,20 @@ struct DBOptions {
   // Default: true
   bool paranoid_checks = true;
 
+  // If true, track WALs in MANIFEST and verify them on recovery.
+  //
+  // If a WAL is tracked in MANIFEST but is missing from disk on recovery,
+  // or the size of the tracked WAL is larger than the WAL's on-disk size,
+  // an error is reported and recovery is aborted.
+  //
+  // If a WAL is not tracked in MANIFEST, then no verification will happen
+  // during recovery.
+  //
+  // Default: false
+  // FIXME(cheng): This option is part of a work in progress and does not yet
+  // work
+  bool track_and_verify_wals_in_manifest = false;
+
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc. In the near
   // future, support for doing storage operations such as read/write files
