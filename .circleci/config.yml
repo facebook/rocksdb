@@ -12,7 +12,7 @@ aliases:
 commands:
   install-pyenv-on-macos:
     steps:
-      - run: brew install pyenv
+      - run: HOMEBREW_NO_AUTO_UPDATE=1 brew install pyenv
 
   pre-steps:
     steps:
