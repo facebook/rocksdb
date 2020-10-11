@@ -63,6 +63,16 @@ executors:
       shell: bash.exe
 
 jobs:
+  build-macos:
+    macos:  # indicate that we are using the macOS executor
+      xcode: 11.3.0 # indicate our selected version of Xcode
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - run: make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - post-steps
+
   build-linux:
     machine:
       image: ubuntu-1604:202007-01
@@ -419,3 +429,6 @@ workflows:
   build-linux-gcc-4-8:
     jobs:
       - build-linux-gcc-4-8
+  build-macos:
+    jobs:
+      - build-macos
