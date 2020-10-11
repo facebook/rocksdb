@@ -483,9 +483,9 @@ Status MemTableList::TryInstallMemtableFlushResults(
         // Track obsolete WALs in MANIFEST.
         VersionEdit wal_deletions;
         if (min_log_number_to_keep_2pc) {
-          wal_deletions.DeleteWal(min_log_number_to_keep_2pc);
+          wal_deletions.DeleteWalsBefore(min_log_number_to_keep_2pc);
         } else {
-          wal_deletions.DeleteWal(vset->MinLogNumberWithUnflushedData());
+          wal_deletions.DeleteWalsBefore(vset->MinLogNumberWithUnflushedData());
         }
       }
 
@@ -745,7 +745,7 @@ Status InstallMemtableAtomicFlushResults(
   if (vset->db_options()->track_and_verify_wals_in_manifest) {
     // Track obsolete WALs in MANIFEST.
     wal_deletions.reset(new VersionEdit);
-    wal_deletions->DeleteWal(vset->MinLogNumberWithUnflushedData());
+    wal_deletions->DeleteWalsBefore(vset->MinLogNumberWithUnflushedData());
     // Piggy back to the last edit list.
     edit_lists.back().push_back(wal_deletions.get());
   }
