@@ -1276,12 +1276,28 @@ Status DBImpl::SyncWAL() {
   }
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
 
-  TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
   {
     InstrumentedMutexLock l(&mutex_);
+
+    TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
     MarkLogsSynced(current_log_number, need_log_dir_sync, status);
+    TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
+
+    if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+        status.ok()) {
+      // Track synced WAL sizes in MANIFEST.
+      VersionEdit edit;
+      for (log::Writer* log : logs_to_sync) {
+        WalMetadata wal(log->file()->GetFileSize());
+        edit.AddWal(log->get_log_number(), wal);
+      }
+      Status s = versions_->LogAndApplyToDefaultColumnFamily(&edit, &mutex_);
+      if (!s.ok()) {
+        status = Status::IOError("Failed to log synced WAL size to MANIFEST",
+                                 s.ToString());
+      }
+    }
   }
-  TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
 
   return status;
 }

@@ -473,12 +473,27 @@ Status MemTableList::TryInstallMemtableFlushResults(
 
     // TODO(myabandeh): Not sure how batch_count could be 0 here.
     if (batch_count > 0) {
+      uint64_t min_log_number_to_keep_2pc = 0;
       if (vset->db_options()->allow_2pc) {
+        min_log_number_to_keep_2pc = PrecomputeMinLogNumberToKeep(
+            vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
+      }
+
+      if (vset->db_options()->track_and_verify_wals_in_manifest) {
+        // Track obsolete WALs in MANIFEST.
+        VersionEdit wal_deletions;
+        if (min_log_number_to_keep_2pc) {
+          wal_deletions.DeleteWal(min_log_number_to_keep_2pc);
+        } else {
+          wal_deletions.DeleteWal(vset->MinLogNumberWithUnflushedData());
+        }
+      }
+
+      if (min_log_number_to_keep_2pc) {
         assert(edit_list.size() > 0);
         // We piggyback the information of  earliest log file to keep in the
         // manifest entry for the last file flushed.
-        edit_list.back()->SetMinLogNumberToKeep(PrecomputeMinLogNumberToKeep(
-            vset, *cfd, edit_list, memtables_to_flush, prep_tracker));
+        edit_list.back()->SetMinLogNumberToKeep(min_log_number_to_keep_2pc);
       }
 
       // this can release and reacquire the mutex.
@@ -724,6 +739,15 @@ Status InstallMemtableAtomicFlushResults(
       edits[0]->MarkAtomicGroup(--num_entries);
     }
     assert(0 == num_entries);
+  }
+
+  std::unique_ptr<VersionEdit> wal_deletions;
+  if (vset->db_options()->track_and_verify_wals_in_manifest) {
+    // Track obsolete WALs in MANIFEST.
+    wal_deletions.reset(new VersionEdit);
+    wal_deletions->DeleteWal(vset->MinLogNumberWithUnflushedData());
+    // Piggy back to the last edit list.
+    edit_lists.back().push_back(wal_deletions.get());
   }
 
   // this can release and reacquire the mutex.
