@@ -17,7 +17,7 @@ commands:
   pre-steps:
     steps:
       - checkout
-      - run: pyenv install 3.5.9
+      - run: pyenv install --skip-existing 3.5.9
       - run: pyenv global 3.5.9
       - run:
           name: Setup Environment Variables
