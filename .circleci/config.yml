@@ -10,10 +10,6 @@ aliases:
     only_for_branches: master
 
 commands:
-  install-homebrew-on-macos:
-    steps:
-      - run: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
-
   install-pyenv-on-macos:
     steps:
       - run: brew install pyenv
@@ -75,7 +71,6 @@ jobs:
     macos:  # indicate that we are using the macOS executor
       xcode: 11.3.0 # indicate our selected version of Xcode
     steps:
-      - install-homebrew-on-macos
       - install-pyenv-on-macos
       - pre-steps
       - install-gflags
