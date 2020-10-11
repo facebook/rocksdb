@@ -140,8 +140,7 @@ class WalSet {
   Status AddWals(const WalAdditions& wals);
 
   // Delete WAL(s).
-  // The WAL to be deleted must exist and be closed, otherwise,
-  // return Status::Corruption.
+  // Delete WALs with log number < the number in WalDeletion.
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
   Status DeleteWal(const WalDeletion& wal);
   Status DeleteWals(const WalDeletions& wals);

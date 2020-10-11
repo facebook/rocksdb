@@ -572,6 +572,7 @@ Status DBImpl::Recover(
     }
 
     std::vector<uint64_t> logs;
+    std::unordered_map<uint64_t, std::string> log_files;
     for (const auto& file : files_in_wal_dir) {
       uint64_t number;
       FileType type;
@@ -583,7 +584,17 @@ Status DBImpl::Recover(
               file);
         } else {
           logs.push_back(number);
+          log_files[number] = file;
         }
+      }
+    }
+
+    // Verify WALs in MANIFEST.
+    if (immutable_db_options_.track_and_verify_wals_in_manifest) {
+      s = versions_->GetWalSet().CheckWals(env_, log_files);
+      if (!s.ok()) {
+        return Status::Corruption("Failed to verify WALs tracked in MANIFEST",
+                                  s.ToString());
       }
     }
 
@@ -1481,7 +1492,7 @@ IOStatus DBImpl::CreateWAL(bool is_db_mutex_locked, uint64_t log_file_num,
                                immutable_db_options_.recycle_log_file_num > 0,
                                immutable_db_options_.manual_wal_flush);
 
-    {
+    if (immutable_db_options_.track_and_verify_wals_in_manifest) {
       // Track the WAL creation event to MANIFEST.
       if (!is_db_mutex_locked) {
         mutex_.Lock();
@@ -1491,12 +1502,7 @@ IOStatus DBImpl::CreateWAL(bool is_db_mutex_locked, uint64_t log_file_num,
 
       VersionEdit edit;
       edit.AddWal(log_file_num);
-      ColumnFamilyData* default_cf =
-          versions_->GetColumnFamilySet()->GetDefault();
-      const MutableCFOptions* cf_options =
-          default_cf->GetLatestMutableCFOptions();
-      Status s =
-          versions_->LogAndApply(default_cf, *cf_options, &edit, &mutex_);
+      Status s = versions_->LogAndApplyToDefaultColumnFamily(&edit, &mutex_);
       if (!s.ok()) {
         io_s = IOStatus::IOError("Failed to log WAL creation to MANIFEST",
                                  s.ToString());

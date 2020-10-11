@@ -473,32 +473,32 @@ Status MemTableList::TryInstallMemtableFlushResults(
 
     // TODO(myabandeh): Not sure how batch_count could be 0 here.
     if (batch_count > 0) {
+      uint64_t min_log_number_to_keep_2pc = 0;
       if (vset->db_options()->allow_2pc) {
+        min_log_number_to_keep_2pc = PrecomputeMinLogNumberToKeep(
+            vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
+      }
+
+      if (vset->db_options()->track_and_verify_wals_in_manifest) {
+        // Track obsolete WALs in MANIFEST.
+        VersionEdit wal_deletions;
+        if (min_log_number_to_keep_2pc) {
+          wal_deletions.DeleteWal(min_log_number_to_keep_2pc);
+        } else {
+          wal_deletions.DeleteWal(vset->MinLogNumberWithUnflushedData());
+        }
+      }
+
+      if (min_log_number_to_keep_2pc) {
         assert(edit_list.size() > 0);
         // We piggyback the information of  earliest log file to keep in the
         // manifest entry for the last file flushed.
-        edit_list.back()->SetMinLogNumberToKeep(PrecomputeMinLogNumberToKeep(
-            vset, *cfd, edit_list, memtables_to_flush, prep_tracker));
+        edit_list.back()->SetMinLogNumberToKeep(min_log_number_to_keep_2pc);
       }
 
       // this can release and reacquire the mutex.
       s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
                             db_directory);
-      if (s.ok()) {
-        // Track obsolete WALs in MANIFEST.
-        VersionEdit wal_deletions;
-        const std::map<WalNumber, WalMetadata>& wals =
-            vset->GetWalSet().GetWals();
-        auto end = wals.lower_bound(vset->MinLogNumberToKeep());
-        for (auto it = wals.begin(); it != end; it++) {
-          wal_deletions.DeleteWal(it->first);
-        }
-        ColumnFamilyData* default_cf = vset->GetColumnFamilySet()->GetDefault();
-        const MutableCFOptions* cf_opts =
-            default_cf->GetLatestMutableCFOptions();
-        s = vset->LogAndApply(default_cf, *cf_opts, &wal_deletions, mu,
-                              db_directory);
-      }
       *io_s = vset->io_status();
 
       // we will be changing the version in the next code path,
@@ -741,22 +741,18 @@ Status InstallMemtableAtomicFlushResults(
     assert(0 == num_entries);
   }
 
+  std::unique_ptr<VersionEdit> wal_deletions;
+  if (vset->db_options()->track_and_verify_wals_in_manifest) {
+    // Track obsolete WALs in MANIFEST.
+    wal_deletions.reset(new VersionEdit);
+    wal_deletions->DeleteWal(vset->MinLogNumberWithUnflushedData());
+    // Piggy back to the last edit list.
+    edit_lists.back().push_back(wal_deletions.get());
+  }
+
   // this can release and reacquire the mutex.
   s = vset->LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
                         db_directory);
-  if (s.ok()) {
-    // Track obsolete WALs in MANIFEST.
-    VersionEdit wal_deletions;
-    const std::map<WalNumber, WalMetadata>& wals = vset->GetWalSet().GetWals();
-    auto end = wals.lower_bound(vset->MinLogNumberToKeep());
-    for (auto it = wals.begin(); it != end; it++) {
-      wal_deletions.DeleteWal(it->first);
-    }
-    ColumnFamilyData* default_cf = vset->GetColumnFamilySet()->GetDefault();
-    const MutableCFOptions* cf_opts = default_cf->GetLatestMutableCFOptions();
-    s = vset->LogAndApply(default_cf, *cf_opts, &wal_deletions, mu,
-                          db_directory);
-  }
 
   for (size_t k = 0; k != cfds.size(); ++k) {
     auto* imm = (imm_lists == nullptr) ? cfds[k]->imm() : imm_lists->at(k);

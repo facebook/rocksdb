@@ -1283,19 +1283,15 @@ Status DBImpl::SyncWAL() {
     MarkLogsSynced(current_log_number, need_log_dir_sync, status);
     TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
 
-    if (status.ok()) {
+    if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+        status.ok()) {
       // Track synced WAL sizes in MANIFEST.
       VersionEdit edit;
       for (log::Writer* log : logs_to_sync) {
         WalMetadata wal(log->file()->GetFileSize());
         edit.AddWal(log->get_log_number(), wal);
       }
-      ColumnFamilyData* default_cf =
-          versions_->GetColumnFamilySet()->GetDefault();
-      const MutableCFOptions* cf_options =
-          default_cf->GetLatestMutableCFOptions();
-      Status s =
-          versions_->LogAndApply(default_cf, *cf_options, &edit, &mutex_);
+      Status s = versions_->LogAndApplyToDefaultColumnFamily(&edit, &mutex_);
       if (!s.ok()) {
         status = Status::IOError("Failed to log synced WAL size to MANIFEST",
                                  s.ToString());

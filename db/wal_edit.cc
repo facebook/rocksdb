@@ -160,19 +160,7 @@ Status WalSet::AddWals(const WalAdditions& wals) {
 }
 
 Status WalSet::DeleteWal(const WalDeletion& wal) {
-  auto it = wals_.find(wal.GetLogNumber());
-  // The WAL must exist and has been closed.
-  if (it == wals_.end()) {
-    std::stringstream ss;
-    ss << "WAL " << wal.GetLogNumber() << " must exist before deletion";
-    return Status::Corruption("WalSet", ss.str());
-  }
-  if (!it->second.IsClosed()) {
-    std::stringstream ss;
-    ss << "WAL " << wal.GetLogNumber() << " must be closed before deletion";
-    return Status::Corruption("WalSet", ss.str());
-  }
-  wals_.erase(it);
+  wals_.erase(wals_.begin(), wals_.lower_bound(wal.GetLogNumber()));
   return Status::OK();
 }
 
