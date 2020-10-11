@@ -915,7 +915,7 @@ class VersionSet {
     ColumnFamilyData* default_cf = GetColumnFamilySet()->GetDefault();
     const MutableCFOptions* cf_options =
         default_cf->GetLatestMutableCFOptions();
-    return LogAndApply(default_cf, cf_options, edit, mu, db_directory,
+    return LogAndApply(default_cf, *cf_options, edit, mu, db_directory,
                        new_descriptor_log, column_family_options);
   }
 
