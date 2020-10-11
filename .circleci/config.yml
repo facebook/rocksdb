@@ -12,7 +12,10 @@ aliases:
 commands:
   install-pyenv-on-macos:
     steps:
-      - run: HOMEBREW_NO_AUTO_UPDATE=1 brew install pyenv
+      - run:
+          name: Install pyenv on macos
+          command: |
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install pyenv
 
   pre-steps:
     steps:
@@ -51,6 +54,13 @@ commands:
           name: Install gflags
           command: |
             sudo apt-get update -y && sudo apt-get install -y libgflags-dev
+  
+  install-gflags-on-macos:
+    steps:
+      - run:
+          name: Install gflags on macos
+          command: |
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install gflags
 
   install-gtest-parallel:
     steps:
@@ -74,7 +84,7 @@ jobs:
     steps:
       - install-pyenv-on-macos
       - pre-steps
-      - install-gflags
+      - install-gflags-on-macos
       - run: make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
       - post-steps
 
