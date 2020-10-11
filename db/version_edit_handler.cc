@@ -82,6 +82,16 @@ void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
   }
 
   CheckIterationResult(reader, &s);
+  if (s.ok()) {
+    // Consider the case:
+    // 1. DB is opened with tracking WAL in MANIFEST is enabled,
+    // 2. then DB is reopened with tracking WAL disabled,
+    // 3. then DB is reopened with tracking WAL enabled.
+    // In step 2, the deleted WALs are not tracked in MANIFEST,
+    // so in step 3, during recovery, we should delete the WALs.
+    s = version_set_->wals_.DeleteWalsBefore(
+        WalDeletion(version_set_->MinLogNumberToKeep()));
+  }
 
   if (!s.ok()) {
     status_ = s;
@@ -192,13 +202,23 @@ Status VersionEditHandler::OnColumnFamilyDrop(VersionEdit& edit,
 
 Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
                                             ColumnFamilyData** cfd) {
+  Status s;
+  if (edit.IsWalManipulation()) {
+    if (edit.IsWalAddition()) {
+      s = version_set_->wals_.AddWals(edit.GetWalAdditions());
+    } else if (edit.IsWalDeletion()) {
+      s = version_set_->wals_.DeleteWalsBefore(edit.GetWalDeletion());
+    }
+    return s;
+    // WAL edits do not need to be applied to version builders.
+  }
+
   bool cf_in_not_found = false;
   bool cf_in_builders = false;
   CheckColumnFamilyId(edit, &cf_in_not_found, &cf_in_builders);
 
   assert(cfd != nullptr);
   *cfd = nullptr;
-  Status s;
   if (!cf_in_not_found) {
     if (!cf_in_builders) {
       s = Status::Corruption(
