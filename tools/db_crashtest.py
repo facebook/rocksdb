@@ -25,7 +25,7 @@ import argparse
 #   for txn:
 #       default_params < {blackbox,whitebox}_default_params < txn_params < args
 
-expected_values_file = tempfile.NamedTemporaryFile()
+expected_values_file = tempfile.NamedTemporaryFile(delete=False)
 
 default_params = {
     "acquire_snapshot_one_in": 10000,
@@ -618,6 +618,9 @@ def main():
         blackbox_crash_main(args, unknown_args)
     if args.test_type == 'whitebox':
         whitebox_crash_main(args, unknown_args)
+    # Only delete the `expected_values_file` if test passes
+    os.remove(expected_values_file.name)
+
 
 if __name__ == '__main__':
     main()
