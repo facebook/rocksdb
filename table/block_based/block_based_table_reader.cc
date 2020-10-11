@@ -974,6 +974,9 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       }
     }
   }
+  // Partition filters cannot be enabled without partition indexes
+  assert(rep_->filter_type != Rep::FilterType::kPartitionedFilter ||
+         rep_->index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
 
   // Find compression dictionary handle
   bool found_compression_dict = false;
@@ -987,20 +990,53 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
 
   const bool use_cache = table_options.cache_index_and_filter_blocks;
 
-  // pin both index and filters, down to all partitions.
-  const bool pin_all =
-      rep_->table_options.pin_l0_filter_and_index_blocks_in_cache &&
+  const bool maybe_flushed =
       level == 0 && file_size <= max_file_size_for_l0_meta_pin;
+  std::function<bool(PinningTier, PinningTier)> is_pinned =
+      [maybe_flushed, &is_pinned](PinningTier pinning_tier,
+                                  PinningTier fallback_pinning_tier) {
+        // Fallback to fallback would lead to infinite recursion. Disallow it.
+        assert(fallback_pinning_tier != PinningTier::kFallback);
 
-  // prefetch the first level of index
-  const bool prefetch_index =
-      prefetch_all ||
-      (table_options.pin_top_level_index_and_filter &&
-       index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
+        switch (pinning_tier) {
+          case PinningTier::kFallback:
+            return is_pinned(fallback_pinning_tier,
+                             PinningTier::kNone /* fallback_pinning_tier */);
+          case PinningTier::kNone:
+            return false;
+          case PinningTier::kFlushedAndSimilar:
+            return maybe_flushed;
+          case PinningTier::kAll:
+            return true;
+        };
+
+        // In GCC, this is needed to suppress `control reaches end of non-void
+        // function [-Werror=return-type]`.
+        assert(false);
+        return false;
+      };
+  const bool pin_top_level_index = is_pinned(
+      table_options.metadata_cache_options.top_level_index_pinning,
+      table_options.pin_top_level_index_and_filter ? PinningTier::kAll
+                                                   : PinningTier::kNone);
+  const bool pin_partition =
+      is_pinned(table_options.metadata_cache_options.partition_pinning,
+                table_options.pin_l0_filter_and_index_blocks_in_cache
+                    ? PinningTier::kFlushedAndSimilar
+                    : PinningTier::kNone);
+  const bool pin_unpartitioned =
+      is_pinned(table_options.metadata_cache_options.unpartitioned_pinning,
+                table_options.pin_l0_filter_and_index_blocks_in_cache
+                    ? PinningTier::kFlushedAndSimilar
+                    : PinningTier::kNone);
+
   // pin the first level of index
   const bool pin_index =
-      pin_all || (table_options.pin_top_level_index_and_filter &&
-                  index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
+      index_type == BlockBasedTableOptions::kTwoLevelIndexSearch
+          ? pin_top_level_index
+          : pin_unpartitioned;
+  // prefetch the first level of index
+  const bool prefetch_index = prefetch_all || pin_index;
 
   std::unique_ptr<IndexReader> index_reader;
   s = new_table->CreateIndexReader(ro, prefetch_buffer, meta_iter, use_cache,
@@ -1015,24 +1051,20 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // The partitions of partitioned index are always stored in cache. They
   // are hence follow the configuration for pin and prefetch regardless of
   // the value of cache_index_and_filter_blocks
-  if (prefetch_all) {
-    s = rep_->index_reader->CacheDependencies(ro, pin_all);
+  if (prefetch_all || pin_partition) {
+    s = rep_->index_reader->CacheDependencies(ro, pin_partition);
   }
   if (!s.ok()) {
     return s;
   }
 
-  // prefetch the first level of filter
-  const bool prefetch_filter =
-      prefetch_all ||
-      (table_options.pin_top_level_index_and_filter &&
-       rep_->filter_type == Rep::FilterType::kPartitionedFilter);
-  // Partition fitlers cannot be enabled without partition indexes
-  assert(!prefetch_filter || prefetch_index);
   // pin the first level of filter
   const bool pin_filter =
-      pin_all || (table_options.pin_top_level_index_and_filter &&
-                  rep_->filter_type == Rep::FilterType::kPartitionedFilter);
+      rep_->filter_type == Rep::FilterType::kPartitionedFilter
+          ? pin_top_level_index
+          : pin_unpartitioned;
+  // prefetch the first level of filter
+  const bool prefetch_filter = prefetch_all || pin_filter;
 
   if (rep_->filter_policy) {
     auto filter = new_table->CreateFilterBlockReader(
@@ -1040,8 +1072,8 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
         lookup_context);
     if (filter) {
       // Refer to the comment above about paritioned indexes always being cached
-      if (prefetch_all) {
-        filter->CacheDependencies(ro, pin_all);
+      if (prefetch_all || pin_partition) {
+        filter->CacheDependencies(ro, pin_partition);
       }
 
       rep_->filter = std::move(filter);
@@ -1050,9 +1082,9 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
 
   if (!rep_->compression_dict_handle.IsNull()) {
     std::unique_ptr<UncompressionDictReader> uncompression_dict_reader;
-    s = UncompressionDictReader::Create(this, ro, prefetch_buffer, use_cache,
-                                        prefetch_all, pin_all, lookup_context,
-                                        &uncompression_dict_reader);
+    s = UncompressionDictReader::Create(
+        this, ro, prefetch_buffer, use_cache, prefetch_all || pin_unpartitioned,
+        pin_unpartitioned, lookup_context, &uncompression_dict_reader);
     if (!s.ok()) {
       return s;
     }
@@ -1990,6 +2022,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
         rep->index_value_is_full);
   }
   // Create an empty iterator
+  // TODO(ajkr): this is not the right way to handle an unpinned partition.
   return new IndexBlockIter();
 }
 
