@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* Since 6.12, memtable lookup should report unrecognized value_type as corruption (#7121).
 
 ## 6.12.4 (2020-09-18)
 ### Public API Change
