@@ -18,6 +18,27 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class MockColumnFamilyHandle : public ColumnFamilyHandle {
+ public:
+  explicit MockColumnFamilyHandle(ColumnFamilyId cf_id) : cf_id_(cf_id) {}
+
+  ~MockColumnFamilyHandle() override {}
+
+  const std::string& GetName() const override { return name_; }
+
+  ColumnFamilyId GetID() const override { return cf_id_; }
+
+  Status GetDescriptor(ColumnFamilyDescriptor*) override {
+    return Status::OK();
+  }
+
+  const Comparator* GetComparator() const override { return nullptr; }
+
+ private:
+  ColumnFamilyId cf_id_;
+  std::string name_ = "MockCF";
+};
+
 class PointLockManagerTest : public testing::Test {
  public:
   void SetUp() override {
@@ -59,7 +80,8 @@ class PointLockManagerTest : public testing::Test {
 };
 
 TEST_F(PointLockManagerTest, LockNonExistingColumnFamily) {
-  locker_->RemoveColumnFamily(1024);
+  MockColumnFamilyHandle cf(1024);
+  locker_->RemoveColumnFamily(&cf);
   auto txn = NewTxn();
   auto s = locker_->TryLock(txn, 1024, "k", env_, true);
   ASSERT_TRUE(s.IsInvalidArgument());
@@ -68,8 +90,9 @@ TEST_F(PointLockManagerTest, LockNonExistingColumnFamily) {
 }
 
 TEST_F(PointLockManagerTest, LockStatus) {
-  locker_->AddColumnFamily(1024);
-  locker_->AddColumnFamily(2048);
+  MockColumnFamilyHandle cf1(1024), cf2(2048);
+  locker_->AddColumnFamily(&cf1);
+  locker_->AddColumnFamily(&cf2);
 
   auto txn1 = NewTxn();
   ASSERT_OK(locker_->TryLock(txn1, 1024, "k1", env_, true));
@@ -103,7 +126,8 @@ TEST_F(PointLockManagerTest, LockStatus) {
 }
 
 TEST_F(PointLockManagerTest, UnlockExclusive) {
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
 
   auto txn1 = NewTxn();
   ASSERT_OK(locker_->TryLock(txn1, 1, "k", env_, true));
@@ -117,7 +141,8 @@ TEST_F(PointLockManagerTest, UnlockExclusive) {
 }
 
 TEST_F(PointLockManagerTest, UnlockShared) {
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
 
   auto txn1 = NewTxn();
   ASSERT_OK(locker_->TryLock(txn1, 1, "k", env_, false));
@@ -132,7 +157,8 @@ TEST_F(PointLockManagerTest, UnlockShared) {
 
 TEST_F(PointLockManagerTest, ReentrantExclusiveLock) {
   // Tests that a txn can acquire exclusive lock on the same key repeatedly.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   auto txn = NewTxn();
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, true));
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, true));
@@ -141,7 +167,8 @@ TEST_F(PointLockManagerTest, ReentrantExclusiveLock) {
 
 TEST_F(PointLockManagerTest, ReentrantSharedLock) {
   // Tests that a txn can acquire shared lock on the same key repeatedly.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   auto txn = NewTxn();
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, false));
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, false));
@@ -150,7 +177,8 @@ TEST_F(PointLockManagerTest, ReentrantSharedLock) {
 
 TEST_F(PointLockManagerTest, LockUpgrade) {
   // Tests that a txn can upgrade from a shared lock to an exclusive lock.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   auto txn = NewTxn();
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, false));
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, true));
@@ -160,7 +188,8 @@ TEST_F(PointLockManagerTest, LockUpgrade) {
 TEST_F(PointLockManagerTest, LockDowngrade) {
   // Tests that a txn can acquire a shared lock after acquiring an exclusive
   // lock on the same key.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   auto txn = NewTxn();
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, true));
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, false));
@@ -169,7 +198,8 @@ TEST_F(PointLockManagerTest, LockDowngrade) {
 
 TEST_F(PointLockManagerTest, LockConflict) {
   // Tests that lock conflicts lead to lock timeout.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   auto txn1 = NewTxn();
   auto txn2 = NewTxn();
 
@@ -218,7 +248,8 @@ port::Thread BlockUntilWaitingTxn(std::function<void()> f) {
 
 TEST_F(PointLockManagerTest, SharedLocks) {
   // Tests that shared locks can be concurrently held by multiple transactions.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   auto txn1 = NewTxn();
   auto txn2 = NewTxn();
   ASSERT_OK(locker_->TryLock(txn1, 1, "k", env_, false));
@@ -232,7 +263,8 @@ TEST_F(PointLockManagerTest, Deadlock) {
   // Deadlock scenario:
   // txn1 exclusively locks k1, and wants to lock k2;
   // txn2 exclusively locks k2, and wants to lock k1.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
   txn_opt.lock_timeout = 1000000;
@@ -279,7 +311,8 @@ TEST_F(PointLockManagerTest, Deadlock) {
 TEST_F(PointLockManagerTest, DeadlockDepthExceeded) {
   // Tests that when detecting deadlock, if the detection depth is exceeded,
   // it's also viewed as deadlock.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
   txn_opt.deadlock_detect_depth = 1;

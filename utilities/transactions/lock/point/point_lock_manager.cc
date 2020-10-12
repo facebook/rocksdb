@@ -38,6 +38,11 @@ struct LockInfo {
       : exclusive(lock_info.exclusive),
         txn_ids(lock_info.txn_ids),
         expiration_time(lock_info.expiration_time) {}
+  void operator=(const LockInfo& lock_info) {
+    exclusive = lock_info.exclusive;
+    txn_ids = lock_info.txn_ids;
+    expiration_time = lock_info.expiration_time;
+  }
 };
 
 struct LockMapStripe {
@@ -165,8 +170,7 @@ PointLockManager::PointLockManager(PessimisticTransactionDB* txn_db,
       dlock_buffer_(opt.max_num_deadlocks),
       mutex_factory_(opt.custom_mutex_factory
                          ? opt.custom_mutex_factory
-                         : std::shared_ptr<TransactionDBMutexFactory>(
-                               new TransactionDBMutexFactoryImpl())) {}
+                         : std::make_shared<TransactionDBMutexFactoryImpl>()) {}
 
 PointLockManager::~PointLockManager() {}
 
@@ -175,26 +179,26 @@ size_t LockMap::GetStripe(const std::string& key) const {
   return FastRange64(GetSliceNPHash64(key), num_stripes_);
 }
 
-void PointLockManager::AddColumnFamily(ColumnFamilyId column_family_id) {
+void PointLockManager::AddColumnFamily(const ColumnFamilyHandle* cf) {
   InstrumentedMutexLock l(&lock_map_mutex_);
 
-  if (lock_maps_.find(column_family_id) == lock_maps_.end()) {
-    lock_maps_.emplace(column_family_id,
-                       std::make_shared<LockMap>(default_num_stripes_, mutex_factory_));
+  if (lock_maps_.find(cf->GetID()) == lock_maps_.end()) {
+    lock_maps_.emplace(cf->GetID(), std::make_shared<LockMap>(
+                                        default_num_stripes_, mutex_factory_));
   } else {
     // column_family already exists in lock map
     assert(false);
   }
 }
 
-void PointLockManager::RemoveColumnFamily(ColumnFamilyId column_family_id) {
+void PointLockManager::RemoveColumnFamily(const ColumnFamilyHandle* cf) {
   // Remove lock_map for this column family.  Since the lock map is stored
   // as a shared ptr, concurrent transactions can still keep using it
   // until they release their references to it.
   {
     InstrumentedMutexLock l(&lock_map_mutex_);
 
-    auto lock_maps_iter = lock_maps_.find(column_family_id);
+    auto lock_maps_iter = lock_maps_.find(cf->GetID());
     if (lock_maps_iter == lock_maps_.end()) {
       return;
     }

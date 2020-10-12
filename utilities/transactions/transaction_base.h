@@ -318,7 +318,7 @@ class TransactionBaseImpl : public Transaction {
           num_merges_(num_merges),
           new_locks_(lock_tracker_factory.Create()) {}
 
-    SavePoint(const LockTrackerFactory& lock_tracker_factory)
+    explicit SavePoint(const LockTrackerFactory& lock_tracker_factory)
         : new_locks_(lock_tracker_factory.Create()) {}
   };
 

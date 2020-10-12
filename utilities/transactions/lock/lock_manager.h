@@ -32,11 +32,11 @@ class LockManager {
 
   // Enable locking for the specified column family.
   // Caller should guarantee that this column family is not already enabled.
-  virtual void AddColumnFamily(ColumnFamilyId column_family_id) = 0;
+  virtual void AddColumnFamily(const ColumnFamilyHandle* cf) = 0;
 
   // Disable locking for the specified column family.
   // Caller should guarantee that this column family is no longer used.
-  virtual void RemoveColumnFamily(ColumnFamilyId column_family_id) = 0;
+  virtual void RemoveColumnFamily(const ColumnFamilyHandle* cf) = 0;
 
   // Attempt to lock a key or a key range.  If OK status is returned, the caller
   // is responsible for calling UnLock() on this key.

@@ -67,8 +67,8 @@ class PointLockManager : public LockManager {
     return PointLockTrackerFactory::Get();
   }
 
-  void AddColumnFamily(ColumnFamilyId column_family_id) override;
-  void RemoveColumnFamily(ColumnFamilyId column_family_id) override;
+  void AddColumnFamily(const ColumnFamilyHandle* cf) override;
+  void RemoveColumnFamily(const ColumnFamilyHandle* cf) override;
 
   Status TryLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
                  const std::string& key, Env* env, bool exclusive) override;
