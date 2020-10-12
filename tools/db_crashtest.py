@@ -80,6 +80,7 @@ default_params = {
     "open_files": lambda : random.choice([-1, -1, 100, 500000]),
     "optimize_filters_for_memory": lambda: random.randint(0, 1),
     "partition_filters": lambda: random.randint(0, 1),
+    "partition_pinning": lambda: random.randint(0, 3),
     "pause_background_one_in": 1000000,
     "prefixpercent": 5,
     "progress_reports": 0,
@@ -93,6 +94,8 @@ default_params = {
     "subcompactions": lambda: random.randint(1, 4),
     "target_file_size_base": 2097152,
     "target_file_size_multiplier": 2,
+    "top_level_index_pinning": lambda: random.randint(0, 3),
+    "unpartitioned_pinning": lambda: random.randint(0, 3),
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
     "mock_direct_io": False,
@@ -134,8 +137,7 @@ default_params = {
     "read_fault_one_in": lambda: random.choice([0, 1000]),
     "sync_fault_injection": False,
     "get_property_one_in": 1000000,
-    # paranoid_file_checks has a bug so it's not yet passed.
-    "paranoid_file_checks": 0,
+    "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -200,8 +202,7 @@ simple_default_params = {
     "test_batches_snapshots": 0,
     "write_buffer_size": 32 * 1024 * 1024,
     "level_compaction_dynamic_level_bytes": False,
-    # "paranoid_file_checks" has a bug so it's not yet passed.
-    "paranoid_file_checks": 0,
+    "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
 }
 
 blackbox_simple_default_params = {

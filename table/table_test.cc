@@ -564,7 +564,7 @@ class DBConstructor: public Constructor {
     NewDB();
     for (const auto& kv : kv_map) {
       WriteBatch batch;
-      batch.Put(kv.first, kv.second);
+      EXPECT_OK(batch.Put(kv.first, kv.second));
       EXPECT_TRUE(db_->Write(WriteOptions(), &batch).ok());
     }
     return Status::OK();
@@ -872,12 +872,15 @@ class HarnessTest : public testing::Test {
     InternalIterator* iter = constructor_->NewIterator();
     ASSERT_TRUE(!iter->Valid());
     iter->SeekToFirst();
+    ASSERT_OK(iter->status());
     for (stl_wrappers::KVMap::const_iterator model_iter = data.begin();
          model_iter != data.end(); ++model_iter) {
       ASSERT_EQ(ToString(data, model_iter), ToString(iter));
       iter->Next();
+      ASSERT_OK(iter->status());
     }
     ASSERT_TRUE(!iter->Valid());
+    ASSERT_OK(iter->status());
     if (constructor_->IsArenaMode() && !constructor_->AnywayDeleteIterator()) {
       iter->~InternalIterator();
     } else {
@@ -890,12 +893,15 @@ class HarnessTest : public testing::Test {
     InternalIterator* iter = constructor_->NewIterator();
     ASSERT_TRUE(!iter->Valid());
     iter->SeekToLast();
+    ASSERT_OK(iter->status());
     for (stl_wrappers::KVMap::const_reverse_iterator model_iter = data.rbegin();
          model_iter != data.rend(); ++model_iter) {
       ASSERT_EQ(ToString(data, model_iter), ToString(iter));
       iter->Prev();
+      ASSERT_OK(iter->status());
     }
     ASSERT_TRUE(!iter->Valid());
+    ASSERT_OK(iter->status());
     if (constructor_->IsArenaMode() && !constructor_->AnywayDeleteIterator()) {
       iter->~InternalIterator();
     } else {
@@ -917,6 +923,7 @@ class HarnessTest : public testing::Test {
           if (iter->Valid()) {
             if (kVerbose) fprintf(stderr, "Next\n");
             iter->Next();
+            ASSERT_OK(iter->status());
             ++model_iter;
             ASSERT_EQ(ToString(data, model_iter), ToString(iter));
           }
@@ -926,6 +933,7 @@ class HarnessTest : public testing::Test {
         case 1: {
           if (kVerbose) fprintf(stderr, "SeekToFirst\n");
           iter->SeekToFirst();
+          ASSERT_OK(iter->status());
           model_iter = data.begin();
           ASSERT_EQ(ToString(data, model_iter), ToString(iter));
           break;
@@ -937,6 +945,7 @@ class HarnessTest : public testing::Test {
           if (kVerbose) fprintf(stderr, "Seek '%s'\n",
                                 EscapeString(key).c_str());
           iter->Seek(Slice(key));
+          ASSERT_OK(iter->status());
           ASSERT_EQ(ToString(data, model_iter), ToString(iter));
           break;
         }
@@ -945,6 +954,7 @@ class HarnessTest : public testing::Test {
           if (iter->Valid()) {
             if (kVerbose) fprintf(stderr, "Prev\n");
             iter->Prev();
+            ASSERT_OK(iter->status());
             if (model_iter == data.begin()) {
               model_iter = data.end();   // Wrap around to invalid value
             } else {
@@ -958,6 +968,7 @@ class HarnessTest : public testing::Test {
         case 4: {
           if (kVerbose) fprintf(stderr, "SeekToLast\n");
           iter->SeekToLast();
+          ASSERT_OK(iter->status());
           if (keys.empty()) {
             model_iter = data.end();
           } else {
@@ -1117,7 +1128,10 @@ class BlockBasedTableTest
     std::unique_ptr<TraceWriter> trace_writer;
     EXPECT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_file_path_,
                                  &trace_writer));
-    c->block_cache_tracer_.StartTrace(env_, trace_opt, std::move(trace_writer));
+    // Always return Status::OK().
+    assert(c->block_cache_tracer_
+               .StartTrace(env_, trace_opt, std::move(trace_writer))
+               .ok());
     {
       std::string user_key = "k01";
       InternalKey internal_key(user_key, 0, kTypeValue);
@@ -1888,7 +1902,7 @@ TEST_P(BlockBasedTableTest, SkipPrefixBloomFilter) {
   options.prefix_extractor.reset(NewFixedPrefixTransform(9));
   const ImmutableCFOptions new_ioptions(options);
   const MutableCFOptions new_moptions(options);
-  c.Reopen(new_ioptions, new_moptions);
+  ASSERT_OK(c.Reopen(new_ioptions, new_moptions));
   auto reader = c.GetTableReader();
   ReadOptions read_options;
   std::unique_ptr<InternalIterator> db_iter(reader->NewIterator(
@@ -2826,8 +2840,8 @@ TEST_P(BlockBasedTableTest, BlockCacheDisabledTest) {
                            GetContext::kNotFound, Slice(), nullptr, nullptr,
                            nullptr, true, nullptr, nullptr);
     // a hack that just to trigger BlockBasedTable::GetFilter.
-    reader->Get(ReadOptions(), "non-exist-key", &get_context,
-                moptions.prefix_extractor.get());
+    ASSERT_OK(reader->Get(ReadOptions(), "non-exist-key", &get_context,
+                          moptions.prefix_extractor.get()));
     BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertIndexBlockStat(0, 0);
     props.AssertFilterBlockStat(0, 0);
@@ -2901,6 +2915,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   // Only data block will be accessed
   {
     iter->SeekToFirst();
+    ASSERT_OK(iter->status());
     BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertEqual(1, 1, 0 + 1,  // data block miss
                       0);
@@ -2915,6 +2930,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   {
     iter.reset(c.NewIterator(moptions.prefix_extractor.get()));
     iter->SeekToFirst();
+    ASSERT_OK(iter->status());
     BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertEqual(1, 1 + 1, /* index block hit */
                       1, 0 + 1 /* data block hit */);
@@ -2936,7 +2952,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   const ImmutableCFOptions ioptions2(options);
   const MutableCFOptions moptions2(options);
-  c.Reopen(ioptions2, moptions2);
+  ASSERT_OK(c.Reopen(ioptions2, moptions2));
   {
     BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertEqual(1,  // index block miss
@@ -2962,6 +2978,7 @@ TEST_P(BlockBasedTableTest, FilterBlockInBlockCache) {
     // SeekToFirst() accesses data block. With similar reason, we expect data
     // block's cache miss.
     iter->SeekToFirst();
+    ASSERT_OK(iter->status());
     BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertEqual(2, 0, 0 + 1,  // data block miss
                       0);
@@ -3298,7 +3315,7 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
                           column_family_name, level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       f.GetFileWriter()));
-  f.ResetTableBuilder(std::move(builder));
+  ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumFuncName(), kUnknownFileChecksumFuncName);
@@ -3337,7 +3354,7 @@ TEST_P(BlockBasedTableTest, Crc32cFileChecksum) {
                           column_family_name, level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       f.GetFileWriter()));
-  f.ResetTableBuilder(std::move(builder));
+  ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
@@ -3443,7 +3460,7 @@ TEST_F(PlainTableTest, NoFileChecksum) {
           false /* skip_filters */, column_family_name, unknown_level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       f.GetFileWriter()));
-  f.ResetTableBuilder(std::move(builder));
+  ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumFuncName(), kUnknownFileChecksumFuncName);
@@ -3485,7 +3502,7 @@ TEST_F(PlainTableTest, Crc32cFileChecksum) {
           false /* skip_filters */, column_family_name, unknown_level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       f.GetFileWriter()));
-  f.ResetTableBuilder(std::move(builder));
+  ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
   f.WriteKVAndFlushTable();
   ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
@@ -3659,12 +3676,12 @@ TEST_F(MemTableTest, Simple) {
   memtable->Ref();
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);
-  batch.Put(std::string("k1"), std::string("v1"));
-  batch.Put(std::string("k2"), std::string("v2"));
-  batch.Put(std::string("k3"), std::string("v3"));
-  batch.Put(std::string("largekey"), std::string("vlarge"));
-  batch.DeleteRange(std::string("chi"), std::string("xigua"));
-  batch.DeleteRange(std::string("begin"), std::string("end"));
+  ASSERT_OK(batch.Put(std::string("k1"), std::string("v1")));
+  ASSERT_OK(batch.Put(std::string("k2"), std::string("v2")));
+  ASSERT_OK(batch.Put(std::string("k3"), std::string("v3")));
+  ASSERT_OK(batch.Put(std::string("largekey"), std::string("vlarge")));
+  ASSERT_OK(batch.DeleteRange(std::string("chi"), std::string("xigua")));
+  ASSERT_OK(batch.DeleteRange(std::string("begin"), std::string("end")));
   ColumnFamilyMemTablesDefault cf_mems_default(memtable);
   ASSERT_TRUE(
       WriteBatchInternal::InsertInto(&batch, &cf_mems_default, nullptr, nullptr)
@@ -3735,7 +3752,7 @@ TEST(TableTest, FooterTests) {
     footer.EncodeTo(&encoded);
     Footer decoded_footer;
     Slice encoded_slice(encoded);
-    decoded_footer.DecodeFrom(&encoded_slice);
+    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice));
     ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
     ASSERT_EQ(decoded_footer.checksum(), kCRC32c);
     ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
@@ -3755,7 +3772,7 @@ TEST(TableTest, FooterTests) {
     footer.EncodeTo(&encoded);
     Footer decoded_footer;
     Slice encoded_slice(encoded);
-    decoded_footer.DecodeFrom(&encoded_slice);
+    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice));
     ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
     ASSERT_EQ(decoded_footer.checksum(), kxxHash);
     ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
@@ -3775,7 +3792,7 @@ TEST(TableTest, FooterTests) {
     footer.EncodeTo(&encoded);
     Footer decoded_footer;
     Slice encoded_slice(encoded);
-    decoded_footer.DecodeFrom(&encoded_slice);
+    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice));
     ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
     ASSERT_EQ(decoded_footer.checksum(), kxxHash64);
     ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
@@ -3796,7 +3813,7 @@ TEST(TableTest, FooterTests) {
     footer.EncodeTo(&encoded);
     Footer decoded_footer;
     Slice encoded_slice(encoded);
-    decoded_footer.DecodeFrom(&encoded_slice);
+    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice));
     ASSERT_EQ(decoded_footer.table_magic_number(), kPlainTableMagicNumber);
     ASSERT_EQ(decoded_footer.checksum(), kCRC32c);
     ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
@@ -3816,7 +3833,7 @@ TEST(TableTest, FooterTests) {
     footer.EncodeTo(&encoded);
     Footer decoded_footer;
     Slice encoded_slice(encoded);
-    decoded_footer.DecodeFrom(&encoded_slice);
+    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice));
     ASSERT_EQ(decoded_footer.table_magic_number(), kPlainTableMagicNumber);
     ASSERT_EQ(decoded_footer.checksum(), kxxHash);
     ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
@@ -3836,7 +3853,7 @@ TEST(TableTest, FooterTests) {
     footer.EncodeTo(&encoded);
     Footer decoded_footer;
     Slice encoded_slice(encoded);
-    decoded_footer.DecodeFrom(&encoded_slice);
+    ASSERT_OK(decoded_footer.DecodeFrom(&encoded_slice));
     ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
     ASSERT_EQ(decoded_footer.checksum(), kCRC32c);
     ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
@@ -3995,12 +4012,12 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
     std::string prefix = "[" + std::to_string(i) + "]";
     for (int j = 0; j < 10; j++) {
       std::string key = prefix + std::to_string(j);
-      db->Put(ROCKSDB_NAMESPACE::WriteOptions(), key, "1");
+      ASSERT_OK(db->Put(ROCKSDB_NAMESPACE::WriteOptions(), key, "1"));
     }
   }
 
   // Trigger compaction.
-  db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   delete db;
   // In the second round, turn whole_key_filtering off and expect
   // rocksdb still works.
@@ -4653,12 +4670,14 @@ TEST_P(BlockBasedTableTest, OutOfBoundOnSeek) {
       /*skip_filters=*/false, TableReaderCaller::kUncategorized)));
   iter->SeekToFirst();
   ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->UpperBoundCheckResult() == IterBoundCheck::kOutOfBound);
   iter.reset(new KeyConvertingIterator(reader->NewIterator(
       read_opt, /*prefix_extractor=*/nullptr, /*arena=*/nullptr,
       /*skip_filters=*/false, TableReaderCaller::kUncategorized)));
   iter->Seek("foo");
   ASSERT_FALSE(iter->Valid());
+  ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->UpperBoundCheckResult() == IterBoundCheck::kOutOfBound);
 }
 
