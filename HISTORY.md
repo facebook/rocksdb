@@ -2,6 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Since 6.12, memtable lookup should report unrecognized value_type as corruption (#7121).
+* Fixed a bug in the following combination of features: indexes with user keys (`format_version >= 3`), indexes are partitioned (`index_type == kTwoLevelIndexSearch`), and some index partitions are pinned in memory (`BlockBasedTableOptions::pin_l0_filter_and_index_blocks_in_cache`). The bug could cause keys to be truncated when read from the index leading to wrong read results or other unexpected behavior.
 
 ## 6.12.4 (2020-09-18)
 ### Public API Change
