@@ -167,7 +167,7 @@ void PartitionIndexReader::CacheDependencies(bool pin) {
 
     assert(s.ok() || block.GetValue() == nullptr);
     if (s.ok() && block.GetValue() != nullptr) {
-      if (block.IsCached()) {
+      if (block.IsCached() || block.GetOwnValue()) {
         if (pin) {
           partition_map_[handle.offset()] = std::move(block);
         }
