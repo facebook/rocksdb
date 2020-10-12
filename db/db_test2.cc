@@ -4376,8 +4376,8 @@ class DummyOldStats : public Statistics {
   }
   bool HistEnabledForType(uint32_t /*type*/) const override { return false; }
   std::string ToString() const override { return ""; }
-  int num_rt = 0;
-  int num_mt = 0;
+  std::atomic<int> num_rt{0};
+  std::atomic<int> num_mt{0};
 };
 }  // namespace
 
