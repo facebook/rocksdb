@@ -22,8 +22,9 @@ commands:
       - run:
           name: Increase max open files
           command: |
-            sudo sysctl -w kern.maxfiles=40960
-            sudo sysctl -w kern.maxfilesperproc=20480
+            sudo sysctl -w kern.maxfiles=1048576
+            sudo sysctl -w kern.maxfilesperproc=1048576
+            sudo launchctl limit maxfiles 1048576
 
   pre-steps:
     steps:
