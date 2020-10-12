@@ -331,7 +331,8 @@ inline Status ReturnCorruptKeyInfo(ParsedInternalKey* ikey, bool log_err_key) {
   std::string msg("Corrupted Key. ");
 
   if (log_err_key) {
-    msg.append("Key=" + ikey->user_key.ToString(/*hex=*/true) + ", ");
+    // print key in Hex
+    msg.append("Key=" + ikey->user_key.ToString(true) + ", ");
   }
 
   msg.append("Key type=" + std::to_string(ikey->type) + ", ");
