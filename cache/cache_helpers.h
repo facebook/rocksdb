@@ -12,6 +12,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// Returns the cached value given a cache handle.
 template <typename T>
 T* GetFromHandle(Cache* cache, Cache::Handle* handle) {
   assert(cache);
@@ -20,16 +21,21 @@ T* GetFromHandle(Cache* cache, Cache::Handle* handle) {
   return static_cast<T*>(cache->Value(handle));
 }
 
+// Simple generic deleter for Cache (to be used with Cache::Insert).
 template <typename T>
 void DeleteEntry(const Slice& /* key */, void* value) {
   delete static_cast<T*>(value);
 }
 
+// Turns a T* into a Slice so it can be used as a key with Cache.
 template <typename T>
 Slice GetSlice(const T* t) {
   return Slice(reinterpret_cast<const char*>(t), sizeof(T));
 }
 
+// Generic resource management object for cache handles that releases the handle
+// when destroyed. Has unique ownership of the handle, so copying it is not
+// allowed, while moving it transfers ownership.
 template <typename T>
 class CacheHandleGuard {
  public:
