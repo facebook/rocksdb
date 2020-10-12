@@ -82,7 +82,7 @@ Status BlobFileCache::GetBlobFileReader(
     constexpr size_t charge = 1;
 
     const Status s = cache_->Insert(key, reader.get(), charge,
-                                    &DeleteEntry<BlobFileReader>, &handle);
+                                    &DeleteCacheEntry<BlobFileReader>, &handle);
     if (!s.ok()) {
       RecordTick(statistics, NO_FILE_ERRORS);
       return s;

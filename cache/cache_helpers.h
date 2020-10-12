@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 
 // Returns the cached value given a cache handle.
 template <typename T>
-T* GetFromHandle(Cache* cache, Cache::Handle* handle) {
+T* GetFromCacheHandle(Cache* cache, Cache::Handle* handle) {
   assert(cache);
   assert(handle);
 
@@ -23,7 +23,7 @@ T* GetFromHandle(Cache* cache, Cache::Handle* handle) {
 
 // Simple generic deleter for Cache (to be used with Cache::Insert).
 template <typename T>
-void DeleteEntry(const Slice& /* key */, void* value) {
+void DeleteCacheEntry(const Slice& /* key */, void* value) {
   delete static_cast<T*>(value);
 }
 
@@ -44,7 +44,7 @@ class CacheHandleGuard {
   CacheHandleGuard(Cache* cache, Cache::Handle* handle)
       : cache_(cache),
         handle_(handle),
-        value_(GetFromHandle<T>(cache, handle)) {
+        value_(GetFromCacheHandle<T>(cache, handle)) {
     assert(cache_ && handle_ && value_);
   }
 
