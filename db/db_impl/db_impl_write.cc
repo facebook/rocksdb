@@ -1784,9 +1784,11 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     // the current log, so treat it as a fatal error and set bg_error
     // Should handle return error?
     if (!io_s.ok()) {
+      // Should handle return error?
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable)
           .PermitUncheckedError();
     } else {
+      // Should handle return error?
       error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable)
           .PermitUncheckedError();
     }
