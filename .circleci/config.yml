@@ -25,6 +25,7 @@ commands:
             sudo sysctl -w kern.maxfiles=1048576
             sudo sysctl -w kern.maxfilesperproc=1048576
             sudo launchctl limit maxfiles 1048576
+            sudo ulimit -S -n 1048576
 
   pre-steps:
     steps:
@@ -95,6 +96,7 @@ jobs:
       - install-pyenv-on-macos
       - pre-steps
       - install-gflags-on-macos
+      - run: ulimit -a
       - run: make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
       - post-steps
 
