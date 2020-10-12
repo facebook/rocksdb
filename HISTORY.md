@@ -3,6 +3,7 @@
 ### Bug Fixes
 * Since 6.12, memtable lookup should report unrecognized value_type as corruption (#7121).
 * Since 6.14, fix false positive flush/compaction `Status::Corruption` failure when `paranoid_file_checks == true` and range tombstones were written to the compaction output files.
+* Fixed a bug in the following combination of features: indexes with user keys (`format_version >= 3`), indexes are partitioned (`index_type == kTwoLevelIndexSearch`), and some index partitions are pinned in memory (`BlockBasedTableOptions::pin_l0_filter_and_index_blocks_in_cache`). The bug could cause keys to be truncated when read from the index leading to wrong read results or other unexpected behavior.
 
 ## 6.14 (10/09/2020)
 ### Bug fixes
