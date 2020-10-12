@@ -61,8 +61,9 @@ Status BlobFileCache::GetBlobFileReader(
   }
 
   assert(immutable_cf_options_);
+  Statistics* const statistics = immutable_cf_options_->statistics;
 
-  RecordTick(immutable_cf_options_->statistics, NO_FILE_OPENS);
+  RecordTick(statistics, NO_FILE_OPENS);
 
   std::unique_ptr<BlobFileReader> reader;
 
@@ -72,7 +73,7 @@ Status BlobFileCache::GetBlobFileReader(
         *immutable_cf_options_, *file_options_, column_family_id_,
         blob_file_read_hist_, blob_file_number, &reader);
     if (!s.ok()) {
-      RecordTick(immutable_cf_options_->statistics, NO_FILE_ERRORS);
+      RecordTick(statistics, NO_FILE_ERRORS);
       return s;
     }
   }
@@ -83,7 +84,7 @@ Status BlobFileCache::GetBlobFileReader(
     const Status s = cache_->Insert(key, reader.get(), charge,
                                     &DeleteEntry<BlobFileReader>, &handle);
     if (!s.ok()) {
-      RecordTick(immutable_cf_options_->statistics, NO_FILE_ERRORS);
+      RecordTick(statistics, NO_FILE_ERRORS);
       return s;
     }
   }
