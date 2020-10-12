@@ -642,6 +642,8 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
     assert(db_ != nullptr);
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                Key(3, &start), Key(7, &end)));
+    auto snap = db_->GetSnapshot();
+    ASSERT_NE(snap, nullptr);
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                Key(8, &start), Key(9, &end)));
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
@@ -654,6 +656,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
       ASSERT_OK(dbi->TEST_FlushMemTable());
       ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
     }
+    db_->ReleaseSnapshot(snap);
   }
 }
 
@@ -672,6 +675,8 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
     std::string start, end;
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                Key(5, &start), Key(15, &end)));
+    auto snap = db_->GetSnapshot();
+    ASSERT_NE(snap, nullptr);
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                Key(8, &start), Key(9, &end)));
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
@@ -686,6 +691,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
       ASSERT_OK(dbi->TEST_FlushMemTable());
       ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
     }
+    db_->ReleaseSnapshot(snap);
   }
 }
 
@@ -704,6 +710,8 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
     Build(10);
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                Key(3, &start), Key(7, &end)));
+    auto snap = db_->GetSnapshot();
+    ASSERT_NE(snap, nullptr);
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                Key(6, &start), Key(8, &end)));
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
@@ -715,6 +723,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
       ASSERT_OK(dbi->TEST_FlushMemTable());
       ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
     }
+    db_->ReleaseSnapshot(snap);
   }
 }
 
