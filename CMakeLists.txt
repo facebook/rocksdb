@@ -32,7 +32,7 @@
 # 3. cmake ..
 # 4. make -j
 
-cmake_minimum_required(VERSION 3.5.1)
+cmake_minimum_required(VERSION 3.7.2)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
 include(ReadVersion)
@@ -148,12 +148,7 @@ else()
   if(WITH_BZ2)
     find_package(BZip2 REQUIRED)
     add_definitions(-DBZIP2)
-    if(BZIP2_INCLUDE_DIRS)
-      include_directories(${BZIP2_INCLUDE_DIRS})
-    else()
-      include_directories(${BZIP2_INCLUDE_DIR})
-    endif()
-    list(APPEND THIRDPARTY_LIBS ${BZIP2_LIBRARIES})
+    list(APPEND THIRDPARTY_LIBS BZip2::BZip2)
   endif()
 
   if(WITH_LZ4)
