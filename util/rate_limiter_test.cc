@@ -59,7 +59,7 @@ TEST_F(RateLimiterTest, Modes) {
   }
 }
 
-#if !(defined(TRAVIS) && defined(OS_MACOSX))
+#if !((defined(TRAVIS) || defined(CIRCLECI)) && defined(OS_MACOSX))
 TEST_F(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
