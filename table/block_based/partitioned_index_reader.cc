@@ -173,7 +173,7 @@ Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
       return s;
     }
     if (block.GetValue() != nullptr) {
-      if (block.IsCached()) {
+      if (block.IsCached() || block.GetOwnValue()) {
         if (pin) {
           partition_map_[handle.offset()] = std::move(block);
         }
