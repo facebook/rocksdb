@@ -25,7 +25,6 @@ commands:
             sudo sysctl -w kern.maxfiles=1048576
             sudo sysctl -w kern.maxfilesperproc=1048576
             sudo launchctl limit maxfiles 1048576
-            sudo ulimit -S -n 1048576
 
   pre-steps:
     steps:
@@ -89,15 +88,14 @@ executors:
 
 jobs:
   build-macos:
-    macos:  # indicate that we are using the macOS executor
-      xcode: 11.3.0 # indicate our selected version of Xcode
+    macos:
+      xcode: 11.3.0
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
       - pre-steps
       - install-gflags-on-macos
-      - run: ulimit -a
-      - run: make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - run: ulimit -S -n 1048576 && ulimit -a && make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux:
