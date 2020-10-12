@@ -17,6 +17,14 @@ commands:
           command: |
             HOMEBREW_NO_AUTO_UPDATE=1 brew install pyenv
 
+  increase-max-open-files-on-macos:
+    steps:
+      - run:
+          name: Increase max open files
+          command: |
+            sudo sysctl -w kern.maxfiles=40960
+            sudo sysctl -w kern.maxfilesperproc=20480
+
   pre-steps:
     steps:
       - checkout
@@ -82,6 +90,7 @@ jobs:
     macos:  # indicate that we are using the macOS executor
       xcode: 11.3.0 # indicate our selected version of Xcode
     steps:
+      - increase-max-open-files-on-macos
       - install-pyenv-on-macos
       - pre-steps
       - install-gflags-on-macos
