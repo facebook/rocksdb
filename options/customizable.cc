@@ -101,16 +101,17 @@ std::string Customizable::SerializeOptions(const ConfigOptions& config_options,
 
 bool Customizable::AreEquivalent(const ConfigOptions& config_options,
                                  const Configurable* other,
-                                 std::string* name) const {
+                                 std::string* mismatch) const {
   if (config_options.sanity_level > ConfigOptions::kSanityLevelNone &&
       this != other) {
     const Customizable* custom = reinterpret_cast<const Customizable*>(other);
     if (GetId() != custom->GetId()) {
-      *name = kIdPropName;
+      *mismatch = kIdPropName;
       return false;
     } else if (config_options.sanity_level >
                ConfigOptions::kSanityLevelLooselyCompatible) {
-      bool matches = Configurable::AreEquivalent(config_options, other, name);
+      bool matches =
+          Configurable::AreEquivalent(config_options, other, mismatch);
       return matches;
     }
   }

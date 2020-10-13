@@ -114,12 +114,14 @@ class Customizable : public Configurable {
   // @param True if the objects match, false otherwise.
   bool AreEquivalent(const ConfigOptions& config_options,
                      const Configurable* other,
-                     std::string* name) const override;
+                     std::string* mismatch) const override;
   Status PrepareOptions(const ConfigOptions& config_options) override;
   bool IsPrepared() const override;
   Status ValidateOptions(const DBOptions& db_opts,
                          const ColumnFamilyOptions& cf_opts) const override;
 #ifndef ROCKSDB_LITE
+  // Returns the value of the option associated with the input name
+  // @see Configurable::GetOption for more details
   Status GetOption(const ConfigOptions& config_options, const std::string& name,
                    std::string* value) const override;
 
@@ -131,8 +133,11 @@ class Customizable : public Configurable {
   // direct Inner object.
   virtual Customizable* Inner() const { return nullptr; }
 
+  // Returns the raw pointer for the associated named option.
+  // @see Configurable::GetOptionsPtr for more details
   const void* GetOptionsPtr(const std::string& name) const override;
 
+  //  Given a name (e.g. rocksdb.my.type.opt), returns the short name (opt)
   std::string GetOptionName(const std::string& long_name) const override;
 #ifndef ROCKSDB_LITE
   std::string SerializeOptions(const ConfigOptions& options,
@@ -141,8 +146,8 @@ class Customizable : public Configurable {
  public:
   // Helper method for configuring a new customizable object.
   // If base_opts are set, this is the "default" options to use for the new
-  // object whereas "new_opts" are overlaid on the base options. Returns OK if
-  // the object could be successfully configured
+  // object.  Then any values in "new_opts" are applied to the object.
+  // Returns OK if the object could be successfully configured
   static Status ConfigureNewObject(
       const ConfigOptions& config_options, Customizable* object,
       const std::string& id, const std::string& base_opts,
@@ -157,13 +162,11 @@ class Customizable : public Configurable {
   // @param id The id field from the opt_value
   // @param options The remaining name/value pairs from the opt_value
   // @param default_id If specified and there is no id field in the map, this
-  // value
-  //      is returned as the ID
+  // value is returned as the ID
   // @return OK if the value was converted to a map succesfully and an ID was
   // found.
   // @return InvalidArgument if the value could not be converted to a map or
-  // there was
-  //      or there is no id property in the map.
+  // there was or there is no id property in the map.
   static Status GetOptionsMap(
       const std::string& opt_value, std::string* id,
       std::unordered_map<std::string, std::string>* options);
