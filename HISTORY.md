@@ -5,6 +5,7 @@
 * Fixed a bug when indexes are partitioned (`index_type == kTwoLevelIndexSearch`), some index partitions are pinned in memory (`BlockBasedTableOptions::pin_l0_filter_and_index_blocks_in_cache`), and partitions reads could be mixed between block cache and directly from the file (e.g., with `enable_index_compression == 1` and `mmap_read == 1`, partitions that were stored uncompressed due to poor compression ratio would be read directly from the file via mmap, while partitions that were stored compressed would be read from block cache). The bug could cause index partitions to be mistakenly considered empty during reads leading to wrong read results.
 * Since 6.12, memtable lookup should report unrecognized value_type as corruption (#7121).
 * Since 6.14, fix false positive flush/compaction `Status::Corruption` failure when `paranoid_file_checks == true` and range tombstones were written to the compaction output files.
+* Since 6.14, fix a bug that stall write can crash with mixed of slowdown and no_slowdown writes (`WriteOptions.no_slowdown=true`).
 
 ### Public API Change
 * Deprecate `BlockBasedTableOptions::pin_l0_filter_and_index_blocks_in_cache` and `BlockBasedTableOptions::pin_top_level_index_and_filter`. These options still take effect until users migrate to the replacement APIs in `BlockBasedTableOptions::metadata_cache_options`. Migration guidance can be found in the API comments on the deprecated options.
@@ -13,7 +14,6 @@
 ### Bug fixes
 * Fixed a bug after a `CompactRange()` with `CompactRangeOptions::change_level` set fails due to a conflict in the level change step, which caused all subsequent calls to `CompactRange()` with `CompactRangeOptions::change_level` set to incorrectly fail with a `Status::NotSupported("another thread is refitting")` error.
 * Fixed a bug that the bottom most level compaction could still be a trivial move even if `BottommostLevelCompaction.kForce` or `kForceOptimized` is set.
-* Fixed a but that stall write can crash with mixed of slowdown and no_slowdown writes (`WriteOptions.no_slowdown=true`).
 
 ### Public API Change
 * The methods to create and manage EncrypedEnv have been changed.  The EncryptionProvider is now passed to NewEncryptedEnv as a shared pointer, rather than a raw pointer.  Comparably, the CTREncryptedProvider now takes a shared pointer, rather than a reference, to a BlockCipher.  CreateFromString methods have been added to BlockCipher and EncryptionProvider to provide a single API by which different ciphers and providers can be created, respectively.
