@@ -271,6 +271,7 @@ LIB_SOURCES =                                                   \
   utilities/persistent_cache/block_cache_tier_metadata.cc       \
   utilities/persistent_cache/persistent_cache_tier.cc           \
   utilities/persistent_cache/volatile_tier_impl.cc              \
+  utilities/rate_limiters/write_amp_based_rate_limiter.cc       \
   utilities/simulator_cache/cache_simulator.cc                  \
   utilities/simulator_cache/sim_cache.cc                        \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \

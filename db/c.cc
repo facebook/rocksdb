@@ -46,6 +46,7 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_batch.h"
 #include "utilities/merge_operators.h"
+#include "utilities/rate_limiters/write_amp_based_rate_limiter.h"
 
 using ROCKSDB_NAMESPACE::BackupableDBOptions;
 using ROCKSDB_NAMESPACE::BackupEngine;
@@ -89,6 +90,7 @@ using ROCKSDB_NAMESPACE::NewCompactOnDeletionCollectorFactory;
 using ROCKSDB_NAMESPACE::NewGenericRateLimiter;
 using ROCKSDB_NAMESPACE::NewLRUCache;
 using ROCKSDB_NAMESPACE::NewRibbonFilterPolicy;
+using ROCKSDB_NAMESPACE::NewWriteAmpBasedRateLimiter;
 using ROCKSDB_NAMESPACE::OptimisticTransactionDB;
 using ROCKSDB_NAMESPACE::OptimisticTransactionOptions;
 using ROCKSDB_NAMESPACE::Options;
@@ -3545,6 +3547,14 @@ rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
   rate_limiter->rep.reset(
                NewGenericRateLimiter(rate_bytes_per_sec,
                                      refill_period_us, fairness));
+  return rate_limiter;
+}
+
+rocksdb_ratelimiter_t* rocksdb_writeampbasedratelimiter_create(
+    int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness) {
+  rocksdb_ratelimiter_t* rate_limiter = new rocksdb_ratelimiter_t;
+  rate_limiter->rep.reset(NewWriteAmpBasedRateLimiter(
+      rate_bytes_per_sec, refill_period_us, fairness));
   return rate_limiter;
 }
 
