@@ -79,6 +79,21 @@ class DBOptionsTest : public DBTestBase {
 #endif  // ROCKSDB_LITE
 };
 
+TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
+  Options options;
+  options.track_and_verify_wals_in_manifest = true;
+
+  ImmutableDBOptions db_options(options);
+  ASSERT_TRUE(db_options.track_and_verify_wals_in_manifest);
+
+  Reopen(options);
+  ASSERT_TRUE(dbfull()->GetDBOptions().track_and_verify_wals_in_manifest);
+
+  Status s =
+      dbfull()->SetDBOptions({{"track_and_verify_wals_in_manifest", "false"}});
+  ASSERT_FALSE(s.ok());
+}
+
 // RocksDB lite don't support dynamic options.
 #ifndef ROCKSDB_LITE
 

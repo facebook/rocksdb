@@ -329,7 +329,8 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInHeader) {
 
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
-  constexpr ExpirationRange expiration_range_header(1, 2);
+  const ExpirationRange expiration_range_header(
+      1, 2);  // can be made constexpr when we adopt C++14
   constexpr ExpirationRange expiration_range_footer;
   constexpr uint64_t blob_file_number = 1;
   constexpr char key[] = "key";
@@ -367,7 +368,8 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInFooter) {
   constexpr uint32_t column_family_id = 1;
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range_header;
-  constexpr ExpirationRange expiration_range_footer(1, 2);
+  const ExpirationRange expiration_range_footer(
+      1, 2);  // can be made constexpr when we adopt C++14
   constexpr uint64_t blob_file_number = 1;
   constexpr char key[] = "key";
   constexpr char blob[] = "blob";

@@ -1964,6 +1964,12 @@ void StressTest::Open() {
     block_based_options.block_cache = cache_;
     block_based_options.cache_index_and_filter_blocks =
         FLAGS_cache_index_and_filter_blocks;
+    block_based_options.metadata_cache_options.top_level_index_pinning =
+        static_cast<PinningTier>(FLAGS_top_level_index_pinning);
+    block_based_options.metadata_cache_options.partition_pinning =
+        static_cast<PinningTier>(FLAGS_partition_pinning);
+    block_based_options.metadata_cache_options.unpartitioned_pinning =
+        static_cast<PinningTier>(FLAGS_unpartitioned_pinning);
     block_based_options.block_cache_compressed = compressed_cache_;
     block_based_options.checksum = checksum_type_e;
     block_based_options.block_size = FLAGS_block_size;
