@@ -654,8 +654,8 @@ Status CompactionJob::Run() {
       io_s = output_directory_->Fsync(IOOptions(), dbg);
     }
 
-    if (io_s.ok() && blob_output_directory_ &&
-        blob_output_directory_ != output_directory_ && wrote_new_blob_files) {
+    if (wrote_new_blob_files && io_s.ok() && blob_output_directory_ &&
+        blob_output_directory_ != output_directory_) {
       io_s = blob_output_directory_->Fsync(IOOptions(), dbg);
     }
   }
