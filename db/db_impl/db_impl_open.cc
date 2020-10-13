@@ -571,7 +571,7 @@ Status DBImpl::Recover(
       return s;
     }
 
-    std::vector<uint64_t> logs;
+    std::unordered_map<uint64_t, std::string> log_files;
     for (const auto& file : files_in_wal_dir) {
       uint64_t number;
       FileType type;
@@ -582,21 +582,41 @@ Status DBImpl::Recover(
               "existing log file: ",
               file);
         } else {
-          logs.push_back(number);
+          log_files[number] =
+              LogFileName(immutable_db_options_.wal_dir, number);
         }
       }
     }
 
-    if (logs.size() > 0) {
+    if (immutable_db_options_.track_and_verify_wals_in_manifest) {
+      // Verify WALs in MANIFEST.
+      s = versions_->GetWalSet().CheckWals(env_, log_files);
+      if (!s.ok()) {
+        return Status::Corruption("Failed to verify WALs tracked in MANIFEST",
+                                  s.ToString());
+      }
+    } else if (!versions_->GetWalSet().GetWals().empty()) {
+      // Tracking is disabled, clear previously tracked WALs from MANIFEST.
+      VersionEdit edit;
+      for (const auto& wal : versions_->GetWalSet().GetWals()) {
+        WalNumber number = wal.first;
+        edit.DeleteWal(number);
+      }
+      s = versions_->LogAndApplyToDefaultColumnFamily(&edit, &mutex_);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+
+    if (log_files.size() > 0) {
       if (error_if_wal_file_exists) {
         return Status::Corruption(
             "The db was opened in readonly mode with error_if_wal_file_exists"
             "flag but a WAL file already exists");
       } else if (error_if_data_exists_in_wals) {
-        for (auto& log : logs) {
-          std::string fname = LogFileName(immutable_db_options_.wal_dir, log);
+        for (auto& log_file : log_files) {
           uint64_t bytes;
-          s = env_->GetFileSize(fname, &bytes);
+          s = env_->GetFileSize(log_file.second, &bytes);
           if (s.ok()) {
             if (bytes > 0) {
               return Status::Corruption(
@@ -608,9 +628,15 @@ Status DBImpl::Recover(
       }
     }
 
-    if (!logs.empty()) {
+    if (!log_files.empty()) {
       // Recover in the order in which the logs were generated
+      std::vector<uint64_t> logs;
+      logs.reserve(log_files.size());
+      for (const auto& log_file : log_files) {
+        logs.push_back(log_file.first);
+      }
       std::sort(logs.begin(), logs.end());
+
       bool corrupted_log_found = false;
       s = RecoverLogFiles(logs, &next_sequence, read_only,
                           &corrupted_log_found);

@@ -908,6 +908,17 @@ class VersionSet {
 
   virtual ~VersionSet();
 
+  Status LogAndApplyToDefaultColumnFamily(
+      VersionEdit* edit, InstrumentedMutex* mu,
+      FSDirectory* db_directory = nullptr, bool new_descriptor_log = false,
+      const ColumnFamilyOptions* column_family_options = nullptr) {
+    ColumnFamilyData* default_cf = GetColumnFamilySet()->GetDefault();
+    const MutableCFOptions* cf_options =
+        default_cf->GetLatestMutableCFOptions();
+    return LogAndApply(default_cf, *cf_options, edit, mu, db_directory,
+                       new_descriptor_log, column_family_options);
+  }
+
   // Apply *edit to the current version to form a new descriptor that
   // is both saved to persistent state and installed as the new
   // current version.  Will release *mu while actually writing to the file.

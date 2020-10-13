@@ -92,7 +92,7 @@ using WalAdditions = std::vector<WalAddition>;
 // Records the event of deleting a WAL.
 class WalDeletion {
  public:
-  WalDeletion() : number_(EMPTY_) {}
+  WalDeletion() : number_(kEmpty) {}
 
   explicit WalDeletion(WalNumber number) : number_(number) {}
 
@@ -105,7 +105,7 @@ class WalDeletion {
   std::string DebugString() const;
 
  private:
-  static constexpr WalNumber EMPTY_ = 0;
+  static constexpr WalNumber kEmpty = 0;
 
   WalNumber number_;
 };

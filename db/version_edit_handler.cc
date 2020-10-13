@@ -121,6 +121,10 @@ Status VersionEditHandler::ApplyVersionEdit(VersionEdit& edit,
     s = OnColumnFamilyAdd(edit, cfd);
   } else if (edit.is_column_family_drop_) {
     s = OnColumnFamilyDrop(edit, cfd);
+  } else if (edit.IsWalAddition()) {
+    s = OnWalAddition(edit);
+  } else if (edit.IsWalDeletion()) {
+    s = OnWalDeletion(edit);
   } else {
     s = OnNonCfOperation(edit, cfd);
   }
@@ -190,25 +194,25 @@ Status VersionEditHandler::OnColumnFamilyDrop(VersionEdit& edit,
   return s;
 }
 
+Status VersionEditHandler::OnWalAddition(VersionEdit& edit) {
+  assert(edit.IsWalAddition());
+  return version_set_->wals_.AddWals(edit.GetWalAdditions());
+}
+
+Status VersionEditHandler::OnWalDeletion(VersionEdit& edit) {
+  assert(edit.IsWalDeletion());
+  return version_set_->wals_.DeleteWals(edit.GetWalDeletions());
+}
+
 Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
                                             ColumnFamilyData** cfd) {
-  Status s;
-  if (edit.IsWalManipulation()) {
-    if (edit.IsWalAddition()) {
-      s = version_set_->wals_.AddWals(edit.GetWalAdditions());
-    } else if (edit.IsWalDeletion()) {
-      s = version_set_->wals_.DeleteWals(edit.GetWalDeletions());
-    }
-    return s;
-    // WAL edits do not need to be applied to version builders.
-  }
-
   bool cf_in_not_found = false;
   bool cf_in_builders = false;
   CheckColumnFamilyId(edit, &cf_in_not_found, &cf_in_builders);
 
   assert(cfd != nullptr);
   *cfd = nullptr;
+  Status s;
   if (!cf_in_not_found) {
     if (!cf_in_builders) {
       s = Status::Corruption(

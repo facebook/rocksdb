@@ -3851,7 +3851,6 @@ Status VersionSet::ProcessManifestWrites(
           builder = builder_guards.back()->version_builder();
         }
       }
-      (void)builder;  // potentially unused var, make checker happy
       for (const auto& e : last_writer->edit_list) {
         if (e->is_in_atomic_group_) {
           if (batch_edits.empty() || !batch_edits.back()->is_in_atomic_group_ ||
@@ -4027,18 +4026,6 @@ Status VersionSet::ProcessManifestWrites(
       size_t idx = 0;
 #endif
       for (auto& e : batch_edits) {
-        if (e->IsWalAddition()) {
-          s = wals_.AddWals(e->GetWalAdditions());
-          if (!s.ok()) {
-            break;
-          }
-        } else if (e->IsWalDeletion()) {
-          s = wals_.DeleteWals(e->GetWalDeletions());
-          if (!s.ok()) {
-            break;
-          }
-        }
-
         std::string record;
         if (!e->EncodeTo(&record)) {
           s = Status::Corruption("Unable to encode VersionEdit:" +
@@ -4100,6 +4087,23 @@ Status VersionSet::ProcessManifestWrites(
     LogFlush(db_options_->info_log);
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestDone");
     mu->Lock();
+  }
+
+  if (s.ok()) {
+    // Apply WAL edits, DB mutex must be held.
+    for (auto& e : batch_edits) {
+      if (e->IsWalAddition()) {
+        s = wals_.AddWals(e->GetWalAdditions());
+        if (!s.ok()) {
+          break;
+        }
+      } else if (e->IsWalDeletion()) {
+        s = wals_.DeleteWals(e->GetWalDeletions());
+        if (!s.ok()) {
+          break;
+        }
+      }
+    }
   }
 
   if (!io_s.ok()) {
@@ -4330,7 +4334,6 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   (void)cfd;
 #endif
   mu->AssertHeld();
-  assert(!edit->IsColumnFamilyManipulation());
 
   if (edit->has_log_number_) {
     assert(edit->log_number_ >= cfd->GetLogNumber());
@@ -4349,6 +4352,10 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
                                                       : last_sequence_);
 
+  // The builder can be nullptr only if edit is WAL manipulation,
+  // because WAL edits do not need to be applied to versions,
+  // we return Status::OK() in this case.
+  assert(builder || edit->IsWalManipulation());
   return builder ? builder->Apply(edit) : Status::OK();
 }
 
@@ -4422,6 +4429,16 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
     } else {
       return Status::Corruption(
           "Manifest - dropping non-existing column family");
+    }
+  } else if (edit.IsWalAddition()) {
+    Status s = wals_.AddWals(edit.GetWalAdditions());
+    if (!s.ok()) {
+      return s;
+    }
+  } else if (edit.IsWalDeletion()) {
+    Status s = wals_.DeleteWals(edit.GetWalDeletions());
+    if (!s.ok()) {
+      return s;
     }
   } else if (!cf_in_not_found) {
     if (!cf_in_builders) {
@@ -4547,20 +4564,6 @@ Status VersionSet::ReadAndRecover(
     s = edit.DecodeFrom(record);
     if (!s.ok()) {
       break;
-    }
-    if (edit.IsWalManipulation()) {
-      if (edit.IsWalAddition()) {
-        s = wals_.AddWals(edit.GetWalAdditions());
-      } else if (edit.IsWalDeletion()) {
-        s = wals_.DeleteWals(edit.GetWalDeletions());
-      }
-      if (!s.ok()) {
-        break;
-      }
-      // WAL edits do not need to apply to versions,
-      // but still may contain information such as next file number.
-      ExtractInfoFromVersionEdit(nullptr, edit, version_edit_params);
-      continue;
     }
     if (edit.has_db_id_) {
       db_id_ = edit.GetDbId();
@@ -4708,7 +4711,7 @@ Status VersionSet::Recover(
 
   // there were some column families in the MANIFEST that weren't specified
   // in the argument. This is OK in read_only mode
-  if (s.ok() && read_only == false && !column_families_not_found.empty()) {
+  if (read_only == false && !column_families_not_found.empty()) {
     std::string list_of_not_found;
     for (const auto& cf : column_families_not_found) {
       list_of_not_found += ", " + cf.second;
@@ -5408,8 +5411,9 @@ Status VersionSet::WriteCurrentStateToManifest(
 
   // Save WALs.
   if (!wal_additions.GetWalAdditions().empty()) {
-    TEST_SYNC_POINT_CALLBACK("VersionSet::WriteCurrentStateToManifest:SaveWal",
-                             reinterpret_cast<void*>(const_cast<VersionEdit*>(&wal_additions)));
+    TEST_SYNC_POINT_CALLBACK(
+        "VersionSet::WriteCurrentStateToManifest:SaveWal",
+        reinterpret_cast<void*>(const_cast<VersionEdit*>(&wal_additions)));
     std::string record;
     if (!wal_additions.EncodeTo(&record)) {
       return Status::Corruption("Unable to Encode VersionEdit: " +
