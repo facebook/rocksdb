@@ -228,6 +228,10 @@ Status BuildTable(
       }
     }
 
+    if (blob_file_builder) {
+      blob_file_builder.reset();
+    }
+
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
     const bool empty = builder->IsEmpty();
     if (!s.ok() || empty) {

@@ -1145,10 +1145,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     status = c_iter->status();
   }
 
-  if (status.ok()) {
-    if (blob_file_builder) {
+  if (blob_file_builder) {
+    if (status.ok()) {
       status = blob_file_builder->Finish();
     }
+
+    blob_file_builder.reset();
   }
 
   if (status.ok() && sub_compact->builder == nullptr &&
