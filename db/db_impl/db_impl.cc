@@ -459,7 +459,9 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
       autovector<ColumnFamilyData*> cfds;
       SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
-      AtomicFlushMemTables(cfds, FlushOptions(), FlushReason::kShutDown);
+      Status s =
+          AtomicFlushMemTables(cfds, FlushOptions(), FlushReason::kShutDown);
+      s.PermitUncheckedError();  //**TODO: What to do on error?
       mutex_.Lock();
     } else {
       for (auto cfd : *versions_->GetColumnFamilySet()) {
