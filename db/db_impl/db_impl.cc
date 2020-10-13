@@ -1278,12 +1278,11 @@ Status DBImpl::SyncWAL() {
   }
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
 
+  TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
   {
     InstrumentedMutexLock l(&mutex_);
 
-    TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
     MarkLogsSynced(current_log_number, need_log_dir_sync, status);
-    TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
 
     if (immutable_db_options_.track_and_verify_wals_in_manifest &&
         status.ok()) {
@@ -1300,6 +1299,7 @@ Status DBImpl::SyncWAL() {
       }
     }
   }
+  TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
 
   return status;
 }
