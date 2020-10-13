@@ -106,7 +106,7 @@ class CorruptionTest : public testing::Test {
     ASSERT_OK(::ROCKSDB_NAMESPACE::RepairDB(dbname_, options_));
   }
 
-  void Build(int n, int flush_every = 0) {
+  void Build(int n, int start, int flush_every) {
     std::string key_space, value_space;
     WriteBatch batch;
     for (int i = 0; i < n; i++) {
@@ -115,12 +115,14 @@ class CorruptionTest : public testing::Test {
         ASSERT_OK(dbi->TEST_FlushMemTable());
       }
       //if ((i % 100) == 0) fprintf(stderr, "@ %d of %d\n", i, n);
-      Slice key = Key(i, &key_space);
+      Slice key = Key(i + start, &key_space);
       batch.Clear();
-      ASSERT_OK(batch.Put(key, Value(i, &value_space)));
+      ASSERT_OK(batch.Put(key, Value(i + start, &value_space)));
       ASSERT_OK(db_->Write(WriteOptions(), &batch));
     }
   }
+
+  void Build(int n, int flush_every = 0) { Build(n, 0, flush_every); }
 
   void Check(int min_expected, int max_expected) {
     uint64_t next_expected = 0;
@@ -623,6 +625,105 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
     } else {
       ASSERT_NOK(s);
     }
+  }
+}
+
+TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
+  Options options;
+  options.check_flush_compaction_key_order = false;
+  options.paranoid_file_checks = true;
+  options.create_if_missing = true;
+  for (bool do_flush : {true, false}) {
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, options));
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    std::string start, end;
+    assert(db_ != nullptr);
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(3, &start), Key(7, &end)));
+    auto snap = db_->GetSnapshot();
+    ASSERT_NE(snap, nullptr);
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(8, &start), Key(9, &end)));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(2, &start), Key(5, &end)));
+    Build(10);
+    if (do_flush) {
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    } else {
+      DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+      ASSERT_OK(dbi->TEST_FlushMemTable());
+      ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+    }
+    db_->ReleaseSnapshot(snap);
+  }
+}
+
+TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
+  Options options;
+  options.check_flush_compaction_key_order = false;
+  options.paranoid_file_checks = true;
+  options.create_if_missing = true;
+  for (bool do_flush : {true, false}) {
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, options));
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    assert(db_ != nullptr);
+    Build(10, 0, 0);
+    std::string start, end;
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(5, &start), Key(15, &end)));
+    auto snap = db_->GetSnapshot();
+    ASSERT_NE(snap, nullptr);
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(8, &start), Key(9, &end)));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(12, &start), Key(17, &end)));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(2, &start), Key(4, &end)));
+    Build(10, 10, 0);
+    if (do_flush) {
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    } else {
+      DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+      ASSERT_OK(dbi->TEST_FlushMemTable());
+      ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+    }
+    db_->ReleaseSnapshot(snap);
+  }
+}
+
+TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
+  Options options;
+  options.check_flush_compaction_key_order = false;
+  options.paranoid_file_checks = true;
+  options.create_if_missing = true;
+  for (bool do_flush : {true, false}) {
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, options));
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    assert(db_ != nullptr);
+    std::string start, end;
+    Build(10);
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(3, &start), Key(7, &end)));
+    auto snap = db_->GetSnapshot();
+    ASSERT_NE(snap, nullptr);
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(6, &start), Key(8, &end)));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(2, &start), Key(5, &end)));
+    if (do_flush) {
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    } else {
+      DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+      ASSERT_OK(dbi->TEST_FlushMemTable());
+      ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+    }
+    db_->ReleaseSnapshot(snap);
   }
 }
 

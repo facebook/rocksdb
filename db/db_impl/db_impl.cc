@@ -2932,7 +2932,7 @@ const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
 SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
                                       bool lock) {
   int64_t unix_time = 0;
-  env_->GetCurrentTime(&unix_time);  // Ignore error
+  env_->GetCurrentTime(&unix_time).PermitUncheckedError();  // Ignore error
   SnapshotImpl* s = new SnapshotImpl;
 
   if (lock) {
