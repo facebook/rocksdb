@@ -234,35 +234,13 @@ struct CompactionJob::CompactionState {
   std::vector<CompactionJob::SubcompactionState> sub_compact_states;
   Status status;
 
-  uint64_t total_bytes;
-  uint64_t total_blob_bytes;
-  uint64_t num_output_records;
+  size_t num_output_files = 0;
+  uint64_t total_bytes = 0;
+  size_t num_blob_output_files = 0;
+  uint64_t total_blob_bytes = 0;
+  uint64_t num_output_records = 0;
 
-  explicit CompactionState(Compaction* c)
-      : compaction(c),
-        total_bytes(0),
-        total_blob_bytes(0),
-        num_output_records(0) {}
-
-  size_t NumOutputFiles() const {
-    size_t total = 0;
-
-    for (const auto& s : sub_compact_states) {
-      total += s.outputs.size();
-    }
-
-    return total;
-  }
-
-  size_t NumBlobOutputFiles() const {
-    size_t total = 0;
-
-    for (const auto& s : sub_compact_states) {
-      total += s.blob_file_additions.size();
-    }
-
-    return total;
-  }
+  explicit CompactionState(Compaction* c) : compaction(c) {}
 
   Slice SmallestUserKey() {
     for (const auto& sub_compact_state : sub_compact_states) {
@@ -291,8 +269,11 @@ struct CompactionJob::CompactionState {
 void CompactionJob::AggregateStatistics() {
   assert(compact_);
 
-  for (SubcompactionState& sc : compact_->sub_compact_states) {
+  for (const SubcompactionState& sc : compact_->sub_compact_states) {
+    compact_->num_output_files += sc.outputs.size();
     compact_->total_bytes += sc.total_bytes;
+
+    compact_->num_blob_output_files += sc.blob_file_additions.size();
 
     for (const auto& blob_file_addition : sc.blob_file_additions) {
       compact_->total_blob_bytes += blob_file_addition.GetTotalBlobBytes();
@@ -855,12 +836,11 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
          << "compaction_time_micros" << stats.micros
          << "compaction_time_cpu_micros" << stats.cpu_micros << "output_level"
          << compact_->compaction->output_level() << "num_output_files"
-         << compact_->NumOutputFiles() << "total_output_size"
+         << compact_->num_output_files << "total_output_size"
          << compact_->total_bytes;
 
-  const size_t num_blob_output_files = compact_->NumBlobOutputFiles();
-  if (num_blob_output_files > 0) {
-    stream << "num_blob_output_files" << num_blob_output_files
+  if (compact_->num_blob_output_files > 0) {
+    stream << "num_blob_output_files" << compact_->num_blob_output_files
            << "total_blob_output_size" << compact_->total_blob_bytes;
   }
 
@@ -1879,7 +1859,7 @@ void CompactionJob::UpdateCompactionJobStats(
   compaction_job_stats_->num_output_records = compact_->num_output_records;
   compaction_job_stats_->num_output_files = stats.num_output_files;
 
-  if (compact_->NumOutputFiles() > 0U) {
+  if (compact_->num_output_files > 0) {
     CopyPrefix(compact_->SmallestUserKey(),
                CompactionJobStats::kMaxPrefixLength,
                &compaction_job_stats_->smallest_output_key_prefix);
