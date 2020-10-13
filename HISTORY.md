@@ -2,6 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Since 6.12, memtable lookup should report unrecognized value_type as corruption (#7121).
+* Since 6.14, fix false positive flush/compaction `Status::Corruption` failure when `paranoid_file_checks == true` and range tombstones were written to the compaction output files.
 
 ## 6.14 (10/09/2020)
 ### Bug fixes
