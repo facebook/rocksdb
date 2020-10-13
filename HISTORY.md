@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.12.6 (2020-10-13)
 ### Bug Fixes
 * Fix false positive flush/compaction `Status::Corruption` failure when `paranoid_file_checks == true` and range tombstones were written to the compaction output files.
 
