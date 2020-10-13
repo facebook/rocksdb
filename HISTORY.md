@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fix false positive flush/compaction `Status::Corruption` failure when `paranoid_file_checks == true` and range tombstones were written to the compaction output files.
+
 ## 6.13.1 (10/12/2020)
 ### Bug Fixes
 * Since 6.12, memtable lookup should report unrecognized value_type as corruption (#7121).
