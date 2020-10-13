@@ -45,8 +45,8 @@ AutoRollLogger::AutoRollLogger(Env* env, const std::string& dbname,
     RollLogFile();
   }
   GetExistingFiles();
-  ResetLogger();
-  if (status_.ok()) {
+  s = ResetLogger();
+  if (s.ok() && status_.ok()) {
     status_ = TrimOldLogFiles();
   }
 }
@@ -86,7 +86,10 @@ void AutoRollLogger::RollLogFile() {
       dbname_, now, db_absolute_path_, db_log_dir_);
     now++;
   } while (env_->FileExists(old_fname).ok());
-  env_->RenameFile(log_fname_, old_fname);
+  Status s = env_->RenameFile(log_fname_, old_fname);
+  if (!s.ok()) {
+    // What should we do on error?
+  }
   old_log_files_.push(old_fname);
 }
 

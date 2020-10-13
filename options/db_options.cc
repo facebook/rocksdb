@@ -198,6 +198,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, paranoid_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"track_and_verify_wals_in_manifest",
+         {offsetof(struct ImmutableDBOptions,
+                   track_and_verify_wals_in_manifest),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"skip_log_error_on_recovery",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
@@ -415,6 +420,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
             }
             return s;
           }}},
+        {"allow_data_in_errors",
+         {offsetof(struct ImmutableDBOptions, allow_data_in_errors),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
 };
 
 const std::string OptionsHelper::kDBOptionsName = "DBOptions";
@@ -493,6 +502,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       create_missing_column_families(options.create_missing_column_families),
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
+      track_and_verify_wals_in_manifest(
+          options.track_and_verify_wals_in_manifest),
       env(options.env),
       fs(options.env->GetFileSystem()),
       rate_limiter(options.rate_limiter),
@@ -564,7 +575,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       file_checksum_gen_factory(options.file_checksum_gen_factory),
       best_efforts_recovery(options.best_efforts_recovery),
       max_bgerror_resume_count(options.max_bgerror_resume_count),
-      bgerror_resume_retry_interval(options.bgerror_resume_retry_interval) {
+      bgerror_resume_retry_interval(options.bgerror_resume_retry_interval),
+      allow_data_in_errors(options.allow_data_in_errors) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -574,6 +586,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    create_if_missing);
   ROCKS_LOG_HEADER(log, "                        Options.paranoid_checks: %d",
                    paranoid_checks);
+  ROCKS_LOG_HEADER(log,
+                   "                              "
+                   "Options.track_and_verify_wals_in_manifest: %d",
+                   track_and_verify_wals_in_manifest);
   ROCKS_LOG_HEADER(log, "                                    Options.env: %p",
                    env);
   ROCKS_LOG_HEADER(log, "                                     Options.fs: %s",
@@ -720,6 +736,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log,
                    "           Options.bgerror_resume_retry_interval: %" PRIu64,
                    bgerror_resume_retry_interval);
+  ROCKS_LOG_HEADER(log, "            Options.allow_data_in_errors: %d",
+                   allow_data_in_errors);
 }
 
 MutableDBOptions::MutableDBOptions()

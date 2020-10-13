@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 
 #include "db/forward_iterator.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "util/random.h"
@@ -53,10 +54,6 @@ SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
   non_writable_count_ = 0;
   table_write_callback_ = nullptr;
 }
-#ifndef ROCKSDB_LITE
-ROT13BlockCipher rot13Cipher_(16);
-#endif  // ROCKSDB_LITE
-
 DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
     : mem_env_(nullptr), encrypted_env_(nullptr), option_config_(kDefault) {
   Env* base_env = Env::Default();
@@ -76,8 +73,11 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   }
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
-    encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env,
-                                     new CTREncryptionProvider(rot13Cipher_));
+    std::shared_ptr<EncryptionProvider> provider;
+    Status s = EncryptionProvider::CreateFromString(
+        ConfigOptions(), std::string("test://") + getenv("ENCRYPTED_ENV"),
+        &provider);
+    encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env, provider);
   }
 #endif  // !ROCKSDB_LITE
   env_ = new SpecialEnv(encrypted_env_ ? encrypted_env_
@@ -666,7 +666,7 @@ void DBTestBase::Reopen(const Options& options) {
 
 void DBTestBase::Close() {
   for (auto h : handles_) {
-    db_->DestroyColumnFamilyHandle(h);
+    EXPECT_OK(db_->DestroyColumnFamilyHandle(h));
   }
   handles_.clear();
   delete db_;
@@ -684,7 +684,8 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
   if (delete_cf_paths) {
     for (size_t i = 0; i < handles_.size(); ++i) {
       ColumnFamilyDescriptor cfdescriptor;
-      handles_[i]->GetDescriptor(&cfdescriptor);
+      // GetDescriptor is not implemented for ROCKSDB_LITE
+      handles_[i]->GetDescriptor(&cfdescriptor).PermitUncheckedError();
       column_families.push_back(cfdescriptor);
     }
   }
@@ -962,7 +963,7 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
     bool first = true;
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      if (!ParseInternalKey(iter->key(), &ikey)) {
+      if (ParseInternalKey(iter->key(), &ikey) != Status::OK()) {
         result += "CORRUPTED";
       } else {
         if (!last_options_.comparator->Equal(ikey.user_key, user_key)) {
@@ -1182,9 +1183,9 @@ void DBTestBase::FillLevels(const std::string& smallest,
 void DBTestBase::MoveFilesToLevel(int level, int cf) {
   for (int l = 0; l < level; ++l) {
     if (cf > 0) {
-      dbfull()->TEST_CompactRange(l, nullptr, nullptr, handles_[cf]);
+      EXPECT_OK(dbfull()->TEST_CompactRange(l, nullptr, nullptr, handles_[cf]));
     } else {
-      dbfull()->TEST_CompactRange(l, nullptr, nullptr);
+      EXPECT_OK(dbfull()->TEST_CompactRange(l, nullptr, nullptr));
     }
   }
 }
@@ -1211,7 +1212,7 @@ std::string DBTestBase::DumpSSTableList() {
 
 void DBTestBase::GetSstFiles(Env* env, std::string path,
                              std::vector<std::string>* files) {
-  env->GetChildren(path, files);
+  EXPECT_OK(env->GetChildren(path, files));
 
   files->erase(
       std::remove_if(files->begin(), files->end(), [](std::string name) {
@@ -1235,8 +1236,8 @@ void DBTestBase::GenerateNewFile(int cf, Random* rnd, int* key_idx,
     (*key_idx)++;
   }
   if (!nowait) {
-    dbfull()->TEST_WaitForFlushMemTable();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 }
 
@@ -1247,8 +1248,8 @@ void DBTestBase::GenerateNewFile(Random* rnd, int* key_idx, bool nowait) {
     (*key_idx)++;
   }
   if (!nowait) {
-    dbfull()->TEST_WaitForFlushMemTable();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 }
 
@@ -1374,7 +1375,7 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   while (iter->Valid()) {
     ParsedInternalKey ikey;
     ikey.clear();
-    ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+    ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
 
     // checks sequence number for updates
     ASSERT_EQ(ikey.sequence, (unsigned)seq--);
@@ -1407,36 +1408,40 @@ void DBTestBase::CopyFile(const std::string& source,
   ASSERT_OK(destfile->Close());
 }
 
-std::unordered_map<std::string, uint64_t> DBTestBase::GetAllSSTFiles(
-    uint64_t* total_size) {
-  std::unordered_map<std::string, uint64_t> res;
-
+Status DBTestBase::GetAllSSTFiles(
+    std::unordered_map<std::string, uint64_t>* sst_files,
+    uint64_t* total_size /* = nullptr */) {
   if (total_size) {
     *total_size = 0;
   }
   std::vector<std::string> files;
-  env_->GetChildren(dbname_, &files);
-  for (auto& file_name : files) {
-    uint64_t number;
-    FileType type;
-    std::string file_path = dbname_ + "/" + file_name;
-    if (ParseFileName(file_name, &number, &type) && type == kTableFile) {
-      uint64_t file_size = 0;
-      env_->GetFileSize(file_path, &file_size);
-      res[file_path] = file_size;
-      if (total_size) {
-        *total_size += file_size;
+  Status s = env_->GetChildren(dbname_, &files);
+  if (s.ok()) {
+    for (auto& file_name : files) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(file_name, &number, &type) && type == kTableFile) {
+        std::string file_path = dbname_ + "/" + file_name;
+        uint64_t file_size = 0;
+        s = env_->GetFileSize(file_path, &file_size);
+        if (!s.ok()) {
+          break;
+        }
+        (*sst_files)[file_path] = file_size;
+        if (total_size) {
+          *total_size += file_size;
+        }
       }
     }
   }
-  return res;
+  return s;
 }
 
 std::vector<std::uint64_t> DBTestBase::ListTableFiles(Env* env,
                                                       const std::string& path) {
   std::vector<std::string> files;
   std::vector<uint64_t> file_numbers;
-  env->GetChildren(path, &files);
+  EXPECT_OK(env->GetChildren(path, &files));
   uint64_t number;
   FileType type;
   for (size_t i = 0; i < files.size(); ++i) {
@@ -1575,7 +1580,7 @@ void DBTestBase::VerifyDBInternal(
   for (auto p : true_data) {
     ASSERT_TRUE(iter->Valid());
     ParsedInternalKey ikey;
-    ASSERT_TRUE(ParseInternalKey(iter->key(), &ikey));
+    ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
     ASSERT_EQ(p.first, ikey.user_key);
     ASSERT_EQ(p.second, iter->value());
     iter->Next();

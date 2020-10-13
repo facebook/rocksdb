@@ -51,6 +51,55 @@ enum ChecksumType : char {
   kxxHash64 = 0x3,
 };
 
+// `PinningTier` is used to specify which tier of block-based tables should
+// be affected by a block cache pinning setting (see
+// `MetadataCacheOptions` below).
+enum class PinningTier {
+  // For compatibility, this value specifies to fallback to the behavior
+  // indicated by the deprecated options,
+  // `pin_l0_filter_and_index_blocks_in_cache` and
+  // `pin_top_level_index_and_filter`.
+  kFallback,
+
+  // This tier contains no block-based tables.
+  kNone,
+
+  // This tier contains block-based tables that may have originated from a
+  // memtable flush. In particular, it includes tables from L0 that are smaller
+  // than 1.5 times the current `write_buffer_size`. Note these criteria imply
+  // it can include intra-L0 compaction outputs and ingested files, as long as
+  // they are not abnormally large compared to flushed files in L0.
+  kFlushedAndSimilar,
+
+  // This tier contains all block-based tables.
+  kAll,
+};
+
+// `MetadataCacheOptions` contains members indicating the desired caching
+// behavior for the different categories of metadata blocks.
+struct MetadataCacheOptions {
+  // The tier of block-based tables whose top-level index into metadata
+  // partitions will be pinned. Currently indexes and filters may be
+  // partitioned.
+  //
+  // Note `cache_index_and_filter_blocks` must be true for this option to have
+  // any effect. Otherwise any top-level index into metadata partitions would be
+  // held in table reader memory, outside the block cache.
+  PinningTier top_level_index_pinning = PinningTier::kFallback;
+
+  // The tier of block-based tables whose metadata partitions will be pinned.
+  // Currently indexes and filters may be partitioned.
+  PinningTier partition_pinning = PinningTier::kFallback;
+
+  // The tier of block-based tables whose unpartitioned metadata blocks will be
+  // pinned.
+  //
+  // Note `cache_index_and_filter_blocks` must be true for this option to have
+  // any effect. Otherwise the unpartitioned meta-blocks would be held in table
+  // reader memory, outside the block cache.
+  PinningTier unpartitioned_pinning = PinningTier::kFallback;
+};
+
 // For advanced user only
 struct BlockBasedTableOptions {
   static const char* kName() { return "BlockTableOptions"; };
@@ -79,18 +128,56 @@ struct BlockBasedTableOptions {
   // than data blocks.
   bool cache_index_and_filter_blocks_with_high_priority = true;
 
+  // DEPRECATED: This option will be removed in a future version. For now, this
+  // option still takes effect by updating each of the following variables that
+  // has the default value, `PinningTier::kFallback`:
+  //
+  // - `MetadataCacheOptions::partition_pinning`
+  // - `MetadataCacheOptions::unpartitioned_pinning`
+  //
+  // The updated value is chosen as follows:
+  //
+  // - `pin_l0_filter_and_index_blocks_in_cache == false` ->
+  //   `PinningTier::kNone`
+  // - `pin_l0_filter_and_index_blocks_in_cache == true` ->
+  //   `PinningTier::kFlushedAndSimilar`
+  //
+  // To migrate away from this flag, explicitly configure
+  // `MetadataCacheOptions` as described above.
+  //
   // if cache_index_and_filter_blocks is true and the below is true, then
   // filter and index blocks are stored in the cache, but a reference is
   // held in the "table reader" object so the blocks are pinned and only
   // evicted from cache when the table reader is freed.
   bool pin_l0_filter_and_index_blocks_in_cache = false;
 
+  // DEPRECATED: This option will be removed in a future version. For now, this
+  // option still takes effect by updating
+  // `MetadataCacheOptions::top_level_index_pinning` when it has the
+  // default value, `PinningTier::kFallback`.
+  //
+  // The updated value is chosen as follows:
+  //
+  // - `pin_top_level_index_and_filter == false` ->
+  //   `PinningTier::kNone`
+  // - `pin_top_level_index_and_filter == true` ->
+  //   `PinningTier::kAll`
+  //
+  // To migrate away from this flag, explicitly configure
+  // `MetadataCacheOptions` as described above.
+  //
   // If cache_index_and_filter_blocks is true and the below is true, then
   // the top-level index of partitioned filter and index blocks are stored in
   // the cache, but a reference is held in the "table reader" object so the
   // blocks are pinned and only evicted from cache when the table reader is
   // freed. This is not limited to l0 in LSM tree.
   bool pin_top_level_index_and_filter = true;
+
+  // The desired block cache pinning behavior for the different categories of
+  // metadata blocks. While pinning can reduce block cache contention, users
+  // must take care not to pin excessive amounts of data, which risks
+  // overflowing block cache.
+  MetadataCacheOptions metadata_cache_options;
 
   // The index type that will be used for this table.
   enum IndexType : char {

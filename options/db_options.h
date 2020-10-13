@@ -23,6 +23,7 @@ struct ImmutableDBOptions {
   bool create_missing_column_families;
   bool error_if_exists;
   bool paranoid_checks;
+  bool track_and_verify_wals_in_manifest;
   Env* env;
   std::shared_ptr<FileSystem> fs;
   std::shared_ptr<RateLimiter> rate_limiter;
@@ -90,6 +91,7 @@ struct ImmutableDBOptions {
   bool best_efforts_recovery;
   int max_bgerror_resume_count;
   uint64_t bgerror_resume_retry_interval;
+  bool allow_data_in_errors;
 };
 
 struct MutableDBOptions {

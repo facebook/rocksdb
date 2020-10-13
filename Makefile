@@ -421,6 +421,11 @@ default: all
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wunused-parameter
 
+ifdef USE_CLANG
+	# Used by some teams in Facebook
+	WARNING_FLAGS += -Wshift-sign-overflow
+endif
+
 ifeq ($(PLATFORM), OS_OPENBSD)
 	WARNING_FLAGS += -Wno-unused-lambda-capture
 endif
@@ -573,6 +578,7 @@ ifdef ASSERT_STATUS_CHECKED
 		blob_file_addition_test \
 		blob_file_builder_test \
 		blob_file_garbage_test \
+		blob_file_reader_test \
 		bloom_test \
 		cassandra_format_test \
 		cassandra_row_merge_test \
@@ -581,6 +587,14 @@ ifdef ASSERT_STATUS_CHECKED
 		coding_test \
 		crc32c_test \
 		dbformat_test \
+		db_basic_test \
+		db_flush_test \
+		db_with_timestamp_basic_test \
+		db_with_timestamp_compaction_test \
+		db_options_test \
+		db_properties_test \
+		db_secondary_test \
+		options_file_test \
 		defer_test \
 		filename_test \
 		dynamic_bloom_test \
@@ -588,7 +602,10 @@ ifdef ASSERT_STATUS_CHECKED
 		env_test \
 		env_logger_test \
 		event_logger_test \
+		error_handler_fs_test \
+		auto_roll_logger_test \
 		file_indexer_test \
+		flush_job_test \
 		hash_table_test \
 		hash_test \
 		heap_test \
@@ -596,35 +613,62 @@ ifdef ASSERT_STATUS_CHECKED
 		inlineskiplist_test \
 		io_posix_test \
 		iostats_context_test \
+		ldb_cmd_test \
 		memkind_kmem_allocator_test \
 		merger_test \
 		mock_env_test \
 		object_registry_test \
+		prefix_test \
+		repair_test \
 		configurable_test \
 		customizable_test \
 		options_settable_test \
 		options_test \
 		random_test \
 		range_del_aggregator_test \
+		sst_file_reader_test \
 		range_tombstone_fragmenter_test \
 		repeatable_thread_test \
 		skiplist_test \
 		slice_test \
 		sst_dump_test \
 		statistics_test \
+		stats_history_test \
 		thread_local_test \
+		trace_analyzer_test \
 		env_timed_test \
 		filelock_test \
 		timer_queue_test \
 		timer_test \
+		options_util_test \
+		persistent_cache_test \
 		util_merge_operators_test \
 		block_cache_trace_analyzer_test \
 		block_cache_tracer_test \
 		cache_simulator_test \
 		sim_cache_test \
+		version_builder_test \
 		version_edit_test \
 		work_queue_test \
 		write_controller_test \
+		compaction_iterator_test \
+		compaction_job_test \
+		compaction_job_stats_test \
+	        io_tracer_test \
+		merge_helper_test \
+		memtable_list_test \
+		flush_job_test \
+		block_based_filter_block_test \
+		block_fetcher_test \
+		full_filter_block_test \
+		partitioned_filter_block_test \
+		column_family_test \
+		file_reader_writer_test \
+		corruption_test \
+		db_universal_compaction_test \
+		import_column_family_test \
+		memory_test \
+		table_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
@@ -1876,10 +1920,13 @@ blob_file_builder_test: $(OBJ_DIR)/db/blob/blob_file_builder_test.o $(TEST_LIBRA
 blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+blob_file_reader_test: $(OBJ_DIR)/db/blob/blob_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 timer_test: $(OBJ_DIR)/util/timer_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-stats_dump_scheduler_test: $(OBJ_DIR)/monitoring/stats_dump_scheduler_test.o $(TEST_LIBRARY) $(LIBRARY)
+periodic_work_scheduler_test: $(OBJ_DIR)/db/periodic_work_scheduler_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 testutil_test: $(OBJ_DIR)/test_util/testutil_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1889,6 +1936,12 @@ io_tracer_test: $(OBJ_DIR)/trace_replay/io_tracer_test.o $(OBJ_DIR)/trace_replay
 	$(AM_LINK)
 
 prefetch_test: $(OBJ_DIR)/file/prefetch_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+io_tracer_parser_test: $(OBJ_DIR)/tools/io_tracer_parser_test.o $(OBJ_DIR)/tools/io_tracer_parser_tool.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+io_tracer_parser: $(OBJ_DIR)/tools/io_tracer_parser.o $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 #-------------------------------------------------
@@ -2327,6 +2380,9 @@ depend: $(DEPFILES) $(DEPFILES_C) $(DEPFILES_ASM)
 else
 depend: $(DEPFILES)
 endif
+
+build_subset_tests: $(ROCKSDBTESTS_SUBSET)
+	$(AM_V_GEN)if [ -n "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}" ]; then echo "$(ROCKSDBTESTS_SUBSET)" > "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}"; else echo "$(ROCKSDBTESTS_SUBSET)"; fi
 
 # if the make goal is either "clean" or "format", we shouldn't
 # try to import the *.d files.

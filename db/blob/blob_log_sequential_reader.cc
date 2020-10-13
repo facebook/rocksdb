@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-#include "db/blob/blob_log_reader.h"
+#include "db/blob/blob_log_sequential_reader.h"
 
 #include <algorithm>
 
@@ -14,16 +14,19 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-BlobLogReader::BlobLogReader(
+BlobLogSequentialReader::BlobLogSequentialReader(
     std::unique_ptr<RandomAccessFileReader>&& file_reader, Env* env,
     Statistics* statistics)
     : file_(std::move(file_reader)),
       env_(env),
       statistics_(statistics),
-      buffer_(),
       next_byte_(0) {}
 
-Status BlobLogReader::ReadSlice(uint64_t size, Slice* slice, char* buf) {
+BlobLogSequentialReader::~BlobLogSequentialReader() = default;
+
+Status BlobLogSequentialReader::ReadSlice(uint64_t size, Slice* slice,
+                                          char* buf) {
+  assert(slice);
   assert(file_);
 
   StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
@@ -40,7 +43,8 @@ Status BlobLogReader::ReadSlice(uint64_t size, Slice* slice, char* buf) {
   return s;
 }
 
-Status BlobLogReader::ReadHeader(BlobLogHeader* header) {
+Status BlobLogSequentialReader::ReadHeader(BlobLogHeader* header) {
+  assert(header);
   assert(next_byte_ == 0);
 
   static_assert(BlobLogHeader::kSize <= sizeof(header_buf_),
@@ -58,8 +62,10 @@ Status BlobLogReader::ReadHeader(BlobLogHeader* header) {
   return header->DecodeFrom(buffer_);
 }
 
-Status BlobLogReader::ReadRecord(BlobLogRecord* record, ReadLevel level,
-                                 uint64_t* blob_offset) {
+Status BlobLogSequentialReader::ReadRecord(BlobLogRecord* record,
+                                           ReadLevel level,
+                                           uint64_t* blob_offset) {
+  assert(record);
   static_assert(BlobLogRecord::kHeaderSize <= sizeof(header_buf_),
                 "Buffer is smaller than BlobLogRecord::kHeaderSize");
 
@@ -108,7 +114,8 @@ Status BlobLogReader::ReadRecord(BlobLogRecord* record, ReadLevel level,
   return s;
 }
 
-Status BlobLogReader::ReadFooter(BlobLogFooter* footer) {
+Status BlobLogSequentialReader::ReadFooter(BlobLogFooter* footer) {
+  assert(footer);
   static_assert(BlobLogFooter::kSize <= sizeof(header_buf_),
                 "Buffer is smaller than BlobLogFooter::kSize");
 

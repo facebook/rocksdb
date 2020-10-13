@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#if defined(OS_WIN)
+
 #include "port/win/env_win.h"
 #include "port/win/win_thread.h"
 #include <algorithm>
@@ -1549,3 +1551,5 @@ std::string Env::GenerateUniqueId() {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
+
+#endif

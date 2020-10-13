@@ -287,6 +287,24 @@ DEFINE_int64(cache_size, 2LL * KB * KB * KB,
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "True if indexes/filters should be cached in block cache.");
 
+DEFINE_int32(
+    top_level_index_pinning,
+    static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
+    "Type of pinning for top-level indexes into metadata partitions (see "
+    "`enum PinningTier` in table.h)");
+
+DEFINE_int32(
+    partition_pinning,
+    static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
+    "Type of pinning for metadata partitions (see `enum PinningTier` in "
+    "table.h)");
+
+DEFINE_int32(
+    unpartitioned_pinning,
+    static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
+    "Type of pinning for unpartitioned metadata blocks (see `enum PinningTier` "
+    "in table.h)");
+
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 
@@ -727,6 +745,10 @@ DEFINE_bool(skip_verifydb, false, "If true, skip VerifyDb() calls.");
 DEFINE_bool(enable_compaction_filter, false,
             "If true, configures a compaction filter that returns a kRemove "
             "decision for deleted keys.");
+
+DEFINE_bool(paranoid_file_checks, true,
+            "After writing every SST file, reopen it and read all the keys "
+            "and validate checksums");
 
 DEFINE_string(file_checksum_impl, "none",
               "Name of an implementation for file_checksum_gen_factory, or "

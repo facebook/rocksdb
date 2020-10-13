@@ -48,6 +48,18 @@ class DBCompactionTestWithParam
   bool exclusive_manual_compaction_;
 };
 
+class DBCompactionTestWithBottommostParam
+    : public DBTestBase,
+      public testing::WithParamInterface<BottommostLevelCompaction> {
+ public:
+  DBCompactionTestWithBottommostParam()
+      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {
+    bottommost_level_compaction_ = GetParam();
+  }
+
+  BottommostLevelCompaction bottommost_level_compaction_;
+};
+
 class DBCompactionDirectIOTest : public DBCompactionTest,
                                  public ::testing::WithParamInterface<bool> {
  public:
@@ -3266,8 +3278,13 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   Random rnd(301);
   std::string value(rnd.RandomString(kValueSize));
 
+  // The L0->L1 must be picked before we begin flushing files to trigger
+  // intra-L0 compaction, and must not finish until after an intra-L0
+  // compaction has been picked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"LevelCompactionPicker::PickCompactionBySize:0",
+      {{"LevelCompactionPicker::PickCompaction:Return",
+        "DBCompactionTest::IntraL0Compaction:L0ToL1Ready"},
+       {"LevelCompactionPicker::PickCompactionBySize:0",
         "CompactionJob::Run():Start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3285,6 +3302,7 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   for (int i = 0; i < 10; ++i) {
     ASSERT_OK(Put(Key(0), ""));  // prevents trivial move
     if (i == 5) {
+      TEST_SYNC_POINT("DBCompactionTest::IntraL0Compaction:L0ToL1Ready");
       ASSERT_OK(Put(Key(i + 1), value + value));
     } else {
       ASSERT_OK(Put(Key(i + 1), value));
@@ -3330,8 +3348,14 @@ TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {
   Random rnd(301);
   std::string value(rnd.RandomString(kValueSize));
 
+  // The L0->L1 must be picked before we begin flushing files to trigger
+  // intra-L0 compaction, and must not finish until after an intra-L0
+  // compaction has been picked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"LevelCompactionPicker::PickCompactionBySize:0",
+      {{"LevelCompactionPicker::PickCompaction:Return",
+        "DBCompactionTest::IntraL0CompactionDoesNotObsoleteDeletions:"
+        "L0ToL1Ready"},
+       {"LevelCompactionPicker::PickCompactionBySize:0",
         "CompactionJob::Run():Start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3354,6 +3378,11 @@ TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {
       ASSERT_OK(Put(Key(0), ""));
     } else {
       ASSERT_OK(Delete(Key(0)));
+    }
+    if (i == 5) {
+      TEST_SYNC_POINT(
+          "DBCompactionTest::IntraL0CompactionDoesNotObsoleteDeletions:"
+          "L0ToL1Ready");
     }
     ASSERT_OK(Put(Key(i + 1), value));
     ASSERT_OK(Flush());
@@ -5287,8 +5316,14 @@ TEST_P(DBCompactionTestWithParam,
   std::atomic<int> pick_intra_l0_count(0);
   std::string value(rnd.RandomString(kValueSize));
 
+  // The L0->L1 must be picked before we begin ingesting files to trigger
+  // intra-L0 compaction, and must not finish until after an intra-L0
+  // compaction has been picked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBCompactionTestWithParam::FlushAfterIntraL0:1",
+      {{"LevelCompactionPicker::PickCompaction:Return",
+        "DBCompactionTestWithParam::"
+        "FlushAfterIntraL0CompactionCheckConsistencyFail:L0ToL1Ready"},
+       {"LevelCompactionPicker::PickCompactionBySize:0",
         "CompactionJob::Run():Start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "FindIntraL0Compaction",
@@ -5316,14 +5351,16 @@ TEST_P(DBCompactionTestWithParam,
   ASSERT_OK(Put(Key(0), "a"));
 
   ASSERT_EQ(5, NumTableFilesAtLevel(0));
+  TEST_SYNC_POINT(
+      "DBCompactionTestWithParam::"
+      "FlushAfterIntraL0CompactionCheckConsistencyFail:L0ToL1Ready");
 
   // Ingest 5 L0 sst. And this files would trigger PickIntraL0Compaction.
   for (int i = 5; i < 10; i++) {
+    ASSERT_EQ(i, NumTableFilesAtLevel(0));
     IngestOneKeyValue(dbfull(), Key(i), value, options);
-    ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
   }
 
-  TEST_SYNC_POINT("DBCompactionTestWithParam::FlushAfterIntraL0:1");
   // Put one key, to make biggest log sequence number in this memtable is bigger
   // than sst which would be ingested in next step.
   ASSERT_OK(Put(Key(2), "b"));
@@ -5365,8 +5402,14 @@ TEST_P(DBCompactionTestWithParam,
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
 
   std::atomic<int> pick_intra_l0_count(0);
+  // The L0->L1 must be picked before we begin ingesting files to trigger
+  // intra-L0 compaction, and must not finish until after an intra-L0
+  // compaction has been picked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBCompactionTestWithParam::IntraL0CompactionAfterFlush:1",
+      {{"LevelCompactionPicker::PickCompaction:Return",
+        "DBCompactionTestWithParam::"
+        "IntraL0CompactionAfterFlushCheckConsistencyFail:L0ToL1Ready"},
+       {"LevelCompactionPicker::PickCompactionBySize:0",
         "CompactionJob::Run():Start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "FindIntraL0Compaction",
@@ -5397,17 +5440,18 @@ TEST_P(DBCompactionTestWithParam,
   }
 
   ASSERT_EQ(6, NumTableFilesAtLevel(0));
+  TEST_SYNC_POINT(
+      "DBCompactionTestWithParam::"
+      "IntraL0CompactionAfterFlushCheckConsistencyFail:L0ToL1Ready");
   // ingest file to trigger IntraL0Compaction
   for (int i = 6; i < 10; ++i) {
     ASSERT_EQ(i, NumTableFilesAtLevel(0));
     IngestOneKeyValue(dbfull(), Key(i), value2, options);
   }
-  ASSERT_EQ(10, NumTableFilesAtLevel(0));
 
   // Wake up flush job
   sleeping_tasks.WakeUp();
   sleeping_tasks.WaitUntilDone();
-  TEST_SYNC_POINT("DBCompactionTestWithParam::IntraL0CompactionAfterFlush:1");
   dbfull()->TEST_WaitForCompact();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
@@ -5422,6 +5466,47 @@ TEST_P(DBCompactionTestWithParam,
     ASSERT_EQ(value2, Get(Key(i)));
   }
 }
+
+TEST_P(DBCompactionTestWithBottommostParam, SequenceKeysManualCompaction) {
+  constexpr int kSstNum = 10;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Generate some sst files on level 0 with sequence keys (no overlap)
+  for (int i = 0; i < kSstNum; i++) {
+    for (int j = 1; j < UCHAR_MAX; j++) {
+      auto key = std::string(kSstNum, '\0');
+      key[kSstNum - i] += static_cast<char>(j);
+      Put(key, std::string(i % 1000, 'A'));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  ASSERT_EQ(ToString(kSstNum), FilesPerLevel(0));
+
+  auto cro = CompactRangeOptions();
+  cro.bottommost_level_compaction = bottommost_level_compaction_;
+  db_->CompactRange(cro, nullptr, nullptr);
+  if (bottommost_level_compaction_ == BottommostLevelCompaction::kForce ||
+      bottommost_level_compaction_ ==
+          BottommostLevelCompaction::kForceOptimized) {
+    // Real compaction to compact all sst files from level 0 to 1 file on level
+    // 1
+    ASSERT_EQ("0,1", FilesPerLevel(0));
+  } else {
+    // Just trivial move from level 0 -> 1
+    ASSERT_EQ("0," + ToString(kSstNum), FilesPerLevel(0));
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    DBCompactionTestWithBottommostParam, DBCompactionTestWithBottommostParam,
+    ::testing::Values(BottommostLevelCompaction::kSkip,
+                      BottommostLevelCompaction::kIfHaveCompactionFilter,
+                      BottommostLevelCompaction::kForce,
+                      BottommostLevelCompaction::kForceOptimized));
 
 TEST_F(DBCompactionTest, UpdateLevelSubCompactionTest) {
   Options options = CurrentOptions();
@@ -5622,7 +5707,6 @@ TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
 
   GenerateNewFile(&rnd, &key_idx);
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("1,1,2", FilesPerLevel(0));
 
   // The background thread will refit L2->L1 while the
@@ -5684,6 +5768,81 @@ TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
       "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:"
       "CompactedFG");
   refit_level_thread.join();
+}
+
+TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
+  // This test is added to ensure that RefitLevel() error paths are clearing
+  // internal flags and to test that subsequent valid RefitLevel() calls
+  // succeeds
+  Options options = CurrentOptions();
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 3;
+  Reopen(options);
+
+  ASSERT_EQ("", FilesPerLevel(0));
+
+  // Setup an LSM with three levels populated.
+  Random rnd(301);
+  int key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1", FilesPerLevel(0));
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  }
+  ASSERT_EQ("0,0,2", FilesPerLevel(0));
+
+  auto start_idx = key_idx;
+  GenerateNewFile(&rnd, &key_idx);
+  GenerateNewFile(&rnd, &key_idx);
+  auto end_idx = key_idx - 1;
+  ASSERT_EQ("1,1,2", FilesPerLevel(0));
+
+  // Next two CompactRange() calls are used to test exercise error paths within
+  // RefitLevel() before triggering a valid RefitLevel() call
+
+  // Trigger a refit to L1 first
+  {
+    std::string begin_string = Key(start_idx);
+    std::string end_string = Key(end_idx);
+    Slice begin(begin_string);
+    Slice end(end_string);
+
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 1;
+    ASSERT_OK(dbfull()->CompactRange(cro, &begin, &end));
+  }
+  ASSERT_EQ("0,3,2", FilesPerLevel(0));
+
+  // Try a refit from L2->L1 - this should fail and exercise error paths in
+  // RefitLevel()
+  {
+    // Select key range that matches the bottom most level (L2)
+    std::string begin_string = Key(0);
+    std::string end_string = Key(start_idx - 1);
+    Slice begin(begin_string);
+    Slice end(end_string);
+
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 1;
+    ASSERT_NOK(dbfull()->CompactRange(cro, &begin, &end));
+  }
+  ASSERT_EQ("0,3,2", FilesPerLevel(0));
+
+  // Try a valid Refit request to ensure, the path is still working
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 1;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  }
+  ASSERT_EQ("0,5", FilesPerLevel(0));
 }
 
 #endif  // !defined(ROCKSDB_LITE)

@@ -441,7 +441,7 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     if (read_num > 0 && i > read_num) break;
 
     ParsedInternalKey ikey;
-    if (!ParseInternalKey(key, &ikey)) {
+    if (ParseInternalKey(key, &ikey) != Status::OK()) {
       std::cerr << "Internal Key [" << key.ToString(true /* in hex*/)
                 << "] parse error!\n";
       continue;

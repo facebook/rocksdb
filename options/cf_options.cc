@@ -223,6 +223,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"filter_deletes",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kMutable}},
+        {"check_flush_compaction_key_order",
+         {offsetof(struct MutableCFOptions, check_flush_compaction_key_order),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"paranoid_file_checks",
          {offsetof(struct MutableCFOptions, paranoid_file_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
@@ -832,7 +836,8 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       cf_paths(cf_options.cf_paths),
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
       file_checksum_gen_factory(db_options.file_checksum_gen_factory.get()),
-      sst_partitioner_factory(cf_options.sst_partitioner_factory) {}
+      sst_partitioner_factory(cf_options.sst_partitioner_factory),
+      allow_data_in_errors(db_options.allow_data_in_errors) {}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
@@ -957,6 +962,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  result.c_str());
   ROCKS_LOG_INFO(log, "        max_sequential_skip_in_iterations: %" PRIu64,
                  max_sequential_skip_in_iterations);
+  ROCKS_LOG_INFO(log, "         check_flush_compaction_key_order: %d",
+                 check_flush_compaction_key_order);
   ROCKS_LOG_INFO(log, "                     paranoid_file_checks: %d",
                  paranoid_file_checks);
   ROCKS_LOG_INFO(log, "                       report_bg_io_stats: %d",

@@ -19,6 +19,7 @@
 #include "db/event_helpers.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
+#include "db/output_validator.h"
 #include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
@@ -96,9 +97,12 @@ Status BuildTable(
          column_family_name.empty());
   // Reports the IOStats for flush for every following bytes.
   const size_t kReportFlushIOStatsEvery = 1048576;
-  uint64_t paranoid_hash = 0;
+  OutputValidator output_validator(
+      internal_comparator,
+      /*enable_order_check=*/
+      mutable_cf_options.check_flush_compaction_key_order,
+      /*enable_hash=*/paranoid_file_checks);
   Status s;
-  IOStatus io_s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
   std::unique_ptr<CompactionRangeDelAggregator> range_del_agg(
@@ -131,7 +135,8 @@ Status BuildTable(
       bool use_direct_writes = file_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
-      io_s = NewWritableFile(fs, fname, &file, file_options);
+      IOStatus io_s = NewWritableFile(fs, fname, &file, file_options);
+      assert(s.ok());
       s = io_s;
       if (io_status->ok()) {
         *io_status = io_s;
@@ -180,17 +185,17 @@ Status BuildTable(
         &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
         ShouldReportDetailedTime(env, ioptions.statistics),
         true /* internal key corruption is not ok */, range_del_agg.get(),
-        blob_file_builder.get());
+        blob_file_builder.get(), ioptions.allow_data_in_errors);
 
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
       const Slice& key = c_iter.key();
       const Slice& value = c_iter.value();
       const ParsedInternalKey& ikey = c_iter.ikey();
-      if (paranoid_file_checks) {
-        // Generate a rolling 64-bit hash of the key and values
-        paranoid_hash = Hash64(key.data(), key.size(), paranoid_hash);
-        paranoid_hash = Hash64(value.data(), value.size(), paranoid_hash);
+      // Generate a rolling 64-bit hash of the key and values
+      s = output_validator.Add(key, value);
+      if (!s.ok()) {
+        break;
       }
       builder->Add(key, value);
       meta->UpdateBoundaries(key, value, ikey.sequence, ikey.type);
@@ -202,22 +207,23 @@ Status BuildTable(
             ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
       }
     }
-
-    auto range_del_it = range_del_agg->NewIterator();
-    for (range_del_it->SeekToFirst(); range_del_it->Valid();
-         range_del_it->Next()) {
-      auto tombstone = range_del_it->Tombstone();
-      auto kv = tombstone.Serialize();
-      builder->Add(kv.first.Encode(), kv.second);
-      meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
-                                     tombstone.seq_, internal_comparator);
+    if (!s.ok()) {
+      c_iter.status().PermitUncheckedError();
+    } else if (!c_iter.status().ok()) {
+      s = c_iter.status();
     }
+    if (s.ok()) {
+      auto range_del_it = range_del_agg->NewIterator();
+      for (range_del_it->SeekToFirst(); range_del_it->Valid();
+           range_del_it->Next()) {
+        auto tombstone = range_del_it->Tombstone();
+        auto kv = tombstone.Serialize();
+        builder->Add(kv.first.Encode(), kv.second);
+        meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
+                                       tombstone.seq_, internal_comparator);
+      }
 
-    // Finish and check for builder errors
-    s = c_iter.status();
-
-    if (blob_file_builder) {
-      if (s.ok()) {
+      if (blob_file_builder) {
         s = blob_file_builder->Finish();
       }
     }
@@ -229,9 +235,8 @@ Status BuildTable(
     } else {
       s = builder->Finish();
     }
-    io_s = builder->io_status();
     if (io_status->ok()) {
-      *io_status = io_s;
+      *io_status = builder->io_status();
     }
 
     if (s.ok() && !empty) {
@@ -247,10 +252,12 @@ Status BuildTable(
     delete builder;
 
     // Finish and check for file errors
+    TEST_SYNC_POINT("BuildTable:BeforeSyncTable");
     if (s.ok() && !empty) {
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
       *io_status = file_writer->Sync(ioptions.use_fsync);
     }
+    TEST_SYNC_POINT("BuildTable:BeforeCloseTableFile");
     if (s.ok() && io_status->ok() && !empty) {
       *io_status = file_writer->Close();
     }
@@ -290,15 +297,15 @@ Status BuildTable(
           /*allow_unprepared_value*/ false));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
-        uint64_t check_hash = 0;
+        OutputValidator file_validator(internal_comparator,
+                                       /*enable_order_check=*/true,
+                                       /*enable_hash=*/true);
         for (it->SeekToFirst(); it->Valid(); it->Next()) {
           // Generate a rolling 64-bit hash of the key and values
-          check_hash = Hash64(it->key().data(), it->key().size(), check_hash);
-          check_hash =
-              Hash64(it->value().data(), it->value().size(), check_hash);
+          file_validator.Add(it->key(), it->value()).PermitUncheckedError();
         }
         s = it->status();
-        if (s.ok() && check_hash != paranoid_hash) {
+        if (s.ok() && !output_validator.CompareValidator(file_validator)) {
           s = Status::Corruption("Paranoid checksums do not match");
         }
       }
@@ -313,13 +320,15 @@ Status BuildTable(
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
     constexpr IODebugContext* dbg = nullptr;
 
-    fs->DeleteFile(fname, IOOptions(), dbg);
+    Status ignored = fs->DeleteFile(fname, IOOptions(), dbg);
+    ignored.PermitUncheckedError();
 
     assert(blob_file_additions || blob_file_paths.empty());
 
     if (blob_file_additions) {
       for (const std::string& blob_file_path : blob_file_paths) {
-        fs->DeleteFile(blob_file_path, IOOptions(), dbg);
+        ignored = fs->DeleteFile(blob_file_path, IOOptions(), dbg);
+        ignored.PermitUncheckedError();
       }
 
       blob_file_additions->clear();

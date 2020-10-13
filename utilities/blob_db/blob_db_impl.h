@@ -20,7 +20,6 @@
 #include <vector>
 
 #include "db/blob/blob_log_format.h"
-#include "db/blob/blob_log_reader.h"
 #include "db/blob/blob_log_writer.h"
 #include "db/db_iter.h"
 #include "rocksdb/compaction_filter.h"
