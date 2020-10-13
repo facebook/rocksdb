@@ -1597,7 +1597,9 @@ Status CompactionJob::InstallCompactionResults(
       edit->AddFile(compaction->output_level(), out.meta);
     }
 
-    edit->SetBlobFileAdditions(std::move(sub_compact.blob_file_additions));
+    for (const auto& blob : sub_compact.blob_file_additions) {
+      edit->AddBlobFile(blob);
+    }
   }
 
   return versions_->LogAndApply(compaction->column_family_data(),
