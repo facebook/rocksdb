@@ -89,7 +89,7 @@ JSONWriter& operator<<(JSONWriter& jw, const WalAddition& wal);
 
 using WalAdditions = std::vector<WalAddition>;
 
-// Records the event of deleting WALs with smaller log numbers in VersionEdit.
+// Records the event of deleting a WAL.
 class WalDeletion {
  public:
   WalDeletion() : number_(EMPTY_) {}
@@ -98,17 +98,11 @@ class WalDeletion {
 
   WalNumber GetLogNumber() const { return number_; }
 
-  void SetLogNumber(WalNumber number) { number_ = number; }
-
   void EncodeTo(std::string* dst) const;
 
   Status DecodeFrom(Slice* src);
 
   std::string DebugString() const;
-
-  void Reset() { number_ = EMPTY_; }
-
-  bool IsEmpty() const { return number_ == EMPTY_; }
 
  private:
   static constexpr WalNumber EMPTY_ = 0;
@@ -118,6 +112,8 @@ class WalDeletion {
 
 std::ostream& operator<<(std::ostream& os, const WalDeletion& wal);
 JSONWriter& operator<<(JSONWriter& jw, const WalDeletion& wal);
+
+using WalDeletions = std::vector<WalDeletion>;
 
 // Used in VersionSet to keep the current set of WALs.
 //
@@ -136,9 +132,15 @@ class WalSet {
   Status AddWal(const WalAddition& wal);
   Status AddWals(const WalAdditions& wals);
 
-  // Delete WALs with log number < the number in WalDeletion.
+  // Delete WAL(s).
+  // The WAL to be deleted must exist and be closed, otherwise,
+  // return Status::Corruption.
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
-  Status DeleteWalsBefore(const WalDeletion& wal);
+  Status DeleteWal(const WalDeletion& wal);
+  Status DeleteWals(const WalDeletions& wals);
+
+  // Delete WALs with log number < wal_number.
+  void DeleteWalsBefore(WalNumber wal_number);
 
   // Resets the internal state.
   void Reset();

@@ -462,15 +462,15 @@ class VersionEdit {
 
   bool IsWalAddition() const { return !wal_additions_.empty(); }
 
-  // Delete WALs with log number smaller than the specified number.
-  void DeleteWalsBefore(WalNumber number) {
-    assert(NumEntries() == 0);
-    wal_deletion_.SetLogNumber(number);
+  // Delete a WAL (either directly deleted or archived).
+  void DeleteWal(WalNumber number) {
+    assert(NumEntries() == wal_deletions_.size());
+    wal_deletions_.emplace_back(number);
   }
 
-  const WalDeletion& GetWalDeletion() const { return wal_deletion_; }
+  const WalDeletions& GetWalDeletions() const { return wal_deletions_; }
 
-  bool IsWalDeletion() const { return wal_deletion_.GetLogNumber() != 0; }
+  bool IsWalDeletion() const { return !wal_deletions_.empty(); }
 
   bool IsWalManipulation() const { return IsWalAddition() || IsWalDeletion(); }
 
@@ -478,7 +478,7 @@ class VersionEdit {
   size_t NumEntries() const {
     return new_files_.size() + deleted_files_.size() +
            blob_file_additions_.size() + blob_file_garbages_.size() +
-           wal_additions_.size() + (wal_deletion_.GetLogNumber() != 0);
+           wal_additions_.size() + wal_deletions_.size();
   }
 
   void SetColumnFamily(uint32_t column_family_id) {
@@ -563,7 +563,7 @@ class VersionEdit {
   BlobFileGarbages blob_file_garbages_;
 
   WalAdditions wal_additions_;
-  WalDeletion wal_deletion_;
+  WalDeletions wal_deletions_;
 
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)

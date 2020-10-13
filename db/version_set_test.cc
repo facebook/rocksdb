@@ -1227,7 +1227,7 @@ TEST_F(VersionSetTest, WalAddition) {
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
-    ASSERT_OK(new_versions->Recover(column_families_, false));
+    ASSERT_OK(new_versions->Recover(column_families_, /*read_only=*/false));
     const auto& wals = new_versions->GetWalSet().GetWals();
     ASSERT_EQ(wals.size(), 1);
     ASSERT_TRUE(wals.find(kLogNumber) != wals.end());
@@ -1321,7 +1321,7 @@ TEST_F(VersionSetTest, WalDeletion) {
   // Delete the closed WAL.
   {
     VersionEdit edit;
-    edit.DeleteWalsBefore(kNonClosedLogNumber);
+    edit.DeleteWal(kClosedLogNumber);
 
     ASSERT_OK(LogAndApplyToDefaultCF(edit));
 

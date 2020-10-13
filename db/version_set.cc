@@ -4033,7 +4033,7 @@ Status VersionSet::ProcessManifestWrites(
             break;
           }
         } else if (e->IsWalDeletion()) {
-          s = wals_.DeleteWalsBefore(e->GetWalDeletion());
+          s = wals_.DeleteWals(e->GetWalDeletions());
           if (!s.ok()) {
             break;
           }
@@ -4250,26 +4250,6 @@ Status VersionSet::LogAndApply(
     }
 #endif /* ! NDEBUG */
   }
-
-#ifndef NDEBUG
-  bool is_wal_manipulation = false;
-  for (const auto& edit_list : edit_lists) {
-    for (const auto& edit : edit_list) {
-      if (edit->IsWalManipulation()) {
-        is_wal_manipulation = true;
-        break;
-      }
-    }
-    if (is_wal_manipulation) {
-      break;
-    }
-  }
-  if (is_wal_manipulation) {
-    // WAL additions/deletions are always applied to default column family.
-    assert(column_family_datas.size() == 1);
-    assert(edit_lists.size() == 1);
-  }
-#endif  // ! NDEBUG
 
   int num_cfds = static_cast<int>(column_family_datas.size());
   if (num_cfds == 1 && column_family_datas[0] == nullptr) {
@@ -4572,7 +4552,7 @@ Status VersionSet::ReadAndRecover(
       if (edit.IsWalAddition()) {
         s = wals_.AddWals(edit.GetWalAdditions());
       } else if (edit.IsWalDeletion()) {
-        s = wals_.DeleteWalsBefore(edit.GetWalDeletion());
+        s = wals_.DeleteWals(edit.GetWalDeletions());
       }
       if (!s.ok()) {
         break;
@@ -4724,19 +4704,11 @@ Status VersionSet::Recover(
     MarkMinLogNumberToKeep2PC(version_edit_params.min_log_number_to_keep_);
     MarkFileNumberUsed(version_edit_params.prev_log_number_);
     MarkFileNumberUsed(version_edit_params.log_number_);
-
-    // Consider the case:
-    // 1. DB is opened with tracking WAL in MANIFEST is enabled,
-    // 2. then DB is reopened with tracking WAL disabled,
-    // 3. then DB is reopened with tracking WAL enabled.
-    // In step 2, the deleted WALs are not tracked in MANIFEST,
-    // so in step 3, during recovery, we should delete the WALs.
-    wals_.DeleteWalsBefore(WalDeletion(MinLogNumberToKeep()));
   }
 
   // there were some column families in the MANIFEST that weren't specified
   // in the argument. This is OK in read_only mode
-  if (read_only == false && !column_families_not_found.empty()) {
+  if (s.ok() && read_only == false && !column_families_not_found.empty()) {
     std::string list_of_not_found;
     for (const auto& cf : column_families_not_found) {
       list_of_not_found += ", " + cf.second;

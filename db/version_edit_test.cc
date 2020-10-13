@@ -470,36 +470,47 @@ TEST_F(VersionEditTest, AddWalDebug) {
 
 TEST_F(VersionEditTest, DeleteWalEncodeDecode) {
   VersionEdit edit;
-  edit.DeleteWalsBefore(rand() % 100);
+  for (uint64_t log_number = 1; log_number <= 20; log_number++) {
+    edit.DeleteWal(log_number);
+  }
   TestEncodeDecode(edit);
 }
 
 TEST_F(VersionEditTest, DeleteWalDebug) {
-  constexpr uint64_t kLogNumber = 20;
+  constexpr int n = 2;
+  constexpr std::array<uint64_t, n> kLogNumbers{{10, 20}};
 
   VersionEdit edit;
-  edit.DeleteWalsBefore(kLogNumber);
+  for (int i = 0; i < n; i++) {
+    edit.DeleteWal(kLogNumbers[i]);
+  }
 
-  const WalDeletion& deletion = edit.GetWalDeletion();
-  ASSERT_FALSE(deletion.IsEmpty());
-  ASSERT_EQ(deletion.GetLogNumber(), kLogNumber);
+  const WalDeletions& wals = edit.GetWalDeletions();
+
+  ASSERT_TRUE(edit.IsWalDeletion());
+  ASSERT_EQ(wals.size(), n);
+  for (int i = 0; i < n; i++) {
+    const WalDeletion& wal = wals[i];
+    ASSERT_EQ(wal.GetLogNumber(), kLogNumbers[i]);
+  }
 
   std::string expected_str = "VersionEdit {\n";
-  {
+  for (int i = 0; i < n; i++) {
     std::stringstream ss;
-    ss << "  WalDeletion: log_number: " << kLogNumber << "\n";
+    ss << "  WalDeletion: log_number: " << kLogNumbers[i] << "\n";
     expected_str += ss.str();
   }
   expected_str += "  ColumnFamily: 0\n}\n";
   ASSERT_EQ(edit.DebugString(true), expected_str);
 
-  std::string expected_json = "{\"EditNumber\": 4, \"WalDeletion\": ";
-  {
+  std::string expected_json = "{\"EditNumber\": 4, \"WalDeletions\": [";
+  for (int i = 0; i < n; i++) {
     std::stringstream ss;
-    ss << "{\"LogNumber\": " << kLogNumber << "}";
+    ss << "{\"LogNumber\": " << kLogNumbers[i] << "}";
+    if (i < n - 1) ss << ", ";
     expected_json += ss.str();
   }
-  expected_json += ", \"ColumnFamily\": 0}";
+  expected_json += "], \"ColumnFamily\": 0}";
   ASSERT_EQ(edit.DebugJSON(4, true), expected_json);
 }
 

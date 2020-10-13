@@ -82,16 +82,6 @@ void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
   }
 
   CheckIterationResult(reader, &s);
-  if (s.ok()) {
-    // Consider the case:
-    // 1. DB is opened with tracking WAL in MANIFEST is enabled,
-    // 2. then DB is reopened with tracking WAL disabled,
-    // 3. then DB is reopened with tracking WAL enabled.
-    // In step 2, the deleted WALs are not tracked in MANIFEST,
-    // so in step 3, during recovery, we should delete the WALs.
-    s = version_set_->wals_.DeleteWalsBefore(
-        WalDeletion(version_set_->MinLogNumberToKeep()));
-  }
 
   if (!s.ok()) {
     status_ = s;
@@ -207,7 +197,7 @@ Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,
     if (edit.IsWalAddition()) {
       s = version_set_->wals_.AddWals(edit.GetWalAdditions());
     } else if (edit.IsWalDeletion()) {
-      s = version_set_->wals_.DeleteWalsBefore(edit.GetWalDeletion());
+      s = version_set_->wals_.DeleteWals(edit.GetWalDeletions());
     }
     return s;
     // WAL edits do not need to be applied to version builders.

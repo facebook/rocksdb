@@ -339,7 +339,6 @@ Options DBTestBase::GetDefaultOptions() {
   options.max_open_files = 5000;
   options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   options.compaction_pri = CompactionPri::kByCompensatedSize;
-  options.track_and_verify_wals_in_manifest = true;
   return options;
 }
 

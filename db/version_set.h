@@ -1113,16 +1113,6 @@ class VersionSet {
     return min_log_num;
   }
 
-  // In either 2pc mode or not, this is the minimum log number to keep.
-  // All logs with log number smaller than this number can be deleted.
-  uint64_t MinLogNumberToKeep() const {
-    if (db_options()->allow_2pc) {
-      return min_log_number_to_keep_2pc();
-    } else {
-      return MinLogNumberWithUnflushedData();
-    }
-  }
-
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
   // @param read_options Must outlive the returned iterator.

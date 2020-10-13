@@ -89,7 +89,7 @@ void VersionEdit::Clear() {
   blob_file_additions_.clear();
   blob_file_garbages_.clear();
   wal_additions_.clear();
-  wal_deletion_.Reset();
+  wal_deletions_.clear();
   column_family_ = 0;
   is_column_family_add_ = false;
   is_column_family_drop_ = false;
@@ -229,8 +229,10 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
     wal_addition.EncodeTo(dst);
   }
 
-  PutVarint32(dst, kWalDeletion);
-  wal_deletion_.EncodeTo(dst);
+  for (const auto& wal_deletion : wal_deletions_) {
+    PutVarint32(dst, kWalDeletion);
+    wal_deletion.EncodeTo(dst);
+  }
 
   // 0 is default and does not need to be explicitly written
   if (column_family_ != 0) {
@@ -574,7 +576,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           return s;
         }
 
-        wal_deletion_ = wal_deletion;
+        wal_deletions_.emplace_back(std::move(wal_deletion));
         break;
       }
 
@@ -723,9 +725,9 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(wal_addition.DebugString());
   }
 
-  if (!wal_deletion_.IsEmpty()) {
+  for (const auto& wal_deletion : wal_deletions_) {
     r.append("\n  WalDeletion: ");
-    r.append(wal_deletion_.DebugString());
+    r.append(wal_deletion.DebugString());
   }
 
   r.append("\n  ColumnFamily: ");
@@ -852,11 +854,18 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
     jw.EndArray();
   }
 
-  if (!wal_deletion_.IsEmpty()) {
-    jw << "WalDeletion";
-    jw.StartObject();
-    jw << wal_deletion_;
-    jw.EndObject();
+  if (!wal_deletions_.empty()) {
+    jw << "WalDeletions";
+
+    jw.StartArray();
+
+    for (const auto& wal_deletion : wal_deletions_) {
+      jw.StartArrayedObject();
+      jw << wal_deletion;
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
   }
 
   jw << "ColumnFamily" << column_family_;
