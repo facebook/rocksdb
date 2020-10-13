@@ -58,6 +58,8 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
       }
     }
   }
+#else
+  (void)opts;
 #endif  // ROCKSDB_LITE
   if (status.ok()) {
     prepared_ = true;
@@ -89,6 +91,9 @@ Status Configurable::ValidateOptions(const DBOptions& db_opts,
       }
     }
   }
+#else
+  (void)db_opts;
+  (void)cf_opts;
 #endif  // ROCKSDB_LITE
   return status;
 }
