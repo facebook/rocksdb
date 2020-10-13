@@ -79,14 +79,6 @@ class SimpleConfigurable : public TestConfigurable<Configurable> {
 
 };  // End class SimpleConfigurable
 
-static std::unordered_map<std::string, OptionTypeInfo> wrapped_option_info = {
-#ifndef ROCKSDB_LITE
-    {"inner",
-     {0, OptionType::kConfigurable, OptionVerificationType::kNormal,
-      OptionTypeFlags::kShared}},
-#endif  // ROCKSDB_LITE
-};
-
 using ConfigTestFactoryFunc = std::function<Configurable*()>;
 
 class ConfigurableTest : public testing::Test {
@@ -592,17 +584,6 @@ static std::unordered_map<std::string, ConfigTestFactoryFunc> TestFactories = {
                                              TestConfigMode::kSimpleMode |
                                              TestConfigMode::kNestedMode);
      }},
-    {"ThreeWay",
-     []() {
-       std::shared_ptr<Configurable> child;
-       child.reset(
-           SimpleConfigurable::Create("child", TestConfigMode::kDefaultMode));
-       std::shared_ptr<Configurable> parent;
-       parent.reset(new WrappedConfigurable(
-           "parent", TestConfigMode::kDefaultMode, child));
-       return new WrappedConfigurable("master", TestConfigMode::kDefaultMode,
-                                      parent);
-     }},
     {"ThreeDeep",
      []() {
        Configurable* simple = SimpleConfigurable::Create(
@@ -750,10 +731,6 @@ INSTANTIATE_TEST_CASE_P(
                                             "pointer={int=22;string=pointer};"
                                             "unique={int=33;string=unique};"
                                             "shared={int=44;string=shared}"),
-        std::pair<std::string, std::string>("ThreeWay",
-                                            "int=11;bool=true;string=outer;"
-                                            "inner={int=22;string=parent;"
-                                            "inner={int=33;string=child}};"),
         std::pair<std::string, std::string>("ThreeDeep",
                                             "int=11;bool=true;string=outer;"
                                             "unique={int=22;string=inner;"
