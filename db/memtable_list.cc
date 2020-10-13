@@ -479,14 +479,15 @@ Status MemTableList::TryInstallMemtableFlushResults(
             vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
       }
 
+      VersionEdit wal_deletions;
       if (vset->db_options()->track_and_verify_wals_in_manifest) {
         // Track obsolete WALs in MANIFEST.
-        VersionEdit wal_deletions;
         if (min_log_number_to_keep_2pc) {
           wal_deletions.DeleteWalsBefore(min_log_number_to_keep_2pc);
         } else {
           wal_deletions.DeleteWalsBefore(vset->MinLogNumberWithUnflushedData());
         }
+        edit_list.push_back(&wal_deletions);
       }
 
       if (min_log_number_to_keep_2pc) {
