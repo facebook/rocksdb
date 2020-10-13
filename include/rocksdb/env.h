@@ -452,7 +452,8 @@ class Env {
   // Sleep/delay the thread for the prescribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
 
-  // Get the current host name.
+  // Get the current host name as a null terminated string iff the string
+  // length is < len. The hostname should otherwise be truncated to len.
   virtual Status GetHostName(char* name, uint64_t len) = 0;
 
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).

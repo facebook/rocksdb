@@ -404,15 +404,18 @@ Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
                                                    ioptions, allocator);
 }
 
-Status SanitizeDbHostIdProperty(Env* env, std::string& db_host_id) {
-  if (db_host_id == kDbHostId) {
-    db_host_id.clear();
-    db_host_id.resize(kMaxHostNameLen);
-    Status s = env->GetHostName(&db_host_id.at(0), kMaxHostNameLen);
+// Replace the contents of db_host_id with the actual hostname, if db_host_id
+// matches the keyword kHostnameForDbHostId
+Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id) {
+  if (!db_host_id->compare(kHostnameForDbHostId)) {
+    char hostname_buf[kMaxHostNameLen];
+    Status s = env->GetHostName(hostname_buf, kMaxHostNameLen);
     if (!s.ok()) {
+      db_host_id->clear();
       return s;
     }
-    db_host_id.at(kMaxHostNameLen - 1) = 0;
+    hostname_buf[kMaxHostNameLen - 1] = '\0';
+    db_host_id->assign(hostname_buf);
   }
 
   return Status::OK();

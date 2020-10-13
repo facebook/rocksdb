@@ -494,7 +494,7 @@ struct BlockBasedTableBuilder::Rep {
       }
     }
 
-    if (!SanitizeDbHostIdProperty(ioptions.env, db_host_id).ok()) {
+    if (!ReifyDbHostIdProperty(ioptions.env, &db_host_id).ok()) {
       ROCKS_LOG_INFO(ioptions.info_log, "db_host_id property will not be set");
     }
   }

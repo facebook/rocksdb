@@ -23,8 +23,6 @@
 #include "test_util/sync_point.h"
 #include "util/rate_limiter.h"
 
-#define MAX_HOST_NAME_LEN 256
-
 namespace ROCKSDB_NAMESPACE {
 Options SanitizeOptions(const std::string& dbname, const Options& src) {
   auto db_options = SanitizeOptions(dbname, DBOptions(src));

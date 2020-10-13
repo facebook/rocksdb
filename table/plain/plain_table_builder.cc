@@ -101,7 +101,7 @@ PlainTableBuilder::PlainTableBuilder(
   properties_.db_id = db_id;
   properties_.db_session_id = db_session_id;
   properties_.db_host_id = ioptions.db_host_id;
-  if (!SanitizeDbHostIdProperty(ioptions_.env, properties_.db_host_id).ok()) {
+  if (!ReifyDbHostIdProperty(ioptions_.env, &properties_.db_host_id).ok()) {
     ROCKS_LOG_WARN(ioptions_.info_log, "db_host_id property will not be set");
   }
   properties_.prefix_extractor_name = moptions_.prefix_extractor != nullptr

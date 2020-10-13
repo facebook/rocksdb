@@ -348,7 +348,7 @@ struct DbPath {
   DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
 };
 
-static const std::string kDbHostId = "__hostname__";
+static const std::string kHostnameForDbHostId = "__hostname__";
 
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
@@ -1193,7 +1193,7 @@ struct DBOptions {
   // hostname when writing the SST file.
   //
   // Default: hostname
-  std::string db_host_id = kDbHostId;
+  std::string db_host_id = kHostnameForDbHostId;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

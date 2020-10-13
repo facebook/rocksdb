@@ -334,7 +334,7 @@ extern Status UncompressBlockContentsForCompressionType(
 static const size_t kMaxHostNameLen = 256;
 
 // Replace db_host_id contents with the real hostname if necessary
-extern Status SanitizeDbHostIdProperty(Env* env, std::string& db_host_id);
+extern Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);
 
 // Implementation details follow.  Clients should ignore,
 
