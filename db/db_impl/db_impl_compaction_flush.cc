@@ -134,18 +134,7 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
             .PermitUncheckedError();
       }
       TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
-    } else if (immutable_db_options_.track_and_verify_wals_in_manifest) {
-      // Track synced WAL sizes in MANIFEST.
-      VersionEdit edit;
-      for (log::Writer* log : logs_to_sync) {
-        WalMetadata wal(log->file()->GetFileSize());
-        edit.AddWal(log->get_log_number(), wal);
-      }
-      Status s = versions_->LogAndApplyToDefaultColumnFamily(&edit, &mutex_);
-      if (!s.ok()) {
-        io_s = IOStatus::IOError("Failed to log synced WAL size to MANIFEST",
-                                 s.ToString());
-      }
+      return io_s;
     }
   }
   return io_s;
