@@ -1442,12 +1442,8 @@ Status CompactionJob::FinishCompactionOutputFile(
   if (s.ok()) {
     s = io_s;
   }
-  const uint64_t current_bytes = sub_compact->builder->FileSize();
-  if (s.ok()) {
-    meta->fd.file_size = current_bytes;
-  }
+
   sub_compact->current_output()->finished = true;
-  sub_compact->total_bytes += current_bytes;
 
   // Finish and check for file errors
   if (s.ok()) {
@@ -1457,7 +1453,13 @@ Status CompactionJob::FinishCompactionOutputFile(
   if (s.ok() && io_s.ok()) {
     io_s = sub_compact->outfile->Close();
   }
+
+  const uint64_t current_bytes = sub_compact->builder->FileSize();
+
   if (s.ok() && io_s.ok()) {
+    meta->fd.file_size = current_bytes;
+    sub_compact->total_bytes += current_bytes;
+
     // Add the checksum information to file metadata.
     meta->file_checksum = sub_compact->outfile->GetFileChecksum();
     meta->file_checksum_func_name =
@@ -1800,8 +1802,10 @@ void CompactionJob::UpdateCompactionStats() {
   uint64_t num_output_records = 0;
 
   for (const auto& sub_compact : compact_->sub_compact_states) {
-    size_t num_output_files = sub_compact.outputs.size();
-    if (sub_compact.builder != nullptr) {
+    const auto& outputs = sub_compact.outputs;
+
+    size_t num_output_files = outputs.size();
+    if (!outputs.empty() && !outputs.back().meta.fd.file_size) {
       // An error occurred so ignore the last output.
       assert(num_output_files > 0);
       --num_output_files;
@@ -1813,7 +1817,7 @@ void CompactionJob::UpdateCompactionStats() {
 
     num_output_records += sub_compact.num_output_records;
 
-    for (const auto& out : sub_compact.outputs) {
+    for (const auto& out : outputs) {
       compaction_stats_.bytes_written += out.meta.fd.file_size;
     }
 
