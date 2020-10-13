@@ -1195,6 +1195,7 @@ class VersionSet {
   // Get the IO Status returned by written Manifest.
   const IOStatus& io_status() const { return io_status_; }
 
+  // The returned WalSet needs to be accessed with DB mutex held.
   const WalSet& GetWalSet() const { return wals_; }
 
   void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {
@@ -1250,7 +1251,7 @@ class VersionSet {
   // Save current contents to *log
   Status WriteCurrentStateToManifest(
       const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-      log::Writer* log, IOStatus& io_s);
+      const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
@@ -1283,30 +1284,7 @@ class VersionSet {
   Status VerifyFileMetadata(const std::string& fpath,
                             const FileMetaData& meta) const;
 
-  // Note on synchronization:
-  //
-  // In the thread running DB recovery:
-  //
-  // when recovering from MANIFEST, the WALs tracked in
-  // MANIFEST are written to wals_ while holding DB mutex;
-  // after recovering from MANIFEST and before replaying the WALs,
-  // wals_ is read through WalSet::CheckWals,
-  // since the write and read happen in the same thread,
-  // there is no need for synchronization.
-  //
-  // LogAndApply may also be called during recovery, in this case,
-  // wals_ may be read when creating a new MANIFEST, even if this
-  // happens in another thread other than the recovery thread,
-  // since DB mutex is acquired before entering ProcessManifestWrite,
-  // the wals_ written in the recovery thread while holding the DB mutex
-  // is visible to the ProcessManifestWrite thread because the acquire and
-  // release of the DB mutex establish a happens-before relationship between the
-  // two threads.
-  //
-  // After recovery, wals_ is written and read only when LogAndApply
-  // is called, which is synchronized through `manifest_writers_` queue.
-  // Similar to the above reasoning about LogAndApply, the wals_ is always
-  // visible to the write thread.
+  // Protected by DB mutex.
   WalSet wals_;
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;

@@ -3937,6 +3937,7 @@ Status VersionSet::ProcessManifestWrites(
   // reads its content after releasing db mutex to avoid race with
   // SwitchMemtable().
   std::unordered_map<uint32_t, MutableCFState> curr_state;
+  VersionEdit wal_additions;
   if (new_descriptor_log) {
     pending_manifest_file_number_ = NewFileNumber();
     batch_edits.back()->SetNextFile(next_file_number_.load());
@@ -3950,6 +3951,10 @@ Status VersionSet::ProcessManifestWrites(
     for (const auto* cfd : *column_family_set_) {
       assert(curr_state.find(cfd->GetID()) == curr_state.end());
       curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
+    }
+
+    for (const auto& wal : wals_.GetWals()) {
+      wal_additions.AddWal(wal.first, wal.second);
     }
   }
 
@@ -4003,8 +4008,8 @@ Status VersionSet::ProcessManifestWrites(
             io_tracer_, nullptr, db_options_->listeners));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
-        s = WriteCurrentStateToManifest(curr_state, descriptor_log_.get(),
-                                        io_s);
+        s = WriteCurrentStateToManifest(curr_state, wal_additions,
+                                        descriptor_log_.get(), io_s);
       } else {
         s = io_s;
       }
@@ -5404,7 +5409,7 @@ void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
 
 Status VersionSet::WriteCurrentStateToManifest(
     const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-    log::Writer* log, IOStatus& io_s) {
+    const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
   // WARNING: This method doesn't hold a mutex!!
@@ -5412,7 +5417,6 @@ Status VersionSet::WriteCurrentStateToManifest(
   // This is done without DB mutex lock held, but only within single-threaded
   // LogAndApply. Column family manipulations can only happen within LogAndApply
   // (the same single thread), so we're safe to iterate.
-  // Same argument holds for accessing wals_.
 
   assert(io_s.ok());
   if (db_options_->write_dbid_to_manifest) {
@@ -5430,25 +5434,18 @@ Status VersionSet::WriteCurrentStateToManifest(
     }
   }
 
-  {
-    // Save WALs.
-    if (!wals_.GetWals().empty()) {
-      std::unique_ptr<VersionEdit> wal_additions(new VersionEdit());
-      for (const auto& wal : wals_.GetWals()) {
-        wal_additions->AddWal(wal.first, wal.second);
-      }
-      TEST_SYNC_POINT_CALLBACK(
-          "VersionSet::WriteCurrentStateToManifest:SaveWal",
-          wal_additions.get());
-      std::string record;
-      if (!wal_additions->EncodeTo(&record)) {
-        return Status::Corruption("Unable to Encode VersionEdit: " +
-                                  wal_additions->DebugString(true));
-      }
-      io_s = log->AddRecord(record);
-      if (!io_s.ok()) {
-        return io_s;
-      }
+  // Save WALs.
+  if (!wal_additions.GetWalAdditions().empty()) {
+    TEST_SYNC_POINT_CALLBACK("VersionSet::WriteCurrentStateToManifest:SaveWal",
+                             reinterpret_cast<void*>(const_cast<VersionEdit*>(&wal_additions)));
+    std::string record;
+    if (!wal_additions.EncodeTo(&record)) {
+      return Status::Corruption("Unable to Encode VersionEdit: " +
+                                wal_additions.DebugString(true));
+    }
+    io_s = log->AddRecord(record);
+    if (!io_s.ok()) {
+      return io_s;
     }
   }
 
