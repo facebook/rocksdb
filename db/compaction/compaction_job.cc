@@ -269,7 +269,12 @@ struct CompactionJob::CompactionState {
 void CompactionJob::AggregateStatistics() {
   assert(compact_);
 
-  for (const SubcompactionState& sc : compact_->sub_compact_states) {
+  for (SubcompactionState& sc : compact_->sub_compact_states) {
+    if (!sc.outputs.empty() && !sc.outputs.back().meta.fd.file_size) {
+      // An error occurred, so ignore the last output.
+      sc.outputs.pop_back();
+    }
+
     compact_->num_output_files += sc.outputs.size();
     compact_->total_bytes += sc.total_bytes;
 
@@ -741,10 +746,8 @@ Status CompactionJob::Run() {
   compact_->compaction->SetOutputTableProperties(std::move(tp));
 
   // Finish up all book-keeping to unify the subcompaction results
-  if (status.ok()) {
-    AggregateStatistics();
-    UpdateCompactionStats();
-  }
+  AggregateStatistics();
+  UpdateCompactionStats();
 
   RecordCompactionIOStats();
   LogFlush(db_options_.info_log);
@@ -1782,6 +1785,8 @@ void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
 #endif  // !ROCKSDB_LITE
 
 void CompactionJob::UpdateCompactionStats() {
+  assert(compact_);
+
   Compaction* compaction = compact_->compaction;
   compaction_stats_.num_input_files_in_non_output_levels = 0;
   compaction_stats_.num_input_files_in_output_level = 0;
@@ -1799,24 +1804,15 @@ void CompactionJob::UpdateCompactionStats() {
     }
   }
 
+  compaction_stats_.num_output_files =
+      compact_->num_output_files + compact_->num_blob_output_files;
+  compaction_stats_.bytes_written =
+      compact_->total_bytes + compact_->total_blob_bytes;
+
   uint64_t num_output_records = 0;
 
   for (const auto& sub_compact : compact_->sub_compact_states) {
-    const auto& outputs = sub_compact.outputs;
-    const auto& blobs = sub_compact.blob_file_additions;
-
-    compaction_stats_.num_output_files +=
-        static_cast<int>(outputs.size()) + static_cast<int>(blobs.size());
-
     num_output_records += sub_compact.num_output_records;
-
-    for (const auto& out : outputs) {
-      compaction_stats_.bytes_written += out.meta.fd.file_size;
-    }
-
-    for (const auto& blob_file_addition : blobs) {
-      compaction_stats_.bytes_written += blob_file_addition.GetTotalBlobBytes();
-    }
   }
 
   if (compaction_stats_.num_input_records > num_output_records) {
