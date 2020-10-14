@@ -1850,7 +1850,7 @@ void CompactionJob::UpdateCompactionJobStats(
   compaction_job_stats_->num_output_records = compact_->num_output_records;
   compaction_job_stats_->num_output_files = stats.num_output_files;
 
-  if (compact_->num_output_files > 0) {
+  if (stats.num_output_files > 0) {
     CopyPrefix(compact_->SmallestUserKey(),
                CompactionJobStats::kMaxPrefixLength,
                &compaction_job_stats_->smallest_output_key_prefix);
