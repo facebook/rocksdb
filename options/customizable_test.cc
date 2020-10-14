@@ -478,14 +478,14 @@ TEST_F(CustomizableTest, IsInstanceOfTest) {
   ASSERT_TRUE(ac->IsInstanceOf("A"));
   ASSERT_TRUE(ac->IsInstanceOf("TestCustomizable"));
   ASSERT_FALSE(ac->IsInstanceOf("B"));
-  ASSERT_EQ(ac->CastAs<TestCustomizable>("A"), ac.get());
-  ASSERT_EQ(ac->CastAs<TestCustomizable>("TestCustomizable"), ac.get());
-  ASSERT_EQ(ac->CastAs<TestCustomizable>("B"), nullptr);
+  ASSERT_EQ(ac->GetAs<TestCustomizable>("A"), ac.get());
+  ASSERT_EQ(ac->GetAs<TestCustomizable>("TestCustomizable"), ac.get());
+  ASSERT_EQ(ac->GetAs<TestCustomizable>("B"), nullptr);
   WrappedCustomizable wc(ac);
   ASSERT_TRUE(wc.IsInstanceOf("Wrapped"));
-  ASSERT_EQ(wc.CastAs<TestCustomizable>("A"), ac.get());
-  ASSERT_EQ(wc.CastAs<TestCustomizable>("TestCustomizable"), ac.get());
-  ASSERT_EQ(wc.CastAs<TestCustomizable>("B"), nullptr);
+  ASSERT_EQ(wc.GetAs<TestCustomizable>("A"), ac.get());
+  ASSERT_EQ(wc.GetAs<TestCustomizable>("TestCustomizable"), ac.get());
+  ASSERT_EQ(wc.GetAs<TestCustomizable>("B"), nullptr);
 }
 
 static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {

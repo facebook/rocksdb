@@ -57,7 +57,7 @@ class Customizable : public Configurable {
 
   // This is typically determined by if the input name matches the
   // name of this object.
-  // This method is typically used in conjunction with CastAs to find the
+  // This method is typically used in conjunction with GetAs to find the
   // derived class instance from its base.  For example, if you have an Env
   // and want the "Default" env, you would IsInstanceOf("Default") to get
   // the default implementation.  This method should be used when you need a
@@ -78,13 +78,13 @@ class Customizable : public Configurable {
   // found. This method uses IsInstanceOf to find the appropriate class instance
   // and then casts it to the expected return type.
   template <typename T>
-  const T* CastAs(const std::string& name) const {
+  const T* GetAs(const std::string& name) const {
     if (IsInstanceOf(name)) {
       return static_cast<const T*>(this);
     } else {
       const auto inner = static_cast<const Customizable*>(Inner());
       if (inner != nullptr) {
-        return inner->CastAs<T>(name);
+        return inner->GetAs<T>(name);
       } else {
         return nullptr;
       }
@@ -92,13 +92,13 @@ class Customizable : public Configurable {
   }
 
   template <typename T>
-  T* CastAs(const std::string& name) {
+  T* GetAs(const std::string& name) {
     if (IsInstanceOf(name)) {
       return static_cast<T*>(this);
     } else {
       const auto inner = Inner();
       if (inner != nullptr) {
-        return inner->CastAs<T>(name);
+        return inner->GetAs<T>(name);
       } else {
         return nullptr;
       }
