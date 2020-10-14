@@ -83,6 +83,11 @@ void SetupSyncPointsToMockDirectIO() {
         int* val = static_cast<int*>(arg);
         *val &= ~O_DIRECT;
       });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "NewSequentialFile:O_DIRECT", [&](void* arg) {
+        int* val = static_cast<int*>(arg);
+        *val &= ~O_DIRECT;
+      });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 #endif
 }

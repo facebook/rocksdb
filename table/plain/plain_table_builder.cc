@@ -116,6 +116,10 @@ PlainTableBuilder::PlainTableBuilder(
 }
 
 PlainTableBuilder::~PlainTableBuilder() {
+  // They are supposed to have been passed to users through Finish()
+  // if the file succeeds.
+  status_.PermitUncheckedError();
+  io_status_.PermitUncheckedError();
 }
 
 void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
@@ -124,7 +128,7 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   size_t meta_bytes_buf_size = 0;
 
   ParsedInternalKey internal_key;
-  if (!ParseInternalKey(key, &internal_key)) {
+  if (ParseInternalKey(key, &internal_key) != Status::OK()) {
     assert(false);
     return;
   }
@@ -205,7 +209,6 @@ Status PlainTableBuilder::Finish() {
 
   if (store_index_in_file_ && (properties_.num_entries > 0)) {
     assert(properties_.num_entries <= std::numeric_limits<uint32_t>::max());
-    Status s;
     BlockHandle bloom_block_handle;
     if (bloom_bits_per_key_ > 0) {
       bloom_block_.SetTotalBits(

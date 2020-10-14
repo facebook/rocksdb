@@ -573,7 +573,9 @@ class SeqAdvanceConcurrentTest
             std::get<0>(GetParam()), std::get<1>(GetParam()),
             std::get<2>(GetParam()), std::get<3>(GetParam())),
         split_id_(std::get<4>(GetParam())),
-        split_cnt_(std::get<5>(GetParam())){};
+        split_cnt_(std::get<5>(GetParam())) {
+    special_env.skip_fsync_ = true;
+  };
 
  protected:
   // A test is split into split_cnt_ tests, each identified with split_id_ where

@@ -70,6 +70,10 @@ class ArenaWrappedDBIter;
 class InMemoryStatsHistoryIterator;
 class MemTable;
 class PersistentStatsHistoryIterator;
+class PeriodicWorkScheduler;
+#ifndef NDEBUG
+class PeriodicWorkTestScheduler;
+#endif  // !NDEBUG
 class TableCache;
 class TaskLimiterToken;
 class Version;
@@ -988,9 +992,7 @@ class DBImpl : public DB {
   int TEST_BGCompactionsAllowed() const;
   int TEST_BGFlushesAllowed() const;
   size_t TEST_GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
-  void TEST_WaitForDumpStatsRun(std::function<void()> callback) const;
-  void TEST_WaitForPersistStatsRun(std::function<void()> callback) const;
-  bool TEST_IsPersistentStatsEnabled() const;
+  void TEST_WaitForStatsDumpRun(std::function<void()> callback) const;
   size_t TEST_EstimateInMemoryStatsHistorySize() const;
 
   VersionSet* TEST_GetVersionSet() const { return versions_.get(); }
@@ -998,7 +1000,21 @@ class DBImpl : public DB {
   const std::unordered_set<uint64_t>& TEST_GetFilesGrabbedForPurge() const {
     return files_grabbed_for_purge_;
   }
+
+#ifndef ROCKSDB_LITE
+  PeriodicWorkTestScheduler* TEST_GetPeriodicWorkScheduler() const;
+#endif  // !ROCKSDB_LITE
+
 #endif  // NDEBUG
+
+  // persist stats to column family "_persistent_stats"
+  void PersistStats();
+
+  // dump rocksdb.stats to LOG
+  void DumpStats();
+
+  // flush LOG out of application buffer
+  void FlushInfoLog();
 
  protected:
   const std::string dbname_;
@@ -1012,8 +1028,8 @@ class DBImpl : public DB {
   const DBOptions initial_db_options_;
   Env* const env_;
   std::shared_ptr<IOTracer> io_tracer_;
-  std::shared_ptr<FileSystem> fs_;
   const ImmutableDBOptions immutable_db_options_;
+  FileSystemPtr fs_;
   MutableDBOptions mutable_db_options_;
   Statistics* stats_;
   std::unordered_map<std::string, RecoveredTransaction*>
@@ -1173,8 +1189,8 @@ class DBImpl : public DB {
   // skipped.
   virtual Status Recover(
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      bool read_only = false, bool error_if_log_file_exist = false,
-      bool error_if_data_exists_in_logs = false,
+      bool read_only = false, bool error_if_wal_file_exists = false,
+      bool error_if_data_exists_in_wals = false,
       uint64_t* recovered_seq = nullptr);
 
   virtual bool OwnTablesAndLogs() const { return true; }
@@ -1366,7 +1382,7 @@ class DBImpl : public DB {
   // Required: DB mutex held
   Status PersistentStatsProcessFormatVersion();
 
-  Status ResumeImpl();
+  Status ResumeImpl(DBRecoverContext context);
 
   void MaybeIgnoreError(Status* s) const;
 
@@ -1639,17 +1655,11 @@ class DBImpl : public DB {
                               LogBuffer* log_buffer);
 
   // Schedule background tasks
-  void StartTimedTasks();
+  void StartPeriodicWorkScheduler();
 
   void PrintStatistics();
 
   size_t EstimateInMemoryStatsHistorySize() const;
-
-  // persist stats to column family "_persistent_stats"
-  void PersistStats();
-
-  // dump rocksdb.stats to LOG
-  void DumpStats();
 
   // Return the minimum empty level that could hold the total data in the
   // input level. Return the input level, if such level could not be found.
@@ -1833,7 +1843,14 @@ class DBImpl : public DB {
   InstrumentedMutex log_write_mutex_;
 
   std::atomic<bool> shutting_down_;
-  std::atomic<bool> manual_compaction_paused_;
+
+  // If zero, manual compactions are allowed to proceed. If non-zero, manual
+  // compactions may still be running, but will quickly fail with
+  // `Status::Incomplete`. The value indicates how many threads have paused
+  // manual compactions. It is accessed in read mode outside the DB mutex in
+  // compaction code paths.
+  std::atomic<int> manual_compaction_paused_;
+
   // This condition variable is signaled on these conditions:
   // * whenever bg_compaction_scheduled_ goes down to 0
   // * if AnyManualCompaction, whenever a compaction finishes, even if it hasn't
@@ -2096,13 +2113,13 @@ class DBImpl : public DB {
   // Only to be set during initialization
   std::unique_ptr<PreReleaseCallback> recoverable_state_pre_release_callback_;
 
-  // handle for scheduling stats dumping at fixed intervals
-  // REQUIRES: mutex locked
-  std::unique_ptr<ROCKSDB_NAMESPACE::RepeatableThread> thread_dump_stats_;
-
-  // handle for scheduling stats snapshoting at fixed intervals
-  // REQUIRES: mutex locked
-  std::unique_ptr<ROCKSDB_NAMESPACE::RepeatableThread> thread_persist_stats_;
+#ifndef ROCKSDB_LITE
+  // Scheduler to run DumpStats(), PersistStats(), and FlushInfoLog().
+  // Currently, it always use a global instance from
+  // PeriodicWorkScheduler::Default(). Only in unittest, it can be overrided by
+  // PeriodicWorkTestScheduler.
+  PeriodicWorkScheduler* periodic_work_scheduler_;
+#endif
 
   // When set, we use a separate queue for writes that don't write to memtable.
   // In 2PC these are the writes at Prepare phase.

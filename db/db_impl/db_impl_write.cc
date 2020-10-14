@@ -77,7 +77,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      tracer_->Write(my_batch);
+      // TODO: maybe handle the tracing status?
+      tracer_->Write(my_batch).PermitUncheckedError();
     }
   }
   if (write_options.sync && write_options.disableWAL) {
@@ -101,12 +102,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   assert(!WriteBatchInternal::IsLatestPersistentState(my_batch) ||
          disable_memtable);
 
-  Status status;
-  IOStatus io_s;
   if (write_options.low_pri) {
-    status = ThrottleLowPriWritesIfNeeded(write_options, my_batch);
-    if (!status.ok()) {
-      return status;
+    Status s = ThrottleLowPriWritesIfNeeded(write_options, my_batch);
+    if (!s.ok()) {
+      return s;
     }
   }
 
@@ -126,13 +125,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                                      ? batch_cnt
                                      // every key is a sub-batch consuming a seq
                                      : WriteBatchInternal::Count(my_batch);
-    uint64_t seq;
+    uint64_t seq = 0;
     // Use a write thread to i) optimize for WAL write, ii) publish last
     // sequence in in increasing order, iii) call pre_release_callback serially
-    status = WriteImplWALOnly(&write_thread_, write_options, my_batch, callback,
-                              log_used, log_ref, &seq, sub_batch_cnt,
-                              pre_release_callback, kDoAssignOrder,
-                              kDoPublishLastSeq, disable_memtable);
+    Status status = WriteImplWALOnly(
+        &write_thread_, write_options, my_batch, callback, log_used, log_ref,
+        &seq, sub_batch_cnt, pre_release_callback, kDoAssignOrder,
+        kDoPublishLastSeq, disable_memtable);
     TEST_SYNC_POINT("DBImpl::WriteImpl:UnorderedWriteAfterWriteWAL");
     if (!status.ok()) {
       return status;
@@ -164,6 +163,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
+  Status status;
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
     // we are a non-leader in a parallel group
 
@@ -204,6 +204,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       *seq_used = w.sequence;
     }
     // write is complete and leader has updated sequence
+    // Should we handle it?
+    status.PermitUncheckedError();
     return w.FinalStatus();
   }
   // else we are the leader of the write batch group
@@ -252,6 +254,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   last_batch_group_size_ =
       write_thread_.EnterAsBatchGroupLeader(&w, &write_group);
 
+  IOStatus io_s;
   if (status.ok()) {
     // Rules for when we can update the memtable concurrently
     // 1. supported by memtable
@@ -470,6 +473,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         disable_memtable);
   write_thread_.JoinBatchGroup(&w);
+  TEST_SYNC_POINT("DBImplWrite::PipelinedWriteImpl:AfterJoinBatchGroup");
   if (w.state == WriteThread::STATE_GROUP_LEADER) {
     WriteThread::WriteGroup wal_write_group;
     if (w.callback && !w.callback->AllowWriteBatching()) {
@@ -833,20 +837,26 @@ void DBImpl::WriteStatusCheckOnLocked(const Status& status) {
   // Is setting bg_error_ enough here?  This will at least stop
   // compaction and fail any further writes.
   // Caller must hold mutex_.
+  assert(!status.IsIOFenced() || !error_handler_.GetBGError().ok());
   mutex_.AssertHeld();
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
       !status.IsBusy() && !status.IsIncomplete()) {
-    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
+    // Maybe change the return status to void?
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback)
+        .PermitUncheckedError();
   }
 }
 
 void DBImpl::WriteStatusCheck(const Status& status) {
   // Is setting bg_error_ enough here?  This will at least stop
   // compaction and fail any further writes.
+  assert(!status.IsIOFenced() || !error_handler_.GetBGError().ok());
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
       !status.IsBusy() && !status.IsIncomplete()) {
     mutex_.Lock();
-    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
+    // Maybe change the return status to void?
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback)
+        .PermitUncheckedError();
     mutex_.Unlock();
   }
 }
@@ -854,10 +864,13 @@ void DBImpl::WriteStatusCheck(const Status& status) {
 void DBImpl::IOStatusCheck(const IOStatus& io_status) {
   // Is setting bg_error_ enough here?  This will at least stop
   // compaction and fail any further writes.
-  if (immutable_db_options_.paranoid_checks && !io_status.ok() &&
-      !io_status.IsBusy() && !io_status.IsIncomplete()) {
+  if ((immutable_db_options_.paranoid_checks && !io_status.ok() &&
+       !io_status.IsBusy() && !io_status.IsIncomplete()) ||
+      io_status.IsIOFenced()) {
     mutex_.Lock();
-    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback);
+    // Maybe change the return status to void?
+    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback)
+        .PermitUncheckedError();
     mutex_.Unlock();
   }
 }
@@ -871,7 +884,9 @@ void DBImpl::MemTableInsertStatusCheck(const Status& status) {
   if (!status.ok()) {
     mutex_.Lock();
     assert(!error_handler_.IsBGWorkStopped());
-    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable);
+    // Maybe change the return status to void?
+    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable)
+        .PermitUncheckedError();
     mutex_.Unlock();
   }
 }
@@ -985,8 +1000,10 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
     merged_batch = tmp_batch;
     for (auto writer : write_group) {
       if (!writer->CallbackFailed()) {
-        WriteBatchInternal::Append(merged_batch, writer->batch,
-                                   /*WAL_only*/ true);
+        Status s = WriteBatchInternal::Append(merged_batch, writer->batch,
+                                              /*WAL_only*/ true);
+        // Always returns Status::OK.
+        assert(s.ok());
         if (WriteBatchInternal::IsLatestPersistentState(writer->batch)) {
           // We only need to cache the last of such write batch
           *to_be_cached_state = writer->batch;
@@ -1556,11 +1573,14 @@ Status DBImpl::TrimMemtableHistory(WriteContext* context) {
   }
   for (auto& cfd : cfds) {
     autovector<MemTable*> to_delete;
-    cfd->imm()->TrimHistory(&to_delete, cfd->mem()->ApproximateMemoryUsage());
+    bool trimmed = cfd->imm()->TrimHistory(
+        &to_delete, cfd->mem()->ApproximateMemoryUsage());
     if (!to_delete.empty()) {
       for (auto m : to_delete) {
         delete m;
       }
+    }
+    if (trimmed) {
       context->superversion_context.NewSuperVersion();
       assert(context->superversion_context.new_superversion.get() != nullptr);
       cfd->InstallSuperVersion(&context->superversion_context, &mutex_);
@@ -1762,10 +1782,15 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     }
     // We may have lost data from the WritableFileBuffer in-memory buffer for
     // the current log, so treat it as a fatal error and set bg_error
+    // Should handle return error?
     if (!io_s.ok()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable);
+      // Should handle return error?
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable)
+          .PermitUncheckedError();
     } else {
-      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+      // Should handle return error?
+      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable)
+          .PermitUncheckedError();
     }
     // Read back bg_error in order to get the right severity
     s = error_handler_.GetBGError();
@@ -1799,6 +1824,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   NotifyOnMemTableSealed(cfd, memtable_info);
   mutex_.Lock();
 #endif  // ROCKSDB_LITE
+  // It is possible that we got here without checking the value of i_os, but
+  // that is okay.  If we did, it most likely means that s was already an error.
+  // In any case, ignore any unchecked error for i_os here.
+  io_s.PermitUncheckedError();
   return s;
 }
 
@@ -1889,7 +1918,10 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
 Status DB::SingleDelete(const WriteOptions& opt,
                         ColumnFamilyHandle* column_family, const Slice& key) {
   WriteBatch batch;
-  batch.SingleDelete(column_family, key);
+  Status s = batch.SingleDelete(column_family, key);
+  if (!s.ok()) {
+    return s;
+  }
   return Write(opt, &batch);
 }
 
@@ -1897,7 +1929,10 @@ Status DB::DeleteRange(const WriteOptions& opt,
                        ColumnFamilyHandle* column_family,
                        const Slice& begin_key, const Slice& end_key) {
   WriteBatch batch;
-  batch.DeleteRange(column_family, begin_key, end_key);
+  Status s = batch.DeleteRange(column_family, begin_key, end_key);
+  if (!s.ok()) {
+    return s;
+  }
   return Write(opt, &batch);
 }
 

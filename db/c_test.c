@@ -58,7 +58,11 @@ static void StartPhase(const char* name) {
 static const char* GetTempDir(void) {
     const char* ret = getenv("TEST_TMPDIR");
     if (ret == NULL || ret[0] == '\0')
-        ret = "/tmp";
+#ifdef OS_WIN
+      ret = getenv("TEMP");
+#else
+      ret = "/tmp";
+#endif
     return ret;
 }
 #ifdef _MSC_VER
@@ -2233,6 +2237,122 @@ int main(int argc, char** argv) {
 
     rocksdb_options_destroy(copy);
     rocksdb_options_destroy(o);
+  }
+
+  StartPhase("read_options");
+  {
+    rocksdb_readoptions_t* ro;
+    ro = rocksdb_readoptions_create();
+
+    rocksdb_readoptions_set_verify_checksums(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_verify_checksums(ro));
+
+    rocksdb_readoptions_set_fill_cache(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_fill_cache(ro));
+
+    rocksdb_readoptions_set_read_tier(ro, 2);
+    CheckCondition(2 == rocksdb_readoptions_get_read_tier(ro));
+
+    rocksdb_readoptions_set_tailing(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_tailing(ro));
+
+    rocksdb_readoptions_set_readahead_size(ro, 100);
+    CheckCondition(100 == rocksdb_readoptions_get_readahead_size(ro));
+
+    rocksdb_readoptions_set_prefix_same_as_start(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_prefix_same_as_start(ro));
+
+    rocksdb_readoptions_set_pin_data(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_pin_data(ro));
+
+    rocksdb_readoptions_set_total_order_seek(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_total_order_seek(ro));
+
+    rocksdb_readoptions_set_max_skippable_internal_keys(ro, 200);
+    CheckCondition(200 ==
+                   rocksdb_readoptions_get_max_skippable_internal_keys(ro));
+
+    rocksdb_readoptions_set_background_purge_on_iterator_cleanup(ro, 1);
+    CheckCondition(
+        1 == rocksdb_readoptions_get_background_purge_on_iterator_cleanup(ro));
+
+    rocksdb_readoptions_set_ignore_range_deletions(ro, 1);
+    CheckCondition(1 == rocksdb_readoptions_get_ignore_range_deletions(ro));
+
+    rocksdb_readoptions_destroy(ro);
+  }
+
+  StartPhase("write_options");
+  {
+    rocksdb_writeoptions_t* wo;
+    wo = rocksdb_writeoptions_create();
+
+    rocksdb_writeoptions_set_sync(wo, 1);
+    CheckCondition(1 == rocksdb_writeoptions_get_sync(wo));
+
+    rocksdb_writeoptions_disable_WAL(wo, 1);
+    CheckCondition(1 == rocksdb_writeoptions_get_disable_WAL(wo));
+
+    rocksdb_writeoptions_set_ignore_missing_column_families(wo, 1);
+    CheckCondition(1 ==
+                   rocksdb_writeoptions_get_ignore_missing_column_families(wo));
+
+    rocksdb_writeoptions_set_no_slowdown(wo, 1);
+    CheckCondition(1 == rocksdb_writeoptions_get_no_slowdown(wo));
+
+    rocksdb_writeoptions_set_low_pri(wo, 1);
+    CheckCondition(1 == rocksdb_writeoptions_get_low_pri(wo));
+
+    rocksdb_writeoptions_set_memtable_insert_hint_per_batch(wo, 1);
+    CheckCondition(1 ==
+                   rocksdb_writeoptions_get_memtable_insert_hint_per_batch(wo));
+
+    rocksdb_writeoptions_destroy(wo);
+  }
+
+  StartPhase("compact_options");
+  {
+    rocksdb_compactoptions_t* co;
+    co = rocksdb_compactoptions_create();
+
+    rocksdb_compactoptions_set_exclusive_manual_compaction(co, 1);
+    CheckCondition(1 ==
+                   rocksdb_compactoptions_get_exclusive_manual_compaction(co));
+
+    rocksdb_compactoptions_set_bottommost_level_compaction(co, 1);
+    CheckCondition(1 ==
+                   rocksdb_compactoptions_get_bottommost_level_compaction(co));
+
+    rocksdb_compactoptions_set_change_level(co, 1);
+    CheckCondition(1 == rocksdb_compactoptions_get_change_level(co));
+
+    rocksdb_compactoptions_set_target_level(co, 1);
+    CheckCondition(1 == rocksdb_compactoptions_get_target_level(co));
+
+    rocksdb_compactoptions_destroy(co);
+  }
+
+  StartPhase("flush_options");
+  {
+    rocksdb_flushoptions_t* fo;
+    fo = rocksdb_flushoptions_create();
+
+    rocksdb_flushoptions_set_wait(fo, 1);
+    CheckCondition(1 == rocksdb_flushoptions_get_wait(fo));
+
+    rocksdb_flushoptions_destroy(fo);
+  }
+
+  StartPhase("cache_options");
+  {
+    rocksdb_cache_t* co;
+    co = rocksdb_cache_create_lru(100);
+    CheckCondition(100 == rocksdb_cache_get_capacity(co));
+
+    rocksdb_cache_set_capacity(co, 200);
+    CheckCondition(200 == rocksdb_cache_get_capacity(co));
+
+    rocksdb_cache_destroy(co);
   }
 
   StartPhase("iterate_upper_bound");

@@ -136,8 +136,8 @@ Status ExternalSstFileIngestionJob::Prepare(
       TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Prepare:CopyFile",
                                nullptr);
       // CopyFile also sync the new file.
-      status = CopyFile(fs_, path_outside_db, path_inside_db, 0,
-                        db_options_.use_fsync);
+      status = CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
+                        db_options_.use_fsync, io_tracer_);
     }
     TEST_SYNC_POINT("ExternalSstFileIngestionJob::Prepare:FileAdded");
     if (!status.ok()) {
@@ -194,11 +194,11 @@ Status ExternalSstFileIngestionJob::Prepare(
       for (size_t i = 0; i < files_to_ingest_.size(); i++) {
         std::string generated_checksum, generated_checksum_func_name;
         IOStatus io_s = GenerateOneFileChecksum(
-            fs_, files_to_ingest_[i].internal_file_path,
+            fs_.get(), files_to_ingest_[i].internal_file_path,
             db_options_.file_checksum_gen_factory.get(), &generated_checksum,
             &generated_checksum_func_name,
             ingestion_options_.verify_checksums_readahead_size,
-            db_options_.allow_mmap_reads);
+            db_options_.allow_mmap_reads, io_tracer_);
         if (!io_s.ok()) {
           status = io_s;
           ROCKS_LOG_WARN(db_options_.info_log,
@@ -509,8 +509,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file),
-                                                   external_file));
+  sst_file_reader.reset(new RandomAccessFileReader(
+      std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(*cfd_->ioptions(),
@@ -601,7 +601,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   bool bounds_set = false;
   iter->SeekToFirst();
   if (iter->Valid()) {
-    if (!ParseInternalKey(iter->key(), &key)) {
+    if (ParseInternalKey(iter->key(), &key) != Status::OK()) {
       return Status::Corruption("external file have corrupted keys");
     }
     if (key.sequence != 0) {
@@ -610,7 +610,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     file_to_ingest->smallest_internal_key.SetFrom(key);
 
     iter->SeekToLast();
-    if (!ParseInternalKey(iter->key(), &key)) {
+    if (ParseInternalKey(iter->key(), &key) != Status::OK()) {
       return Status::Corruption("external file have corrupted keys");
     }
     if (key.sequence != 0) {
@@ -627,7 +627,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   if (range_del_iter != nullptr) {
     for (range_del_iter->SeekToFirst(); range_del_iter->Valid();
          range_del_iter->Next()) {
-      if (!ParseInternalKey(range_del_iter->key(), &key)) {
+      if (ParseInternalKey(range_del_iter->key(), &key) != Status::OK()) {
         return Status::Corruption("external file have corrupted keys");
       }
       RangeTombstone tombstone(key, range_del_iter->value());
@@ -791,13 +791,14 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
         fs_->NewRandomRWFile(file_to_ingest->internal_file_path, env_options_,
                              &rwfile, nullptr);
     if (status.ok()) {
+      FSRandomRWFilePtr fsptr(std::move(rwfile), io_tracer_);
       std::string seqno_val;
       PutFixed64(&seqno_val, seqno);
-      status = rwfile->Write(file_to_ingest->global_seqno_offset, seqno_val,
-                             IOOptions(), nullptr);
+      status = fsptr->Write(file_to_ingest->global_seqno_offset, seqno_val,
+                            IOOptions(), nullptr);
       if (status.ok()) {
         TEST_SYNC_POINT("ExternalSstFileIngestionJob::BeforeSyncGlobalSeqno");
-        status = SyncIngestedFile(rwfile.get());
+        status = SyncIngestedFile(fsptr.get());
         TEST_SYNC_POINT("ExternalSstFileIngestionJob::AfterSyncGlobalSeqno");
         if (!status.ok()) {
           ROCKS_LOG_WARN(db_options_.info_log,
@@ -831,11 +832,11 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
   }
   std::string file_checksum, file_checksum_func_name;
   IOStatus io_s = GenerateOneFileChecksum(
-      fs_, file_to_ingest->internal_file_path,
+      fs_.get(), file_to_ingest->internal_file_path,
       db_options_.file_checksum_gen_factory.get(), &file_checksum,
       &file_checksum_func_name,
       ingestion_options_.verify_checksums_readahead_size,
-      db_options_.allow_mmap_reads);
+      db_options_.allow_mmap_reads, io_tracer_);
   if (!io_s.ok()) {
     return io_s;
   }

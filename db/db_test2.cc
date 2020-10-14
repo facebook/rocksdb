@@ -23,7 +23,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBTest2 : public DBTestBase {
  public:
-  DBTest2() : DBTestBase("/db_test2") {}
+  DBTest2() : DBTestBase("/db_test2", /*env_do_fsync=*/true) {}
 };
 
 #ifndef ROCKSDB_LITE
@@ -93,7 +93,8 @@ class TestReadOnlyWithCompressedCache
       public testing::WithParamInterface<std::tuple<int, bool>> {
  public:
   TestReadOnlyWithCompressedCache()
-      : DBTestBase("/test_readonly_with_compressed_cache") {
+      : DBTestBase("/test_readonly_with_compressed_cache",
+                   /*env_do_fsync=*/true) {
     max_open_files_ = std::get<0>(GetParam());
     use_mmap_ = std::get<1>(GetParam());
   }
@@ -184,7 +185,7 @@ class PrefixFullBloomWithReverseComparator
       public ::testing::WithParamInterface<bool> {
  public:
   PrefixFullBloomWithReverseComparator()
-      : DBTestBase("/prefix_bloom_reverse") {}
+      : DBTestBase("/prefix_bloom_reverse", /*env_do_fsync=*/true) {}
   void SetUp() override { if_cache_filter_ = GetParam(); }
   bool if_cache_filter_;
 };
@@ -324,7 +325,7 @@ class DBTestSharedWriteBufferAcrossCFs
       public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
   DBTestSharedWriteBufferAcrossCFs()
-      : DBTestBase("/db_test_shared_write_buffer") {}
+      : DBTestBase("/db_test_shared_write_buffer", /*env_do_fsync=*/true) {}
   void SetUp() override {
     use_old_interface_ = std::get<0>(GetParam());
     cost_cache_ = std::get<1>(GetParam());
@@ -1481,8 +1482,7 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
 
   if (compression_failure_type_ == kTestCompressionFail) {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "BlockBasedTableBuilder::CompressBlockInternal:TamperWithReturnValue",
-        [](void* arg) {
+        "CompressData:TamperWithReturnValue", [](void* arg) {
           bool* ret = static_cast<bool*>(arg);
           *ret = false;
         });
@@ -1791,7 +1791,8 @@ class PinL0IndexAndFilterBlocksTest
     : public DBTestBase,
       public testing::WithParamInterface<std::tuple<bool, bool>> {
  public:
-  PinL0IndexAndFilterBlocksTest() : DBTestBase("/db_pin_l0_index_bloom_test") {}
+  PinL0IndexAndFilterBlocksTest()
+      : DBTestBase("/db_pin_l0_index_bloom_test", /*env_do_fsync=*/true) {}
   void SetUp() override {
     infinite_max_files_ = std::get<0>(GetParam());
     disallow_preload_ = std::get<1>(GetParam());
@@ -2761,9 +2762,9 @@ TEST_F(DBTest2, PausingManualCompaction1) {
   int manual_compactions_paused = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():PausingManualCompaction:1", [&](void* arg) {
-        auto paused = reinterpret_cast<std::atomic<bool>*>(arg);
-        ASSERT_FALSE(paused->load(std::memory_order_acquire));
-        paused->store(true, std::memory_order_release);
+        auto paused = static_cast<std::atomic<int>*>(arg);
+        ASSERT_EQ(0, paused->load(std::memory_order_acquire));
+        paused->fetch_add(1, std::memory_order_release);
         manual_compactions_paused += 1;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
@@ -2922,14 +2923,13 @@ TEST_F(DBTest2, PausingManualCompaction4) {
   int run_manual_compactions = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():PausingManualCompaction:2", [&](void* arg) {
-        auto paused = reinterpret_cast<std::atomic<bool>*>(arg);
-        ASSERT_FALSE(paused->load(std::memory_order_acquire));
-        paused->store(true, std::memory_order_release);
+        auto paused = static_cast<std::atomic<int>*>(arg);
+        ASSERT_EQ(0, paused->load(std::memory_order_acquire));
+        paused->fetch_add(1, std::memory_order_release);
         run_manual_compactions++;
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  dbfull()->EnableManualCompaction();
   dbfull()->CompactRange(compact_options, nullptr, nullptr);
   dbfull()->TEST_WaitForCompact(true);
   ASSERT_EQ(run_manual_compactions, 1);
@@ -2967,11 +2967,11 @@ TEST_F(DBTest2, OptimizeForSmallDB) {
   options.OptimizeForSmallDb();
 
   // Find the cache object
-  ASSERT_EQ(std::string(BlockBasedTableFactory::kName),
-            std::string(options.table_factory->Name()));
-  BlockBasedTableOptions* table_options =
-      reinterpret_cast<BlockBasedTableOptions*>(
-          options.table_factory->GetOptions());
+  ASSERT_TRUE(options.table_factory->IsInstanceOf(
+      TableFactory::kBlockBasedTableName()));
+  auto table_options =
+      options.table_factory->GetOptions<BlockBasedTableOptions>();
+
   ASSERT_TRUE(table_options != nullptr);
   std::shared_ptr<Cache> cache = table_options->block_cache;
 
@@ -4376,8 +4376,8 @@ class DummyOldStats : public Statistics {
   }
   bool HistEnabledForType(uint32_t /*type*/) const override { return false; }
   std::string ToString() const override { return ""; }
-  int num_rt = 0;
-  int num_mt = 0;
+  std::atomic<int> num_rt{0};
+  std::atomic<int> num_mt{0};
 };
 }  // namespace
 
@@ -4803,6 +4803,45 @@ TEST_F(DBTest2, BlockBasedTablePrefixIndexSeekForPrev) {
     ASSERT_TRUE(iterator->Valid());
     ASSERT_EQ("y1", iterator->key().ToString());
   }
+}
+
+TEST_F(DBTest2, PartitionedIndexPrefetchFailure) {
+  Options options = last_options_;
+  options.max_open_files = 20;
+  BlockBasedTableOptions bbto;
+  bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  bbto.metadata_block_size = 128;
+  bbto.block_size = 128;
+  bbto.block_cache = NewLRUCache(16777216);
+  bbto.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  // Force no table cache so every read will preload the SST file.
+  dbfull()->TEST_table_cache()->SetCapacity(0);
+  bbto.block_cache->SetCapacity(0);
+
+  Random rnd(301);
+  for (int i = 0; i < 4096; i++) {
+    ASSERT_OK(Put(Key(i), rnd.RandomString(32)));
+  }
+  ASSERT_OK(Flush());
+
+  // Try different random failures in table open for 300 times.
+  for (int i = 0; i < 300; i++) {
+    env_->num_reads_fails_ = 0;
+    env_->rand_reads_fail_odd_ = 8;
+
+    std::string value;
+    Status s = dbfull()->Get(ReadOptions(), Key(1), &value);
+    if (env_->num_reads_fails_ > 0) {
+      ASSERT_NOK(s);
+    } else {
+      ASSERT_OK(s);
+    }
+  }
+
+  env_->rand_reads_fail_odd_ = 0;
 }
 
 TEST_F(DBTest2, ChangePrefixExtractor) {

@@ -34,7 +34,8 @@ class DBBlockCacheTest : public DBTestBase {
   const size_t kNumBlocks = 10;
   const size_t kValueSize = 100;
 
-  DBBlockCacheTest() : DBTestBase("/db_block_cache_test") {}
+  DBBlockCacheTest()
+      : DBTestBase("/db_block_cache_test", /*env_do_fsync=*/true) {}
 
   BlockBasedTableOptions GetTableOptions() {
     BlockBasedTableOptions table_options;
@@ -49,7 +50,7 @@ class DBBlockCacheTest : public DBTestBase {
     options.avoid_flush_during_recovery = false;
     // options.compression = kNoCompression;
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     return options;
   }
 
@@ -157,7 +158,7 @@ TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
 
   std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
   table_options.block_cache = cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   RecordCacheCounters(options);
 
@@ -181,7 +182,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
 
   std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
   table_options.block_cache = cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   RecordCacheCounters(options);
 
@@ -237,7 +238,7 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   std::shared_ptr<Cache> compressed_cache = NewLRUCache(1 << 25, 0, false);
   table_options.block_cache = cache;
   table_options.block_cache_compressed = compressed_cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   RecordCacheCounters(options);
 
@@ -298,7 +299,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = true;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "key", "val"));
@@ -354,7 +355,7 @@ TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
 
   std::shared_ptr<Cache> cache = NewLRUCache(10, 0, true);
   table_options.block_cache = cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   ASSERT_OK(Put("key1", "val1"));
   ASSERT_OK(Put("key2", "val2"));
@@ -392,7 +393,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   std::shared_ptr<Cache> cache = NewLRUCache(co);
   table_options.block_cache = cache;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20, true));
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "longer_key", "val"));
@@ -473,7 +474,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksCachePriority) {
     table_options.filter_policy.reset(NewBloomFilterPolicy(20));
     table_options.cache_index_and_filter_blocks_with_high_priority =
         priority == Cache::Priority::HIGH ? true : false;
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 
     MockCache::high_pri_insert_count = 0;
@@ -572,7 +573,7 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
     table_options.cache_index_and_filter_blocks = true;
     table_options.block_cache = cache;
     table_options.filter_policy.reset(NewBloomFilterPolicy(50));
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 
     // Create a new table.
@@ -661,7 +662,7 @@ TEST_F(DBBlockCacheTest, ParanoidFileChecks) {
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = false;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "1_key", "val"));
@@ -845,7 +846,7 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
     BlockBasedTableOptions table_options;
     table_options.cache_index_and_filter_blocks = true;
     table_options.block_cache.reset(new MockCache());
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 
     RecordCacheCountersForCompressionDict(options);
@@ -886,6 +887,163 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
 }
 
 #endif  // ROCKSDB_LITE
+
+class DBBlockCachePinningTest
+    : public DBTestBase,
+      public testing::WithParamInterface<
+          std::tuple<bool, PinningTier, PinningTier, PinningTier>> {
+ public:
+  DBBlockCachePinningTest()
+      : DBTestBase("/db_block_cache_test", /*env_do_fsync=*/false) {}
+
+  void SetUp() override {
+    partition_index_and_filters_ = std::get<0>(GetParam());
+    top_level_index_pinning_ = std::get<1>(GetParam());
+    partition_pinning_ = std::get<2>(GetParam());
+    unpartitioned_pinning_ = std::get<3>(GetParam());
+  }
+
+  bool partition_index_and_filters_;
+  PinningTier top_level_index_pinning_;
+  PinningTier partition_pinning_;
+  PinningTier unpartitioned_pinning_;
+};
+
+TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
+  // Creates one file in L0 and one file in L1. Both files have enough data that
+  // their index and filter blocks are partitioned. The L1 file will also have
+  // a compression dictionary (those are trained only during compaction), which
+  // must be unpartitioned.
+  const int kKeySize = 32;
+  const int kBlockSize = 128;
+  const int kNumBlocksPerFile = 128;
+  const int kNumKeysPerFile = kBlockSize * kNumBlocksPerFile / kKeySize;
+
+  Options options = CurrentOptions();
+  // `kNoCompression` makes the unit test more portable. But it relies on the
+  // current behavior of persisting/accessing dictionary even when there's no
+  // (de)compression happening, which seems fairly likely to change over time.
+  options.compression = kNoCompression;
+  options.compression_opts.max_dict_bytes = 4 << 10;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(1 << 20 /* capacity */);
+  table_options.block_size = kBlockSize;
+  table_options.metadata_block_size = kBlockSize;
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.metadata_cache_options.top_level_index_pinning =
+      top_level_index_pinning_;
+  table_options.metadata_cache_options.partition_pinning = partition_pinning_;
+  table_options.metadata_cache_options.unpartitioned_pinning =
+      unpartitioned_pinning_;
+  table_options.filter_policy.reset(
+      NewBloomFilterPolicy(10 /* bits_per_key */));
+  if (partition_index_and_filters_) {
+    table_options.index_type =
+        BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    table_options.partition_filters = true;
+  }
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 2; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kKeySize)));
+    }
+    ASSERT_OK(Flush());
+    if (i == 0) {
+      // Prevent trivial move so file will be rewritten with dictionary and
+      // reopened with L1's pinning settings.
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+    }
+  }
+
+  // Clear all unpinned blocks so unpinned blocks will show up as cache misses
+  // when reading a key from a file.
+  table_options.block_cache->EraseUnRefEntries();
+
+  // Get base cache values
+  uint64_t filter_misses = TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
+  uint64_t index_misses = TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS);
+  uint64_t compression_dict_misses =
+      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS);
+
+  // Read a key from the L0 file
+  Get(Key(kNumKeysPerFile));
+  uint64_t expected_filter_misses = filter_misses;
+  uint64_t expected_index_misses = index_misses;
+  uint64_t expected_compression_dict_misses = compression_dict_misses;
+  if (partition_index_and_filters_) {
+    if (top_level_index_pinning_ == PinningTier::kNone) {
+      ++expected_filter_misses;
+      ++expected_index_misses;
+    }
+    if (partition_pinning_ == PinningTier::kNone) {
+      ++expected_filter_misses;
+      ++expected_index_misses;
+    }
+  } else {
+    if (unpartitioned_pinning_ == PinningTier::kNone) {
+      ++expected_filter_misses;
+      ++expected_index_misses;
+    }
+  }
+  ASSERT_EQ(expected_filter_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(expected_index_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(expected_compression_dict_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
+
+  // Clear all unpinned blocks so unpinned blocks will show up as cache misses
+  // when reading a key from a file.
+  table_options.block_cache->EraseUnRefEntries();
+
+  // Read a key from the L1 file
+  Get(Key(0));
+  if (partition_index_and_filters_) {
+    if (top_level_index_pinning_ == PinningTier::kNone ||
+        top_level_index_pinning_ == PinningTier::kFlushedAndSimilar) {
+      ++expected_filter_misses;
+      ++expected_index_misses;
+    }
+    if (partition_pinning_ == PinningTier::kNone ||
+        partition_pinning_ == PinningTier::kFlushedAndSimilar) {
+      ++expected_filter_misses;
+      ++expected_index_misses;
+    }
+  } else {
+    if (unpartitioned_pinning_ == PinningTier::kNone ||
+        unpartitioned_pinning_ == PinningTier::kFlushedAndSimilar) {
+      ++expected_filter_misses;
+      ++expected_index_misses;
+    }
+  }
+  if (unpartitioned_pinning_ == PinningTier::kNone ||
+      unpartitioned_pinning_ == PinningTier::kFlushedAndSimilar) {
+    ++expected_compression_dict_misses;
+  }
+  ASSERT_EQ(expected_filter_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(expected_index_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(expected_compression_dict_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
+}
+
+INSTANTIATE_TEST_CASE_P(
+    DBBlockCachePinningTest, DBBlockCachePinningTest,
+    ::testing::Combine(
+        ::testing::Bool(),
+        ::testing::Values(PinningTier::kNone, PinningTier::kFlushedAndSimilar,
+                          PinningTier::kAll),
+        ::testing::Values(PinningTier::kNone, PinningTier::kFlushedAndSimilar,
+                          PinningTier::kAll),
+        ::testing::Values(PinningTier::kNone, PinningTier::kFlushedAndSimilar,
+                          PinningTier::kAll)));
 
 }  // namespace ROCKSDB_NAMESPACE
 

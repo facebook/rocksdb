@@ -10,7 +10,9 @@
 #pragma once
 #include <atomic>
 #include <string>
+
 #include "db/version_edit.h"
+#include "env/file_system_tracer.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
@@ -117,8 +119,8 @@ class WritableFileWriter {
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
   void UpdateFileChecksum(const Slice& data);
 
-  std::unique_ptr<FSWritableFile> writable_file_;
   std::string file_name_;
+  FSWritableFilePtr writable_file_;
   Env* env_;
   AlignedBuffer buf_;
   size_t max_buffer_size_;
@@ -144,11 +146,12 @@ class WritableFileWriter {
   WritableFileWriter(
       std::unique_ptr<FSWritableFile>&& file, const std::string& _file_name,
       const FileOptions& options, Env* env = nullptr,
+      const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr)
-      : writable_file_(std::move(file)),
-        file_name_(_file_name),
+      : file_name_(_file_name),
+        writable_file_(std::move(file), io_tracer),
         env_(env),
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),

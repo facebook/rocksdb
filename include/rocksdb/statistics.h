@@ -464,6 +464,14 @@ enum Histograms : uint32_t {
   FLUSH_TIME,
   SST_BATCH_SIZE,
 
+  // MultiGet stats logged per level
+  // Num of index and filter blocks read from file system per level.
+  NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+  // Num of data blocks read from file system per level.
+  NUM_DATA_BLOCKS_READ_PER_LEVEL,
+  // Num of sst files read from file system per level.
+  NUM_SST_READ_PER_LEVEL,
+
   HISTOGRAM_ENUM_MAX,
 };
 
@@ -488,6 +496,10 @@ struct HistogramData {
 // Usage:
 //   options.statistics->set_stats_level(StatsLevel::kExceptTimeForMutex);
 enum StatsLevel : uint8_t {
+  // Disable all metrics
+  kDisableAll,
+  // Disable tickers
+  kExceptTickers = kDisableAll,
   // Disable timer stats, and skip histogram stats
   kExceptHistogramOrTimers,
   // Skip timer stats

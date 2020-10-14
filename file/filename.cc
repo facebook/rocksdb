@@ -414,7 +414,7 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
     s = env->RenameFile(tmp, IdentityFileName(dbname));
   }
   if (!s.ok()) {
-    env->DeleteFile(tmp);
+    env->DeleteFile(tmp).PermitUncheckedError();
   }
   return s;
 }
@@ -461,8 +461,8 @@ Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
 std::string NormalizePath(const std::string& path) {
   std::string dst;
   for (auto c : path) {
-    if (!dst.empty() && c == kFilePathSeparator &&
-        dst.back() == kFilePathSeparator) {
+    if (!dst.empty() && (c == kFilePathSeparator || c == '/') &&
+        (dst.back() == kFilePathSeparator || dst.back() == '/')) {
       continue;
     }
     dst.push_back(c);

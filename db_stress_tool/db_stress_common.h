@@ -132,6 +132,9 @@ DECLARE_int32(set_options_one_in);
 DECLARE_int32(set_in_place_one_in);
 DECLARE_int64(cache_size);
 DECLARE_bool(cache_index_and_filter_blocks);
+DECLARE_int32(top_level_index_pinning);
+DECLARE_int32(partition_pinning);
+DECLARE_int32(unpartitioned_pinning);
 DECLARE_bool(use_clock_cache);
 DECLARE_uint64(subcompactions);
 DECLARE_uint64(periodic_compaction_seconds);
@@ -174,6 +177,7 @@ DECLARE_bool(use_txn);
 DECLARE_uint64(txn_write_policy);
 DECLARE_bool(unordered_write);
 DECLARE_int32(backup_one_in);
+DECLARE_uint64(backup_max_size);
 DECLARE_int32(checkpoint_one_in);
 DECLARE_int32(ingest_external_file_one_in);
 DECLARE_int32(ingest_external_file_width);
@@ -204,6 +208,7 @@ DECLARE_int32(compression_parallel_threads);
 DECLARE_string(checksum_type);
 DECLARE_string(hdfs);
 DECLARE_string(env_uri);
+DECLARE_string(fs_uri);
 DECLARE_uint64(ops_per_thread);
 DECLARE_uint64(log2_keys_per_lock);
 DECLARE_uint64(max_manifest_file_size);
@@ -223,6 +228,7 @@ DECLARE_int32(verify_checksum_one_in);
 DECLARE_int32(verify_db_one_in);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(get_property_one_in);
+DECLARE_string(file_checksum_impl);
 
 #ifndef ROCKSDB_LITE
 DECLARE_bool(use_blob_db);
@@ -238,6 +244,7 @@ DECLARE_bool(sync_fault_injection);
 DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
 DECLARE_bool(enable_compaction_filter);
+DECLARE_bool(paranoid_file_checks);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
@@ -539,5 +546,8 @@ extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
+
+std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
+    const std::string& name);
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

@@ -3,7 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 //
-#ifndef ROCKSDB_LITE
 
 #include "db/blob/blob_log_format.h"
 
@@ -96,6 +95,10 @@ Status BlobLogFooter::DecodeFrom(Slice src) {
   return Status::OK();
 }
 
+uint64_t BlobLogRecord::CalculateAdjustmentForRecordHeader(uint64_t key_size) {
+  return key_size + kHeaderSize;
+}
+
 void BlobLogRecord::EncodeHeaderTo(std::string* dst) {
   assert(dst != nullptr);
   dst->clear();
@@ -144,4 +147,3 @@ Status BlobLogRecord::CheckBlobCRC() const {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

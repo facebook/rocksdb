@@ -276,9 +276,12 @@ class BlockFetcherTest : public testing::Test {
 
     std::unique_ptr<TableReader> table_reader;
     ReadOptions ro;
-    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(),
-                                    table_factory_.table_options(), comparator,
-                                    std::move(file), file_size, &table_reader));
+    const auto* table_options =
+        table_factory_.GetOptions<BlockBasedTableOptions>();
+    ASSERT_NE(table_options, nullptr);
+    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
+                                    comparator, std::move(file), file_size,
+                                    &table_reader));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }
@@ -292,8 +295,9 @@ class BlockFetcherTest : public testing::Test {
     uint64_t file_size = 0;
     ASSERT_OK(env_->GetFileSize(file->file_name(), &file_size));
     IOOptions opts;
-    ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */, file_size,
-                       footer, kBlockBasedTableMagicNumber);
+    ASSERT_OK(ReadFooterFromFile(opts, file, nullptr /* prefetch_buffer */,
+                                 file_size, footer,
+                                 kBlockBasedTableMagicNumber));
   }
 
   // NOTE: compression_type returns the compression type of the fetched block

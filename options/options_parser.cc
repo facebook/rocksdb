@@ -15,11 +15,13 @@
 
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
+#include "options/cf_options.h"
+#include "options/db_options.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
-#include "table/block_based/block_based_table_factory.h"
+#include "rocksdb/utilities/options_type.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/string_util.h"
@@ -41,6 +43,8 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
   ConfigOptions
       config_options;  // Use default for escaped(true) and check (exact)
   config_options.delimiter = "\n  ";
+  // Do not invoke PrepareOptions when we are doing validation.
+  config_options.invoke_prepare_options = false;
   // If a readahead size was set in the input options, use it
   if (db_opt.log_readahead_size > 0) {
     config_options.file_readahead_size = db_opt.log_readahead_size;
@@ -450,13 +454,18 @@ Status RocksDBOptionsParser::EndSection(
           section_arg);
     }
     // Ignore error as table factory deserialization is optional
-    s = GetTableFactoryFromMap(
+    s = TableFactory::CreateFromString(
         config_options,
         section_title.substr(
             opt_section_titles[kOptionSectionTableOptions].size()),
-        opt_map, &(cf_opt->table_factory));
-    if (!s.ok()) {
-      return s;
+        &(cf_opt->table_factory));
+    if (s.ok()) {
+      return cf_opt->table_factory->ConfigureFromMap(config_options, opt_map);
+    } else {
+      // Return OK for not supported table factories as TableFactory
+      // Deserialization is optional.
+      cf_opt->table_factory.reset();
+      return Status::OK();
     }
   } else if (section == kOptionSectionVersion) {
     for (const auto& pair : opt_map) {
@@ -531,11 +540,14 @@ std::string RocksDBOptionsParser::TrimAndRemoveComment(const std::string& line,
 }
 
 Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
-    const ConfigOptions& config_options, const DBOptions& db_opt,
+    const ConfigOptions& config_options_in, const DBOptions& db_opt,
     const std::vector<std::string>& cf_names,
     const std::vector<ColumnFamilyOptions>& cf_opts,
     const std::string& file_name, FileSystem* fs) {
   RocksDBOptionsParser parser;
+  ConfigOptions config_options = config_options_in;
+  config_options.invoke_prepare_options =
+      false;  // No need to do a prepare for verify
   Status s = parser.Parse(config_options, file_name, fs);
   if (!s.ok()) {
     return s;
@@ -606,54 +618,35 @@ Status RocksDBOptionsParser::VerifyDBOptions(
     const ConfigOptions& config_options, const DBOptions& base_opt,
     const DBOptions& file_opt,
     const std::unordered_map<std::string, std::string>* /*opt_map*/) {
-  for (const auto& pair : db_options_type_info) {
-    const auto& opt_info = pair.second;
-    if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
-      const char* base_addr =
-          reinterpret_cast<const char*>(&base_opt) + opt_info.offset_;
-      const char* file_addr =
-          reinterpret_cast<const char*>(&file_opt) + opt_info.offset_;
-      std::string mismatch;
-      if (!opt_info.AreEqual(config_options, pair.first, base_addr, file_addr,
-                             &mismatch) &&
-          !opt_info.AreEqualByName(config_options, pair.first, base_addr,
-                                   file_addr)) {
-        const size_t kBufferSize = 2048;
-        char buffer[kBufferSize];
-        std::string base_value;
-        std::string file_value;
-        int offset =
-            snprintf(buffer, sizeof(buffer),
-                     "[RocksDBOptionsParser]: "
-                     "failed the verification on ColumnFamilyOptions::%s",
-                     pair.first.c_str());
-        Status s = opt_info.Serialize(config_options, pair.first, base_addr,
-                                      &base_value);
-        if (s.ok()) {
-          s = opt_info.Serialize(config_options, pair.first, file_addr,
-                                 &file_value);
-        }
-        snprintf(buffer, sizeof(buffer),
-                 "[RocksDBOptionsParser]: "
-                 "failed the verification on DBOptions::%s --- "
-                 "The specified one is %s while the persisted one is %s.\n",
-                 pair.first.c_str(), base_value.c_str(), file_value.c_str());
-        assert(offset >= 0);
-        assert(static_cast<size_t>(offset) < sizeof(buffer));
-        if (s.ok()) {
-          snprintf(
-              buffer + offset, sizeof(buffer) - static_cast<size_t>(offset),
-              "--- The specified one is %s while the persisted one is %s.\n",
-              base_value.c_str(), file_value.c_str());
-        } else {
-          snprintf(buffer + offset,
-                   sizeof(buffer) - static_cast<size_t>(offset),
-                   "--- Unable to re-serialize an option: %s.\n",
-                   s.ToString().c_str());
-        }
-        return Status::InvalidArgument(Slice(buffer, strlen(buffer)));
-      }
+  auto base_config = DBOptionsAsConfigurable(base_opt);
+  auto file_config = DBOptionsAsConfigurable(file_opt);
+  std::string mismatch;
+  if (!base_config->AreEquivalent(config_options, file_config.get(),
+                                  &mismatch)) {
+    const size_t kBufferSize = 2048;
+    char buffer[kBufferSize];
+    std::string base_value;
+    std::string file_value;
+    int offset = snprintf(buffer, sizeof(buffer),
+                          "[RocksDBOptionsParser]: "
+                          "failed the verification on DBOptions::%s -- ",
+                          mismatch.c_str());
+    Status s = base_config->GetOption(config_options, mismatch, &base_value);
+    if (s.ok()) {
+      s = file_config->GetOption(config_options, mismatch, &file_value);
     }
+    assert(offset >= 0);
+    assert(static_cast<size_t>(offset) < sizeof(buffer));
+    if (s.ok()) {
+      snprintf(buffer + offset, sizeof(buffer) - static_cast<size_t>(offset),
+               "-- The specified one is %s while the persisted one is %s.\n",
+               base_value.c_str(), file_value.c_str());
+    } else {
+      snprintf(buffer + offset, sizeof(buffer) - static_cast<size_t>(offset),
+               "-- Unable to re-serialize an option: %s.\n",
+               s.ToString().c_str());
+    }
+    return Status::InvalidArgument(Slice(buffer, strlen(buffer)));
   }
   return Status::OK();
 }
@@ -662,86 +655,56 @@ Status RocksDBOptionsParser::VerifyCFOptions(
     const ConfigOptions& config_options, const ColumnFamilyOptions& base_opt,
     const ColumnFamilyOptions& file_opt,
     const std::unordered_map<std::string, std::string>* opt_map) {
-  for (const auto& pair : cf_options_type_info) {
-    const auto& opt_info = pair.second;
-
-    if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
-      std::string mismatch;
-      const char* base_addr =
-          reinterpret_cast<const char*>(&base_opt) + opt_info.offset_;
-      const char* file_addr =
-          reinterpret_cast<const char*>(&file_opt) + opt_info.offset_;
-      bool matches = opt_info.AreEqual(config_options, pair.first, base_addr,
-                                       file_addr, &mismatch);
-      if (!matches && opt_info.IsByName()) {
-        if (opt_map == nullptr) {
-          matches = true;
-        } else {
-          auto iter = opt_map->find(pair.first);
-          if (iter == opt_map->end()) {
-            matches = true;
-          } else {
-            matches = opt_info.AreEqualByName(config_options, pair.first,
-                                              base_addr, iter->second);
-          }
-        }
-      }
-      if (!matches) {
-        // The options do not match
-        const size_t kBufferSize = 2048;
-        char buffer[kBufferSize];
-        std::string base_value;
-        std::string file_value;
-        Status s = opt_info.Serialize(config_options, pair.first, base_addr,
-                                      &base_value);
-        if (s.ok()) {
-          s = opt_info.Serialize(config_options, pair.first, file_addr,
-                                 &file_value);
-        }
-        int offset =
-            snprintf(buffer, sizeof(buffer),
-                     "[RocksDBOptionsParser]: "
-                     "failed the verification on ColumnFamilyOptions::%s",
-                     pair.first.c_str());
-        assert(offset >= 0);
-        assert(static_cast<size_t>(offset) < sizeof(buffer));
-        if (s.ok()) {
-          snprintf(
-              buffer + offset, sizeof(buffer) - static_cast<size_t>(offset),
-              "--- The specified one is %s while the persisted one is %s.\n",
-              base_value.c_str(), file_value.c_str());
-        } else {
-          snprintf(buffer + offset,
-                   sizeof(buffer) - static_cast<size_t>(offset),
-                   "--- Unable to re-serialize an option: %s.\n",
-                   s.ToString().c_str());
-        }
-        return Status::InvalidArgument(Slice(buffer, sizeof(buffer)));
-      }  // if (! matches)
-    }    // CheckSanityLevel
-  }      // For each option
+  auto base_config = CFOptionsAsConfigurable(base_opt, opt_map);
+  auto file_config = CFOptionsAsConfigurable(file_opt, opt_map);
+  std::string mismatch;
+  if (!base_config->AreEquivalent(config_options, file_config.get(),
+                                  &mismatch)) {
+    std::string base_value;
+    std::string file_value;
+    // The options do not match
+    const size_t kBufferSize = 2048;
+    char buffer[kBufferSize];
+    Status s = base_config->GetOption(config_options, mismatch, &base_value);
+    if (s.ok()) {
+      s = file_config->GetOption(config_options, mismatch, &file_value);
+    }
+    int offset = snprintf(buffer, sizeof(buffer),
+                          "[RocksDBOptionsParser]: "
+                          "failed the verification on ColumnFamilyOptions::%s",
+                          mismatch.c_str());
+    assert(offset >= 0);
+    assert(static_cast<size_t>(offset) < sizeof(buffer));
+    if (s.ok()) {
+      snprintf(buffer + offset, sizeof(buffer) - static_cast<size_t>(offset),
+               "--- The specified one is %s while the persisted one is %s.\n",
+               base_value.c_str(), file_value.c_str());
+    } else {
+      snprintf(buffer + offset, sizeof(buffer) - static_cast<size_t>(offset),
+               "--- Unable to re-serialize an option: %s.\n",
+               s.ToString().c_str());
+    }
+    return Status::InvalidArgument(Slice(buffer, sizeof(buffer)));
+  }  // For each option
   return Status::OK();
 }
 
 Status RocksDBOptionsParser::VerifyTableFactory(
     const ConfigOptions& config_options, const TableFactory* base_tf,
     const TableFactory* file_tf) {
+  std::string mismatch;
   if (base_tf && file_tf) {
     if (config_options.sanity_level > ConfigOptions::kSanityLevelNone &&
         std::string(base_tf->Name()) != std::string(file_tf->Name())) {
       return Status::Corruption(
           "[RocksDBOptionsParser]: "
           "failed the verification on TableFactory->Name()");
+    } else if (!base_tf->AreEquivalent(config_options, file_tf, &mismatch)) {
+      return Status::Corruption(std::string("[RocksDBOptionsParser]:"
+                                            "failed the verification on ") +
+                                    base_tf->Name() + "::",
+                                mismatch);
     }
-    if (base_tf->Name() == BlockBasedTableFactory::kName) {
-      return VerifyBlockBasedTableFactory(
-          config_options,
-          static_cast_with_check<const BlockBasedTableFactory,
-                                 const TableFactory>(base_tf),
-          static_cast_with_check<const BlockBasedTableFactory,
-                                 const TableFactory>(file_tf));
-    }
-    // TODO(yhchiang): add checks for other table factory types
   } else {
     // TODO(yhchiang): further support sanity check here
   }
