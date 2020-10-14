@@ -42,4 +42,3 @@ public enum WriteStallCondition {
     throw new IllegalArgumentException("Illegal value provided for WriteStallCondition: " + value);
   }
 }
-;

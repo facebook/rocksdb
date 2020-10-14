@@ -39,20 +39,6 @@ import java.util.List;
  */
 public interface EventListener {
   /**
-   * callback function to RocksDB which will be called whenever a
-   * registered RocksDB flushes a file.
-   *
-   * Note that the this function must be implemented in a way such that
-   * it should not run for an extended period of time before the function
-   * returns. Otherwise, RocksDB may be blocked.
-   *
-   * @param db the database
-   * @param flushJobInfo the flush job info, contains data copied from
-   *     respective native structure.
-   */
-  void onFlushCompleted(final RocksDB db, final FlushJobInfo flushJobInfo);
-
-  /**
    * A callback function to RocksDB which will be called before a
    * RocksDB starts to flush memtables.
    *
@@ -65,6 +51,20 @@ public interface EventListener {
    *     respective native structure.
    */
   void onFlushBegin(final RocksDB db, final FlushJobInfo flushJobInfo);
+
+  /**
+   * callback function to RocksDB which will be called whenever a
+   * registered RocksDB flushes a file.
+   *
+   * Note that the this function must be implemented in a way such that
+   * it should not run for an extended period of time before the function
+   * returns. Otherwise, RocksDB may be blocked.
+   *
+   * @param db the database
+   * @param flushJobInfo the flush job info, contains data copied from
+   *     respective native structure.
+   */
+  void onFlushCompleted(final RocksDB db, final FlushJobInfo flushJobInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever
