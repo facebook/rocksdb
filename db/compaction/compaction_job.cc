@@ -280,8 +280,7 @@ void CompactionJob::AggregateStatistics() {
     }
 
     compact_->num_output_records += sc.num_output_records;
-  }
-  for (SubcompactionState& sc : compact_->sub_compact_states) {
+
     compaction_job_stats_->Add(sc.compaction_job_stats);
   }
 }
@@ -742,8 +741,11 @@ Status CompactionJob::Run() {
   compact_->compaction->SetOutputTableProperties(std::move(tp));
 
   // Finish up all book-keeping to unify the subcompaction results
-  AggregateStatistics();
-  UpdateCompactionStats();
+  if (status.ok()) {
+    AggregateStatistics();
+    UpdateCompactionStats();
+  }
+
   RecordCompactionIOStats();
   LogFlush(db_options_.info_log);
   TEST_SYNC_POINT("CompactionJob::Run():End");
@@ -1803,17 +1805,10 @@ void CompactionJob::UpdateCompactionStats() {
 
   for (const auto& sub_compact : compact_->sub_compact_states) {
     const auto& outputs = sub_compact.outputs;
-
-    size_t num_output_files = outputs.size();
-    if (!outputs.empty() && !outputs.back().meta.fd.file_size) {
-      // An error occurred so ignore the last output.
-      assert(num_output_files > 0);
-      --num_output_files;
-    }
-    compaction_stats_.num_output_files += static_cast<int>(num_output_files);
+    const auto& blobs = sub_compact.blob_file_additions;
 
     compaction_stats_.num_output_files +=
-        static_cast<int>(sub_compact.blob_file_additions.size());
+        static_cast<int>(outputs.size()) + static_cast<int>(blobs.size());
 
     num_output_records += sub_compact.num_output_records;
 
@@ -1821,7 +1816,7 @@ void CompactionJob::UpdateCompactionStats() {
       compaction_stats_.bytes_written += out.meta.fd.file_size;
     }
 
-    for (const auto& blob_file_addition : sub_compact.blob_file_additions) {
+    for (const auto& blob_file_addition : blobs) {
       compaction_stats_.bytes_written += blob_file_addition.GetTotalBlobBytes();
     }
   }
