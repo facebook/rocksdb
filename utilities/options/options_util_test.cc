@@ -31,14 +31,12 @@ namespace ROCKSDB_NAMESPACE {
 class OptionsUtilTest : public testing::Test {
  public:
   OptionsUtilTest() : rnd_(0xFB) {
-    env_.reset(new test::StringEnv(Env::Default()));
-    fs_.reset(new LegacyFileSystemWrapper(env_.get()));
+    env_.reset(NewMemEnv(Env::Default()));
     dbname_ = test::PerThreadDBPath("options_util_test");
   }
 
  protected:
-  std::unique_ptr<test::StringEnv> env_;
-  std::unique_ptr<LegacyFileSystemWrapper> fs_;
+  std::unique_ptr<Env> env_;
   std::string dbname_;
   Random rnd_;
 };
@@ -58,8 +56,8 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
   }
 
   const std::string kFileName = "OPTIONS-123456";
-  ASSERT_OK(
-      PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, fs_.get()));
+  ASSERT_OK(PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName,
+                                  env_->GetFileSystem().get()));
 
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
@@ -85,6 +83,7 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
         exact, cf_opts[i], loaded_cf_descs[i].options));
   }
 
+  DestroyDB(dbname_, Options(db_opt, cf_opts[0]));
   for (size_t i = 0; i < kCFCount; ++i) {
     if (cf_opts[i].compaction_filter) {
       delete cf_opts[i].compaction_filter;
@@ -121,8 +120,8 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
   cf_names.push_back("cf_plain_table_sample");
   // Saving DB in file
   const std::string kFileName = "OPTIONS-LOAD_CACHE_123456";
-  ASSERT_OK(
-      PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName, fs_.get()));
+  ASSERT_OK(PersistRocksDBOptions(db_opt, cf_names, cf_opts, kFileName,
+                                  env_->GetFileSystem().get()));
   DBOptions loaded_db_opt;
   std::vector<ColumnFamilyDescriptor> loaded_cf_descs;
 
@@ -154,6 +153,7 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
       ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());
     }
   }
+  DestroyDB(dbname_, Options(loaded_db_opt, cf_opts[0]));
 }
 
 namespace {
@@ -359,6 +359,128 @@ TEST_F(OptionsUtilTest, SanityCheck) {
     ASSERT_OK(
         CheckOptionsCompatibility(config_options, dbname_, db_opt, cf_descs));
   }
+  DestroyDB(dbname_, Options(db_opt, cf_descs[0].options));
+}
+
+TEST_F(OptionsUtilTest, LatestOptionsNotFound) {
+  std::unique_ptr<Env> env(NewMemEnv(Env::Default()));
+  Status s;
+  Options options;
+  ConfigOptions config_opts;
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+
+  options.env = env.get();
+  options.create_if_missing = true;
+  config_opts.env = options.env;
+  config_opts.ignore_unknown_options = false;
+
+  std::vector<std::string> children;
+
+  std::string options_file_name;
+  DestroyDB(dbname_, options);
+  // First, test where the db directory does not exist
+  ASSERT_NOK(options.env->GetChildren(dbname_, &children));
+
+  s = GetLatestOptionsFileName(dbname_, options.env, &options_file_name);
+  ASSERT_TRUE(s.IsPathNotFound());
+
+  s = LoadLatestOptions(dbname_, options.env, &options, &cf_descs);
+  ASSERT_TRUE(s.IsPathNotFound());
+
+  s = LoadLatestOptions(config_opts, dbname_, &options, &cf_descs);
+  ASSERT_TRUE(s.IsPathNotFound());
+
+  s = GetLatestOptionsFileName(dbname_, options.env, &options_file_name);
+  ASSERT_TRUE(s.IsPathNotFound());
+
+  // Second, test where the db directory exists but is empty
+  ASSERT_OK(options.env->CreateDir(dbname_));
+
+  s = GetLatestOptionsFileName(dbname_, options.env, &options_file_name);
+  ASSERT_TRUE(s.IsPathNotFound());
+
+  s = LoadLatestOptions(dbname_, options.env, &options, &cf_descs);
+  ASSERT_TRUE(s.IsPathNotFound());
+
+  // Finally, test where a file exists but is not an "Options" file
+  std::unique_ptr<WritableFile> file;
+  ASSERT_OK(
+      options.env->NewWritableFile(dbname_ + "/temp.txt", &file, EnvOptions()));
+  ASSERT_OK(file->Close());
+  s = GetLatestOptionsFileName(dbname_, options.env, &options_file_name);
+  ASSERT_TRUE(s.IsPathNotFound());
+
+  s = LoadLatestOptions(config_opts, dbname_, &options, &cf_descs);
+  ASSERT_TRUE(s.IsPathNotFound());
+  ASSERT_OK(options.env->DeleteFile(dbname_ + "/temp.txt"));
+  ASSERT_OK(options.env->DeleteDir(dbname_));
+}
+
+TEST_F(OptionsUtilTest, LoadLatestOptions) {
+  Options options;
+  options.OptimizeForSmallDb();
+  ColumnFamilyDescriptor cf_desc;
+  ConfigOptions config_opts;
+  DBOptions db_opts;
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  std::vector<ColumnFamilyHandle*> handles;
+  DB* db;
+  options.create_if_missing = true;
+
+  DestroyDB(dbname_, options);
+
+  cf_descs.emplace_back();
+  cf_descs.back().name = kDefaultColumnFamilyName;
+  cf_descs.back().options.table_factory.reset(NewBlockBasedTableFactory());
+  cf_descs.emplace_back();
+  cf_descs.back().name = "Plain";
+  cf_descs.back().options.table_factory.reset(NewPlainTableFactory());
+  db_opts.create_missing_column_families = true;
+  db_opts.create_if_missing = true;
+
+  // open and persist the options
+  ASSERT_OK(DB::Open(db_opts, dbname_, cf_descs, &handles, &db));
+
+  std::string options_file_name;
+  std::string new_options_file;
+
+  ASSERT_OK(GetLatestOptionsFileName(dbname_, options.env, &options_file_name));
+  ASSERT_OK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
+  ASSERT_EQ(cf_descs.size(), 2U);
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(config_opts,
+                                                  db->GetDBOptions(), db_opts));
+  ASSERT_OK(handles[0]->GetDescriptor(&cf_desc));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_opts, cf_desc.options,
+                                                  cf_descs[0].options));
+  ASSERT_OK(handles[1]->GetDescriptor(&cf_desc));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_opts, cf_desc.options,
+                                                  cf_descs[1].options));
+
+  // Now change some of the DBOptions
+  ASSERT_OK(db->SetDBOptions(
+      {{"delayed_write_rate", "1234"}, {"bytes_per_sync", "32768"}}));
+  ASSERT_OK(GetLatestOptionsFileName(dbname_, options.env, &new_options_file));
+  ASSERT_NE(options_file_name, new_options_file);
+  ASSERT_OK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(config_opts,
+                                                  db->GetDBOptions(), db_opts));
+  options_file_name = new_options_file;
+
+  // Now change some of the ColumnFamilyOptions
+  ASSERT_OK(db->SetOptions(handles[1], {{"write_buffer_size", "32768"}}));
+  ASSERT_OK(GetLatestOptionsFileName(dbname_, options.env, &new_options_file));
+  ASSERT_NE(options_file_name, new_options_file);
+  ASSERT_OK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(config_opts,
+                                                  db->GetDBOptions(), db_opts));
+  ASSERT_OK(handles[0]->GetDescriptor(&cf_desc));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_opts, cf_desc.options,
+                                                  cf_descs[0].options));
+  ASSERT_OK(handles[1]->GetDescriptor(&cf_desc));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_opts, cf_desc.options,
+                                                  cf_descs[1].options));
+
+  DestroyDB(dbname_, options, cf_descs);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

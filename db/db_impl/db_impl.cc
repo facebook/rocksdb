@@ -976,6 +976,7 @@ Status DBImpl::SetOptions(
   MutableCFOptions new_options;
   Status s;
   Status persist_options_status;
+  persist_options_status.PermitUncheckedError();  // Allow uninitialized access
   SuperVersionContext sv_context(/* create_superversion */ true);
   {
     auto db_options = GetDBOptions();
