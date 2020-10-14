@@ -21,7 +21,6 @@ TEST_F(DBBlobBasicTest, GetBlob) {
   Options options;
   options.enable_blob_files = true;
   options.min_blob_size = 0;
-  options.disable_auto_compactions = true;
 
   Reopen(options);
 
@@ -49,7 +48,6 @@ TEST_F(DBBlobBasicTest, GetBlob_CorruptIndex) {
   Options options;
   options.enable_blob_files = true;
   options.min_blob_size = 0;
-  options.disable_auto_compactions = true;
 
   Reopen(options);
 
@@ -75,7 +73,6 @@ TEST_F(DBBlobBasicTest, GetBlob_InlinedTTLIndex) {
   Options options;
   options.enable_blob_files = true;
   options.min_blob_size = min_blob_size;
-  options.disable_auto_compactions = true;
 
   Reopen(options);
 
@@ -106,7 +103,6 @@ TEST_F(DBBlobBasicTest, GetBlob_IndexWithInvalidFileNumber) {
   Options options;
   options.enable_blob_files = true;
   options.min_blob_size = 0;
-  options.disable_auto_compactions = true;
 
   Reopen(options);
 
@@ -154,7 +150,6 @@ TEST_P(DBBlobBasicIOErrorTest, GetBlob_IOError) {
   options.env = &fault_injection_env_;
   options.enable_blob_files = true;
   options.min_blob_size = 0;
-  options.disable_auto_compactions = true;
 
   Reopen(options);
 
