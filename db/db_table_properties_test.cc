@@ -294,8 +294,7 @@ TEST_P(DBTableHostnamePropertyTest, DbHostLocationProperty) {
     opts.db_host_id = "foobar";
     expected_host_name = opts.db_host_id;
   } else {
-    expected_host_name.resize(kMaxHostNameLen, 0);
-    ASSERT_OK(env_->GetHostName(&expected_host_name.at(0), kMaxHostNameLen));
+    ASSERT_OK(GetHostName(env_, &expected_host_name));
   }
   CreateAndReopenWithCF({"goku"}, opts);
 

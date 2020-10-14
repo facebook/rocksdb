@@ -333,6 +333,8 @@ extern Status UncompressBlockContentsForCompressionType(
 
 static const size_t kMaxHostNameLen = 256;
 
+extern Status GetHostName(Env* env, std::string* result);
+
 // Replace db_host_id contents with the real hostname if necessary
 extern Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id);
 
