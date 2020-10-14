@@ -24,9 +24,34 @@ class FileSystemTracingWrapper : public FileSystemWrapper {
 
   ~FileSystemTracingWrapper() override {}
 
+  IOStatus NewSequentialFile(const std::string& fname,
+                             const FileOptions& file_opts,
+                             std::unique_ptr<FSSequentialFile>* result,
+                             IODebugContext* dbg) override;
+
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& file_opts,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override;
+
   IOStatus NewWritableFile(const std::string& fname,
                            const FileOptions& file_opts,
                            std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override;
+
+  IOStatus ReopenWritableFile(const std::string& fname,
+                              const FileOptions& file_opts,
+                              std::unique_ptr<FSWritableFile>* result,
+                              IODebugContext* dbg) override;
+
+  IOStatus ReuseWritableFile(const std::string& fname,
+                             const std::string& old_fname,
+                             const FileOptions& file_opts,
+                             std::unique_ptr<FSWritableFile>* result,
+                             IODebugContext* dbg) override;
+
+  IOStatus NewRandomRWFile(const std::string& fname, const FileOptions& options,
+                           std::unique_ptr<FSRandomRWFile>* result,
                            IODebugContext* dbg) override;
 
   IOStatus NewDirectory(const std::string& name, const IOOptions& io_opts,
@@ -52,6 +77,9 @@ class FileSystemTracingWrapper : public FileSystemWrapper {
 
   IOStatus GetFileSize(const std::string& fname, const IOOptions& options,
                        uint64_t* file_size, IODebugContext* dbg) override;
+
+  IOStatus Truncate(const std::string& fname, size_t size,
+                    const IOOptions& options, IODebugContext* dbg) override;
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;
@@ -335,6 +363,14 @@ class FSRandomRWFileTracingWrapper : public FSRandomRWFileWrapper {
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override;
+
+  IOStatus Flush(const IOOptions& options, IODebugContext* dbg) override;
+
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override;
+
+  IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override;
+
+  IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override;
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;
