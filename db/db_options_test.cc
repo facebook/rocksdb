@@ -81,6 +81,7 @@ class DBOptionsTest : public DBTestBase {
 
 TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
   Options options;
+  options.env = env_;
   options.track_and_verify_wals_in_manifest = true;
 
   ImmutableDBOptions db_options(options);

@@ -1875,6 +1875,7 @@ TEST_F(DBBasicTest, MultiGetStats) {
   Options options;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
+  options.env = env_;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.block_size = 1;

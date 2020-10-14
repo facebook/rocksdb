@@ -704,9 +704,9 @@ Status DBTestBase::TryReopen(const Options& options) {
   // Note: operator= is an unsafe approach here since it destructs
   // std::shared_ptr in the same order of their creation, in contrast to
   // destructors which destructs them in the opposite order of creation. One
-  // particular problme is that the cache destructor might invoke callback
+  // particular problem is that the cache destructor might invoke callback
   // functions that use Option members such as statistics. To work around this
-  // problem, we manually call destructor of table_facotry which eventually
+  // problem, we manually call destructor of table_factory which eventually
   // clears the block cache.
   last_options_ = options;
   MaybeInstallTimeElapseOnlySleep(options);
