@@ -259,6 +259,11 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
                         0 /*latest_snapshot*/, snapshot_checker_.get(),
                         0 /*level*/, nullptr /*statistics*/, &shutting_down_));
 
+    if (c_iter_) {
+      // Since iter_ is still used in ~CompactionIterator(), we call
+      // ~CompactionIterator() first.
+      c_iter_.reset();
+    }
     iter_.reset(new LoggingForwardVectorIterator(ks, vs));
     iter_->SeekToFirst();
     c_iter_.reset(new CompactionIterator(
