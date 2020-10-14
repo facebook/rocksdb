@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.13.3 (10/14/2020)
 ### Bug Fixes
 * Fix a bug that could cause a stalled write to crash with mixed of slowdown and no_slowdown writes (`WriteOptions.no_slowdown=true`).
 
