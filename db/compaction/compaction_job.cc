@@ -1444,8 +1444,12 @@ Status CompactionJob::FinishCompactionOutputFile(
   if (s.ok()) {
     s = io_s;
   }
-
+  const uint64_t current_bytes = sub_compact->builder->FileSize();
+  if (s.ok()) {
+    meta->fd.file_size = current_bytes;
+  }
   sub_compact->current_output()->finished = true;
+  sub_compact->total_bytes += current_bytes;
 
   // Finish and check for file errors
   if (s.ok()) {
@@ -1455,13 +1459,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   if (s.ok() && io_s.ok()) {
     io_s = sub_compact->outfile->Close();
   }
-
-  const uint64_t current_bytes = sub_compact->builder->FileSize();
-
   if (s.ok() && io_s.ok()) {
-    meta->fd.file_size = current_bytes;
-    sub_compact->total_bytes += current_bytes;
-
     // Add the checksum information to file metadata.
     meta->file_checksum = sub_compact->outfile->GetFileChecksum();
     meta->file_checksum_func_name =
