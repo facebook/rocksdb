@@ -480,6 +480,11 @@ TEST_F(OptionsUtilTest, LoadLatestOptions) {
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_opts, cf_desc.options,
                                                   cf_descs[1].options));
 
+  // close the db
+  for (auto* handle : handles) {
+    delete handle;
+  }
+  delete db;
   DestroyDB(dbname_, options, cf_descs);
 }
 
