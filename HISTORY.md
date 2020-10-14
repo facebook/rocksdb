@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.12.7 (2020-10-14)
+### Other
+Fix build issue to enable RocksJava release for ppc64le
+
 ## 6.12.6 (2020-10-13)
 ### Bug Fixes
 * Fix false positive flush/compaction `Status::Corruption` failure when `paranoid_file_checks == true` and range tombstones were written to the compaction output files.
