@@ -1809,15 +1809,9 @@ void CompactionJob::UpdateCompactionStats() {
   compaction_stats_.bytes_written =
       compact_->total_bytes + compact_->total_blob_bytes;
 
-  uint64_t num_output_records = 0;
-
-  for (const auto& sub_compact : compact_->sub_compact_states) {
-    num_output_records += sub_compact.num_output_records;
-  }
-
-  if (compaction_stats_.num_input_records > num_output_records) {
+  if (compaction_stats_.num_input_records > compact_->num_output_records) {
     compaction_stats_.num_dropped_records =
-        compaction_stats_.num_input_records - num_output_records;
+        compaction_stats_.num_input_records - compact_->num_output_records;
   }
 }
 
