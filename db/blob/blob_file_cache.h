@@ -35,6 +35,8 @@ class BlobFileCache {
 
  private:
   Cache* cache_;
+  // Note: mutex_ below is used to guard against multiple threads racing to open
+  // the same file.
   Striped<port::Mutex, Slice> mutex_;
   const ImmutableCFOptions* immutable_cf_options_;
   const FileOptions* file_options_;
