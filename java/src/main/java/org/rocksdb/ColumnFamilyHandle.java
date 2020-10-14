@@ -13,6 +13,12 @@ import java.util.Objects;
  * ColumnFamily Pointers.
  */
 public class ColumnFamilyHandle extends RocksObject {
+  /**
+   * Constructs column family Java object, which operates on underlying native object.
+   *
+   * @param rocksDB db instance associated with this column family
+   * @param nativeHandle native handle to underlying native ColumnFamily object
+   */
   ColumnFamilyHandle(final RocksDB rocksDB,
       final long nativeHandle) {
     super(nativeHandle);
