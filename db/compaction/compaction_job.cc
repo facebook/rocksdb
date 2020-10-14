@@ -1590,13 +1590,13 @@ Status CompactionJob::InstallCompactionResults(
                    compact_->total_bytes + compact_->total_blob_bytes);
   }
 
+  VersionEdit* const edit = compaction->edit();
+  assert(edit);
+
   // Add compaction inputs
-  compaction->AddInputDeletions(compact_->compaction->edit());
+  compaction->AddInputDeletions(edit);
 
   for (const auto& sub_compact : compact_->sub_compact_states) {
-    VersionEdit* const edit = compaction->edit();
-    assert(edit);
-
     for (const auto& out : sub_compact.outputs) {
       edit->AddFile(compaction->output_level(), out.meta);
     }
@@ -1607,8 +1607,8 @@ Status CompactionJob::InstallCompactionResults(
   }
 
   return versions_->LogAndApply(compaction->column_family_data(),
-                                mutable_cf_options, compaction->edit(),
-                                db_mutex_, db_directory_);
+                                mutable_cf_options, edit, db_mutex_,
+                                db_directory_);
 }
 
 void CompactionJob::RecordCompactionIOStats() {
