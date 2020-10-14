@@ -848,6 +848,20 @@ class VersionSetTestBase {
     return s;
   }
 
+  Status LogAndApplyToDefaultCF(
+      const autovector<std::unique_ptr<VersionEdit>>& edits) {
+    autovector<VersionEdit*> vedits;
+    for (auto& e : edits) {
+      vedits.push_back(e.get());
+    }
+    mutex_.Lock();
+    Status s =
+        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                               mutable_cf_options_, vedits, &mutex_);
+    mutex_.Unlock();
+    return s;
+  }
+
   void CreateNewManifest() {
     constexpr FSDirectory* db_directory = nullptr;
     constexpr bool new_descriptor_log = true;
@@ -1169,6 +1183,78 @@ TEST_F(VersionSetTest, ObsoleteBlobFile) {
   }
 }
 
+TEST_F(VersionSetTest, WalEditsNotAppliedToVersion) {
+  NewDB();
+
+  constexpr uint64_t kNumWals = 5;
+
+  autovector<std::unique_ptr<VersionEdit>> edits;
+  // Add some WALs.
+  for (uint64_t i = 1; i <= kNumWals; i++) {
+    edits.emplace_back(new VersionEdit);
+    // WAL's size equals its log number.
+    edits.back()->AddWal(i, WalMetadata(i));
+  }
+  // Delete the first half of the WALs.
+  for (uint64_t i = 1; i <= kNumWals; i++) {
+    edits.emplace_back(new VersionEdit);
+    edits.back()->DeleteWal(i);
+  }
+
+  autovector<Version*> versions;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:NewVersion",
+      [&](void* arg) { versions.push_back(reinterpret_cast<Version*>(arg)); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  LogAndApplyToDefaultCF(edits);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Since the edits are all WAL edits, no version should be created.
+  ASSERT_EQ(versions.size(), 1);
+  ASSERT_EQ(versions[0], nullptr);
+}
+
+// Similar to WalEditsNotAppliedToVersion, but contains a non-WAL edit.
+TEST_F(VersionSetTest, NonWalEditsAppliedToVersion) {
+  NewDB();
+
+  const std::string kDBId = "db_db";
+  constexpr uint64_t kNumWals = 5;
+
+  autovector<std::unique_ptr<VersionEdit>> edits;
+  // Add some WALs.
+  for (uint64_t i = 1; i <= kNumWals; i++) {
+    edits.emplace_back(new VersionEdit);
+    // WAL's size equals its log number.
+    edits.back()->AddWal(i, WalMetadata(i));
+  }
+  // Delete the first half of the WALs.
+  for (uint64_t i = 1; i <= kNumWals; i++) {
+    edits.emplace_back(new VersionEdit);
+    edits.back()->DeleteWal(i);
+  }
+  edits.emplace_back(new VersionEdit);
+  edits.back()->SetDBId(kDBId);
+
+  autovector<Version*> versions;
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::ProcessManifestWrites:NewVersion",
+      [&](void* arg) { versions.push_back(reinterpret_cast<Version*>(arg)); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  LogAndApplyToDefaultCF(edits);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  // Since the edits are all WAL edits, no version should be created.
+  ASSERT_EQ(versions.size(), 1);
+  ASSERT_NE(versions[0], nullptr);
+}
+
 TEST_F(VersionSetTest, WalAddition) {
   NewDB();
 
@@ -1277,6 +1363,14 @@ TEST_F(VersionSetTest, WalCloseWithoutSync) {
     VersionEdit edit;
     edit.AddWal(kLogNumber + 1);
     ASSERT_OK(LogAndApplyToDefaultCF(edit));
+
+    const auto& wals = versions_->GetWalSet().GetWals();
+    ASSERT_EQ(wals.size(), 2);
+    ASSERT_TRUE(wals.find(kLogNumber) != wals.end());
+    ASSERT_TRUE(wals.at(kLogNumber).HasSyncedSize());
+    ASSERT_EQ(wals.at(kLogNumber).GetSyncedSizeInBytes(), kSyncedSizeInBytes);
+    ASSERT_TRUE(wals.find(kLogNumber + 1) != wals.end());
+    ASSERT_FALSE(wals.at(kLogNumber + 1).HasSyncedSize());
   }
 
   // Recover a new VersionSet.
@@ -1516,16 +1610,7 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
   }
   ASSERT_EQ(remaining, 0);
 
-  {
-    autovector<VersionEdit*> vedits;
-    for (auto& e : edits) {
-      vedits.push_back(e.get());
-    }
-    InstrumentedMutexLock l(&mutex_);
-    Status s =
-        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               mutable_cf_options_, vedits, &mutex_);
-  }
+  Status s = LogAndApplyToDefaultCF(edits);
 
   // Recover a new VersionSet, the min log number and the last WAL should be
   // kept.
