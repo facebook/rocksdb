@@ -157,7 +157,8 @@ TEST_F(DBBlobIndexTest, Write) {
 }
 
 // Get should be able to return blob index if is_blob_index is provided,
-// otherwise return Status::NotSupported status.
+// otherwise it should return Status::NotSupported (when reading from memtable)
+// or Status::Corruption (when reading from SST).
 TEST_F(DBBlobIndexTest, Get) {
   for (auto tier : kAllTiers) {
     DestroyAndReopen(GetTestOptions());
@@ -186,8 +187,8 @@ TEST_F(DBBlobIndexTest, Get) {
   }
 }
 
-// Get should NOT return Status::NotSupported if blob index is updated with
-// a normal value.
+// Get should NOT return Status::NotSupported/Status::Corruption if blob index
+// is updated with a normal value.
 TEST_F(DBBlobIndexTest, Updated) {
   for (auto tier : kAllTiers) {
     DestroyAndReopen(GetTestOptions());
