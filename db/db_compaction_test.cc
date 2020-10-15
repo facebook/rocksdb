@@ -5878,9 +5878,8 @@ TEST_F(DBCompactionTest, CompactionWithBlob) {
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
-  // TODO: enable once Get support is implemented for blobs
-  // ASSERT_EQ(Get(first_key), third_value);
-  // ASSERT_EQ(Get(second_key), third_value);
+  ASSERT_EQ(Get(first_key), third_value);
+  ASSERT_EQ(Get(second_key), third_value);
 
   VersionSet* const versions = dbfull()->TEST_GetVersionSet();
   assert(versions);
