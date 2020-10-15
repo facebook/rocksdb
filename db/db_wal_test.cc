@@ -1698,7 +1698,7 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
   if (options.env != Env::Default()) {
     fprintf(stderr, "Skippging test for non-default environment\n");
     return;
-  }    
+  }
   // Test fallocate support of running file system.
   // Skip this test if fallocate is not supported.
   std::string fname_test_fallocate = dbname_ + "/preallocate_testfile";

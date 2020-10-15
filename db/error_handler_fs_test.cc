@@ -52,21 +52,6 @@ class DBErrorHandlingFSTest : public DBTestBase {
   std::unique_ptr<Env> fault_env_;
 };
 
-class DBErrorHandlingFS : public FileSystemWrapper {
- public:
-  DBErrorHandlingFS()
-      : FileSystemWrapper(FileSystem::Default()),
-        trig_no_space(false),
-        trig_io_error(false) {}
-
-  void SetTrigNoSpace() { trig_no_space = true; }
-  void SetTrigIoError() { trig_io_error = true; }
-
- private:
-  bool trig_no_space;
-  bool trig_io_error;
-};
-
 class ErrorHandlerFSListener : public EventListener {
  public:
   ErrorHandlerFSListener()
