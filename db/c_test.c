@@ -2355,6 +2355,55 @@ int main(int argc, char** argv) {
     rocksdb_cache_destroy(co);
   }
 
+  StartPhase("backupable_db_option");
+  {
+    rocksdb_backupable_db_options_t* bdo;
+    bdo = rocksdb_backupable_db_options_create("path");
+
+    rocksdb_backupable_db_options_set_share_table_files(bdo, 1);
+    CheckCondition(1 ==
+                   rocksdb_backupable_db_options_get_share_table_files(bdo));
+
+    rocksdb_backupable_db_options_set_sync(bdo, 1);
+    CheckCondition(1 == rocksdb_backupable_db_options_get_sync(bdo));
+
+    rocksdb_backupable_db_options_set_destroy_old_data(bdo, 1);
+    CheckCondition(1 ==
+                   rocksdb_backupable_db_options_get_destroy_old_data(bdo));
+
+    rocksdb_backupable_db_options_set_backup_log_files(bdo, 1);
+    CheckCondition(1 ==
+                   rocksdb_backupable_db_options_get_backup_log_files(bdo));
+
+    rocksdb_backupable_db_options_set_backup_rate_limit(bdo, 123);
+    CheckCondition(123 ==
+                   rocksdb_backupable_db_options_get_backup_rate_limit(bdo));
+
+    rocksdb_backupable_db_options_set_restore_rate_limit(bdo, 37);
+    CheckCondition(37 ==
+                   rocksdb_backupable_db_options_get_restore_rate_limit(bdo));
+
+    rocksdb_backupable_db_options_set_max_background_operations(bdo, 20);
+    CheckCondition(
+        20 == rocksdb_backupable_db_options_get_max_background_operations(bdo));
+
+    rocksdb_backupable_db_options_set_callback_trigger_interval_size(bdo, 9000);
+    CheckCondition(
+        9000 ==
+        rocksdb_backupable_db_options_get_callback_trigger_interval_size(bdo));
+
+    rocksdb_backupable_db_options_set_max_valid_backups_to_open(bdo, 40);
+    CheckCondition(
+        40 == rocksdb_backupable_db_options_get_max_valid_backups_to_open(bdo));
+
+    rocksdb_backupable_db_options_set_share_files_with_checksum_naming(bdo, 2);
+    CheckCondition(
+        2 == rocksdb_backupable_db_options_get_share_files_with_checksum_naming(
+                 bdo));
+
+    rocksdb_backupable_db_options_destroy(bdo);
+  }
+
   StartPhase("iterate_upper_bound");
   {
     // Create new empty database

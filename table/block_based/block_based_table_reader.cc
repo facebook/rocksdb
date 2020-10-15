@@ -974,6 +974,9 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       }
     }
   }
+  // Partition filters cannot be enabled without partition indexes
+  assert(rep_->filter_type != Rep::FilterType::kPartitionedFilter ||
+         rep_->index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
 
   // Find compression dictionary handle
   bool found_compression_dict = false;
@@ -987,20 +990,53 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
 
   const bool use_cache = table_options.cache_index_and_filter_blocks;
 
-  // pin both index and filters, down to all partitions.
-  const bool pin_all =
-      rep_->table_options.pin_l0_filter_and_index_blocks_in_cache &&
+  const bool maybe_flushed =
       level == 0 && file_size <= max_file_size_for_l0_meta_pin;
+  std::function<bool(PinningTier, PinningTier)> is_pinned =
+      [maybe_flushed, &is_pinned](PinningTier pinning_tier,
+                                  PinningTier fallback_pinning_tier) {
+        // Fallback to fallback would lead to infinite recursion. Disallow it.
+        assert(fallback_pinning_tier != PinningTier::kFallback);
 
-  // prefetch the first level of index
-  const bool prefetch_index =
-      prefetch_all ||
-      (table_options.pin_top_level_index_and_filter &&
-       index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
+        switch (pinning_tier) {
+          case PinningTier::kFallback:
+            return is_pinned(fallback_pinning_tier,
+                             PinningTier::kNone /* fallback_pinning_tier */);
+          case PinningTier::kNone:
+            return false;
+          case PinningTier::kFlushedAndSimilar:
+            return maybe_flushed;
+          case PinningTier::kAll:
+            return true;
+        };
+
+        // In GCC, this is needed to suppress `control reaches end of non-void
+        // function [-Werror=return-type]`.
+        assert(false);
+        return false;
+      };
+  const bool pin_top_level_index = is_pinned(
+      table_options.metadata_cache_options.top_level_index_pinning,
+      table_options.pin_top_level_index_and_filter ? PinningTier::kAll
+                                                   : PinningTier::kNone);
+  const bool pin_partition =
+      is_pinned(table_options.metadata_cache_options.partition_pinning,
+                table_options.pin_l0_filter_and_index_blocks_in_cache
+                    ? PinningTier::kFlushedAndSimilar
+                    : PinningTier::kNone);
+  const bool pin_unpartitioned =
+      is_pinned(table_options.metadata_cache_options.unpartitioned_pinning,
+                table_options.pin_l0_filter_and_index_blocks_in_cache
+                    ? PinningTier::kFlushedAndSimilar
+                    : PinningTier::kNone);
+
   // pin the first level of index
   const bool pin_index =
-      pin_all || (table_options.pin_top_level_index_and_filter &&
-                  index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
+      index_type == BlockBasedTableOptions::kTwoLevelIndexSearch
+          ? pin_top_level_index
+          : pin_unpartitioned;
+  // prefetch the first level of index
+  const bool prefetch_index = prefetch_all || pin_index;
 
   std::unique_ptr<IndexReader> index_reader;
   s = new_table->CreateIndexReader(ro, prefetch_buffer, meta_iter, use_cache,
@@ -1015,44 +1051,43 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // The partitions of partitioned index are always stored in cache. They
   // are hence follow the configuration for pin and prefetch regardless of
   // the value of cache_index_and_filter_blocks
-  if (prefetch_all) {
-    s = rep_->index_reader->CacheDependencies(ro, pin_all);
+  if (prefetch_all || pin_partition) {
+    s = rep_->index_reader->CacheDependencies(ro, pin_partition);
   }
   if (!s.ok()) {
     return s;
   }
 
-  // prefetch the first level of filter
-  const bool prefetch_filter =
-      prefetch_all ||
-      (table_options.pin_top_level_index_and_filter &&
-       rep_->filter_type == Rep::FilterType::kPartitionedFilter);
-  // Partition fitlers cannot be enabled without partition indexes
-  assert(!prefetch_filter || prefetch_index);
   // pin the first level of filter
   const bool pin_filter =
-      pin_all || (table_options.pin_top_level_index_and_filter &&
-                  rep_->filter_type == Rep::FilterType::kPartitionedFilter);
+      rep_->filter_type == Rep::FilterType::kPartitionedFilter
+          ? pin_top_level_index
+          : pin_unpartitioned;
+  // prefetch the first level of filter
+  const bool prefetch_filter = prefetch_all || pin_filter;
 
   if (rep_->filter_policy) {
     auto filter = new_table->CreateFilterBlockReader(
         ro, prefetch_buffer, use_cache, prefetch_filter, pin_filter,
         lookup_context);
+
     if (filter) {
       // Refer to the comment above about paritioned indexes always being cached
-      if (prefetch_all) {
-        filter->CacheDependencies(ro, pin_all);
+      if (prefetch_all || pin_partition) {
+        s = filter->CacheDependencies(ro, pin_partition);
+        if (!s.ok()) {
+          return s;
+        }
       }
-
       rep_->filter = std::move(filter);
     }
   }
 
   if (!rep_->compression_dict_handle.IsNull()) {
     std::unique_ptr<UncompressionDictReader> uncompression_dict_reader;
-    s = UncompressionDictReader::Create(this, ro, prefetch_buffer, use_cache,
-                                        prefetch_all, pin_all, lookup_context,
-                                        &uncompression_dict_reader);
+    s = UncompressionDictReader::Create(
+        this, ro, prefetch_buffer, use_cache, prefetch_all || pin_unpartitioned,
+        pin_unpartitioned, lookup_context, &uncompression_dict_reader);
     if (!s.ok()) {
       return s;
     }
@@ -1482,6 +1517,21 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         s = block_fetcher.ReadBlockContents();
         raw_block_comp_type = block_fetcher.get_compression_type();
         contents = &raw_block_contents;
+        if (get_context) {
+          switch (block_type) {
+            case BlockType::kIndex:
+              ++get_context->get_context_stats_.num_index_read;
+              break;
+            case BlockType::kFilter:
+              ++get_context->get_context_stats_.num_filter_read;
+              break;
+            case BlockType::kData:
+              ++get_context->get_context_stats_.num_data_read;
+              break;
+            default:
+              break;
+          }
+        }
       } else {
         raw_block_comp_type = contents->get_compression_type();
       }
@@ -1553,9 +1603,11 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
           no_insert, lookup_context->get_id,
           lookup_context->get_from_user_specified_snapshot,
           /*referenced_key=*/"");
-      block_cache_tracer_->WriteBlockAccess(access_record, key,
-                                            rep_->cf_name_for_tracing(),
-                                            lookup_context->referenced_key);
+      // TODO: Should handle this error?
+      block_cache_tracer_
+          ->WriteBlockAccess(access_record, key, rep_->cf_name_for_tracing(),
+                             lookup_context->referenced_key)
+          .PermitUncheckedError();
     }
   }
 
@@ -1889,6 +1941,22 @@ Status BlockBasedTable::RetrieveBlock(
         GetMemoryAllocator(rep_->table_options), for_compaction,
         rep_->blocks_definitely_zstd_compressed,
         rep_->table_options.filter_policy.get());
+
+    if (get_context) {
+      switch (block_type) {
+        case BlockType::kIndex:
+          ++(get_context->get_context_stats_.num_index_read);
+          break;
+        case BlockType::kFilter:
+          ++(get_context->get_context_stats_.num_filter_read);
+          break;
+        case BlockType::kData:
+          ++(get_context->get_context_stats_.num_data_read);
+          break;
+        default:
+          break;
+      }
+    }
   }
 
   if (!s.ok()) {
@@ -1957,6 +2025,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
         rep->index_value_is_full);
   }
   // Create an empty iterator
+  // TODO(ajkr): this is not the right way to handle an unpinned partition.
   return new IndexBlockIter();
 }
 
@@ -2361,9 +2430,12 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
             /*referenced_key=*/"", referenced_data_size,
             lookup_data_block_context.num_keys_in_block,
             does_referenced_key_exist);
-        block_cache_tracer_->WriteBlockAccess(
-            access_record, lookup_data_block_context.block_key,
-            rep_->cf_name_for_tracing(), referenced_key);
+        // TODO: Should handle status here?
+        block_cache_tracer_
+            ->WriteBlockAccess(access_record,
+                               lookup_data_block_context.block_key,
+                               rep_->cf_name_for_tracing(), referenced_key)
+            .PermitUncheckedError();
       }
 
       if (done) {
@@ -2553,6 +2625,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         }
         RetrieveMultipleBlocks(read_options, &data_block_range, &block_handles,
                                &statuses, &results, scratch, dict);
+        if (sst_file_range.begin()->get_context) {
+          ++(sst_file_range.begin()
+                 ->get_context->get_context_stats_.num_sst_read);
+        }
       }
     }
 
@@ -2688,9 +2764,12 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
               /*referenced_key=*/"", referenced_data_size,
               lookup_data_block_context.num_keys_in_block,
               does_referenced_key_exist);
-          block_cache_tracer_->WriteBlockAccess(
-              access_record, lookup_data_block_context.block_key,
-              rep_->cf_name_for_tracing(), referenced_key);
+          // TODO: Should handle status here?
+          block_cache_tracer_
+              ->WriteBlockAccess(access_record,
+                                 lookup_data_block_context.block_key,
+                                 rep_->cf_name_for_tracing(), referenced_key)
+              .PermitUncheckedError();
         }
         s = biter->status();
         if (done) {

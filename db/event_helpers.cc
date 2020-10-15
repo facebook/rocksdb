@@ -51,6 +51,7 @@ void EventHelpers::NotifyOnBackgroundError(
   db_mutex->Unlock();
   for (auto& listener : listeners) {
     listener->OnBackgroundError(reason, bg_error);
+    bg_error->PermitUncheckedError();
     if (*auto_recovery) {
       listener->OnErrorRecoveryBegin(reason, *bg_error, auto_recovery);
     }
@@ -221,6 +222,7 @@ void EventHelpers::NotifyOnErrorRecoveryCompleted(
   for (auto& listener : listeners) {
     listener->OnErrorRecoveryCompleted(old_bg_error);
   }
+  old_bg_error.PermitUncheckedError();
   db_mutex->Lock();
 #else
   (void)listeners;

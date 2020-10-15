@@ -407,7 +407,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     // during previous error handling.
     if (file_deletion_disabled) {
       // Always return ok
-      EnableFileDeletions(/*force=*/true);
+      s = EnableFileDeletions(/*force=*/true);
     }
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   }
@@ -459,7 +459,9 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
       autovector<ColumnFamilyData*> cfds;
       SelectColumnFamiliesForAtomicFlush(&cfds);
       mutex_.Unlock();
-      AtomicFlushMemTables(cfds, FlushOptions(), FlushReason::kShutDown);
+      Status s =
+          AtomicFlushMemTables(cfds, FlushOptions(), FlushReason::kShutDown);
+      s.PermitUncheckedError();  //**TODO: What to do on error?
       mutex_.Lock();
     } else {
       for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -745,29 +747,34 @@ void DBImpl::PersistStats() {
 
   if (immutable_db_options_.persist_stats_to_disk) {
     WriteBatch batch;
+    Status s = Status::OK();
     if (stats_slice_initialized_) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Reading %" ROCKSDB_PRIszt " stats from statistics\n",
                      stats_slice_.size());
       for (const auto& stat : stats_map) {
-        char key[100];
-        int length =
-            EncodePersistentStatsKey(now_seconds, stat.first, 100, key);
-        // calculate the delta from last time
-        if (stats_slice_.find(stat.first) != stats_slice_.end()) {
-          uint64_t delta = stat.second - stats_slice_[stat.first];
-          batch.Put(persist_stats_cf_handle_, Slice(key, std::min(100, length)),
-                    ToString(delta));
+        if (s.ok()) {
+          char key[100];
+          int length =
+              EncodePersistentStatsKey(now_seconds, stat.first, 100, key);
+          // calculate the delta from last time
+          if (stats_slice_.find(stat.first) != stats_slice_.end()) {
+            uint64_t delta = stat.second - stats_slice_[stat.first];
+            s = batch.Put(persist_stats_cf_handle_,
+                          Slice(key, std::min(100, length)), ToString(delta));
+          }
         }
       }
     }
     stats_slice_initialized_ = true;
     std::swap(stats_slice_, stats_map);
-    WriteOptions wo;
-    wo.low_pri = true;
-    wo.no_slowdown = true;
-    wo.sync = false;
-    Status s = Write(wo, &batch);
+    if (s.ok()) {
+      WriteOptions wo;
+      wo.low_pri = true;
+      wo.no_slowdown = true;
+      wo.sync = false;
+      s = Write(wo, &batch);
+    }
     if (!s.ok()) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Writing to persistent stats CF failed -- %s",
@@ -969,6 +976,7 @@ Status DBImpl::SetOptions(
   MutableCFOptions new_options;
   Status s;
   Status persist_options_status;
+  persist_options_status.PermitUncheckedError();  // Allow uninitialized access
   SuperVersionContext sv_context(/* create_superversion */ true);
   {
     auto db_options = GetDBOptions();
@@ -2925,7 +2933,7 @@ const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
 SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
                                       bool lock) {
   int64_t unix_time = 0;
-  env_->GetCurrentTime(&unix_time);  // Ignore error
+  env_->GetCurrentTime(&unix_time).PermitUncheckedError();  // Ignore error
   SnapshotImpl* s = new SnapshotImpl;
 
   if (lock) {
@@ -4548,7 +4556,9 @@ Status DBImpl::IngestExternalFiles(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       const IOStatus& io_s = versions_->io_status();
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
+      // Should handle return error?
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
+          .PermitUncheckedError();
     }
 
     // Resume writes to the DB
@@ -4703,8 +4713,14 @@ Status DBImpl::CreateColumnFamilyWithImport(
 
   import_job.Cleanup(status);
   if (!status.ok()) {
-    DropColumnFamily(*handle);
-    DestroyColumnFamilyHandle(*handle);
+    Status temp_s = DropColumnFamily(*handle);
+    if (!temp_s.ok()) {
+      ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                      "DropColumnFamily failed with error %s",
+                      temp_s.ToString().c_str());
+    }
+    // Always returns Status::OK()
+    assert(DestroyColumnFamilyHandle(*handle).ok());
     *handle = nullptr;
   }
   return status;

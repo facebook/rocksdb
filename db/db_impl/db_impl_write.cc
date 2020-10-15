@@ -125,7 +125,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                                      ? batch_cnt
                                      // every key is a sub-batch consuming a seq
                                      : WriteBatchInternal::Count(my_batch);
-    uint64_t seq;
+    uint64_t seq = 0;
     // Use a write thread to i) optimize for WAL write, ii) publish last
     // sequence in in increasing order, iii) call pre_release_callback serially
     Status status = WriteImplWALOnly(
@@ -473,6 +473,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         disable_memtable);
   write_thread_.JoinBatchGroup(&w);
+  TEST_SYNC_POINT("DBImplWrite::PipelinedWriteImpl:AfterJoinBatchGroup");
   if (w.state == WriteThread::STATE_GROUP_LEADER) {
     WriteThread::WriteGroup wal_write_group;
     if (w.callback && !w.callback->AllowWriteBatching()) {
@@ -840,7 +841,9 @@ void DBImpl::WriteStatusCheckOnLocked(const Status& status) {
   mutex_.AssertHeld();
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
       !status.IsBusy() && !status.IsIncomplete()) {
-    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
+    // Maybe change the return status to void?
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback)
+        .PermitUncheckedError();
   }
 }
 
@@ -851,7 +854,9 @@ void DBImpl::WriteStatusCheck(const Status& status) {
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
       !status.IsBusy() && !status.IsIncomplete()) {
     mutex_.Lock();
-    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
+    // Maybe change the return status to void?
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback)
+        .PermitUncheckedError();
     mutex_.Unlock();
   }
 }
@@ -863,7 +868,9 @@ void DBImpl::IOStatusCheck(const IOStatus& io_status) {
        !io_status.IsBusy() && !io_status.IsIncomplete()) ||
       io_status.IsIOFenced()) {
     mutex_.Lock();
-    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback);
+    // Maybe change the return status to void?
+    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback)
+        .PermitUncheckedError();
     mutex_.Unlock();
   }
 }
@@ -877,7 +884,9 @@ void DBImpl::MemTableInsertStatusCheck(const Status& status) {
   if (!status.ok()) {
     mutex_.Lock();
     assert(!error_handler_.IsBGWorkStopped());
-    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable);
+    // Maybe change the return status to void?
+    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable)
+        .PermitUncheckedError();
     mutex_.Unlock();
   }
 }
@@ -991,8 +1000,10 @@ WriteBatch* DBImpl::MergeBatch(const WriteThread::WriteGroup& write_group,
     merged_batch = tmp_batch;
     for (auto writer : write_group) {
       if (!writer->CallbackFailed()) {
-        WriteBatchInternal::Append(merged_batch, writer->batch,
-                                   /*WAL_only*/ true);
+        Status s = WriteBatchInternal::Append(merged_batch, writer->batch,
+                                              /*WAL_only*/ true);
+        // Always returns Status::OK.
+        assert(s.ok());
         if (WriteBatchInternal::IsLatestPersistentState(writer->batch)) {
           // We only need to cache the last of such write batch
           *to_be_cached_state = writer->batch;
@@ -1771,10 +1782,15 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     }
     // We may have lost data from the WritableFileBuffer in-memory buffer for
     // the current log, so treat it as a fatal error and set bg_error
+    // Should handle return error?
     if (!io_s.ok()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable);
+      // Should handle return error?
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable)
+          .PermitUncheckedError();
     } else {
-      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
+      // Should handle return error?
+      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable)
+          .PermitUncheckedError();
     }
     // Read back bg_error in order to get the right severity
     s = error_handler_.GetBGError();

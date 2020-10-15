@@ -63,7 +63,7 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   ASSERT_OK(Put("bar", "v"));
   ASSERT_OK(dbfull()->Flush(no_wait));
   // If the issue is hit we will wait here forever.
-  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 #ifndef ROCKSDB_LITE
   ASSERT_EQ(2, TotalTableFiles());
 #endif  // ROCKSDB_LITE
@@ -88,7 +88,7 @@ TEST_F(DBFlushTest, SyncFail) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   CreateAndReopenWithCF({"pikachu"}, options);
-  Put("key", "value");
+  ASSERT_OK(Put("key", "value"));
   auto* cfd =
       static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
           ->cfd();
@@ -107,7 +107,8 @@ TEST_F(DBFlushTest, SyncFail) {
   TEST_SYNC_POINT("DBFlushTest::SyncFail:2");
   fault_injection_env->SetFilesystemActive(true);
   // Now the background job will do the flush; wait for it.
-  dbfull()->TEST_WaitForFlushMemTable();
+  // Returns the IO error happend during flush.
+  ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable());
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("", FilesPerLevel());  // flush failed.
 #endif                             // ROCKSDB_LITE
@@ -126,7 +127,7 @@ TEST_F(DBFlushTest, SyncSkip) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   Reopen(options);
-  Put("key", "value");
+  ASSERT_OK(Put("key", "value"));
 
   FlushOptions flush_options;
   flush_options.wait = false;
@@ -136,7 +137,7 @@ TEST_F(DBFlushTest, SyncSkip) {
   TEST_SYNC_POINT("DBFlushTest::SyncSkip:2");
 
   // Now the background job will do the flush; wait for it.
-  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
   Destroy(options);
 }
@@ -171,9 +172,9 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   ASSERT_OK(Put("key", "val"));
   for (int i = 0; i < 4; ++i) {
     ASSERT_OK(Put("key", "val"));
-    dbfull()->TEST_WaitForFlushMemTable();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   }
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(4, num_flushes);
   ASSERT_EQ(1, num_compactions);
 }
@@ -306,7 +307,8 @@ TEST_F(DBFlushTest, ManualFlushFailsInReadOnlyMode) {
   // mode.
   fault_injection_env->SetFilesystemActive(false);
   ASSERT_OK(db_->ContinueBackgroundWork());
-  dbfull()->TEST_WaitForFlushMemTable();
+  // We ingested the error to env, so the returned status is not OK.
+  ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable());
 #ifndef ROCKSDB_LITE
   uint64_t num_bg_errors;
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBackgroundErrors,
@@ -713,7 +715,8 @@ TEST_P(DBAtomicFlushTest, AtomicFlushRollbackSomeJobs) {
   fault_injection_env->SetFilesystemActive(false);
   TEST_SYNC_POINT("DBAtomicFlushTest::AtomicFlushRollbackSomeJobs:2");
   for (auto* cfh : handles_) {
-    dbfull()->TEST_WaitForFlushMemTable(cfh);
+    // Returns the IO error happend during flush.
+    ASSERT_NOK(dbfull()->TEST_WaitForFlushMemTable(cfh));
   }
   for (size_t i = 0; i != num_cfs; ++i) {
     auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);

@@ -1465,7 +1465,9 @@ Status CompactionJob::FinishCompactionOutputFile(
           "CompactionJob::FinishCompactionOutputFile:"
           "MaxAllowedSpaceReached");
       InstrumentedMutexLock l(db_mutex_);
-      db_error_handler_->SetBGError(s, BackgroundErrorReason::kCompaction);
+      // Should handle return error?
+      db_error_handler_->SetBGError(s, BackgroundErrorReason::kCompaction)
+          .PermitUncheckedError();
     }
   }
 #endif
