@@ -156,9 +156,13 @@ TEST_F(DBBlobIndexTest, Write) {
   }
 }
 
-// Get should be able to return blob index if is_blob_index is provided,
-// otherwise it should return Status::NotSupported (when reading from memtable)
-// or Status::Corruption (when reading from SST).
+// Note: the following test case pertains to the StackableDB-based BlobDB
+// implementation. Get should be able to return blob index if is_blob_index is
+// provided, otherwise it should return Status::NotSupported (when reading from
+// memtable) or Status::Corruption (when reading from SST). Reading from SST
+// returns Corruption because we can't differentiate between the application
+// accidentally opening the base DB of a stacked BlobDB and actual corruption
+// when using the integrated BlobDB.
 TEST_F(DBBlobIndexTest, Get) {
   for (auto tier : kAllTiers) {
     DestroyAndReopen(GetTestOptions());
@@ -187,8 +191,10 @@ TEST_F(DBBlobIndexTest, Get) {
   }
 }
 
-// Get should NOT return Status::NotSupported/Status::Corruption if blob index
-// is updated with a normal value.
+// Note: the following test case pertains to the StackableDB-based BlobDB
+// implementation. Get should NOT return Status::NotSupported/Status::Corruption
+// if blob index is updated with a normal value. See the test case above for
+// more details.
 TEST_F(DBBlobIndexTest, Updated) {
   for (auto tier : kAllTiers) {
     DestroyAndReopen(GetTestOptions());
