@@ -11,6 +11,8 @@
 #include <cinttypes>
 #include <unordered_map>
 
+#include "env/mock_env.h"
+#include "file/filename.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -488,6 +490,114 @@ TEST_F(OptionsUtilTest, LoadLatestOptions) {
   DestroyDB(dbname_, options, cf_descs);
 }
 
+static void WriteOptionsFile(Env* env, const std::string& path,
+                             const std::string& options_file, int major,
+                             int minor, const std::string& db_opts,
+                             const std::string& cf_opts) {
+  std::string options_file_header =
+      "\n"
+      "[Version]\n"
+      "  rocksdb_version=" +
+      ToString(major) + "." + ToString(minor) +
+      ".0\n"
+      "  options_file_version=1\n";
+
+  std::unique_ptr<WritableFile> wf;
+  ASSERT_OK(env->NewWritableFile(path + "/" + options_file, &wf, EnvOptions()));
+  ASSERT_OK(
+      wf->Append(options_file_header + "[ DBOptions ]\n" + db_opts + "\n"));
+  ASSERT_OK(wf->Append(
+      "[CFOptions   \"default\"]  # column family must be specified\n" +
+      cf_opts + "\n"));
+  ASSERT_OK(wf->Close());
+
+  std::string latest_options_file;
+  ASSERT_OK(GetLatestOptionsFileName(path, env, &latest_options_file));
+  ASSERT_EQ(latest_options_file, options_file);
+}
+
+TEST_F(OptionsUtilTest, BadLatestOptions) {
+  Status s;
+  ConfigOptions config_opts;
+  DBOptions db_opts;
+  std::vector<ColumnFamilyDescriptor> cf_descs;
+  Options options;
+  options.env = env_.get();
+  config_opts.env = env_.get();
+  config_opts.ignore_unknown_options = false;
+  config_opts.delimiter = "\n";
+
+  ConfigOptions ignore_opts = config_opts;
+  ignore_opts.ignore_unknown_options = true;
+
+  std::string options_file_name;
+
+  // Test where the db directory exists but is empty
+  ASSERT_OK(options.env->CreateDir(dbname_));
+  ASSERT_NOK(
+      GetLatestOptionsFileName(dbname_, options.env, &options_file_name));
+  ASSERT_NOK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
+
+  // Write an options file for a previous major release with an unknown DB
+  // Option
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0001", ROCKSDB_MAJOR - 1,
+                   ROCKSDB_MINOR, "unknown_db_opt=true", "");
+  s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
+
+  // Write an options file for a previous minor release with an unknown CF
+  // Option
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0002", ROCKSDB_MAJOR,
+                   ROCKSDB_MINOR - 1, "", "unknown_cf_opt=true");
+  s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
+
+  // Write an options file for the current release with an unknown DB Option
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0003", ROCKSDB_MAJOR,
+                   ROCKSDB_MINOR, "unknown_db_opt=true", "");
+  s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
+
+  // Write an options file for the current release with an unknown CF Option
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0004", ROCKSDB_MAJOR,
+                   ROCKSDB_MINOR, "", "unknown_cf_opt=true");
+  s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
+
+  // Write an options file for the current release with an invalid DB Option
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0005", ROCKSDB_MAJOR,
+                   ROCKSDB_MINOR, "create_if_missing=hello", "");
+  s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
+
+  // Write an options file for the next release with an invalid DB Option
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0006", ROCKSDB_MAJOR,
+                   ROCKSDB_MINOR + 1, "create_if_missing=hello", "");
+  ASSERT_OK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
+  ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
+
+  // Write an options file for the next release with an unknown DB Option
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0007", ROCKSDB_MAJOR,
+                   ROCKSDB_MINOR + 1, "unknown_db_opt=true", "");
+  ASSERT_OK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
+  ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
+
+  // Write an options file for the next major release with an unknown CF Option
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0008", ROCKSDB_MAJOR + 1,
+                   ROCKSDB_MINOR, "", "unknown_cf_opt=true");
+  ASSERT_OK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
+  ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
