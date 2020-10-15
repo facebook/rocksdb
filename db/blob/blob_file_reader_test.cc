@@ -18,6 +18,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
+#include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/compression.h"
 #include "utilities/fault_injection_env.h"

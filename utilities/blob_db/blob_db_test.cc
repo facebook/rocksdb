@@ -1046,7 +1046,7 @@ TEST_F(BlobDBTest, MigrateFromPlainRocksDB) {
     if (data.count(key) == 0) {
       ASSERT_TRUE(s.IsNotFound());
     } else if (is_blob[i]) {
-      ASSERT_TRUE(s.IsNotSupported());
+      ASSERT_TRUE(s.IsCorruption());
     } else {
       ASSERT_OK(s);
       ASSERT_EQ(data[key], value);
