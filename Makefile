@@ -577,7 +577,9 @@ ifdef ASSERT_STATUS_CHECKED
 		lru_cache_test \
 		blob_file_addition_test \
 		blob_file_builder_test \
+		blob_file_cache_test \
 		blob_file_garbage_test \
+		blob_file_reader_test \
 		bloom_test \
 		cassandra_format_test \
 		cassandra_row_merge_test \
@@ -587,6 +589,8 @@ ifdef ASSERT_STATUS_CHECKED
 		crc32c_test \
 		dbformat_test \
 		db_basic_test \
+		db_blob_basic_test \
+		db_flush_test \
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
 		db_options_test \
@@ -611,11 +615,13 @@ ifdef ASSERT_STATUS_CHECKED
 		inlineskiplist_test \
 		io_posix_test \
 		iostats_context_test \
+		ldb_cmd_test \
 		memkind_kmem_allocator_test \
 		merger_test \
 		mock_env_test \
 		object_registry_test \
 		prefix_test \
+		plain_table_db_test \
 		repair_test \
 		configurable_test \
 		options_settable_test \
@@ -661,6 +667,10 @@ ifdef ASSERT_STATUS_CHECKED
 		column_family_test \
 		file_reader_writer_test \
 		corruption_test \
+		db_universal_compaction_test \
+		import_column_family_test \
+		memory_test \
+		table_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
@@ -679,6 +689,7 @@ endif
 # Not necessarily well thought out or up-to-date, but matches old list
 TESTS_PLATFORM_DEPENDENT := \
 	db_basic_test \
+	db_blob_basic_test \
 	db_with_timestamp_basic_test \
 	db_encryption_test \
 	db_test2 \
@@ -1454,6 +1465,9 @@ slice_transform_test: $(OBJ_DIR)/util/slice_transform_test.o $(TEST_LIBRARY) $(L
 db_basic_test: $(OBJ_DIR)/db/db_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_blob_basic_test: $(OBJ_DIR)/db/blob/db_blob_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 db_with_timestamp_basic_test: $(OBJ_DIR)/db/db_with_timestamp_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1906,7 +1920,13 @@ blob_file_addition_test: $(OBJ_DIR)/db/blob/blob_file_addition_test.o $(TEST_LIB
 blob_file_builder_test: $(OBJ_DIR)/db/blob/blob_file_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+blob_file_cache_test: $(OBJ_DIR)/db/blob/blob_file_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+blob_file_reader_test: $(OBJ_DIR)/db/blob/blob_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 timer_test: $(OBJ_DIR)/util/timer_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2040,8 +2060,8 @@ SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/archive
 LZ4_VER ?= 1.9.2
 LZ4_SHA256 ?= 658ba6191fa44c92280d4aa2c271b0f4fbc0e34d249578dd05e50e76d0e5efcc
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
-ZSTD_VER ?= 1.4.4
-ZSTD_SHA256 ?= a364f5162c7d1a455cc915e8e3cf5f4bd8b75d09bc0f53965b0c9ca1383c52c8
+ZSTD_VER ?= 1.4.5
+ZSTD_SHA256 ?= 734d1f565c42f691f8420c8d06783ad818060fc390dee43ae0a89f86d0a4f8c2
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 CURL_SSL_OPTS ?= --tlsv1
 

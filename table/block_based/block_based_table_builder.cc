@@ -496,13 +496,6 @@ struct BlockBasedTableBuilder::Rep {
   Rep(const Rep&) = delete;
   Rep& operator=(const Rep&) = delete;
 
-  ~Rep() {
-    // They are supposed to be passed back to users through Finish()
-    // if the file finishes.
-    status.PermitUncheckedError();
-    io_status.PermitUncheckedError();
-  }
-
  private:
   Status status;
   IOStatus io_status;
@@ -1708,6 +1701,8 @@ void BlockBasedTableBuilder::Abandon() {
     rep_->pc_rep->finished = true;
   }
   rep_->state = Rep::State::kClosed;
+  rep_->GetStatus().PermitUncheckedError();
+  rep_->GetIOStatus().PermitUncheckedError();
 }
 
 uint64_t BlockBasedTableBuilder::NumEntries() const {

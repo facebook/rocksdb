@@ -75,7 +75,6 @@ class WriteThread {
   struct Writer;
 
   struct WriteGroup {
-    ~WriteGroup() { status.PermitUncheckedError(); }
     Writer* leader = nullptr;
     Writer* last_writer = nullptr;
     SequenceNumber last_sequence;

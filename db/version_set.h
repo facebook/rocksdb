@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "cache/cache_helpers.h"
 #include "db/blob/blob_file_meta.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction.h"
@@ -776,6 +777,13 @@ class Version {
     return storage_info_.user_comparator_;
   }
 
+  // Interprets *value as a blob reference, and (assuming the corresponding
+  // blob file is part of this Version) retrieves the blob and saves it in
+  // *value, replacing the blob reference.
+  // REQUIRES: *value stores an encoded blob reference
+  Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                 PinnableSlice* value) const;
+
   // Returns true if the filter blocks in the specified level will not be
   // checked during read operations. In certain cases (trivial move or preload),
   // the filter block may already be cached, but we still do not access it such
@@ -800,6 +808,7 @@ class Version {
   Logger* info_log_;
   Statistics* db_statistics_;
   TableCache* table_cache_;
+  BlobFileCache* blob_file_cache_;
   const MergeOperator* merge_operator_;
 
   VersionStorageInfo storage_info_;
@@ -1150,6 +1159,10 @@ class VersionSet {
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
   void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
+    assert(table_cache_);
+
+    table_cache_->Erase(GetSlice(&blob_file_number));
+
     obsolete_blob_files_.emplace_back(blob_file_number, std::move(path));
   }
 
@@ -1265,6 +1278,7 @@ class VersionSet {
   WalSet wals_;
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
+  Cache* table_cache_;
   Env* const env_;
   FileSystemPtr const fs_;
   const std::string dbname_;

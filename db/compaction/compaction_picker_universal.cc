@@ -996,6 +996,9 @@ Compaction* UniversalCompactionBuilder::PickCompactionToOldest(
       comp_reason_print_string = "size amp";
     } else {
       assert(false);
+      comp_reason_print_string = "unknown: ";
+      comp_reason_print_string.append(
+          std::to_string(static_cast<int>(compaction_reason)));
     }
 
     char file_num_buf[256];

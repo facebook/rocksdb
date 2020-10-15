@@ -1871,6 +1871,95 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
   }
 }
 
+TEST_F(DBBasicTest, MultiGetStats) {
+  Options options;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1;
+  table_options.index_type =
+      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  table_options.partition_filters = true;
+  table_options.no_block_cache = true;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  int total_keys = 2000;
+  std::vector<std::string> keys_str(total_keys);
+  std::vector<Slice> keys(total_keys);
+  std::vector<PinnableSlice> values(total_keys);
+  std::vector<Status> s(total_keys);
+  ReadOptions read_opts;
+
+  Random rnd(309);
+  // Create Multiple SST files at multiple levels.
+  for (int i = 0; i < 500; ++i) {
+    keys_str[i] = "k" + std::to_string(i);
+    keys[i] = Slice(keys_str[i]);
+    ASSERT_OK(Put(1, "k" + std::to_string(i), rnd.RandomString(1000)));
+    if (i % 100 == 0) {
+      Flush(1);
+    }
+  }
+  Flush(1);
+  MoveFilesToLevel(2, 1);
+
+  for (int i = 501; i < 1000; ++i) {
+    keys_str[i] = "k" + std::to_string(i);
+    keys[i] = Slice(keys_str[i]);
+    ASSERT_OK(Put(1, "k" + std::to_string(i), rnd.RandomString(1000)));
+    if (i % 100 == 0) {
+      Flush(1);
+    }
+  }
+
+  Flush(1);
+  MoveFilesToLevel(2, 1);
+
+  for (int i = 1001; i < total_keys; ++i) {
+    keys_str[i] = "k" + std::to_string(i);
+    keys[i] = Slice(keys_str[i]);
+    ASSERT_OK(Put(1, "k" + std::to_string(i), rnd.RandomString(1000)));
+    if (i % 100 == 0) {
+      Flush(1);
+    }
+  }
+  Flush(1);
+  Close();
+
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  ASSERT_OK(options.statistics->Reset());
+
+  db_->MultiGet(read_opts, handles_[1], total_keys, keys.data(), values.data(),
+                s.data(), false);
+
+  ASSERT_EQ(values.size(), total_keys);
+  HistogramData hist_data_blocks;
+  HistogramData hist_index_and_filter_blocks;
+  HistogramData hist_sst;
+
+  options.statistics->histogramData(NUM_DATA_BLOCKS_READ_PER_LEVEL,
+                                    &hist_data_blocks);
+  options.statistics->histogramData(NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+                                    &hist_index_and_filter_blocks);
+  options.statistics->histogramData(NUM_SST_READ_PER_LEVEL, &hist_sst);
+
+  // Maximum number of blocks read from a file system in a level.
+  ASSERT_GT(hist_data_blocks.max, 0);
+  ASSERT_GT(hist_index_and_filter_blocks.max, 0);
+  // Maximum number of sst files read from file system in a level.
+  ASSERT_GT(hist_sst.max, 0);
+
+  // Minimun number of blocks read in a level.
+  ASSERT_EQ(hist_data_blocks.min, 0);
+  ASSERT_GT(hist_index_and_filter_blocks.min, 0);
+  // Minimun number of sst files read in a level.
+  ASSERT_GT(hist_sst.max, 0);
+}
+
 // Test class for batched MultiGet with prefix extractor
 // Param bool - If true, use partitioned filters
 //              If false, use full filter block

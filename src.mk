@@ -7,10 +7,12 @@ LIB_SOURCES =                                                   \
   db/arena_wrapped_db_iter.cc                                   \
   db/blob/blob_file_addition.cc                                 \
   db/blob/blob_file_builder.cc                                  \
+  db/blob/blob_file_cache.cc                                    \
   db/blob/blob_file_garbage.cc                                  \
   db/blob/blob_file_meta.cc                                     \
+  db/blob/blob_file_reader.cc                                   \
   db/blob/blob_log_format.cc                                    \
-  db/blob/blob_log_reader.cc                                    \
+  db/blob/blob_log_sequential_reader.cc                         \
   db/blob/blob_log_writer.cc                                    \
   db/builder.cc                                                 \
   db/c.cc                                                       \
@@ -355,7 +357,10 @@ TEST_MAIN_SOURCES =                                                     \
   cache/lru_cache_test.cc                                               \
   db/blob/blob_file_addition_test.cc                                    \
   db/blob/blob_file_builder_test.cc                                     \
+  db/blob/blob_file_cache_test.cc                                       \
   db/blob/blob_file_garbage_test.cc                                     \
+  db/blob/blob_file_reader_test.cc                                      \
+  db/blob/db_blob_basic_test.cc                                         \
   db/blob/db_blob_index_test.cc                                         \
   db/column_family_test.cc                                              \
   db/compact_files_test.cc                                              \
@@ -550,6 +555,8 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/config_options.cc                             \
   java/rocksjni/env.cc                                        \
   java/rocksjni/env_options.cc                                \
+  java/rocksjni/event_listener.cc                             \
+  java/rocksjni/event_listener_jnicallback.cc                 \
   java/rocksjni/ingest_external_file_options.cc               \
   java/rocksjni/filter.cc                                     \
   java/rocksjni/iterator.cc                                   \
@@ -596,6 +603,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/transaction_notifier.cc                       \
   java/rocksjni/transaction_notifier_jnicallback.cc           \
   java/rocksjni/ttl.cc                                        \
+  java/rocksjni/testable_event_listener.cc                    \
   java/rocksjni/wal_filter.cc                                 \
   java/rocksjni/wal_filter_jnicallback.cc                     \
   java/rocksjni/write_batch.cc                                \

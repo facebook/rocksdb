@@ -61,29 +61,6 @@ std::string BlobFile::PathName() const {
   return BlobFileName(path_to_dir_, file_number_);
 }
 
-std::shared_ptr<BlobLogReader> BlobFile::OpenRandomAccessReader(
-    Env* env, const DBOptions& db_options,
-    const EnvOptions& env_options) const {
-  constexpr size_t kReadaheadSize = 2 * 1024 * 1024;
-  std::unique_ptr<RandomAccessFile> sfile;
-  std::string path_name(PathName());
-  Status s = env->NewRandomAccessFile(path_name, &sfile, env_options);
-  if (!s.ok()) {
-    // report something here.
-    return nullptr;
-  }
-  sfile = NewReadaheadRandomAccessFile(std::move(sfile), kReadaheadSize);
-
-  std::unique_ptr<RandomAccessFileReader> sfile_reader;
-  sfile_reader.reset(new RandomAccessFileReader(
-      NewLegacyRandomAccessFileWrapper(sfile), path_name));
-
-  std::shared_ptr<BlobLogReader> log_reader = std::make_shared<BlobLogReader>(
-      std::move(sfile_reader), db_options.env, db_options.statistics.get());
-
-  return log_reader;
-}
-
 std::string BlobFile::DumpState() const {
   char str[1000];
   snprintf(

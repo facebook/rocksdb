@@ -10,14 +10,16 @@
 #ifndef JAVA_ROCKSJNI_PORTAL_H_
 #define JAVA_ROCKSJNI_PORTAL_H_
 
+#include <jni.h>
+
 #include <algorithm>
 #include <cstring>
 #include <functional>
 #include <iostream>
 #include <iterator>
-#include <jni.h>
 #include <limits>
 #include <memory>
+#include <set>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -34,6 +36,7 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
+#include "rocksjni/event_listener_jnicallback.h"
 #include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/table_filter_jnicallback.h"
 #include "rocksjni/trace_writer_jnicallback.h"
@@ -223,7 +226,7 @@ class CodeJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getValueMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -261,7 +264,7 @@ class SubCodeJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getValueMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -326,7 +329,7 @@ class StatusJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getCodeMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -347,7 +350,7 @@ class StatusJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getSubCodeMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -368,7 +371,7 @@ class StatusJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getStateMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -436,6 +439,10 @@ class StatusJni
     }
 
     return jstatus;
+  }
+
+  static jobject construct(JNIEnv* env, const Status* status) {
+    return construct(env, *status);
   }
 
   // Returns the equivalent org.rocksdb.Status.Code for the provided
@@ -934,7 +941,7 @@ class RocksDBExceptionJni :
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getStatusMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -1025,7 +1032,7 @@ class ListJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getIteratorMethod(JNIEnv* env) {
     jclass jlist_clazz = getListClass(env);
@@ -1046,7 +1053,7 @@ class ListJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getHasNextMethod(JNIEnv* env) {
     jclass jiterator_clazz = getIteratorClass(env);
@@ -1066,7 +1073,7 @@ class ListJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getNextMethod(JNIEnv* env) {
     jclass jiterator_clazz = getIteratorClass(env);
@@ -1087,7 +1094,7 @@ class ListJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getArrayListConstructorMethodId(JNIEnv* env) {
     jclass jarray_list_clazz = getArrayListClass(env);
@@ -1107,7 +1114,7 @@ class ListJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getListAddMethodId(JNIEnv* env) {
     jclass jlist_clazz = getListClass(env);
@@ -1244,10 +1251,11 @@ class ByteBufferJni : public JavaClass {
    * Get the Java Method: ByteBuffer#allocate
    *
    * @param env A pointer to the Java environment
-   * @param jbytebuffer_clazz if you have a reference to a ByteBuffer class, or nullptr
+   * @param jbytebuffer_clazz if you have a reference to a ByteBuffer class, or
+   * nullptr
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getAllocateMethodId(JNIEnv* env,
       jclass jbytebuffer_clazz = nullptr) {
@@ -1270,7 +1278,7 @@ class ByteBufferJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getArrayMethodId(JNIEnv* env,
       jclass jbytebuffer_clazz = nullptr) {
@@ -1479,7 +1487,7 @@ class StringBuilderJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getListAddMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -2366,7 +2374,7 @@ class MapJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMapPutMethodId(JNIEnv* env) {
     jclass jlist_clazz = getJClass(env);
@@ -2898,7 +2906,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getPutCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -2918,7 +2926,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getPutMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -2938,7 +2946,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMergeCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -2958,7 +2966,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMergeMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -2978,7 +2986,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getDeleteCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -2998,7 +3006,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getDeleteMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3018,7 +3026,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getSingleDeleteCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3038,7 +3046,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getSingleDeleteMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3058,7 +3066,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getDeleteRangeCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3078,7 +3086,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getDeleteRangeMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3098,7 +3106,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getLogDataMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3118,7 +3126,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getPutBlobIndexCfMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3138,7 +3146,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMarkBeginPrepareMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3158,7 +3166,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMarkEndPrepareMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3178,7 +3186,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMarkNoopMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3198,7 +3206,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMarkRollbackMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3218,7 +3226,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getMarkCommitMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3238,7 +3246,7 @@ class WriteBatchHandlerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getContinueMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3274,7 +3282,7 @@ class WriteBatchSavePointJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getConstructorMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3365,7 +3373,7 @@ class HistogramDataJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getConstructorMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3461,6 +3469,19 @@ class ColumnFamilyHandleJni
     : public RocksDBNativeClass<ROCKSDB_NAMESPACE::ColumnFamilyHandle*,
                                 ColumnFamilyHandleJni> {
  public:
+  static jobject fromCppColumnFamilyHandle(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::ColumnFamilyHandle* info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    return env->NewObject(jclazz, ctor, reinterpret_cast<jlong>(info));
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>", "(J)V");
+  }
+
   /**
    * Get the Java Class org.rocksdb.ColumnFamilyHandle
    *
@@ -3541,7 +3562,7 @@ class AbstractCompactionFilterFactoryJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getNameMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3562,7 +3583,7 @@ class AbstractCompactionFilterFactoryJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getCreateCompactionFilterMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3629,7 +3650,7 @@ class AbstractComparatorJniBridge : public JavaClass {
    * @param jclazz the AbstractComparatorJniBridge class
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getCompareInternalMethodId(JNIEnv* env, jclass jclazz) {
     static jmethodID mid =
@@ -3646,7 +3667,7 @@ class AbstractComparatorJniBridge : public JavaClass {
    * @param jclazz the AbstractComparatorJniBridge class
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getFindShortestSeparatorInternalMethodId(JNIEnv* env, jclass jclazz) {
     static jmethodID mid =
@@ -3663,7 +3684,7 @@ class AbstractComparatorJniBridge : public JavaClass {
    * @param jclazz the AbstractComparatorJniBridge class
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getFindShortSuccessorInternalMethodId(JNIEnv* env, jclass jclazz) {
     static jmethodID mid =
@@ -3699,7 +3720,7 @@ class AbstractComparatorJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getNameMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -3996,7 +4017,7 @@ class WBWIRocksIteratorJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Field ID or nullptr if the class or field id could not
-   *     be retieved
+   *     be retrieved
    */
   static jfieldID getWriteEntryField(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -4317,7 +4338,7 @@ class LoggerJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getLogMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -5385,6 +5406,13 @@ class HistogramTypeJni {
         return 0x2D;
       case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS:
         return 0x2E;
+      case ROCKSDB_NAMESPACE::Histograms::
+          NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL:
+        return 0x2F;
+      case ROCKSDB_NAMESPACE::Histograms::NUM_DATA_BLOCKS_READ_PER_LEVEL:
+        return 0x30;
+      case ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL:
+        return 0x31;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5492,6 +5520,13 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_COMPRESSION_MICROS;
       case 0x2E:
         return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS;
+      case 0x2F:
+        return ROCKSDB_NAMESPACE::Histograms::
+            NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL;
+      case 0x30:
+        return ROCKSDB_NAMESPACE::Histograms::NUM_DATA_BLOCKS_READ_PER_LEVEL;
+      case 0x31:
+        return ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;
@@ -5684,7 +5719,8 @@ class TransactionJni : public JavaClass {
       return nullptr;
     }
 
-    jlong *body = env->GetLongArrayElements(jtransaction_ids, nullptr);
+    jboolean is_copy;
+    jlong* body = env->GetLongArrayElements(jtransaction_ids, &is_copy);
     if(body == nullptr) {
         // exception thrown: OutOfMemoryError
         env->DeleteLocalRef(jkey);
@@ -5694,7 +5730,8 @@ class TransactionJni : public JavaClass {
     for(size_t i = 0; i < len; ++i) {
       body[i] = static_cast<jlong>(transaction_ids[i]);
     }
-    env->ReleaseLongArrayElements(jtransaction_ids, body, 0);
+    env->ReleaseLongArrayElements(jtransaction_ids, body,
+                                  is_copy == JNI_TRUE ? 0 : JNI_ABORT);
 
     jobject jwaiting_transactions = env->CallObjectMethod(jtransaction,
       mid, static_cast<jlong>(column_family_id), jkey, jtransaction_ids);
@@ -5965,7 +6002,7 @@ class AbstractTableFilterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getFilterMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -6235,7 +6272,7 @@ class ColumnFamilyDescriptorJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getColumnFamilyNameMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -6255,7 +6292,7 @@ class ColumnFamilyDescriptorJni : public JavaClass {
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getColumnFamilyOptionsMethod(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -6749,7 +6786,8 @@ class ThreadStatusJni : public JavaClass {
       env->DeleteLocalRef(jcf_name);
       return nullptr;
     }
-    jlong *body = env->GetLongArrayElements(joperation_properties, nullptr);
+    jboolean is_copy;
+    jlong* body = env->GetLongArrayElements(joperation_properties, &is_copy);
     if (body == nullptr) {
         // exception thrown: OutOfMemoryError
         env->DeleteLocalRef(jdb_name);
@@ -6760,7 +6798,8 @@ class ThreadStatusJni : public JavaClass {
     for (size_t i = 0; i < len; ++i) {
       body[i] = static_cast<jlong>(thread_status->op_properties[i]);
     }
-    env->ReleaseLongArrayElements(joperation_properties, body, 0);
+    env->ReleaseLongArrayElements(joperation_properties, body,
+                                  is_copy == JNI_TRUE ? 0 : JNI_ABORT);
 
     jobject jcfd = env->NewObject(jclazz, mid,
         static_cast<jlong>(thread_status->thread_id),
@@ -7381,7 +7420,7 @@ class AbstractTraceWriterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getWriteProxyMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -7402,7 +7441,7 @@ class AbstractTraceWriterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getCloseWriterProxyMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -7423,7 +7462,7 @@ class AbstractTraceWriterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getGetFileSizeMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -7464,7 +7503,7 @@ class AbstractWalFilterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getColumnFamilyLogNumberMapMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -7486,7 +7525,7 @@ class AbstractWalFilterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getLogRecordFoundProxyMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -7507,7 +7546,7 @@ class AbstractWalFilterJni
    * @param env A pointer to the Java environment
    *
    * @return The Java Method ID or nullptr if the class or method id could not
-   *     be retieved
+   *     be retrieved
    */
   static jmethodID getNameMethodId(JNIEnv* env) {
     jclass jclazz = getJClass(env);
@@ -7643,6 +7682,761 @@ class SanityLevelJni {
         // undefined/default
         return ROCKSDB_NAMESPACE::ConfigOptions::kSanityLevelExactMatch;
     }
+  }
+};
+
+// The portal class for org.rocksdb.AbstractListener.EnabledEventCallback
+class EnabledEventCallbackJni {
+ public:
+  // Returns the set of equivalent C++
+  // rocksdb::EnabledEventCallbackJni::EnabledEventCallback enums for
+  // the provided Java jenabled_event_callback_values
+  static std::set<EnabledEventCallback> toCppEnabledEventCallbacks(
+      jlong jenabled_event_callback_values) {
+    std::set<EnabledEventCallback> enabled_event_callbacks;
+    for (size_t i = 0; i < EnabledEventCallback::NUM_ENABLED_EVENT_CALLBACK;
+         ++i) {
+      if (((1ULL << i) & jenabled_event_callback_values) > 0) {
+        enabled_event_callbacks.emplace(static_cast<EnabledEventCallback>(i));
+      }
+    }
+    return enabled_event_callbacks;
+  }
+};
+
+// The portal class for org.rocksdb.AbstractEventListener
+class AbstractEventListenerJni
+    : public RocksDBNativeClass<
+          const ROCKSDB_NAMESPACE::EventListenerJniCallback*,
+          AbstractEventListenerJni> {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.AbstractEventListener
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+                                         "org/rocksdb/AbstractEventListener");
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onFlushCompletedProxy
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnFlushCompletedProxyMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(jclazz, "onFlushCompletedProxy",
+                                            "(JLorg/rocksdb/FlushJobInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onFlushBeginProxy
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnFlushBeginProxyMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(jclazz, "onFlushBeginProxy",
+                                            "(JLorg/rocksdb/FlushJobInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onTableFileDeleted
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnTableFileDeletedMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "onTableFileDeleted", "(Lorg/rocksdb/TableFileDeletionInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onCompactionBeginProxy
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnCompactionBeginProxyMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "onCompactionBeginProxy",
+                         "(JLorg/rocksdb/CompactionJobInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onCompactionCompletedProxy
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnCompactionCompletedProxyMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "onCompactionCompletedProxy",
+                         "(JLorg/rocksdb/CompactionJobInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onTableFileCreated
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnTableFileCreatedMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "onTableFileCreated", "(Lorg/rocksdb/TableFileCreationInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onTableFileCreationStarted
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnTableFileCreationStartedMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "onTableFileCreationStarted",
+                         "(Lorg/rocksdb/TableFileCreationBriefInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onMemTableSealed
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnMemTableSealedMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(jclazz, "onMemTableSealed",
+                                            "(Lorg/rocksdb/MemTableInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method:
+   * AbstractEventListener#onColumnFamilyHandleDeletionStarted
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnColumnFamilyHandleDeletionStartedMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "onColumnFamilyHandleDeletionStarted",
+                         "(Lorg/rocksdb/ColumnFamilyHandle;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onExternalFileIngestedProxy
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnExternalFileIngestedProxyMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "onExternalFileIngestedProxy",
+                         "(JLorg/rocksdb/ExternalFileIngestionInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onBackgroundError
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnBackgroundErrorProxyMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(jclazz, "onBackgroundErrorProxy",
+                                            "(BLorg/rocksdb/Status;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onStallConditionsChanged
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnStallConditionsChangedMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(jclazz, "onStallConditionsChanged",
+                                            "(Lorg/rocksdb/WriteStallInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onFileReadFinish
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnFileReadFinishMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "onFileReadFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onFileWriteFinish
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnFileWriteFinishMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "onFileWriteFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#OnFileFlushFinish
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnFileFlushFinishMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "OnFileFlushFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#OnFileSyncFinish
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnFileSyncFinishMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "OnFileSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#OnFileRangeSyncFinish
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnFileRangeSyncFinishMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "OnFileRangeSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#OnFileTruncateFinish
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnFileTruncateFinishMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "OnFileTruncateFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#OnFileCloseFinish
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnFileCloseFinishMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "OnFileCloseFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#shouldBeNotifiedOnFileIO
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getShouldBeNotifiedOnFileIOMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "shouldBeNotifiedOnFileIO", "()Z");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onErrorRecoveryBeginProxy
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnErrorRecoveryBeginProxyMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(jclazz, "onErrorRecoveryBeginProxy",
+                                            "(BLorg/rocksdb/Status;)Z");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractEventListener#onErrorRecoveryCompleted
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID
+   */
+  static jmethodID getOnErrorRecoveryCompletedMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID mid = env->GetMethodID(jclazz, "onErrorRecoveryCompleted",
+                                            "(Lorg/rocksdb/Status;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
+
+class FlushJobInfoJni : public JavaClass {
+ public:
+  /**
+   * Create a new Java org.rocksdb.FlushJobInfo object.
+   *
+   * @param env A pointer to the Java environment
+   * @param flush_job_info A Cpp flush job info object
+   *
+   * @return A reference to a Java org.rocksdb.FlushJobInfo object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject fromCppFlushJobInfo(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::FlushJobInfo* flush_job_info) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring jcf_name = JniUtil::toJavaString(env, &flush_job_info->cf_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    jstring jfile_path = JniUtil::toJavaString(env, &flush_job_info->file_path);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jfile_path);
+      return nullptr;
+    }
+    jobject jtable_properties = TablePropertiesJni::fromCppTableProperties(
+        env, flush_job_info->table_properties);
+    if (jtable_properties == nullptr) {
+      env->DeleteLocalRef(jcf_name);
+      env->DeleteLocalRef(jfile_path);
+      return nullptr;
+    }
+    return env->NewObject(
+        jclazz, ctor, static_cast<jlong>(flush_job_info->cf_id), jcf_name,
+        jfile_path, static_cast<jlong>(flush_job_info->thread_id),
+        static_cast<jint>(flush_job_info->job_id),
+        static_cast<jboolean>(flush_job_info->triggered_writes_slowdown),
+        static_cast<jboolean>(flush_job_info->triggered_writes_stop),
+        static_cast<jlong>(flush_job_info->smallest_seqno),
+        static_cast<jlong>(flush_job_info->largest_seqno), jtable_properties,
+        static_cast<jbyte>(flush_job_info->flush_reason));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/FlushJobInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>",
+                            "(JLjava/lang/String;Ljava/lang/String;JIZZJJLorg/"
+                            "rocksdb/TableProperties;B)V");
+  }
+};
+
+class TableFileDeletionInfoJni : public JavaClass {
+ public:
+  /**
+   * Create a new Java org.rocksdb.TableFileDeletionInfo object.
+   *
+   * @param env A pointer to the Java environment
+   * @param file_del_info A Cpp table file deletion info object
+   *
+   * @return A reference to a Java org.rocksdb.TableFileDeletionInfo object, or
+   * nullptr if an an exception occurs
+   */
+  static jobject fromCppTableFileDeletionInfo(
+      JNIEnv* env,
+      const ROCKSDB_NAMESPACE::TableFileDeletionInfo* file_del_info) {
+    jclass jclazz = getJClass(env);
+    if (jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring jdb_name = JniUtil::toJavaString(env, &file_del_info->db_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    jobject jstatus = StatusJni::construct(env, file_del_info->status);
+    if (jstatus == nullptr) {
+      env->DeleteLocalRef(jdb_name);
+      return nullptr;
+    }
+    return env->NewObject(jclazz, ctor, jdb_name,
+                          JniUtil::toJavaString(env, &file_del_info->file_path),
+                          static_cast<jint>(file_del_info->job_id), jstatus);
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/TableFileDeletionInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(
+        clazz, "<init>",
+        "(Ljava/lang/String;Ljava/lang/String;ILorg/rocksdb/Status;)V");
+  }
+};
+
+class CompactionJobInfoJni : public JavaClass {
+ public:
+  static jobject fromCppCompactionJobInfo(
+      JNIEnv* env,
+      const ROCKSDB_NAMESPACE::CompactionJobInfo* compaction_job_info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    return env->NewObject(jclazz, ctor,
+                          reinterpret_cast<jlong>(compaction_job_info));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/CompactionJobInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>", "(J)V");
+  }
+};
+
+class TableFileCreationInfoJni : public JavaClass {
+ public:
+  static jobject fromCppTableFileCreationInfo(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::TableFileCreationInfo* info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring jdb_name = JniUtil::toJavaString(env, &info->db_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    jstring jcf_name = JniUtil::toJavaString(env, &info->cf_name);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jdb_name);
+      return nullptr;
+    }
+    jstring jfile_path = JniUtil::toJavaString(env, &info->file_path);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jdb_name);
+      env->DeleteLocalRef(jcf_name);
+      return nullptr;
+    }
+    jobject jtable_properties =
+        TablePropertiesJni::fromCppTableProperties(env, info->table_properties);
+    if (jtable_properties == nullptr) {
+      env->DeleteLocalRef(jdb_name);
+      env->DeleteLocalRef(jcf_name);
+      return nullptr;
+    }
+    jobject jstatus = StatusJni::construct(env, info->status);
+    if (jstatus == nullptr) {
+      env->DeleteLocalRef(jdb_name);
+      env->DeleteLocalRef(jcf_name);
+      env->DeleteLocalRef(jtable_properties);
+      return nullptr;
+    }
+    return env->NewObject(jclazz, ctor, static_cast<jlong>(info->file_size),
+                          jtable_properties, jstatus, jdb_name, jcf_name,
+                          jfile_path, static_cast<jint>(info->job_id),
+                          static_cast<jbyte>(info->reason));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/TableFileCreationInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(
+        clazz, "<init>",
+        "(JLorg/rocksdb/TableProperties;Lorg/rocksdb/Status;Ljava/lang/"
+        "String;Ljava/lang/String;Ljava/lang/String;IB)V");
+  }
+};
+
+class TableFileCreationBriefInfoJni : public JavaClass {
+ public:
+  static jobject fromCppTableFileCreationBriefInfo(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::TableFileCreationBriefInfo* info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring jdb_name = JniUtil::toJavaString(env, &info->db_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    jstring jcf_name = JniUtil::toJavaString(env, &info->cf_name);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jdb_name);
+      return nullptr;
+    }
+    jstring jfile_path = JniUtil::toJavaString(env, &info->file_path);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jdb_name);
+      env->DeleteLocalRef(jcf_name);
+      return nullptr;
+    }
+    return env->NewObject(jclazz, ctor, jdb_name, jcf_name, jfile_path,
+                          static_cast<jint>(info->job_id),
+                          static_cast<jbyte>(info->reason));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/TableFileCreationBriefInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(
+        clazz, "<init>",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IB)V");
+  }
+};
+
+class MemTableInfoJni : public JavaClass {
+ public:
+  static jobject fromCppMemTableInfo(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::MemTableInfo* info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring jcf_name = JniUtil::toJavaString(env, &info->cf_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    return env->NewObject(jclazz, ctor, jcf_name,
+                          static_cast<jlong>(info->first_seqno),
+                          static_cast<jlong>(info->earliest_seqno),
+                          static_cast<jlong>(info->num_entries),
+                          static_cast<jlong>(info->num_deletes));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/MemTableInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>", "(Ljava/lang/String;JJJJ)V");
+  }
+};
+
+class ExternalFileIngestionInfoJni : public JavaClass {
+ public:
+  static jobject fromCppExternalFileIngestionInfo(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::ExternalFileIngestionInfo* info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring jcf_name = JniUtil::toJavaString(env, &info->cf_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    jstring jexternal_file_path =
+        JniUtil::toJavaString(env, &info->external_file_path);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jcf_name);
+      return nullptr;
+    }
+    jstring jinternal_file_path =
+        JniUtil::toJavaString(env, &info->internal_file_path);
+    if (env->ExceptionCheck()) {
+      env->DeleteLocalRef(jcf_name);
+      env->DeleteLocalRef(jexternal_file_path);
+      return nullptr;
+    }
+    jobject jtable_properties =
+        TablePropertiesJni::fromCppTableProperties(env, info->table_properties);
+    if (jtable_properties == nullptr) {
+      env->DeleteLocalRef(jcf_name);
+      env->DeleteLocalRef(jexternal_file_path);
+      env->DeleteLocalRef(jinternal_file_path);
+      return nullptr;
+    }
+    return env->NewObject(
+        jclazz, ctor, jcf_name, jexternal_file_path, jinternal_file_path,
+        static_cast<jlong>(info->global_seqno), jtable_properties);
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/ExternalFileIngestionInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>",
+                            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/"
+                            "String;JLorg/rocksdb/TableProperties;)V");
+  }
+};
+
+class WriteStallInfoJni : public JavaClass {
+ public:
+  static jobject fromCppWriteStallInfo(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::WriteStallInfo* info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring jcf_name = JniUtil::toJavaString(env, &info->cf_name);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    return env->NewObject(jclazz, ctor, jcf_name,
+                          static_cast<jbyte>(info->condition.cur),
+                          static_cast<jbyte>(info->condition.prev));
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/WriteStallInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>", "(Ljava/lang/String;BB)V");
+  }
+};
+
+class FileOperationInfoJni : public JavaClass {
+ public:
+  static jobject fromCppFileOperationInfo(
+      JNIEnv* env, const ROCKSDB_NAMESPACE::FileOperationInfo* info) {
+    jclass jclazz = getJClass(env);
+    assert(jclazz != nullptr);
+    static jmethodID ctor = getConstructorMethodId(env, jclazz);
+    assert(ctor != nullptr);
+    jstring jpath = JniUtil::toJavaString(env, &info->path);
+    if (env->ExceptionCheck()) {
+      return nullptr;
+    }
+    jobject jstatus = StatusJni::construct(env, info->status);
+    if (jstatus == nullptr) {
+      env->DeleteLocalRef(jpath);
+      return nullptr;
+    }
+    return env->NewObject(
+        jclazz, ctor, jpath, static_cast<jlong>(info->offset),
+        static_cast<jlong>(info->length),
+        static_cast<jlong>(info->start_ts.time_since_epoch().count()),
+        static_cast<jlong>(info->duration.count()), jstatus);
+  }
+
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/FileOperationInfo");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env, jclass clazz) {
+    return env->GetMethodID(clazz, "<init>",
+                            "(Ljava/lang/String;JJJJLorg/rocksdb/Status;)V");
   }
 };
 }  // namespace ROCKSDB_NAMESPACE
