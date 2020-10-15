@@ -367,6 +367,15 @@ class StackableDB : public DB {
   using DB::EndBlockCacheTrace;
   Status EndBlockCacheTrace() override { return db_->EndBlockCacheTrace(); }
 
+  using DB::StartIOTrace;
+  Status StartIOTrace(Env* env, const TraceOptions& options,
+                      std::unique_ptr<TraceWriter>&& trace_writer) override {
+    return db_->StartIOTrace(env, options, std::move(trace_writer));
+  }
+
+  using DB::EndIOTrace;
+  Status EndIOTrace() override { return db_->EndIOTrace(); }
+
 #endif  // ROCKSDB_LITE
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,

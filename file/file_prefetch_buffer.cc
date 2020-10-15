@@ -91,17 +91,19 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
   size_t read_len = static_cast<size_t>(roundup_len - chunk_len);
   s = reader->Read(opts, rounddown_offset + chunk_len, read_len, &result,
                    buffer_.BufferStart() + chunk_len, nullptr, for_compaction);
+  if (!s.ok()) {
+    return s;
+  }
+
 #ifndef NDEBUG
-  if (!s.ok() || result.size() < read_len) {
+  if (result.size() < read_len) {
     // Fake an IO error to force db_stress fault injection to ignore
     // truncated read errors
     IGNORE_STATUS_IF_ERROR(Status::IOError());
   }
 #endif
-  if (s.ok()) {
-    buffer_offset_ = rounddown_offset;
-    buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
-  }
+  buffer_offset_ = rounddown_offset;
+  buffer_.Size(static_cast<size_t>(chunk_len) + result.size());
   return s;
 }
 

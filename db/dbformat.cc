@@ -78,9 +78,8 @@ void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
 }
 
 std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
-
   std::string result = "key:";
-  if (log_err_key) 
+  if (log_err_key)
     result += user_key.ToString(hex);
   else
     result += "<redacted>";

@@ -334,8 +334,8 @@ inline Status ParseInternalKey(const Slice& internal_key,
   const size_t n = internal_key.size();
 
   if (n < kNumInternalBytes) {
-    return Status::Corruption(
-        "Corrupted Key: Internal Key too small. Size=" + std::to_string(n) + ". ");
+    return Status::Corruption("Corrupted Key: Internal Key too small. Size=" +
+                              std::to_string(n) + ". ");
   }
 
   uint64_t num = DecodeFixed64(internal_key.data() + n - kNumInternalBytes);
