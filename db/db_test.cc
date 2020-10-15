@@ -4617,6 +4617,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
 
   Random rnd(301);
   Options options;
+  options.env = env_;
   options.create_if_missing = true;
   options.db_write_buffer_size = 20480;
   options.write_buffer_size = 20480;
