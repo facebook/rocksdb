@@ -1467,7 +1467,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                       !kSeqPerBatch, kBatchPerTxn);
 }
 
-IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
+IOStatus DBImpl::CreateWAL(bool is_db_mutex_locked, uint64_t log_file_num,
+                           uint64_t recycle_log_number,
                            size_t preallocate_block_size,
                            log::Writer** new_log) {
   IOStatus io_s;
@@ -1505,6 +1506,27 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
     *new_log = new log::Writer(std::move(file_writer), log_file_num,
                                immutable_db_options_.recycle_log_file_num > 0,
                                immutable_db_options_.manual_wal_flush);
+
+    if (immutable_db_options_.track_and_verify_wals_in_manifest) {
+      // Track the WAL creation event to MANIFEST.
+      if (!is_db_mutex_locked) {
+        mutex_.Lock();
+      } else {
+        mutex_.AssertHeld();
+      }
+
+      VersionEdit edit;
+      edit.AddWal(log_file_num);
+      Status s = versions_->LogAndApplyToDefaultColumnFamily(&edit, &mutex_);
+      if (!s.ok()) {
+        io_s = IOStatus::IOError("Failed to log WAL creation to MANIFEST",
+                                 s.ToString());
+      }
+
+      if (!is_db_mutex_locked) {
+        mutex_.Unlock();
+      }
+    }
   }
   return io_s;
 }
@@ -1576,8 +1598,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     log::Writer* new_log = nullptr;
     const size_t preallocate_block_size =
         impl->GetWalPreallocateBlockSize(max_write_buffer_size);
-    s = impl->CreateWAL(new_log_number, 0 /*recycle_log_number*/,
-                        preallocate_block_size, &new_log);
+    s = impl->CreateWAL(/* is_db_mutex_locked = */ true, new_log_number,
+                        0 /*recycle_log_number*/, preallocate_block_size,
+                        &new_log);
     if (s.ok()) {
       InstrumentedMutexLock wl(&impl->log_write_mutex_);
       impl->logfile_number_ = new_log_number;
