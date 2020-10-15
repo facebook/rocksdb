@@ -329,9 +329,11 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg,
 
 void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
                                    int64_t key) const {
+  auto key_str = Key(key);
+  Slice key_slice = key_str;
   fprintf(stderr,
-          "Verification failed for column family %d key %" PRIi64 ": %s\n", cf,
-          key, msg.c_str());
+          "Verification failed for column family %d key %s (%" PRIi64 "): %s\n",
+          cf, key_slice.ToString(true).c_str(), key, msg.c_str());
   shared->SetVerificationFailure();
 }
 

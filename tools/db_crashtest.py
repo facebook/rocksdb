@@ -25,7 +25,6 @@ import argparse
 #   for txn:
 #       default_params < {blackbox,whitebox}_default_params < txn_params < args
 
-expected_values_file = tempfile.NamedTemporaryFile()
 
 default_params = {
     "acquire_snapshot_one_in": 10000,
@@ -59,7 +58,7 @@ default_params = {
     "destroy_db_initially": 0,
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "enable_compaction_filter": lambda: random.choice([0, 0, 0, 1]),
-    "expected_values_path": expected_values_file.name,
+    "expected_values_path": lambda: setup_expected_values_file(),
     "flush_one_in": 1000000,
     "file_checksum_impl": lambda: random.choice(["none", "crc32c", "xxh64", "big"]),
     "get_live_files_one_in": 1000000,
@@ -158,6 +157,24 @@ def get_dbname(test_name):
         shutil.rmtree(dbname, True)
         os.mkdir(dbname)
     return dbname
+
+expected_values_file = None
+def setup_expected_values_file():
+    global expected_values_file
+    if expected_values_file is not None:
+        return expected_values_file
+    expected_file_name = "rocksdb_crashtest_" + "expected"
+    test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
+    if test_tmpdir is None or test_tmpdir == "":
+        expected_values_file = tempfile.NamedTemporaryFile(
+            prefix=expected_file_name, delete=False).name
+    else:
+        # if tmpdir is specified, store the expected_values_file in the same dir
+        expected_values_file = test_tmpdir + "/" + expected_file_name
+        if os.path.exists(expected_values_file):
+            os.remove(expected_values_file)
+        open(expected_values_file, 'a').close()
+    return expected_values_file
 
 
 def is_direct_io_supported(dbname):
@@ -618,6 +635,10 @@ def main():
         blackbox_crash_main(args, unknown_args)
     if args.test_type == 'whitebox':
         whitebox_crash_main(args, unknown_args)
+    # Only delete the `expected_values_file` if test passes
+    if os.path.exists(expected_values_file):
+        os.remove(expected_values_file)
+
 
 if __name__ == '__main__':
     main()

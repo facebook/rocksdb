@@ -209,7 +209,6 @@ Status PlainTableBuilder::Finish() {
 
   if (store_index_in_file_ && (properties_.num_entries > 0)) {
     assert(properties_.num_entries <= std::numeric_limits<uint32_t>::max());
-    Status s;
     BlockHandle bloom_block_handle;
     if (bloom_bits_per_key_ > 0) {
       bloom_block_.SetTotalBits(
