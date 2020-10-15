@@ -404,27 +404,18 @@ Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
                                                    ioptions, allocator);
 }
 
-Status GetHostName(Env* env, std::string* result) {
-  char hostname_buf[kMaxHostNameLen];
-  Status s = env->GetHostName(hostname_buf, kMaxHostNameLen);
-  if (s.ok()) {
-    hostname_buf[kMaxHostNameLen - 1] = '\0';
-    result->assign(hostname_buf);
-  }
-  return s;
-}
-
 // Replace the contents of db_host_id with the actual hostname, if db_host_id
 // matches the keyword kHostnameForDbHostId
 Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id) {
-  Status s;
-  if (s.ok() && !db_host_id->compare(kHostnameForDbHostId)) {
-    s = GetHostName(env, db_host_id);
+  assert(db_host_id);
+  if (*db_host_id == kHostnameForDbHostId) {
+    Status s = Env::GetHostName(env, db_host_id);
     if (!s.ok()) {
       db_host_id->clear();
     }
+    return s;
   }
 
-  return s;
+  return Status::OK();
 }
 }  // namespace ROCKSDB_NAMESPACE

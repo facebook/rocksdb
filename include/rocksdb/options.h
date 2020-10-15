@@ -1190,7 +1190,8 @@ struct DBOptions {
   // writing a file, by tracing back to the writing host. These corruptions
   // may not be caught by the checksum since they happen before checksumming.
   // If left as default, the table writer will substitute it with the actual
-  // hostname when writing the SST file.
+  // hostname when writing the SST file. If set to an empty stirng, the
+  // property will not be written to the SST file.
   //
   // Default: hostname
   std::string db_host_id = kHostnameForDbHostId;

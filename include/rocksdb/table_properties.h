@@ -208,7 +208,7 @@ struct TableProperties {
   std::string db_session_id;
 
   // Location of the machine hosting the DB instance
-  // db_host_location identifies the location of the host in some form
+  // db_host_id identifies the location of the host in some form
   // (hostname by default, but can also be any string of the user's choosing).
   // It can potentially change whenever the DB is opened
   std::string db_host_id;

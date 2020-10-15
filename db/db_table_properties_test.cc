@@ -278,7 +278,7 @@ TEST_F(DBTablePropertiesTest, GetDbIdentifiersProperty) {
 
 class DBTableHostnamePropertyTest
     : public DBTestBase,
-      public ::testing::WithParamInterface<std::tuple<int, bool>> {
+      public ::testing::WithParamInterface<std::tuple<int, std::string>> {
  public:
   DBTableHostnamePropertyTest()
       : DBTestBase("/db_table_hostname_property_test",
@@ -288,13 +288,12 @@ class DBTableHostnamePropertyTest
 TEST_P(DBTableHostnamePropertyTest, DbHostLocationProperty) {
   option_config_ = std::get<0>(GetParam());
   Options opts = CurrentOptions();
-  std::string expected_host_name;
-  if (std::get<1>(GetParam())) {
-    // override db_host_location
-    opts.db_host_id = "foobar";
-    expected_host_name = opts.db_host_id;
+  std::string expected_host_id = std::get<1>(GetParam());
+  ;
+  if (expected_host_id == kHostnameForDbHostId) {
+    ASSERT_OK(Env::GetHostName(env_, &expected_host_id));
   } else {
-    ASSERT_OK(GetHostName(env_, &expected_host_name));
+    opts.db_host_id = expected_host_id;
   }
   CreateAndReopenWithCF({"goku"}, opts);
 
@@ -307,7 +306,7 @@ TEST_P(DBTableHostnamePropertyTest, DbHostLocationProperty) {
     ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[cf], &fname_to_props));
     ASSERT_EQ(1U, fname_to_props.size());
 
-    ASSERT_EQ(fname_to_props.begin()->second->db_host_id, expected_host_name);
+    ASSERT_EQ(fname_to_props.begin()->second->db_host_id, expected_host_id);
   }
 }
 
@@ -315,12 +314,16 @@ INSTANTIATE_TEST_CASE_P(
     DBTableHostnamePropertyTest, DBTableHostnamePropertyTest,
     ::testing::Values(
         // OptionConfig, override db_host_location
-        std::make_tuple(DBTestBase::OptionConfig::kDefault, false),
-        std::make_tuple(DBTestBase::OptionConfig::kDefault, true),
+        std::make_tuple(DBTestBase::OptionConfig::kDefault,
+                        kHostnameForDbHostId),
+        std::make_tuple(DBTestBase::OptionConfig::kDefault, "foobar"),
+        std::make_tuple(DBTestBase::OptionConfig::kDefault, ""),
         std::make_tuple(DBTestBase::OptionConfig::kPlainTableFirstBytePrefix,
-                        false),
+                        kHostnameForDbHostId),
         std::make_tuple(DBTestBase::OptionConfig::kPlainTableFirstBytePrefix,
-                        true)));
+                        "foobar"),
+        std::make_tuple(DBTestBase::OptionConfig::kPlainTableFirstBytePrefix,
+                        "")));
 
 class DeletionTriggeredCompactionTestListener : public EventListener {
  public:
