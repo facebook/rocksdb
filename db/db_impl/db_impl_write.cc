@@ -125,7 +125,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                                      ? batch_cnt
                                      // every key is a sub-batch consuming a seq
                                      : WriteBatchInternal::Count(my_batch);
-    uint64_t seq;
+    uint64_t seq = 0;
     // Use a write thread to i) optimize for WAL write, ii) publish last
     // sequence in in increasing order, iii) call pre_release_callback serially
     Status status = WriteImplWALOnly(
@@ -473,6 +473,7 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         disable_memtable);
   write_thread_.JoinBatchGroup(&w);
+  TEST_SYNC_POINT("DBImplWrite::PipelinedWriteImpl:AfterJoinBatchGroup");
   if (w.state == WriteThread::STATE_GROUP_LEADER) {
     WriteThread::WriteGroup wal_write_group;
     if (w.callback && !w.callback->AllowWriteBatching()) {
@@ -1783,9 +1784,11 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     // the current log, so treat it as a fatal error and set bg_error
     // Should handle return error?
     if (!io_s.ok()) {
+      // Should handle return error?
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable)
           .PermitUncheckedError();
     } else {
+      // Should handle return error?
       error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable)
           .PermitUncheckedError();
     }

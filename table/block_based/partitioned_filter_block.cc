@@ -456,8 +456,8 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   uint64_t last_off = handle.offset() + handle.size() + kBlockTrailerSize;
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
+  rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer);
 
-  prefetch_buffer.reset(new FilePrefetchBuffer());
   IOOptions opts;
   s = PrepareIOFromReadOptions(ro, rep->file->env(), opts);
   if (s.ok()) {

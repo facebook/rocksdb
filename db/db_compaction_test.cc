@@ -48,6 +48,18 @@ class DBCompactionTestWithParam
   bool exclusive_manual_compaction_;
 };
 
+class DBCompactionTestWithBottommostParam
+    : public DBTestBase,
+      public testing::WithParamInterface<BottommostLevelCompaction> {
+ public:
+  DBCompactionTestWithBottommostParam()
+      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {
+    bottommost_level_compaction_ = GetParam();
+  }
+
+  BottommostLevelCompaction bottommost_level_compaction_;
+};
+
 class DBCompactionDirectIOTest : public DBCompactionTest,
                                  public ::testing::WithParamInterface<bool> {
  public:
@@ -5454,6 +5466,47 @@ TEST_P(DBCompactionTestWithParam,
     ASSERT_EQ(value2, Get(Key(i)));
   }
 }
+
+TEST_P(DBCompactionTestWithBottommostParam, SequenceKeysManualCompaction) {
+  constexpr int kSstNum = 10;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Generate some sst files on level 0 with sequence keys (no overlap)
+  for (int i = 0; i < kSstNum; i++) {
+    for (int j = 1; j < UCHAR_MAX; j++) {
+      auto key = std::string(kSstNum, '\0');
+      key[kSstNum - i] += static_cast<char>(j);
+      Put(key, std::string(i % 1000, 'A'));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  ASSERT_EQ(ToString(kSstNum), FilesPerLevel(0));
+
+  auto cro = CompactRangeOptions();
+  cro.bottommost_level_compaction = bottommost_level_compaction_;
+  db_->CompactRange(cro, nullptr, nullptr);
+  if (bottommost_level_compaction_ == BottommostLevelCompaction::kForce ||
+      bottommost_level_compaction_ ==
+          BottommostLevelCompaction::kForceOptimized) {
+    // Real compaction to compact all sst files from level 0 to 1 file on level
+    // 1
+    ASSERT_EQ("0,1", FilesPerLevel(0));
+  } else {
+    // Just trivial move from level 0 -> 1
+    ASSERT_EQ("0," + ToString(kSstNum), FilesPerLevel(0));
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    DBCompactionTestWithBottommostParam, DBCompactionTestWithBottommostParam,
+    ::testing::Values(BottommostLevelCompaction::kSkip,
+                      BottommostLevelCompaction::kIfHaveCompactionFilter,
+                      BottommostLevelCompaction::kForce,
+                      BottommostLevelCompaction::kForceOptimized));
 
 TEST_F(DBCompactionTest, UpdateLevelSubCompactionTest) {
   Options options = CurrentOptions();
