@@ -254,7 +254,7 @@ class KeyConvertingIterator : public InternalIterator {
     ParsedInternalKey parsed_key;
     Status pikStatus = ParseInternalKey(iter_->key(), &parsed_key);
     if (!pikStatus.ok()) {
-      status_ = Status::Corruption(pikStatus.getState());
+      status_ = pikStatus;
       return Slice(pikStatus.getState());
     }
     return parsed_key.user_key;

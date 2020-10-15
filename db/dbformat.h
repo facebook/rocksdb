@@ -112,8 +112,7 @@ struct ParsedInternalKey {
   // u contains timestamp if user timestamp feature is enabled.
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
       : user_key(u), sequence(seq), type(t) {}
-  // std::string DebugString(bool log_err_key, bool hex = false) const;
-  std::string DebugString(bool log_err_key, bool hex) const;
+  std::string DebugString(bool log_err_key, bool hex = false) const;
 
   void clear() {
     user_key.clear();
@@ -320,7 +319,6 @@ class InternalKey {
     AppendInternalKeyFooter(&rep_, s, t);
   }
 
-  // std::string DebugString(bool hex = false) const;
   std::string DebugString(bool hex) const;
 };
 
@@ -348,7 +346,6 @@ inline Status ParseInternalKey(const Slice& internal_key,
   if (IsExtendedValueType(result->type)) {
     return Status::OK();
   } else {
-    // return ReturnCorruptKeyInfo(result, log_err_key);
     return Status::Corruption("Corrupted Key",
                               result->DebugString(log_err_key, true));
   }
