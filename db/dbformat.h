@@ -112,7 +112,8 @@ struct ParsedInternalKey {
   // u contains timestamp if user timestamp feature is enabled.
   ParsedInternalKey(const Slice& u, const SequenceNumber& seq, ValueType t)
       : user_key(u), sequence(seq), type(t) {}
-  std::string DebugString(bool hex = false) const;
+  // std::string DebugString(bool log_err_key, bool hex = false) const;
+  std::string DebugString(bool log_err_key, bool hex) const;
 
   void clear() {
     user_key.clear();
@@ -286,7 +287,7 @@ class InternalKey {
 
   bool Valid() const {
     ParsedInternalKey parsed;
-    return ParseInternalKey(Slice(rep_), &parsed).ok() ? true : false;
+    return (ParseInternalKey(Slice(rep_), &parsed).ok());
   }
 
   void DecodeFrom(const Slice& s) { rep_.assign(s.data(), s.size()); }
@@ -319,7 +320,8 @@ class InternalKey {
     AppendInternalKeyFooter(&rep_, s, t);
   }
 
-  std::string DebugString(bool hex = false) const;
+  // std::string DebugString(bool hex = false) const;
+  std::string DebugString(bool hex) const;
 };
 
 inline int InternalKeyComparator::Compare(const InternalKey& a,
@@ -327,28 +329,13 @@ inline int InternalKeyComparator::Compare(const InternalKey& a,
   return Compare(a.Encode(), b.Encode());
 }
 
-inline Status ReturnCorruptKeyInfo(ParsedInternalKey* ikey, bool log_err_key) {
-  std::string msg("Corrupted Key. ");
-
-  if (log_err_key) {
-    // print key in Hex
-    msg.append("Key=" + ikey->user_key.ToString(true) + ", ");
-  }
-
-  msg.append("Key type=" + std::to_string(ikey->type) + ", ");
-  msg.append("Seq=" + std::to_string(ikey->sequence) + ".");
-
-  return Status::Corruption(msg.c_str());
-}
-
 inline Status ParseInternalKey(const Slice& internal_key,
                                ParsedInternalKey* result, bool log_err_key) {
   const size_t n = internal_key.size();
 
   if (n < kNumInternalBytes) {
-    std::string msg("Internal Key too small. ");
-    msg.append("Size=" + std::to_string(n) + ". ");
-    return Status::Corruption(msg.c_str());
+    return Status::Corruption(
+        "Corrupted Key: Internal Key too small. Size=" + std::to_string(n) + ". ");
   }
 
   uint64_t num = DecodeFixed64(internal_key.data() + n - kNumInternalBytes);
@@ -361,7 +348,9 @@ inline Status ParseInternalKey(const Slice& internal_key,
   if (IsExtendedValueType(result->type)) {
     return Status::OK();
   } else {
-    return ReturnCorruptKeyInfo(result, log_err_key);
+    // return ReturnCorruptKeyInfo(result, log_err_key);
+    return Status::Corruption("Corrupted Key",
+                              result->DebugString(log_err_key, true));
   }
 }
 

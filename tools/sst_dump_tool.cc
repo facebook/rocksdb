@@ -240,11 +240,10 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       int retc = 0;
       Status pikStatus = ParseInternalKey(sl_key, &ikey);
       if (!pikStatus.ok()) {
-        std::cerr << "Internal Key [" << pikStatus.getState()
-                  << "] parse error!\n";
+        std::cerr << pikStatus.getState() << "\n";
         retc = -1;
       }
-      fprintf(stdout, "key=%s\n", ikey.DebugString(true).c_str());
+      fprintf(stdout, "key=%s\n", ikey.DebugString(true, true).c_str());
       return retc;
     } else if (ParseIntArg(argv[i], "--compression_level_from=",
                            "compression_level_from must be numeric",

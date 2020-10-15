@@ -305,7 +305,8 @@ void MockTableFactory::AssertLatestFile(const KVVector& file_contents) {
       std::string key, value;
       std::tie(key, value) = kv;
       ASSERT_OK(ParseInternalKey(Slice(key), &ikey));
-      std::cout << ikey.DebugString(false) << " -> " << value << std::endl;
+      std::cout << ikey.DebugString(true, false) << " -> " << value
+                << std::endl;
     }
     FAIL();
   }

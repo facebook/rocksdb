@@ -443,8 +443,7 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
     ParsedInternalKey ikey;
     Status pikStatus = ParseInternalKey(key, &ikey);
     if (!pikStatus.ok()) {
-      std::cerr << "Internal Key [" << pikStatus.getState()
-                << "] parse error!\n";
+      std::cerr << pikStatus.getState() << "\n";
       continue;
     }
 
@@ -460,7 +459,8 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
 
     if (print_kv) {
       if (!decode_blob_index_ || ikey.type != kTypeBlobIndex) {
-        fprintf(stdout, "%s => %s\n", ikey.DebugString(output_hex_).c_str(),
+        fprintf(stdout, "%s => %s\n",
+                ikey.DebugString(true, output_hex_).c_str(),
                 value.ToString(output_hex_).c_str());
       } else {
         BlobIndex blob_index;
@@ -468,11 +468,12 @@ Status SstFileDumper::ReadSequential(bool print_kv, uint64_t read_num,
         const Status s = blob_index.DecodeFrom(value);
         if (!s.ok()) {
           fprintf(stderr, "%s => error decoding blob index\n",
-                  ikey.DebugString(output_hex_).c_str());
+                  ikey.DebugString(true, output_hex_).c_str());
           continue;
         }
 
-        fprintf(stdout, "%s => %s\n", ikey.DebugString(output_hex_).c_str(),
+        fprintf(stdout, "%s => %s\n",
+                ikey.DebugString(true, output_hex_).c_str(),
                 blob_index.DebugString(output_hex_).c_str());
       }
     }

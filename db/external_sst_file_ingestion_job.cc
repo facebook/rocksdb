@@ -599,10 +599,11 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   file_to_ingest->largest_internal_key =
       InternalKey("", 0, ValueType::kTypeValue);
   bool bounds_set = false;
-  bool log_data = db_options_.allow_data_in_errors;
+  bool allow_data_in_errors = db_options_.allow_data_in_errors;
   iter->SeekToFirst();
   if (iter->Valid()) {
-    Status pikStatus = ParseInternalKey(iter->key(), &key, log_data);
+    Status pikStatus =
+        ParseInternalKey(iter->key(), &key, allow_data_in_errors);
     if (!pikStatus.ok()) {
       return Status::Corruption("Corrupted key in external file. ",
                                 pikStatus.getState());
@@ -613,7 +614,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     file_to_ingest->smallest_internal_key.SetFrom(key);
 
     iter->SeekToLast();
-    pikStatus = ParseInternalKey(iter->key(), &key, log_data);
+    pikStatus = ParseInternalKey(iter->key(), &key, allow_data_in_errors);
     if (!pikStatus.ok()) {
       return Status::Corruption("Corrupted key in external file. ",
                                 pikStatus.getState());
@@ -633,7 +634,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     for (range_del_iter->SeekToFirst(); range_del_iter->Valid();
          range_del_iter->Next()) {
       Status pikStatus =
-          ParseInternalKey(range_del_iter->key(), &key, log_data);
+          ParseInternalKey(range_del_iter->key(), &key, allow_data_in_errors);
       if (!pikStatus.ok()) {
         return Status::Corruption("Corrupted key in external file. ",
                                   pikStatus.getState());

@@ -77,12 +77,18 @@ void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
   PutFixed64(result, PackSequenceAndType(s, t));
 }
 
-std::string ParsedInternalKey::DebugString(bool hex) const {
+std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
+
+  std::string result = "key:";
+  if (log_err_key) 
+    result += user_key.ToString(hex);
+  else
+    result += "<redacted>";
+
   char buf[50];
-  snprintf(buf, sizeof(buf), "' seq:%" PRIu64 ", type:%d", sequence,
+  snprintf(buf, sizeof(buf), ", seq:%" PRIu64 ", type:%d", sequence,
            static_cast<int>(type));
-  std::string result = "'";
-  result += user_key.ToString(hex);
+
   result += buf;
   return result;
 }
@@ -91,7 +97,7 @@ std::string InternalKey::DebugString(bool hex) const {
   std::string result;
   ParsedInternalKey parsed;
   if (ParseInternalKey(rep_, &parsed).ok()) {
-    result = parsed.DebugString(hex);
+    result = parsed.DebugString(true, hex);  // TODO
   } else {
     result = "(bad)";
     result.append(EscapeString(rep_));

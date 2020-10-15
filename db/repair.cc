@@ -558,7 +558,7 @@ class Repairer {
             ParseInternalKey(key, &parsed, db_options_.allow_data_in_errors);
         if (!pikStatus.ok()) {
           ROCKS_LOG_ERROR(db_options_.info_log,
-                          "Table #%" PRIu64 ": unparsable key %s",
+                          "Table #%" PRIu64 ": unparsable key - %s",
                           t->meta.fd.GetNumber(), pikStatus.getState());
           continue;
         }
