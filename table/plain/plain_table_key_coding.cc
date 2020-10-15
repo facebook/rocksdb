@@ -283,7 +283,7 @@ Status PlainTableKeyDecoder::ReadInternalKey(
     Status pikStatus = ParseInternalKey(*internal_key, parsed_key);  // TODO
     if (!pikStatus.ok()) {
       return Status::Corruption(
-          Slice("Incorrect value type found when reading the next key"),
+          Slice("Corrupted key found during next key read. "),
           pikStatus.getState());
     }
     *bytes_read += user_key_size + 8;

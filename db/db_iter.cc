@@ -111,7 +111,7 @@ bool DBIter::ParseKey(ParsedInternalKey* ikey) {
   if (!s.ok()) {
     status_ = Status::Corruption("In DBIter: ", s.getState());
     valid_ = false;
-    ROCKS_LOG_ERROR(logger_, "%s", status_.getState());
+    ROCKS_LOG_ERROR(logger_, "In DBIter: %s", status_.getState());
     return false;
   } else {
     return true;
