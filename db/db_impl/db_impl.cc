@@ -1307,16 +1307,20 @@ Status DBImpl::UnlockWAL() {
   return Status::OK();
 }
 
-void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
-                            const Status& status) {
+void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir, Status& status) {
   mutex_.AssertHeld();
   if (synced_dir && logfile_number_ == up_to && status.ok()) {
     log_dir_synced_ = true;
   }
+  VersionEdit fully_synced_wals;
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& log = *it;
     assert(log.getting_synced);
-    if (status.ok() && logs_.size() > 1) {
+    if (status->ok() && logs_.size() > 1) {
+      if (immutable_db_options_.track_and_verify_wals_in_manifest) {
+        fully_synced_wals.AddWal(
+            log.number, WalMetadata(log.writer->file()->GetFileSize()));
+      }
       logs_to_free_.push_back(log.ReleaseWriter());
       // To modify logs_ both mutex_ and log_write_mutex_ must be held
       InstrumentedMutexLock l(&log_write_mutex_);
@@ -1328,6 +1332,11 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
   }
   assert(!status.ok() || logs_.empty() || logs_[0].number > up_to ||
          (logs_.size() == 1 && !logs_[0].getting_synced));
+  if (fully_synced_wals.IsWalAddition()) {
+    // not empty, write to MANIFEST.
+    status = versions_->LogAndApplyToDefaultColumnFamily(&fully_synced_wals,
+                                                         &mutex_);
+  }
   log_sync_cv_.SignalAll();
 }
 
