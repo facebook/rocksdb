@@ -2355,6 +2355,75 @@ int main(int argc, char** argv) {
     rocksdb_cache_destroy(co);
   }
 
+  StartPhase("env");
+  {
+    rocksdb_env_t* e;
+    e = rocksdb_create_default_env();
+
+    rocksdb_env_set_background_threads(e, 10);
+    CheckCondition(10 == rocksdb_env_get_background_threads(e));
+
+    rocksdb_env_set_high_priority_background_threads(e, 20);
+    CheckCondition(20 == rocksdb_env_get_high_priority_background_threads(e));
+
+    rocksdb_env_set_low_priority_background_threads(e, 30);
+    CheckCondition(30 == rocksdb_env_get_low_priority_background_threads(e));
+
+    rocksdb_env_set_bottom_priority_background_threads(e, 40);
+    CheckCondition(40 == rocksdb_env_get_bottom_priority_background_threads(e));
+
+    rocksdb_env_destroy(e);
+  }
+
+  StartPhase("universal_compaction_options");
+  {
+    rocksdb_universal_compaction_options_t* uco;
+    uco = rocksdb_universal_compaction_options_create();
+
+    rocksdb_universal_compaction_options_set_size_ratio(uco, 5);
+    CheckCondition(5 ==
+                   rocksdb_universal_compaction_options_get_size_ratio(uco));
+
+    rocksdb_universal_compaction_options_set_min_merge_width(uco, 15);
+    CheckCondition(
+        15 == rocksdb_universal_compaction_options_get_min_merge_width(uco));
+
+    rocksdb_universal_compaction_options_set_max_merge_width(uco, 25);
+    CheckCondition(
+        25 == rocksdb_universal_compaction_options_get_max_merge_width(uco));
+
+    rocksdb_universal_compaction_options_set_max_size_amplification_percent(uco,
+                                                                            35);
+    CheckCondition(
+        35 ==
+        rocksdb_universal_compaction_options_get_max_size_amplification_percent(
+            uco));
+
+    rocksdb_universal_compaction_options_set_compression_size_percent(uco, 45);
+    CheckCondition(
+        45 ==
+        rocksdb_universal_compaction_options_get_compression_size_percent(uco));
+
+    rocksdb_universal_compaction_options_set_stop_style(uco, 1);
+    CheckCondition(1 ==
+                   rocksdb_universal_compaction_options_get_stop_style(uco));
+
+    rocksdb_universal_compaction_options_destroy(uco);
+  }
+
+  StartPhase("fifo_compaction_options");
+  {
+    rocksdb_fifo_compaction_options_t* fco;
+    fco = rocksdb_fifo_compaction_options_create();
+
+    rocksdb_fifo_compaction_options_set_max_table_files_size(fco, 100000);
+    CheckCondition(
+        100000 ==
+        rocksdb_fifo_compaction_options_get_max_table_files_size(fco));
+
+    rocksdb_fifo_compaction_options_destroy(fco);
+  }
+
   StartPhase("backupable_db_option");
   {
     rocksdb_backupable_db_options_t* bdo;
