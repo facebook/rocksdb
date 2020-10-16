@@ -470,9 +470,7 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   ASSERT_OK(Flush());
 
   ASSERT_EQ(Get("key1"), short_value);
-
-  // TODO: enable once Get support is implemented for blobs
-  // ASSERT_EQ(Get("key2"), long_value);
+  ASSERT_EQ(Get("key2"), long_value);
 
   VersionSet* const versions = dbfull()->TEST_GetVersionSet();
   assert(versions);
