@@ -79,10 +79,11 @@ void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
 
 std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
   std::string result = "'";
-  if (log_err_key)
+  if (log_err_key) {
     result += user_key.ToString(hex);
-  else
+  } else {
     result += "<redacted>";
+  }
 
   char buf[50];
   snprintf(buf, sizeof(buf), "' seq:%" PRIu64 ", type:%d", sequence,
