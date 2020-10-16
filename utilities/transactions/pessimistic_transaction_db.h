@@ -131,7 +131,6 @@ class PessimisticTransactionDB : public TransactionDB {
   void GetAllPreparedTransactions(std::vector<Transaction*>* trans) override;
 
   LockManager::PointLockStatus GetLockStatusData() override;
-  LockManager::RangeLockStatus GetRangeLockStatus() override;
 
   std::vector<DeadlockPath> GetDeadlockInfoBuffer() override;
   void SetDeadlockInfoBufferSize(uint32_t target_size) override;

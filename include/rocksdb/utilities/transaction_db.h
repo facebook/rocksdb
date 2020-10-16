@@ -304,13 +304,6 @@ class TransactionDB : public StackableDB {
   virtual std::unordered_multimap<uint32_t, KeyLockInfo>
   GetLockStatusData() = 0;
 
-  virtual std::unordered_multimap<uint32_t, KeyLockInfo> GetPointLockStatus() {
-    return GetLockStatusData();
-  }
-
-  virtual std::unordered_multimap<uint32_t, RangeLockInfo>
-  GetRangeLockStatus() = 0;
-
   virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer() = 0;
   virtual void SetDeadlockInfoBufferSize(uint32_t target_size) = 0;
 

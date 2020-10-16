@@ -591,10 +591,6 @@ LockManager::PointLockStatus PessimisticTransactionDB::GetLockStatusData() {
   return lock_manager_->GetPointLockStatus();
 }
 
-LockManager::RangeLockStatus PessimisticTransactionDB::GetRangeLockStatus() {
-  return lock_manager_->GetRangeLockStatus();
-}
-
 std::vector<DeadlockPath> PessimisticTransactionDB::GetDeadlockInfoBuffer() {
   return lock_manager_->GetDeadlockInfoBuffer();
 }
