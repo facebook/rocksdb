@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "db/blob/blob_file_cache.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/compaction/compaction_picker_fifo.h"
 #include "db/compaction/compaction_picker_level.h"
@@ -559,6 +560,10 @@ ColumnFamilyData::ColumnFamilyData(
         new InternalStats(ioptions_.num_levels, db_options.env, this));
     table_cache_.reset(new TableCache(ioptions_, file_options, _table_cache,
                                       block_cache_tracer, io_tracer));
+    blob_file_cache_.reset(
+        new BlobFileCache(_table_cache, ioptions(), soptions(), id_,
+                          internal_stats_->GetBlobFileReadHist()));
+
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(ioptions_, &internal_comparator_));

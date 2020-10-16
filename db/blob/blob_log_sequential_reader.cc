@@ -6,8 +6,6 @@
 
 #include "db/blob/blob_log_sequential_reader.h"
 
-#include <algorithm>
-
 #include "file/random_access_file_reader.h"
 #include "monitoring/statistics.h"
 #include "util/stop_watch.h"
