@@ -384,24 +384,29 @@ TEST_F(OptionsUtilTest, LatestOptionsNotFound) {
   ASSERT_NOK(options.env->GetChildren(dbname_, &children));
 
   s = GetLatestOptionsFileName(dbname_, options.env, &options_file_name);
+  ASSERT_TRUE(s.IsNotFound());
   ASSERT_TRUE(s.IsPathNotFound());
 
   s = LoadLatestOptions(dbname_, options.env, &options, &cf_descs);
+  ASSERT_TRUE(s.IsNotFound());
   ASSERT_TRUE(s.IsPathNotFound());
 
   s = LoadLatestOptions(config_opts, dbname_, &options, &cf_descs);
   ASSERT_TRUE(s.IsPathNotFound());
 
   s = GetLatestOptionsFileName(dbname_, options.env, &options_file_name);
+  ASSERT_TRUE(s.IsNotFound());
   ASSERT_TRUE(s.IsPathNotFound());
 
   // Second, test where the db directory exists but is empty
   ASSERT_OK(options.env->CreateDir(dbname_));
 
   s = GetLatestOptionsFileName(dbname_, options.env, &options_file_name);
+  ASSERT_TRUE(s.IsNotFound());
   ASSERT_TRUE(s.IsPathNotFound());
 
   s = LoadLatestOptions(dbname_, options.env, &options, &cf_descs);
+  ASSERT_TRUE(s.IsNotFound());
   ASSERT_TRUE(s.IsPathNotFound());
 
   // Finally, test where a file exists but is not an "Options" file
@@ -410,9 +415,11 @@ TEST_F(OptionsUtilTest, LatestOptionsNotFound) {
       options.env->NewWritableFile(dbname_ + "/temp.txt", &file, EnvOptions()));
   ASSERT_OK(file->Close());
   s = GetLatestOptionsFileName(dbname_, options.env, &options_file_name);
+  ASSERT_TRUE(s.IsNotFound());
   ASSERT_TRUE(s.IsPathNotFound());
 
   s = LoadLatestOptions(config_opts, dbname_, &options, &cf_descs);
+  ASSERT_TRUE(s.IsNotFound());
   ASSERT_TRUE(s.IsPathNotFound());
   ASSERT_OK(options.env->DeleteFile(dbname_ + "/temp.txt"));
   ASSERT_OK(options.env->DeleteDir(dbname_));
@@ -544,6 +551,7 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
                    ROCKSDB_MINOR, "unknown_db_opt=true", "");
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
+  ASSERT_FALSE(s.IsPathNotFound());
   ASSERT_TRUE(s.IsNotFound());
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
 
@@ -553,6 +561,7 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
                    ROCKSDB_MINOR - 1, "", "unknown_cf_opt=true");
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
+  ASSERT_FALSE(s.IsPathNotFound());
   ASSERT_TRUE(s.IsNotFound());
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
 
@@ -561,6 +570,7 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
                    ROCKSDB_MINOR, "unknown_db_opt=true", "");
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
+  ASSERT_FALSE(s.IsPathNotFound());
   ASSERT_TRUE(s.IsNotFound());
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
 
@@ -569,6 +579,7 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
                    ROCKSDB_MINOR, "", "unknown_cf_opt=true");
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
+  ASSERT_FALSE(s.IsPathNotFound());
   ASSERT_TRUE(s.IsNotFound());
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
 
