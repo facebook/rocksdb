@@ -270,14 +270,14 @@ void CompactionIterator::NextFromInput() {
     value_ = input_->value();
     iter_stats_.num_input_records++;
 
-    Status pikStatus = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
-    if (!pikStatus.ok()) {
+    Status pik_status = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
+    if (!pik_status.ok()) {
       iter_stats_.num_input_corrupt_records++;
 
       // If `expect_valid_internal_key_` is false, return the corrupted key
       // and let the caller decide what to do with it.
       if (expect_valid_internal_key_) {
-        status_ = pikStatus;
+        status_ = pik_status;
         return;
       }
       key_ = current_key_.SetInternalKey(key_);
@@ -621,13 +621,13 @@ void CompactionIterator::NextFromInput() {
         //       These will be correctly set below.
         key_ = merge_out_iter_.key();
         value_ = merge_out_iter_.value();
-        pikStatus = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
+        pik_status = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
         // MergeUntil stops when it encounters a corrupt key and does not
         // include them in the result, so we expect the keys here to valid.
-        assert(pikStatus.ok());
-        if (!pikStatus.ok()) {
+        assert(pik_status.ok());
+        if (!pik_status.ok()) {
           ROCKS_LOG_FATAL(info_log_, "Invalid key in compaction. %s",
-                          pikStatus.getState());
+                          pik_status.getState());
         }
         // Keep current_key_ in sync.
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);

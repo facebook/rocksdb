@@ -602,11 +602,11 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   bool allow_data_in_errors = db_options_.allow_data_in_errors;
   iter->SeekToFirst();
   if (iter->Valid()) {
-    Status pikStatus =
+    Status pik_status =
         ParseInternalKey(iter->key(), &key, allow_data_in_errors);
-    if (!pikStatus.ok()) {
+    if (!pik_status.ok()) {
       return Status::Corruption("Corrupted key in external file. ",
-                                pikStatus.getState());
+                                pik_status.getState());
     }
     if (key.sequence != 0) {
       return Status::Corruption("External file has non zero sequence number");
@@ -614,10 +614,10 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     file_to_ingest->smallest_internal_key.SetFrom(key);
 
     iter->SeekToLast();
-    pikStatus = ParseInternalKey(iter->key(), &key, allow_data_in_errors);
-    if (!pikStatus.ok()) {
+    pik_status = ParseInternalKey(iter->key(), &key, allow_data_in_errors);
+    if (!pik_status.ok()) {
       return Status::Corruption("Corrupted key in external file. ",
-                                pikStatus.getState());
+                                pik_status.getState());
     }
     if (key.sequence != 0) {
       return Status::Corruption("External file has non zero sequence number");
@@ -633,11 +633,11 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   if (range_del_iter != nullptr) {
     for (range_del_iter->SeekToFirst(); range_del_iter->Valid();
          range_del_iter->Next()) {
-      Status pikStatus =
+      Status pik_status =
           ParseInternalKey(range_del_iter->key(), &key, allow_data_in_errors);
-      if (!pikStatus.ok()) {
+      if (!pik_status.ok()) {
         return Status::Corruption("Corrupted key in external file. ",
-                                  pikStatus.getState());
+                                  pik_status.getState());
       }
       RangeTombstone tombstone(key, range_del_iter->value());
 

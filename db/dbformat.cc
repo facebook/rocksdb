@@ -49,7 +49,7 @@ EntryType GetEntryType(ValueType value_type) {
 
 bool ParseFullKey(const Slice& internal_key, FullKey* fkey) {
   ParsedInternalKey ikey;
-  if (!ParseInternalKey(internal_key, &ikey).ok()) {
+  if (!ParseInternalKey(internal_key, &ikey, false).ok()) {  // TODO
     return false;
   }
   fkey->user_key = ikey.user_key;
@@ -78,14 +78,14 @@ void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
 }
 
 std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
-  std::string result = "key:";
+  std::string result = "'";
   if (log_err_key)
     result += user_key.ToString(hex);
   else
     result += "<redacted>";
 
   char buf[50];
-  snprintf(buf, sizeof(buf), ", seq:%" PRIu64 ", type:%d", sequence,
+  snprintf(buf, sizeof(buf), "' seq:%" PRIu64 ", type:%d", sequence,
            static_cast<int>(type));
 
   result += buf;
@@ -95,7 +95,7 @@ std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
 std::string InternalKey::DebugString(bool hex) const {
   std::string result;
   ParsedInternalKey parsed;
-  if (ParseInternalKey(rep_, &parsed).ok()) {
+  if (ParseInternalKey(rep_, &parsed, false).ok()) {
     result = parsed.DebugString(true, hex);  // TODO
   } else {
     result = "(bad)";

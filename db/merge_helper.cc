@@ -154,12 +154,12 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     ParsedInternalKey ikey;
     assert(keys_.size() == merge_context_.GetNumOperands());
 
-    Status pikStatus =
+    Status pik_status =
         ParseInternalKey(iter->key(), &ikey, allow_data_in_errors);
-    if (!pikStatus.ok()) {
+    if (!pik_status.ok()) {
       // stop at corrupted key
       if (assert_valid_internal_key_) {
-        return pikStatus;
+        return pik_status;
       }
       break;
     } else if (first_key) {
@@ -269,10 +269,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         if (keys_.size() == 1) {
           // we need to re-anchor the orig_ikey because it was anchored by
           // original_key before
-          pikStatus =
+          pik_status =
               ParseInternalKey(keys_.back(), &orig_ikey, allow_data_in_errors);
-          pikStatus.PermitUncheckedError();
-          assert(pikStatus.ok());
+          pik_status.PermitUncheckedError();
+          assert(pik_status.ok());
         }
         if (filter == CompactionFilter::Decision::kKeep) {
           merge_context_.PushOperand(

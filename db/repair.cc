@@ -554,12 +554,12 @@ class Repairer {
       ParsedInternalKey parsed;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
-        Status pikStatus =
+        Status pik_status =
             ParseInternalKey(key, &parsed, db_options_.allow_data_in_errors);
-        if (!pikStatus.ok()) {
+        if (!pik_status.ok()) {
           ROCKS_LOG_ERROR(db_options_.info_log,
                           "Table #%" PRIu64 ": unparsable key - %s",
-                          t->meta.fd.GetNumber(), pikStatus.getState());
+                          t->meta.fd.GetNumber(), pik_status.getState());
           continue;
         }
 

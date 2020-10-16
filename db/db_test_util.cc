@@ -963,7 +963,7 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
     bool first = true;
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      if (ParseInternalKey(iter->key(), &ikey) != Status::OK()) {
+      if (ParseInternalKey(iter->key(), &ikey, true) != Status::OK()) {
         result += "CORRUPTED";
       } else {
         if (!last_options_.comparator->Equal(ikey.user_key, user_key)) {
@@ -1375,7 +1375,7 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   while (iter->Valid()) {
     ParsedInternalKey ikey;
     ikey.clear();
-    ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
+    ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true));
 
     // checks sequence number for updates
     ASSERT_EQ(ikey.sequence, (unsigned)seq--);
@@ -1580,7 +1580,7 @@ void DBTestBase::VerifyDBInternal(
   for (auto p : true_data) {
     ASSERT_TRUE(iter->Valid());
     ParsedInternalKey ikey;
-    ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
+    ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true));
     ASSERT_EQ(p.first, ikey.user_key);
     ASSERT_EQ(p.second, iter->value());
     iter->Next();

@@ -166,8 +166,7 @@ extern void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
 //
 // On error, returns false, leaves "*result" in an undefined state.
 extern Status ParseInternalKey(const Slice& internal_key,
-                               ParsedInternalKey* result,
-                               bool log_err_key = true);
+                               ParsedInternalKey* result, bool log_err_key);
 
 // Returns the user key portion of an internal key.
 inline Slice ExtractUserKey(const Slice& internal_key) {
@@ -286,7 +285,7 @@ class InternalKey {
 
   bool Valid() const {
     ParsedInternalKey parsed;
-    return (ParseInternalKey(Slice(rep_), &parsed).ok());
+    return (ParseInternalKey(Slice(rep_), &parsed, true).ok());  // TODO
   }
 
   void DecodeFrom(const Slice& s) { rep_.assign(s.data(), s.size()); }

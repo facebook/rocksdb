@@ -345,12 +345,12 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("put a val --create_if_missing", "OK")
         self.assertRunOK("put b val", "OK")
         self.assertRunOK(
-                "idump", "key:a, seq:1, type:1 => val\n"
-                "key:b, seq:2, type:1 => val\nInternal keys in range: 2")
+                "idump", "'a' seq:1, type:1 => val\n"
+                "'b' seq:2, type:1 => val\nInternal keys in range: 2")
         self.assertRunOK(
                 "idump --input_key_hex --from=%s --to=%s" % (hex(ord('a')),
                                                              hex(ord('b'))),
-                "key:a, seq:1, type:1 => val\nInternal keys in range: 1")
+                "'a' seq:1, type:1 => val\nInternal keys in range: 1")
 
     def testMiscAdminTask(self):
         print("Running testMiscAdminTask...")
