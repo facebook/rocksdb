@@ -3990,7 +3990,7 @@ TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   Options options = CurrentOptions();
   options.env = env_;
   if (options.env != Env::Default()) {
-    GTEST_ROCKSDB_SKIP("Test requires default environment");
+    ROCKSDB_GTEST_SKIP("Test requires default environment");
     return;
   }
   options.allow_mmap_reads = true;

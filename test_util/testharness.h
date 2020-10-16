@@ -17,9 +17,9 @@
 
 // If GTEST_SKIP is available, use it. Otherwise, define skip as success
 #ifdef GTEST_SKIP_
-#define GTEST_ROCKSDB_SKIP(m) GTEST_SKIP_(m)
+#define ROCKSDB_GTEST_SKIP(m) GTEST_SKIP_(m)
 #else
-#define GTEST_ROCKSDB_SKIP(m) fprintf(stderr, "SKIPPED: %s\n", m)
+#define ROCKSDB_GTEST_SKIP(m) GTEST_SUCCESS_("SKIPPED: " m)
 #endif
 
 #include <string>
