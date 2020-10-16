@@ -568,7 +568,7 @@ class MockFileSystem : public FileSystem {
                            const IOOptions& /*options*/,
                            std::string* output_path,
                            IODebugContext* /*dbg*/) override {
-    *output_path = NormalizePath(db_path);
+    *output_path = NormalizeMockPath(db_path);
     if (output_path->at(0) != '/') {
       return IOStatus::NotSupported("GetAbsolutePath");
     } else {
@@ -589,6 +589,14 @@ class MockFileSystem : public FileSystem {
   bool GetChildrenInternal(const std::string& fname,
                            std::vector<std::string>* results);
 
+  std::string NormalizeMockPath(const std::string& path) {
+    std::string p = NormalizePath(path);
+    if (p.back() == '/' && p.size() > 1) {
+      p.pop_back();
+    }
+    return p;
+  }
+
  private:
   // Map from filenames to MemFile objects, representing a simple file system.
   port::Mutex mutex_;
@@ -600,7 +608,7 @@ class MockFileSystem : public FileSystem {
 IOStatus MockFileSystem::NewSequentialFile(
     const std::string& fname, const FileOptions& file_opts,
     std::unique_ptr<FSSequentialFile>* result, IODebugContext* /*dbg*/) {
-  auto fn = NormalizePath(fname);
+  auto fn = NormalizeMockPath(fname);
 
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) == file_map_.end()) {
@@ -621,7 +629,7 @@ IOStatus MockFileSystem::NewSequentialFile(
 IOStatus MockFileSystem::NewRandomAccessFile(
     const std::string& fname, const FileOptions& file_opts,
     std::unique_ptr<FSRandomAccessFile>* result, IODebugContext* /*dbg*/) {
-  auto fn = NormalizePath(fname);
+  auto fn = NormalizeMockPath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) == file_map_.end()) {
     *result = nullptr;
@@ -641,7 +649,7 @@ IOStatus MockFileSystem::NewRandomAccessFile(
 IOStatus MockFileSystem::NewRandomRWFile(
     const std::string& fname, const FileOptions& /*file_opts*/,
     std::unique_ptr<FSRandomRWFile>* result, IODebugContext* /*dbg*/) {
-  auto fn = NormalizePath(fname);
+  auto fn = NormalizeMockPath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) == file_map_.end()) {
     *result = nullptr;
@@ -671,7 +679,7 @@ IOStatus MockFileSystem::ReuseWritableFile(
 IOStatus MockFileSystem::NewWritableFile(
     const std::string& fname, const FileOptions& file_opts,
     std::unique_ptr<FSWritableFile>* result, IODebugContext* /*dbg*/) {
-  auto fn = NormalizePath(fname);
+  auto fn = NormalizeMockPath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) != file_map_.end()) {
     DeleteFileInternal(fn);
@@ -690,7 +698,7 @@ IOStatus MockFileSystem::NewWritableFile(
 IOStatus MockFileSystem::ReopenWritableFile(
     const std::string& fname, const FileOptions& file_opts,
     std::unique_ptr<FSWritableFile>* result, IODebugContext* /*dbg*/) {
-  auto fn = NormalizePath(fname);
+  auto fn = NormalizeMockPath(fname);
   MutexLock lock(&mutex_);
   MemFile* file = nullptr;
   if (file_map_.find(fn) == file_map_.end()) {
@@ -719,7 +727,7 @@ IOStatus MockFileSystem::NewDirectory(const std::string& /*name*/,
 IOStatus MockFileSystem::FileExists(const std::string& fname,
                                     const IOOptions& /*io_opts*/,
                                     IODebugContext* /*dbg*/) {
-  auto fn = NormalizePath(fname);
+  auto fn = NormalizeMockPath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) != file_map_.end()) {
     // File exists
@@ -738,7 +746,7 @@ IOStatus MockFileSystem::FileExists(const std::string& fname,
 
 bool MockFileSystem::GetChildrenInternal(const std::string& dir,
                                          std::vector<std::string>* result) {
-  auto d = NormalizePath(dir);
+  auto d = NormalizeMockPath(dir);
   bool found_dir = false;
   result->clear();
   for (const auto& iter : file_map_) {
@@ -772,7 +780,7 @@ IOStatus MockFileSystem::GetChildren(const std::string& dir,
 }
 
 void MockFileSystem::DeleteFileInternal(const std::string& fname) {
-  assert(fname == NormalizePath(fname));
+  assert(fname == NormalizeMockPath(fname));
   const auto& pair = file_map_.find(fname);
   if (pair != file_map_.end()) {
     pair->second->Unref();
@@ -783,7 +791,7 @@ void MockFileSystem::DeleteFileInternal(const std::string& fname) {
 IOStatus MockFileSystem::DeleteFile(const std::string& fname,
                                     const IOOptions& /*options*/,
                                     IODebugContext* /*dbg*/) {
-  auto fn = NormalizePath(fname);
+  auto fn = NormalizeMockPath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) == file_map_.end()) {
     return IOStatus::PathNotFound(fn);
@@ -796,7 +804,7 @@ IOStatus MockFileSystem::DeleteFile(const std::string& fname,
 IOStatus MockFileSystem::Truncate(const std::string& fname, size_t size,
                                   const IOOptions& options,
                                   IODebugContext* dbg) {
-  auto fn = NormalizePath(fname);
+  auto fn = NormalizeMockPath(fname);
   MutexLock lock(&mutex_);
   auto iter = file_map_.find(fn);
   if (iter == file_map_.end()) {
@@ -809,7 +817,7 @@ IOStatus MockFileSystem::Truncate(const std::string& fname, size_t size,
 IOStatus MockFileSystem::CreateDir(const std::string& dirname,
                                    const IOOptions& /*options*/,
                                    IODebugContext* /*dbg*/) {
-  auto dn = NormalizePath(dirname);
+  auto dn = NormalizeMockPath(dirname);
   MutexLock lock(&mutex_);
   if (file_map_.find(dn) == file_map_.end()) {
     MemFile* file = new MemFile(env_, dn, false);
@@ -831,7 +839,7 @@ IOStatus MockFileSystem::CreateDirIfMissing(const std::string& dirname,
 IOStatus MockFileSystem::DeleteDir(const std::string& dirname,
                                    const IOOptions& /*options*/,
                                    IODebugContext* /*dbg*/) {
-  auto dir = NormalizePath(dirname);
+  auto dir = NormalizeMockPath(dirname);
   MutexLock lock(&mutex_);
   if (file_map_.find(dir) == file_map_.end()) {
     return IOStatus::PathNotFound(dir);
@@ -851,7 +859,7 @@ IOStatus MockFileSystem::GetFileSize(const std::string& fname,
                                      const IOOptions& /*options*/,
                                      uint64_t* file_size,
                                      IODebugContext* /*dbg*/) {
-  auto fn = NormalizePath(fname);
+  auto fn = NormalizeMockPath(fname);
   MutexLock lock(&mutex_);
   auto iter = file_map_.find(fn);
   if (iter == file_map_.end()) {
@@ -866,7 +874,7 @@ IOStatus MockFileSystem::GetFileModificationTime(const std::string& fname,
                                                  const IOOptions& /*options*/,
                                                  uint64_t* time,
                                                  IODebugContext* /*dbg*/) {
-  auto fn = NormalizePath(fname);
+  auto fn = NormalizeMockPath(fname);
   MutexLock lock(&mutex_);
   auto iter = file_map_.find(fn);
   if (iter == file_map_.end()) {
@@ -898,8 +906,8 @@ IOStatus MockFileSystem::RenameFile(const std::string& src,
                                     const std::string& dest,
                                     const IOOptions& /*options*/,
                                     IODebugContext* /*dbg*/) {
-  auto s = NormalizePath(src);
-  auto t = NormalizePath(dest);
+  auto s = NormalizeMockPath(src);
+  auto t = NormalizeMockPath(dest);
   MutexLock lock(&mutex_);
   bool found = RenameFileInternal(s, t);
   if (!found) {
@@ -913,8 +921,8 @@ IOStatus MockFileSystem::LinkFile(const std::string& src,
                                   const std::string& dest,
                                   const IOOptions& /*options*/,
                                   IODebugContext* /*dbg*/) {
-  auto s = NormalizePath(src);
-  auto t = NormalizePath(dest);
+  auto s = NormalizeMockPath(src);
+  auto t = NormalizeMockPath(dest);
   MutexLock lock(&mutex_);
   if (file_map_.find(s) == file_map_.end()) {
     return IOStatus::PathNotFound(s);
@@ -930,7 +938,7 @@ IOStatus MockFileSystem::NewLogger(const std::string& fname,
                                    const IOOptions& io_opts,
                                    std::shared_ptr<Logger>* result,
                                    IODebugContext* dbg) {
-  auto fn = NormalizePath(fname);
+  auto fn = NormalizeMockPath(fname);
   MutexLock lock(&mutex_);
   auto iter = file_map_.find(fn);
   MemFile* file = nullptr;
@@ -949,7 +957,7 @@ IOStatus MockFileSystem::NewLogger(const std::string& fname,
 IOStatus MockFileSystem::LockFile(const std::string& fname,
                                   const IOOptions& /*options*/,
                                   FileLock** flock, IODebugContext* /*dbg*/) {
-  auto fn = NormalizePath(fname);
+  auto fn = NormalizeMockPath(fname);
   {
     MutexLock lock(&mutex_);
     if (file_map_.find(fn) != file_map_.end()) {
@@ -957,7 +965,7 @@ IOStatus MockFileSystem::LockFile(const std::string& fname,
         return IOStatus::InvalidArgument(fname, "Not a lock file.");
       }
       if (!file_map_[fn]->Lock()) {
-        return IOStatus::IOError(fn, "Lock is already held.");
+        return IOStatus::IOError(fn, "lock is already held.");
       }
     } else {
       auto* file = new MemFile(env_, fn, true);
@@ -995,7 +1003,7 @@ IOStatus MockFileSystem::GetTestDirectory(const IOOptions& /*options*/,
 }
 
 Status MockFileSystem::CorruptBuffer(const std::string& fname) {
-  auto fn = NormalizePath(fname);
+  auto fn = NormalizeMockPath(fname);
   MutexLock lock(&mutex_);
   auto iter = file_map_.find(fn);
   if (iter == file_map_.end()) {

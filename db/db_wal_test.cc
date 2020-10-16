@@ -1696,7 +1696,7 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
   Options options = CurrentOptions();
   options.avoid_flush_during_recovery = true;
   if (options.env != Env::Default()) {
-    fprintf(stderr, "Skippging test for non-default environment\n");
+    ROCKSDB_GTEST_SKIP("Test requires default environment");
     return;
   }
   // Test fallocate support of running file system.

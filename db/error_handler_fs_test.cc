@@ -27,7 +27,7 @@ class DBErrorHandlingFSTest : public DBTestBase {
   DBErrorHandlingFSTest()
       : DBTestBase("/db_error_handling_fs_test", /*env_do_fsync=*/true) {
     fault_fs_.reset(new FaultInjectionTestFS(env_->GetFileSystem()));
-    fault_env_ = NewCompositeEnv(fault_fs_);
+    fault_env_.reset(new CompositeEnvWrapper(env_, fault_fs_));
   }
 
   std::string GetManifestNameFromLiveFiles() {
