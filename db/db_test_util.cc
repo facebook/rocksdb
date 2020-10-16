@@ -331,7 +331,7 @@ Options DBTestBase::CurrentOptions(
   return GetOptions(option_config_, default_options, options_override);
 }
 
-Options DBTestBase::GetDefaultOptions() {
+Options DBTestBase::GetDefaultOptions() const {
   Options options;
   options.write_buffer_size = 4090 * 4096;
   options.target_file_size_base = 2 * 1024 * 1024;
