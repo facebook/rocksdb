@@ -2445,6 +2445,10 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
     }
   }
   options.best_efforts_recovery = true;
+  // Since the WAL deletion event above is not tracked in MANIFEST,
+  // if we verify the tracked WALs on recovery,
+  // a corruption will be reported.
+  options.track_and_verify_wals_in_manifest = false;
   ReopenWithColumnFamilies(kAllCfNames, options);
   // Verify WAL is not applied
   ReadOptions read_opts;
