@@ -603,6 +603,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
           "[JOB %d] Write WalDeletion %s to MANIFEST FAILED -- %s\n",
           state.job_id, obsolete_wals.DebugString().c_str(),
           s.ToString().c_str());
+      error_handler_.SetBGError(s, BackgroundErrorReason::kManifestWrite)
+          .PermitUncheckedError();
       return;
     }
   }
