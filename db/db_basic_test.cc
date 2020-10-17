@@ -409,8 +409,7 @@ TEST_F(DBBasicTest, CheckLock) {
     Status s = DB::Open(options, dbname_, &localdb);
     ASSERT_NOK(s);
 #ifdef OS_LINUX
-    ASSERT_TRUE(s.ToString().find("lock hold by current process") !=
-                std::string::npos);
+    ASSERT_TRUE(s.ToString().find("lock ") != std::string::npos);
 #endif  // OS_LINUX
   } while (ChangeCompactOptions());
 }
