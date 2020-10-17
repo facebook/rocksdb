@@ -592,9 +592,11 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     // If writing to MANIFEST fails, on recovery, the WALs are still
     // considered to be on-disk, so cannot proceed to actually delete them.
     // Next round of Purge may succeed.
-    InstrumentedMutexLock guard_lock(&mutex_);
-    Status s =
-        versions_->LogAndApplyToDefaultColumnFamily(&obsolete_wals, &mutex_);
+    Status s;
+    {
+      InstrumentedMutexLock guard_lock(&mutex_);
+      s = versions_->LogAndApplyToDefaultColumnFamily(&obsolete_wals, &mutex_);
+    }
     if (!s.ok()) {
       ROCKS_LOG_ERROR(
           immutable_db_options_.info_log,
