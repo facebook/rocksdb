@@ -477,6 +477,10 @@ Status MemTableList::TryInstallMemtableFlushResults(
       if (vset->db_options()->allow_2pc) {
         min_log_number_to_keep = PrecomputeMinLogNumberToKeep(
             vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
+        // We piggyback the information of  earliest log file to keep in the
+        // manifest entry for the last file flushed.
+        assert(edit_list.size() > 0);
+        edit_list.back()->SetMinLogNumberToKeep(min_log_number_to_keep);
       } else {
         min_log_number_to_keep = vset->MinLogNumberWithUnflushedData();
       }
@@ -493,13 +497,6 @@ Status MemTableList::TryInstallMemtableFlushResults(
         }
       }
       
-      if (vset->db_options()->allow_2pc) {
-        assert(edit_list.size() > 0);
-        // We piggyback the information of  earliest log file to keep in the
-        // manifest entry for the last file flushed.
-        edit_list.back()->SetMinLogNumberToKeep(min_log_number_to_keep);
-      }
-
       // this can release and reacquire the mutex.
       s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
                             db_directory);

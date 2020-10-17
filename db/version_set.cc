@@ -3854,6 +3854,7 @@ Status VersionSet::ProcessManifestWrites(
                                  version);
       }
       for (const auto& e : last_writer->edit_list) {
+        printf("edit: %s\n", e->DebugString().c_str());
         if (e->is_in_atomic_group_) {
           if (batch_edits.empty() || !batch_edits.back()->is_in_atomic_group_ ||
               (batch_edits.back()->is_in_atomic_group_ &&
@@ -4382,6 +4383,8 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
   // they can't both be true
   assert(!(cf_in_not_found && cf_in_builders));
 
+  printf("apply edit: %s\n", edit.DebugString().c_str());
+
   ColumnFamilyData* cfd = nullptr;
 
   if (edit.is_column_family_add_) {
@@ -4510,6 +4513,7 @@ Status VersionSet::ExtractInfoFromVersionEdit(
   }
 
   if (from_edit.has_min_log_number_to_keep_) {
+    printf("edit.min_log_number_to_keep = %lld\n", from_edit.min_log_number_to_keep_);
     version_edit_params->min_log_number_to_keep_ =
         std::max(version_edit_params->min_log_number_to_keep_,
                  from_edit.min_log_number_to_keep_);
