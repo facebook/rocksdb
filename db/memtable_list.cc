@@ -473,12 +473,31 @@ Status MemTableList::TryInstallMemtableFlushResults(
 
     // TODO(myabandeh): Not sure how batch_count could be 0 here.
     if (batch_count > 0) {
+      uint64_t min_log_number_to_keep = 0;
+      if (vset->db_options()->allow_2pc) {
+        min_log_number_to_keep = PrecomputeMinLogNumberToKeep(
+            vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
+      } else {
+        min_log_number_to_keep = vset->MinLogNumberWithUnflushedData();
+      }
+      std::unique_ptr<VersionEdit> obsolete_wals;
+      if (vset->db_options()->track_and_verify_wals_in_manifest) {
+        auto& wals = vset->GetWalSet().GetWals();
+        auto lb = wals.lower_bound(min_log_number_to_keep);
+        if (lb != wals.begin()) {
+          obsolete_wals.reset(new VersionEdit);
+          for (auto it = wals.begin(); it != lb; it++) {
+            obsolete_wals->DeleteWal(it->first);
+          }
+          edit_list.push_back(obsolete_wals.get());
+        }
+      }
+      
       if (vset->db_options()->allow_2pc) {
         assert(edit_list.size() > 0);
         // We piggyback the information of  earliest log file to keep in the
         // manifest entry for the last file flushed.
-        edit_list.back()->SetMinLogNumberToKeep(PrecomputeMinLogNumberToKeep(
-            vset, *cfd, edit_list, memtables_to_flush, prep_tracker));
+        edit_list.back()->SetMinLogNumberToKeep(min_log_number_to_keep);
       }
 
       // this can release and reacquire the mutex.
@@ -715,6 +734,19 @@ Status InstallMemtableAtomicFlushResults(
     edits.emplace_back((*mems)[0]->GetEdits());
     ++num_entries;
     edit_lists.emplace_back(edits);
+  }
+  uint64_t min_log_number_to_keep = vset->MinLogNumberWithUnflushedData();
+  std::unique_ptr<VersionEdit> obsolete_wals;
+  if (vset->db_options()->track_and_verify_wals_in_manifest) {
+    auto& wals = vset->GetWalSet().GetWals();
+    auto lb = wals.lower_bound(min_log_number_to_keep);
+    if (lb != wals.begin()) {
+      obsolete_wals.reset(new VersionEdit);
+      for (auto it = wals.begin(); it != lb; it++) {
+        obsolete_wals->DeleteWal(it->first);
+      }
+      edit_lists.back().push_back(obsolete_wals.get());
+    }
   }
   // Mark the version edits as an atomic group if the number of version edits
   // exceeds 1.

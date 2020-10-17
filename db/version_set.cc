@@ -4433,11 +4433,17 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
           "Manifest - dropping non-existing column family");
     }
   } else if (edit.IsWalAddition()) {
+    for (const auto& wal : edit.GetWalAdditions()) {
+      printf("%s\n", wal.DebugString().c_str());
+    }
     Status s = wals_.AddWals(edit.GetWalAdditions());
     if (!s.ok()) {
       return s;
     }
   } else if (edit.IsWalDeletion()) {
+    for (const auto& wal : edit.GetWalDeletions()) {
+      printf("%s\n", wal.DebugString().c_str());
+    }
     Status s = wals_.DeleteWals(edit.GetWalDeletions());
     if (!s.ok()) {
       return s;
