@@ -3854,7 +3854,6 @@ Status VersionSet::ProcessManifestWrites(
                                  version);
       }
       for (const auto& e : last_writer->edit_list) {
-        printf("edit: %s\n", e->DebugString().c_str());
         if (e->is_in_atomic_group_) {
           if (batch_edits.empty() || !batch_edits.back()->is_in_atomic_group_ ||
               (batch_edits.back()->is_in_atomic_group_ &&
