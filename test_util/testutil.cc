@@ -506,15 +506,15 @@ Status CorruptFile(Env* env, const std::string& fname, int offset,
     }
     s = WriteStringToFile(env, contents, fname);
   }
-#ifndef ROCKSDB_LITE
   if (s.ok() && verify_checksum) {
+#ifndef ROCKSDB_LITE
     Options options;
     options.env = env;
     EnvOptions env_options;
     Status v = VerifySstFileChecksum(options, env_options, fname);
     assert(!v.ok());
-  }
 #endif
+  }
   return s;
 }
 
