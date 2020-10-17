@@ -573,7 +573,6 @@ Status DBImpl::Recover(
 
     std::unordered_map<uint64_t, std::string> log_files;
     for (const auto& file : files_in_wal_dir) {
-      printf("file in wal: %s\n", file.c_str());
       uint64_t number;
       FileType type;
       if (ParseFileName(file, &number, &type) && type == kLogFile) {
@@ -634,7 +633,6 @@ Status DBImpl::Recover(
       std::vector<uint64_t> logs;
       logs.reserve(log_files.size());
       for (const auto& log_file : log_files) {
-        printf("recover %lld\n", log_file.first);
         logs.push_back(log_file.first);
       }
       std::sort(logs.begin(), logs.end());
@@ -857,7 +855,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   uint64_t corrupted_log_number = kMaxSequenceNumber;
   uint64_t min_log_number = MinLogNumberToKeep();
   for (auto log_number : log_numbers) {
-    printf("log: %lld, min_log_number: %lld\n", log_number, min_log_number);
     if (log_number < min_log_number) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Skipping log #%" PRIu64

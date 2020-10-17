@@ -4383,7 +4383,6 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
   // they can't both be true
   assert(!(cf_in_not_found && cf_in_builders));
 
-  printf("apply edit: %s\n", edit.DebugString().c_str());
 
   ColumnFamilyData* cfd = nullptr;
 
@@ -4436,17 +4435,11 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
           "Manifest - dropping non-existing column family");
     }
   } else if (edit.IsWalAddition()) {
-    for (const auto& wal : edit.GetWalAdditions()) {
-      printf("%s\n", wal.DebugString().c_str());
-    }
     Status s = wals_.AddWals(edit.GetWalAdditions());
     if (!s.ok()) {
       return s;
     }
   } else if (edit.IsWalDeletion()) {
-    for (const auto& wal : edit.GetWalDeletions()) {
-      printf("%s\n", wal.DebugString().c_str());
-    }
     Status s = wals_.DeleteWals(edit.GetWalDeletions());
     if (!s.ok()) {
       return s;
@@ -4513,7 +4506,6 @@ Status VersionSet::ExtractInfoFromVersionEdit(
   }
 
   if (from_edit.has_min_log_number_to_keep_) {
-    printf("edit.min_log_number_to_keep = %lld\n", from_edit.min_log_number_to_keep_);
     version_edit_params->min_log_number_to_keep_ =
         std::max(version_edit_params->min_log_number_to_keep_,
                  from_edit.min_log_number_to_keep_);

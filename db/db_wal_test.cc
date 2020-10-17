@@ -118,7 +118,6 @@ TEST_F(DBWALTestWithEnrichedEnv, SkipDeletedWALs) {
   auto options = last_options_;
   // To cause frequent WAL deletion
   options.write_buffer_size = 128;
-  printf("Reopen1\n");
   Reopen(options);
 
   WriteOptions writeOpt = WriteOptions();
@@ -133,11 +132,9 @@ TEST_F(DBWALTestWithEnrichedEnv, SkipDeletedWALs) {
   ASSERT_NE(0, enriched_env_->deleted_wal_cnt);
   // but not the first one
   ASSERT_NE(0, enriched_env_->skipped_wal.size());
-  printf("skipped %s\n", enriched_env_->skipped_wal.c_str());
 
   // Test that the WAL that was not deleted will be skipped during recovery
   options = last_options_;
-  printf("Reopen2\n");
   Reopen(options);
   ASSERT_FALSE(enriched_env_->deleted_wal_reopened);
   ASSERT_FALSE(enriched_env_->gap_in_wals);
