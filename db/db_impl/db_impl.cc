@@ -1316,7 +1316,7 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir, Status& status) {
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
     auto& log = *it;
     assert(log.getting_synced);
-    if (status->ok() && logs_.size() > 1) {
+    if (status.ok() && logs_.size() > 1) {
       if (immutable_db_options_.track_and_verify_wals_in_manifest) {
         fully_synced_wals.AddWal(
             log.number, WalMetadata(log.writer->file()->GetFileSize()));

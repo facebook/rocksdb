@@ -455,6 +455,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
 
   bool own_files = OwnTablesAndLogs();
   std::unordered_set<uint64_t> files_to_del;
+  VersionEdit obsolete_wals;
   for (const auto& candidate_file : candidate_files) {
     const std::string& to_delete = candidate_file.file_name;
     uint64_t number;
@@ -465,12 +466,13 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
 
     bool keep = true;
+    bool is_recycled_log = false;
     switch (type) {
       case kLogFile:
+        is_recycled_log =
+            log_recycle_files_set.find(number) != log_recycle_files_set.end();
         keep = ((number >= state.log_number) ||
-                (number == state.prev_log_number) ||
-                (log_recycle_files_set.find(number) !=
-                 log_recycle_files_set.end()));
+                (number == state.prev_log_number) || is_recycled_log);
         break;
       case kDescriptorFile:
         // Keep my manifest file, and any newer incarnations'
@@ -530,6 +532,14 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
         break;
     }
 
+    if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+        type == kLogFile && (!keep || is_recycled_log)) {
+      // recycled log is considered to be obsolete,
+      // because when a recycled log is reused,
+      // it will be renamed to a new file number.
+      obsolete_wals.DeleteWal(number);
+    }
+
     if (keep) {
       continue;
     }
@@ -574,6 +584,24 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       SchedulePendingPurge(fname, dir_to_sync, type, number, state.job_id);
     } else {
       DeleteObsoleteFileImpl(state.job_id, fname, dir_to_sync, type, number);
+    }
+  }
+
+  if (obsolete_wals.IsWalDeletion()) {
+    // edit is not empty, must succeed in writing to MANIFEST.
+    // If writing to MANIFEST fails, on recovery, the WALs are still
+    // considered to be on-disk, so cannot proceed to actually delete them.
+    // Next round of Purge may succeed.
+    InstrumentedMutexLock guard_lock(&mutex_);
+    Status s =
+        versions_->LogAndApplyToDefaultColumnFamily(&obsolete_wals, &mutex_);
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(
+          immutable_db_options_.info_log,
+          "[JOB %d] Write WalDeletion %s to MANIFEST FAILED -- %s\n",
+          state.job_id, obsolete_wals.DebugString().c_str(),
+          s.ToString().c_str());
+      return;
     }
   }
 
