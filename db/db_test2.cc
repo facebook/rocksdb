@@ -1459,6 +1459,11 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
     return;
   }
 
+  fprintf(stdout, "compression_failure_type_: %u\n", compression_failure_type_);
+  fprintf(stdout, "compression_type_: %u\n", compression_type_);
+  fprintf(stdout, "compression_max_dict_bytes_: %u\n", compression_max_dict_bytes_);
+  fprintf(stdout, "compression_parallel_threads_: %u\n", compression_parallel_threads_);
+
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = 2;
   options.max_bytes_for_level_base = 1024;
