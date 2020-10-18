@@ -676,7 +676,8 @@ Status InstallMemtableAtomicFlushResults(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<const autovector<MemTable*>*>& mems_list, VersionSet* vset,
-    InstrumentedMutex* mu, const autovector<FileMetaData*>& file_metas,
+    LogsWithPrepTracker* prep_tracker, InstrumentedMutex* mu,
+    const autovector<FileMetaData*>& file_metas,
     autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer) {
   AutoThreadOperationStageUpdater stage_updater(
@@ -724,6 +725,17 @@ Status InstallMemtableAtomicFlushResults(
       edits[0]->MarkAtomicGroup(--num_entries);
     }
     assert(0 == num_entries);
+  }
+
+  if (vset->db_options()->allow_2pc) {
+    uint64_t min_log_number_to_keep = port::kMaxUint64;
+    for (size_t i = 0; i < cfds.size(); i++) {
+      min_log_number_to_keep =
+          std::min(min_log_number_to_keep,
+                   PrecomputeMinLogNumberToKeep(vset, *cfds[i], edit_lists[i],
+                                                *mems_list[i], prep_tracker));
+    }
+    edit_lists.back().back()->SetMinLogNumberToKeep(min_log_number_to_keep);
   }
 
   // this can release and reacquire the mutex.

@@ -138,8 +138,8 @@ class MemTableListVersion {
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<const autovector<MemTable*>*>& mems_list,
-      VersionSet* vset, InstrumentedMutex* mu,
-      const autovector<FileMetaData*>& file_meta,
+      VersionSet* vset, LogsWithPrepTracker* prep_tracker,
+      InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
       autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer);
 
@@ -381,8 +381,8 @@ class MemTableList {
       const autovector<ColumnFamilyData*>& cfds,
       const autovector<const MutableCFOptions*>& mutable_cf_options_list,
       const autovector<const autovector<MemTable*>*>& mems_list,
-      VersionSet* vset, InstrumentedMutex* mu,
-      const autovector<FileMetaData*>& file_meta,
+      VersionSet* vset, LogsWithPrepTracker* prep_tracker,
+      InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
       autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer);
 
@@ -424,7 +424,8 @@ extern Status InstallMemtableAtomicFlushResults(
     const autovector<ColumnFamilyData*>& cfds,
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<const autovector<MemTable*>*>& mems_list, VersionSet* vset,
-    InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
+    LogsWithPrepTracker* prep_tracker, InstrumentedMutex* mu,
+    const autovector<FileMetaData*>& file_meta,
     autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer);
 }  // namespace ROCKSDB_NAMESPACE
