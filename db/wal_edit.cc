@@ -149,7 +149,9 @@ Status WalSet::DeleteWal(const WalDeletion& wal) {
   //   ss << "WAL " << wal.GetLogNumber() << " must exist before deletion";
   //   return Status::Corruption("WalSet", ss.str());
   // }
-  wals_.erase(it);
+  if (it != wals_.end()) {
+    wals_.erase(it);
+  }
   return Status::OK();
 }
 
