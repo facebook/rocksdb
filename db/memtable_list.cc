@@ -496,7 +496,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
           edit_list.push_back(obsolete_wals.get());
         }
       }
-      
+
       // this can release and reacquire the mutex.
       s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
                             db_directory);

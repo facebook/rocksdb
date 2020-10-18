@@ -143,12 +143,12 @@ Status WalSet::AddWals(const WalAdditions& wals) {
 
 Status WalSet::DeleteWal(const WalDeletion& wal) {
   auto it = wals_.find(wal.GetLogNumber());
-  // The WAL must exist.
-  if (it == wals_.end()) {
-    std::stringstream ss;
-    ss << "WAL " << wal.GetLogNumber() << " must exist before deletion";
-    return Status::Corruption("WalSet", ss.str());
-  }
+  // // The WAL must exist.
+  // if (it == wals_.end()) {
+  //   std::stringstream ss;
+  //   ss << "WAL " << wal.GetLogNumber() << " must exist before deletion";
+  //   return Status::Corruption("WalSet", ss.str());
+  // }
   wals_.erase(it);
   return Status::OK();
 }

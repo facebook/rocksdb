@@ -592,7 +592,8 @@ Status DBImpl::Recover(
       // Verify WALs in MANIFEST.
       // s = versions_->GetWalSet().CheckWals(env_, log_files);
       // if (!s.ok()) {
-      //   return Status::Corruption("Failed to verify WALs tracked in MANIFEST",
+      //   return Status::Corruption("Failed to verify WALs tracked in
+      //   MANIFEST",
       //                             s.ToString());
       // }
     } else if (!versions_->GetWalSet().GetWals().empty()) {
@@ -1467,8 +1468,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                       !kSeqPerBatch, kBatchPerTxn);
 }
 
-IOStatus DBImpl::CreateWAL(uint64_t log_file_num,
-                           uint64_t recycle_log_number,
+IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
                            size_t preallocate_block_size,
                            log::Writer** new_log) {
   IOStatus io_s;
@@ -1577,9 +1577,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     log::Writer* new_log = nullptr;
     const size_t preallocate_block_size =
         impl->GetWalPreallocateBlockSize(max_write_buffer_size);
-    s = impl->CreateWAL(new_log_number,
-                        0 /*recycle_log_number*/, preallocate_block_size,
-                        &new_log);
+    s = impl->CreateWAL(new_log_number, 0 /*recycle_log_number*/,
+                        preallocate_block_size, &new_log);
     if (s.ok()) {
       InstrumentedMutexLock wl(&impl->log_write_mutex_);
       impl->logfile_number_ = new_log_number;

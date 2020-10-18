@@ -3849,9 +3849,9 @@ Status VersionSet::ProcessManifestWrites(
           builder_guards.emplace_back(
               new BaseReferencedVersionBuilder(last_writer->cfd));
           builder = builder_guards.back()->version_builder();
+          TEST_SYNC_POINT_CALLBACK(
+              "VersionSet::ProcessManifestWrites:NewVersion", version);
         }
-        TEST_SYNC_POINT_CALLBACK("VersionSet::ProcessManifestWrites:NewVersion",
-                                 version);
       }
       for (const auto& e : last_writer->edit_list) {
         if (e->is_in_atomic_group_) {
@@ -4381,7 +4381,6 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
 
   // they can't both be true
   assert(!(cf_in_not_found && cf_in_builders));
-
 
   ColumnFamilyData* cfd = nullptr;
 
