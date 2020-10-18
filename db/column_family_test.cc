@@ -187,8 +187,8 @@ class ColumnFamilyTestBase : public testing::Test {
     std::vector<ColumnFamilyDescriptor> column_families;
     names_.clear();
     for (size_t i = 0; i < cf.size(); ++i) {
-      column_families.push_back(ColumnFamilyDescriptor(
-          cf[i], options.size() == 0 ? column_family_options_ : options[i]));
+      column_families.emplace_back(
+          cf[i], options.size() == 0 ? column_family_options_ : options[i]);
       names_.push_back(cf[i]);
     }
     return DB::Open(db_options_, dbname_, column_families, &handles_, &db_);
@@ -199,8 +199,8 @@ class ColumnFamilyTestBase : public testing::Test {
     std::vector<ColumnFamilyDescriptor> column_families;
     names_.clear();
     for (size_t i = 0; i < cf.size(); ++i) {
-      column_families.push_back(ColumnFamilyDescriptor(
-          cf[i], options.size() == 0 ? column_family_options_ : options[i]));
+      column_families.emplace_back(
+          cf[i], options.size() == 0 ? column_family_options_ : options[i]);
       names_.push_back(cf[i]);
     }
     return DB::OpenForReadOnly(db_options_, dbname_, column_families, &handles_,
