@@ -52,6 +52,12 @@ class StringLogger : public Logger {
 class TestCustomizable : public Customizable {
  public:
   TestCustomizable(const std::string& name) : name_(name) {}
+  // Method to allow GetAs to work for this class
+  static const char* kClassName() {
+    return "TestCustomizable";
+    ;
+  }
+
   const char* Name() const override { return name_.c_str(); }
   static const char* Type() { return "test.custom"; }
   static Status CreateFromString(const ConfigOptions& opts,
@@ -64,7 +70,7 @@ class TestCustomizable : public Customizable {
                                  const std::string& value,
                                  TestCustomizable** result);
   bool IsInstanceOf(const std::string& name) const override {
-    if (name == "TestCustomizable") {
+    if (name == kClassName()) {
       return true;
     } else {
       return Customizable::IsInstanceOf(name);
@@ -96,6 +102,7 @@ class ACustomizable : public TestCustomizable {
     ConfigurableHelper::RegisterOptions(*this, "A", &opts_, &a_option_info);
   }
   std::string GetId() const override { return id_; }
+  static const char* kClassName() { return "A"; }
 
  private:
   AOptions opts_;
@@ -137,6 +144,7 @@ class BCustomizable : public TestCustomizable {
   BCustomizable(const std::string& name) : TestCustomizable(name) {
     ConfigurableHelper::RegisterOptions(*this, name, &opts_, &b_option_info);
   }
+  static const char* kClassName() { return "B"; }
 
  private:
   BOptions opts_;
@@ -472,20 +480,27 @@ class WrappedCustomizable : public Customizable {
 };
 
 TEST_F(CustomizableTest, IsInstanceOfTest) {
-  std::shared_ptr<TestCustomizable> ac =
-      std::make_shared<TestCustomizable>("A");
+  std::shared_ptr<TestCustomizable> tc = std::make_shared<ACustomizable>("A");
 
-  ASSERT_TRUE(ac->IsInstanceOf("A"));
-  ASSERT_TRUE(ac->IsInstanceOf("TestCustomizable"));
-  ASSERT_FALSE(ac->IsInstanceOf("B"));
-  ASSERT_EQ(ac->GetAs<TestCustomizable>("A"), ac.get());
-  ASSERT_EQ(ac->GetAs<TestCustomizable>("TestCustomizable"), ac.get());
-  ASSERT_EQ(ac->GetAs<TestCustomizable>("B"), nullptr);
-  WrappedCustomizable wc(ac);
-  ASSERT_TRUE(wc.IsInstanceOf("Wrapped"));
-  ASSERT_EQ(wc.GetAs<TestCustomizable>("A"), ac.get());
-  ASSERT_EQ(wc.GetAs<TestCustomizable>("TestCustomizable"), ac.get());
-  ASSERT_EQ(wc.GetAs<TestCustomizable>("B"), nullptr);
+  ASSERT_TRUE(tc->IsInstanceOf("A"));
+  ASSERT_TRUE(tc->IsInstanceOf("TestCustomizable"));
+  ASSERT_FALSE(tc->IsInstanceOf("B"));
+  ASSERT_EQ(tc->GetAs<ACustomizable>(), tc.get());
+  ASSERT_EQ(tc->GetAs<TestCustomizable>(), tc.get());
+  ASSERT_EQ(tc->GetAs<BCustomizable>(), nullptr);
+
+  tc.reset(new BCustomizable("B"));
+  ASSERT_TRUE(tc->IsInstanceOf("B"));
+  ASSERT_TRUE(tc->IsInstanceOf("TestCustomizable"));
+  ASSERT_FALSE(tc->IsInstanceOf("A"));
+  ASSERT_EQ(tc->GetAs<BCustomizable>(), tc.get());
+  ASSERT_EQ(tc->GetAs<TestCustomizable>(), tc.get());
+  ASSERT_EQ(tc->GetAs<ACustomizable>(), nullptr);
+
+  WrappedCustomizable wc(tc);
+  ASSERT_EQ(wc.GetAs<TestCustomizable>(), tc.get());
+  ASSERT_EQ(wc.GetAs<BCustomizable>(), tc.get());
+  ASSERT_EQ(wc.GetAs<ACustomizable>(), nullptr);
 }
 
 static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
@@ -503,7 +518,8 @@ class ShallowCustomizable : public Customizable {
     ConfigurableHelper::RegisterOptions(*this, "inner", &inner_,
                                         &inner_option_info);
   };
-  const char* Name() const override { return "shallow"; }
+  static const char* kClassName() { return "shallow"; }
+  const char* Name() const override { return kClassName(); }
 
  private:
   std::shared_ptr<TestCustomizable> inner_;

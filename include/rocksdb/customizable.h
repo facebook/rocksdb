@@ -78,13 +78,13 @@ class Customizable : public Configurable {
   // found. This method uses IsInstanceOf to find the appropriate class instance
   // and then casts it to the expected return type.
   template <typename T>
-  const T* GetAs(const std::string& name) const {
-    if (IsInstanceOf(name)) {
+  const T* GetAs() const {
+    if (IsInstanceOf(T::kClassName())) {
       return static_cast<const T*>(this);
     } else {
       const auto inner = static_cast<const Customizable*>(Inner());
       if (inner != nullptr) {
-        return inner->GetAs<T>(name);
+        return inner->GetAs<T>();
       } else {
         return nullptr;
       }
@@ -92,13 +92,13 @@ class Customizable : public Configurable {
   }
 
   template <typename T>
-  T* GetAs(const std::string& name) {
-    if (IsInstanceOf(name)) {
+  T* GetAs() {
+    if (IsInstanceOf(T::kClassName())) {
       return static_cast<T*>(this);
     } else {
       const auto inner = Inner();
       if (inner != nullptr) {
-        return inner->GetAs<T>(name);
+        return inner->GetAs<T>();
       } else {
         return nullptr;
       }
