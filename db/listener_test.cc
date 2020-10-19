@@ -1107,7 +1107,6 @@ TEST_F(EventListenerTest, OnFileOperationTest) {
 #endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
-  signal(SIGSEGV, handler);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
