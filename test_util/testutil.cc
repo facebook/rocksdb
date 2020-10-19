@@ -23,6 +23,7 @@
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
 
@@ -308,6 +309,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->error_if_exists = rnd->Uniform(2);
   db_opt->is_fd_close_on_exec = rnd->Uniform(2);
   db_opt->paranoid_checks = rnd->Uniform(2);
+  db_opt->track_and_verify_wals_in_manifest = rnd->Uniform(2);
   db_opt->skip_log_error_on_recovery = rnd->Uniform(2);
   db_opt->skip_stats_update_on_db_open = rnd->Uniform(2);
   db_opt->skip_checking_sst_file_sizes_on_db_open = rnd->Uniform(2);
@@ -368,6 +370,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->force_consistency_checks = rnd->Uniform(2);
   cf_opt->compaction_options_fifo.allow_compaction = rnd->Uniform(2);
   cf_opt->memtable_whole_key_filtering = rnd->Uniform(2);
+  cf_opt->enable_blob_files = rnd->Uniform(2);
 
   // double options
   cf_opt->hard_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
@@ -417,6 +420,8 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
       cf_opt->target_file_size_base * rnd->Uniform(100);
   cf_opt->compaction_options_fifo.max_table_files_size =
       uint_max + rnd->Uniform(10000);
+  cf_opt->min_blob_size = uint_max + rnd->Uniform(10000);
+  cf_opt->blob_file_size = uint_max + rnd->Uniform(10000);
 
   // unsigned int options
   cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);
@@ -435,6 +440,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->compression = RandomCompressionType(rnd);
   RandomCompressionTypeVector(cf_opt->num_levels,
                               &cf_opt->compression_per_level, rnd);
+  cf_opt->blob_compression_type = RandomCompressionType(rnd);
 }
 
 bool IsDirectIOSupported(Env* env, const std::string& dir) {

@@ -127,9 +127,9 @@ class IteratorWrapperBase {
     return iter_->MayBeOutOfLowerBound();
   }
 
-  bool MayBeOutOfUpperBound() {
+  IterBoundCheck UpperBoundCheckResult() {
     assert(Valid());
-    return result_.may_be_out_of_upper_bound;
+    return result_.bound_check_result;
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {
@@ -149,13 +149,18 @@ class IteratorWrapperBase {
     return result_.value_prepared;
   }
 
+  Slice user_key() const {
+    assert(Valid());
+    return iter_->user_key();
+  }
+
  private:
   void Update() {
     valid_ = iter_->Valid();
     if (valid_) {
       assert(iter_->status().ok());
       result_.key = iter_->key();
-      result_.may_be_out_of_upper_bound = true;
+      result_.bound_check_result = IterBoundCheck::kUnknown;
       result_.value_prepared = false;
     }
   }

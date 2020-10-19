@@ -52,7 +52,7 @@ Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record) {
       PutFixed64(&trace.payload, record.offset);
       FALLTHROUGH_INTENDED;
     case TraceType::kIOLen:
-      trace.payload.push_back(record.len);
+      PutFixed64(&trace.payload, record.len);
       break;
     default:
       assert(false);
@@ -177,13 +177,10 @@ Status IOTraceReader::ReadIOOp(IOTraceRecord* record) {
       }
       FALLTHROUGH_INTENDED;
     case TraceType::kIOLen: {
-      if (enc_slice.empty()) {
+      if (!GetFixed64(&enc_slice, &record->len)) {
         return Status::Incomplete(
             "Incomplete access record: Failed to read length.");
       }
-      record->len = static_cast<size_t>(enc_slice[0]);
-      const unsigned int kCharSize = 1;
-      enc_slice.remove_prefix(kCharSize);
       break;
     }
     default:

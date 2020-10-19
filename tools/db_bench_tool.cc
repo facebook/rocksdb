@@ -292,6 +292,9 @@ static bool ValidateUint32Range(const char* flagname, uint64_t value) {
 
 DEFINE_int32(key_size, 16, "size of each key");
 
+DEFINE_int32(user_timestamp_size, 0,
+             "number of bytes in a user-defined timestamp");
+
 DEFINE_int32(num_multi_db, 0,
              "Number of DBs used in the benchmark. 0 means single DB.");
 
@@ -952,11 +955,17 @@ static bool ValidateTableCacheNumshardbits(const char* flagname,
 DEFINE_int32(table_cache_numshardbits, 4, "");
 
 #ifndef ROCKSDB_LITE
-DEFINE_string(env_uri, "", "URI for registry Env lookup. Mutually exclusive"
-              " with --hdfs.");
+DEFINE_string(env_uri, "",
+              "URI for registry Env lookup. Mutually exclusive"
+              " with --hdfs and --fs_uri");
+DEFINE_string(fs_uri, "",
+              "URI for registry Filesystem lookup. Mutually exclusive"
+              " with --hdfs and --env_uri."
+              " Creates a default environment with the specified filesystem.");
 #endif  // ROCKSDB_LITE
-DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
-              " --env_uri.");
+DEFINE_string(hdfs, "",
+              "Name of hdfs environment. Mutually exclusive with"
+              " --env_uri and --fs_uri");
 
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 
@@ -985,6 +994,15 @@ DEFINE_int32(thread_status_per_interval, 0,
 
 DEFINE_int32(perf_level, ROCKSDB_NAMESPACE::PerfLevel::kDisable,
              "Level of perf collection");
+
+#ifndef ROCKSDB_LITE
+static ROCKSDB_NAMESPACE::Env* GetCompositeEnv(
+    std::shared_ptr<ROCKSDB_NAMESPACE::FileSystem> fs) {
+  static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
+      ROCKSDB_NAMESPACE::NewCompositeEnv(fs);
+  return composite_env.get();
+}
+#endif
 
 static bool ValidateRateLimit(const char* flagname, double value) {
   const double EPSILON = 1e-10;
@@ -1323,6 +1341,10 @@ DEFINE_int32(skip_list_lookahead, 0, "Used with skip_list memtablerep; try "
 DEFINE_bool(report_file_operations, false, "if report number of file "
             "operations");
 DEFINE_int32(readahead_size, 0, "Iterator readahead size");
+
+DEFINE_bool(read_with_latest_user_timestamp, true,
+            "If true, always use the current latest timestamp for read. If "
+            "false, choose a random timestamp from the past.");
 
 static const bool FLAGS_soft_rate_limit_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
@@ -2231,6 +2253,25 @@ class TimestampEmulator {
   TimestampEmulator() : timestamp_(0) {}
   uint64_t Get() const { return timestamp_.load(); }
   void Inc() { timestamp_++; }
+  Slice Allocate(char* scratch) {
+    // TODO: support larger timestamp sizes
+    assert(FLAGS_user_timestamp_size == 8);
+    assert(scratch);
+    uint64_t ts = timestamp_.fetch_add(1);
+    EncodeFixed64(scratch, ts);
+    return Slice(scratch, FLAGS_user_timestamp_size);
+  }
+  Slice GetTimestampForRead(Random64& rand, char* scratch) {
+    assert(FLAGS_user_timestamp_size == 8);
+    assert(scratch);
+    if (FLAGS_read_with_latest_user_timestamp) {
+      return Allocate(scratch);
+    }
+    // Choose a random timestamp from the past.
+    uint64_t ts = rand.Next() % Get();
+    EncodeFixed64(scratch, ts);
+    return Slice(scratch, FLAGS_user_timestamp_size);
+  }
 };
 
 // State shared by all concurrent executions of the same benchmark.
@@ -2262,10 +2303,8 @@ struct ThreadState {
   Stats stats;
   SharedState* shared;
 
-  /* implicit */ ThreadState(int index)
-      : tid(index),
-        rand((FLAGS_seed ? FLAGS_seed : 1000) + index) {
-  }
+  explicit ThreadState(int index)
+      : tid(index), rand((FLAGS_seed ? FLAGS_seed : 1000) + index) {}
 };
 
 class Duration {
@@ -2316,6 +2355,7 @@ class Benchmark {
   std::vector<DBWithColumnFamilies> multi_dbs_;
   int64_t num_;
   int key_size_;
+  int user_timestamp_size_;
   int prefix_size_;
   int64_t keys_per_prefix_;
   int64_t entries_per_batch_;
@@ -2391,6 +2431,8 @@ class Benchmark {
 
   std::shared_ptr<ErrorHandlerListener> listener_;
 
+  std::unique_ptr<TimestampEmulator> mock_app_clock_;
+
   bool SanityCheck() {
     if (FLAGS_compression_ratio > 1) {
       fprintf(stderr, "compression_ratio should be between 0 and 1\n");
@@ -2401,45 +2443,17 @@ class Benchmark {
 
   inline bool CompressSlice(const CompressionInfo& compression_info,
                             const Slice& input, std::string* compressed) {
-    bool ok = true;
-    switch (FLAGS_compression_type_e) {
-      case ROCKSDB_NAMESPACE::kSnappyCompression:
-        ok = Snappy_Compress(compression_info, input.data(), input.size(),
-                             compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kZlibCompression:
-        ok = Zlib_Compress(compression_info, 2, input.data(), input.size(),
-                           compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kBZip2Compression:
-        ok = BZip2_Compress(compression_info, 2, input.data(), input.size(),
-                            compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kLZ4Compression:
-        ok = LZ4_Compress(compression_info, 2, input.data(), input.size(),
-                          compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kLZ4HCCompression:
-        ok = LZ4HC_Compress(compression_info, 2, input.data(), input.size(),
-                            compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kXpressCompression:
-        ok = XPRESS_Compress(input.data(),
-          input.size(), compressed);
-        break;
-      case ROCKSDB_NAMESPACE::kZSTD:
-        ok = ZSTD_Compress(compression_info, input.data(), input.size(),
-                           compressed);
-        break;
-      default:
-        ok = false;
-    }
-    return ok;
+    constexpr uint32_t compress_format_version = 2;
+
+    return CompressData(input, compression_info, compress_format_version,
+                        compressed);
   }
 
   void PrintHeader() {
     PrintEnvironment();
-    fprintf(stdout, "Keys:       %d bytes each\n", FLAGS_key_size);
+    fprintf(stdout,
+            "Keys:       %d bytes each (+ %d bytes user-defined timestamp)\n",
+            FLAGS_key_size, FLAGS_user_timestamp_size);
     auto avg_value_size = FLAGS_value_size;
     if (FLAGS_value_size_distribution_type_e == kFixed) {
       fprintf(stdout, "Values:     %d bytes each (%d bytes after compression)\n",
@@ -2679,6 +2693,7 @@ class Benchmark {
         prefix_extractor_(NewFixedPrefixTransform(FLAGS_prefix_size)),
         num_(FLAGS_num),
         key_size_(FLAGS_key_size),
+        user_timestamp_size_(FLAGS_user_timestamp_size),
         prefix_size_(FLAGS_prefix_size),
         keys_per_prefix_(FLAGS_keys_per_prefix),
         entries_per_batch_(1),
@@ -2754,6 +2769,9 @@ class Benchmark {
     }
 
     listener_.reset(new ErrorHandlerListener());
+    if (user_timestamp_size_ > 0) {
+      mock_app_clock_.reset(new TimestampEmulator());
+    }
   }
 
   ~Benchmark() {
@@ -2773,17 +2791,19 @@ class Benchmark {
   }
 
   // Generate key according to the given specification and random number.
-  // The resulting key will have the following format (if keys_per_prefix_
-  // is positive), extra trailing bytes are either cut off or padded with '0'.
-  // The prefix value is derived from key value.
-  //   ----------------------------
-  //   | prefix 00000 | key 00000 |
-  //   ----------------------------
-  // If keys_per_prefix_ is 0, the key is simply a binary representation of
-  // random number followed by trailing '0's
-  //   ----------------------------
-  //   |        key 00000         |
-  //   ----------------------------
+  // The resulting key will have the following format:
+  //   - If keys_per_prefix_ is positive, extra trailing bytes are either cut
+  //     off or padded with '0'.
+  //     The prefix value is derived from key value.
+  //     ----------------------------
+  //     | prefix 00000 | key 00000 |
+  //     ----------------------------
+  //
+  //   - If keys_per_prefix_ is 0, the key is simply a binary representation of
+  //     random number followed by trailing '0's
+  //     ----------------------------
+  //     |        key 00000         |
+  //     ----------------------------
   void GenerateKeyFromInt(uint64_t v, int64_t num_keys, Slice* key) {
     if (!keys_.empty()) {
       assert(FLAGS_use_existing_keys);
@@ -2885,9 +2905,17 @@ class Benchmark {
     fprintf(stderr, "...Verified\n");
   }
 
+  void ErrorExit() {
+    db_.DeleteDBs();
+    for (size_t i = 0; i < multi_dbs_.size(); i++) {
+      delete multi_dbs_[i].db;
+    }
+    exit(1);
+  }
+
   void Run() {
     if (!SanityCheck()) {
-      exit(1);
+      ErrorExit();
     }
     Open(&open_options_);
     PrintHeader();
@@ -2926,7 +2954,7 @@ class Benchmark {
         auto it = name.find('[');
         if (it == std::string::npos) {
           fprintf(stderr, "unknown benchmark arguments '%s'\n", name.c_str());
-          exit(1);
+          ErrorExit();
         }
         std::string args = name.substr(it + 1);
         args.resize(args.size() - 1);
@@ -2959,7 +2987,7 @@ class Benchmark {
           fprintf(stderr,
                   "Please disable_auto_compactions in FillDeterministic "
                   "benchmark\n");
-          exit(1);
+          ErrorExit();
         }
         if (num_threads > 1) {
           fprintf(stderr,
@@ -3011,7 +3039,7 @@ class Benchmark {
           fprintf(stderr,
                   "Please set use_existing_keys to true and specify a "
                   "row cache size in readtorowcache benchmark\n");
-          exit(1);
+          ErrorExit();
         }
         method = &Benchmark::ReadToRowCache;
       } else if (name == "readtocache") {
@@ -3076,7 +3104,7 @@ class Benchmark {
         if (FLAGS_merge_operator.empty()) {
           fprintf(stdout, "%-12s : skipped (--merge_operator is unknown)\n",
                   name.c_str());
-          exit(1);
+          ErrorExit();
         }
         method = &Benchmark::ReadRandomMergeRandom;
       } else if (name == "updaterandom") {
@@ -3142,18 +3170,18 @@ class Benchmark {
       } else if (name == "replay") {
         if (num_threads > 1) {
           fprintf(stderr, "Multi-threaded replay is not yet supported\n");
-          exit(1);
+          ErrorExit();
         }
         if (FLAGS_trace_file == "") {
           fprintf(stderr, "Please set --trace_file to be replayed from\n");
-          exit(1);
+          ErrorExit();
         }
         method = &Benchmark::Replay;
       } else if (name == "getmergeoperands") {
         method = &Benchmark::GetMergeOperands;
       } else if (!name.empty()) {  // No error message for empty name
         fprintf(stderr, "unknown benchmark '%s'\n", name.c_str());
-        exit(1);
+        ErrorExit();
       }
 
       if (fresh_db) {
@@ -3194,13 +3222,13 @@ class Benchmark {
           if (!s.ok()) {
             fprintf(stderr, "Encountered an error starting a trace, %s\n",
                     s.ToString().c_str());
-            exit(1);
+            ErrorExit();
           }
           s = db_.db->StartTrace(trace_options_, std::move(trace_writer));
           if (!s.ok()) {
             fprintf(stderr, "Encountered an error starting a trace, %s\n",
                     s.ToString().c_str());
-            exit(1);
+            ErrorExit();
           }
           fprintf(stdout, "Tracing the workload to: [%s]\n",
                   FLAGS_trace_file.c_str());
@@ -3212,13 +3240,13 @@ class Benchmark {
             fprintf(stderr,
                     "Block cache trace sampling frequency must be higher than "
                     "0.\n");
-            exit(1);
+            ErrorExit();
           }
           if (FLAGS_block_cache_trace_max_trace_file_size_in_bytes <= 0) {
             fprintf(stderr,
                     "The maximum file size for block cache tracing must be "
                     "higher than 0.\n");
-            exit(1);
+            ErrorExit();
           }
           block_cache_trace_options_.max_trace_file_size =
               FLAGS_block_cache_trace_max_trace_file_size_in_bytes;
@@ -3232,7 +3260,7 @@ class Benchmark {
             fprintf(stderr,
                     "Encountered an error when creating trace writer, %s\n",
                     s.ToString().c_str());
-            exit(1);
+            ErrorExit();
           }
           s = db_.db->StartBlockCacheTrace(block_cache_trace_options_,
                                            std::move(block_cache_trace_writer));
@@ -3241,7 +3269,7 @@ class Benchmark {
                 stderr,
                 "Encountered an error when starting block cache tracing, %s\n",
                 s.ToString().c_str());
-            exit(1);
+            ErrorExit();
           }
           fprintf(stdout, "Tracing block cache accesses to: [%s]\n",
                   FLAGS_block_cache_trace_file.c_str());
@@ -3543,57 +3571,15 @@ class Benchmark {
 
     bool ok = CompressSlice(compression_info, input, &compressed);
     int64_t bytes = 0;
-    int decompress_size;
+    size_t uncompressed_size = 0;
     while (ok && bytes < 1024 * 1048576) {
-      CacheAllocationPtr uncompressed;
-      switch (FLAGS_compression_type_e) {
-        case ROCKSDB_NAMESPACE::kSnappyCompression: {
-          // get size and allocate here to make comparison fair
-          size_t ulength = 0;
-          if (!Snappy_GetUncompressedLength(compressed.data(),
-                                            compressed.size(), &ulength)) {
-            ok = false;
-            break;
-          }
-          uncompressed = AllocateBlock(ulength, nullptr);
-          ok = Snappy_Uncompress(compressed.data(), compressed.size(),
-                                 uncompressed.get());
-          break;
-        }
-        case ROCKSDB_NAMESPACE::kZlibCompression:
-          uncompressed =
-              Zlib_Uncompress(uncompression_info, compressed.data(),
-                              compressed.size(), &decompress_size, 2);
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kBZip2Compression:
-          uncompressed = BZip2_Uncompress(compressed.data(), compressed.size(),
-                                          &decompress_size, 2);
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kLZ4Compression:
-          uncompressed = LZ4_Uncompress(uncompression_info, compressed.data(),
-                                        compressed.size(), &decompress_size, 2);
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kLZ4HCCompression:
-          uncompressed = LZ4_Uncompress(uncompression_info, compressed.data(),
-                                        compressed.size(), &decompress_size, 2);
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kXpressCompression:
-          uncompressed.reset(XPRESS_Uncompress(
-              compressed.data(), compressed.size(), &decompress_size));
-          ok = uncompressed.get() != nullptr;
-          break;
-        case ROCKSDB_NAMESPACE::kZSTD:
-          uncompressed = ZSTD_Uncompress(uncompression_info, compressed.data(),
-                                         compressed.size(), &decompress_size);
-          ok = uncompressed.get() != nullptr;
-          break;
-        default:
-          ok = false;
-      }
+      constexpr uint32_t compress_format_version = 2;
+
+      CacheAllocationPtr uncompressed = UncompressData(
+          uncompression_info, compressed.data(), compressed.size(),
+          &uncompressed_size, compress_format_version);
+
+      ok = uncompressed.get() != nullptr;
       bytes += input.size();
       thread->stats.FinishedOps(nullptr, nullptr, 1, kUncompress);
     }
@@ -4014,6 +4000,14 @@ class Benchmark {
       options.enable_thread_tracking = true;
     }
 
+    if (FLAGS_user_timestamp_size > 0) {
+      if (FLAGS_user_timestamp_size != 8) {
+        fprintf(stderr, "Only 64 bits timestamps are supported.\n");
+        exit(1);
+      }
+      options.comparator = ROCKSDB_NAMESPACE::test::ComparatorWithU64Ts();
+    }
+
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {
       fprintf(stderr, "Cannot use readonly flag with transaction_db\n");
@@ -4051,11 +4045,9 @@ class Benchmark {
     options.compression_opts.parallel_threads =
         FLAGS_compression_parallel_threads;
     // If this is a block based table, set some related options
-    if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
-        options.table_factory->GetOptions() != nullptr) {
-      BlockBasedTableOptions* table_options =
-          reinterpret_cast<BlockBasedTableOptions*>(
-              options.table_factory->GetOptions());
+    auto table_options =
+        options.table_factory->GetOptions<BlockBasedTableOptions>();
+    if (table_options != nullptr) {
       if (FLAGS_cache_size) {
         table_options->block_cache = cache_;
       }
@@ -4409,7 +4401,8 @@ class Benchmark {
     }
 
     RandomGenerator gen;
-    WriteBatch batch;
+    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
+                     user_timestamp_size_);
     Status s;
     int64_t bytes = 0;
 
@@ -4426,6 +4419,11 @@ class Benchmark {
       for (auto& expanded_key_guard : expanded_key_guards) {
         expanded_keys.emplace_back(AllocateKey(&expanded_key_guard));
       }
+    }
+
+    std::unique_ptr<char[]> ts_guard;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
     }
 
     int64_t stage = 0;
@@ -4471,8 +4469,8 @@ class Benchmark {
           batch.Put(db_with_cfh->GetCfh(rand_num), key,
                     val);
         }
-        batch_bytes += val.size() + key_size_;
-        bytes += val.size() + key_size_;
+        batch_bytes += val.size() + key_size_ + user_timestamp_size_;
+        bytes += val.size() + key_size_ + user_timestamp_size_;
         ++num_written;
         if (writes_per_range_tombstone_ > 0 &&
             num_written > writes_before_delete_range_ &&
@@ -4528,6 +4526,15 @@ class Benchmark {
         // once per write.
         thread->stats.ResetLastOpTime();
       }
+      if (user_timestamp_size_ > 0) {
+        Slice user_ts = mock_app_clock_->Allocate(ts_guard.get());
+        s = batch.AssignTimestamp(user_ts);
+        if (!s.ok()) {
+          fprintf(stderr, "assign timestamp to write batch: %s\n",
+                  s.ToString().c_str());
+          ErrorExit();
+        }
+      }
       if (!use_blob_db_) {
         s = db_with_cfh->db->Write(write_options_, &batch);
       }
@@ -4560,7 +4567,7 @@ class Benchmark {
 
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+        ErrorExit();
       }
     }
     thread->stats.AddBytes(bytes);
@@ -4884,6 +4891,13 @@ class Benchmark {
   void ReadSequential(ThreadState* thread, DB* db) {
     ReadOptions options(FLAGS_verify_checksum, true);
     options.tailing = FLAGS_use_tailing_iterator;
+    std::unique_ptr<char[]> ts_guard;
+    Slice ts;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+      ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
+      options.timestamp = &ts;
+    }
 
     Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
@@ -5005,6 +5019,11 @@ class Benchmark {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     std::string value;
+    Slice ts;
+    std::unique_ptr<char[]> ts_guard;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+    }
     DB* db = SelectDBWithCfh(thread)->db;
 
     int64_t pot = 1;
@@ -5018,7 +5037,15 @@ class Benchmark {
         int64_t key_rand = thread->rand.Next() & (pot - 1);
         GenerateKeyFromInt(key_rand, FLAGS_num, &key);
         ++read;
-        auto status = db->Get(options, key, &value);
+        std::string ts_ret;
+        std::string* ts_ptr = nullptr;
+        if (user_timestamp_size_ > 0) {
+          ts = mock_app_clock_->GetTimestampForRead(thread->rand,
+                                                    ts_guard.get());
+          options.timestamp = &ts;
+          ts_ptr = &ts_ret;
+        }
+        auto status = db->Get(options, key, &value, ts_ptr);
         if (status.ok()) {
           ++found;
         } else if (!status.IsNotFound()) {
@@ -5082,6 +5109,11 @@ class Benchmark {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     PinnableSlice pinnable_val;
+    std::unique_ptr<char[]> ts_guard;
+    Slice ts;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+    }
 
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
@@ -5105,19 +5137,26 @@ class Benchmark {
       }
       GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       read++;
+      std::string ts_ret;
+      std::string* ts_ptr = nullptr;
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
+        options.timestamp = &ts;
+        ts_ptr = &ts_ret;
+      }
       Status s;
       if (FLAGS_num_column_families > 1) {
         s = db_with_cfh->db->Get(options, db_with_cfh->GetCfh(key_rand), key,
-                                 &pinnable_val);
+                                 &pinnable_val, ts_ptr);
       } else {
         pinnable_val.Reset();
         s = db_with_cfh->db->Get(options,
                                  db_with_cfh->db->DefaultColumnFamily(), key,
-                                 &pinnable_val);
+                                 &pinnable_val, ts_ptr);
       }
       if (s.ok()) {
         found++;
-        bytes += key.size() + pinnable_val.size();
+        bytes += key.size() + pinnable_val.size() + user_timestamp_size_;
       } else if (!s.IsNotFound()) {
         fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
         abort();
@@ -5163,6 +5202,11 @@ class Benchmark {
       keys.push_back(AllocateKey(&key_guards.back()));
     }
 
+    std::unique_ptr<char[]> ts_guard;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+    }
+
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
@@ -5180,6 +5224,11 @@ class Benchmark {
         for (int64_t i = 0; i < entries_per_batch_; ++i) {
           GenerateKeyFromInt(GetRandomKey(&thread->rand), FLAGS_num, &keys[i]);
         }
+      }
+      Slice ts;
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
+        options.timestamp = &ts;
       }
       if (!FLAGS_multiread_batched) {
         std::vector<Status> statuses = db->MultiGet(options, keys, &values);
@@ -5371,18 +5420,11 @@ class Benchmark {
   // based on the hotness of the prefix and also the key hotness distribution.
   class GenerateTwoTermExpKeys {
    public:
-    int64_t keyrange_rand_max_;
-    int64_t keyrange_size_;
-    int64_t keyrange_num_;
-    bool initiated_;
+    // Avoid uninitialized warning-as-error in some compilers
+    int64_t keyrange_rand_max_ = 0;
+    int64_t keyrange_size_ = 0;
+    int64_t keyrange_num_ = 0;
     std::vector<KeyrangeUnit> keyrange_set_;
-
-    GenerateTwoTermExpKeys() {
-      keyrange_rand_max_ = FLAGS_num;
-      initiated_ = false;
-    }
-
-    ~GenerateTwoTermExpKeys() {}
 
     // Initiate the KeyrangeUnit vector and calculate the size of each
     // KeyrangeUnit.
@@ -5391,7 +5433,6 @@ class Benchmark {
                                    double prefix_d) {
       int64_t amplify = 0;
       int64_t keyrange_start = 0;
-      initiated_ = true;
       if (FLAGS_keyrange_num <= 0) {
         keyrange_num_ = 1;
       } else {
@@ -5648,7 +5689,7 @@ class Benchmark {
             gen.Generate(static_cast<unsigned int>(val_size)));
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-          exit(1);
+          ErrorExit();
         }
 
         if (thread->shared->write_rate_limiter) {
@@ -5705,8 +5746,17 @@ class Benchmark {
   void IteratorCreation(ThreadState* thread) {
     Duration duration(FLAGS_duration, reads_);
     ReadOptions options(FLAGS_verify_checksum, true);
+    std::unique_ptr<char[]> ts_guard;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+    }
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
+      Slice ts;
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
+        options.timestamp = &ts;
+      }
       Iterator* iter = db->NewIterator(options);
       delete iter;
       thread->stats.FinishedOps(nullptr, db, 1, kOthers);
@@ -5730,6 +5780,13 @@ class Benchmark {
     options.prefix_same_as_start = FLAGS_prefix_same_as_start;
     options.tailing = FLAGS_use_tailing_iterator;
     options.readahead_size = FLAGS_readahead_size;
+    std::unique_ptr<char[]> ts_guard;
+    Slice ts;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+      ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
+      options.timestamp = &ts;
+    }
 
     Iterator* single_iter = nullptr;
     std::vector<Iterator*> multi_iters;
@@ -5853,11 +5910,17 @@ class Benchmark {
   }
 
   void DoDelete(ThreadState* thread, bool seq) {
-    WriteBatch batch;
+    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
+                     user_timestamp_size_);
     Duration duration(seq ? 0 : FLAGS_duration, deletes_);
     int64_t i = 0;
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    std::unique_ptr<char[]> ts_guard;
+    Slice ts;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+    }
 
     while (!duration.Done(entries_per_batch_)) {
       DB* db = SelectDB(thread);
@@ -5867,7 +5930,16 @@ class Benchmark {
         GenerateKeyFromInt(k, FLAGS_num, &key);
         batch.Delete(key);
       }
-      auto s = db->Write(write_options_, &batch);
+      Status s;
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->Allocate(ts_guard.get());
+        s = batch.AssignTimestamp(ts);
+        if (!s.ok()) {
+          fprintf(stderr, "assign timestamp: %s\n", s.ToString().c_str());
+          ErrorExit();
+        }
+      }
+      s = db->Write(write_options_, &batch);
       thread->stats.FinishedOps(nullptr, db, entries_per_batch_, kDelete);
       if (!s.ok()) {
         fprintf(stderr, "del error: %s\n", s.ToString().c_str());
@@ -5917,6 +5989,10 @@ class Benchmark {
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    std::unique_ptr<char[]> ts_guard;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+    }
     uint32_t written = 0;
     bool hint_printed = false;
 
@@ -5948,10 +6024,19 @@ class Benchmark {
       Status s;
 
       Slice val = gen.Generate();
+      Slice ts;
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->Allocate(ts_guard.get());
+        write_options_.timestamp = &ts;
+      }
       if (write_merge == kWrite) {
         s = db->Put(write_options_, key, val);
       } else {
         s = db->Merge(write_options_, key, val);
+      }
+      // Restore write_options_
+      if (user_timestamp_size_ > 0) {
+        write_options_.timestamp = nullptr;
       }
       written++;
 
@@ -5959,7 +6044,7 @@ class Benchmark {
         fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      bytes += key.size() + val.size();
+      bytes += key.size() + val.size() + user_timestamp_size_;
       thread->stats.FinishedOps(&db_, db_.db, 1, kWrite);
 
       if (FLAGS_benchmark_write_rate_limit > 0) {
@@ -5986,6 +6071,13 @@ class Benchmark {
     }
     assert(db_.db != nullptr);
     ReadOptions read_options;
+    std::unique_ptr<char[]> ts_guard;
+    Slice ts;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+      ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
+      read_options.timestamp = &ts;
+    }
     Iterator* iter = db_.db->NewIterator(read_options);
 
     fprintf(stderr, "num reads to do %" PRIu64 "\n", reads_);
@@ -6017,11 +6109,24 @@ class Benchmark {
     std::string suffixes[3] = {"2", "1", "0"};
     std::string keys[3];
 
-    WriteBatch batch;
+    WriteBatch batch(/*reserved_bytes=*/0, /*max_bytes=*/0,
+                     user_timestamp_size_);
     Status s;
     for (int i = 0; i < 3; i++) {
       keys[i] = key.ToString() + suffixes[i];
       batch.Put(keys[i], value);
+    }
+
+    std::unique_ptr<char[]> ts_guard;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+      Slice ts = mock_app_clock_->Allocate(ts_guard.get());
+      s = batch.AssignTimestamp(ts);
+      if (!s.ok()) {
+        fprintf(stderr, "assign timestamp to batch: %s\n",
+                s.ToString().c_str());
+        ErrorExit();
+      }
     }
 
     s = db->Write(writeoptions, &batch);
@@ -6036,11 +6141,23 @@ class Benchmark {
     std::string suffixes[3] = {"1", "2", "0"};
     std::string keys[3];
 
-    WriteBatch batch;
+    WriteBatch batch(0, 0, user_timestamp_size_);
     Status s;
     for (int i = 0; i < 3; i++) {
       keys[i] = key.ToString() + suffixes[i];
       batch.Delete(keys[i]);
+    }
+
+    std::unique_ptr<char[]> ts_guard;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+      Slice ts = mock_app_clock_->Allocate(ts_guard.get());
+      s = batch.AssignTimestamp(ts);
+      if (!s.ok()) {
+        fprintf(stderr, "assign timestamp to batch: %s\n",
+                s.ToString().c_str());
+        ErrorExit();
+      }
     }
 
     s = db->Write(writeoptions, &batch);
@@ -6057,6 +6174,15 @@ class Benchmark {
     Slice key_slices[3];
     std::string values[3];
     ReadOptions readoptionscopy = readoptions;
+
+    std::unique_ptr<char[]> ts_guard;
+    Slice ts;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+      ts = mock_app_clock_->Allocate(ts_guard.get());
+      readoptionscopy.timestamp = &ts;
+    }
+
     readoptionscopy.snapshot = db->GetSnapshot();
     Status s;
     for (int i = 0; i < 3; i++) {
@@ -6179,6 +6305,11 @@ class Benchmark {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
 
+    std::unique_ptr<char[]> ts_guard;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+    }
+
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
@@ -6190,6 +6321,12 @@ class Benchmark {
       }
       if (get_weight > 0) {
         // do all the gets first
+        Slice ts;
+        if (user_timestamp_size_ > 0) {
+          ts = mock_app_clock_->GetTimestampForRead(thread->rand,
+                                                    ts_guard.get());
+          options.timestamp = &ts;
+        }
         Status s = db->Get(options, key, &value);
         if (!s.ok() && !s.IsNotFound()) {
           fprintf(stderr, "get error: %s\n", s.ToString().c_str());
@@ -6204,10 +6341,15 @@ class Benchmark {
       } else  if (put_weight > 0) {
         // then do all the corresponding number of puts
         // for all the gets we have done earlier
+        Slice ts;
+        if (user_timestamp_size_ > 0) {
+          ts = mock_app_clock_->Allocate(ts_guard.get());
+          write_options_.timestamp = &ts;
+        }
         Status s = db->Put(write_options_, key, gen.Generate());
         if (!s.ok()) {
           fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-          exit(1);
+          ErrorExit();
         }
         put_weight--;
         writes_done++;
@@ -6233,15 +6375,25 @@ class Benchmark {
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    std::unique_ptr<char[]> ts_guard;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+    }
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
       GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      Slice ts;
+      if (user_timestamp_size_ > 0) {
+        // Read with newest timestamp because we are doing rmw.
+        ts = mock_app_clock_->Allocate(ts_guard.get());
+        options.timestamp = &ts;
+      }
 
       auto status = db->Get(options, key, &value);
       if (status.ok()) {
         ++found;
-        bytes += key.size() + value.size();
+        bytes += key.size() + value.size() + user_timestamp_size_;
       } else if (!status.IsNotFound()) {
         fprintf(stderr, "Get returned an error: %s\n",
                 status.ToString().c_str());
@@ -6255,12 +6407,16 @@ class Benchmark {
       }
 
       Slice val = gen.Generate();
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->Allocate(ts_guard.get());
+        write_options_.timestamp = &ts;
+      }
       Status s = db->Put(write_options_, key, val);
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      bytes += key.size() + val.size();
+      bytes += key.size() + val.size() + user_timestamp_size_;
       thread->stats.FinishedOps(nullptr, db, 1, kUpdate);
     }
     char msg[100];
@@ -6285,10 +6441,19 @@ class Benchmark {
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    std::unique_ptr<char[]> ts_guard;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+    }
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
       GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      Slice ts;
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->Allocate(ts_guard.get());
+        options.timestamp = &ts;
+      }
 
       auto status = db->Get(options, key, &existing_value);
       if (status.ok()) {
@@ -6309,10 +6474,15 @@ class Benchmark {
         xor_operator.XOR(nullptr, value, &new_value);
       }
 
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->Allocate(ts_guard.get());
+        write_options_.timestamp = &ts;
+      }
+
       Status s = db->Put(write_options_, key, Slice(new_value));
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+        ErrorExit();
       }
       thread->stats.FinishedOps(nullptr, db, 1);
     }
@@ -6334,16 +6504,25 @@ class Benchmark {
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    std::unique_ptr<char[]> ts_guard;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+    }
     // The number of iterations is the larger of read_ or write_
     Duration duration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
       GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
+      Slice ts;
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->Allocate(ts_guard.get());
+        options.timestamp = &ts;
+      }
 
       auto status = db->Get(options, key, &value);
       if (status.ok()) {
         ++found;
-        bytes += key.size() + value.size();
+        bytes += key.size() + value.size() + user_timestamp_size_;
       } else if (!status.IsNotFound()) {
         fprintf(stderr, "Get returned an error: %s\n",
                 status.ToString().c_str());
@@ -6361,13 +6540,18 @@ class Benchmark {
       }
       value.append(operand.data(), operand.size());
 
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->Allocate(ts_guard.get());
+        write_options_.timestamp = &ts;
+      }
+
       // Write back to the database
       Status s = db->Put(write_options_, key, value);
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+        ErrorExit();
       }
-      bytes += key.size() + value.size();
+      bytes += key.size() + value.size() + user_timestamp_size_;
       thread->stats.FinishedOps(nullptr, db, 1, kUpdate);
     }
 
@@ -6493,8 +6677,15 @@ class Benchmark {
     thread->stats.Start(thread->tid);
 
     DB* db = SelectDB(thread);
-    std::unique_ptr<Iterator> iter(
-      db->NewIterator(ReadOptions(FLAGS_verify_checksum, true)));
+    ReadOptions read_opts(FLAGS_verify_checksum, true);
+    std::unique_ptr<char[]> ts_guard;
+    Slice ts;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+      ts = mock_app_clock_->GetTimestampForRead(thread->rand, ts_guard.get());
+      read_opts.timestamp = &ts;
+    }
+    std::unique_ptr<Iterator> iter(db->NewIterator(read_opts));
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
@@ -6722,6 +6913,10 @@ class Benchmark {
   void RandomReplaceKeys(ThreadState* thread) {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
+    std::unique_ptr<char[]> ts_guard;
+    if (user_timestamp_size_ > 0) {
+      ts_guard.reset(new char[user_timestamp_size_]);
+    }
     std::vector<uint32_t> counters(FLAGS_numdistinct, 0);
     size_t max_counter = 50;
     RandomGenerator gen;
@@ -6730,6 +6925,11 @@ class Benchmark {
     DB* db = SelectDB(thread);
     for (int64_t i = 0; i < FLAGS_numdistinct; i++) {
       GenerateKeyFromInt(i * max_counter, FLAGS_num, &key);
+      Slice ts;
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->Allocate(ts_guard.get());
+        write_options_.timestamp = &ts;
+      }
       s = db->Put(write_options_, key, gen.Generate());
       if (!s.ok()) {
         fprintf(stderr, "Operation failed: %s\n", s.ToString().c_str());
@@ -6749,12 +6949,21 @@ class Benchmark {
                                 static_cast<int64_t>(0));
       GenerateKeyFromInt(key_id * max_counter + counters[key_id], FLAGS_num,
                          &key);
+      Slice ts;
+      if (user_timestamp_size_ > 0) {
+        ts = mock_app_clock_->Allocate(ts_guard.get());
+        write_options_.timestamp = &ts;
+      }
       s = FLAGS_use_single_deletes ? db->SingleDelete(write_options_, key)
                                    : db->Delete(write_options_, key);
       if (s.ok()) {
         counters[key_id] = (counters[key_id] + 1) % max_counter;
         GenerateKeyFromInt(key_id * max_counter + counters[key_id], FLAGS_num,
                            &key);
+        if (user_timestamp_size_ > 0) {
+          ts = mock_app_clock_->Allocate(ts_guard.get());
+          write_options_.timestamp = &ts;
+        }
         s = db->Put(write_options_, key, Slice());
       }
 
@@ -6902,7 +7111,7 @@ class Benchmark {
 
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
-        exit(1);
+        ErrorExit();
       }
       bytes = key.size() + val.size();
       thread->stats.FinishedOps(&db_, db_.db, 1, kWrite);
@@ -7097,15 +7306,28 @@ int db_bench_tool(int argc, char** argv) {
   FLAGS_blob_db_compression_type_e =
     StringToCompressionType(FLAGS_blob_db_compression_type.c_str());
 
-  if (!FLAGS_hdfs.empty() && !FLAGS_env_uri.empty()) {
-    fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
+  int env_opts =
+      !FLAGS_hdfs.empty() + !FLAGS_env_uri.empty() + !FLAGS_fs_uri.empty();
+  if (env_opts > 1) {
+    fprintf(stderr,
+            "Error: --hdfs, --env_uri and --fs_uri are mutually exclusive\n");
     exit(1);
-  } else if (!FLAGS_env_uri.empty()) {
+  }
+
+  if (!FLAGS_env_uri.empty()) {
     Status s = Env::LoadEnv(FLAGS_env_uri, &FLAGS_env, &env_guard);
     if (FLAGS_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);
     }
+  } else if (!FLAGS_fs_uri.empty()) {
+    std::shared_ptr<FileSystem> fs;
+    Status s = FileSystem::Load(FLAGS_fs_uri, &fs);
+    if (fs == nullptr) {
+      fprintf(stderr, "Error: %s\n", s.ToString().c_str());
+      exit(1);
+    }
+    FLAGS_env = GetCompositeEnv(fs);
   }
 #endif  // ROCKSDB_LITE
   if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {

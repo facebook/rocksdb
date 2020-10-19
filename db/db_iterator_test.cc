@@ -34,7 +34,7 @@ class DummyReadCallback : public ReadCallback {
 class DBIteratorTest : public DBTestBase,
                        public testing::WithParamInterface<bool> {
  public:
-  DBIteratorTest() : DBTestBase("/db_iterator_test") {}
+  DBIteratorTest() : DBTestBase("/db_iterator_test", /*env_do_fsync=*/true) {}
 
   Iterator* NewIterator(const ReadOptions& read_options,
                         ColumnFamilyHandle* column_family = nullptr) {
@@ -2146,7 +2146,7 @@ TEST_P(DBIteratorTest, ReadAhead) {
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
   table_options.no_block_cache = true;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
 
   std::string value(1024, 'a');

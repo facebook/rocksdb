@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#if defined(OS_WIN)
+
 #include "port/win/io_win.h"
 
 #include "monitoring/iostats_context_imp.h"
@@ -642,8 +644,8 @@ Status WinSequentialFile::Skip(uint64_t n) {
   BOOL ret = SetFilePointerEx(hFile_, li, NULL, FILE_CURRENT);
   if (ret == FALSE) {
     auto lastError = GetLastError();
-    return IOErrorFromWindowsError("Skip SetFilePointerEx():" + filename_, 
-      lastError);
+    return IOErrorFromWindowsError("Skip SetFilePointerEx():" + filename_,
+                                   lastError);
   }
   return Status::OK();
 }
@@ -767,8 +769,8 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
   Status s;
 
   if (data.size() > std::numeric_limits<DWORD>::max()) {
-    return Status::InvalidArgument("data is too long for a single write" + 
-      file_data_->GetName());
+    return Status::InvalidArgument("data is too long for a single write" +
+                                   file_data_->GetName());
   }
 
   size_t bytes_written = 0; // out param
@@ -805,8 +807,8 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
       // is sector aligned
       next_write_offset_ += bytes_written;
     } else {
-      s = Status::IOError("Failed to write all bytes: " + 
-        file_data_->GetName());
+      s = Status::IOError("Failed to write all bytes: " +
+                          file_data_->GetName());
     }
   }
 
@@ -1067,3 +1069,5 @@ WinFileLock::~WinFileLock() {
 
 }
 }  // namespace ROCKSDB_NAMESPACE
+
+#endif

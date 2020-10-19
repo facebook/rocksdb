@@ -5,15 +5,15 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.fail;
+
+import java.nio.charset.StandardCharsets;
 import org.junit.ClassRule;
 import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-
-import java.nio.charset.StandardCharsets;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 public class BlockBasedTableConfigTest {
 
@@ -321,7 +321,7 @@ public class BlockBasedTableConfigTest {
   @Test
   public void formatVersion() {
     final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    for (int version = 0; version < 5; version++) {
+    for (int version = 0; version <= 5; version++) {
       blockBasedTableConfig.setFormatVersion(version);
       assertThat(blockBasedTableConfig.formatVersion()).isEqualTo(version);
     }
@@ -333,10 +333,15 @@ public class BlockBasedTableConfigTest {
     blockBasedTableConfig.setFormatVersion(-1);
   }
 
-  @Test(expected = AssertionError.class)
-  public void formatVersionFailIllegalVersion() {
-    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    blockBasedTableConfig.setFormatVersion(99);
+  @Test(expected = RocksDBException.class)
+  public void invalidFormatVersion() throws RocksDBException {
+    final BlockBasedTableConfig blockBasedTableConfig =
+        new BlockBasedTableConfig().setFormatVersion(99999);
+
+    try (final Options options = new Options().setTableFormatConfig(blockBasedTableConfig);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      fail("Opening the database with an invalid format_version should have raised an exception");
+    }
   }
 
   @Test

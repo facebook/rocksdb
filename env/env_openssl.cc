@@ -276,30 +276,32 @@ Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
   return status;
 }
 
-std::shared_ptr<CTREncryptionProviderV2> NewCTREncryptionProviderV2(
+std::shared_ptr<OpenSSLEncryptionProvider> NewOpenSSLEncryptionProvider(
     const std::shared_ptr<ShaDescription>& key_desc,
     const std::shared_ptr<AesCtrKey>& aes_ctr_key) {
-  return std::make_shared<CTREncryptionProviderV2>(*key_desc.get(),
+  return std::make_shared<OpenSSLEncryptionProvider>(*key_desc.get(),
                                                    *aes_ctr_key.get());
 }
 
-std::shared_ptr<CTREncryptionProviderV2> NewCTREncryptionProviderV2(
+std::shared_ptr<OpenSSLEncryptionProvider> NewOpenSSLEncryptionProvider(
     const std::string& key_desc_str, const uint8_t binary_key[], int bytes) {
-  return std::make_shared<CTREncryptionProviderV2>(key_desc_str, binary_key,
+  return std::make_shared<OpenSSLEncryptionProvider>(key_desc_str, binary_key,
                                                    bytes);
 }
 
-Status CTREncryptionProviderV2::CreateNewPrefix(const std::string& /*fname*/,
+Status OpenSSLEncryptionProvider::CreateNewPrefix(const std::string& /*fname*/,
                                                 char* prefix,
                                                 size_t prefixLength) const {
   GetCrypto();  // ensure libcryto available
   Status s;
   if (crypto_shared->IsValid()) {
-    if (sizeof(PrefixVersion0) <= prefixLength) {
+    if ((sizeof(EncryptMarker)+sizeof(PrefixVersion0)) <= prefixLength) {
       int ret_val;
 
-      PrefixVersion0* pf = {(PrefixVersion0*)prefix};
-      memcpy(pf->key_description_, key_desc_.desc, sizeof(key_desc_.desc));
+      PrefixVersion0* pf = (PrefixVersion0*)(prefix + sizeof(EncryptMarker));
+      memcpy(prefix, kEncryptMarker, sizeof(kEncryptMarker));
+      *(prefix+7) = kEncryptCodeVersion1;
+      memcpy(pf->key_description_, encrypt_write_.first.desc, sizeof(ShaDescription::desc));
       ret_val = crypto_shared->RAND_bytes((unsigned char*)&pf->nonce_,
                                           AES_BLOCK_SIZE);
       if (1 != ret_val) {
@@ -315,15 +317,51 @@ Status CTREncryptionProviderV2::CreateNewPrefix(const std::string& /*fname*/,
   return s;
 }
 
-size_t CTREncryptionProviderV2::GetPrefixLength() const {
-  return sizeof(PrefixVersion0) + sizeof(EncryptMarker);
+Status OpenSSLEncryptionProvider::CreateCipherStream(
+    const std::string& /*fname*/, const EnvOptions& /*options*/,
+    Slice& prefix,
+    std::unique_ptr<BlockAccessCipherStream>* result) {
+
+  Status status;
+
+  if ((sizeof(EncryptMarker)+sizeof(PrefixVersion0)) <= prefix.size()
+      && prefix.starts_with(kEncryptMarker)) {
+
+    uint8_t code_version = (uint8_t)prefix[7];
+
+    if (kEncryptCodeVersion1 == code_version) {
+      Slice prefix_slice;
+      PrefixVersion0 * prefix_buffer = (PrefixVersion0*)(prefix.data()+sizeof(EncryptMarker));
+      ShaDescription desc(prefix_buffer->key_description_,
+                          sizeof(PrefixVersion0::key_description_));
+
+      ReadLock lock(&key_lock_);
+      auto it = encrypt_read_.find(desc);
+      if (encrypt_read_.end() != it) {
+        result->reset(new AESBlockAccessCipherStream(
+            it->second, code_version, prefix_buffer->nonce_));
+      } else {
+        status = Status::NotSupported(
+            "No encryption key found to match input file");
+      }
+    } else {
+      status =
+          Status::NotSupported("Unknown encryption code version required.");
+    }
+  } else {
+    status =
+        Status::EncryptionUnknown("Unknown encryption marker or not encrypted.");
+  }
+
+  return status;
 }
 
-BlockAccessCipherStream* CTREncryptionProviderV2::CreateCipherStream2(
-    uint8_t code_version, const uint8_t nonce[]) const {
-  return new AESBlockAccessCipherStream(key_, code_version, nonce);
-}
+std::string OpenSSLEncryptionProvider::GetMarker() const {return kEncryptMarker;}
 
+
+
+
+#if 0
 Status EncryptedWritableFileV2::Append(const Slice& data) {
   AlignedBuffer buf;
   Status status;
@@ -423,7 +461,8 @@ Status EncryptedRandomRWFileV2::Write(uint64_t offset, const Slice& data) {
 
   return status;
 }
-
+#endif // if 0
+#if 0
 // Returns an Env that encrypts data when stored on disk and decrypts data when
 // read from disk.
 Env* NewOpenSSLEnv(Env* base_env, OpenSSLEnv::ReadKeys encrypt_read,
@@ -483,7 +522,7 @@ bool OpenSSLEnv::IsWriteEncrypted() const {
 //
 template <class TypeFile>
 Status OpenSSLEnv::ReadSeqEncryptionPrefix(
-    TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2>& provider,
+    TypeFile* f, std::shared_ptr<const OpenSSLEncryptionProvider>& provider,
     std::unique_ptr<BlockAccessCipherStream>& stream) {
   Status status;
 
@@ -532,7 +571,7 @@ Status OpenSSLEnv::ReadSeqEncryptionPrefix(
 
 template <class TypeFile>
 Status OpenSSLEnv::ReadRandEncryptionPrefix(
-    TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2>& provider,
+    TypeFile* f, std::shared_ptr<const OpenSSLEncryptionProvider>& provider,
     std::unique_ptr<BlockAccessCipherStream>& stream) {
   Status status;
 
@@ -579,7 +618,7 @@ Status OpenSSLEnv::ReadRandEncryptionPrefix(
 
 template <class TypeFile>
 Status OpenSSLEnv::WriteSeqEncryptionPrefix(
-    TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2> provider,
+    TypeFile* f, std::shared_ptr<const OpenSSLEncryptionProvider> provider,
     std::unique_ptr<BlockAccessCipherStream>& stream) {
   Status status;
 
@@ -615,7 +654,7 @@ Status OpenSSLEnv::WriteSeqEncryptionPrefix(
 
 template <class TypeFile>
 Status OpenSSLEnv::WriteRandEncryptionPrefix(
-    TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2> provider,
+    TypeFile* f, std::shared_ptr<const OpenSSLEncryptionProvider> provider,
     std::unique_ptr<BlockAccessCipherStream>& stream) {
   Status status;
 
@@ -662,7 +701,7 @@ Status OpenSSLEnv::NewSequentialFile(const std::string& fname,
   std::unique_ptr<SequentialFile> underlying;
   auto status = EnvWrapper::NewSequentialFile(fname, &underlying, options);
   if (status.ok()) {
-    std::shared_ptr<const CTREncryptionProviderV2> provider;
+    std::shared_ptr<const OpenSSLEncryptionProvider> provider;
     std::unique_ptr<BlockAccessCipherStream> stream;
     status = ReadSeqEncryptionPrefix<SequentialFile>(underlying.get(), provider,
                                                      stream);
@@ -699,7 +738,7 @@ Status OpenSSLEnv::NewRandomAccessFile(
   std::unique_ptr<RandomAccessFile> underlying;
   auto status = EnvWrapper::NewRandomAccessFile(fname, &underlying, options);
   if (status.ok()) {
-    std::shared_ptr<const CTREncryptionProviderV2> provider;
+    std::shared_ptr<const OpenSSLEncryptionProvider> provider;
     std::unique_ptr<BlockAccessCipherStream> stream;
     status = ReadRandEncryptionPrefix<RandomAccessFile>(underlying.get(),
                                                         provider, stream);
@@ -733,7 +772,7 @@ Status OpenSSLEnv::NewWritableFile(const std::string& fname,
     status = EnvWrapper::NewWritableFile(fname, &underlying, options);
 
     if (status.ok()) {
-      std::shared_ptr<const CTREncryptionProviderV2> provider;
+      std::shared_ptr<const OpenSSLEncryptionProvider> provider;
 
       {
         ReadLock lock(&key_lock_);
@@ -780,7 +819,7 @@ Status OpenSSLEnv::ReopenWritableFile(const std::string& fname,
     status = EnvWrapper::ReopenWritableFile(fname, &underlying, options);
 
     if (status.ok()) {
-      std::shared_ptr<const CTREncryptionProviderV2> provider;
+      std::shared_ptr<const OpenSSLEncryptionProvider> provider;
 
       {
         ReadLock lock(&key_lock_);
@@ -823,7 +862,7 @@ Status OpenSSLEnv::ReuseWritableFile(const std::string& fname,
         EnvWrapper::ReuseWritableFile(fname, old_fname, &underlying, options);
 
     if (status.ok()) {
-      std::shared_ptr<const CTREncryptionProviderV2> provider;
+      std::shared_ptr<const OpenSSLEncryptionProvider> provider;
 
       {
         ReadLock lock(&key_lock_);
@@ -872,7 +911,7 @@ Status OpenSSLEnv::NewRandomRWFile(const std::string& fname,
     status = EnvWrapper::NewRandomRWFile(fname, &underlying, options);
 
     if (status.ok()) {
-      std::shared_ptr<const CTREncryptionProviderV2> provider;
+      std::shared_ptr<const OpenSSLEncryptionProvider> provider;
       std::unique_ptr<BlockAccessCipherStream> stream;
 
       if (!isNewFile) {
@@ -925,7 +964,7 @@ Status OpenSSLEnv::GetChildrenFileAttributes(
   auto status = EnvWrapper::GetChildrenFileAttributes(dir, result);
   if (status.ok()) {
     // this is slightly expensive, but fortunately not used heavily
-    std::shared_ptr<const CTREncryptionProviderV2> provider;
+    std::shared_ptr<const OpenSSLEncryptionProvider> provider;
 
     for (auto it = std::begin(*result); it != std::end(*result); ++it) {
       status = GetEncryptionProvider(it->name, provider);
@@ -948,7 +987,7 @@ Status OpenSSLEnv::GetFileSize(const std::string& fname, uint64_t* file_size) {
 
   if (status.ok()) {
     // this is slightly expensive, but fortunately not used heavily
-    std::shared_ptr<const CTREncryptionProviderV2> provider;
+    std::shared_ptr<const OpenSSLEncryptionProvider> provider;
     status = GetEncryptionProvider(fname, provider);
     if (status.ok() && provider) {
       size_t prefixLength = provider->GetPrefixLength();
@@ -961,7 +1000,7 @@ Status OpenSSLEnv::GetFileSize(const std::string& fname, uint64_t* file_size) {
 
 Status OpenSSLEnv::GetEncryptionProvider(
     const std::string& fname,
-    std::shared_ptr<const CTREncryptionProviderV2>& provider) {
+    std::shared_ptr<const OpenSSLEncryptionProvider>& provider) {
   std::unique_ptr<SequentialFile> underlying;
   EnvOptions options;
   Status status;
@@ -992,7 +1031,7 @@ Env* OpenSSLEnv::Default(OpenSSLEnv::ReadKeys encrypt_read,
   default_env->SetKeys(encrypt_read, encrypt_write);
   return default_env;
 }
-
+#endif  // if 0
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

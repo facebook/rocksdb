@@ -25,6 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 #endif
 
 constexpr uint8_t kEncryptCodeVersion0{'0'};
+constexpr uint8_t kEncryptCodeVersion1{'1'};
 
 typedef char EncryptMarker[8];
 static EncryptMarker kEncryptMarker = "Encrypt";

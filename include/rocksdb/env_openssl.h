@@ -120,64 +120,75 @@ struct AesCtrKey {
 // code tests for 64 character hex string to yield 32 byte binary key
 std::shared_ptr<AesCtrKey> NewAesCtrKey(const std::string& hex_key_str);
 
-class CTREncryptionProviderV2 : public EncryptionProvider {
+class OpenSSLEncryptionProvider : public EncryptionProvider {
  public:
-  CTREncryptionProviderV2() = delete;
+  OpenSSLEncryptionProvider() {};
 
-  CTREncryptionProviderV2(const CTREncryptionProvider&&) = delete;
+  OpenSSLEncryptionProvider(const EncryptionProvider&&) = delete;
 
-  CTREncryptionProviderV2(const ShaDescription& key_desc_in,
+  OpenSSLEncryptionProvider(const OpenSSLEncryptionProvider&&) = delete;
+#if 0
+  OpenSSLEncryptionProvider(const ShaDescription& key_desc_in,
                           const AesCtrKey& key_in)
       : valid_(false), key_desc_(key_desc_in), key_(key_in) {
     valid_ = key_desc_.IsValid() && key_.IsValid();
   }
 
-  CTREncryptionProviderV2(const std::string& key_desc_str,
+  OpenSSLEncryptionProvider(const std::string& key_desc_str,
                           const uint8_t unformatted_key[], int bytes)
       : valid_(false), key_desc_(key_desc_str), key_(unformatted_key, bytes) {
     valid_ = key_desc_.IsValid() && key_.IsValid();
   }
+#endif
+  const char* Name() const override {return "OpenSSLEncryptionProvider";}
 
-  size_t GetPrefixLength() const override;
+  size_t GetPrefixLength() const override {return 4096;}
 
   Status CreateNewPrefix(const std::string& /*fname*/, char* prefix,
                          size_t prefixLength) const override;
 
+  Status AddCipher(const std::string& descriptor, const char* cipher,
+                           size_t len, bool for_write) override;
+
   Status CreateCipherStream(
       const std::string& /*fname*/, const EnvOptions& /*options*/,
       Slice& /*prefix*/,
-      std::unique_ptr<BlockAccessCipherStream>* /*result*/) override {
-    return Status::NotSupported("Wrong EncryptionProvider assumed");
-  }
+      std::unique_ptr<BlockAccessCipherStream>* /*result*/) override;
 
-  virtual BlockAccessCipherStream* CreateCipherStream2(
-      uint8_t code_version, const uint8_t nonce[]) const;
+  std::string GetMarker() const override;
 
   bool Valid() const { return valid_; };
-  const ShaDescription& key_desc() const { return key_desc_; };
-  const AesCtrKey& key() const { return key_; };
 
  protected:
-  bool valid_;
-  ShaDescription key_desc_;
-  AesCtrKey key_;
+  bool valid_{false};
+
+  using WriteKey =
+      std::pair<ShaDescription, AesCtrKey>;
+  using ReadKeys =
+      std::map<ShaDescription, AesCtrKey>;
+
+  ReadKeys encrypt_read_;
+  WriteKey encrypt_write_;
+  mutable port::RWMutex key_lock_;
+
 };
 
-std::shared_ptr<CTREncryptionProviderV2> NewCTREncryptionProviderV2(
+std::shared_ptr<OpenSSLEncryptionProvider> NewOpenSSLEncryptionProvider(
     const std::shared_ptr<ShaDescription>& key_desc,
     const std::shared_ptr<AesCtrKey>& aes_ctr_key);
 
-std::shared_ptr<CTREncryptionProviderV2> NewCTREncryptionProviderV2(
+std::shared_ptr<OpenSSLEncryptionProvider> NewOpenSSLEncryptionProvider(
     const std::string& key_desc_str, const uint8_t binary_key[], int bytes);
 
+#if 0
 // OpenSSLEnv implements an Env wrapper that adds encryption to files stored
 // on disk.
 class OpenSSLEnv : public EnvWrapper {
  public:
   using WriteKey =
-      std::pair<ShaDescription, std::shared_ptr<const CTREncryptionProviderV2>>;
+      std::pair<ShaDescription, std::shared_ptr<const OpenSSLEncryptionProvider>>;
   using ReadKeys =
-      std::map<ShaDescription, std::shared_ptr<const CTREncryptionProviderV2>>;
+      std::map<ShaDescription, std::shared_ptr<const OpenSSLEncryptionProvider>>;
 
   static Env* Default();
   static Env* Default(ReadKeys encrypt_read, WriteKey encrypt_write);
@@ -248,7 +259,7 @@ class OpenSSLEnv : public EnvWrapper {
   // only needed for GetChildrenFileAttributes & GetFileSize
   virtual Status GetEncryptionProvider(
       const std::string& fname,
-      std::shared_ptr<const CTREncryptionProviderV2>& provider);
+      std::shared_ptr<const OpenSSLEncryptionProvider>& provider);
 
   bool IsValid() const { return valid_; }
 
@@ -259,22 +270,22 @@ class OpenSSLEnv : public EnvWrapper {
 
   template <class TypeFile>
   Status ReadSeqEncryptionPrefix(
-      TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2>& provider,
+      TypeFile* f, std::shared_ptr<const OpenSSLEncryptionProvider>& provider,
       std::unique_ptr<BlockAccessCipherStream>& stream);
 
   template <class TypeFile>
   Status ReadRandEncryptionPrefix(
-      TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2>& provider,
+      TypeFile* f, std::shared_ptr<const OpenSSLEncryptionProvider>& provider,
       std::unique_ptr<BlockAccessCipherStream>& stream);
 
   template <class TypeFile>
   Status WriteSeqEncryptionPrefix(
-      TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2> provider,
+      TypeFile* f, std::shared_ptr<const OpenSSLEncryptionProvider> provider,
       std::unique_ptr<BlockAccessCipherStream>& stream);
 
   template <class TypeFile>
   Status WriteRandEncryptionPrefix(
-      TypeFile* f, std::shared_ptr<const CTREncryptionProviderV2> provider,
+      TypeFile* f, std::shared_ptr<const OpenSSLEncryptionProvider> provider,
       std::unique_ptr<BlockAccessCipherStream>& stream);
 
  public:
@@ -292,6 +303,7 @@ class OpenSSLEnv : public EnvWrapper {
 Env* NewOpenSSLEnv(Env* base_env, OpenSSLEnv::ReadKeys encrypt_read,
                    OpenSSLEnv::WriteKey encrypt_write);
 
+#endif // if 0
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

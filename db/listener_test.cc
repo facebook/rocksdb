@@ -24,8 +24,6 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-#include "table/block_based/block_based_table_factory.h"
-#include "table/plain/plain_table_factory.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -41,7 +39,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class EventListenerTest : public DBTestBase {
  public:
-  EventListenerTest() : DBTestBase("/listener_test") {}
+  EventListenerTest() : DBTestBase("/listener_test", /*env_do_fsync=*/true) {}
 
   static std::string BlobStr(uint64_t blob_file_number, uint64_t offset,
                              uint64_t size) {
@@ -227,6 +225,8 @@ class TestFlushListener : public EventListener {
     ASSERT_GT(info.table_properties.raw_value_size, 0U);
     ASSERT_GT(info.table_properties.num_data_blocks, 0U);
     ASSERT_GT(info.table_properties.num_entries, 0U);
+    ASSERT_EQ(info.file_checksum, kUnknownFileChecksum);
+    ASSERT_EQ(info.file_checksum_func_name, kUnknownFileChecksumFuncName);
 
 #ifdef ROCKSDB_USING_THREAD_STATUS
     // Verify the id of the current thread that created this table
@@ -751,6 +751,8 @@ class TableFileCreationListener : public EventListener {
     ASSERT_GT(info.cf_name.size(), 0U);
     ASSERT_GT(info.file_path.size(), 0U);
     ASSERT_GT(info.job_id, 0);
+    ASSERT_EQ(info.file_checksum, kUnknownFileChecksum);
+    ASSERT_EQ(info.file_checksum_func_name, kUnknownFileChecksumFuncName);
     if (info.status.ok()) {
       ASSERT_GT(info.table_properties.data_size, 0U);
       ASSERT_GT(info.table_properties.raw_key_size, 0U);
@@ -895,7 +897,7 @@ class BackgroundErrorListener : public EventListener {
       // can succeed.
       *bg_error = Status::OK();
       env_->drop_writes_.store(false, std::memory_order_release);
-      env_->no_slowdown_ = false;
+      env_->SetMockSleep(false);
     }
     ++counter_;
   }
@@ -921,7 +923,7 @@ TEST_F(EventListenerTest, BackgroundErrorListenerFailedFlushTest) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   env_->drop_writes_.store(true, std::memory_order_release);
-  env_->no_slowdown_ = true;
+  env_->SetMockSleep();
 
   ASSERT_OK(Put("key0", "val"));
   ASSERT_OK(Put("key1", "val"));
@@ -955,7 +957,7 @@ TEST_F(EventListenerTest, BackgroundErrorListenerFailedCompactionTest) {
   ASSERT_EQ(2, NumTableFilesAtLevel(0));
 
   env_->drop_writes_.store(true, std::memory_order_release);
-  env_->no_slowdown_ = true;
+  env_->SetMockSleep();
   ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(1, listener->counter());

@@ -72,15 +72,19 @@ jlong Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2(
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    openROnly
- * Signature: (JLjava/lang/String;)J
+ * Signature: (JLjava/lang/String;Z)J
  */
-jlong Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2(
-    JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path) {
+jlong Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2Z(
+    JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
+    jboolean jerror_if_wal_file_exists) {
+  const bool error_if_wal_file_exists = jerror_if_wal_file_exists == JNI_TRUE;
   return rocksdb_open_helper(
       env, jopt_handle, jdb_path,
-      [](const ROCKSDB_NAMESPACE::Options& options, const std::string& db_path,
-         ROCKSDB_NAMESPACE::DB** db) {
-        return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(options, db_path, db);
+      [error_if_wal_file_exists](const ROCKSDB_NAMESPACE::Options& options,
+                                 const std::string& db_path,
+                                 ROCKSDB_NAMESPACE::DB** db) {
+        return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(options, db_path, db,
+                                                      error_if_wal_file_exists);
       });
 }
 
@@ -172,21 +176,25 @@ jlongArray rocksdb_open_helper(
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    openROnly
- * Signature: (JLjava/lang/String;[[B[J)[J
+ * Signature: (JLjava/lang/String;[[B[JZ)[J
  */
-jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3_3B_3J(
+jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3_3B_3JZ(
     JNIEnv* env, jclass, jlong jopt_handle, jstring jdb_path,
-    jobjectArray jcolumn_names, jlongArray jcolumn_options) {
+    jobjectArray jcolumn_names, jlongArray jcolumn_options,
+    jboolean jerror_if_wal_file_exists) {
+  const bool error_if_wal_file_exists = jerror_if_wal_file_exists == JNI_TRUE;
   return rocksdb_open_helper(
       env, jopt_handle, jdb_path, jcolumn_names, jcolumn_options,
-      [](const ROCKSDB_NAMESPACE::DBOptions& options,
-         const std::string& db_path,
-         const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
-             column_families,
-         std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>* handles,
-         ROCKSDB_NAMESPACE::DB** db) {
+      [error_if_wal_file_exists](
+          const ROCKSDB_NAMESPACE::DBOptions& options,
+          const std::string& db_path,
+          const std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor>&
+              column_families,
+          std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>* handles,
+          ROCKSDB_NAMESPACE::DB** db) {
         return ROCKSDB_NAMESPACE::DB::OpenForReadOnly(
-            options, db_path, column_families, handles, db);
+            options, db_path, column_families, handles, db,
+            error_if_wal_file_exists);
       });
 }
 
@@ -413,8 +421,8 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J_3_3B(
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> cf_descriptors;
   cf_descriptors.reserve(jlen);
 
-  jboolean jcf_options_handles_is_copy = JNI_FALSE;
-  jlong *jcf_options_handles_elems = env->GetLongArrayElements(jcf_options_handles, &jcf_options_handles_is_copy);
+  jlong* jcf_options_handles_elems =
+      env->GetLongArrayElements(jcf_options_handles, nullptr);
   if(jcf_options_handles_elems == nullptr) {
       // exception thrown: OutOfMemoryError
       return nullptr;
@@ -2335,9 +2343,7 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes(
   const jsize jlen = env->GetArrayLength(jrange_slice_handles);
   const size_t range_count = jlen / 2;
 
-  jboolean jranges_is_copy = JNI_FALSE;
-  jlong* jranges = env->GetLongArrayElements(jrange_slice_handles,
-      &jranges_is_copy);
+  jlong* jranges = env->GetLongArrayElements(jrange_slice_handles, nullptr);
   if (jranges == nullptr) {
     // exception thrown: OutOfMemoryError
     return nullptr;
@@ -3248,9 +3254,8 @@ jobject Java_org_rocksdb_RocksDB_getPropertiesOfTablesInRange(
         reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   }
   const jsize jlen = env->GetArrayLength(jrange_slice_handles);
-  jboolean jrange_slice_handles_is_copy = JNI_FALSE;
-  jlong *jrange_slice_handle = env->GetLongArrayElements(
-      jrange_slice_handles, &jrange_slice_handles_is_copy);
+  jlong* jrange_slice_handle =
+      env->GetLongArrayElements(jrange_slice_handles, nullptr);
   if (jrange_slice_handle == nullptr) {
     // exception occurred
     return nullptr;

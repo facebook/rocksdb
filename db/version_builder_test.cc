@@ -203,8 +203,8 @@ TEST_F(VersionBuilderTest, ApplyAndSaveTo) {
 
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
-  version_builder.Apply(&version_edit);
-  version_builder.SaveTo(&new_vstorage);
+  ASSERT_OK(version_builder.Apply(&version_edit));
+  ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
   ASSERT_EQ(400U, new_vstorage.NumLevelBytes(2));
   ASSERT_EQ(300U, new_vstorage.NumLevelBytes(3));
@@ -244,8 +244,8 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic) {
 
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
-  version_builder.Apply(&version_edit);
-  version_builder.SaveTo(&new_vstorage);
+  ASSERT_OK(version_builder.Apply(&version_edit));
+  ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
   ASSERT_EQ(0U, new_vstorage.NumLevelBytes(0));
   ASSERT_EQ(100U, new_vstorage.NumLevelBytes(3));
@@ -290,8 +290,8 @@ TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic2) {
 
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
-  version_builder.Apply(&version_edit);
-  version_builder.SaveTo(&new_vstorage);
+  ASSERT_OK(version_builder.Apply(&version_edit));
+  ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
   ASSERT_EQ(0U, new_vstorage.NumLevelBytes(0));
   ASSERT_EQ(100U, new_vstorage.NumLevelBytes(4));
@@ -339,8 +339,8 @@ TEST_F(VersionBuilderTest, ApplyMultipleAndSaveTo) {
 
   VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr, false);
-  version_builder.Apply(&version_edit);
-  version_builder.SaveTo(&new_vstorage);
+  ASSERT_OK(version_builder.Apply(&version_edit));
+  ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
   ASSERT_EQ(500U, new_vstorage.NumLevelBytes(2));
 
@@ -386,7 +386,7 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
                        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
                        kUnknownFileCreationTime, kUnknownFileChecksum,
                        kUnknownFileChecksumFuncName);
-  version_builder.Apply(&version_edit);
+  ASSERT_OK(version_builder.Apply(&version_edit));
 
   VersionEdit version_edit2;
   version_edit.AddFile(2, 808, 0, 100U, GetInternalKey("901"),
@@ -401,9 +401,9 @@ TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
                        kInvalidBlobFileNumber, kUnknownOldestAncesterTime,
                        kUnknownFileCreationTime, kUnknownFileChecksum,
                        kUnknownFileChecksumFuncName);
-  version_builder.Apply(&version_edit2);
 
-  version_builder.SaveTo(&new_vstorage);
+  ASSERT_OK(version_builder.Apply(&version_edit2));
+  ASSERT_OK(version_builder.SaveTo(&new_vstorage));
 
   ASSERT_EQ(300U, new_vstorage.NumLevelBytes(2));
 
@@ -1025,6 +1025,102 @@ TEST_F(VersionBuilderTest, SaveBlobFilesTo) {
   ASSERT_EQ(newer_meta1, nullptr);
 
   UnrefFilesInVersion(&newer_vstorage);
+  UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST_F(VersionBuilderTest, SaveBlobFilesToConcurrentJobs) {
+  // When multiple background jobs (flushes/compactions) are executing in
+  // parallel, it is possible for the VersionEdit adding blob file K to be
+  // applied *after* the VersionEdit adding blob file N (for N > K). This test
+  // case makes sure this is handled correctly.
+
+  // Add blob file #4 (referenced by table file #3) to base version.
+  constexpr uint64_t base_table_file_number = 3;
+  constexpr uint64_t base_blob_file_number = 4;
+  constexpr uint64_t base_total_blob_count = 100;
+  constexpr uint64_t base_total_blob_bytes = 1 << 20;
+
+  constexpr char checksum_method[] = "SHA1";
+  constexpr char checksum_value[] = "\xfa\xce\xb0\x0c";
+  constexpr uint64_t garbage_blob_count = 0;
+  constexpr uint64_t garbage_blob_bytes = 0;
+
+  AddDummyFile(base_table_file_number, base_blob_file_number);
+  AddBlob(base_blob_file_number, base_total_blob_count, base_total_blob_bytes,
+          checksum_method, checksum_value,
+          BlobFileMetaData::LinkedSsts{base_table_file_number},
+          garbage_blob_count, garbage_blob_bytes);
+
+  EnvOptions env_options;
+  constexpr TableCache* table_cache = nullptr;
+  constexpr VersionSet* version_set = nullptr;
+
+  VersionBuilder builder(env_options, &ioptions_, table_cache, &vstorage_,
+                         version_set);
+
+  VersionEdit edit;
+
+  // Add blob file #2 (referenced by table file #1).
+  constexpr int level = 0;
+  constexpr uint64_t table_file_number = 1;
+  constexpr uint32_t path_id = 0;
+  constexpr uint64_t file_size = 1 << 12;
+  constexpr char smallest[] = "key1";
+  constexpr char largest[] = "key987";
+  constexpr SequenceNumber smallest_seqno = 0;
+  constexpr SequenceNumber largest_seqno = 0;
+  constexpr bool marked_for_compaction = false;
+
+  constexpr uint64_t blob_file_number = 2;
+  static_assert(blob_file_number < base_blob_file_number,
+                "Added blob file should have a smaller file number");
+
+  constexpr uint64_t total_blob_count = 234;
+  constexpr uint64_t total_blob_bytes = 1 << 22;
+
+  edit.AddFile(level, table_file_number, path_id, file_size,
+               GetInternalKey(smallest), GetInternalKey(largest),
+               smallest_seqno, largest_seqno, marked_for_compaction,
+               blob_file_number, kUnknownOldestAncesterTime,
+               kUnknownFileCreationTime, checksum_value, checksum_method);
+  edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
+                   checksum_method, checksum_value);
+
+  ASSERT_OK(builder.Apply(&edit));
+
+  constexpr bool force_consistency_checks = true;
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, &vstorage_,
+                                  force_consistency_checks);
+
+  ASSERT_OK(builder.SaveTo(&new_vstorage));
+
+  const auto& new_blob_files = new_vstorage.GetBlobFiles();
+  ASSERT_EQ(new_blob_files.size(), 2);
+
+  const auto base_meta =
+      GetBlobFileMetaData(new_blob_files, base_blob_file_number);
+
+  ASSERT_NE(base_meta, nullptr);
+  ASSERT_EQ(base_meta->GetBlobFileNumber(), base_blob_file_number);
+  ASSERT_EQ(base_meta->GetTotalBlobCount(), base_total_blob_count);
+  ASSERT_EQ(base_meta->GetTotalBlobBytes(), base_total_blob_bytes);
+  ASSERT_EQ(base_meta->GetGarbageBlobCount(), garbage_blob_count);
+  ASSERT_EQ(base_meta->GetGarbageBlobBytes(), garbage_blob_bytes);
+  ASSERT_EQ(base_meta->GetChecksumMethod(), checksum_method);
+  ASSERT_EQ(base_meta->GetChecksumValue(), checksum_value);
+
+  const auto added_meta = GetBlobFileMetaData(new_blob_files, blob_file_number);
+
+  ASSERT_NE(added_meta, nullptr);
+  ASSERT_EQ(added_meta->GetBlobFileNumber(), blob_file_number);
+  ASSERT_EQ(added_meta->GetTotalBlobCount(), total_blob_count);
+  ASSERT_EQ(added_meta->GetTotalBlobBytes(), total_blob_bytes);
+  ASSERT_EQ(added_meta->GetGarbageBlobCount(), garbage_blob_count);
+  ASSERT_EQ(added_meta->GetGarbageBlobBytes(), garbage_blob_bytes);
+  ASSERT_EQ(added_meta->GetChecksumMethod(), checksum_method);
+  ASSERT_EQ(added_meta->GetChecksumValue(), checksum_value);
+
   UnrefFilesInVersion(&new_vstorage);
 }
 

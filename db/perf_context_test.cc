@@ -817,6 +817,13 @@ TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
 }
 
 TEST_F(PerfContextTest, CPUTimer) {
+  if (Env::Default()->NowCPUNanos() == 0) {
+    // TODO: This should be a GTEST_SKIP when the embedded gtest is updated
+    // to 1.10 or higher.
+    GTEST_SUCCESS_("Skipped on target without NowCPUNanos support");
+    return;
+  }
+
   DestroyDB(kDbName, Options());
   auto db = OpenDb();
   WriteOptions write_options;

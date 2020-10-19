@@ -80,18 +80,22 @@ TEST_F(WritableFileWriterTest, RangeSync) {
       new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
                              "" /* don't care */, env_options));
   Random r(301);
+  Status s;
   std::unique_ptr<char[]> large_buf(new char[10 * kMb]);
   for (int i = 0; i < 1000; i++) {
     int skew_limit = (i < 700) ? 10 : 15;
     uint32_t num = r.Skewed(skew_limit) * 100 + r.Uniform(100);
-    writer->Append(Slice(large_buf.get(), num));
+    s = writer->Append(Slice(large_buf.get(), num));
+    ASSERT_OK(s);
 
     // Flush in a chance of 1/10.
     if (r.Uniform(10) == 0) {
-      writer->Flush();
+      s = writer->Flush();
+      ASSERT_OK(s);
     }
   }
-  writer->Close();
+  s = writer->Close();
+  ASSERT_OK(s);
 }
 
 TEST_F(WritableFileWriterTest, IncrementalBuffer) {
@@ -242,15 +246,18 @@ class ReadaheadRandomAccessFileTest
   ReadaheadRandomAccessFileTest() : control_contents_() {}
   std::string Read(uint64_t offset, size_t n) {
     Slice result;
-    test_read_holder_->Read(offset, n, &result, scratch_.get());
+    Status s = test_read_holder_->Read(offset, n, &result, scratch_.get());
+    EXPECT_TRUE(s.ok() || s.IsInvalidArgument());
     return std::string(result.data(), result.size());
   }
   void ResetSourceStr(const std::string& str = "") {
     auto write_holder =
         std::unique_ptr<WritableFileWriter>(test::GetWritableFileWriter(
             new test::StringSink(&control_contents_), "" /* don't care */));
-    write_holder->Append(Slice(str));
-    write_holder->Flush();
+    Status s = write_holder->Append(Slice(str));
+    EXPECT_OK(s);
+    s = write_holder->Flush();
+    EXPECT_OK(s);
     auto read_holder = std::unique_ptr<RandomAccessFile>(
         new test::StringSource(control_contents_));
     test_read_holder_ =
@@ -340,7 +347,8 @@ class ReadaheadSequentialFileTest : public testing::Test,
   ReadaheadSequentialFileTest() {}
   std::string Read(size_t n) {
     Slice result;
-    test_read_holder_->Read(n, &result, scratch_.get());
+    Status s = test_read_holder_->Read(n, &result, scratch_.get());
+    EXPECT_TRUE(s.ok() || s.IsInvalidArgument());
     return std::string(result.data(), result.size());
   }
   void Skip(size_t n) { test_read_holder_->Skip(n); }

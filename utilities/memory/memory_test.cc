@@ -38,12 +38,10 @@ class MemoryTest : public testing::Test {
   void GetCachePointersFromTableFactory(
       const TableFactory* factory,
       std::unordered_set<const Cache*>* cache_set) {
-    const BlockBasedTableFactory* bbtf =
-        dynamic_cast<const BlockBasedTableFactory*>(factory);
-    if (bbtf != nullptr) {
-      const auto bbt_opts = bbtf->table_options();
-      cache_set->insert(bbt_opts.block_cache.get());
-      cache_set->insert(bbt_opts.block_cache_compressed.get());
+    const auto bbto = factory->GetOptions<BlockBasedTableOptions>();
+    if (bbto != nullptr) {
+      cache_set->insert(bbto->block_cache.get());
+      cache_set->insert(bbto->block_cache_compressed.get());
     }
   }
 
@@ -118,8 +116,8 @@ TEST_F(MemoryTest, SharedBlockCacheTotal) {
     for (int i = 0; i < kNumDBs; ++i) {
       for (int j = 0; j < 100; ++j) {
         keys_by_db[i].emplace_back(rnd_.RandomString(kKeySize));
-        dbs[i]->Put(WriteOptions(), keys_by_db[i].back(),
-                    rnd_.RandomString(kValueSize));
+        ASSERT_OK(dbs[i]->Put(WriteOptions(), keys_by_db[i].back(),
+                              rnd_.RandomString(kValueSize)));
       }
       dbs[i]->Flush(FlushOptions());
     }
@@ -176,8 +174,9 @@ TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
   for (int p = 0; p < opt.min_write_buffer_number_to_merge / 2; ++p) {
     for (int i = 0; i < kNumDBs; ++i) {
       for (auto* handle : vec_handles[i]) {
-        dbs[i]->Put(WriteOptions(), handle, rnd_.RandomString(kKeySize),
-                    rnd_.RandomString(kValueSize));
+        ASSERT_OK(dbs[i]->Put(WriteOptions(), handle,
+                              rnd_.RandomString(kKeySize),
+                              rnd_.RandomString(kValueSize)));
         UpdateUsagesHistory(dbs);
       }
     }
@@ -228,6 +227,8 @@ TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
   }
   usage_check_point = usage_history_[MemoryUtil::kMemTableTotal].size();
   for (int i = 0; i < kNumDBs; ++i) {
+    // iterator is not used.
+    ASSERT_OK(iters[i]->status());
     delete iters[i];
     UpdateUsagesHistory(dbs);
   }

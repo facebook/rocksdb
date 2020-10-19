@@ -592,12 +592,14 @@ Status BlockBasedTable::Open(
   Footer footer;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
 
-  // Only retain read_options.deadline. In future, we may retain more
+  // Only retain read_options.deadline and read_options.io_timeout.
+  // In future, we may retain more
   // options. Specifically, w ignore verify_checksums and default to
   // checksum verification anyway when creating the index and filter
   // readers.
   ReadOptions ro;
   ro.deadline = read_options.deadline;
+  ro.io_timeout = read_options.io_timeout;
 
   // prefetch both index and filters, down to all partitions
   const bool prefetch_all = prefetch_index_and_filter_in_cache || level == 0;
@@ -742,22 +744,23 @@ Status BlockBasedTable::PrefetchTail(
   }
   TEST_SYNC_POINT_CALLBACK("BlockBasedTable::Open::TailPrefetchLen",
                            &tail_prefetch_size);
-  Status s;
-  // TODO should not have this special logic in the future.
+
+  // Try file system prefetch
   if (!file->use_direct_io() && !force_direct_prefetch) {
-    prefetch_buffer->reset(new FilePrefetchBuffer(
-        nullptr, 0, 0, false /* enable */, true /* track_min_offset */));
-    s = file->Prefetch(prefetch_off, prefetch_len);
-  } else {
-    prefetch_buffer->reset(new FilePrefetchBuffer(
-        nullptr, 0, 0, true /* enable */, true /* track_min_offset */));
-    IOOptions opts;
-    s = PrepareIOFromReadOptions(ro, file->env(), opts);
-    if (s.ok()) {
-      s = (*prefetch_buffer)->Prefetch(opts, file, prefetch_off, prefetch_len);
+    if (!file->Prefetch(prefetch_off, prefetch_len).IsNotSupported()) {
+      prefetch_buffer->reset(
+          new FilePrefetchBuffer(nullptr, 0, 0, false, true));
+      return Status::OK();
     }
   }
 
+  // Use `FilePrefetchBuffer`
+  prefetch_buffer->reset(new FilePrefetchBuffer(nullptr, 0, 0, true, true));
+  IOOptions opts;
+  Status s = PrepareIOFromReadOptions(ro, file->env(), opts);
+  if (s.ok()) {
+    s = (*prefetch_buffer)->Prefetch(opts, file, prefetch_off, prefetch_len);
+  }
   return s;
 }
 
@@ -968,6 +971,9 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       }
     }
   }
+  // Partition filters cannot be enabled without partition indexes
+  assert(rep_->filter_type != Rep::FilterType::kPartitionedFilter ||
+         rep_->index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
 
   // Find compression dictionary handle
   bool found_compression_dict = false;
@@ -981,20 +987,53 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
 
   const bool use_cache = table_options.cache_index_and_filter_blocks;
 
-  // pin both index and filters, down to all partitions.
-  const bool pin_all =
-      rep_->table_options.pin_l0_filter_and_index_blocks_in_cache &&
+  const bool maybe_flushed =
       level == 0 && file_size <= max_file_size_for_l0_meta_pin;
+  std::function<bool(PinningTier, PinningTier)> is_pinned =
+      [maybe_flushed, &is_pinned](PinningTier pinning_tier,
+                                  PinningTier fallback_pinning_tier) {
+        // Fallback to fallback would lead to infinite recursion. Disallow it.
+        assert(fallback_pinning_tier != PinningTier::kFallback);
 
-  // prefetch the first level of index
-  const bool prefetch_index =
-      prefetch_all ||
-      (table_options.pin_top_level_index_and_filter &&
-       index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
+        switch (pinning_tier) {
+          case PinningTier::kFallback:
+            return is_pinned(fallback_pinning_tier,
+                             PinningTier::kNone /* fallback_pinning_tier */);
+          case PinningTier::kNone:
+            return false;
+          case PinningTier::kFlushedAndSimilar:
+            return maybe_flushed;
+          case PinningTier::kAll:
+            return true;
+        };
+
+        // In GCC, this is needed to suppress `control reaches end of non-void
+        // function [-Werror=return-type]`.
+        assert(false);
+        return false;
+      };
+  const bool pin_top_level_index = is_pinned(
+      table_options.metadata_cache_options.top_level_index_pinning,
+      table_options.pin_top_level_index_and_filter ? PinningTier::kAll
+                                                   : PinningTier::kNone);
+  const bool pin_partition =
+      is_pinned(table_options.metadata_cache_options.partition_pinning,
+                table_options.pin_l0_filter_and_index_blocks_in_cache
+                    ? PinningTier::kFlushedAndSimilar
+                    : PinningTier::kNone);
+  const bool pin_unpartitioned =
+      is_pinned(table_options.metadata_cache_options.unpartitioned_pinning,
+                table_options.pin_l0_filter_and_index_blocks_in_cache
+                    ? PinningTier::kFlushedAndSimilar
+                    : PinningTier::kNone);
+
   // pin the first level of index
   const bool pin_index =
-      pin_all || (table_options.pin_top_level_index_and_filter &&
-                  index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
+      index_type == BlockBasedTableOptions::kTwoLevelIndexSearch
+          ? pin_top_level_index
+          : pin_unpartitioned;
+  // prefetch the first level of index
+  const bool prefetch_index = prefetch_all || pin_index;
 
   std::unique_ptr<IndexReader> index_reader;
   s = new_table->CreateIndexReader(ro, prefetch_buffer, meta_iter, use_cache,
@@ -1009,41 +1048,43 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // The partitions of partitioned index are always stored in cache. They
   // are hence follow the configuration for pin and prefetch regardless of
   // the value of cache_index_and_filter_blocks
-  if (prefetch_all) {
-    rep_->index_reader->CacheDependencies(ro, pin_all);
+  if (prefetch_all || pin_partition) {
+    s = rep_->index_reader->CacheDependencies(ro, pin_partition);
+  }
+  if (!s.ok()) {
+    return s;
   }
 
-  // prefetch the first level of filter
-  const bool prefetch_filter =
-      prefetch_all ||
-      (table_options.pin_top_level_index_and_filter &&
-       rep_->filter_type == Rep::FilterType::kPartitionedFilter);
-  // Partition fitlers cannot be enabled without partition indexes
-  assert(!prefetch_filter || prefetch_index);
   // pin the first level of filter
   const bool pin_filter =
-      pin_all || (table_options.pin_top_level_index_and_filter &&
-                  rep_->filter_type == Rep::FilterType::kPartitionedFilter);
+      rep_->filter_type == Rep::FilterType::kPartitionedFilter
+          ? pin_top_level_index
+          : pin_unpartitioned;
+  // prefetch the first level of filter
+  const bool prefetch_filter = prefetch_all || pin_filter;
 
   if (rep_->filter_policy) {
     auto filter = new_table->CreateFilterBlockReader(
         ro, prefetch_buffer, use_cache, prefetch_filter, pin_filter,
         lookup_context);
+
     if (filter) {
       // Refer to the comment above about paritioned indexes always being cached
-      if (prefetch_all) {
-        filter->CacheDependencies(ro, pin_all);
+      if (prefetch_all || pin_partition) {
+        s = filter->CacheDependencies(ro, pin_partition);
+        if (!s.ok()) {
+          return s;
+        }
       }
-
       rep_->filter = std::move(filter);
     }
   }
 
   if (!rep_->compression_dict_handle.IsNull()) {
     std::unique_ptr<UncompressionDictReader> uncompression_dict_reader;
-    s = UncompressionDictReader::Create(this, ro, prefetch_buffer, use_cache,
-                                        prefetch_all, pin_all, lookup_context,
-                                        &uncompression_dict_reader);
+    s = UncompressionDictReader::Create(
+        this, ro, prefetch_buffer, use_cache, prefetch_all || pin_unpartitioned,
+        pin_unpartitioned, lookup_context, &uncompression_dict_reader);
     if (!s.ok()) {
       return s;
     }
@@ -1473,6 +1514,21 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         s = block_fetcher.ReadBlockContents();
         raw_block_comp_type = block_fetcher.get_compression_type();
         contents = &raw_block_contents;
+        if (get_context) {
+          switch (block_type) {
+            case BlockType::kIndex:
+              ++get_context->get_context_stats_.num_index_read;
+              break;
+            case BlockType::kFilter:
+              ++get_context->get_context_stats_.num_filter_read;
+              break;
+            case BlockType::kData:
+              ++get_context->get_context_stats_.num_data_read;
+              break;
+            default:
+              break;
+          }
+        }
       } else {
         raw_block_comp_type = contents->get_compression_type();
       }
@@ -1544,9 +1600,11 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
           no_insert, lookup_context->get_id,
           lookup_context->get_from_user_specified_snapshot,
           /*referenced_key=*/"");
-      block_cache_tracer_->WriteBlockAccess(access_record, key,
-                                            rep_->cf_name_for_tracing(),
-                                            lookup_context->referenced_key);
+      // TODO: Should handle this error?
+      block_cache_tracer_
+          ->WriteBlockAccess(access_record, key, rep_->cf_name_for_tracing(),
+                             lookup_context->referenced_key)
+          .PermitUncheckedError();
     }
   }
 
@@ -1683,7 +1741,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         req.status = s;
       }
     } else {
-      file->MultiRead(opts, &read_reqs[0], read_reqs.size(), &direct_io_buf);
+      // How to handle this status code?
+      file->MultiRead(opts, &read_reqs[0], read_reqs.size(), &direct_io_buf)
+          .PermitUncheckedError();
     }
   }
 
@@ -1791,6 +1851,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         // block cache is configured. In that case, fall
         // through and set up the block explicitly
         if (block_entry->GetValue() != nullptr) {
+          s.PermitUncheckedError();
           continue;
         }
       }
@@ -1877,6 +1938,22 @@ Status BlockBasedTable::RetrieveBlock(
         GetMemoryAllocator(rep_->table_options), for_compaction,
         rep_->blocks_definitely_zstd_compressed,
         rep_->table_options.filter_policy.get());
+
+    if (get_context) {
+      switch (block_type) {
+        case BlockType::kIndex:
+          ++(get_context->get_context_stats_.num_index_read);
+          break;
+        case BlockType::kFilter:
+          ++(get_context->get_context_stats_.num_filter_read);
+          break;
+        case BlockType::kData:
+          ++(get_context->get_context_stats_.num_data_read);
+          break;
+        default:
+          break;
+      }
+    }
   }
 
   if (!s.ok()) {
@@ -1945,6 +2022,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
         rep->index_value_is_full);
   }
   // Create an empty iterator
+  // TODO(ajkr): this is not the right way to handle an unpinned partition.
   return new IndexBlockIter();
 }
 
@@ -1987,7 +2065,6 @@ bool BlockBasedTable::PrefixMayMatch(
   }
 
   bool may_match = true;
-  Status s;
 
   // First, try check with full filter
   FilterBlockReader* const filter = rep_->filter.get();
@@ -2309,7 +2386,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         // Call the *saver function on each entry/block until it returns false
         for (; biter.Valid(); biter.Next()) {
           ParsedInternalKey parsed_key;
-          if (!ParseInternalKey(biter.key(), &parsed_key)) {
+          if (ParseInternalKey(biter.key(), &parsed_key) != Status::OK()) {
             s = Status::Corruption(Slice());
           }
 
@@ -2349,9 +2426,12 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
             /*referenced_key=*/"", referenced_data_size,
             lookup_data_block_context.num_keys_in_block,
             does_referenced_key_exist);
-        block_cache_tracer_->WriteBlockAccess(
-            access_record, lookup_data_block_context.block_key,
-            rep_->cf_name_for_tracing(), referenced_key);
+        // TODO: Should handle status here?
+        block_cache_tracer_
+            ->WriteBlockAccess(access_record,
+                               lookup_data_block_context.block_key,
+                               rep_->cf_name_for_tracing(), referenced_key)
+            .PermitUncheckedError();
       }
 
       if (done) {
@@ -2430,6 +2510,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
 
       CachableEntry<UncompressionDict> uncompression_dict;
       Status uncompression_dict_status;
+      uncompression_dict_status.PermitUncheckedError();
       bool uncompression_dict_inited = false;
       size_t total_len = 0;
       ReadOptions ro = read_options;
@@ -2540,6 +2621,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         }
         RetrieveMultipleBlocks(read_options, &data_block_range, &block_handles,
                                &statuses, &results, scratch, dict);
+        if (sst_file_range.begin()->get_context) {
+          ++(sst_file_range.begin()
+                 ->get_context->get_context_stats_.num_sst_read);
+        }
       }
     }
 
@@ -2571,6 +2656,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
                 read_options, results[idx_in_batch], &first_biter,
                 statuses[idx_in_batch]);
             reusing_block = false;
+          } else {
+            // If handler is null and result is empty, then the status is never
+            // set, which should be the initial value: ok().
+            assert(statuses[idx_in_batch].ok());
           }
           biter = &first_biter;
           idx_in_batch++;
@@ -2621,7 +2710,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           ParsedInternalKey parsed_key;
           Cleanable dummy;
           Cleanable* value_pinner = nullptr;
-          if (!ParseInternalKey(biter->key(), &parsed_key)) {
+          if (ParseInternalKey(biter->key(), &parsed_key) != Status::OK()) {
             s = Status::Corruption(Slice());
           }
           if (biter->IsValuePinned()) {
@@ -2671,9 +2760,12 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
               /*referenced_key=*/"", referenced_data_size,
               lookup_data_block_context.num_keys_in_block,
               does_referenced_key_exist);
-          block_cache_tracer_->WriteBlockAccess(
-              access_record, lookup_data_block_context.block_key,
-              rep_->cf_name_for_tracing(), referenced_key);
+          // TODO: Should handle status here?
+          block_cache_tracer_
+              ->WriteBlockAccess(access_record,
+                                 lookup_data_block_context.block_key,
+                                 rep_->cf_name_for_tracing(), referenced_key)
+              .PermitUncheckedError();
         }
         s = biter->status();
         if (done) {
@@ -2697,6 +2789,12 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
       }
       *(miter->s) = s;
     }
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    // Not sure why we need to do it. Should investigate more.
+    for (auto& st : statuses) {
+      st.PermitUncheckedError();
+    }
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
   }
 }
 
@@ -3170,18 +3268,16 @@ Status BlockBasedTable::GetKVPairsFromDataBlocks(
 }
 
 Status BlockBasedTable::DumpTable(WritableFile* out_file) {
+  WritableFileStringStreamAdapter out_file_wrapper(out_file);
+  std::ostream out_stream(&out_file_wrapper);
   // Output Footer
-  out_file->Append(
-      "Footer Details:\n"
-      "--------------------------------------\n"
-      "  ");
-  out_file->Append(rep_->footer.ToString().c_str());
-  out_file->Append("\n");
+  out_stream << "Footer Details:\n"
+                "--------------------------------------\n";
+  out_stream << "  " << rep_->footer.ToString() << "\n";
 
   // Output MetaIndex
-  out_file->Append(
-      "Metaindex Details:\n"
-      "--------------------------------------\n");
+  out_stream << "Metaindex Details:\n"
+                "--------------------------------------\n";
   std::unique_ptr<Block> metaindex;
   std::unique_ptr<InternalIterator> metaindex_iter;
   ReadOptions ro;
@@ -3194,27 +3290,22 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
       if (!s.ok()) {
         return s;
       }
-      if (metaindex_iter->key() == ROCKSDB_NAMESPACE::kPropertiesBlock) {
-        out_file->Append("  Properties block handle: ");
-        out_file->Append(metaindex_iter->value().ToString(true).c_str());
-        out_file->Append("\n");
-      } else if (metaindex_iter->key() ==
-                 ROCKSDB_NAMESPACE::kCompressionDictBlock) {
-        out_file->Append("  Compression dictionary block handle: ");
-        out_file->Append(metaindex_iter->value().ToString(true).c_str());
-        out_file->Append("\n");
+      if (metaindex_iter->key() == kPropertiesBlock) {
+        out_stream << "  Properties block handle: "
+                   << metaindex_iter->value().ToString(true) << "\n";
+      } else if (metaindex_iter->key() == kCompressionDictBlock) {
+        out_stream << "  Compression dictionary block handle: "
+                   << metaindex_iter->value().ToString(true) << "\n";
       } else if (strstr(metaindex_iter->key().ToString().c_str(),
                         "filter.rocksdb.") != nullptr) {
-        out_file->Append("  Filter block handle: ");
-        out_file->Append(metaindex_iter->value().ToString(true).c_str());
-        out_file->Append("\n");
-      } else if (metaindex_iter->key() == ROCKSDB_NAMESPACE::kRangeDelBlock) {
-        out_file->Append("  Range deletion block handle: ");
-        out_file->Append(metaindex_iter->value().ToString(true).c_str());
-        out_file->Append("\n");
+        out_stream << "  Filter block handle: "
+                   << metaindex_iter->value().ToString(true) << "\n";
+      } else if (metaindex_iter->key() == kRangeDelBlock) {
+        out_stream << "  Range deletion block handle: "
+                   << metaindex_iter->value().ToString(true) << "\n";
       }
     }
-    out_file->Append("\n");
+    out_stream << "\n";
   } else {
     return s;
   }
@@ -3224,25 +3315,19 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   table_properties = rep_->table_properties.get();
 
   if (table_properties != nullptr) {
-    out_file->Append(
-        "Table Properties:\n"
-        "--------------------------------------\n"
-        "  ");
-    out_file->Append(table_properties->ToString("\n  ", ": ").c_str());
-    out_file->Append("\n");
+    out_stream << "Table Properties:\n"
+                  "--------------------------------------\n";
+    out_stream << "  " << table_properties->ToString("\n  ", ": ") << "\n";
   }
 
   if (rep_->filter) {
-    out_file->Append(
-        "Filter Details:\n"
-        "--------------------------------------\n"
-        "  ");
-    out_file->Append(rep_->filter->ToString().c_str());
-    out_file->Append("\n");
+    out_stream << "Filter Details:\n"
+                  "--------------------------------------\n";
+    out_stream << "  " << rep_->filter->ToString() << "\n";
   }
 
   // Output Index block
-  s = DumpIndexBlock(out_file);
+  s = DumpIndexBlock(out_stream);
   if (!s.ok()) {
     return s;
   }
@@ -3261,15 +3346,10 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
     assert(uncompression_dict.GetValue());
 
     const Slice& raw_dict = uncompression_dict.GetValue()->GetRawDict();
-    out_file->Append(
-        "Compression Dictionary:\n"
-        "--------------------------------------\n");
-    out_file->Append("  size (bytes): ");
-    out_file->Append(ROCKSDB_NAMESPACE::ToString(raw_dict.size()));
-    out_file->Append("\n\n");
-    out_file->Append("  HEX    ");
-    out_file->Append(raw_dict.ToString(true).c_str());
-    out_file->Append("\n\n");
+    out_stream << "Compression Dictionary:\n"
+                  "--------------------------------------\n";
+    out_stream << "  size (bytes): " << raw_dict.size() << "\n\n";
+    out_stream << "  HEX    " << raw_dict.ToString(true) << "\n\n";
   }
 
   // Output range deletions block
@@ -3277,39 +3357,44 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   if (range_del_iter != nullptr) {
     range_del_iter->SeekToFirst();
     if (range_del_iter->Valid()) {
-      out_file->Append(
-          "Range deletions:\n"
-          "--------------------------------------\n"
-          "  ");
+      out_stream << "Range deletions:\n"
+                    "--------------------------------------\n";
       for (; range_del_iter->Valid(); range_del_iter->Next()) {
-        DumpKeyValue(range_del_iter->key(), range_del_iter->value(), out_file);
+        DumpKeyValue(range_del_iter->key(), range_del_iter->value(),
+                     out_stream);
       }
-      out_file->Append("\n");
+      out_stream << "\n";
     }
     delete range_del_iter;
   }
   // Output Data blocks
-  s = DumpDataBlocks(out_file);
+  s = DumpDataBlocks(out_stream);
 
-  return s;
+  if (!s.ok()) {
+    return s;
+  }
+
+  if (!out_stream.good()) {
+    return Status::IOError("Failed to write to output file");
+  }
+  return Status::OK();
 }
 
-Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
-  out_file->Append(
-      "Index Details:\n"
-      "--------------------------------------\n");
+Status BlockBasedTable::DumpIndexBlock(std::ostream& out_stream) {
+  out_stream << "Index Details:\n"
+                "--------------------------------------\n";
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
       NewIndexIterator(ReadOptions(), /*need_upper_bound_check=*/false,
                        /*input_iter=*/nullptr, /*get_context=*/nullptr,
                        /*lookup_contex=*/nullptr));
   Status s = blockhandles_iter->status();
   if (!s.ok()) {
-    out_file->Append("Can not read Index Block \n\n");
+    out_stream << "Can not read Index Block \n\n";
     return s;
   }
 
-  out_file->Append("  Block key hex dump: Data block handle\n");
-  out_file->Append("  Block key ascii\n\n");
+  out_stream << "  Block key hex dump: Data block handle\n";
+  out_stream << "  Block key ascii\n\n";
   for (blockhandles_iter->SeekToFirst(); blockhandles_iter->Valid();
        blockhandles_iter->Next()) {
     s = blockhandles_iter->status();
@@ -3326,13 +3411,10 @@ Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
       user_key = ikey.user_key();
     }
 
-    out_file->Append("  HEX    ");
-    out_file->Append(user_key.ToString(true).c_str());
-    out_file->Append(": ");
-    out_file->Append(blockhandles_iter->value()
-                         .ToString(true, rep_->index_has_first_key)
-                         .c_str());
-    out_file->Append("\n");
+    out_stream << "  HEX    " << user_key.ToString(true) << ": "
+               << blockhandles_iter->value().ToString(true,
+                                                      rep_->index_has_first_key)
+               << "\n";
 
     std::string str_key = user_key.ToString();
     std::string res_key("");
@@ -3341,22 +3423,21 @@ Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
       res_key.append(&str_key[i], 1);
       res_key.append(1, cspace);
     }
-    out_file->Append("  ASCII  ");
-    out_file->Append(res_key.c_str());
-    out_file->Append("\n  ------\n");
+    out_stream << "  ASCII  " << res_key << "\n";
+    out_stream << "  ------\n";
   }
-  out_file->Append("\n");
+  out_stream << "\n";
   return Status::OK();
 }
 
-Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
+Status BlockBasedTable::DumpDataBlocks(std::ostream& out_stream) {
   std::unique_ptr<InternalIteratorBase<IndexValue>> blockhandles_iter(
       NewIndexIterator(ReadOptions(), /*need_upper_bound_check=*/false,
                        /*input_iter=*/nullptr, /*get_context=*/nullptr,
                        /*lookup_contex=*/nullptr));
   Status s = blockhandles_iter->status();
   if (!s.ok()) {
-    out_file->Append("Can not read Index Block \n\n");
+    out_stream << "Can not read Index Block \n\n";
     return s;
   }
 
@@ -3378,12 +3459,9 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     datablock_size_max = std::max(datablock_size_max, datablock_size);
     datablock_size_sum += datablock_size;
 
-    out_file->Append("Data Block # ");
-    out_file->Append(ROCKSDB_NAMESPACE::ToString(block_id));
-    out_file->Append(" @ ");
-    out_file->Append(blockhandles_iter->value().handle.ToString(true).c_str());
-    out_file->Append("\n");
-    out_file->Append("--------------------------------------\n");
+    out_stream << "Data Block # " << block_id << " @ "
+               << blockhandles_iter->value().handle.ToString(true) << "\n";
+    out_stream << "--------------------------------------\n";
 
     std::unique_ptr<InternalIterator> datablock_iter;
     datablock_iter.reset(NewDataBlockIterator<DataBlockIter>(
@@ -3394,7 +3472,7 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     s = datablock_iter->status();
 
     if (!s.ok()) {
-      out_file->Append("Error reading the block - Skipped \n\n");
+      out_stream << "Error reading the block - Skipped \n\n";
       continue;
     }
 
@@ -3402,44 +3480,37 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
          datablock_iter->Next()) {
       s = datablock_iter->status();
       if (!s.ok()) {
-        out_file->Append("Error reading the block - Skipped \n");
+        out_stream << "Error reading the block - Skipped \n";
         break;
       }
-      DumpKeyValue(datablock_iter->key(), datablock_iter->value(), out_file);
+      DumpKeyValue(datablock_iter->key(), datablock_iter->value(), out_stream);
     }
-    out_file->Append("\n");
+    out_stream << "\n";
   }
 
   uint64_t num_datablocks = block_id - 1;
   if (num_datablocks) {
     double datablock_size_avg =
         static_cast<double>(datablock_size_sum) / num_datablocks;
-    out_file->Append("Data Block Summary:\n");
-    out_file->Append("--------------------------------------");
-    out_file->Append("\n  # data blocks: ");
-    out_file->Append(ROCKSDB_NAMESPACE::ToString(num_datablocks));
-    out_file->Append("\n  min data block size: ");
-    out_file->Append(ROCKSDB_NAMESPACE::ToString(datablock_size_min));
-    out_file->Append("\n  max data block size: ");
-    out_file->Append(ROCKSDB_NAMESPACE::ToString(datablock_size_max));
-    out_file->Append("\n  avg data block size: ");
-    out_file->Append(ROCKSDB_NAMESPACE::ToString(datablock_size_avg));
-    out_file->Append("\n");
+    out_stream << "Data Block Summary:\n";
+    out_stream << "--------------------------------------\n";
+    out_stream << "  # data blocks: " << num_datablocks << "\n";
+    out_stream << "  min data block size: " << datablock_size_min << "\n";
+    out_stream << "  max data block size: " << datablock_size_max << "\n";
+    out_stream << "  avg data block size: " << ToString(datablock_size_avg)
+               << "\n";
   }
 
   return Status::OK();
 }
 
 void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
-                                   WritableFile* out_file) {
+                                   std::ostream& out_stream) {
   InternalKey ikey;
   ikey.DecodeFrom(key);
 
-  out_file->Append("  HEX    ");
-  out_file->Append(ikey.user_key().ToString(true).c_str());
-  out_file->Append(": ");
-  out_file->Append(value.ToString(true).c_str());
-  out_file->Append("\n");
+  out_stream << "  HEX    " << ikey.user_key().ToString(true) << ": "
+             << value.ToString(true) << "\n";
 
   std::string str_key = ikey.user_key().ToString();
   std::string str_value = value.ToString();
@@ -3462,11 +3533,8 @@ void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
     res_value.append(1, cspace);
   }
 
-  out_file->Append("  ASCII  ");
-  out_file->Append(res_key.c_str());
-  out_file->Append(": ");
-  out_file->Append(res_value.c_str());
-  out_file->Append("\n  ------\n");
+  out_stream << "  ASCII  " << res_key << ": " << res_value << "\n";
+  out_stream << "  ------\n";
 }
 
 }  // namespace ROCKSDB_NAMESPACE

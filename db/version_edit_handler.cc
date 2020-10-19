@@ -16,14 +16,16 @@ namespace ROCKSDB_NAMESPACE {
 VersionEditHandler::VersionEditHandler(
     bool read_only, const std::vector<ColumnFamilyDescriptor>& column_families,
     VersionSet* version_set, bool track_missing_files,
-    bool no_error_if_table_files_missing)
+    bool no_error_if_table_files_missing,
+    const std::shared_ptr<IOTracer>& io_tracer)
     : read_only_(read_only),
       column_families_(column_families),
       status_(),
       version_set_(version_set),
       track_missing_files_(track_missing_files),
       no_error_if_table_files_missing_(no_error_if_table_files_missing),
-      initialized_(false) {
+      initialized_(false),
+      io_tracer_(io_tracer) {
   assert(version_set_ != nullptr);
 }
 
@@ -390,7 +392,7 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
     assert(builder_iter != builders_.end());
     auto* builder = builder_iter->second->version_builder();
     auto* v = new Version(cfd, version_set_, version_set_->file_options_,
-                          *cfd->GetLatestMutableCFOptions(),
+                          *cfd->GetLatestMutableCFOptions(), io_tracer_,
                           version_set_->current_version_number_++);
     s = builder->SaveTo(v->storage_info());
     if (s.ok()) {
@@ -485,10 +487,11 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
 
 VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     bool read_only, const std::vector<ColumnFamilyDescriptor>& column_families,
-    VersionSet* version_set)
+    VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer)
     : VersionEditHandler(read_only, column_families, version_set,
                          /*track_missing_files=*/true,
-                         /*no_error_if_table_files_missing=*/true) {}
+                         /*no_error_if_table_files_missing=*/true, io_tracer),
+      io_tracer_(io_tracer) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   for (const auto& elem : versions_) {
@@ -573,7 +576,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     assert(builder_iter != builders_.end());
     auto* builder = builder_iter->second->version_builder();
     auto* version = new Version(cfd, version_set_, version_set_->file_options_,
-                                *cfd->GetLatestMutableCFOptions(),
+                                *cfd->GetLatestMutableCFOptions(), io_tracer_,
                                 version_set_->current_version_number_++);
     s = builder->SaveTo(version->storage_info());
     if (s.ok()) {

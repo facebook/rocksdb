@@ -47,11 +47,11 @@ Status LoadOptionsFromFile(const ConfigOptions& config_options,
     cf_descs->push_back({cf_names[i], cf_opts[i]});
     if (cache != nullptr) {
       TableFactory* tf = cf_opts[i].table_factory.get();
-      if (tf != nullptr && tf->GetOptions() != nullptr &&
-          tf->Name() == BlockBasedTableFactory::kName) {
-        auto* loaded_bbt_opt =
-            reinterpret_cast<BlockBasedTableOptions*>(tf->GetOptions());
-        loaded_bbt_opt->block_cache = *cache;
+      if (tf != nullptr) {
+        auto* opts = tf->GetOptions<BlockBasedTableOptions>();
+        if (opts != nullptr) {
+          opts->block_cache = *cache;
+        }
       }
     }
   }
@@ -65,7 +65,10 @@ Status GetLatestOptionsFileName(const std::string& dbpath,
   uint64_t latest_time_stamp = 0;
   std::vector<std::string> file_names;
   s = env->GetChildren(dbpath, &file_names);
-  if (!s.ok()) {
+  if (s.IsNotFound()) {
+    return Status::PathNotFound("No options files found in the DB directory.",
+                                dbpath);
+  } else if (!s.ok()) {
     return s;
   }
   for (auto& file_name : file_names) {
@@ -79,7 +82,8 @@ Status GetLatestOptionsFileName(const std::string& dbpath,
     }
   }
   if (latest_file_name.size() == 0) {
-    return Status::NotFound("No options files found in the DB directory.");
+    return Status::PathNotFound("No options files found in the DB directory.",
+                                dbpath);
   }
   *options_file_name = latest_file_name;
   return Status::OK();
