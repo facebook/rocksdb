@@ -212,6 +212,15 @@ Status BuildTable(
     } else if (!c_iter.status().ok()) {
       s = c_iter.status();
     }
+
+    if (blob_file_builder) {
+      if (s.ok()) {
+        s = blob_file_builder->Finish();
+      }
+
+      blob_file_builder.reset();
+    }
+
     if (s.ok()) {
       auto range_del_it = range_del_agg->NewIterator();
       for (range_del_it->SeekToFirst(); range_del_it->Valid();
@@ -222,14 +231,6 @@ Status BuildTable(
         meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
                                        tombstone.seq_, internal_comparator);
       }
-
-      if (blob_file_builder) {
-        s = blob_file_builder->Finish();
-      }
-    }
-
-    if (blob_file_builder) {
-      blob_file_builder.reset();
     }
 
     TEST_SYNC_POINT("BuildTable:BeforeFinishBuildTable");
