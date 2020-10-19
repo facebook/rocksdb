@@ -331,6 +331,7 @@ struct BlockBasedTableBuilder::Rep {
   // DB IDs
   const std::string db_id;
   const std::string db_session_id;
+  std::string db_host_id;
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
@@ -449,7 +450,8 @@ struct BlockBasedTableBuilder::Rep {
         target_file_size(_target_file_size),
         file_creation_time(_file_creation_time),
         db_id(_db_id),
-        db_session_id(_db_session_id) {
+        db_session_id(_db_session_id),
+        db_host_id(ioptions.db_host_id) {
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(new CompressionContext(compression_type));
     }
@@ -490,6 +492,10 @@ struct BlockBasedTableBuilder::Rep {
       for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
         verify_ctxs[i].reset(new UncompressionContext(compression_type));
       }
+    }
+
+    if (!ReifyDbHostIdProperty(ioptions.env, &db_host_id).ok()) {
+      ROCKS_LOG_INFO(ioptions.info_log, "db_host_id property will not be set");
     }
   }
 
@@ -1412,6 +1418,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     rep_->props.file_creation_time = rep_->file_creation_time;
     rep_->props.db_id = rep_->db_id;
     rep_->props.db_session_id = rep_->db_session_id;
+    rep_->props.db_host_id = rep_->db_host_id;
 
     // Add basic properties
     property_block_builder.AddTableProperty(rep_->props);

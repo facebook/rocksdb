@@ -3529,6 +3529,7 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfPlain) {
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
   Options options;
+  options.db_host_id = "";
   test::PlainInternalKeyComparator internal_comparator(options.comparator);
   options.compression = kNoCompression;
   BlockBasedTableOptions table_options;
