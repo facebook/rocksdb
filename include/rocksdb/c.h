@@ -1715,12 +1715,20 @@ extern ROCKSDB_LIBRARY_API rocksdb_env_t* rocksdb_create_default_env();
 extern ROCKSDB_LIBRARY_API rocksdb_env_t* rocksdb_create_mem_env();
 extern ROCKSDB_LIBRARY_API void rocksdb_env_set_background_threads(
     rocksdb_env_t* env, int n);
+extern ROCKSDB_LIBRARY_API int rocksdb_env_get_background_threads(
+    rocksdb_env_t* env);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_env_set_high_priority_background_threads(rocksdb_env_t* env, int n);
+extern ROCKSDB_LIBRARY_API int rocksdb_env_get_high_priority_background_threads(
+    rocksdb_env_t* env);
 extern ROCKSDB_LIBRARY_API void rocksdb_env_set_low_priority_background_threads(
     rocksdb_env_t* env, int n);
+extern ROCKSDB_LIBRARY_API int rocksdb_env_get_low_priority_background_threads(
+    rocksdb_env_t* env);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_env_set_bottom_priority_background_threads(rocksdb_env_t* env, int n);
+extern ROCKSDB_LIBRARY_API int
+rocksdb_env_get_bottom_priority_background_threads(rocksdb_env_t* env);
 extern ROCKSDB_LIBRARY_API void rocksdb_env_join_all_threads(
     rocksdb_env_t* env);
 extern ROCKSDB_LIBRARY_API void rocksdb_env_lower_thread_pool_io_priority(rocksdb_env_t* env);
@@ -1827,21 +1835,39 @@ rocksdb_universal_compaction_options_create();
 extern ROCKSDB_LIBRARY_API void
 rocksdb_universal_compaction_options_set_size_ratio(
     rocksdb_universal_compaction_options_t*, int);
+extern ROCKSDB_LIBRARY_API int
+rocksdb_universal_compaction_options_get_size_ratio(
+    rocksdb_universal_compaction_options_t*);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_universal_compaction_options_set_min_merge_width(
     rocksdb_universal_compaction_options_t*, int);
+extern ROCKSDB_LIBRARY_API int
+rocksdb_universal_compaction_options_get_min_merge_width(
+    rocksdb_universal_compaction_options_t*);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_universal_compaction_options_set_max_merge_width(
     rocksdb_universal_compaction_options_t*, int);
+extern ROCKSDB_LIBRARY_API int
+rocksdb_universal_compaction_options_get_max_merge_width(
+    rocksdb_universal_compaction_options_t*);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_universal_compaction_options_set_max_size_amplification_percent(
     rocksdb_universal_compaction_options_t*, int);
+extern ROCKSDB_LIBRARY_API int
+rocksdb_universal_compaction_options_get_max_size_amplification_percent(
+    rocksdb_universal_compaction_options_t*);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_universal_compaction_options_set_compression_size_percent(
     rocksdb_universal_compaction_options_t*, int);
+extern ROCKSDB_LIBRARY_API int
+rocksdb_universal_compaction_options_get_compression_size_percent(
+    rocksdb_universal_compaction_options_t*);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_universal_compaction_options_set_stop_style(
     rocksdb_universal_compaction_options_t*, int);
+extern ROCKSDB_LIBRARY_API int
+rocksdb_universal_compaction_options_get_stop_style(
+    rocksdb_universal_compaction_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_universal_compaction_options_destroy(
     rocksdb_universal_compaction_options_t*);
 
@@ -1850,6 +1876,9 @@ rocksdb_fifo_compaction_options_create();
 extern ROCKSDB_LIBRARY_API void
 rocksdb_fifo_compaction_options_set_max_table_files_size(
     rocksdb_fifo_compaction_options_t* fifo_opts, uint64_t size);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_fifo_compaction_options_get_max_table_files_size(
+    rocksdb_fifo_compaction_options_t* fifo_opts);
 extern ROCKSDB_LIBRARY_API void rocksdb_fifo_compaction_options_destroy(
     rocksdb_fifo_compaction_options_t* fifo_opts);
 

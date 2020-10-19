@@ -30,6 +30,7 @@
 * Introduce options.check_flush_compaction_key_order with default value to be true. With this option, during flush and compaction, key order will be checked when writing to each SST file. If the order is violated, the flush or compaction will fail.
 * Added is_full_compaction to CompactionJobStats, so that the information is available through the EventListener interface.
 * Add more stats for MultiGet in Histogram to get number of data blocks, index blocks, filter blocks and sst files read from file system per level.
+* SST files have a new table property called db_host_id, which is set to the hostname by default. A new option in DBOptions, db_host_id, allows the property value to be overridden with a user specified string, or disable it completely by making the option string empty.
 
 ## 6.13 (09/12/2020)
 ### Bug fixes

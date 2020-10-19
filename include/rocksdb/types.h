@@ -12,6 +12,8 @@ namespace ROCKSDB_NAMESPACE {
 
 // Define all public custom types here.
 
+using ColumnFamilyId = uint32_t;
+
 // Represents a sequence number in a WAL file.
 typedef uint64_t SequenceNumber;
 

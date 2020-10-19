@@ -24,6 +24,11 @@ using TransactionName = std::string;
 
 using TransactionID = uint64_t;
 
+// An endpoint for a range of keys.
+class Endpoint {
+  // TODO
+};
+
 // Provides notification to the caller of SetSnapshotOnNextOperation when
 // the actual snapshot gets created
 class TransactionNotifier {
