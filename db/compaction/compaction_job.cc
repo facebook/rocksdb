@@ -1809,7 +1809,8 @@ void CompactionJob::UpdateCompactionStats() {
   }
 
   compaction_stats_.num_output_files =
-      compact_->num_output_files + compact_->num_blob_output_files;
+      static_cast<int>(compact_->num_output_files) +
+      static_cast<int>(compact_->num_blob_output_files);
   compaction_stats_.bytes_written =
       compact_->total_bytes + compact_->total_blob_bytes;
 
