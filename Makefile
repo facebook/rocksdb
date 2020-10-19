@@ -553,7 +553,7 @@ PARALLEL_TEST = \
 	persistent_cache_test \
 	table_test \
 	transaction_test \
-	transaction_lock_mgr_test \
+	point_lock_manager_test \
 	write_prepared_transaction_test \
 	write_unprepared_transaction_test \
 
@@ -1842,7 +1842,7 @@ write_callback_test: $(OBJ_DIR)/db/write_callback_test.o $(TEST_LIBRARY) $(LIBRA
 heap_test: $(OBJ_DIR)/util/heap_test.o $(GTEST)
 	$(AM_LINK)
 
-transaction_lock_mgr_test: utilities/transactions/transaction_lock_mgr_test.o $(TEST_LIBRARY) $(LIBRARY)
+point_lock_manager_test: utilities/transactions/lock/point/point_lock_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 transaction_test: $(OBJ_DIR)/utilities/transactions/transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
