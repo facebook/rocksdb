@@ -39,6 +39,7 @@ RandomTransactionInserter::RandomTransactionInserter(
       cmt_delay_ms_(cmt_delay_ms) {}
 
 RandomTransactionInserter::~RandomTransactionInserter() {
+  last_status_.PermitUncheckedError();
   if (txn_ != nullptr) {
     delete txn_;
   }
