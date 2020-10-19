@@ -202,6 +202,13 @@ struct KeyLockInfo {
   bool exclusive;
 };
 
+struct RangeLockInfo {
+  Endpoint start;
+  Endpoint end;
+  std::vector<TransactionID> ids;
+  bool exclusive;
+};
+
 struct DeadlockInfo {
   TransactionID m_txn_id;
   uint32_t m_cf_id;
@@ -296,6 +303,7 @@ class TransactionDB : public StackableDB {
   // The mapping is column family id -> KeyLockInfo
   virtual std::unordered_multimap<uint32_t, KeyLockInfo>
   GetLockStatusData() = 0;
+
   virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer() = 0;
   virtual void SetDeadlockInfoBufferSize(uint32_t target_size) = 0;
 

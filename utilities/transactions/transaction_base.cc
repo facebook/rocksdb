@@ -20,15 +20,17 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-TransactionBaseImpl::TransactionBaseImpl(DB* db,
-                                         const WriteOptions& write_options)
+TransactionBaseImpl::TransactionBaseImpl(
+    DB* db, const WriteOptions& write_options,
+    const LockTrackerFactory& lock_tracker_factory)
     : db_(db),
       dbimpl_(static_cast_with_check<DBImpl>(db)),
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
+      lock_tracker_factory_(lock_tracker_factory),
       start_time_(db_->GetEnv()->NowMicros()),
       write_batch_(cmp_, 0, true, 0),
-      tracked_locks_(NewLockTracker()),
+      tracked_locks_(lock_tracker_factory_.Create()),
       indexing_enabled_(true) {
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   log_number_ = 0;
@@ -125,7 +127,8 @@ void TransactionBaseImpl::SetSavePoint() {
     save_points_.reset(new std::stack<TransactionBaseImpl::SavePoint, autovector<TransactionBaseImpl::SavePoint>>());
   }
   save_points_->emplace(snapshot_, snapshot_needed_, snapshot_notifier_,
-                        num_puts_, num_deletes_, num_merges_);
+                        num_puts_, num_deletes_, num_merges_,
+                        lock_tracker_factory_);
   write_batch_.SetSavePoint();
 }
 
@@ -172,7 +175,7 @@ Status TransactionBaseImpl::PopSavePoint() {
   if (save_points_->size() == 1) {
     save_points_->pop();
   } else {
-    TransactionBaseImpl::SavePoint top;
+    TransactionBaseImpl::SavePoint top(lock_tracker_factory_);
     std::swap(top, save_points_->top());
     save_points_->pop();
 

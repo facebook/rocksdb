@@ -5,10 +5,10 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/transactions/transaction_lock_mgr.h"
+#include "utilities/transactions/lock/point/point_lock_manager.h"
 
-#include <cinttypes>
 #include <algorithm>
+#include <cinttypes>
 #include <mutex>
 
 #include "monitoring/perf_context_imp.h"
@@ -19,6 +19,7 @@
 #include "util/hash.h"
 #include "util/thread_local.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
+#include "utilities/transactions/transaction_db_mutex_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -37,6 +38,11 @@ struct LockInfo {
       : exclusive(lock_info.exclusive),
         txn_ids(lock_info.txn_ids),
         expiration_time(lock_info.expiration_time) {}
+  void operator=(const LockInfo& lock_info) {
+    exclusive = lock_info.exclusive;
+    txn_ids = lock_info.txn_ids;
+    expiration_time = lock_info.expiration_time;
+  }
 };
 
 struct LockMapStripe {
@@ -80,7 +86,7 @@ struct LockMap {
   const size_t num_stripes_;
 
   // Count of keys that are currently locked in this column family.
-  // (Only maintained if TransactionLockMgr::max_num_locks_ is positive.)
+  // (Only maintained if PointLockManager::max_num_locks_ is positive.)
   std::atomic<int64_t> lock_cnt{0};
 
   std::vector<LockMapStripe*> lock_map_stripes_;
@@ -155,47 +161,44 @@ void UnrefLockMapsCache(void* ptr) {
 }
 }  // anonymous namespace
 
-TransactionLockMgr::TransactionLockMgr(
-    TransactionDB* txn_db, size_t default_num_stripes, int64_t max_num_locks,
-    uint32_t max_num_deadlocks,
-    std::shared_ptr<TransactionDBMutexFactory> mutex_factory)
-    : txn_db_impl_(nullptr),
-      default_num_stripes_(default_num_stripes),
-      max_num_locks_(max_num_locks),
+PointLockManager::PointLockManager(PessimisticTransactionDB* txn_db,
+                                   const TransactionDBOptions& opt)
+    : txn_db_impl_(txn_db),
+      default_num_stripes_(opt.num_stripes),
+      max_num_locks_(opt.max_num_locks),
       lock_maps_cache_(new ThreadLocalPtr(&UnrefLockMapsCache)),
-      dlock_buffer_(max_num_deadlocks),
-      mutex_factory_(mutex_factory) {
-  assert(txn_db);
-  txn_db_impl_ = static_cast_with_check<PessimisticTransactionDB>(txn_db);
-}
+      dlock_buffer_(opt.max_num_deadlocks),
+      mutex_factory_(opt.custom_mutex_factory
+                         ? opt.custom_mutex_factory
+                         : std::make_shared<TransactionDBMutexFactoryImpl>()) {}
 
-TransactionLockMgr::~TransactionLockMgr() {}
+PointLockManager::~PointLockManager() {}
 
 size_t LockMap::GetStripe(const std::string& key) const {
   assert(num_stripes_ > 0);
   return FastRange64(GetSliceNPHash64(key), num_stripes_);
 }
 
-void TransactionLockMgr::AddColumnFamily(uint32_t column_family_id) {
+void PointLockManager::AddColumnFamily(const ColumnFamilyHandle* cf) {
   InstrumentedMutexLock l(&lock_map_mutex_);
 
-  if (lock_maps_.find(column_family_id) == lock_maps_.end()) {
-    lock_maps_.emplace(column_family_id,
-                       std::make_shared<LockMap>(default_num_stripes_, mutex_factory_));
+  if (lock_maps_.find(cf->GetID()) == lock_maps_.end()) {
+    lock_maps_.emplace(cf->GetID(), std::make_shared<LockMap>(
+                                        default_num_stripes_, mutex_factory_));
   } else {
     // column_family already exists in lock map
     assert(false);
   }
 }
 
-void TransactionLockMgr::RemoveColumnFamily(uint32_t column_family_id) {
+void PointLockManager::RemoveColumnFamily(const ColumnFamilyHandle* cf) {
   // Remove lock_map for this column family.  Since the lock map is stored
   // as a shared ptr, concurrent transactions can still keep using it
   // until they release their references to it.
   {
     InstrumentedMutexLock l(&lock_map_mutex_);
 
-    auto lock_maps_iter = lock_maps_.find(column_family_id);
+    auto lock_maps_iter = lock_maps_.find(cf->GetID());
     if (lock_maps_iter == lock_maps_.end()) {
       return;
     }
@@ -214,8 +217,8 @@ void TransactionLockMgr::RemoveColumnFamily(uint32_t column_family_id) {
 // Look up the LockMap std::shared_ptr for a given column_family_id.
 // Note:  The LockMap is only valid as long as the caller is still holding on
 //   to the returned std::shared_ptr.
-std::shared_ptr<LockMap> TransactionLockMgr::GetLockMap(
-    uint32_t column_family_id) {
+std::shared_ptr<LockMap> PointLockManager::GetLockMap(
+    ColumnFamilyId column_family_id) {
   // First check thread-local cache
   if (lock_maps_cache_->Get() == nullptr) {
     lock_maps_cache_->Reset(new LockMaps());
@@ -248,9 +251,9 @@ std::shared_ptr<LockMap> TransactionLockMgr::GetLockMap(
 // transaction.
 // If false, sets *expire_time to the expiration time of the lock according
 // to Env->GetMicros() or 0 if no expiration.
-bool TransactionLockMgr::IsLockExpired(TransactionID txn_id,
-                                       const LockInfo& lock_info, Env* env,
-                                       uint64_t* expire_time) {
+bool PointLockManager::IsLockExpired(TransactionID txn_id,
+                                     const LockInfo& lock_info, Env* env,
+                                     uint64_t* expire_time) {
   if (lock_info.expiration_time == 0) {
     *expire_time = 0;
     return false;
@@ -279,10 +282,10 @@ bool TransactionLockMgr::IsLockExpired(TransactionID txn_id,
   return expired;
 }
 
-Status TransactionLockMgr::TryLock(PessimisticTransaction* txn,
-                                   uint32_t column_family_id,
-                                   const std::string& key, Env* env,
-                                   bool exclusive) {
+Status PointLockManager::TryLock(PessimisticTransaction* txn,
+                                 ColumnFamilyId column_family_id,
+                                 const std::string& key, Env* env,
+                                 bool exclusive) {
   // Lookup lock map for this column family id
   std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(column_family_id);
   LockMap* lock_map = lock_map_ptr.get();
@@ -307,9 +310,9 @@ Status TransactionLockMgr::TryLock(PessimisticTransaction* txn,
 }
 
 // Helper function for TryLock().
-Status TransactionLockMgr::AcquireWithTimeout(
+Status PointLockManager::AcquireWithTimeout(
     PessimisticTransaction* txn, LockMap* lock_map, LockMapStripe* stripe,
-    uint32_t column_family_id, const std::string& key, Env* env,
+    ColumnFamilyId column_family_id, const std::string& key, Env* env,
     int64_t timeout, LockInfo&& lock_info) {
   Status result;
   uint64_t end_time = 0;
@@ -370,7 +373,7 @@ Status TransactionLockMgr::AcquireWithTimeout(
         txn->SetWaitingTxn(wait_ids, column_family_id, &key);
       }
 
-      TEST_SYNC_POINT("TransactionLockMgr::AcquireWithTimeout:WaitingTxn");
+      TEST_SYNC_POINT("PointLockManager::AcquireWithTimeout:WaitingTxn");
       if (cv_end_time < 0) {
         // Wait indefinitely
         result = stripe->stripe_cv->Wait(stripe->stripe_mutex);
@@ -408,14 +411,14 @@ Status TransactionLockMgr::AcquireWithTimeout(
   return result;
 }
 
-void TransactionLockMgr::DecrementWaiters(
+void PointLockManager::DecrementWaiters(
     const PessimisticTransaction* txn,
     const autovector<TransactionID>& wait_ids) {
   std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
   DecrementWaitersImpl(txn, wait_ids);
 }
 
-void TransactionLockMgr::DecrementWaitersImpl(
+void PointLockManager::DecrementWaitersImpl(
     const PessimisticTransaction* txn,
     const autovector<TransactionID>& wait_ids) {
   auto id = txn->GetID();
@@ -430,7 +433,7 @@ void TransactionLockMgr::DecrementWaitersImpl(
   }
 }
 
-bool TransactionLockMgr::IncrementWaiters(
+bool PointLockManager::IncrementWaiters(
     const PessimisticTransaction* txn,
     const autovector<TransactionID>& wait_ids, const std::string& key,
     const uint32_t& cf_id, const bool& exclusive, Env* const env) {
@@ -513,12 +516,11 @@ bool TransactionLockMgr::IncrementWaiters(
 // Sets *expire_time to the expiration time in microseconds
 //  or 0 if no expiration.
 // REQUIRED:  Stripe mutex must be held.
-Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
-                                         LockMapStripe* stripe,
-                                         const std::string& key, Env* env,
-                                         LockInfo&& txn_lock_info,
-                                         uint64_t* expire_time,
-                                         autovector<TransactionID>* txn_ids) {
+Status PointLockManager::AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
+                                       const std::string& key, Env* env,
+                                       LockInfo&& txn_lock_info,
+                                       uint64_t* expire_time,
+                                       autovector<TransactionID>* txn_ids) {
   assert(txn_lock_info.txn_ids.size() == 1);
 
   Status result;
@@ -580,10 +582,9 @@ Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
   return result;
 }
 
-void TransactionLockMgr::UnLockKey(const PessimisticTransaction* txn,
-                                   const std::string& key,
-                                   LockMapStripe* stripe, LockMap* lock_map,
-                                   Env* env) {
+void PointLockManager::UnLockKey(PessimisticTransaction* txn,
+                                 const std::string& key, LockMapStripe* stripe,
+                                 LockMap* lock_map, Env* env) {
 #ifdef NDEBUG
   (void)env;
 #endif
@@ -619,9 +620,9 @@ void TransactionLockMgr::UnLockKey(const PessimisticTransaction* txn,
   }
 }
 
-void TransactionLockMgr::UnLock(PessimisticTransaction* txn,
-                                uint32_t column_family_id,
-                                const std::string& key, Env* env) {
+void PointLockManager::UnLock(PessimisticTransaction* txn,
+                              ColumnFamilyId column_family_id,
+                              const std::string& key, Env* env) {
   std::shared_ptr<LockMap> lock_map_ptr = GetLockMap(column_family_id);
   LockMap* lock_map = lock_map_ptr.get();
   if (lock_map == nullptr) {
@@ -642,8 +643,8 @@ void TransactionLockMgr::UnLock(PessimisticTransaction* txn,
   stripe->stripe_cv->NotifyAll();
 }
 
-void TransactionLockMgr::UnLock(const PessimisticTransaction* txn,
-                                const LockTracker& tracker, Env* env) {
+void PointLockManager::UnLock(PessimisticTransaction* txn,
+                              const LockTracker& tracker, Env* env) {
   std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
       tracker.GetColumnFamilyIterator());
   assert(cf_it != nullptr);
@@ -690,8 +691,8 @@ void TransactionLockMgr::UnLock(const PessimisticTransaction* txn,
   }
 }
 
-TransactionLockMgr::LockStatusData TransactionLockMgr::GetLockStatusData() {
-  LockStatusData data;
+PointLockManager::PointLockStatus PointLockManager::GetPointLockStatus() {
+  PointLockStatus data;
   // Lock order here is important. The correct order is lock_map_mutex_, then
   // for every column family ID in ascending order lock every stripe in
   // ascending order.
@@ -730,12 +731,33 @@ TransactionLockMgr::LockStatusData TransactionLockMgr::GetLockStatusData() {
 
   return data;
 }
-std::vector<DeadlockPath> TransactionLockMgr::GetDeadlockInfoBuffer() {
+
+std::vector<DeadlockPath> PointLockManager::GetDeadlockInfoBuffer() {
   return dlock_buffer_.PrepareBuffer();
 }
 
-void TransactionLockMgr::Resize(uint32_t target_size) {
+void PointLockManager::Resize(uint32_t target_size) {
   dlock_buffer_.Resize(target_size);
+}
+
+PointLockManager::RangeLockStatus PointLockManager::GetRangeLockStatus() {
+  return {};
+}
+
+Status PointLockManager::TryLock(PessimisticTransaction* /* txn */,
+                                 ColumnFamilyId /* cf_id */,
+                                 const Endpoint& /* start */,
+                                 const Endpoint& /* end */, Env* /* env */,
+                                 bool /* exclusive */) {
+  return Status::NotSupported(
+      "PointLockManager does not support range locking");
+}
+
+void PointLockManager::UnLock(PessimisticTransaction* /* txn */,
+                              ColumnFamilyId /* cf_id */,
+                              const Endpoint& /* start */,
+                              const Endpoint& /* end */, Env* /* env */) {
+  // no-op
 }
 
 }  // namespace ROCKSDB_NAMESPACE

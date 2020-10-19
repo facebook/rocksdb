@@ -282,7 +282,7 @@ TEST_P(TransactionTest, WaitingTxn) {
   ASSERT_TRUE(txn2);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "TransactionLockMgr::AcquireWithTimeout:WaitingTxn", [&](void* /*arg*/) {
+      "PointLockManager::AcquireWithTimeout:WaitingTxn", [&](void* /*arg*/) {
         std::string key;
         uint32_t cf_id;
         std::vector<TransactionID> wait = txn2->GetWaitingTxns(&cf_id, &key);
@@ -508,7 +508,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
 
   std::atomic<uint32_t> checkpoints(0);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "TransactionLockMgr::AcquireWithTimeout:WaitingTxn",
+      "PointLockManager::AcquireWithTimeout:WaitingTxn",
       [&](void* /*arg*/) { checkpoints.fetch_add(1); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -641,7 +641,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
 
   std::atomic<uint32_t> checkpoints_shared(0);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "TransactionLockMgr::AcquireWithTimeout:WaitingTxn",
+      "PointLockManager::AcquireWithTimeout:WaitingTxn",
       [&](void* /*arg*/) { checkpoints_shared.fetch_add(1); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -714,7 +714,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
 
     std::atomic<uint32_t> checkpoints(0);
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-        "TransactionLockMgr::AcquireWithTimeout:WaitingTxn",
+        "PointLockManager::AcquireWithTimeout:WaitingTxn",
         [&](void* /*arg*/) { checkpoints.fetch_add(1); });
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
