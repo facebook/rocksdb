@@ -68,10 +68,10 @@ namespace ribbon {
 // is dynamic.)
 //
 // Recommended reading:
-// "Fast Scalable Construction of (Minimal Perfect Hash) Functions"
-// by Genuzio, Ottaviano, and Vigna
 // "Xor Filters: Faster and Smaller Than Bloom and Cuckoo Filters"
 // by Graf and Lemire
+// First three sections of "Fast Scalable Construction of (Minimal
+// Perfect Hash) Functions" by Genuzio, Ottaviano, and Vigna
 //
 // ######################################################################
 // ################## PHSF vs. hash table vs. Bloom #####################
@@ -498,12 +498,16 @@ namespace ribbon {
 // or banding rows). (A solution is impossible when there is a linear
 // dependence among the inputs that doesn't "cancel out".)
 //
+// Pre- and post-condition: the BandingStorage represents a band matrix
+// ready for back substitution (row echelon form except for zero rows),
+// augmented with result values such that back substitution would give a
+// solution satisfying all the cr@start -> rr entries added.
 template <bool kFirstCoeffAlwaysOne, typename BandingStorage,
           typename BacktrackStorage>
 bool BandingAdd(BandingStorage *ss, typename BandingStorage::Index start,
                 typename BandingStorage::ResultRow rr,
                 typename BandingStorage::CoeffRow cr, BacktrackStorage *bts,
-                typename BandingStorage::Index backtrack_pos) {
+                typename BandingStorage::Index *backtrack_pos) {
   using CoeffRow = typename BandingStorage::CoeffRow;
   using Index = typename BandingStorage::Index;
 
@@ -523,7 +527,8 @@ bool BandingAdd(BandingStorage *ss, typename BandingStorage::Index start,
     if (other == 0) {
       *(ss->CoeffRowPtr(i)) = cr;
       *(ss->ResultRowPtr(i)) = rr;
-      bts->BacktrackPut(backtrack_pos, i);
+      bts->BacktrackPut(*backtrack_pos, i);
+      ++*backtrack_pos;
       return true;
     }
     assert((other & 1) == 1);
@@ -590,13 +595,12 @@ bool BandingAddRange(BandingStorage *ss, BacktrackStorage *bts,
           bh.GetResultRowFromInput(*cur) | bh.GetResultRowFromHash(h);
       CoeffRow cr = bh.GetCoeffRow(h);
 
-      if (!BandingAdd<kFCA1>(ss, start, rr, cr, bts, backtrack_pos)) {
+      if (!BandingAdd<kFCA1>(ss, start, rr, cr, bts, &backtrack_pos)) {
         break;
       }
       if ((++cur) == end) {
         return true;
       }
-      ++backtrack_pos;
     }
   } else {
     // Pipelined w/prefetch
@@ -611,7 +615,7 @@ bool BandingAddRange(BandingStorage *ss, BacktrackStorage *bts,
       rr |= bh.GetResultRowFromHash(h);
       CoeffRow cr = bh.GetCoeffRow(h);
       if ((++cur) == end) {
-        if (!BandingAdd<kFCA1>(ss, start, rr, cr, bts, backtrack_pos)) {
+        if (!BandingAdd<kFCA1>(ss, start, rr, cr, bts, &backtrack_pos)) {
           break;
         }
         return true;
@@ -620,10 +624,9 @@ bool BandingAddRange(BandingStorage *ss, BacktrackStorage *bts,
       Index next_start = bh.GetStart(next_h, num_starts);
       ResultRow next_rr = bh.GetResultRowFromInput(*cur);
       ss->Prefetch(next_start);
-      if (!BandingAdd<kFCA1>(ss, start, rr, cr, bts, backtrack_pos)) {
+      if (!BandingAdd<kFCA1>(ss, start, rr, cr, bts, &backtrack_pos)) {
         break;
       }
-      ++backtrack_pos;
       h = next_h;
       start = next_start;
       rr = next_rr;
@@ -699,6 +702,9 @@ void SimpleBackSubst(SimpleSolutionStorage *sss, const BandingStorage &ss) {
   constexpr auto kCoeffBits = static_cast<Index>(sizeof(CoeffRow) * 8U);
   constexpr auto kResultBits = static_cast<Index>(sizeof(ResultRow) * 8U);
 
+  // A column-major buffer of the solution matrix, containing enough
+  // recently-computed solution data to compute the next solution row
+  // (based also on banding data).
   std::array<CoeffRow, kResultBits> state;
   state.fill(0);
 
@@ -713,10 +719,18 @@ void SimpleBackSubst(SimpleSolutionStorage *sss, const BandingStorage &ss) {
     // solution row
     ResultRow sr = 0;
     for (Index j = 0; j < kResultBits; ++j) {
+      // Compute next solution bit at row i, column j (see derivation below)
       CoeffRow tmp = state[j] << 1;
       int bit = BitParity(tmp & cr) ^ ((rr >> j) & 1);
-      // update backsubst state
       tmp |= static_cast<CoeffRow>(bit);
+
+      // Now tmp is solution at column j from row i for next kCoeffBits
+      // more rows. Thus, for valid solution, the dot product of the
+      // solution column with the coefficient row has to equal the result
+      // at that column,
+      //   BitParity(tmp & cr) == ((rr >> j) & 1)
+
+      // Update state.
       state[j] = tmp;
       // add to solution row
       sr |= static_cast<ResultRow>(bit) << j;

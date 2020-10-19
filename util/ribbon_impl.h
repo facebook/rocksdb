@@ -229,6 +229,51 @@ class StandardHasher {
   Seed seed_;
 };
 
+// StandardRehasher (and StandardRehasherAdapter): A variant of
+// StandardHasher that uses the same type for keys as for hashes.
+// This is primarily intended for building a Ribbon filter/PHSF
+// from existing hashes without going back to original inputs in order
+// to apply a different seed. This hasher seeds a 1-to-1 mixing
+// transformation to apply a seed to an existing hash (or hash-sized key).
+//
+// concept RehasherTypesAndSettings: like TypesAndSettings but
+// does not require Key or HashFn.
+template <class RehasherTypesAndSettings>
+class StandardRehasherAdapter : public RehasherTypesAndSettings {
+ public:
+  using Hash = typename RehasherTypesAndSettings::Hash;
+  using Key = Hash;
+  using Seed = typename RehasherTypesAndSettings::Seed;
+
+  static Hash HashFn(const Hash& input, Seed seed) {
+    static_assert(sizeof(Hash) <= 8, "Hash too big");
+    if (sizeof(Hash) > 4) {
+      // XXH3_avalanche / XXH3p_avalanche (64-bit), modified for seed
+      uint64_t h = input;
+      h ^= h >> 37;
+      h ^= seed * uint64_t{0xC2B2AE3D27D4EB4F};
+      h *= uint64_t{0x165667B19E3779F9};
+      h ^= h >> 32;
+      return static_cast<Hash>(h);
+    } else {
+      // XXH32_avalanche (32-bit)
+      uint32_t h32 = input;
+      h32 ^= h32 >> 15;
+      h32 ^= seed * uint32_t{0x27D4EB4F};
+      h32 *= uint32_t{0x85EBCA77};
+      h32 ^= h32 >> 13;
+      h32 *= uint32_t{0xC2B2AE3D};
+      h32 ^= h32 >> 16;
+      return static_cast<Hash>(h32);
+    }
+  }
+};
+
+// See comment on StandardRehasherAdapter
+template <class RehasherTypesAndSettings>
+using StandardRehasher =
+    StandardHasher<StandardRehasherAdapter<RehasherTypesAndSettings>>;
+
 template <class TypesAndSettings>
 class StandardBanding : public StandardHasher<TypesAndSettings> {
  public:
@@ -320,6 +365,18 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
   // Adding can fail even before all the "slots" are completely "full".
   //
   bool Add(const AddInput& input) { return AddRange(&input, &input + 1); }
+
+  // Return the number of "occupied" rows (with non-zero coefficients stored).
+  Index GetOccupiedCount() const {
+    Index count = 0;
+    const Index num_slots = num_starts_ + kCoeffBits - 1;
+    for (Index i = 0; i < num_slots; ++i) {
+      if (coeff_rows_[i] != 0) {
+        ++count;
+      }
+    }
+    return count;
+  }
 
   // ********************************************************************
   // High-level API
