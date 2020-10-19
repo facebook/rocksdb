@@ -334,8 +334,6 @@ Status BuildTable(
         ignored = fs->DeleteFile(blob_file_path, IOOptions(), dbg);
         ignored.PermitUncheckedError();
       }
-
-      blob_file_additions->clear();
     }
   }
 

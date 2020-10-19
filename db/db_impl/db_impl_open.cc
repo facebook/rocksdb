@@ -1393,7 +1393,6 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
   const bool has_output = meta.fd.GetFileSize() > 0;
-  assert(has_output || blob_file_additions.empty());
 
   constexpr int level = 0;
 
@@ -1413,14 +1412,15 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
   if (has_output) {
     stats.bytes_written = meta.fd.GetFileSize();
-
-    const auto& blobs = edit->GetBlobFileAdditions();
-    for (const auto& blob : blobs) {
-      stats.bytes_written += blob.GetTotalBlobBytes();
-    }
-
-    stats.num_output_files = static_cast<int>(blobs.size()) + 1;
+    stats.num_output_files = 1;
   }
+
+  const auto& blobs = edit->GetBlobFileAdditions();
+  for (const auto& blob : blobs) {
+    stats.bytes_written += blob.GetTotalBlobBytes();
+  }
+
+  stats.num_output_files += static_cast<int>(blobs.size());
 
   cfd->internal_stats()->AddCompactionStats(level, Env::Priority::USER, stats);
   cfd->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
