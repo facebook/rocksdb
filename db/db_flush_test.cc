@@ -608,6 +608,7 @@ TEST_P(DBFlushTestBlobError, FlushError) {
 #endif  // ROCKSDB_LITE
 }
 
+#ifndef ROCKSDB_LITE
 TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -695,6 +696,7 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
   ASSERT_TRUE(db_impl->allow_2pc());
   ASSERT_NE(db_impl->MinLogNumberToKeep(), 0);
 }
+#endif  // ROCKSDB_LITE
 
 TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   Options options = CurrentOptions();
