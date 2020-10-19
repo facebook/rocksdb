@@ -456,10 +456,10 @@ class Env {
   // length is < len. The hostname should otherwise be truncated to len.
   virtual Status GetHostName(char* name, uint64_t len) = 0;
 
-  // Get the current hostname from the given env as a null terminated
-  // string in result. The result may be truncated if the hostname is too
+  // Get the current hostname from the given env as a std::string in result.
+  // The result may be truncated if the hostname is too
   // long
-  static Status GetHostName(Env* env, std::string* result);
+  virtual Status GetHostNameString(std::string* result);
 
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
   // Only overwrites *unix_time on success.

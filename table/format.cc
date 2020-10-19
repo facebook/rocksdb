@@ -409,7 +409,7 @@ Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
 Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id) {
   assert(db_host_id);
   if (*db_host_id == kHostnameForDbHostId) {
-    Status s = Env::GetHostName(env, db_host_id);
+    Status s = env->GetHostNameString(db_host_id);
     if (!s.ok()) {
       db_host_id->clear();
     }

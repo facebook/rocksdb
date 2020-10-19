@@ -291,7 +291,7 @@ TEST_P(DBTableHostnamePropertyTest, DbHostLocationProperty) {
   std::string expected_host_id = std::get<1>(GetParam());
   ;
   if (expected_host_id == kHostnameForDbHostId) {
-    ASSERT_OK(Env::GetHostName(env_, &expected_host_id));
+    ASSERT_OK(env_->GetHostNameString(&expected_host_id));
   } else {
     opts.db_host_id = expected_host_id;
   }
