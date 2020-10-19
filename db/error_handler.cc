@@ -321,6 +321,9 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
       RecoverFromNoSpace();
     }
   }
+  if (bg_error_.severity() >= Status::Severity::kHardError) {
+    stop_state_.store(true, std::memory_order_release);
+  }
   return bg_error_;
 }
 
@@ -350,6 +353,10 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     bool auto_recovery = false;
     Status bg_err(new_bg_io_err, Status::Severity::kUnrecoverableError);
     bg_error_ = bg_err;
+    if (bg_error_.severity() >= Status::Severity::kHardError) {
+      stop_state_.store(true, std::memory_order_release);
+    }
+
     if (recovery_in_prog_ && recovery_error_.ok()) {
       recovery_error_ = bg_err;
     }
@@ -400,6 +407,9 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       }
       if (bg_err.severity() > bg_error_.severity()) {
         bg_error_ = bg_err;
+      }
+      if (bg_error_.severity() >= Status::Severity::kHardError) {
+        stop_state_.store(true, std::memory_order_release);
       }
       recover_context_ = context;
       return StartRecoverFromRetryableBGIOError(bg_io_err);
@@ -618,6 +628,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         // the bg_error and notify user.
         TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverSuccess");
         Status old_bg_error = bg_error_;
+        stop_state_.store(false, std::memory_order_release);
         bg_error_ = Status::OK();
         EventHelpers::NotifyOnErrorRecoveryCompleted(db_options_.listeners,
                                                      old_bg_error, db_mutex_);

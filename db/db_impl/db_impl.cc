@@ -173,7 +173,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       log_dir_synced_(false),
       log_empty_(true),
       persist_stats_cf_handle_(nullptr),
-      log_sync_cv_(&mutex_),
+      log_sync_cv_(&log_write_mutex_),
       total_log_size_(0),
       is_snapshot_supported_(true),
       write_buffer_manager_(immutable_db_options_.write_buffer_manager.get()),
@@ -267,6 +267,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
   // is called by client and this seqnum is advanced.
   preserve_deletes_seqnum_.store(0);
+  max_total_wal_size_.store(mutable_db_options_.max_total_wal_size,
+                            std::memory_order_relaxed);
 }
 
 Status DBImpl::Resume() {
@@ -573,25 +575,28 @@ Status DBImpl::CloseHelper() {
     mutex_.Lock();
   }
 
-  for (auto l : logs_to_free_) {
-    delete l;
-  }
-  for (auto& log : logs_) {
-    uint64_t log_number = log.writer->get_log_number();
-    Status s = log.ClearWriter();
-    if (!s.ok()) {
-      ROCKS_LOG_WARN(
-          immutable_db_options_.info_log,
-          "Unable to Sync WAL file %s with error -- %s",
-          LogFileName(immutable_db_options_.wal_dir, log_number).c_str(),
-          s.ToString().c_str());
-      // Retain the first error
-      if (ret.ok()) {
-        ret = s;
+  {
+    InstrumentedMutexLock lock(&log_write_mutex_);
+    for (auto l : logs_to_free_) {
+      delete l;
+    }
+    for (auto& log : logs_) {
+      uint64_t log_number = log.writer->get_log_number();
+      Status s = log.ClearWriter();
+      if (!s.ok()) {
+        ROCKS_LOG_WARN(
+            immutable_db_options_.info_log,
+            "Unable to Sync WAL file %s with error -- %s",
+            LogFileName(immutable_db_options_.wal_dir, log_number).c_str(),
+            s.ToString().c_str());
+        // Retain the first error
+        if (ret.ok()) {
+          ret = s;
+        }
       }
     }
+    logs_.clear();
   }
-  logs_.clear();
 
   // Table cache may have table handles holding blocks from the block cache.
   // We need to release them before the block cache is destroyed. The block
@@ -1105,6 +1110,11 @@ Status DBImpl::SetDBOptions(
             new_options.stats_persist_period_sec);
         mutex_.Lock();
       }
+      if (new_options.max_total_wal_size !=
+          mutable_db_options_.max_total_wal_size) {
+        max_total_wal_size_.store(new_options.max_total_wal_size,
+                                  std::memory_order_release);
+      }
       write_controller_.set_max_delayed_write_rate(
           new_options.delayed_write_rate);
       table_cache_.get()->SetCapacity(new_options.max_open_files == -1
@@ -1224,7 +1234,7 @@ Status DBImpl::SyncWAL() {
   uint64_t current_log_number;
 
   {
-    InstrumentedMutexLock l(&mutex_);
+    InstrumentedMutexLock l(&log_write_mutex_);
     assert(!logs_.empty());
 
     // This SyncWAL() call only cares about logs up to this number.
@@ -1281,7 +1291,7 @@ Status DBImpl::SyncWAL() {
 
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
   {
-    InstrumentedMutexLock l(&mutex_);
+    InstrumentedMutexLock l(&log_write_mutex_);
     MarkLogsSynced(current_log_number, need_log_dir_sync, status);
   }
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
@@ -1310,7 +1320,7 @@ Status DBImpl::UnlockWAL() {
 
 void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
                             const Status& status) {
-  mutex_.AssertHeld();
+  log_write_mutex_.AssertHeld();
   if (synced_dir && logfile_number_ == up_to && status.ok()) {
     log_dir_synced_ = true;
   }
@@ -1319,8 +1329,6 @@ void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
     assert(log.getting_synced);
     if (status.ok() && logs_.size() > 1) {
       logs_to_free_.push_back(log.ReleaseWriter());
-      // To modify logs_ both mutex_ and log_write_mutex_ must be held
-      InstrumentedMutexLock l(&log_write_mutex_);
       it = logs_.erase(it);
     } else {
       log.getting_synced = false;
@@ -2582,7 +2590,6 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       s = cfd->AddDirectories(&dummy_created_dirs);
     }
     if (s.ok()) {
-      single_column_family_mode_ = false;
       auto* cfd =
           versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
       assert(cfd != nullptr);
@@ -2599,6 +2606,7 @@ Status DBImpl::CreateColumnFamilyImpl(const ColumnFamilyOptions& cf_options,
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Created column family [%s] (ID %u)",
                      column_family_name.c_str(), (unsigned)cfd->GetID());
+      single_column_family_mode_.store(false, std::memory_order_release);
     } else {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                       "Creating column family [%s] FAILED -- %s",

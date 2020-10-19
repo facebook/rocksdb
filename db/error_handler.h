@@ -40,7 +40,8 @@ class ErrorHandler {
          db_mutex_(db_mutex),
          auto_recovery_(false),
          recovery_in_prog_(false),
-         soft_error_no_bg_work_(false) {}
+         soft_error_no_bg_work_(false),
+         stop_state_(false) {}
    ~ErrorHandler() {
      bg_error_.PermitUncheckedError();
      recovery_error_.PermitUncheckedError();
@@ -63,16 +64,14 @@ class ErrorHandler {
 
    Status ClearBGError();
 
-   bool IsDBStopped() {
-     return !bg_error_.ok() &&
-            bg_error_.severity() >= Status::Severity::kHardError;
-    }
+   bool IsDBStopped() { return stop_state_.load(std::memory_order_acquire); }
 
-    bool IsBGWorkStopped() {
-      return !bg_error_.ok() &&
-             (bg_error_.severity() >= Status::Severity::kHardError ||
-              !auto_recovery_ || soft_error_no_bg_work_);
-    }
+   // this method must be protect in mutex.
+   bool IsBGWorkStopped() {
+     return !bg_error_.ok() &&
+            (bg_error_.severity() >= Status::Severity::kHardError ||
+             !auto_recovery_ || soft_error_no_bg_work_);
+   }
 
     bool IsSoftErrorNoBGWork() { return soft_error_no_bg_work_; }
 
@@ -109,6 +108,7 @@ class ErrorHandler {
 
     // Used to store the context for recover, such as flush reason.
     DBRecoverContext recover_context_;
+    std::atomic<bool> stop_state_;
 
     Status OverrideNoSpaceError(Status bg_error, bool* auto_recovery);
     void RecoverFromNoSpace();

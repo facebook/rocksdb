@@ -1050,10 +1050,10 @@ class DBImpl : public DB {
 
   // only used for dynamically adjusting max_total_wal_size. it is a sum of
   // [write_buffer_size * max_write_buffer_number] over all column families
-  uint64_t max_total_in_memory_state_;
+  std::atomic<uint64_t> max_total_in_memory_state_;
   // If true, we have only one (default) column family. We use this to optimize
   // some code-paths
-  bool single_column_family_mode_;
+  std::atomic<bool> single_column_family_mode_;
 
   // The options to access storage files
   const FileOptions file_options_;
@@ -1257,7 +1257,13 @@ class DBImpl : public DB {
       }
     }
   };
-
+  struct LogContext {
+    explicit LogContext(bool need_sync = false)
+        : need_log_sync(need_sync), need_log_dir_sync(need_sync) {}
+    bool need_log_sync;
+    bool need_log_dir_sync;
+    log::Writer* writer;
+  };
   struct LogFileNumberSize {
     explicit LogFileNumberSize(uint64_t _number) : number(_number) {}
     void AddSize(uint64_t new_size) { size += new_size; }
@@ -1551,8 +1557,8 @@ class DBImpl : public DB {
   Status HandleWriteBufferFull(WriteContext* write_context);
 
   // REQUIRES: mutex locked
-  Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
-                         WriteContext* write_context);
+  Status PreprocessWrite(const WriteOptions& write_options,
+                         LogContext* log_context, WriteContext* write_context);
 
   WriteBatch* MergeBatch(const WriteThread::WriteGroup& write_group,
                          WriteBatch* tmp_batch, size_t* write_with_wal,
@@ -2168,6 +2174,7 @@ class DBImpl : public DB {
   InstrumentedCondVar atomic_flush_install_cv_;
 
   bool wal_in_db_path_;
+  std::atomic<uint64_t> max_total_wal_size_;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src);
