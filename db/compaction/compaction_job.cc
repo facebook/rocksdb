@@ -270,18 +270,22 @@ void CompactionJob::AggregateStatistics() {
   assert(compact_);
 
   for (SubcompactionState& sc : compact_->sub_compact_states) {
-    if (!sc.outputs.empty() && !sc.outputs.back().meta.fd.file_size) {
+    auto& outputs = sc.outputs;
+
+    if (!outputs.empty() && !outputs.back().meta.fd.file_size) {
       // An error occurred, so ignore the last output.
-      sc.outputs.pop_back();
+      outputs.pop_back();
     }
 
-    compact_->num_output_files += sc.outputs.size();
+    compact_->num_output_files += outputs.size();
     compact_->total_bytes += sc.total_bytes;
 
-    compact_->num_blob_output_files += sc.blob_file_additions.size();
+    const auto& blobs = sc.blob_file_additions;
 
-    for (const auto& blob_file_addition : sc.blob_file_additions) {
-      compact_->total_blob_bytes += blob_file_addition.GetTotalBlobBytes();
+    compact_->num_blob_output_files += blobs.size();
+
+    for (const auto& blob : blobs) {
+      compact_->total_blob_bytes += blob.GetTotalBlobBytes();
     }
 
     compact_->num_output_records += sc.num_output_records;
