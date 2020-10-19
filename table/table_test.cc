@@ -3661,19 +3661,33 @@ TEST_F(DBHarnessTest, RandomizedLongDB) {
 #endif  // ROCKSDB_LITE
 #endif  // ROCKSDB_VALGRIND_RUN
 
-class MemTableTest : public testing::Test {};
+class MemTableTest : public testing::Test {
+ public:
+  MemTableTest() {
+    InternalKeyComparator cmp(BytewiseComparator());
+    auto table_factory = std::make_shared<SkipListFactory>();
+    options_.memtable_factory = table_factory;
+    ImmutableCFOptions ioptions(options_);
+    wb_ = new WriteBufferManager(options_.db_write_buffer_size);
+    memtable_ = new MemTable(cmp, ioptions, MutableCFOptions(options_), wb_,
+                             kMaxSequenceNumber, 0 /* column_family_id */);
+    memtable_->Ref();
+  }
+
+  ~MemTableTest() {
+    delete memtable_->Unref();
+    delete wb_;
+  }
+
+  MemTable* GetMemTable() { return memtable_; }
+
+ private:
+  MemTable* memtable_;
+  Options options_;
+  WriteBufferManager* wb_;
+};
 
 TEST_F(MemTableTest, Simple) {
-  InternalKeyComparator cmp(BytewiseComparator());
-  auto table_factory = std::make_shared<SkipListFactory>();
-  Options options;
-  options.memtable_factory = table_factory;
-  ImmutableCFOptions ioptions(options);
-  WriteBufferManager wb(options.db_write_buffer_size);
-  MemTable* memtable =
-      new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                   kMaxSequenceNumber, 0 /* column_family_id */);
-  memtable->Ref();
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);
   ASSERT_OK(batch.Put(std::string("k1"), std::string("v1")));
@@ -3682,7 +3696,7 @@ TEST_F(MemTableTest, Simple) {
   ASSERT_OK(batch.Put(std::string("largekey"), std::string("vlarge")));
   ASSERT_OK(batch.DeleteRange(std::string("chi"), std::string("xigua")));
   ASSERT_OK(batch.DeleteRange(std::string("begin"), std::string("end")));
-  ColumnFamilyMemTablesDefault cf_mems_default(memtable);
+  ColumnFamilyMemTablesDefault cf_mems_default(GetMemTable());
   ASSERT_TRUE(
       WriteBatchInternal::InsertInto(&batch, &cf_mems_default, nullptr, nullptr)
           .ok());
@@ -3693,10 +3707,10 @@ TEST_F(MemTableTest, Simple) {
     std::unique_ptr<InternalIterator> iter_guard;
     InternalIterator* iter;
     if (i == 0) {
-      iter = memtable->NewIterator(ReadOptions(), &arena);
+      iter = GetMemTable()->NewIterator(ReadOptions(), &arena);
       arena_iter_guard.set(iter);
     } else {
-      iter = memtable->NewRangeTombstoneIterator(
+      iter = GetMemTable()->NewRangeTombstoneIterator(
           ReadOptions(), kMaxSequenceNumber /* read_seq */);
       iter_guard.reset(iter);
     }
@@ -3710,8 +3724,6 @@ TEST_F(MemTableTest, Simple) {
       iter->Next();
     }
   }
-
-  delete memtable->Unref();
 }
 
 // Test the empty key

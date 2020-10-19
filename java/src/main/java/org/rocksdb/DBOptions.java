@@ -884,32 +884,18 @@ public class DBOptions extends RocksObject
     return strictBytesPerSync(nativeHandle_);
   }
 
-  //TODO(AR) NOW
-//  @Override
-//  public DBOptions setListeners(final List<EventListener> listeners) {
-//    assert(isOwningHandle());
-//    final long[] eventListenerHandlers = new long[listeners.size()];
-//    for (int i = 0; i < eventListenerHandlers.length; i++) {
-//      eventListenerHandlers[i] = listeners.get(i).nativeHandle_;
-//    }
-//    setEventListeners(nativeHandle_, eventListenerHandlers);
-//    return this;
-//  }
-//
-//  @Override
-//  public Collection<EventListener> listeners() {
-//    assert(isOwningHandle());
-//    final long[] eventListenerHandlers = listeners(nativeHandle_);
-//    if (eventListenerHandlers == null || eventListenerHandlers.length == 0) {
-//      return Collections.emptyList();
-//    }
-//
-//    final List<EventListener> eventListeners = new ArrayList<>();
-//    for (final long eventListenerHandle : eventListenerHandlers) {
-//      eventListeners.add(new EventListener(eventListenerHandle)); //TODO(AR) check ownership is set to false!
-//    }
-//    return eventListeners;
-//  }
+  @Override
+  public DBOptions setListeners(final List<AbstractEventListener> listeners) {
+    assert (isOwningHandle());
+    setEventListeners(nativeHandle_, RocksCallbackObject.toNativeHandleList(listeners));
+    return this;
+  }
+
+  @Override
+  public List<AbstractEventListener> listeners() {
+    assert (isOwningHandle());
+    return Arrays.asList(eventListeners(nativeHandle_));
+  }
 
   @Override
   public DBOptions setEnableThreadTracking(final boolean enableThreadTracking) {
@@ -1459,6 +1445,9 @@ public class DBOptions extends RocksObject
       final long handle, final boolean strictBytesPerSync);
   private native boolean strictBytesPerSync(
       final long handle);
+  private static native void setEventListeners(
+      final long handle, final long[] eventListenerHandles);
+  private static native AbstractEventListener[] eventListeners(final long handle);
   private native void setEnableThreadTracking(long handle,
       boolean enableThreadTracking);
   private native boolean enableThreadTracking(long handle);

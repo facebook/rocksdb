@@ -329,9 +329,11 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg,
 
 void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
                                    int64_t key) const {
+  auto key_str = Key(key);
+  Slice key_slice = key_str;
   fprintf(stderr,
-          "Verification failed for column family %d key %" PRIi64 ": %s\n", cf,
-          key, msg.c_str());
+          "Verification failed for column family %d key %s (%" PRIi64 "): %s\n",
+          cf, key_slice.ToString(true).c_str(), key, msg.c_str());
   shared->SetVerificationFailure();
 }
 
@@ -1964,6 +1966,12 @@ void StressTest::Open() {
     block_based_options.block_cache = cache_;
     block_based_options.cache_index_and_filter_blocks =
         FLAGS_cache_index_and_filter_blocks;
+    block_based_options.metadata_cache_options.top_level_index_pinning =
+        static_cast<PinningTier>(FLAGS_top_level_index_pinning);
+    block_based_options.metadata_cache_options.partition_pinning =
+        static_cast<PinningTier>(FLAGS_partition_pinning);
+    block_based_options.metadata_cache_options.unpartitioned_pinning =
+        static_cast<PinningTier>(FLAGS_unpartitioned_pinning);
     block_based_options.block_cache_compressed = compressed_cache_;
     block_based_options.checksum = checksum_type_e;
     block_based_options.block_size = FLAGS_block_size;

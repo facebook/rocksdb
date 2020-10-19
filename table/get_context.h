@@ -71,7 +71,7 @@ class GetContext {
     kDeleted,
     kCorrupt,
     kMerge,  // saver contains the current merge result (the operands)
-    kBlobIndex,
+    kUnexpectedBlobIndex,
   };
   GetContextStats get_context_stats_;
 

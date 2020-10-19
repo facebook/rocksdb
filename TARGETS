@@ -135,6 +135,7 @@ cpp_library(
         "db/arena_wrapped_db_iter.cc",
         "db/blob/blob_file_addition.cc",
         "db/blob/blob_file_builder.cc",
+        "db/blob/blob_file_cache.cc",
         "db/blob/blob_file_garbage.cc",
         "db/blob/blob_file_meta.cc",
         "db/blob/blob_file_reader.cc",
@@ -423,6 +424,7 @@ cpp_library(
         "db/arena_wrapped_db_iter.cc",
         "db/blob/blob_file_addition.cc",
         "db/blob/blob_file_builder.cc",
+        "db/blob/blob_file_cache.cc",
         "db/blob/blob_file_garbage.cc",
         "db/blob/blob_file_meta.cc",
         "db/blob/blob_file_reader.cc",
@@ -858,6 +860,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "blob_file_cache_test",
+        "db/blob/blob_file_cache_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "blob_file_garbage_test",
         "db/blob/blob_file_garbage_test.cc",
         "serial",
@@ -1091,6 +1100,13 @@ ROCKS_TESTS = [
     [
         "db_basic_test",
         "db/db_basic_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
+        "db_blob_basic_test",
+        "db/blob/db_blob_basic_test.cc",
         "serial",
         [],
         [],

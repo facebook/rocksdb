@@ -2633,15 +2633,15 @@ TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
     }
     ASSERT_OK(env_->WriteToNewFile(kTestFileName, options_file_content));
     RocksDBOptionsParser parser;
-    ASSERT_NOK(parser.Parse(kTestFileName, fs_.get(), false,
-                            4096 /* readahead_size */));
+    ASSERT_OK(parser.Parse(kTestFileName, fs_.get(), true,
+                           4096 /* readahead_size */));
     if (should_ignore) {
       ASSERT_OK(parser.Parse(kTestFileName, fs_.get(),
-                             true /* ignore_unknown_options */,
+                             false /* ignore_unknown_options */,
                              4096 /* readahead_size */));
     } else {
       ASSERT_NOK(parser.Parse(kTestFileName, fs_.get(),
-                              true /* ignore_unknown_options */,
+                              false /* ignore_unknown_options */,
                               4096 /* readahead_size */));
     }
   }
