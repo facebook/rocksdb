@@ -356,6 +356,20 @@ namespace ribbon {
 // performance in a given application. The template parameters
 // adhere to class/struct type concepts outlined below.
 
+// Rough architecture for these algorithms:
+//
+// +-----------+     +---+     +-----------------+
+// | AddInputs | --> | H | --> | BandingStorage  |
+// +-----------+     | a |     +-----------------+
+//                   | s |             |
+//                   | h |      Back substitution
+//                   | e |             V
+// +-----------+     | r |     +-----------------+
+// | Query Key | --> |   | >+< | SolutionStorage |
+// +-----------+     +---+  |  +-----------------+
+//                          V
+//                     Query result
+
 // Common to other concepts
 // concept RibbonTypes {
 //   // An unsigned integer type for an r-bit subsequence of coefficients.

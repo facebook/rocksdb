@@ -379,7 +379,10 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
             expected_total_fp_count / total_checked,
             1.0 * upper_bound / total_checked,
             1.0 * lower_bound / total_checked);
-    // FIXME: this can failure for Result16, e.g. --thoroughness=100
+    // FIXME: this can fail for Result16, e.g. --thoroughness=100
+    // Seems due to inexpensive hashing in StandardHasher::GetCoeffRow and
+    // GetResultRowFromHash as replacing those with different Hash64 instances
+    // fixes it, at least mostly.
     EXPECT_LE(total_fp_count, upper_bound);
     EXPECT_GE(total_fp_count, lower_bound);
   }

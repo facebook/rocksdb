@@ -236,6 +236,11 @@ class StandardHasher {
 // to apply a different seed. This hasher seeds a 1-to-1 mixing
 // transformation to apply a seed to an existing hash (or hash-sized key).
 //
+// Testing suggests essentially no degredation of solution success rate
+// vs. going back to original inputs when changing hash seeds. For example:
+// Average re-seeds for solution with r=128, 1.02x overhead, and ~100k keys
+// is about 1.10 for both StandardHasher and StandardRehasher.
+//
 // concept RehasherTypesAndSettings: like TypesAndSettings but
 // does not require Key or HashFn.
 template <class RehasherTypesAndSettings>
@@ -274,6 +279,9 @@ template <class RehasherTypesAndSettings>
 using StandardRehasher =
     StandardHasher<StandardRehasherAdapter<RehasherTypesAndSettings>>;
 
+// StandardBanding: a canonical implementation of BandingStorage and
+// BacktrackStorage, with convenience API for banding (solving with on-the-fly
+// Gaussian elimination) with and without backtracking.
 template <class TypesAndSettings>
 class StandardBanding : public StandardHasher<TypesAndSettings> {
  public:
