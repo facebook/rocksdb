@@ -494,6 +494,10 @@ Status VerifySstFileChecksum(const Options& options,
                              const ReadOptions& read_options,
                              const std::string& file_path);
 
+// Verify the checksums of table files in db
+Status VerifyChecksums(DB* db, const ReadOptions& read_options,
+                       bool use_file_checksum);
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

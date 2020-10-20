@@ -862,8 +862,7 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
         ASSERT_NOK(*s);
       });
   SyncPoint::GetInstance()->EnableProcessing();
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
-  ASSERT_TRUE(dbi->VerifyChecksum(ReadOptions(), /*use_file_checksum=*/true)
+  ASSERT_TRUE(VerifyChecksums(db_, ReadOptions(), /*use_file_checksum=*/true)
                   .IsCorruption());
   ASSERT_EQ(1, count);
 }

@@ -4790,6 +4790,7 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options,
                 << fmeta->file_checksum_func_name << "vs. "
                 << file_checksum_func_name << ")";
             s = Status::InvalidArgument(oss.str());
+            break;
           }
           std::string file_checksum;
           std::string checksum_func_name;
