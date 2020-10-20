@@ -433,6 +433,8 @@ class DBImpl : public DB {
 
   using DB::VerifyChecksum;
   virtual Status VerifyChecksum(const ReadOptions& /*read_options*/) override;
+  Status VerifyChecksum(const ReadOptions& read_options,
+                        bool use_file_checksum);
 
   using DB::StartTrace;
   virtual Status StartTrace(

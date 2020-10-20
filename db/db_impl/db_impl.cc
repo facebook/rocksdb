@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <map>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -4728,6 +4729,11 @@ Status DBImpl::CreateColumnFamilyWithImport(
 }
 
 Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
+  return VerifyChecksum(read_options, /*use_file_checksum=*/false);
+}
+
+Status DBImpl::VerifyChecksum(const ReadOptions& read_options,
+                              bool use_file_checksum) {
   Status s;
   std::vector<ColumnFamilyData*> cfd_list;
   {
@@ -4743,6 +4749,19 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
   for (auto cfd : cfd_list) {
     sv_list.push_back(cfd->GetReferencedSuperVersion(this));
   }
+
+  FileChecksumGenFactory* const file_checksum_gen_factory =
+      immutable_db_options_.file_checksum_gen_factory.get();
+  FileChecksumGenContext file_checksum_context;
+  std::unique_ptr<FileChecksumGenerator> file_checksum_gen =
+      file_checksum_gen_factory
+          ? file_checksum_gen_factory->CreateFileChecksumGenerator(
+                file_checksum_context)
+          : nullptr;
+  std::string file_checksum_func_name = file_checksum_gen
+                                            ? file_checksum_gen->Name()
+                                            : kUnknownFileChecksumFuncName;
+
   for (auto& sv : sv_list) {
     VersionStorageInfo* vstorage = sv->current->storage_info();
     ColumnFamilyData* cfd = sv->current->cfd();
@@ -4755,11 +4774,47 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
     for (int i = 0; i < vstorage->num_non_empty_levels() && s.ok(); i++) {
       for (size_t j = 0; j < vstorage->LevelFilesBrief(i).num_files && s.ok();
            j++) {
-        const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
+        const auto& fd_with_krange = vstorage->LevelFilesBrief(i).files[j];
+        const auto& fd = fd_with_krange.fd;
+        const FileMetaData* fmeta = fd_with_krange.file_metadata;
+        assert(fmeta);
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
-                                                     read_options, fname);
+        if (use_file_checksum) {
+          if (fmeta->file_checksum == kUnknownFileChecksum ||
+              fmeta->file_checksum_func_name != file_checksum_func_name) {
+            std::ostringstream oss;
+            oss << fname
+                << " does not have checksum, or checksum func name does not "
+                   "match ("
+                << fmeta->file_checksum_func_name << "vs. "
+                << file_checksum_func_name << ")";
+            s = Status::InvalidArgument(oss.str());
+          }
+          std::string file_checksum;
+          std::string checksum_func_name;
+          s = ROCKSDB_NAMESPACE::GenerateOneFileChecksum(
+              fs_.get(), fname, file_checksum_gen_factory, &file_checksum,
+              &checksum_func_name, read_options.readahead_size,
+              immutable_db_options_.allow_mmap_reads, io_tracer_);
+          if (s.ok()) {
+            assert(fmeta->file_checksum_func_name == checksum_func_name);
+            if (file_checksum != fmeta->file_checksum) {
+              std::ostringstream oss;
+              oss << fname << " file checksum mismatch, ";
+              oss << "expecting "
+                  << Slice(fmeta->file_checksum).ToString(/*hex=*/true);
+              oss << ", but actual "
+                  << Slice(file_checksum).ToString(/*hex=*/true);
+              s = Status::Corruption(oss.str());
+              TEST_SYNC_POINT_CALLBACK("DBImpl::VerifyChecksum:WholeFile", &s);
+              break;
+            }
+          }
+        } else {
+          s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
+                                                       read_options, fname);
+        }
       }
     }
     if (!s.ok()) {
