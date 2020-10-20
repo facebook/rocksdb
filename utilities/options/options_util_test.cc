@@ -551,8 +551,7 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
                    ROCKSDB_MINOR, "unknown_db_opt=true", "");
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
-  ASSERT_FALSE(s.IsPathNotFound());
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
 
   // Write an options file for a previous minor release with an unknown CF
@@ -561,8 +560,7 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
                    ROCKSDB_MINOR - 1, "", "unknown_cf_opt=true");
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
-  ASSERT_FALSE(s.IsPathNotFound());
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
 
   // Write an options file for the current release with an unknown DB Option
@@ -570,8 +568,7 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
                    ROCKSDB_MINOR, "unknown_db_opt=true", "");
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
-  ASSERT_FALSE(s.IsPathNotFound());
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
 
   // Write an options file for the current release with an unknown CF Option
@@ -579,8 +576,7 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
                    ROCKSDB_MINOR, "", "unknown_cf_opt=true");
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
-  ASSERT_FALSE(s.IsPathNotFound());
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
 
   // Write an options file for the current release with an invalid DB Option
