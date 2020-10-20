@@ -953,7 +953,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
     if (found_final_value) {
       iter->value->PinSelf();
-      range->AddValueSize(iter->value->size());
+      range->AddValueSize(iter->value->size() + iter->lkey->user_key().size());
       range->MarkKeyDone(iter);
       RecordTick(moptions_.statistics, MEMTABLE_HIT);
       if (range->GetValueSize() > read_options.value_size_soft_limit) {

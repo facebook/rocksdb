@@ -1421,6 +1421,7 @@ struct ReadOptions {
   // It limits the maximum cumulative value size of the keys in batch while
   // reading through MultiGet. Once the cumulative value size exceeds this
   // soft limit then all the remaining keys are returned with status Aborted.
+  // value_size_soft_limit includes the size of keys (found) and their values.
   //
   // Default: std::numeric_limits<uint64_t>::max()
   uint64_t value_size_soft_limit;

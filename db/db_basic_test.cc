@@ -1672,11 +1672,12 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeInMemory) {
 
   get_perf_context()->Reset();
   ReadOptions ro;
-  ro.value_size_soft_limit = 11;
+  ro.value_size_soft_limit = 18;
   db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
                 s.data(), false);
 
   ASSERT_EQ(values.size(), keys.size());
+  // total size for these keys (found) + size of their values is 20
   for (unsigned int i = 0; i < 4; i++) {
     ASSERT_EQ(std::string(values[i].data(), values[i].size()),
               "v_" + std::to_string(i + 1));
@@ -1729,36 +1730,39 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSize) {
     std::vector<Status> s(keys.size());
 
     ReadOptions ro;
-    ro.value_size_soft_limit = 20;
+    ro.value_size_soft_limit = 38;
     db_->MultiGet(ro, handles_[1], keys.size(), keys.data(), values.data(),
                   s.data(), false);
 
     ASSERT_EQ(values.size(), keys.size());
 
-    // In memory keys
-    ASSERT_EQ(std::string(values[0].data(), values[0].size()), "v1_");
-    ASSERT_EQ(std::string(values[1].data(), values[1].size()), "v10");
-    ASSERT_TRUE(s[9].IsNotFound());  // k2
-    ASSERT_EQ(std::string(values[12].data(), values[12].size()), "v5_");
-    ASSERT_TRUE(s[13].IsNotFound());  // k6
-    ASSERT_EQ(std::string(values[16].data(), values[16].size()), "v9_");
+    {
+      // Total size of keys (found) + value is 39
+      // In memory keys
+      ASSERT_EQ(std::string(values[0].data(), values[0].size()), "v1_");
+      ASSERT_EQ(std::string(values[1].data(), values[1].size()), "v10");
+      ASSERT_TRUE(s[9].IsNotFound());  // k2
+      ASSERT_EQ(std::string(values[12].data(), values[12].size()), "v5_");
+      ASSERT_TRUE(s[13].IsNotFound());  // k6
+      ASSERT_EQ(std::string(values[16].data(), values[16].size()), "v9_");
 
-    // In sst files
-    ASSERT_EQ(std::string(values[2].data(), values[1].size()), "v11");
-    ASSERT_EQ(std::string(values[4].data(), values[4].size()), "v13");
-    ASSERT_EQ(std::string(values[5].data(), values[5].size()), "v14");
-
-    // Remaining aborted after value_size exceeds.
-    ASSERT_TRUE(s[3].IsAborted());
-    ASSERT_TRUE(s[6].IsAborted());
-    ASSERT_TRUE(s[7].IsAborted());
-    ASSERT_TRUE(s[8].IsAborted());
-    ASSERT_TRUE(s[10].IsAborted());
-    ASSERT_TRUE(s[11].IsAborted());
-    ASSERT_TRUE(s[14].IsAborted());
-    ASSERT_TRUE(s[15].IsAborted());
-    ASSERT_TRUE(s[17].IsAborted());
-
+      // In sst files
+      ASSERT_EQ(std::string(values[2].data(), values[1].size()), "v11");
+      ASSERT_EQ(std::string(values[4].data(), values[4].size()), "v13");
+      ASSERT_EQ(std::string(values[5].data(), values[5].size()), "v14");
+    }
+    {
+      // Remaining aborted after value_size exceeds.
+      ASSERT_TRUE(s[3].IsAborted());
+      ASSERT_TRUE(s[6].IsAborted());
+      ASSERT_TRUE(s[7].IsAborted());
+      ASSERT_TRUE(s[8].IsAborted());
+      ASSERT_TRUE(s[10].IsAborted());
+      ASSERT_TRUE(s[11].IsAborted());
+      ASSERT_TRUE(s[14].IsAborted());
+      ASSERT_TRUE(s[15].IsAborted());
+      ASSERT_TRUE(s[17].IsAborted());
+    }
     // 6 kv pairs * 3 bytes per value (i.e. 18)
     ASSERT_EQ(21, (int)get_perf_context()->multiget_read_bytes);
     SetPerfLevel(kDisable);
@@ -1836,7 +1840,7 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
   std::vector<Status> statuses(keys_str.size());
   ReadOptions read_options;
   read_options.verify_checksums = true;
-  read_options.value_size_soft_limit = 380;
+  read_options.value_size_soft_limit = 532;
   db_->MultiGet(read_options, dbfull()->DefaultColumnFamily(), keys.size(),
                 keys.data(), values.data(), statuses.data());
 
@@ -1863,7 +1867,6 @@ TEST_F(DBBasicTest, MultiGetBatchedValueSizeMultiLevelMerge) {
     ASSERT_EQ(values[j], value);
     ASSERT_OK(statuses[j]);
   }
-  // ASSERT_TRUE(curr_value_size <= read_options.value_size_hard_limit);
 
   // All remaning keys status is set Status::Abort
   for (unsigned int j = 26; j < 40; j++) {

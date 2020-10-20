@@ -2124,7 +2124,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           }
           PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
                                     fp.GetHitFileLevel());
-          file_range.AddValueSize(iter->value->size());
+          file_range.AddValueSize(iter->value->size() +
+                                  iter->lkey->user_key().size());
           file_range.MarkKeyDone(iter);
           if (file_range.GetValueSize() > read_options.value_size_soft_limit) {
             s = Status::Aborted();
@@ -2200,7 +2201,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           nullptr /* result_operand */, true);
       if (LIKELY(iter->value != nullptr)) {
         iter->value->PinSelf();
-        range->AddValueSize(iter->value->size());
+        range->AddValueSize(iter->value->size() + user_key.size());
         range->MarkKeyDone(iter);
         if (range->GetValueSize() > read_options.value_size_soft_limit) {
           s = Status::Aborted();

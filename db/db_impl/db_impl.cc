@@ -1907,7 +1907,7 @@ std::vector<Status> DBImpl::MultiGet(
     if (s.ok()) {
       bytes_read += value->size();
       num_found++;
-      curr_value_size += value->size();
+      curr_value_size += (value->size() + keys[keys_read].size());
       if (curr_value_size > read_options.value_size_soft_limit) {
         while (++keys_read < num_keys) {
           stat_list[keys_read] = Status::Aborted();

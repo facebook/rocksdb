@@ -9,6 +9,7 @@
 
 ### Public API Change
 * Deprecate `BlockBasedTableOptions::pin_l0_filter_and_index_blocks_in_cache` and `BlockBasedTableOptions::pin_top_level_index_and_filter`. These options still take effect until users migrate to the replacement APIs in `BlockBasedTableOptions::metadata_cache_options`. Migration guidance can be found in the API comments on the deprecated options.
+* Update "ReadOptions.value_size_soft_limit" to include keys size (keys that are found) along with their value size in the cumulative size (which initially included size of values only). The MultiGet is Aborted once the total cumulative size exceeds "value_size_soft_limit".
 
 ## 6.14 (10/09/2020)
 ### Bug fixes
