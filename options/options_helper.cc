@@ -727,9 +727,15 @@ Status GetColumnFamilyOptionsFromMap(
   *new_options = base_options;
 
   const auto config = CFOptionsAsConfigurable(base_options);
-  return ConfigureFromMap<ColumnFamilyOptions>(config_options, opts_map,
-                                               OptionsHelper::kCFOptionsName,
-                                               config.get(), new_options);
+  Status s = ConfigureFromMap<ColumnFamilyOptions>(
+      config_options, opts_map, OptionsHelper::kCFOptionsName, config.get(),
+      new_options);
+  // Translate any errors (NotFound, NotSupported, to InvalidArgument
+  if (s.ok() || s.IsInvalidArgument()) {
+    return s;
+  } else {
+    return Status::InvalidArgument(s.getState());
+  }
 }
 
 Status GetColumnFamilyOptionsFromString(
@@ -776,9 +782,15 @@ Status GetDBOptionsFromMap(
   assert(new_options);
   *new_options = base_options;
   auto config = DBOptionsAsConfigurable(base_options);
-  return ConfigureFromMap<DBOptions>(config_options, opts_map,
-                                     OptionsHelper::kDBOptionsName,
-                                     config.get(), new_options);
+  Status s = ConfigureFromMap<DBOptions>(config_options, opts_map,
+                                         OptionsHelper::kDBOptionsName,
+                                         config.get(), new_options);
+  // Translate any errors (NotFound, NotSupported, to InvalidArgument
+  if (s.ok() || s.IsInvalidArgument()) {
+    return s;
+  } else {
+    return Status::InvalidArgument(s.getState());
+  }
 }
 
 Status GetDBOptionsFromString(const DBOptions& base_options,
@@ -844,7 +856,12 @@ Status GetOptionsFromString(const ConfigOptions& config_options,
       *new_options = Options(*new_db_options, base_options);
     }
   }
-  return s;
+  // Translate any errors (NotFound, NotSupported, to InvalidArgument
+  if (s.ok() || s.IsInvalidArgument()) {
+    return s;
+  } else {
+    return Status::InvalidArgument(s.getState());
+  }
 }
 
 std::unordered_map<std::string, EncodingType>

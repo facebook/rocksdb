@@ -762,8 +762,14 @@ Status GetBlockBasedTableOptionsFromString(
   if (!s.ok()) {
     return s;
   }
-  return GetBlockBasedTableOptionsFromMap(config_options, table_options,
-                                          opts_map, new_table_options);
+  s = GetBlockBasedTableOptionsFromMap(config_options, table_options, opts_map,
+                                       new_table_options);
+  // Translate any errors (NotFound, NotSupported, to InvalidArgument
+  if (s.ok() || s.IsInvalidArgument()) {
+    return s;
+  } else {
+    return Status::InvalidArgument(s.getState());
+  }
 }
 
 Status GetBlockBasedTableOptionsFromMap(
