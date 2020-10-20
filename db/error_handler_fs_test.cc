@@ -502,6 +502,10 @@ TEST_F(DBErrorHandlingFSTest, DoubleManifestWriteError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
+  if (mem_env_ != nullptr) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mock environment");
+    return;
+  }
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
@@ -768,6 +772,10 @@ TEST_F(DBErrorHandlingFSTest, CorruptionError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
+  if (mem_env_ != nullptr) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mock environment");
+    return;
+  }
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
@@ -825,6 +833,10 @@ TEST_F(DBErrorHandlingFSTest, FailRecoverFlushError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, WALWriteError) {
+  if (mem_env_ != nullptr) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mock environment");
+    return;
+  }
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
@@ -987,6 +999,10 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
+  if (mem_env_ != nullptr) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mock environment");
+    return;
+  }
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
@@ -1069,6 +1085,10 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
+  if (mem_env_ != nullptr) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mock environment");
+    return;
+  }
   FaultInjectionTestEnv* def_env = new FaultInjectionTestEnv(env_);
   std::vector<std::unique_ptr<Env>> fault_envs;
   std::vector<FaultInjectionTestFS*> fault_fs;
@@ -1170,6 +1190,10 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
 }
 
 TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
+  if (mem_env_ != nullptr) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mock environment");
+    return;
+  }
   FaultInjectionTestEnv* def_env = new FaultInjectionTestEnv(env_);
   std::vector<std::unique_ptr<Env>> fault_envs;
   std::vector<FaultInjectionTestFS*> fault_fs;

@@ -187,7 +187,10 @@ namespace {
 class MockSequentialFile : public FSSequentialFile {
  public:
   explicit MockSequentialFile(MemFile* file, const FileOptions& opts)
-      : file_(file), use_direct_io_(opts.use_direct_reads), pos_(0) {
+      : file_(file),
+        use_direct_io_(opts.use_direct_reads),
+        use_mmap_read_(opts.use_mmap_reads),
+        pos_(0) {
     file_->Ref();
   }
 
@@ -195,7 +198,8 @@ class MockSequentialFile : public FSSequentialFile {
 
   IOStatus Read(size_t n, const IOOptions& options, Slice* result,
                 char* scratch, IODebugContext* dbg) override {
-    IOStatus s = file_->Read(pos_, n, options, result, scratch, dbg);
+    IOStatus s = file_->Read(pos_, n, options, result,
+                             (use_mmap_read_) ? nullptr : scratch, dbg);
     if (s.ok()) {
       pos_ += result->size();
     }
@@ -218,13 +222,16 @@ class MockSequentialFile : public FSSequentialFile {
  private:
   MemFile* file_;
   bool use_direct_io_;
+  bool use_mmap_read_;
   size_t pos_;
 };
 
 class MockRandomAccessFile : public FSRandomAccessFile {
  public:
   explicit MockRandomAccessFile(MemFile* file, const FileOptions& opts)
-      : file_(file), use_direct_io_(opts.use_direct_reads) {
+      : file_(file),
+        use_direct_io_(opts.use_direct_reads),
+        use_mmap_read_(opts.use_mmap_reads) {
     file_->Ref();
   }
 
@@ -241,12 +248,17 @@ class MockRandomAccessFile : public FSRandomAccessFile {
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
                 IODebugContext* dbg) const override {
-    return file_->Read(offset, n, options, result, scratch, dbg);
+    if (use_mmap_read_) {
+      return file_->Read(offset, n, options, result, nullptr, dbg);
+    } else {
+      return file_->Read(offset, n, options, result, scratch, dbg);
+    }
   }
 
  private:
   MemFile* file_;
   bool use_direct_io_;
+  bool use_mmap_read_;
 };
 
 class MockRandomRWFile : public FSRandomRWFile {

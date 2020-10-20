@@ -104,6 +104,7 @@ class TestReadOnlyWithCompressedCache
 
 TEST_P(TestReadOnlyWithCompressedCache, ReadOnlyWithCompressedCache) {
   if (use_mmap_ && !IsMemoryMappedAccessSupported()) {
+    ROCKSDB_GTEST_SKIP("Test requires MMAP support");
     return;
   }
   ASSERT_OK(Put("foo", "bar"));
