@@ -490,7 +490,7 @@ Status CorruptFile(Env* env, const std::string& fname, int offset,
       offset = static_cast<int>(size + offset);
     }
   }
-  if (offset > (int)size) {
+  if (offset > static_cast<int>(size)) {
     offset = static_cast<int>(size);
   }
   if (offset + bytes_to_corrupt > (int)size) {
