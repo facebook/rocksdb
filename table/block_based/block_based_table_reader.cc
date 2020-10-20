@@ -612,6 +612,10 @@ Status BlockBasedTable::Open(
     s = PrefetchTail(ro, file.get(), file_size, force_direct_prefetch,
                      tail_prefetch_stats, prefetch_all, preload_all,
                      &prefetch_buffer);
+    // Return error in prefetch path to users.
+    if (!s.ok()) {
+      return s;
+    }
   } else {
     // Should not prefetch for mmap mode.
     prefetch_buffer.reset(new FilePrefetchBuffer(
