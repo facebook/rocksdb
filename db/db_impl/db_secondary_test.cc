@@ -469,7 +469,6 @@ TEST_F(DBSecondaryTest, MissingTableFile) {
         if (s.IsPathNotFound()) {
           ++table_files_not_exist;
         } else if (!s.ok()) {
-          printf("MJR: Status=%s\b", s.ToString().c_str());
           assert(false);  // Should not reach here
         }
       });

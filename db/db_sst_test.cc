@@ -125,7 +125,6 @@ TEST_F(DBSSTTest, SSTsWithLdbSuffixHandling) {
   }
   ASSERT_GT(num_ldb_files, 0);
   ASSERT_EQ(num_files, GetSstFileCount(dbname_));
-  printf("MJR: Reopening ldb=%d total=%d\n", num_ldb_files, num_files);
 
   Reopen(options);
   for (int k = 0; k < key_id; ++k) {

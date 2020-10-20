@@ -484,7 +484,7 @@ Status CorruptFile(Env* env, const std::string& fname, int offset,
     return s;
   } else if (offset < 0) {
     // Relative to end of file; make it absolute
-    if (-offset > (int)size) {
+    if (-offset > static_cast<int>(size)) {
       offset = 0;
     } else {
       offset = static_cast<int>(size + offset);
@@ -493,7 +493,7 @@ Status CorruptFile(Env* env, const std::string& fname, int offset,
   if (offset > (int)size) {
     offset = static_cast<int>(size);
   }
-  if (offset + bytes_to_corrupt > (int)size) {
+  if (offset + bytes_to_corrupt > static_cast<int>(size)) {
     bytes_to_corrupt = static_cast<int>(size - offset);
   }
 
