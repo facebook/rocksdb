@@ -3304,6 +3304,23 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   Reopen(options);
 }
 
+TEST_F(DBBasicTest, VerifyFileChecksums) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("a", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_TRUE(dbfull()
+                  ->VerifyChecksum(ReadOptions(), /*use_file_checksum=*/true)
+                  .IsInvalidArgument());
+
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  Reopen(options);
+  ASSERT_OK(
+      dbfull()->VerifyChecksum(ReadOptions(), /*use_file_checksum=*/true));
+}
+
 // A test class for intercepting random reads and injecting artificial
 // delays. Used for testing the deadline/timeout feature
 class DBBasicTestDeadline

@@ -843,6 +843,8 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   Reopen(&options);
 
   Build(10, 5);
+
+  ASSERT_OK(VerifyChecksums(db_, ReadOptions(), /*use_file_checksum=*/true));
   delete db_;
   db_ = nullptr;
 
@@ -855,7 +857,7 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   int count{0};
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::VerifyChecksum:WholeFile", [&](void* arg) {
+      "DBImpl::VerifySstFileChecksum:mismatch", [&](void* arg) {
         auto* s = reinterpret_cast<Status*>(arg);
         assert(s);
         ++count;

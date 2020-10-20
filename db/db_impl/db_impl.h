@@ -436,6 +436,11 @@ class DBImpl : public DB {
   Status VerifyChecksum(const ReadOptions& read_options,
                         bool use_file_checksum);
 
+  Status VerifySstFileChecksum(const FileMetaData& fmeta,
+                               const std::string& fpath,
+                               const std::string& file_checksum_func_name,
+                               const ReadOptions& read_options);
+
   using DB::StartTrace;
   virtual Status StartTrace(
       const TraceOptions& options,
