@@ -5291,6 +5291,7 @@ Status TransactionStressTestInserter(
       return inserter.GetLastStatus();
     }
   }
+  inserter.GetLastStatus().PermitUncheckedError();
 
   // Make sure at least some of the transactions succeeded.  It's ok if
   // some failed due to write-conflicts.
