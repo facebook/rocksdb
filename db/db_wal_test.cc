@@ -47,8 +47,8 @@ class EnrichedSpecialEnv : public SpecialEnv {
     InstrumentedMutexLock l(&env_mutex_);
     if (f == skipped_wal) {
       deleted_wal_reopened = true;
-      if (IsWAL(f) && largetest_deleted_wal.size() != 0 &&
-          f.compare(largetest_deleted_wal) <= 0) {
+      if (IsWAL(f) && largest_deleted_wal.size() != 0 &&
+          f.compare(largest_deleted_wal) <= 0) {
         gap_in_wals = true;
       }
     }
@@ -62,9 +62,9 @@ class EnrichedSpecialEnv : public SpecialEnv {
       // remember its name partly because the application might attempt to
       // delete the file again.
       if (skipped_wal.size() != 0 && skipped_wal != fname) {
-        if (largetest_deleted_wal.size() == 0 ||
-            largetest_deleted_wal.compare(fname) < 0) {
-          largetest_deleted_wal = fname;
+        if (largest_deleted_wal.size() == 0 ||
+            largest_deleted_wal.compare(fname) < 0) {
+          largest_deleted_wal = fname;
         }
       } else {
         skipped_wal = fname;
@@ -82,7 +82,7 @@ class EnrichedSpecialEnv : public SpecialEnv {
   // the wal whose actual delete was skipped by the env
   std::string skipped_wal = "";
   // the largest WAL that was requested to be deleted
-  std::string largetest_deleted_wal = "";
+  std::string largest_deleted_wal = "";
   // number of WALs that were successfully deleted
   std::atomic<size_t> deleted_wal_cnt = {0};
   // the WAL whose delete from fs was skipped is reopened during recovery
