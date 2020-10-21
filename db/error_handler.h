@@ -59,7 +59,7 @@ class ErrorHandler {
 
    const Status& GetRecoveryError() const { return recovery_error_; }
 
-   const Status& ClearBGError();
+   Status ClearBGError();
 
    bool IsDBStopped() {
      return !bg_error_.ok() &&

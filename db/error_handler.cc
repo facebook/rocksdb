@@ -459,7 +459,7 @@ void ErrorHandler::RecoverFromNoSpace() {
 #endif
 }
 
-const Status& ErrorHandler::ClearBGError() {
+Status ErrorHandler::ClearBGError() {
 #ifndef ROCKSDB_LITE
   db_mutex_->AssertHeld();
 
