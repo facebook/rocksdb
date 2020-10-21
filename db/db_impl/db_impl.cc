@@ -976,6 +976,7 @@ Status DBImpl::SetOptions(
   MutableCFOptions new_options;
   Status s;
   Status persist_options_status;
+  persist_options_status.PermitUncheckedError();  // Allow uninitialized access
   SuperVersionContext sv_context(/* create_superversion */ true);
   {
     auto db_options = GetDBOptions();
@@ -2932,7 +2933,7 @@ const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
 SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
                                       bool lock) {
   int64_t unix_time = 0;
-  env_->GetCurrentTime(&unix_time);  // Ignore error
+  env_->GetCurrentTime(&unix_time).PermitUncheckedError();  // Ignore error
   SnapshotImpl* s = new SnapshotImpl;
 
   if (lock) {

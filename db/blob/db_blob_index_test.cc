@@ -73,6 +73,9 @@ class DBBlobIndexTest : public DBTestBase {
     if (s.IsNotFound()) {
       return "NOT_FOUND";
     }
+    if (s.IsCorruption()) {
+      return "CORRUPTION";
+    }
     if (s.IsNotSupported()) {
       return "NOT_SUPPORTED";
     }
@@ -153,8 +156,13 @@ TEST_F(DBBlobIndexTest, Write) {
   }
 }
 
-// Get should be able to return blob index if is_blob_index is provided,
-// otherwise return Status::NotSupported status.
+// Note: the following test case pertains to the StackableDB-based BlobDB
+// implementation. Get should be able to return blob index if is_blob_index is
+// provided, otherwise it should return Status::NotSupported (when reading from
+// memtable) or Status::Corruption (when reading from SST). Reading from SST
+// returns Corruption because we can't differentiate between the application
+// accidentally opening the base DB of a stacked BlobDB and actual corruption
+// when using the integrated BlobDB.
 TEST_F(DBBlobIndexTest, Get) {
   for (auto tier : kAllTiers) {
     DestroyAndReopen(GetTestOptions());
@@ -171,15 +179,22 @@ TEST_F(DBBlobIndexTest, Get) {
     ASSERT_EQ("value", GetImpl("key", &is_blob_index));
     ASSERT_FALSE(is_blob_index);
     // Verify blob index
-    ASSERT_TRUE(Get("blob_key", &value).IsNotSupported());
-    ASSERT_EQ("NOT_SUPPORTED", GetImpl("blob_key"));
+    if (tier <= kImmutableMemtables) {
+      ASSERT_TRUE(Get("blob_key", &value).IsNotSupported());
+      ASSERT_EQ("NOT_SUPPORTED", GetImpl("blob_key"));
+    } else {
+      ASSERT_TRUE(Get("blob_key", &value).IsCorruption());
+      ASSERT_EQ("CORRUPTION", GetImpl("blob_key"));
+    }
     ASSERT_EQ("blob_index", GetImpl("blob_key", &is_blob_index));
     ASSERT_TRUE(is_blob_index);
   }
 }
 
-// Get should NOT return Status::NotSupported if blob index is updated with
-// a normal value.
+// Note: the following test case pertains to the StackableDB-based BlobDB
+// implementation. Get should NOT return Status::NotSupported/Status::Corruption
+// if blob index is updated with a normal value. See the test case above for
+// more details.
 TEST_F(DBBlobIndexTest, Updated) {
   for (auto tier : kAllTiers) {
     DestroyAndReopen(GetTestOptions());
@@ -206,7 +221,11 @@ TEST_F(DBBlobIndexTest, Updated) {
       ASSERT_EQ("blob_index", GetBlobIndex("key" + ToString(i), snapshot));
     }
     ASSERT_EQ("new_value", Get("key1"));
-    ASSERT_EQ("NOT_SUPPORTED", GetImpl("key2"));
+    if (tier <= kImmutableMemtables) {
+      ASSERT_EQ("NOT_SUPPORTED", GetImpl("key2"));
+    } else {
+      ASSERT_EQ("CORRUPTION", GetImpl("key2"));
+    }
     ASSERT_EQ("NOT_FOUND", Get("key3"));
     ASSERT_EQ("NOT_FOUND", Get("key4"));
     ASSERT_EQ("a,b,c", GetImpl("key5"));

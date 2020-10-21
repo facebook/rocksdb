@@ -553,7 +553,7 @@ PARALLEL_TEST = \
 	persistent_cache_test \
 	table_test \
 	transaction_test \
-	transaction_lock_mgr_test \
+	point_lock_manager_test \
 	write_prepared_transaction_test \
 	write_unprepared_transaction_test \
 
@@ -577,6 +577,7 @@ ifdef ASSERT_STATUS_CHECKED
 		lru_cache_test \
 		blob_file_addition_test \
 		blob_file_builder_test \
+		blob_file_cache_test \
 		blob_file_garbage_test \
 		blob_file_reader_test \
 		bloom_test \
@@ -588,6 +589,7 @@ ifdef ASSERT_STATUS_CHECKED
 		crc32c_test \
 		dbformat_test \
 		db_basic_test \
+		db_blob_basic_test \
 		db_flush_test \
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
@@ -619,6 +621,7 @@ ifdef ASSERT_STATUS_CHECKED
 		mock_env_test \
 		object_registry_test \
 		prefix_test \
+		plain_table_db_test \
 		repair_test \
 		configurable_test \
 		customizable_test \
@@ -687,6 +690,7 @@ endif
 # Not necessarily well thought out or up-to-date, but matches old list
 TESTS_PLATFORM_DEPENDENT := \
 	db_basic_test \
+	db_blob_basic_test \
 	db_with_timestamp_basic_test \
 	db_encryption_test \
 	db_test2 \
@@ -1462,6 +1466,9 @@ slice_transform_test: $(OBJ_DIR)/util/slice_transform_test.o $(TEST_LIBRARY) $(L
 db_basic_test: $(OBJ_DIR)/db/db_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_blob_basic_test: $(OBJ_DIR)/db/blob/db_blob_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 db_with_timestamp_basic_test: $(OBJ_DIR)/db/db_with_timestamp_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1839,7 +1846,7 @@ write_callback_test: $(OBJ_DIR)/db/write_callback_test.o $(TEST_LIBRARY) $(LIBRA
 heap_test: $(OBJ_DIR)/util/heap_test.o $(GTEST)
 	$(AM_LINK)
 
-transaction_lock_mgr_test: utilities/transactions/transaction_lock_mgr_test.o $(TEST_LIBRARY) $(LIBRARY)
+point_lock_manager_test: utilities/transactions/lock/point/point_lock_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 transaction_test: $(OBJ_DIR)/utilities/transactions/transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1915,6 +1922,9 @@ blob_file_addition_test: $(OBJ_DIR)/db/blob/blob_file_addition_test.o $(TEST_LIB
 	$(AM_LINK)
 
 blob_file_builder_test: $(OBJ_DIR)/db/blob/blob_file_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+blob_file_cache_test: $(OBJ_DIR)/db/blob/blob_file_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2054,8 +2064,8 @@ SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/archive
 LZ4_VER ?= 1.9.2
 LZ4_SHA256 ?= 658ba6191fa44c92280d4aa2c271b0f4fbc0e34d249578dd05e50e76d0e5efcc
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
-ZSTD_VER ?= 1.4.4
-ZSTD_SHA256 ?= a364f5162c7d1a455cc915e8e3cf5f4bd8b75d09bc0f53965b0c9ca1383c52c8
+ZSTD_VER ?= 1.4.5
+ZSTD_SHA256 ?= 734d1f565c42f691f8420c8d06783ad818060fc390dee43ae0a89f86d0a4f8c2
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 CURL_SSL_OPTS ?= --tlsv1
 
