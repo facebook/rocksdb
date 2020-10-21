@@ -13,7 +13,6 @@
 
 #include <assert.h>
 #if defined(__i386__) || defined(__x86_64__)
-#include <cpuid.h>
 #endif
 #include <errno.h>
 #include <sched.h>
@@ -21,11 +20,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/resource.h>
-#include <sys/syscall.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <cstdlib>
-#include "logging/logging.h"
 
 namespace ROCKSDB_NAMESPACE {
 

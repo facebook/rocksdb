@@ -27,7 +27,6 @@
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
-using namespace ROCKSDB_NAMESPACE;
 
 namespace ROCKSDB_NAMESPACE {
 
