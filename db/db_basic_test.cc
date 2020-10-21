@@ -3304,6 +3304,7 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   Reopen(options);
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBBasicTest, VerifyFileChecksums) {
   Options options = GetDefaultOptions();
   options.create_if_missing = true;
@@ -3320,6 +3321,7 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   ASSERT_OK(
       dbfull()->VerifyChecksum(ReadOptions(), /*use_file_checksum=*/true));
 }
+#endif  // !ROCKSDB_LITE
 
 // A test class for intercepting random reads and injecting artificial
 // delays. Used for testing the deadline/timeout feature
