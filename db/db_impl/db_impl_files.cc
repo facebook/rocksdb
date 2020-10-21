@@ -190,48 +190,49 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       // set of all files in the directory. We'll exclude files that are still
       // alive in the subsequent processings.
       std::vector<std::string> files;
-      env_->GetChildren(path, &files).PermitUncheckedError();  // Ignore errors
-      for (const std::string& file : files) {
-        uint64_t number;
-        FileType type;
-        // 1. If we cannot parse the file name, we skip;
-        // 2. If the file with file_number equals number has already been
-        // grabbed for purge by another compaction job, or it has already been
-        // schedule for purge, we also skip it if we
-        // are doing full scan in order to avoid double deletion of the same
-        // file under race conditions. See
-        // https://github.com/facebook/rocksdb/issues/3573
-        if (!ParseFileName(file, &number, info_log_prefix.prefix, &type) ||
-            !ShouldPurge(number)) {
-          continue;
-        }
+      if (env_->GetChildren(path, &files).ok()) {
+        for (const std::string& file : files) {
+          uint64_t number;
+          FileType type;
+          // 1. If we cannot parse the file name, we skip;
+          // 2. If the file with file_number equals number has already been
+          // grabbed for purge by another compaction job, or it has already been
+          // schedule for purge, we also skip it if we
+          // are doing full scan in order to avoid double deletion of the same
+          // file under race conditions. See
+          // https://github.com/facebook/rocksdb/issues/3573
+          if (!ParseFileName(file, &number, info_log_prefix.prefix, &type) ||
+              !ShouldPurge(number)) {
+            continue;
+          }
 
-        // TODO(icanadi) clean up this mess to avoid having one-off "/" prefixes
-        job_context->full_scan_candidate_files.emplace_back("/" + file, path);
+          // TODO(icanadi) clean up this mess to avoid having one-off "/"
+          // prefixes
+          job_context->full_scan_candidate_files.emplace_back("/" + file, path);
+        }
       }
     }
 
     // Add log files in wal_dir
     if (immutable_db_options_.wal_dir != dbname_) {
       std::vector<std::string> log_files;
-      env_->GetChildren(immutable_db_options_.wal_dir,
-                        &log_files)
-          .PermitUncheckedError();  // Ignore errors
-      for (const std::string& log_file : log_files) {
-        job_context->full_scan_candidate_files.emplace_back(
-            log_file, immutable_db_options_.wal_dir);
+      if (env_->GetChildren(immutable_db_options_.wal_dir, &log_files).ok()) {
+        for (const std::string& log_file : log_files) {
+          job_context->full_scan_candidate_files.emplace_back(
+              log_file, immutable_db_options_.wal_dir);
+        }
       }
     }
     // Add info log files in db_log_dir
     if (!immutable_db_options_.db_log_dir.empty() &&
         immutable_db_options_.db_log_dir != dbname_) {
       std::vector<std::string> info_log_files;
-      // Ignore errors
-      env_->GetChildren(immutable_db_options_.db_log_dir, &info_log_files)
-          .PermitUncheckedError();
-      for (std::string& log_file : info_log_files) {
-        job_context->full_scan_candidate_files.emplace_back(
-            log_file, immutable_db_options_.db_log_dir);
+      if (env_->GetChildren(immutable_db_options_.db_log_dir, &info_log_files)
+              .ok()) {
+        for (std::string& log_file : info_log_files) {
+          job_context->full_scan_candidate_files.emplace_back(
+              log_file, immutable_db_options_.db_log_dir);
+        }
       }
     }
   }
