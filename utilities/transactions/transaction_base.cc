@@ -530,7 +530,9 @@ Status TransactionBaseImpl::SingleDeleteUntracked(
 }
 
 void TransactionBaseImpl::PutLogData(const Slice& blob) {
-  write_batch_.PutLogData(blob);
+  auto s = write_batch_.PutLogData(blob);
+  (void)s;
+  assert(s.ok());
 }
 
 WriteBatchWithIndex* TransactionBaseImpl::GetWriteBatch() {
