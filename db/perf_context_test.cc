@@ -432,7 +432,7 @@ void ProfileQueries(bool enabled_time = false) {
 
     get_perf_context()->Reset();
     auto statuses = db->MultiGet(read_options, multiget_keys, &values);
-    for (const auto s : statuses) {
+    for (const auto& s : statuses) {
       ASSERT_OK(s);
     }
     hist_mget_snapshot.Add(get_perf_context()->get_snapshot_time);
