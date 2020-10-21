@@ -836,6 +836,7 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   delete db_;
   db_ = nullptr;
   Options options;
+  options.env = &env_;
   ASSERT_OK(DestroyDB(dbname_, options));
   options.create_if_missing = true;
   options.file_checksum_gen_factory =

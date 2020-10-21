@@ -495,6 +495,14 @@ Status VerifySstFileChecksum(const Options& options,
                              const std::string& file_path);
 
 // Verify the checksums of table files in db
+// db: the db pointer.
+// read_options: controls file I/O behavior, e.g. read ahead size while reading
+//               all the live table files.
+// use_file_checksum: if false, verify the block checksums of all live table in
+//                    db. Otherwise, obtain the file checksums and compare with
+//                    the MANIFEST. Currently, file checksums are recomputed by
+//                    reading all table files.
+// Returns: OK if there is no file whose file or block checksum mismatches.
 Status VerifyChecksums(DB* db, const ReadOptions& read_options,
                        bool use_file_checksum);
 
