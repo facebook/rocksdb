@@ -31,6 +31,17 @@ namespace ROCKSDB_NAMESPACE {
  * BlockBasedTableFactory, PlainTableFactory, etc). For extension developers,
  * helper classes and methods are provided for writing this factory.
  *
+ * Instances of a Customizable class need to define:
+ * - A "static const char *kClassName()" method.  This method defines the name
+ * of the class instance (e.g. BlockBasedTable, LRUCache) and is used by the
+ * GetAs method.
+ * - The Name() of the object.  This name is used when creating and saving
+ * instances of this class.  Typically this name will be the same as
+ * kClassName().
+ *
+ * Additionally, Customizable classes should register any options used to
+ * configure themselves with the Configurable subsystem.
+ *
  * When a Customizable is being created, the "name" property specifies
  * the name of the instance being created.
  * For custom objects, their configuration and name can be specified by:
