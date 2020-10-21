@@ -19,6 +19,22 @@ typedef uint64_t SequenceNumber;
 
 const SequenceNumber kMinUnCommittedSeq = 1;  // 0 is always committed
 
+// The types of files RocksDB uses in a DB directory. (Available for
+// advanced options.)
+enum FileType {
+  kWalFile,
+  kDBLockFile,
+  kTableFile,
+  kDescriptorFile,
+  kCurrentFile,
+  kTempFile,
+  kInfoLogFile,  // Either the current one, or an old one
+  kMetaDatabase,
+  kIdentityFile,
+  kOptionsFile,
+  kBlobFile
+};
+
 // User-oriented representation of internal key types.
 // Ordering of this enum entries should not change.
 enum EntryType {
