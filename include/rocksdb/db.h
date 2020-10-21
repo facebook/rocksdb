@@ -1443,6 +1443,11 @@ class DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) = 0;
 
+  // Verify the checksums of files in db. Currently only tables are checked.
+  virtual Status VerifyFileChecksums(const ReadOptions& /*read_options*/) {
+    return Status::NotSupported("File verification not supported");
+  }
+
   virtual Status VerifyChecksum(const ReadOptions& read_options) = 0;
 
   virtual Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }

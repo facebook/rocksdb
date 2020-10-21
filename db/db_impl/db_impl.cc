@@ -4728,6 +4728,10 @@ Status DBImpl::CreateColumnFamilyWithImport(
   return status;
 }
 
+Status DBImpl::VerifyFileChecksums(const ReadOptions& read_options) {
+  return VerifyChecksum(read_options, /*use_file_checksum=*/true);
+}
+
 Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
   return VerifyChecksum(read_options, /*use_file_checksum=*/false);
 }

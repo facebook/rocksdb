@@ -37,7 +37,6 @@ Status VerifySstFileChecksum(const Options& options,
                              const std::string& file_path) {
   return VerifySstFileChecksum(options, env_options, ReadOptions(), file_path);
 }
-
 Status VerifySstFileChecksum(const Options& options,
                              const EnvOptions& env_options,
                              const ReadOptions& read_options,
@@ -72,12 +71,6 @@ Status VerifySstFileChecksum(const Options& options,
   s = table_reader->VerifyChecksum(read_options,
                                    TableReaderCaller::kUserVerifyChecksum);
   return s;
-}
-
-Status VerifyChecksums(DB* db, const ReadOptions& read_options,
-                       bool use_file_checksum) {
-  return static_cast_with_check<DBImpl>(db->GetRootDB())
-      ->VerifyChecksum(read_options, use_file_checksum);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

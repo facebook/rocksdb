@@ -845,7 +845,7 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
 
   Build(10, 5);
 
-  ASSERT_OK(VerifyChecksums(db_, ReadOptions(), /*use_file_checksum=*/true));
+  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
   delete db_;
   db_ = nullptr;
 
@@ -865,8 +865,7 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
         ASSERT_NOK(*s);
       });
   SyncPoint::GetInstance()->EnableProcessing();
-  ASSERT_TRUE(VerifyChecksums(db_, ReadOptions(), /*use_file_checksum=*/true)
-                  .IsCorruption());
+  ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsCorruption());
   ASSERT_EQ(1, count);
 }
 
