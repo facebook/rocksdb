@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.14.2 (10/21/2020)
 ### Bug Fixes
 * Fixed a bug which causes hang in closing DB when refit level is set in opt build. It was because ContinueBackgroundWork() was called in assert statement which is a no op. It was introduced in 6.14.
 
