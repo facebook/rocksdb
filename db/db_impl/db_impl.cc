@@ -4720,7 +4720,8 @@ Status DBImpl::CreateColumnFamilyWithImport(
                       temp_s.ToString().c_str());
     }
     // Always returns Status::OK()
-    assert(DestroyColumnFamilyHandle(*handle).ok());
+    temp_s = DestroyColumnFamilyHandle(*handle);
+    assert(temp_s.ok());
     *handle = nullptr;
   }
   return status;
