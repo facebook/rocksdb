@@ -141,15 +141,24 @@ IOStatus GenerateOneFileChecksum(
 
   FileChecksumGenContext gen_context;
   gen_context.requested_checksum_func_name = requested_checksum_func_name;
+  gen_context.file_name = file_path;
   std::unique_ptr<FileChecksumGenerator> checksum_generator =
       checksum_factory->CreateFileChecksumGenerator(gen_context);
   if (checksum_generator == nullptr) {
     std::string msg =
         "Cannot get the file checksum generator based on the requested "
         "checksum function name: " +
-        requested_checksum_func_name;
+        requested_checksum_func_name +
+        " from checksum factory: " + checksum_factory->Name();
     return IOStatus::InvalidArgument(msg);
   }
+
+  // For backward compatable, requested_checksum_func_name can be empty.
+  // If we give the requested checksum function name, we expect it is the
+  // same name of the checksum generator.
+  assert(!checksum_generator || requested_checksum_func_name.empty() ||
+         requested_checksum_func_name == checksum_generator->Name());
+
   uint64_t size;
   IOStatus io_s;
   std::unique_ptr<RandomAccessFileReader> reader;
