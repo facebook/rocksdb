@@ -950,7 +950,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
       s = ReFitLevel(cfd, final_output_level, options.target_level);
       TEST_SYNC_POINT("DBImpl::CompactRange:PostRefitLevel");
       // ContinueBackgroundWork always return Status::OK().
-      assert(ContinueBackgroundWork().ok());
+      Status temp_s = ContinueBackgroundWork();
+      assert(temp_s.ok());
     }
     EnableManualCompaction();
   }
