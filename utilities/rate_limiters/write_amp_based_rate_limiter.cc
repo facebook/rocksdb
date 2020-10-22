@@ -266,9 +266,8 @@ int64_t WriteAmpBasedRateLimiter::CalculateRefillBytesPerPeriod(
 }
 
 Status WriteAmpBasedRateLimiter::Tune() {
-  // computed rate limit will be larger than
-  // `max_bytes_per_sec_ / kAllowedRangeFactor`
-  const int kAllowedRangeFactor = 20;
+  // computed rate limit will be larger than `kMinBytesPerSec`
+  const int64_t kMinBytesPerSec = 10 * 1024 * 1024;
   // high-priority bytes are padded to 20MB
   const int64_t kHighBytesLower = 20 * 1024 * 1024;
   // lower bound for write amplification estimation
@@ -322,7 +321,7 @@ Status WriteAmpBasedRateLimiter::Tune() {
       (ratio + ratio_padding + ratio_delta_) *
       std::max(highpri_bytes_sampler_.GetRecentValue(), kHighBytesLower) / 10;
   new_bytes_per_sec = std::max(
-      max_bytes_per_sec_ / kAllowedRangeFactor,
+      kMinBytesPerSec,
       std::min(new_bytes_per_sec,
                max_bytes_per_sec_ - highpri_bytes_sampler_.GetRecentValue()));
   if (new_bytes_per_sec != prev_bytes_per_sec) {
