@@ -3320,6 +3320,13 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   Reopen(options);
   ASSERT_OK(
       dbfull()->VerifyChecksum(ReadOptions(), /*use_file_checksum=*/true));
+
+  // Write an L0 with checksum computed.
+  ASSERT_OK(Put("b", "value"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(
+      dbfull()->VerifyChecksum(ReadOptions(), /*use_file_checksum=*/true));
 }
 #endif  // !ROCKSDB_LITE
 

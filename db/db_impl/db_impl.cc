@@ -4740,20 +4740,14 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options,
                               bool use_file_checksum) {
   Status s;
 
-  std::string file_checksum_func_name(kUnknownFileChecksumFuncName);
   if (use_file_checksum) {
     FileChecksumGenFactory* const file_checksum_gen_factory =
         immutable_db_options_.file_checksum_gen_factory.get();
     if (!file_checksum_gen_factory) {
       s = Status::InvalidArgument(
-          "use_file_checksum cannot be true if file checksum is disabled");
+          "Cannot verify file checksum if options.file_checksum_gen_factory is "
+          "null");
       return s;
-    } else {
-      FileChecksumGenContext file_checksum_context;
-      std::unique_ptr<FileChecksumGenerator> file_checksum_gen =
-          file_checksum_gen_factory->CreateFileChecksumGenerator(
-              file_checksum_context);
-      file_checksum_func_name = file_checksum_gen->Name();
     }
   }
 
@@ -4776,7 +4770,7 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options,
     VersionStorageInfo* vstorage = sv->current->storage_info();
     ColumnFamilyData* cfd = sv->current->cfd();
     Options opts;
-    {
+    if (!use_file_checksum) {
       InstrumentedMutexLock l(&mutex_);
       opts = Options(BuildDBOptions(immutable_db_options_, mutable_db_options_),
                      cfd->GetLatestCFOptions());
@@ -4791,8 +4785,7 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options,
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
         if (use_file_checksum) {
-          s = VerifySstFileChecksum(*fmeta, fname, file_checksum_func_name,
-                                    read_options);
+          s = VerifySstFileChecksum(*fmeta, fname, read_options);
         } else {
           s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
                                                        read_options, fname);
@@ -4829,28 +4822,18 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options,
 
 Status DBImpl::VerifySstFileChecksum(const FileMetaData& fmeta,
                                      const std::string& fname,
-                                     const std::string& file_checksum_func_name,
                                      const ReadOptions& read_options) {
   Status s;
   if (fmeta.file_checksum == kUnknownFileChecksum) {
-    return s;
-  }
-  if (fmeta.file_checksum_func_name != file_checksum_func_name) {
-    std::ostringstream oss;
-    oss << fname
-        << " checksum func name does not "
-           "match ("
-        << fmeta.file_checksum_func_name << "vs. " << file_checksum_func_name
-        << ")";
-    s = Status::InvalidArgument(oss.str());
     return s;
   }
   std::string file_checksum;
   std::string func_name;
   s = ROCKSDB_NAMESPACE::GenerateOneFileChecksum(
       fs_.get(), fname, immutable_db_options_.file_checksum_gen_factory.get(),
-      &file_checksum, &func_name, read_options.readahead_size,
-      immutable_db_options_.allow_mmap_reads, io_tracer_);
+      fmeta.file_checksum_func_name, &file_checksum, &func_name,
+      read_options.readahead_size, immutable_db_options_.allow_mmap_reads,
+      io_tracer_);
   if (s.ok()) {
     assert(fmeta.file_checksum_func_name == func_name);
     if (file_checksum != fmeta.file_checksum) {

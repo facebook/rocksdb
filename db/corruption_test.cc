@@ -76,7 +76,7 @@ class CorruptionTest : public testing::Test {
     if (getenv("KEEP_DB")) {
       fprintf(stdout, "db is still at %s\n", dbname_.c_str());
     } else {
-      DestroyDB(dbname_, Options());
+      EXPECT_OK(DestroyDB(dbname_, Options()));
     }
   }
 
@@ -833,8 +833,7 @@ TEST_F(CorruptionTest, DisableKeyOrderCheck) {
 }
 
 TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
-  delete db_;
-  db_ = nullptr;
+  CloseDb();
   Options options;
   options.env = &env_;
   ASSERT_OK(DestroyDB(dbname_, options));
@@ -846,8 +845,7 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   Build(10, 5);
 
   ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
-  delete db_;
-  db_ = nullptr;
+  CloseDb();
 
   // Corrupt the first byte of each table file, this must be data block.
   Corrupt(kTableFile, 0, 1);
