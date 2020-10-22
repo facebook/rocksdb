@@ -223,7 +223,7 @@ inline Unsigned128 DecodeFixed128(const char* ptr) {
 // A version of EncodeFixed* for generic algorithms. Likely to be used
 // with Unsigned128, so lives here for now.
 template <typename T>
-inline void EncodeFixedGeneric(char* dst, T value) {
+inline void EncodeFixedGeneric(char* /*dst*/, T /*value*/) {
   // Unfortunately, GCC does not appear to optimize this simple code down
   // to a trivial load on Intel:
   //
@@ -261,7 +261,7 @@ inline void EncodeFixedGeneric(char* dst, Unsigned128 value) {
 
 // A version of EncodeFixed* for generic algorithms.
 template <typename T>
-inline T DecodeFixedGeneric(const char* dst) {
+inline T DecodeFixedGeneric(const char* /*dst*/) {
   static_assert(sizeof(T) == 0, "No specialization provided for this type");
 }
 

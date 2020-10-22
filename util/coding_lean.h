@@ -14,7 +14,7 @@
 #include <cstdint>
 #include <cstring>
 
-#include "port/port.h" // for port::kLittleEndian
+#include "port/port.h"  // for port::kLittleEndian
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -78,10 +78,10 @@ inline uint32_t DecodeFixed32(const char* ptr) {
     memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
     return result;
   } else {
-    return ((static_cast<uint32_t>(static_cast<unsigned char>(ptr[0])))
-        | (static_cast<uint32_t>(static_cast<unsigned char>(ptr[1])) << 8)
-        | (static_cast<uint32_t>(static_cast<unsigned char>(ptr[2])) << 16)
-        | (static_cast<uint32_t>(static_cast<unsigned char>(ptr[3])) << 24));
+    return ((static_cast<uint32_t>(static_cast<unsigned char>(ptr[0]))) |
+            (static_cast<uint32_t>(static_cast<unsigned char>(ptr[1])) << 8) |
+            (static_cast<uint32_t>(static_cast<unsigned char>(ptr[2])) << 16) |
+            (static_cast<uint32_t>(static_cast<unsigned char>(ptr[3])) << 24));
   }
 }
 
@@ -97,6 +97,5 @@ inline uint64_t DecodeFixed64(const char* ptr) {
     return (hi << 32) | lo;
   }
 }
-
 
 }  // namespace ROCKSDB_NAMESPACE
