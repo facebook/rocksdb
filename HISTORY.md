@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fixed a bug which causes hang in closing DB when refit level is set in opt build. It was because ContinueBackgroundWork() was called in assert statement which is a no op. It was introduced in 6.14.
+
 ## 6.14.1 (10/13/2020)
 ### Bug Fixes
 * Since 6.12, memtable lookup should report unrecognized value_type as corruption (#7121).
