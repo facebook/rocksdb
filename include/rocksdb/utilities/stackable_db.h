@@ -377,9 +377,8 @@ class StackableDB : public DB {
   Status EndIOTrace() override { return db_->EndIOTrace(); }
 
   using DB::StartTrace;
-  Status StartTrace(
-      const TraceOptions& options,
-      std::unique_ptr<TraceWriter>&& trace_writer) override {
+  Status StartTrace(const TraceOptions& options,
+                    std::unique_ptr<TraceWriter>&& trace_writer) override {
     return db_->StartTrace(options, std::move(trace_writer));
   }
 
