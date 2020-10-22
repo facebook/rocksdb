@@ -3602,7 +3602,19 @@ struct VersionSet::ManifestWriter {
         cfd(_cfd),
         mutable_cf_options(cf_options),
         edit_list(e) {}
+
   ~ManifestWriter() { status.PermitUncheckedError(); }
+
+  bool IsAllWalEdits() const {
+    bool all_wal_edits = true;
+    for (const auto& e : edit_list) {
+      if (!e->IsWalManipulation()) {
+        all_wal_edits = false;
+        break;
+      }
+    }
+    return all_wal_edits;
+  }
 };
 
 Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
@@ -3832,15 +3844,8 @@ Status VersionSet::ProcessManifestWrites(
         }
       }
       if (version == nullptr) {
-        bool is_all_wal_maniputations = true;
-        for (const auto& e : last_writer->edit_list) {
-          if (!e->IsWalManipulation()) {
-            is_all_wal_maniputations = false;
-            break;
-          }
-        }
         // WAL manipulations do not need to be applied to versions.
-        if (!is_all_wal_maniputations) {
+        if (!last_writer->IsAllWalEdits()) {
           version = new Version(last_writer->cfd, this, file_options_,
                                 last_writer->mutable_cf_options, io_tracer_,
                                 current_version_number_++);
@@ -3850,6 +3855,8 @@ Status VersionSet::ProcessManifestWrites(
               new BaseReferencedVersionBuilder(last_writer->cfd));
           builder = builder_guards.back()->version_builder();
         }
+        assert(last_writer->IsAllWalEdits() || builder);
+        assert(last_writer->IsAllWalEdits() || version);
         TEST_SYNC_POINT_CALLBACK("VersionSet::ProcessManifestWrites:NewVersion",
                                  version);
       }
@@ -4096,14 +4103,11 @@ Status VersionSet::ProcessManifestWrites(
     for (auto& e : batch_edits) {
       if (e->IsWalAddition()) {
         s = wals_.AddWals(e->GetWalAdditions());
-        if (!s.ok()) {
-          break;
-        }
       } else if (e->IsWalDeletion()) {
         s = wals_.DeleteWals(e->GetWalDeletions());
-        if (!s.ok()) {
-          break;
-        }
+      }
+      if (!s.ok()) {
+        break;
       }
     }
   }
@@ -4336,6 +4340,7 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   (void)cfd;
 #endif
   mu->AssertHeld();
+  assert(!edit->IsColumnFamilyManipulation());
 
   if (edit->has_log_number_) {
     assert(edit->log_number_ >= cfd->GetLogNumber());
@@ -5413,9 +5418,8 @@ Status VersionSet::WriteCurrentStateToManifest(
 
   // Save WALs.
   if (!wal_additions.GetWalAdditions().empty()) {
-    TEST_SYNC_POINT_CALLBACK(
-        "VersionSet::WriteCurrentStateToManifest:SaveWal",
-        reinterpret_cast<void*>(const_cast<VersionEdit*>(&wal_additions)));
+    TEST_SYNC_POINT_CALLBACK("VersionSet::WriteCurrentStateToManifest:SaveWal",
+                             const_cast<VersionEdit*>(&wal_additions));
     std::string record;
     if (!wal_additions.EncodeTo(&record)) {
       return Status::Corruption("Unable to Encode VersionEdit: " +
