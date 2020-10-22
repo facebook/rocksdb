@@ -34,7 +34,7 @@ namespace ROCKSDB_NAMESPACE {
  * Instances of a Customizable class need to define:
  * - A "static const char *kClassName()" method.  This method defines the name
  * of the class instance (e.g. BlockBasedTable, LRUCache) and is used by the
- * GetAs method.
+ * CheckedCast method.
  * - The Name() of the object.  This name is used when creating and saving
  * instances of this class.  Typically this name will be the same as
  * kClassName().
@@ -68,7 +68,7 @@ class Customizable : public Configurable {
 
   // This is typically determined by if the input name matches the
   // name of this object.
-  // This method is typically used in conjunction with GetAs to find the
+  // This method is typically used in conjunction with CheckedCast to find the
   // derived class instance from its base.  For example, if you have an Env
   // and want the "Default" env, you would IsInstanceOf("Default") to get
   // the default implementation.  This method should be used when you need a
@@ -89,13 +89,13 @@ class Customizable : public Configurable {
   // found. This method uses IsInstanceOf to find the appropriate class instance
   // and then casts it to the expected return type.
   template <typename T>
-  const T* GetAs() const {
+  const T* CheckedCast() const {
     if (IsInstanceOf(T::kClassName())) {
       return static_cast<const T*>(this);
     } else {
       const auto inner = static_cast<const Customizable*>(Inner());
       if (inner != nullptr) {
-        return inner->GetAs<T>();
+        return inner->CheckedCast<T>();
       } else {
         return nullptr;
       }
@@ -103,13 +103,13 @@ class Customizable : public Configurable {
   }
 
   template <typename T>
-  T* GetAs() {
+  T* CheckedCast() {
     if (IsInstanceOf(T::kClassName())) {
       return static_cast<T*>(this);
     } else {
       const auto inner = Inner();
       if (inner != nullptr) {
-        return inner->GetAs<T>();
+        return inner->CheckedCast<T>();
       } else {
         return nullptr;
       }

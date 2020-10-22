@@ -52,7 +52,7 @@ class StringLogger : public Logger {
 class TestCustomizable : public Customizable {
  public:
   TestCustomizable(const std::string& name) : name_(name) {}
-  // Method to allow GetAs to work for this class
+  // Method to allow CheckedCast to work for this class
   static const char* kClassName() {
     return "TestCustomizable";
     ;
@@ -485,22 +485,22 @@ TEST_F(CustomizableTest, IsInstanceOfTest) {
   ASSERT_TRUE(tc->IsInstanceOf("A"));
   ASSERT_TRUE(tc->IsInstanceOf("TestCustomizable"));
   ASSERT_FALSE(tc->IsInstanceOf("B"));
-  ASSERT_EQ(tc->GetAs<ACustomizable>(), tc.get());
-  ASSERT_EQ(tc->GetAs<TestCustomizable>(), tc.get());
-  ASSERT_EQ(tc->GetAs<BCustomizable>(), nullptr);
+  ASSERT_EQ(tc->CheckedCast<ACustomizable>(), tc.get());
+  ASSERT_EQ(tc->CheckedCast<TestCustomizable>(), tc.get());
+  ASSERT_EQ(tc->CheckedCast<BCustomizable>(), nullptr);
 
   tc.reset(new BCustomizable("B"));
   ASSERT_TRUE(tc->IsInstanceOf("B"));
   ASSERT_TRUE(tc->IsInstanceOf("TestCustomizable"));
   ASSERT_FALSE(tc->IsInstanceOf("A"));
-  ASSERT_EQ(tc->GetAs<BCustomizable>(), tc.get());
-  ASSERT_EQ(tc->GetAs<TestCustomizable>(), tc.get());
-  ASSERT_EQ(tc->GetAs<ACustomizable>(), nullptr);
+  ASSERT_EQ(tc->CheckedCast<BCustomizable>(), tc.get());
+  ASSERT_EQ(tc->CheckedCast<TestCustomizable>(), tc.get());
+  ASSERT_EQ(tc->CheckedCast<ACustomizable>(), nullptr);
 
   WrappedCustomizable wc(tc);
-  ASSERT_EQ(wc.GetAs<TestCustomizable>(), tc.get());
-  ASSERT_EQ(wc.GetAs<BCustomizable>(), tc.get());
-  ASSERT_EQ(wc.GetAs<ACustomizable>(), nullptr);
+  ASSERT_EQ(wc.CheckedCast<TestCustomizable>(), tc.get());
+  ASSERT_EQ(wc.CheckedCast<BCustomizable>(), tc.get());
+  ASSERT_EQ(wc.CheckedCast<ACustomizable>(), nullptr);
 }
 
 static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {
