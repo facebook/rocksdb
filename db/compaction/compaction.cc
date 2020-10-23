@@ -388,9 +388,8 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
           // same user key, but the ts part is smaller. If so,
           // Compare(user_key, f->smallest.user_key()) returns -1.
           // That's why we need CompareWithoutTimestamp().
-          if (user_cmp->Compare(user_key, f->smallest.user_key()) >= 0 ||
-              user_cmp->CompareWithoutTimestamp(user_key,
-                                                f->smallest.user_key()) == 0) {
+          if (user_cmp->CompareWithoutTimestamp(user_key,
+                                                f->smallest.user_key()) >= 0) {
             // Key falls in this file's range, so it may
             // exist beyond output level
             return false;

@@ -156,16 +156,14 @@ class CompactionIterator {
 
   // Extract user-defined timestamp from user key if possible and compare it
   // with *full_history_ts_low_ if applicable.
-  inline int CheckTimestampAndCompareWithFullHistoryLow() {
-    int ret = 0;
-    if (timestamp_size_) {
+  inline void UpdateTimestampAndCompareWithFullHistoryLow() {
+    if (full_history_ts_low_) {
+      assert(timestamp_size_ > 0);
       current_ts_ =
           ExtractTimestampFromUserKey(ikey_.user_key, timestamp_size_);
-      if (full_history_ts_low_) {
-        ret = cmp_->CompareTimestamp(current_ts_, *full_history_ts_low_);
-      }
+      cmp_with_history_ts_low_ =
+          cmp_->CompareTimestamp(current_ts_, *full_history_ts_low_);
     }
-    return ret;
   }
 
   InternalIterator* input_;
@@ -215,9 +213,8 @@ class CompactionIterator {
   // Stores whether ikey_.user_key is valid. If set to false, the user key is
   // not compared against the current key in the underlying iterator.
   bool has_current_user_key_ = false;
-  // If false, the iterator
-  // Holds a copy of the current compaction iterator output (or current key in
-  // the underlying iterator during NextFromInput()).
+  // If false, the iterator holds a copy of the current compaction iterator
+  // output (or current key in the underlying iterator during NextFromInput()).
   bool at_next_ = false;
 
   IterKey current_key_;
@@ -265,6 +262,9 @@ class CompactionIterator {
   // is in `NextFromInput()` and `PrepareOutput()`.
   // If nullptr, NO GC will be performed and all history will be preserved.
   const std::string* const full_history_ts_low_;
+
+  // Saved result of ucmp->CompareTimestamp(current_ts_, *full_history_ts_low_)
+  int cmp_with_history_ts_low_;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.

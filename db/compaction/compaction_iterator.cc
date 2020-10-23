@@ -94,7 +94,8 @@ CompactionIterator::CompactionIterator(
       info_log_(info_log),
       allow_data_in_errors_(allow_data_in_errors),
       timestamp_size_(cmp_ ? cmp_->timestamp_size() : 0),
-      full_history_ts_low_(full_history_ts_low) {
+      full_history_ts_low_(full_history_ts_low),
+      cmp_with_history_ts_low_(0) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   assert(snapshots_ != nullptr);
   bottommost_level_ = compaction_ == nullptr
@@ -321,14 +322,14 @@ void CompactionIterator::NextFromInput() {
     // Check whether the user key changed. After this if statement current_key_
     // is a copy of the current input key (maybe converted to a delete by the
     // compaction filter). ikey_.user_key is pointing to the copy.
-    int cmp_with_history_lb = 0;
     if (!has_current_user_key_ ||
         !cmp_->Equal(ikey_.user_key, current_user_key_)) {
       // First occurrence of this user key
       // Copy key for output
       key_ = current_key_.SetInternalKey(key_, &ikey_);
-      current_user_key_ = ikey_.user_key;
-      cmp_with_history_lb = CheckTimestampAndCompareWithFullHistoryLow();
+
+      UpdateTimestampAndCompareWithFullHistoryLow();
+
       // If
       // (1) !has_current_user_key_, OR
       // (2) timestamp is disabled, OR
@@ -343,11 +344,13 @@ void CompactionIterator::NextFromInput() {
       if (!has_current_user_key_ || !timestamp_size_ || !full_history_ts_low_ ||
           0 != cmp_->CompareWithoutTimestamp(ikey_.user_key,
                                              current_user_key_) ||
-          cmp_with_history_lb >= 0) {
+          cmp_with_history_ts_low_ >= 0) {
         // Initialize for future comparison for rule (A) and etc.
         current_user_key_sequence_ = kMaxSequenceNumber;
         current_user_key_snapshot_ = 0;
       }
+      current_user_key_ = ikey_.user_key;
+
       has_current_user_key_ = true;
       has_outputted_key_ = false;
 
@@ -368,7 +371,6 @@ void CompactionIterator::NextFromInput() {
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       key_ = current_key_.GetInternalKey();
       ikey_.user_key = current_key_.GetUserKey();
-      cmp_with_history_lb = CheckTimestampAndCompareWithFullHistoryLow();
 
       // Note that newer version of a key is ordered before older versions. If a
       // newer version of a key is committed, so as the older version. No need
@@ -576,7 +578,7 @@ void CompactionIterator::NextFromInput() {
     } else if (compaction_ != nullptr &&
                (ikey_.type == kTypeDeletion ||
                 (ikey_.type == kTypeDeletionWithTimestamp &&
-                 cmp_with_history_lb < 0)) &&
+                 cmp_with_history_ts_low_ < 0)) &&
                IN_EARLIEST_SNAPSHOT(ikey_.sequence) &&
                ikeyNotNeededForIncrementalSnapshot() &&
                compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
@@ -611,7 +613,7 @@ void CompactionIterator::NextFromInput() {
       input_->Next();
     } else if ((ikey_.type == kTypeDeletion ||
                 (ikey_.type == kTypeDeletionWithTimestamp &&
-                 cmp_with_history_lb < 0)) &&
+                 cmp_with_history_ts_low_ < 0)) &&
                bottommost_level_ && ikeyNotNeededForIncrementalSnapshot()) {
       // Handle the case where we have a delete key at the bottom most level
       // We can skip outputting the key iff there are no subsequent puts for this
@@ -626,15 +628,15 @@ void CompactionIterator::NextFromInput() {
       // Note that a deletion marker of type kTypeDeletionWithTimestamp will be
       // considered to have a different user key unless the timestamp is older
       // than *full_history_ts_low_.
-      while (!IsPausingManualCompaction() && !IsShuttingDown() &&
-             input_->Valid() &&
-             (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
-             (cmp_->Equal(ikey_.user_key, next_ikey.user_key) ||
-              (timestamp_size_ && cmp_with_history_lb < 0 &&
-               0 == cmp_->CompareWithoutTimestamp(ikey_.user_key,
-                                                  next_ikey.user_key))) &&
-             (prev_snapshot == 0 ||
-              DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
+      while (
+          !IsPausingManualCompaction() && !IsShuttingDown() &&
+          input_->Valid() &&
+          (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
+          (cmp_->Equal(ikey_.user_key, next_ikey.user_key) ||
+           (timestamp_size_ && 0 == cmp_->CompareWithoutTimestamp(
+                                        ikey_.user_key, next_ikey.user_key))) &&
+          (prev_snapshot == 0 ||
+           DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
         input_->Next();
       }
       // If you find you still need to output a row with this key, we need to output the
@@ -642,7 +644,7 @@ void CompactionIterator::NextFromInput() {
       if (input_->Valid() &&
           (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
           (cmp_->Equal(ikey_.user_key, next_ikey.user_key) ||
-           (timestamp_size_ && cmp_with_history_lb < 0 &&
+           (timestamp_size_ && cmp_with_history_ts_low_ < 0 &&
             0 == cmp_->CompareWithoutTimestamp(ikey_.user_key,
                                                next_ikey.user_key)))) {
         valid_ = true;
@@ -784,9 +786,7 @@ void CompactionIterator::PrepareOutput() {
       ikey_.sequence = 0;
       if (!timestamp_size_) {
         current_key_.UpdateInternalKey(0, ikey_.type);
-      } else if (full_history_ts_low_ &&
-                 cmp_->CompareTimestamp(current_ts_, *full_history_ts_low_) <
-                     0) {
+      } else if (full_history_ts_low_ && cmp_with_history_ts_low_ < 0) {
         // We can also zero out timestamp for better compression.
         // For the same user key (excluding timestamp), the timestamp-based
         // history can be collapsed to save some space if the timestamp is

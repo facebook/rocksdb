@@ -216,7 +216,7 @@ class CompactionIteratorTest : public testing::TestWithParam<bool> {
   CompactionIteratorTest()
       : cmp_(BytewiseComparator()), icmp_(cmp_), snapshots_({}) {}
 
-  CompactionIteratorTest(const Comparator* ucmp)
+  explicit CompactionIteratorTest(const Comparator* ucmp)
       : cmp_(ucmp), icmp_(cmp_), snapshots_({}) {}
 
   void InitIterators(
@@ -1102,10 +1102,8 @@ TEST_P(CompactionIteratorTsGcTest, AllKeysOlderThanThreshold) {
     // With a snapshot at seq 3, both the deletion marker and the key at 3 must
     // be preserved.
     AddSnapshot(3);
-    const std::vector<std::string> expected_keys = {
-        test::KeyStr(/*ts=*/103, user_key, /*seq=*/4,
-                     kTypeDeletionWithTimestamp),
-        test::KeyStr(/*ts=*/102, user_key, /*seq=*/3, kTypeValue)};
+    const std::vector<std::string> expected_keys = {input_keys[0],
+                                                    input_keys[1]};
     const std::vector<std::string> expected_values = {"a3", "a2"};
     RunTest(input_keys, input_values, expected_keys, expected_values,
             /*last_committed_seq=*/kMaxSequenceNumber,
@@ -1118,8 +1116,7 @@ TEST_P(CompactionIteratorTsGcTest, AllKeysOlderThanThreshold) {
   {
     // No snapshot, the deletion marker should be preserved because the user
     // key may appear beyond output level.
-    const std::vector<std::string> expected_keys = {test::KeyStr(
-        /*ts=*/103, user_key, /*seq=*/4, kTypeDeletionWithTimestamp)};
+    const std::vector<std::string> expected_keys = {input_keys[0]};
     const std::vector<std::string> expected_values = {"a3"};
     RunTest(input_keys, input_values, expected_keys, expected_values,
             /*last_committed_seq=*/kMaxSequenceNumber,
@@ -1154,10 +1151,8 @@ TEST_P(CompactionIteratorTsGcTest, NewHidesOldSameSnapshot) {
     std::string full_history_ts_low;
     // Keys whose timestamps larger than or equal to 102 will be preserved.
     PutFixed64(&full_history_ts_low, 102);
-    const std::vector<std::string> expected_keys = {
-        test::KeyStr(/*ts=*/103, user_key, /*seq=*/4,
-                     kTypeDeletionWithTimestamp),
-        test::KeyStr(/*ts=*/102, user_key, /*seq=*/3, kTypeValue)};
+    const std::vector<std::string> expected_keys = {input_keys[0],
+                                                    input_keys[1]};
     const std::vector<std::string> expected_values = {"a3", "a2"};
     RunTest(input_keys, input_values, expected_keys, expected_values,
             /*last_committed_seq=*/kMaxSequenceNumber,
@@ -1176,9 +1171,7 @@ TEST_P(CompactionIteratorTsGcTest, DropTombstones) {
       test::KeyStr(/*ts=*/101, user_key, /*seq=*/2, kTypeDeletionWithTimestamp),
       test::KeyStr(/*ts=*/100, user_key, /*seq=*/1, kTypeValue)};
   const std::vector<std::string> input_values = {"a3", "a2", "a1", "a0"};
-  const std::vector<std::string> expected_keys = {
-      test::KeyStr(/*ts=*/103, user_key, /*seq=*/4, kTypeDeletionWithTimestamp),
-      test::KeyStr(/*ts=*/102, user_key, /*seq=*/3, kTypeValue)};
+  const std::vector<std::string> expected_keys = {input_keys[0], input_keys[1]};
   const std::vector<std::string> expected_values = {"a3", "a2"};
 
   // Take a snapshot at seq 2.
@@ -1204,7 +1197,7 @@ TEST_P(CompactionIteratorTsGcTest, DropTombstones) {
             /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
             /*bottommost_level=*/true,
             /*earliest_write_conflict_snapshot=*/kMaxSequenceNumber,
-            /*key_not_exists_beyond_output_level=*/true, &full_history_ts_low);
+            /*key_not_exists_beyond_output_level=*/false, &full_history_ts_low);
   }
 }
 
@@ -1217,9 +1210,7 @@ TEST_P(CompactionIteratorTsGcTest, RewriteTs) {
       test::KeyStr(/*ts=*/100, user_key, /*seq=*/1, kTypeValue)};
   const std::vector<std::string> input_values = {"a3", "a2", "a1", "a0"};
   const std::vector<std::string> expected_keys = {
-      test::KeyStr(/*ts=*/103, user_key, /*seq=*/4, kTypeDeletionWithTimestamp),
-      test::KeyStr(/*ts=*/102, user_key, /*seq=*/3, kTypeValue),
-      test::KeyStr(/*ts=*/101, user_key, /*seq=*/2, kTypeDeletionWithTimestamp),
+      input_keys[0], input_keys[1], input_keys[2],
       test::KeyStr(/*ts=*/0, user_key, /*seq=*/0, kTypeValue)};
   const std::vector<std::string> expected_values = {"a3", "a2", "a1", "a0"};
 
