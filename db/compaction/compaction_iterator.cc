@@ -348,10 +348,10 @@ void CompactionIterator::NextFromInput() {
         // Initialize for future comparison for rule (A) and etc.
         current_user_key_sequence_ = kMaxSequenceNumber;
         current_user_key_snapshot_ = 0;
+        has_current_user_key_ = true;
       }
       current_user_key_ = ikey_.user_key;
 
-      has_current_user_key_ = true;
       has_outputted_key_ = false;
 
       current_key_committed_ = KeyCommitted(ikey_.sequence);
