@@ -104,7 +104,7 @@ void DBSecondaryTest::CheckFileTypeCounts(const std::string& dir,
     uint64_t number;
     FileType type;
     if (ParseFileName(file, &number, &type)) {
-      log_cnt += (type == kLogFile);
+      log_cnt += (type == kWalFile);
       sst_cnt += (type == kTableFile);
       manifest_cnt += (type == kDescriptorFile);
     }

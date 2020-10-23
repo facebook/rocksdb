@@ -743,7 +743,7 @@ class BackupableDBTest : public testing::Test {
       uint64_t number;
       FileType type;
       bool ok = ParseFileName(f, &number, &type);
-      if (ok && type == kLogFile) {
+      if (ok && type == kWalFile) {
         db_chroot_env_->DeleteFile(dbname_ + "/" + f);
       }
     }

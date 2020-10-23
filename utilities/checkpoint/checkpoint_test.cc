@@ -668,7 +668,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
     uint64_t num;
     FileType type;
     WalFileType log_type;
-    if (ParseFileName(file, &num, &type, &log_type) && type == kLogFile) {
+    if (ParseFileName(file, &num, &type, &log_type) && type == kWalFile) {
       num_log_files++;
     }
   }

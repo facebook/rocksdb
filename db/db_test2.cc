@@ -4569,7 +4569,7 @@ TEST_F(DBTest2, CrashInRecoveryMultipleCF) {
     for (const auto& f : filenames) {
       uint64_t number;
       FileType type;
-      if (ParseFileName(f, &number, &type) && type == FileType::kLogFile) {
+      if (ParseFileName(f, &number, &type) && type == FileType::kWalFile) {
         std::string fname = dbname_ + "/" + f;
         std::string file_content;
         ASSERT_OK(ReadFileToString(env_, fname, &file_content));
