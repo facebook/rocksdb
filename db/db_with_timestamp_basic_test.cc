@@ -492,6 +492,52 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, MultiGetWithFastLocalBloom) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.cache_index_and_filter_blocks = true;
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  // Write any value
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
+
+  std::string keystr = "foo";
+  std::string vstr = "bar";
+  Slice k = keystr;
+  Slice v = vstr;
+  ASSERT_OK(db_->Put(write_opts, k, v));
+
+  // Flush to sstable
+  FlushOptions fo;
+  fo.wait = true;
+  ASSERT_OK(db_->Flush(fo));
+
+  // Read with MultiGet
+  ReadOptions read_opts;
+  read_opts.timestamp = &ts;
+  size_t batch_size = 1;
+  std::vector<Slice> keys(batch_size);
+  std::vector<PinnableSlice> values(batch_size);
+  std::vector<Status> statuses(batch_size);
+  keys[0] = k;
+  ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
+  db_->MultiGet(read_opts, cfh, batch_size, keys.data(), values.data(),
+                statuses.data());
+
+  ASSERT_OK(statuses[0]);
+}
+
 TEST_F(DBBasicTestWithTimestamp, MaxKeysSkipped) {
   Options options = CurrentOptions();
   options.env = env_;

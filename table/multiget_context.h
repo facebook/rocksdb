@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <array>
 #include <string>
+
+#include "db/dbformat.h"
 #include "db/lookup_key.h"
 #include "db/merge_context.h"
 #include "rocksdb/env.h"
@@ -22,6 +24,7 @@ struct KeyContext {
   const Slice* key;
   LookupKey* lkey;
   Slice ukey;
+  Slice ukey_without_ts;
   Slice ikey;
   ColumnFamilyHandle* column_family;
   Status* s;
@@ -111,6 +114,8 @@ class MultiGetContext {
       sorted_keys_[iter]->lkey = new (&lookup_key_ptr_[iter])
           LookupKey(*sorted_keys_[iter]->key, snapshot, read_opts.timestamp);
       sorted_keys_[iter]->ukey = sorted_keys_[iter]->lkey->user_key();
+      sorted_keys_[iter]->ukey_without_ts = StripTimestampFromUserKey(
+          sorted_keys_[iter]->lkey->user_key(), read_opts.timestamp->size());
       sorted_keys_[iter]->ikey = sorted_keys_[iter]->lkey->internal_key();
     }
   }
