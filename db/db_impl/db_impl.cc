@@ -3430,14 +3430,14 @@ Status DBImpl::DeleteFile(std::string name) {
   FileType type;
   WalFileType log_type;
   if (!ParseFileName(name, &number, &type, &log_type) ||
-      (type != kTableFile && type != kLogFile)) {
+      (type != kTableFile && type != kWalFile)) {
     ROCKS_LOG_ERROR(immutable_db_options_.info_log, "DeleteFile %s failed.\n",
                     name.c_str());
     return Status::InvalidArgument("Invalid file name");
   }
 
   Status status;
-  if (type == kLogFile) {
+  if (type == kWalFile) {
     // Only allow deleting archived log files
     if (log_type != kArchivedLogFile) {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
@@ -3862,7 +3862,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         std::string path_to_delete = dbname + "/" + fname;
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
-        } else if (type == kTableFile || type == kLogFile) {
+        } else if (type == kTableFile || type == kWalFile) {
           del = DeleteDBFile(&soptions, path_to_delete, dbname,
                              /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
         } else {
@@ -3916,7 +3916,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     if (env->GetChildren(archivedir, &archiveFiles).ok()) {
       // Delete archival files.
       for (const auto& file : archiveFiles) {
-        if (ParseFileName(file, &number, &type) && type == kLogFile) {
+        if (ParseFileName(file, &number, &type) && type == kWalFile) {
           Status del =
               DeleteDBFile(&soptions, archivedir + "/" + file, archivedir,
                            /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
@@ -3932,7 +3932,7 @@ Status DestroyDB(const std::string& dbname, const Options& options,
     // Delete log files in the WAL dir
     if (wal_dir_exists) {
       for (const auto& file : walDirFiles) {
-        if (ParseFileName(file, &number, &type) && type == kLogFile) {
+        if (ParseFileName(file, &number, &type) && type == kWalFile) {
           Status del =
               DeleteDBFile(&soptions, LogFileName(soptions.wal_dir, number),
                            soptions.wal_dir, /*force_bg=*/false,

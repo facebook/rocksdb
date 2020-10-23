@@ -352,7 +352,7 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
 
     Slice suffix = rest;
     if (suffix == Slice("log")) {
-      *type = kLogFile;
+      *type = kWalFile;
       if (log_type && !archive_dir_found) {
         *log_type = kAliveLogFile;
       }
@@ -432,7 +432,7 @@ Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
   assert(parent_dir != nullptr);
   assert(info_log_list != nullptr);
   uint64_t number = 0;
-  FileType type = kLogFile;
+  FileType type = kWalFile;
 
   if (!db_log_dir.empty()) {
     *parent_dir = db_log_dir;

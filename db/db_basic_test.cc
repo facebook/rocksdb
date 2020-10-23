@@ -2405,7 +2405,7 @@ TEST_F(DBBasicTest, RecoverWithNoManifest) {
     ASSERT_OK(env_->GetChildren(dbname_, &files));
     for (const auto& file : files) {
       uint64_t number = 0;
-      FileType type = kLogFile;
+      FileType type = kWalFile;
       if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
         ASSERT_OK(env_->DeleteFile(dbname_ + "/" + file));
       }

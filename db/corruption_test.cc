@@ -249,8 +249,8 @@ TEST_F(CorruptionTest, Recovery) {
   // is not available for WAL though.
   CloseDb();
 #endif
-  Corrupt(kLogFile, 19, 1);      // WriteBatch tag for first record
-  Corrupt(kLogFile, log::kBlockSize + 1000, 1);  // Somewhere in second block
+  Corrupt(kWalFile, 19, 1);  // WriteBatch tag for first record
+  Corrupt(kWalFile, log::kBlockSize + 1000, 1);  // Somewhere in second block
   ASSERT_TRUE(!TryReopen().ok());
   options_.paranoid_checks = false;
   Reopen(&options_);

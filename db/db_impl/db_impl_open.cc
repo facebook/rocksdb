@@ -401,7 +401,7 @@ Status DBImpl::Recover(
       }
       for (const std::string& file : files_in_dbname) {
         uint64_t number = 0;
-        FileType type = kLogFile;  // initialize
+        FileType type = kWalFile;  // initialize
         if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
           // Found MANIFEST (descriptor log), thus best-efforts recovery does
           // not have to treat the db as empty.
@@ -575,7 +575,7 @@ Status DBImpl::Recover(
     for (const auto& file : files_in_wal_dir) {
       uint64_t number;
       FileType type;
-      if (ParseFileName(file, &number, &type) && type == kLogFile) {
+      if (ParseFileName(file, &number, &type) && type == kWalFile) {
         if (is_new_db) {
           return Status::Corruption(
               "While creating a new Db, wal_dir contains "
