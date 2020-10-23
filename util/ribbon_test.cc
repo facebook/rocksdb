@@ -7,15 +7,18 @@
 
 #include "test_util/testharness.h"
 #include "util/coding.h"
-#include "util/gflags_compat.h"
 #include "util/hash.h"
 #include "util/ribbon_impl.h"
 
+#ifndef GFLAGS
+uint32_t FLAGS_thoroughness = 5;
+#else
+#include "util/gflags_compat.h"
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
-
 // Using 500 is a good test when you have time to be thorough.
 // Default is for general RocksDB regression test runs.
 DEFINE_uint32(thoroughness, 5, "iterations per configuration");
+#endif  // GFLAGS
 
 template <typename TypesAndSettings>
 class RibbonTypeParamTest : public ::testing::Test {};
@@ -398,6 +401,8 @@ TEST(RibbonTest, Another) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
+#ifdef GFLAGS
   ParseCommandLineFlags(&argc, &argv, true);
+#endif  // GFLAGS
   return RUN_ALL_TESTS();
 }
