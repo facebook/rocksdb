@@ -347,8 +347,8 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     double single_failure_rate = 1.0 * total_single_failures / total_singles;
     fprintf(stderr, "Add'l single, failure rate: %g\n", single_failure_rate);
     // A rough bound (one sided) based on nothing in particular
-    uint64_t expected_single_failures =
-        total_singles /
+    double expected_single_failures =
+        1.0 * total_singles /
         (sizeof(CoeffRow) == 16 ? 128 : TypeParam::kUseSmash ? 64 : 32);
     EXPECT_LE(total_single_failures,
               InfrequentPoissonUpperBound(expected_single_failures));
@@ -358,7 +358,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     // Counting successes here for Poisson to approximate the Binomial
     // distribution.
     // A rough bound (one sided) based on nothing in particular.
-    uint64_t expected_batch_successes = FLAGS_thoroughness / 2;
+    double expected_batch_successes = 1.0 * FLAGS_thoroughness / 2;
     uint64_t lower_bound =
         InfrequentPoissonLowerBound(expected_batch_successes);
     fprintf(stderr, "Add'l batch, success rate: %g (>= %g)\n",
