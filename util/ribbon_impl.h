@@ -261,8 +261,8 @@ class StandardRehasherAdapter : public RehasherTypesAndSettings {
       h ^= h >> 32;
       return static_cast<Hash>(h);
     } else {
-      // XXH32_avalanche (32-bit)
-      uint32_t h32 = input;
+      // XXH32_avalanche (32-bit), modified for seed
+      uint32_t h32 = static_cast<uint32_t>(input);
       h32 ^= h32 >> 15;
       h32 ^= seed * uint32_t{0x27D4EB4F};
       h32 *= uint32_t{0x85EBCA77};
@@ -320,7 +320,7 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
   }
 
   // ********************************************************************
-  // From concept SolverStorage
+  // From concept BandingStorage
 
   inline bool UsePrefetch() const {
     // A rough guestimate of when prefetching during construction pays off.
@@ -394,6 +394,18 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
   // hash seed, until either successful or unsuccessful with max_seed
   // (minimum one seed attempted). Returns true if successful. In that
   // case, use GetSeed() to get the successful seed.
+  //
+  // If unsuccessful, how best to continue is going to be application
+  // specific. It should be possible to choose parameters such that
+  // failure is extremely unlikely, using max_seed around 32 to 64.
+  // (TODO: APIs to help choose parameters) One option for fallback in
+  // constructing a filter is to construct a Bloom filter instead.
+  // Increasing num_slots is an option, but should not be used often
+  // unless construction maximum latency is a concern (rather than
+  // average running time of construction). Instead, choose parameters
+  // appropriately and trust that seeds are independent. (Also,
+  // increasing num_slots without changing hash seed would have a
+  // significant correlation in success, rather than independence.)
   template <typename InputIterator>
   bool ResetAndFindSeedToSolve(Index num_slots, InputIterator begin,
                                InputIterator end, Seed max_seed) {
@@ -405,7 +417,7 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
         return true;
       }
     } while (StandardHasher<TypesAndSettings>::NextSeed(max_seed));
-    // no seed through max_seed worked
+    // No seed through max_seed worked.
     return false;
   }
 
@@ -413,6 +425,8 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
   // TODO: explore combining in a struct
   std::unique_ptr<CoeffRow[]> coeff_rows_;
   std::unique_ptr<ResultRow[]> result_rows_;
+  // We generally store "starts" instead of slots for speed of GetStart(),
+  // as in StandardHasher.
   Index num_starts_ = 0;
   Index num_slots_allocated_ = 0;
   std::unique_ptr<Index[]> backtrack_;
@@ -449,8 +463,8 @@ class InMemSimpleSolution {
   // ********************************************************************
   // High-level API
 
-  template <typename SolverStorage>
-  void BackSubstFrom(const SolverStorage& ss) {
+  template <typename BandingStorage>
+  void BackSubstFrom(const BandingStorage& ss) {
     SimpleBackSubst(this, ss);
   }
 
@@ -467,6 +481,8 @@ class InMemSimpleSolution {
   }
 
  protected:
+  // We generally store "starts" instead of slots for speed of GetStart(),
+  // as in StandardHasher.
   Index num_starts_ = 0;
   Index num_slots_allocated_ = 0;
   std::unique_ptr<ResultRow[]> solution_rows_;

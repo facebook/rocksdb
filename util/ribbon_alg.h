@@ -518,7 +518,7 @@ namespace ribbon {
 // solution satisfying all the cr@start -> rr entries added.
 template <bool kFirstCoeffAlwaysOne, typename BandingStorage,
           typename BacktrackStorage>
-bool BandingAdd(BandingStorage *ss, typename BandingStorage::Index start,
+bool BandingAdd(BandingStorage *bs, typename BandingStorage::Index start,
                 typename BandingStorage::ResultRow rr,
                 typename BandingStorage::CoeffRow cr, BacktrackStorage *bts,
                 typename BandingStorage::Index *backtrack_pos) {
@@ -537,17 +537,17 @@ bool BandingAdd(BandingStorage *ss, typename BandingStorage::Index start,
   }
 
   for (;;) {
-    CoeffRow other = *(ss->CoeffRowPtr(i));
+    CoeffRow other = *(bs->CoeffRowPtr(i));
     if (other == 0) {
-      *(ss->CoeffRowPtr(i)) = cr;
-      *(ss->ResultRowPtr(i)) = rr;
+      *(bs->CoeffRowPtr(i)) = cr;
+      *(bs->ResultRowPtr(i)) = rr;
       bts->BacktrackPut(*backtrack_pos, i);
       ++*backtrack_pos;
       return true;
     }
     assert((other & 1) == 1);
     cr ^= other;
-    rr ^= *(ss->ResultRowPtr(i));
+    rr ^= *(bs->ResultRowPtr(i));
     if (cr == 0) {
       // Inconsistency or (less likely) redundancy
       break;
@@ -577,7 +577,7 @@ bool BandingAdd(BandingStorage *ss, typename BandingStorage::Index start,
 //
 template <typename BandingStorage, typename BacktrackStorage,
           typename BandingHasher, typename InputIterator>
-bool BandingAddRange(BandingStorage *ss, BacktrackStorage *bts,
+bool BandingAddRange(BandingStorage *bs, BacktrackStorage *bts,
                      const BandingHasher &bh, InputIterator begin,
                      InputIterator end) {
   using CoeffRow = typename BandingStorage::CoeffRow;
@@ -596,11 +596,11 @@ bool BandingAddRange(BandingStorage *ss, BacktrackStorage *bts,
     return true;
   }
 
-  const Index num_starts = ss->GetNumStarts();
+  const Index num_starts = bs->GetNumStarts();
 
   InputIterator cur = begin;
   Index backtrack_pos = 0;
-  if (!ss->UsePrefetch()) {
+  if (!bs->UsePrefetch()) {
     // Simple version, no prefetch
     for (;;) {
       Hash h = bh.GetHash(*cur);
@@ -609,7 +609,7 @@ bool BandingAddRange(BandingStorage *ss, BacktrackStorage *bts,
           bh.GetResultRowFromInput(*cur) | bh.GetResultRowFromHash(h);
       CoeffRow cr = bh.GetCoeffRow(h);
 
-      if (!BandingAdd<kFCA1>(ss, start, rr, cr, bts, &backtrack_pos)) {
+      if (!BandingAdd<kFCA1>(bs, start, rr, cr, bts, &backtrack_pos)) {
         break;
       }
       if ((++cur) == end) {
@@ -622,14 +622,14 @@ bool BandingAddRange(BandingStorage *ss, BacktrackStorage *bts,
     Hash h = bh.GetHash(*cur);
     Index start = bh.GetStart(h, num_starts);
     ResultRow rr = bh.GetResultRowFromInput(*cur);
-    ss->Prefetch(start);
+    bs->Prefetch(start);
 
     // Pipeline
     for (;;) {
       rr |= bh.GetResultRowFromHash(h);
       CoeffRow cr = bh.GetCoeffRow(h);
       if ((++cur) == end) {
-        if (!BandingAdd<kFCA1>(ss, start, rr, cr, bts, &backtrack_pos)) {
+        if (!BandingAdd<kFCA1>(bs, start, rr, cr, bts, &backtrack_pos)) {
           break;
         }
         return true;
@@ -637,8 +637,8 @@ bool BandingAddRange(BandingStorage *ss, BacktrackStorage *bts,
       Hash next_h = bh.GetHash(*cur);
       Index next_start = bh.GetStart(next_h, num_starts);
       ResultRow next_rr = bh.GetResultRowFromInput(*cur);
-      ss->Prefetch(next_start);
-      if (!BandingAdd<kFCA1>(ss, start, rr, cr, bts, &backtrack_pos)) {
+      bs->Prefetch(next_start);
+      if (!BandingAdd<kFCA1>(bs, start, rr, cr, bts, &backtrack_pos)) {
         break;
       }
       h = next_h;
@@ -651,8 +651,8 @@ bool BandingAddRange(BandingStorage *ss, BacktrackStorage *bts,
     while (backtrack_pos > 0) {
       --backtrack_pos;
       Index i = bts->BacktrackGet(backtrack_pos);
-      *(ss->CoeffRowPtr(i)) = 0;
-      // Not required: *(ss->ResultRowPtr(i)) = 0;
+      *(bs->CoeffRowPtr(i)) = 0;
+      // Not required: *(bs->ResultRowPtr(i)) = 0;
     }
   }
   return false;
@@ -669,7 +669,7 @@ bool BandingAddRange(BandingStorage *ss, BacktrackStorage *bts,
 //
 template <typename BandingStorage, typename BandingHasher,
           typename InputIterator>
-bool BandingAddRange(BandingStorage *ss, const BandingHasher &bh,
+bool BandingAddRange(BandingStorage *bs, const BandingHasher &bh,
                      InputIterator begin, InputIterator end) {
   using Index = typename BandingStorage::Index;
   struct NoopBacktrackStorage {
@@ -680,7 +680,7 @@ bool BandingAddRange(BandingStorage *ss, const BandingHasher &bh,
       return 0;
     }
   } nbts;
-  return BandingAddRange(ss, &nbts, bh, begin, end);
+  return BandingAddRange(bs, &nbts, bh, begin, end);
 }
 
 // ######################################################################
@@ -735,8 +735,8 @@ void SimpleBackSubst(SimpleSolutionStorage *sss, const BandingStorage &ss) {
     for (Index j = 0; j < kResultBits; ++j) {
       // Compute next solution bit at row i, column j (see derivation below)
       CoeffRow tmp = state[j] << 1;
-      int bit = BitParity(tmp & cr) ^ ((rr >> j) & 1);
-      tmp |= static_cast<CoeffRow>(bit);
+      bool bit = (BitParity(tmp & cr) ^ ((rr >> j) & 1)) != 0;
+      tmp |= bit ? CoeffRow{1} : CoeffRow{0};
 
       // Now tmp is solution at column j from row i for next kCoeffBits
       // more rows. Thus, for valid solution, the dot product of the
@@ -747,7 +747,7 @@ void SimpleBackSubst(SimpleSolutionStorage *sss, const BandingStorage &ss) {
       // Update state.
       state[j] = tmp;
       // add to solution row
-      sr |= static_cast<ResultRow>(bit) << j;
+      sr |= (bit ? ResultRow{1} : ResultRow{0}) << j;
     }
     sss->Store(i, sr);
   }
