@@ -132,7 +132,9 @@ size_t JemallocNodumpAllocator::UsableSize(void* p,
 Status NewJemallocNodumpAllocator(
     JemallocAllocatorOptions& options,
     std::shared_ptr<MemoryAllocator>* memory_allocator) {
-  *memory_allocator = nullptr;
+  if (memory_allocator != nullptr) {
+    *memory_allocator = nullptr;
+  }
   Status unsupported = Status::NotSupported(
       "JemallocNodumpAllocator only available with jemalloc version >= 5 "
       "and MADV_DONTDUMP is available.");
