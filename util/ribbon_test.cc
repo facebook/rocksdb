@@ -6,6 +6,7 @@
 #include <cmath>
 
 #include "test_util/testharness.h"
+#include "util/coding.h"
 #include "util/gflags_compat.h"
 #include "util/hash.h"
 #include "util/ribbon_impl.h"
