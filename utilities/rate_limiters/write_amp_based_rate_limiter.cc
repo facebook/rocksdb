@@ -75,9 +75,17 @@ WriteAmpBasedRateLimiter::~WriteAmpBasedRateLimiter() {
   }
 }
 
-// This API allows user to dynamically change rate limiter's bytes per second.
 void WriteAmpBasedRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
   assert(bytes_per_second > 0);
+  if (auto_tuned_) {
+    max_bytes_per_sec_.store(bytes_per_second, std::memory_order_relaxed);
+  } else {
+    SetActualBytesPerSecond(bytes_per_second);
+  }
+}
+
+void WriteAmpBasedRateLimiter::SetActualBytesPerSecond(
+    int64_t bytes_per_second) {
   rate_bytes_per_sec_ = bytes_per_second;
   refill_bytes_per_period_.store(
       CalculateRefillBytesPerPeriod(bytes_per_second),
@@ -92,8 +100,9 @@ void WriteAmpBasedRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   TEST_SYNC_POINT_CALLBACK("WriteAmpBasedRateLimiter::Request:1",
                            &rate_bytes_per_sec_);
   if (auto_tuned_ && pri == Env::IO_HIGH &&
-      duration_highpri_bytes_through_ + bytes <=
-          max_bytes_per_sec_ * kSecondsPerTune) {
+      duration_highpri_bytes_through_ + duration_bytes_through_ + bytes <=
+          max_bytes_per_sec_.load(std::memory_order_relaxed) *
+              kSecondsPerTune) {
     total_bytes_through_[Env::IO_HIGH] += bytes;
     ++total_requests_[Env::IO_HIGH];
     duration_highpri_bytes_through_ += bytes;
@@ -320,12 +329,13 @@ Status WriteAmpBasedRateLimiter::Tune() {
   int64_t new_bytes_per_sec =
       (ratio + ratio_padding + ratio_delta_) *
       std::max(highpri_bytes_sampler_.GetRecentValue(), kHighBytesLower) / 10;
-  new_bytes_per_sec = std::max(
-      kMinBytesPerSec,
-      std::min(new_bytes_per_sec,
-               max_bytes_per_sec_ - highpri_bytes_sampler_.GetRecentValue()));
+  new_bytes_per_sec =
+      std::max(kMinBytesPerSec,
+               std::min(new_bytes_per_sec,
+                        max_bytes_per_sec_.load(std::memory_order_relaxed) -
+                            highpri_bytes_sampler_.GetRecentValue()));
   if (new_bytes_per_sec != prev_bytes_per_sec) {
-    SetBytesPerSecond(new_bytes_per_sec);
+    SetActualBytesPerSecond(new_bytes_per_sec);
   }
 
   duration_bytes_through_ = 0;

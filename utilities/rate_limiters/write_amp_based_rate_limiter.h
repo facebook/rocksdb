@@ -31,6 +31,7 @@ class WriteAmpBasedRateLimiter : public RateLimiter {
   virtual ~WriteAmpBasedRateLimiter();
 
   // This API allows user to dynamically change rate limiter's bytes per second.
+  // When auto-tuned is on, this sets rate limit's upper bound instead.
   virtual void SetBytesPerSecond(int64_t bytes_per_second) override;
 
   // Request for token to write bytes. If this request can not be satisfied,
@@ -70,6 +71,7 @@ class WriteAmpBasedRateLimiter : public RateLimiter {
  private:
   void Refill();
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
+  void SetActualBytesPerSecond(int64_t bytes_per_second);
   Status Tune();
 
   uint64_t NowMicrosMonotonic(Env* env) {
@@ -105,7 +107,7 @@ class WriteAmpBasedRateLimiter : public RateLimiter {
   std::deque<Req*> queue_[Env::IO_TOTAL];
 
   bool auto_tuned_;
-  const int64_t max_bytes_per_sec_;
+  std::atomic<int64_t> max_bytes_per_sec_;
   std::chrono::microseconds tuned_time_;
   int64_t duration_highpri_bytes_through_;
   int64_t duration_bytes_through_;
