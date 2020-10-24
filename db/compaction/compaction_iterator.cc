@@ -44,7 +44,8 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
     const std::atomic<int>* manual_compaction_paused,
-    const std::shared_ptr<Logger> info_log)
+    const std::shared_ptr<Logger> info_log,
+    const std::string* full_history_ts_low)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, snapshot_checker, env,
@@ -53,7 +54,7 @@ CompactionIterator::CompactionIterator(
           std::unique_ptr<CompactionProxy>(
               compaction ? new CompactionProxy(compaction) : nullptr),
           compaction_filter, shutting_down, preserve_deletes_seqnum,
-          manual_compaction_paused, info_log) {}
+          manual_compaction_paused, info_log, full_history_ts_low) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -68,7 +69,8 @@ CompactionIterator::CompactionIterator(
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum,
     const std::atomic<int>* manual_compaction_paused,
-    const std::shared_ptr<Logger> info_log)
+    const std::shared_ptr<Logger> info_log,
+    const std::string* full_history_ts_low)
     : input_(input),
       cmp_(cmp),
       merge_helper_(merge_helper),
@@ -90,7 +92,10 @@ CompactionIterator::CompactionIterator(
       merge_out_iter_(merge_helper_),
       current_key_committed_(false),
       info_log_(info_log),
-      allow_data_in_errors_(allow_data_in_errors) {
+      allow_data_in_errors_(allow_data_in_errors),
+      timestamp_size_(cmp_ ? cmp_->timestamp_size() : 0),
+      full_history_ts_low_(full_history_ts_low),
+      cmp_with_history_ts_low_(0) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   assert(snapshots_ != nullptr);
   bottommost_level_ = compaction_ == nullptr
@@ -117,6 +122,8 @@ CompactionIterator::CompactionIterator(
   for (size_t i = 1; i < snapshots_->size(); ++i) {
     assert(snapshots_->at(i - 1) < snapshots_->at(i));
   }
+  assert(timestamp_size_ == 0 || !full_history_ts_low_ ||
+         timestamp_size_ == full_history_ts_low_->size());
 #endif
   input_->SetPinnedItersMgr(&pinned_iters_mgr_);
   TEST_SYNC_POINT_CALLBACK("CompactionIterator:AfterInit", compaction_.get());
@@ -298,7 +305,8 @@ void CompactionIterator::NextFromInput() {
     TEST_SYNC_POINT_CALLBACK("CompactionIterator:ProcessKV", &ikey_);
 
     // Update input statistics
-    if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion) {
+    if (ikey_.type == kTypeDeletion || ikey_.type == kTypeSingleDeletion ||
+        ikey_.type == kTypeDeletionWithTimestamp) {
       iter_stats_.num_input_deletion_records++;
     }
     iter_stats_.total_input_raw_key_bytes += key_.size();
@@ -319,11 +327,33 @@ void CompactionIterator::NextFromInput() {
       // First occurrence of this user key
       // Copy key for output
       key_ = current_key_.SetInternalKey(key_, &ikey_);
+
+      UpdateTimestampAndCompareWithFullHistoryLow();
+
+      // If
+      // (1) !has_current_user_key_, OR
+      // (2) timestamp is disabled, OR
+      // (3) all history will be preserved, OR
+      // (4) user key (excluding timestamp) is different from previous key, OR
+      // (5) timestamp is NO older than *full_history_ts_low_
+      // then current_user_key_ must be treated as a different user key.
+      // This means, if a user key (excluding ts) is the same as the previous
+      // user key, and its ts is older than *full_history_ts_low_, then we
+      // consider this key for GC, e.g. it may be dropped if certain conditions
+      // match.
+      if (!has_current_user_key_ || !timestamp_size_ || !full_history_ts_low_ ||
+          0 != cmp_->CompareWithoutTimestamp(ikey_.user_key,
+                                             current_user_key_) ||
+          cmp_with_history_ts_low_ >= 0) {
+        // Initialize for future comparison for rule (A) and etc.
+        current_user_key_sequence_ = kMaxSequenceNumber;
+        current_user_key_snapshot_ = 0;
+        has_current_user_key_ = true;
+      }
       current_user_key_ = ikey_.user_key;
-      has_current_user_key_ = true;
+
       has_outputted_key_ = false;
-      current_user_key_sequence_ = kMaxSequenceNumber;
-      current_user_key_snapshot_ = 0;
+
       current_key_committed_ = KeyCommitted(ikey_.sequence);
 
       // Apply the compaction filter to the first committed version of the user
@@ -543,9 +573,12 @@ void CompactionIterator::NextFromInput() {
                         last_sequence, current_user_key_sequence_);
       }
 
-      ++iter_stats_.num_record_drop_hidden;  // (A)
+      ++iter_stats_.num_record_drop_hidden;  // rule (A)
       input_->Next();
-    } else if (compaction_ != nullptr && ikey_.type == kTypeDeletion &&
+    } else if (compaction_ != nullptr &&
+               (ikey_.type == kTypeDeletion ||
+                (ikey_.type == kTypeDeletionWithTimestamp &&
+                 cmp_with_history_ts_low_ < 0)) &&
                IN_EARLIEST_SNAPSHOT(ikey_.sequence) &&
                ikeyNotNeededForIncrementalSnapshot() &&
                compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
@@ -569,13 +602,19 @@ void CompactionIterator::NextFromInput() {
       // given that:
       // (1) The deletion is earlier than earliest_write_conflict_snapshot, and
       // (2) No value exist earlier than the deletion.
+      //
+      // Note also that a deletion marker of type kTypeDeletionWithTimestamp
+      // will be treated as a different user key unless the timestamp is older
+      // than *full_history_ts_low_.
       ++iter_stats_.num_record_drop_obsolete;
       if (!bottommost_level_) {
         ++iter_stats_.num_optimized_del_drop_obsolete;
       }
       input_->Next();
-    } else if ((ikey_.type == kTypeDeletion) && bottommost_level_ &&
-               ikeyNotNeededForIncrementalSnapshot()) {
+    } else if ((ikey_.type == kTypeDeletion ||
+                (ikey_.type == kTypeDeletionWithTimestamp &&
+                 cmp_with_history_ts_low_ < 0)) &&
+               bottommost_level_ && ikeyNotNeededForIncrementalSnapshot()) {
       // Handle the case where we have a delete key at the bottom most level
       // We can skip outputting the key iff there are no subsequent puts for this
       // key
@@ -583,12 +622,17 @@ void CompactionIterator::NextFromInput() {
                                  ikey_.user_key, &level_ptrs_));
       ParsedInternalKey next_ikey;
       input_->Next();
-      // Skip over all versions of this key that happen to occur in the same snapshot
-      // range as the delete
+      // Skip over all versions of this key that happen to occur in the same
+      // snapshot range as the delete.
+      //
+      // Note that a deletion marker of type kTypeDeletionWithTimestamp will be
+      // considered to have a different user key unless the timestamp is older
+      // than *full_history_ts_low_.
       while (!IsPausingManualCompaction() && !IsShuttingDown() &&
              input_->Valid() &&
              (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
-             cmp_->Equal(ikey_.user_key, next_ikey.user_key) &&
+             0 == cmp_->CompareWithoutTimestamp(ikey_.user_key,
+                                                next_ikey.user_key) &&
              (prev_snapshot == 0 ||
               DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
         input_->Next();
@@ -597,7 +641,8 @@ void CompactionIterator::NextFromInput() {
       // delete too
       if (input_->Valid() &&
           (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
-          cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
+          0 == cmp_->CompareWithoutTimestamp(ikey_.user_key,
+                                             next_ikey.user_key)) {
         valid_ = true;
         at_next_ = true;
       }
@@ -735,7 +780,18 @@ void CompactionIterator::PrepareOutput() {
                         ikey_.type);
       }
       ikey_.sequence = 0;
-      current_key_.UpdateInternalKey(0, ikey_.type);
+      if (!timestamp_size_) {
+        current_key_.UpdateInternalKey(0, ikey_.type);
+      } else if (full_history_ts_low_ && cmp_with_history_ts_low_ < 0) {
+        // We can also zero out timestamp for better compression.
+        // For the same user key (excluding timestamp), the timestamp-based
+        // history can be collapsed to save some space if the timestamp is
+        // older than *full_history_ts_low_.
+        const std::string kTsMin(timestamp_size_, static_cast<char>(0));
+        const Slice ts_slice = kTsMin;
+        ikey_.SetTimestamp(ts_slice);
+        current_key_.UpdateInternalKey(0, ikey_.type, &ts_slice);
+      }
     }
   }
 }
