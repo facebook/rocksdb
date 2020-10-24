@@ -5847,6 +5847,7 @@ TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
 
 TEST_F(DBCompactionTest, CompactionWithBlob) {
   Options options;
+  options.env = env_;
   options.disable_auto_compactions = true;
 
   Reopen(options);
@@ -5944,6 +5945,7 @@ INSTANTIATE_TEST_CASE_P(DBCompactionTestBlobError, DBCompactionTestBlobError,
 TEST_P(DBCompactionTestBlobError, CompactionError) {
   Options options;
   options.disable_auto_compactions = true;
+  options.env = env_;
 
   Reopen(options);
 
@@ -5965,8 +5967,8 @@ TEST_P(DBCompactionTestBlobError, CompactionError) {
   ASSERT_OK(Put(second_key, third_value));
   ASSERT_OK(Flush());
 
-  options.env = &fault_injection_env_;
   options.enable_blob_files = true;
+  options.env = &fault_injection_env_;
 
   Reopen(options);
 

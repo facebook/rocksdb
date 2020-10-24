@@ -380,6 +380,7 @@ TEST_F(DBWALTest, RecoverWithBlob) {
   options.min_blob_size = min_blob_size;
   options.avoid_flush_during_recovery = false;
   options.disable_auto_compactions = true;
+  options.env = env_;
 
   Reopen(options);
 
