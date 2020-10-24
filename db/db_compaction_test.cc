@@ -5920,7 +5920,7 @@ TEST_F(DBCompactionTest, CompactionWithBlob) {
       table_file->fd.GetFileSize() + blob_file->GetTotalBlobBytes();
 
   const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
-  ASSERT_TRUE(compaction_stats.size() >= 2);
+  ASSERT_GE(compaction_stats.size(), 2);
   ASSERT_EQ(compaction_stats[1].bytes_written, expected_bytes);
   ASSERT_EQ(compaction_stats[1].num_output_files, 2);
 }
@@ -6008,7 +6008,7 @@ TEST_P(DBCompactionTestBlobError, CompactionError) {
   assert(internal_stats);
 
   const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
-  ASSERT_TRUE(compaction_stats.size() >= 2);
+  ASSERT_GE(compaction_stats.size(), 2);
 
   if (sync_point_ == "BlobFileBuilder::WriteBlobToFile:AddRecord") {
     ASSERT_EQ(compaction_stats[1].bytes_written, 0);
