@@ -440,10 +440,12 @@ class DBRecoveryTestBlobError
     : public DBWALTest,
       public testing::WithParamInterface<std::string> {
  public:
-  DBRecoveryTestBlobError() : fault_injection_env_(env_) {}
+  DBRecoveryTestBlobError()
+      : fault_injection_env_(env_), sync_point_(GetParam()) {}
   ~DBRecoveryTestBlobError() { Close(); }
 
   FaultInjectionTestEnv fault_injection_env_;
+  std::string sync_point_;
 };
 
 INSTANTIATE_TEST_CASE_P(DBRecoveryTestBlobError, DBRecoveryTestBlobError,
@@ -457,11 +459,12 @@ TEST_P(DBRecoveryTestBlobError, RecoverWithBlobError) {
 
   // Reopen with blob files enabled but make blob file writing fail during
   // recovery.
-  SyncPoint::GetInstance()->SetCallBack(GetParam(), [this](void* /* arg */) {
-    fault_injection_env_.SetFilesystemActive(false, Status::IOError());
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_.SetFilesystemActive(false,
+                                             Status::IOError(sync_point_));
   });
   SyncPoint::GetInstance()->SetCallBack(
-      "BuildTable:BeforeFinishBuildTable", [this](void* /* arg */) {
+      "BuildTable:BeforeDeleteFile", [this](void* /* arg */) {
         fault_injection_env_.SetFilesystemActive(true);
       });
   SyncPoint::GetInstance()->EnableProcessing();

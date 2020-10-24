@@ -6007,8 +6007,15 @@ TEST_P(DBCompactionTestBlobError, CompactionError) {
 
   const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
   ASSERT_TRUE(compaction_stats.size() >= 2);
-  ASSERT_EQ(compaction_stats[1].bytes_written, 0);
-  ASSERT_EQ(compaction_stats[1].num_output_files, 0);
+
+  if (sync_point_ == "BlobFileBuilder::WriteBlobToFile:AddRecord") {
+    ASSERT_EQ(compaction_stats[1].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[1].num_output_files, 0);
+  } else {
+    // SST file writing succeeded; blob file writing failed (during Finish)
+    ASSERT_GT(compaction_stats[1].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[1].num_output_files, 1);
+  }
 }
 
 #endif  // !defined(ROCKSDB_LITE)
