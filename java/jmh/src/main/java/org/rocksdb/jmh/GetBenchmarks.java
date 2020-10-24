@@ -224,14 +224,10 @@ public class GetBenchmarks {
   }
 
   @Benchmark
-  public void preallocatedByteBufferValueOnlyGet() throws RocksDBException {
-    int res = db.get(getColumnFamily(), readOptions, getKeyArr(), getValueBuf());
-  }
-
-  @Benchmark
   public void unsafeGet() throws RocksDBException {
     PinnableSlice pinnableSlice = db.getUnsafe(getColumnFamily(), readOptions, getKeyArr());
     // assert pinnableSlice.capacity() > 0;
     pinnableSlice.close();
   }
+
 }

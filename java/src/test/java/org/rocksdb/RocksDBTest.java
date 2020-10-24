@@ -271,22 +271,7 @@ public class RocksDBTest {
       valueBuf.get(retValue);
       assertArrayEquals(value, retValue);
     }
-  }
 
-  @Test
-  public void getDirectByteBufferValueOnly() throws RocksDBException {
-    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
-         final ReadOptions optr = new ReadOptions()) {
-      final byte[] key = "key1".getBytes();
-      final byte[] value = "value".getBytes();
-      db.put(key, value);
-      ByteBuffer valueBuf = ByteBuffer.allocateDirect(12);
-      int len = db.get(db.getDefaultColumnFamily(), optr, key, valueBuf);
-      assertEquals(5, len);
-      byte[] retValue = new byte[len];
-      valueBuf.get(retValue);
-      assertArrayEquals(value, retValue);
-    }
   }
 
   @Test

@@ -1322,7 +1322,7 @@ public class RocksDB extends RocksObject {
    *    native library.
    */
   public int get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
-                 final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
+      final ByteBuffer key, final ByteBuffer value) throws RocksDBException {
     assert key.isDirect() && value.isDirect();
     int result = getDirect(nativeHandle_, opt.nativeHandle_, key, key.position(), key.remaining(),
         value, value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
@@ -1330,37 +1330,6 @@ public class RocksDB extends RocksObject {
       value.limit(Math.min(value.limit(), value.position() + result));
     }
     key.position(key.limit());
-    return result;
-  }
-
-  /**
-   * Get the value associated with the specified key within column family.
-   *
-   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
-   *     instance
-   * @param opt {@link org.rocksdb.ReadOptions} instance.
-   * @param key the key to retrieve the value.
-   * @param value the out-value to receive the retrieved value.
-   *     It is using position and limit. Limit is set according to value size.
-   *     Supports direct buffer only.
-   * @return The size of the actual value that matches the specified
-   *     {@code key} in byte.  If the return value is greater than the
-   *     length of {@code value}, then it indicates that the size of the
-   *     input buffer {@code value} is insufficient and partial result will
-   *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
-   *     found.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   */
-  public int get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
-                 final byte[] key, final ByteBuffer value) throws RocksDBException {
-    assert value.isDirect();
-    int result = getDirect(nativeHandle_, opt.nativeHandle_, key, 0, key.length,
-        value, value.position(), value.remaining(), columnFamilyHandle.nativeHandle_);
-    if (result != NOT_FOUND) {
-      value.limit(Math.min(value.limit(), value.position() + result));
-    }
     return result;
   }
 
@@ -4744,10 +4713,7 @@ public class RocksDB extends RocksObject {
       final long cfHandle, final String property, final int propertyLength)
       throws RocksDBException;
   private native int getDirect(long handle, long readOptHandle, ByteBuffer key, int keyOffset,
-                               int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
-      throws RocksDBException;
-  private native int getDirect(long handle, long readOptHandle, final byte[] key, int keyOffset,
-                               int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
+      int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
       throws RocksDBException;
   private static native int getUnsafe(final long handle, final long readOptHandle, final byte[] key,
                                          final int keyOffset, final int keyLength, final long[] valData,
