@@ -482,9 +482,9 @@ Status MemTableList::TryInstallMemtableFlushResults(
       }
 
       const auto manifest_write_cb = [this, cfd, batch_count, log_buffer,
-                                      to_delete](const Status& status) {
+                                      to_delete, mu](const Status& status) {
         RemoveMemTablesOrRestoreFlags(status, cfd, batch_count, log_buffer,
-                                      to_delete);
+                                      to_delete, mu);
       };
 
       // this can release and reacquire the mutex.
@@ -579,7 +579,10 @@ void MemTableList::InstallNewVersion() {
 
 void MemTableList::RemoveMemTablesOrRestoreFlags(
     const Status& s, ColumnFamilyData* cfd, size_t batch_count,
-    LogBuffer* log_buffer, autovector<MemTable*>* to_delete) {
+    LogBuffer* log_buffer, autovector<MemTable*>* to_delete,
+    InstrumentedMutex* mu) {
+  assert(mu);
+  mu->AssertHeld();
   assert(to_delete);
   // we will be changing the version in the next code path,
   // so we better create a new one, since versions are immutable
