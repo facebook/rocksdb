@@ -628,25 +628,21 @@ void CompactionIterator::NextFromInput() {
       // Note that a deletion marker of type kTypeDeletionWithTimestamp will be
       // considered to have a different user key unless the timestamp is older
       // than *full_history_ts_low_.
-      while (
-          !IsPausingManualCompaction() && !IsShuttingDown() &&
-          input_->Valid() &&
-          (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
-          (cmp_->Equal(ikey_.user_key, next_ikey.user_key) ||
-           (timestamp_size_ && 0 == cmp_->CompareWithoutTimestamp(
-                                        ikey_.user_key, next_ikey.user_key))) &&
-          (prev_snapshot == 0 ||
-           DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
+      while (!IsPausingManualCompaction() && !IsShuttingDown() &&
+             input_->Valid() &&
+             (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
+             0 == cmp_->CompareWithoutTimestamp(ikey_.user_key,
+                                                next_ikey.user_key) &&
+             (prev_snapshot == 0 ||
+              DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
         input_->Next();
       }
       // If you find you still need to output a row with this key, we need to output the
       // delete too
       if (input_->Valid() &&
           (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
-          (cmp_->Equal(ikey_.user_key, next_ikey.user_key) ||
-           (timestamp_size_ && cmp_with_history_ts_low_ < 0 &&
-            0 == cmp_->CompareWithoutTimestamp(ikey_.user_key,
-                                               next_ikey.user_key)))) {
+          0 == cmp_->CompareWithoutTimestamp(ikey_.user_key,
+                                             next_ikey.user_key)) {
         valid_ = true;
         at_next_ = true;
       }

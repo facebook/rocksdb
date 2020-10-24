@@ -1067,7 +1067,7 @@ TEST_P(CompactionIteratorTsGcTest, NoKeyEligibleForGC) {
       test::KeyStr(/*ts=*/103, user_key, /*seq=*/4, kTypeValue),
       test::KeyStr(/*ts=*/102, user_key, /*seq=*/3,
                    kTypeDeletionWithTimestamp)};
-  const std::vector<std::string> input_values = {"a3", "a2"};
+  const std::vector<std::string> input_values = {"a3", ""};
   std::string full_history_ts_low;
   // All keys' timestamps are newer than or equal to 102, thus none of them
   // will be eligible for GC.
@@ -1094,7 +1094,7 @@ TEST_P(CompactionIteratorTsGcTest, AllKeysOlderThanThreshold) {
       test::KeyStr(/*ts=*/103, user_key, /*seq=*/4, kTypeDeletionWithTimestamp),
       test::KeyStr(/*ts=*/102, user_key, /*seq=*/3, kTypeValue),
       test::KeyStr(/*ts=*/101, user_key, /*seq=*/2, kTypeValue)};
-  const std::vector<std::string> input_values = {"a3", "a2", "a1"};
+  const std::vector<std::string> input_values = {"", "a2", "a1"};
   std::string full_history_ts_low;
   // All keys' timestamps are older than 104.
   PutFixed64(&full_history_ts_low, 104);
@@ -1104,7 +1104,7 @@ TEST_P(CompactionIteratorTsGcTest, AllKeysOlderThanThreshold) {
     AddSnapshot(3);
     const std::vector<std::string> expected_keys = {input_keys[0],
                                                     input_keys[1]};
-    const std::vector<std::string> expected_values = {"a3", "a2"};
+    const std::vector<std::string> expected_values = {"", "a2"};
     RunTest(input_keys, input_values, expected_keys, expected_values,
             /*last_committed_seq=*/kMaxSequenceNumber,
             /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
@@ -1117,7 +1117,7 @@ TEST_P(CompactionIteratorTsGcTest, AllKeysOlderThanThreshold) {
     // No snapshot, the deletion marker should be preserved because the user
     // key may appear beyond output level.
     const std::vector<std::string> expected_keys = {input_keys[0]};
-    const std::vector<std::string> expected_values = {"a3"};
+    const std::vector<std::string> expected_values = {""};
     RunTest(input_keys, input_values, expected_keys, expected_values,
             /*last_committed_seq=*/kMaxSequenceNumber,
             /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
@@ -1146,14 +1146,14 @@ TEST_P(CompactionIteratorTsGcTest, NewHidesOldSameSnapshot) {
       test::KeyStr(/*ts=*/102, user_key, /*seq=*/3, kTypeValue),
       test::KeyStr(/*ts=*/101, user_key, /*seq=*/2, kTypeValue),
       test::KeyStr(/*ts=*/100, user_key, /*seq=*/1, kTypeValue)};
-  const std::vector<std::string> input_values = {"a3", "a2", "a1", "a0"};
+  const std::vector<std::string> input_values = {"", "a2", "a1", "a0"};
   {
     std::string full_history_ts_low;
     // Keys whose timestamps larger than or equal to 102 will be preserved.
     PutFixed64(&full_history_ts_low, 102);
     const std::vector<std::string> expected_keys = {input_keys[0],
                                                     input_keys[1]};
-    const std::vector<std::string> expected_values = {"a3", "a2"};
+    const std::vector<std::string> expected_values = {"", "a2"};
     RunTest(input_keys, input_values, expected_keys, expected_values,
             /*last_committed_seq=*/kMaxSequenceNumber,
             /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
@@ -1170,9 +1170,9 @@ TEST_P(CompactionIteratorTsGcTest, DropTombstones) {
       test::KeyStr(/*ts=*/102, user_key, /*seq=*/3, kTypeValue),
       test::KeyStr(/*ts=*/101, user_key, /*seq=*/2, kTypeDeletionWithTimestamp),
       test::KeyStr(/*ts=*/100, user_key, /*seq=*/1, kTypeValue)};
-  const std::vector<std::string> input_values = {"a3", "a2", "a1", "a0"};
+  const std::vector<std::string> input_values = {"", "a2", "", "a0"};
   const std::vector<std::string> expected_keys = {input_keys[0], input_keys[1]};
-  const std::vector<std::string> expected_values = {"a3", "a2"};
+  const std::vector<std::string> expected_values = {"", "a2"};
 
   // Take a snapshot at seq 2.
   AddSnapshot(2);
@@ -1208,11 +1208,11 @@ TEST_P(CompactionIteratorTsGcTest, RewriteTs) {
       test::KeyStr(/*ts=*/102, user_key, /*seq=*/3, kTypeValue),
       test::KeyStr(/*ts=*/101, user_key, /*seq=*/2, kTypeDeletionWithTimestamp),
       test::KeyStr(/*ts=*/100, user_key, /*seq=*/1, kTypeValue)};
-  const std::vector<std::string> input_values = {"a3", "a2", "a1", "a0"};
+  const std::vector<std::string> input_values = {"", "a2", "", "a0"};
   const std::vector<std::string> expected_keys = {
       input_keys[0], input_keys[1], input_keys[2],
       test::KeyStr(/*ts=*/0, user_key, /*seq=*/0, kTypeValue)};
-  const std::vector<std::string> expected_values = {"a3", "a2", "a1", "a0"};
+  const std::vector<std::string> expected_values = {"", "a2", "", "a0"};
 
   AddSnapshot(1);
   AddSnapshot(2);
