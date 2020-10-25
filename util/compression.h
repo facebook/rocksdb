@@ -535,7 +535,6 @@ inline bool CompressionTypeSupported(CompressionType compression_type) {
     case kZSTD:
       return ZSTD_Supported();
     default:
-      assert(false);
       return false;
   }
 }
@@ -563,7 +562,6 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
     case kDisableCompressionOption:
       return "DisableOption";
     default:
-      assert(false);
       return "";
   }
 }
