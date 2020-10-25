@@ -1,12 +1,11 @@
 package org.rocksdb;
 
-import org.junit.Test;
-
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
-public class FastBufferTest {
+import org.junit.Test;
 
+public class FastBufferTest {
   @Test
   public void basicFastBufferTest() {
     FastBuffer fb = FastBuffer.allocate(Byte.MAX_VALUE);
@@ -20,6 +19,5 @@ public class FastBufferTest {
       assertEquals(i, fb.get(i));
     }
     fb.rewind();
-
   }
 }

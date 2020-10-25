@@ -5,12 +5,9 @@ package org.rocksdb;
  * See {@link FastBuffer} for methods to access its data.
  */
 public class PinnableSlice extends FastBuffer {
-
   private long pinnableSliceHandle;
 
-  PinnableSlice(final long pinnableSliceHandle,
-                final long dataHandle,
-                final int size) {
+  PinnableSlice(final long pinnableSliceHandle, final long dataHandle, final int size) {
     super(dataHandle, size);
     this.pinnableSliceHandle = pinnableSliceHandle;
   }

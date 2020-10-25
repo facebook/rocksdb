@@ -1349,9 +1349,10 @@ public class RocksDB extends RocksObject {
    */
   @Experimental("Performance optimization for retrieving large values")
   public PinnableSlice getUnsafe(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
-                 final byte[] key) throws RocksDBException {
+      final byte[] key) throws RocksDBException {
     long[] valData = new long[2];
-    int size = getUnsafe(nativeHandle_, opt.nativeHandle_, key, 0, key.length, valData, columnFamilyHandle.nativeHandle_);
+    int size = getUnsafe(nativeHandle_, opt.nativeHandle_, key, 0, key.length, valData,
+        columnFamilyHandle.nativeHandle_);
     return new PinnableSlice(valData[0], valData[1], size);
   }
 
@@ -1923,7 +1924,7 @@ public class RocksDB extends RocksObject {
    */
   @Experimental("Performance optimization of get(ColumnFamilyHandle, byte[], byte[]).")
   public int getCritical(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
-                         final byte[] value) throws RocksDBException {
+      final byte[] value) throws RocksDBException {
     return getCritical(nativeHandle_, key, 0, key.length, value, 0, value.length,
         columnFamilyHandle.nativeHandle_);
   }
@@ -2036,9 +2037,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public int get(final ColumnFamilyHandle columnFamilyHandle,
-                 final ReadOptions opt, final byte[] key, final byte[] value)
-      throws RocksDBException {
+  public int get(final ColumnFamilyHandle columnFamilyHandle, final ReadOptions opt,
+      final byte[] key, final byte[] value) throws RocksDBException {
     return get(nativeHandle_, opt.nativeHandle_, key, 0, key.length, value,
         0, value.length, columnFamilyHandle.nativeHandle_);
   }
@@ -4653,10 +4653,9 @@ public class RocksDB extends RocksObject {
       final int keyOffset, final int keyLength, byte[] value,
       final int valueOffset, final int valueLength, final long cfHandle)
       throws RocksDBException;
-  private static native int getCritical(final long handle,
-                                        final byte[] key, final int keyOffset, final int keyLength,
-                                        final byte[] value, final int valueOffset, final int valueLength, final long cfHandle)
-      throws RocksDBException;
+  private static native int getCritical(final long handle, final byte[] key, final int keyOffset,
+      final int keyLength, final byte[] value, final int valueOffset, final int valueLength,
+      final long cfHandle) throws RocksDBException;
   private native int get(final long handle, final long readOptHandle,
       final byte[] key, final int keyOffset, final int keyLength,
       final byte[] value, final int valueOffset, final int valueLength)
@@ -4716,8 +4715,7 @@ public class RocksDB extends RocksObject {
       int keyLength, ByteBuffer value, int valueOffset, int valueLength, long cfHandle)
       throws RocksDBException;
   private static native int getUnsafe(final long handle, final long readOptHandle, final byte[] key,
-                                         final int keyOffset, final int keyLength, final long[] valData,
-                                         final long cfHandle)
+      final int keyOffset, final int keyLength, final long[] valData, final long cfHandle)
       throws RocksDBException;
   private native void deleteDirect(long handle, long optHandle, ByteBuffer key, int keyOffset,
       int keyLength, long cfHandle) throws RocksDBException;

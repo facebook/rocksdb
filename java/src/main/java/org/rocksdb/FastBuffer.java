@@ -1,10 +1,9 @@
 package org.rocksdb;
 
-import sun.misc.Unsafe;
-
 import java.lang.reflect.Field;
 import java.nio.BufferOverflowException;
 import java.nio.BufferUnderflowException;
+import sun.misc.Unsafe;
 
 /**
  * This class has a similar methods to {@link java.nio.ByteBuffer}.
@@ -118,7 +117,8 @@ public class FastBuffer extends RocksMutableObject {
     if ((newLimit > capacity) || (newLimit < 0))
       throw new IllegalArgumentException();
     limit = newLimit;
-    if (position > limit) position = limit;
+    if (position > limit)
+      position = limit;
     return this;
   }
   /**
@@ -244,5 +244,4 @@ public class FastBuffer extends RocksMutableObject {
       unsafe.freeMemory(handle);
     }
   }
-
 }

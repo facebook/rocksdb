@@ -4,20 +4,19 @@
 //  (found in the LICENSE.Apache file in the root directory).
 package org.rocksdb;
 
-import org.junit.*;
-import org.junit.rules.ExpectedException;
-import org.junit.rules.TemporaryFolder;
-import sun.misc.Unsafe;
-
-import java.lang.reflect.Field;
-import java.nio.ByteBuffer;
-import java.util.*;
-
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
+
+import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
+import java.util.*;
+import org.junit.*;
+import org.junit.rules.ExpectedException;
+import org.junit.rules.TemporaryFolder;
+import sun.misc.Unsafe;
 
 public class RocksDBTest {
 
@@ -271,7 +270,6 @@ public class RocksDBTest {
       valueBuf.get(retValue);
       assertArrayEquals(value, retValue);
     }
-
   }
 
   @Test

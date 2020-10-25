@@ -1185,12 +1185,13 @@ jint rocksdb_get_unsafe_helper(
     JNIEnv* env, ROCKSDB_NAMESPACE::DB* db,
     const ROCKSDB_NAMESPACE::ReadOptions& read_options,
     ROCKSDB_NAMESPACE::ColumnFamilyHandle* column_family_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len, jlongArray jret_data, bool* has_exception) {
+    jbyteArray jkey, jint jkey_off, jint jkey_len, jlongArray jret_data,
+    bool* has_exception) {
   static const int kNotFound = -1;
   static const int kStatusError = -2;
 
-  char* key = reinterpret_cast<char*>(
-      env->GetPrimitiveArrayCritical(jkey, nullptr));
+  char* key =
+      reinterpret_cast<char*>(env->GetPrimitiveArrayCritical(jkey, nullptr));
   if (nullptr == key) {
     // Exception occurred
     *has_exception = true;
@@ -1216,7 +1217,8 @@ jint rocksdb_get_unsafe_helper(
   }
 
   jboolean is_copy;
-  jlong* ret_arr = reinterpret_cast<jlong*>(env->GetPrimitiveArrayCritical(jret_data, &is_copy));
+  jlong* ret_arr = reinterpret_cast<jlong*>(
+      env->GetPrimitiveArrayCritical(jret_data, &is_copy));
   if (nullptr == ret_arr) {
     // Exception occurred
     *has_exception = true;
@@ -1225,7 +1227,8 @@ jint rocksdb_get_unsafe_helper(
   ret_arr[0] = reinterpret_cast<jlong>(value_slice);
   ret_arr[1] = reinterpret_cast<jlong>(value_slice->data());
 
-  env->ReleasePrimitiveArrayCritical(jret_data, ret_arr, is_copy ? 0 : JNI_ABORT);
+  env->ReleasePrimitiveArrayCritical(jret_data, ret_arr,
+                                     is_copy ? 0 : JNI_ABORT);
 
   *has_exception = false;
 
@@ -1237,9 +1240,11 @@ jint rocksdb_get_unsafe_helper(
  * Method:    getUnsafe
  * Signature: (JJ[BII[JJ)V
  */
-jint Java_org_rocksdb_RocksDB_getUnsafe
-  (JNIEnv *env, jclass, jlong jdb_handle, jlong jropt_handle,
-  jbyteArray jkey, jint jkey_off, jint jkey_len, jlongArray jret_data, jlong jcf_handle) {
+jint Java_org_rocksdb_RocksDB_getUnsafe(JNIEnv* env, jclass, jlong jdb_handle,
+                                        jlong jropt_handle, jbyteArray jkey,
+                                        jint jkey_off, jint jkey_len,
+                                        jlongArray jret_data,
+                                        jlong jcf_handle) {
   auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto& ro_opt =
       *reinterpret_cast<ROCKSDB_NAMESPACE::ReadOptions*>(jropt_handle);
@@ -1247,15 +1252,14 @@ jint Java_org_rocksdb_RocksDB_getUnsafe
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   if (cf_handle != nullptr) {
     bool has_exception = false;
-    return rocksdb_get_unsafe_helper(env, db_handle, ro_opt, cf_handle,
-        jkey, jkey_off, jkey_len, jret_data,
-        &has_exception);
+    return rocksdb_get_unsafe_helper(env, db_handle, ro_opt, cf_handle, jkey,
+                                     jkey_off, jkey_len, jret_data,
+                                     &has_exception);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(
                  "Invalid ColumnFamilyHandle."));
     return 0;
-
   }
 }
 
@@ -1676,8 +1680,8 @@ jint rocksdb_get_critical_helper(
   static const int kStatusError = -2;
 
   jboolean is_copy;
-  char* key = reinterpret_cast<char*>(
-      env->GetPrimitiveArrayCritical(jkey, &is_copy));
+  char* key =
+      reinterpret_cast<char*>(env->GetPrimitiveArrayCritical(jkey, &is_copy));
   if (nullptr == key) {
     // Exception occurred
     *has_exception = true;
@@ -1722,16 +1726,18 @@ jint rocksdb_get_critical_helper(
   const jint length = std::min(jval_len, cvalue_len);
 
   is_copy = JNI_FALSE;
-  jbyte* value_out = reinterpret_cast<jbyte*>(
-      env->GetPrimitiveArrayCritical(jval, &is_copy));
+  jbyte* value_out =
+      reinterpret_cast<jbyte*>(env->GetPrimitiveArrayCritical(jval, &is_copy));
   if (nullptr == value_out) {
-        // exception thrown: OutOfMemoryError
-        *has_exception = true;
-        return kStatusError;
+    // exception thrown: OutOfMemoryError
+    *has_exception = true;
+    return kStatusError;
   }
   if (JNI_TRUE == is_copy) {
     // Copy is less likely according to Oracle JNI docs
-    std::cerr << "Warning: potentially inefficient - GetPrimitiveArrayCritical is returning a copy" << std::endl;
+    std::cerr << "Warning: potentially inefficient - GetPrimitiveArrayCritical "
+                 "is returning a copy"
+              << std::endl;
   }
 
   jbyte* value_start_ptr = value_out + jval_off;
@@ -1787,19 +1793,19 @@ jint Java_org_rocksdb_RocksDB_get__J_3BII_3BIIJ(
   }
 }
 
-jint Java_org_rocksdb_RocksDB_getCritical(
-    JNIEnv* env, jclass, jlong jdb_handle,
-    jbyteArray jkey, jint jkey_off, jint jkey_len,
-    jbyteArray jval, jint jval_off, jint jval_len,
-    jlong jcf_handle) {
+jint Java_org_rocksdb_RocksDB_getCritical(JNIEnv* env, jclass, jlong jdb_handle,
+                                          jbyteArray jkey, jint jkey_off,
+                                          jint jkey_len, jbyteArray jval,
+                                          jint jval_off, jint jval_len,
+                                          jlong jcf_handle) {
   auto* db_handle = reinterpret_cast<ROCKSDB_NAMESPACE::DB*>(jdb_handle);
   auto* cf_handle =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   if (cf_handle != nullptr) {
     bool has_exception = false;
-    return rocksdb_get_critical_helper(env, db_handle, ROCKSDB_NAMESPACE::ReadOptions(),
-                              cf_handle, jkey, jkey_off, jkey_len, jval,
-                              jval_off, jval_len, &has_exception);
+    return rocksdb_get_critical_helper(
+        env, db_handle, ROCKSDB_NAMESPACE::ReadOptions(), cf_handle, jkey,
+        jkey_off, jkey_len, jval, jval_off, jval_len, &has_exception);
   } else {
     ROCKSDB_NAMESPACE::RocksDBExceptionJni::ThrowNew(
         env, ROCKSDB_NAMESPACE::Status::InvalidArgument(

@@ -6,9 +6,7 @@
  */
 package org.rocksdb.jmh;
 
-import org.openjdk.jmh.annotations.*;
-import org.rocksdb.*;
-import org.rocksdb.util.FileUtils;
+import static org.rocksdb.util.KVUtils.ba;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -18,8 +16,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.rocksdb.util.KVUtils.ba;
+import org.openjdk.jmh.annotations.*;
+import org.rocksdb.*;
+import org.rocksdb.util.FileUtils;
 
 @State(Scope.Benchmark)
 public class GetBenchmarks {
@@ -35,11 +34,9 @@ public class GetBenchmarks {
   @Param("100000")
   int keyCount;
 
-  @Param({"12", "64", "128"})
-  int keySize;
+  @Param({"12", "64", "128"}) int keySize;
 
-  @Param({"64", "1024", "65536"})
-  int valueSize;
+  @Param({"64", "1024", "65536"}) int valueSize;
 
   Path dbDir;
   DBOptions options;
@@ -102,8 +99,7 @@ public class GetBenchmarks {
       }
     }
 
-    try (final FlushOptions flushOptions = new FlushOptions()
-        .setWaitForFlush(true)) {
+    try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
       db.flush(flushOptions);
     }
 
@@ -216,11 +212,11 @@ public class GetBenchmarks {
   public void preallocatedByteBufferGet() throws RocksDBException {
     int res = db.get(getColumnFamily(), readOptions, getKeyBuf(), getValueBuf());
     // For testing correctness:
-//    assert res > 0;
-//    final byte[] ret = new byte[valueSize];
-//    valueBuf.get(ret);
-//    System.out.println(str(ret));
-//    valueBuf.flip();
+    //    assert res > 0;
+    //    final byte[] ret = new byte[valueSize];
+    //    valueBuf.get(ret);
+    //    System.out.println(str(ret));
+    //    valueBuf.flip();
   }
 
   @Benchmark
@@ -229,5 +225,4 @@ public class GetBenchmarks {
     // assert pinnableSlice.capacity() > 0;
     pinnableSlice.close();
   }
-
 }
