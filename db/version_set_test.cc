@@ -1552,28 +1552,39 @@ TEST_F(VersionSetTest, AddWalWithSmallerSize) {
 TEST_F(VersionSetTest, DeleteWalsBeforeNonExistingWalNumber) {
   NewDB();
 
-  constexpr WalNumber kLogNumber = 10;
-  constexpr WalNumber kNonExistingNumber = 9;
+  constexpr WalNumber kLogNumber0 = 10;
+  constexpr WalNumber kLogNumber1 = 20;
+  constexpr WalNumber kNonExistingNumber = 15;
   constexpr uint64_t kSizeInBytes = 111;
 
   {
-    // Add a closed WAL.
+    // Add closed WALs.
     VersionEdit edit;
     WalMetadata wal(kSizeInBytes);
-    edit.AddWal(kLogNumber, wal);
+    edit.AddWal(kLogNumber0, wal);
+    edit.AddWal(kLogNumber1, wal);
 
     ASSERT_OK(LogAndApplyToDefaultCF(edit));
   }
 
   {
-    // Delete a non-existing WAL.
+    // Delete WALs before a non-existing WAL.
     VersionEdit edit;
     edit.DeleteWalsBefore(kNonExistingNumber);
 
-    Status s = LogAndApplyToDefaultCF(edit);
-    ASSERT_TRUE(s.IsCorruption());
-    ASSERT_TRUE(s.ToString().find("WAL 9 does not exist") != std::string::npos)
-        << s.ToString();
+    ASSERT_OK(LogAndApplyToDefaultCF(edit));
+  }
+
+  // Recover a new VersionSet, WAL0 is deleted, WAL1 is not.
+  {
+    std::unique_ptr<VersionSet> new_versions(
+        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+                       &write_buffer_manager_, &write_controller_,
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+    ASSERT_OK(new_versions->Recover(column_families_, false));
+    const auto& wals = new_versions->GetWalSet().GetWals();
+    ASSERT_EQ(wals.size(), 1);
+    ASSERT_TRUE(wals.find(kLogNumber1) != wals.end());
   }
 }
 
