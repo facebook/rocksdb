@@ -53,7 +53,7 @@ struct JemallocAllocatorOptions {
   size_t tcache_size_upper_bound = 16 * 1024;
 };
 
-// Generate memory allocators which allocates through Jemalloc and utilize
+// Generate memory allocator which allocates through Jemalloc and utilize
 // MADV_DONTDUMP through madvise to exclude cache items from core dump.
 // Applications can use the allocator with block cache to exclude block cache
 // usage from core dump.
