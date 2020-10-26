@@ -123,7 +123,7 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
 
     // "number <= current_log_number - 1" is equivalent to
     // "number < current_log_number".
-    MarkLogsSynced(current_log_number - 1, true, io_s);
+    Status s = MarkLogsSynced(current_log_number - 1, true, io_s.ok());
     if (!io_s.ok()) {
       if (total_log_size_ > 0) {
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
@@ -136,6 +136,7 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
       TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return io_s;
     }
+    io_s = status_to_io_status(std::move(s));
   }
   return io_s;
 }

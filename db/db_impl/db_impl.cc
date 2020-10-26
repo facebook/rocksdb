@@ -1282,7 +1282,7 @@ Status DBImpl::SyncWAL() {
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
   {
     InstrumentedMutexLock l(&mutex_);
-    MarkLogsSynced(current_log_number, need_log_dir_sync, status);
+    status = MarkLogsSynced(current_log_number, need_log_dir_sync, status.ok());
   }
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
 
@@ -1308,28 +1308,44 @@ Status DBImpl::UnlockWAL() {
   return Status::OK();
 }
 
-void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
-                            const Status& status) {
+Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
+                              bool is_sync_successful) {
   mutex_.AssertHeld();
-  if (synced_dir && logfile_number_ == up_to && status.ok()) {
+  if (synced_dir && logfile_number_ == up_to && is_sync_successful) {
     log_dir_synced_ = true;
   }
+  VersionEdit synced_wals;
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
-    auto& log = *it;
-    assert(log.getting_synced);
-    if (status.ok() && logs_.size() > 1) {
-      logs_to_free_.push_back(log.ReleaseWriter());
+    auto& wal = *it;
+    assert(wal.getting_synced);
+    if (is_sync_successful && logs_.size() > 1) {
+      if (immutable_db_options_.track_and_verify_wals_in_manifest) {
+        synced_wals.AddWal(wal.number,
+                           WalMetadata(wal.writer->file()->GetFileSize()));
+      }
+      logs_to_free_.push_back(wal.ReleaseWriter());
       // To modify logs_ both mutex_ and log_write_mutex_ must be held
       InstrumentedMutexLock l(&log_write_mutex_);
       it = logs_.erase(it);
     } else {
-      log.getting_synced = false;
+      wal.getting_synced = false;
       ++it;
     }
   }
-  assert(!status.ok() || logs_.empty() || logs_[0].number > up_to ||
+  assert(!is_sync_successful || logs_.empty() || logs_[0].number > up_to ||
          (logs_.size() == 1 && !logs_[0].getting_synced));
+  Status s;
+  if (synced_wals.IsWalAddition()) {
+    // not empty, write to MANIFEST.
+    s = versions_->LogAndApplyToDefaultColumnFamily(&synced_wals, &mutex_);
+    if (!s.ok() && versions_->io_status().IsIOError()) {
+      const IOStatus& io_s = versions_->io_status();
+      s = error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWrite);
+    }
+  }
   log_sync_cv_.SignalAll();
+  return s;
 }
 
 SequenceNumber DBImpl::GetLatestSequenceNumber() const {

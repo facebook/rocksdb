@@ -1682,7 +1682,9 @@ class DBImpl : public DB {
       std::unique_ptr<TaskLimiterToken>* token, LogBuffer* log_buffer);
 
   // helper function to call after some of the logs_ were synced
-  void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
+  // If is_sync_successful is false, returned status is always ok.
+  Status MarkLogsSynced(uint64_t up_to, bool synced_dir,
+                        bool is_sync_successful);
 
   SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary,
                                 bool lock = true);
