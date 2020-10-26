@@ -10,6 +10,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+
 #include <cmath>
 
 #include "port/port.h"  // for PREFETCH
