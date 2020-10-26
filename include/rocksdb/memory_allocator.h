@@ -64,7 +64,7 @@ struct JemallocAllocatorOptions {
 // The memory allocator hooks memory allocation of the arena, and call
 // madvise() with MADV_DONTDUMP flag to exclude the piece of memory from
 // core dump. Side benefit of using single arena would be reduction of jemalloc
-// metadata for some workload.
+// metadata for some workloads.
 //
 // To mitigate mutex contention for using one single arena, jemalloc tcache
 // (thread-local cache) is enabled to cache unused allocations for future use.
