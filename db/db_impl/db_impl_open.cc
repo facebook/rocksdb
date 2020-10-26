@@ -597,10 +597,9 @@ Status DBImpl::Recover(
       // since the WALs deleted when WAL tracking is disabled are not persisted
       // into MANIFEST, WAL check may fail.
       VersionEdit edit;
-      for (const auto& wal : versions_->GetWalSet().GetWals()) {
-        WalNumber number = wal.first;
-        edit.DeleteWal(number);
-      }
+      WalNumber max_wal_number =
+          std::prev(versions_->GetWalSet().GetWals().end())->first;
+      edit.DeleteWalsBefore(max_wal_number + 1);
       s = versions_->LogAndApplyToDefaultColumnFamily(&edit, &mutex_);
     }
     if (!s.ok()) {

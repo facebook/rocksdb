@@ -1196,10 +1196,8 @@ TEST_F(VersionSetTest, WalEditsNotAppliedToVersion) {
     edits.back()->AddWal(i, WalMetadata(i));
   }
   // Delete the first half of the WALs.
-  for (uint64_t i = 1; i <= kNumWals; i++) {
-    edits.emplace_back(new VersionEdit);
-    edits.back()->DeleteWal(i);
-  }
+  edits.emplace_back(new VersionEdit);
+  edits.back()->DeleteWalsBefore(kNumWals / 2 + 1);
 
   autovector<Version*> versions;
   SyncPoint::GetInstance()->SetCallBack(
@@ -1232,10 +1230,8 @@ TEST_F(VersionSetTest, NonWalEditsAppliedToVersion) {
     edits.back()->AddWal(i, WalMetadata(i));
   }
   // Delete the first half of the WALs.
-  for (uint64_t i = 1; i <= kNumWals; i++) {
-    edits.emplace_back(new VersionEdit);
-    edits.back()->DeleteWal(i);
-  }
+  edits.emplace_back(new VersionEdit);
+  edits.back()->DeleteWalsBefore(kNumWals / 2 + 1);
   edits.emplace_back(new VersionEdit);
   edits.back()->SetDBId(kDBId);
 
@@ -1415,7 +1411,7 @@ TEST_F(VersionSetTest, WalDeletion) {
   // Delete the closed WAL.
   {
     VersionEdit edit;
-    edit.DeleteWal(kClosedLogNumber);
+    edit.DeleteWalsBefore(kNonClosedLogNumber);
 
     ASSERT_OK(LogAndApplyToDefaultCF(edit));
 
@@ -1553,11 +1549,11 @@ TEST_F(VersionSetTest, AddWalWithSmallerSize) {
   }
 }
 
-TEST_F(VersionSetTest, DeleteNonExistingWal) {
+TEST_F(VersionSetTest, DeleteWalsBeforeNonExistingWalNumber) {
   NewDB();
 
   constexpr WalNumber kLogNumber = 10;
-  constexpr WalNumber kNonExistingNumber = 11;
+  constexpr WalNumber kNonExistingNumber = 9;
   constexpr uint64_t kSizeInBytes = 111;
 
   {
@@ -1572,20 +1568,53 @@ TEST_F(VersionSetTest, DeleteNonExistingWal) {
   {
     // Delete a non-existing WAL.
     VersionEdit edit;
-    edit.DeleteWal(kNonExistingNumber);
+    edit.DeleteWalsBefore(kNonExistingNumber);
 
     Status s = LogAndApplyToDefaultCF(edit);
     ASSERT_TRUE(s.IsCorruption());
-    ASSERT_TRUE(s.ToString().find("WAL 11 must exist before deletion") !=
-                std::string::npos)
+    ASSERT_TRUE(s.ToString().find("WAL 9 does not exist") != std::string::npos)
         << s.ToString();
+  }
+}
+
+TEST_F(VersionSetTest, DeleteAllWals) {
+  NewDB();
+
+  constexpr WalNumber kMaxLogNumber = 10;
+  constexpr uint64_t kSizeInBytes = 111;
+
+  {
+    // Add a closed WAL.
+    VersionEdit edit;
+    WalMetadata wal(kSizeInBytes);
+    edit.AddWal(kMaxLogNumber, wal);
+
+    ASSERT_OK(LogAndApplyToDefaultCF(edit));
+  }
+
+  {
+    VersionEdit edit;
+    edit.DeleteWalsBefore(kMaxLogNumber + 10);
+
+    ASSERT_OK(LogAndApplyToDefaultCF(edit));
+  }
+
+  // Recover a new VersionSet, all WALs are deleted.
+  {
+    std::unique_ptr<VersionSet> new_versions(
+        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+                       &write_buffer_manager_, &write_controller_,
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+    ASSERT_OK(new_versions->Recover(column_families_, false));
+    const auto& wals = new_versions->GetWalSet().GetWals();
+    ASSERT_EQ(wals.size(), 0);
   }
 }
 
 TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
   NewDB();
 
-  constexpr int kAtomicGroupSize = 10;
+  constexpr int kAtomicGroupSize = 7;
   constexpr uint64_t kNumWals = 5;
   const std::string kDBId = "db_db";
 
@@ -1603,11 +1632,9 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
   edits.back()->SetDBId(kDBId);
   edits.back()->MarkAtomicGroup(--remaining);
   // Delete the first added 4 WALs.
-  for (uint64_t i = 1; i < kNumWals; i++) {
-    edits.emplace_back(new VersionEdit);
-    edits.back()->DeleteWal(i);
-    edits.back()->MarkAtomicGroup(--remaining);
-  }
+  edits.emplace_back(new VersionEdit);
+  edits.back()->DeleteWalsBefore(kNumWals);
+  edits.back()->MarkAtomicGroup(--remaining);
   ASSERT_EQ(remaining, 0);
 
   Status s = LogAndApplyToDefaultCF(edits);

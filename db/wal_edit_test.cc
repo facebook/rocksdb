@@ -25,9 +25,7 @@ TEST(WalSet, AddDeleteReset) {
   ASSERT_EQ(wals.GetWals().size(), 10);
 
   // Delete WAL 1 - 5.
-  for (WalNumber log_number = 1; log_number <= 5; log_number++) {
-    wals.DeleteWal(WalDeletion(log_number));
-  }
+  wals.DeleteWalsBefore(6);
   ASSERT_EQ(wals.GetWals().size(), 5);
 
   WalNumber expected_log_number = 6;
@@ -74,13 +72,24 @@ TEST(WalSet, CreateTwice) {
               std::string::npos);
 }
 
-TEST(WalSet, DeleteNonExistingWal) {
-  constexpr WalNumber kNonExistingNumber = 100;
+TEST(WalSet, DeleteAllWals) {
+  constexpr WalNumber kMaxWalNumber = 10;
   WalSet wals;
-  Status s = wals.DeleteWal(WalDeletion(kNonExistingNumber));
+  for (WalNumber i = 1; i <= kMaxWalNumber; i++) {
+    wals.AddWal(WalAddition(i));
+  }
+  ASSERT_OK(wals.DeleteWalsBefore(kMaxWalNumber + 1));
+}
+
+TEST(WalSet, DeleteWalsBeforeNonExistingLogNumber) {
+  WalSet wals;
+  for (WalNumber odd_wal_number = 1; odd_wal_number < 10; odd_wal_number += 2) {
+    wals.AddWal(WalAddition(odd_wal_number));
+  }
+  WalNumber even_wal_number = 2;
+  Status s = wals.DeleteWalsBefore(even_wal_number);
   ASSERT_TRUE(s.IsCorruption());
-  ASSERT_TRUE(s.ToString().find("WAL 100 must exist before deletion") !=
-              std::string::npos);
+  ASSERT_TRUE(s.ToString().find("WAL 2 does not exist") != std::string::npos);
 }
 
 class WalSetTest : public DBTestBase {
