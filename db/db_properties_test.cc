@@ -336,7 +336,7 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
     table_options.filter_policy.reset(
         NewBloomFilterPolicy(kBloomBitsPerKey, false));
     table_options.block_size = 1024;
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     DestroyAndReopen(options);
 
@@ -536,7 +536,7 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   table_options.filter_policy.reset(
       NewBloomFilterPolicy(kBloomBitsPerKey, false));
   table_options.block_size = 1024;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   DestroyAndReopen(options);
 

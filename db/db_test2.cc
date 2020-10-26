@@ -292,7 +292,7 @@ TEST_F(DBTest2, CacheIndexAndFilterWithDBRestart) {
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = true;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   Put(1, "a", "begin");
@@ -1345,7 +1345,7 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
   options.target_file_size_base = kNumEntriesPerFile * kNumBytesPerEntry;
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = true;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
 
   Random rnd(301);
@@ -1471,7 +1471,7 @@ TEST_P(CompressionFailuresTest, CompressionFailures) {
   BlockBasedTableOptions table_options;
   table_options.block_size = 512;
   table_options.verify_compression = true;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   options.compression = compression_type_;
   options.compression_opts.parallel_threads = compression_parallel_threads_;
@@ -1809,7 +1809,7 @@ class PinL0IndexAndFilterBlocksTest
     table_options.cache_index_and_filter_blocks = true;
     table_options.pin_l0_filter_and_index_blocks_in_cache = true;
     table_options.filter_policy.reset(NewBloomFilterPolicy(20));
-    options->table_factory.reset(new BlockBasedTableFactory(table_options));
+    options->table_factory.reset(NewBlockBasedTableFactory(table_options));
     CreateAndReopenWithCF({"pikachu"}, *options);
 
     Put(1, "a", "begin");
@@ -1849,7 +1849,7 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
   table_options.cache_index_and_filter_blocks = true;
   table_options.pin_l0_filter_and_index_blocks_in_cache = true;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "key", "val"));
@@ -3302,7 +3302,7 @@ TEST_F(DBTest2, RateLimitedCompactionReads) {
     BlockBasedTableOptions bbto;
     bbto.block_size = 16384;
     bbto.no_block_cache = true;
-    options.table_factory.reset(new BlockBasedTableFactory(bbto));
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
     DestroyAndReopen(options);
 
     for (int i = 0; i < kNumL0Files; ++i) {
@@ -4046,7 +4046,7 @@ TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
   bbto.cache_index_and_filter_blocks = false;
   bbto.block_cache = NewLRUCache(100000);
   bbto.block_size = 400;  // small block size
-  options.table_factory.reset(new BlockBasedTableFactory(bbto));
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   Reopen(options);
 
   Random rnd(301);
