@@ -68,8 +68,8 @@ class CompactionJob {
       const std::atomic<bool>* shutting_down,
       const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
       FSDirectory* db_directory, FSDirectory* output_directory,
-      Statistics* stats, InstrumentedMutex* db_mutex,
-      ErrorHandler* db_error_handler,
+      FSDirectory* blob_output_directory, Statistics* stats,
+      InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
       std::vector<SequenceNumber> existing_snapshots,
       SequenceNumber earliest_write_conflict_snapshot,
       const SnapshotChecker* snapshot_checker,
@@ -169,6 +169,7 @@ class CompactionJob {
   LogBuffer* log_buffer_;
   FSDirectory* db_directory_;
   FSDirectory* output_directory_;
+  FSDirectory* blob_output_directory_;
   Statistics* stats_;
   InstrumentedMutex* db_mutex_;
   ErrorHandler* db_error_handler_;
