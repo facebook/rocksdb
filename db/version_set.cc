@@ -1997,6 +1997,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 
 void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                        ReadCallback* callback, bool* is_blob) {
+  fprintf(stdout, "JJJ2: multiget \n");
   PinnedIteratorsManager pinned_iters_mgr;
 
   // Pin blocks that we read to hold merge operands

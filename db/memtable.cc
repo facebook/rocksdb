@@ -902,6 +902,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
   MultiGetRange temp_range(*range, range->begin(), range->end());
   if (bloom_filter_) {
+    fprintf(stdout, "JJJ3: memtable bloom_filter\n");
     std::array<Slice*, MultiGetContext::MAX_BATCH_SIZE> keys;
     std::array<bool, MultiGetContext::MAX_BATCH_SIZE> may_match = {{true}};
     autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> prefixes;
