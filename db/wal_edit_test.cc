@@ -81,17 +81,6 @@ TEST(WalSet, DeleteAllWals) {
   ASSERT_OK(wals.DeleteWalsBefore(kMaxWalNumber + 1));
 }
 
-TEST(WalSet, DeleteWalsBeforeNonExistingLogNumber) {
-  WalSet wals;
-  for (WalNumber odd_wal_number = 1; odd_wal_number < 10; odd_wal_number += 2) {
-    wals.AddWal(WalAddition(odd_wal_number));
-  }
-  WalNumber even_wal_number = 2;
-  Status s = wals.DeleteWalsBefore(even_wal_number);
-  ASSERT_TRUE(s.IsCorruption());
-  ASSERT_TRUE(s.ToString().find("WAL 2 does not exist") != std::string::npos);
-}
-
 class WalSetTest : public DBTestBase {
  public:
   WalSetTest() : DBTestBase("WalSetTest", /* env_do_fsync */ true) {}

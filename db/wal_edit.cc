@@ -142,14 +142,7 @@ Status WalSet::AddWals(const WalAdditions& wals) {
 }
 
 Status WalSet::DeleteWalsBefore(WalNumber wal) {
-  auto lb = wals_.lower_bound(wal);
-  if (lb != wals_.end() && lb->first != wal) {
-    std::stringstream ss;
-    ss << "WAL " << wal
-       << " does not exist and is not larger than all existing WALs";
-    return Status::Corruption("WalSet", ss.str());
-  }
-  wals_.erase(wals_.begin(), lb);
+  wals_.erase(wals_.begin(), wals_.lower_bound(wal));
   return Status::OK();
 }
 
