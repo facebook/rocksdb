@@ -56,8 +56,10 @@ namespace ROCKSDB_NAMESPACE {
 class Customizable : public Configurable {
  public:
   virtual ~Customizable() {}
+
   // Returns the name of this class of Customizable
   virtual const char* Name() const = 0;
+
   // Returns an identifier for this Customizable.
   // This could be its name or something more complex (like its URL/pattern).
   // Used for pretty printing.
@@ -116,22 +118,37 @@ class Customizable : public Configurable {
     }
   }
 
-  // Checks to see if this Configurable is equivalent to other.
+  // Checks to see if this Customizable is equivalent to other.
   // This method assumes that the two objects are of the same class.
   // @param config_options Controls how the options are compared.
   // @param other The other object to compare to.
   // @param mismatch If the objects do not match, this parameter contains
   //      the name of the option that triggered the match failure.
   // @param True if the objects match, false otherwise.
+  // @see Configurable::AreEquivalent for more details
   bool AreEquivalent(const ConfigOptions& config_options,
                      const Configurable* other,
                      std::string* mismatch) const override;
+
+  // Validates that the settings are valid/consistent and performs any object
+  // initialization required by this object.  This method may be called as part
+  // of Configure (if invoke_prepare_options is set), or may be invoked
+  // separately.
+  // @see Configurable::PrepareOptions for more details
   Status PrepareOptions(const ConfigOptions& config_options) override;
+
+  // Returns true if this object has been initialized via PrepareOptions, false
+  // otherwise. Once an object has been prepared, only mutable options may be
+  // changed.
+  // @see Configurable::IsPrepared for more details
   bool IsPrepared() const override;
+
+  // Checks to see if the settings are valid for this object.
+  // @see Configurable::ValidateOptions for more details
   Status ValidateOptions(const DBOptions& db_opts,
                          const ColumnFamilyOptions& cf_opts) const override;
 #ifndef ROCKSDB_LITE
-  // Returns the value of the option associated with the input name
+  // Gets the value of the option associated with the input name
   // @see Configurable::GetOption for more details
   Status GetOption(const ConfigOptions& config_options, const std::string& name,
                    std::string* value) const override;
@@ -154,36 +171,6 @@ class Customizable : public Configurable {
   std::string SerializeOptions(const ConfigOptions& options,
                                const std::string& prefix) const override;
 #endif  // ROCKSDB_LITE
- public:
-  // Helper method for configuring a new customizable object.
-  // If base_opts are set, this is the "default" options to use for the new
-  // object.  Then any values in "new_opts" are applied to the object.
-  // Returns OK if the object could be successfully configured
-  static Status ConfigureNewObject(
-      const ConfigOptions& config_options, Customizable* object,
-      const std::string& id, const std::string& base_opts,
-      const std::unordered_map<std::string, std::string>& new_opts);
-
-  // Splits the input opt_value into the ID field and the remaining options.
-  // The input opt_value can be in the form of "name" or "name=value
-  // [;name=value]". The first form uses the "name" as an id with no options The
-  // latter form converts the input into a map of name=value pairs and sets "id"
-  // to the "id" value from the map.
-  // @param opt_value The value to split into id and options
-  // @param id The id field from the opt_value
-  // @param options The remaining name/value pairs from the opt_value
-  // @param default_id If specified and there is no id field in the map, this
-  // value is returned as the ID
-  // @return OK if the value was converted to a map succesfully and an ID was
-  // found.
-  // @return InvalidArgument if the value could not be converted to a map or
-  // there was or there is no id property in the map.
-  static Status GetOptionsMap(
-      const std::string& opt_value, std::string* id,
-      std::unordered_map<std::string, std::string>* options);
-  static Status GetOptionsMap(
-      const std::string& opt_value, const std::string& default_id,
-      std::string* id, std::unordered_map<std::string, std::string>* options);
 };
 
 }  // namespace ROCKSDB_NAMESPACE

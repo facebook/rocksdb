@@ -8,6 +8,7 @@
 #include <memory>
 #include <unordered_map>
 
+#include "options/configurable_helper.h"
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/customizable.h"
@@ -33,7 +34,7 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
                                std::shared_ptr<T>* result) {
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
-  Status status = Customizable::GetOptionsMap(value, &id, &opt_map);
+  Status status = ConfigurableHelper::GetOptionsMap(value, &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
   }
@@ -68,8 +69,8 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
       }
     }
   }
-  return Customizable::ConfigureNewObject(config_options, result->get(), id,
-                                          curr_opts, opt_map);
+  return ConfigurableHelper::ConfigureNewObject(config_options, result->get(),
+                                                id, curr_opts, opt_map);
 }
 
 template <typename T>
@@ -79,7 +80,7 @@ static Status LoadUniqueObject(const ConfigOptions& config_options,
                                std::unique_ptr<T>* result) {
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
-  Status status = Customizable::GetOptionsMap(value, &id, &opt_map);
+  Status status = ConfigurableHelper::GetOptionsMap(value, &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
   }
@@ -114,8 +115,8 @@ static Status LoadUniqueObject(const ConfigOptions& config_options,
       }
     }
   }
-  return Customizable::ConfigureNewObject(config_options, result->get(), id,
-                                          curr_opts, opt_map);
+  return ConfigurableHelper::ConfigureNewObject(config_options, result->get(),
+                                                id, curr_opts, opt_map);
 }
 template <typename T>
 static Status LoadStaticObject(const ConfigOptions& config_options,
@@ -123,7 +124,7 @@ static Status LoadStaticObject(const ConfigOptions& config_options,
                                const StaticFactoryFunc<T>& func, T** result) {
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
-  Status status = Customizable::GetOptionsMap(value, &id, &opt_map);
+  Status status = ConfigurableHelper::GetOptionsMap(value, &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
   }
@@ -158,7 +159,7 @@ static Status LoadStaticObject(const ConfigOptions& config_options,
       }
     }
   }
-  return Customizable::ConfigureNewObject(config_options, *result, id,
-                                          curr_opts, opt_map);
+  return ConfigurableHelper::ConfigureNewObject(config_options, *result, id,
+                                                curr_opts, opt_map);
 }
 }  // namespace ROCKSDB_NAMESPACE

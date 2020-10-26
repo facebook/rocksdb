@@ -156,7 +156,7 @@ class PlainTableFactory : public TableFactory {
   explicit PlainTableFactory(
       const PlainTableOptions& _table_options = PlainTableOptions());
 
-  // Method to allow GetAs to work for this class
+  // Method to allow CheckedCast to work for this class
   static const char* kClassName() { return kPlainTableName(); }
   const char* Name() const override { return kPlainTableName(); }
   using TableFactory::NewTableReader;
