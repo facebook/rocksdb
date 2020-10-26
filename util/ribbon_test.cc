@@ -411,7 +411,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     }
 
     // And compare to Bloom time, for fun
-    {
+    if (ibytes >= /* minimum Bloom impl bytes*/ 64) {
       Index bfp_count = 0;
       cur = other_keys_begin;
       ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
