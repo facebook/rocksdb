@@ -598,6 +598,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetMem) {
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.cache_index_and_filter_blocks = true;
   bbto.whole_key_filtering = false;
+  options.memtable_prefix_bloom_size_ratio = 0.1;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
@@ -622,6 +623,8 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetMem) {
 //  ASSERT_OK(db_->Flush(fo));
 
   // Read with MultiGet
+  ts_str = Timestamp(2, 0);
+  ts = ts_str;
   ReadOptions read_opts;
   read_opts.timestamp = &ts;
   size_t batch_size = 1;
