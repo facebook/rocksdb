@@ -297,7 +297,13 @@ using StandardRehasher =
 // which can be added to the expected FP rate from the underlying data
 // structure. (Note: technically, a + b is only a good approximation of
 // 1-(1-a)(1-b) == a + b - a*b, if a and b are much closer to 0 than to 1.)
-// The number of entries added is taken as a double in case it's an average.
+// The number of entries added can be a double here in case it's an
+// average.
+template <class Hasher, typename Numerical>
+double ExpectedCollisionFpRate(const Hasher& hasher, Numerical added) {
+  // Standardize on the 'double' specialization
+  return ExpectedCollisionFpRate(hasher, 1.0 * added);
+}
 template <class Hasher>
 double ExpectedCollisionFpRate(const Hasher& /*hasher*/, double added) {
   // Technically, there could be overlap among the added, but ignoring that

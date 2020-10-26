@@ -1167,9 +1167,10 @@ bool InterleavedFilterQuery(const typename FilterQueryHasher::Key &key,
     }
   } else {
     for (Index i = 0; i < num_columns; ++i) {
-      CoeffRow soln_col = (iss.LoadSegment(segment + i) >> start_bit) |
-                          (iss.LoadSegment(segment + num_columns + i)
-                           << (kCoeffBits - start_bit));
+      CoeffRow soln_col =
+          (iss.LoadSegment(segment + i) >> static_cast<unsigned>(start_bit)) |
+          (iss.LoadSegment(segment + num_columns + i)
+           << static_cast<unsigned>(kCoeffBits - start_bit));
       if (BitParity(soln_col & cr) != (static_cast<int>(expected >> i) & 1)) {
         return false;
       }
