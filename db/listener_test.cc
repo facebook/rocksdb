@@ -676,7 +676,7 @@ class TableFileCreationListener : public EventListener {
  public:
   class TestEnv : public EnvWrapper {
    public:
-    TestEnv(Env* t) : EnvWrapper(t) {}
+    explicit TestEnv(Env* t) : EnvWrapper(t) {}
 
     void SetStatus(Status s) { status_ = s; }
 

@@ -495,8 +495,6 @@ class TestMemLogger : public Logger {
   size_t GetLogFileSize() const override { return log_size_; }
 };
 
-}  // Anonymous namespace
-
 class MockFileSystem : public FileSystem {
  public:
   explicit MockFileSystem(Env* env, bool supports_direct_io = true)
@@ -616,6 +614,8 @@ class MockFileSystem : public FileSystem {
   Env* env_;
   bool supports_direct_io_;
 };
+
+}  // Anonymous namespace
 // Partial implementation of the Env interface.
 IOStatus MockFileSystem::NewSequentialFile(
     const std::string& fname, const FileOptions& file_opts,
