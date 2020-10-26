@@ -62,7 +62,7 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
                 dbname.c_str(), file.c_str());
         }
         break;
-      case kLogFile:
+      case kWalFile:
         if (env->GetFileSize(dbname + "/" + file, &file_size).ok()) {
           char str[16];
           snprintf(str, sizeof(str), "%" PRIu64, file_size);
@@ -118,7 +118,7 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
     wal_info.clear();
     for (const std::string& file : files) {
       if (ParseFileName(file, &number, &type)) {
-        if (type == kLogFile) {
+        if (type == kWalFile) {
           if (env->GetFileSize(options.wal_dir + "/" + file, &file_size).ok()) {
             char str[16];
             snprintf(str, sizeof(str), "%" PRIu64, file_size);

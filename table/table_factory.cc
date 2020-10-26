@@ -40,7 +40,7 @@ Status TableFactory::CreateFromString(const ConfigOptions& config_options_in,
     status = Status::NotSupported("Could not load table factory: ", name);
     return status;
   }
-  if (!existing_opts.empty()) {
+  if (status.ok() && !existing_opts.empty()) {
     config_options.invoke_prepare_options = false;
     status = factory->get()->ConfigureFromString(config_options, existing_opts);
   }

@@ -394,6 +394,10 @@ extern std::string KeyStr(const std::string& user_key,
                           const SequenceNumber& seq, const ValueType& t,
                           bool corrupt = false);
 
+extern std::string KeyStr(uint64_t ts, const std::string& user_key,
+                          const SequenceNumber& seq, const ValueType& t,
+                          bool corrupt = false);
+
 class SleepingBackgroundTask {
  public:
   SleepingBackgroundTask()

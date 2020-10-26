@@ -3271,7 +3271,7 @@ TEST_P(ColumnFamilyTest, DISABLED_LogTruncationTest) {
     FileType type;
     if (!(ParseFileName(filenames[i], &number, &type))) continue;
 
-    if (type != kLogFile) continue;
+    if (type != kWalFile) continue;
 
     logfs.push_back(filenames[i]);
   }

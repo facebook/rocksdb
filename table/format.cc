@@ -19,6 +19,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
 #include "table/persistent_cache_helper.h"
@@ -403,4 +404,18 @@ Status UncompressBlockContents(const UncompressionInfo& uncompression_info,
                                                    ioptions, allocator);
 }
 
+// Replace the contents of db_host_id with the actual hostname, if db_host_id
+// matches the keyword kHostnameForDbHostId
+Status ReifyDbHostIdProperty(Env* env, std::string* db_host_id) {
+  assert(db_host_id);
+  if (*db_host_id == kHostnameForDbHostId) {
+    Status s = env->GetHostNameString(db_host_id);
+    if (!s.ok()) {
+      db_host_id->clear();
+    }
+    return s;
+  }
+
+  return Status::OK();
+}
 }  // namespace ROCKSDB_NAMESPACE

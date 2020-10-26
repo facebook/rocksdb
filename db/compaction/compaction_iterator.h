@@ -75,7 +75,8 @@ class CompactionIterator {
                      const std::atomic<bool>* shutting_down = nullptr,
                      const SequenceNumber preserve_deletes_seqnum = 0,
                      const std::atomic<int>* manual_compaction_paused = nullptr,
-                     const std::shared_ptr<Logger> info_log = nullptr);
+                     const std::shared_ptr<Logger> info_log = nullptr,
+                     const std::string* full_history_ts_low = nullptr);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
@@ -92,7 +93,8 @@ class CompactionIterator {
                      const std::atomic<bool>* shutting_down = nullptr,
                      const SequenceNumber preserve_deletes_seqnum = 0,
                      const std::atomic<int>* manual_compaction_paused = nullptr,
-                     const std::shared_ptr<Logger> info_log = nullptr);
+                     const std::shared_ptr<Logger> info_log = nullptr,
+                     const std::string* full_history_ts_low = nullptr);
 
   ~CompactionIterator();
 
@@ -152,6 +154,18 @@ class CompactionIterator {
 
   bool IsInEarliestSnapshot(SequenceNumber sequence);
 
+  // Extract user-defined timestamp from user key if possible and compare it
+  // with *full_history_ts_low_ if applicable.
+  inline void UpdateTimestampAndCompareWithFullHistoryLow() {
+    if (full_history_ts_low_) {
+      assert(timestamp_size_ > 0);
+      current_ts_ =
+          ExtractTimestampFromUserKey(ikey_.user_key, timestamp_size_);
+      cmp_with_history_ts_low_ =
+          cmp_->CompareTimestamp(current_ts_, *full_history_ts_low_);
+    }
+  }
+
   InternalIterator* input_;
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
@@ -199,11 +213,13 @@ class CompactionIterator {
   // Stores whether ikey_.user_key is valid. If set to false, the user key is
   // not compared against the current key in the underlying iterator.
   bool has_current_user_key_ = false;
-  bool at_next_ = false;  // If false, the iterator
-  // Holds a copy of the current compaction iterator output (or current key in
-  // the underlying iterator during NextFromInput()).
+  // If false, the iterator holds a copy of the current compaction iterator
+  // output (or current key in the underlying iterator during NextFromInput()).
+  bool at_next_ = false;
+
   IterKey current_key_;
   Slice current_user_key_;
+  Slice current_ts_;
   SequenceNumber current_user_key_sequence_;
   SequenceNumber current_user_key_snapshot_;
 
@@ -236,6 +252,19 @@ class CompactionIterator {
   std::shared_ptr<Logger> info_log_;
 
   bool allow_data_in_errors_;
+
+  // Comes from comparator.
+  const size_t timestamp_size_;
+
+  // Lower bound timestamp to retain full history in terms of user-defined
+  // timestamp. If a key's timestamp is older than full_history_ts_low_, then
+  // the key *may* be eligible for garbage collection (GC). The skipping logic
+  // is in `NextFromInput()` and `PrepareOutput()`.
+  // If nullptr, NO GC will be performed and all history will be preserved.
+  const std::string* const full_history_ts_low_;
+
+  // Saved result of ucmp->CompareTimestamp(current_ts_, *full_history_ts_low_)
+  int cmp_with_history_ts_low_;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.
