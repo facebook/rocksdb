@@ -40,6 +40,10 @@ struct Unsigned128 {
     lo = lower;
     hi = upper;
   }
+
+  explicit operator uint64_t() { return lo; }
+
+  explicit operator uint32_t() { return static_cast<uint32_t>(lo); }
 };
 
 inline Unsigned128 operator<<(const Unsigned128& lhs, unsigned shift) {
@@ -209,6 +213,11 @@ template <>
 inline int BitParity(Unsigned128 v) {
   return BitParity(Lower64of128(v)) ^ BitParity(Upper64of128(v));
 }
+
+template <typename T>
+struct IsUnsignedUpTo128
+    : std::integral_constant<bool, std::is_unsigned<T>::value ||
+                                       std::is_same<T, Unsigned128>::value> {};
 
 inline void EncodeFixed128(char* dst, Unsigned128 value) {
   EncodeFixed64(dst, Lower64of128(value));

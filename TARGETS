@@ -1805,6 +1805,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "ribbon_test",
+        "util/ribbon_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "sim_cache_test",
         "utilities/simulator_cache/sim_cache_test.cc",
         "serial",
