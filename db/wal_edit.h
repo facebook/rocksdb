@@ -135,8 +135,6 @@ class WalSet {
   Status AddWals(const WalAdditions& wals);
 
   // Delete WALs with log number smaller than the specified wal number.
-  // The wal number must exist or larger than any existing wal number,
-  // otherwise, return Status::Corruption.
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
   Status DeleteWalsBefore(WalNumber wal);
 

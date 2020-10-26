@@ -683,6 +683,8 @@ uint64_t FindMinPrepLogReferencedByMemTable(
 uint64_t PrecomputeMinLogNumberToKeepNon2PC(
     VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
     const autovector<VersionEdit*>& edit_list) {
+  assert(vset != nullptr);
+
   // Precompute the min log number containing unflushed data for the column
   // family being flushed (`cfd_to_flush`).
   uint64_t cf_min_log_number_to_keep = 0;

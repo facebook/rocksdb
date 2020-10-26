@@ -698,6 +698,7 @@ Status InstallMemtableAtomicFlushResults(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
 
+  assert(cfds.size() > 0);
   size_t num = mems_list.size();
   assert(cfds.size() == num);
   if (imm_lists != nullptr) {
@@ -736,8 +737,9 @@ Status InstallMemtableAtomicFlushResults(
   // here.
   std::unique_ptr<VersionEdit> wal_deletion;
   if (vset->db_options()->track_and_verify_wals_in_manifest) {
-    uint64_t min_wal_number_to_keep = 0;
-    for (size_t i = 0; i < cfds.size(); i++) {
+    uint64_t min_wal_number_to_keep =
+        PrecomputeMinLogNumberToKeepNon2PC(vset, *cfds[0], edit_lists[0]);
+    for (size_t i = 1; i < cfds.size(); i++) {
       min_wal_number_to_keep = std::min(
           min_wal_number_to_keep,
           PrecomputeMinLogNumberToKeepNon2PC(vset, *cfds[i], edit_lists[i]));

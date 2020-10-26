@@ -474,7 +474,6 @@ class VersionEdit {
 
   bool IsWalDeletion() const { return !wal_deletion_.IsEmpty(); }
 
-  // The VersionEdit only has WalAddition or WalDeletion.
   bool IsWalManipulation() const {
     size_t entries = NumEntries();
     return (entries > 0) && ((entries == wal_additions_.size()) ||

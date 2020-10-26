@@ -1343,8 +1343,7 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
     // not empty, write to MANIFEST.
     s = versions_->LogAndApplyToDefaultColumnFamily(&synced_wals, &mutex_);
     if (!s.ok() && versions_->io_status().IsIOError()) {
-      const IOStatus& io_s = versions_->io_status();
-      s = error_handler_.SetBGError(io_s,
+      s = error_handler_.SetBGError(versions_->io_status(),
                                     BackgroundErrorReason::kManifestWrite);
     }
   }
@@ -1354,10 +1353,7 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
 
 void DBImpl::MarkLogsNotSynced(uint64_t up_to) {
   mutex_.AssertHeld();
-  VersionEdit synced_wals;
-  for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;
-       ++it) {
-    auto& wal = *it;
+  for (auto& wal : logs_) {
     assert(wal.getting_synced);
     wal.getting_synced = false;
   }
