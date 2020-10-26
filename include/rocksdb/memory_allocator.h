@@ -61,7 +61,7 @@ struct JemallocAllocatorOptions {
 // Implementation details:
 // The JemallocNodumpAllocator creates a dedicated jemalloc arena, and all
 // allocations of the JemallocNodumpAllocator are through the same arena.
-// The memory allocator hooks memory allocation of the arena, and call
+// The memory allocator hooks memory allocation of the arena, and calls
 // madvise() with MADV_DONTDUMP flag to exclude the piece of memory from
 // core dump. Side benefit of using single arena would be reduction of jemalloc
 // metadata for some workloads.
