@@ -589,8 +589,11 @@ Status DBImpl::Recover(
     }
 
     if (immutable_db_options_.track_and_verify_wals_in_manifest) {
-      // Verify WALs in MANIFEST.
-      s = versions_->GetWalSet().CheckWals(env_, wal_files);
+      if (!immutable_db_options_.best_efforts_recovery) {
+        // Verify WALs in MANIFEST.
+        s = versions_->GetWalSet().CheckWals(env_, wal_files);
+      }  // else since best effort recovery does not recover from WALs, no need
+         // to check WALs.
     } else if (!versions_->GetWalSet().GetWals().empty()) {
       // Tracking is disabled, clear previously tracked WALs from MANIFEST,
       // otherwise, in the future, if WAL tracking is enabled again,
