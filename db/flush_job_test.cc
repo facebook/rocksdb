@@ -28,49 +28,33 @@ namespace ROCKSDB_NAMESPACE {
 // TODO(icanadi) Mock out everything else:
 // 1. VersionSet
 // 2. Memtable
-class FlushJobTest : public testing::Test {
- public:
-  FlushJobTest()
+class FlushJobTestBase : public testing::Test {
+ protected:
+  FlushJobTestBase(std::string dbname, const Comparator* ucmp)
       : env_(Env::Default()),
         fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
-        dbname_(test::PerThreadDBPath("flush_job_test")),
+        dbname_(std::move(dbname)),
+        ucmp_(ucmp),
         options_(),
         db_options_(options_),
         column_family_names_({kDefaultColumnFamilyName, "foo", "bar"}),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
         shutting_down_(false),
-        mock_table_factory_(new mock::MockTableFactory()) {
-    EXPECT_OK(env_->CreateDirIfMissing(dbname_));
-    db_options_.db_paths.emplace_back(dbname_,
-                                      std::numeric_limits<uint64_t>::max());
-    db_options_.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    // TODO(icanadi) Remove this once we mock out VersionSet
-    NewDB();
-    std::vector<ColumnFamilyDescriptor> column_families;
-    cf_options_.table_factory = mock_table_factory_;
-    for (const auto& cf_name : column_family_names_) {
-      column_families.emplace_back(cf_name, cf_options_);
-    }
+        mock_table_factory_(new mock::MockTableFactory()) {}
 
-    db_options_.env = env_;
-    db_options_.fs = fs_;
-    versions_.reset(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
-                       &write_buffer_manager_, &write_controller_,
-                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
-    EXPECT_OK(versions_->Recover(column_families, false));
+  virtual ~FlushJobTestBase() {
+    if (getenv("KEEP_DB")) {
+      fprintf(stdout, "db is still in %s\n", dbname_.c_str());
+    } else {
+      EXPECT_OK(DestroyDir(env_, dbname_));
+    }
   }
 
   void NewDB() {
     SetIdentityFile(env_, dbname_);
     VersionEdit new_db;
-    if (db_options_.write_dbid_to_manifest) {
-      DBImpl* impl = new DBImpl(DBOptions(), dbname_);
-      std::string db_id;
-      impl->GetDbIdentityFromIdentityFile(&db_id);
-      new_db.SetDBId(db_id);
-    }
+
     new_db.SetLogNumber(0);
     new_db.SetNextFile(2);
     new_db.SetLastSequence(0);
@@ -82,6 +66,7 @@ class FlushJobTest : public testing::Test {
       VersionEdit new_cf;
       new_cf.AddColumnFamily(column_family_names_[i]);
       new_cf.SetColumnFamily(cf_id++);
+      new_cf.SetComparatorName(ucmp_->Name());
       new_cf.SetLogNumber(0);
       new_cf.SetNextFile(2);
       new_cf.SetLastSequence(last_seq++);
@@ -114,9 +99,37 @@ class FlushJobTest : public testing::Test {
     ASSERT_OK(s);
   }
 
+  void SetUp() override {
+    EXPECT_OK(env_->CreateDirIfMissing(dbname_));
+
+    // TODO(icanadi) Remove this once we mock out VersionSet
+    NewDB();
+
+    db_options_.env = env_;
+    db_options_.fs = fs_;
+    db_options_.db_paths.emplace_back(dbname_,
+                                      std::numeric_limits<uint64_t>::max());
+    db_options_.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+
+    cf_options_.comparator = ucmp_;
+
+    std::vector<ColumnFamilyDescriptor> column_families;
+    cf_options_.table_factory = mock_table_factory_;
+    for (const auto& cf_name : column_family_names_) {
+      column_families.emplace_back(cf_name, cf_options_);
+    }
+
+    versions_.reset(
+        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+                       &write_buffer_manager_, &write_controller_,
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+    EXPECT_OK(versions_->Recover(column_families, false));
+  }
+
   Env* env_;
   std::shared_ptr<FileSystem> fs_;
   std::string dbname_;
+  const Comparator* const ucmp_;
   EnvOptions env_options_;
   Options options_;
   ImmutableDBOptions db_options_;
@@ -129,6 +142,13 @@ class FlushJobTest : public testing::Test {
   InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
+};
+
+class FlushJobTest : public FlushJobTestBase {
+ public:
+  FlushJobTest()
+      : FlushJobTestBase(test::PerThreadDBPath("flush_job_test"),
+                         BytewiseComparator()) {}
 };
 
 TEST_F(FlushJobTest, Empty) {
