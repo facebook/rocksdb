@@ -413,6 +413,7 @@ class FilePickerMultiGet {
                                   size_t* file_index, FdWithKeyRange** fd,
                                   bool* is_last_key_in_file) {
     size_t curr_file_index = *file_index;
+    fprintf(stdout, "JJJ4: get next file in level with keys\n");
     FdWithKeyRange* f = nullptr;
     bool file_hit = false;
     int cmp_largest = -1;
@@ -440,7 +441,7 @@ class FilePickerMultiGet {
             !file_hit)) {
       struct FilePickerContext& fp_ctx = fp_ctx_array_[batch_iter_.index()];
       f = &curr_file_level_->files[fp_ctx.curr_index_in_curr_level];
-      Slice& user_key = batch_iter_->ukey;
+      Slice& user_key = batch_iter_->ukey_without_ts;
 
       // Do key range filtering of files or/and fractional cascading if:
       // (1) not all the files are in level 0, or
@@ -457,14 +458,14 @@ class FilePickerMultiGet {
         assert(curr_level_ == 0 ||
                fp_ctx.curr_index_in_curr_level ==
                    fp_ctx.start_index_in_curr_level ||
-               user_comparator_->Compare(user_key,
-                                         ExtractUserKey(f->smallest_key)) <= 0);
+               user_comparator_->CompareWithoutTimestamp(user_key, false,
+                                                         ExtractUserKey(f->smallest_key), true) <= 0);
 
-        int cmp_smallest = user_comparator_->Compare(
-            user_key, ExtractUserKey(f->smallest_key));
+        int cmp_smallest = user_comparator_->CompareWithoutTimestamp(
+            user_key, false, ExtractUserKey(f->smallest_key), true);
         if (cmp_smallest >= 0) {
-          cmp_largest = user_comparator_->Compare(
-              user_key, ExtractUserKey(f->largest_key));
+          cmp_largest = user_comparator_->CompareWithoutTimestamp(
+              user_key, false, ExtractUserKey(f->largest_key), true);
         } else {
           cmp_largest = -1;
         }
@@ -497,7 +498,7 @@ class FilePickerMultiGet {
         upper_key_ = batch_iter_;
         ++upper_key_;
         while (upper_key_ != current_level_range_.end() &&
-               user_comparator_->Compare(batch_iter_->ukey, upper_key_->ukey) ==
+               user_comparator_->CompareWithoutTimestamp(batch_iter_->ukey_without_ts, false, upper_key_->ukey_without_ts, false) ==
                    0) {
           ++upper_key_;
         }
