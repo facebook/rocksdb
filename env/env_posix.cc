@@ -16,8 +16,6 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#if defined(OS_LINUX)
-#endif
 #if defined(ROCKSDB_IOURING_PRESENT)
 #include <liburing.h>
 #endif

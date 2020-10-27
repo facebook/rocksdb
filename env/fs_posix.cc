@@ -16,8 +16,6 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#if defined(OS_LINUX)
-#endif
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
