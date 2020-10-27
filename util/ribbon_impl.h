@@ -619,11 +619,11 @@ class SerializableInterleavedSolution {
   }
 
   CoeffRow LoadSegment(Index segment_num) const {
-    assert(data_ != nullptr); // suppress clang analyzer report
+    assert(data_ != nullptr);  // suppress clang analyzer report
     return DecodeFixedGeneric<CoeffRow>(data_ + segment_num * sizeof(CoeffRow));
   }
   void StoreSegment(Index segment_num, CoeffRow val) {
-    assert(data_ != nullptr); // suppress clang analyzer report
+    assert(data_ != nullptr);  // suppress clang analyzer report
     EncodeFixedGeneric(data_ + segment_num * sizeof(CoeffRow), val);
   }
 
