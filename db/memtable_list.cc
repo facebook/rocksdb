@@ -698,12 +698,15 @@ Status InstallMemtableAtomicFlushResults(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
 
-  assert(cfds.size() > 0);
   size_t num = mems_list.size();
   assert(cfds.size() == num);
   if (imm_lists != nullptr) {
     assert(imm_lists->size() == num);
   }
+  if (num == 0) {
+    return Status::OK();
+  }
+
   for (size_t k = 0; k != num; ++k) {
 #ifndef NDEBUG
     const auto* imm =
