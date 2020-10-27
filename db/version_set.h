@@ -958,7 +958,8 @@ class VersionSet {
       const MutableCFOptions& mutable_cf_options,
       const autovector<VersionEdit*>& edit_list, InstrumentedMutex* mu,
       FSDirectory* db_directory = nullptr, bool new_descriptor_log = false,
-      const ColumnFamilyOptions* column_family_options = nullptr) {
+      const ColumnFamilyOptions* column_family_options = nullptr,
+      const std::function<void(const Status&)>& manifest_wcb = {}) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
     autovector<const MutableCFOptions*> mutable_cf_options_list;
@@ -966,7 +967,8 @@ class VersionSet {
     autovector<autovector<VersionEdit*>> edit_lists;
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                       db_directory, new_descriptor_log, column_family_options);
+                       db_directory, new_descriptor_log, column_family_options,
+                       {manifest_wcb});
   }
 
   // The across-multi-cf batch version. If edit_lists contain more than
@@ -978,7 +980,9 @@ class VersionSet {
       const autovector<autovector<VersionEdit*>>& edit_lists,
       InstrumentedMutex* mu, FSDirectory* db_directory = nullptr,
       bool new_descriptor_log = false,
-      const ColumnFamilyOptions* new_cf_options = nullptr);
+      const ColumnFamilyOptions* new_cf_options = nullptr,
+      const std::vector<std::function<void(const Status&)>>& manifest_wcbs =
+          {});
 
   static Status GetCurrentManifestPath(const std::string& dbname,
                                        FileSystem* fs,
@@ -1419,8 +1423,9 @@ class ReactiveVersionSet : public VersionSet {
       const autovector<const MutableCFOptions*>& /*mutable_cf_options_list*/,
       const autovector<autovector<VersionEdit*>>& /*edit_lists*/,
       InstrumentedMutex* /*mu*/, FSDirectory* /*db_directory*/,
-      bool /*new_descriptor_log*/,
-      const ColumnFamilyOptions* /*new_cf_option*/) override {
+      bool /*new_descriptor_log*/, const ColumnFamilyOptions* /*new_cf_option*/,
+      const std::vector<std::function<void(const Status&)>>& /*manifest_wcbs*/)
+      override {
     return Status::NotSupported("not supported in reactive mode");
   }
 

@@ -5845,6 +5845,181 @@ TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
   ASSERT_EQ("0,5", FilesPerLevel(0));
 }
 
+TEST_F(DBCompactionTest, CompactionWithBlob) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char second_key[] = "second_key";
+  constexpr char first_value[] = "first_value";
+  constexpr char second_value[] = "second_value";
+  constexpr char third_value[] = "third_value";
+
+  ASSERT_OK(Put(first_key, first_value));
+  ASSERT_OK(Put(second_key, first_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(first_key, second_value));
+  ASSERT_OK(Put(second_key, second_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(first_key, third_value));
+  ASSERT_OK(Put(second_key, third_value));
+  ASSERT_OK(Flush());
+
+  options.enable_blob_files = true;
+
+  Reopen(options);
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  ASSERT_EQ(Get(first_key), third_value);
+  ASSERT_EQ(Get(second_key), third_value);
+
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  Version* const current = cfd->current();
+  assert(current);
+
+  const VersionStorageInfo* const storage_info = current->storage_info();
+  assert(storage_info);
+
+  const auto& l1_files = storage_info->LevelFiles(1);
+  ASSERT_EQ(l1_files.size(), 1);
+
+  const FileMetaData* const table_file = l1_files[0];
+  assert(table_file);
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+
+  const auto& blob_file = blob_files.begin()->second;
+  assert(blob_file);
+
+  ASSERT_EQ(table_file->smallest.user_key(), first_key);
+  ASSERT_EQ(table_file->largest.user_key(), second_key);
+  ASSERT_EQ(table_file->oldest_blob_file_number,
+            blob_file->GetBlobFileNumber());
+
+  ASSERT_EQ(blob_file->GetTotalBlobCount(), 2);
+
+  const InternalStats* const internal_stats = cfd->internal_stats();
+  assert(internal_stats);
+
+  const uint64_t expected_bytes =
+      table_file->fd.GetFileSize() + blob_file->GetTotalBlobBytes();
+
+  const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
+  ASSERT_GE(compaction_stats.size(), 2);
+  ASSERT_EQ(compaction_stats[1].bytes_written, expected_bytes);
+  ASSERT_EQ(compaction_stats[1].num_output_files, 2);
+}
+
+class DBCompactionTestBlobError
+    : public DBCompactionTest,
+      public testing::WithParamInterface<std::string> {
+ public:
+  DBCompactionTestBlobError()
+      : fault_injection_env_(env_), sync_point_(GetParam()) {}
+  ~DBCompactionTestBlobError() { Close(); }
+
+  FaultInjectionTestEnv fault_injection_env_;
+  std::string sync_point_;
+};
+
+INSTANTIATE_TEST_CASE_P(DBCompactionTestBlobError, DBCompactionTestBlobError,
+                        ::testing::ValuesIn(std::vector<std::string>{
+                            "BlobFileBuilder::WriteBlobToFile:AddRecord",
+                            "BlobFileBuilder::WriteBlobToFile:AppendFooter"}));
+
+TEST_P(DBCompactionTestBlobError, CompactionError) {
+  Options options;
+  options.disable_auto_compactions = true;
+  options.env = env_;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char second_key[] = "second_key";
+  constexpr char first_value[] = "first_value";
+  constexpr char second_value[] = "second_value";
+  constexpr char third_value[] = "third_value";
+
+  ASSERT_OK(Put(first_key, first_value));
+  ASSERT_OK(Put(second_key, first_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(first_key, second_value));
+  ASSERT_OK(Put(second_key, second_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(first_key, third_value));
+  ASSERT_OK(Put(second_key, third_value));
+  ASSERT_OK(Flush());
+
+  options.enable_blob_files = true;
+  options.env = &fault_injection_env_;
+
+  Reopen(options);
+
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_.SetFilesystemActive(false,
+                                             Status::IOError(sync_point_));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), begin, end).IsIOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  Version* const current = cfd->current();
+  assert(current);
+
+  const VersionStorageInfo* const storage_info = current->storage_info();
+  assert(storage_info);
+
+  const auto& l1_files = storage_info->LevelFiles(1);
+  ASSERT_TRUE(l1_files.empty());
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+  ASSERT_TRUE(blob_files.empty());
+
+  const InternalStats* const internal_stats = cfd->internal_stats();
+  assert(internal_stats);
+
+  const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
+  ASSERT_GE(compaction_stats.size(), 2);
+
+  if (sync_point_ == "BlobFileBuilder::WriteBlobToFile:AddRecord") {
+    ASSERT_EQ(compaction_stats[1].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[1].num_output_files, 0);
+  } else {
+    // SST file writing succeeded; blob file writing failed (during Finish)
+    ASSERT_GT(compaction_stats[1].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[1].num_output_files, 1);
+  }
+}
+
 #endif  // !defined(ROCKSDB_LITE)
 
 }  // namespace ROCKSDB_NAMESPACE
