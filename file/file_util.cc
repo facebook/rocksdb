@@ -211,6 +211,8 @@ Status DestroyDir(Env* env, const std::string& dir) {
         } else {
           s = env->DeleteFile(path);
         }
+      } else if (s.IsNotSupported()) {
+        s = Status::OK();
       }
       if (!s.ok()) {
         // IsDirectory, etc. might not report NotFound

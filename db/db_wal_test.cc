@@ -1181,31 +1181,12 @@ class RecoveryTestHelper {
     test->Close();
 #endif
     if (trunc) {
-      ASSERT_EQ(0, truncate(fname.c_str(), static_cast<int64_t>(size * off)));
+      ASSERT_OK(
+          test::TruncateFile(env, fname, static_cast<uint64_t>(size * off)));
     } else {
-      InduceCorruption(fname, static_cast<size_t>(size * off + 8),
-                       static_cast<size_t>(size * len));
+      ASSERT_OK(test::CorruptFile(env, fname, static_cast<int>(size * off + 8),
+                                  static_cast<int>(size * len), false));
     }
-  }
-
-  // Overwrite data with 'a' from offset for length len
-  static void InduceCorruption(const std::string& filename, size_t offset,
-                               size_t len) {
-    ASSERT_GT(len, 0U);
-
-    int fd = open(filename.c_str(), O_RDWR);
-
-    // On windows long is 32-bit
-    ASSERT_LE(offset, std::numeric_limits<long>::max());
-
-    ASSERT_GT(fd, 0);
-    ASSERT_EQ(offset, lseek(fd, static_cast<long>(offset), SEEK_SET));
-
-    void* buf = alloca(len);
-    memset(buf, 'b', len);
-    ASSERT_EQ(len, write(fd, buf, static_cast<unsigned int>(len)));
-
-    close(fd);
   }
 };
 
@@ -1328,8 +1309,7 @@ TEST_F(DBWALTest, kPointInTimeRecoveryCFConsistency) {
 
   ASSERT_OK(Put(1, "key3", "val3"));
   // Corrupt WAL at location of key3
-  RecoveryTestHelper::InduceCorruption(
-      fname, static_cast<size_t>(offset_to_corrupt), static_cast<size_t>(4));
+  test::CorruptFile(env, fname, static_cast<int>(offset_to_corrupt), 4, false);
   ASSERT_OK(Put(2, "key4", "val4"));
   ASSERT_OK(Put(1, "key5", "val5"));
   Flush(2);
@@ -1717,6 +1697,10 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
   constexpr size_t kKB = 1024;
   Options options = CurrentOptions();
   options.avoid_flush_during_recovery = true;
+  if (options.env != Env::Default()) {
+    ROCKSDB_GTEST_SKIP("Test requires default environment");
+    return;
+  }
   // Test fallocate support of running file system.
   // Skip this test if fallocate is not supported.
   std::string fname_test_fallocate = dbname_ + "/preallocate_testfile";

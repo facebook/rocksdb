@@ -2129,7 +2129,7 @@ TEST_F(DBTestUniversalCompaction2, IngestBehind) {
 TEST_F(DBTestUniversalCompaction2, PeriodicCompactionDefault) {
   Options options;
   options.compaction_style = kCompactionStyleUniversal;
-
+  options.env = env_;
   KeepFilterFactory* filter = new KeepFilterFactory(true);
   options.compaction_filter_factory.reset(filter);
   Reopen(options);

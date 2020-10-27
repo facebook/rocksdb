@@ -184,7 +184,7 @@ class CorruptionTest : public testing::Test {
     }
     ASSERT_TRUE(!fname.empty()) << filetype;
 
-    test::CorruptFile(fname, offset, bytes_to_corrupt);
+    ASSERT_OK(test::CorruptFile(&env_, fname, offset, bytes_to_corrupt));
   }
 
   // corrupts exactly one file at level `level`. if no file found at level,
@@ -194,7 +194,8 @@ class CorruptionTest : public testing::Test {
     db_->GetLiveFilesMetaData(&metadata);
     for (const auto& m : metadata) {
       if (m.level == level) {
-        test::CorruptFile(dbname_ + "/" + m.name, offset, bytes_to_corrupt);
+        ASSERT_OK(test::CorruptFile(&env_, dbname_ + "/" + m.name, offset,
+                                    bytes_to_corrupt));
         return;
       }
     }
@@ -529,7 +530,8 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
       ImmutableCFOptions(options_), kRangeDelBlock, &range_del_handle));
 
   ASSERT_OK(TryReopen());
-  test::CorruptFile(filename, static_cast<int>(range_del_handle.offset()), 1);
+  ASSERT_OK(test::CorruptFile(&env_, filename,
+                              static_cast<int>(range_del_handle.offset()), 1));
   ASSERT_TRUE(TryReopen().IsCorruption());
 }
 

@@ -184,7 +184,8 @@ InfoLogPrefix::InfoLogPrefix(bool has_log_dir,
     snprintf(buf, sizeof(buf), kInfoLogPrefix);
     prefix = Slice(buf, sizeof(kInfoLogPrefix) - 1);
   } else {
-    size_t len = GetInfoLogPrefix(db_absolute_path, buf, sizeof(buf));
+    size_t len =
+        GetInfoLogPrefix(NormalizePath(db_absolute_path), buf, sizeof(buf));
     prefix = Slice(buf, len);
   }
 }

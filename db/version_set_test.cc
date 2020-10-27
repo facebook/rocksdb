@@ -8,10 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/version_set.h"
+
 #include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
-#include "env/mock_env.h"
 #include "logging/logging.h"
+#include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -692,10 +693,7 @@ class VersionSetTestBase {
   int num_initial_edits_;
 
   explicit VersionSetTestBase(const std::string& name)
-      : mem_env_(nullptr),
-        env_(nullptr),
-        env_guard_(),
-        fs_(),
+      : env_(nullptr),
         dbname_(test::PerThreadDBPath(name)),
         options_(),
         db_options_(options_),
@@ -707,25 +705,26 @@ class VersionSetTestBase {
         shutting_down_(false),
         mock_table_factory_(std::make_shared<mock::MockTableFactory>()) {
     const char* test_env_uri = getenv("TEST_ENV_URI");
-    Env* base_env = nullptr;
     if (test_env_uri) {
-      Status s = Env::LoadEnv(test_env_uri, &base_env, &env_guard_);
+      Status s = Env::LoadEnv(test_env_uri, &env_, &env_guard_);
       EXPECT_OK(s);
-      EXPECT_NE(Env::Default(), base_env);
+    } else if (getenv("MEM_ENV")) {
+      env_guard_.reset(NewMemEnv(Env::Default()));
+      env_ = env_guard_.get();
     } else {
-      base_env = Env::Default();
+      env_ = Env::Default();
     }
-    EXPECT_NE(nullptr, base_env);
-    if (getenv("MEM_ENV")) {
-      mem_env_ = new MockEnv(base_env);
-    }
-    env_ = mem_env_ ? mem_env_ : base_env;
+    EXPECT_NE(nullptr, env_);
 
-    fs_ = std::make_shared<LegacyFileSystemWrapper>(env_);
-    EXPECT_OK(env_->CreateDirIfMissing(dbname_));
+    fs_ = env_->GetFileSystem();
+    EXPECT_OK(fs_->CreateDirIfMissing(dbname_, IOOptions(), nullptr));
 
+    options_.env = env_;
     db_options_.env = env_;
     db_options_.fs = fs_;
+    immutable_cf_options_.env = env_;
+    immutable_cf_options_.fs = fs_.get();
+
     versions_.reset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
@@ -745,10 +744,6 @@ class VersionSetTestBase {
       options.env = env_;
       EXPECT_OK(DestroyDB(dbname_, options));
     }
-    if (mem_env_) {
-      delete mem_env_;
-      mem_env_ = nullptr;
-    }
   }
 
  protected:
@@ -760,7 +755,9 @@ class VersionSetTestBase {
     assert(log_writer != nullptr);
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {
-      std::unique_ptr<DBImpl> impl(new DBImpl(DBOptions(), dbname_));
+      DBOptions tmp_db_options;
+      tmp_db_options.env = env_;
+      std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
       impl->GetDbIdentityFromIdentityFile(&db_id);
       new_db.SetDBId(db_id);
@@ -873,7 +870,7 @@ class VersionSetTestBase {
     mutex_.Unlock();
   }
 
-  MockEnv* mem_env_;
+  Env* mem_env_;
   Env* env_;
   std::shared_ptr<Env> env_guard_;
   std::shared_ptr<FileSystem> fs_;
@@ -2216,7 +2213,9 @@ class VersionSetTestEmptyDb
     assert(nullptr != log_writer);
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {
-      std::unique_ptr<DBImpl> impl(new DBImpl(DBOptions(), dbname_));
+      DBOptions tmp_db_options;
+      tmp_db_options.env = env_;
+      std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
       impl->GetDbIdentityFromIdentityFile(&db_id);
       new_db.SetDBId(db_id);
@@ -2541,7 +2540,9 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {
-      std::unique_ptr<DBImpl> impl(new DBImpl(DBOptions(), dbname_));
+      DBOptions tmp_db_options;
+      tmp_db_options.env = env_;
+      std::unique_ptr<DBImpl> impl(new DBImpl(tmp_db_options, dbname_));
       std::string db_id;
       impl->GetDbIdentityFromIdentityFile(&db_id);
       new_db.SetDBId(db_id);

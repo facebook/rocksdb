@@ -450,6 +450,7 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   constexpr uint64_t min_blob_size = 10;
 
   Options options;
+  options.env = CurrentOptions().env;
   options.enable_blob_files = true;
   options.min_blob_size = min_blob_size;
   options.disable_auto_compactions = true;
