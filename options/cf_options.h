@@ -124,6 +124,8 @@ struct ImmutableCFOptions {
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory;
 
   bool allow_data_in_errors;
+
+  std::string db_host_id;
 };
 
 struct MutableCFOptions {

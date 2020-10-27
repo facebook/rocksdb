@@ -5,7 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/transactions/transaction_lock_mgr.h"
+#include "utilities/transactions/lock/point/point_lock_manager.h"
 
 #include "file/file_util.h"
 #include "port/port.h"
@@ -13,15 +13,37 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/transaction_db_mutex_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-class TransactionLockMgrTest : public testing::Test {
+class MockColumnFamilyHandle : public ColumnFamilyHandle {
+ public:
+  explicit MockColumnFamilyHandle(ColumnFamilyId cf_id) : cf_id_(cf_id) {}
+
+  ~MockColumnFamilyHandle() override {}
+
+  const std::string& GetName() const override { return name_; }
+
+  ColumnFamilyId GetID() const override { return cf_id_; }
+
+  Status GetDescriptor(ColumnFamilyDescriptor*) override {
+    return Status::OK();
+  }
+
+  const Comparator* GetComparator() const override { return nullptr; }
+
+ private:
+  ColumnFamilyId cf_id_;
+  std::string name_ = "MockCF";
+};
+
+class PointLockManagerTest : public testing::Test {
  public:
   void SetUp() override {
     env_ = Env::Default();
-    db_dir_ = test::PerThreadDBPath("transaction_lock_mgr_test");
+    db_dir_ = test::PerThreadDBPath("point_lock_manager_test");
     ASSERT_OK(env_->CreateDir(db_dir_));
     mutex_factory_ = std::make_shared<TransactionDBMutexFactoryImpl>();
 
@@ -29,11 +51,11 @@ class TransactionLockMgrTest : public testing::Test {
     opt.create_if_missing = true;
     TransactionDBOptions txn_opt;
     txn_opt.transaction_lock_timeout = 0;
+    txn_opt.custom_mutex_factory = mutex_factory_;
     ASSERT_OK(TransactionDB::Open(opt, txn_opt, db_dir_, &db_));
 
-    locker_.reset(
-        new TransactionLockMgr(db_, txn_opt.num_stripes, txn_opt.max_num_locks,
-                               txn_opt.max_num_deadlocks, mutex_factory_));
+    locker_.reset(new PointLockManager(
+        static_cast<PessimisticTransactionDB*>(db_), txn_opt));
   }
 
   void TearDown() override {
@@ -49,7 +71,7 @@ class TransactionLockMgrTest : public testing::Test {
 
  protected:
   Env* env_;
-  std::unique_ptr<TransactionLockMgr> locker_;
+  std::unique_ptr<PointLockManager> locker_;
 
  private:
   std::string db_dir_;
@@ -57,8 +79,9 @@ class TransactionLockMgrTest : public testing::Test {
   TransactionDB* db_;
 };
 
-TEST_F(TransactionLockMgrTest, LockNonExistingColumnFamily) {
-  locker_->RemoveColumnFamily(1024);
+TEST_F(PointLockManagerTest, LockNonExistingColumnFamily) {
+  MockColumnFamilyHandle cf(1024);
+  locker_->RemoveColumnFamily(&cf);
   auto txn = NewTxn();
   auto s = locker_->TryLock(txn, 1024, "k", env_, true);
   ASSERT_TRUE(s.IsInvalidArgument());
@@ -66,9 +89,10 @@ TEST_F(TransactionLockMgrTest, LockNonExistingColumnFamily) {
   delete txn;
 }
 
-TEST_F(TransactionLockMgrTest, LockStatus) {
-  locker_->AddColumnFamily(1024);
-  locker_->AddColumnFamily(2048);
+TEST_F(PointLockManagerTest, LockStatus) {
+  MockColumnFamilyHandle cf1(1024), cf2(2048);
+  locker_->AddColumnFamily(&cf1);
+  locker_->AddColumnFamily(&cf2);
 
   auto txn1 = NewTxn();
   ASSERT_OK(locker_->TryLock(txn1, 1024, "k1", env_, true));
@@ -78,7 +102,7 @@ TEST_F(TransactionLockMgrTest, LockStatus) {
   ASSERT_OK(locker_->TryLock(txn2, 1024, "k2", env_, false));
   ASSERT_OK(locker_->TryLock(txn2, 2048, "k2", env_, false));
 
-  auto s = locker_->GetLockStatusData();
+  auto s = locker_->GetPointLockStatus();
   ASSERT_EQ(s.size(), 4u);
   for (uint32_t cf_id : {1024, 2048}) {
     ASSERT_EQ(s.count(cf_id), 2u);
@@ -101,8 +125,9 @@ TEST_F(TransactionLockMgrTest, LockStatus) {
   delete txn2;
 }
 
-TEST_F(TransactionLockMgrTest, UnlockExclusive) {
-  locker_->AddColumnFamily(1);
+TEST_F(PointLockManagerTest, UnlockExclusive) {
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
 
   auto txn1 = NewTxn();
   ASSERT_OK(locker_->TryLock(txn1, 1, "k", env_, true));
@@ -115,8 +140,9 @@ TEST_F(TransactionLockMgrTest, UnlockExclusive) {
   delete txn2;
 }
 
-TEST_F(TransactionLockMgrTest, UnlockShared) {
-  locker_->AddColumnFamily(1);
+TEST_F(PointLockManagerTest, UnlockShared) {
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
 
   auto txn1 = NewTxn();
   ASSERT_OK(locker_->TryLock(txn1, 1, "k", env_, false));
@@ -129,46 +155,51 @@ TEST_F(TransactionLockMgrTest, UnlockShared) {
   delete txn2;
 }
 
-TEST_F(TransactionLockMgrTest, ReentrantExclusiveLock) {
+TEST_F(PointLockManagerTest, ReentrantExclusiveLock) {
   // Tests that a txn can acquire exclusive lock on the same key repeatedly.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   auto txn = NewTxn();
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, true));
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, true));
   delete txn;
 }
 
-TEST_F(TransactionLockMgrTest, ReentrantSharedLock) {
+TEST_F(PointLockManagerTest, ReentrantSharedLock) {
   // Tests that a txn can acquire shared lock on the same key repeatedly.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   auto txn = NewTxn();
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, false));
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, false));
   delete txn;
 }
 
-TEST_F(TransactionLockMgrTest, LockUpgrade) {
+TEST_F(PointLockManagerTest, LockUpgrade) {
   // Tests that a txn can upgrade from a shared lock to an exclusive lock.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   auto txn = NewTxn();
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, false));
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, true));
   delete txn;
 }
 
-TEST_F(TransactionLockMgrTest, LockDowngrade) {
+TEST_F(PointLockManagerTest, LockDowngrade) {
   // Tests that a txn can acquire a shared lock after acquiring an exclusive
   // lock on the same key.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   auto txn = NewTxn();
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, true));
   ASSERT_OK(locker_->TryLock(txn, 1, "k", env_, false));
   delete txn;
 }
 
-TEST_F(TransactionLockMgrTest, LockConflict) {
+TEST_F(PointLockManagerTest, LockConflict) {
   // Tests that lock conflicts lead to lock timeout.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   auto txn1 = NewTxn();
   auto txn2 = NewTxn();
 
@@ -200,7 +231,7 @@ TEST_F(TransactionLockMgrTest, LockConflict) {
 port::Thread BlockUntilWaitingTxn(std::function<void()> f) {
   std::atomic<bool> reached(false);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "TransactionLockMgr::AcquireWithTimeout:WaitingTxn",
+      "PointLockManager::AcquireWithTimeout:WaitingTxn",
       [&](void* /*arg*/) { reached.store(true); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -215,9 +246,10 @@ port::Thread BlockUntilWaitingTxn(std::function<void()> f) {
   return t;
 }
 
-TEST_F(TransactionLockMgrTest, SharedLocks) {
+TEST_F(PointLockManagerTest, SharedLocks) {
   // Tests that shared locks can be concurrently held by multiple transactions.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   auto txn1 = NewTxn();
   auto txn2 = NewTxn();
   ASSERT_OK(locker_->TryLock(txn1, 1, "k", env_, false));
@@ -226,12 +258,13 @@ TEST_F(TransactionLockMgrTest, SharedLocks) {
   delete txn2;
 }
 
-TEST_F(TransactionLockMgrTest, Deadlock) {
+TEST_F(PointLockManagerTest, Deadlock) {
   // Tests that deadlock can be detected.
   // Deadlock scenario:
   // txn1 exclusively locks k1, and wants to lock k2;
   // txn2 exclusively locks k2, and wants to lock k1.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
   txn_opt.lock_timeout = 1000000;
@@ -275,10 +308,11 @@ TEST_F(TransactionLockMgrTest, Deadlock) {
   delete txn1;
 }
 
-TEST_F(TransactionLockMgrTest, DeadlockDepthExceeded) {
+TEST_F(PointLockManagerTest, DeadlockDepthExceeded) {
   // Tests that when detecting deadlock, if the detection depth is exceeded,
   // it's also viewed as deadlock.
-  locker_->AddColumnFamily(1);
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
   TransactionOptions txn_opt;
   txn_opt.deadlock_detect = true;
   txn_opt.deadlock_detect_depth = 1;

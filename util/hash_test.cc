@@ -396,7 +396,9 @@ using ROCKSDB_NAMESPACE::BitParity;
 using ROCKSDB_NAMESPACE::BitsSetToOne;
 using ROCKSDB_NAMESPACE::CountTrailingZeroBits;
 using ROCKSDB_NAMESPACE::DecodeFixed128;
+using ROCKSDB_NAMESPACE::DecodeFixedGeneric;
 using ROCKSDB_NAMESPACE::EncodeFixed128;
+using ROCKSDB_NAMESPACE::EncodeFixedGeneric;
 using ROCKSDB_NAMESPACE::FloorLog2;
 using ROCKSDB_NAMESPACE::Lower64of128;
 using ROCKSDB_NAMESPACE::Multiply64to128;
@@ -534,14 +536,52 @@ TEST(MathTest, Math128) {
 
 TEST(MathTest, Coding128) {
   const char *in = "_1234567890123456";
+  // Note: in + 1 is likely unaligned
   Unsigned128 decoded = DecodeFixed128(in + 1);
-  EXPECT_EQ(Lower64of128(decoded), 4050765991979987505U);
-  EXPECT_EQ(Upper64of128(decoded), 3906085646303834169U);
+  EXPECT_EQ(Lower64of128(decoded), 0x3837363534333231U);
+  EXPECT_EQ(Upper64of128(decoded), 0x3635343332313039U);
   char out[18];
   out[0] = '_';
   EncodeFixed128(out + 1, decoded);
   out[17] = '\0';
   EXPECT_EQ(std::string(in), std::string(out));
+}
+
+TEST(MathTest, CodingGeneric) {
+  const char *in = "_1234567890123456";
+  // Decode
+  // Note: in + 1 is likely unaligned
+  Unsigned128 decoded128 = DecodeFixedGeneric<Unsigned128>(in + 1);
+  EXPECT_EQ(Lower64of128(decoded128), 0x3837363534333231U);
+  EXPECT_EQ(Upper64of128(decoded128), 0x3635343332313039U);
+
+  uint64_t decoded64 = DecodeFixedGeneric<uint64_t>(in + 1);
+  EXPECT_EQ(decoded64, 0x3837363534333231U);
+
+  uint32_t decoded32 = DecodeFixedGeneric<uint32_t>(in + 1);
+  EXPECT_EQ(decoded32, 0x34333231U);
+
+  uint16_t decoded16 = DecodeFixedGeneric<uint16_t>(in + 1);
+  EXPECT_EQ(decoded16, 0x3231U);
+
+  // Encode
+  char out[18];
+  out[0] = '_';
+  memset(out + 1, '\0', 17);
+  EncodeFixedGeneric(out + 1, decoded128);
+  EXPECT_EQ(std::string(in), std::string(out));
+
+  memset(out + 1, '\0', 9);
+  EncodeFixedGeneric(out + 1, decoded64);
+  EXPECT_EQ(std::string("_12345678"), std::string(out));
+
+  memset(out + 1, '\0', 5);
+  EncodeFixedGeneric(out + 1, decoded32);
+  EXPECT_EQ(std::string("_1234"), std::string(out));
+
+  memset(out + 1, '\0', 3);
+  EncodeFixedGeneric(out + 1, decoded16);
+  EXPECT_EQ(std::string("_12"), std::string(out));
 }
 
 int main(int argc, char** argv) {

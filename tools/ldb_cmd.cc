@@ -1129,7 +1129,7 @@ void ManifestDumpCommand::DoCommand() {
         fname = file_path;
       }
       uint64_t file_num = 0;
-      FileType file_type = kLogFile;  // Just for initialization
+      FileType file_type = kWalFile;  // Just for initialization
       if (ParseFileName(fname, &file_num, &file_type) &&
           file_type == kDescriptorFile) {
         if (!matched_file.empty()) {
@@ -1672,7 +1672,7 @@ void DBDumperCommand::DoCommand() {
     }
 
     switch (type) {
-      case kLogFile:
+      case kWalFile:
         // TODO(myabandeh): allow configuring is_write_commited
         DumpWalFile(options_, path_, /* print_header_ */ true,
                     /* print_values_ */ true, true /* is_write_commited */,

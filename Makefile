@@ -553,7 +553,7 @@ PARALLEL_TEST = \
 	persistent_cache_test \
 	table_test \
 	transaction_test \
-	transaction_lock_mgr_test \
+	point_lock_manager_test \
 	write_prepared_transaction_test \
 	write_unprepared_transaction_test \
 
@@ -631,6 +631,7 @@ ifdef ASSERT_STATUS_CHECKED
 		sst_file_reader_test \
 		range_tombstone_fragmenter_test \
 		repeatable_thread_test \
+		ribbon_test \
 		skiplist_test \
 		slice_test \
 		sst_dump_test \
@@ -708,6 +709,7 @@ TESTS_PLATFORM_DEPENDENT := \
 	io_posix_test \
 	hash_test \
 	random_test \
+	ribbon_test \
 	thread_local_test \
 	work_queue_test \
 	rate_limiter_test \
@@ -1420,6 +1422,9 @@ hash_test: $(OBJ_DIR)/util/hash_test.o $(TEST_LIBRARY) $(LIBRARY)
 random_test: $(OBJ_DIR)/util/random_test.o  $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+ribbon_test: $(OBJ_DIR)/util/ribbon_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 option_change_migration_test: $(OBJ_DIR)/utilities/option_change_migration/option_change_migration_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1842,7 +1847,7 @@ write_callback_test: $(OBJ_DIR)/db/write_callback_test.o $(TEST_LIBRARY) $(LIBRA
 heap_test: $(OBJ_DIR)/util/heap_test.o $(GTEST)
 	$(AM_LINK)
 
-transaction_lock_mgr_test: utilities/transactions/transaction_lock_mgr_test.o $(TEST_LIBRARY) $(LIBRARY)
+point_lock_manager_test: utilities/transactions/lock/point/point_lock_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 transaction_test: $(OBJ_DIR)/utilities/transactions/transaction_test.o $(TEST_LIBRARY) $(LIBRARY)

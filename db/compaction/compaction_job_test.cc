@@ -340,7 +340,7 @@ class CompactionJobTest : public testing::Test {
     CompactionJob compaction_job(
         0, &compaction, db_options_, env_options_, versions_.get(),
         &shutting_down_, preserve_deletes_seqnum_, &log_buffer, nullptr,
-        nullptr, nullptr, &mutex_, &error_handler_, snapshots,
+        nullptr, nullptr, nullptr, &mutex_, &error_handler_, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger, false, false, dbname_, &compaction_job_stats_,
         Env::Priority::USER, nullptr /* IOTracer */);

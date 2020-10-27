@@ -140,6 +140,16 @@ Status Env::GetChildrenFileAttributes(const std::string& dir,
   return Status::OK();
 }
 
+Status Env::GetHostNameString(std::string* result) {
+  std::array<char, kMaxHostNameLen> hostname_buf;
+  Status s = GetHostName(hostname_buf.data(), hostname_buf.size());
+  if (s.ok()) {
+    hostname_buf[hostname_buf.size() - 1] = '\0';
+    result->assign(hostname_buf.data());
+  }
+  return s;
+}
+
 SequentialFile::~SequentialFile() {
 }
 
