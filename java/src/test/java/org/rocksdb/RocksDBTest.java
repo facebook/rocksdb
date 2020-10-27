@@ -278,7 +278,7 @@ public class RocksDBTest {
          final ReadOptions optr = new ReadOptions()) {
       final byte[] key1 = "key1".getBytes();
       final byte[] value1 = "value1".getBytes();
-      db.put(key1, value1);
+      db.put(db.getDefaultColumnFamily(), key1, value1);
       try (PinnableSlice pinnableSlice = db.getUnsafe(db.getDefaultColumnFamily(), optr, key1)) {
         for (int i = 0; i < pinnableSlice.capacity(); ++i) {
           assertEquals(value1[i], pinnableSlice.get());

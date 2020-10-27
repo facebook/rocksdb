@@ -1216,9 +1216,8 @@ jint rocksdb_get_unsafe_helper(
     return kStatusError;
   }
 
-  jboolean is_copy;
   jlong* ret_arr = reinterpret_cast<jlong*>(
-      env->GetPrimitiveArrayCritical(jret_data, &is_copy));
+      env->GetPrimitiveArrayCritical(jret_data, nullptr));
   if (nullptr == ret_arr) {
     // Exception occurred
     *has_exception = true;
@@ -1227,8 +1226,7 @@ jint rocksdb_get_unsafe_helper(
   ret_arr[0] = reinterpret_cast<jlong>(value_slice);
   ret_arr[1] = reinterpret_cast<jlong>(value_slice->data());
 
-  env->ReleasePrimitiveArrayCritical(jret_data, ret_arr,
-                                     is_copy ? 0 : JNI_ABORT);
+  env->ReleasePrimitiveArrayCritical(jret_data, ret_arr, 0);
 
   *has_exception = false;
 
