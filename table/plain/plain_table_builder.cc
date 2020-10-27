@@ -100,6 +100,10 @@ PlainTableBuilder::PlainTableBuilder(
   properties_.column_family_name = column_family_name;
   properties_.db_id = db_id;
   properties_.db_session_id = db_session_id;
+  properties_.db_host_id = ioptions.db_host_id;
+  if (!ReifyDbHostIdProperty(ioptions_.env, &properties_.db_host_id).ok()) {
+    ROCKS_LOG_INFO(ioptions_.info_log, "db_host_id property will not be set");
+  }
   properties_.prefix_extractor_name = moptions_.prefix_extractor != nullptr
                                           ? moptions_.prefix_extractor->Name()
                                           : "nullptr";

@@ -2391,6 +2391,7 @@ TEST_F(DBTest, PurgeInfoLogs) {
   Options options = CurrentOptions();
   options.keep_log_file_num = 5;
   options.create_if_missing = true;
+  options.env = env_;
   for (int mode = 0; mode <= 1; mode++) {
     if (mode == 1) {
       options.db_log_dir = dbname_ + "_logs";
@@ -3947,6 +3948,7 @@ TEST_F(DBTest, WriteSingleThreadEntry) {
 TEST_F(DBTest, ConcurrentFlushWAL) {
   const size_t cnt = 100;
   Options options;
+  options.env = env_;
   WriteOptions wopt;
   ReadOptions ropt;
   for (bool two_write_queues : {false, true}) {
@@ -4615,6 +4617,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
 
   Random rnd(301);
   Options options;
+  options.env = env_;
   options.create_if_missing = true;
   options.db_write_buffer_size = 20480;
   options.write_buffer_size = 20480;
@@ -5017,6 +5020,7 @@ TEST_F(DBTest, DynamicFIFOCompactionOptions) {
   Options options;
   options.ttl = 0;
   options.create_if_missing = true;
+  options.env = env_;
   DestroyAndReopen(options);
 
   // Initial defaults
@@ -5078,6 +5082,7 @@ TEST_F(DBTest, DynamicFIFOCompactionOptions) {
 TEST_F(DBTest, DynamicUniversalCompactionOptions) {
   Options options;
   options.create_if_missing = true;
+  options.env = env_;
   DestroyAndReopen(options);
 
   // Initial defaults

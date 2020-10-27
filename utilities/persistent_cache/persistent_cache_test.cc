@@ -253,18 +253,19 @@ TEST_F(PersistentCacheTierTest, DISABLED_TieredCacheInsertWithEviction) {
 }
 
 std::shared_ptr<PersistentCacheTier> MakeVolatileCache(
-    const std::string& /*dbname*/) {
+    Env* /*env*/, const std::string& /*dbname*/) {
   return std::make_shared<VolatileCacheTier>();
 }
 
-std::shared_ptr<PersistentCacheTier> MakeBlockCache(const std::string& dbname) {
-  return NewBlockCache(Env::Default(), dbname);
+std::shared_ptr<PersistentCacheTier> MakeBlockCache(Env* env,
+                                                    const std::string& dbname) {
+  return NewBlockCache(env, dbname);
 }
 
 std::shared_ptr<PersistentCacheTier> MakeTieredCache(
-    const std::string& dbname) {
+    Env* env, const std::string& dbname) {
   const auto memory_size = 1 * 1024 * 1024 * kStressFactor;
-  return NewTieredCache(Env::Default(), dbname, static_cast<size_t>(memory_size));
+  return NewTieredCache(env, dbname, static_cast<size_t>(memory_size));
 }
 
 #ifdef OS_LINUX
@@ -442,26 +443,26 @@ void PersistentCacheDBTest::RunTest(
 // specifically written for Travis.
 // Now used generally because main tests are too expensive as unit tests.
 TEST_F(PersistentCacheDBTest, BasicTest) {
-  RunTest(std::bind(&MakeBlockCache, dbname_), /*max_keys=*/1024,
+  RunTest(std::bind(&MakeBlockCache, env_, dbname_), /*max_keys=*/1024,
           /*max_usecase=*/1);
 }
 
 // test table with block page cache
 // DISABLED for now (very expensive, especially memory)
 TEST_F(PersistentCacheDBTest, DISABLED_BlockCacheTest) {
-  RunTest(std::bind(&MakeBlockCache, dbname_));
+  RunTest(std::bind(&MakeBlockCache, env_, dbname_));
 }
 
 // test table with volatile page cache
 // DISABLED for now (very expensive, especially memory)
 TEST_F(PersistentCacheDBTest, DISABLED_VolatileCacheTest) {
-  RunTest(std::bind(&MakeVolatileCache, dbname_));
+  RunTest(std::bind(&MakeVolatileCache, env_, dbname_));
 }
 
 // test table with tiered page cache
 // DISABLED for now (very expensive, especially memory)
 TEST_F(PersistentCacheDBTest, DISABLED_TieredCacheTest) {
-  RunTest(std::bind(&MakeTieredCache, dbname_));
+  RunTest(std::bind(&MakeTieredCache, env_, dbname_));
 }
 
 }  // namespace ROCKSDB_NAMESPACE

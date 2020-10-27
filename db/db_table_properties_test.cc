@@ -11,9 +11,11 @@
 #include <vector>
 
 #include "db/db_test_util.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
+#include "table/format.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
@@ -273,6 +275,55 @@ TEST_F(DBTablePropertiesTest, GetDbIdentifiersProperty) {
     ASSERT_EQ(sid, fname_to_props.begin()->second->db_session_id);
   }
 }
+
+class DBTableHostnamePropertyTest
+    : public DBTestBase,
+      public ::testing::WithParamInterface<std::tuple<int, std::string>> {
+ public:
+  DBTableHostnamePropertyTest()
+      : DBTestBase("/db_table_hostname_property_test",
+                   /*env_do_fsync=*/false) {}
+};
+
+TEST_P(DBTableHostnamePropertyTest, DbHostLocationProperty) {
+  option_config_ = std::get<0>(GetParam());
+  Options opts = CurrentOptions();
+  std::string expected_host_id = std::get<1>(GetParam());
+  ;
+  if (expected_host_id == kHostnameForDbHostId) {
+    ASSERT_OK(env_->GetHostNameString(&expected_host_id));
+  } else {
+    opts.db_host_id = expected_host_id;
+  }
+  CreateAndReopenWithCF({"goku"}, opts);
+
+  for (uint32_t cf = 0; cf < 2; ++cf) {
+    Put(cf, "key", "val");
+    Put(cf, "foo", "bar");
+    Flush(cf);
+
+    TablePropertiesCollection fname_to_props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[cf], &fname_to_props));
+    ASSERT_EQ(1U, fname_to_props.size());
+
+    ASSERT_EQ(fname_to_props.begin()->second->db_host_id, expected_host_id);
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    DBTableHostnamePropertyTest, DBTableHostnamePropertyTest,
+    ::testing::Values(
+        // OptionConfig, override db_host_location
+        std::make_tuple(DBTestBase::OptionConfig::kDefault,
+                        kHostnameForDbHostId),
+        std::make_tuple(DBTestBase::OptionConfig::kDefault, "foobar"),
+        std::make_tuple(DBTestBase::OptionConfig::kDefault, ""),
+        std::make_tuple(DBTestBase::OptionConfig::kPlainTableFirstBytePrefix,
+                        kHostnameForDbHostId),
+        std::make_tuple(DBTestBase::OptionConfig::kPlainTableFirstBytePrefix,
+                        "foobar"),
+        std::make_tuple(DBTestBase::OptionConfig::kPlainTableFirstBytePrefix,
+                        "")));
 
 class DeletionTriggeredCompactionTestListener : public EventListener {
  public:

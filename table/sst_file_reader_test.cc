@@ -90,6 +90,9 @@ class SstFileReaderTest : public testing::Test {
     if (check_global_seqno) {
       auto properties = reader.GetTableProperties();
       ASSERT_TRUE(properties);
+      std::string hostname;
+      ASSERT_OK(env_->GetHostNameString(&hostname));
+      ASSERT_EQ(properties->db_host_id, hostname);
       auto& user_properties = properties->user_collected_properties;
       ASSERT_TRUE(
           user_properties.count(ExternalSstFilePropertyNames::kGlobalSeqno));

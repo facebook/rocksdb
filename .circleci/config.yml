@@ -108,6 +108,26 @@ jobs:
       - run: make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
       - post-steps
 
+  build-linux-mem-env:
+    machine:
+      image: ubuntu-1604:202007-01
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - run: MEM_ENV=1 make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-linux-encrypted-env:
+    machine:
+      image: ubuntu-1604:202007-01
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - run: ENCRYPTED_ENV=1 make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - post-steps
+
   build-linux-shared_lib-alt_namespace-status_checked:
     machine:
       image: ubuntu-1604:202007-01
@@ -378,6 +398,12 @@ workflows:
   build-linux:
     jobs:
       - build-linux
+  build-linux-mem-env:
+    jobs:
+      - build-linux-mem-env
+  build-linux-encrypted-env:
+    jobs:
+      - build-linux-encrypted-env
   build-linux-shared_lib-alt_namespace-status_checked:
     jobs:
       - build-linux-shared_lib-alt_namespace-status_checked
