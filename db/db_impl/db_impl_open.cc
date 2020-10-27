@@ -9,6 +9,9 @@
 #include "db/db_impl/db_impl.h"
 
 #include <cinttypes>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #include "db/builder.h"
 #include "db/error_handler.h"
@@ -755,6 +758,18 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     versions_->MarkFileNumberUsed(log_number);
     // Open the log file
     std::string fname = LogFileName(immutable_db_options_.wal_dir, log_number);
+
+    {
+      struct stat sbuf;
+      if (stat(fname.c_str(), &sbuf) != 0) {
+        ROCKS_LOG_WARN(immutable_db_options_.info_log,
+          "Error while stat a %s file", fname.c_str());
+      } else {
+        if (sbuf.st_size == 0) {
+          continue;
+        };
+      }
+    }
 
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
                    "Recovering log #%" PRIu64 " mode %d", log_number,
