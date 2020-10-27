@@ -89,6 +89,7 @@ extern Status BuildTable(
     const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0,
     Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,
     const uint64_t file_creation_time = 0, const std::string& db_id = "",
-    const std::string& db_session_id = "");
+    const std::string& db_session_id = "",
+    const std::string* full_history_ts_low = nullptr);
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -91,7 +91,7 @@ Status BuildTable(
     TableProperties* table_properties, int level, const uint64_t creation_time,
     const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
     const uint64_t file_creation_time, const std::string& db_id,
-    const std::string& db_session_id) {
+    const std::string& db_session_id, const std::string* full_history_ts_low) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -175,12 +175,17 @@ Status BuildTable(
                                   blob_file_additions)
             : nullptr);
 
+    std::shared_ptr<Logger> info_log;
     CompactionIterator c_iter(
         iter, internal_comparator.user_comparator(), &merge, kMaxSequenceNumber,
         &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
         ShouldReportDetailedTime(env, ioptions.statistics),
         true /* internal key corruption is not ok */, range_del_agg.get(),
-        blob_file_builder.get(), ioptions.allow_data_in_errors);
+        blob_file_builder.get(), ioptions.allow_data_in_errors,
+        /*compaction=*/nullptr,
+        /*compaction_filter=*/nullptr, /*shutting_down=*/nullptr,
+        /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
+        /*info_log=*/info_log, full_history_ts_low);
 
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
