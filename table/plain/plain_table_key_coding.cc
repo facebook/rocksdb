@@ -85,7 +85,8 @@ IOStatus PlainTableKeyEncoder::AppendKey(const Slice& key,
                                          uint64_t* offset, char* meta_bytes_buf,
                                          size_t* meta_bytes_buf_size) {
   ParsedInternalKey parsed_key;
-  Status pik_status = ParseInternalKey(key, &parsed_key, false);  // TODO
+  Status pik_status =
+      ParseInternalKey(key, &parsed_key, false /* log_err_key */);  // TODO
   if (!pik_status.ok()) {
     return IOStatus::Corruption(pik_status.getState());
   }
@@ -280,8 +281,8 @@ Status PlainTableKeyDecoder::ReadInternalKey(
       return file_reader_.status();
     }
     *internal_key_valid = true;
-    Status pik_status =
-        ParseInternalKey(*internal_key, parsed_key, false);  // TODO
+    Status pik_status = ParseInternalKey(*internal_key, parsed_key,
+                                         false /* log_err_key */);  // TODO
     if (!pik_status.ok()) {
       return Status::Corruption(
           Slice("Corrupted key found during next key read. "),

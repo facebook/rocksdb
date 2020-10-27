@@ -33,7 +33,7 @@ Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
                                                     const Slice& value,
                                                     uint64_t file_size) {
   ParsedInternalKey ikey;
-  Status s = ParseInternalKey(key, &ikey, false);  // TODO
+  Status s = ParseInternalKey(key, &ikey, false /* log_err_key */);  // TODO
   if (!s.ok()) {
     return s;
   }

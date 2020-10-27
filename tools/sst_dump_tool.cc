@@ -238,7 +238,8 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       Slice sl_key = ROCKSDB_NAMESPACE::Slice(in_key);
       ParsedInternalKey ikey;
       int retc = 0;
-      Status pik_status = ParseInternalKey(sl_key, &ikey, true);
+      Status pik_status =
+          ParseInternalKey(sl_key, &ikey, true /* log_err_key */);
       if (!pik_status.ok()) {
         std::cerr << pik_status.getState() << "\n";
         retc = -1;

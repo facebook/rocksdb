@@ -2390,8 +2390,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         // Call the *saver function on each entry/block until it returns false
         for (; biter.Valid(); biter.Next()) {
           ParsedInternalKey parsed_key;
-          Status pik_status =
-              ParseInternalKey(biter.key(), &parsed_key, false);  // TODO
+          Status pik_status = ParseInternalKey(
+              biter.key(), &parsed_key, false /* log_err_key */);  // TODO
           if (!pik_status.ok()) {
             s = pik_status;
           }
@@ -2716,8 +2716,8 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           ParsedInternalKey parsed_key;
           Cleanable dummy;
           Cleanable* value_pinner = nullptr;
-          Status pik_status =
-              ParseInternalKey(biter->key(), &parsed_key, false);  // TODO
+          Status pik_status = ParseInternalKey(
+              biter->key(), &parsed_key, false /* log_err_key */);  // TODO
           if (!pik_status.ok()) {
             s = pik_status;
           }

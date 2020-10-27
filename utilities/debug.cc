@@ -55,7 +55,8 @@ Status GetAllKeyVersions(DB* db, ColumnFamilyHandle* cfh, Slice begin_key,
   size_t num_keys = 0;
   for (; iter->Valid(); iter->Next()) {
     ParsedInternalKey ikey;
-    Status pik_status = ParseInternalKey(iter->key(), &ikey, false);  // TODO
+    Status pik_status =
+        ParseInternalKey(iter->key(), &ikey, true /* log_err_key */);  // TODO
     if (!pik_status.ok()) {
       return pik_status;
     }

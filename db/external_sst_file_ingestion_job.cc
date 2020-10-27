@@ -314,7 +314,7 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
                         file_to_ingest.largest_internal_key.user_key());
   }
   Status status = cfd_->RangesOverlapWithMemtables(
-      ranges, super_version, flush_needed, db_options_.allow_data_in_errors);
+      ranges, super_version, db_options_.allow_data_in_errors, flush_needed);
   if (status.ok() && *flush_needed &&
       !ingestion_options_.allow_blocking_flush) {
     status = Status::InvalidArgument("External file requires flush");

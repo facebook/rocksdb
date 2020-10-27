@@ -63,8 +63,8 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(JNIEnv* env,
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ROCKSDB_NAMESPACE::ParsedInternalKey ikey;
     ikey.clear();
-    ROCKSDB_NAMESPACE::Status pik_status =
-        ROCKSDB_NAMESPACE::ParseInternalKey(iter->key(), &ikey, true);
+    ROCKSDB_NAMESPACE::Status pik_status = ROCKSDB_NAMESPACE::ParseInternalKey(
+        iter->key(), &ikey, true /* log_err_key */);
     pik_status.PermitUncheckedError();
     assert(pik_status.ok());
     switch (ikey.type) {

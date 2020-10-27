@@ -285,7 +285,8 @@ class InternalKey {
 
   bool Valid() const {
     ParsedInternalKey parsed;
-    return (ParseInternalKey(Slice(rep_), &parsed, true).ok());  // TODO
+    return (ParseInternalKey(Slice(rep_), &parsed, false /* log_err_key */)
+                .ok());  // TODO
   }
 
   void DecodeFrom(const Slice& s) { rep_.assign(s.data(), s.size()); }
