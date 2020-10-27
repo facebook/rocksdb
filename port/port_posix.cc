@@ -13,6 +13,7 @@
 
 #include <assert.h>
 #if defined(__i386__) || defined(__x86_64__)
+#include <cpuid.h>
 #endif
 #include <errno.h>
 #include <sched.h>
