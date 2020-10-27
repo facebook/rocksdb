@@ -23,7 +23,7 @@ class GetContext;
 struct KeyContext {
   const Slice* key;
   LookupKey* lkey;
-  Slice ukey;
+  Slice ukey_with_ts;
   Slice ukey_without_ts;
   Slice ikey;
   ColumnFamilyHandle* column_family;
@@ -113,7 +113,7 @@ class MultiGetContext {
       sorted_keys_[iter] = (*sorted_keys)[begin + iter];
       sorted_keys_[iter]->lkey = new (&lookup_key_ptr_[iter])
           LookupKey(*sorted_keys_[iter]->key, snapshot, read_opts.timestamp);
-      sorted_keys_[iter]->ukey = sorted_keys_[iter]->lkey->user_key();
+      sorted_keys_[iter]->ukey_with_ts = sorted_keys_[iter]->lkey->user_key();
       sorted_keys_[iter]->ukey_without_ts = StripTimestampFromUserKey(
           sorted_keys_[iter]->lkey->user_key(),
           read_opts.timestamp == nullptr ? 0 : read_opts.timestamp->size());
