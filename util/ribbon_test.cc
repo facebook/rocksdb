@@ -528,7 +528,7 @@ TYPED_TEST(RibbonTypeParamTest, Extremes) {
   // Because there's plenty of memory, we expect the interleaved solution to
   // use maximum supported columns (same as simple solution)
   ASSERT_EQ(isoln.GetUpperNumColumns(), 8U * sizeof(ResultRow));
-  ASSERT_EQ(isoln.GetUpperStartBlock(), 0);
+  ASSERT_EQ(isoln.GetUpperStartBlock(), 0U);
 
   // Somewhat oddly, we expect same FP rate as if we had essentially filled
   // up the slots.
@@ -570,8 +570,8 @@ TYPED_TEST(RibbonTypeParamTest, Extremes) {
 
   isoln2.BackSubstFrom(banding);
 
-  ASSERT_EQ(isoln2.GetUpperNumColumns(), 0);
-  ASSERT_EQ(isoln2.GetUpperStartBlock(), 0);
+  ASSERT_EQ(isoln2.GetUpperNumColumns(), 0U);
+  ASSERT_EQ(isoln2.GetUpperStartBlock(), 0U);
 
   // All queries return true
   ASSERT_TRUE(isoln2.FilterQuery(*other_keys_begin, hasher));
@@ -599,7 +599,7 @@ TEST(RibbonTest, AllowZeroStarts) {
                                               begin_and_end, /*max_seed*/ 5));
 
   Seed seed = banding.GetSeed();
-  ASSERT_EQ(seed, 0);
+  ASSERT_EQ(seed, 0U);
   hasher.ResetSeed(seed);
 
   // Can construct 0-slot solutions
