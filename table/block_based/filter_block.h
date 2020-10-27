@@ -111,8 +111,8 @@ class FilterBlockReader {
       const Slice ukey_without_ts = iter->ukey_without_ts;
       const Slice ikey = iter->ikey;
       GetContext* const get_context = iter->get_context;
-      if (!KeyMayMatch(ukey_without_ts, prefix_extractor, block_offset, no_io, &ikey,
-                       get_context, lookup_context)) {
+      if (!KeyMayMatch(ukey_without_ts, prefix_extractor, block_offset, no_io,
+                       &ikey, get_context, lookup_context)) {
         range->SkipKey(iter);
       }
     }
@@ -137,9 +137,9 @@ class FilterBlockReader {
       const Slice ikey = iter->ikey;
       GetContext* const get_context = iter->get_context;
       if (prefix_extractor->InDomain(ukey_without_ts) &&
-          !PrefixMayMatch(prefix_extractor->Transform(ukey_without_ts), prefix_extractor,
-                          block_offset, no_io, &ikey, get_context,
-                          lookup_context)) {
+          !PrefixMayMatch(prefix_extractor->Transform(ukey_without_ts),
+                          prefix_extractor, block_offset, no_io, &ikey,
+                          get_context, lookup_context)) {
         range->SkipKey(iter);
       }
     }

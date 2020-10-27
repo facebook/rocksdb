@@ -539,9 +539,9 @@ Status TableCache::MultiGet(const ReadOptions& options,
              ++iter) {
           SequenceNumber* max_covering_tombstone_seq =
               iter->get_context->max_covering_tombstone_seq();
-          *max_covering_tombstone_seq =
-              std::max(*max_covering_tombstone_seq,
-                       range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey_with_ts));
+          *max_covering_tombstone_seq = std::max(
+              *max_covering_tombstone_seq,
+              range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey_with_ts));
         }
       }
     }

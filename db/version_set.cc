@@ -413,7 +413,6 @@ class FilePickerMultiGet {
                                   size_t* file_index, FdWithKeyRange** fd,
                                   bool* is_last_key_in_file) {
     size_t curr_file_index = *file_index;
-    fprintf(stdout, "JJJ4: get next file in level with keys\n");
     FdWithKeyRange* f = nullptr;
     bool file_hit = false;
     int cmp_largest = -1;
@@ -458,8 +457,9 @@ class FilePickerMultiGet {
         assert(curr_level_ == 0 ||
                fp_ctx.curr_index_in_curr_level ==
                    fp_ctx.start_index_in_curr_level ||
-               user_comparator_->CompareWithoutTimestamp(user_key, false,
-                                                         ExtractUserKey(f->smallest_key), true) <= 0);
+               user_comparator_->CompareWithoutTimestamp(
+                   user_key, false, ExtractUserKey(f->smallest_key), true) <=
+                   0);
 
         int cmp_smallest = user_comparator_->CompareWithoutTimestamp(
             user_key, false, ExtractUserKey(f->smallest_key), true);
@@ -498,8 +498,9 @@ class FilePickerMultiGet {
         upper_key_ = batch_iter_;
         ++upper_key_;
         while (upper_key_ != current_level_range_.end() &&
-               user_comparator_->CompareWithoutTimestamp(batch_iter_->ukey_without_ts, false, upper_key_->ukey_without_ts, false) ==
-                   0) {
+               user_comparator_->CompareWithoutTimestamp(
+                   batch_iter_->ukey_without_ts, false,
+                   upper_key_->ukey_without_ts, false) == 0) {
           ++upper_key_;
         }
         break;
@@ -1998,7 +1999,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 
 void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                        ReadCallback* callback, bool* is_blob) {
-  fprintf(stdout, "JJJ2: multiget \n");
   PinnedIteratorsManager pinned_iters_mgr;
 
   // Pin blocks that we read to hold merge operands
@@ -2019,11 +2019,11 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     assert(iter->s->ok() || iter->s->IsMergeInProgress());
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
-        iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge, iter->ukey_with_ts,
-        iter->value, iter->timestamp, nullptr, &(iter->merge_context), true,
-        &iter->max_covering_tombstone_seq, this->env_, nullptr,
-        merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
-        tracing_mget_id);
+        iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge,
+        iter->ukey_with_ts, iter->value, iter->timestamp, nullptr,
+        &(iter->merge_context), true, &iter->max_covering_tombstone_seq,
+        this->env_, nullptr, merge_operator_ ? &pinned_iters_mgr : nullptr,
+        callback, is_blob, tracing_mget_id);
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
     // be used for IO errors, and get_context state will be used for any

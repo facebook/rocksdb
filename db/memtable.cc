@@ -541,7 +541,8 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
 
     if (bloom_filter_ && prefix_extractor_ &&
         prefix_extractor_->InDomain(key)) {
-      bloom_filter_->Add(prefix_extractor_->Transform(StripTimestampFromUserKey(key, ts_sz)));
+      bloom_filter_->Add(
+          prefix_extractor_->Transform(StripTimestampFromUserKey(key, ts_sz)));
     }
     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
       bloom_filter_->Add(StripTimestampFromUserKey(key, ts_sz));
@@ -902,7 +903,6 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
   MultiGetRange temp_range(*range, range->begin(), range->end());
   if (bloom_filter_) {
-    fprintf(stdout, "JJJ3: memtable bloom_filter\n");
     std::array<Slice*, MultiGetContext::MAX_BATCH_SIZE> keys;
     std::array<bool, MultiGetContext::MAX_BATCH_SIZE> may_match = {{true}};
     autovector<Slice, MultiGetContext::MAX_BATCH_SIZE> prefixes;
@@ -911,14 +911,16 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
       if (!prefix_extractor_) {
         keys[num_keys++] = &iter->ukey_without_ts;
       } else if (prefix_extractor_->InDomain(iter->ukey_without_ts)) {
-        prefixes.emplace_back(prefix_extractor_->Transform(iter->ukey_without_ts));
+        prefixes.emplace_back(
+            prefix_extractor_->Transform(iter->ukey_without_ts));
         keys[num_keys++] = &prefixes.back();
       }
     }
     bloom_filter_->MayContain(num_keys, &keys[0], &may_match[0]);
     int idx = 0;
     for (auto iter = temp_range.begin(); iter != temp_range.end(); ++iter) {
-      if (prefix_extractor_ && !prefix_extractor_->InDomain(iter->ukey_without_ts)) {
+      if (prefix_extractor_ &&
+          !prefix_extractor_->InDomain(iter->ukey_without_ts)) {
         PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
         continue;
       }
