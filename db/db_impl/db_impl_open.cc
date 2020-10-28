@@ -518,8 +518,8 @@ Status DBImpl::Recover(
       edit.SetDBId(db_id_);
       versions_->db_id_ = db_id_;
       s = versions_->LogAndApplyToDefaultColumnFamily(
-                             &edit, &mutex_, directories_.GetDbDir(),
-                             /* new_descriptor_log */ false);
+          &edit, &mutex_, directories_.GetDbDir(),
+          /* new_descriptor_log */ false);
     }
   } else {
     s = SetIdentityFile(env_, dbname_, db_id_);
@@ -546,8 +546,8 @@ Status DBImpl::Recover(
     // so future recovery will succeed.
     VersionEdit dummy;
     s = versions_->LogAndApplyToDefaultColumnFamily(
-                               &dummy, &mutex_, directories_.GetDbDir(),
-                               /* new_descriptor_log */ true);
+        &dummy, &mutex_, directories_.GetDbDir(),
+        /* new_descriptor_log */ true);
     if (!s.ok()) {
       return s;
     }
