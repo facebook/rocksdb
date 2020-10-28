@@ -166,6 +166,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.max_bgerror_resume_count;
   options.bgerror_resume_retry_interval =
       immutable_db_options.bgerror_resume_retry_interval;
+  options.db_host_id = immutable_db_options.db_host_id;
   return options;
 }
 

@@ -228,8 +228,8 @@ TEST_P(EnvBasicTestWithParam, Basics) {
   ASSERT_EQ(Status::NotFound(), env_->FileExists(test_dir_ + "/g"));
   ASSERT_OK(env_->GetChildren(test_dir_, &children));
   ASSERT_EQ(0U, children.size());
-  ASSERT_TRUE(
-      env_->GetChildren(test_dir_ + "/non_existent", &children).IsNotFound());
+  Status s = env_->GetChildren(test_dir_ + "/non_existent", &children);
+  ASSERT_TRUE(s.IsNotFound());
 }
 
 TEST_P(EnvBasicTestWithParam, ReadWrite) {

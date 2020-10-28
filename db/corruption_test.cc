@@ -184,7 +184,7 @@ class CorruptionTest : public testing::Test {
     }
     ASSERT_TRUE(!fname.empty()) << filetype;
 
-    test::CorruptFile(fname, offset, bytes_to_corrupt);
+    ASSERT_OK(test::CorruptFile(&env_, fname, offset, bytes_to_corrupt));
   }
 
   // corrupts exactly one file at level `level`. if no file found at level,
@@ -194,7 +194,8 @@ class CorruptionTest : public testing::Test {
     db_->GetLiveFilesMetaData(&metadata);
     for (const auto& m : metadata) {
       if (m.level == level) {
-        test::CorruptFile(dbname_ + "/" + m.name, offset, bytes_to_corrupt);
+        ASSERT_OK(test::CorruptFile(&env_, dbname_ + "/" + m.name, offset,
+                                    bytes_to_corrupt));
         return;
       }
     }
@@ -249,8 +250,8 @@ TEST_F(CorruptionTest, Recovery) {
   // is not available for WAL though.
   CloseDb();
 #endif
-  Corrupt(kLogFile, 19, 1);      // WriteBatch tag for first record
-  Corrupt(kLogFile, log::kBlockSize + 1000, 1);  // Somewhere in second block
+  Corrupt(kWalFile, 19, 1);  // WriteBatch tag for first record
+  Corrupt(kWalFile, log::kBlockSize + 1000, 1);  // Somewhere in second block
   ASSERT_TRUE(!TryReopen().ok());
   options_.paranoid_checks = false;
   Reopen(&options_);
@@ -529,7 +530,8 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
       ImmutableCFOptions(options_), kRangeDelBlock, &range_del_handle));
 
   ASSERT_OK(TryReopen());
-  test::CorruptFile(filename, static_cast<int>(range_del_handle.offset()), 1);
+  ASSERT_OK(test::CorruptFile(&env_, filename,
+                              static_cast<int>(range_del_handle.offset()), 1));
   ASSERT_TRUE(TryReopen().IsCorruption());
 }
 

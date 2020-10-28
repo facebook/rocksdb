@@ -317,10 +317,6 @@ TEST_F(VersionEditTest, AddWalEncodeDecode) {
     if (has_size) {
       meta.SetSyncedSizeInBytes(rand() % 1000);
     }
-    bool is_closed = rand() % 2 == 0;
-    if (is_closed) {
-      meta.SetClosed();
-    }
     edit.AddWal(log_number, meta);
   }
   TestEncodeDecode(edit);
@@ -442,7 +438,7 @@ TEST_F(VersionEditTest, AddWalDebug) {
 
   const WalAdditions& wals = edit.GetWalAdditions();
 
-  ASSERT_TRUE(edit.HasWalAddition());
+  ASSERT_TRUE(edit.IsWalAddition());
   ASSERT_EQ(wals.size(), n);
   for (int i = 0; i < n; i++) {
     const WalAddition& wal = wals[i];
@@ -454,7 +450,7 @@ TEST_F(VersionEditTest, AddWalDebug) {
   for (int i = 0; i < n; i++) {
     std::stringstream ss;
     ss << "  WalAddition: log_number: " << kLogNumbers[i]
-       << " synced_size_in_bytes: " << kSizeInBytes[i] << " closed: 0\n";
+       << " synced_size_in_bytes: " << kSizeInBytes[i] << "\n";
     expected_str += ss.str();
   }
   expected_str += "  ColumnFamily: 0\n}\n";
@@ -464,8 +460,7 @@ TEST_F(VersionEditTest, AddWalDebug) {
   for (int i = 0; i < n; i++) {
     std::stringstream ss;
     ss << "{\"LogNumber\": " << kLogNumbers[i] << ", "
-       << "\"SyncedSizeInBytes\": " << kSizeInBytes[i] << ", "
-       << "\"Closed\": 0}";
+       << "\"SyncedSizeInBytes\": " << kSizeInBytes[i] << "}";
     if (i < n - 1) ss << ", ";
     expected_json += ss.str();
   }
@@ -492,7 +487,7 @@ TEST_F(VersionEditTest, DeleteWalDebug) {
 
   const WalDeletions& wals = edit.GetWalDeletions();
 
-  ASSERT_TRUE(edit.HasWalDeletion());
+  ASSERT_TRUE(edit.IsWalDeletion());
   ASSERT_EQ(wals.size(), n);
   for (int i = 0; i < n; i++) {
     const WalDeletion& wal = wals[i];

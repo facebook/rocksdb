@@ -453,21 +453,26 @@ class VersionEdit {
 
   // Add a WAL (either just created or closed).
   void AddWal(WalNumber number, WalMetadata metadata = WalMetadata()) {
+    assert(NumEntries() == wal_additions_.size());
     wal_additions_.emplace_back(number, std::move(metadata));
   }
 
   // Retrieve all the added WALs.
   const WalAdditions& GetWalAdditions() const { return wal_additions_; }
 
-  bool HasWalAddition() const { return !wal_additions_.empty(); }
+  bool IsWalAddition() const { return !wal_additions_.empty(); }
 
   // Delete a WAL (either directly deleted or archived).
-  void DeleteWal(WalNumber number) { wal_deletions_.emplace_back(number); }
+  void DeleteWal(WalNumber number) {
+    assert(NumEntries() == wal_deletions_.size());
+    wal_deletions_.emplace_back(number);
+  }
 
-  // Retrieve all the deleted WALs.
   const WalDeletions& GetWalDeletions() const { return wal_deletions_; }
 
-  bool HasWalDeletion() const { return !wal_deletions_.empty(); }
+  bool IsWalDeletion() const { return !wal_deletions_.empty(); }
+
+  bool IsWalManipulation() const { return IsWalAddition() || IsWalDeletion(); }
 
   // Number of edits
   size_t NumEntries() const {

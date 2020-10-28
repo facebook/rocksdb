@@ -119,6 +119,12 @@ struct ParsedInternalKey {
     sequence = 0;
     type = kTypeDeletion;
   }
+
+  void SetTimestamp(const Slice& ts) {
+    assert(ts.size() <= user_key.size());
+    const char* addr = user_key.data() - ts.size();
+    memcpy(const_cast<char*>(addr), ts.data(), ts.size());
+  }
 };
 
 // Return the length of the encoding of "key".
@@ -475,9 +481,14 @@ class IterKey {
 
   // Update the sequence number in the internal key.  Guarantees not to
   // invalidate slices to the key (and the user key).
-  void UpdateInternalKey(uint64_t seq, ValueType t) {
+  void UpdateInternalKey(uint64_t seq, ValueType t, const Slice* ts = nullptr) {
     assert(!IsKeyPinned());
     assert(key_size_ >= kNumInternalBytes);
+    if (ts) {
+      assert(key_size_ >= kNumInternalBytes + ts->size());
+      memcpy(&buf_[key_size_ - kNumInternalBytes - ts->size()], ts->data(),
+             ts->size());
+    }
     uint64_t newval = (seq << 8) | t;
     EncodeFixed64(&buf_[key_size_ - kNumInternalBytes], newval);
   }

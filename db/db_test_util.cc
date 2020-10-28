@@ -331,7 +331,7 @@ Options DBTestBase::CurrentOptions(
   return GetOptions(option_config_, default_options, options_override);
 }
 
-Options DBTestBase::GetDefaultOptions() {
+Options DBTestBase::GetDefaultOptions() const {
   Options options;
   options.write_buffer_size = 4090 * 4096;
   options.target_file_size_base = 2 * 1024 * 1024;
@@ -339,6 +339,7 @@ Options DBTestBase::GetDefaultOptions() {
   options.max_open_files = 5000;
   options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   options.compaction_pri = CompactionPri::kByCompensatedSize;
+  options.env = env_;
   return options;
 }
 
@@ -367,28 +368,28 @@ Options DBTestBase::GetOptions(
       options.unordered_write = false;
       break;
     case kPlainTableFirstBytePrefix:
-      options.table_factory.reset(new PlainTableFactory());
+      options.table_factory.reset(NewPlainTableFactory());
       options.prefix_extractor.reset(NewFixedPrefixTransform(1));
       options.allow_mmap_reads = can_allow_mmap;
       options.max_sequential_skip_in_iterations = 999999;
       set_block_based_table_factory = false;
       break;
     case kPlainTableCappedPrefix:
-      options.table_factory.reset(new PlainTableFactory());
+      options.table_factory.reset(NewPlainTableFactory());
       options.prefix_extractor.reset(NewCappedPrefixTransform(8));
       options.allow_mmap_reads = can_allow_mmap;
       options.max_sequential_skip_in_iterations = 999999;
       set_block_based_table_factory = false;
       break;
     case kPlainTableCappedPrefixNonMmap:
-      options.table_factory.reset(new PlainTableFactory());
+      options.table_factory.reset(NewPlainTableFactory());
       options.prefix_extractor.reset(NewCappedPrefixTransform(8));
       options.allow_mmap_reads = false;
       options.max_sequential_skip_in_iterations = 999999;
       set_block_based_table_factory = false;
       break;
     case kPlainTableAllBytesPrefix:
-      options.table_factory.reset(new PlainTableFactory());
+      options.table_factory.reset(NewPlainTableFactory());
       options.prefix_extractor.reset(NewNoopTransform());
       options.allow_mmap_reads = can_allow_mmap;
       options.max_sequential_skip_in_iterations = 999999;
@@ -704,9 +705,9 @@ Status DBTestBase::TryReopen(const Options& options) {
   // Note: operator= is an unsafe approach here since it destructs
   // std::shared_ptr in the same order of their creation, in contrast to
   // destructors which destructs them in the opposite order of creation. One
-  // particular problme is that the cache destructor might invoke callback
+  // particular problem is that the cache destructor might invoke callback
   // functions that use Option members such as statistics. To work around this
-  // problem, we manually call destructor of table_facotry which eventually
+  // problem, we manually call destructor of table_factory which eventually
   // clears the block cache.
   last_options_ = options;
   MaybeInstallTimeElapseOnlySleep(options);
