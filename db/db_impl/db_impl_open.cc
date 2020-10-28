@@ -368,6 +368,16 @@ Status DBImpl::Recover(
     uint64_t* recovered_seq) {
   mutex_.AssertHeld();
 
+  if (!read_only) {
+    // Before recovered from MANIFEST, do not modify the on-disk LSM tree
+    // structure. Re-enable until switching to a new MANIFEST after recovering
+    // from the current MANIFEST.
+    Status s = DisableFileDeletionsWithLock();
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
   bool is_new_db = false;
   assert(db_lock_ == nullptr);
   std::vector<std::string> files_in_dbname;
@@ -515,6 +525,48 @@ Status DBImpl::Recover(
     }
   } else {
     s = SetIdentityFile(env_, dbname_, db_id_);
+  }
+
+  {
+    // Create a new MANIFEST after recovering from the current MANIFEST.
+    //
+    // Consider a case:
+    //
+    // At the end of the MANIFEST we recovered from,
+    // there are unsynced entries describing some SST files,
+    // they are not recovered in the current VersionSet,
+    // so these SST files may be purged afterwards.
+    //
+    // Assume DB crashed during Recover afterwards,
+    // then DB is restarted, and now the MANIFEST is fully synced,
+    // so the entries for the SST files are visible now,
+    // but since the SST files have been purged,
+    // recovery will fail, the DB can no longer be recovered.
+    //
+    // In the above case, if we create a new MANIFEST here,
+    // then the unsynced data won't show up in the new MANIFEST,
+    // so future recovery will succeed.
+    VersionEdit dummy;
+    Options options;
+    MutableCFOptions cf_opt(options);
+    s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                               cf_opt, &dummy, &mutex_, directories_.GetDbDir(),
+                               /* new_descriptor_log */ true);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (!read_only) {
+    // Since the LSM tree has been recovered from the MANIFEST,
+    // re-enable file deletion.
+    mutex_.AssertHeld();
+    mutex_.Unlock();
+    s = EnableFileDeletions(/* force */ false);
+    mutex_.Lock();
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
