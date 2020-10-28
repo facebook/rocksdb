@@ -1051,11 +1051,17 @@ class Logger {
   virtual void LogHeader(const char* format, va_list ap) {
     // Default implementation does a simple INFO level log write.
     // Please override as per the logger class requirement.
-    Logv(format, ap);
+    Logv(InfoLogLevel::INFO_LEVEL, format, ap);
   }
 
   // Write an entry to the log file with the specified format.
-  virtual void Logv(const char* format, va_list ap) = 0;
+  //
+  // Users who override the `Logv()` overload taking `InfoLogLevel` do not need
+  // to implement this, unless they explicitly invoke it in
+  // `Logv(InfoLogLevel, ...)`.
+  virtual void Logv(const char* /* format */, va_list /* ap */) {
+    assert(false);
+  }
 
   // Write an entry to the log file with the specified log level
   // and format.  Any log with level under the internal log level
