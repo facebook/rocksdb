@@ -507,6 +507,137 @@ TEST_F(FlushJobTest, Snapshots) {
   job_context.Clean();
 }
 
+class FlushJobTimestampTest : public FlushJobTestBase {
+ public:
+  FlushJobTimestampTest()
+      : FlushJobTestBase(test::PerThreadDBPath("flush_job_ts_gc_test"),
+                         test::ComparatorWithU64Ts()) {}
+
+  void AddKeyValueToMemtable(MemTable* memtable, Slice key, uint64_t ts,
+                             SequenceNumber seq, ValueType value_type,
+                             Slice value) {
+    std::string key_str(key.data(), key.size());
+    std::string ts_str;
+    PutFixed64(&ts_str, ts);
+    key_str.append(ts_str);
+    memtable->Add(seq, value_type, key_str, value);
+  }
+
+ protected:
+  static constexpr uint64_t kStartTs = 10;
+  static constexpr SequenceNumber kStartSeq = 0;
+  SequenceNumber curr_seq_{kStartSeq};
+  std::atomic<uint64_t> curr_ts_{kStartTs};
+};
+
+TEST_F(FlushJobTimestampTest, AllKeysExpired) {
+  ColumnFamilyData* cfd = versions_->GetColumnFamilySet()->GetDefault();
+  autovector<MemTable*> to_delete;
+
+  {
+    MemTable* new_mem = cfd->ConstructNewMemtable(
+        *cfd->GetLatestMutableCFOptions(), kMaxSequenceNumber);
+    new_mem->Ref();
+    for (int i = 0; i < 100; ++i) {
+      uint64_t ts = curr_ts_.fetch_add(1);
+      SequenceNumber seq = (curr_seq_++);
+      AddKeyValueToMemtable(new_mem, test::EncodeInt(0), ts, seq,
+                            ValueType::kTypeValue, "0_value");
+    }
+    uint64_t ts = curr_ts_.fetch_add(1);
+    SequenceNumber seq = (curr_seq_++);
+    AddKeyValueToMemtable(new_mem, test::EncodeInt(0), ts, seq,
+                          ValueType::kTypeDeletionWithTimestamp, "");
+    cfd->imm()->Add(new_mem, &to_delete);
+  }
+
+  std::vector<SequenceNumber> snapshots;
+  SnapshotChecker* const snapshot_checker = nullptr;
+  JobContext job_context(0);
+  EventLogger event_logger(db_options_.info_log.get());
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, std::numeric_limits<uint64_t>::max());
+  FlushJob flush_job(
+      dbname_, cfd, db_options_, *cfd->GetLatestMutableCFOptions(),
+      nullptr /* memtable_id */, env_options_, versions_.get(), &mutex_,
+      &shutting_down_, snapshots, kMaxSequenceNumber, snapshot_checker,
+      &job_context, nullptr, nullptr, nullptr, kNoCompression,
+      db_options_.statistics.get(), &event_logger, true,
+      true /* sync_output_directory */, true /* write_manifest */,
+      Env::Priority::USER, nullptr /*IOTracer*/, /*db_id=*/"",
+      /*db_session_id=*/"", full_history_ts_low);
+
+  FileMetaData fmeta;
+  mutex_.Lock();
+  flush_job.PickMemTable();
+  ASSERT_OK(flush_job.Run(/*prep_tracker=*/nullptr, &fmeta));
+  mutex_.Unlock();
+
+  {
+    std::string key = test::EncodeInt(0);
+    key.append(test::EncodeInt(curr_ts_.load(std::memory_order_relaxed) - 1));
+    InternalKey ikey(key, curr_seq_ - 1, ValueType::kTypeDeletionWithTimestamp);
+    ASSERT_EQ(ikey.Encode(), fmeta.smallest.Encode());
+    ASSERT_EQ(ikey.Encode(), fmeta.largest.Encode());
+  }
+
+  job_context.Clean();
+  ASSERT_TRUE(to_delete.empty());
+}
+
+TEST_F(FlushJobTimestampTest, NoKeyExpired) {
+  ColumnFamilyData* cfd = versions_->GetColumnFamilySet()->GetDefault();
+  autovector<MemTable*> to_delete;
+
+  {
+    MemTable* new_mem = cfd->ConstructNewMemtable(
+        *cfd->GetLatestMutableCFOptions(), kMaxSequenceNumber);
+    new_mem->Ref();
+    for (int i = 0; i < 100; ++i) {
+      uint64_t ts = curr_ts_.fetch_add(1);
+      SequenceNumber seq = (curr_seq_++);
+      AddKeyValueToMemtable(new_mem, test::EncodeInt(0), ts, seq,
+                            ValueType::kTypeValue, "0_value");
+    }
+    cfd->imm()->Add(new_mem, &to_delete);
+  }
+
+  std::vector<SequenceNumber> snapshots;
+  SnapshotChecker* const snapshot_checker = nullptr;
+  JobContext job_context(0);
+  EventLogger event_logger(db_options_.info_log.get());
+  std::string full_history_ts_low;
+  PutFixed64(&full_history_ts_low, 0);
+  FlushJob flush_job(
+      dbname_, cfd, db_options_, *cfd->GetLatestMutableCFOptions(),
+      nullptr /* memtable_id */, env_options_, versions_.get(), &mutex_,
+      &shutting_down_, snapshots, kMaxSequenceNumber, snapshot_checker,
+      &job_context, nullptr, nullptr, nullptr, kNoCompression,
+      db_options_.statistics.get(), &event_logger, true,
+      true /* sync_output_directory */, true /* write_manifest */,
+      Env::Priority::USER, nullptr /*IOTracer*/, /*db_id=*/"",
+      /*db_session_id=*/"", full_history_ts_low);
+
+  FileMetaData fmeta;
+  mutex_.Lock();
+  flush_job.PickMemTable();
+  ASSERT_OK(flush_job.Run(/*prep_tracker=*/nullptr, &fmeta));
+  mutex_.Unlock();
+
+  {
+    std::string ukey = test::EncodeInt(0);
+    std::string smallest_key =
+        ukey + test::EncodeInt(curr_ts_.load(std::memory_order_relaxed) - 1);
+    std::string largest_key = ukey + test::EncodeInt(kStartTs);
+    InternalKey smallest(smallest_key, curr_seq_ - 1, ValueType::kTypeValue);
+    InternalKey largest(largest_key, kStartSeq, ValueType::kTypeValue);
+    ASSERT_EQ(smallest.Encode(), fmeta.smallest.Encode());
+    ASSERT_EQ(largest.Encode(), fmeta.largest.Encode());
+  }
+  job_context.Clean();
+  ASSERT_TRUE(to_delete.empty());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
