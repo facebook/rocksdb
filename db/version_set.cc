@@ -3665,16 +3665,30 @@ struct VersionSet::ManifestWriter {
   ColumnFamilyData* cfd;
   const MutableCFOptions mutable_cf_options;
   const autovector<VersionEdit*>& edit_list;
+  const std::function<void(const Status&)> manifest_write_callback;
 
-  explicit ManifestWriter(InstrumentedMutex* mu, ColumnFamilyData* _cfd,
-                          const MutableCFOptions& cf_options,
-                          const autovector<VersionEdit*>& e)
+  explicit ManifestWriter(
+      InstrumentedMutex* mu, ColumnFamilyData* _cfd,
+      const MutableCFOptions& cf_options, const autovector<VersionEdit*>& e,
+      const std::function<void(const Status&)>& manifest_wcb)
       : done(false),
         cv(mu),
         cfd(_cfd),
         mutable_cf_options(cf_options),
-        edit_list(e) {}
+        edit_list(e),
+        manifest_write_callback(manifest_wcb) {}
   ~ManifestWriter() { status.PermitUncheckedError(); }
+
+  bool IsAllWalEdits() const {
+    bool all_wal_edits = true;
+    for (const auto& e : edit_list) {
+      if (!e->IsWalManipulation()) {
+        all_wal_edits = false;
+        break;
+      }
+    }
+    return all_wal_edits;
+  }
 };
 
 Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
@@ -3826,6 +3840,7 @@ Status VersionSet::ProcessManifestWrites(
     std::deque<ManifestWriter>& writers, InstrumentedMutex* mu,
     FSDirectory* db_directory, bool new_descriptor_log,
     const ColumnFamilyOptions* new_cf_options) {
+  mu->AssertHeld();
   assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
   ManifestWriter* last_writer = &first_writer;
@@ -3902,16 +3917,22 @@ Status VersionSet::ProcessManifestWrites(
         }
       }
       if (version == nullptr) {
-        version = new Version(last_writer->cfd, this, file_options_,
-                              last_writer->mutable_cf_options, io_tracer_,
-                              current_version_number_++);
-        versions.push_back(version);
-        mutable_cf_options_ptrs.push_back(&last_writer->mutable_cf_options);
-        builder_guards.emplace_back(
-            new BaseReferencedVersionBuilder(last_writer->cfd));
-        builder = builder_guards.back()->version_builder();
+        // WAL manipulations do not need to be applied to versions.
+        if (!last_writer->IsAllWalEdits()) {
+          version = new Version(last_writer->cfd, this, file_options_,
+                                last_writer->mutable_cf_options, io_tracer_,
+                                current_version_number_++);
+          versions.push_back(version);
+          mutable_cf_options_ptrs.push_back(&last_writer->mutable_cf_options);
+          builder_guards.emplace_back(
+              new BaseReferencedVersionBuilder(last_writer->cfd));
+          builder = builder_guards.back()->version_builder();
+        }
+        assert(last_writer->IsAllWalEdits() || builder);
+        assert(last_writer->IsAllWalEdits() || version);
+        TEST_SYNC_POINT_CALLBACK("VersionSet::ProcessManifestWrites:NewVersion",
+                                 version);
       }
-      assert(builder != nullptr);  // make checker happy
       for (const auto& e : last_writer->edit_list) {
         if (e->is_in_atomic_group_) {
           if (batch_edits.empty() || !batch_edits.back()->is_in_atomic_group_ ||
@@ -3997,6 +4018,7 @@ Status VersionSet::ProcessManifestWrites(
   // reads its content after releasing db mutex to avoid race with
   // SwitchMemtable().
   std::unordered_map<uint32_t, MutableCFState> curr_state;
+  VersionEdit wal_additions;
   if (new_descriptor_log) {
     pending_manifest_file_number_ = NewFileNumber();
     batch_edits.back()->SetNextFile(next_file_number_.load());
@@ -4011,6 +4033,10 @@ Status VersionSet::ProcessManifestWrites(
       assert(curr_state.find(cfd->GetID()) == curr_state.end());
       curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
     }
+
+    for (const auto& wal : wals_.GetWals()) {
+      wal_additions.AddWal(wal.first, wal.second);
+    }
   }
 
   uint64_t new_manifest_file_size = 0;
@@ -4020,7 +4046,7 @@ Status VersionSet::ProcessManifestWrites(
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
     mu->Unlock();
 
-    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
+    TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WriteManifest", nullptr);
     if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
         assert(!builder_guards.empty() &&
@@ -4063,8 +4089,8 @@ Status VersionSet::ProcessManifestWrites(
             io_tracer_, nullptr, db_options_->listeners));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
-        s = WriteCurrentStateToManifest(curr_state, descriptor_log_.get(),
-                                        io_s);
+        s = WriteCurrentStateToManifest(curr_state, wal_additions,
+                                        descriptor_log_.get(), io_s);
       } else {
         s = io_s;
       }
@@ -4143,6 +4169,20 @@ Status VersionSet::ProcessManifestWrites(
     LogFlush(db_options_->info_log);
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestDone");
     mu->Lock();
+  }
+
+  if (s.ok()) {
+    // Apply WAL edits, DB mutex must be held.
+    for (auto& e : batch_edits) {
+      if (e->IsWalAddition()) {
+        s = wals_.AddWals(e->GetWalAdditions());
+      } else if (e->IsWalDeletion()) {
+        s = wals_.DeleteWals(e->GetWalDeletions());
+      }
+      if (!s.ok()) {
+        break;
+      }
+    }
   }
 
   if (!io_s.ok()) {
@@ -4256,6 +4296,9 @@ Status VersionSet::ProcessManifestWrites(
     }
     ready->status = s;
     ready->done = true;
+    if (ready->manifest_write_callback) {
+      (ready->manifest_write_callback)(s);
+    }
     if (need_signal) {
       ready->cv.Signal();
     }
@@ -4276,7 +4319,8 @@ Status VersionSet::LogAndApply(
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<autovector<VersionEdit*>>& edit_lists,
     InstrumentedMutex* mu, FSDirectory* db_directory, bool new_descriptor_log,
-    const ColumnFamilyOptions* new_cf_options) {
+    const ColumnFamilyOptions* new_cf_options,
+    const std::vector<std::function<void(const Status&)>>& manifest_wcbs) {
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
@@ -4306,12 +4350,16 @@ Status VersionSet::LogAndApply(
     assert(static_cast<size_t>(num_cfds) == edit_lists.size());
   }
   for (int i = 0; i < num_cfds; ++i) {
+    const auto wcb =
+        manifest_wcbs.empty() ? [](const Status&) {} : manifest_wcbs[i];
     writers.emplace_back(mu, column_family_datas[i],
-                         *mutable_cf_options_list[i], edit_lists[i]);
+                         *mutable_cf_options_list[i], edit_lists[i], wcb);
     manifest_writers_.push_back(&writers[i]);
   }
   assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
+  TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:BeforeWriterWaiting",
+                           nullptr);
   while (!first_writer.done && &first_writer != manifest_writers_.front()) {
     first_writer.cv.Wait();
   }
@@ -4323,6 +4371,7 @@ Status VersionSet::LogAndApply(
     for (const auto& writer : writers) {
       assert(writer.done);
     }
+    TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WakeUpAndDone", mu);
 #endif /* !NDEBUG */
     return first_writer.status;
   }
@@ -4392,9 +4441,11 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
                                                       : last_sequence_);
 
-  Status s = builder->Apply(edit);
-
-  return s;
+  // The builder can be nullptr only if edit is WAL manipulation,
+  // because WAL edits do not need to be applied to versions,
+  // we return Status::OK() in this case.
+  assert(builder || edit->IsWalManipulation());
+  return builder ? builder->Apply(edit) : Status::OK();
 }
 
 Status VersionSet::ApplyOneVersionEditToBuilder(
@@ -4467,6 +4518,16 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
     } else {
       return Status::Corruption(
           "Manifest - dropping non-existing column family");
+    }
+  } else if (edit.IsWalAddition()) {
+    Status s = wals_.AddWals(edit.GetWalAdditions());
+    if (!s.ok()) {
+      return s;
+    }
+  } else if (edit.IsWalDeletion()) {
+    Status s = wals_.DeleteWals(edit.GetWalDeletions());
+    if (!s.ok()) {
+      return s;
     }
   } else if (!cf_in_not_found) {
     if (!cf_in_builders) {
@@ -5412,7 +5473,7 @@ void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
 
 Status VersionSet::WriteCurrentStateToManifest(
     const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-    log::Writer* log, IOStatus& io_s) {
+    const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
   // WARNING: This method doesn't hold a mutex!!
@@ -5432,6 +5493,21 @@ Status VersionSet::WriteCurrentStateToManifest(
                                 edit_for_db_id.DebugString(true));
     }
     io_s = log->AddRecord(db_id_record);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+  }
+
+  // Save WALs.
+  if (!wal_additions.GetWalAdditions().empty()) {
+    TEST_SYNC_POINT_CALLBACK("VersionSet::WriteCurrentStateToManifest:SaveWal",
+                             const_cast<VersionEdit*>(&wal_additions));
+    std::string record;
+    if (!wal_additions.EncodeTo(&record)) {
+      return Status::Corruption("Unable to Encode VersionEdit: " +
+                                wal_additions.DebugString(true));
+    }
+    io_s = log->AddRecord(record);
     if (!io_s.ok()) {
       return io_s;
     }

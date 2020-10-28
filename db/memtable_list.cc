@@ -481,83 +481,18 @@ Status MemTableList::TryInstallMemtableFlushResults(
             vset, *cfd, edit_list, memtables_to_flush, prep_tracker));
       }
 
+      const auto manifest_write_cb = [this, cfd, batch_count, log_buffer,
+                                      to_delete, mu](const Status& status) {
+        RemoveMemTablesOrRestoreFlags(status, cfd, batch_count, log_buffer,
+                                      to_delete, mu);
+      };
+
       // this can release and reacquire the mutex.
       s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu,
-                            db_directory);
+                            db_directory, /*new_descriptor_log=*/false,
+                            /*column_family_options=*/nullptr,
+                            manifest_write_cb);
       *io_s = vset->io_status();
-
-      // we will be changing the version in the next code path,
-      // so we better create a new one, since versions are immutable
-      InstallNewVersion();
-
-      // All the later memtables that have the same filenum
-      // are part of the same batch. They can be committed now.
-      uint64_t mem_id = 1;  // how many memtables have been flushed.
-
-      // commit new state only if the column family is NOT dropped.
-      // The reason is as follows (refer to
-      // ColumnFamilyTest.FlushAndDropRaceCondition).
-      // If the column family is dropped, then according to LogAndApply, its
-      // corresponding flush operation is NOT written to the MANIFEST. This
-      // means the DB is not aware of the L0 files generated from the flush.
-      // By committing the new state, we remove the memtable from the memtable
-      // list. Creating an iterator on this column family will not be able to
-      // read full data since the memtable is removed, and the DB is not aware
-      // of the L0 files, causing MergingIterator unable to build child
-      // iterators. RocksDB contract requires that the iterator can be created
-      // on a dropped column family, and we must be able to
-      // read full data as long as column family handle is not deleted, even if
-      // the column family is dropped.
-      if (s.ok() && !cfd->IsDropped()) {  // commit new state
-        while (batch_count-- > 0) {
-          MemTable* m = current_->memlist_.back();
-          if (m->edit_.GetBlobFileAdditions().empty()) {
-            ROCKS_LOG_BUFFER(log_buffer,
-                             "[%s] Level-0 commit table #%" PRIu64
-                             ": memtable #%" PRIu64 " done",
-                             cfd->GetName().c_str(), m->file_number_, mem_id);
-          } else {
-            ROCKS_LOG_BUFFER(log_buffer,
-                             "[%s] Level-0 commit table #%" PRIu64
-                             " (+%zu blob files)"
-                             ": memtable #%" PRIu64 " done",
-                             cfd->GetName().c_str(), m->file_number_,
-                             m->edit_.GetBlobFileAdditions().size(), mem_id);
-          }
-
-          assert(m->file_number_ > 0);
-          current_->Remove(m, to_delete);
-          UpdateCachedValuesFromMemTableListVersion();
-          ResetTrimHistoryNeeded();
-          ++mem_id;
-        }
-      } else {
-        for (auto it = current_->memlist_.rbegin(); batch_count-- > 0; ++it) {
-          MemTable* m = *it;
-          // commit failed. setup state so that we can flush again.
-          if (m->edit_.GetBlobFileAdditions().empty()) {
-            ROCKS_LOG_BUFFER(log_buffer,
-                             "Level-0 commit table #%" PRIu64
-                             ": memtable #%" PRIu64 " failed",
-                             m->file_number_, mem_id);
-          } else {
-            ROCKS_LOG_BUFFER(log_buffer,
-                             "Level-0 commit table #%" PRIu64
-                             " (+%zu blob files)"
-                             ": memtable #%" PRIu64 " failed",
-                             m->file_number_,
-                             m->edit_.GetBlobFileAdditions().size(), mem_id);
-          }
-
-          m->flush_completed_ = false;
-          m->flush_in_progress_ = false;
-          m->edit_.Clear();
-          num_flush_not_started_++;
-          m->file_number_ = 0;
-          imm_flush_needed.store(true, std::memory_order_release);
-          ++mem_id;
-        }
-      }
     }
   }
   commit_in_progress_ = false;
@@ -639,6 +574,87 @@ void MemTableList::InstallNewVersion() {
     current_ = new MemTableListVersion(&current_memory_usage_, *version);
     current_->Ref();
     version->Unref();
+  }
+}
+
+void MemTableList::RemoveMemTablesOrRestoreFlags(
+    const Status& s, ColumnFamilyData* cfd, size_t batch_count,
+    LogBuffer* log_buffer, autovector<MemTable*>* to_delete,
+    InstrumentedMutex* mu) {
+  assert(mu);
+  mu->AssertHeld();
+  assert(to_delete);
+  // we will be changing the version in the next code path,
+  // so we better create a new one, since versions are immutable
+  InstallNewVersion();
+
+  // All the later memtables that have the same filenum
+  // are part of the same batch. They can be committed now.
+  uint64_t mem_id = 1;  // how many memtables have been flushed.
+
+  // commit new state only if the column family is NOT dropped.
+  // The reason is as follows (refer to
+  // ColumnFamilyTest.FlushAndDropRaceCondition).
+  // If the column family is dropped, then according to LogAndApply, its
+  // corresponding flush operation is NOT written to the MANIFEST. This
+  // means the DB is not aware of the L0 files generated from the flush.
+  // By committing the new state, we remove the memtable from the memtable
+  // list. Creating an iterator on this column family will not be able to
+  // read full data since the memtable is removed, and the DB is not aware
+  // of the L0 files, causing MergingIterator unable to build child
+  // iterators. RocksDB contract requires that the iterator can be created
+  // on a dropped column family, and we must be able to
+  // read full data as long as column family handle is not deleted, even if
+  // the column family is dropped.
+  if (s.ok() && !cfd->IsDropped()) {  // commit new state
+    while (batch_count-- > 0) {
+      MemTable* m = current_->memlist_.back();
+      if (m->edit_.GetBlobFileAdditions().empty()) {
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] Level-0 commit table #%" PRIu64
+                         ": memtable #%" PRIu64 " done",
+                         cfd->GetName().c_str(), m->file_number_, mem_id);
+      } else {
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] Level-0 commit table #%" PRIu64
+                         " (+%zu blob files)"
+                         ": memtable #%" PRIu64 " done",
+                         cfd->GetName().c_str(), m->file_number_,
+                         m->edit_.GetBlobFileAdditions().size(), mem_id);
+      }
+
+      assert(m->file_number_ > 0);
+      current_->Remove(m, to_delete);
+      UpdateCachedValuesFromMemTableListVersion();
+      ResetTrimHistoryNeeded();
+      ++mem_id;
+    }
+  } else {
+    for (auto it = current_->memlist_.rbegin(); batch_count-- > 0; ++it) {
+      MemTable* m = *it;
+      // commit failed. setup state so that we can flush again.
+      if (m->edit_.GetBlobFileAdditions().empty()) {
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "Level-0 commit table #%" PRIu64 ": memtable #%" PRIu64
+                         " failed",
+                         m->file_number_, mem_id);
+      } else {
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "Level-0 commit table #%" PRIu64
+                         " (+%zu blob files)"
+                         ": memtable #%" PRIu64 " failed",
+                         m->file_number_,
+                         m->edit_.GetBlobFileAdditions().size(), mem_id);
+      }
+
+      m->flush_completed_ = false;
+      m->flush_in_progress_ = false;
+      m->edit_.Clear();
+      num_flush_not_started_++;
+      m->file_number_ = 0;
+      imm_flush_needed.store(true, std::memory_order_release);
+      ++mem_id;
+    }
   }
 }
 

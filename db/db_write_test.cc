@@ -260,7 +260,7 @@ TEST_P(DBWriteTest, WriteThreadHangOnWriteStall) {
 TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
   constexpr int kNumThreads = 5;
   std::unique_ptr<FaultInjectionTestEnv> mock_env(
-      new FaultInjectionTestEnv(Env::Default()));
+      new FaultInjectionTestEnv(env_));
   Options options = GetOptions();
   options.env = mock_env.get();
   Reopen(options);
@@ -329,7 +329,7 @@ TEST_P(DBWriteTest, ManualWalFlushInEffect) {
 
 TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
   std::unique_ptr<FaultInjectionTestEnv> mock_env(
-      new FaultInjectionTestEnv(Env::Default()));
+      new FaultInjectionTestEnv(env_));
   Options options = GetOptions();
   options.env = mock_env.get();
   Reopen(options);
@@ -361,7 +361,7 @@ TEST_P(DBWriteTest, IOErrorOnWALWriteTriggersReadOnlyMode) {
 TEST_P(DBWriteTest, IOErrorOnSwitchMemtable) {
   Random rnd(301);
   std::unique_ptr<FaultInjectionTestEnv> mock_env(
-      new FaultInjectionTestEnv(Env::Default()));
+      new FaultInjectionTestEnv(env_));
   Options options = GetOptions();
   options.env = mock_env.get();
   options.writable_file_max_buffer_size = 4 * 1024 * 1024;

@@ -25,7 +25,7 @@ class MockRandomAccessFile : public FSRandomAccessFileWrapper {
       prefetch_count_.fetch_add(1);
       return target()->Prefetch(offset, n, options, dbg);
     } else {
-      return IOStatus::NotSupported();
+      return IOStatus::NotSupported("Prefetch not supported");
     }
   }
 
@@ -37,9 +37,9 @@ class MockRandomAccessFile : public FSRandomAccessFileWrapper {
 
 class MockFS : public FileSystemWrapper {
  public:
-  explicit MockFS(bool support_prefetch)
-      : FileSystemWrapper(FileSystem::Default()),
-        support_prefetch_(support_prefetch) {}
+  explicit MockFS(const std::shared_ptr<FileSystem>& wrapped,
+                  bool support_prefetch)
+      : FileSystemWrapper(wrapped), support_prefetch_(support_prefetch) {}
 
   IOStatus NewRandomAccessFile(const std::string& fname,
                                const FileOptions& opts,
@@ -79,9 +79,9 @@ TEST_P(PrefetchTest, Basic) {
 
   // Second param is if directIO is enabled or not
   bool use_direct_io = std::get<1>(GetParam());
-
   const int kNumKeys = 1100;
-  std::shared_ptr<MockFS> fs = std::make_shared<MockFS>(support_prefetch);
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(env_->GetFileSystem(), support_prefetch);
   std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
   Options options = CurrentOptions();
   options.write_buffer_size = 1024;

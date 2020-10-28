@@ -631,6 +631,7 @@ ifdef ASSERT_STATUS_CHECKED
 		sst_file_reader_test \
 		range_tombstone_fragmenter_test \
 		repeatable_thread_test \
+		ribbon_test \
 		skiplist_test \
 		slice_test \
 		sst_dump_test \
@@ -708,6 +709,7 @@ TESTS_PLATFORM_DEPENDENT := \
 	io_posix_test \
 	hash_test \
 	random_test \
+	ribbon_test \
 	thread_local_test \
 	work_queue_test \
 	rate_limiter_test \
@@ -1418,6 +1420,9 @@ hash_test: $(OBJ_DIR)/util/hash_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 random_test: $(OBJ_DIR)/util/random_test.o  $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+ribbon_test: $(OBJ_DIR)/util/ribbon_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 option_change_migration_test: $(OBJ_DIR)/utilities/option_change_migration/option_change_migration_test.o $(TEST_LIBRARY) $(LIBRARY)

@@ -299,7 +299,8 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   table.reset();
 
   // Corrupt the block pointed to by handle
-  test::CorruptFile(Path(table_name), static_cast<int>(handle.offset()), 128);
+  ASSERT_OK(test::CorruptFile(options.env, Path(table_name),
+                              static_cast<int>(handle.offset()), 128));
 
   NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
   Status s = table->VerifyChecksum(ReadOptions(),

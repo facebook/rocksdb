@@ -103,6 +103,7 @@ class DBBlobIndexTest : public DBTestBase {
 
   Options GetTestOptions() {
     Options options;
+    options.env = CurrentOptions().env;
     options.create_if_missing = true;
     options.num_levels = 2;
     options.disable_auto_compactions = true;

@@ -212,6 +212,7 @@ Status BuildTable(
     } else if (!c_iter.status().ok()) {
       s = c_iter.status();
     }
+
     if (s.ok()) {
       auto range_del_it = range_del_agg->NewIterator();
       for (range_del_it->SeekToFirst(); range_del_it->Valid();
@@ -221,10 +222,6 @@ Status BuildTable(
         builder->Add(kv.first.Encode(), kv.second);
         meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
                                        tombstone.seq_, internal_comparator);
-      }
-
-      if (blob_file_builder) {
-        s = blob_file_builder->Finish();
       }
     }
 
@@ -273,6 +270,14 @@ Status BuildTable(
       s = *io_status;
     }
 
+    if (blob_file_builder) {
+      if (s.ok()) {
+        s = blob_file_builder->Finish();
+      }
+
+      blob_file_builder.reset();
+    }
+
     // TODO Also check the IO status when create the Iterator.
 
     if (s.ok() && !empty) {
@@ -318,6 +323,8 @@ Status BuildTable(
   }
 
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
+    TEST_SYNC_POINT("BuildTable:BeforeDeleteFile");
+
     constexpr IODebugContext* dbg = nullptr;
 
     Status ignored = fs->DeleteFile(fname, IOOptions(), dbg);
@@ -330,8 +337,6 @@ Status BuildTable(
         ignored = fs->DeleteFile(blob_file_path, IOOptions(), dbg);
         ignored.PermitUncheckedError();
       }
-
-      blob_file_additions->clear();
     }
   }
 

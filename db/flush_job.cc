@@ -438,7 +438,6 @@ Status FlushJob::WriteLevel0Table() {
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
   const bool has_output = meta_.fd.GetFileSize() > 0;
-  assert(has_output || blob_file_additions.empty());
 
   if (s.ok() && has_output) {
     // if we have more than 1 background thread, then we cannot
@@ -467,14 +466,15 @@ Status FlushJob::WriteLevel0Table() {
 
   if (has_output) {
     stats.bytes_written = meta_.fd.GetFileSize();
-
-    const auto& blobs = edit_->GetBlobFileAdditions();
-    for (const auto& blob : blobs) {
-      stats.bytes_written += blob.GetTotalBlobBytes();
-    }
-
-    stats.num_output_files = static_cast<int>(blobs.size()) + 1;
+    stats.num_output_files = 1;
   }
+
+  const auto& blobs = edit_->GetBlobFileAdditions();
+  for (const auto& blob : blobs) {
+    stats.bytes_written += blob.GetTotalBlobBytes();
+  }
+
+  stats.num_output_files += static_cast<int>(blobs.size());
 
   RecordTimeToHistogram(stats_, FLUSH_TIME, stats.micros);
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, thread_pri_, stats);

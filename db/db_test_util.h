@@ -949,10 +949,13 @@ class DBTestBase : public testing::Test {
                          const anon::OptionsOverride& options_override =
                              anon::OptionsOverride()) const;
 
-  static Options GetDefaultOptions();
+  Options GetDefaultOptions() const;
 
-  Options GetOptions(int option_config,
-                     const Options& default_options = GetDefaultOptions(),
+  Options GetOptions(int option_config) const {
+    return GetOptions(option_config, GetDefaultOptions());
+  }
+
+  Options GetOptions(int option_config, const Options& default_options,
                      const anon::OptionsOverride& options_override =
                          anon::OptionsOverride()) const;
 
