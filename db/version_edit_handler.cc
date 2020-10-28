@@ -121,6 +121,10 @@ Status VersionEditHandler::ApplyVersionEdit(VersionEdit& edit,
     s = OnColumnFamilyAdd(edit, cfd);
   } else if (edit.is_column_family_drop_) {
     s = OnColumnFamilyDrop(edit, cfd);
+  } else if (edit.IsWalAddition()) {
+    s = OnWalAddition(edit);
+  } else if (edit.IsWalDeletion()) {
+    s = OnWalDeletion(edit);
   } else {
     s = OnNonCfOperation(edit, cfd);
   }
@@ -188,6 +192,16 @@ Status VersionEditHandler::OnColumnFamilyDrop(VersionEdit& edit,
   }
   *cfd = tmp_cfd;
   return s;
+}
+
+Status VersionEditHandler::OnWalAddition(VersionEdit& edit) {
+  assert(edit.IsWalAddition());
+  return version_set_->wals_.AddWals(edit.GetWalAdditions());
+}
+
+Status VersionEditHandler::OnWalDeletion(VersionEdit& edit) {
+  assert(edit.IsWalDeletion());
+  return version_set_->wals_.DeleteWals(edit.GetWalDeletions());
 }
 
 Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,

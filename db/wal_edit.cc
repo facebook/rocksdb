@@ -19,10 +19,6 @@ void WalAddition::EncodeTo(std::string* dst) const {
     PutVarint64(dst, metadata_.GetSyncedSizeInBytes());
   }
 
-  if (metadata_.IsClosed()) {
-    PutVarint32(dst, static_cast<uint32_t>(WalAdditionTag::kClosed));
-  }
-
   PutVarint32(dst, static_cast<uint32_t>(WalAdditionTag::kTerminate));
 }
 
@@ -48,10 +44,6 @@ Status WalAddition::DecodeFrom(Slice* src) {
         metadata_.SetSyncedSizeInBytes(size);
         break;
       }
-      case WalAdditionTag::kClosed: {
-        metadata_.SetClosed();
-        break;
-      }
       // TODO: process future tags such as checksum.
       case WalAdditionTag::kTerminate:
         return Status::OK();
@@ -66,15 +58,13 @@ Status WalAddition::DecodeFrom(Slice* src) {
 
 JSONWriter& operator<<(JSONWriter& jw, const WalAddition& wal) {
   jw << "LogNumber" << wal.GetLogNumber() << "SyncedSizeInBytes"
-     << wal.GetMetadata().GetSyncedSizeInBytes() << "Closed"
-     << wal.GetMetadata().IsClosed();
+     << wal.GetMetadata().GetSyncedSizeInBytes();
   return jw;
 }
 
 std::ostream& operator<<(std::ostream& os, const WalAddition& wal) {
   os << "log_number: " << wal.GetLogNumber()
-     << " synced_size_in_bytes: " << wal.GetMetadata().GetSyncedSizeInBytes()
-     << " closed: " << wal.GetMetadata().IsClosed();
+     << " synced_size_in_bytes: " << wal.GetMetadata().GetSyncedSizeInBytes();
   return os;
 }
 
@@ -117,31 +107,23 @@ std::string WalDeletion::DebugString() const {
 Status WalSet::AddWal(const WalAddition& wal) {
   auto it = wals_.lower_bound(wal.GetLogNumber());
   bool existing = it != wals_.end() && it->first == wal.GetLogNumber();
-  if (wal.GetMetadata().IsClosed()) {
-    // The WAL must exist and not closed.
-    if (!existing) {
-      std::stringstream ss;
-      ss << "WAL " << wal.GetLogNumber() << " is not created before closing";
-      return Status::Corruption("WalSet", ss.str());
-    }
-    if (it->second.IsClosed()) {
-      std::stringstream ss;
-      ss << "WAL " << wal.GetLogNumber() << " is closed more than once";
-      return Status::Corruption("WalSet", ss.str());
-    }
+  if (existing && !wal.GetMetadata().HasSyncedSize()) {
+    std::stringstream ss;
+    ss << "WAL " << wal.GetLogNumber() << " is created more than once";
+    return Status::Corruption("WalSet", ss.str());
   }
   // If the WAL has synced size, it must >= the previous size.
-  if (existing && it->second.HasSyncedSize() &&
-      (!wal.GetMetadata().HasSyncedSize() ||
-       wal.GetMetadata().GetSyncedSizeInBytes() <
-           it->second.GetSyncedSizeInBytes())) {
+  if (wal.GetMetadata().HasSyncedSize() && existing &&
+      it->second.HasSyncedSize() &&
+      wal.GetMetadata().GetSyncedSizeInBytes() <
+          it->second.GetSyncedSizeInBytes()) {
     std::stringstream ss;
     ss << "WAL " << wal.GetLogNumber()
        << " must not have smaller synced size than previous one";
     return Status::Corruption("WalSet", ss.str());
   }
   if (existing) {
-    it->second = wal.GetMetadata();
+    it->second.SetSyncedSizeInBytes(wal.GetMetadata().GetSyncedSizeInBytes());
   } else {
     wals_.insert(it, {wal.GetLogNumber(), wal.GetMetadata()});
   }
@@ -161,15 +143,10 @@ Status WalSet::AddWals(const WalAdditions& wals) {
 
 Status WalSet::DeleteWal(const WalDeletion& wal) {
   auto it = wals_.find(wal.GetLogNumber());
-  // The WAL must exist and has been closed.
+  // The WAL must exist.
   if (it == wals_.end()) {
     std::stringstream ss;
     ss << "WAL " << wal.GetLogNumber() << " must exist before deletion";
-    return Status::Corruption("WalSet", ss.str());
-  }
-  if (!it->second.IsClosed()) {
-    std::stringstream ss;
-    ss << "WAL " << wal.GetLogNumber() << " must be closed before deletion";
     return Status::Corruption("WalSet", ss.str());
   }
   wals_.erase(it);
@@ -185,6 +162,10 @@ Status WalSet::DeleteWals(const WalDeletions& wals) {
     }
   }
   return s;
+}
+
+void WalSet::DeleteWalsBefore(WalNumber number) {
+  wals_.erase(wals_.begin(), wals_.lower_bound(number));
 }
 
 void WalSet::Reset() { wals_.clear(); }

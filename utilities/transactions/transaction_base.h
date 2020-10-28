@@ -271,7 +271,8 @@ class TransactionBaseImpl : public Transaction {
       write_batch_.Clear();
     }
     assert(write_batch_.GetDataSize() == WriteBatchInternal::kHeader);
-    WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+    auto s = WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+    assert(s.ok());
   }
 
   DB* db_;

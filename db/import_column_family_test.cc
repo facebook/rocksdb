@@ -16,8 +16,8 @@ class ImportColumnFamilyTest : public DBTestBase {
   ImportColumnFamilyTest()
       : DBTestBase("/import_column_family_test", /*env_do_fsync=*/true) {
     sst_files_dir_ = dbname_ + "/sst_files/";
-    DestroyAndRecreateExternalSSTFilesDir();
     export_files_dir_ = test::PerThreadDBPath(env_, "export");
+    DestroyAndRecreateExternalSSTFilesDir();
     import_cfh_ = nullptr;
     import_cfh2_ = nullptr;
     metadata_ptr_ = nullptr;

@@ -35,10 +35,6 @@ class WalMetadata {
   explicit WalMetadata(uint64_t synced_size_bytes)
       : synced_size_bytes_(synced_size_bytes) {}
 
-  bool IsClosed() const { return closed_; }
-
-  void SetClosed() { closed_ = true; }
-
   bool HasSyncedSize() const { return synced_size_bytes_ != kUnknownWalSize; }
 
   void SetSyncedSizeInBytes(uint64_t bytes) { synced_size_bytes_ = bytes; }
@@ -52,9 +48,6 @@ class WalMetadata {
 
   // Size of the most recently synced WAL in bytes.
   uint64_t synced_size_bytes_ = kUnknownWalSize;
-
-  // Whether the WAL is closed.
-  bool closed_ = false;
 };
 
 // These tags are persisted to MANIFEST, so it's part of the user API.
@@ -63,8 +56,6 @@ enum class WalAdditionTag : uint32_t {
   kTerminate = 1,
   // Synced Size in bytes.
   kSyncedSize = 2,
-  // Whether the WAL is closed.
-  kClosed = 3,
   // Add tags in the future, such as checksum?
 };
 
@@ -98,10 +89,10 @@ JSONWriter& operator<<(JSONWriter& jw, const WalAddition& wal);
 
 using WalAdditions = std::vector<WalAddition>;
 
-// Records the event of deleting/archiving a WAL in VersionEdit.
+// Records the event of deleting a WAL.
 class WalDeletion {
  public:
-  WalDeletion() : number_(0) {}
+  WalDeletion() : number_(kEmpty) {}
 
   explicit WalDeletion(WalNumber number) : number_(number) {}
 
@@ -114,6 +105,8 @@ class WalDeletion {
   std::string DebugString() const;
 
  private:
+  static constexpr WalNumber kEmpty = 0;
+
   WalNumber number_;
 };
 
@@ -145,6 +138,9 @@ class WalSet {
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
   Status DeleteWal(const WalDeletion& wal);
   Status DeleteWals(const WalDeletions& wals);
+
+  // Delete WALs with log number < wal_number.
+  void DeleteWalsBefore(WalNumber wal_number);
 
   // Resets the internal state.
   void Reset();
