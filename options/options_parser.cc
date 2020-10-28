@@ -285,21 +285,9 @@ Status RocksDBOptionsParser::Parse(const ConfigOptions& config_options_in,
     if (IsSection(line)) {
       s = EndSection(config_options, section, title, argument, opt_map);
       opt_map.clear();
-      if (!s.ok()) {
-        return s;
+      if (s.ok()) {
+        s = ParseSection(&section, &title, &argument, line, line_num);
       }
-
-      // If the option file is newer than the current version
-      // there may be unknown options.
-      if (!config_options.ignore_unknown_options &&
-          section == kOptionSectionVersion) {
-        if (db_version[0] > ROCKSDB_MAJOR ||
-            (db_version[0] == ROCKSDB_MAJOR && db_version[1] > ROCKSDB_MINOR)) {
-          config_options.ignore_unknown_options = true;
-        }
-      }
-
-      s = ParseSection(&section, &title, &argument, line, line_num);
       if (!s.ok()) {
         return s;
       }

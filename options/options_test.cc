@@ -2669,7 +2669,7 @@ TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
                            4096 /* readahead_size */));
     if (should_ignore) {
       ASSERT_OK(parser.Parse(kTestFileName, fs_.get(),
-                             false /* ignore_unknown_options */,
+                             true /* ignore_unknown_options */,
                              4096 /* readahead_size */));
     } else {
       ASSERT_NOK(parser.Parse(kTestFileName, fs_.get(),
