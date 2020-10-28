@@ -64,7 +64,10 @@ class CuckooTableDBTest : public testing::Test {
   }
 
   void DestroyAndReopen(Options* options = nullptr) {
-    EXPECT_OK(DestroyDB(dbname_, Options()));
+    ASSERT_OK(db_->Close());
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, Options()));
     Reopen(options);
   }
 
