@@ -1057,7 +1057,8 @@ class Logger {
   // Write an entry to the log file with the specified format.
   //
   // Users who override the `Logv()` overload taking `InfoLogLevel` do not need
-  // to implement this, unless they explicitly invoke it.
+  // to implement this, unless they explicitly invoke it in
+  // `Logv(InfoLogLevel, ...)`.
   virtual void Logv(const char* /* format */, va_list /* ap */) {
     assert(false);
   }
