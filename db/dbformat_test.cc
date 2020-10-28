@@ -41,12 +41,12 @@ static void TestKey(const std::string& key,
   Slice in(encoded);
   ParsedInternalKey decoded("", 0, kTypeValue);
 
-  ASSERT_OK(ParseInternalKey(in, &decoded));
+  ASSERT_OK(ParseInternalKey(in, &decoded, true /* log_err_key */));
   ASSERT_EQ(key, decoded.user_key.ToString());
   ASSERT_EQ(seq, decoded.sequence);
   ASSERT_EQ(vt, decoded.type);
 
-  ASSERT_NOK(ParseInternalKey(Slice("bar"), &decoded));
+  ASSERT_NOK(ParseInternalKey(Slice("bar"), &decoded, true /* log_err_key */));
 }
 
 class FormatTest : public testing::Test {};
@@ -186,7 +186,7 @@ TEST_F(FormatTest, UpdateInternalKey) {
 
   Slice in(ikey);
   ParsedInternalKey decoded;
-  ASSERT_OK(ParseInternalKey(in, &decoded));
+  ASSERT_OK(ParseInternalKey(in, &decoded, true /* log_err_key */));
   ASSERT_EQ(user_key, decoded.user_key.ToString());
   ASSERT_EQ(new_seq, decoded.sequence);
   ASSERT_EQ(new_val_type, decoded.type);

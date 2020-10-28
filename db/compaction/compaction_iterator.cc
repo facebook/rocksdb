@@ -158,13 +158,13 @@ void CompactionIterator::Next() {
     if (merge_out_iter_.Valid()) {
       key_ = merge_out_iter_.key();
       value_ = merge_out_iter_.value();
-      Status s = ParseInternalKey(key_, &ikey_);
+      Status s = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
       // MergeUntil stops when it encounters a corrupt key and does not
       // include them in the result, so we expect the keys here to be valid.
       assert(s.ok());
       if (!s.ok()) {
-        ROCKS_LOG_FATAL(info_log_, "Invalid key (%s) in compaction",
-                        key_.ToString(true).c_str());
+        ROCKS_LOG_FATAL(info_log_, "Invalid key in compaction. %s",
+                        s.getState());
       }
 
       // Keep current_key_ in sync.
@@ -277,22 +277,14 @@ void CompactionIterator::NextFromInput() {
     value_ = input_->value();
     iter_stats_.num_input_records++;
 
-    Status pikStatus = ParseInternalKey(key_, &ikey_);
-    if (!pikStatus.ok()) {
+    Status pik_status = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
+    if (!pik_status.ok()) {
       iter_stats_.num_input_corrupt_records++;
 
       // If `expect_valid_internal_key_` is false, return the corrupted key
       // and let the caller decide what to do with it.
-      // TODO(noetzli): We should have a more elegant solution for this.
       if (expect_valid_internal_key_) {
-        std::string msg("Corrupted internal key not expected.");
-        if (allow_data_in_errors_) {
-          msg.append(" Corrupt key: " + ikey_.user_key.ToString(/*hex=*/true) +
-                     ". ");
-          msg.append("key type: " + std::to_string(ikey_.type) + ".");
-          msg.append("seq: " + std::to_string(ikey_.sequence) + ".");
-        }
-        status_ = Status::Corruption(msg.c_str());
+        status_ = pik_status;
         return;
       }
       key_ = current_key_.SetInternalKey(key_);
@@ -469,7 +461,8 @@ void CompactionIterator::NextFromInput() {
       // Check whether the next key exists, is not corrupt, and is the same key
       // as the single delete.
       if (input_->Valid() &&
-          ParseInternalKey(input_->key(), &next_ikey) == Status::OK() &&
+          ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_)
+              .ok() &&
           cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
         // Check whether the next key belongs to the same snapshot as the
         // SingleDelete.
@@ -630,7 +623,8 @@ void CompactionIterator::NextFromInput() {
       // than *full_history_ts_low_.
       while (!IsPausingManualCompaction() && !IsShuttingDown() &&
              input_->Valid() &&
-             (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
+             (ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_)
+                  .ok()) &&
              0 == cmp_->CompareWithoutTimestamp(ikey_.user_key,
                                                 next_ikey.user_key) &&
              (prev_snapshot == 0 ||
@@ -640,7 +634,8 @@ void CompactionIterator::NextFromInput() {
       // If you find you still need to output a row with this key, we need to output the
       // delete too
       if (input_->Valid() &&
-          (ParseInternalKey(input_->key(), &next_ikey) == Status::OK()) &&
+          (ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_)
+               .ok()) &&
           0 == cmp_->CompareWithoutTimestamp(ikey_.user_key,
                                              next_ikey.user_key)) {
         valid_ = true;
@@ -658,8 +653,9 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      Status s = merge_helper_->MergeUntil(input_, range_del_agg_,
-                                           prev_snapshot, bottommost_level_);
+      Status s =
+          merge_helper_->MergeUntil(input_, range_del_agg_, prev_snapshot,
+                                    bottommost_level_, allow_data_in_errors_);
       merge_out_iter_.SeekToFirst();
 
       if (!s.ok() && !s.IsMergeInProgress()) {
@@ -670,13 +666,13 @@ void CompactionIterator::NextFromInput() {
         //       These will be correctly set below.
         key_ = merge_out_iter_.key();
         value_ = merge_out_iter_.value();
-        pikStatus = ParseInternalKey(key_, &ikey_);
+        pik_status = ParseInternalKey(key_, &ikey_, allow_data_in_errors_);
         // MergeUntil stops when it encounters a corrupt key and does not
         // include them in the result, so we expect the keys here to valid.
-        assert(pikStatus.ok());
-        if (!pikStatus.ok()) {
-          ROCKS_LOG_FATAL(info_log_, "Invalid key (%s) in compaction",
-                          key_.ToString(true).c_str());
+        assert(pik_status.ok());
+        if (!pik_status.ok()) {
+          ROCKS_LOG_FATAL(info_log_, "Invalid key in compaction. %s",
+                          pik_status.getState());
         }
         // Keep current_key_ in sync.
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);

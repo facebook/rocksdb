@@ -313,8 +313,8 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
     ranges.emplace_back(file_to_ingest.smallest_internal_key.user_key(),
                         file_to_ingest.largest_internal_key.user_key());
   }
-  Status status =
-      cfd_->RangesOverlapWithMemtables(ranges, super_version, flush_needed);
+  Status status = cfd_->RangesOverlapWithMemtables(
+      ranges, super_version, db_options_.allow_data_in_errors, flush_needed);
   if (status.ok() && *flush_needed &&
       !ingestion_options_.allow_blocking_flush) {
     status = Status::InvalidArgument("External file requires flush");
@@ -599,22 +599,28 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   file_to_ingest->largest_internal_key =
       InternalKey("", 0, ValueType::kTypeValue);
   bool bounds_set = false;
+  bool allow_data_in_errors = db_options_.allow_data_in_errors;
   iter->SeekToFirst();
   if (iter->Valid()) {
-    if (ParseInternalKey(iter->key(), &key) != Status::OK()) {
-      return Status::Corruption("external file have corrupted keys");
+    Status pik_status =
+        ParseInternalKey(iter->key(), &key, allow_data_in_errors);
+    if (!pik_status.ok()) {
+      return Status::Corruption("Corrupted key in external file. ",
+                                pik_status.getState());
     }
     if (key.sequence != 0) {
-      return Status::Corruption("external file have non zero sequence number");
+      return Status::Corruption("External file has non zero sequence number");
     }
     file_to_ingest->smallest_internal_key.SetFrom(key);
 
     iter->SeekToLast();
-    if (ParseInternalKey(iter->key(), &key) != Status::OK()) {
-      return Status::Corruption("external file have corrupted keys");
+    pik_status = ParseInternalKey(iter->key(), &key, allow_data_in_errors);
+    if (!pik_status.ok()) {
+      return Status::Corruption("Corrupted key in external file. ",
+                                pik_status.getState());
     }
     if (key.sequence != 0) {
-      return Status::Corruption("external file have non zero sequence number");
+      return Status::Corruption("External file has non zero sequence number");
     }
     file_to_ingest->largest_internal_key.SetFrom(key);
 
@@ -627,8 +633,11 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   if (range_del_iter != nullptr) {
     for (range_del_iter->SeekToFirst(); range_del_iter->Valid();
          range_del_iter->Next()) {
-      if (ParseInternalKey(range_del_iter->key(), &key) != Status::OK()) {
-        return Status::Corruption("external file have corrupted keys");
+      Status pik_status =
+          ParseInternalKey(range_del_iter->key(), &key, allow_data_in_errors);
+      if (!pik_status.ok()) {
+        return Status::Corruption("Corrupted key in external file. ",
+                                  pik_status.getState());
       }
       RangeTombstone tombstone(key, range_del_iter->value());
 

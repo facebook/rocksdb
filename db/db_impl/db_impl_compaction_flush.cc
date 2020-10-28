@@ -792,7 +792,9 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     // changes to RangesOverlapWithMemtables.
     Range range(*begin, *end);
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
-    cfd->RangesOverlapWithMemtables({range}, super_version, &flush_needed);
+    cfd->RangesOverlapWithMemtables({range}, super_version,
+                                    immutable_db_options_.allow_data_in_errors,
+                                    &flush_needed);
     CleanupSuperVersion(super_version);
   }
 

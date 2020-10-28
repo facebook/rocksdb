@@ -144,7 +144,8 @@ class CompactionJobTest : public testing::Test {
       std::string skey;
       std::string value;
       std::tie(skey, value) = kv;
-      const Status pikStatus = ParseInternalKey(skey, &key);
+      const Status pik_status =
+          ParseInternalKey(skey, &key, true /* log_err_key */);
 
       smallest_seqno = std::min(smallest_seqno, key.sequence);
       largest_seqno = std::max(largest_seqno, key.sequence);
@@ -162,7 +163,7 @@ class CompactionJobTest : public testing::Test {
 
       first_key = false;
 
-      if (pikStatus.ok() && key.type == kTypeBlobIndex) {
+      if (pik_status.ok() && key.type == kTypeBlobIndex) {
         BlobIndex blob_index;
         const Status s = blob_index.DecodeFrom(value);
         if (!s.ok()) {
