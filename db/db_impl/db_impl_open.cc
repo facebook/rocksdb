@@ -516,12 +516,10 @@ Status DBImpl::Recover(
     if (immutable_db_options_.write_dbid_to_manifest && s.ok()) {
       VersionEdit edit;
       edit.SetDBId(db_id_);
-      Options options;
-      MutableCFOptions mutable_cf_options(options);
       versions_->db_id_ = db_id_;
-      s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                             mutable_cf_options, &edit, &mutex_, nullptr,
-                             false);
+      s = versions_->LogAndApplyToDefaultColumnFamily(
+                             &edit, &mutex_, directories_.GetDbDir(),
+                             /* new_descriptor_log */ false);
     }
   } else {
     s = SetIdentityFile(env_, dbname_, db_id_);
@@ -547,10 +545,8 @@ Status DBImpl::Recover(
     // then the unsynced data won't show up in the new MANIFEST,
     // so future recovery will succeed.
     VersionEdit dummy;
-    Options options;
-    MutableCFOptions cf_opt(options);
-    s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                               cf_opt, &dummy, &mutex_, directories_.GetDbDir(),
+    s = versions_->LogAndApplyToDefaultColumnFamily(
+                               &dummy, &mutex_, directories_.GetDbDir(),
                                /* new_descriptor_log */ true);
     if (!s.ok()) {
       return s;
