@@ -13,7 +13,6 @@
 #include <stdio.h>
 #include <vector>
 #include "file/writable_file_writer.h"
-#include "logging/logging.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
