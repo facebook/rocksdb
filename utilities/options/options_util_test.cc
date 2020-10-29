@@ -552,8 +552,10 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsInvalidArgument());
-  ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
-
+  // Even though ignore_unknown_options=true, we still return an error...
+  s = LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
   // Write an options file for a previous minor release with an unknown CF
   // Option
   WriteOptionsFile(options.env, dbname_, "OPTIONS-0002", ROCKSDB_MAJOR,
@@ -561,7 +563,10 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsInvalidArgument());
-  ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
+  // Even though ignore_unknown_options=true, we still return an error...
+  s = LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
 
   // Write an options file for the current release with an unknown DB Option
   WriteOptionsFile(options.env, dbname_, "OPTIONS-0003", ROCKSDB_MAJOR,
@@ -569,7 +574,10 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsInvalidArgument());
-  ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
+  // Even though ignore_unknown_options=true, we still return an error...
+  s = LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
 
   // Write an options file for the current release with an unknown CF Option
   WriteOptionsFile(options.env, dbname_, "OPTIONS-0004", ROCKSDB_MAJOR,
@@ -577,7 +585,10 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsInvalidArgument());
-  ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
+  // Even though ignore_unknown_options=true, we still return an error...
+  s = LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
 
   // Write an options file for the current release with an invalid DB Option
   WriteOptionsFile(options.env, dbname_, "OPTIONS-0005", ROCKSDB_MAJOR,
@@ -585,24 +596,29 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsInvalidArgument());
-  ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
+  // Even though ignore_unknown_options=true, we still return an error...
+  s = LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
 
   // Write an options file for the next release with an invalid DB Option
   WriteOptionsFile(options.env, dbname_, "OPTIONS-0006", ROCKSDB_MAJOR,
                    ROCKSDB_MINOR + 1, "create_if_missing=hello", "");
-  ASSERT_OK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
+  ASSERT_NOK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
 
   // Write an options file for the next release with an unknown DB Option
   WriteOptionsFile(options.env, dbname_, "OPTIONS-0007", ROCKSDB_MAJOR,
                    ROCKSDB_MINOR + 1, "unknown_db_opt=true", "");
-  ASSERT_OK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
+  ASSERT_NOK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
+  // Ignore the errors for future releases when ignore_unknown_options=true
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
 
   // Write an options file for the next major release with an unknown CF Option
   WriteOptionsFile(options.env, dbname_, "OPTIONS-0008", ROCKSDB_MAJOR + 1,
                    ROCKSDB_MINOR, "", "unknown_cf_opt=true");
-  ASSERT_OK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
+  ASSERT_NOK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
+  // Ignore the errors for future releases when ignore_unknown_options=true
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
 }
 }  // namespace ROCKSDB_NAMESPACE
