@@ -33,6 +33,7 @@ build/
 
 ldb
 manifest_dump
+zenfs
 sst_dump
 blob_dump
 block_cache_trace_analyzer
