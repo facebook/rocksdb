@@ -14,7 +14,6 @@
 
 #include "block_fetcher.h"
 #include "file/random_access_file_reader.h"
-#include "logging/logging.h"
 #include "memory/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"

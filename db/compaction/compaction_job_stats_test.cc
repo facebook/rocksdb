@@ -24,7 +24,6 @@
 #include "db/write_batch_internal.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
-#include "logging/logging.h"
 #include "memtable/hash_linklist_rep.h"
 #include "monitoring/statistics.h"
 #include "monitoring/thread_status_util.h"

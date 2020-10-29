@@ -9,7 +9,6 @@
 #ifdef GFLAGS
 #ifdef NUMA
 #include <numa.h>
-#include <numaif.h>
 #endif
 #ifndef OS_WIN
 #include <unistd.h>
@@ -50,8 +49,6 @@
 #include "util/string_util.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
-using GFLAGS_NAMESPACE::RegisterFlagValidator;
-using GFLAGS_NAMESPACE::SetUsageMessage;
 
 DEFINE_string(trace_path, "", "The trace file path.");
 DEFINE_string(output_dir, "", "The directory to store the output files.");
