@@ -380,7 +380,7 @@ Status DBImpl::Recover(
   assert(db_lock_ == nullptr);
   std::vector<std::string> files_in_dbname;
   if (!read_only) {
-    Status s = directories_.SetDirectories(fs_.get(), dbname_,
+    s = directories_.SetDirectories(fs_.get(), dbname_,
                                            immutable_db_options_.wal_dir,
                                            immutable_db_options_.db_paths);
     if (!s.ok()) {
@@ -465,7 +465,7 @@ Status DBImpl::Recover(
     }
   } else if (immutable_db_options_.best_efforts_recovery) {
     assert(files_in_dbname.empty());
-    Status s = env_->GetChildren(dbname_, &files_in_dbname);
+    s = env_->GetChildren(dbname_, &files_in_dbname);
     if (s.IsNotFound()) {
       return Status::InvalidArgument(dbname_,
                                      "does not exist (open for read only)");
@@ -475,7 +475,6 @@ Status DBImpl::Recover(
     assert(s.ok());
   }
   assert(db_id_.empty());
-  Status s;
   bool missing_table_file = false;
   if (!immutable_db_options_.best_efforts_recovery) {
     s = versions_->Recover(column_families, read_only, &db_id_);
