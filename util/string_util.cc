@@ -6,7 +6,6 @@
 #include "util/string_util.h"
 
 #include <errno.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <algorithm>

@@ -87,7 +87,6 @@ class ColumnFamilyTestBase : public testing::Test {
 #endif  // ROCKSDB_LITE
       column_families.push_back(cfdescriptor);
     }
-    Close();
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     Destroy(column_families);
     delete env_;

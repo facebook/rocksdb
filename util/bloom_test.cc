@@ -19,7 +19,6 @@ int main() {
 #include <cmath>
 #include <vector>
 
-#include "logging/logging.h"
 #include "memory/arena.h"
 #include "port/jemalloc_helper.h"
 #include "rocksdb/filter_policy.h"

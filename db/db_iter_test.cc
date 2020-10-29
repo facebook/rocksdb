@@ -99,10 +99,11 @@ class TestIterator : public InternalIterator {
     }
     for (auto it = data_.begin(); it != data_.end(); ++it) {
       ParsedInternalKey ikey;
-      Status pikStatus = ParseInternalKey(it->first, &ikey);
-      pikStatus.PermitUncheckedError();
-      assert(pikStatus.ok());
-      if (!pikStatus.ok() || ikey.user_key != _key) {
+      Status pik_status =
+          ParseInternalKey(it->first, &ikey, true /* log_err_key */);
+      pik_status.PermitUncheckedError();
+      assert(pik_status.ok());
+      if (!pik_status.ok() || ikey.user_key != _key) {
         continue;
       }
       if (valid_ && data_.begin() + iter_ > it) {

@@ -2051,6 +2051,26 @@ TEST_F(EnvTest, Close) {
   delete env;
 }
 
+class LogvWithInfoLogLevelLogger : public Logger {
+ public:
+  using Logger::Logv;
+  void Logv(const InfoLogLevel /* log_level */, const char* /* format */,
+            va_list /* ap */) override {}
+};
+
+TEST_F(EnvTest, LogvWithInfoLogLevel) {
+  // Verifies the log functions work on a `Logger` that only overrides the
+  // `Logv()` overload including `InfoLogLevel`.
+  const std::string kSampleMessage("sample log message");
+  LogvWithInfoLogLevelLogger logger;
+  ROCKS_LOG_HEADER(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_DEBUG(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_INFO(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_WARN(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_ERROR(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_FATAL(&logger, "%s", kSampleMessage.c_str());
+}
+
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),
                                                                 false)));
