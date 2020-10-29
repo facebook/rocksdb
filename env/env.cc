@@ -15,6 +15,7 @@
 #include "memory/arena.h"
 #include "options/db_options.h"
 #include "port/port.h"
+#include "port/sys_time.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
