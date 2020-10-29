@@ -500,7 +500,8 @@ TEST_F(OptionsUtilTest, LoadLatestOptions) {
 static void WriteOptionsFile(Env* env, const std::string& path,
                              const std::string& options_file, int major,
                              int minor, const std::string& db_opts,
-                             const std::string& cf_opts) {
+                             const std::string& cf_opts,
+                             const std::string& bbt_opts = "") {
   std::string options_file_header =
       "\n"
       "[Version]\n"
@@ -516,6 +517,8 @@ static void WriteOptionsFile(Env* env, const std::string& path,
   ASSERT_OK(wf->Append(
       "[CFOptions   \"default\"]  # column family must be specified\n" +
       cf_opts + "\n"));
+  ASSERT_OK(wf->Append("[TableOptions/BlockBasedTable   \"default\"]\n" +
+                       bbt_opts + "\n"));
   ASSERT_OK(wf->Close());
 
   std::string latest_options_file;
@@ -567,9 +570,20 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
   s = LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
   ASSERT_TRUE(s.IsInvalidArgument());
+  // Write an options file for a previous minor release with an unknown BBT
+  // Option
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0003", ROCKSDB_MAJOR,
+                   ROCKSDB_MINOR - 1, "", "", "unknown_bbt_opt=true");
+  s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  // Even though ignore_unknown_options=true, we still return an error...
+  s = LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
 
   // Write an options file for the current release with an unknown DB Option
-  WriteOptionsFile(options.env, dbname_, "OPTIONS-0003", ROCKSDB_MAJOR,
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0004", ROCKSDB_MAJOR,
                    ROCKSDB_MINOR, "unknown_db_opt=true", "");
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
@@ -580,7 +594,7 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
   ASSERT_TRUE(s.IsInvalidArgument());
 
   // Write an options file for the current release with an unknown CF Option
-  WriteOptionsFile(options.env, dbname_, "OPTIONS-0004", ROCKSDB_MAJOR,
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0005", ROCKSDB_MAJOR,
                    ROCKSDB_MINOR, "", "unknown_cf_opt=true");
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
@@ -591,7 +605,7 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
   ASSERT_TRUE(s.IsInvalidArgument());
 
   // Write an options file for the current release with an invalid DB Option
-  WriteOptionsFile(options.env, dbname_, "OPTIONS-0005", ROCKSDB_MAJOR,
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0006", ROCKSDB_MAJOR,
                    ROCKSDB_MINOR, "create_if_missing=hello", "");
   s = LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs);
   ASSERT_NOK(s);
@@ -602,20 +616,20 @@ TEST_F(OptionsUtilTest, BadLatestOptions) {
   ASSERT_TRUE(s.IsInvalidArgument());
 
   // Write an options file for the next release with an invalid DB Option
-  WriteOptionsFile(options.env, dbname_, "OPTIONS-0006", ROCKSDB_MAJOR,
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0007", ROCKSDB_MAJOR,
                    ROCKSDB_MINOR + 1, "create_if_missing=hello", "");
   ASSERT_NOK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
 
   // Write an options file for the next release with an unknown DB Option
-  WriteOptionsFile(options.env, dbname_, "OPTIONS-0007", ROCKSDB_MAJOR,
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0008", ROCKSDB_MAJOR,
                    ROCKSDB_MINOR + 1, "unknown_db_opt=true", "");
   ASSERT_NOK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
   // Ignore the errors for future releases when ignore_unknown_options=true
   ASSERT_OK(LoadLatestOptions(ignore_opts, dbname_, &db_opts, &cf_descs));
 
   // Write an options file for the next major release with an unknown CF Option
-  WriteOptionsFile(options.env, dbname_, "OPTIONS-0008", ROCKSDB_MAJOR + 1,
+  WriteOptionsFile(options.env, dbname_, "OPTIONS-0009", ROCKSDB_MAJOR + 1,
                    ROCKSDB_MINOR, "", "unknown_cf_opt=true");
   ASSERT_NOK(LoadLatestOptions(config_opts, dbname_, &db_opts, &cf_descs));
   // Ignore the errors for future releases when ignore_unknown_options=true
