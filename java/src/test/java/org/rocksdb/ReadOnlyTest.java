@@ -31,81 +31,51 @@ public class ReadOnlyTest {
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath())) {
       db.put("key".getBytes(), "value".getBytes());
-      try (final RocksDB db2 = RocksDB.openReadOnly(
-          dbFolder.getRoot().getAbsolutePath())) {
-        assertThat("value").
-            isEqualTo(new String(db2.get("key".getBytes())));
+    }
+    try (final RocksDB db = RocksDB.openReadOnly(dbFolder.getRoot().getAbsolutePath())) {
+      assertThat("value").isEqualTo(new String(db.get("key".getBytes())));
+    }
+
+    final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions();
+    final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+    cfDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts));
+    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
+    try (final RocksDB db = RocksDB.open(
+             dbFolder.getRoot().getAbsolutePath(), cfDescriptors, columnFamilyHandleList)) {
+      columnFamilyHandleList.add(db.createColumnFamily(
+          new ColumnFamilyDescriptor("new_cf".getBytes(), new ColumnFamilyOptions())));
+      columnFamilyHandleList.add(db.createColumnFamily(
+          new ColumnFamilyDescriptor("new_cf2".getBytes(), new ColumnFamilyOptions())));
+      db.put(columnFamilyHandleList.get(2), "key2".getBytes(), "value2".getBytes());
+    } finally {
+      for (ColumnFamilyHandle handle : columnFamilyHandleList) {
+        handle.close();
       }
     }
 
-    try (final ColumnFamilyOptions cfOpts = new ColumnFamilyOptions()) {
-      final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
-      cfDescriptors.add(new ColumnFamilyDescriptor(
-          RocksDB.DEFAULT_COLUMN_FAMILY, cfOpts));
+    final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList = new ArrayList<>();
+    try (final RocksDB db = RocksDB.openReadOnly(
+             dbFolder.getRoot().getAbsolutePath(), cfDescriptors, readOnlyColumnFamilyHandleList)) {
+      assertThat(db.get("key2".getBytes())).isNull();
+      assertThat(db.get(readOnlyColumnFamilyHandleList.get(0), "key2".getBytes())).isNull();
+    } finally {
+      for (ColumnFamilyHandle handle : readOnlyColumnFamilyHandleList) {
+        handle.close();
+      }
+    }
 
-      final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
-      try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath(),
-          cfDescriptors, columnFamilyHandleList)) {
-        try (final ColumnFamilyOptions newCfOpts = new ColumnFamilyOptions();
-             final ColumnFamilyOptions newCf2Opts = new ColumnFamilyOptions()
-        ) {
-          columnFamilyHandleList.add(db.createColumnFamily(
-              new ColumnFamilyDescriptor("new_cf".getBytes(), newCfOpts)));
-          columnFamilyHandleList.add(db.createColumnFamily(
-              new ColumnFamilyDescriptor("new_cf2".getBytes(), newCf2Opts)));
-          db.put(columnFamilyHandleList.get(2), "key2".getBytes(),
-              "value2".getBytes());
-
-          final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
-              new ArrayList<>();
-          try (final RocksDB db2 = RocksDB.openReadOnly(
-              dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
-              readOnlyColumnFamilyHandleList)) {
-            try (final ColumnFamilyOptions newCfOpts2 =
-                     new ColumnFamilyOptions();
-                 final ColumnFamilyOptions newCf2Opts2 =
-                     new ColumnFamilyOptions()
-            ) {
-              assertThat(db2.get("key2".getBytes())).isNull();
-              assertThat(db2.get(readOnlyColumnFamilyHandleList.get(0),
-                  "key2".getBytes())).
-                  isNull();
-              cfDescriptors.clear();
-              cfDescriptors.add(
-                  new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
-                      newCfOpts2));
-              cfDescriptors.add(new ColumnFamilyDescriptor("new_cf2".getBytes(),
-                      newCf2Opts2));
-
-              final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList2
-                  = new ArrayList<>();
-              try (final RocksDB db3 = RocksDB.openReadOnly(
-                  dbFolder.getRoot().getAbsolutePath(), cfDescriptors,
-                  readOnlyColumnFamilyHandleList2)) {
-                try {
-                  assertThat(new String(db3.get(
-                      readOnlyColumnFamilyHandleList2.get(1),
-                      "key2".getBytes()))).isEqualTo("value2");
-                } finally {
-                  for (final ColumnFamilyHandle columnFamilyHandle :
-                      readOnlyColumnFamilyHandleList2) {
-                    columnFamilyHandle.close();
-                  }
-                }
-              }
-            } finally {
-              for (final ColumnFamilyHandle columnFamilyHandle :
-                  readOnlyColumnFamilyHandleList) {
-                columnFamilyHandle.close();
-              }
-            }
-          }
-        } finally {
-          for (final ColumnFamilyHandle columnFamilyHandle :
-              columnFamilyHandleList) {
-            columnFamilyHandle.close();
-          }
-        }
+    cfDescriptors.clear();
+    cfDescriptors.add(
+        new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, new ColumnFamilyOptions()));
+    cfDescriptors.add(new ColumnFamilyDescriptor("new_cf2".getBytes(), new ColumnFamilyOptions()));
+    final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList2 = new ArrayList<>();
+    try (final RocksDB db = RocksDB.openReadOnly(dbFolder.getRoot().getAbsolutePath(),
+             cfDescriptors, readOnlyColumnFamilyHandleList2)) {
+      assertThat(new String(db.get(readOnlyColumnFamilyHandleList2.get(1), "key2".getBytes())))
+          .isEqualTo("value2");
+    } finally {
+      for (ColumnFamilyHandle handle : readOnlyColumnFamilyHandleList2) {
+        handle.close();
       }
     }
   }
