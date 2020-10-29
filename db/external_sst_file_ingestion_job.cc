@@ -192,10 +192,13 @@ Status ExternalSstFileIngestionJob::Prepare(
     // Step 1: generate the checksum for ingested sst file.
     if (need_generate_file_checksum_) {
       for (size_t i = 0; i < files_to_ingest_.size(); i++) {
-        std::string generated_checksum, generated_checksum_func_name;
+        std::string generated_checksum;
+        std::string generated_checksum_func_name;
+        std::string requested_checksum_func_name;
         IOStatus io_s = GenerateOneFileChecksum(
             fs_.get(), files_to_ingest_[i].internal_file_path,
-            db_options_.file_checksum_gen_factory.get(), &generated_checksum,
+            db_options_.file_checksum_gen_factory.get(),
+            requested_checksum_func_name, &generated_checksum,
             &generated_checksum_func_name,
             ingestion_options_.verify_checksums_readahead_size,
             db_options_.allow_mmap_reads, io_tracer_);
@@ -839,11 +842,13 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
     // file checksum generated during Prepare(). This step will be skipped.
     return IOStatus::OK();
   }
-  std::string file_checksum, file_checksum_func_name;
+  std::string file_checksum;
+  std::string file_checksum_func_name;
+  std::string requested_checksum_func_name;
   IOStatus io_s = GenerateOneFileChecksum(
       fs_.get(), file_to_ingest->internal_file_path,
-      db_options_.file_checksum_gen_factory.get(), &file_checksum,
-      &file_checksum_func_name,
+      db_options_.file_checksum_gen_factory.get(), requested_checksum_func_name,
+      &file_checksum, &file_checksum_func_name,
       ingestion_options_.verify_checksums_readahead_size,
       db_options_.allow_mmap_reads, io_tracer_);
   if (!io_s.ok()) {
