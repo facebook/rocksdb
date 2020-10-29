@@ -6,7 +6,6 @@
 #include "db/periodic_work_scheduler.h"
 
 #include "db/db_impl/db_impl.h"
-#include "util/cast_util.h"
 
 #ifndef ROCKSDB_LITE
 namespace ROCKSDB_NAMESPACE {

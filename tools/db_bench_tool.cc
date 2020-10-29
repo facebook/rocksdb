@@ -10,7 +10,6 @@
 #ifdef GFLAGS
 #ifdef NUMA
 #include <numa.h>
-#include <numaif.h>
 #endif
 #ifndef OS_WIN
 #include <unistd.h>

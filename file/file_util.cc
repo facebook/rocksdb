@@ -123,13 +123,16 @@ bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
   return same;
 }
 
-IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
-                                 FileChecksumGenFactory* checksum_factory,
-                                 std::string* file_checksum,
-                                 std::string* file_checksum_func_name,
-                                 size_t verify_checksums_readahead_size,
-                                 bool allow_mmap_reads,
-                                 std::shared_ptr<IOTracer>& io_tracer) {
+// requested_checksum_func_name brings the function name of the checksum
+// generator in checksum_factory. Checksum factories may use or ignore
+// requested_checksum_func_name.
+IOStatus GenerateOneFileChecksum(
+    FileSystem* fs, const std::string& file_path,
+    FileChecksumGenFactory* checksum_factory,
+    const std::string& requested_checksum_func_name, std::string* file_checksum,
+    std::string* file_checksum_func_name,
+    size_t verify_checksums_readahead_size, bool allow_mmap_reads,
+    std::shared_ptr<IOTracer>& io_tracer) {
   if (checksum_factory == nullptr) {
     return IOStatus::InvalidArgument("Checksum factory is invalid");
   }
@@ -137,8 +140,25 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
   assert(file_checksum_func_name != nullptr);
 
   FileChecksumGenContext gen_context;
+  gen_context.requested_checksum_func_name = requested_checksum_func_name;
+  gen_context.file_name = file_path;
   std::unique_ptr<FileChecksumGenerator> checksum_generator =
       checksum_factory->CreateFileChecksumGenerator(gen_context);
+  if (checksum_generator == nullptr) {
+    std::string msg =
+        "Cannot get the file checksum generator based on the requested "
+        "checksum function name: " +
+        requested_checksum_func_name +
+        " from checksum factory: " + checksum_factory->Name();
+    return IOStatus::InvalidArgument(msg);
+  }
+
+  // For backward compatable, requested_checksum_func_name can be empty.
+  // If we give the requested checksum function name, we expect it is the
+  // same name of the checksum generator.
+  assert(!checksum_generator || requested_checksum_func_name.empty() ||
+         requested_checksum_func_name == checksum_generator->Name());
+
   uint64_t size;
   IOStatus io_s;
   std::unique_ptr<RandomAccessFileReader> reader;

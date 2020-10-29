@@ -4123,7 +4123,7 @@ public class RocksDB extends RocksObject {
    *
    * @return the column family metadata
    */
-  public ColumnFamilyMetaData GetColumnFamilyMetaData() {
+  public ColumnFamilyMetaData getColumnFamilyMetaData() {
     return getColumnFamilyMetaData(null);
   }
 

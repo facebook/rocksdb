@@ -24,7 +24,6 @@
 #include "db/write_batch_internal.h"
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"
-#include "port/port_dirent.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/table_properties.h"

@@ -28,10 +28,6 @@
 #include "test_util/testutil.h"
 #include "util/string_util.h"
 
-using std::cerr;
-using std::cout;
-using std::endl;
-using std::flush;
 
 namespace ROCKSDB_NAMESPACE {
 

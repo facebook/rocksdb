@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/dbformat.h"
-#include "logging/logging.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
