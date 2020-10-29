@@ -1088,7 +1088,7 @@ bool ColumnFamilyData::RangeOverlapWithCompaction(
 
 Status ColumnFamilyData::RangesOverlapWithMemtables(
     const autovector<Range>& ranges, SuperVersion* super_version,
-    bool* overlap) {
+    bool allow_data_in_errors, bool* overlap) {
   assert(overlap != nullptr);
   *overlap = false;
   // Create an InternalIterator over all unflushed memtables
@@ -1121,13 +1121,12 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
     memtable_iter->Seek(range_start.Encode());
     status = memtable_iter->status();
     ParsedInternalKey seek_result;
-    if (status.ok()) {
-      if (memtable_iter->Valid() &&
-          ParseInternalKey(memtable_iter->key(), &seek_result) !=
-              Status::OK()) {
-        status = Status::Corruption("DB have corrupted keys");
-      }
+
+    if (status.ok() && memtable_iter->Valid()) {
+      status = ParseInternalKey(memtable_iter->key(), &seek_result,
+                                allow_data_in_errors);
     }
+
     if (status.ok()) {
       if (memtable_iter->Valid() &&
           ucmp->Compare(seek_result.user_key, ranges[i].limit) <= 0) {

@@ -8,7 +8,6 @@
 #include <algorithm>
 #include <cinttypes>
 #include <cstdio>
-#include "port/likely.h"
 #include "rocksdb/statistics.h"
 
 namespace ROCKSDB_NAMESPACE {

@@ -10,7 +10,6 @@
 #include <thread>
 
 #include "db/db_impl/db_impl.h"
-#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/perf_context.h"

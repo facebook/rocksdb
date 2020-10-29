@@ -17,7 +17,6 @@
 #include "utilities/cassandra/test_utils.h"
 #include "utilities/merge_operators.h"
 
-using namespace ROCKSDB_NAMESPACE;
 
 namespace ROCKSDB_NAMESPACE {
 namespace cassandra {

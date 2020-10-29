@@ -7,9 +7,6 @@
 #include "rocksdb/slice.h"
 #include "utilities/merge_operators.h"
 
-using ROCKSDB_NAMESPACE::Logger;
-using ROCKSDB_NAMESPACE::MergeOperator;
-using ROCKSDB_NAMESPACE::Slice;
 
 namespace ROCKSDB_NAMESPACE {
 
