@@ -368,14 +368,12 @@ Status DBImpl::Recover(
     uint64_t* recovered_seq) {
   mutex_.AssertHeld();
 
-  if (!read_only) {
-    // Before recovered from MANIFEST, do not modify the on-disk LSM tree
-    // structure. Re-enable until switching to a new MANIFEST after recovering
-    // from the current MANIFEST.
-    Status s = DisableFileDeletionsWithLock();
-    if (!s.ok()) {
-      return s;
-    }
+  // Before recovered from MANIFEST, do not modify the on-disk LSM tree
+  // structure. Re-enable until switching to a new MANIFEST after recovering
+  // from the current MANIFEST.
+  Status s = DisableFileDeletionsWithLock();
+  if (!s.ok()) {
+    return s;
   }
 
   bool is_new_db = false;
@@ -525,7 +523,7 @@ Status DBImpl::Recover(
     s = SetIdentityFile(env_, dbname_, db_id_);
   }
 
-  {
+  if (!read_only) {
     // Create a new MANIFEST after recovering from the current MANIFEST.
     //
     // Consider a case:
@@ -553,16 +551,14 @@ Status DBImpl::Recover(
     }
   }
 
-  if (!read_only) {
-    // Since the LSM tree has been recovered from the MANIFEST,
-    // re-enable file deletion.
-    mutex_.AssertHeld();
-    mutex_.Unlock();
-    s = EnableFileDeletions(/* force */ false);
-    mutex_.Lock();
-    if (!s.ok()) {
-      return s;
-    }
+  // Since the LSM tree has been recovered from the MANIFEST,
+  // re-enable file deletion.
+  mutex_.AssertHeld();
+  mutex_.Unlock();
+  s = EnableFileDeletions(/* force */ false);
+  mutex_.Lock();
+  if (!s.ok()) {
+    return s;
   }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
