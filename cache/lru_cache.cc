@@ -27,6 +27,9 @@ LRUHandleTable::~LRUHandleTable() {
       h->Free();
     }
   });
+  for (uint32_t i = 0; i < length_; i++) {
+    delete list_[i];
+  }
   delete[] list_;
 }
 
@@ -35,12 +38,12 @@ LRUHandle* LRUHandleTable::Lookup(const Slice& key, uint32_t hash) {
 }
 
 LRUHandle* LRUHandleTable::Insert(LRUHandle* h) {
-  LRUHandle** ptr = FindPointer(h->key(), h->hash);
-  LRUHandle* old = *ptr;
-  h->next_hash = (old == nullptr ? nullptr : old->next_hash);
-  *ptr = h;
+  LRUHandle* old = Remove(h->key(), h->hash);
+  LRUHandle* head = list_[h->hash & (length_ - 1)];
+  HeadInsert(head, h);
+  ++elems_;
+
   if (old == nullptr) {
-    ++elems_;
     if (elems_ > length_) {
       // Since each cache entry is fairly large, we aim for a small
       // average linked list length (<= 1).
@@ -53,19 +56,36 @@ LRUHandle* LRUHandleTable::Insert(LRUHandle* h) {
 LRUHandle* LRUHandleTable::Remove(const Slice& key, uint32_t hash) {
   LRUHandle** ptr = FindPointer(key, hash);
   LRUHandle* result = *ptr;
-  if (result != nullptr) {
-    *ptr = result->next_hash;
-    --elems_;
-  }
+  Remove(result);
   return result;
 }
 
+void LRUHandleTable::Remove(LRUHandle* h) {
+  if (h != nullptr) {
+    if (h->next_hash != nullptr) {
+      h->next_hash->prev_hash = h->prev_hash;
+    }
+    assert(h->prev_hash != nullptr);
+    h->prev_hash->next_hash = h->next_hash;
+    --elems_;
+  }
+}
+
 LRUHandle** LRUHandleTable::FindPointer(const Slice& key, uint32_t hash) {
-  LRUHandle** ptr = &list_[hash & (length_ - 1)];
+  LRUHandle** ptr = &(list_[hash & (length_ - 1)]->next_hash);
   while (*ptr != nullptr && ((*ptr)->hash != hash || key != (*ptr)->key())) {
     ptr = &(*ptr)->next_hash;
   }
   return ptr;
+}
+
+void LRUHandleTable::HeadInsert(LRUHandle* head, LRUHandle* handle) {
+  handle->next_hash = head->next_hash;
+  if (handle->next_hash != nullptr) {
+    handle->next_hash->prev_hash = handle;
+  }
+  handle->prev_hash = head;
+  head->next_hash = handle;
 }
 
 void LRUHandleTable::Resize() {
@@ -75,20 +95,27 @@ void LRUHandleTable::Resize() {
   }
   LRUHandle** new_list = new LRUHandle*[new_length];
   memset(new_list, 0, sizeof(new_list[0]) * new_length);
+  for (uint32_t i = 0; i < new_length; i++) {
+    // The first node in the linked-list is a dummy node used for
+    // insert and remove new node mainly.
+    new_list[i] = new LRUHandle();
+  }
   uint32_t count = 0;
   for (uint32_t i = 0; i < length_; i++) {
-    LRUHandle* h = list_[i];
+    LRUHandle* h = list_[i]->next_hash;
     while (h != nullptr) {
       LRUHandle* next = h->next_hash;
       uint32_t hash = h->hash;
-      LRUHandle** ptr = &new_list[hash & (new_length - 1)];
-      h->next_hash = *ptr;
-      *ptr = h;
+      LRUHandle* head = new_list[hash & (new_length - 1)];
+      HeadInsert(head, h);
       h = next;
       count++;
     }
   }
   assert(elems_ == count);
+  for (uint32_t i = 0; i < length_; i++) {
+    delete list_[i];
+  }
   delete[] list_;
   list_ = new_list;
   length_ = new_length;
@@ -123,7 +150,7 @@ void LRUCacheShard::EraseUnRefEntries() {
       // LRU list contains only elements which can be evicted
       assert(old->InCache() && !old->HasRefs());
       LRU_Remove(old);
-      table_.Remove(old->key(), old->hash);
+      table_.Remove(old);
       old->SetInCache(false);
       size_t total_charge = old->CalcTotalCharge(metadata_charge_policy_);
       assert(usage_ >= total_charge);
@@ -238,7 +265,7 @@ void LRUCacheShard::EvictFromLRU(size_t charge,
     // LRU list contains only elements which can be evicted
     assert(old->InCache() && !old->HasRefs());
     LRU_Remove(old);
-    table_.Remove(old->key(), old->hash);
+    table_.Remove(old);
     old->SetInCache(false);
     size_t old_total_charge = old->CalcTotalCharge(metadata_charge_policy_);
     assert(usage_ >= old_total_charge);
@@ -313,7 +340,7 @@ bool LRUCacheShard::Release(Cache::Handle* handle, bool force_erase) {
         // The LRU list must be empty since the cache is full
         assert(lru_.next == &lru_ || force_erase);
         // Take this opportunity and remove the item
-        table_.Remove(e->key(), e->hash);
+        table_.Remove(e);
         e->SetInCache(false);
       } else {
         // Put the item back on the LRU list, and don't free it

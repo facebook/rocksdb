@@ -521,6 +521,12 @@ TEST_P(CacheTest, NewId) {
   ASSERT_NE(a, b);
 }
 
+TEST_P(CacheTest, SimpleBenchmark) {
+  for (int i = 0; i < kCacheSize * 10000; i++) {
+    Insert(1000 + i, 2000 + i, 1);
+    ASSERT_EQ(2000 + i, Lookup(1000 + i));
+  }
+}
 
 class Value {
  public:

@@ -51,6 +51,7 @@ struct LRUHandle {
   void* value;
   void (*deleter)(const Slice&, void* value);
   LRUHandle* next_hash;
+  LRUHandle* prev_hash;
   LRUHandle* next;
   LRUHandle* prev;
   size_t charge;  // TODO(opt): Only allow uint32_t?
@@ -159,11 +160,13 @@ class LRUHandleTable {
   LRUHandle* Lookup(const Slice& key, uint32_t hash);
   LRUHandle* Insert(LRUHandle* h);
   LRUHandle* Remove(const Slice& key, uint32_t hash);
+  void Remove(LRUHandle* h);
 
   template <typename T>
   void ApplyToAllCacheEntries(T func) {
     for (uint32_t i = 0; i < length_; i++) {
-      LRUHandle* h = list_[i];
+      assert(list_[i] != nullptr);
+      LRUHandle* h = list_[i]->next_hash;
       while (h != nullptr) {
         auto n = h->next_hash;
         assert(h->InCache());
@@ -174,10 +177,15 @@ class LRUHandleTable {
   }
 
  private:
+  friend class LRUHandleTableTest_HandleTableTest_Test;
+
   // Return a pointer to slot that points to a cache entry that
   // matches key/hash.  If there is no such cache entry, return a
   // pointer to the trailing slot in the corresponding linked list.
   LRUHandle** FindPointer(const Slice& key, uint32_t hash);
+
+  // Insert "handle" after "head".
+  void HeadInsert(LRUHandle* head, LRUHandle* handle);
 
   void Resize();
 

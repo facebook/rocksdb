@@ -585,6 +585,7 @@ ifdef ASSERT_STATUS_CHECKED
 		autovector_test \
 		cache_test \
 		lru_cache_test \
+		cache_hash_table_test \
 		blob_file_addition_test \
 		blob_file_builder_test \
 		blob_file_cache_test \
@@ -1961,6 +1962,9 @@ stats_history_test: $(OBJ_DIR)/monitoring/stats_history_test.o $(TEST_LIBRARY) $
 	$(AM_LINK)
 
 lru_cache_test: $(OBJ_DIR)/cache/lru_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+cache_hash_table_test: $(OBJ_DIR)/cache/cache_hash_table_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 range_del_aggregator_test: $(OBJ_DIR)/db/range_del_aggregator_test.o $(TEST_LIBRARY) $(LIBRARY)
