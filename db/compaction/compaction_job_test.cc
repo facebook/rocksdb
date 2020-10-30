@@ -1093,6 +1093,118 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
                 /* expected_oldest_blob_file_number */ 19);
 }
 
+class CompactionJobTimestampTest : public CompactionJobTestBase {
+ public:
+  CompactionJobTimestampTest()
+      : CompactionJobTestBase(test::PerThreadDBPath("compaction_job_ts_test"),
+                              test::ComparatorWithU64Ts(), test::EncodeInt) {}
+};
+
+TEST_F(CompactionJobTimestampTest, GCDisabled) {
+  NewDB();
+
+  auto file1 =
+      mock::MakeMockFile({{KeyStr("a", 10, ValueType::kTypeValue, 100), "a10"},
+                          {KeyStr("a", 9, ValueType::kTypeValue, 99), "a9"},
+                          {KeyStr("b", 8, ValueType::kTypeValue, 98), "b8"}});
+  AddMockFile(file1);
+
+  auto file2 = mock::MakeMockFile(
+      {{KeyStr("b", 7, ValueType::kTypeDeletionWithTimestamp, 97), ""},
+       {KeyStr("c", 6, ValueType::kTypeDeletionWithTimestamp, 96), ""},
+       {KeyStr("c", 5, ValueType::kTypeValue, 95), "c5"}});
+  AddMockFile(file2);
+
+  SetLastSequence(10);
+
+  auto expected_results = mock::MakeMockFile(
+      {{KeyStr("a", 10, ValueType::kTypeValue, 100), "a10"},
+       {KeyStr("a", 9, ValueType::kTypeValue, 99), "a9"},
+       {KeyStr("b", 8, ValueType::kTypeValue, 98), "b8"},
+       {KeyStr("b", 7, ValueType::kTypeDeletionWithTimestamp, 97), ""},
+       {KeyStr("c", 6, ValueType::kTypeDeletionWithTimestamp, 96), ""},
+       {KeyStr("c", 5, ValueType::kTypeValue, 95), "c5"}});
+  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  RunCompaction({files}, expected_results);
+}
+
+TEST_F(CompactionJobTimestampTest, NoKeyExpired) {
+  NewDB();
+
+  auto file1 =
+      mock::MakeMockFile({{KeyStr("a", 6, ValueType::kTypeValue, 100), "a6"},
+                          {KeyStr("b", 7, ValueType::kTypeValue, 101), "b7"},
+                          {KeyStr("c", 5, ValueType::kTypeValue, 99), "c5"}});
+  AddMockFile(file1);
+
+  auto file2 =
+      mock::MakeMockFile({{KeyStr("a", 4, ValueType::kTypeValue, 98), "a4"},
+                          {KeyStr("c", 3, ValueType::kTypeValue, 97), "c3"}});
+  AddMockFile(file2);
+
+  SetLastSequence(101);
+
+  auto expected_results =
+      mock::MakeMockFile({{KeyStr("a", 6, ValueType::kTypeValue, 100), "a6"},
+                          {KeyStr("a", 4, ValueType::kTypeValue, 98), "a4"},
+                          {KeyStr("b", 7, ValueType::kTypeValue, 101), "b7"},
+                          {KeyStr("c", 5, ValueType::kTypeValue, 99), "c5"},
+                          {KeyStr("c", 3, ValueType::kTypeValue, 97), "c3"}});
+  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+
+  full_history_ts_low_ = encode_u64_ts_(0);
+  RunCompaction({files}, expected_results);
+}
+
+TEST_F(CompactionJobTimestampTest, AllKeysExpired) {
+  NewDB();
+
+  auto file1 = mock::MakeMockFile(
+      {{KeyStr("a", 5, ValueType::kTypeDeletionWithTimestamp, 100), ""},
+       {KeyStr("b", 6, ValueType::kTypeValue, 99), "b6"}});
+  AddMockFile(file1);
+
+  auto file2 = mock::MakeMockFile(
+      {{KeyStr("a", 4, ValueType::kTypeValue, 98), "a4"},
+       {KeyStr("b", 3, ValueType::kTypeDeletionWithTimestamp, 97), ""},
+       {KeyStr("b", 2, ValueType::kTypeValue, 96), "b2"}});
+  AddMockFile(file2);
+
+  SetLastSequence(6);
+
+  auto expected_results =
+      mock::MakeMockFile({{KeyStr("b", 0, ValueType::kTypeValue, 0), "b6"}});
+  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+
+  full_history_ts_low_ = encode_u64_ts_(std::numeric_limits<uint64_t>::max());
+  RunCompaction({files}, expected_results);
+}
+
+TEST_F(CompactionJobTimestampTest, SomeKeysExpired) {
+  NewDB();
+
+  auto file1 =
+      mock::MakeMockFile({{KeyStr("a", 5, ValueType::kTypeValue, 50), "a5"},
+                          {KeyStr("b", 6, ValueType::kTypeValue, 49), "b6"}});
+  AddMockFile(file1);
+
+  auto file2 = mock::MakeMockFile(
+      {{KeyStr("a", 3, ValueType::kTypeValue, 48), "a3"},
+       {KeyStr("a", 2, ValueType::kTypeValue, 46), "a2"},
+       {KeyStr("b", 4, ValueType::kTypeDeletionWithTimestamp, 47), ""}});
+  AddMockFile(file2);
+
+  SetLastSequence(6);
+
+  auto expected_results =
+      mock::MakeMockFile({{KeyStr("a", 5, ValueType::kTypeValue, 50), "a5"},
+                          {KeyStr("b", 6, ValueType::kTypeValue, 49), "b6"}});
+  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+
+  full_history_ts_low_ = encode_u64_ts_(49);
+  RunCompaction({files}, expected_results);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
