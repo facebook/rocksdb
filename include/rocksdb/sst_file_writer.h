@@ -80,13 +80,15 @@ class SstFileWriter {
   // hint that this file pages is not needed every time we write 1MB to the
   // file. To use the rate limiter an io_priority smaller than IO_TOTAL can be
   // passed.
+  // If unsafe_add is true, SstFileWriter doesn't check that keys are written in
+  // ascending order.
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true,
                 Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL,
-                bool skip_filters = false)
+                bool skip_filters = false, bool unsafe_add = false)
       : SstFileWriter(env_options, options, options.comparator, column_family,
-                      invalidate_page_cache, io_priority, skip_filters) {}
+                      invalidate_page_cache, io_priority, skip_filters, unsafe_add) {}
 
   // Deprecated API
   SstFileWriter(const EnvOptions& env_options, const Options& options,
@@ -94,7 +96,7 @@ class SstFileWriter {
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true,
                 Env::IOPriority io_priority = Env::IOPriority::IO_TOTAL,
-                bool skip_filters = false);
+                bool skip_filters = false, bool unsafe_add = false);
 
   ~SstFileWriter();
 
