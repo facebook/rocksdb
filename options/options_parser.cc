@@ -460,7 +460,13 @@ Status RocksDBOptionsParser::EndSection(
             opt_section_titles[kOptionSectionTableOptions].size()),
         &(cf_opt->table_factory));
     if (s.ok()) {
-      return cf_opt->table_factory->ConfigureFromMap(config_options, opt_map);
+      s = cf_opt->table_factory->ConfigureFromMap(config_options, opt_map);
+      // Translate any errors (NotFound, NotSupported, to InvalidArgument
+      if (s.ok() || s.IsInvalidArgument()) {
+        return s;
+      } else {
+        return Status::InvalidArgument(s.getState());
+      }
     } else {
       // Return OK for not supported table factories as TableFactory
       // Deserialization is optional.
