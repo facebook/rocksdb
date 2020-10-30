@@ -47,6 +47,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/options.cc
         rocksjni/options_util.cc
         rocksjni/persistent_cache.cc
+        rocksjni/pinnable_slice.cc
         rocksjni/ratelimiterjni.cc
         rocksjni/remove_emptyvalue_compactionfilterjni.cc
         rocksjni/restorejni.cc
@@ -147,6 +148,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/EventListener.java
   src/main/java/org/rocksdb/Experimental.java
   src/main/java/org/rocksdb/ExternalFileIngestionInfo.java
+  src/main/java/org/rocksdb/FastBuffer.java
   src/main/java/org/rocksdb/Filter.java
   src/main/java/org/rocksdb/FileOperationInfo.java
   src/main/java/org/rocksdb/FlushJobInfo.java
@@ -189,6 +191,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/Options.java
   src/main/java/org/rocksdb/OptionsUtil.java
   src/main/java/org/rocksdb/PersistentCache.java
+  src/main/java/org/rocksdb/PinnableSlice.java
   src/main/java/org/rocksdb/PlainTableConfig.java
   src/main/java/org/rocksdb/Priority.java
   src/main/java/org/rocksdb/Range.java
