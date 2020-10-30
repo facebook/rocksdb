@@ -47,10 +47,6 @@ public class ReadOnlyTest {
       columnFamilyHandleList.add(db.createColumnFamily(
           new ColumnFamilyDescriptor("new_cf2".getBytes(), new ColumnFamilyOptions())));
       db.put(columnFamilyHandleList.get(2), "key2".getBytes(), "value2".getBytes());
-    } finally {
-      for (ColumnFamilyHandle handle : columnFamilyHandleList) {
-        handle.close();
-      }
     }
 
     final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList = new ArrayList<>();
@@ -58,10 +54,6 @@ public class ReadOnlyTest {
              dbFolder.getRoot().getAbsolutePath(), cfDescriptors, readOnlyColumnFamilyHandleList)) {
       assertThat(db.get("key2".getBytes())).isNull();
       assertThat(db.get(readOnlyColumnFamilyHandleList.get(0), "key2".getBytes())).isNull();
-    } finally {
-      for (ColumnFamilyHandle handle : readOnlyColumnFamilyHandleList) {
-        handle.close();
-      }
     }
 
     cfDescriptors.clear();
@@ -73,10 +65,6 @@ public class ReadOnlyTest {
              cfDescriptors, readOnlyColumnFamilyHandleList2)) {
       assertThat(new String(db.get(readOnlyColumnFamilyHandleList2.get(1), "key2".getBytes())))
           .isEqualTo("value2");
-    } finally {
-      for (ColumnFamilyHandle handle : readOnlyColumnFamilyHandleList2) {
-        handle.close();
-      }
     }
   }
 
@@ -104,11 +92,6 @@ public class ReadOnlyTest {
         try {
           // test that put fails in readonly mode
           rDb.put("key".getBytes(), "value".getBytes());
-        } finally {
-          for (final ColumnFamilyHandle columnFamilyHandle :
-              readOnlyColumnFamilyHandleList) {
-            columnFamilyHandle.close();
-          }
         }
       }
     }
@@ -134,11 +117,6 @@ public class ReadOnlyTest {
         try {
           rDb.put(readOnlyColumnFamilyHandleList.get(0),
               "key".getBytes(), "value".getBytes());
-        } finally {
-          for (final ColumnFamilyHandle columnFamilyHandle :
-              readOnlyColumnFamilyHandleList) {
-            columnFamilyHandle.close();
-          }
         }
       }
     }
@@ -165,11 +143,6 @@ public class ReadOnlyTest {
           readOnlyColumnFamilyHandleList)) {
         try {
           rDb.delete("key".getBytes());
-        } finally {
-          for (final ColumnFamilyHandle columnFamilyHandle :
-              readOnlyColumnFamilyHandleList) {
-            columnFamilyHandle.close();
-          }
         }
       }
     }
@@ -196,11 +169,6 @@ public class ReadOnlyTest {
         try {
           rDb.delete(readOnlyColumnFamilyHandleList.get(0),
               "key".getBytes());
-        } finally {
-          for (final ColumnFamilyHandle columnFamilyHandle :
-              readOnlyColumnFamilyHandleList) {
-            columnFamilyHandle.close();
-          }
         }
       }
     }
@@ -229,11 +197,6 @@ public class ReadOnlyTest {
         try {
           wb.put("key".getBytes(), "value".getBytes());
           rDb.write(wOpts, wb);
-        } finally {
-          for (final ColumnFamilyHandle columnFamilyHandle :
-              readOnlyColumnFamilyHandleList) {
-            columnFamilyHandle.close();
-          }
         }
       }
     }
@@ -263,11 +226,6 @@ public class ReadOnlyTest {
           wb.put(readOnlyColumnFamilyHandleList.get(0), "key".getBytes(),
               "value".getBytes());
           rDb.write(wOpts, wb);
-        } finally {
-          for (final ColumnFamilyHandle columnFamilyHandle :
-              readOnlyColumnFamilyHandleList) {
-            columnFamilyHandle.close();
-          }
         }
       }
     }
@@ -287,15 +245,7 @@ public class ReadOnlyTest {
       final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList = new ArrayList<>();
       try (final DBOptions options = new DBOptions();
            final RocksDB rDb = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath(),
-               cfDescriptors, readOnlyColumnFamilyHandleList, true);) {
-        try {
-          // no-op... should have raised an error as errorIfWalFileExists=true
-
-        } finally {
-          for (final ColumnFamilyHandle columnFamilyHandle : readOnlyColumnFamilyHandleList) {
-            columnFamilyHandle.close();
-          }
-        }
+        // no-op... should have raised an error as errorIfWalFileExists=true
       }
     }
   }
