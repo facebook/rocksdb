@@ -1,4 +1,9 @@
 # Rocksdb Change Log
+## 6.14.3 (10/30/2020)
+### Bug Fixes
+* Reverted a behavior change silently introduced in 6.14.2, in which the effects of the `ignore_unknown_options` flag (used in option parsing/loading functions) changed.
+* Reverted a behavior change silently introduced in 6.14, in which options parsing/loading functions began returning `NotFound` instead of `InvalidArgument` for option names not available in the present version.
+
 ## 6.14.2 (10/21/2020)
 ### Bug Fixes
 * Fixed a bug which causes hang in closing DB when refit level is set in opt build. It was because ContinueBackgroundWork() was called in assert statement which is a no op. It was introduced in 6.14.
