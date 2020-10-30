@@ -245,7 +245,7 @@ public class ReadOnlyTest {
       final List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList = new ArrayList<>();
       try (final DBOptions options = new DBOptions();
            final RocksDB rDb = RocksDB.openReadOnly(options, dbFolder.getRoot().getAbsolutePath(),
-        // no-op... should have raised an error as errorIfWalFileExists=true
+      // no-op... should have raised an error as errorIfWalFileExists=true
       }
     }
   }
