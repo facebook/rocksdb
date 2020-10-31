@@ -2279,6 +2279,43 @@ class TableFileListener : public EventListener {
 };
 }  // namespace
 
+TEST_F(DBBasicTest, LastSstFileNotInManifest) {
+  // If the last sst file is not tracked in MANIFEST,
+  // or the VersionEdit for the last sst file is not synced,
+  // on recovery, the last sst file should be deleted,
+  // and new sst files shouldn't reuse its file number.
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  Close();
+
+  // Manually add a sst file.
+  constexpr uint64_t kSstFileNumber = 100;
+  const std::string kSstFile = MakeTableFileName(dbname_, kSstFileNumber);
+  ASSERT_OK(WriteStringToFile(env_, /* data = */ "bad sst file content",
+                              /* fname = */ kSstFile,
+                              /* should_sync = */ true));
+  ASSERT_OK(env_->FileExists(kSstFile));
+
+  TableFileListener* listener = new TableFileListener();
+  options.listeners.emplace_back(listener);
+  Reopen(options);
+  // kSstFile should already be deleted.
+  ASSERT_TRUE(env_->FileExists(kSstFile).IsNotFound());
+
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  // New sst file should have file number > kSstFileNumber.
+  std::vector<std::string>& files =
+      listener->GetFiles(kDefaultColumnFamilyName);
+  ASSERT_EQ(files.size(), 1);
+  const std::string fname = files[0].erase(0, (dbname_ + "/").size());
+  uint64_t number = 0;
+  FileType type = kTableFile;
+  ASSERT_TRUE(ParseFileName(fname, &number, &type));
+  ASSERT_EQ(type, kTableFile);
+  ASSERT_GT(number, kSstFileNumber);
+}
+
 TEST_F(DBBasicTest, RecoverWithMissingFiles) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);

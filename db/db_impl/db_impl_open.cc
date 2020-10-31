@@ -481,9 +481,6 @@ Status DBImpl::Recover(
           new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
     }
   }
-  if (s.ok()) {
-    s = FinishRecovery(read_only);
-  }
   if (!s.ok()) {
     return s;
   }
@@ -517,6 +514,10 @@ Status DBImpl::Recover(
     }
   } else {
     s = SetIdentityFile(env_, dbname_, db_id_);
+  }
+  if (s.ok()) {
+    // FinishRecovery may switch to new MANIFEST, which requires db_id to be set.
+    s = FinishRecovery(read_only);
   }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
