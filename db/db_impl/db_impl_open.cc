@@ -479,8 +479,10 @@ Status DBImpl::Recover(
       // TryRecover may delete previous column_family_set_.
       column_family_memtables_.reset(
           new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
-      s = FinishBestEffortsRecovery();
     }
+  }
+  if (s.ok()) {
+    s = FinishRecovery();
   }
   if (!s.ok()) {
     return s;
@@ -1239,7 +1241,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       // write MANIFEST with update
       status = versions_->LogAndApply(cfds, cf_opts, edit_lists, &mutex_,
                                       directories_.GetDbDir(),
-                                      /*new_descriptor_log=*/true);
+                                      /*new_descriptor_log=*/ false);
     }
   }
 

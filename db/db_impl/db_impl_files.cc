@@ -741,7 +741,7 @@ uint64_t PrecomputeMinLogNumberToKeep(
   return min_log_number_to_keep;
 }
 
-Status DBImpl::FinishBestEffortsRecovery() {
+Status DBImpl::FinishRecovery() {
   mutex_.AssertHeld();
   std::vector<std::string> paths;
   paths.push_back(NormalizePath(dbname_ + std::string(1, kFilePathSeparator)));
@@ -801,7 +801,7 @@ Status DBImpl::FinishBestEffortsRecovery() {
   // MANIFEST and update CURRENT file, since this is in recovery.
   s = versions_->LogAndApply(
       default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
-      directories_.GetDbDir(), /*new_descriptor_log*/ false);
+      directories_.GetDbDir(), /*new_descriptor_log*/ true);
   if (!s.ok()) {
     return s;
   }
