@@ -1206,7 +1206,7 @@ class DBImpl : public DB {
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
   // We also switch to a new MANIFEST, so if there are unsynced edits in the
   // MANIFEST, they will be discarded in the new MANIFEST.
-  Status FinishRecovery();
+  Status FinishRecovery(bool read_only);
 
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened

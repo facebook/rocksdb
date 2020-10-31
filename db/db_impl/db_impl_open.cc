@@ -482,7 +482,7 @@ Status DBImpl::Recover(
     }
   }
   if (s.ok()) {
-    s = FinishRecovery();
+    s = FinishRecovery(read_only);
   }
   if (!s.ok()) {
     return s;
