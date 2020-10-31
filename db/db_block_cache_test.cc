@@ -991,6 +991,9 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
       ++expected_index_misses;
     }
   }
+  if (unpartitioned_pinning_ == PinningTier::kNone) {
+    ++expected_compression_dict_misses;
+  }
   ASSERT_EQ(expected_filter_misses,
             TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(expected_index_misses,
