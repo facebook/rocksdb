@@ -1204,8 +1204,8 @@ class DBImpl : public DB {
   // We delete these SST files. In the
   // meantime, we find out the largest file number present in the paths, and
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
-  // We also creates a new MANIFEST, so if there are unsynced edits in the MANIFEST,
-  // they will be discarded in the new MANIFEST.
+  // We also creates a new MANIFEST, so if there are unsynced edits in the
+  // MANIFEST, they will be discarded in the new MANIFEST.
   Status FinishRecovery();
 
   // SetDbSessionId() should be called in the constuctor DBImpl()

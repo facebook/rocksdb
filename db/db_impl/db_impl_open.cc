@@ -1241,7 +1241,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       // write MANIFEST with update
       status = versions_->LogAndApply(cfds, cf_opts, edit_lists, &mutex_,
                                       directories_.GetDbDir(),
-                                      /*new_descriptor_log=*/ false);
+                                      /*new_descriptor_log=*/false);
     }
   }
 
