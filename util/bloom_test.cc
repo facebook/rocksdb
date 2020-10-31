@@ -30,7 +30,7 @@ int main() {
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
-DEFINE_int32(bits_per_key, 10, "");
+DEFINE_int32(bits_per_key, 10, "number of bits in filter per one key to define filter size");
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -54,6 +54,23 @@ static int NextLength(int length) {
     length += 1000;
   }
   return length;
+}
+
+static double EstimateRate(double k, double m, double n) {
+  // estimation below works for m >> k
+  // use predefined threshold otherwise
+  if (m < 100.0f * k) {
+    if (FLAGS_bits_per_key <= 3)
+      return 0.3;
+    if (FLAGS_bits_per_key <= 6)
+      return 0.15;
+    if (FLAGS_bits_per_key <= 9)
+      return 0.05;
+    return 0.02;
+  }
+
+  double rate = std::pow(1 - std::exp(-k * n / m), k);
+  return rate * 1.5f + 0.005f;
 }
 
 class BlockBasedBloomTest : public testing::Test {
@@ -95,7 +112,12 @@ class BlockBasedBloomTest : public testing::Test {
   }
 
   size_t FilterSize() const {
-    return filter_.size();
+    // last byte is used for num_probes
+    return filter_.size() - 1;
+  }
+
+  int NumProbes() const {
+      return static_cast<int>(filter_[filter_.size()-1]);
   }
 
   Slice FilterData() const { return Slice(filter_); }
@@ -130,6 +152,10 @@ class BlockBasedBloomTest : public testing::Test {
   }
 };
 
+TEST_F(BlockBasedBloomTest, InputParams) {
+  ASSERT_TRUE(3 <= FLAGS_bits_per_key && FLAGS_bits_per_key <= 30);
+}
+
 TEST_F(BlockBasedBloomTest, EmptyFilter) {
   ASSERT_TRUE(! Matches("hello"));
   ASSERT_TRUE(! Matches("world"));
@@ -158,7 +184,8 @@ TEST_F(BlockBasedBloomTest, VaryingLengths) {
     }
     Build();
 
-    ASSERT_LE(FilterSize(), (size_t)((length * 10 / 8) + 40)) << length;
+    int bits_per_key = static_cast<int>(FLAGS_bits_per_key);
+    ASSERT_LE(FilterSize(), (size_t)((length * bits_per_key / 8) + 40)) << length;
 
     // All added keys must match
     for (int i = 0; i < length; i++) {
@@ -168,12 +195,18 @@ TEST_F(BlockBasedBloomTest, VaryingLengths) {
 
     // Check false positive rate
     double rate = FalsePositiveRate();
+
+    double k = static_cast<double>(NumProbes());
+    double m = static_cast<double>(FilterSize() * 8);
+    double theor_rate = EstimateRate(k, m, length);
+
     if (kVerbose >= 1) {
-      fprintf(stderr, "False positives: %5.2f%% @ length = %6d ; bytes = %6d\n",
-              rate*100.0, length, static_cast<int>(FilterSize()));
+      fprintf(stderr, "False positives: %5.2f%% (%5.2f%% estimated) @ length = %6d ; bytes = %6d ; num probes = %2d\n",
+              rate*100.0, theor_rate*100, length, static_cast<int>(FilterSize()), NumProbes());
     }
-    ASSERT_LE(rate, 0.02);   // Must not be over 2%
-    if (rate > 0.0125) mediocre_filters++;  // Allowed, but not too often
+
+    ASSERT_LE(rate, theor_rate * 1.5f);
+    if (rate > theor_rate) mediocre_filters++;  // Allowed, but not too often
     else good_filters++;
   }
   if (kVerbose >= 1) {
@@ -473,8 +506,9 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
     }
     Build();
 
+    int bits_per_key = static_cast<int>(FLAGS_bits_per_key);
     ASSERT_LE(FilterSize(),
-              (size_t)((length * 10 / 8) + CACHE_LINE_SIZE * 2 + 5));
+              (size_t)((length * bits_per_key / 8) + CACHE_LINE_SIZE * 2 + 5));
 
     // All added keys must match
     for (int i = 0; i < length; i++) {
@@ -484,12 +518,18 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
 
     // Check false positive rate
     double rate = FalsePositiveRate();
+
+    double k = static_cast<double>(GetNumProbesFromFilterData());
+    double m = static_cast<double>(FilterSize() * 8);
+    double theor_rate = EstimateRate(k, m, length);
+
     if (kVerbose >= 1) {
-      fprintf(stderr, "False positives: %5.2f%% @ length = %6d ; bytes = %6d\n",
-              rate*100.0, length, static_cast<int>(FilterSize()));
+      fprintf(stderr, "False positives: %5.2f%% (%5.2f%% estimated) @ length = %6d ; bytes = %6d ; num probes = %2d\n",
+              rate*100.0, theor_rate*100, length, static_cast<int>(FilterSize()), GetNumProbesFromFilterData());
     }
-    ASSERT_LE(rate, 0.02);   // Must not be over 2%
-    if (rate > 0.0125)
+
+    ASSERT_LE(rate, theor_rate * 1.5f);
+    if (rate > theor_rate)
       mediocre_filters++;  // Allowed, but not too often
     else
       good_filters++;
@@ -530,8 +570,17 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
       total_keys += nkeys;
       total_fp_rate += FalsePositiveRate();
     }
-    EXPECT_LE(total_fp_rate / double{nfilters}, 0.011);
-    EXPECT_GE(total_fp_rate / double{nfilters}, 0.008);
+
+    // (1/2) ^ k ~= 0.6185 ^ (m/n), for k = ln(2) ^ m/n
+    double mn = static_cast<double>(total_size) / static_cast<double>(total_keys) * 8.0f;
+    double theor_rate = std::pow(0.6185, mn);
+    if (kVerbose >= 1) {
+      fprintf(stderr, "False positives (avg): %5.2f%% (%5.2f%% estimated) @ nfilters = %6d\n",
+              total_fp_rate / double{nfilters}*100.0, theor_rate*100.0, nfilters);
+    }
+
+    EXPECT_LE(total_fp_rate / double{nfilters}, theor_rate * 2.0f + 0.005f);
+    EXPECT_GE(total_fp_rate / double{nfilters}, theor_rate - 0.005f);
 
     int64_t ex_min_total_size = int64_t{FLAGS_bits_per_key} * total_keys / 8;
     EXPECT_GE(static_cast<int64_t>(total_size), ex_min_total_size);
