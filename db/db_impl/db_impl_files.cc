@@ -797,8 +797,7 @@ Status DBImpl::FinishRecovery() {
   assert(versions_->GetColumnFamilySet());
   ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
   assert(default_cfd);
-  // Even if new_descriptor_log is false, we will still switch to a new
-  // MANIFEST and update CURRENT file, since this is in recovery.
+  // Switch to a new MANIFEST.
   s = versions_->LogAndApply(
       default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
       directories_.GetDbDir(), /*new_descriptor_log*/ true);
