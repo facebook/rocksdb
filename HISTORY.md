@@ -14,6 +14,9 @@
 ### Public API Change
 * Deprecate `BlockBasedTableOptions::pin_l0_filter_and_index_blocks_in_cache` and `BlockBasedTableOptions::pin_top_level_index_and_filter`. These options still take effect until users migrate to the replacement APIs in `BlockBasedTableOptions::metadata_cache_options`. Migration guidance can be found in the API comments on the deprecated options.
 
+### Behavior Changes
+* The dictionary compression settings specified in `ColumnFamilyOptions::compression` now additionally affect compaction to non-bottommost level and flush. Previously they only affected compaction to bottommost level when `ColumnFamilyOptions::bottommost_compression` was disabled.
+
 ## 6.14 (10/09/2020)
 ### Bug fixes
 * Fixed a bug after a `CompactRange()` with `CompactRangeOptions::change_level` set fails due to a conflict in the level change step, which caused all subsequent calls to `CompactRange()` with `CompactRangeOptions::change_level` set to incorrectly fail with a `Status::NotSupported("another thread is refitting")` error.
