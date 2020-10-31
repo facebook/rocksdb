@@ -4118,7 +4118,7 @@ Status VersionSet::ProcessManifestWrites(
         TEST_KILL_RANDOM("VersionSet::LogAndApply:BeforeAddRecord",
                          rocksdb_kill_odds * REDUCE_ODDS2);
 #ifndef NDEBUG
-        if (batch_edits.size() > 1 && batch_edits.size() - 1 == idx) {
+        if (batch_edits.size() > 0 && batch_edits.size() - 1 == idx) {
           TEST_SYNC_POINT_CALLBACK(
               "VersionSet::ProcessManifestWrites:BeforeWriteLastVersionEdit:0",
               nullptr);
