@@ -741,7 +741,7 @@ uint64_t PrecomputeMinLogNumberToKeep(
   return min_log_number_to_keep;
 }
 
-Status DBImpl::FinishRecovery(bool read_only) {
+Status DBImpl::FinishRecovery() {
   mutex_.AssertHeld();
   std::vector<std::string> paths;
   paths.push_back(NormalizePath(dbname_ + std::string(1, kFilePathSeparator)));
@@ -797,10 +797,10 @@ Status DBImpl::FinishRecovery(bool read_only) {
   assert(versions_->GetColumnFamilySet());
   ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
   assert(default_cfd);
-  // Switch to a new MANIFEST if not read_only.
+  // Switch to a new MANIFEST.
   s = versions_->LogAndApply(
       default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
-      directories_.GetDbDir(), /*new_descriptor_log*/ !read_only);
+      directories_.GetDbDir(), /*new_descriptor_log*/ true);
   if (!s.ok()) {
     return s;
   }

@@ -515,10 +515,10 @@ Status DBImpl::Recover(
   } else {
     s = SetIdentityFile(env_, dbname_, db_id_);
   }
-  if (s.ok()) {
+  if (s.ok() && !read_only) {
     // FinishRecovery may switch to new MANIFEST, which requires db_id to be
     // set.
-    s = FinishRecovery(read_only);
+    s = FinishRecovery();
   }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
