@@ -1062,12 +1062,13 @@ class CompactionIteratorTsGcTest : public CompactionIteratorTest {
 };
 
 TEST_P(CompactionIteratorTsGcTest, NoKeyEligibleForGC) {
-  constexpr char user_key[] = "a";
+  constexpr char user_key[][2] = {{'a', '\0'}, {'b', '\0'}};
   const std::vector<std::string> input_keys = {
-      test::KeyStr(/*ts=*/103, user_key, /*seq=*/4, kTypeValue),
-      test::KeyStr(/*ts=*/102, user_key, /*seq=*/3,
-                   kTypeDeletionWithTimestamp)};
-  const std::vector<std::string> input_values = {"a3", ""};
+      test::KeyStr(/*ts=*/103, user_key[0], /*seq=*/4, kTypeValue),
+      test::KeyStr(/*ts=*/102, user_key[0], /*seq=*/3,
+                   kTypeDeletionWithTimestamp),
+      test::KeyStr(/*ts=*/104, user_key[1], /*seq=*/5, kTypeValue)};
+  const std::vector<std::string> input_values = {"a3", "", "b2"};
   std::string full_history_ts_low;
   // All keys' timestamps are newer than or equal to 102, thus none of them
   // will be eligible for GC.
@@ -1089,22 +1090,23 @@ TEST_P(CompactionIteratorTsGcTest, NoKeyEligibleForGC) {
 }
 
 TEST_P(CompactionIteratorTsGcTest, AllKeysOlderThanThreshold) {
-  constexpr char user_key[] = "a";
+  constexpr char user_key[][2] = {{'a', '\0'}, {'b', '\0'}};
   const std::vector<std::string> input_keys = {
-      test::KeyStr(/*ts=*/103, user_key, /*seq=*/4, kTypeDeletionWithTimestamp),
-      test::KeyStr(/*ts=*/102, user_key, /*seq=*/3, kTypeValue),
-      test::KeyStr(/*ts=*/101, user_key, /*seq=*/2, kTypeValue)};
-  const std::vector<std::string> input_values = {"", "a2", "a1"};
+      test::KeyStr(/*ts=*/103, user_key[0], /*seq=*/4,
+                   kTypeDeletionWithTimestamp),
+      test::KeyStr(/*ts=*/102, user_key[0], /*seq=*/3, kTypeValue),
+      test::KeyStr(/*ts=*/101, user_key[0], /*seq=*/2, kTypeValue),
+      test::KeyStr(/*ts=*/104, user_key[1], /*seq=*/5, kTypeValue)};
+  const std::vector<std::string> input_values = {"", "a2", "a1", "b5"};
   std::string full_history_ts_low;
-  // All keys' timestamps are older than 104.
-  PutFixed64(&full_history_ts_low, 104);
+  PutFixed64(&full_history_ts_low, std::numeric_limits<uint64_t>::max());
   {
     // With a snapshot at seq 3, both the deletion marker and the key at 3 must
     // be preserved.
     AddSnapshot(3);
-    const std::vector<std::string> expected_keys = {input_keys[0],
-                                                    input_keys[1]};
-    const std::vector<std::string> expected_values = {"", "a2"};
+    const std::vector<std::string> expected_keys = {
+        input_keys[0], input_keys[1], input_keys[3]};
+    const std::vector<std::string> expected_values = {"", "a2", "b5"};
     RunTest(input_keys, input_values, expected_keys, expected_values,
             /*last_committed_seq=*/kMaxSequenceNumber,
             /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
@@ -1116,8 +1118,9 @@ TEST_P(CompactionIteratorTsGcTest, AllKeysOlderThanThreshold) {
   {
     // No snapshot, the deletion marker should be preserved because the user
     // key may appear beyond output level.
-    const std::vector<std::string> expected_keys = {input_keys[0]};
-    const std::vector<std::string> expected_values = {""};
+    const std::vector<std::string> expected_keys = {input_keys[0],
+                                                    input_keys[3]};
+    const std::vector<std::string> expected_values = {"", "b5"};
     RunTest(input_keys, input_values, expected_keys, expected_values,
             /*last_committed_seq=*/kMaxSequenceNumber,
             /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
@@ -1128,8 +1131,8 @@ TEST_P(CompactionIteratorTsGcTest, AllKeysOlderThanThreshold) {
   {
     // No snapshot, the deletion marker can be dropped because the user key
     // does not appear in higher levels.
-    const std::vector<std::string> expected_keys = {};
-    const std::vector<std::string> expected_values = {};
+    const std::vector<std::string> expected_keys = {input_keys[3]};
+    const std::vector<std::string> expected_values = {"b5"};
     RunTest(input_keys, input_values, expected_keys, expected_values,
             /*last_committed_seq=*/kMaxSequenceNumber,
             /*merge_operator=*/nullptr, /*compaction_filter=*/nullptr,
