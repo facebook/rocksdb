@@ -55,8 +55,9 @@ extern "C" int mallctlbymib(const size_t*, size_t, void*, size_t*, void*,
                             size_t) __attribute__((__nothrow__, __weak__));
 extern "C" void malloc_stats_print(void (*)(void*, const char*), void*,
                                    const char*) __attribute__((__nothrow__, __weak__));
-extern "C" size_t malloc_usable_size(JEMALLOC_USABLE_SIZE_CONST void*)
-    JEMALLOC_CXX_THROW __attribute__((__weak__));
+extern "C" size_t JEMALLOC_NOTHROW
+malloc_usable_size(JEMALLOC_USABLE_SIZE_CONST void*) JEMALLOC_CXX_THROW
+    __attribute__((__weak__));
 
 // Check if Jemalloc is linked with the binary. Note the main program might be
 // using a different memory allocator even this method return true.
