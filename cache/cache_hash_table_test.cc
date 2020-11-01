@@ -109,10 +109,6 @@ TEST(LRUHandleTableTest, HandleTableTest) {
   ASSERT_EQ(hs[3]->prev_hash, hs[6]);
 
   ASSERT_EQ(ht.elems_, count - 4);
-
-  for (uint32_t i = 0; i < count; ++i) {
-    free(hs[i]);
-  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE
