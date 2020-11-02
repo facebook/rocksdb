@@ -708,8 +708,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetPrefixFilter) {
   ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
   std::vector<ColumnFamilyHandle*> cfhs(keys.size(), cfh);
   std::vector<Status> statuses =
-      db_->MultiGet(read_opts, cfhs, keys, &values,
-                &timestamps);
+      db_->MultiGet(read_opts, cfhs, keys, &values, &timestamps);
 
   ASSERT_OK(statuses[0]);
   Close();
