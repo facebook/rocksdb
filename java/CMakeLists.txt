@@ -4,6 +4,8 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
     message("Please consider switching to CMake 3.11.4 or newer")
 endif()
 
+set(CMAKE_JAVA_COMPILE_FLAGS -source 7)
+
 set(JNI_NATIVE_SOURCES
         rocksjni/backupablejni.cc
         rocksjni/backupenginejni.cc
@@ -24,6 +26,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/comparator.cc
         rocksjni/comparatorjnicallback.cc
         rocksjni/compression_options.cc
+        rocksjni/config_options.cc
         rocksjni/env.cc
         rocksjni/env_options.cc
         rocksjni/filter.cc
@@ -126,6 +129,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/ComparatorType.java
   src/main/java/org/rocksdb/CompressionOptions.java
   src/main/java/org/rocksdb/CompressionType.java
+  src/main/java/org/rocksdb/ConfigOptions.java
   src/main/java/org/rocksdb/DataBlockIndexType.java
   src/main/java/org/rocksdb/DBOptionsInterface.java
   src/main/java/org/rocksdb/DBOptions.java
@@ -189,6 +193,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/RocksMemEnv.java
   src/main/java/org/rocksdb/RocksMutableObject.java
   src/main/java/org/rocksdb/RocksObject.java
+  src/main/java/org/rocksdb/SanityLevel.java
   src/main/java/org/rocksdb/SizeApproximationFlag.java
   src/main/java/org/rocksdb/SkipListMemTableConfig.java
   src/main/java/org/rocksdb/Slice.java
@@ -325,8 +330,9 @@ if(NOT EXISTS ${JAVA_JUNIT_JAR})
   message("Downloading ${JAVA_JUNIT_JAR}")
   file(DOWNLOAD ${DEPS_URL}/junit-4.12.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_JUNIT_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_JUNIT_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_JUNIT_JAR})
 endif()
@@ -334,8 +340,9 @@ if(NOT EXISTS ${JAVA_HAMCR_JAR})
   message("Downloading ${JAVA_HAMCR_JAR}")
   file(DOWNLOAD ${DEPS_URL}/hamcrest-core-1.3.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_HAMCR_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_HAMCR_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_HAMCR_JAR})
 endif()
@@ -343,8 +350,9 @@ if(NOT EXISTS ${JAVA_MOCKITO_JAR})
   message("Downloading ${JAVA_MOCKITO_JAR}")
   file(DOWNLOAD ${DEPS_URL}/mockito-all-1.10.19.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_MOCKITO_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_MOCKITO_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_MOCKITO_JAR})
 endif()
@@ -352,8 +360,9 @@ if(NOT EXISTS ${JAVA_CGLIB_JAR})
   message("Downloading ${JAVA_CGLIB_JAR}")
   file(DOWNLOAD ${DEPS_URL}/cglib-2.2.2.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_CGLIB_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_CGLIB_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_CGLIB_JAR})
 endif()
@@ -361,8 +370,9 @@ if(NOT EXISTS ${JAVA_ASSERTJ_JAR})
   message("Downloading ${JAVA_ASSERTJ_JAR}")
   file(DOWNLOAD ${DEPS_URL}/assertj-core-1.7.1.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_ASSERTJ_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_ASSERTJ_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_ASSERTJ_JAR})
 endif()

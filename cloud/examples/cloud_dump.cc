@@ -93,7 +93,7 @@ int main() {
   // verify that the data is somewhat sane by manaully scanning for cfs
   std::vector<std::string> cf_names;
   s = ROCKSDB_NAMESPACE::DB::ListColumnFamilies(options, kDBPath, &cf_names);
-  for (const std::string & cf : cf_names) {
+  for (const std::string& cf : cf_names) {
     std::cout << " Found Column Family " << cf;
   }
   std::cout << " \n";

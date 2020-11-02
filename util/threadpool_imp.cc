@@ -9,9 +9,6 @@
 
 #include "util/threadpool_imp.h"
 
-#include "monitoring/thread_status_util.h"
-#include "port/port.h"
-
 #ifndef OS_WIN
 #  include <unistd.h>
 #endif
@@ -30,6 +27,10 @@
 #include <sstream>
 #include <thread>
 #include <vector>
+
+#include "monitoring/thread_status_util.h"
+#include "port/port.h"
+#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -231,12 +232,8 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
 
 #ifdef OS_LINUX
     if (decrease_cpu_priority) {
-      setpriority(
-          PRIO_PROCESS,
-          // Current thread.
-          0,
-          // Lowest priority possible.
-          19);
+      // 0 means current thread.
+      port::SetCpuPriority(0, CpuPriority::kLow);
       low_cpu_priority = true;
     }
 
@@ -262,6 +259,10 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
     (void)decrease_io_priority;  // avoid 'unused variable' error
     (void)decrease_cpu_priority;
 #endif
+
+    TEST_SYNC_POINT_CALLBACK("ThreadPoolImpl::Impl::BGThread:BeforeRun",
+                             &priority_);
+
     func();
   }
 }

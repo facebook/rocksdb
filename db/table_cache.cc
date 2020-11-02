@@ -62,6 +62,8 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 
 }  // namespace
 
+const int kLoadConcurency = 128;
+
 TableCache::TableCache(const ImmutableCFOptions& ioptions,
                        const FileOptions& file_options, Cache* const cache,
                        BlockCacheTracer* const block_cache_tracer)
@@ -69,7 +71,8 @@ TableCache::TableCache(const ImmutableCFOptions& ioptions,
       file_options_(file_options),
       cache_(cache),
       immortal_tables_(false),
-      block_cache_tracer_(block_cache_tracer) {
+      block_cache_tracer_(block_cache_tracer),
+      loader_mutex_(kLoadConcurency, GetSliceNPHash64) {
   if (ioptions_.row_cache) {
     // If the same cache is shared by multiple instances, we need to
     // disambiguate its entries.
@@ -94,7 +97,8 @@ Status TableCache::GetTableReader(
     bool sequential_mode, bool record_read_stats, HistogramImpl* file_read_hist,
     std::unique_ptr<TableReader>* table_reader,
     const SliceTransform* prefix_extractor, bool skip_filters, int level,
-    bool prefetch_index_and_filter_in_cache) {
+    bool prefetch_index_and_filter_in_cache,
+    size_t max_file_size_for_l0_meta_pin) {
   std::string fname =
       TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
   std::unique_ptr<FSRandomAccessFile> file;
@@ -120,7 +124,9 @@ Status TableCache::GetTableReader(
     s = ioptions_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, prefix_extractor, file_options,
                            internal_comparator, skip_filters, immortal_tables_,
-                           level, fd.largest_seqno, block_cache_tracer_),
+                           false /* force_direct_prefetch */, level,
+                           fd.largest_seqno, block_cache_tracer_,
+                           max_file_size_for_l0_meta_pin),
         std::move(file_reader), fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
@@ -141,8 +147,8 @@ Status TableCache::FindTable(const FileOptions& file_options,
                              const SliceTransform* prefix_extractor,
                              const bool no_io, bool record_read_stats,
                              HistogramImpl* file_read_hist, bool skip_filters,
-                             int level,
-                             bool prefetch_index_and_filter_in_cache) {
+                             int level, bool prefetch_index_and_filter_in_cache,
+                             size_t max_file_size_for_l0_meta_pin) {
   PERF_TIMER_GUARD_WITH_ENV(find_table_nanos, ioptions_.env);
   Status s;
   uint64_t number = fd.GetNumber();
@@ -155,11 +161,19 @@ Status TableCache::FindTable(const FileOptions& file_options,
     if (no_io) {  // Don't do IO and return a not-found status
       return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
+    MutexLock load_lock(loader_mutex_.get(key));
+    // We check the cache again under loading mutex
+    *handle = cache_->Lookup(key);
+    if (*handle != nullptr) {
+      return s;
+    }
+
     std::unique_ptr<TableReader> table_reader;
     s = GetTableReader(file_options, internal_comparator, fd,
                        false /* sequential mode */, record_read_stats,
                        file_read_hist, &table_reader, prefix_extractor,
-                       skip_filters, level, prefetch_index_and_filter_in_cache);
+                       skip_filters, level, prefetch_index_and_filter_in_cache,
+                       max_file_size_for_l0_meta_pin);
     if (!s.ok()) {
       assert(table_reader == nullptr);
       RecordTick(ioptions_.statistics, NO_FILE_ERRORS);
@@ -183,8 +197,9 @@ InternalIterator* TableCache::NewIterator(
     RangeDelAggregator* range_del_agg, const SliceTransform* prefix_extractor,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
     TableReaderCaller caller, Arena* arena, bool skip_filters, int level,
+    size_t max_file_size_for_l0_meta_pin,
     const InternalKey* smallest_compaction_key,
-    const InternalKey* largest_compaction_key) {
+    const InternalKey* largest_compaction_key, bool allow_unprepared_value) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
@@ -200,7 +215,9 @@ InternalIterator* TableCache::NewIterator(
     s = FindTable(file_options, icomparator, fd, &handle, prefix_extractor,
                   options.read_tier == kBlockCacheTier /* no_io */,
                   !for_compaction /* record_read_stats */, file_read_hist,
-                  skip_filters, level);
+                  skip_filters, level,
+                  true /* prefetch_index_and_filter_in_cache */,
+                  max_file_size_for_l0_meta_pin);
     if (s.ok()) {
       table_reader = GetTableReaderFromHandle(handle);
     }
@@ -213,7 +230,8 @@ InternalIterator* TableCache::NewIterator(
     } else {
       result = table_reader->NewIterator(options, prefix_extractor, arena,
                                    skip_filters, caller,
-                                   file_options.compaction_readahead_size);
+                                   file_options.compaction_readahead_size,
+                                   allow_unprepared_value);
     }
     if (handle != nullptr) {
       result->RegisterCleanup(&UnrefEntry, cache_, handle);
@@ -303,8 +321,7 @@ void TableCache::CreateRowCacheKeyPrefix(const ReadOptions& options,
   // Maybe we can include the whole file ifsnapshot == fd.largest_seqno.
   if (options.snapshot != nullptr &&
       (get_context->has_callback() ||
-       static_cast_with_check<const SnapshotImpl, const Snapshot>(
-           options.snapshot)
+       static_cast_with_check<const SnapshotImpl>(options.snapshot)
                ->GetSequenceNumber() <= fd.largest_seqno)) {
     // We should consider to use options.snapshot->GetSequenceNumber()
     // instead of GetInternalKeySeqno(k), which will make the code
@@ -361,7 +378,7 @@ Status TableCache::Get(const ReadOptions& options,
                        GetContext* get_context,
                        const SliceTransform* prefix_extractor,
                        HistogramImpl* file_read_hist, bool skip_filters,
-                       int level) {
+                       int level, size_t max_file_size_for_l0_meta_pin) {
   auto& fd = file_meta.fd;
   std::string* row_cache_entry = nullptr;
   bool done = false;
@@ -386,10 +403,12 @@ Status TableCache::Get(const ReadOptions& options,
   Cache::Handle* handle = nullptr;
   if (!done && s.ok()) {
     if (t == nullptr) {
-      s = FindTable(
-          file_options_, internal_comparator, fd, &handle, prefix_extractor,
-          options.read_tier == kBlockCacheTier /* no_io */,
-          true /* record_read_stats */, file_read_hist, skip_filters, level);
+      s = FindTable(file_options_, internal_comparator, fd, &handle,
+                    prefix_extractor,
+                    options.read_tier == kBlockCacheTier /* no_io */,
+                    true /* record_read_stats */, file_read_hist, skip_filters,
+                    level, true /* prefetch_index_and_filter_in_cache */,
+                    max_file_size_for_l0_meta_pin);
       if (s.ok()) {
         t = GetTableReaderFromHandle(handle);
       }

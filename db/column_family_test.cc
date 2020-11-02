@@ -8,16 +8,16 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <algorithm>
-#include <vector>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
-#include "memtable/hash_skiplist_rep.h"
 #include "options/options_parser.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -287,7 +287,9 @@ class ColumnFamilyTestBase : public testing::Test {
       // Verify the CF options of the returned CF handle.
       ColumnFamilyDescriptor desc;
       ASSERT_OK(handles_[cfi]->GetDescriptor(&desc));
-      RocksDBOptionsParser::VerifyCFOptions(desc.options, current_cf_opt);
+      RocksDBOptionsParser::VerifyCFOptions(ConfigOptions(), desc.options,
+                                            current_cf_opt);
+
 #endif  // !ROCKSDB_LITE
       cfi++;
     }
@@ -821,7 +823,7 @@ TEST_P(ColumnFamilyTest, BulkAddDrop) {
 }
 
 TEST_P(ColumnFamilyTest, DropTest) {
-  // first iteration - dont reopen DB before dropping
+  // first iteration - don't reopen DB before dropping
   // second iteration - reopen DB before dropping
   for (int iter = 0; iter < 2; ++iter) {
     Open({"default"});

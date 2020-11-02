@@ -53,6 +53,13 @@ class InternalKeyComparator;
 class WalFilter;
 class FileSystem;
 
+enum class CpuPriority {
+  kIdle = 0,
+  kLow = 1,
+  kNormal = 2,
+  kHigh = 3,
+};
+
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
 // being stored in a file.  The following enum describes which
@@ -399,11 +406,6 @@ struct DBOptions {
   // through env will be deprecated in favor of file_system (see below)
   // Default: Env::Default()
   Env* env = Env::Default();
-
-  // Use the specified object to interact with the storage to
-  // read/write files. This is in addition to env. This option should be used
-  // if the desired storage subsystem provides a FileSystem implementation.
-  std::shared_ptr<FileSystem> file_system = nullptr;
 
   // Use to control write rate of flush and compaction. Flush has higher
   // priority than compaction. Rate limiting is disabled if nullptr.
@@ -1128,12 +1130,24 @@ struct DBOptions {
   // Default: 0
   size_t log_readahead_size = 0;
 
-  // If user does NOT provide SST file checksum function, the SST file checksum
-  // will NOT be used. The single checksum instance are shared by options and
-  // file writers. Make sure the algorithm is thread safe.
+  // If user does NOT provide the checksum generator factory, the file checksum
+  // will NOT be used. A new file checksum generator object will be created
+  // when a SST file is created. Therefore, each created FileChecksumGenerator
+  // will only be used from a single thread and so does not need to be
+  // thread-safe.
   //
   // Default: nullptr
-  std::shared_ptr<FileChecksumFunc> sst_file_checksum_func = nullptr;
+  std::shared_ptr<FileChecksumGenFactory> file_checksum_gen_factory = nullptr;
+
+  // By default, RocksDB recovery fails if any table file referenced in
+  // MANIFEST are missing after scanning the MANIFEST.
+  // Best-efforts recovery is another recovery mode that
+  // tries to restore the database to the most recent point in time without
+  // missing file.
+  // Currently not compatible with atomic flush. Furthermore, WAL files will
+  // not be used for recovery if best_efforts_recovery is true.
+  // Default: false
+  bool best_efforts_recovery = false;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1327,9 +1341,31 @@ struct ReadOptions {
   // specified timestamp. All timestamps of the same database must be of the
   // same length and format. The user is responsible for providing a customized
   // compare function via Comparator to order <key, timestamp> tuples.
+  // For iterator, iter_start_ts is the lower bound (older) and timestamp
+  // serves as the upper bound. Versions of the same record that fall in
+  // the timestamp range will be returned. If iter_start_ts is nullptr,
+  // only the most recent version visible to timestamp is returned.
   // The user-specified timestamp feature is still under active development,
   // and the API is subject to change.
   const Slice* timestamp;
+  const Slice* iter_start_ts;
+
+  // Deadline for completing the read request (only Get/MultiGet for now) in us.
+  // It should be set to microseconds since epoch, i.e, gettimeofday or
+  // equivalent plus allowed duration in microseconds. The best way is to use
+  // env->NowMicros() + some timeout.
+  // This is best efforts. The call may exceed the deadline if there is IO
+  // involved and the file system doesn't support deadlines, or due to
+  // checking for deadline periodically rather than for every key if
+  // processing a batch
+  std::chrono::microseconds deadline;
+
+  // It limits the maximum cumulative value size of the keys in batch while
+  // reading through MultiGet. Once the cumulative value size exceeds this
+  // soft limit then all the remaining keys are returned with status Aborted.
+  //
+  // Default: std::numeric_limits<uint64_t>::max()
+  uint64_t value_size_soft_limit;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
@@ -1543,6 +1579,26 @@ struct IngestExternalFileOptions {
   // Using a large readahead size (> 2MB) can typically improve the performance
   // of forward iteration on spinning disks.
   size_t verify_checksums_readahead_size = 0;
+  // Set to TRUE if user wants to verify the sst file checksum of ingested
+  // files. The DB checksum function will generate the checksum of each
+  // ingested file (if file_checksum_gen_factory is set) and compare the
+  // checksum function name and checksum with the ingested checksum information.
+  //
+  // If this option is set to True: 1) if DB does not enable checksum
+  // (file_checksum_gen_factory == nullptr), the ingested checksum information
+  // will be ignored; 2) If DB enable the checksum function, we calculate the
+  // sst file checksum after the file is moved or copied and compare the
+  // checksum and checksum name. If checksum or checksum function name does
+  // not match, ingestion will be failed. If the verification is sucessful,
+  // checksum and checksum function name will be stored in Manifest.
+  // If this option is set to FALSE, 1) if DB does not enable checksum,
+  // the ingested checksum information will be ignored; 2) if DB enable the
+  // checksum, we only verify the ingested checksum function name and we
+  // trust the ingested checksum. If the checksum function name matches, we
+  // store the checksum in Manifest. DB does not calculate the checksum during
+  // ingestion. However, if no checksum information is provided with the
+  // ingested files, DB will generate the checksum and store in the Manifest.
+  bool verify_file_checksum = true;
 };
 
 enum TraceFilterType : uint64_t {

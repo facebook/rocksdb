@@ -47,6 +47,21 @@ TEST_F(DBRangeDelTest, WriteBatchWithIndexNotSupported) {
   ASSERT_TRUE(indexedBatch.DeleteRange("dr1", "dr1").IsNotSupported());
 }
 
+TEST_F(DBRangeDelTest, EndSameAsStartCoversNothing) {
+  ASSERT_OK(db_->Put(WriteOptions(), "b", "val"));
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "b", "b"));
+  ASSERT_EQ("val", Get("b"));
+}
+
+TEST_F(DBRangeDelTest, EndComesBeforeStartInvalidArgument) {
+  db_->Put(WriteOptions(), "b", "val");
+  ASSERT_TRUE(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "b", "a")
+          .IsInvalidArgument());
+  ASSERT_EQ("val", Get("b"));
+}
+
 TEST_F(DBRangeDelTest, FlushOutputHasOnlyRangeTombstones) {
   do {
     DestroyAndReopen(CurrentOptions());
@@ -174,7 +189,7 @@ TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
   std::vector<std::vector<FileMetaData>> files;
   dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files);
 
-  for (size_t i = 0; i < files[1].size() - 1; ++i) {
+  for (size_t i = 0; i + 1 < files[1].size(); ++i) {
     ASSERT_TRUE(InternalKeyComparator(opts.comparator)
                     .Compare(files[1][i].largest, files[1][i + 1].smallest) <
                 0);

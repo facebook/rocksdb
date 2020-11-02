@@ -9,6 +9,7 @@
 #   PLATFORM_LDFLAGS            Linker flags
 #   JAVA_LDFLAGS                Linker flags for RocksDBJava
 #   JAVA_STATIC_LDFLAGS         Linker flags for RocksDBJava static build
+#   JAVAC_ARGS                  Arguments for javac
 #   PLATFORM_SHARED_EXT         Extension for shared libraries
 #   PLATFORM_SHARED_LDFLAGS     Flags for building shared library
 #   PLATFORM_SHARED_CFLAGS      Flags for compiling objects for shared library
@@ -27,6 +28,7 @@
 #       -DZSTD                      if the ZSTD library is present
 #       -DNUMA                      if the NUMA library is present
 #       -DTBB                       if the TBB library is present
+#       -DMEMKIND                   if the memkind library is present
 #
 # Using gflags in rocksdb:
 # Our project depends on gflags, which requires users to take some extra steps
@@ -239,10 +241,15 @@ esac
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS ${CXXFLAGS}"
 JAVA_LDFLAGS="$PLATFORM_LDFLAGS"
 JAVA_STATIC_LDFLAGS="$PLATFORM_LDFLAGS"
+JAVAC_ARGS="-source 7"
 
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.
     # Also don't need any compilation tests if compiling on fbcode
+    if [ "$FBCODE_BUILD" = "true" ]; then
+      # Enable backtrace on fbcode since the necessary libraries are present
+      COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
+    fi
     true
 else
     if ! test $ROCKSDB_DISABLE_FALLOCATE; then
@@ -423,7 +430,23 @@ EOF
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_MALLOC_USABLE_SIZE"
         fi
     fi
-
+    
+    if ! test $ROCKSDB_DISABLE_MEMKIND; then
+        # Test whether memkind library is installed
+        $CXX $CFLAGS $COMMON_FLAGS -lmemkind -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <memkind.h>
+          int main() {
+            memkind_malloc(MEMKIND_DAX_KMEM, 1024);
+            return 0;
+          }
+EOF
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DMEMKIND"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lmemkind"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lmemkind"
+        fi
+    fi
+    
     if ! test $ROCKSDB_DISABLE_PTHREAD_MUTEX_ADAPTIVE_NP; then
         # Test whether PTHREAD_MUTEX_ADAPTIVE_NP mutex type is available
         $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
@@ -505,6 +528,20 @@ EOF
 EOF
         if [ "$?" = 0 ]; then
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_SCHED_GETCPU_PRESENT"
+        fi
+    fi
+
+    if ! test $ROCKSDB_DISABLE_AUXV_GETAUXVAL; then
+        # Test whether getauxval is supported
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <sys/auxv.h>
+          int main() {
+            uint64_t auxv = getauxval(AT_HWCAP);
+            (void)auxv;
+          }
+EOF
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_AUXV_GETAUXVAL_PRESENT"
         fi
     fi
 
@@ -691,6 +728,7 @@ EOF
   fi
 fi
 
+
 if [ "$FBCODE_BUILD" != "true" -a "$PLATFORM" = OS_LINUX ]; then
   $CXX $COMMON_FLAGS $PLATFORM_SHARED_CFLAGS -x c++ -c - -o test_dl.o 2>/dev/null <<EOF
   void dummy_func() {}
@@ -719,6 +757,7 @@ echo "PLATFORM=$PLATFORM" >> "$OUTPUT"
 echo "PLATFORM_LDFLAGS=$PLATFORM_LDFLAGS" >> "$OUTPUT"
 echo "JAVA_LDFLAGS=$JAVA_LDFLAGS" >> "$OUTPUT"
 echo "JAVA_STATIC_LDFLAGS=$JAVA_STATIC_LDFLAGS" >> "$OUTPUT"
+echo "JAVAC_ARGS=$JAVAC_ARGS" >> "$OUTPUT"
 echo "VALGRIND_VER=$VALGRIND_VER" >> "$OUTPUT"
 echo "PLATFORM_CCFLAGS=$PLATFORM_CCFLAGS" >> "$OUTPUT"
 echo "PLATFORM_CXXFLAGS=$PLATFORM_CXXFLAGS" >> "$OUTPUT"

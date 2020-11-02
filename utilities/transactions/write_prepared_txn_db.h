@@ -194,7 +194,7 @@ class WritePreparedTxnDB : public PessimisticTransactionDB {
       // happen after recovery, or it could be committed and evicted by another
       // commit, or never committed.
 
-      // At this point we dont know if it was committed or it is still prepared
+      // At this point we don't know if it was committed or it is still prepared
       max_evicted_seq_ub = max_evicted_seq_.load(std::memory_order_acquire);
       if (UNLIKELY(max_evicted_seq_lb != max_evicted_seq_ub)) {
         continue;
@@ -1078,10 +1078,9 @@ SnapshotBackup WritePreparedTxnDB::AssignMinMaxSeqs(const Snapshot* snapshot,
                                                     SequenceNumber* min,
                                                     SequenceNumber* max) {
   if (snapshot != nullptr) {
-    *min = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-               ->min_uncommitted_;
-    *max = static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-               ->number_;
+    *min =
+        static_cast_with_check<const SnapshotImpl>(snapshot)->min_uncommitted_;
+    *max = static_cast_with_check<const SnapshotImpl>(snapshot)->number_;
     return kBackedByDBSnapshot;
   } else {
     *min = SmallestUnCommittedSeq();

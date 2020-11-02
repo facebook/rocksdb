@@ -7,6 +7,7 @@
 
 #include "file/delete_scheduler.h"
 
+#include <cinttypes>
 #include <thread>
 #include <vector>
 
@@ -32,13 +33,13 @@ DeleteScheduler::DeleteScheduler(Env* env, FileSystem* fs,
       bytes_max_delete_chunk_(bytes_max_delete_chunk),
       closing_(false),
       cv_(&mu_),
+      bg_thread_(nullptr),
       info_log_(info_log),
       sst_file_manager_(sst_file_manager),
       max_trash_db_ratio_(max_trash_db_ratio) {
   assert(sst_file_manager != nullptr);
   assert(max_trash_db_ratio >= 0);
-  bg_thread_.reset(
-      new port::Thread(&DeleteScheduler::BackgroundEmptyTrash, this));
+  MaybeCreateBackgroundThread();
 }
 
 DeleteScheduler::~DeleteScheduler() {
@@ -65,6 +66,12 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
     s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
     if (s.ok()) {
       sst_file_manager_->OnDeleteFile(file_path);
+      ROCKS_LOG_INFO(info_log_,
+                     "Deleted file %s immediately, rate_bytes_per_sec %" PRIi64
+                     ", total_trash_size %" PRIu64 " max_trash_db_ratio %lf",
+                     file_path.c_str(), rate_bytes_per_sec_.load(),
+                     total_trash_size_.load(), max_trash_db_ratio_.load());
+      RecordTick(stats_.get(), FILES_DELETED_IMMEDIATELY);
     }
     return s;
   }
@@ -72,6 +79,8 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
   // Move file to trash
   std::string trash_file;
   s = MarkAsTrash(file_path, &trash_file);
+  ROCKS_LOG_INFO(info_log_, "Mark file: %s as trash -- %s", trash_file.c_str(),
+                 s.ToString().c_str());
 
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_, "Failed to mark %s as trash -- %s",
@@ -79,10 +88,14 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
     s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
     if (s.ok()) {
       sst_file_manager_->OnDeleteFile(file_path);
+      ROCKS_LOG_INFO(info_log_, "Deleted file %s immediately",
+                     trash_file.c_str());
+      RecordTick(stats_.get(), FILES_DELETED_IMMEDIATELY);
     }
     return s;
   }
 
+  RecordTick(stats_.get(), FILES_MARKED_TRASH);
   // Update the total trash size
   uint64_t trash_file_size = 0;
   fs_->GetFileSize(trash_file, IOOptions(), &trash_file_size, nullptr);
@@ -210,13 +223,15 @@ void DeleteScheduler::BackgroundEmptyTrash() {
         current_delete_rate = rate_bytes_per_sec_.load();
         start_time = env_->NowMicros();
         total_deleted_bytes = 0;
+        ROCKS_LOG_INFO(info_log_, "rate_bytes_per_sec is changed to %" PRIi64,
+                       current_delete_rate);
       }
 
       // Get new file to delete
       const FileAndDir& fad = queue_.front();
       std::string path_in_trash = fad.fname;
 
-      // We dont need to hold the lock while deleting the file
+      // We don't need to hold the lock while deleting the file
       mu_.Unlock();
       uint64_t deleted_bytes = 0;
       bool is_complete = true;
@@ -233,19 +248,27 @@ void DeleteScheduler::BackgroundEmptyTrash() {
         bg_errors_[path_in_trash] = s;
       }
 
-      // Apply penlty if necessary
-      uint64_t total_penlty;
+      // Apply penalty if necessary
+      uint64_t total_penalty;
       if (current_delete_rate > 0) {
         // rate limiting is enabled
-        total_penlty =
+        total_penalty =
             ((total_deleted_bytes * kMicrosInSecond) / current_delete_rate);
-        while (!closing_ && !cv_.TimedWait(start_time + total_penlty)) {}
+        ROCKS_LOG_INFO(info_log_,
+                       "Rate limiting is enabled with penalty %" PRIu64
+                       "after deleting file %s",
+                       total_penalty, path_in_trash.c_str());
+        while (!closing_ && !cv_.TimedWait(start_time + total_penalty)) {
+        }
       } else {
         // rate limiting is disabled
-        total_penlty = 0;
+        total_penalty = 0;
+        ROCKS_LOG_INFO(info_log_,
+                       "Rate limiting is disabled after deleting file %s",
+                       path_in_trash.c_str());
       }
       TEST_SYNC_POINT_CALLBACK("DeleteScheduler::BackgroundEmptyTrash:Wait",
-                               &total_penlty);
+                               &total_penalty);
 
       if (is_complete) {
         pending_files_--;
@@ -349,6 +372,17 @@ void DeleteScheduler::WaitForEmptyTrash() {
   InstrumentedMutexLock l(&mu_);
   while (pending_files_ > 0 && !closing_) {
     cv_.Wait();
+  }
+}
+
+void DeleteScheduler::MaybeCreateBackgroundThread() {
+  if (bg_thread_ == nullptr && rate_bytes_per_sec_.load() > 0) {
+    bg_thread_.reset(
+        new port::Thread(&DeleteScheduler::BackgroundEmptyTrash, this));
+    ROCKS_LOG_INFO(info_log_,
+                   "Created background thread for deletion scheduler with "
+                   "rate_bytes_per_sec: %" PRIi64,
+                   rate_bytes_per_sec_.load());
   }
 }
 

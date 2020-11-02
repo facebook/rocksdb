@@ -15,6 +15,7 @@
 #include "db/version_edit.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/io_status.h"
 #include "rocksdb/table.h"
 #include "table/internal_iterator.h"
 #include "table/table_builder.h"
@@ -43,7 +44,8 @@ class MockTableReader : public TableReader {
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena, bool skip_filters,
                                 TableReaderCaller caller,
-                                size_t compaction_readahead_size = 0) override;
+                                size_t compaction_readahead_size = 0,
+                                bool allow_unprepared_value = false) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, const SliceTransform* prefix_extractor,
@@ -138,6 +140,9 @@ class MockTableBuilder : public TableBuilder {
   // Return non-ok iff some error has been detected.
   Status status() const override { return Status::OK(); }
 
+  // Return non-ok iff some error happens during IO.
+  IOStatus io_status() const override { return IOStatus::OK(); }
+
   Status Finish() override {
     MutexLock lock_guard(&file_system_->mutex);
     file_system_->files.insert({id_, table_});
@@ -155,17 +160,16 @@ class MockTableBuilder : public TableBuilder {
   }
 
   // Get file checksum
-  const std::string& GetFileChecksum() const override { return file_checksum_; }
+  std::string GetFileChecksum() const override { return kUnknownFileChecksum; }
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override {
-    return kUnknownFileChecksumFuncName.c_str();
+    return kUnknownFileChecksumFuncName;
   }
 
  private:
   uint32_t id_;
   MockTableFileSystem* file_system_;
   stl_wrappers::KVMap table_;
-  std::string file_checksum_ = kUnknownFileChecksum;
 };
 
 class MockTableFactory : public TableFactory {

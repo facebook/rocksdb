@@ -1167,32 +1167,62 @@ TEST_P(DBIteratorTest, IndexWithFirstKey) {
     ropt.tailing = tailing;
     std::unique_ptr<Iterator> iter(NewIterator(ropt));
 
+    ropt.read_tier = ReadTier::kBlockCacheTier;
+    std::unique_ptr<Iterator> nonblocking_iter(NewIterator(ropt));
+
     iter->Seek("b10");
     ASSERT_TRUE(iter->Valid());
     EXPECT_EQ("b2", iter->key().ToString());
     EXPECT_EQ("y2", iter->value().ToString());
     EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
 
+    // The cache-only iterator should succeed too, using the blocks pulled into
+    // the cache by the previous iterator.
+    nonblocking_iter->Seek("b10");
+    ASSERT_TRUE(nonblocking_iter->Valid());
+    EXPECT_EQ("b2", nonblocking_iter->key().ToString());
+    EXPECT_EQ("y2", nonblocking_iter->value().ToString());
+    EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    // ... but it shouldn't be able to step forward since the next block is
+    // not in cache yet.
+    nonblocking_iter->Next();
+    ASSERT_FALSE(nonblocking_iter->Valid());
+    ASSERT_TRUE(nonblocking_iter->status().IsIncomplete());
+
+    // ... nor should a seek to the next key succeed.
+    nonblocking_iter->Seek("b20");
+    ASSERT_FALSE(nonblocking_iter->Valid());
+    ASSERT_TRUE(nonblocking_iter->status().IsIncomplete());
+
     iter->Next();
     ASSERT_TRUE(iter->Valid());
     EXPECT_EQ("b3", iter->key().ToString());
     EXPECT_EQ("y3", iter->value().ToString());
-    EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
-    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(4, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+
+    // After the blocking iterator loaded the next block, the nonblocking
+    // iterator's seek should succeed.
+    nonblocking_iter->Seek("b20");
+    ASSERT_TRUE(nonblocking_iter->Valid());
+    EXPECT_EQ("b3", nonblocking_iter->key().ToString());
+    EXPECT_EQ("y3", nonblocking_iter->value().ToString());
+    EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
 
     iter->Seek("c0");
     ASSERT_TRUE(iter->Valid());
     EXPECT_EQ("c0", iter->key().ToString());
     EXPECT_EQ("z1,z2", iter->value().ToString());
-    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
-    EXPECT_EQ(4, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(6, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
 
     iter->Next();
     ASSERT_TRUE(iter->Valid());
     EXPECT_EQ("c3", iter->key().ToString());
     EXPECT_EQ("z3", iter->value().ToString());
-    EXPECT_EQ(0, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
-    EXPECT_EQ(5, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(2, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(7, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
 
     iter.reset();
 
@@ -1207,13 +1237,13 @@ TEST_P(DBIteratorTest, IndexWithFirstKey) {
     ASSERT_TRUE(iter->Valid());
     EXPECT_EQ("b2", iter->key().ToString());
     EXPECT_EQ("y2", iter->value().ToString());
-    EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
-    EXPECT_EQ(5, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(3, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(7, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
 
     iter->Next();
     ASSERT_FALSE(iter->Valid());
-    EXPECT_EQ(1, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
-    EXPECT_EQ(5, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
+    EXPECT_EQ(3, stats->getTickerCount(BLOCK_CACHE_DATA_HIT));
+    EXPECT_EQ(7, stats->getTickerCount(BLOCK_CACHE_DATA_MISS));
   }
 }
 
@@ -1873,7 +1903,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
   DestroyAndReopen(options);
 
   const int kNumKeys = 500;
-  // Small number of merge operands to make sure that DBIter::Prev() dont
+  // Small number of merge operands to make sure that DBIter::Prev() don't
   // fall back to Seek()
   const int kNumMergeOperands = 3;
   // Use value size that will make sure that every block contain 1 key
@@ -1908,7 +1938,7 @@ TEST_P(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
   ASSERT_OK(Flush());
 
   // Separate values and merge operands in different file so that we
-  // make sure that we dont merge them while flushing but actually
+  // make sure that we don't merge them while flushing but actually
   // merge them in the read path
   for (int i = 0; i < kNumKeys; i++) {
     if (rnd.PercentTrue(kNoMergeOpPercentage)) {

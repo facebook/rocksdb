@@ -38,6 +38,8 @@ const int kMagicNumberLengthByte = 8;
 // block or a meta block.
 class BlockHandle {
  public:
+  // Creates a block handle with special values indicating "uninitialized,"
+  // distinct from the "null" block handle.
   BlockHandle();
   BlockHandle(uint64_t offset, uint64_t size);
 
@@ -64,6 +66,13 @@ class BlockHandle {
 
   // Maximum encoding length of a BlockHandle
   enum { kMaxEncodedLength = 10 + 10 };
+
+  inline bool operator==(const BlockHandle& rhs) const {
+    return offset_ == rhs.offset_ && size_ == rhs.size_;
+  }
+  inline bool operator!=(const BlockHandle& rhs) const {
+    return !(*this == rhs);
+  }
 
  private:
   uint64_t offset_;

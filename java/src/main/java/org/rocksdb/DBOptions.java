@@ -71,6 +71,7 @@ public class DBOptions extends RocksObject
    * {@code allowMmapReads()} has a property key:
    * {@code allow_mmap_reads}.</p>
    *
+   * @param cfgOpts The ConfigOptions to control how the string is processed.
    * @param properties {@link java.util.Properties} instance.
    *
    * @return {@link org.rocksdb.DBOptions instance}
@@ -80,22 +81,40 @@ public class DBOptions extends RocksObject
    *     {@link java.util.Properties} instance is passed to the method call.
    */
   public static DBOptions getDBOptionsFromProps(
-      final Properties properties) {
-    if (properties == null || properties.size() == 0) {
-      throw new IllegalArgumentException(
-          "Properties value must contain at least one value.");
-    }
+      final ConfigOptions cfgOpts, final Properties properties) {
     DBOptions dbOptions = null;
-    StringBuilder stringBuilder = new StringBuilder();
-    for (final String name : properties.stringPropertyNames()){
-      stringBuilder.append(name);
-      stringBuilder.append("=");
-      stringBuilder.append(properties.getProperty(name));
-      stringBuilder.append(";");
+    final String optionsString = Options.getOptionStringFromProps(properties);
+    final long handle = getDBOptionsFromProps(cfgOpts.nativeHandle_, optionsString);
+    if (handle != 0) {
+      dbOptions = new DBOptions(handle);
     }
-    long handle = getDBOptionsFromProps(
-        stringBuilder.toString());
-    if (handle != 0){
+    return dbOptions;
+  }
+
+  /**
+   * <p>Method to get a options instance by using pre-configured
+   * property values. If one or many values are undefined in
+   * the context of RocksDB the method will return a null
+   * value.</p>
+   *
+   * <p><strong>Note</strong>: Property keys can be derived from
+   * getter methods within the options class. Example: the method
+   * {@code allowMmapReads()} has a property key:
+   * {@code allow_mmap_reads}.</p>
+   *
+   * @param properties {@link java.util.Properties} instance.
+   *
+   * @return {@link org.rocksdb.DBOptions instance}
+   *     or null.
+   *
+   * @throws java.lang.IllegalArgumentException if null or empty
+   *     {@link java.util.Properties} instance is passed to the method call.
+   */
+  public static DBOptions getDBOptionsFromProps(final Properties properties) {
+    DBOptions dbOptions = null;
+    final String optionsString = Options.getOptionStringFromProps(properties);
+    final long handle = getDBOptionsFromProps(optionsString);
+    if (handle != 0) {
       dbOptions = new DBOptions(handle);
     }
     return dbOptions;
@@ -1175,8 +1194,8 @@ public class DBOptions extends RocksObject
     super(nativeHandle);
   }
 
-  private static native long getDBOptionsFromProps(
-      String optString);
+  private static native long getDBOptionsFromProps(long cfgHandle, String optString);
+  private static native long getDBOptionsFromProps(String optString);
 
   private static native long newDBOptions();
   private static native long copyDBOptions(final long handle);

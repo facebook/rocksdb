@@ -5,7 +5,7 @@
 //
 #ifndef ROCKSDB_LITE
 
-#include "utilities/blob_db/blob_log_format.h"
+#include "db/blob/blob_log_format.h"
 
 #include "util/coding.h"
 #include "util/crc32c.h"

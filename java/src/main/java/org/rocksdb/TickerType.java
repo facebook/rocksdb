@@ -722,6 +722,16 @@ public enum TickerType {
      */
     TXN_GET_TRY_AGAIN((byte) -0x0D),
 
+    /**
+     * # of files marked as trash by delete scheduler
+     */
+    FILES_MARKED_TRASH((byte) -0x0E),
+
+    /**
+     * # of files deleted immediately by delete scheduler
+     */
+    FILES_DELETED_IMMEDIATELY((byte) -0x0f),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

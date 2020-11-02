@@ -90,12 +90,6 @@ struct ImmutableCFOptions {
 
   std::vector<CompressionType> compression_per_level;
 
-  CompressionType bottommost_compression;
-
-  CompressionOptions bottommost_compression_opts;
-
-  CompressionOptions compression_opts;
-
   bool level_compaction_dynamic_level_bytes;
 
   Options::AccessHint access_hint_on_compaction_start;
@@ -126,7 +120,7 @@ struct ImmutableCFOptions {
 
   std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter;
 
-  FileChecksumFunc* sst_file_checksum_func;
+  FileChecksumGenFactory* file_checksum_gen_factory;
 };
 
 struct MutableCFOptions {
@@ -166,6 +160,9 @@ struct MutableCFOptions {
         paranoid_file_checks(options.paranoid_file_checks),
         report_bg_io_stats(options.report_bg_io_stats),
         compression(options.compression),
+        bottommost_compression(options.bottommost_compression),
+        compression_opts(options.compression_opts),
+        bottommost_compression_opts(options.bottommost_compression_opts),
         sample_for_compression(options.sample_for_compression) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
@@ -198,6 +195,7 @@ struct MutableCFOptions {
         paranoid_file_checks(false),
         report_bg_io_stats(false),
         compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
+        bottommost_compression(kDisableCompressionOption),
         sample_for_compression(0) {}
 
   explicit MutableCFOptions(const Options& options);
@@ -253,6 +251,10 @@ struct MutableCFOptions {
   bool paranoid_file_checks;
   bool report_bg_io_stats;
   CompressionType compression;
+  CompressionType bottommost_compression;
+  CompressionOptions compression_opts;
+  CompressionOptions bottommost_compression_opts;
+
   uint64_t sample_for_compression;
 
   // Derived options
@@ -266,4 +268,9 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, double op2);
 uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
     int level, CompactionStyle compaction_style, int base_level = 1,
     bool level_compaction_dynamic_level_bytes = false);
+
+// Get the max size of an L0 file for which we will pin its meta-blocks when
+// `pin_l0_filter_and_index_blocks_in_cache` is set.
+size_t MaxFileSizeForL0MetaPin(const MutableCFOptions& cf_options);
+
 }  // namespace ROCKSDB_NAMESPACE

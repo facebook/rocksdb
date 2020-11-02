@@ -1,5 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 import os
 import sys
 import time
@@ -42,6 +44,9 @@ default_params = {
     "checksum_type" : lambda: random.choice(["kCRC32c", "kxxHash", "kxxHash64"]),
     "compression_max_dict_bytes": lambda: 16384 * random.randint(0, 1),
     "compression_zstd_max_train_bytes": lambda: 65536 * random.randint(0, 1),
+    # Disabled compression_parallel_threads as the feature is not stable
+    # lambda: random.choice([1] * 9 + [4])
+    "compression_parallel_threads": 1,
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
@@ -51,16 +56,20 @@ default_params = {
     "enable_pipelined_write": lambda: random.randint(0, 1),
     "expected_values_path": expected_values_file.name,
     "flush_one_in": 1000000,
-    "get_live_files_and_wal_files_one_in": 1000000,
+    "get_live_files_one_in": 1000000,
+    # Note: the following two are intentionally disabled as the corresponding
+    # APIs are not guaranteed to succeed.
+    "get_sorted_wal_files_one_in": 0,
+    "get_current_wal_file_one_in": 0,
     # Temporarily disable hash index
-    "index_type": lambda: random.choice([0,2]),
+    "index_type": lambda: random.choice([0, 0, 0, 2, 2, 3]),
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
     "max_key": 100000000,
     "max_write_buffer_number": 3,
     "mmap_read": lambda: random.randint(0, 1),
     "nooverwritepercent": 1,
-    "open_files": lambda : random.choice([-1, 500000]),
+    "open_files": lambda : random.choice([-1, -1, 100, 500000]),
     "partition_filters": lambda: random.randint(0, 1),
     "pause_background_one_in": 1000000,
     "prefixpercent": 5,
@@ -75,6 +84,7 @@ default_params = {
     "target_file_size_multiplier": 2,
     "use_direct_reads": lambda: random.randint(0, 1),
     "use_direct_io_for_flush_and_compaction": lambda: random.randint(0, 1),
+    "mock_direct_io": False,
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
     "verify_checksum": 1,
@@ -100,6 +110,8 @@ default_params = {
         [0, 0, 0, 1024 * 1024, 8 * 1024 * 1024, 128 * 1024 * 1024]),
     "avoid_unnecessary_blocking_io" : random.randint(0, 1),
     "write_dbid_to_manifest" : random.randint(0, 1),
+    "avoid_flush_during_recovery" : random.choice(
+        [1 if t == 0 else 0 for t in range(0, 8)]),
     "max_write_batch_group_size_bytes" : lambda: random.choice(
         [16, 64, 1024 * 1024, 16 * 1024 * 1024]),
     "level_compaction_dynamic_level_bytes" : True,
@@ -107,18 +119,26 @@ default_params = {
     "verify_db_one_in": 100000,
     "continuous_verification_interval" : 0,
     "max_key_len": 3,
-    "key_len_percent_dist": "1,30,69"
+    "key_len_percent_dist": "1,30,69",
+    "read_fault_one_in": lambda: random.choice([0, 1000]),
+    "sync_fault_injection": False
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
+_DEBUG_LEVEL_ENV_VAR = 'DEBUG_LEVEL'
+
+
+def is_release_mode():
+    return os.environ.get(_DEBUG_LEVEL_ENV_VAR) == "0"
 
 
 def get_dbname(test_name):
+    test_dir_name = "rocksdb_crashtest_" + test_name
     test_tmpdir = os.environ.get(_TEST_DIR_ENV_VAR)
     if test_tmpdir is None or test_tmpdir == "":
-        dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_' + test_name)
+        dbname = tempfile.mkdtemp(prefix=test_dir_name)
     else:
-        dbname = test_tmpdir + "/rocksdb_crashtest_" + test_name
+        dbname = test_tmpdir + "/" + test_dir_name
         shutil.rmtree(dbname, True)
         os.mkdir(dbname)
     return dbname
@@ -128,7 +148,7 @@ def is_direct_io_supported(dbname):
     with tempfile.NamedTemporaryFile(dir=dbname) as f:
         try:
             os.open(f.name, os.O_DIRECT)
-        except:
+        except BaseException:
             return False
         return True
 
@@ -205,10 +225,18 @@ def finalize_and_sanitize(src_params):
         dest_params["compression_zstd_max_train_bytes"] = 0
     if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
         dest_params["memtablerep"] = "skip_list"
-    if dest_params["mmap_read"] == 1 or not is_direct_io_supported(
-            dest_params["db"]):
+    if dest_params["mmap_read"] == 1:
         dest_params["use_direct_io_for_flush_and_compaction"] = 0
         dest_params["use_direct_reads"] = 0
+    if (dest_params["use_direct_io_for_flush_and_compaction"] == 1
+            or dest_params["use_direct_reads"] == 1) and \
+            not is_direct_io_supported(dest_params["db"]):
+        if is_release_mode():
+            print("{} does not support direct IO".format(dest_params["db"]))
+            sys.exit(1)
+        else:
+            dest_params["mock_direct_io"] = True
+
     # DeleteRange is not currnetly compatible with Txns
     if dest_params.get("test_batches_snapshots") == 1 or \
             dest_params.get("use_txn") == 1:
@@ -293,8 +321,8 @@ def blackbox_crash_main(args, unknown_args):
         killtime = time.time() + cmd_params['interval']
 
         cmd = gen_cmd(dict(
-            cmd_params.items() +
-            {'db': dbname}.items()), unknown_args)
+            list(cmd_params.items())
+            + list({'db': dbname}.items())), unknown_args)
 
         child = subprocess.Popen(cmd, stderr=subprocess.PIPE)
         print("Running db_stress with pid=%d: %s\n\n"
@@ -319,7 +347,7 @@ def blackbox_crash_main(args, unknown_args):
                 time.sleep(1)  # time to stabilize after a kill
 
         while True:
-            line = child.stderr.readline().strip()
+            line = child.stderr.readline().strip().decode('utf-8')
             if line == '':
                 break
             elif not line.startswith('WARNING'):
@@ -344,7 +372,7 @@ def whitebox_crash_main(args, unknown_args):
 
     cur_time = time.time()
     exit_time = cur_time + cmd_params['duration']
-    half_time = cur_time + cmd_params['duration'] / 2
+    half_time = cur_time + cmd_params['duration'] // 2
 
     print("Running whitebox-crash-test with \n"
           + "total-duration=" + str(cmd_params['duration']) + "\n")
@@ -370,9 +398,9 @@ def whitebox_crash_main(args, unknown_args):
                 })
             elif kill_mode == 1:
                 if cmd_params.get('disable_wal', 0) == 1:
-                    my_kill_odd = kill_random_test / 50 + 1
+                    my_kill_odd = kill_random_test // 50 + 1
                 else:
-                    my_kill_odd = kill_random_test / 10 + 1
+                    my_kill_odd = kill_random_test // 10 + 1
                 additional_opts.update({
                     "kill_random_test": my_kill_odd,
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"
@@ -382,7 +410,7 @@ def whitebox_crash_main(args, unknown_args):
                 # TODO: May need to adjust random odds if kill_random_test
                 # is too small.
                 additional_opts.update({
-                    "kill_random_test": (kill_random_test / 5000 + 1),
+                    "kill_random_test": (kill_random_test // 5000 + 1),
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"
                     "WritableFileWriter::WriteBuffered,"
                     "PosixMmapFile::Allocate,WritableFileWriter::Flush",
@@ -396,13 +424,19 @@ def whitebox_crash_main(args, unknown_args):
                 "ops_per_thread": cmd_params['ops_per_thread'],
                 "compaction_style": 1,
             }
+            # Single level universal has a lot of special logic. Ensure we cover
+            # it sometimes.
+            if random.randint(0, 1) == 1:
+                additional_opts.update({
+                    "num_levels": 1,
+                })
         elif check_mode == 2:
             # normal run with FIFO compaction mode
             # ops_per_thread is divided by 5 because FIFO compaction
             # style is quite a bit slower on reads with lot of files
             additional_opts = {
                 "kill_random_test": None,
-                "ops_per_thread": cmd_params['ops_per_thread'] / 5,
+                "ops_per_thread": cmd_params['ops_per_thread'] // 5,
                 "compaction_style": 2,
             }
         else:
@@ -412,19 +446,24 @@ def whitebox_crash_main(args, unknown_args):
                 "ops_per_thread": cmd_params['ops_per_thread'],
             }
 
-        cmd = gen_cmd(dict(cmd_params.items() + additional_opts.items()
-                           + {'db': dbname}.items()), unknown_args)
+        cmd = gen_cmd(dict(list(cmd_params.items())
+            + list(additional_opts.items())
+            + list({'db': dbname}.items())), unknown_args)
 
-        print "Running:" + ' '.join(cmd) + "\n"  # noqa: E999 T25377293 Grandfathered in
+        print("Running:" + ' '.join(cmd) + "\n")  # noqa: E999 T25377293 Grandfathered in
 
         popen = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT)
         stdoutdata, stderrdata = popen.communicate()
+        if stdoutdata:
+            stdoutdata = stdoutdata.decode('utf-8')
+        if stderrdata:
+            stderrdata = stderrdata.decode('utf-8')
         retncode = popen.returncode
         msg = ("check_mode={0}, kill option={1}, exitcode={2}\n".format(
                check_mode, additional_opts['kill_random_test'], retncode))
-        print msg
-        print stdoutdata
+        print(msg)
+        print(stdoutdata)
 
         expected = False
         if additional_opts['kill_random_test'] is None and (retncode == 0):
@@ -436,19 +475,19 @@ def whitebox_crash_main(args, unknown_args):
             expected = True
 
         if not expected:
-            print "TEST FAILED. See kill option and exit code above!!!\n"
+            print("TEST FAILED. See kill option and exit code above!!!\n")
             sys.exit(1)
 
         stdoutdata = stdoutdata.lower()
         errorcount = (stdoutdata.count('error') -
                       stdoutdata.count('got errors 0 times'))
-        print "#times error occurred in output is " + str(errorcount) + "\n"
+        print("#times error occurred in output is " + str(errorcount) + "\n")
 
         if (errorcount > 0):
-            print "TEST FAILED. Output has 'error'!!!\n"
+            print("TEST FAILED. Output has 'error'!!!\n")
             sys.exit(2)
         if (stdoutdata.find('fail') >= 0):
-            print "TEST FAILED. Output has 'fail'!!!\n"
+            print("TEST FAILED. Output has 'fail'!!!\n")
             sys.exit(2)
 
         # First half of the duration, keep doing kill test. For the next half,
@@ -472,12 +511,12 @@ def main():
     parser.add_argument("--cf_consistency", action='store_true')
     parser.add_argument("--txn", action='store_true')
 
-    all_params = dict(default_params.items()
-                      + blackbox_default_params.items()
-                      + whitebox_default_params.items()
-                      + simple_default_params.items()
-                      + blackbox_simple_default_params.items()
-                      + whitebox_simple_default_params.items())
+    all_params = dict(list(default_params.items())
+                      + list(blackbox_default_params.items())
+                      + list(whitebox_default_params.items())
+                      + list(simple_default_params.items())
+                      + list(blackbox_simple_default_params.items())
+                      + list(whitebox_simple_default_params.items()))
 
     for k, v in all_params.items():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))

@@ -143,16 +143,17 @@ class PartitionedFilterBlockTest
     } while (status.IsIncomplete());
 
     constexpr bool skip_filters = false;
+    constexpr uint64_t file_size = 12345;
     constexpr int level = 0;
     constexpr bool immortal_table = false;
     table_.reset(new MockedBlockBasedTable(
         new BlockBasedTable::Rep(ioptions_, env_options_, table_options_,
-                                 icomp_, skip_filters, level, immortal_table),
+                                 icomp_, skip_filters, file_size, level,
+                                 immortal_table),
         pib));
     BlockContents contents(slice);
     CachableEntry<Block> block(
-        new Block(std::move(contents), kDisableGlobalSequenceNumber,
-                  0 /* read_amp_bytes_per_bit */, nullptr),
+        new Block(std::move(contents), 0 /* read_amp_bytes_per_bit */, nullptr),
         nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
     auto reader =
         new MyPartitionedFilterBlockReader(table_.get(), std::move(block));

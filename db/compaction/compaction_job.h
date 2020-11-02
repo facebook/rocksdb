@@ -68,8 +68,8 @@ class CompactionJob {
                 const FileOptions& file_options, VersionSet* versions,
                 const std::atomic<bool>* shutting_down,
                 const SequenceNumber preserve_deletes_seqnum,
-                LogBuffer* log_buffer, Directory* db_directory,
-                Directory* output_directory, Statistics* stats,
+                LogBuffer* log_buffer, FSDirectory* db_directory,
+                FSDirectory* output_directory, Statistics* stats,
                 InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
                 std::vector<SequenceNumber> existing_snapshots,
                 SequenceNumber earliest_write_conflict_snapshot,
@@ -106,6 +106,9 @@ class CompactionJob {
 
   // Retrieve results of this compaction and clean it up
   void RetrieveResultsAndCleanup(PluggableCompactionResult* result);
+
+  // Return the IO status
+  IOStatus io_status() const { return io_status_; }
 
  private:
   struct SubcompactionState;
@@ -168,8 +171,8 @@ class CompactionJob {
   const std::atomic<bool>* manual_compaction_paused_;
   const SequenceNumber preserve_deletes_seqnum_;
   LogBuffer* log_buffer_;
-  Directory* db_directory_;
-  Directory* output_directory_;
+  FSDirectory* db_directory_;
+  FSDirectory* output_directory_;
   Statistics* stats_;
   InstrumentedMutex* db_mutex_;
   ErrorHandler* db_error_handler_;
@@ -200,6 +203,7 @@ class CompactionJob {
   std::vector<uint64_t> sizes_;
   Env::WriteLifeTimeHint write_hint_;
   Env::Priority thread_pri_;
+  IOStatus io_status_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

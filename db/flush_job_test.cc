@@ -8,7 +8,7 @@
 #include <map>
 #include <string>
 
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/flush_job.h"
@@ -108,7 +108,7 @@ class FlushJobTest : public testing::Test {
     }
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(env_, dbname_, 1, nullptr);
+    s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
   }
 
   Env* env_;
@@ -181,8 +181,8 @@ TEST_F(FlushJobTest, NonEmpty) {
   // Note: the first two blob references will not be considered when resolving
   // the oldest blob file referenced (the first one is inlined TTL, while the
   // second one is TTL and thus points to a TTL blob file).
-  constexpr std::array<uint64_t, 6> blob_file_numbers{
-      kInvalidBlobFileNumber, 5, 103, 17, 102, 101};
+  constexpr std::array<uint64_t, 6> blob_file_numbers{{
+      kInvalidBlobFileNumber, 5, 103, 17, 102, 101}};
   for (size_t i = 0; i < blob_file_numbers.size(); ++i) {
     std::string key(ToString(i + 10001));
     std::string blob_index;

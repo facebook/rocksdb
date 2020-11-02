@@ -722,7 +722,7 @@ TEST_P(TransactionStressTest, DeadlockCycle) {
     // We want the last transaction in the chain to block and hold everyone
     // back.
     std::vector<port::Thread> threads;
-    for (uint32_t i = 0; i < len - 1; i++) {
+    for (uint32_t i = 0; i + 1 < len; i++) {
       std::function<void()> blocking_thread = [&, i] {
         auto s = txns[i]->GetForUpdate(read_options, ToString(i + 1), nullptr);
         ASSERT_OK(s);
@@ -5575,7 +5575,7 @@ class ThreeBytewiseComparator : public Comparator {
     Slice nb = Slice(b.data(), b.size() < 3 ? b.size() : 3);
     return na == nb;
   }
-  // This methods below dont seem relevant to this test. Implement them if
+  // These methods below don't seem relevant to this test. Implement them if
   // proven othersize.
   void FindShortestSeparator(std::string* start,
                              const Slice& limit) const override {
@@ -6202,6 +6202,28 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
         delete handle;
       }
     }
+  }
+}
+
+TEST_P(TransactionTest, CommitWithoutPrepare) {
+  {
+    // skip_prepare = false.
+    WriteOptions write_options;
+    TransactionOptions txn_options;
+    txn_options.skip_prepare = false;
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn->Commit().IsTxnNotPrepared());
+    delete txn;
+  }
+
+  {
+    // skip_prepare = true.
+    WriteOptions write_options;
+    TransactionOptions txn_options;
+    txn_options.skip_prepare = true;
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn->Commit());
+    delete txn;
   }
 }
 

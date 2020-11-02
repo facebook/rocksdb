@@ -183,6 +183,11 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         "%" PRIu32,
         bottommost_compression_opts.zstd_max_train_bytes);
     ROCKS_LOG_HEADER(
+        log,
+        "        Options.bottommost_compression_opts.parallel_threads: "
+        "%" PRIu32,
+        bottommost_compression_opts.parallel_threads);
+    ROCKS_LOG_HEADER(
         log, "                 Options.bottommost_compression_opts.enabled: %s",
         bottommost_compression_opts.enabled ? "true" : "false");
     ROCKS_LOG_HEADER(log, "           Options.compression_opts.window_bits: %d",
@@ -199,6 +204,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      "        Options.compression_opts.zstd_max_train_bytes: "
                      "%" PRIu32,
                      compression_opts.zstd_max_train_bytes);
+    ROCKS_LOG_HEADER(log,
+                     "        Options.compression_opts.parallel_threads: "
+                     "%" PRIu32,
+                     compression_opts.parallel_threads);
     ROCKS_LOG_HEADER(log,
                      "                 Options.compression_opts.enabled: %s",
                      compression_opts.enabled ? "true" : "false");
@@ -310,14 +319,13 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "Options.compaction_options_fifo.allow_compaction: %d",
                      compaction_options_fifo.allow_compaction);
-    std::string collector_names;
+    std::ostringstream collector_info;
     for (const auto& collector_factory : table_properties_collector_factories) {
-      collector_names.append(collector_factory->Name());
-      collector_names.append("; ");
+      collector_info << collector_factory->ToString() << ';';
     }
     ROCKS_LOG_HEADER(
         log, "                  Options.table_properties_collectors: %s",
-        collector_names.c_str());
+        collector_info.str().c_str());
     ROCKS_LOG_HEADER(log,
                      "                  Options.inplace_update_support: %d",
                      inplace_update_support);
@@ -598,7 +606,10 @@ ReadOptions::ReadOptions()
       background_purge_on_iterator_cleanup(false),
       ignore_range_deletions(false),
       iter_start_seqnum(0),
-      timestamp(nullptr) {}
+      timestamp(nullptr),
+      iter_start_ts(nullptr),
+      deadline(std::chrono::microseconds::zero()),
+      value_size_soft_limit(std::numeric_limits<uint64_t>::max()) {}
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
     : snapshot(nullptr),
@@ -618,6 +629,9 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       background_purge_on_iterator_cleanup(false),
       ignore_range_deletions(false),
       iter_start_seqnum(0),
-      timestamp(nullptr) {}
+      timestamp(nullptr),
+      iter_start_ts(nullptr),
+      deadline(std::chrono::microseconds::zero()),
+      value_size_soft_limit(std::numeric_limits<uint64_t>::max()) {}
 
 }  // namespace ROCKSDB_NAMESPACE

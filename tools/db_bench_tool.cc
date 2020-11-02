@@ -75,6 +75,10 @@
 #include "utilities/merge_operators/sortlist.h"
 #include "utilities/persistent_cache/block_cache_tier.h"
 
+#ifdef MEMKIND
+#include "memory/memkind_kmem_allocator.h"
+#endif
+
 #ifdef OS_WIN
 #include <io.h>  // open/close
 #endif
@@ -113,6 +117,7 @@ DEFINE_string(
     "readrandomwriterandom,"
     "updaterandom,"
     "xorupdaterandom,"
+    "approximatesizerandom,"
     "randomwithverify,"
     "fill100K,"
     "crc32c,"
@@ -454,10 +459,20 @@ DEFINE_int64(simcache_size, -1,
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "Cache index/filter blocks in block cache.");
 
+DEFINE_bool(use_cache_memkind_kmem_allocator, false,
+            "Use memkind kmem allocator for block cache.");
+
 DEFINE_bool(partition_index_and_filters, false,
             "Partition index and filter blocks.");
 
 DEFINE_bool(partition_index, false, "Partition index blocks");
+
+DEFINE_bool(index_with_first_key, false, "Include first key in the index");
+
+DEFINE_int64(
+    index_shortening_mode, 2,
+    "mode to shorten index: 0 for no shortening; 1 for only shortening "
+    "separaters; 2 for shortening shortening and successor");
 
 DEFINE_int64(metadata_block_size,
              ROCKSDB_NAMESPACE::BlockBasedTableOptions().metadata_block_size,
@@ -914,6 +929,9 @@ DEFINE_int32(min_level_to_compress, -1, "If non-negative, compression starts"
              " not compressed. Otherwise, apply compression_type to "
              "all levels.");
 
+DEFINE_int32(compression_parallel_threads, 1,
+             "Number of threads for parallel compression.");
+
 static bool ValidateTableCacheNumshardbits(const char* flagname,
                                            int32_t value) {
   if (0 >= value || value > 20) {
@@ -991,8 +1009,10 @@ DEFINE_uint64(delayed_write_rate, 8388608u,
 DEFINE_bool(enable_pipelined_write, true,
             "Allow WAL and memtable writes to be pipelined");
 
-DEFINE_bool(unordered_write, false,
-            "Allow WAL and memtable writes to be pipelined");
+DEFINE_bool(
+    unordered_write, false,
+    "Enable the unordered write feature, which provides higher throughput but "
+    "relaxes the guarantees around atomic reads and immutable snapshots");
 
 DEFINE_bool(allow_concurrent_memtable_write, true,
             "Allow multi-writers to update mem tables in parallel.");
@@ -1068,7 +1088,7 @@ DEFINE_double(keyrange_dist_d, 0.0,
               "f(x)=a*exp(b*x)+c*exp(d*x)");
 DEFINE_int64(keyrange_num, 1,
              "The number of key ranges that are in the same prefix "
-             "group, each prefix range will have its key acccess "
+             "group, each prefix range will have its key access "
              "distribution");
 DEFINE_double(key_dist_a, 0.0,
               "The parameter 'a' of key access distribution model "
@@ -1297,9 +1317,9 @@ ROCKSDB_NAMESPACE::Env* CreateAwsEnv(
 static const auto& s3_reg __attribute__((__unused__)) =
     ROCKSDB_NAMESPACE::ObjectLibrary::Default()
         -> Register<ROCKSDB_NAMESPACE::Env>(
-            "s3://.*", [](const std::string& uri,
-                          std::unique_ptr<ROCKSDB_NAMESPACE::Env>* guard,
-                          std::string*) {
+            "s3://.*",
+            [](const std::string& uri,
+               std::unique_ptr<ROCKSDB_NAMESPACE::Env>* guard, std::string*) {
               CreateAwsEnv(uri, guard);
               return guard->get();
             });
@@ -1526,9 +1546,8 @@ static enum DistributionType StringToDistributionType(const char* ctype) {
 
 class BaseDistribution {
  public:
-  BaseDistribution(unsigned int min, unsigned int max) :
-    min_value_size_(min),
-    max_value_size_(max) {}
+  BaseDistribution(unsigned int _min, unsigned int _max)
+      : min_value_size_(_min), max_value_size_(_max) {}
   virtual ~BaseDistribution() {}
 
   unsigned int Generate() {
@@ -1567,12 +1586,14 @@ class FixedDistribution : public BaseDistribution
 class NormalDistribution
     : public BaseDistribution, public std::normal_distribution<double> {
  public:
-  NormalDistribution(unsigned int min, unsigned int max) :
-    BaseDistribution(min, max),
-    // 99.7% values within the range [min, max].
-    std::normal_distribution<double>((double)(min + max) / 2.0 /*mean*/,
-                                     (double)(max - min) / 6.0 /*stddev*/),
-    gen_(rd_()) {}
+  NormalDistribution(unsigned int _min, unsigned int _max)
+      : BaseDistribution(_min, _max),
+        // 99.7% values within the range [min, max].
+        std::normal_distribution<double>(
+            (double)(_min + _max) / 2.0 /*mean*/,
+            (double)(_max - _min) / 6.0 /*stddev*/),
+        gen_(rd_()) {}
+
  private:
   virtual unsigned int Get() override {
     return static_cast<unsigned int>((*this)(gen_));
@@ -1585,10 +1606,11 @@ class UniformDistribution
     : public BaseDistribution,
       public std::uniform_int_distribution<unsigned int> {
  public:
-  UniformDistribution(unsigned int min, unsigned int max) :
-    BaseDistribution(min, max),
-    std::uniform_int_distribution<unsigned int>(min, max),
-    gen_(rd_()) {}
+  UniformDistribution(unsigned int _min, unsigned int _max)
+      : BaseDistribution(_min, _max),
+        std::uniform_int_distribution<unsigned int>(_min, _max),
+        gen_(rd_()) {}
+
  private:
   virtual unsigned int Get() override {
     return (*this)(gen_);
@@ -1880,7 +1902,7 @@ class CombinedStats;
 class Stats {
  private:
   int id_;
-  uint64_t start_;
+  uint64_t start_ = 0;
   uint64_t sine_interval_;
   uint64_t finish_;
   double seconds_;
@@ -2668,9 +2690,22 @@ class Benchmark {
       }
       return cache;
     } else {
-      return NewLRUCache(
-          static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
-          false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio);
+      if (FLAGS_use_cache_memkind_kmem_allocator) {
+#ifdef MEMKIND
+        return NewLRUCache(
+            static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
+            false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio,
+            std::make_shared<MemkindKmemAllocator>());
+
+#else
+        fprintf(stderr, "Memkind library is not linked with the binary.");
+        exit(1);
+#endif
+      } else {
+        return NewLRUCache(
+            static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
+            false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio);
+      }
     }
   }
 
@@ -3038,6 +3073,10 @@ class Benchmark {
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
+      } else if (name == "approximatesizerandom") {
+        fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
+                entries_per_batch_);
+        method = &Benchmark::ApproximateSizeRandom;
       } else if (name == "mixgraph") {
         method = &Benchmark::MixGraph;
       } else if (name == "readmissing") {
@@ -3304,10 +3343,9 @@ class Benchmark {
       fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
     }
     if (FLAGS_simcache_size >= 0) {
-      fprintf(stdout, "SIMULATOR CACHE STATISTICS:\n%s\n",
-              static_cast_with_check<SimCache, Cache>(cache_.get())
-                  ->ToString()
-                  .c_str());
+      fprintf(
+          stdout, "SIMULATOR CACHE STATISTICS:\n%s\n",
+          static_cast_with_check<SimCache>(cache_.get())->ToString().c_str());
     }
 
 #ifndef ROCKSDB_LITE
@@ -3796,6 +3834,11 @@ class Benchmark {
         block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
       }
       if (FLAGS_partition_index_and_filters || FLAGS_partition_index) {
+        if (FLAGS_index_with_first_key) {
+          fprintf(stderr,
+                  "--index_with_first_key is not compatible with"
+                  " partition index.");
+        }
         if (FLAGS_use_hash_search) {
           fprintf(stderr,
                   "use_hash_search is incompatible with "
@@ -3807,7 +3850,29 @@ class Benchmark {
         if (FLAGS_partition_index_and_filters) {
           block_based_options.partition_filters = true;
         }
+      } else if (FLAGS_index_with_first_key) {
+        block_based_options.index_type =
+            BlockBasedTableOptions::kBinarySearchWithFirstKey;
       }
+      BlockBasedTableOptions::IndexShorteningMode index_shortening =
+          block_based_options.index_shortening;
+      switch (FLAGS_index_shortening_mode) {
+        case 0:
+          index_shortening =
+              BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
+          break;
+        case 1:
+          index_shortening =
+              BlockBasedTableOptions::IndexShorteningMode::kShortenSeparators;
+          break;
+        case 2:
+          index_shortening = BlockBasedTableOptions::IndexShorteningMode::
+              kShortenSeparatorsAndSuccessor;
+          break;
+        default:
+          fprintf(stderr, "Unknown key shortening mode\n");
+      }
+      block_based_options.index_shortening = index_shortening;
       if (cache_ == nullptr) {
         block_based_options.no_block_cache = true;
       }
@@ -4021,6 +4086,8 @@ class Benchmark {
     options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.compression_opts.zstd_max_train_bytes =
         FLAGS_compression_zstd_max_train_bytes;
+    options.compression_opts.parallel_threads =
+        FLAGS_compression_parallel_threads;
     // If this is a block based table, set some related options
     if (options.table_factory->Name() == BlockBasedTableFactory::kName &&
         options.table_factory->GetOptions() != nullptr) {
@@ -4302,9 +4369,8 @@ class Benchmark {
         for (uint64_t i = 0; i < num_; ++i) {
           values_[i] = i;
         }
-        std::shuffle(
-            values_.begin(), values_.end(),
-            std::default_random_engine(static_cast<unsigned int>(FLAGS_seed)));
+        RandomShuffle(values_.begin(), values_.end(),
+                      static_cast<uint32_t>(FLAGS_seed));
       }
     }
 
@@ -5049,7 +5115,7 @@ class Benchmark {
     int64_t found = 0;
     int64_t bytes = 0;
     int num_keys = 0;
-    int64_t key_rand = GetRandomKey(&thread->rand);
+    int64_t key_rand = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
@@ -5061,7 +5127,6 @@ class Benchmark {
       // We use same key_rand as seed for key and column family so that we can
       // deterministically find the cfh corresponding to a particular key, as it
       // is done in DoWrite method.
-      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       if (entries_per_batch_ > 1 && FLAGS_multiread_stride) {
         if (++num_keys == entries_per_batch_) {
           num_keys = 0;
@@ -5076,6 +5141,7 @@ class Benchmark {
       } else {
         key_rand = GetRandomKey(&thread->rand);
       }
+      GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       read++;
       Status s;
       if (FLAGS_num_column_families > 1) {
@@ -5198,6 +5264,53 @@ class Benchmark {
     char msg[100];
     snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)",
              found, read);
+    thread->stats.AddMessage(msg);
+  }
+
+  // Calls ApproximateSize over random key ranges.
+  void ApproximateSizeRandom(ThreadState* thread) {
+    int64_t size_sum = 0;
+    int64_t num_sizes = 0;
+    const size_t batch_size = entries_per_batch_;
+    std::vector<Range> ranges;
+    std::vector<Slice> lkeys;
+    std::vector<std::unique_ptr<const char[]>> lkey_guards;
+    std::vector<Slice> rkeys;
+    std::vector<std::unique_ptr<const char[]>> rkey_guards;
+    std::vector<uint64_t> sizes;
+    while (ranges.size() < batch_size) {
+      // Ugly without C++17 return from emplace_back
+      lkey_guards.emplace_back();
+      rkey_guards.emplace_back();
+      lkeys.emplace_back(AllocateKey(&lkey_guards.back()));
+      rkeys.emplace_back(AllocateKey(&rkey_guards.back()));
+      ranges.emplace_back(lkeys.back(), rkeys.back());
+      sizes.push_back(0);
+    }
+    Duration duration(FLAGS_duration, reads_);
+    while (!duration.Done(1)) {
+      DB* db = SelectDB(thread);
+      for (size_t i = 0; i < batch_size; ++i) {
+        int64_t lkey = GetRandomKey(&thread->rand);
+        int64_t rkey = GetRandomKey(&thread->rand);
+        if (lkey > rkey) {
+          std::swap(lkey, rkey);
+        }
+        GenerateKeyFromInt(lkey, FLAGS_num, &lkeys[i]);
+        GenerateKeyFromInt(rkey, FLAGS_num, &rkeys[i]);
+      }
+      db->GetApproximateSizes(&ranges[0], static_cast<int>(entries_per_batch_),
+                              &sizes[0]);
+      num_sizes += entries_per_batch_;
+      for (int64_t size : sizes) {
+        size_sum += size;
+      }
+      thread->stats.FinishedOps(nullptr, db, entries_per_batch_, kOthers);
+    }
+
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(Avg approx size=%g)",
+             static_cast<double>(size_sum) / static_cast<double>(num_sizes));
     thread->stats.AddMessage(msg);
   }
 
@@ -5405,13 +5518,15 @@ class Benchmark {
 
       // Select one key in the key-range and compose the keyID
       int64_t key_offset = 0, key_seed;
-      if (key_dist_a == 0.0 && key_dist_b == 0.0) {
+      if (key_dist_a == 0.0 || key_dist_b == 0.0) {
         key_offset = ini_rand % keyrange_size_;
       } else {
+        double u =
+            static_cast<double>(ini_rand % keyrange_size_) / keyrange_size_;
         key_seed = static_cast<int64_t>(
-            ceil(std::pow((ini_rand / key_dist_a), (1 / key_dist_b))));
+            ceil(std::pow((u / key_dist_a), (1 / key_dist_b))));
         Random64 rand_key(key_seed);
-        key_offset = static_cast<int64_t>(rand_key.Next()) % keyrange_size_;
+        key_offset = rand_key.Next() % keyrange_size_;
       }
       return keyrange_size_ * keyrange_id + key_offset;
     }
@@ -5438,6 +5553,7 @@ class Benchmark {
     double write_rate = 1000000.0;
     double read_rate = 1000000.0;
     bool use_prefix_modeling = false;
+    bool use_random_modeling = false;
     GenerateTwoTermExpKeys gen_exp;
     std::vector<double> ratio{FLAGS_mix_get_ratio, FLAGS_mix_put_ratio,
                               FLAGS_mix_seek_ratio};
@@ -5472,6 +5588,9 @@ class Benchmark {
           FLAGS_num, FLAGS_keyrange_dist_a, FLAGS_keyrange_dist_b,
           FLAGS_keyrange_dist_c, FLAGS_keyrange_dist_d);
     }
+    if (FLAGS_key_dist_a == 0 || FLAGS_key_dist_b == 0) {
+      use_random_modeling = true;
+    }
 
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
@@ -5482,7 +5601,9 @@ class Benchmark {
       double u = static_cast<double>(rand_v) / FLAGS_num;
 
       // Generate the keyID based on the key hotness and prefix hotness
-      if (use_prefix_modeling) {
+      if (use_random_modeling) {
+        key_rand = ini_rand;
+      } else if (use_prefix_modeling) {
         key_rand =
             gen_exp.DistGetKeyID(ini_rand, FLAGS_key_dist_a, FLAGS_key_dist_b);
       } else {

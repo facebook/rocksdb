@@ -127,7 +127,7 @@ class SyncPoint {
 }  // namespace ROCKSDB_NAMESPACE
 
 // Use TEST_SYNC_POINT to specify sync points inside code base.
-// Sync points can have happens-after depedency on other sync points,
+// Sync points can have happens-after dependency on other sync points,
 // configured at runtime via SyncPoint::LoadDependency. This could be
 // utilized to re-produce race conditions between threads.
 // See TransactionLogIteratorRace in db_test.cc for an example use case.
@@ -141,4 +141,18 @@ class SyncPoint {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->Process(x, y)
 #define INIT_SYNC_POINT_SINGLETONS() \
   (void)ROCKSDB_NAMESPACE::SyncPoint::GetInstance();
+#endif  // NDEBUG
+
+// Callback sync point for any read IO errors that should be ignored by
+// the fault injection framework
+// Disable in release mode
+#ifdef NDEBUG
+#define IGNORE_STATUS_IF_ERROR(_status_)
+#else
+#define IGNORE_STATUS_IF_ERROR(_status_)            \
+  {                                                 \
+    if (!_status_.ok()) {                           \
+      TEST_SYNC_POINT("FaultInjectionIgnoreError"); \
+    }                                               \
+  }
 #endif  // NDEBUG

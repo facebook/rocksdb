@@ -86,9 +86,16 @@ Status FilePrefetchBuffer::Prefetch(RandomAccessFileReader* reader,
   }
 
   Slice result;
-  s = reader->Read(rounddown_offset + chunk_len,
-                   static_cast<size_t>(roundup_len - chunk_len), &result,
-                   buffer_.BufferStart() + chunk_len, for_compaction);
+  size_t read_len = static_cast<size_t>(roundup_len - chunk_len);
+  s = reader->Read(IOOptions(), rounddown_offset + chunk_len, read_len, &result,
+                   buffer_.BufferStart() + chunk_len, nullptr, for_compaction);
+#ifndef NDEBUG
+  if (!s.ok() || result.size() < read_len) {
+    // Fake an IO error to force db_stress fault injection to ignore
+    // truncated read errors
+    IGNORE_STATUS_IF_ERROR(Status::IOError());
+  }
+#endif
   if (s.ok()) {
     buffer_offset_ = rounddown_offset;
     buffer_.Size(static_cast<size_t>(chunk_len) + result.size());

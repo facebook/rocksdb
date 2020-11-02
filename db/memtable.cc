@@ -23,6 +23,7 @@
 #include "memory/memory_usage.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
+#include "port/lang.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -36,7 +37,6 @@
 #include "util/autovector.h"
 #include "util/coding.h"
 #include "util/mutexlock.h"
-#include "util/util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -600,6 +600,7 @@ struct Saver {
   bool* merge_in_progress;
   std::string* value;
   SequenceNumber seq;
+  std::string* timestamp;
   const MergeOperator* merge_operator;
   // the merge operations encountered;
   MergeContext* merge_context;
@@ -643,9 +644,11 @@ static bool SaveValue(void* arg, const char* entry) {
   uint32_t key_length;
   const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
   Slice user_key_slice = Slice(key_ptr, key_length - 8);
-  if (s->mem->GetInternalKeyComparator()
-          .user_comparator()
-          ->CompareWithoutTimestamp(user_key_slice, s->key->user_key()) == 0) {
+  const Comparator* user_comparator =
+      s->mem->GetInternalKeyComparator().user_comparator();
+  size_t ts_sz = user_comparator->timestamp_size();
+  if (user_comparator->CompareWithoutTimestamp(user_key_slice,
+                                               s->key->user_key()) == 0) {
     // Correct user key
     const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
     ValueType type;
@@ -713,9 +716,15 @@ static bool SaveValue(void* arg, const char* entry) {
         if (s->is_blob_index != nullptr) {
           *(s->is_blob_index) = (type == kTypeBlobIndex);
         }
+
+        if (ts_sz > 0 && s->timestamp != nullptr) {
+          Slice ts = ExtractTimestampFromUserKey(user_key_slice, ts_sz);
+          s->timestamp->assign(ts.data(), ts.size());
+        }
         return false;
       }
       case kTypeDeletion:
+      case kTypeDeletionWithTimestamp:
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
@@ -757,7 +766,13 @@ static bool SaveValue(void* arg, const char* entry) {
         }
         return true;
       }
-      default:
+      default: {
+        std::string msg("Unrecognized value type: " +
+                        std::to_string(static_cast<int>(type)) + ". ");
+        msg.append("User key: " + user_key_slice.ToString(/*hex=*/true) + ". ");
+        msg.append("seq: " + std::to_string(seq) + ".");
+        *(s->status) = Status::Corruption(msg.c_str());
+      }
         assert(false);
         return true;
     }
@@ -767,7 +782,8 @@ static bool SaveValue(void* arg, const char* entry) {
   return false;
 }
 
-bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
+bool MemTable::Get(const LookupKey& key, std::string* value,
+                   std::string* timestamp, Status* s,
                    MergeContext* merge_context,
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
@@ -816,7 +832,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
       PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
     }
     GetFromTable(key, *max_covering_tombstone_seq, do_merge, callback,
-                 is_blob_index, value, s, merge_context, seq,
+                 is_blob_index, value, timestamp, s, merge_context, seq,
                  &found_final_value, &merge_in_progress);
   }
 
@@ -831,7 +847,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
 void MemTable::GetFromTable(const LookupKey& key,
                             SequenceNumber max_covering_tombstone_seq,
                             bool do_merge, ReadCallback* callback,
-                            bool* is_blob_index, std::string* value, Status* s,
+                            bool* is_blob_index, std::string* value,
+                            std::string* timestamp, Status* s,
                             MergeContext* merge_context, SequenceNumber* seq,
                             bool* found_final_value, bool* merge_in_progress) {
   Saver saver;
@@ -840,6 +857,7 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.merge_in_progress = merge_in_progress;
   saver.key = &key;
   saver.value = value;
+  saver.timestamp = timestamp;
   saver.seq = kMaxSequenceNumber;
   saver.mem = this;
   saver.merge_context = merge_context;
@@ -908,8 +926,8 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
     }
     GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
-                 callback, is_blob, iter->value->GetSelf(), iter->s,
-                 &(iter->merge_context), &seq, &found_final_value,
+                 callback, is_blob, iter->value->GetSelf(), iter->timestamp,
+                 iter->s, &(iter->merge_context), &seq, &found_final_value,
                  &merge_in_progress);
 
     if (!found_final_value && merge_in_progress) {
@@ -918,8 +936,18 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
     if (found_final_value) {
       iter->value->PinSelf();
+      range->AddValueSize(iter->value->size());
       range->MarkKeyDone(iter);
       RecordTick(moptions_.statistics, MEMTABLE_HIT);
+      if (range->GetValueSize() > read_options.value_size_soft_limit) {
+        // Set all remaining keys in range to Abort
+        for (auto range_iter = range->begin(); range_iter != range->end();
+             ++range_iter) {
+          range->MarkKeyDone(range_iter);
+          *(range_iter->s) = Status::Aborted();
+        }
+        break;
+      }
     }
   }
   PERF_COUNTER_ADD(get_from_memtable_count, 1);

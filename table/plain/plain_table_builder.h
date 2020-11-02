@@ -59,7 +59,10 @@ class PlainTableBuilder: public TableBuilder {
   void Add(const Slice& key, const Slice& value) override;
 
   // Return non-ok iff some error has been detected.
-  Status status() const override;
+  Status status() const override { return status_; }
+
+  // Return non-ok iff some error happens during IO.
+  IOStatus io_status() const override { return io_status_; }
 
   // Finish building the table.  Stops using the file passed to the
   // constructor after this function returns.
@@ -85,7 +88,7 @@ class PlainTableBuilder: public TableBuilder {
   bool SaveIndexInFile() const { return store_index_in_file_; }
 
   // Get file checksum
-  const std::string& GetFileChecksum() const override { return file_checksum_; }
+  std::string GetFileChecksum() const override;
 
   // Get file checksum function name
   const char* GetFileChecksumFuncName() const override;
@@ -105,6 +108,7 @@ class PlainTableBuilder: public TableBuilder {
   uint32_t bloom_bits_per_key_;
   size_t huge_page_tlb_size_;
   Status status_;
+  IOStatus io_status_;
   TableProperties properties_;
   PlainTableKeyEncoder encoder_;
 
@@ -114,9 +118,6 @@ class PlainTableBuilder: public TableBuilder {
   bool closed_ = false;  // Either Finish() or Abandon() has been called.
 
   const SliceTransform* prefix_extractor_;
-
-  // Store file checksum. If checksum is disabled, its value is "0".
-  std::string file_checksum_ = kUnknownFileChecksum;
 
   Slice GetPrefix(const Slice& target) const {
     assert(target.size() >= 8);  // target is internal key

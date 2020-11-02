@@ -129,7 +129,7 @@ class TtlIterator : public Iterator {
 
   Slice key() const override { return iter_->key(); }
 
-  int32_t timestamp() const {
+  int32_t ttl_timestamp() const {
     return DecodeFixed32(iter_->value().data() + iter_->value().size() -
                          DBWithTTLImpl::kTSLength);
   }

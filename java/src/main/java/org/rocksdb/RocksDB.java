@@ -3480,6 +3480,17 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * This function will cancel all currently running background processes.
+   *
+   * @param wait if true, wait for all background work to be cancelled before
+   *   returning.
+   *
+   */
+  public void cancelAllBackgroundWork(boolean wait) {
+    cancelAllBackgroundWork(nativeHandle_, wait);
+  }
+
+  /**
    * This function will wait until all currently running background processes
    * finish. After it returns, no background process will be run until
    * {@link #continueBackgroundWork()} is called
@@ -4457,6 +4468,8 @@ public class RocksDB extends RocksObject {
       final int outputLevel,
       final int outputPathId,
       final long compactionJobInfoHandle) throws RocksDBException;
+  private native void cancelAllBackgroundWork(final long handle,
+      final boolean wait);
   private native void pauseBackgroundWork(final long handle)
       throws RocksDBException;
   private native void continueBackgroundWork(final long handle)

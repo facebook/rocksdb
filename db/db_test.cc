@@ -24,7 +24,7 @@
 #endif
 
 #include "cache/lru_cache.h"
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
@@ -1423,7 +1423,7 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
     keys[i * 3 + 1] = i * 5 + 1;
     keys[i * 3 + 2] = i * 5 + 2;
   }
-  std::random_shuffle(std::begin(keys), std::end(keys));
+  RandomShuffle(std::begin(keys), std::end(keys));
 
   for (int i = 0; i < N * 3; i++) {
     ASSERT_OK(Put(Key(keys[i] + 1000), RandomString(&rnd, 1024)));
@@ -1491,18 +1491,24 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
 }
 
 TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
+  // Roughly 4 keys per data block, 1000 keys per file,
+  // with filter substantially larger than a data block
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(16));
+  table_options.block_size = 100;
   Options options = CurrentOptions();
-  options.write_buffer_size = 1024 * 1024;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.write_buffer_size = 24 * 1024;
   options.compression = kNoCompression;
   options.create_if_missing = true;
-  options.target_file_size_base = 1024 * 1024;
+  options.target_file_size_base = 24 * 1024;
   DestroyAndReopen(options);
   const auto default_cf = db_->DefaultColumnFamily();
 
   const int N = 64000;
   Random rnd(301);
   for (int i = 0; i < N; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 24)));
   }
   // Flush everything to files
   Flush();
@@ -1511,7 +1517,7 @@ TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
 
   // Write more keys
   for (int i = N; i < (N + N / 4); i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 24)));
   }
   // Flush everything to files again
   Flush();
@@ -1519,27 +1525,45 @@ TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
   // Wait for compaction to finish
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  const std::string start = Key(0);
-  const std::string end = Key(2 * N);
-  const Range r(start, end);
+  {
+    const std::string start = Key(0);
+    const std::string end = Key(2 * N);
+    const Range r(start, end);
 
-  SizeApproximationOptions size_approx_options;
-  size_approx_options.include_memtabtles = false;
-  size_approx_options.include_files = true;
-  size_approx_options.files_size_error_margin = -1.0;  // disabled
+    SizeApproximationOptions size_approx_options;
+    size_approx_options.include_memtabtles = false;
+    size_approx_options.include_files = true;
+    size_approx_options.files_size_error_margin = -1.0;  // disabled
 
-  // Get the precise size without any approximation heuristic
-  uint64_t size;
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
-  ASSERT_NE(size, 0);
+    // Get the precise size without any approximation heuristic
+    uint64_t size;
+    db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+    ASSERT_NE(size, 0);
 
-  // Get the size with an approximation heuristic
-  uint64_t size2;
-  const double error_margin = 0.2;
-  size_approx_options.files_size_error_margin = error_margin;
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
-  ASSERT_LT(size2, size * (1 + error_margin));
-  ASSERT_GT(size2, size * (1 - error_margin));
+    // Get the size with an approximation heuristic
+    uint64_t size2;
+    const double error_margin = 0.2;
+    size_approx_options.files_size_error_margin = error_margin;
+    db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
+    ASSERT_LT(size2, size * (1 + error_margin));
+    ASSERT_GT(size2, size * (1 - error_margin));
+  }
+
+  {
+    // Ensure that metadata is not falsely attributed only to the last data in
+    // the file. (In some applications, filters can be large portion of data
+    // size.)
+    // Perform many queries over small range, enough to ensure crossing file
+    // boundary, and make sure we never see a spike for large filter.
+    for (int i = 0; i < 3000; i += 10) {
+      const std::string start = Key(i);
+      const std::string end = Key(i + 11);  // overlap by 1 key
+      const Range r(start, end);
+      uint64_t size;
+      db_->GetApproximateSizes(&r, 1, &size);
+      ASSERT_LE(size, 11 * 100);
+    }
+  }
 }
 
 TEST_F(DBTest, GetApproximateMemTableStats) {
@@ -1677,12 +1701,13 @@ TEST_F(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
       ASSERT_TRUE(Between(Size("", Key(2), 1), 20000, 21000));
       ASSERT_TRUE(Between(Size("", Key(3), 1), 120000, 121000));
       ASSERT_TRUE(Between(Size("", Key(4), 1), 130000, 131000));
-      ASSERT_TRUE(Between(Size("", Key(5), 1), 230000, 231000));
-      ASSERT_TRUE(Between(Size("", Key(6), 1), 240000, 241000));
-      ASSERT_TRUE(Between(Size("", Key(7), 1), 540000, 541000));
-      ASSERT_TRUE(Between(Size("", Key(8), 1), 550000, 560000));
+      ASSERT_TRUE(Between(Size("", Key(5), 1), 230000, 232000));
+      ASSERT_TRUE(Between(Size("", Key(6), 1), 240000, 242000));
+      // Ensure some overhead is accounted for, even without including all
+      ASSERT_TRUE(Between(Size("", Key(7), 1), 540500, 545000));
+      ASSERT_TRUE(Between(Size("", Key(8), 1), 550500, 555000));
 
-      ASSERT_TRUE(Between(Size(Key(3), Key(5), 1), 110000, 111000));
+      ASSERT_TRUE(Between(Size(Key(3), Key(5), 1), 110100, 111000));
 
       dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
     }
@@ -2311,6 +2336,42 @@ TEST_F(DBTest, ReadonlyDBGetLiveManifestSize) {
     Close();
   } while (ChangeCompactOptions());
 }
+
+TEST_F(DBTest, GetLiveBlobFiles) {
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
+  assert(versions->GetColumnFamilySet());
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  // Add a live blob file.
+  VersionEdit edit;
+
+  constexpr uint64_t blob_file_number = 234;
+  constexpr uint64_t total_blob_count = 555;
+  constexpr uint64_t total_blob_bytes = 66666;
+  constexpr char checksum_method[] = "CRC32";
+  constexpr char checksum_value[] = "3d87ff57";
+
+  edit.AddBlobFile(blob_file_number, total_blob_count, total_blob_bytes,
+                   checksum_method, checksum_value);
+
+  dbfull()->TEST_LockMutex();
+  Status s = versions->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+                                   &edit, dbfull()->mutex());
+  dbfull()->TEST_UnlockMutex();
+
+  ASSERT_OK(s);
+
+  // Make sure it appears in the results returned by GetLiveFiles.
+  uint64_t manifest_size = 0;
+  std::vector<std::string> files;
+  ASSERT_OK(dbfull()->GetLiveFiles(files, &manifest_size));
+
+  ASSERT_FALSE(files.empty());
+  ASSERT_EQ(files[0], BlobFileName("", blob_file_number));
+}
 #endif
 
 TEST_F(DBTest, PurgeInfoLogs) {
@@ -2931,10 +2992,11 @@ class ModelDB : public DB {
 
   Status SyncWAL() override { return Status::OK(); }
 
-#ifndef ROCKSDB_LITE
   Status DisableFileDeletions() override { return Status::OK(); }
 
   Status EnableFileDeletions(bool /*force*/) override { return Status::OK(); }
+#ifndef ROCKSDB_LITE
+
   Status GetLiveFiles(std::vector<std::string>&, uint64_t* /*size*/,
                       bool /*flush_memtable*/ = true) override {
     return Status::OK();
@@ -4301,7 +4363,7 @@ TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
     ASSERT_EQ("1,1,1", FilesPerLevel(1));
 
     // Compaction range overlaps files
-    Compact(1, "p1", "p9");
+    Compact(1, "p", "q");
     ASSERT_EQ("0,0,1", FilesPerLevel(1));
 
     // Populate a different range
@@ -4534,7 +4596,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   for (int i = 0; i < kNKeys; i++) {
     keys[i] = i;
   }
-  std::random_shuffle(std::begin(keys), std::end(keys));
+  RandomShuffle(std::begin(keys), std::end(keys));
 
   Random rnd(301);
   Options options;
@@ -4617,7 +4679,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   for (int i = 0; i < kNKeys; i++) {
     keys[i] = i;
   }
-  std::random_shuffle(std::begin(keys), std::end(keys));
+  RandomShuffle(std::begin(keys), std::end(keys));
 
   Random rnd(301);
   Options options;
@@ -5374,6 +5436,8 @@ class DelayedMergeOperator : public MergeOperator {
   const char* Name() const override { return "DelayedMergeOperator"; }
 };
 
+// TODO: hangs in CircleCI's Windows env
+#ifndef OS_WIN
 TEST_F(DBTest, MergeTestTime) {
   std::string one, two, three;
   PutFixed64(&one, 1);
@@ -5421,6 +5485,7 @@ TEST_F(DBTest, MergeTestTime) {
 #endif  // ROCKSDB_USING_THREAD_STATUS
   this->env_->time_elapse_only_sleep_ = false;
 }
+#endif // OS_WIN
 
 #ifndef ROCKSDB_LITE
 TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
@@ -5504,7 +5569,7 @@ TEST_F(DBTest, EmptyCompactedDB) {
 #endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
-TEST_F(DBTest, SuggestCompactRangeTest) {
+TEST_F(DBTest, DISABLED_SuggestCompactRangeTest) {
   class CompactionFilterFactoryGetContext : public CompactionFilterFactory {
    public:
     std::unique_ptr<CompactionFilter> CreateCompactionFilter(
@@ -5611,6 +5676,7 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
   ASSERT_EQ(1, NumTableFilesAtLevel(1));
 }
+
 
 TEST_F(DBTest, PromoteL0) {
   Options options = CurrentOptions();

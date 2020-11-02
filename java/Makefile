@@ -25,6 +25,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.CompactRangeOptions\
 	org.rocksdb.ComparatorOptions\
 	org.rocksdb.CompressionOptions\
+	org.rocksdb.ConfigOptions\
 	org.rocksdb.DBOptions\
 	org.rocksdb.DirectSlice\
 	org.rocksdb.Env\
@@ -207,14 +208,14 @@ JAVA_TESTCLASSPATH = $(JAVA_JUNIT_JAR):$(JAVA_HAMCR_JAR):$(JAVA_MOCKITO_JAR):$(J
 MVN_LOCAL = ~/.m2/repository
 
 # Set the default JAVA_ARGS to "" for DEBUG_LEVEL=0
-JAVA_ARGS? =
+JAVA_ARGS ?=
 
-JAVAC_ARGS? =
+JAVAC_ARGS ?=
 
 # When debugging add -Xcheck:jni to the java args
 ifneq ($(DEBUG_LEVEL),0)
-	JAVA_ARGS = -ea -Xcheck:jni
-	JAVAC_ARGS = -Xlint:deprecation -Xlint:unchecked
+	JAVA_ARGS += -ea -Xcheck:jni
+	JAVAC_ARGS += -Xlint:deprecation -Xlint:unchecked
 endif
 
 # Using a Facebook AWS account for S3 storage. (maven.org has a history

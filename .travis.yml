@@ -2,12 +2,15 @@ sudo: required
 dist: trusty
 language: cpp
 os:
-- linux
+  - linux
+  - osx
+arch:
+  - amd64
+  - arm64
+  - ppc64le
 compiler:
   - gcc
 osx_image: xcode9.4
-jdk:
-  - openjdk7
 cache:
   directories:
   - "$BUILD_DIR/aws"

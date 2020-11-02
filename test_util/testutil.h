@@ -594,14 +594,17 @@ inline std::string EncodeInt(uint64_t x) {
                                 const std::string& content) {
       std::unique_ptr<WritableFile> r;
       auto s = NewWritableFile(file_name, &r, EnvOptions());
-      if (!s.ok()) {
-        return s;
+      if (s.ok()) {
+        s = r->Append(content);
       }
-      r->Append(content);
-      r->Flush();
-      r->Close();
-      assert(files_[file_name] == content);
-      return Status::OK();
+      if (s.ok()) {
+        s = r->Flush();
+      }
+      if (s.ok()) {
+        s = r->Close();
+      }
+      assert(!s.ok() || files_[file_name] == content);
+      return s;
     }
 
     // The following text is boilerplate that forwards all methods to target()
@@ -777,6 +780,8 @@ class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
   std::string name_;
 };
 
+extern const Comparator* ComparatorWithU64Ts();
+
 CompressionType RandomCompressionType(Random* rnd);
 
 void RandomCompressionTypeVector(const size_t count,
@@ -797,6 +802,17 @@ bool IsDirectIOSupported(Env* env, const std::string& dir);
 
 // Return the number of lines where a given pattern was found in a file.
 size_t GetLinesCount(const std::string& fname, const std::string& pattern);
+
+// TEST_TMPDIR may be set to /dev/shm in Makefile,
+// but /dev/shm does not support direct IO.
+// Tries to set TEST_TMPDIR to a directory supporting direct IO.
+void ResetTmpDirForDirectIO();
+
+// Sets up sync points to mock direct IO instead of actually issuing direct IO
+// to the file system.
+void SetupSyncPointsToMockDirectIO();
+
+void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt);
 
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

@@ -48,14 +48,16 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey(key, snapshot);
   PERF_TIMER_STOP(get_snapshot_time);
-  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
+  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(),
+                              /*timestamp=*/nullptr, &s, &merge_context,
                               &max_covering_tombstone_seq, read_options)) {
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    super_version->current->Get(read_options, lkey, pinnable_val, &s,
-                                &merge_context, &max_covering_tombstone_seq);
+    super_version->current->Get(read_options, lkey, pinnable_val,
+                                /*timestamp=*/nullptr, &s, &merge_context,
+                                &max_covering_tombstone_seq);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   RecordTick(stats_, NUMBER_KEYS_READ);
@@ -85,7 +87,8 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
       super_version->version_number, read_callback);
   auto internal_iter =
       NewInternalIterator(read_options, cfd, super_version, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator(), read_seq);
+                          db_iter->GetRangeDelAggregator(), read_seq,
+                          /* allow_unprepared_value */ true);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
@@ -116,7 +119,8 @@ Status DBImplReadOnly::NewIterators(
         sv->version_number, read_callback);
     auto* internal_iter =
         NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
-                            db_iter->GetRangeDelAggregator(), read_seq);
+                            db_iter->GetRangeDelAggregator(), read_seq,
+                            /* allow_unprepared_value */ true);
     db_iter->SetIterUnderDBIter(internal_iter);
     iterators->push_back(db_iter);
   }
@@ -124,12 +128,38 @@ Status DBImplReadOnly::NewIterators(
   return Status::OK();
 }
 
+namespace {
+// Return OK if dbname exists in the file system
+// or create_if_missing is false
+Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
+                                     const std::string& dbname) {
+  Status s;
+  if (!db_options.create_if_missing) {
+    // Attempt to read "CURRENT" file
+    const std::shared_ptr<FileSystem>& fs = db_options.env->GetFileSystem();
+    std::string manifest_path;
+    uint64_t manifest_file_number;
+    s = VersionSet::GetCurrentManifestPath(dbname, fs.get(), &manifest_path,
+                                           &manifest_file_number);
+    if (!s.ok()) {
+      return Status::NotFound(CurrentFileName(dbname), "does not exist");
+    }
+  }
+  return s;
+}
+}  // namespace
+
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
                            DB** dbptr, bool /*error_if_log_file_exist*/) {
+  // If dbname does not exist in the file system, should not do anything
+  Status s = OpenForReadOnlyCheckExistence(options, dbname);
+  if (!s.ok()) {
+    return s;
+  }
+
   *dbptr = nullptr;
 
   // Try to first open DB as fully compacted DB
-  Status s;
   s = CompactedDBImpl::Open(options, dbname, dbptr);
   if (s.ok()) {
     return s;
@@ -142,7 +172,8 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
   std::vector<ColumnFamilyHandle*> handles;
 
-  s = DB::OpenForReadOnly(db_options, dbname, column_families, &handles, dbptr);
+  s = DBImplReadOnly::OpenForReadOnlyWithoutCheck(
+      db_options, dbname, column_families, &handles, dbptr);
   if (s.ok()) {
     assert(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a
@@ -153,6 +184,22 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
 }
 
 Status DB::OpenForReadOnly(
+    const DBOptions& db_options, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+    bool error_if_log_file_exist) {
+  // If dbname does not exist in the file system, should not do anything
+  Status s = OpenForReadOnlyCheckExistence(db_options, dbname);
+  if (!s.ok()) {
+    return s;
+  }
+
+  return DBImplReadOnly::OpenForReadOnlyWithoutCheck(
+      db_options, dbname, column_families, handles, dbptr,
+      error_if_log_file_exist);
+}
+
+Status DBImplReadOnly::OpenForReadOnlyWithoutCheck(
     const DBOptions& db_options, const std::string& dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,

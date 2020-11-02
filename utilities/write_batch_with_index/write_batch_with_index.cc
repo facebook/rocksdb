@@ -846,8 +846,7 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   Status s;
   MergeContext merge_context;
   const ImmutableDBOptions& immuable_db_options =
-      static_cast_with_check<DBImpl, DB>(db->GetRootDB())
-          ->immutable_db_options();
+      static_cast_with_check<DBImpl>(db->GetRootDB())->immutable_db_options();
 
   // Since the lifetime of the WriteBatch is the same as that of the transaction
   // we cannot pin it as otherwise the returned value will not be available
@@ -887,7 +886,7 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
     get_impl_options.column_family = column_family;
     get_impl_options.value = pinnable_val;
     get_impl_options.callback = callback;
-    s = static_cast_with_check<DBImpl, DB>(db->GetRootDB())
+    s = static_cast_with_check<DBImpl>(db->GetRootDB())
             ->GetImpl(read_options, key, get_impl_options);
   }
 
@@ -938,8 +937,7 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     const size_t num_keys, const Slice* keys, PinnableSlice* values,
     Status* statuses, bool sorted_input, ReadCallback* callback) {
   const ImmutableDBOptions& immuable_db_options =
-      static_cast_with_check<DBImpl, DB>(db->GetRootDB())
-          ->immutable_db_options();
+      static_cast_with_check<DBImpl>(db->GetRootDB())->immutable_db_options();
 
   autovector<KeyContext, MultiGetContext::MAX_BATCH_SIZE> key_context;
   autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE> sorted_keys;
@@ -982,7 +980,8 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
 
     assert(result == WriteBatchWithIndexInternal::Result::kMergeInProgress ||
            result == WriteBatchWithIndexInternal::Result::kNotFound);
-    key_context.emplace_back(column_family, keys[i], &values[i], &statuses[i]);
+    key_context.emplace_back(column_family, keys[i], &values[i],
+                             /*timestamp*/ nullptr, &statuses[i]);
     merges.emplace_back(result, std::move(merge_context));
   }
 
@@ -991,9 +990,9 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
   }
 
   // Did not find key in batch OR could not resolve Merges.  Try DB.
-  static_cast_with_check<DBImpl, DB>(db->GetRootDB())
+  static_cast_with_check<DBImpl>(db->GetRootDB())
       ->PrepareMultiGetKeys(key_context.size(), sorted_input, &sorted_keys);
-  static_cast_with_check<DBImpl, DB>(db->GetRootDB())
+  static_cast_with_check<DBImpl>(db->GetRootDB())
       ->MultiGetWithCallback(read_options, column_family, callback,
                              &sorted_keys);
 

@@ -193,7 +193,7 @@ Status WriteUnpreparedTxnDB::Initialize(
     const std::vector<size_t>& compaction_enabled_cf_indices,
     const std::vector<ColumnFamilyHandle*>& handles) {
   // TODO(lth): Reduce code duplication in this function.
-  auto dbimpl = static_cast_with_check<DBImpl, DB>(GetRootDB());
+  auto dbimpl = static_cast_with_check<DBImpl>(GetRootDB());
   assert(dbimpl != nullptr);
 
   db_impl_->SetSnapshotChecker(new WritePreparedSnapshotChecker(this));
@@ -268,8 +268,7 @@ Status WriteUnpreparedTxnDB::Initialize(
 
     Transaction* real_trx = BeginTransaction(w_options, t_options, nullptr);
     assert(real_trx);
-    auto wupt =
-        static_cast_with_check<WriteUnpreparedTxn, Transaction>(real_trx);
+    auto wupt = static_cast_with_check<WriteUnpreparedTxn>(real_trx);
     wupt->recovered_txn_ = true;
 
     real_trx->SetLogNumber(first_log_number);
@@ -451,8 +450,7 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
     return nullptr;
   }
   min_uncommitted =
-      static_cast_with_check<const SnapshotImpl, const Snapshot>(snapshot)
-          ->min_uncommitted_;
+      static_cast_with_check<const SnapshotImpl>(snapshot)->min_uncommitted_;
 
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
   auto* state =

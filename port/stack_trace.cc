@@ -14,6 +14,10 @@ namespace ROCKSDB_NAMESPACE {
 namespace port {
 void InstallStackTraceHandler() {}
 void PrintStack(int /*first_frames_to_skip*/) {}
+void PrintAndFreeStack(void* /*callstack*/, int /*num_frames*/) {}
+void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
+  return nullptr;
+}
 }  // namespace port
 }  // namespace ROCKSDB_NAMESPACE
 
@@ -99,18 +103,38 @@ void PrintStackTraceLine(const char* symbol, void* frame) {
 
 }  // namespace
 
+void PrintStack(void* frames[], int num_frames) {
+  auto symbols = backtrace_symbols(frames, num_frames);
+
+  for (int i = 0; i < num_frames; ++i) {
+    fprintf(stderr, "#%-2d  ", i);
+    PrintStackTraceLine((symbols != nullptr) ? symbols[i] : nullptr, frames[i]);
+  }
+  free(symbols);
+}
+
 void PrintStack(int first_frames_to_skip) {
   const int kMaxFrames = 100;
   void* frames[kMaxFrames];
 
   auto num_frames = backtrace(frames, kMaxFrames);
-  auto symbols = backtrace_symbols(frames, num_frames);
+  PrintStack(&frames[first_frames_to_skip], num_frames - first_frames_to_skip);
+}
 
-  for (int i = first_frames_to_skip; i < num_frames; ++i) {
-    fprintf(stderr, "#%-2d  ", i - first_frames_to_skip);
-    PrintStackTraceLine((symbols != nullptr) ? symbols[i] : nullptr, frames[i]);
-  }
-  free(symbols);
+void PrintAndFreeStack(void* callstack, int num_frames) {
+  PrintStack(static_cast<void**>(callstack), num_frames);
+  free(callstack);
+}
+
+void* SaveStack(int* num_frames, int first_frames_to_skip) {
+  const int kMaxFrames = 100;
+  void* frames[kMaxFrames];
+
+  auto count = backtrace(frames, kMaxFrames);
+  *num_frames = count - first_frames_to_skip;
+  void* callstack = malloc(sizeof(void*) * *num_frames);
+  memcpy(callstack, &frames[first_frames_to_skip], sizeof(void*) * *num_frames);
+  return callstack;
 }
 
 static void StackTraceHandler(int sig) {

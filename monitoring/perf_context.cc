@@ -38,7 +38,9 @@ PerfContext::~PerfContext() {
 }
 
 PerfContext::PerfContext(const PerfContext& other) {
-#ifndef NPERF_CONTEXT
+#ifdef NPERF_CONTEXT
+  (void)other;
+#else
   user_key_comparison_count = other.user_key_comparison_count;
   block_cache_hit_count = other.block_cache_hit_count;
   block_read_count = other.block_read_count;
@@ -133,7 +135,9 @@ PerfContext::PerfContext(const PerfContext& other) {
 }
 
 PerfContext::PerfContext(PerfContext&& other) noexcept {
-#ifndef NPERF_CONTEXT
+#ifdef NPERF_CONTEXT
+  (void)other;
+#else
   user_key_comparison_count = other.user_key_comparison_count;
   block_cache_hit_count = other.block_cache_hit_count;
   block_read_count = other.block_read_count;
@@ -230,7 +234,9 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
 // TODO(Zhongyi): reduce code duplication between copy constructor and
 // assignment operator
 PerfContext& PerfContext::operator=(const PerfContext& other) {
-#ifndef NPERF_CONTEXT
+#ifdef NPERF_CONTEXT
+  (void)other;
+#else
   user_key_comparison_count = other.user_key_comparison_count;
   block_cache_hit_count = other.block_cache_hit_count;
   block_read_count = other.block_read_count;
@@ -443,6 +449,7 @@ void PerfContextByLevel::Reset() {
 
 std::string PerfContext::ToString(bool exclude_zero_counters) const {
 #ifdef NPERF_CONTEXT
+  (void)exclude_zero_counters;
   return "";
 #else
   std::ostringstream ss;

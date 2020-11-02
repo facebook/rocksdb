@@ -13,6 +13,7 @@
 
 #include <thread>
 
+#include "rocksdb/options.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 // size_t printf formatting named in the manner of C99 standard formatting
@@ -123,7 +124,7 @@ class Mutex {
   friend class CondVar;
   pthread_mutex_t mu_;
 #ifndef NDEBUG
-  bool locked_;
+  bool locked_ = false;
 #endif
 };
 
@@ -213,6 +214,10 @@ extern void Crash(const std::string& srcfile, int srcline);
 extern int GetMaxOpenFiles();
 
 extern const size_t kPageSize;
+
+using ThreadId = pid_t;
+
+extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 
 } // namespace port
 }  // namespace ROCKSDB_NAMESPACE

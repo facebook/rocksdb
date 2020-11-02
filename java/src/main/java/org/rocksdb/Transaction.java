@@ -1788,10 +1788,16 @@ public class Transaction extends RocksObject {
     AWAITING_PREPARE((byte)1),
     PREPARED((byte)2),
     AWAITING_COMMIT((byte)3),
-    COMMITED((byte)4),
+    COMMITTED((byte)4),
     AWAITING_ROLLBACK((byte)5),
     ROLLEDBACK((byte)6),
     LOCKS_STOLEN((byte)7);
+
+    /*
+     * Keep old misspelled variable as alias
+     * Tip from https://stackoverflow.com/a/37092410/454544
+     */
+    public static final TransactionState COMMITED = COMMITTED;
 
     private final byte value;
 

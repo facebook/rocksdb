@@ -424,6 +424,7 @@ class Repairer {
       }
 
       LegacyFileSystemWrapper fs(env_);
+      IOStatus io_s;
       status = BuildTable(
           dbname_, env_, &fs, *cfd->ioptions(),
           *cfd->GetLatestMutableCFOptions(), env_options_, table_cache_,
@@ -432,7 +433,7 @@ class Repairer {
           cfd->GetID(), cfd->GetName(), {}, kMaxSequenceNumber,
           snapshot_checker, kNoCompression, 0 /* sample_for_compression */,
           CompressionOptions(), false, nullptr /* internal_stats */,
-          TableFileCreationReason::kRecovery, nullptr /* event_logger */,
+          TableFileCreationReason::kRecovery, &io_s, nullptr /* event_logger */,
           0 /* job_id */, Env::IO_HIGH, nullptr /* table_properties */,
           -1 /* level */, current_time, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
@@ -527,8 +528,10 @@ class Repairer {
           cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
           /*table_reader_ptr=*/nullptr, /*file_read_hist=*/nullptr,
           TableReaderCaller::kRepair, /*arena=*/nullptr, /*skip_filters=*/false,
-          /*level=*/-1, /*smallest_compaction_key=*/nullptr,
-          /*largest_compaction_key=*/nullptr);
+          /*level=*/-1, /*max_file_size_for_l0_meta_pin=*/0,
+          /*smallest_compaction_key=*/nullptr,
+          /*largest_compaction_key=*/nullptr,
+          /*allow_unprepared_value=*/false);
       ParsedInternalKey parsed;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
@@ -672,10 +675,6 @@ Status RepairDB(const std::string& dbname, const DBOptions& db_options,
 
 Status RepairDB(const std::string& dbname, const Options& options) {
   Options opts(options);
-  if (opts.file_system == nullptr) {
-    opts.file_system.reset(new LegacyFileSystemWrapper(opts.env));
-    ;
-  }
 
   DBOptions db_options(opts);
   ColumnFamilyOptions cf_options(opts);

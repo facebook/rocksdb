@@ -114,10 +114,16 @@ struct RangePtr {
   RangePtr(const Slice* s, const Slice* l) : start(s), limit(l) {}
 };
 
+// It is valid that files_checksums and files_checksum_func_names are both
+// empty (no checksum informaiton is provided for ingestion). Otherwise,
+// their sizes should be the same as external_files. The file order should
+// be the same in three vectors and guaranteed by the caller.
 struct IngestExternalFileArg {
   ColumnFamilyHandle* column_family = nullptr;
   std::vector<std::string> external_files;
   IngestExternalFileOptions options;
+  std::vector<std::string> files_checksums;
+  std::vector<std::string> files_checksum_func_names;
 };
 
 struct GetMergeOperandsOptions {
@@ -130,9 +136,11 @@ struct GetMergeOperandsOptions {
 typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
     TablePropertiesCollection;
 
-// A DB is a persistent ordered map from keys to values.
+// A DB is a persistent, versioned ordered map from keys to values.
 // A DB is safe for concurrent access from multiple threads without
 // any external synchronization.
+// DB is an abstract base class with one primary implementation (DBImpl)
+// and a number of wrapper implementations.
 class DB {
  public:
   // Open the database with the specified "name".
@@ -258,6 +266,7 @@ class DB {
                                    const std::string& name,
                                    std::vector<std::string>* column_families);
 
+  // Abstract class ctor
   DB() {}
   // No copying allowed
   DB(const DB&) = delete;
@@ -356,8 +365,11 @@ class DB {
 
   // Removes the database entries in the range ["begin_key", "end_key"), i.e.,
   // including "begin_key" and excluding "end_key". Returns OK on success, and
-  // a non-OK status on error. It is not an error if no keys exist in the range
-  // ["begin_key", "end_key").
+  // a non-OK status on error. It is not an error if the database does not
+  // contain any existing data in the range ["begin_key", "end_key").
+  //
+  // If "end_key" comes before "start_key" according to the user's comparator,
+  // a `Status::InvalidArgument` is returned.
   //
   // This feature is now usable in production, with the following caveats:
   // 1) Accumulating many range tombstones in the memtable will degrade read
@@ -391,6 +403,9 @@ class DB {
   // If the database contains an entry for "key" store the
   // corresponding value in *value and return OK.
   //
+  // If timestamp is enabled and a non-null timestamp pointer is passed in,
+  // timestamp is returned.
+  //
   // If there is no entry for "key" leave *value unchanged and return
   // a status for which Status::IsNotFound() returns true.
   //
@@ -415,6 +430,32 @@ class DB {
     return Get(options, DefaultColumnFamily(), key, value);
   }
 
+  // Get() methods that return timestamp. Derived DB classes don't need to worry
+  // about this group of methods if they don't care about timestamp feature.
+  virtual inline Status Get(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            std::string* value, std::string* timestamp) {
+    assert(value != nullptr);
+    PinnableSlice pinnable_val(value);
+    assert(!pinnable_val.IsPinned());
+    auto s = Get(options, column_family, key, &pinnable_val, timestamp);
+    if (s.ok() && pinnable_val.IsPinned()) {
+      value->assign(pinnable_val.data(), pinnable_val.size());
+    }  // else value is already assigned
+    return s;
+  }
+  virtual Status Get(const ReadOptions& /*options*/,
+                     ColumnFamilyHandle* /*column_family*/,
+                     const Slice& /*key*/, PinnableSlice* /*value*/,
+                     std::string* /*timestamp*/) {
+    return Status::NotSupported(
+        "Get() that returns timestamp is not implemented.");
+  }
+  virtual Status Get(const ReadOptions& options, const Slice& key,
+                     std::string* value, std::string* timestamp) {
+    return Get(options, DefaultColumnFamily(), key, value, timestamp);
+  }
+
   // Returns all the merge operands corresponding to the key. If the
   // number of merge operands in DB is greater than
   // merge_operands_options.expected_max_number_of_operands
@@ -431,6 +472,11 @@ class DB {
       GetMergeOperandsOptions* get_merge_operands_options,
       int* number_of_operands) = 0;
 
+  // Consistent Get of many keys across column families without the need
+  // for an explicit snapshot. NOTE: the implementation of this MultiGet API
+  // does not have the performance benefits of the void-returning MultiGet
+  // functions.
+  //
   // If keys[i] does not exist in the database, then the i'th returned
   // status will be one for which Status::IsNotFound() is true, and
   // (*values)[i] will be set to some arbitrary value (often ""). Otherwise,
@@ -452,6 +498,25 @@ class DB {
         options,
         std::vector<ColumnFamilyHandle*>(keys.size(), DefaultColumnFamily()),
         keys, values);
+  }
+
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& /*options*/,
+      const std::vector<ColumnFamilyHandle*>& /*column_family*/,
+      const std::vector<Slice>& keys, std::vector<std::string>* /*values*/,
+      std::vector<std::string>* /*timestamps*/) {
+    return std::vector<Status>(
+        keys.size(), Status::NotSupported(
+                         "MultiGet() returning timestamps not implemented."));
+  }
+  virtual std::vector<Status> MultiGet(const ReadOptions& options,
+                                       const std::vector<Slice>& keys,
+                                       std::vector<std::string>* values,
+                                       std::vector<std::string>* timestamps) {
+    return MultiGet(
+        options,
+        std::vector<ColumnFamilyHandle*>(keys.size(), DefaultColumnFamily()),
+        keys, values, timestamps);
   }
 
   // Overloaded MultiGet API that improves performance by batching operations
@@ -489,6 +554,30 @@ class DB {
     }
     status = MultiGet(options, cf, user_keys, &vals);
     std::copy(status.begin(), status.end(), statuses);
+    for (auto& value : vals) {
+      values->PinSelf(value);
+      values++;
+    }
+  }
+
+  virtual void MultiGet(const ReadOptions& options,
+                        ColumnFamilyHandle* column_family,
+                        const size_t num_keys, const Slice* keys,
+                        PinnableSlice* values, std::string* timestamps,
+                        Status* statuses, const bool /*sorted_input*/ = false) {
+    std::vector<ColumnFamilyHandle*> cf;
+    std::vector<Slice> user_keys;
+    std::vector<Status> status;
+    std::vector<std::string> vals;
+    std::vector<std::string> tss;
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      cf.emplace_back(column_family);
+      user_keys.emplace_back(keys[i]);
+    }
+    status = MultiGet(options, cf, user_keys, &vals, &tss);
+    std::copy(status.begin(), status.end(), statuses);
+    std::copy(tss.begin(), tss.end(), timestamps);
     for (auto& value : vals) {
       values->PinSelf(value);
       values++;
@@ -534,6 +623,28 @@ class DB {
       values++;
     }
   }
+  virtual void MultiGet(const ReadOptions& options, const size_t num_keys,
+                        ColumnFamilyHandle** column_families, const Slice* keys,
+                        PinnableSlice* values, std::string* timestamps,
+                        Status* statuses, const bool /*sorted_input*/ = false) {
+    std::vector<ColumnFamilyHandle*> cf;
+    std::vector<Slice> user_keys;
+    std::vector<Status> status;
+    std::vector<std::string> vals;
+    std::vector<std::string> tss;
+
+    for (size_t i = 0; i < num_keys; ++i) {
+      cf.emplace_back(column_families[i]);
+      user_keys.emplace_back(keys[i]);
+    }
+    status = MultiGet(options, cf, user_keys, &vals, &tss);
+    std::copy(status.begin(), status.end(), statuses);
+    std::copy(tss.begin(), tss.end(), timestamps);
+    for (auto& value : vals) {
+      values->PinSelf(value);
+      values++;
+    }
+  }
 
   // If the key definitely does not exist in the database, then this method
   // returns false, else true. If the caller wants to obtain value when the key
@@ -545,15 +656,31 @@ class DB {
   virtual bool KeyMayExist(const ReadOptions& /*options*/,
                            ColumnFamilyHandle* /*column_family*/,
                            const Slice& /*key*/, std::string* /*value*/,
+                           std::string* /*timestamp*/,
                            bool* value_found = nullptr) {
     if (value_found != nullptr) {
       *value_found = false;
     }
     return true;
   }
+
+  virtual bool KeyMayExist(const ReadOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           std::string* value, bool* value_found = nullptr) {
+    return KeyMayExist(options, column_family, key, value,
+                       /*timestamp=*/nullptr, value_found);
+  }
+
   virtual bool KeyMayExist(const ReadOptions& options, const Slice& key,
                            std::string* value, bool* value_found = nullptr) {
     return KeyMayExist(options, DefaultColumnFamily(), key, value, value_found);
+  }
+
+  virtual bool KeyMayExist(const ReadOptions& options, const Slice& key,
+                           std::string* value, std::string* timestamp,
+                           bool* value_found = nullptr) {
+    return KeyMayExist(options, DefaultColumnFamily(), key, value, timestamp,
+                       value_found);
   }
 
   // Return a heap-allocated iterator over the contents of the database.
@@ -886,32 +1013,33 @@ class DB {
   };
 
   // For each i in [0,n-1], store in "sizes[i]", the approximate
-  // file system space used by keys in "[range[i].start .. range[i].limit)".
+  // file system space used by keys in "[range[i].start .. range[i].limit)"
+  // in a single column family.
   //
   // Note that the returned sizes measure file system space usage, so
   // if the user data compresses by a factor of ten, the returned
   // sizes will be one-tenth the size of the corresponding user data size.
   virtual Status GetApproximateSizes(const SizeApproximationOptions& options,
                                      ColumnFamilyHandle* column_family,
-                                     const Range* range, int n,
+                                     const Range* ranges, int n,
                                      uint64_t* sizes) = 0;
 
   // Simpler versions of the GetApproximateSizes() method above.
   // The include_flags argumenbt must of type DB::SizeApproximationFlags
   // and can not be NONE.
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                   const Range* range, int n, uint64_t* sizes,
+                                   const Range* ranges, int n, uint64_t* sizes,
                                    uint8_t include_flags = INCLUDE_FILES) {
     SizeApproximationOptions options;
     options.include_memtabtles =
         (include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) != 0;
     options.include_files =
         (include_flags & SizeApproximationFlags::INCLUDE_FILES) != 0;
-    GetApproximateSizes(options, column_family, range, n, sizes);
+    GetApproximateSizes(options, column_family, ranges, n, sizes);
   }
-  virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes,
+  virtual void GetApproximateSizes(const Range* ranges, int n, uint64_t* sizes,
                                    uint8_t include_flags = INCLUDE_FILES) {
-    GetApproximateSizes(DefaultColumnFamily(), range, n, sizes, include_flags);
+    GetApproximateSizes(DefaultColumnFamily(), ranges, n, sizes, include_flags);
   }
 
   // The method is similar to GetApproximateSizes, except it
@@ -1032,7 +1160,8 @@ class DB {
 
   // This function will wait until all currently running background processes
   // finish. After it returns, no background process will be run until
-  // ContinueBackgroundWork is called
+  // ContinueBackgroundWork is called, once for each preceding OK-returning
+  // call to PauseBackgroundWork.
   virtual Status PauseBackgroundWork() = 0;
   virtual Status ContinueBackgroundWork() = 0;
 
@@ -1140,8 +1269,6 @@ class DB {
   // updated, false if user attempted to call if with seqnum <= current value.
   virtual bool SetPreserveDeletesSequenceNumber(SequenceNumber seqnum) = 0;
 
-#ifndef ROCKSDB_LITE
-
   // Prevent file deletions. Compactions will continue to occur,
   // but no obsolete files will be deleted. Calling this multiple
   // times have the same effect as calling it once.
@@ -1158,6 +1285,7 @@ class DB {
   // threads call EnableFileDeletions()
   virtual Status EnableFileDeletions(bool force = true) = 0;
 
+#ifndef ROCKSDB_LITE
   // GetLiveFiles followed by GetSortedWalFiles can generate a lossless backup
 
   // Retrieve the list of all files in the database. The files are

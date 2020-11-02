@@ -201,7 +201,8 @@ void PlainTableReader::SetupForCompaction() {
 InternalIterator* PlainTableReader::NewIterator(
     const ReadOptions& options, const SliceTransform* /* prefix_extractor */,
     Arena* arena, bool /*skip_filters*/, TableReaderCaller /*caller*/,
-    size_t /*compaction_readahead_size*/) {
+    size_t /*compaction_readahead_size*/,
+    bool /* allow_unprepared_value */) {
   // Not necessarily used here, but make sure this has been initialized
   assert(table_properties_);
 
@@ -288,7 +289,9 @@ void PlainTableReader::FillBloom(const std::vector<uint32_t>& prefix_hashes) {
 Status PlainTableReader::MmapDataIfNeeded() {
   if (file_info_.is_mmap_mode) {
     // Get mmapped memory.
-    return file_info_.file->Read(0, static_cast<size_t>(file_size_), &file_info_.file_data, nullptr);
+    return file_info_.file->Read(IOOptions(), 0,
+                                 static_cast<size_t>(file_size_),
+                                 &file_info_.file_data, nullptr, nullptr);
   }
   return Status::OK();
 }

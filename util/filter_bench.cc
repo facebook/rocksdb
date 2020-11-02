@@ -23,6 +23,7 @@ int main() {
 #include "table/block_based/full_filter_block.h"
 #include "table/block_based/mock_block_based_table.h"
 #include "table/plain/plain_table_bloom.h"
+#include "util/cast_util.h"
 #include "util/gflags_compat.h"
 #include "util/hash.h"
 #include "util/random.h"
@@ -131,6 +132,7 @@ using ROCKSDB_NAMESPACE::ParsedFullFilterBlock;
 using ROCKSDB_NAMESPACE::PlainTableBloomV1;
 using ROCKSDB_NAMESPACE::Random32;
 using ROCKSDB_NAMESPACE::Slice;
+using ROCKSDB_NAMESPACE::static_cast_with_check;
 using ROCKSDB_NAMESPACE::StderrLogger;
 using ROCKSDB_NAMESPACE::mock::MockBlockBasedTableTester;
 
@@ -378,7 +380,8 @@ void FilterBench::Go() {
       info.filter_ = info.plain_table_bloom_->GetRawData();
     } else {
       if (!builder) {
-        builder.reset(&dynamic_cast<BuiltinFilterBitsBuilder &>(*GetBuilder()));
+        builder.reset(
+            static_cast_with_check<BuiltinFilterBitsBuilder>(GetBuilder()));
       }
       for (uint32_t i = 0; i < keys_to_add; ++i) {
         builder->AddKey(kms_[0].Get(filter_id, i));

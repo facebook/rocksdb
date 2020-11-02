@@ -147,9 +147,6 @@ TEST_P(WriteUnpreparedStressTest, ReadYourOwnWriteStress) {
   const uint32_t kNumThreads = 10;
   const uint32_t kNumKeys = 5;
 
-  std::default_random_engine rand(static_cast<uint32_t>(
-      std::hash<std::thread::id>()(std::this_thread::get_id())));
-
   // Test with
   // 1. no snapshots set
   // 2. snapshot set on ReadOptions
@@ -164,7 +161,7 @@ TEST_P(WriteUnpreparedStressTest, ReadYourOwnWriteStress) {
   for (uint32_t k = 0; k < kNumKeys * kNumThreads; k++) {
     keys.push_back("k" + ToString(k));
   }
-  std::shuffle(keys.begin(), keys.end(), rand);
+  RandomShuffle(keys.begin(), keys.end());
 
   // This counter will act as a "sequence number" to help us validate
   // visibility logic with snapshots. If we had direct access to the seqno of
@@ -182,8 +179,8 @@ TEST_P(WriteUnpreparedStressTest, ReadYourOwnWriteStress) {
     ReadOptions read_options;
 
     for (uint32_t i = 0; i < kNumIter; i++) {
-      std::set<std::string> owned_keys(&keys[id * kNumKeys],
-                                       &keys[(id + 1) * kNumKeys]);
+      std::set<std::string> owned_keys(keys.begin() + id * kNumKeys,
+                                       keys.begin() + (id + 1) * kNumKeys);
       // Add unowned keys to make the workload more interesting, but this
       // increases row lock contention, so just do it sometimes.
       if (rnd.OneIn(2)) {

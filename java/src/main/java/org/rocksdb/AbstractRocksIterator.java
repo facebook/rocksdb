@@ -93,6 +93,12 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
   }
 
   @Override
+  public void refresh() throws RocksDBException {
+    assert (isOwningHandle());
+    refresh0(nativeHandle_);
+  }
+
+  @Override
   public void status() throws RocksDBException {
     assert (isOwningHandle());
     status0(nativeHandle_);
@@ -118,6 +124,7 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
   abstract void seekToLast0(long handle);
   abstract void next0(long handle);
   abstract void prev0(long handle);
+  abstract void refresh0(long handle) throws RocksDBException;
   abstract void seek0(long handle, byte[] target, int targetLen);
   abstract void seekForPrev0(long handle, byte[] target, int targetLen);
   abstract void seekDirect0(long handle, ByteBuffer target, int targetOffset, int targetLen);

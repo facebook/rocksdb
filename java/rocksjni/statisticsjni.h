@@ -30,5 +30,4 @@ class StatisticsJni : public StatisticsImpl {
 
  }  // namespace ROCKSDB_NAMESPACE
 
-// @lint-ignore TXT4 T25377293 Grandfathered in
 #endif  // JAVA_ROCKSJNI_STATISTICSJNI_H_

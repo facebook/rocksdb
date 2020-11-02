@@ -35,16 +35,8 @@ Options SanitizeOptions(const std::string& dbname, const Options& src) {
 DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   DBOptions result(src);
 
-  if (result.file_system == nullptr) {
-    if (result.env == Env::Default()) {
-      result.file_system = FileSystem::Default();
-    } else {
-      result.file_system.reset(new LegacyFileSystemWrapper(result.env));
-    }
-  } else {
-    if (result.env == nullptr) {
-      result.env = Env::Default();
-    }
+  if (result.env == nullptr) {
+    result.env = Env::Default();
   }
 
   // result.max_open_files means an "infinite" open files.
@@ -252,6 +244,12 @@ Status DBImpl::ValidateOptions(const DBOptions& db_options) {
         "atomic_flush is incompatible with enable_pipelined_write");
   }
 
+  // TODO remove this restriction
+  if (db_options.atomic_flush && db_options.best_efforts_recovery) {
+    return Status::InvalidArgument(
+        "atomic_flush is currently incompatible with best-efforts recovery");
+  }
+
   return Status::OK();
 }
 
@@ -294,15 +292,16 @@ Status DBImpl::NewDB() {
   }
   if (s.ok()) {
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(env_, dbname_, 1, directories_.GetDbDir());
+    s = SetCurrentFile(fs_.get(), dbname_, 1, directories_.GetDbDir());
   } else {
     fs_->DeleteFile(manifest, IOOptions(), nullptr);
   }
   return s;
 }
 
-Status DBImpl::CreateAndNewDirectory(Env* env, const std::string& dirname,
-                                     std::unique_ptr<Directory>* directory) {
+IOStatus DBImpl::CreateAndNewDirectory(
+    FileSystem* fs, const std::string& dirname,
+    std::unique_ptr<FSDirectory>* directory) {
   // We call CreateDirIfMissing() as the directory may already exist (if we
   // are reopening a DB), when this happens we don't want creating the
   // directory to cause an error. However, we need to check if creating the
@@ -310,24 +309,24 @@ Status DBImpl::CreateAndNewDirectory(Env* env, const std::string& dirname,
   // file not existing. One real-world example of this occurring is if
   // env->CreateDirIfMissing() doesn't create intermediate directories, e.g.
   // when dbname_ is "dir/db" but when "dir" doesn't exist.
-  Status s = env->CreateDirIfMissing(dirname);
-  if (!s.ok()) {
-    return s;
+  IOStatus io_s = fs->CreateDirIfMissing(dirname, IOOptions(), nullptr);
+  if (!io_s.ok()) {
+    return io_s;
   }
-  return env->NewDirectory(dirname, directory);
+  return fs->NewDirectory(dirname, IOOptions(), directory, nullptr);
 }
 
-Status Directories::SetDirectories(Env* env, const std::string& dbname,
-                                   const std::string& wal_dir,
-                                   const std::vector<DbPath>& data_paths) {
-  Status s = DBImpl::CreateAndNewDirectory(env, dbname, &db_dir_);
-  if (!s.ok()) {
-    return s;
+IOStatus Directories::SetDirectories(FileSystem* fs, const std::string& dbname,
+                                     const std::string& wal_dir,
+                                     const std::vector<DbPath>& data_paths) {
+  IOStatus io_s = DBImpl::CreateAndNewDirectory(fs, dbname, &db_dir_);
+  if (!io_s.ok()) {
+    return io_s;
   }
   if (!wal_dir.empty() && dbname != wal_dir) {
-    s = DBImpl::CreateAndNewDirectory(env, wal_dir, &wal_dir_);
-    if (!s.ok()) {
-      return s;
+    io_s = DBImpl::CreateAndNewDirectory(fs, wal_dir, &wal_dir_);
+    if (!io_s.ok()) {
+      return io_s;
     }
   }
 
@@ -337,16 +336,16 @@ Status Directories::SetDirectories(Env* env, const std::string& dbname,
     if (db_path == dbname) {
       data_dirs_.emplace_back(nullptr);
     } else {
-      std::unique_ptr<Directory> path_directory;
-      s = DBImpl::CreateAndNewDirectory(env, db_path, &path_directory);
-      if (!s.ok()) {
-        return s;
+      std::unique_ptr<FSDirectory> path_directory;
+      io_s = DBImpl::CreateAndNewDirectory(fs, db_path, &path_directory);
+      if (!io_s.ok()) {
+        return io_s;
       }
       data_dirs_.emplace_back(path_directory.release());
     }
   }
   assert(data_dirs_.size() == data_paths.size());
-  return Status::OK();
+  return IOStatus::OK();
 }
 
 Status DBImpl::Recover(
@@ -358,7 +357,7 @@ Status DBImpl::Recover(
   bool is_new_db = false;
   assert(db_lock_ == nullptr);
   if (!read_only) {
-    Status s = directories_.SetDirectories(env_, dbname_,
+    Status s = directories_.SetDirectories(fs_.get(), dbname_,
                                            immutable_db_options_.wal_dir,
                                            immutable_db_options_.db_paths);
     if (!s.ok()) {
@@ -371,7 +370,30 @@ Status DBImpl::Recover(
     }
 
     std::string current_fname = CurrentFileName(dbname_);
-    s = env_->FileExists(current_fname);
+    // Path to any MANIFEST file in the db dir. It does not matter which one.
+    // Since best-efforts recovery ignores CURRENT file, existence of a
+    // MANIFEST indicates the recovery to recover existing db. If no MANIFEST
+    // can be found, a new db will be created.
+    std::string manifest_path;
+    if (!immutable_db_options_.best_efforts_recovery) {
+      s = env_->FileExists(current_fname);
+    } else {
+      s = Status::NotFound();
+      std::vector<std::string> files;
+      // No need to check return value
+      env_->GetChildren(dbname_, &files);
+      for (const std::string& file : files) {
+        uint64_t number = 0;
+        FileType type = kLogFile;  // initialize
+        if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
+          // Found MANIFEST (descriptor log), thus best-efforts recovery does
+          // not have to treat the db as empty.
+          s = Status::OK();
+          manifest_path = dbname_ + "/" + file;
+          break;
+        }
+      }
+    }
     if (s.IsNotFound()) {
       if (immutable_db_options_.create_if_missing) {
         s = NewDB();
@@ -399,14 +421,14 @@ Status DBImpl::Recover(
       FileOptions customized_fs(file_options_);
       customized_fs.use_direct_reads |=
           immutable_db_options_.use_direct_io_for_flush_and_compaction;
-      s = fs_->NewRandomAccessFile(current_fname, customized_fs, &idfile,
-                                   nullptr);
+      const std::string& fname =
+          manifest_path.empty() ? current_fname : manifest_path;
+      s = fs_->NewRandomAccessFile(fname, customized_fs, &idfile, nullptr);
       if (!s.ok()) {
         std::string error_str = s.ToString();
         // Check if unsupported Direct I/O is the root cause
         customized_fs.use_direct_reads = false;
-        s = fs_->NewRandomAccessFile(current_fname, customized_fs, &idfile,
-                                     nullptr);
+        s = fs_->NewRandomAccessFile(fname, customized_fs, &idfile, nullptr);
         if (s.ok()) {
           return Status::InvalidArgument(
               "Direct I/O is not supported by the specified DB.");
@@ -418,7 +440,20 @@ Status DBImpl::Recover(
     }
   }
   assert(db_id_.empty());
-  Status s = versions_->Recover(column_families, read_only, &db_id_);
+  Status s;
+  bool missing_table_file = false;
+  if (!immutable_db_options_.best_efforts_recovery) {
+    s = versions_->Recover(column_families, read_only, &db_id_);
+  } else {
+    s = versions_->TryRecover(column_families, read_only, &db_id_,
+                              &missing_table_file);
+    if (s.ok()) {
+      // TryRecover may delete previous column_family_set_.
+      column_family_memtables_.reset(
+          new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
+      s = FinishBestEffortsRecovery();
+    }
+  }
   if (!s.ok()) {
     return s;
   }
@@ -458,7 +493,7 @@ Status DBImpl::Recover(
     s = CheckConsistency();
   }
   if (s.ok() && !read_only) {
-    std::map<std::string, std::shared_ptr<Directory>> created_dirs;
+    std::map<std::string, std::shared_ptr<FSDirectory>> created_dirs;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       s = cfd->AddDirectories(&created_dirs);
       if (!s.ok()) {
@@ -498,7 +533,9 @@ Status DBImpl::Recover(
     // attention to it in case we are recovering a database
     // produced by an older version of rocksdb.
     std::vector<std::string> filenames;
-    s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
+    if (!immutable_db_options_.best_efforts_recovery) {
+      s = env_->GetChildren(immutable_db_options_.wal_dir, &filenames);
+    }
     if (s.IsNotFound()) {
       return Status::InvalidArgument("wal_dir not found",
                                      immutable_db_options_.wal_dir);
@@ -690,10 +727,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     Status* status;  // nullptr if immutable_db_options_.paranoid_checks==false
     void Corruption(size_t bytes, const Status& s) override {
       ROCKS_LOG_WARN(info_log, "%s%s: dropping %d bytes; %s",
-                     (this->status == nullptr ? "(ignoring error) " : ""),
-                     fname, static_cast<int>(bytes), s.ToString().c_str());
-      if (this->status != nullptr && this->status->ok()) {
-        *this->status = s;
+                     (status == nullptr ? "(ignoring error) " : ""), fname,
+                     static_cast<int>(bytes), s.ToString().c_str());
+      if (status != nullptr && status->ok()) {
+        *status = s;
       }
     }
   };
@@ -816,6 +853,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     Slice record;
     WriteBatch batch;
 
+    TEST_SYNC_POINT_CALLBACK("DBImpl::RecoverLogFiles:BeforeReadWal",
+                             /*arg=*/nullptr);
     while (!stop_replay_by_wal_filter &&
            reader.ReadRecord(&record, &scratch,
                              immutable_db_options_.wal_recovery_mode) &&
@@ -980,6 +1019,16 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         status = Status::OK();
       } else if (immutable_db_options_.wal_recovery_mode ==
                  WALRecoveryMode::kPointInTimeRecovery) {
+        if (status.IsIOError()) {
+          ROCKS_LOG_ERROR(immutable_db_options_.info_log,
+                          "IOError during point-in-time reading log #%" PRIu64
+                          " seq #%" PRIu64
+                          ". %s. This likely mean loss of synced WAL, "
+                          "thus recovery fails.",
+                          log_number, *next_sequence,
+                          status.ToString().c_str());
+          return status;
+        }
         // We should ignore the error but not continue replaying
         status = Status::OK();
         stop_replay_for_corruption = true;
@@ -1228,6 +1277,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       if (range_del_iter != nullptr) {
         range_del_iters.emplace_back(range_del_iter);
       }
+      IOStatus io_s;
       s = BuildTable(
           dbname_, env_, fs_.get(), *cfd->ioptions(), mutable_cf_options,
           file_options_for_compaction_, cfd->table_cache(), iter.get(),
@@ -1236,8 +1286,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
           mutable_cf_options.sample_for_compression,
-          cfd->ioptions()->compression_opts, paranoid_file_checks,
-          cfd->internal_stats(), TableFileCreationReason::kRecovery,
+          mutable_cf_options.compression_opts, paranoid_file_checks,
+          cfd->internal_stats(), TableFileCreationReason::kRecovery, &io_s,
           &event_logger_, job_id, Env::IO_HIGH, nullptr /* table_properties */,
           -1 /* level */, current_time, write_hint);
       LogFlush(immutable_db_options_.info_log);
@@ -1400,13 +1450,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       impl->error_handler_.EnableAutoRecovery();
     }
   }
-
-  if (!s.ok()) {
-    delete impl;
-    return s;
+  if (s.ok()) {
+    s = impl->CreateArchivalDirectory();
   }
-
-  s = impl->CreateArchivalDirectory();
   if (!s.ok()) {
     delete impl;
     return s;
@@ -1477,7 +1523,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       }
 
       impl->DeleteObsoleteFiles();
-      s = impl->directories_.GetDbDir()->Fsync();
+      s = impl->directories_.GetDbDir()->Fsync(IOOptions(), nullptr);
     }
     if (s.ok()) {
       // In WritePrepared there could be gap in sequence numbers. This breaks
@@ -1558,6 +1604,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   auto sfm = static_cast<SstFileManagerImpl*>(
       impl->immutable_db_options_.sst_file_manager.get());
   if (s.ok() && sfm) {
+    // Set Statistics ptr for SstFileManager to dump the stats of
+    // DeleteScheduler.
+    sfm->SetStatisticsPtr(impl->immutable_db_options_.statistics);
+    ROCKS_LOG_INFO(impl->immutable_db_options_.info_log,
+                   "SstFileManager instance %p", sfm);
+
     // Notify SstFileManager about all sst files that already exist in
     // db_paths[0] and cf_paths[0] when the DB is opened.
 

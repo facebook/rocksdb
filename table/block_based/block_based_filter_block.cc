@@ -184,6 +184,7 @@ std::unique_ptr<FilterBlockReader> BlockBasedFilterBlockReader::Create(
                                      use_cache, nullptr /* get_context */,
                                      lookup_context, &filter_block);
     if (!s.ok()) {
+      IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
     }
 

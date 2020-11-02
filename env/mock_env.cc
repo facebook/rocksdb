@@ -10,6 +10,7 @@
 #include "env/mock_env.h"
 #include <algorithm>
 #include <chrono>
+#include "file/filename.h"
 #include "port/sys_time.h"
 #include "util/cast_util.h"
 #include "util/murmurhash.h"
@@ -587,6 +588,7 @@ Status MockEnv::Truncate(const std::string& fname, size_t size) {
 
 Status MockEnv::CreateDir(const std::string& dirname) {
   auto dn = NormalizePath(dirname);
+  MutexLock lock(&mutex_);
   if (file_map_.find(dn) == file_map_.end()) {
     MemFile* file = new MemFile(this, dn, false);
     file->Ref();
@@ -699,8 +701,7 @@ Status MockEnv::LockFile(const std::string& fname, FileLock** flock) {
 }
 
 Status MockEnv::UnlockFile(FileLock* flock) {
-  std::string fn =
-      static_cast_with_check<MockEnvFileLock, FileLock>(flock)->FileName();
+  std::string fn = static_cast_with_check<MockEnvFileLock>(flock)->FileName();
   {
     MutexLock lock(&mutex_);
     if (file_map_.find(fn) != file_map_.end()) {
@@ -744,17 +745,6 @@ Status MockEnv::CorruptBuffer(const std::string& fname) {
   }
   iter->second->CorruptBuffer();
   return Status::OK();
-}
-
-std::string MockEnv::NormalizePath(const std::string path) {
-  std::string dst;
-  for (auto c : path) {
-    if (!dst.empty() && c == '/' && dst.back() == '/') {
-      continue;
-    }
-    dst.push_back(c);
-  }
-  return dst;
 }
 
 void MockEnv::FakeSleepForMicroseconds(int64_t micros) {

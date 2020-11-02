@@ -120,6 +120,9 @@ class PessimisticTransaction : public TransactionBaseImpl {
   // Refer to
   // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery
   bool use_only_the_last_commit_time_batch_for_recovery_ = false;
+  // Refer to
+  // TransactionOptions::skip_prepare
+  bool skip_prepare_ = false;
 
   virtual Status PrepareInternal() = 0;
 

@@ -9,14 +9,628 @@
 #include <cinttypes>
 #include <limits>
 #include <string>
+
 #include "options/db_options.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/concurrent_task_limiter.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
+#include "rocksdb/utilities/object_registry.h"
+#include "table/block_based/block_based_table_factory.h"
+#include "table/plain/plain_table_factory.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
+// offset_of is used to get the offset of a class data member
+// ex: offset_of(&ColumnFamilyOptions::num_levels)
+// This call will return the offset of num_levels in ColumnFamilyOptions class
+//
+// This is the same as offsetof() but allow us to work with non standard-layout
+// classes and structures
+// refs:
+// http://en.cppreference.com/w/cpp/concept/StandardLayoutType
+// https://gist.github.com/graphitemaster/494f21190bb2c63c5516
+#ifndef ROCKSDB_LITE
+ColumnFamilyOptions OptionsHelper::dummy_cf_options;
+template <typename T1>
+int offset_of(T1 ColumnFamilyOptions::*member) {
+  return int(size_t(&(OptionsHelper::dummy_cf_options.*member)) -
+             size_t(&OptionsHelper::dummy_cf_options));
+}
+template <typename T1>
+int offset_of(T1 AdvancedColumnFamilyOptions::*member) {
+  return int(size_t(&(OptionsHelper::dummy_cf_options.*member)) -
+             size_t(&OptionsHelper::dummy_cf_options));
+}
+
+static Status ParseCompressionOptions(const std::string& value,
+                                      const std::string& name,
+                                      CompressionOptions& compression_opts) {
+  size_t start = 0;
+  size_t end = value.find(':');
+  if (end == std::string::npos) {
+    return Status::InvalidArgument("unable to parse the specified CF option " +
+                                   name);
+  }
+  compression_opts.window_bits = ParseInt(value.substr(start, end - start));
+  start = end + 1;
+  end = value.find(':', start);
+  if (end == std::string::npos) {
+    return Status::InvalidArgument("unable to parse the specified CF option " +
+                                   name);
+  }
+  compression_opts.level = ParseInt(value.substr(start, end - start));
+  start = end + 1;
+  if (start >= value.size()) {
+    return Status::InvalidArgument("unable to parse the specified CF option " +
+                                   name);
+  }
+  end = value.find(':', start);
+  compression_opts.strategy =
+      ParseInt(value.substr(start, value.size() - start));
+  // max_dict_bytes is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.max_dict_bytes =
+        ParseInt(value.substr(start, value.size() - start));
+    end = value.find(':', start);
+  }
+  // zstd_max_train_bytes is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.zstd_max_train_bytes =
+        ParseInt(value.substr(start, value.size() - start));
+    end = value.find(':', start);
+  }
+  // parallel_threads is not serialized with this format.
+  // We plan to upgrade the format to a JSON-like format.
+  compression_opts.parallel_threads = CompressionOptions().parallel_threads;
+
+  // enabled is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.enabled =
+        ParseBoolean("", value.substr(start, value.size() - start));
+  }
+  return Status::OK();
+}
+
+const std::string kOptNameBMCompOpts = "bottommost_compression_opts";
+const std::string kOptNameCompOpts = "compression_opts";
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    fifo_compaction_options_type_info = {
+        {"max_table_files_size",
+         {offsetof(struct CompactionOptionsFIFO, max_table_files_size),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct CompactionOptionsFIFO, max_table_files_size)}},
+        {"ttl",
+         {0, OptionType::kUInt64T, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone, 0}},
+        {"allow_compaction",
+         {offsetof(struct CompactionOptionsFIFO, allow_compaction),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct CompactionOptionsFIFO, allow_compaction)}}};
+
+static std::unordered_map<std::string, OptionTypeInfo>
+    universal_compaction_options_type_info = {
+        {"size_ratio",
+         {offsetof(class CompactionOptionsUniversal, size_ratio),
+          OptionType::kUInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal, size_ratio)}},
+        {"min_merge_width",
+         {offsetof(class CompactionOptionsUniversal, min_merge_width),
+          OptionType::kUInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal, min_merge_width)}},
+        {"max_merge_width",
+         {offsetof(class CompactionOptionsUniversal, max_merge_width),
+          OptionType::kUInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal, max_merge_width)}},
+        {"max_size_amplification_percent",
+         {offsetof(class CompactionOptionsUniversal,
+                   max_size_amplification_percent),
+          OptionType::kUInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal,
+                   max_size_amplification_percent)}},
+        {"compression_size_percent",
+         {offsetof(class CompactionOptionsUniversal, compression_size_percent),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal,
+                   compression_size_percent)}},
+        {"stop_style",
+         {offsetof(class CompactionOptionsUniversal, stop_style),
+          OptionType::kCompactionStopStyle, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal, stop_style)}},
+        {"allow_trivial_move",
+         {offsetof(class CompactionOptionsUniversal, allow_trivial_move),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(class CompactionOptionsUniversal, allow_trivial_move)}}};
+
+std::unordered_map<std::string, OptionTypeInfo>
+    OptionsHelper::cf_options_type_info = {
+        /* not yet supported
+        CompressionOptions compression_opts;
+        TablePropertiesCollectorFactories table_properties_collector_factories;
+        typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
+            TablePropertiesCollectorFactories;
+        UpdateStatus (*inplace_callback)(char* existing_value,
+                                         uint34_t* existing_value_size,
+                                         Slice delta_value,
+                                         std::string* merged_value);
+        std::vector<DbPath> cf_paths;
+         */
+        {"report_bg_io_stats",
+         {offset_of(&ColumnFamilyOptions::report_bg_io_stats),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, report_bg_io_stats)}},
+        {"compaction_measure_io_stats",
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone, 0}},
+        {"disable_auto_compactions",
+         {offset_of(&ColumnFamilyOptions::disable_auto_compactions),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, disable_auto_compactions)}},
+        {"filter_deletes",
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable, 0}},
+        {"inplace_update_support",
+         {offset_of(&ColumnFamilyOptions::inplace_update_support),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"level_compaction_dynamic_level_bytes",
+         {offset_of(&ColumnFamilyOptions::level_compaction_dynamic_level_bytes),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"optimize_filters_for_hits",
+         {offset_of(&ColumnFamilyOptions::optimize_filters_for_hits),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"paranoid_file_checks",
+         {offset_of(&ColumnFamilyOptions::paranoid_file_checks),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, paranoid_file_checks)}},
+        {"force_consistency_checks",
+         {offset_of(&ColumnFamilyOptions::force_consistency_checks),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"purge_redundant_kvs_while_flush",
+         {offset_of(&ColumnFamilyOptions::purge_redundant_kvs_while_flush),
+          OptionType::kBoolean, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone, 0}},
+        {"verify_checksums_in_compaction",
+         {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable, 0}},
+        {"soft_pending_compaction_bytes_limit",
+         {offset_of(&ColumnFamilyOptions::soft_pending_compaction_bytes_limit),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions,
+                   soft_pending_compaction_bytes_limit)}},
+        {"hard_pending_compaction_bytes_limit",
+         {offset_of(&ColumnFamilyOptions::hard_pending_compaction_bytes_limit),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions,
+                   hard_pending_compaction_bytes_limit)}},
+        {"hard_rate_limit",
+         {0, OptionType::kDouble, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable, 0}},
+        {"soft_rate_limit",
+         {0, OptionType::kDouble, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable, 0}},
+        {"max_compaction_bytes",
+         {offset_of(&ColumnFamilyOptions::max_compaction_bytes),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, max_compaction_bytes)}},
+        {"expanded_compaction_factor",
+         {0, OptionType::kInt, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable, 0}},
+        {"level0_file_num_compaction_trigger",
+         {offset_of(&ColumnFamilyOptions::level0_file_num_compaction_trigger),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions,
+                   level0_file_num_compaction_trigger)}},
+        {"level0_slowdown_writes_trigger",
+         {offset_of(&ColumnFamilyOptions::level0_slowdown_writes_trigger),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, level0_slowdown_writes_trigger)}},
+        {"level0_stop_writes_trigger",
+         {offset_of(&ColumnFamilyOptions::level0_stop_writes_trigger),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, level0_stop_writes_trigger)}},
+        {"max_grandparent_overlap_factor",
+         {0, OptionType::kInt, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable, 0}},
+        {"max_mem_compaction_level",
+         {0, OptionType::kInt, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone, 0}},
+        {"max_write_buffer_number",
+         {offset_of(&ColumnFamilyOptions::max_write_buffer_number),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, max_write_buffer_number)}},
+        {"max_write_buffer_number_to_maintain",
+         {offset_of(&ColumnFamilyOptions::max_write_buffer_number_to_maintain),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"max_write_buffer_size_to_maintain",
+         {offset_of(&ColumnFamilyOptions::max_write_buffer_size_to_maintain),
+          OptionType::kInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"min_write_buffer_number_to_merge",
+         {offset_of(&ColumnFamilyOptions::min_write_buffer_number_to_merge),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"num_levels",
+         {offset_of(&ColumnFamilyOptions::num_levels), OptionType::kInt,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+        {"source_compaction_factor",
+         {0, OptionType::kInt, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable, 0}},
+        {"target_file_size_multiplier",
+         {offset_of(&ColumnFamilyOptions::target_file_size_multiplier),
+          OptionType::kInt, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, target_file_size_multiplier)}},
+        {"arena_block_size",
+         {offset_of(&ColumnFamilyOptions::arena_block_size), OptionType::kSizeT,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, arena_block_size)}},
+        {"inplace_update_num_locks",
+         {offset_of(&ColumnFamilyOptions::inplace_update_num_locks),
+          OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, inplace_update_num_locks)}},
+        {"max_successive_merges",
+         {offset_of(&ColumnFamilyOptions::max_successive_merges),
+          OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, max_successive_merges)}},
+        {"memtable_huge_page_size",
+         {offset_of(&ColumnFamilyOptions::memtable_huge_page_size),
+          OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, memtable_huge_page_size)}},
+        {"memtable_prefix_bloom_huge_page_tlb_size",
+         {0, OptionType::kSizeT, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable, 0}},
+        {"write_buffer_size",
+         {offset_of(&ColumnFamilyOptions::write_buffer_size),
+          OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, write_buffer_size)}},
+        {"bloom_locality",
+         {offset_of(&ColumnFamilyOptions::bloom_locality), OptionType::kUInt32T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0}},
+        {"memtable_prefix_bloom_bits",
+         {0, OptionType::kUInt32T, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable, 0}},
+        {"memtable_prefix_bloom_size_ratio",
+         {offset_of(&ColumnFamilyOptions::memtable_prefix_bloom_size_ratio),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, memtable_prefix_bloom_size_ratio)}},
+        {"memtable_prefix_bloom_probes",
+         {0, OptionType::kUInt32T, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable, 0}},
+        {"memtable_whole_key_filtering",
+         {offset_of(&ColumnFamilyOptions::memtable_whole_key_filtering),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, memtable_whole_key_filtering)}},
+        {"min_partial_merge_operands",
+         {0, OptionType::kUInt32T, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable, 0}},
+        {"max_bytes_for_level_base",
+         {offset_of(&ColumnFamilyOptions::max_bytes_for_level_base),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, max_bytes_for_level_base)}},
+        {"snap_refresh_nanos",
+         {0, OptionType::kUInt64T, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kMutable, 0}},
+        {"max_bytes_for_level_multiplier",
+         {offset_of(&ColumnFamilyOptions::max_bytes_for_level_multiplier),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, max_bytes_for_level_multiplier)}},
+        {"max_bytes_for_level_multiplier_additional",
+         OptionTypeInfo::Vector<int>(
+             offset_of(&ColumnFamilyOptions::
+                           max_bytes_for_level_multiplier_additional),
+             OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+             offsetof(struct MutableCFOptions,
+                      max_bytes_for_level_multiplier_additional),
+             {0, OptionType::kInt, 0})},
+        {"max_sequential_skip_in_iterations",
+         {offset_of(&ColumnFamilyOptions::max_sequential_skip_in_iterations),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions,
+                   max_sequential_skip_in_iterations)}},
+        {"target_file_size_base",
+         {offset_of(&ColumnFamilyOptions::target_file_size_base),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, target_file_size_base)}},
+        {"rate_limit_delay_max_milliseconds",
+         {0, OptionType::kUInt, OptionVerificationType::kDeprecated,
+          OptionTypeFlags::kNone, 0}},
+        {"compression",
+         {offset_of(&ColumnFamilyOptions::compression),
+          OptionType::kCompressionType, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, compression)}},
+        {"compression_per_level",
+         OptionTypeInfo::Vector<CompressionType>(
+             offset_of(&ColumnFamilyOptions::compression_per_level),
+             OptionVerificationType::kNormal, OptionTypeFlags::kNone, 0,
+             {0, OptionType::kCompressionType})},
+        {"bottommost_compression",
+         {offset_of(&ColumnFamilyOptions::bottommost_compression),
+          OptionType::kCompressionType, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, bottommost_compression)}},
+        {"comparator",
+         {offset_of(&ColumnFamilyOptions::comparator), OptionType::kComparator,
+          OptionVerificationType::kByName, OptionTypeFlags::kCompareLoose, 0,
+          // Parses the string and sets the corresponding comparator
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, char* addr) {
+            auto old_comparator = reinterpret_cast<const Comparator**>(addr);
+            const Comparator* new_comparator = *old_comparator;
+            Status status = ObjectRegistry::NewInstance()->NewStaticObject(
+                value, &new_comparator);
+            if (status.ok()) {
+              *old_comparator = new_comparator;
+              return status;
+            }
+            return Status::OK();
+          }}},
+        {"prefix_extractor",
+         {offset_of(&ColumnFamilyOptions::prefix_extractor),
+          OptionType::kSliceTransform, OptionVerificationType::kByNameAllowNull,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, prefix_extractor)}},
+        {"memtable_insert_with_hint_prefix_extractor",
+         {offset_of(
+              &ColumnFamilyOptions::memtable_insert_with_hint_prefix_extractor),
+          OptionType::kSliceTransform, OptionVerificationType::kByNameAllowNull,
+          OptionTypeFlags::kNone, 0}},
+        {"memtable_factory",
+         {offset_of(&ColumnFamilyOptions::memtable_factory),
+          OptionType::kMemTableRepFactory, OptionVerificationType::kByName,
+          OptionTypeFlags::kNone, 0}},
+        {"memtable",
+         {offset_of(&ColumnFamilyOptions::memtable_factory),
+          OptionType::kMemTableRepFactory, OptionVerificationType::kAlias,
+          OptionTypeFlags::kNone, 0,
+          // Parses the value string and updates the memtable_factory
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, char* addr) {
+            std::unique_ptr<MemTableRepFactory> new_mem_factory;
+            Status s = GetMemTableRepFactoryFromString(value, &new_mem_factory);
+            if (s.ok()) {
+              auto memtable_factory =
+                  reinterpret_cast<std::shared_ptr<MemTableRepFactory>*>(addr);
+              memtable_factory->reset(new_mem_factory.release());
+            }
+            return s;
+          }}},
+        {"table_factory",
+         {offset_of(&ColumnFamilyOptions::table_factory),
+          OptionType::kTableFactory, OptionVerificationType::kByName,
+          OptionTypeFlags::kCompareLoose, 0}},
+        {"block_based_table_factory",
+         {offset_of(&ColumnFamilyOptions::table_factory),
+          OptionType::kTableFactory, OptionVerificationType::kAlias,
+          OptionTypeFlags::kCompareLoose, 0,
+          // Parses the input value and creates a BlockBasedTableFactory
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, char* addr) {
+            // Nested options
+            auto old_table_factory =
+                reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
+            BlockBasedTableOptions table_opts, base_opts;
+            BlockBasedTableFactory* block_based_table_factory =
+                static_cast_with_check<BlockBasedTableFactory>(
+                    old_table_factory->get());
+            if (block_based_table_factory != nullptr) {
+              base_opts = block_based_table_factory->table_options();
+            }
+            Status s = GetBlockBasedTableOptionsFromString(base_opts, value,
+                                                           &table_opts);
+            if (s.ok()) {
+              old_table_factory->reset(NewBlockBasedTableFactory(table_opts));
+            }
+            return s;
+          }}},
+        {"plain_table_factory",
+         {offset_of(&ColumnFamilyOptions::table_factory),
+          OptionType::kTableFactory, OptionVerificationType::kAlias,
+          OptionTypeFlags::kCompareLoose, 0,
+          // Parses the input value and creates a PlainTableFactory
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, char* addr) {
+            // Nested options
+            auto old_table_factory =
+                reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
+            PlainTableOptions table_opts, base_opts;
+            PlainTableFactory* plain_table_factory =
+                static_cast_with_check<PlainTableFactory>(
+                    old_table_factory->get());
+            if (plain_table_factory != nullptr) {
+              base_opts = plain_table_factory->table_options();
+            }
+            Status s =
+                GetPlainTableOptionsFromString(base_opts, value, &table_opts);
+            if (s.ok()) {
+              old_table_factory->reset(NewPlainTableFactory(table_opts));
+            }
+            return s;
+          }}},
+        {"compaction_filter",
+         {offset_of(&ColumnFamilyOptions::compaction_filter),
+          OptionType::kCompactionFilter, OptionVerificationType::kByName,
+          OptionTypeFlags::kNone, 0}},
+        {"compaction_filter_factory",
+         {offset_of(&ColumnFamilyOptions::compaction_filter_factory),
+          OptionType::kCompactionFilterFactory, OptionVerificationType::kByName,
+          OptionTypeFlags::kNone, 0}},
+        {"merge_operator",
+         {offset_of(&ColumnFamilyOptions::merge_operator),
+          OptionType::kMergeOperator,
+          OptionVerificationType::kByNameAllowFromNull,
+          OptionTypeFlags::kCompareLoose, 0,
+          // Parses the input value as a MergeOperator, updating the value
+          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
+             const std::string& value, char* addr) {
+            auto mop = reinterpret_cast<std::shared_ptr<MergeOperator>*>(addr);
+            ObjectRegistry::NewInstance()
+                ->NewSharedObject<MergeOperator>(value, mop)
+                .PermitUncheckedError();
+            return Status::OK();
+          }}},
+        {"compaction_style",
+         {offset_of(&ColumnFamilyOptions::compaction_style),
+          OptionType::kCompactionStyle, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"compaction_pri",
+         {offset_of(&ColumnFamilyOptions::compaction_pri),
+          OptionType::kCompactionPri, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone, 0}},
+        {"compaction_options_fifo",
+         OptionTypeInfo::Struct(
+             "compaction_options_fifo", &fifo_compaction_options_type_info,
+             offset_of(&ColumnFamilyOptions::compaction_options_fifo),
+             OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+             offsetof(struct MutableCFOptions, compaction_options_fifo),
+             [](const ConfigOptions& opts, const std::string& name,
+                const std::string& value, char* addr) {
+               // This is to handle backward compatibility, where
+               // compaction_options_fifo could be assigned a single scalar
+               // value, say, like "23", which would be assigned to
+               // max_table_files_size.
+               if (name == "compaction_options_fifo" &&
+                   value.find("=") == std::string::npos) {
+                 // Old format. Parse just a single uint64_t value.
+                 auto options = reinterpret_cast<CompactionOptionsFIFO*>(addr);
+                 options->max_table_files_size = ParseUint64(value);
+                 return Status::OK();
+               } else {
+                 return OptionTypeInfo::ParseStruct(
+                     opts, "compaction_options_fifo",
+                     &fifo_compaction_options_type_info, name, value, addr);
+               }
+             })},
+        {"compaction_options_universal",
+         OptionTypeInfo::Struct(
+             "compaction_options_universal",
+             &universal_compaction_options_type_info,
+             offset_of(&ColumnFamilyOptions::compaction_options_universal),
+             OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+             offsetof(struct MutableCFOptions, compaction_options_universal))},
+        {"ttl",
+         {offset_of(&ColumnFamilyOptions::ttl), OptionType::kUInt64T,
+          OptionVerificationType::kNormal, OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, ttl)}},
+        {"periodic_compaction_seconds",
+         {offset_of(&ColumnFamilyOptions::periodic_compaction_seconds),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, periodic_compaction_seconds)}},
+        {"sample_for_compression",
+         {offset_of(&ColumnFamilyOptions::sample_for_compression),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable,
+          offsetof(struct MutableCFOptions, sample_for_compression)}},
+        // The following properties were handled as special cases in ParseOption
+        // This means that the properties could be read from the options file
+        // but never written to the file or compared to each other.
+        {kOptNameCompOpts,
+         {offset_of(&ColumnFamilyOptions::compression_opts),
+          OptionType::kUnknown, OptionVerificationType::kNormal,
+          (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever |
+           OptionTypeFlags::kMutable),
+          offsetof(struct MutableCFOptions, compression_opts),
+          // Parses the value as a CompressionOptions
+          [](const ConfigOptions& /*opts*/, const std::string& name,
+             const std::string& value, char* addr) {
+            auto* compression = reinterpret_cast<CompressionOptions*>(addr);
+            return ParseCompressionOptions(value, name, *compression);
+          }}},
+        {kOptNameBMCompOpts,
+         {offset_of(&ColumnFamilyOptions::bottommost_compression_opts),
+          OptionType::kUnknown, OptionVerificationType::kNormal,
+          (OptionTypeFlags::kDontSerialize | OptionTypeFlags::kCompareNever |
+           OptionTypeFlags::kMutable),
+          offsetof(struct MutableCFOptions, bottommost_compression_opts),
+          // Parses the value as a CompressionOptions
+          [](const ConfigOptions& /*opts*/, const std::string& name,
+             const std::string& value, char* addr) {
+            auto* compression = reinterpret_cast<CompressionOptions*>(addr);
+            return ParseCompressionOptions(value, name, *compression);
+          }}},
+        // End special case properties
+};
+
+Status ParseColumnFamilyOption(const ConfigOptions& config_options,
+                               const std::string& name,
+                               const std::string& org_value,
+                               ColumnFamilyOptions* new_options) {
+  const std::string& value = config_options.input_strings_escaped
+                                 ? UnescapeOptionString(org_value)
+                                 : org_value;
+  try {
+    std::string elem;
+    const auto opt_info =
+        OptionTypeInfo::Find(name, cf_options_type_info, &elem);
+    if (opt_info != nullptr) {
+      return opt_info->Parse(
+          config_options, elem, value,
+          reinterpret_cast<char*>(new_options) + opt_info->offset_);
+    } else {
+      return Status::InvalidArgument(
+          "Unable to parse the specified CF option " + name);
+    }
+  } catch (const std::exception&) {
+    return Status::InvalidArgument("unable to parse the specified option " +
+                                   name);
+  }
+}
+#endif  // ROCKSDB_LITE
 
 ImmutableCFOptions::ImmutableCFOptions(const Options& options)
     : ImmutableCFOptions(ImmutableDBOptions(options), options) {}
@@ -57,9 +671,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
           cf_options.purge_redundant_kvs_while_flush),
       use_fsync(db_options.use_fsync),
       compression_per_level(cf_options.compression_per_level),
-      bottommost_compression(cf_options.bottommost_compression),
-      bottommost_compression_opts(cf_options.bottommost_compression_opts),
-      compression_opts(cf_options.compression_opts),
       level_compaction_dynamic_level_bytes(
           cf_options.level_compaction_dynamic_level_bytes),
       access_hint_on_compaction_start(
@@ -78,7 +689,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
           cf_options.memtable_insert_with_hint_prefix_extractor.get()),
       cf_paths(cf_options.cf_paths),
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
-      sst_file_checksum_func(db_options.sst_file_checksum_func.get()) {}
+      file_checksum_gen_factory(db_options.file_checksum_gen_factory.get()) {}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
@@ -107,6 +718,17 @@ uint64_t MaxFileSizeForLevel(const MutableCFOptions& cf_options,
     assert(level - base_level < (int)cf_options.max_file_size.size());
     return cf_options.max_file_size[level - base_level];
   }
+}
+
+size_t MaxFileSizeForL0MetaPin(const MutableCFOptions& cf_options) {
+  // We do not want to pin meta-blocks that almost certainly came from intra-L0
+  // or a former larger `write_buffer_size` value to avoid surprising users with
+  // pinned memory usage. We use a factor of 1.5 to account for overhead
+  // introduced during flush in most cases.
+  if (port::kMaxSizet / 3 < cf_options.write_buffer_size / 2) {
+    return port::kMaxSizet;
+  }
+  return cf_options.write_buffer_size / 2 * 3;
 }
 
 void MutableCFOptions::RefreshDerivedOptions(int num_levels,

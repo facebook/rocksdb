@@ -186,6 +186,9 @@ DEFINE_int64(compressed_cache_size, -1,
 DEFINE_int32(compaction_style, ROCKSDB_NAMESPACE::Options().compaction_style,
              "");
 
+DEFINE_int32(num_levels, ROCKSDB_NAMESPACE::Options().num_levels,
+             "Number of levels in the DB");
+
 DEFINE_int32(level0_file_num_compaction_trigger,
              ROCKSDB_NAMESPACE::Options().level0_file_num_compaction_trigger,
              "Level0 compaction start trigger");
@@ -256,10 +259,21 @@ DEFINE_int32(clear_column_family_one_in, 1000000,
              "it again. If N == 0, never drop/create column families. "
              "When test_batches_snapshots is true, this flag has no effect");
 
-DEFINE_int32(get_live_files_and_wal_files_one_in, 1000000,
-             "With a chance of 1/N, call GetLiveFiles, GetSortedWalFiles "
-             "and GetCurrentWalFile to verify if it returns correctly. If "
-             "N == 0, never call the three interfaces.");
+DEFINE_int32(get_live_files_one_in, 1000000,
+             "With a chance of 1/N, call GetLiveFiles to verify if it returns "
+             "correctly. If N == 0, do not call the interface.");
+
+DEFINE_int32(
+    get_sorted_wal_files_one_in, 1000000,
+    "With a chance of 1/N, call GetSortedWalFiles to verify if it returns "
+    "correctly. (Note that this API may legitimately return an error.) If N == "
+    "0, do not call the interface.");
+
+DEFINE_int32(
+    get_current_wal_file_one_in, 1000000,
+    "With a chance of 1/N, call GetCurrentWalFile to verify if it returns "
+    "correctly. (Note that this API may legitimately return an error.) If N == "
+    "0, do not call the interface.");
 
 DEFINE_int32(set_options_one_in, 0,
              "With a chance of 1/N, change some random options");
@@ -384,6 +398,9 @@ DEFINE_bool(use_direct_io_for_flush_and_compaction,
             ROCKSDB_NAMESPACE::Options().use_direct_io_for_flush_and_compaction,
             "Use O_DIRECT for writing data");
 
+DEFINE_bool(mock_direct_io, false,
+            "Mock direct IO by not using O_DIRECT for direct IO read");
+
 DEFINE_bool(statistics, false, "Create database statistics");
 
 DEFINE_bool(sync, false, "Sync all writes to disk");
@@ -429,6 +446,14 @@ DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
 DEFINE_bool(rate_limit_bg_reads, false,
             "Use options.rate_limiter on compaction reads");
+
+DEFINE_uint64(sst_file_manager_bytes_per_sec, 0,
+              "Set `Options::sst_file_manager` to delete at this rate. By "
+              "default the deletion rate is unbounded.");
+
+DEFINE_uint64(sst_file_manager_bytes_per_truncate, 0,
+              "Set `Options::sst_file_manager` to delete in chunks of this "
+              "many bytes. By default whole files will be deleted.");
 
 DEFINE_bool(use_txn, false,
             "Use TransactionDB. Currently the default write policy is "
@@ -562,6 +587,9 @@ DEFINE_int32(compression_zstd_max_train_bytes, 0,
              "Maximum size of training data passed to zstd's dictionary "
              "trainer.");
 
+DEFINE_int32(compression_parallel_threads, 1,
+             "Number of threads for parallel compression.");
+
 DEFINE_string(bottommost_compression_type, "disable",
               "Algorithm to use to compress bottommost level of the database. "
               "\"disable\" means disabling the feature");
@@ -627,6 +655,10 @@ DEFINE_bool(write_dbid_to_manifest,
             ROCKSDB_NAMESPACE::Options().write_dbid_to_manifest,
             "Write DB_ID to manifest");
 
+DEFINE_bool(avoid_flush_during_recovery,
+            ROCKSDB_NAMESPACE::Options().avoid_flush_during_recovery,
+            "Avoid flush during recovery");
+
 DEFINE_uint64(max_write_batch_group_size_bytes,
               ROCKSDB_NAMESPACE::Options().max_write_batch_group_size_bytes,
               "Max write batch group size");
@@ -652,4 +684,11 @@ DEFINE_int32(continuous_verification_interval, 1000,
 DEFINE_int32(approximate_size_one_in, 64,
              "If non-zero, DB::GetApproximateSizes() will be called against"
              " random key ranges.");
+
+DEFINE_int32(read_fault_one_in, 1000,
+            "On non-zero, enables fault injection on read");
+
+DEFINE_bool(sync_fault_injection, false,
+            "If true, FaultInjectionTestFS will be used for write operations, "
+            " and unsynced data in DB will lost after crash.");
 #endif  // GFLAGS

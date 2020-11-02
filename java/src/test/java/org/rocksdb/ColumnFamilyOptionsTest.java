@@ -55,6 +55,27 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
+  public void getColumnFamilyOptionsFromPropsWithIgnoreIllegalValue() {
+    // setup sample properties
+    final Properties properties = new Properties();
+    properties.put("tomato", "1024");
+    properties.put("burger", "2");
+    properties.put("write_buffer_size", "112");
+    properties.put("max_write_buffer_number", "13");
+
+    try (final ConfigOptions cfgOpts = new ConfigOptions().setIgnoreUnknownOptions(true);
+         final ColumnFamilyOptions opt =
+             ColumnFamilyOptions.getColumnFamilyOptionsFromProps(cfgOpts, properties)) {
+      // setup sample properties
+      assertThat(opt).isNotNull();
+      assertThat(String.valueOf(opt.writeBufferSize()))
+          .isEqualTo(properties.get("write_buffer_size"));
+      assertThat(String.valueOf(opt.maxWriteBufferNumber()))
+          .isEqualTo(properties.get("max_write_buffer_number"));
+    }
+  }
+
+  @Test
   public void failColumnFamilyOptionsFromPropsWithIllegalValue() {
     // setup sample properties
     final Properties properties = new Properties();

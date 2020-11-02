@@ -132,6 +132,7 @@ std::unique_ptr<FilterBlockReader> FullFilterBlockReader::Create(
                                      use_cache, nullptr /* get_context */,
                                      lookup_context, &filter_block);
     if (!s.ok()) {
+      IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
     }
 
@@ -164,6 +165,7 @@ bool FullFilterBlockReader::MayMatch(
   const Status s =
       GetOrReadFilterBlock(no_io, get_context, lookup_context, &filter_block);
   if (!s.ok()) {
+    IGNORE_STATUS_IF_ERROR(s);
     return true;
   }
 
@@ -189,7 +191,6 @@ void FullFilterBlockReader::KeysMayMatch(
     uint64_t block_offset, const bool no_io,
     BlockCacheLookupContext* lookup_context) {
 #ifdef NDEBUG
-  (void)range;
   (void)block_offset;
 #endif
   assert(block_offset == kNotValid);
@@ -206,7 +207,6 @@ void FullFilterBlockReader::PrefixesMayMatch(
     uint64_t block_offset, const bool no_io,
     BlockCacheLookupContext* lookup_context) {
 #ifdef NDEBUG
-  (void)range;
   (void)block_offset;
 #endif
   assert(block_offset == kNotValid);
@@ -221,6 +221,7 @@ void FullFilterBlockReader::MayMatch(
   const Status s = GetOrReadFilterBlock(no_io, range->begin()->get_context,
                                         lookup_context, &filter_block);
   if (!s.ok()) {
+    IGNORE_STATUS_IF_ERROR(s);
     return;
   }
 
@@ -285,7 +286,8 @@ bool FullFilterBlockReader::RangeMayExist(
     const Slice* iterate_upper_bound, const Slice& user_key,
     const SliceTransform* prefix_extractor, const Comparator* comparator,
     const Slice* const const_ikey_ptr, bool* filter_checked,
-    bool need_upper_bound_check, BlockCacheLookupContext* lookup_context) {
+    bool need_upper_bound_check, bool no_io,
+    BlockCacheLookupContext* lookup_context) {
   if (!prefix_extractor || !prefix_extractor->InDomain(user_key)) {
     *filter_checked = false;
     return true;
@@ -297,7 +299,7 @@ bool FullFilterBlockReader::RangeMayExist(
     return true;
   } else {
     *filter_checked = true;
-    return PrefixMayMatch(prefix, prefix_extractor, kNotValid, false,
+    return PrefixMayMatch(prefix, prefix_extractor, kNotValid, no_io,
                           const_ikey_ptr, /* get_context */ nullptr,
                           lookup_context);
   }
