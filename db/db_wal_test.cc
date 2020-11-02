@@ -1697,10 +1697,7 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
   constexpr size_t kKB = 1024;
   Options options = CurrentOptions();
   options.avoid_flush_during_recovery = true;
-  if (options.env != Env::Default()) {
-    ROCKSDB_GTEST_SKIP("Test requires default environment");
-    return;
-  }
+  options.env = env_;
   // Test fallocate support of running file system.
   // Skip this test if fallocate is not supported.
   std::string fname_test_fallocate = dbname_ + "/preallocate_testfile";
