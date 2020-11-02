@@ -520,6 +520,15 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
           cfd->user_comparator()->Name(),
           "does not match existing comparator " + edit.comparator_);
     }
+    if (edit.HasFullHistoryTsLow()) {
+      const Comparator* const ucmp = cfd->user_comparator();
+      assert(ucmp);
+      const std::string& ts = cfd->GetFullHistoryTsLow();
+      const std::string& new_ts = edit.GetFullHistoryTsLow();
+      if (ts.empty() || ucmp->CompareTimestamp(ts, new_ts) < 0) {
+        cfd->SetFullHistoryTsLow(new_ts);
+      }
+    }
   }
 
   if (s.ok()) {

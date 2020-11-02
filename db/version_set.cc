@@ -4614,6 +4614,15 @@ Status VersionSet::ExtractInfoFromVersionEdit(
           cfd->user_comparator()->Name(),
           "does not match existing comparator " + from_edit.comparator_);
     }
+    if (from_edit.HasFullHistoryTsLow()) {
+      const Comparator* const ucmp = cfd->user_comparator();
+      assert(ucmp);
+      const std::string& ts = cfd->GetFullHistoryTsLow();
+      const std::string& new_ts = from_edit.GetFullHistoryTsLow();
+      if (ts.empty() || ucmp->CompareTimestamp(ts, new_ts) < 0) {
+        cfd->SetFullHistoryTsLow(new_ts);
+      }
+    }
   }
 
   if (from_edit.has_prev_log_number_) {
