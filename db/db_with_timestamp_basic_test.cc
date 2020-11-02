@@ -671,6 +671,50 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, MultiGetPrefixFilter) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewCappedPrefixTransform(5));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.cache_index_and_filter_blocks = true;
+  bbto.whole_key_filtering = false;
+  options.memtable_prefix_bloom_size_ratio = 0.1;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
+
+  ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
+
+  Flush();
+  // Read with MultiGet
+  ts_str = Timestamp(2, 0);
+  ts = ts_str;
+  ReadOptions read_opts;
+  read_opts.timestamp = &ts;
+  size_t batch_size = 1;
+  std::vector<Slice> keys(batch_size);
+  std::vector<std::string> values(batch_size);
+  std::vector<std::string> timestamps(batch_size);
+  keys[0] = "foo";
+  ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
+  std::vector<ColumnFamilyHandle*> cfhs(keys.size(), cfh);
+  std::vector<Status> statuses =
+      db_->MultiGet(read_opts, cfhs, keys, &values,
+                &timestamps);
+
+  ASSERT_OK(statuses[0]);
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp, MaxKeysSkipped) {
   Options options = CurrentOptions();
   options.env = env_;
