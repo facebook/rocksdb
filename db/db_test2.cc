@@ -1396,73 +1396,18 @@ class PresetCompressionDictTest
       public testing::WithParamInterface<std::tuple<CompressionType, bool>> {
  public:
   PresetCompressionDictTest()
-      : DBTestBase("/db_test2", false /* env_do_fsync */) {}
-
-  void SetUp() override {
-    compression_type_ = std::get<0>(GetParam());
-    bottommost_ = std::get<1>(GetParam());
-  }
+      : DBTestBase("/db_test2", false /* env_do_fsync */),
+        compression_type_(std::get<0>(GetParam())),
+        bottommost_(std::get<1>(GetParam())) {}
 
  protected:
-  CompressionType compression_type_;
-  bool bottommost_;
+  const CompressionType compression_type_;
+  const bool bottommost_;
 };
-
-namespace {
-
-bool DictCompressionTypeSupported(CompressionType compression_type) {
-  switch (compression_type) {
-    case kNoCompression:
-      return false;
-    case kSnappyCompression:
-      return false;
-    case kZlibCompression:
-      return Zlib_Supported();
-    case kBZip2Compression:
-      return false;
-    case kLZ4Compression:
-    case kLZ4HCCompression:
-#if LZ4_VERSION_NUMBER >= 10400  // r124+
-      return LZ4_Supported();
-#else
-      return false;
-#endif
-    case kXpressCompression:
-      return false;
-    case kZSTDNotFinalCompression:
-#if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
-      return ZSTDNotFinal_Supported();
-#else
-      return false;
-#endif
-    case kZSTD:
-#if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
-      return ZSTD_Supported();
-#else
-      return false;
-#endif
-    default:
-      assert(false);
-      return false;
-  }
-}
-
-std::vector<CompressionType> GetDictCompressionTypes() {
-  std::vector<CompressionType> dict_compression_types;
-  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
-    CompressionType t = comp_to_name.second;
-    if (t != kDisableCompressionOption && DictCompressionTypeSupported(t)) {
-      dict_compression_types.push_back(t);
-    }
-  }
-  return dict_compression_types;
-}
-
-}  // anonymous namespace
 
 INSTANTIATE_TEST_CASE_P(
     DBTest2, PresetCompressionDictTest,
-    ::testing::Combine(::testing::ValuesIn(GetDictCompressionTypes()),
+    ::testing::Combine(::testing::ValuesIn(GetSupportedDictCompressions()),
                        ::testing::Bool()));
 
 TEST_P(PresetCompressionDictTest, Flush) {
@@ -1494,7 +1439,7 @@ TEST_P(PresetCompressionDictTest, Flush) {
   for (size_t i = 0; i <= kKeysPerFile; ++i) {
     ASSERT_OK(Put(Key(static_cast<int>(i)), rnd.RandomString(kValueLen)));
   }
-  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
   // If there's a compression dictionary, it should have been loaded when the
   // flush finished, incurring a cache miss.
@@ -1554,7 +1499,7 @@ TEST_P(PresetCompressionDictTest, CompactNonBottommost) {
   // This L0->L1 compaction merges the two L0 files into L1. The produced L1
   // file is not bottommost due to the existing L2 file covering the same key-
   // range.
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("0,1,1", FilesPerLevel(0));
 #endif  // ROCKSDB_LITE
