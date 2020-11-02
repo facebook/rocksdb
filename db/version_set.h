@@ -1278,6 +1278,11 @@ class VersionSet {
 
   struct MutableCFState {
     uint64_t log_number;
+    std::string full_history_ts_low;
+
+    explicit MutableCFState() = default;
+    explicit MutableCFState(uint64_t _log_number, std::string ts_low)
+        : log_number(_log_number), full_history_ts_low(std::move(ts_low)) {}
   };
 
   // Save current contents to *log

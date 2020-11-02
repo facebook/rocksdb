@@ -509,6 +509,14 @@ class ColumnFamilyData {
 
   FSDirectory* GetDataDir(size_t path_id) const;
 
+  void SetFullHistoryTsLow(std::string ts_low) {
+    full_history_ts_low_ = std::move(ts_low);
+  }
+
+  const std::string& GetFullHistoryTsLow() const {
+    return full_history_ts_low_;
+  }
+
   ThreadLocalPtr* TEST_GetLocalSV() { return local_sv_.get(); }
 
  private:
@@ -605,6 +613,8 @@ class ColumnFamilyData {
   std::vector<std::shared_ptr<FSDirectory>> data_dirs_;
 
   bool db_paths_registered_;
+
+  std::string full_history_ts_low_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

@@ -4044,7 +4044,9 @@ Status VersionSet::ProcessManifestWrites(
     }
     for (const auto* cfd : *column_family_set_) {
       assert(curr_state.find(cfd->GetID()) == curr_state.end());
-      curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
+      curr_state.emplace(std::make_pair(
+          cfd->GetID(),
+          MutableCFState(cfd->GetLogNumber(), cfd->GetFullHistoryTsLow())));
     }
 
     for (const auto& wal : wals_.GetWals()) {
@@ -4235,6 +4237,7 @@ Status VersionSet::ProcessManifestWrites(
             max_log_number_in_batch =
                 std::max(max_log_number_in_batch, e->log_number_);
           }
+          // TODO update column_family_->full_history_ts_low.
         }
         if (max_log_number_in_batch != 0) {
           assert(version->cfd_->GetLogNumber() <= max_log_number_in_batch);
@@ -5279,6 +5282,9 @@ Status VersionSet::WriteCurrentStateToManifest(
       assert(iter != curr_state.end());
       uint64_t log_number = iter->second.log_number;
       edit.SetLogNumber(log_number);
+      const std::string& full_history_ts_low = iter->second.full_history_ts_low;
+      // TODO write full_history_ts_low to MANIFEST.
+      (void)full_history_ts_low;
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption(
