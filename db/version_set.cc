@@ -454,15 +454,14 @@ class FilePickerMultiGet {
         // Check if key is within a file's range. If search left bound and
         // right bound point to the same find, we are sure key falls in
         // range.
+        int cmp_smallest = user_comparator_->CompareWithoutTimestamp(
+            user_key, false, ExtractUserKey(f->smallest_key), true);
+
         assert(curr_level_ == 0 ||
                fp_ctx.curr_index_in_curr_level ==
                    fp_ctx.start_index_in_curr_level ||
-               user_comparator_->CompareWithoutTimestamp(
-                   user_key, false, ExtractUserKey(f->smallest_key), true) <=
-                   0);
+               cmp_smallest <= 0);
 
-        int cmp_smallest = user_comparator_->CompareWithoutTimestamp(
-            user_key, false, ExtractUserKey(f->smallest_key), true);
         if (cmp_smallest >= 0) {
           cmp_largest = user_comparator_->CompareWithoutTimestamp(
               user_key, false, ExtractUserKey(f->largest_key), true);

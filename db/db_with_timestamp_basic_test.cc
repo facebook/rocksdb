@@ -512,16 +512,9 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithFastLocalBloom) {
   Slice ts = ts_str;
   write_opts.timestamp = &ts;
 
-  std::string keystr = "foo";
-  std::string vstr = "bar";
-  Slice k = keystr;
-  Slice v = vstr;
-  ASSERT_OK(db_->Put(write_opts, k, v));
+  ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
 
-  // Flush to sstable
-  FlushOptions fo;
-  fo.wait = true;
-  ASSERT_OK(db_->Flush(fo));
+  Flush();
 
   // Read with MultiGet
   ReadOptions read_opts;
@@ -530,12 +523,13 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithFastLocalBloom) {
   std::vector<Slice> keys(batch_size);
   std::vector<PinnableSlice> values(batch_size);
   std::vector<Status> statuses(batch_size);
-  keys[0] = k;
+  keys[0] = "foo";
   ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
   db_->MultiGet(read_opts, cfh, batch_size, keys.data(), values.data(),
                 statuses.data());
 
   ASSERT_OK(statuses[0]);
+  Close();
 }
 
 TEST_F(DBBasicTestWithTimestamp, MultiGetWithPrefix) {
@@ -559,16 +553,9 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithPrefix) {
   Slice ts = ts_str;
   write_opts.timestamp = &ts;
 
-  std::string keystr = "foo";
-  std::string vstr = "bar";
-  Slice k = keystr;
-  Slice v = vstr;
-  ASSERT_OK(db_->Put(write_opts, k, v));
+  ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
 
-  // Flush to sstable
-  FlushOptions fo;
-  fo.wait = true;
-  ASSERT_OK(db_->Flush(fo));
+  Flush();
 
   // Read with MultiGet
   ReadOptions read_opts;
@@ -577,12 +564,13 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithPrefix) {
   std::vector<Slice> keys(batch_size);
   std::vector<PinnableSlice> values(batch_size);
   std::vector<Status> statuses(batch_size);
-  keys[0] = k;
+  keys[0] = "foo";
   ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
   db_->MultiGet(read_opts, cfh, batch_size, keys.data(), values.data(),
                 statuses.data());
 
   ASSERT_OK(statuses[0]);
+  Close();
 }
 
 TEST_F(DBBasicTestWithTimestamp, MultiGetWithMemBloomFilter) {
@@ -607,11 +595,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithMemBloomFilter) {
   Slice ts = ts_str;
   write_opts.timestamp = &ts;
 
-  std::string keystr = "foo";
-  std::string vstr = "bar";
-  Slice k = keystr;
-  Slice v = vstr;
-  ASSERT_OK(db_->Put(write_opts, k, v));
+  ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
 
   // Read with MultiGet
   ts_str = Timestamp(2, 0);
@@ -622,12 +606,13 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithMemBloomFilter) {
   std::vector<Slice> keys(batch_size);
   std::vector<PinnableSlice> values(batch_size);
   std::vector<Status> statuses(batch_size);
-  keys[0] = k;
+  keys[0] = "foo";
   ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
   db_->MultiGet(read_opts, cfh, batch_size, keys.data(), values.data(),
                 statuses.data());
 
   ASSERT_OK(statuses[0]);
+  Close();
 }
 
 TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
@@ -658,25 +643,15 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
     Slice key_slice = key;
     Slice value_slice = value;
     ASSERT_OK(db_->Put(write_opts, key_slice, value_slice));
-    // Flush to sstable
-    FlushOptions fo;
-    fo.wait = true;
-    ASSERT_OK(db_->Flush(fo));
+    Flush();
   }
 
   // Make num_levels to 2 to do key range filtering of sst files
-  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  std::string keystr = "foo";
-  std::string vstr = "bar";
-  Slice k = keystr;
-  Slice v = vstr;
-  ASSERT_OK(db_->Put(write_opts, k, v));
+  ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
 
-  // Flush to sstable
-  FlushOptions fo;
-  fo.wait = true;
-  ASSERT_OK(db_->Flush(fo));
+  Flush();
 
   // Read with MultiGet
   ts_str = Timestamp(2, 0);
@@ -687,12 +662,13 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
   std::vector<Slice> keys(batch_size);
   std::vector<PinnableSlice> values(batch_size);
   std::vector<Status> statuses(batch_size);
-  keys[0] = k;
+  keys[0] = "foo";
   ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
   db_->MultiGet(read_opts, cfh, batch_size, keys.data(), values.data(),
                 statuses.data());
 
   ASSERT_OK(statuses[0]);
+  Close();
 }
 
 TEST_F(DBBasicTestWithTimestamp, MaxKeysSkipped) {
