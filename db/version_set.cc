@@ -4232,12 +4232,34 @@ Status VersionSet::ProcessManifestWrites(
       for (const auto version : versions) {
         uint64_t max_log_number_in_batch = 0;
         uint32_t cf_id = version->cfd_->GetID();
+        std::string full_history_ts_low;
         for (const auto& e : batch_edits) {
-          if (e->has_log_number_ && e->column_family_ == cf_id) {
-            max_log_number_in_batch =
-                std::max(max_log_number_in_batch, e->log_number_);
+          if (e->column_family_ == cf_id) {
+            if (e->has_log_number_) {
+              max_log_number_in_batch =
+                  std::max(max_log_number_in_batch, e->log_number_);
+            }
+            if (e->HasFullHistoryTsLow()) {
+              assert(version->cfd_);
+              const Comparator* const ucmp = version->cfd_->user_comparator();
+              assert(ucmp);
+              if (full_history_ts_low.empty() ||
+                  ucmp->CompareTimestamp(full_history_ts_low,
+                                         e->GetFullHistoryTsLow()) <= 0) {
+                full_history_ts_low.assign(e->GetFullHistoryTsLow());
+              }
+            }
           }
-          // TODO update column_family_->full_history_ts_low.
+        }
+        assert(version->cfd_);
+        if (!full_history_ts_low.empty()) {
+          const Comparator* const ucmp = version->cfd_->user_comparator();
+          assert(ucmp);
+          if (ucmp->CompareTimestamp(full_history_ts_low,
+                                     version->cfd_->GetFullHistoryTsLow()) >
+              0) {
+            version->cfd_->SetFullHistoryTsLow(full_history_ts_low);
+          }
         }
         if (max_log_number_in_batch != 0) {
           assert(version->cfd_->GetLogNumber() <= max_log_number_in_batch);
@@ -5283,8 +5305,9 @@ Status VersionSet::WriteCurrentStateToManifest(
       uint64_t log_number = iter->second.log_number;
       edit.SetLogNumber(log_number);
       const std::string& full_history_ts_low = iter->second.full_history_ts_low;
-      // TODO write full_history_ts_low to MANIFEST.
-      (void)full_history_ts_low;
+      if (!full_history_ts_low.empty()) {
+        edit.SetFullHistoryTsLow(full_history_ts_low);
+      }
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption(
