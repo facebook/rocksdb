@@ -1696,9 +1696,10 @@ TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
 TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
   constexpr size_t kKB = 1024;
   Options options = CurrentOptions();
+  options.env = env_;
   options.avoid_flush_during_recovery = true;
-  if (options.env != Env::Default()) {
-    ROCKSDB_GTEST_SKIP("Test requires default environment");
+  if (mem_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem environment");
     return;
   }
   // Test fallocate support of running file system.
