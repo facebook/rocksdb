@@ -405,7 +405,10 @@ namespace ribbon {
 //   // big enough for the largest number of columns allowed.
 //   typename ResultRow;
 //   // An unsigned integer type sufficient for representing the number of
-//   // rows in the solution structure. (TODO: verify any extra needed?)
+//   // rows in the solution structure, and at least the arithmetic
+//   // promotion size (usually 32 bits). uint32_t recommended because a
+//   // single Ribbon construction doesn't really scale to billions of
+//   // entries.
 //   typename Index;
 // };
 
@@ -554,11 +557,10 @@ bool BandingAdd(BandingStorage *bs, typename BandingStorage::Index start,
     int tz = CountTrailingZeroBits(cr);
     i += static_cast<Index>(tz);
     cr >>= tz;
-  } else {
-    assert((cr & 1) == 1);
   }
 
   for (;;) {
+    assert((cr & 1) == 1);
     CoeffRow other = *(bs->CoeffRowPtr(i));
     if (other == 0) {
       *(bs->CoeffRowPtr(i)) = cr;
@@ -568,16 +570,19 @@ bool BandingAdd(BandingStorage *bs, typename BandingStorage::Index start,
       return true;
     }
     assert((other & 1) == 1);
+    // Gaussian row reduction
     cr ^= other;
     rr ^= *(bs->ResultRowPtr(i));
     if (cr == 0) {
       // Inconsistency or (less likely) redundancy
       break;
     }
+    // Find relative offset of next non-zero coefficient.
     int tz = CountTrailingZeroBits(cr);
     i += static_cast<Index>(tz);
     cr >>= tz;
   }
+
   // Failed, unless result row == 0 because e.g. a duplicate input or a
   // stock hash collision, with same result row. (For filter, stock hash
   // collision implies same result row.) Or we could have a full equation
@@ -674,7 +679,11 @@ bool BandingAddRange(BandingStorage *bs, BacktrackStorage *bts,
       --backtrack_pos;
       Index i = bts->BacktrackGet(backtrack_pos);
       *(bs->CoeffRowPtr(i)) = 0;
-      // Not required: *(bs->ResultRowPtr(i)) = 0;
+      // Not strictly required, but is required for good FP rate on
+      // inputs that might have been backtracked out. (We don't want
+      // anything we've backtracked on to leak into final result, as
+      // that might not be "harmless".)
+      *(bs->ResultRowPtr(i)) = 0;
     }
   }
   return false;
@@ -1088,8 +1097,8 @@ typename InterleavedSolutionStorage::ResultRow InterleavedPhsfQuery(
   const Hash hash = hasher.GetHash(key);
   const Index start_slot = hasher.GetStart(hash, iss.GetNumStarts());
 
-  const Index upper_start_block = iss->GetUpperStartBlock();
-  Index num_columns = iss->GetUpperNumColumns();
+  const Index upper_start_block = iss.GetUpperStartBlock();
+  Index num_columns = iss.GetUpperNumColumns();
   Index start_block_num = start_slot / kCoeffBits;
   Index segment = start_block_num * num_columns -
                   std::min(start_block_num, upper_start_block);
@@ -1103,14 +1112,14 @@ typename InterleavedSolutionStorage::ResultRow InterleavedPhsfQuery(
   ResultRow sr = 0;
   const CoeffRow cr_left = cr << start_bit;
   for (Index i = 0; i < num_columns; ++i) {
-    sr ^= BitParity(iss->LoadSegment(segment + i) & cr_left) << i;
+    sr ^= BitParity(iss.LoadSegment(segment + i) & cr_left) << i;
   }
 
   if (start_bit > 0) {
     segment += num_columns;
     const CoeffRow cr_right = cr >> (kCoeffBits - start_bit);
     for (Index i = 0; i < num_columns; ++i) {
-      sr ^= BitParity(iss->LoadSegment(segment + i) & cr_right) << i;
+      sr ^= BitParity(iss.LoadSegment(segment + i) & cr_right) << i;
     }
   }
 
@@ -1158,6 +1167,9 @@ bool InterleavedFilterQuery(const typename FilterQueryHasher::Key &key,
 
   const ResultRow expected = hasher.GetResultRowFromHash(hash);
 
+  // TODO: consider optimizations such as
+  // * mask fetched values and shift cr, rather than shifting fetched values
+  // * get rid of start_bit == 0 condition with careful fetching & shifting
   if (start_bit == 0) {
     for (Index i = 0; i < num_columns; ++i) {
       if (BitParity(iss.LoadSegment(segment + i) & cr) !=
