@@ -12,6 +12,7 @@
 
 #include "db/db_test_util.h"
 #include "db/read_callback.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
@@ -1388,6 +1389,178 @@ TEST_F(DBTest2, PresetCompressionDictLocality) {
     size_t blen = b.size();
     ASSERT_TRUE(alen != blen || memcmp(a.data(), b.data(), alen) != 0);
   }
+}
+
+class PresetCompressionDictTest
+    : public DBTestBase,
+      public testing::WithParamInterface<std::tuple<CompressionType, bool>> {
+ public:
+  PresetCompressionDictTest()
+      : DBTestBase("/db_test2", false /* env_do_fsync */),
+        compression_type_(std::get<0>(GetParam())),
+        bottommost_(std::get<1>(GetParam())) {}
+
+ protected:
+  const CompressionType compression_type_;
+  const bool bottommost_;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    DBTest2, PresetCompressionDictTest,
+    ::testing::Combine(::testing::ValuesIn(GetSupportedDictCompressions()),
+                       ::testing::Bool()));
+
+TEST_P(PresetCompressionDictTest, Flush) {
+  // Verifies that dictionary is generated and written during flush only when
+  // `ColumnFamilyOptions::compression` enables dictionary.
+  const size_t kValueLen = 256;
+  const size_t kKeysPerFile = 1 << 10;
+  const size_t kDictLen = 4 << 10;
+
+  Options options = CurrentOptions();
+  if (bottommost_) {
+    options.bottommost_compression = compression_type_;
+    options.bottommost_compression_opts.enabled = true;
+    options.bottommost_compression_opts.max_dict_bytes = kDictLen;
+  } else {
+    options.compression = compression_type_;
+    options.compression_opts.max_dict_bytes = kDictLen;
+  }
+  options.memtable_factory.reset(new SpecialSkipListFactory(kKeysPerFile));
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions bbto;
+  bbto.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+
+  uint64_t prev_compression_dict_misses =
+      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS);
+  Random rnd(301);
+  for (size_t i = 0; i <= kKeysPerFile; ++i) {
+    ASSERT_OK(Put(Key(static_cast<int>(i)), rnd.RandomString(kValueLen)));
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  // If there's a compression dictionary, it should have been loaded when the
+  // flush finished, incurring a cache miss.
+  uint64_t expected_compression_dict_misses;
+  if (bottommost_) {
+    expected_compression_dict_misses = prev_compression_dict_misses;
+  } else {
+    expected_compression_dict_misses = prev_compression_dict_misses + 1;
+  }
+  ASSERT_EQ(expected_compression_dict_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
+}
+
+TEST_P(PresetCompressionDictTest, CompactNonBottommost) {
+  // Verifies that dictionary is generated and written during compaction to
+  // non-bottommost level only when `ColumnFamilyOptions::compression` enables
+  // dictionary.
+  const size_t kValueLen = 256;
+  const size_t kKeysPerFile = 1 << 10;
+  const size_t kDictLen = 4 << 10;
+
+  Options options = CurrentOptions();
+  if (bottommost_) {
+    options.bottommost_compression = compression_type_;
+    options.bottommost_compression_opts.enabled = true;
+    options.bottommost_compression_opts.max_dict_bytes = kDictLen;
+  } else {
+    options.compression = compression_type_;
+    options.compression_opts.max_dict_bytes = kDictLen;
+  }
+  options.disable_auto_compactions = true;
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions bbto;
+  bbto.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+
+  Random rnd(301);
+  for (size_t j = 0; j <= kKeysPerFile; ++j) {
+    ASSERT_OK(Put(Key(static_cast<int>(j)), rnd.RandomString(kValueLen)));
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+
+  for (int i = 0; i < 2; ++i) {
+    for (size_t j = 0; j <= kKeysPerFile; ++j) {
+      ASSERT_OK(Put(Key(static_cast<int>(j)), rnd.RandomString(kValueLen)));
+    }
+    ASSERT_OK(Flush());
+  }
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2,0,1", FilesPerLevel(0));
+#endif  // ROCKSDB_LITE
+
+  uint64_t prev_compression_dict_misses =
+      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS);
+  // This L0->L1 compaction merges the two L0 files into L1. The produced L1
+  // file is not bottommost due to the existing L2 file covering the same key-
+  // range.
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,1,1", FilesPerLevel(0));
+#endif  // ROCKSDB_LITE
+  // If there's a compression dictionary, it should have been loaded when the
+  // compaction finished, incurring a cache miss.
+  uint64_t expected_compression_dict_misses;
+  if (bottommost_) {
+    expected_compression_dict_misses = prev_compression_dict_misses;
+  } else {
+    expected_compression_dict_misses = prev_compression_dict_misses + 1;
+  }
+  ASSERT_EQ(expected_compression_dict_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
+}
+
+TEST_P(PresetCompressionDictTest, CompactBottommost) {
+  // Verifies that dictionary is generated and written during compaction to
+  // non-bottommost level only when either `ColumnFamilyOptions::compression` or
+  // `ColumnFamilyOptions::bottommost_compression` enables dictionary.
+  const size_t kValueLen = 256;
+  const size_t kKeysPerFile = 1 << 10;
+  const size_t kDictLen = 4 << 10;
+
+  Options options = CurrentOptions();
+  if (bottommost_) {
+    options.bottommost_compression = compression_type_;
+    options.bottommost_compression_opts.enabled = true;
+    options.bottommost_compression_opts.max_dict_bytes = kDictLen;
+  } else {
+    options.compression = compression_type_;
+    options.compression_opts.max_dict_bytes = kDictLen;
+  }
+  options.disable_auto_compactions = true;
+  options.statistics = CreateDBStatistics();
+  BlockBasedTableOptions bbto;
+  bbto.cache_index_and_filter_blocks = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 2; ++i) {
+    for (size_t j = 0; j <= kKeysPerFile; ++j) {
+      ASSERT_OK(Put(Key(static_cast<int>(j)), rnd.RandomString(kValueLen)));
+    }
+    ASSERT_OK(Flush());
+  }
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("2", FilesPerLevel(0));
+#endif  // ROCKSDB_LITE
+
+  uint64_t prev_compression_dict_misses =
+      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS);
+  CompactRangeOptions cro;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+#endif  // ROCKSDB_LITE
+  // If there's a compression dictionary, it should have been loaded when the
+  // compaction finished, incurring a cache miss.
+  ASSERT_EQ(prev_compression_dict_misses + 1,
+            TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
 }
 
 class CompactionCompressionListener : public EventListener {
