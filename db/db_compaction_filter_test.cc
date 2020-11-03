@@ -314,7 +314,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
+      ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true /* log_err_key */));
       total++;
       if (ikey.sequence != 0) {
         count++;
@@ -405,7 +405,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
+      ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true /* log_err_key */));
       ASSERT_NE(ikey.sequence, (unsigned)0);
       count++;
       iter->Next();
@@ -624,7 +624,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ASSERT_OK(ParseInternalKey(iter->key(), &ikey));
+      ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true /* log_err_key */));
       total++;
       if (ikey.sequence != 0) {
         count++;

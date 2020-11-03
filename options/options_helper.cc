@@ -299,6 +299,17 @@ std::vector<CompressionType> GetSupportedCompressions() {
   return supported_compressions;
 }
 
+std::vector<CompressionType> GetSupportedDictCompressions() {
+  std::vector<CompressionType> dict_compression_types;
+  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
+    CompressionType t = comp_to_name.second;
+    if (t != kDisableCompressionOption && DictCompressionTypeSupported(t)) {
+      dict_compression_types.push_back(t);
+    }
+  }
+  return dict_compression_types;
+}
+
 #ifndef ROCKSDB_LITE
 bool ParseSliceTransformHelper(
     const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,

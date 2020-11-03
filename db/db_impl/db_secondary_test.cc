@@ -883,6 +883,7 @@ TEST_F(DBSecondaryTest, StartFromInconsistent) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   Options options1;
+  options1.env = env_;
   Status s = TryOpenSecondary(options1);
   ASSERT_TRUE(s.IsCorruption());
 }
@@ -894,6 +895,7 @@ TEST_F(DBSecondaryTest, InconsistencyDuringCatchUp) {
   ASSERT_OK(Flush());
 
   Options options1;
+  options1.env = env_;
   OpenSecondary(options1);
 
   {

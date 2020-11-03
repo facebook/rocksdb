@@ -107,11 +107,12 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
 }
 
 bool DBIter::ParseKey(ParsedInternalKey* ikey) {
-  if (ParseInternalKey(iter_.key(), ikey) != Status::OK()) {
-    status_ = Status::Corruption("corrupted internal key in DBIter");
+  Status s =
+      ParseInternalKey(iter_.key(), ikey, false /* log_err_key */);  // TODO
+  if (!s.ok()) {
+    status_ = Status::Corruption("In DBIter: ", s.getState());
     valid_ = false;
-    ROCKS_LOG_ERROR(logger_, "corrupted internal key in DBIter: %s",
-                    iter_.key().ToString(true).c_str());
+    ROCKS_LOG_ERROR(logger_, "In DBIter: %s", status_.getState());
     return false;
   } else {
     return true;

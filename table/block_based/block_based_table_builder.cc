@@ -21,7 +21,6 @@
 
 #include "db/dbformat.h"
 #include "index_builder.h"
-#include "port/lang.h"
 
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
@@ -56,7 +55,6 @@ namespace ROCKSDB_NAMESPACE {
 extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
 
-typedef BlockBasedTableOptions::IndexType IndexType;
 
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace {

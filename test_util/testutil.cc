@@ -486,46 +486,62 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
   return count;
 }
 
-
-void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
-  struct stat sbuf;
-  if (stat(fname.c_str(), &sbuf) != 0) {
-    // strerror is not thread-safe so should not be used in the "passing" path
-    // of unit tests (sometimes parallelized) but is OK here where test fails
-    const char* msg = strerror(errno);
-    fprintf(stderr, "%s:%s\n", fname.c_str(), msg);
-    assert(false);
-  }
-
-  if (offset < 0) {
+Status CorruptFile(Env* env, const std::string& fname, int offset,
+                   int bytes_to_corrupt, bool verify_checksum /*=true*/) {
+  uint64_t size;
+  Status s = env->GetFileSize(fname, &size);
+  if (!s.ok()) {
+    return s;
+  } else if (offset < 0) {
     // Relative to end of file; make it absolute
-    if (-offset > sbuf.st_size) {
+    if (-offset > static_cast<int>(size)) {
       offset = 0;
     } else {
-      offset = static_cast<int>(sbuf.st_size + offset);
+      offset = static_cast<int>(size + offset);
     }
   }
-  if (offset > sbuf.st_size) {
-    offset = static_cast<int>(sbuf.st_size);
+  if (offset > static_cast<int>(size)) {
+    offset = static_cast<int>(size);
   }
-  if (offset + bytes_to_corrupt > sbuf.st_size) {
-    bytes_to_corrupt = static_cast<int>(sbuf.st_size - offset);
+  if (offset + bytes_to_corrupt > static_cast<int>(size)) {
+    bytes_to_corrupt = static_cast<int>(size - offset);
   }
 
   // Do it
   std::string contents;
-  Status s = ReadFileToString(Env::Default(), fname, &contents);
-  assert(s.ok());
-  for (int i = 0; i < bytes_to_corrupt; i++) {
-    contents[i + offset] ^= 0x80;
+  s = ReadFileToString(env, fname, &contents);
+  if (s.ok()) {
+    for (int i = 0; i < bytes_to_corrupt; i++) {
+      contents[i + offset] ^= 0x80;
+    }
+    s = WriteStringToFile(env, contents, fname);
   }
-  s = WriteStringToFile(Env::Default(), contents, fname);
-  assert(s.ok());
-  Options options;
-  EnvOptions env_options;
+  if (s.ok() && verify_checksum) {
 #ifndef ROCKSDB_LITE
-  assert(!VerifySstFileChecksum(options, env_options, fname).ok());
+    Options options;
+    options.env = env;
+    EnvOptions env_options;
+    Status v = VerifySstFileChecksum(options, env_options, fname);
+    assert(!v.ok());
 #endif
+  }
+  return s;
+}
+
+Status TruncateFile(Env* env, const std::string& fname, uint64_t new_length) {
+  uint64_t old_length;
+  Status s = env->GetFileSize(fname, &old_length);
+  if (!s.ok() || new_length == old_length) {
+    return s;
+  }
+  // Do it
+  std::string contents;
+  s = ReadFileToString(env, fname, &contents);
+  if (s.ok()) {
+    contents.resize(static_cast<size_t>(new_length), 'b');
+    s = WriteStringToFile(env, contents, fname);
+  }
+  return s;
 }
 
 }  // namespace test

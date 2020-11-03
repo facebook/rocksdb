@@ -637,7 +637,7 @@ Status DBImpl::CloseHelper() {
 
   if (immutable_db_options_.info_log && own_info_log_) {
     Status s = immutable_db_options_.info_log->Close();
-    if (!s.ok() && ret.ok()) {
+    if (!s.ok() && !s.IsNotSupported() && ret.ok()) {
       ret = s;
     }
   }

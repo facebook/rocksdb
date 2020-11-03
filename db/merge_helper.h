@@ -66,6 +66,8 @@ class MergeHelper {
   //                   0 means no restriction
   // at_bottom:   (IN) true if the iterator covers the bottem level, which means
   //                   we could reach the start of the history of this user key.
+  // allow_data_in_errors: (IN) if true, data details will be displayed in
+  //                   error/log messages.
   //
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
@@ -80,7 +82,8 @@ class MergeHelper {
   Status MergeUntil(InternalIterator* iter,
                     CompactionRangeDelAggregator* range_del_agg = nullptr,
                     const SequenceNumber stop_before = 0,
-                    const bool at_bottom = false);
+                    const bool at_bottom = false,
+                    const bool allow_data_in_errors = false);
 
   // Filters a merge operand using the compaction filter specified
   // in the constructor. Returns the decision that the filter made.

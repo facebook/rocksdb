@@ -95,7 +95,8 @@ Status OverlapWithIterator(const Comparator* ucmp,
   *overlap = false;
   if (iter->Valid()) {
     ParsedInternalKey seek_result;
-    Status s = ParseInternalKey(iter->key(), &seek_result);
+    Status s = ParseInternalKey(iter->key(), &seek_result,
+                                false /* log_err_key */);  // TODO
     if (!s.ok()) return s;
 
     if (ucmp->CompareWithoutTimestamp(seek_result.user_key, largest_user_key) <=
@@ -439,7 +440,7 @@ class FilePickerMultiGet {
             !file_hit)) {
       struct FilePickerContext& fp_ctx = fp_ctx_array_[batch_iter_.index()];
       f = &curr_file_level_->files[fp_ctx.curr_index_in_curr_level];
-      Slice& user_key = batch_iter_->ukey;
+      Slice& user_key = batch_iter_->ukey_without_ts;
 
       // Do key range filtering of files or/and fractional cascading if:
       // (1) not all the files are in level 0, or
@@ -453,17 +454,17 @@ class FilePickerMultiGet {
         // Check if key is within a file's range. If search left bound and
         // right bound point to the same find, we are sure key falls in
         // range.
+        int cmp_smallest = user_comparator_->CompareWithoutTimestamp(
+            user_key, false, ExtractUserKey(f->smallest_key), true);
+
         assert(curr_level_ == 0 ||
                fp_ctx.curr_index_in_curr_level ==
                    fp_ctx.start_index_in_curr_level ||
-               user_comparator_->Compare(user_key,
-                                         ExtractUserKey(f->smallest_key)) <= 0);
+               cmp_smallest <= 0);
 
-        int cmp_smallest = user_comparator_->Compare(
-            user_key, ExtractUserKey(f->smallest_key));
         if (cmp_smallest >= 0) {
-          cmp_largest = user_comparator_->Compare(
-              user_key, ExtractUserKey(f->largest_key));
+          cmp_largest = user_comparator_->CompareWithoutTimestamp(
+              user_key, false, ExtractUserKey(f->largest_key), true);
         } else {
           cmp_largest = -1;
         }
@@ -496,8 +497,9 @@ class FilePickerMultiGet {
         upper_key_ = batch_iter_;
         ++upper_key_;
         while (upper_key_ != current_level_range_.end() &&
-               user_comparator_->Compare(batch_iter_->ukey, upper_key_->ukey) ==
-                   0) {
+               user_comparator_->CompareWithoutTimestamp(
+                   batch_iter_->ukey_without_ts, false,
+                   upper_key_->ukey_without_ts, false) == 0) {
           ++upper_key_;
         }
         break;
@@ -2016,11 +2018,11 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     assert(iter->s->ok() || iter->s->IsMergeInProgress());
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
-        iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge, iter->ukey,
-        iter->value, iter->timestamp, nullptr, &(iter->merge_context), true,
-        &iter->max_covering_tombstone_seq, this->env_, nullptr,
-        merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
-        tracing_mget_id);
+        iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge,
+        iter->ukey_with_ts, iter->value, iter->timestamp, nullptr,
+        &(iter->merge_context), true, &iter->max_covering_tombstone_seq,
+        this->env_, nullptr, merge_operator_ ? &pinned_iters_mgr : nullptr,
+        callback, is_blob, tracing_mget_id);
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
     // be used for IO errors, and get_context state will be used for any
@@ -3665,16 +3667,18 @@ struct VersionSet::ManifestWriter {
   ColumnFamilyData* cfd;
   const MutableCFOptions mutable_cf_options;
   const autovector<VersionEdit*>& edit_list;
+  const std::function<void(const Status&)> manifest_write_callback;
 
-  explicit ManifestWriter(InstrumentedMutex* mu, ColumnFamilyData* _cfd,
-                          const MutableCFOptions& cf_options,
-                          const autovector<VersionEdit*>& e)
+  explicit ManifestWriter(
+      InstrumentedMutex* mu, ColumnFamilyData* _cfd,
+      const MutableCFOptions& cf_options, const autovector<VersionEdit*>& e,
+      const std::function<void(const Status&)>& manifest_wcb)
       : done(false),
         cv(mu),
         cfd(_cfd),
         mutable_cf_options(cf_options),
-        edit_list(e) {}
-
+        edit_list(e),
+        manifest_write_callback(manifest_wcb) {}
   ~ManifestWriter() { status.PermitUncheckedError(); }
 
   bool IsAllWalEdits() const {
@@ -4044,7 +4048,7 @@ Status VersionSet::ProcessManifestWrites(
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
     mu->Unlock();
 
-    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
+    TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WriteManifest", nullptr);
     if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
         assert(!builder_guards.empty() &&
@@ -4294,6 +4298,9 @@ Status VersionSet::ProcessManifestWrites(
     }
     ready->status = s;
     ready->done = true;
+    if (ready->manifest_write_callback) {
+      (ready->manifest_write_callback)(s);
+    }
     if (need_signal) {
       ready->cv.Signal();
     }
@@ -4314,7 +4321,8 @@ Status VersionSet::LogAndApply(
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<autovector<VersionEdit*>>& edit_lists,
     InstrumentedMutex* mu, FSDirectory* db_directory, bool new_descriptor_log,
-    const ColumnFamilyOptions* new_cf_options) {
+    const ColumnFamilyOptions* new_cf_options,
+    const std::vector<std::function<void(const Status&)>>& manifest_wcbs) {
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
@@ -4344,12 +4352,16 @@ Status VersionSet::LogAndApply(
     assert(static_cast<size_t>(num_cfds) == edit_lists.size());
   }
   for (int i = 0; i < num_cfds; ++i) {
+    const auto wcb =
+        manifest_wcbs.empty() ? [](const Status&) {} : manifest_wcbs[i];
     writers.emplace_back(mu, column_family_datas[i],
-                         *mutable_cf_options_list[i], edit_lists[i]);
+                         *mutable_cf_options_list[i], edit_lists[i], wcb);
     manifest_writers_.push_back(&writers[i]);
   }
   assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
+  TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:BeforeWriterWaiting",
+                           nullptr);
   while (!first_writer.done && &first_writer != manifest_writers_.front()) {
     first_writer.cv.Wait();
   }
@@ -4361,6 +4373,7 @@ Status VersionSet::LogAndApply(
     for (const auto& writer : writers) {
       assert(writer.done);
     }
+    TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WakeUpAndDone", mu);
 #endif /* !NDEBUG */
     return first_writer.status;
   }
