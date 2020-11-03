@@ -1195,18 +1195,24 @@ class DBImpl : public DB {
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
+  // Set DB identity file, and write DB ID to manifest if necessary.
+  Status SetDBId();
+
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
   // returns.
   // After recovery, there may be SST files in db/cf paths that are
-  // not referenced in the MANIFEST (e.g. it's best effort recovery,
-  // or the SST files are referenced by unsynced VersionEdits in MANIFEST).
+  // not referenced in the MANIFEST (e.g.
+  // 1. It's best effort recovery;
+  // 2. The VersionEdits referencing the SST files are appended to
+  // MANIFEST, DB crashes when syncing the MANIFEST, the VersionEdits are
+  // still not synced to MANIFEST during recovery.)
   // We delete these SST files. In the
   // meantime, we find out the largest file number present in the paths, and
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
-  // We also switch to a new MANIFEST, so if there are unsynced edits in the
-  // MANIFEST, they will be discarded in the new MANIFEST.
-  Status FinishRecovery();
+  // We also switch to a new MANIFEST.
+  // The unreferenced SSTs won't be deleted if switching to new MANIFEST fails.
+  Status DeleteUnreferencedSstFilesAndSwitchToNewManifest();
 
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened

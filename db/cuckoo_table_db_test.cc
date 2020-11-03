@@ -63,11 +63,12 @@ class CuckooTableDBTest : public testing::Test {
     ASSERT_OK(DB::Open(opts, dbname_, &db_));
   }
 
-  void DestroyAndReopen(Options* options = nullptr) {
+  void DestroyAndReopen(Options* options) {
+    assert(options);
     ASSERT_OK(db_->Close());
     delete db_;
     db_ = nullptr;
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    ASSERT_OK(DestroyDB(dbname_, *options));
     Reopen(options);
   }
 
