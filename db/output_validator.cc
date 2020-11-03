@@ -9,8 +9,8 @@ namespace ROCKSDB_NAMESPACE {
 Status OutputValidator::Add(const Slice& key, const Slice& value) {
   if (enable_hash_) {
     // Generate a rolling 64-bit hash of the key and values
-    paranoid_hash_ = Hash64(key.data(), key.size(), paranoid_hash_);
-    paranoid_hash_ = Hash64(value.data(), value.size(), paranoid_hash_);
+    paranoid_hash_ = NPHash64(key.data(), key.size(), paranoid_hash_);
+    paranoid_hash_ = NPHash64(value.data(), value.size(), paranoid_hash_);
   }
   if (enable_order_check_) {
     TEST_SYNC_POINT_CALLBACK("OutputValidator::Add:order_check",

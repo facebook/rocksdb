@@ -16,7 +16,7 @@
 #include "port/sys_time.h"
 #include "rocksdb/file_system.h"
 #include "util/cast_util.h"
-#include "util/murmurhash.h"
+#include "util/hash.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
 
@@ -32,8 +32,7 @@ class MemFile {
         locked_(false),
         size_(0),
         modified_time_(Now()),
-        rnd_(static_cast<uint32_t>(
-            MurmurHash(fn.data(), static_cast<int>(fn.size()), 0))),
+        rnd_(Lower32of64(GetSliceNPHash64(fn))),
         fsynced_bytes_(0) {}
   // No copying allowed.
   MemFile(const MemFile&) = delete;
