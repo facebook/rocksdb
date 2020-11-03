@@ -144,7 +144,8 @@ class CompactionJobTest : public testing::Test {
       std::string skey;
       std::string value;
       std::tie(skey, value) = kv;
-      const Status pikStatus = ParseInternalKey(skey, &key);
+      const Status pik_status =
+          ParseInternalKey(skey, &key, true /* log_err_key */);
 
       smallest_seqno = std::min(smallest_seqno, key.sequence);
       largest_seqno = std::max(largest_seqno, key.sequence);
@@ -162,7 +163,7 @@ class CompactionJobTest : public testing::Test {
 
       first_key = false;
 
-      if (pikStatus.ok() && key.type == kTypeBlobIndex) {
+      if (pik_status.ok() && key.type == kTypeBlobIndex) {
         BlobIndex blob_index;
         const Status s = blob_index.DecodeFrom(value);
         if (!s.ok()) {
@@ -340,7 +341,7 @@ class CompactionJobTest : public testing::Test {
     CompactionJob compaction_job(
         0, &compaction, db_options_, env_options_, versions_.get(),
         &shutting_down_, preserve_deletes_seqnum_, &log_buffer, nullptr,
-        nullptr, nullptr, &mutex_, &error_handler_, snapshots,
+        nullptr, nullptr, nullptr, &mutex_, &error_handler_, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger, false, false, dbname_, &compaction_job_stats_,
         Env::Priority::USER, nullptr /* IOTracer */);

@@ -22,9 +22,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/table.h"
-#include "table/block_based/block_based_table_factory.h"
 #include "table/internal_iterator.h"
-#include "table/plain/plain_table_factory.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -804,8 +802,9 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern);
 // Tries to set TEST_TMPDIR to a directory supporting direct IO.
 void ResetTmpDirForDirectIO();
 
-
-void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt);
+Status CorruptFile(Env* env, const std::string& fname, int offset,
+                   int bytes_to_corrupt, bool verify_checksum = true);
+Status TruncateFile(Env* env, const std::string& fname, uint64_t length);
 
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

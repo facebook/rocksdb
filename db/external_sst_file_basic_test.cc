@@ -24,7 +24,7 @@ class ExternalSSTFileBasicTest
   ExternalSSTFileBasicTest()
       : DBTestBase("/external_sst_file_basic_test", /*env_do_fsync=*/true) {
     sst_files_dir_ = dbname_ + "/sst_files/";
-    fault_injection_test_env_.reset(new FaultInjectionTestEnv(Env::Default()));
+    fault_injection_test_env_.reset(new FaultInjectionTestEnv(env_));
     DestroyAndRecreateExternalSSTFilesDir();
   }
 
@@ -1109,6 +1109,7 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
     }
 
     Options sst_file_writer_options;
+    sst_file_writer_options.env = env_;
     std::unique_ptr<SstFileWriter> sst_file_writer(
         new SstFileWriter(EnvOptions(), sst_file_writer_options));
     std::string file_name =
@@ -1137,11 +1138,12 @@ TEST_F(ExternalSSTFileBasicTest, SyncFailure) {
 TEST_F(ExternalSSTFileBasicTest, VerifyChecksumReadahead) {
   Options options;
   options.create_if_missing = true;
-  SpecialEnv senv(Env::Default());
+  SpecialEnv senv(env_);
   options.env = &senv;
   DestroyAndReopen(options);
 
   Options sst_file_writer_options;
+  sst_file_writer_options.env = env_;
   std::unique_ptr<SstFileWriter> sst_file_writer(
       new SstFileWriter(EnvOptions(), sst_file_writer_options));
   std::string file_name = sst_files_dir_ + "verify_checksum_readahead_test.sst";

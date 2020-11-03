@@ -26,7 +26,6 @@
 #include "rocksdb/utilities/debug.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
-#include "util/cast_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
 #include "utilities/blob_db/blob_db_impl.h"
