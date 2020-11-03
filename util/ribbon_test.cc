@@ -268,6 +268,9 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     KeyGen other_keys_begin(not_str, 0);
     KeyGen other_keys_end(not_str, kNumToCheck);
 
+    // Vary bytes uniformly for InterleavedSoln to use number of solution
+    // columns varying from 0 to max allowed by ResultRow type (and used by
+    // SimpleSoln).
     size_t ibytes =
         (i * /* misc odd */ 67896789) % (sizeof(ResultRow) * num_to_add + 1);
     std::unique_ptr<char[]> idata(new char[ibytes]);
