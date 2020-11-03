@@ -252,7 +252,7 @@ TEST(EnvOpenssl_Provider, NistExamples) {
   uint8_t cypher4[] = {0xdf, 0xc9, 0xc5, 0x8d, 0xb6, 0x7a, 0xad, 0xa6,
                        0x13, 0xc2, 0xdd, 0x08, 0x45, 0x79, 0x41, 0xa6};
 
-  CTREncryptionProviderV2 provider("NistExampleKey", key, sizeof(key));
+  OpenSSLEncryptionProvider provider("NistExampleKey", key, sizeof(key));
 
   std::unique_ptr<BlockAccessCipherStream> stream(
       provider.CreateCipherStream2(1, init));
@@ -460,8 +460,8 @@ static uint8_t key256[] = {0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
                            0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
                            0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
                            0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4};
-std::shared_ptr<const CTREncryptionProviderV2> openssl_provider_ctr(
-    new CTREncryptionProviderV2(KeyName, key256, 32));
+std::shared_ptr<const OpenSSLEncryptionProvider> openssl_provider_ctr(
+    new OpenSSLEncryptionProvider(KeyName, key256, 32));
 
 static OpenSSLEnv::ReadKeys encrypt_readers = {{KeyDesc, openssl_provider_ctr}};
 static OpenSSLEnv::WriteKey encrypt_writer = {KeyDesc, openssl_provider_ctr};

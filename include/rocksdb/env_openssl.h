@@ -171,139 +171,20 @@ class OpenSSLEncryptionProvider : public EncryptionProvider {
   WriteKey encrypt_write_;
   mutable port::RWMutex key_lock_;
 
+  // Optional method to initialize an EncryptionProvider in the TEST
+  // environment.
+  virtual Status TEST_Initialize() { return Status::OK(); /*AddCipher*/ }
 };
 
+#if 0
 std::shared_ptr<OpenSSLEncryptionProvider> NewOpenSSLEncryptionProvider(
     const std::shared_ptr<ShaDescription>& key_desc,
     const std::shared_ptr<AesCtrKey>& aes_ctr_key);
 
 std::shared_ptr<OpenSSLEncryptionProvider> NewOpenSSLEncryptionProvider(
     const std::string& key_desc_str, const uint8_t binary_key[], int bytes);
+#endif
 
-#if 0
-// OpenSSLEnv implements an Env wrapper that adds encryption to files stored
-// on disk.
-class OpenSSLEnv : public EnvWrapper {
- public:
-  using WriteKey =
-      std::pair<ShaDescription, std::shared_ptr<const OpenSSLEncryptionProvider>>;
-  using ReadKeys =
-      std::map<ShaDescription, std::shared_ptr<const OpenSSLEncryptionProvider>>;
-
-  static Env* Default();
-  static Env* Default(ReadKeys encrypt_read, WriteKey encrypt_write);
-
-  OpenSSLEnv(Env* base_env);
-
-  OpenSSLEnv(Env* base_env, ReadKeys encrypt_read, WriteKey encrypt_write);
-
-  bool IsWriteEncrypted() const;
-
-  // NewSequentialFile opens a file for sequential reading.
-  Status NewSequentialFile(const std::string& fname,
-                           std::unique_ptr<SequentialFile>* result,
-                           const EnvOptions& options) override;
-
-  // NewRandomAccessFile opens a file for random read access.
-  Status NewRandomAccessFile(const std::string& fname,
-                             std::unique_ptr<RandomAccessFile>* result,
-                             const EnvOptions& options) override;
-
-  // NewWritableFile opens a file for sequential writing.
-  Status NewWritableFile(const std::string& fname,
-                         std::unique_ptr<WritableFile>* result,
-                         const EnvOptions& options) override;
-
-  // Create an object that writes to a new file with the specified
-  // name.  Deletes any existing file with the same name and creates a
-  // new file.  On success, stores a pointer to the new file in
-  // *result and returns OK.  On failure stores nullptr in *result and
-  // returns non-OK.
-  //
-  // The returned file will only be accessed by one thread at a time.
-  Status ReopenWritableFile(const std::string& fname,
-                            std::unique_ptr<WritableFile>* result,
-                            const EnvOptions& options) override;
-
-  // Reuse an existing file by renaming it and opening it as writable.
-  Status ReuseWritableFile(const std::string& fname,
-                           const std::string& old_fname,
-                           std::unique_ptr<WritableFile>* result,
-                           const EnvOptions& options) override;
-
-  // Open `fname` for random read and write, if file doesn't exist the file
-  // will be created.  On success, stores a pointer to the new file in
-  // *result and returns OK.  On failure returns non-OK.
-  //
-  // The returned file will only be accessed by one thread at a time.
-  Status NewRandomRWFile(const std::string& fname,
-                         std::unique_ptr<RandomRWFile>* result,
-                         const EnvOptions& options) override;
-
-  // Store in *result the attributes of the children of the specified directory.
-  // In case the implementation lists the directory prior to iterating the files
-  // and files are concurrently deleted, the deleted files will be omitted from
-  // result.
-  // The name attributes are relative to "dir".
-  // Original contents of *results are dropped.
-  // Returns OK if "dir" exists and "*result" contains its children.
-  //         NotFound if "dir" does not exist, the calling process does not have
-  //                  permission to access "dir", or if "dir" is invalid.
-  //         IOError if an IO Error was encountered
-  Status GetChildrenFileAttributes(
-      const std::string& dir, std::vector<FileAttributes>* result) override;
-
-  // Store the size of fname in *file_size.
-  Status GetFileSize(const std::string& fname, uint64_t* file_size) override;
-
-  // only needed for GetChildrenFileAttributes & GetFileSize
-  virtual Status GetEncryptionProvider(
-      const std::string& fname,
-      std::shared_ptr<const OpenSSLEncryptionProvider>& provider);
-
-  bool IsValid() const { return valid_; }
-
- protected:
-  void init();
-
-  void SetKeys(ReadKeys encrypt_read, WriteKey encrypt_write);
-
-  template <class TypeFile>
-  Status ReadSeqEncryptionPrefix(
-      TypeFile* f, std::shared_ptr<const OpenSSLEncryptionProvider>& provider,
-      std::unique_ptr<BlockAccessCipherStream>& stream);
-
-  template <class TypeFile>
-  Status ReadRandEncryptionPrefix(
-      TypeFile* f, std::shared_ptr<const OpenSSLEncryptionProvider>& provider,
-      std::unique_ptr<BlockAccessCipherStream>& stream);
-
-  template <class TypeFile>
-  Status WriteSeqEncryptionPrefix(
-      TypeFile* f, std::shared_ptr<const OpenSSLEncryptionProvider> provider,
-      std::unique_ptr<BlockAccessCipherStream>& stream);
-
-  template <class TypeFile>
-  Status WriteRandEncryptionPrefix(
-      TypeFile* f, std::shared_ptr<const OpenSSLEncryptionProvider> provider,
-      std::unique_ptr<BlockAccessCipherStream>& stream);
-
- public:
-  std::shared_ptr<UnixLibCrypto> crypto_;
-
- protected:
-  ReadKeys encrypt_read_;
-  WriteKey encrypt_write_;
-  mutable port::RWMutex key_lock_;
-  bool valid_;
-};
-
-// Returns an Env that encrypts data when stored on disk and decrypts data when
-// read from disk.  Prefer OpenSSLEnv::Default().
-Env* NewOpenSSLEnv(Env* base_env, OpenSSLEnv::ReadKeys encrypt_read,
-                   OpenSSLEnv::WriteKey encrypt_write);
-
-#endif // if 0
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
