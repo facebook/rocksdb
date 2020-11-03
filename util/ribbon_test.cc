@@ -6,9 +6,11 @@
 #include <cmath>
 
 #include "test_util/testharness.h"
+#include "util/bloom_impl.h"
 #include "util/coding.h"
 #include "util/hash.h"
 #include "util/ribbon_impl.h"
+#include "util/stop_watch.h"
 
 #ifndef GFLAGS
 uint32_t FLAGS_thoroughness = 5;
@@ -35,7 +37,10 @@ struct DefaultTypesAndSettings {
   static constexpr bool kIsFilter = true;
   static constexpr bool kFirstCoeffAlwaysOne = true;
   static constexpr bool kUseSmash = false;
+  static constexpr bool kAllowZeroStarts = false;
   static Hash HashFn(const Key& key, Seed seed) {
+    // TODO/FIXME: is there sufficient independence with sequential keys and
+    // sequential seeds?
     return ROCKSDB_NAMESPACE::Hash64(key.data(), key.size(), seed);
   }
 };
@@ -47,9 +52,12 @@ struct TypesAndSettings_Coeff128Smash : public DefaultTypesAndSettings {
 struct TypesAndSettings_Coeff64 : public DefaultTypesAndSettings {
   using CoeffRow = uint64_t;
 };
-struct TypesAndSettings_Coeff64Smash : public DefaultTypesAndSettings {
+struct TypesAndSettings_Coeff64Smash1 : public DefaultTypesAndSettings {
   using CoeffRow = uint64_t;
   static constexpr bool kUseSmash = true;
+};
+struct TypesAndSettings_Coeff64Smash0 : public TypesAndSettings_Coeff64Smash1 {
+  static constexpr bool kFirstCoeffAlwaysOne = false;
 };
 struct TypesAndSettings_Result16 : public DefaultTypesAndSettings {
   using ResultRow = uint16_t;
@@ -60,7 +68,7 @@ struct TypesAndSettings_IndexSizeT : public DefaultTypesAndSettings {
 struct TypesAndSettings_Hash32 : public DefaultTypesAndSettings {
   using Hash = uint32_t;
   static Hash HashFn(const Key& key, Seed seed) {
-    // NOTE: Using RockDB 32-bit Hash() here fails test below because of
+    // NOTE: Using RocksDB 32-bit Hash() here fails test below because of
     // insufficient mixing of seed (or generally insufficient mixing)
     return ROCKSDB_NAMESPACE::Upper32of64(
         ROCKSDB_NAMESPACE::Hash64(key.data(), key.size(), seed));
@@ -78,10 +86,13 @@ struct TypesAndSettings_Seed8 : public DefaultTypesAndSettings {
 struct TypesAndSettings_NoAlwaysOne : public DefaultTypesAndSettings {
   static constexpr bool kFirstCoeffAlwaysOne = false;
 };
+struct TypesAndSettings_AllowZeroStarts : public DefaultTypesAndSettings {
+  static constexpr bool kAllowZeroStarts = true;
+};
 struct TypesAndSettings_RehasherWrapped : public DefaultTypesAndSettings {
   // This doesn't directly use StandardRehasher as a whole, but simulates
   // its behavior with unseeded hash of key, then seeded hash-to-hash
-  // tranform.
+  // transform.
   static Hash HashFn(const Key& key, Seed seed) {
     Hash unseeded = DefaultTypesAndSettings::HashFn(key, /*seed*/ 0);
     using Rehasher = ROCKSDB_NAMESPACE::ribbon::StandardRehasherAdapter<
@@ -89,10 +100,14 @@ struct TypesAndSettings_RehasherWrapped : public DefaultTypesAndSettings {
     return Rehasher::HashFn(unseeded, seed);
   }
 };
+struct TypesAndSettings_RehasherWrapped_Result16
+    : public TypesAndSettings_RehasherWrapped {
+  using ResultRow = uint16_t;
+};
 struct TypesAndSettings_Rehasher32Wrapped : public TypesAndSettings_Hash32 {
   // This doesn't directly use StandardRehasher as a whole, but simulates
   // its behavior with unseeded hash of key, then seeded hash-to-hash
-  // tranform.
+  // transform.
   static Hash HashFn(const Key& key, Seed seed) {
     Hash unseeded = TypesAndSettings_Hash32::HashFn(key, /*seed*/ 0);
     using Rehasher = ROCKSDB_NAMESPACE::ribbon::StandardRehasherAdapter<
@@ -101,15 +116,16 @@ struct TypesAndSettings_Rehasher32Wrapped : public TypesAndSettings_Hash32 {
   }
 };
 
-using TestTypesAndSettings =
-    ::testing::Types<TypesAndSettings_Coeff128, TypesAndSettings_Coeff128Smash,
-                     TypesAndSettings_Coeff64, TypesAndSettings_Coeff64Smash,
-                     TypesAndSettings_Result16, TypesAndSettings_IndexSizeT,
-                     TypesAndSettings_Hash32, TypesAndSettings_Hash32_Result16,
-                     TypesAndSettings_KeyString, TypesAndSettings_Seed8,
-                     TypesAndSettings_NoAlwaysOne,
-                     TypesAndSettings_RehasherWrapped,
-                     TypesAndSettings_Rehasher32Wrapped>;
+using TestTypesAndSettings = ::testing::Types<
+    TypesAndSettings_Coeff128, TypesAndSettings_Coeff128Smash,
+    TypesAndSettings_Coeff64, TypesAndSettings_Coeff64Smash0,
+    TypesAndSettings_Coeff64Smash1, TypesAndSettings_Result16,
+    TypesAndSettings_IndexSizeT, TypesAndSettings_Hash32,
+    TypesAndSettings_Hash32_Result16, TypesAndSettings_KeyString,
+    TypesAndSettings_Seed8, TypesAndSettings_NoAlwaysOne,
+    TypesAndSettings_AllowZeroStarts, TypesAndSettings_RehasherWrapped,
+    TypesAndSettings_RehasherWrapped_Result16,
+    TypesAndSettings_Rehasher32Wrapped>;
 TYPED_TEST_CASE(RibbonTypeParamTest, TestTypesAndSettings);
 
 namespace {
@@ -122,11 +138,6 @@ struct KeyGen {
   // Prefix (only one required)
   KeyGen& operator++() {
     ++id_;
-    return *this;
-  }
-
-  KeyGen& operator+=(uint64_t incr) {
-    id_ += incr;
     return *this;
   }
 
@@ -191,9 +202,6 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
 
   // For testing FP rate etc.
   constexpr Index kNumToCheck = 100000;
-  constexpr size_t kNumSolutionColumns = 8U * sizeof(ResultRow);
-  const double expected_fp_count =
-      kNumToCheck * std::pow(0.5, kNumSolutionColumns);
 
   const auto log2_thoroughness =
       static_cast<Seed>(ROCKSDB_NAMESPACE::FloorLog2(FLAGS_thoroughness));
@@ -210,16 +218,33 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
   uint64_t total_fp_count = 0;
   uint64_t total_added = 0;
 
+  uint64_t soln_query_nanos = 0;
+  uint64_t soln_query_count = 0;
+  uint64_t bloom_query_nanos = 0;
+  uint64_t isoln_query_nanos = 0;
+  uint64_t isoln_query_count = 0;
+
   for (uint32_t i = 0; i < FLAGS_thoroughness; ++i) {
-    Index numToAdd =
-        sizeof(CoeffRow) == 16 ? 130000 : TypeParam::kUseSmash ? 5000 : 2500;
+    Index num_to_add =
+        sizeof(CoeffRow) == 16 ? 130000 : TypeParam::kUseSmash ? 5500 : 2500;
 
     // Use different values between that number and 50% of that number
-    numToAdd -= (i * 15485863) % (numToAdd / 2);
+    num_to_add -= (i * /* misc prime */ 15485863) % (num_to_add / 2);
 
-    total_added += numToAdd;
+    total_added += num_to_add;
 
-    const Index kNumSlots = static_cast<Index>(numToAdd * kFactor);
+    // Most of the time, test the Interleaved solution storage, but when
+    // we do we have to make num_slots a multiple of kCoeffBits. So
+    // sometimes we want to test without that limitation.
+    bool test_interleaved = (i % 7) != 6;
+
+    Index num_slots = static_cast<Index>(num_to_add * kFactor);
+    if (test_interleaved) {
+      // Round to nearest multiple of kCoeffBits
+      num_slots = ((num_slots + kCoeffBits / 2) / kCoeffBits) * kCoeffBits;
+      // Re-adjust num_to_add to get as close as possible to kFactor
+      num_to_add = static_cast<Index>(num_slots / kFactor);
+    }
 
     std::string prefix;
     // Take different samples if you change thoroughness
@@ -229,7 +254,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     // Batch that must be added
     std::string added_str = prefix + "added";
     KeyGen keys_begin(added_str, 0);
-    KeyGen keys_end(added_str, numToAdd);
+    KeyGen keys_end(added_str, num_to_add);
 
     // Batch that may or may not be added
     const Index kBatchSize =
@@ -243,6 +268,14 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     KeyGen other_keys_begin(not_str, 0);
     KeyGen other_keys_end(not_str, kNumToCheck);
 
+    // Vary bytes uniformly for InterleavedSoln to use number of solution
+    // columns varying from 0 to max allowed by ResultRow type (and used by
+    // SimpleSoln).
+    size_t ibytes =
+        (i * /* misc odd */ 67896789) % (sizeof(ResultRow) * num_to_add + 1);
+    std::unique_ptr<char[]> idata(new char[ibytes]);
+    InterleavedSoln isoln(idata.get(), ibytes);
+
     SimpleSoln soln;
     Hasher hasher;
     bool first_single;
@@ -251,7 +284,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     {
       Banding banding;
       // Traditional solve for a fixed set.
-      ASSERT_TRUE(banding.ResetAndFindSeedToSolve(kNumSlots, keys_begin,
+      ASSERT_TRUE(banding.ResetAndFindSeedToSolve(num_slots, keys_begin,
                                                   keys_end, max_seed));
 
       // Now to test backtracking, starting with guaranteed fail
@@ -276,15 +309,24 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
       }
       ASSERT_LE(banding.GetOccupiedCount(), occupied_count + more_added);
 
+      // Also verify that redundant adds are OK (no effect)
+      ASSERT_TRUE(
+          banding.AddRange(keys_begin, KeyGen(added_str, num_to_add / 8)));
+      ASSERT_LE(banding.GetOccupiedCount(), occupied_count + more_added);
+
       // Now back-substitution
       soln.BackSubstFrom(banding);
+      if (test_interleaved) {
+        isoln.BackSubstFrom(banding);
+      }
+
       Seed seed = banding.GetSeed();
       total_reseeds += seed;
       if (seed > log2_thoroughness + 1) {
-        fprintf(stderr, "%s high reseeds at %u, %u: %u\n",
+        fprintf(stderr, "%s high reseeds at %u, %u/%u: %u\n",
                 seed > log2_thoroughness + 8 ? "FIXME Extremely" : "Somewhat",
-                static_cast<unsigned>(i), static_cast<unsigned>(numToAdd),
-                static_cast<unsigned>(seed));
+                static_cast<unsigned>(i), static_cast<unsigned>(num_to_add),
+                static_cast<unsigned>(num_slots), static_cast<unsigned>(seed));
       }
       hasher.ResetSeed(seed);
     }
@@ -294,19 +336,23 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     KeyGen cur = keys_begin;
     while (cur != keys_end) {
       EXPECT_TRUE(soln.FilterQuery(*cur, hasher));
+      EXPECT_TRUE(!test_interleaved || isoln.FilterQuery(*cur, hasher));
       ++cur;
     }
     // We (maybe) snuck these in!
     if (first_single) {
       EXPECT_TRUE(soln.FilterQuery("one_more", hasher));
+      EXPECT_TRUE(!test_interleaved || isoln.FilterQuery("one_more", hasher));
     }
     if (second_single) {
       EXPECT_TRUE(soln.FilterQuery("two_more", hasher));
+      EXPECT_TRUE(!test_interleaved || isoln.FilterQuery("two_more", hasher));
     }
     if (batch_success) {
       cur = batch_begin;
       while (cur != batch_end) {
         EXPECT_TRUE(soln.FilterQuery(*cur, hasher));
+        EXPECT_TRUE(!test_interleaved || isoln.FilterQuery(*cur, hasher));
         ++cur;
       }
     }
@@ -314,21 +360,89 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     // Check FP rate (depends only on number of result bits == solution columns)
     Index fp_count = 0;
     cur = other_keys_begin;
-    while (cur != other_keys_end) {
-      fp_count += soln.FilterQuery(*cur, hasher) ? 1 : 0;
-      ++cur;
+    {
+      ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
+                                             true);
+      while (cur != other_keys_end) {
+        fp_count += soln.FilterQuery(*cur, hasher) ? 1 : 0;
+        ++cur;
+      }
+      soln_query_nanos += timer.ElapsedNanos();
+      soln_query_count += kNumToCheck;
     }
-    // For expected FP rate, also include false positives due to collisions
-    // in Hash value. (Negligible for 64-bit, can matter for 32-bit.)
-    double correction =
-        1.0 * kNumToCheck * numToAdd / std::pow(256.0, sizeof(Hash));
-    EXPECT_LE(fp_count,
-              FrequentPoissonUpperBound(expected_fp_count + correction));
-    EXPECT_GE(fp_count,
-              FrequentPoissonLowerBound(expected_fp_count + correction));
-
+    {
+      double expected_fp_count = soln.ExpectedFpRate() * kNumToCheck;
+      // For expected FP rate, also include false positives due to collisions
+      // in Hash value. (Negligible for 64-bit, can matter for 32-bit.)
+      double correction =
+          kNumToCheck * ROCKSDB_NAMESPACE::ribbon::ExpectedCollisionFpRate(
+                            hasher, num_to_add);
+      EXPECT_LE(fp_count,
+                FrequentPoissonUpperBound(expected_fp_count + correction));
+      EXPECT_GE(fp_count,
+                FrequentPoissonLowerBound(expected_fp_count + correction));
+    }
     total_fp_count += fp_count;
+
+    // And also check FP rate for isoln
+    if (test_interleaved) {
+      Index ifp_count = 0;
+      cur = other_keys_begin;
+      ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
+                                             true);
+      while (cur != other_keys_end) {
+        ifp_count += isoln.FilterQuery(*cur, hasher) ? 1 : 0;
+        ++cur;
+      }
+      isoln_query_nanos += timer.ElapsedNanos();
+      isoln_query_count += kNumToCheck;
+      {
+        double expected_fp_count = isoln.ExpectedFpRate() * kNumToCheck;
+        // For expected FP rate, also include false positives due to collisions
+        // in Hash value. (Negligible for 64-bit, can matter for 32-bit.)
+        double correction =
+            kNumToCheck * ROCKSDB_NAMESPACE::ribbon::ExpectedCollisionFpRate(
+                              hasher, num_to_add);
+        EXPECT_LE(ifp_count,
+                  FrequentPoissonUpperBound(expected_fp_count + correction));
+        EXPECT_GE(ifp_count,
+                  FrequentPoissonLowerBound(expected_fp_count + correction));
+      }
+      // Since the bits used in isoln are a subset of the bits used in soln,
+      // it cannot have fewer FPs
+      EXPECT_GE(ifp_count, fp_count);
+    }
+
+    // And compare to Bloom time, for fun
+    if (ibytes >= /* minimum Bloom impl bytes*/ 64) {
+      Index bfp_count = 0;
+      cur = other_keys_begin;
+      ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
+                                             true);
+      while (cur != other_keys_end) {
+        uint64_t h = hasher.GetHash(*cur);
+        uint32_t h1 = ROCKSDB_NAMESPACE::Lower32of64(h);
+        uint32_t h2 = sizeof(Hash) >= 8 ? ROCKSDB_NAMESPACE::Upper32of64(h)
+                                        : h1 * 0x9e3779b9;
+        bfp_count += ROCKSDB_NAMESPACE::FastLocalBloomImpl::HashMayMatch(
+                         h1, h2, static_cast<uint32_t>(ibytes), 6, idata.get())
+                         ? 1
+                         : 0;
+        ++cur;
+      }
+      bloom_query_nanos += timer.ElapsedNanos();
+      // ensure bfp_count is used
+      ASSERT_LT(bfp_count, kNumToCheck);
+    }
   }
+
+  // "outside" == key not in original set so either negative or false positive
+  fprintf(stderr, "Simple      outside query, hot, incl hashing, ns/key: %g\n",
+          1.0 * soln_query_nanos / soln_query_count);
+  fprintf(stderr, "Interleaved outside query, hot, incl hashing, ns/key: %g\n",
+          1.0 * isoln_query_nanos / isoln_query_count);
+  fprintf(stderr, "Bloom       outside query, hot, incl hashing, ns/key: %g\n",
+          1.0 * bloom_query_nanos / soln_query_count);
 
   {
     double average_reseeds = 1.0 * total_reseeds / FLAGS_thoroughness;
@@ -370,12 +484,14 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
   {
     uint64_t total_checked = uint64_t{kNumToCheck} * FLAGS_thoroughness;
     double expected_total_fp_count =
-        total_checked * std::pow(0.5, kNumSolutionColumns);
+        total_checked * std::pow(0.5, 8U * sizeof(ResultRow));
     // For expected FP rate, also include false positives due to collisions
     // in Hash value. (Negligible for 64-bit, can matter for 32-bit.)
-    expected_total_fp_count += 1.0 * total_checked * total_added /
-                               FLAGS_thoroughness /
-                               std::pow(256.0, sizeof(Hash));
+    double average_added = 1.0 * total_added / FLAGS_thoroughness;
+    expected_total_fp_count +=
+        total_checked * ROCKSDB_NAMESPACE::ribbon::ExpectedCollisionFpRate(
+                            Hasher(), average_added);
+
     uint64_t upper_bound = InfrequentPoissonUpperBound(expected_total_fp_count);
     uint64_t lower_bound = InfrequentPoissonLowerBound(expected_total_fp_count);
     fprintf(stderr, "Average FP rate: %g (~= %g, <= %g, >= %g)\n",
@@ -383,7 +499,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
             expected_total_fp_count / total_checked,
             1.0 * upper_bound / total_checked,
             1.0 * lower_bound / total_checked);
-    // FIXME: this can fail for Result16, e.g. --thoroughness=100
+    // FIXME: this can fail for Result16, e.g. --thoroughness=300
     // Seems due to inexpensive hashing in StandardHasher::GetCoeffRow and
     // GetResultRowFromHash as replacing those with different Hash64 instances
     // fixes it, at least mostly.
@@ -392,11 +508,114 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
   }
 }
 
-TEST(RibbonTest, Another) {
-  IMPORT_RIBBON_TYPES_AND_SETTINGS(DefaultTypesAndSettings);
-  IMPORT_RIBBON_IMPL_TYPES(DefaultTypesAndSettings);
+TYPED_TEST(RibbonTypeParamTest, Extremes) {
+  IMPORT_RIBBON_TYPES_AND_SETTINGS(TypeParam);
+  IMPORT_RIBBON_IMPL_TYPES(TypeParam);
 
-  // TODO
+  size_t bytes = 128 * 1024;
+  std::unique_ptr<char[]> buf(new char[bytes]);
+  InterleavedSoln isoln(buf.get(), bytes);
+  SimpleSoln soln;
+  Hasher hasher;
+  Banding banding;
+
+  // ########################################
+  // Add zero keys to minimal number of slots
+  KeyGen begin_and_end("foo", 123);
+  ASSERT_TRUE(banding.ResetAndFindSeedToSolve(
+      /*slots*/ kCoeffBits, begin_and_end, begin_and_end, /*max_seed*/ 0));
+
+  soln.BackSubstFrom(banding);
+  isoln.BackSubstFrom(banding);
+
+  // Because there's plenty of memory, we expect the interleaved solution to
+  // use maximum supported columns (same as simple solution)
+  ASSERT_EQ(isoln.GetUpperNumColumns(), 8U * sizeof(ResultRow));
+  ASSERT_EQ(isoln.GetUpperStartBlock(), 0U);
+
+  // Somewhat oddly, we expect same FP rate as if we had essentially filled
+  // up the slots.
+  constexpr Index kNumToCheck = 100000;
+  KeyGen other_keys_begin("not", 0);
+  KeyGen other_keys_end("not", kNumToCheck);
+
+  Index fp_count = 0;
+  KeyGen cur = other_keys_begin;
+  while (cur != other_keys_end) {
+    bool isoln_query_result = isoln.FilterQuery(*cur, hasher);
+    bool soln_query_result = soln.FilterQuery(*cur, hasher);
+    // Solutions are equivalent
+    ASSERT_EQ(isoln_query_result, soln_query_result);
+    // And in fact we only expect an FP when ResultRow is 0
+    ASSERT_EQ(soln_query_result, hasher.GetResultRowFromHash(
+                                     hasher.GetHash(*cur)) == ResultRow{0});
+
+    fp_count += soln_query_result ? 1 : 0;
+    ++cur;
+  }
+  {
+    ASSERT_EQ(isoln.ExpectedFpRate(), soln.ExpectedFpRate());
+    double expected_fp_count = isoln.ExpectedFpRate() * kNumToCheck;
+    EXPECT_LE(fp_count, InfrequentPoissonUpperBound(expected_fp_count));
+    EXPECT_GE(fp_count, InfrequentPoissonLowerBound(expected_fp_count));
+  }
+
+  // ######################################################
+  // Use zero bytes for interleaved solution (key(s) added)
+
+  // Add one key
+  KeyGen key_begin("added", 0);
+  KeyGen key_end("added", 1);
+  ASSERT_TRUE(banding.ResetAndFindSeedToSolve(
+      /*slots*/ kCoeffBits, key_begin, key_end, /*max_seed*/ 0));
+
+  InterleavedSoln isoln2(nullptr, /*bytes*/ 0);
+
+  isoln2.BackSubstFrom(banding);
+
+  ASSERT_EQ(isoln2.GetUpperNumColumns(), 0U);
+  ASSERT_EQ(isoln2.GetUpperStartBlock(), 0U);
+
+  // All queries return true
+  ASSERT_TRUE(isoln2.FilterQuery(*other_keys_begin, hasher));
+  ASSERT_EQ(isoln2.ExpectedFpRate(), 1.0);
+}
+
+TEST(RibbonTest, AllowZeroStarts) {
+  IMPORT_RIBBON_TYPES_AND_SETTINGS(TypesAndSettings_AllowZeroStarts);
+  IMPORT_RIBBON_IMPL_TYPES(TypesAndSettings_AllowZeroStarts);
+
+  InterleavedSoln isoln(nullptr, /*bytes*/ 0);
+  SimpleSoln soln;
+  Hasher hasher;
+  Banding banding;
+
+  KeyGen begin("foo", 0);
+  KeyGen end("foo", 1);
+  // Can't add 1 entry
+  ASSERT_FALSE(
+      banding.ResetAndFindSeedToSolve(/*slots*/ 0, begin, end, /*max_seed*/ 5));
+
+  KeyGen begin_and_end("foo", 123);
+  // Can add 0 entries
+  ASSERT_TRUE(banding.ResetAndFindSeedToSolve(/*slots*/ 0, begin_and_end,
+                                              begin_and_end, /*max_seed*/ 5));
+
+  Seed seed = banding.GetSeed();
+  ASSERT_EQ(seed, 0U);
+  hasher.ResetSeed(seed);
+
+  // Can construct 0-slot solutions
+  isoln.BackSubstFrom(banding);
+  soln.BackSubstFrom(banding);
+
+  // Should always return false
+  ASSERT_FALSE(isoln.FilterQuery(*begin, hasher));
+  ASSERT_FALSE(soln.FilterQuery(*begin, hasher));
+
+  // And report that in FP rate
+  ASSERT_EQ(isoln.ExpectedFpRate(), 0.0);
+  ASSERT_EQ(soln.ExpectedFpRate(), 0.0);
 }
 
 int main(int argc, char** argv) {

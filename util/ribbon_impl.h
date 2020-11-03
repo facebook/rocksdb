@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cmath>
+
 #include "port/port.h"  // for PREFETCH
 #include "util/ribbon_alg.h"
 
@@ -52,6 +54,14 @@ namespace ribbon {
 //   // less), so typical num_starts < 10k.
 //   static constexpr bool kUseSmash;
 //
+//   // When true, allows number of "starts" to be zero, for best support
+//   // of the "no keys to add" case by always returning false for filter
+//   // queries. (This is distinct from the "keys added but no space for
+//   // any data" case, in which a filter always returns true.) The cost
+//   // supporting this is a conditional branch (probably predictable) in
+//   // queries.
+//   static constexpr bool kAllowZeroStarts;
+//
 //   // A seedable stock hash function on Keys. All bits of Hash must
 //   // be reasonably high quality. XXH functions recommended, but
 //   // Murmur, City, Farm, etc. also work.
@@ -77,7 +87,7 @@ struct AddInputSelector<Key, ResultRow, true /*IsFilter*/> {
   using T = Key;
 };
 
-// To avoid writing 'typename' everwhere that we use types like 'Index'
+// To avoid writing 'typename' everywhere that we use types like 'Index'
 #define IMPORT_RIBBON_TYPES_AND_SETTINGS(TypesAndSettings)                   \
   using CoeffRow = typename TypesAndSettings::CoeffRow;                      \
   using ResultRow = typename TypesAndSettings::ResultRow;                    \
@@ -135,7 +145,7 @@ class StandardHasher {
     // lookup.
     //
     // FastRange gives us a fast and effective mapping from h to the
-    // approriate range. This depends most, sometimes exclusively, on
+    // appropriate range. This depends most, sometimes exclusively, on
     // upper bits of h.
     //
     if (TypesAndSettings::kUseSmash) {
@@ -150,10 +160,12 @@ class StandardHasher {
       // it's usually small enough to be ignorable (less computation in
       // this function) when number of slots is roughly 10k or larger.
       //
-      // TODO: re-check these degress of smash, esp with kFirstCoeffAlwaysOne
+      // The best values for these smash weights might depend on how
+      // densely you're packing entries, but this seems to work well for
+      // 2% overhead and roughly 50% success probability.
       //
-      constexpr auto kFrontSmash = kCoeffBits / 2 - 1;
-      constexpr auto kBackSmash = kCoeffBits / 2;
+      constexpr auto kFrontSmash = kCoeffBits / 3;
+      constexpr auto kBackSmash = kCoeffBits / 3;
       Index start = FastRangeGeneric(h, num_starts + kFrontSmash + kBackSmash);
       start = std::max(start, kFrontSmash);
       start -= kFrontSmash;
@@ -184,7 +196,7 @@ class StandardHasher {
     return cr;
   }
   inline ResultRow GetResultRowMask() const {
-    // TODO: will be used with InterleavedSolutionStorage
+    // TODO: will be used with InterleavedSolutionStorage?
     // For now, all bits set (note: might be a small type so might need to
     // narrow after promotion)
     return static_cast<ResultRow>(~ResultRow{0});
@@ -236,7 +248,7 @@ class StandardHasher {
 // to apply a different seed. This hasher seeds a 1-to-1 mixing
 // transformation to apply a seed to an existing hash (or hash-sized key).
 //
-// Testing suggests essentially no degredation of solution success rate
+// Testing suggests essentially no degradation of solution success rate
 // vs. going back to original inputs when changing hash seeds. For example:
 // Average re-seeds for solution with r=128, 1.02x overhead, and ~100k keys
 // is about 1.10 for both StandardHasher and StandardRehasher.
@@ -279,6 +291,26 @@ template <class RehasherTypesAndSettings>
 using StandardRehasher =
     StandardHasher<StandardRehasherAdapter<RehasherTypesAndSettings>>;
 
+// Especially with smaller hashes (e.g. 32 bit), there can be noticeable
+// false positives due to collisions in the Hash returned by GetHash.
+// This function returns the expected FP rate due to those collisions,
+// which can be added to the expected FP rate from the underlying data
+// structure. (Note: technically, a + b is only a good approximation of
+// 1-(1-a)(1-b) == a + b - a*b, if a and b are much closer to 0 than to 1.)
+// The number of entries added can be a double here in case it's an
+// average.
+template <class Hasher, typename Numerical>
+double ExpectedCollisionFpRate(const Hasher& hasher, Numerical added) {
+  // Standardize on the 'double' specialization
+  return ExpectedCollisionFpRate(hasher, 1.0 * added);
+}
+template <class Hasher>
+double ExpectedCollisionFpRate(const Hasher& /*hasher*/, double added) {
+  // Technically, there could be overlap among the added, but ignoring that
+  // is typically close enough.
+  return added / std::pow(256.0, sizeof(typename Hasher::Hash));
+}
+
 // StandardBanding: a canonical implementation of BandingStorage and
 // BacktrackStorage, with convenience API for banding (solving with on-the-fly
 // Gaussian elimination) with and without backtracking.
@@ -288,28 +320,30 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
   IMPORT_RIBBON_TYPES_AND_SETTINGS(TypesAndSettings);
 
   StandardBanding(Index num_slots = 0, Index backtrack_size = 0) {
-    if (num_slots > 0) {
-      Reset(num_slots, backtrack_size);
-    } else {
-      EnsureBacktrackSize(backtrack_size);
-    }
+    Reset(num_slots, backtrack_size);
   }
   void Reset(Index num_slots, Index backtrack_size = 0) {
-    assert(num_slots >= kCoeffBits);
-    if (num_slots > num_slots_allocated_) {
-      coeff_rows_.reset(new CoeffRow[num_slots]());
-      // Note: don't strictly have to zero-init result_rows,
-      // except possible information leakage ;)
-      result_rows_.reset(new ResultRow[num_slots]());
-      num_slots_allocated_ = num_slots;
+    if (num_slots == 0) {
+      // Unusual (TypesAndSettings::kAllowZeroStarts) or "uninitialized"
+      num_starts_ = 0;
     } else {
-      for (Index i = 0; i < num_slots; ++i) {
-        coeff_rows_[i] = 0;
-        // Note: don't strictly have to zero-init result_rows
-        result_rows_[i] = 0;
+      // Normal
+      assert(num_slots >= kCoeffBits);
+      if (num_slots > num_slots_allocated_) {
+        coeff_rows_.reset(new CoeffRow[num_slots]());
+        // Note: don't strictly have to zero-init result_rows,
+        // except possible information leakage ;)
+        result_rows_.reset(new ResultRow[num_slots]());
+        num_slots_allocated_ = num_slots;
+      } else {
+        for (Index i = 0; i < num_slots; ++i) {
+          coeff_rows_[i] = 0;
+          // Note: don't strictly have to zero-init result_rows
+          result_rows_[i] = 0;
+        }
       }
+      num_starts_ = num_slots - kCoeffBits + 1;
     }
-    num_starts_ = num_slots - kCoeffBits + 1;
     EnsureBacktrackSize(backtrack_size);
   }
   void EnsureBacktrackSize(Index backtrack_size) {
@@ -323,7 +357,7 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
   // From concept BandingStorage
 
   inline bool UsePrefetch() const {
-    // A rough guestimate of when prefetching during construction pays off.
+    // A rough guesstimate of when prefetching during construction pays off.
     // TODO: verify/validate
     return num_starts_ > 1500;
   }
@@ -352,6 +386,12 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
   //
   template <typename InputIterator>
   bool AddRange(InputIterator begin, InputIterator end) {
+    assert(num_starts_ > 0 || TypesAndSettings::kAllowZeroStarts);
+    if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
+      // Unusual. Can't add any in this case.
+      return begin == end;
+    }
+    // Normal
     return BandingAddRange(this, *this, begin, end);
   }
 
@@ -364,6 +404,12 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
   //
   template <typename InputIterator>
   bool AddRangeOrRollBack(InputIterator begin, InputIterator end) {
+    assert(num_starts_ > 0 || TypesAndSettings::kAllowZeroStarts);
+    if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
+      // Unusual. Can't add any in this case.
+      return begin == end;
+    }
+    // else Normal
     return BandingAddRange(this, this, *this, begin, end);
   }
 
@@ -372,15 +418,20 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
   //
   // Adding can fail even before all the "slots" are completely "full".
   //
-  bool Add(const AddInput& input) { return AddRange(&input, &input + 1); }
+  bool Add(const AddInput& input) {
+    // Pointer can act as iterator
+    return AddRange(&input, &input + 1);
+  }
 
   // Return the number of "occupied" rows (with non-zero coefficients stored).
   Index GetOccupiedCount() const {
     Index count = 0;
-    const Index num_slots = num_starts_ + kCoeffBits - 1;
-    for (Index i = 0; i < num_slots; ++i) {
-      if (coeff_rows_[i] != 0) {
-        ++count;
+    if (num_starts_ > 0) {
+      const Index num_slots = num_starts_ + kCoeffBits - 1;
+      for (Index i = 0; i < num_slots; ++i) {
+        if (coeff_rows_[i] != 0) {
+          ++count;
+        }
       }
     }
     return count;
@@ -442,14 +493,20 @@ class InMemSimpleSolution {
   IMPORT_RIBBON_TYPES_AND_SETTINGS(TypesAndSettings);
 
   void PrepareForNumStarts(Index num_starts) {
-    const Index num_slots = num_starts + kCoeffBits - 1;
-    assert(num_slots >= kCoeffBits);
-    if (num_slots > num_slots_allocated_) {
-      // Do not need to init the memory
-      solution_rows_.reset(new ResultRow[num_slots]);
-      num_slots_allocated_ = num_slots;
+    if (TypesAndSettings::kAllowZeroStarts && num_starts == 0) {
+      // Unusual
+      num_starts_ = 0;
+    } else {
+      // Normal
+      const Index num_slots = num_starts + kCoeffBits - 1;
+      assert(num_slots >= kCoeffBits);
+      if (num_slots > num_slots_allocated_) {
+        // Do not need to init the memory
+        solution_rows_.reset(new ResultRow[num_slots]);
+        num_slots_allocated_ = num_slots;
+      }
+      num_starts_ = num_starts;
     }
-    num_starts_ = num_starts;
   }
 
   Index GetNumStarts() const { return num_starts_; }
@@ -464,20 +521,51 @@ class InMemSimpleSolution {
   // High-level API
 
   template <typename BandingStorage>
-  void BackSubstFrom(const BandingStorage& ss) {
-    SimpleBackSubst(this, ss);
+  void BackSubstFrom(const BandingStorage& bs) {
+    if (TypesAndSettings::kAllowZeroStarts && bs.GetNumStarts() == 0) {
+      // Unusual
+      PrepareForNumStarts(0);
+    } else {
+      // Normal
+      SimpleBackSubst(this, bs);
+    }
   }
 
   template <typename PhsfQueryHasher>
   ResultRow PhsfQuery(const Key& input, const PhsfQueryHasher& hasher) {
     assert(!TypesAndSettings::kIsFilter);
-    return SimplePhsfQuery(input, hasher, *this);
+    if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
+      // Unusual
+      return 0;
+    } else {
+      // Normal
+      return SimplePhsfQuery(input, hasher, *this);
+    }
   }
 
   template <typename FilterQueryHasher>
   bool FilterQuery(const Key& input, const FilterQueryHasher& hasher) {
     assert(TypesAndSettings::kIsFilter);
-    return SimpleFilterQuery(input, hasher, *this);
+    if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
+      // Unusual. Zero starts presumes no keys added -> always false
+      return false;
+    } else {
+      // Normal, or upper_num_columns_ == 0 means "no space for data" and
+      // thus will always return true.
+      return SimpleFilterQuery(input, hasher, *this);
+    }
+  }
+
+  double ExpectedFpRate() {
+    assert(TypesAndSettings::kIsFilter);
+    if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
+      // Unusual, but we don't have FPs if we always return false.
+      return 0.0;
+    }
+    // else Normal
+
+    // Each result (solution) bit (column) cuts FP rate in half
+    return std::pow(0.5, 8U * sizeof(ResultRow));
   }
 
  protected:
@@ -486,6 +574,150 @@ class InMemSimpleSolution {
   Index num_starts_ = 0;
   Index num_slots_allocated_ = 0;
   std::unique_ptr<ResultRow[]> solution_rows_;
+};
+
+// Implements concept InterleavedSolutionStorage always using little-endian
+// byte order, so easy for serialization/deserialization. This implementation
+// fully supports fractional bits per key, where any number of segments
+// (number of bytes multiple of sizeof(CoeffRow)) can be used with any number
+// of slots that is a multiple of kCoeffBits.
+//
+// The structure is passed an externally allocated/de-allocated byte buffer
+// that is optionally pre-populated (from storage) for answering queries,
+// or can be populated by BackSubstFrom.
+//
+template <class TypesAndSettings>
+class SerializableInterleavedSolution {
+ public:
+  IMPORT_RIBBON_TYPES_AND_SETTINGS(TypesAndSettings);
+
+  // Does not take ownership of `data` but uses it (up to `data_len` bytes)
+  // throughout lifetime
+  SerializableInterleavedSolution(char* data, size_t data_len)
+      : data_(data), data_len_(data_len) {}
+
+  void PrepareForNumStarts(Index num_starts) {
+    assert(num_starts == 0 || (num_starts % kCoeffBits == 1));
+    num_starts_ = num_starts;
+
+    InternalConfigure();
+  }
+
+  Index GetNumStarts() const { return num_starts_; }
+
+  Index GetNumBlocks() const {
+    const Index num_slots = num_starts_ + kCoeffBits - 1;
+    return num_slots / kCoeffBits;
+  }
+
+  Index GetUpperNumColumns() const { return upper_num_columns_; }
+
+  Index GetUpperStartBlock() const { return upper_start_block_; }
+
+  Index GetNumSegments() const {
+    return static_cast<Index>(data_len_ / sizeof(CoeffRow));
+  }
+
+  CoeffRow LoadSegment(Index segment_num) const {
+    assert(data_ != nullptr);  // suppress clang analyzer report
+    return DecodeFixedGeneric<CoeffRow>(data_ + segment_num * sizeof(CoeffRow));
+  }
+  void StoreSegment(Index segment_num, CoeffRow val) {
+    assert(data_ != nullptr);  // suppress clang analyzer report
+    EncodeFixedGeneric(data_ + segment_num * sizeof(CoeffRow), val);
+  }
+
+  // ********************************************************************
+  // High-level API
+
+  template <typename BandingStorage>
+  void BackSubstFrom(const BandingStorage& bs) {
+    if (TypesAndSettings::kAllowZeroStarts && bs.GetNumStarts() == 0) {
+      // Unusual
+      PrepareForNumStarts(0);
+    } else {
+      // Normal
+      InterleavedBackSubst(this, bs);
+    }
+  }
+
+  template <typename PhsfQueryHasher>
+  ResultRow PhsfQuery(const Key& input, const PhsfQueryHasher& hasher) {
+    assert(!TypesAndSettings::kIsFilter);
+    if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
+      // Unusual
+      return 0;
+    } else {
+      // Normal
+      return InterleavedPhsfQuery(input, hasher, *this);
+    }
+  }
+
+  template <typename FilterQueryHasher>
+  bool FilterQuery(const Key& input, const FilterQueryHasher& hasher) {
+    assert(TypesAndSettings::kIsFilter);
+    if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
+      // Unusual. Zero starts presumes no keys added -> always false
+      return false;
+    } else {
+      // Normal, or upper_num_columns_ == 0 means "no space for data" and
+      // thus will always return true.
+      return InterleavedFilterQuery(input, hasher, *this);
+    }
+  }
+
+  double ExpectedFpRate() {
+    assert(TypesAndSettings::kIsFilter);
+    if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
+      // Unusual. Zero starts presumes no keys added -> always false
+      return 0.0;
+    }
+    // else Normal
+
+    // Note: Ignoring smash setting; still close enough in that case
+    double lower_portion =
+        (upper_start_block_ * kCoeffBits * 1.0) / num_starts_;
+
+    // Each result (solution) bit (column) cuts FP rate in half. Weight that
+    // for upper and lower number of bits (columns).
+    return lower_portion * std::pow(0.5, upper_num_columns_ - 1) +
+           (1.0 - lower_portion) * std::pow(0.5, upper_num_columns_);
+  }
+
+ protected:
+  void InternalConfigure() {
+    const Index num_blocks = GetNumBlocks();
+    Index num_segments = GetNumSegments();
+
+    if (num_blocks == 0) {
+      // Exceptional
+      upper_num_columns_ = 0;
+      upper_start_block_ = 0;
+    } else {
+      // Normal
+      upper_num_columns_ =
+          (num_segments + /*round up*/ num_blocks - 1) / num_blocks;
+      upper_start_block_ = upper_num_columns_ * num_blocks - num_segments;
+      // Unless that's more columns than supported by ResultRow data type
+      if (upper_num_columns_ > 8U * sizeof(ResultRow)) {
+        // Use maximum columns (there will be space unused)
+        upper_num_columns_ = static_cast<Index>(8U * sizeof(ResultRow));
+        upper_start_block_ = 0;
+        num_segments = num_blocks * upper_num_columns_;
+      }
+    }
+    // Update data_len_ for correct rounding and/or unused space
+    // NOTE: unused space stays gone if we PrepareForNumStarts again.
+    // We are prioritizing minimizing the number of fields over making
+    // the "unusued space" feature work well.
+    data_len_ = num_segments * sizeof(CoeffRow);
+  }
+
+  Index num_starts_ = 0;
+  Index upper_num_columns_ = 0;
+  Index upper_start_block_ = 0;
+  char* const data_;
+  size_t data_len_;
 };
 
 }  // namespace ribbon
@@ -499,5 +731,10 @@ class InMemSimpleSolution {
       ROCKSDB_NAMESPACE::ribbon::StandardBanding<TypesAndSettings>;           \
   using SimpleSoln =                                                          \
       ROCKSDB_NAMESPACE::ribbon::InMemSimpleSolution<TypesAndSettings>;       \
-  static_assert(sizeof(Hasher) + sizeof(Banding) + sizeof(SimpleSoln) > 0,    \
+  using InterleavedSoln =                                                     \
+      ROCKSDB_NAMESPACE::ribbon::SerializableInterleavedSolution<             \
+          TypesAndSettings>;                                                  \
+  static_assert(sizeof(Hasher) + sizeof(Banding) + sizeof(SimpleSoln) +       \
+                        sizeof(InterleavedSoln) >                             \
+                    0,                                                        \
                 "avoid unused warnings, semicolon expected after macro call")
