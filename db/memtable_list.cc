@@ -489,7 +489,7 @@ Status MemTableList::TryInstallMemtableFlushResults(
       std::unique_ptr<VersionEdit> wal_deletion;
       if (vset->db_options()->track_and_verify_wals_in_manifest) {
         const auto& wals = vset->GetWalSet().GetWals();
-        if (wals.lower_bound(min_wal_number_to_keep) != wals.begin()) {
+        if (!wals.empty() && min_wal_number_to_keep > wals.begin()->first) {
           wal_deletion.reset(new VersionEdit);
           wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
           edit_list.push_back(wal_deletion.get());
@@ -764,7 +764,7 @@ Status InstallMemtableAtomicFlushResults(
           PrecomputeMinLogNumberToKeepNon2PC(vset, *cfds[i], edit_lists[i]));
     }
     const auto& wals = vset->GetWalSet().GetWals();
-    if (wals.lower_bound(min_wal_number_to_keep) != wals.begin()) {
+    if (!wals.empty() && min_wal_number_to_keep > wals.begin()->first) {
       wal_deletion.reset(new VersionEdit);
       wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
       edit_lists.back().push_back(wal_deletion.get());

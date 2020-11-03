@@ -466,7 +466,7 @@ class VersionEdit {
   // Delete a WAL (either directly deleted or archived).
   // AddWal and DeleteWalsBefore cannot be called on the same VersionEdit.
   void DeleteWalsBefore(WalNumber number) {
-    assert(NumEntries() == !wal_deletion_.IsEmpty());
+    assert((NumEntries() == 1) == !wal_deletion_.IsEmpty());
     wal_deletion_ = WalDeletion(number);
   }
 

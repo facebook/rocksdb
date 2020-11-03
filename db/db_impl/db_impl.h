@@ -2192,9 +2192,8 @@ extern uint64_t PrecomputeMinLogNumberToKeep2PC(
     const autovector<MemTable*>& memtables_to_flush,
     LogsWithPrepTracker* prep_tracker);
 
-// In non-2PC mode,
-// WALs with log number < the returned number can be deleted after the
-// cfd_to_flush column family is flushed successfully.
+// In non-2PC mode, WALs with log number < the returned number can be
+// deleted after the cfd_to_flush column family is flushed successfully.
 extern uint64_t PrecomputeMinLogNumberToKeepNon2PC(
     VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
     const autovector<VersionEdit*>& edit_list);

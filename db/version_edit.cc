@@ -576,7 +576,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           return s;
         }
 
-        wal_deletion_ = wal_deletion;
+        wal_deletion_ = std::move(wal_deletion);
         break;
       }
 

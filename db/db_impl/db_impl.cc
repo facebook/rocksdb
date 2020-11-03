@@ -1353,7 +1353,8 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
 
 void DBImpl::MarkLogsNotSynced(uint64_t up_to) {
   mutex_.AssertHeld();
-  for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to; ++it) {
+  for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;
+       ++it) {
     auto& wal = *it;
     assert(wal.getting_synced);
     wal.getting_synced = false;

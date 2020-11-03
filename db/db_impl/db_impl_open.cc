@@ -601,7 +601,7 @@ Status DBImpl::Recover(
       // into MANIFEST, WAL check may fail.
       VersionEdit edit;
       WalNumber max_wal_number =
-          std::prev(versions_->GetWalSet().GetWals().end())->first;
+          versions_->GetWalSet().GetWals().rbegin()->first;
       edit.DeleteWalsBefore(max_wal_number + 1);
       s = versions_->LogAndApplyToDefaultColumnFamily(&edit, &mutex_);
     }
