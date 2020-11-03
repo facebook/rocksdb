@@ -124,11 +124,6 @@ Status BuildTable(
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
     std::unique_ptr<WritableFileWriter> file_writer;
-    // Currently we only enable dictionary compression during compaction to the
-    // bottommost level.
-    CompressionOptions compression_opts_for_flush(compression_opts);
-    compression_opts_for_flush.max_dict_bytes = 0;
-    compression_opts_for_flush.zstd_max_train_bytes = 0;
     {
       std::unique_ptr<FSWritableFile> file;
 #ifndef NDEBUG
@@ -160,7 +155,7 @@ Status BuildTable(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
           column_family_name, file_writer.get(), compression,
-          sample_for_compression, compression_opts_for_flush, level,
+          sample_for_compression, compression_opts, level,
           false /* skip_filters */, creation_time, oldest_key_time,
           0 /*target_file_size*/, file_creation_time, db_id, db_session_id);
     }
