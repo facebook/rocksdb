@@ -56,6 +56,10 @@ class VersionEditHandler {
 
   Status OnNonCfOperation(VersionEdit& edit, ColumnFamilyData** cfd);
 
+  Status OnWalAddition(VersionEdit& edit);
+
+  Status OnWalDeletion(VersionEdit& edit);
+
   Status Initialize();
 
   void CheckColumnFamilyId(const VersionEdit& edit, bool* cf_in_not_found,

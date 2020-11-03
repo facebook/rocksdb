@@ -673,6 +673,8 @@ class InternalStats {
 
   HistogramImpl* GetFileReadHist(int /*level*/) { return nullptr; }
 
+  HistogramImpl* GetBlobFileReadHist() { return nullptr; }
+
   uint64_t GetBackgroundErrorCount() const { return 0; }
 
   uint64_t BumpAndGetBackgroundErrorCount() { return 0; }

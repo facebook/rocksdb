@@ -349,6 +349,7 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets,
             static_cast<int>(key.size()), key.data(), int_value);
         total += int_value;
       }
+      iter->status().PermitUncheckedError();
       delete iter;
     }
 

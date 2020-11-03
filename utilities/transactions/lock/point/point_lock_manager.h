@@ -6,9 +6,9 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include <memory>
 #include <string>
 #include <unordered_map>
-#include <memory>
 #include <utility>
 #include <vector>
 
@@ -17,7 +17,8 @@
 #include "util/autovector.h"
 #include "util/hash_map.h"
 #include "util/thread_local.h"
-#include "utilities/transactions/pessimistic_transaction.h"
+#include "utilities/transactions/lock/lock_manager.h"
+#include "utilities/transactions/lock/point/point_lock_tracker.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -48,44 +49,47 @@ struct TrackedTrxInfo {
   std::string m_waiting_key;
 };
 
-class Slice;
-class PessimisticTransactionDB;
-
-class TransactionLockMgr {
+class PointLockManager : public LockManager {
  public:
-  TransactionLockMgr(TransactionDB* txn_db, size_t default_num_stripes,
-                     int64_t max_num_locks, uint32_t max_num_deadlocks,
-                     std::shared_ptr<TransactionDBMutexFactory> factory);
+  PointLockManager(PessimisticTransactionDB* db,
+                   const TransactionDBOptions& opt);
   // No copying allowed
-  TransactionLockMgr(const TransactionLockMgr&) = delete;
-  void operator=(const TransactionLockMgr&) = delete;
+  PointLockManager(const PointLockManager&) = delete;
+  PointLockManager& operator=(const PointLockManager&) = delete;
 
-  ~TransactionLockMgr();
+  ~PointLockManager() override;
 
-  // Creates a new LockMap for this column family.  Caller should guarantee
-  // that this column family does not already exist.
-  void AddColumnFamily(uint32_t column_family_id);
+  bool IsPointLockSupported() const override { return true; }
 
-  // Deletes the LockMap for this column family.  Caller should guarantee that
-  // this column family is no longer in use.
-  void RemoveColumnFamily(uint32_t column_family_id);
+  bool IsRangeLockSupported() const override { return false; }
 
-  // Attempt to lock key.  If OK status is returned, the caller is responsible
-  // for calling UnLock() on this key.
-  Status TryLock(PessimisticTransaction* txn, uint32_t column_family_id,
-                 const std::string& key, Env* env, bool exclusive);
+  const LockTrackerFactory& GetLockTrackerFactory() const override {
+    return PointLockTrackerFactory::Get();
+  }
 
-  // Unlock a key locked by TryLock().  txn must be the same Transaction that
-  // locked this key.
-  void UnLock(const PessimisticTransaction* txn, const LockTracker& tracker,
-              Env* env);
-  void UnLock(PessimisticTransaction* txn, uint32_t column_family_id,
-              const std::string& key, Env* env);
+  void AddColumnFamily(const ColumnFamilyHandle* cf) override;
+  void RemoveColumnFamily(const ColumnFamilyHandle* cf) override;
 
-  using LockStatusData = std::unordered_multimap<uint32_t, KeyLockInfo>;
-  LockStatusData GetLockStatusData();
-  std::vector<DeadlockPath> GetDeadlockInfoBuffer();
-  void Resize(uint32_t);
+  Status TryLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
+                 const std::string& key, Env* env, bool exclusive) override;
+  Status TryLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
+                 const Endpoint& start, const Endpoint& end, Env* env,
+                 bool exclusive) override;
+
+  void UnLock(PessimisticTransaction* txn, const LockTracker& tracker,
+              Env* env) override;
+  void UnLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
+              const std::string& key, Env* env) override;
+  void UnLock(PessimisticTransaction* txn, ColumnFamilyId column_family_id,
+              const Endpoint& start, const Endpoint& end, Env* env) override;
+
+  PointLockStatus GetPointLockStatus() override;
+
+  RangeLockStatus GetRangeLockStatus() override;
+
+  std::vector<DeadlockPath> GetDeadlockInfoBuffer() override;
+
+  void Resize(uint32_t new_size) override;
 
  private:
   PessimisticTransactionDB* txn_db_impl_;
@@ -140,7 +144,7 @@ class TransactionLockMgr {
                        LockInfo&& lock_info, uint64_t* wait_time,
                        autovector<TransactionID>* txn_ids);
 
-  void UnLockKey(const PessimisticTransaction* txn, const std::string& key,
+  void UnLockKey(PessimisticTransaction* txn, const std::string& key,
                  LockMapStripe* stripe, LockMap* lock_map, Env* env);
 
   bool IncrementWaiters(const PessimisticTransaction* txn,

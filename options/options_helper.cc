@@ -166,6 +166,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.max_bgerror_resume_count;
   options.bgerror_resume_retry_interval =
       immutable_db_options.bgerror_resume_retry_interval;
+  options.db_host_id = immutable_db_options.db_host_id;
   return options;
 }
 
@@ -296,6 +297,17 @@ std::vector<CompressionType> GetSupportedCompressions() {
     }
   }
   return supported_compressions;
+}
+
+std::vector<CompressionType> GetSupportedDictCompressions() {
+  std::vector<CompressionType> dict_compression_types;
+  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
+    CompressionType t = comp_to_name.second;
+    if (t != kDisableCompressionOption && DictCompressionTypeSupported(t)) {
+      dict_compression_types.push_back(t);
+    }
+  }
+  return dict_compression_types;
 }
 
 #ifndef ROCKSDB_LITE
@@ -726,9 +738,15 @@ Status GetColumnFamilyOptionsFromMap(
   *new_options = base_options;
 
   const auto config = CFOptionsAsConfigurable(base_options);
-  return ConfigureFromMap<ColumnFamilyOptions>(config_options, opts_map,
-                                               OptionsHelper::kCFOptionsName,
-                                               config.get(), new_options);
+  Status s = ConfigureFromMap<ColumnFamilyOptions>(
+      config_options, opts_map, OptionsHelper::kCFOptionsName, config.get(),
+      new_options);
+  // Translate any errors (NotFound, NotSupported, to InvalidArgument
+  if (s.ok() || s.IsInvalidArgument()) {
+    return s;
+  } else {
+    return Status::InvalidArgument(s.getState());
+  }
 }
 
 Status GetColumnFamilyOptionsFromString(
@@ -775,9 +793,15 @@ Status GetDBOptionsFromMap(
   assert(new_options);
   *new_options = base_options;
   auto config = DBOptionsAsConfigurable(base_options);
-  return ConfigureFromMap<DBOptions>(config_options, opts_map,
-                                     OptionsHelper::kDBOptionsName,
-                                     config.get(), new_options);
+  Status s = ConfigureFromMap<DBOptions>(config_options, opts_map,
+                                         OptionsHelper::kDBOptionsName,
+                                         config.get(), new_options);
+  // Translate any errors (NotFound, NotSupported, to InvalidArgument
+  if (s.ok() || s.IsInvalidArgument()) {
+    return s;
+  } else {
+    return Status::InvalidArgument(s.getState());
+  }
 }
 
 Status GetDBOptionsFromString(const DBOptions& base_options,
@@ -843,7 +867,12 @@ Status GetOptionsFromString(const ConfigOptions& config_options,
       *new_options = Options(*new_db_options, base_options);
     }
   }
-  return s;
+  // Translate any errors (NotFound, NotSupported, to InvalidArgument
+  if (s.ok() || s.IsInvalidArgument()) {
+    return s;
+  } else {
+    return Status::InvalidArgument(s.getState());
+  }
 }
 
 std::unordered_map<std::string, EncodingType>

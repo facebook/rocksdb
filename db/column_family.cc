@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "db/blob/blob_file_cache.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/compaction/compaction_picker_fifo.h"
 #include "db/compaction/compaction_picker_level.h"
@@ -559,6 +560,10 @@ ColumnFamilyData::ColumnFamilyData(
         new InternalStats(ioptions_.num_levels, db_options.env, this));
     table_cache_.reset(new TableCache(ioptions_, file_options, _table_cache,
                                       block_cache_tracer, io_tracer));
+    blob_file_cache_.reset(
+        new BlobFileCache(_table_cache, ioptions(), soptions(), id_,
+                          internal_stats_->GetBlobFileReadHist()));
+
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(ioptions_, &internal_comparator_));
@@ -1083,7 +1088,7 @@ bool ColumnFamilyData::RangeOverlapWithCompaction(
 
 Status ColumnFamilyData::RangesOverlapWithMemtables(
     const autovector<Range>& ranges, SuperVersion* super_version,
-    bool* overlap) {
+    bool allow_data_in_errors, bool* overlap) {
   assert(overlap != nullptr);
   *overlap = false;
   // Create an InternalIterator over all unflushed memtables
@@ -1116,13 +1121,12 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
     memtable_iter->Seek(range_start.Encode());
     status = memtable_iter->status();
     ParsedInternalKey seek_result;
-    if (status.ok()) {
-      if (memtable_iter->Valid() &&
-          ParseInternalKey(memtable_iter->key(), &seek_result) !=
-              Status::OK()) {
-        status = Status::Corruption("DB have corrupted keys");
-      }
+
+    if (status.ok() && memtable_iter->Valid()) {
+      status = ParseInternalKey(memtable_iter->key(), &seek_result,
+                                allow_data_in_errors);
     }
+
     if (status.ok()) {
       if (memtable_iter->Valid() &&
           ucmp->Compare(seek_result.user_key, ranges[i].limit) <= 0) {

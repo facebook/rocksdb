@@ -319,7 +319,7 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
                            const_cast<std::string*>(&fname));
 
   Status file_deletion_status;
-  if (type == kTableFile || type == kBlobFile || type == kLogFile) {
+  if (type == kTableFile || type == kBlobFile || type == kWalFile) {
     file_deletion_status =
         DeleteDBFile(&immutable_db_options_, fname, path_to_sync,
                      /*force_bg=*/false, /*force_fg=*/!wal_in_db_path_);
@@ -466,7 +466,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
 
     bool keep = true;
     switch (type) {
-      case kLogFile:
+      case kWalFile:
         keep = ((number >= state.log_number) ||
                 (number == state.prev_log_number) ||
                 (log_recycle_files_set.find(number) !=
@@ -546,7 +546,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       dir_to_sync = candidate_file.file_path;
     } else {
       dir_to_sync =
-          (type == kLogFile) ? immutable_db_options_.wal_dir : dbname_;
+          (type == kWalFile) ? immutable_db_options_.wal_dir : dbname_;
       fname = dir_to_sync +
               ((!dir_to_sync.empty() && dir_to_sync.back() == '/') ||
                        (!to_delete.empty() && to_delete.front() == '/')
@@ -556,7 +556,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
 
 #ifndef ROCKSDB_LITE
-    if (type == kLogFile && (immutable_db_options_.wal_ttl_seconds > 0 ||
+    if (type == kWalFile && (immutable_db_options_.wal_ttl_seconds > 0 ||
                              immutable_db_options_.wal_size_limit_mb > 0)) {
       wal_manager_.ArchiveWALFile(fname, number);
       continue;

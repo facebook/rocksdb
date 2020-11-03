@@ -16,9 +16,6 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#if defined(OS_LINUX)
-#include <linux/fs.h>
-#endif
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -29,7 +26,6 @@
 #include <sys/stat.h>
 #if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
 #include <sys/statfs.h>
-#include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #endif
 #include <sys/statvfs.h>
@@ -52,7 +48,6 @@
 
 #include "env/composite_env_wrapper.h"
 #include "env/io_posix.h"
-#include "logging/logging.h"
 #include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"

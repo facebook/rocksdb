@@ -22,6 +22,9 @@
 #include <vector>
 
 #include "compaction/compaction.h"
+#include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_file_reader.h"
+#include "db/blob/blob_index.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -92,7 +95,8 @@ Status OverlapWithIterator(const Comparator* ucmp,
   *overlap = false;
   if (iter->Valid()) {
     ParsedInternalKey seek_result;
-    Status s = ParseInternalKey(iter->key(), &seek_result);
+    Status s = ParseInternalKey(iter->key(), &seek_result,
+                                false /* log_err_key */);  // TODO
     if (!s.ok()) return s;
 
     if (ucmp->CompareWithoutTimestamp(seek_result.user_key, largest_user_key) <=
@@ -436,7 +440,7 @@ class FilePickerMultiGet {
             !file_hit)) {
       struct FilePickerContext& fp_ctx = fp_ctx_array_[batch_iter_.index()];
       f = &curr_file_level_->files[fp_ctx.curr_index_in_curr_level];
-      Slice& user_key = batch_iter_->ukey;
+      Slice& user_key = batch_iter_->ukey_without_ts;
 
       // Do key range filtering of files or/and fractional cascading if:
       // (1) not all the files are in level 0, or
@@ -450,17 +454,17 @@ class FilePickerMultiGet {
         // Check if key is within a file's range. If search left bound and
         // right bound point to the same find, we are sure key falls in
         // range.
+        int cmp_smallest = user_comparator_->CompareWithoutTimestamp(
+            user_key, false, ExtractUserKey(f->smallest_key), true);
+
         assert(curr_level_ == 0 ||
                fp_ctx.curr_index_in_curr_level ==
                    fp_ctx.start_index_in_curr_level ||
-               user_comparator_->Compare(user_key,
-                                         ExtractUserKey(f->smallest_key)) <= 0);
+               cmp_smallest <= 0);
 
-        int cmp_smallest = user_comparator_->Compare(
-            user_key, ExtractUserKey(f->smallest_key));
         if (cmp_smallest >= 0) {
-          cmp_largest = user_comparator_->Compare(
-              user_key, ExtractUserKey(f->largest_key));
+          cmp_largest = user_comparator_->CompareWithoutTimestamp(
+              user_key, false, ExtractUserKey(f->largest_key), true);
         } else {
           cmp_largest = -1;
         }
@@ -493,8 +497,9 @@ class FilePickerMultiGet {
         upper_key_ = batch_iter_;
         ++upper_key_;
         while (upper_key_ != current_level_range_.end() &&
-               user_comparator_->Compare(batch_iter_->ukey, upper_key_->ukey) ==
-                   0) {
+               user_comparator_->CompareWithoutTimestamp(
+                   batch_iter_->ukey_without_ts, false,
+                   upper_key_->ukey_without_ts, false) == 0) {
           ++upper_key_;
         }
         break;
@@ -1757,6 +1762,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       db_statistics_((cfd_ == nullptr) ? nullptr
                                        : cfd_->ioptions()->statistics),
       table_cache_((cfd_ == nullptr) ? nullptr : cfd_->table_cache()),
+      blob_file_cache_(cfd_ ? cfd_->blob_file_cache() : nullptr),
       merge_operator_((cfd_ == nullptr) ? nullptr
                                         : cfd_->ioptions()->merge_operator),
       storage_info_(
@@ -1780,6 +1786,55 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       version_number_(version_number),
       io_tracer_(io_tracer) {}
 
+Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                        PinnableSlice* value) const {
+  assert(value);
+
+  if (read_options.read_tier == kBlockCacheTier) {
+    return Status::Incomplete("Cannot read blob: no disk I/O allowed");
+  }
+
+  BlobIndex blob_index;
+
+  {
+    Status s = blob_index.DecodeFrom(*value);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  if (blob_index.HasTTL() || blob_index.IsInlined()) {
+    return Status::Corruption("Unexpected TTL/inlined blob index");
+  }
+
+  const auto& blob_files = storage_info_.GetBlobFiles();
+
+  const uint64_t blob_file_number = blob_index.file_number();
+
+  const auto it = blob_files.find(blob_file_number);
+  if (it == blob_files.end()) {
+    return Status::Corruption("Invalid blob file number");
+  }
+
+  CacheHandleGuard<BlobFileReader> blob_file_reader;
+
+  {
+    assert(blob_file_cache_);
+    const Status s = blob_file_cache_->GetBlobFileReader(blob_file_number,
+                                                         &blob_file_reader);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  assert(blob_file_reader.GetValue());
+  const Status s = blob_file_reader.GetValue()->GetBlob(
+      read_options, user_key, blob_index.offset(), blob_index.size(),
+      blob_index.compression(), value);
+
+  return s;
+}
+
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   PinnableSlice* value, std::string* timestamp, Status* status,
                   MergeContext* merge_context,
@@ -1802,12 +1857,19 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       vset_->block_cache_tracer_->is_tracing_enabled()) {
     tracing_get_id = vset_->block_cache_tracer_->NextGetId();
   }
+
+  // Note: the old StackableDB-based BlobDB passes in
+  // GetImplOptions::is_blob_index; for the integrated BlobDB implementation, we
+  // need to provide it here.
+  bool is_blob_index = false;
+  bool* const is_blob_to_use = is_blob ? is_blob : &is_blob_index;
+
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
       do_merge ? value : nullptr, do_merge ? timestamp : nullptr, value_found,
       merge_context, do_merge, max_covering_tombstone_seq, this->env_, seq,
-      merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
+      merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob_to_use,
       tracing_get_id);
 
   // Pin blocks that we read to hold merge operands
@@ -1865,6 +1927,18 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         // TODO: update per-level perfcontext user_key_return_count for kMerge
         break;
       case GetContext::kFound:
+        if (is_blob_index) {
+          if (do_merge && value) {
+            *status = GetBlob(read_options, user_key, value);
+            if (!status->ok()) {
+              if (status->IsIncomplete()) {
+                get_context.MarkKeyMayExist();
+              }
+              return;
+            }
+          }
+        }
+
         if (fp.GetHitFileLevel() == 0) {
           RecordTick(db_statistics_, GET_HIT_L0);
         } else if (fp.GetHitFileLevel() == 1) {
@@ -1882,7 +1956,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       case GetContext::kCorrupt:
         *status = Status::Corruption("corrupted key for ", user_key);
         return;
-      case GetContext::kBlobIndex:
+      case GetContext::kUnexpectedBlobIndex:
         ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
         *status = Status::NotSupported(
             "Encounter unexpected blob index. Please open DB with "
@@ -1944,11 +2018,11 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     assert(iter->s->ok() || iter->s->IsMergeInProgress());
     get_ctx.emplace_back(
         user_comparator(), merge_operator_, info_log_, db_statistics_,
-        iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge, iter->ukey,
-        iter->value, iter->timestamp, nullptr, &(iter->merge_context), true,
-        &iter->max_covering_tombstone_seq, this->env_, nullptr,
-        merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob,
-        tracing_mget_id);
+        iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge,
+        iter->ukey_with_ts, iter->value, iter->timestamp, nullptr,
+        &(iter->merge_context), true, &iter->max_covering_tombstone_seq,
+        this->env_, nullptr, merge_operator_ ? &pinned_iters_mgr : nullptr,
+        callback, is_blob, tracing_mget_id);
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
     // be used for IO errors, and get_context state will be used for any
@@ -2069,7 +2143,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
               Status::Corruption("corrupted key for ", iter->lkey->user_key());
           file_range.MarkKeyDone(iter);
           continue;
-        case GetContext::kBlobIndex:
+        case GetContext::kUnexpectedBlobIndex:
           ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
           *status = Status::NotSupported(
               "Encounter unexpected blob index. Please open DB with "
@@ -3593,16 +3667,30 @@ struct VersionSet::ManifestWriter {
   ColumnFamilyData* cfd;
   const MutableCFOptions mutable_cf_options;
   const autovector<VersionEdit*>& edit_list;
+  const std::function<void(const Status&)> manifest_write_callback;
 
-  explicit ManifestWriter(InstrumentedMutex* mu, ColumnFamilyData* _cfd,
-                          const MutableCFOptions& cf_options,
-                          const autovector<VersionEdit*>& e)
+  explicit ManifestWriter(
+      InstrumentedMutex* mu, ColumnFamilyData* _cfd,
+      const MutableCFOptions& cf_options, const autovector<VersionEdit*>& e,
+      const std::function<void(const Status&)>& manifest_wcb)
       : done(false),
         cv(mu),
         cfd(_cfd),
         mutable_cf_options(cf_options),
-        edit_list(e) {}
+        edit_list(e),
+        manifest_write_callback(manifest_wcb) {}
   ~ManifestWriter() { status.PermitUncheckedError(); }
+
+  bool IsAllWalEdits() const {
+    bool all_wal_edits = true;
+    for (const auto& e : edit_list) {
+      if (!e->IsWalManipulation()) {
+        all_wal_edits = false;
+        break;
+      }
+    }
+    return all_wal_edits;
+  }
 };
 
 Status AtomicGroupReadBuffer::AddEdit(VersionEdit* edit) {
@@ -3661,6 +3749,7 @@ VersionSet::VersionSet(const std::string& dbname,
           new ColumnFamilySet(dbname, _db_options, storage_options, table_cache,
                               write_buffer_manager, write_controller,
                               block_cache_tracer, io_tracer)),
+      table_cache_(table_cache),
       env_(_db_options->env),
       fs_(_db_options->fs, io_tracer),
       dbname_(dbname),
@@ -3682,12 +3771,11 @@ VersionSet::VersionSet(const std::string& dbname,
 VersionSet::~VersionSet() {
   // we need to delete column_family_set_ because its destructor depends on
   // VersionSet
-  Cache* table_cache = column_family_set_->get_table_cache();
   column_family_set_.reset();
   for (auto& file : obsolete_files_) {
     if (file.metadata->table_reader_handle) {
-      table_cache->Release(file.metadata->table_reader_handle);
-      TableCache::Evict(table_cache, file.metadata->fd.GetNumber());
+      table_cache_->Release(file.metadata->table_reader_handle);
+      TableCache::Evict(table_cache_, file.metadata->fd.GetNumber());
     }
     file.DeleteMetadata();
   }
@@ -3697,11 +3785,10 @@ VersionSet::~VersionSet() {
 
 void VersionSet::Reset() {
   if (column_family_set_) {
-    Cache* table_cache = column_family_set_->get_table_cache();
     WriteBufferManager* wbm = column_family_set_->write_buffer_manager();
     WriteController* wc = column_family_set_->write_controller();
     column_family_set_.reset(
-        new ColumnFamilySet(dbname_, db_options_, file_options_, table_cache,
+        new ColumnFamilySet(dbname_, db_options_, file_options_, table_cache_,
                             wbm, wc, block_cache_tracer_, io_tracer_));
   }
   db_id_.clear();
@@ -3755,6 +3842,7 @@ Status VersionSet::ProcessManifestWrites(
     std::deque<ManifestWriter>& writers, InstrumentedMutex* mu,
     FSDirectory* db_directory, bool new_descriptor_log,
     const ColumnFamilyOptions* new_cf_options) {
+  mu->AssertHeld();
   assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
   ManifestWriter* last_writer = &first_writer;
@@ -3831,16 +3919,22 @@ Status VersionSet::ProcessManifestWrites(
         }
       }
       if (version == nullptr) {
-        version = new Version(last_writer->cfd, this, file_options_,
-                              last_writer->mutable_cf_options, io_tracer_,
-                              current_version_number_++);
-        versions.push_back(version);
-        mutable_cf_options_ptrs.push_back(&last_writer->mutable_cf_options);
-        builder_guards.emplace_back(
-            new BaseReferencedVersionBuilder(last_writer->cfd));
-        builder = builder_guards.back()->version_builder();
+        // WAL manipulations do not need to be applied to versions.
+        if (!last_writer->IsAllWalEdits()) {
+          version = new Version(last_writer->cfd, this, file_options_,
+                                last_writer->mutable_cf_options, io_tracer_,
+                                current_version_number_++);
+          versions.push_back(version);
+          mutable_cf_options_ptrs.push_back(&last_writer->mutable_cf_options);
+          builder_guards.emplace_back(
+              new BaseReferencedVersionBuilder(last_writer->cfd));
+          builder = builder_guards.back()->version_builder();
+        }
+        assert(last_writer->IsAllWalEdits() || builder);
+        assert(last_writer->IsAllWalEdits() || version);
+        TEST_SYNC_POINT_CALLBACK("VersionSet::ProcessManifestWrites:NewVersion",
+                                 version);
       }
-      assert(builder != nullptr);  // make checker happy
       for (const auto& e : last_writer->edit_list) {
         if (e->is_in_atomic_group_) {
           if (batch_edits.empty() || !batch_edits.back()->is_in_atomic_group_ ||
@@ -3926,6 +4020,7 @@ Status VersionSet::ProcessManifestWrites(
   // reads its content after releasing db mutex to avoid race with
   // SwitchMemtable().
   std::unordered_map<uint32_t, MutableCFState> curr_state;
+  VersionEdit wal_additions;
   if (new_descriptor_log) {
     pending_manifest_file_number_ = NewFileNumber();
     batch_edits.back()->SetNextFile(next_file_number_.load());
@@ -3940,6 +4035,10 @@ Status VersionSet::ProcessManifestWrites(
       assert(curr_state.find(cfd->GetID()) == curr_state.end());
       curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
     }
+
+    for (const auto& wal : wals_.GetWals()) {
+      wal_additions.AddWal(wal.first, wal.second);
+    }
   }
 
   uint64_t new_manifest_file_size = 0;
@@ -3949,7 +4048,7 @@ Status VersionSet::ProcessManifestWrites(
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
     mu->Unlock();
 
-    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifest");
+    TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WriteManifest", nullptr);
     if (!first_writer.edit_list.front()->IsColumnFamilyManipulation()) {
       for (int i = 0; i < static_cast<int>(versions.size()); ++i) {
         assert(!builder_guards.empty() &&
@@ -3992,8 +4091,8 @@ Status VersionSet::ProcessManifestWrites(
             io_tracer_, nullptr, db_options_->listeners));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
-        s = WriteCurrentStateToManifest(curr_state, descriptor_log_.get(),
-                                        io_s);
+        s = WriteCurrentStateToManifest(curr_state, wal_additions,
+                                        descriptor_log_.get(), io_s);
       } else {
         s = io_s;
       }
@@ -4072,6 +4171,20 @@ Status VersionSet::ProcessManifestWrites(
     LogFlush(db_options_->info_log);
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestDone");
     mu->Lock();
+  }
+
+  if (s.ok()) {
+    // Apply WAL edits, DB mutex must be held.
+    for (auto& e : batch_edits) {
+      if (e->IsWalAddition()) {
+        s = wals_.AddWals(e->GetWalAdditions());
+      } else if (e->IsWalDeletion()) {
+        s = wals_.DeleteWals(e->GetWalDeletions());
+      }
+      if (!s.ok()) {
+        break;
+      }
+    }
   }
 
   if (!io_s.ok()) {
@@ -4185,6 +4298,9 @@ Status VersionSet::ProcessManifestWrites(
     }
     ready->status = s;
     ready->done = true;
+    if (ready->manifest_write_callback) {
+      (ready->manifest_write_callback)(s);
+    }
     if (need_signal) {
       ready->cv.Signal();
     }
@@ -4205,7 +4321,8 @@ Status VersionSet::LogAndApply(
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<autovector<VersionEdit*>>& edit_lists,
     InstrumentedMutex* mu, FSDirectory* db_directory, bool new_descriptor_log,
-    const ColumnFamilyOptions* new_cf_options) {
+    const ColumnFamilyOptions* new_cf_options,
+    const std::vector<std::function<void(const Status&)>>& manifest_wcbs) {
   mu->AssertHeld();
   int num_edits = 0;
   for (const auto& elist : edit_lists) {
@@ -4235,12 +4352,16 @@ Status VersionSet::LogAndApply(
     assert(static_cast<size_t>(num_cfds) == edit_lists.size());
   }
   for (int i = 0; i < num_cfds; ++i) {
+    const auto wcb =
+        manifest_wcbs.empty() ? [](const Status&) {} : manifest_wcbs[i];
     writers.emplace_back(mu, column_family_datas[i],
-                         *mutable_cf_options_list[i], edit_lists[i]);
+                         *mutable_cf_options_list[i], edit_lists[i], wcb);
     manifest_writers_.push_back(&writers[i]);
   }
   assert(!writers.empty());
   ManifestWriter& first_writer = writers.front();
+  TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:BeforeWriterWaiting",
+                           nullptr);
   while (!first_writer.done && &first_writer != manifest_writers_.front()) {
     first_writer.cv.Wait();
   }
@@ -4252,6 +4373,7 @@ Status VersionSet::LogAndApply(
     for (const auto& writer : writers) {
       assert(writer.done);
     }
+    TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WakeUpAndDone", mu);
 #endif /* !NDEBUG */
     return first_writer.status;
   }
@@ -4321,9 +4443,11 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   edit->SetLastSequence(db_options_->two_write_queues ? last_allocated_sequence_
                                                       : last_sequence_);
 
-  Status s = builder->Apply(edit);
-
-  return s;
+  // The builder can be nullptr only if edit is WAL manipulation,
+  // because WAL edits do not need to be applied to versions,
+  // we return Status::OK() in this case.
+  assert(builder || edit->IsWalManipulation());
+  return builder ? builder->Apply(edit) : Status::OK();
 }
 
 Status VersionSet::ApplyOneVersionEditToBuilder(
@@ -4396,6 +4520,16 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
     } else {
       return Status::Corruption(
           "Manifest - dropping non-existing column family");
+    }
+  } else if (edit.IsWalAddition()) {
+    Status s = wals_.AddWals(edit.GetWalAdditions());
+    if (!s.ok()) {
+      return s;
+    }
+  } else if (edit.IsWalDeletion()) {
+    Status s = wals_.DeleteWals(edit.GetWalDeletions());
+    if (!s.ok()) {
+      return s;
     }
   } else if (!cf_in_not_found) {
     if (!cf_in_builders) {
@@ -5341,7 +5475,7 @@ void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
 
 Status VersionSet::WriteCurrentStateToManifest(
     const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-    log::Writer* log, IOStatus& io_s) {
+    const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
   // WARNING: This method doesn't hold a mutex!!
@@ -5361,6 +5495,21 @@ Status VersionSet::WriteCurrentStateToManifest(
                                 edit_for_db_id.DebugString(true));
     }
     io_s = log->AddRecord(db_id_record);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+  }
+
+  // Save WALs.
+  if (!wal_additions.GetWalAdditions().empty()) {
+    TEST_SYNC_POINT_CALLBACK("VersionSet::WriteCurrentStateToManifest:SaveWal",
+                             const_cast<VersionEdit*>(&wal_additions));
+    std::string record;
+    if (!wal_additions.EncodeTo(&record)) {
+      return Status::Corruption("Unable to Encode VersionEdit: " +
+                                wal_additions.DebugString(true));
+    }
+    io_s = log->AddRecord(record);
     if (!io_s.ok()) {
       return io_s;
     }

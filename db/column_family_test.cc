@@ -87,7 +87,6 @@ class ColumnFamilyTestBase : public testing::Test {
 #endif  // ROCKSDB_LITE
       column_families.push_back(cfdescriptor);
     }
-    Close();
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
     Destroy(column_families);
     delete env_;
@@ -3271,7 +3270,7 @@ TEST_P(ColumnFamilyTest, DISABLED_LogTruncationTest) {
     FileType type;
     if (!(ParseFileName(filenames[i], &number, &type))) continue;
 
-    if (type != kLogFile) continue;
+    if (type != kWalFile) continue;
 
     logfs.push_back(filenames[i]);
   }

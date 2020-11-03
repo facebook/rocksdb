@@ -248,12 +248,6 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
   if (max_subcompactions_ == 0) {
     max_subcompactions_ = _mutable_db_options.max_subcompactions;
   }
-  if (!bottommost_level_) {
-    // Currently we only enable dictionary compression during compaction to the
-    // bottommost level.
-    output_compression_opts_.max_dict_bytes = 0;
-    output_compression_opts_.zstd_max_train_bytes = 0;
-  }
 
 #ifndef NDEBUG
   for (size_t i = 1; i < inputs_.size(); ++i) {
@@ -383,7 +377,13 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
         auto* f = files[level_ptrs->at(lvl)];
         if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
           // We've advanced far enough
-          if (user_cmp->Compare(user_key, f->smallest.user_key()) >= 0) {
+          // In the presence of user-defined timestamp, we may need to handle
+          // the case in which f->smallest.user_key() (including ts) has the
+          // same user key, but the ts part is smaller. If so,
+          // Compare(user_key, f->smallest.user_key()) returns -1.
+          // That's why we need CompareWithoutTimestamp().
+          if (user_cmp->CompareWithoutTimestamp(user_key,
+                                                f->smallest.user_key()) >= 0) {
             // Key falls in this file's range, so it may
             // exist beyond output level
             return false;

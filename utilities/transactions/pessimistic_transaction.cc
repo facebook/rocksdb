@@ -38,7 +38,10 @@ TransactionID PessimisticTransaction::GenTxnID() {
 PessimisticTransaction::PessimisticTransaction(
     TransactionDB* txn_db, const WriteOptions& write_options,
     const TransactionOptions& txn_options, const bool init)
-    : TransactionBaseImpl(txn_db->GetRootDB(), write_options),
+    : TransactionBaseImpl(
+          txn_db->GetRootDB(), write_options,
+          static_cast_with_check<PessimisticTransactionDB>(txn_db)
+              ->GetLockTrackerFactory()),
       txn_db_impl_(nullptr),
       expiration_time_(0),
       txn_id_(0),
@@ -132,7 +135,7 @@ WriteCommittedTxn::WriteCommittedTxn(TransactionDB* txn_db,
     : PessimisticTransaction(txn_db, write_options, txn_options){};
 
 Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
-  std::unique_ptr<LockTracker> keys_to_unlock(NewLockTracker());
+  std::unique_ptr<LockTracker> keys_to_unlock(lock_tracker_factory_.Create());
   Status s = LockBatch(batch, keys_to_unlock.get());
 
   if (!s.ok()) {
@@ -170,7 +173,6 @@ Status PessimisticTransaction::CommitBatch(WriteBatch* batch) {
 }
 
 Status PessimisticTransaction::Prepare() {
-  Status s;
 
   if (name_.empty()) {
     return Status::InvalidArgument(
@@ -181,6 +183,7 @@ Status PessimisticTransaction::Prepare() {
     return Status::Expired();
   }
 
+  Status s;
   bool can_prepare = false;
 
   if (expiration_time_ > 0) {
@@ -223,7 +226,9 @@ Status PessimisticTransaction::Prepare() {
 Status WriteCommittedTxn::PrepareInternal() {
   WriteOptions write_options = write_options_;
   write_options.disableWAL = false;
-  WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
+  auto s = WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(),
+                                              name_);
+  assert(s.ok());
   class MarkLogCallback : public PreReleaseCallback {
    public:
     MarkLogCallback(DBImpl* db, bool two_write_queues)
@@ -253,15 +258,14 @@ Status WriteCommittedTxn::PrepareInternal() {
   const bool kDisableMemtable = true;
   SequenceNumber* const KIgnoreSeqUsed = nullptr;
   const size_t kNoBatchCount = 0;
-  Status s = db_impl_->WriteImpl(
-      write_options, GetWriteBatch()->GetWriteBatch(), kNoWriteCallback,
-      &log_number_, kRefNoLog, kDisableMemtable, KIgnoreSeqUsed, kNoBatchCount,
-      &mark_log_callback);
+  s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
+                          kNoWriteCallback, &log_number_, kRefNoLog,
+                          kDisableMemtable, KIgnoreSeqUsed, kNoBatchCount,
+                          &mark_log_callback);
   return s;
 }
 
 Status PessimisticTransaction::Commit() {
-  Status s;
   bool commit_without_prepare = false;
   bool commit_prepared = false;
 
@@ -291,6 +295,7 @@ Status PessimisticTransaction::Commit() {
     }
   }
 
+  Status s;
   if (commit_without_prepare) {
     assert(!commit_prepared);
     if (WriteBatchInternal::Count(GetCommitTimeWriteBatch()) > 0) {
@@ -374,7 +379,8 @@ Status WriteCommittedTxn::CommitInternal() {
   // We take the commit-time batch and append the Commit marker.
   // The Memtable will ignore the Commit marker in non-recovery mode
   WriteBatch* working_batch = GetCommitTimeWriteBatch();
-  WriteBatchInternal::MarkCommit(working_batch, name_);
+  auto s = WriteBatchInternal::MarkCommit(working_batch, name_);
+  assert(s.ok());
 
   // any operations appended to this working_batch will be ignored from WAL
   working_batch->MarkWalTerminationPoint();
@@ -382,13 +388,14 @@ Status WriteCommittedTxn::CommitInternal() {
   // insert prepared batch into Memtable only skipping WAL.
   // Memtable will ignore BeginPrepare/EndPrepare markers
   // in non recovery mode and simply insert the values
-  WriteBatchInternal::Append(working_batch, GetWriteBatch()->GetWriteBatch());
+  s = WriteBatchInternal::Append(working_batch,
+                                 GetWriteBatch()->GetWriteBatch());
+  assert(s.ok());
 
   uint64_t seq_used = kMaxSequenceNumber;
-  auto s =
-      db_impl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
+  s = db_impl_->WriteImpl(write_options_, working_batch, /*callback*/ nullptr,
                           /*log_used*/ nullptr, /*log_ref*/ log_number_,
-                          /*disable_memtable*/ false, &seq_used);  
+                          /*disable_memtable*/ false, &seq_used);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   if (s.ok()) {
     SetId(seq_used);
@@ -436,8 +443,9 @@ Status PessimisticTransaction::Rollback() {
 
 Status WriteCommittedTxn::RollbackInternal() {
   WriteBatch rollback_marker;
-  WriteBatchInternal::MarkRollback(&rollback_marker, name_);
-  auto s = db_impl_->WriteImpl(write_options_, &rollback_marker);
+  auto s = WriteBatchInternal::MarkRollback(&rollback_marker, name_);
+  assert(s.ok());
+  s = db_impl_->WriteImpl(write_options_, &rollback_marker);
   return s;
 }
 
@@ -502,9 +510,10 @@ Status PessimisticTransaction::LockBatch(WriteBatch* batch,
 
   // Iterating on this handler will add all keys in this batch into keys
   Handler handler;
-  batch->Iterate(&handler);
-
-  Status s;
+  Status s = batch->Iterate(&handler);
+  if (!s.ok()) {
+    return s;
+  }
 
   // Attempt to lock all keys
   for (const auto& cf_iter : handler.keys_) {

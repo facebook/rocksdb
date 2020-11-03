@@ -450,9 +450,11 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   constexpr uint64_t min_blob_size = 10;
 
   Options options;
+  options.env = CurrentOptions().env;
   options.enable_blob_files = true;
   options.min_blob_size = min_blob_size;
   options.disable_auto_compactions = true;
+  options.env = env_;
 
   Reopen(options);
 
@@ -470,9 +472,7 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   ASSERT_OK(Flush());
 
   ASSERT_EQ(Get("key1"), short_value);
-
-  // TODO: enable once Get support is implemented for blobs
-  // ASSERT_EQ(Get("key2"), long_value);
+  ASSERT_EQ(Get("key2"), long_value);
 
   VersionSet* const versions = dbfull()->TEST_GetVersionSet();
   assert(versions);
@@ -527,10 +527,12 @@ TEST_F(DBFlushTest, FlushWithBlob) {
 class DBFlushTestBlobError : public DBFlushTest,
                              public testing::WithParamInterface<std::string> {
  public:
-  DBFlushTestBlobError() : fault_injection_env_(env_) {}
+  DBFlushTestBlobError()
+      : fault_injection_env_(env_), sync_point_(GetParam()) {}
   ~DBFlushTestBlobError() { Close(); }
 
   FaultInjectionTestEnv fault_injection_env_;
+  std::string sync_point_;
 };
 
 INSTANTIATE_TEST_CASE_P(DBFlushTestBlobError, DBFlushTestBlobError,
@@ -548,11 +550,12 @@ TEST_P(DBFlushTestBlobError, FlushError) {
 
   ASSERT_OK(Put("key", "blob"));
 
-  SyncPoint::GetInstance()->SetCallBack(GetParam(), [this](void* /* arg */) {
-    fault_injection_env_.SetFilesystemActive(false, Status::IOError());
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_.SetFilesystemActive(false,
+                                             Status::IOError(sync_point_));
   });
   SyncPoint::GetInstance()->SetCallBack(
-      "BuildTable:BeforeFinishBuildTable", [this](void* /* arg */) {
+      "BuildTable:BeforeDeleteFile", [this](void* /* arg */) {
         fault_injection_env_.SetFilesystemActive(true);
       });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -601,11 +604,19 @@ TEST_P(DBFlushTestBlobError, FlushError) {
 
   const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
   ASSERT_FALSE(compaction_stats.empty());
-  ASSERT_EQ(compaction_stats[0].bytes_written, 0);
-  ASSERT_EQ(compaction_stats[0].num_output_files, 0);
+
+  if (sync_point_ == "BlobFileBuilder::WriteBlobToFile:AddRecord") {
+    ASSERT_EQ(compaction_stats[0].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[0].num_output_files, 0);
+  } else {
+    // SST file writing succeeded; blob file writing failed (during Finish)
+    ASSERT_GT(compaction_stats[0].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[0].num_output_files, 1);
+  }
 
   const uint64_t* const cf_stats_value = internal_stats->TEST_GetCFStatsValue();
-  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED], 0);
+  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
+            compaction_stats[0].bytes_written);
 #endif  // ROCKSDB_LITE
 }
 
