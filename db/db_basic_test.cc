@@ -3312,21 +3312,17 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   DestroyAndReopen(options);
   ASSERT_OK(Put("a", "value"));
   ASSERT_OK(Flush());
-  ASSERT_TRUE(dbfull()
-                  ->VerifyChecksum(ReadOptions(), /*use_file_checksum=*/true)
-                  .IsInvalidArgument());
+  ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
 
   options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
   Reopen(options);
-  ASSERT_OK(
-      dbfull()->VerifyChecksum(ReadOptions(), /*use_file_checksum=*/true));
+  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
 
   // Write an L0 with checksum computed.
   ASSERT_OK(Put("b", "value"));
   ASSERT_OK(Flush());
 
-  ASSERT_OK(
-      dbfull()->VerifyChecksum(ReadOptions(), /*use_file_checksum=*/true));
+  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
 }
 #endif  // !ROCKSDB_LITE
 

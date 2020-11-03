@@ -447,8 +447,8 @@ class DBImpl : public DB {
   //                    recomputed by reading all table files.
   //
   // Returns: OK if there is no file whose file or block checksum mismatches.
-  Status VerifyChecksum(const ReadOptions& read_options,
-                        bool use_file_checksum);
+  Status VerifyChecksumInternal(const ReadOptions& read_options,
+                                bool use_file_checksum);
 
   Status VerifySstFileChecksum(const FileMetaData& fmeta,
                                const std::string& fpath,

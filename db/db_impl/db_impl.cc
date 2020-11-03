@@ -4729,15 +4729,15 @@ Status DBImpl::CreateColumnFamilyWithImport(
 }
 
 Status DBImpl::VerifyFileChecksums(const ReadOptions& read_options) {
-  return VerifyChecksum(read_options, /*use_file_checksum=*/true);
+  return VerifyChecksumInternal(read_options, /*use_file_checksum=*/true);
 }
 
 Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
-  return VerifyChecksum(read_options, /*use_file_checksum=*/false);
+  return VerifyChecksumInternal(read_options, /*use_file_checksum=*/false);
 }
 
-Status DBImpl::VerifyChecksum(const ReadOptions& read_options,
-                              bool use_file_checksum) {
+Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
+                                      bool use_file_checksum) {
   Status s;
 
   if (use_file_checksum) {
