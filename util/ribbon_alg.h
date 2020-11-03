@@ -362,7 +362,7 @@ namespace ribbon {
 // thrown away during construction needs to be recalled for this reduction.
 // Similarly a single Ribbon construction can be separated (by solution
 // column) into two or more structures (or "layers" or "levels") with
-// indpendent filtering ability (no FP correlation, just as solution or
+// independent filtering ability (no FP correlation, just as solution or
 // result columns in a single structure) despite being constructed as part
 // of a single linear system. (TODO: implement)
 // See also "ElasticBF: Fine-grained and Elastic Bloom Filter Towards

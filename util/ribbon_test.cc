@@ -241,7 +241,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     Index num_slots = static_cast<Index>(num_to_add * kFactor);
     if (test_interleaved) {
       // Round to nearest multiple of kCoeffBits
-      num_slots = (num_slots + kCoeffBits / 2) / kCoeffBits * kCoeffBits;
+      num_slots = ((num_slots + kCoeffBits / 2) / kCoeffBits) * kCoeffBits;
       // Re-adjust num_to_add to get as close as possible to kFactor
       num_to_add = static_cast<Index>(num_slots / kFactor);
     }
