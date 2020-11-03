@@ -2208,21 +2208,20 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
   Slice user_key = ExtractUserKey(internal_key);
   const Slice* const const_ikey_ptr = &internal_key;
   bool may_match = true;
+  size_t ts_sz = rep_->internal_comparator.user_comparator()->timestamp_size();
+  Slice user_key_without_ts = StripTimestampFromUserKey(user_key, ts_sz);
   if (rep_->whole_key_filtering) {
-    size_t ts_sz =
-        rep_->internal_comparator.user_comparator()->timestamp_size();
-    Slice user_key_without_ts = StripTimestampFromUserKey(user_key, ts_sz);
     may_match =
         filter->KeyMayMatch(user_key_without_ts, prefix_extractor, kNotValid,
                             no_io, const_ikey_ptr, get_context, lookup_context);
   } else if (!read_options.total_order_seek && prefix_extractor &&
              rep_->table_properties->prefix_extractor_name.compare(
                  prefix_extractor->Name()) == 0 &&
-             prefix_extractor->InDomain(user_key) &&
-             !filter->PrefixMayMatch(prefix_extractor->Transform(user_key),
-                                     prefix_extractor, kNotValid, no_io,
-                                     const_ikey_ptr, get_context,
-                                     lookup_context)) {
+             prefix_extractor->InDomain(user_key_without_ts) &&
+             !filter->PrefixMayMatch(
+                 prefix_extractor->Transform(user_key_without_ts),
+                 prefix_extractor, kNotValid, no_io, const_ikey_ptr,
+                 get_context, lookup_context)) {
     may_match = false;
   }
   if (may_match) {
