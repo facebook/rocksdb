@@ -1699,7 +1699,7 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
   options.env = env_;
   options.avoid_flush_during_recovery = true;
   if (mem_env_) {
-    ROCKSDB_GTEST_SKIP("Test requires default environment");
+    ROCKSDB_GTEST_SKIP("Test requires non-mem environment");
     return;
   }
   // Test fallocate support of running file system.
