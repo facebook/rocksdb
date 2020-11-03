@@ -8,6 +8,7 @@ rocksdb.pc
 *.gcda
 *.gcno
 *.o
+*.o.tmp
 *.so
 *.so.*
 *_test
