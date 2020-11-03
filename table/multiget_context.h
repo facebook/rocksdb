@@ -16,6 +16,7 @@
 #include "rocksdb/types.h"
 #include "util/autovector.h"
 #include "util/math.h"
+#include "utilities/async/future.h"
 
 namespace ROCKSDB_NAMESPACE {
 class GetContext;
@@ -277,6 +278,17 @@ class MultiGetContext {
 
   // Return the initial range that encompasses all the keys in the batch
   Range GetMultiGetRange() { return Range(this, num_keys_); }
+};
+
+struct MultiGetAsyncContext;
+
+typedef Future<Status> (*MultiGetCallback)(void* cb_arg1, void* cb_arg2,
+                                           MultiGetAsyncContext* ctx);
+
+struct MultiGetAsyncContext {
+  MultiGetCallback cb;
+  void* cb_arg1;
+  void* cb_arg2;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -64,6 +64,7 @@ void AppendVarint64(IterKey* key, uint64_t v) {
 }  // namespace
 
 const int kLoadConcurency = 128;
+ThreadLocalPtr TableCache::context_pool_ptr;
 
 TableCache::TableCache(const ImmutableCFOptions& ioptions,
                        const FileOptions& file_options, Cache* const cache,
@@ -81,6 +82,7 @@ TableCache::TableCache(const ImmutableCFOptions& ioptions,
     // disambiguate its entries.
     PutVarint64(&row_cache_id_, ioptions_.row_cache->NewId());
   }
+  context_pool_ptr.Init(nullptr);
 }
 
 TableCache::~TableCache() {
@@ -595,6 +597,116 @@ Status TableCache::MultiGet(const ReadOptions& options,
     ReleaseHandle(handle);
   }
   return s;
+}
+
+// Asynchronous completion callback for MultiGet. If the processing
+// is complete, release the table reader cache handle
+Future<Status> TableCache::TableCacheMultiGetCallback(
+    void* cb_arg1, void* cb_arg2, MultiGetAsyncContext* async_ctx) {
+  TableCache* table_cache = static_cast<TableCache*>(cb_arg1);
+  TableCacheContext* ctx = static_cast<TableCacheContext*>(cb_arg2);
+
+  Future<Status> future = (*ctx->table_ctx.cb)(
+      ctx->table_ctx.cb_arg1, ctx->table_ctx.cb_arg2, async_ctx);
+  if (!future.IsReady()) {
+    // This means there are multiple stages in the MultiGet processing.
+    // Currently no known case of this happening, but if a table reader
+    // implements more than 2 stages, it can happen
+    ctx->table_ctx = *async_ctx;
+    async_ctx->cb = &TableCache::TableCacheMultiGetCallback;
+    async_ctx->cb_arg1 = table_cache;
+    async_ctx->cb_arg2 = ctx;
+  } else if (ctx->handle != nullptr) {
+    TableCacheContextPool* ctx_pool =
+        static_cast<TableCacheContextPool*>(context_pool_ptr.Get());
+    assert(ctx_pool);
+    table_cache->ReleaseHandle(ctx->handle);
+    ctx_pool->Free(ctx);
+  }
+  return future;
+}
+
+// Asynchronous MultiGet
+// TODO - Add support for row cache
+Future<Status> TableCache::MultiGetAsync(
+    const ReadOptions& options,
+    const InternalKeyComparator& internal_comparator,
+    const FileMetaData& file_meta, const MultiGetContext::Range* mget_range,
+    const SliceTransform* prefix_extractor, HistogramImpl* file_read_hist,
+    bool skip_filters, int level, MultiGetAsyncContext* async_ctx) {
+  auto& fd = file_meta.fd;
+  Status s;
+  TableReader* t = fd.table_reader;
+  Cache::Handle* handle = nullptr;
+  MultiGetRange table_range(*mget_range, mget_range->begin(),
+                            mget_range->end());
+  // Synchronous return by default
+  Future<Status> future(Status::OK());
+
+  // Check that table_range is not empty. Its possible all keys may have been
+  // found in the row cache and thus the range may now be empty
+  if (!table_range.empty()) {
+    if (t == nullptr) {
+      s = FindTable(
+          options, file_options_, internal_comparator, fd, &handle,
+          prefix_extractor, options.read_tier == kBlockCacheTier /* no_io */,
+          true /* record_read_stats */, file_read_hist, skip_filters, level);
+      TEST_SYNC_POINT_CALLBACK("TableCache::MultiGet:FindTable", &s);
+      if (s.ok()) {
+        t = GetTableReaderFromHandle(handle);
+        assert(t);
+      }
+    }
+    if (s.ok() && !options.ignore_range_deletions) {
+      std::unique_ptr<FragmentedRangeTombstoneIterator> range_del_iter(
+          t->NewRangeTombstoneIterator(options));
+      if (range_del_iter != nullptr) {
+        for (auto iter = table_range.begin(); iter != table_range.end();
+             ++iter) {
+          SequenceNumber* max_covering_tombstone_seq =
+              iter->get_context->max_covering_tombstone_seq();
+          *max_covering_tombstone_seq = std::max(
+              *max_covering_tombstone_seq,
+              range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey_with_ts));
+        }
+      }
+    }
+    if (s.ok()) {
+      future = t->MultiGetAsync(options, &table_range, prefix_extractor,
+                                skip_filters, async_ctx);
+      if (!future.IsReady()) {
+        TableCacheContextPool* ctx_pool =
+            static_cast<TableCacheContextPool*>(context_pool_ptr.Get());
+        if (!ctx_pool) {
+          ctx_pool = new TableCacheContextPool;
+          context_pool_ptr.Reset(ctx_pool);
+        }
+        TableCacheContext* ctx = ctx_pool->Allocate();
+        ctx->table_ctx = *async_ctx;
+        ctx->handle = handle;
+        async_ctx->cb = &TableCache::TableCacheMultiGetCallback;
+        async_ctx->cb_arg1 = this;
+        async_ctx->cb_arg2 = ctx;
+        return future;
+      }
+    } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
+      for (auto iter = table_range.begin(); iter != table_range.end(); ++iter) {
+        Status* status = iter->s;
+        if (status->IsIncomplete()) {
+          // Couldn't find Table in cache but treat as kFound if no_io set
+          iter->get_context->MarkKeyMayExist();
+          s = Status::OK();
+        }
+      }
+    } else {
+      future = Future<Status>(std::move(s));
+    }
+  }
+
+  if (handle != nullptr) {
+    ReleaseHandle(handle);
+  }
+  return future;
 }
 
 Status TableCache::GetTableProperties(

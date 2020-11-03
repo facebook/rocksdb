@@ -23,6 +23,7 @@
 #include "rocksdb/io_status.h"
 #include "util/mutexlock.h"
 #include "util/thread_local.h"
+#include "utilities/async/context_pool.h"
 
 // For non linux platform, the following macros are used only as place
 // holder.
@@ -153,14 +154,21 @@ class PosixSequentialFile : public FSSequentialFile {
 // io_uring instance queue depth
 const unsigned int kIoUringDepth = 256;
 
+struct PosixIOUring {
+  struct io_uring iu;    // Linux IO uring
+  size_t num_busy_sqes;  // Number of outstanding IOs
+
+  PosixIOUring() : num_busy_sqes(0) {}
+};
+
 inline void DeleteIOUring(void* p) {
-  struct io_uring* iu = static_cast<struct io_uring*>(p);
+  PosixIOUring* iu = static_cast<PosixIOUring*>(p);
   delete iu;
 }
 
-inline struct io_uring* CreateIOUring() {
-  struct io_uring* new_io_uring = new struct io_uring;
-  int ret = io_uring_queue_init(kIoUringDepth, new_io_uring, 0);
+inline PosixIOUring* CreateIOUring() {
+  PosixIOUring* new_io_uring = new PosixIOUring();
+  int ret = io_uring_queue_init(kIoUringDepth, &new_io_uring->iu, 0);
   if (ret) {
     delete new_io_uring;
     new_io_uring = nullptr;
@@ -170,6 +178,50 @@ inline struct io_uring* CreateIOUring() {
 #endif  // defined(ROCKSDB_IOURING_PRESENT)
 
 class PosixRandomAccessFile : public FSRandomAccessFile {
+ private:
+  struct PosixMultiReadContext;
+
+  // Store some context for each read request in a MultiRead
+  struct ReadRequestContext {
+    uint64_t offset;
+    size_t len;
+    struct iovec iov;
+    size_t finished_len;
+    PosixMultiReadContext* ctx;  // Back pointer to the MultiRead context
+    size_t idx;                  // Index of this request in the MultiRead batch
+    explicit ReadRequestContext(PosixMultiReadContext* _ctx,
+                                const FSReadRequest* _r, size_t _idx)
+        : offset(_r->offset),
+          len(_r->len),
+          finished_len(0),
+          ctx(_ctx),
+          idx(_idx) {}
+  };
+
+  // Store context for a MultiReadAsync call
+  struct PosixMultiReadContext : public Context {
+    PosixRandomAccessFile* file;  // Pointer to the file object, to allow the
+                                  // completion callback to find it
+    autovector<ReadRequestContext, 32> req_wraps;
+    std::vector<FSReadResponse> resps;
+    size_t finished_count;  // Number of completions received so far
+    IOCallback cb;
+    const void* cb_arg1;
+    const void* cb_arg2;
+
+    explicit PosixMultiReadContext(PosixRandomAccessFile* _file,
+                                   const size_t _num_reqs, IOCallback _cb,
+                                   const void* _cb_arg1, const void* _cb_arg2)
+        : file(_file),
+          resps(_num_reqs),
+          finished_count(0),
+          cb(_cb),
+          cb_arg1(_cb_arg1),
+          cb_arg2(_cb_arg2) {}
+  };
+  using PosixMultiReadContextPool =
+      ThreadLocalContextPool<PosixMultiReadContext>;
+
  protected:
   std::string filename_;
   int fd_;
@@ -177,15 +229,16 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
   size_t logical_sector_size_;
 #if defined(ROCKSDB_IOURING_PRESENT)
   ThreadLocalPtr* thread_local_io_urings_;
+  ThreadLocalPtr* thread_local_ctx_pool_;
 #endif
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
-                        size_t logical_block_size,
-                        const EnvOptions& options
+                        size_t logical_block_size, const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
                         ,
-                        ThreadLocalPtr* thread_local_io_urings
+                        ThreadLocalPtr* thread_local_io_urings,
+                        ThreadLocalPtr* thread_local_ctx_pool
 #endif
   );
   virtual ~PosixRandomAccessFile();
@@ -198,6 +251,14 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
                              const IOOptions& options,
                              IODebugContext* dbg) override;
 
+  virtual IOStatus MultiReadAsync(
+      const IOOptions& options, IOCallback cb, const void* cb_arg1,
+      const void* cb_arg2, const size_t num_reqs, const FSReadRequest* reqs,
+      std::unique_ptr<void, IOHandleDeleter>* handle,
+      IODebugContext* dbg) override;
+
+  static IOStatus Poll(size_t n, PosixIOUring* posix_iu);
+
   virtual IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& opts,
                             IODebugContext* dbg) override;
 
@@ -209,6 +270,9 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
   virtual bool use_direct_io() const override { return use_direct_io_; }
   virtual size_t GetRequiredBufferAlignment() const override {
     return logical_sector_size_;
+  }
+  static void DeleteCtxPool(void* p) {
+    delete static_cast<PosixMultiReadContextPool*>(p);
   }
 };
 

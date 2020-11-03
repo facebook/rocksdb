@@ -1056,6 +1056,7 @@ if(WITH_TESTS)
   set(TESTS
         db/db_basic_test.cc
         env/env_basic_test.cc
+        env/fs_async.cc
   )
   if(WITH_ALL_TESTS)
     list(APPEND TESTS

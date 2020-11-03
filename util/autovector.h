@@ -231,7 +231,9 @@ class autovector {
   }
 
   reference operator[](size_type n) {
-    assert(n < size());
+    if (n >= size()) {
+      assert(n < size());
+    }
     if (n < kSize) {
       return values_[n];
     }

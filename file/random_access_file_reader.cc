@@ -23,6 +23,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+ThreadLocalPtr RandomAccessFileReader::context_pool_ptr;
+
 Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
                                     size_t n, Slice* result, char* scratch,
                                     AlignedBuf* aligned_buf,
@@ -320,5 +322,178 @@ IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
   } else {
     return PrepareIOFromReadOptions(ro, SystemClock::Default(), opts);
   }
+}
+
+Status RandomAccessFileReader::MultiReadAsync(
+    const IOOptions& opts, IOCallback cb, void* cb_arg1, void* cb_arg2,
+    FSReadRequest* read_reqs, size_t num_reqs,
+    std::unique_ptr<void, IOHandleDeleter>* handle,
+    AlignedBuf* aligned_buf) const {
+  (void)aligned_buf;  // suppress warning of unused variable in LITE mode
+  assert(num_reqs > 0);
+  Status s;
+  uint64_t elapsed = 0;
+
+  {
+    StopWatch sw(env_, stats_, hist_type_,
+                 (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
+                 true /*delay_enabled*/);
+    MultiReadContextPool* ctx_pool =
+        static_cast<MultiReadContextPool*>(context_pool_ptr.Get());
+    if (!ctx_pool) {
+      ctx_pool = new MultiReadContextPool;
+      context_pool_ptr.Reset(ctx_pool);
+    }
+
+    MultiReadContext* ctx = ctx_pool->Allocate(num_reqs);
+    auto prev_perf_level = GetPerfLevel();
+    FSReadRequest* fs_reqs = read_reqs;
+    size_t num_fs_reqs = num_reqs;
+#ifndef ROCKSDB_LITE
+    std::vector<FSReadRequest> aligned_reqs;
+    ctx->cb = cb;
+    ctx->cb_arg1 = cb_arg1;
+    ctx->cb_arg2 = cb_arg2;
+
+    if (use_direct_io()) {
+      // num_reqs is the max possible size,
+      // this can reduce std::vecector's internal resize operations.
+      aligned_reqs.reserve(num_reqs);
+      // Align and merge the read requests.
+      size_t alignment = file_->GetRequiredBufferAlignment();
+      aligned_reqs.push_back(Align(read_reqs[0], alignment));
+      ctx->reqs.emplace_back(read_reqs[0]);
+      for (size_t i = 1; i < num_reqs; i++) {
+        const auto& r = Align(read_reqs[i], alignment);
+        if (!TryMerge(&aligned_reqs.back(), r)) {
+          aligned_reqs.push_back(r);
+        }
+        ctx->reqs.emplace_back(read_reqs[i]);
+      }
+      TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::MultiRead:AlignedReqs",
+                               &aligned_reqs);
+
+      // Allocate aligned buffer and let scratch buffers point to it.
+      size_t total_len = 0;
+      for (const auto& r : aligned_reqs) {
+        total_len += r.len;
+      }
+      AlignedBuffer buf;
+      buf.Alignment(alignment);
+      buf.AllocateNewBuffer(total_len);
+      char* scratch = buf.BufferStart();
+      for (auto& r : aligned_reqs) {
+        r.scratch = scratch;
+        scratch += r.len;
+      }
+
+      aligned_buf->reset(buf.Release());
+      fs_reqs = aligned_reqs.data();
+      num_fs_reqs = aligned_reqs.size();
+    } else {
+      for (size_t i = 0; i < num_reqs; ++i) {
+        ctx->reqs.emplace_back(read_reqs[i]);
+      }
+    }
+#endif  // ROCKSDB_LITE
+
+#ifndef ROCKSDB_LITE
+    FileOperationInfo::StartTimePoint start_ts;
+    if (ShouldNotifyListeners()) {
+      start_ts = FileOperationInfo::StartNow();
+    }
+    ctx->start_ts = start_ts;
+#endif  // ROCKSDB_LITE
+
+    {
+      IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+      s = file_->MultiReadAsync(
+          opts, &RandomAccessFileReader::MultiReadCallback, this, ctx,
+          num_fs_reqs, fs_reqs, &ctx->handle, nullptr);
+    }
+    SetPerfLevel(prev_perf_level);
+
+    std::unique_ptr<void, IOHandleDeleter> hndl(
+        ctx, [](void* p) { delete static_cast<MultiReadContext*>(p); });
+    *handle = std::move(hndl);
+  }
+  if (stats_ != nullptr && file_read_hist_ != nullptr) {
+    file_read_hist_->Add(elapsed);
+  }
+
+  return s;
+}
+
+void RandomAccessFileReader::MultiReadAsyncStage2(const FSReadResponse* resps,
+                                                  const size_t num_resps,
+                                                  MultiReadContext* ctx) {
+  {
+#ifndef ROCKSDB_LITE
+    if (use_direct_io()) {
+      // Populate results in the unaligned read requests.
+      size_t aligned_i = 0;
+      size_t alignment = file_->GetRequiredBufferAlignment();
+      size_t i = 0;
+      size_t buf_offset = ULONG_MAX;
+      size_t prev_offset = 0;
+
+      while (i < ctx->reqs.size()) {
+        FSReadRequest& req = ctx->reqs[i];
+        FSReadResponse& resp = ctx->resps[i];
+        const FSReadResponse& file_resp = resps[aligned_i];
+        if (buf_offset == ULONG_MAX) {
+          // First request overlapping this response
+          size_t aligned_offset = static_cast<uint64_t>(TruncateToPageBoundary(
+              alignment, static_cast<size_t>(req.offset)));
+          buf_offset = req.offset - aligned_offset;
+        } else {
+          buf_offset += req.offset - prev_offset;
+        }
+        prev_offset = req.offset;
+        if (req.len + buf_offset > file_resp.result.size()) {
+          aligned_i++;
+          buf_offset = ULONG_MAX;
+          continue;
+        }
+        resp.status = file_resp.status;
+        if (resp.status.ok()) {
+          size_t len = std::min(
+              req.len,
+              static_cast<size_t>(file_resp.result.size() - buf_offset));
+          resp.result = Slice(file_resp.result.data() + buf_offset, len);
+        } else {
+          resp.result = Slice();
+        }
+        i++;
+      }
+    }
+#endif  // ROCKSDB_LITE
+
+    for (size_t i = 0; i < ctx->reqs.size(); ++i) {
+#ifndef ROCKSDB_LITE
+      if (ShouldNotifyListeners()) {
+        auto finish_ts = FileOperationInfo::FinishNow();
+        NotifyOnFileReadFinish(ctx->reqs[i].offset, ctx->resps[i].result.size(),
+                               ctx->start_ts, finish_ts, ctx->resps[i].status);
+      }
+#endif  // ROCKSDB_LITE
+      IOSTATS_ADD_IF_POSITIVE(bytes_read, ctx->resps[i].result.size());
+    }
+  }
+
+  IOCallback cb = ctx->cb;
+  (*cb)(use_direct_io() ? ctx->resps.data() : resps,
+        use_direct_io() ? ctx->resps.size() : num_resps, ctx->cb_arg1,
+        ctx->cb_arg2);
+}
+
+void RandomAccessFileReader::MultiReadCallback(const FSReadResponse* resps,
+                                               const size_t num_resps,
+                                               void* cb_arg1, void* cb_arg2) {
+  RandomAccessFileReader* reader =
+      static_cast<RandomAccessFileReader*>(cb_arg1);
+  MultiReadContext* ctx = static_cast<MultiReadContext*>(cb_arg2);
+
+  reader->MultiReadAsyncStage2(resps, num_resps, ctx);
 }
 }  // namespace ROCKSDB_NAMESPACE

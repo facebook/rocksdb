@@ -1190,4 +1190,6 @@ class DBTestBase : public testing::Test {
   bool time_elapse_only_sleep_on_reopen_ = false;
 };
 
+extern std::unique_ptr<Env> NewAsyncEnv();
+
 }  // namespace ROCKSDB_NAMESPACE
