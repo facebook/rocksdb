@@ -540,6 +540,43 @@ inline bool CompressionTypeSupported(CompressionType compression_type) {
   }
 }
 
+inline bool DictCompressionTypeSupported(CompressionType compression_type) {
+  switch (compression_type) {
+    case kNoCompression:
+      return false;
+    case kSnappyCompression:
+      return false;
+    case kZlibCompression:
+      return Zlib_Supported();
+    case kBZip2Compression:
+      return false;
+    case kLZ4Compression:
+    case kLZ4HCCompression:
+#if LZ4_VERSION_NUMBER >= 10400  // r124+
+      return LZ4_Supported();
+#else
+      return false;
+#endif
+    case kXpressCompression:
+      return false;
+    case kZSTDNotFinalCompression:
+#if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
+      return ZSTDNotFinal_Supported();
+#else
+      return false;
+#endif
+    case kZSTD:
+#if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
+      return ZSTD_Supported();
+#else
+      return false;
+#endif
+    default:
+      assert(false);
+      return false;
+  }
+}
+
 inline std::string CompressionTypeToString(CompressionType compression_type) {
   switch (compression_type) {
     case kNoCompression:
