@@ -4163,7 +4163,7 @@ TEST_F(DBTest2, TraceWithFilter) {
 TEST_F(DBTest2, PinnableSliceAndMmapReads) {
   Options options = CurrentOptions();
   options.env = env_;
-  if (options.env != Env::Default()) {
+  if (!IsMemoryMappedAccessSupported()) {
     ROCKSDB_GTEST_SKIP("Test requires default environment");
     return;
   }
