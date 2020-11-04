@@ -141,6 +141,11 @@ class StackableDB : public DB {
                                              import_options, metadata, handle);
   }
 
+  using DB::VerifyFileChecksums;
+  Status VerifyFileChecksums(const ReadOptions& read_opts) override {
+    return db_->VerifyFileChecksums(read_opts);
+  }
+
   virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
 
   virtual Status VerifyChecksum(const ReadOptions& options) override {
