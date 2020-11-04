@@ -161,7 +161,7 @@ class OpenSSLEncryptionProvider : public EncryptionProvider {
 
   // Optional method to initialize an EncryptionProvider in the TEST
   // environment.
-  virtual Status TEST_Initialize() {
+  virtual Status TEST_Initialize() override {
     return AddCipher(
         "test key",
         "0102030405060708090A0B0C0D0E0F101112131415161718191a1b1c1d1e1f20", 64,
