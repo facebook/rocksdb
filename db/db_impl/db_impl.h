@@ -431,8 +431,28 @@ class DBImpl : public DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) override;
 
+  using DB::VerifyFileChecksums;
+  Status VerifyFileChecksums(const ReadOptions& read_options) override;
+
   using DB::VerifyChecksum;
   virtual Status VerifyChecksum(const ReadOptions& /*read_options*/) override;
+  // Verify the checksums of files in db. Currently only tables are checked.
+  //
+  // read_options: controls file I/O behavior, e.g. read ahead size while
+  //               reading all the live table files.
+  //
+  // use_file_checksum: if false, verify the block checksums of all live table
+  //                    in db. Otherwise, obtain the file checksums and compare
+  //                    with the MANIFEST. Currently, file checksums are
+  //                    recomputed by reading all table files.
+  //
+  // Returns: OK if there is no file whose file or block checksum mismatches.
+  Status VerifyChecksumInternal(const ReadOptions& read_options,
+                                bool use_file_checksum);
+
+  Status VerifySstFileChecksum(const FileMetaData& fmeta,
+                               const std::string& fpath,
+                               const ReadOptions& read_options);
 
   using DB::StartTrace;
   virtual Status StartTrace(
