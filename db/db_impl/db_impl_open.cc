@@ -475,10 +475,12 @@ Status DBImpl::Recover(
     assert(!files_in_dbname.empty());
     s = versions_->TryRecover(column_families, read_only, files_in_dbname,
                               &db_id_, &missing_table_file);
+#ifndef ROCKSDB_LITE
     // TODO: remove the VerifyFileChecksums() call because it's very expensive.
     if (s.ok() && immutable_db_options_.file_checksum_gen_factory) {
       s = VerifyFileChecksums(ReadOptions());
     }
+#endif  // !ROCKSDB_LITE
     if (s.ok()) {
       // TryRecover may delete previous column_family_set_.
       column_family_memtables_.reset(
