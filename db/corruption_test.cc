@@ -844,7 +844,8 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
 
   Build(10, 5);
 
-  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+  auto* dbi = static_cast_with_check<DBImpl>(db_);
+  ASSERT_OK(dbi->VerifyFileChecksums(ReadOptions()));
   CloseDb();
 
   // Corrupt the first byte of each table file, this must be data block.
@@ -863,7 +864,7 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
         ASSERT_NOK(*s);
       });
   SyncPoint::GetInstance()->EnableProcessing();
-  ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsCorruption());
+  ASSERT_TRUE(dbi->VerifyFileChecksums(ReadOptions()).IsCorruption());
   ASSERT_EQ(1, count);
 }
 
