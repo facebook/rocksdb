@@ -117,6 +117,8 @@ struct Hash64KeyGenWrapper : public KeyGen {
 
 }  // namespace
 
+using ROCKSDB_NAMESPACE::ribbon::ExpectedCollisionFpRate;
+using ROCKSDB_NAMESPACE::ribbon::StandardHasher;
 using ROCKSDB_NAMESPACE::ribbon::StandardRehasherAdapter;
 
 struct DefaultTypesAndSettings {
@@ -466,8 +468,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
       // For expected FP rate, also include false positives due to collisions
       // in Hash value. (Negligible for 64-bit, can matter for 32-bit.)
       double correction =
-          kNumToCheck * ROCKSDB_NAMESPACE::ribbon::ExpectedCollisionFpRate(
-                            hasher, num_to_add);
+          kNumToCheck * ExpectedCollisionFpRate(hasher, num_to_add);
       EXPECT_LE(fp_count,
                 FrequentPoissonUpperBound(expected_fp_count + correction));
       EXPECT_GE(fp_count,
@@ -492,8 +493,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
         // For expected FP rate, also include false positives due to collisions
         // in Hash value. (Negligible for 64-bit, can matter for 32-bit.)
         double correction =
-            kNumToCheck * ROCKSDB_NAMESPACE::ribbon::ExpectedCollisionFpRate(
-                              hasher, num_to_add);
+            kNumToCheck * ExpectedCollisionFpRate(hasher, num_to_add);
         EXPECT_LE(ifp_count,
                   FrequentPoissonUpperBound(expected_fp_count + correction));
         EXPECT_GE(ifp_count,
@@ -585,8 +585,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     // in Hash value. (Negligible for 64-bit, can matter for 32-bit.)
     double average_added = 1.0 * total_added / FLAGS_thoroughness;
     expected_total_fp_count +=
-        total_checked * ROCKSDB_NAMESPACE::ribbon::ExpectedCollisionFpRate(
-                            Hasher(), average_added);
+        total_checked * ExpectedCollisionFpRate(Hasher(), average_added);
 
     uint64_t upper_bound = InfrequentPoissonUpperBound(expected_total_fp_count);
     uint64_t lower_bound = InfrequentPoissonLowerBound(expected_total_fp_count);
@@ -719,11 +718,10 @@ struct TypesAndSettings_Seed64 : public DefaultTypesAndSettings {
 };
 
 TEST(RibbonTest, RawAndOrdinalSeeds) {
-  ROCKSDB_NAMESPACE::ribbon::StandardHasher<TypesAndSettings_Seed64> hasher64;
-  ROCKSDB_NAMESPACE::ribbon::StandardHasher<DefaultTypesAndSettings>
-      hasher64_32;
-  ROCKSDB_NAMESPACE::ribbon::StandardHasher<TypesAndSettings_Hash32> hasher32;
-  ROCKSDB_NAMESPACE::ribbon::StandardHasher<TypesAndSettings_Seed8> hasher8;
+  StandardHasher<TypesAndSettings_Seed64> hasher64;
+  StandardHasher<DefaultTypesAndSettings> hasher64_32;
+  StandardHasher<TypesAndSettings_Hash32> hasher32;
+  StandardHasher<TypesAndSettings_Seed8> hasher8;
 
   for (uint32_t limit : {0xffU, 0xffffU}) {
     std::vector<bool> seen(limit + 1);
