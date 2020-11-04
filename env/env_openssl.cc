@@ -134,7 +134,16 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
     if (crypto_shared->IsValid()) {
       int ret_val, out_len;
       ALIGN16 uint8_t iv[AES_BLOCK_SIZE];
+      ALIGN16 uint8_t local_data[AES_BLOCK_SIZE];
       uint64_t block_index = file_offset / BlockSize();
+      uint64_t data_offset = file_offset % BlockSize();
+      uint64_t partial_size;
+
+      if (data_offset) {
+        partial_size = BlockSize() - data_offset;
+      } else {
+        partial_size = 0;
+      }
 
       // make a context once per thread
       if (!aes_context) {
@@ -151,28 +160,56 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
           aes_context.get(), crypto_shared->EVP_aes_256_ctr(), nullptr,
           key_.key, iv);
       if (1 == ret_val) {
-        out_len = 0;
-        ret_val = crypto_shared->EVP_EncryptUpdate(
-            aes_context.get(), (unsigned char*)data, &out_len,
-            (unsigned char*)data, (int)data_size);
+        // do partial block via local storage and xor
+        if (0 != data_offset) {
+          memset(local_data, 0, AES_BLOCK_SIZE);
+          out_len = 0;
+          ret_val = crypto_shared->EVP_EncryptUpdate(
+              aes_context.get(), (unsigned char*)local_data, &out_len,
+              (unsigned char*)local_data, (int)AES_BLOCK_SIZE);
+          if (partial_size < data_size) {
+            data_size -= partial_size;
+          } else {
+            partial_size = data_size;
+            data_size = 0;
+          }
 
-        if (1 == ret_val && (int)data_size == out_len) {
+          if (1 == ret_val && AES_BLOCK_SIZE == out_len) {
+            for (uint64_t loop = 0; loop < partial_size; ++loop) {
+              data[loop] ^= local_data[loop + data_offset];
+            }
+          } else {
+            status = Status::InvalidArgument(
+                "EVP_EncryptUpdate failed 1: ",
+                0 == ret_val ? "bad return value" : "output length short");
+          }
+        }
+
+        // do remaining, aligned segment
+        if (status.ok() && data_size) {
+          out_len = 0;
+          ret_val = crypto_shared->EVP_EncryptUpdate(
+              aes_context.get(), (unsigned char*)(data + partial_size),
+              &out_len, (unsigned char*)(data + partial_size), (int)data_size);
+
+          if (1 != ret_val || (int)data_size != out_len) {
+            status = Status::InvalidArgument(
+                "EVP_EncryptUpdate failed 2: ",
+                0 == ret_val ? "bad return value" : "output length short");
+          }
+        }
+
+        if (status.ok()) {
           // this is a soft reset of aes_context per man pages
-          uint8_t temp_buf[AES_BLOCK_SIZE];
           out_len = 0;
           ret_val = crypto_shared->EVP_EncryptFinal_ex(aes_context.get(),
-                                                       temp_buf, &out_len);
+                                                       local_data, &out_len);
 
           if (1 != ret_val || 0 != out_len) {
             status = Status::InvalidArgument(
                 "EVP_EncryptFinal_ex failed: ",
                 (1 != ret_val) ? "bad return value" : "output length short");
           }
-        } else {
-          status = Status::InvalidArgument("EVP_EncryptUpdate failed: ",
-                                           (int)data_size == out_len
-                                               ? "bad return value"
-                                               : "output length short");
         }
       } else {
         status = Status::InvalidArgument("EVP_EncryptInit_ex failed.");
@@ -192,116 +229,23 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
 //   count of symbols loaded from libcrypto.
 Status AESBlockAccessCipherStream::Decrypt(uint64_t file_offset, char* data,
                                            size_t data_size) {
-  // Calculate block index
-  size_t block_size = BlockSize();
-  uint64_t block_index = file_offset / block_size;
-  size_t block_offset = file_offset % block_size;
-  size_t remaining = data_size;
-  size_t prefix_size = 0;
-  uint8_t temp_buf[block_size];
-
-  Status status;
-  ALIGN16 uint8_t iv[AES_BLOCK_SIZE];
-  int out_len = 0, ret_val;
-
-  if (crypto_shared->IsValid()) {
-    // make a context once per thread
-    if (!aes_context) {
-      aes_context = std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)>(
-          crypto_shared->EVP_CIPHER_CTX_new(),
-          crypto_shared->EVP_CIPHER_CTX_free_ptr());
-    }
-
-    memcpy(iv, nonce_, AES_BLOCK_SIZE);
-    BigEndianAdd128(iv, block_index);
-
-    ret_val = crypto_shared->EVP_EncryptInit_ex(
-        aes_context.get(), crypto_shared->EVP_aes_256_ctr(), nullptr, key_.key,
-        iv);
-    if (1 == ret_val) {
-      // handle uneven block start
-      if (0 != block_offset) {
-        prefix_size = block_size - block_offset;
-        if (data_size < prefix_size) {
-          prefix_size = data_size;
-        }
-
-        memcpy(temp_buf + block_offset, data, prefix_size);
-        out_len = 0;
-        ret_val = crypto_shared->EVP_EncryptUpdate(
-            aes_context.get(), temp_buf, &out_len, temp_buf, (int)block_size);
-
-        if (1 != ret_val || (int)block_size != out_len) {
-          status = Status::InvalidArgument("EVP_EncryptUpdate failed 1: ",
-                                           (int)block_size == out_len
-                                               ? "bad return value"
-                                               : "output length short");
-        } else {
-          memcpy(data, temp_buf + block_offset, prefix_size);
-        }
-      }
-
-      // all remaining data, even block size not required
-      remaining -= prefix_size;
-      if (status.ok() && remaining) {
-        out_len = 0;
-        ret_val = crypto_shared->EVP_EncryptUpdate(
-            aes_context.get(), (uint8_t*)data + prefix_size, &out_len,
-            (uint8_t*)data + prefix_size, (int)remaining);
-
-        if (1 != ret_val || (int)remaining != out_len) {
-          status = Status::InvalidArgument("EVP_EncryptUpdate failed 2: ",
-                                           (int)remaining == out_len
-                                               ? "bad return value"
-                                               : "output length short");
-        }
-      }
-
-      // this is a soft reset of aes_context per man pages
-      out_len = 0;
-      ret_val = crypto_shared->EVP_EncryptFinal_ex(aes_context.get(), temp_buf,
-                                                   &out_len);
-
-      if (1 != ret_val || 0 != out_len) {
-        status = Status::InvalidArgument("EVP_EncryptFinal_ex failed.");
-      }
-    } else {
-      status = Status::InvalidArgument("EVP_EncryptInit_ex failed.");
-    }
-  } else {
-    status = Status::NotSupported(
-        "libcrypto not available for encryption/decryption.");
-  }
-
-  return status;
-}
-#if 0
-std::shared_ptr<OpenSSLEncryptionProvider> NewOpenSSLEncryptionProvider(
-    const std::shared_ptr<ShaDescription>& key_desc,
-    const std::shared_ptr<AesCtrKey>& aes_ctr_key) {
-  return std::make_shared<OpenSSLEncryptionProvider>(*key_desc.get(),
-                                                   *aes_ctr_key.get());
+  return Encrypt(file_offset, data, data_size);
 }
 
-std::shared_ptr<OpenSSLEncryptionProvider> NewOpenSSLEncryptionProvider(
-    const std::string& key_desc_str, const uint8_t binary_key[], int bytes) {
-  return std::make_shared<OpenSSLEncryptionProvider>(key_desc_str, binary_key,
-                                                   bytes);
-}
-#endif
 Status OpenSSLEncryptionProvider::CreateNewPrefix(const std::string& /*fname*/,
-                                                char* prefix,
-                                                size_t prefixLength) const {
+                                                  char* prefix,
+                                                  size_t prefixLength) const {
   GetCrypto();  // ensure libcryto available
   Status s;
   if (crypto_shared->IsValid()) {
-    if ((sizeof(EncryptMarker)+sizeof(PrefixVersion0)) <= prefixLength) {
+    if ((sizeof(EncryptMarker) + sizeof(PrefixVersion0)) <= prefixLength) {
       int ret_val;
 
       PrefixVersion0* pf = (PrefixVersion0*)(prefix + sizeof(EncryptMarker));
       memcpy(prefix, kEncryptMarker, sizeof(kEncryptMarker));
-      *(prefix+7) = kEncryptCodeVersion1;
-      memcpy(pf->key_description_, encrypt_write_.first.desc, sizeof(ShaDescription::desc));
+      *(prefix + 7) = kEncryptCodeVersion1;
+      memcpy(pf->key_description_, encrypt_write_.first.desc,
+             sizeof(ShaDescription::desc));
       ret_val = crypto_shared->RAND_bytes((unsigned char*)&pf->nonce_,
                                           AES_BLOCK_SIZE);
       if (1 != ret_val) {
@@ -317,50 +261,89 @@ Status OpenSSLEncryptionProvider::CreateNewPrefix(const std::string& /*fname*/,
   return s;
 }
 
-Status OpenSSLEncryptionProvider::CreateCipherStream(
-    const std::string& /*fname*/, const EnvOptions& /*options*/,
-    Slice& prefix,
-    std::unique_ptr<BlockAccessCipherStream>* result) {
+Status OpenSSLEncryptionProvider::AddCipher(const std::string& descriptor,
+                                            const char* cipher, size_t len,
+                                            bool for_write) {
+  Status s;
+  std::string hex_cipher(cipher, len);
+  AesCtrKey key(hex_cipher);
+  ShaDescription desc(descriptor);
 
+  if (key.IsValid() && desc.IsValid()) {
+    if (for_write) {
+      encrypt_write_ = std::pair<ShaDescription, AesCtrKey>(desc, key);
+    }
+
+    auto ret =
+        encrypt_read_.insert(std::pair<ShaDescription, AesCtrKey>(desc, key));
+    if (!ret.second) {
+      s = Status::InvalidArgument("Duplicate descriptor / cipher pair");
+    }
+  } else {
+    s = Status::InvalidArgument("Bad descriptor / cipher pair");
+  }
+
+  return s;
+}
+
+Status OpenSSLEncryptionProvider::CreateCipherStream(
+    const std::string& /*fname*/, const EnvOptions& /*options*/, Slice& prefix,
+    std::unique_ptr<BlockAccessCipherStream>* result) {
   Status status;
 
-  if ((sizeof(EncryptMarker)+sizeof(PrefixVersion0)) <= prefix.size()
-      && prefix.starts_with(kEncryptMarker)) {
-
+  if ((sizeof(EncryptMarker) + sizeof(PrefixVersion0)) <= prefix.size() &&
+      prefix.starts_with(kEncryptMarker)) {
     uint8_t code_version = (uint8_t)prefix[7];
 
     if (kEncryptCodeVersion1 == code_version) {
       Slice prefix_slice;
-      PrefixVersion0 * prefix_buffer = (PrefixVersion0*)(prefix.data()+sizeof(EncryptMarker));
+      PrefixVersion0* prefix_buffer =
+          (PrefixVersion0*)(prefix.data() + sizeof(EncryptMarker));
       ShaDescription desc(prefix_buffer->key_description_,
                           sizeof(PrefixVersion0::key_description_));
 
       ReadLock lock(&key_lock_);
       auto it = encrypt_read_.find(desc);
       if (encrypt_read_.end() != it) {
-        result->reset(new AESBlockAccessCipherStream(
-            it->second, code_version, prefix_buffer->nonce_));
+        result->reset(new AESBlockAccessCipherStream(it->second, code_version,
+                                                     prefix_buffer->nonce_));
       } else {
-        status = Status::NotSupported(
-            "No encryption key found to match input file");
+        status =
+            Status::NotSupported("No encryption key found to match input file");
       }
     } else {
       status =
           Status::NotSupported("Unknown encryption code version required.");
     }
   } else {
-    status =
-        Status::EncryptionUnknown("Unknown encryption marker or not encrypted.");
+    status = Status::EncryptionUnknown(
+        "Unknown encryption marker or not encrypted.");
   }
 
   return status;
 }
 
-std::string OpenSSLEncryptionProvider::GetMarker() const {return kEncryptMarker;}
+std::string OpenSSLEncryptionProvider::GetMarker() const {
+  return kEncryptMarker;
+}
 
+Status NewOpenSSLEncryptionProvider(
+    std::shared_ptr<EncryptionProvider>* result) {
+  Status stat;
+  result->reset();
 
-
-
+  // is library available?
+  std::shared_ptr<UnixLibCrypto> crypto = GetCrypto();
+  if (crypto) {
+    std::shared_ptr<OpenSSLEncryptionProvider> temp(
+        std::make_shared<OpenSSLEncryptionProvider>());
+    result->operator=(std::static_pointer_cast<EncryptionProvider>(temp));
+  } else {
+    stat = Status::NotSupported(
+        "libcrypto not available for encryption/decryption.");
+  }
+  return stat;
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

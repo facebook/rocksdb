@@ -15,6 +15,7 @@
 #include "env/env_encryption_ctr.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/env_openssl.h"
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
 #include "util/random.h"
@@ -27,6 +28,7 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 static constexpr char kROT13CipherName[] = "ROT13";
 static constexpr char kCTRProviderName[] = "CTR";
+static constexpr char kCTROpenSSL[] = "CTROpenSSL";
 
 Status BlockCipher::CreateFromString(const ConfigOptions& /*config_options*/,
                                      const std::string& value,
@@ -60,6 +62,8 @@ Status EncryptionProvider::CreateFromString(
   }
   if (id == kCTRProviderName) {
     result->reset(new CTREncryptionProvider());
+  } else if (id == OpenSSLEncryptionProvider::kName()) {
+    status = NewOpenSSLEncryptionProvider(result);
   } else if (is_test) {
     result->reset(new CTREncryptionProvider());
   } else {
@@ -76,14 +80,14 @@ std::shared_ptr<EncryptionProvider> EncryptionProvider::NewCTRProvider(
   return std::make_shared<CTREncryptionProvider>(cipher);
 }
 
-  // Read up to "n" bytes from the file.  "scratch[0..n-1]" may be
-  // written by this routine.  Sets "*result" to the data that was
-  // read (including if fewer than "n" bytes were successfully read).
-  // May set "*result" to point at data in "scratch[0..n-1]", so
-  // "scratch[0..n-1]" must be live when "*result" is used.
-  // If an error was encountered, returns a non-OK status.
-  //
-  // REQUIRES: External synchronization
+// Read up to "n" bytes from the file.  "scratch[0..n-1]" may be
+// written by this routine.  Sets "*result" to the data that was
+// read (including if fewer than "n" bytes were successfully read).
+// May set "*result" to point at data in "scratch[0..n-1]", so
+// "scratch[0..n-1]" must be live when "*result" is used.
+// If an error was encountered, returns a non-OK status.
+//
+// REQUIRES: External synchronization
 Status EncryptedSequentialFile::Read(size_t n, Slice* result, char* scratch) {
   assert(scratch);
   Status status = file_->Read(n, result, scratch);

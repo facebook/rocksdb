@@ -122,33 +122,23 @@ std::shared_ptr<AesCtrKey> NewAesCtrKey(const std::string& hex_key_str);
 
 class OpenSSLEncryptionProvider : public EncryptionProvider {
  public:
-  OpenSSLEncryptionProvider() {};
+  OpenSSLEncryptionProvider(){};
 
   OpenSSLEncryptionProvider(const EncryptionProvider&&) = delete;
 
   OpenSSLEncryptionProvider(const OpenSSLEncryptionProvider&&) = delete;
-#if 0
-  OpenSSLEncryptionProvider(const ShaDescription& key_desc_in,
-                          const AesCtrKey& key_in)
-      : valid_(false), key_desc_(key_desc_in), key_(key_in) {
-    valid_ = key_desc_.IsValid() && key_.IsValid();
-  }
 
-  OpenSSLEncryptionProvider(const std::string& key_desc_str,
-                          const uint8_t unformatted_key[], int bytes)
-      : valid_(false), key_desc_(key_desc_str), key_(unformatted_key, bytes) {
-    valid_ = key_desc_.IsValid() && key_.IsValid();
-  }
-#endif
-  const char* Name() const override {return "OpenSSLEncryptionProvider";}
+  const char* Name() const override { return kName(); }
 
-  size_t GetPrefixLength() const override {return 4096;}
+  static const char* kName() { return "OpenSSLEncryptionProvider"; }
+
+  size_t GetPrefixLength() const override { return 4096; }
 
   Status CreateNewPrefix(const std::string& /*fname*/, char* prefix,
                          size_t prefixLength) const override;
 
   Status AddCipher(const std::string& descriptor, const char* cipher,
-                           size_t len, bool for_write) override;
+                   size_t len, bool for_write) override;
 
   Status CreateCipherStream(
       const std::string& /*fname*/, const EnvOptions& /*options*/,
@@ -162,10 +152,8 @@ class OpenSSLEncryptionProvider : public EncryptionProvider {
  protected:
   bool valid_{false};
 
-  using WriteKey =
-      std::pair<ShaDescription, AesCtrKey>;
-  using ReadKeys =
-      std::map<ShaDescription, AesCtrKey>;
+  using WriteKey = std::pair<ShaDescription, AesCtrKey>;
+  using ReadKeys = std::map<ShaDescription, AesCtrKey>;
 
   ReadKeys encrypt_read_;
   WriteKey encrypt_write_;
@@ -173,17 +161,17 @@ class OpenSSLEncryptionProvider : public EncryptionProvider {
 
   // Optional method to initialize an EncryptionProvider in the TEST
   // environment.
-  virtual Status TEST_Initialize() { return Status::OK(); /*AddCipher*/ }
+  virtual Status TEST_Initialize() {
+    return AddCipher(
+        "test key",
+        "0102030405060708090A0B0C0D0E0F101112131415161718191a1b1c1d1e1f20", 64,
+        true);
+  }
 };
 
-#if 0
-std::shared_ptr<OpenSSLEncryptionProvider> NewOpenSSLEncryptionProvider(
-    const std::shared_ptr<ShaDescription>& key_desc,
-    const std::shared_ptr<AesCtrKey>& aes_ctr_key);
-
-std::shared_ptr<OpenSSLEncryptionProvider> NewOpenSSLEncryptionProvider(
-    const std::string& key_desc_str, const uint8_t binary_key[], int bytes);
-#endif
+// Status::NoSupported() if libcrypto unavailable
+Status NewOpenSSLEncryptionProvider(
+    std::shared_ptr<EncryptionProvider>* result);
 
 #endif  // ROCKSDB_LITE
 

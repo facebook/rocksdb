@@ -225,12 +225,17 @@ TEST(EnvOpenssl_Key, Copy) {
 class EnvOpenssl_Provider {};
 
 TEST(EnvOpenssl_Provider, NistExamples) {
+#if 0
   uint8_t key[] = {0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
                    0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
                    0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
                    0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4};
+#endif
+
   uint8_t init[] = {0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7,
                     0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff};
+  const char key_txt[] =
+      "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4";
 
   uint8_t plain1[] = {0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96,
                       0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a};
@@ -252,10 +257,23 @@ TEST(EnvOpenssl_Provider, NistExamples) {
   uint8_t cypher4[] = {0xdf, 0xc9, 0xc5, 0x8d, 0xb6, 0x7a, 0xad, 0xa6,
                        0x13, 0xc2, 0xdd, 0x08, 0x45, 0x79, 0x41, 0xa6};
 
-  OpenSSLEncryptionProvider provider("NistExampleKey", key, sizeof(key));
+  // must build prefix manually to get desired nonce / init
+  ShaDescription desc("NistExampleKey");
+  char file_prefix[4096];
+  Slice file_prefix_slice(file_prefix, sizeof(file_prefix));
+  memcpy(file_prefix, kEncryptMarker, sizeof(kEncryptMarker));
+  file_prefix[7] = kEncryptCodeVersion1;
+  PrefixVersion0* pf = (PrefixVersion0*)(file_prefix + sizeof(kEncryptMarker));
+  memcpy(pf->key_description_, desc.desc, sizeof(ShaDescription::desc));
+  memcpy(pf->nonce_, init, sizeof(init));
 
-  std::unique_ptr<BlockAccessCipherStream> stream(
-      provider.CreateCipherStream2(1, init));
+  OpenSSLEncryptionProvider provider;
+  provider.AddCipher("NistExampleKey", key_txt, sizeof(key_txt) - 1, true);
+
+  std::unique_ptr<BlockAccessCipherStream> stream;
+  Status status = provider.CreateCipherStream(std::string(), EnvOptions(),
+                                              file_prefix_slice, &stream);
+  ASSERT_TRUE(status.ok());
 
   uint64_t offset;
   uint8_t block[sizeof(plain1)];
@@ -267,7 +285,8 @@ TEST(EnvOpenssl_Provider, NistExamples) {
   offset = 0;
   memcpy((void*)block, (void*)plain1, 16);
 
-  Status status = stream->Encrypt(offset, (char*)block, sizeof(block));
+  status = stream->Encrypt(offset, (char*)block, sizeof(block));
+  ASSERT_TRUE(status.ok());
   ASSERT_TRUE(0 == memcmp(cypher1, block, sizeof(block)));
 
   offset = 16;
@@ -456,18 +475,20 @@ static ShaDescription KeyDesc(KeyName);
 // this key is from
 // https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38a.pdf,
 //  example F.5.5
+#if 0
 static uint8_t key256[] = {0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
                            0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
                            0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
                            0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4};
-std::shared_ptr<const OpenSSLEncryptionProvider> openssl_provider_ctr(
-    new OpenSSLEncryptionProvider(KeyName, key256, 32));
+#endif
+static char key256[] =
+    "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4";
 
-static OpenSSLEnv::ReadKeys encrypt_readers = {{KeyDesc, openssl_provider_ctr}};
-static OpenSSLEnv::WriteKey encrypt_writer = {KeyDesc, openssl_provider_ctr};
+std::shared_ptr<OpenSSLEncryptionProvider> openssl_provider_ctr(
+    new OpenSSLEncryptionProvider());
 
 static std::unique_ptr<Env> openssl_env(new NormalizingEnvWrapper(
-    OpenSSLEnv::Default(encrypt_readers, encrypt_writer)));
+    NewEncryptedEnv(Env::Default(), openssl_provider_ctr)));
 
 INSTANTIATE_TEST_CASE_P(OpenSSLEnv, EnvBasicTestWithParam,
                         ::testing::Values(openssl_env.get()));
@@ -476,6 +497,10 @@ TEST_P(EnvBasicTestWithParam, Basics) {
   uint64_t file_size;
   std::unique_ptr<WritableFile> writable_file;
   std::vector<std::string> children;
+
+  // put a key in the provider
+  ASSERT_EQ(Status::OK(), openssl_provider_ctr->AddCipher(
+                              KeyName, key256, sizeof(key256) - 1, true));
 
   // kill warning
   std::string warn(kEncryptMarker);
