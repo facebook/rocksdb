@@ -4778,11 +4778,11 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
            j++) {
         const auto& fd_with_krange = vstorage->LevelFilesBrief(i).files[j];
         const auto& fd = fd_with_krange.fd;
-        const FileMetaData* fmeta = fd_with_krange.file_metadata;
-        assert(fmeta);
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
         if (use_file_checksum) {
+          const FileMetaData* fmeta = fd_with_krange.file_metadata;
+          assert(fmeta);
           s = VerifySstFileChecksum(*fmeta, fname, read_options);
         } else {
           s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,

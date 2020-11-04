@@ -373,6 +373,12 @@ class DBImpl : public DB {
       uint64_t start_time, uint64_t end_time,
       std::unique_ptr<StatsHistoryIterator>* stats_iterator) override;
 
+  // If immutable_db_options_.best_efforts_recovery is true, and
+  // RocksDbFileChecksumsVerificationEnabledOnRecovery is defined and returns
+  // true, and immutable_db_options_.file_checksum_gen_factory is not nullptr,
+  // then call VerifyFileChecksums().
+  Status MaybeVerifyFileChecksums();
+
 #ifndef ROCKSDB_LITE
   using DB::ResetStats;
   virtual Status ResetStats() override;
@@ -431,8 +437,7 @@ class DBImpl : public DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) override;
 
-  using DB::VerifyFileChecksums;
-  Status VerifyFileChecksums(const ReadOptions& read_options) override;
+  Status VerifyFileChecksums(const ReadOptions& read_options);
 
   using DB::VerifyChecksum;
   virtual Status VerifyChecksum(const ReadOptions& /*read_options*/) override;

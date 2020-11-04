@@ -49,6 +49,8 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
+extern "C" bool RocksDbFileChecksumsVerificationEnabledOnRecovery();
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace anon {

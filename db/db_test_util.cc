@@ -15,6 +15,10 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "util/random.h"
 
+extern "C" bool RocksDbFileChecksumsVerificationEnabledOnRecovery() {
+  return true;
+}
+
 namespace ROCKSDB_NAMESPACE {
 
 namespace {

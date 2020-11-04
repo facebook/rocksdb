@@ -2201,6 +2201,8 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
 
 TEST_F(DBBasicTest, IncrementalRecoveryNoCorrupt) {
   Options options = CurrentOptions();
+  options.file_checksum_gen_factory =
+      ROCKSDB_NAMESPACE::GetFileChecksumGenCrc32cFactory();
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   size_t num_cfs = handles_.size();
@@ -2239,6 +2241,8 @@ TEST_F(DBBasicTest, IncrementalRecoveryNoCorrupt) {
 
 TEST_F(DBBasicTest, BestEffortsRecoveryWithVersionBuildingFailure) {
   Options options = CurrentOptions();
+  options.file_checksum_gen_factory =
+      ROCKSDB_NAMESPACE::GetFileChecksumGenCrc32cFactory();
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "value"));
   ASSERT_OK(Flush());
@@ -2285,6 +2289,8 @@ TEST_F(DBBasicTest, RecoverWithMissingFiles) {
   // Disable auto compaction to simplify SST file name tracking.
   options.disable_auto_compactions = true;
   options.listeners.emplace_back(listener);
+  options.file_checksum_gen_factory =
+      ROCKSDB_NAMESPACE::GetFileChecksumGenCrc32cFactory();
   CreateAndReopenWithCF({"pikachu", "eevee"}, options);
   std::vector<std::string> all_cf_names = {kDefaultColumnFamilyName, "pikachu",
                                            "eevee"};
@@ -2345,6 +2351,8 @@ TEST_F(DBBasicTest, RecoverWithMissingFiles) {
 
 TEST_F(DBBasicTest, BestEffortsRecoveryTryMultipleManifests) {
   Options options = CurrentOptions();
+  options.file_checksum_gen_factory =
+      ROCKSDB_NAMESPACE::GetFileChecksumGenCrc32cFactory();
   options.env = env_;
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "value0"));
@@ -2371,6 +2379,8 @@ TEST_F(DBBasicTest, BestEffortsRecoveryTryMultipleManifests) {
 
 TEST_F(DBBasicTest, RecoverWithNoCurrentFile) {
   Options options = CurrentOptions();
+  options.file_checksum_gen_factory =
+      ROCKSDB_NAMESPACE::GetFileChecksumGenCrc32cFactory();
   options.env = env_;
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -2394,6 +2404,8 @@ TEST_F(DBBasicTest, RecoverWithNoCurrentFile) {
 
 TEST_F(DBBasicTest, RecoverWithNoManifest) {
   Options options = CurrentOptions();
+  options.file_checksum_gen_factory =
+      ROCKSDB_NAMESPACE::GetFileChecksumGenCrc32cFactory();
   options.env = env_;
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "value"));
@@ -2423,6 +2435,8 @@ TEST_F(DBBasicTest, RecoverWithNoManifest) {
 
 TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   Options options = CurrentOptions();
+  options.file_checksum_gen_factory =
+      ROCKSDB_NAMESPACE::GetFileChecksumGenCrc32cFactory();
   DestroyAndReopen(options);
   TableFileListener* listener = new TableFileListener();
   options.listeners.emplace_back(listener);
@@ -3311,17 +3325,17 @@ TEST_F(DBBasicTest, VerifyFileChecksums) {
   DestroyAndReopen(options);
   ASSERT_OK(Put("a", "value"));
   ASSERT_OK(Flush());
-  ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
+  ASSERT_TRUE(dbfull()->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
 
   options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
   Reopen(options);
-  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+  ASSERT_OK(dbfull()->VerifyFileChecksums(ReadOptions()));
 
   // Write an L0 with checksum computed.
   ASSERT_OK(Put("b", "value"));
   ASSERT_OK(Flush());
 
-  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+  ASSERT_OK(dbfull()->VerifyFileChecksums(ReadOptions()));
 }
 #endif  // !ROCKSDB_LITE
 
