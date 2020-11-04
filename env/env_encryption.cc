@@ -61,8 +61,10 @@ Status EncryptionProvider::CreateFromString(
   }
   if (id == kCTRProviderName) {
     result->reset(new CTREncryptionProvider());
+#ifdef ROCKSDB_OPENSSL_AES_CTR
   } else if (id == OpenSSLEncryptionProvider::kName()) {
     status = NewOpenSSLEncryptionProvider(result);
+#endif
   } else if (is_test) {
     result->reset(new CTREncryptionProvider());
   } else {
