@@ -725,14 +725,14 @@ TEST(RibbonTest, RawAndOrdinalSeeds) {
   ROCKSDB_NAMESPACE::ribbon::StandardHasher<TypesAndSettings_Hash32> hasher32;
   ROCKSDB_NAMESPACE::ribbon::StandardHasher<TypesAndSettings_Seed8> hasher8;
 
-  for (unsigned limit : {0xffU, 0xffffU}) {
+  for (uint32_t limit : {0xffU, 0xffffU}) {
     std::vector<bool> seen(limit + 1);
-    for (unsigned i = 0; i < limit; ++i) {
+    for (uint32_t i = 0; i < limit; ++i) {
       hasher64.SetOrdinalSeed(i);
       auto raw64 = hasher64.GetRawSeed();
       hasher32.SetOrdinalSeed(i);
       auto raw32 = hasher32.GetRawSeed();
-      hasher8.SetOrdinalSeed(i);
+      hasher8.SetOrdinalSeed(static_cast<uint8_t>(i));
       auto raw8 = hasher8.GetRawSeed();
       {
         hasher64_32.SetOrdinalSeed(i);
@@ -754,7 +754,7 @@ TEST(RibbonTest, RawAndOrdinalSeeds) {
       ASSERT_EQ(static_cast<uint8_t>(raw32), raw8);
 
       // The translation is one-to-one for this size prefix
-      unsigned v = static_cast<unsigned>(raw32 & limit);
+      uint32_t v = static_cast<uint32_t>(raw32 & limit);
       ASSERT_EQ(raw64 & limit, v);
       ASSERT_FALSE(seen[v]);
       seen[v] = true;
