@@ -28,7 +28,6 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 static constexpr char kROT13CipherName[] = "ROT13";
 static constexpr char kCTRProviderName[] = "CTR";
-static constexpr char kCTROpenSSL[] = "CTROpenSSL";
 
 Status BlockCipher::CreateFromString(const ConfigOptions& /*config_options*/,
                                      const std::string& value,
