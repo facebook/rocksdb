@@ -852,6 +852,7 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   Corrupt(kTableFile, 0, 1);
 
   ASSERT_OK(TryReopen(&options));
+  dbi = static_cast_with_check<DBImpl>(db_);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
