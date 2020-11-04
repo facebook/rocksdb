@@ -37,7 +37,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-static const int kValueSize = 1000;
+static constexpr int kValueSize = 1000;
 
 class CorruptionTest : public testing::Test {
  public:
@@ -68,9 +68,16 @@ class CorruptionTest : public testing::Test {
   }
 
   ~CorruptionTest() override {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->LoadDependency({});
+    SyncPoint::GetInstance()->ClearAllCallBacks();
     delete db_;
     db_ = nullptr;
-    DestroyDB(dbname_, Options());
+    if (getenv("KEEP_DB")) {
+      fprintf(stdout, "db is still at %s\n", dbname_.c_str());
+    } else {
+      EXPECT_OK(DestroyDB(dbname_, Options()));
+    }
   }
 
   void CloseDb() {
@@ -823,6 +830,41 @@ TEST_F(CorruptionTest, DisableKeyOrderCheck) {
   ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
+  CloseDb();
+  Options options;
+  options.env = &env_;
+  ASSERT_OK(DestroyDB(dbname_, options));
+  options.create_if_missing = true;
+  options.file_checksum_gen_factory =
+      ROCKSDB_NAMESPACE::GetFileChecksumGenCrc32cFactory();
+  Reopen(&options);
+
+  Build(10, 5);
+
+  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+  CloseDb();
+
+  // Corrupt the first byte of each table file, this must be data block.
+  Corrupt(kTableFile, 0, 1);
+
+  ASSERT_OK(TryReopen(&options));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  int count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::VerifySstFileChecksum:mismatch", [&](void* arg) {
+        auto* s = reinterpret_cast<Status*>(arg);
+        assert(s);
+        ++count;
+        ASSERT_NOK(*s);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsCorruption());
+  ASSERT_EQ(1, count);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

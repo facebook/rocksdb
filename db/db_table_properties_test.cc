@@ -421,6 +421,54 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   ASSERT_LT(0, opts.statistics->getTickerCount(COMPACT_READ_BYTES_MARKED));
 }
 
+TEST_P(DBTablePropertiesTest, RatioBasedDeletionTriggeredCompactionMarking) {
+  constexpr int kNumKeys = 1000;
+  constexpr int kWindowSize = 0;
+  constexpr int kNumDelsTrigger = 0;
+  constexpr double kDeletionRatio = 0.1;
+  std::shared_ptr<TablePropertiesCollectorFactory> compact_on_del =
+      NewCompactOnDeletionCollectorFactory(kWindowSize, kNumDelsTrigger,
+                                           kDeletionRatio);
+
+  Options opts = CurrentOptions();
+  opts.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  opts.table_properties_collector_factories.emplace_back(compact_on_del);
+
+  Reopen(opts);
+
+  // Add an L2 file to prevent tombstones from dropping due to obsolescence
+  // during flush
+  Put(Key(0), "val");
+  Flush();
+  MoveFilesToLevel(2);
+
+  auto* listener = new DeletionTriggeredCompactionTestListener();
+  opts.listeners.emplace_back(listener);
+  Reopen(opts);
+
+  // Generate one L0 with kNumKeys Put.
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(Put(Key(i), "not important"));
+  }
+  ASSERT_OK(Flush());
+
+  // Generate another L0 with kNumKeys Delete.
+  // This file, due to deletion ratio, will trigger compaction: 2@0 files to L1.
+  // The resulting L1 file has only one tombstone for user key 'Key(0)'.
+  // Again, due to deletion ratio, a compaction will be triggered: 1@1 + 1@2
+  // files to L2. However, the resulting file is empty because the tombstone
+  // and value are both dropped.
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(Delete(Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_EQ(0, NumTableFilesAtLevel(i));
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(
     DBTablePropertiesTest,
     DBTablePropertiesTest,
