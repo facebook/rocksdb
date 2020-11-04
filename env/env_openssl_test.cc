@@ -406,7 +406,12 @@ TEST(EnvOpenssl_Provider, BigEndianAdd) {
 // Normalizes trivial differences across Envs such that these test cases can
 // run on all Envs.
 class NormalizingEnvWrapper : public EnvWrapper {
+ protected:
+  std::unique_ptr<Env> base_;
+
  public:
+  explicit NormalizingEnvWrapper(std::unique_ptr<Env>&& base)
+      : EnvWrapper(base.get()), base_(std::move(base)) {}
   explicit NormalizingEnvWrapper(Env* base) : EnvWrapper(base) {}
 
   // Removes . and .. from directory listing
@@ -487,8 +492,9 @@ static char key256[] =
 std::shared_ptr<OpenSSLEncryptionProvider> openssl_provider_ctr(
     new OpenSSLEncryptionProvider());
 
-static std::unique_ptr<Env> openssl_env(new NormalizingEnvWrapper(
-    NewEncryptedEnv(Env::Default(), openssl_provider_ctr)));
+std::unique_ptr<Env> encrypted(NewEncryptedEnv(Env::Default(), openssl_provider_ctr));
+static std::unique_ptr<Env> openssl_env(new NormalizingEnvWrapper(std::move(encrypted)));
+
 
 INSTANTIATE_TEST_CASE_P(OpenSSLEnv, EnvBasicTestWithParam,
                         ::testing::Values(openssl_env.get()));
