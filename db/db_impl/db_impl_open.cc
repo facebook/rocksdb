@@ -23,6 +23,13 @@
 #include "test_util/sync_point.h"
 #include "util/rate_limiter.h"
 
+// VerifyFileChecksums is a weak symbol.
+// If it is defined and returns true, and options.best_efforts_recovery = true,
+// and file checksum is enabled, then the checksums of table files will be
+// computed and verified with MANIFEST.
+extern "C" bool RocksDbFileChecksumsVerificationEnabledOnRecovery()
+    __attribute__((__weak__));
+
 namespace ROCKSDB_NAMESPACE {
 Options SanitizeOptions(const std::string& dbname, const Options& src) {
   auto db_options = SanitizeOptions(dbname, DBOptions(src));
@@ -475,12 +482,6 @@ Status DBImpl::Recover(
     assert(!files_in_dbname.empty());
     s = versions_->TryRecover(column_families, read_only, files_in_dbname,
                               &db_id_, &missing_table_file);
-#ifndef ROCKSDB_LITE
-    // TODO: remove the VerifyFileChecksums() call because it's very expensive.
-    if (s.ok() && immutable_db_options_.file_checksum_gen_factory) {
-      s = VerifyFileChecksums(ReadOptions());
-    }
-#endif  // !ROCKSDB_LITE
     if (s.ok()) {
       // TryRecover may delete previous column_family_set_.
       column_family_memtables_.reset(
@@ -1435,6 +1436,22 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   return s;
 }
 
+Status DBImpl::MaybeVerifyFileChecksums() {
+  Status s;
+#if !defined(ROCKSDB_LITE) && defined(OS_LINUX)
+  // TODO: remove the VerifyFileChecksums() call because it's very expensive.
+  if (immutable_db_options_.best_efforts_recovery &&
+      RocksDbFileChecksumsVerificationEnabledOnRecovery &&
+      RocksDbFileChecksumsVerificationEnabledOnRecovery() &&
+      immutable_db_options_.file_checksum_gen_factory) {
+    s = VerifyFileChecksums(ReadOptions());
+    ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                   "Verified file checksums: %s\n", s.ToString().c_str());
+  }
+#endif  // !ROCKSDB_LITE && OS_LINUX
+  return s;
+}
+
 Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
@@ -1809,6 +1826,9 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     ROCKS_LOG_WARN(impl->immutable_db_options_.info_log,
                    "Persisting Option File error: %s",
                    persist_options_status.ToString().c_str());
+  }
+  if (s.ok()) {
+    s = impl->MaybeVerifyFileChecksums();
   }
   if (s.ok()) {
     impl->StartPeriodicWorkScheduler();
