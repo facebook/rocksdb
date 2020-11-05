@@ -270,6 +270,7 @@ Status OpenSSLEncryptionProvider::AddCipher(const std::string& descriptor,
   ShaDescription desc(descriptor);
 
   if (key.IsValid() && desc.IsValid()) {
+    WriteLock lock(&key_lock_);
     if (for_write) {
       encrypt_write_ = std::pair<ShaDescription, AesCtrKey>(desc, key);
     }
