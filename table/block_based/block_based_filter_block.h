@@ -26,7 +26,7 @@
 #include "table/format.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // A BlockBasedFilterBlockBuilder is used to construct all of the filters for a
 // particular Table.  It generates a single string which is stored as
@@ -85,9 +85,9 @@ class BlockBasedFilterBlockReader
   void operator=(const BlockBasedFilterBlockReader&) = delete;
 
   static std::unique_ptr<FilterBlockReader> Create(
-      const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
-      bool use_cache, bool prefetch, bool pin,
-      BlockCacheLookupContext* lookup_context);
+      const BlockBasedTable* table, const ReadOptions& ro,
+      FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
+      bool pin, BlockCacheLookupContext* lookup_context);
 
   bool IsBlockBased() override { return true; }
 
@@ -116,4 +116,4 @@ class BlockBasedFilterBlockReader
                 BlockCacheLookupContext* lookup_context) const;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

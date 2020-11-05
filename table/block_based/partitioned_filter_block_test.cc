@@ -12,13 +12,12 @@
 #include "table/block_based/filter_policy_internal.h"
 
 #include "index_builder.h"
-#include "logging/logging.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 std::map<uint64_t, std::string> blooms;
 
@@ -126,7 +125,8 @@ class PartitionedFilterBlockTest
     const bool kValueDeltaEncoded = true;
     return new PartitionedFilterBlockBuilder(
         prefix_extractor, table_options_.whole_key_filtering,
-        table_options_.filter_policy->GetFilterBitsBuilder(),
+        BloomFilterPolicy::GetBuilderFromContext(
+            FilterBuildingContext(table_options_)),
         table_options_.index_block_restart_interval, !kValueDeltaEncoded,
         p_index_builder, partition_size);
   }
@@ -142,16 +142,17 @@ class PartitionedFilterBlockTest
     } while (status.IsIncomplete());
 
     constexpr bool skip_filters = false;
+    constexpr uint64_t file_size = 12345;
     constexpr int level = 0;
     constexpr bool immortal_table = false;
     table_.reset(new MockedBlockBasedTable(
         new BlockBasedTable::Rep(ioptions_, env_options_, table_options_,
-                                 icomp_, skip_filters, level, immortal_table),
+                                 icomp_, skip_filters, file_size, level,
+                                 immortal_table),
         pib));
     BlockContents contents(slice);
     CachableEntry<Block> block(
-        new Block(std::move(contents), kDisableGlobalSequenceNumber,
-                  0 /* read_amp_bytes_per_bit */, nullptr),
+        new Block(std::move(contents), 0 /* read_amp_bytes_per_bit */, nullptr),
         nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
     auto reader =
         new MyPartitionedFilterBlockReader(table_.get(), std::move(block));
@@ -323,8 +324,8 @@ TEST_P(PartitionedFilterBlockTest, TwoBlocksPerKey) {
 TEST_P(PartitionedFilterBlockTest, SamePrefixInMultipleBlocks) {
   // some small number to cause partition cuts
   table_options_.metadata_block_size = 1;
-  std::unique_ptr<const SliceTransform> prefix_extractor
-      (rocksdb::NewFixedPrefixTransform(1));
+  std::unique_ptr<const SliceTransform> prefix_extractor(
+      ROCKSDB_NAMESPACE::NewFixedPrefixTransform(1));
   std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
   std::unique_ptr<PartitionedFilterBlockBuilder> builder(
       NewBuilder(pib.get(), prefix_extractor.get()));
@@ -363,7 +364,7 @@ TEST_P(PartitionedFilterBlockTest, PrefixInWrongPartitionBug) {
   // some small number to cause partition cuts
   table_options_.metadata_block_size = 1;
   std::unique_ptr<const SliceTransform> prefix_extractor(
-      rocksdb::NewFixedPrefixTransform(2));
+      ROCKSDB_NAMESPACE::NewFixedPrefixTransform(2));
   std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
   std::unique_ptr<PartitionedFilterBlockBuilder> builder(
       NewBuilder(pib.get(), prefix_extractor.get()));
@@ -415,7 +416,7 @@ TEST_P(PartitionedFilterBlockTest, PartitionCount) {
   ASSERT_EQ(partitions, num_keys - 1 /* last two keys make one flush */);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

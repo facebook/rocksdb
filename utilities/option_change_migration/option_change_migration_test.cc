@@ -8,10 +8,14 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/utilities/option_change_migration.h"
+
 #include <set>
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
-namespace rocksdb {
+#include "util/random.h"
+
+namespace ROCKSDB_NAMESPACE {
 
 class DBOptionChangeMigrationTests
     : public DBTestBase,
@@ -19,7 +23,7 @@ class DBOptionChangeMigrationTests
           std::tuple<int, int, bool, int, int, bool>> {
  public:
   DBOptionChangeMigrationTests()
-      : DBTestBase("/db_option_change_migration_test") {
+      : DBTestBase("/db_option_change_migration_test", /*env_do_fsync=*/true) {
     level1_ = std::get<0>(GetParam());
     compaction_style1_ = std::get<1>(GetParam());
     is_dynamic1_ = std::get<2>(GetParam());
@@ -200,7 +204,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate3) {
   Random rnd(301);
   for (int num = 0; num < 20; num++) {
     for (int i = 0; i < 50; i++) {
-      ASSERT_OK(Put(Key(num * 100 + i), RandomString(&rnd, 900)));
+      ASSERT_OK(Put(Key(num * 100 + i), rnd.RandomString(900)));
     }
     Flush();
     dbfull()->TEST_WaitForCompact();
@@ -274,7 +278,7 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
   Random rnd(301);
   for (int num = 0; num < 20; num++) {
     for (int i = 0; i < 50; i++) {
-      ASSERT_OK(Put(Key(num * 100 + i), RandomString(&rnd, 900)));
+      ASSERT_OK(Put(Key(num * 100 + i), rnd.RandomString(900)));
     }
     Flush();
     dbfull()->TEST_WaitForCompact();
@@ -350,7 +354,8 @@ INSTANTIATE_TEST_CASE_P(
 class DBOptionChangeMigrationTest : public DBTestBase {
  public:
   DBOptionChangeMigrationTest()
-      : DBTestBase("/db_option_change_migration_test2") {}
+      : DBTestBase("/db_option_change_migration_test2", /*env_do_fsync=*/true) {
+  }
 };
 
 TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
@@ -370,7 +375,7 @@ TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
   Random rnd(301);
   for (int num = 0; num < 20; num++) {
     for (int i = 0; i < 50; i++) {
-      ASSERT_OK(Put(Key(num * 100 + i), RandomString(&rnd, 900)));
+      ASSERT_OK(Put(Key(num * 100 + i), rnd.RandomString(900)));
     }
   }
   Flush();
@@ -416,10 +421,10 @@ TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
 }
 
 #endif  // ROCKSDB_LITE
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

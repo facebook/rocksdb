@@ -8,7 +8,9 @@
 #include <stdint.h>
 #include <string>
 
-namespace rocksdb {
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 struct CompactionJobStats {
   CompactionJobStats() { Reset(); }
   void Reset();
@@ -33,6 +35,8 @@ struct CompactionJobStats {
   // the number of compaction output files.
   size_t num_output_files;
 
+  // true if the compaction is a full compaction (all live SST files input)
+  bool is_full_compaction;
   // true if the compaction is a manual compaction
   bool is_manual_compaction;
 
@@ -91,4 +95,4 @@ struct CompactionJobStats {
   // number of single-deletes which meet something other than a put
   uint64_t num_single_del_mismatch;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

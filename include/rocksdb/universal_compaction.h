@@ -9,7 +9,7 @@
 #include <climits>
 #include <vector>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 //
 // Algorithm used to make a compaction request stop picking new files
@@ -83,4 +83,4 @@ class CompactionOptionsUniversal {
         allow_trivial_move(false) {}
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -12,8 +12,14 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 
-using namespace rocksdb;
+using namespace ROCKSDB_NAMESPACE;
+
+#if defined(OS_WIN)
+std::string kDBPath = "C:\\Windows\\TEMP\\rocksdb_compact_files_example";
+#else
 std::string kDBPath = "/tmp/rocksdb_compact_files_example";
+#endif
+
 struct CompactionTask;
 
 // This is an example interface of external-compaction algorithm.

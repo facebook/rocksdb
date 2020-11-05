@@ -20,7 +20,6 @@ int main() {
 #include <vector>
 
 #include "dynamic_bloom.h"
-#include "logging/logging.h"
 #include "memory/arena.h"
 #include "port/port.h"
 #include "test_util/testharness.h"
@@ -34,7 +33,7 @@ DEFINE_int32(bits_per_key, 10, "");
 DEFINE_int32(num_probes, 6, "");
 DEFINE_bool(enable_perf, false, "");
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct KeyMaker {
   uint64_t a;
@@ -312,7 +311,7 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

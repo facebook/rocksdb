@@ -9,7 +9,7 @@
 
 #include "db/column_family.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 void TrimHistoryScheduler::ScheduleWork(ColumnFamilyData* cfd) {
   std::lock_guard<std::mutex> lock(checking_mutex_);
@@ -34,10 +34,7 @@ ColumnFamilyData* TrimHistoryScheduler::TakeNextColumnFamily() {
       // success
       return cfd;
     }
-    if (cfd->Unref()) {
-      // no longer relevant, retry
-      delete cfd;
-    }
+    cfd->UnrefAndTryDelete();
   }
 }
 
@@ -49,11 +46,9 @@ bool TrimHistoryScheduler::Empty() {
 void TrimHistoryScheduler::Clear() {
   ColumnFamilyData* cfd;
   while ((cfd = TakeNextColumnFamily()) != nullptr) {
-    if (cfd->Unref()) {
-      delete cfd;
-    }
+    cfd->UnrefAndTryDelete();
   }
   assert(Empty());
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

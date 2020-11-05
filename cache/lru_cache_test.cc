@@ -10,7 +10,7 @@
 #include "port/port.h"
 #include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class LRUCacheTest : public testing::Test {
  public:
@@ -37,8 +37,9 @@ class LRUCacheTest : public testing::Test {
 
   void Insert(const std::string& key,
               Cache::Priority priority = Cache::Priority::LOW) {
-    cache_->Insert(key, 0 /*hash*/, nullptr /*value*/, 1 /*charge*/,
-                   nullptr /*deleter*/, nullptr /*handle*/, priority);
+    EXPECT_OK(cache_->Insert(key, 0 /*hash*/, nullptr /*value*/, 1 /*charge*/,
+                             nullptr /*deleter*/, nullptr /*handle*/,
+                             priority));
   }
 
   void Insert(char key, Cache::Priority priority = Cache::Priority::LOW) {
@@ -190,7 +191,7 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   ValidateLRUList({"e", "f", "g", "Z", "d"}, 2);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

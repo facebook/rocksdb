@@ -16,7 +16,7 @@
 #include "rocksdb/table.h"
 #include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class SliceTransformTest : public testing::Test {};
 
@@ -98,7 +98,7 @@ uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {
 
 TEST_F(SliceTransformDBTest, CapPrefix) {
   last_options_.prefix_extractor.reset(NewCappedPrefixTransform(8));
-  last_options_.statistics = rocksdb::CreateDBStatistics();
+  last_options_.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions bbto;
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.whole_key_filtering = false;
@@ -145,7 +145,7 @@ TEST_F(SliceTransformDBTest, CapPrefix) {
   ASSERT_EQ(TestGetTickerCount(last_options_, BLOOM_FILTER_PREFIX_USEFUL), 3U);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

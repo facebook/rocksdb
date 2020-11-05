@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <random>
 #include <sstream>
 
@@ -66,7 +67,7 @@ DEFINE_string(
     "Group the number of accesses per block per second using these labels. "
     "Possible labels are a combination of the following: cf (column family), "
     "sst, level, bt (block type), caller, block. For example, label \"cf_bt\" "
-    "means the number of acccess per second is grouped by unique pairs of "
+    "means the number of access per second is grouped by unique pairs of "
     "\"cf_bt\". A label \"all\" contains the aggregated number of accesses per "
     "second across all possible labels.");
 DEFINE_string(reuse_distance_labels, "",
@@ -149,7 +150,7 @@ DEFINE_int32(analyze_correlation_coefficients_max_number_of_values, 1000000,
 DEFINE_string(human_readable_trace_file_path, "",
               "The filt path that saves human readable access records.");
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
 
 const std::string kMissRatioCurveFileName = "mrc";
@@ -576,10 +577,11 @@ void BlockCacheTraceAnalyzer::WriteSkewness(
     pairs.push_back(itr);
   }
   // Sort in descending order.
-  sort(
-      pairs.begin(), pairs.end(),
-      [=](std::pair<std::string, uint64_t>& a,
-          std::pair<std::string, uint64_t>& b) { return b.second < a.second; });
+  sort(pairs.begin(), pairs.end(),
+       [](const std::pair<std::string, uint64_t>& a,
+          const std::pair<std::string, uint64_t>& b) {
+         return b.second < a.second;
+       });
 
   size_t prev_start_index = 0;
   for (auto const& percent : percent_buckets) {
@@ -650,7 +652,6 @@ void BlockCacheTraceAnalyzer::WriteCorrelationFeaturesToFile(
     const std::map<std::string, Features>& label_features,
     const std::map<std::string, Predictions>& label_predictions,
     uint32_t max_number_of_values) const {
-  std::default_random_engine rand_engine(static_cast<unsigned int>(env_->NowMicros()));
   for (auto const& label_feature_vectors : label_features) {
     const Features& past = label_feature_vectors.second;
     auto it = label_predictions.find(label_feature_vectors.first);
@@ -672,7 +673,7 @@ void BlockCacheTraceAnalyzer::WriteCorrelationFeaturesToFile(
     for (uint32_t i = 0; i < past.num_accesses_since_last_access.size(); i++) {
       indexes.push_back(i);
     }
-    std::shuffle(indexes.begin(), indexes.end(), rand_engine);
+    RandomShuffle(indexes.begin(), indexes.end());
     for (uint32_t i = 0; i < max_number_of_values && i < indexes.size(); i++) {
       uint32_t rand_index = indexes[i];
       out << std::to_string(past.num_accesses_since_last_access[rand_index])
@@ -1170,7 +1171,7 @@ void BlockCacheTraceAnalyzer::WriteReuseLifetime(
 }
 
 void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
-    uint64_t reuse_window, bool user_access_only, TraceType block_type) const {
+    const uint64_t reuse_window, bool user_access_only, TraceType block_type) const {
   // A map from block key to an array of bools that states whether a block is
   // accessed in a time window.
   std::map<uint64_t, std::vector<bool>> block_accessed;
@@ -1198,7 +1199,7 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
         const uint64_t timestamp = timeline.first;
         const uint64_t elapsed_time =
             timestamp - trace_start_timestamp_in_seconds_;
-        if (!user_access_only || (user_access_only && is_user_access(caller))) {
+        if (!user_access_only || is_user_access(caller)) {
           uint64_t index =
               std::min(elapsed_time / reuse_window, reuse_vector_size - 1);
           block_accessed[block_id][index] = true;
@@ -1209,11 +1210,11 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
   TraverseBlocks(block_callback);
 
   // A cell is the number of blocks accessed in a reuse window.
-  uint64_t reuse_table[reuse_vector_size][reuse_vector_size];
+  std::unique_ptr<uint64_t[]> reuse_table(new uint64_t[reuse_vector_size * reuse_vector_size]);
   for (uint64_t start_time = 0; start_time < reuse_vector_size; start_time++) {
     // Initialize the reuse_table.
     for (uint64_t i = 0; i < reuse_vector_size; i++) {
-      reuse_table[start_time][i] = 0;
+      reuse_table[start_time * reuse_vector_size + i] = 0;
     }
     // Examine all blocks.
     for (auto const& block : block_accessed) {
@@ -1222,7 +1223,7 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
           // This block is accessed at start time and at the current time. We
           // increment reuse_table[start_time][i] since it is reused at the ith
           // window.
-          reuse_table[start_time][i]++;
+          reuse_table[start_time * reuse_vector_size + i]++;
         }
       }
     }
@@ -1250,8 +1251,8 @@ void BlockCacheTraceAnalyzer::WriteBlockReuseTimeline(
       if (j < start_time) {
         row += "100.0";
       } else {
-        row += std::to_string(percent(reuse_table[start_time][j],
-                                      reuse_table[start_time][start_time]));
+        row += std::to_string(percent(reuse_table[start_time * reuse_vector_size + j],
+                                      reuse_table[start_time * reuse_vector_size + start_time]));
       }
     }
     out << row << std::endl;
@@ -1410,8 +1411,7 @@ void BlockCacheTraceAnalyzer::WriteAccessCountSummaryStats(
         }
         uint64_t naccesses = 0;
         for (auto const& caller_access : block.caller_num_access_map) {
-          if (!user_access_only ||
-              (user_access_only && is_user_access(caller_access.first))) {
+          if (!user_access_only || is_user_access(caller_access.first)) {
             naccesses += caller_access.second;
           }
         }
@@ -1439,7 +1439,7 @@ BlockCacheTraceAnalyzer::BlockCacheTraceAnalyzer(
     bool compute_reuse_distance, bool mrc_only,
     bool is_human_readable_trace_file,
     std::unique_ptr<BlockCacheTraceSimulator>&& cache_simulator)
-    : env_(rocksdb::Env::Default()),
+    : env_(ROCKSDB_NAMESPACE::Env::Default()),
       trace_file_path_(trace_file_path),
       output_dir_(output_dir),
       human_readable_trace_file_path_(human_readable_trace_file_path),
@@ -1646,8 +1646,7 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
                             const BlockAccessInfo& block) {
     uint64_t naccesses = 0;
     for (auto const& caller_access : block.caller_num_access_map) {
-      if (!user_access_only ||
-          (user_access_only && is_user_access(caller_access.first))) {
+      if (!user_access_only || is_user_access(caller_access.first)) {
         naccesses += caller_access.second;
       }
     }
@@ -1673,13 +1672,12 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
     if (bottom_k_index >= bottom_k) {
       break;
     }
-    std::map<TableReaderCaller, uint32_t> caller_naccesses;
+    std::map<TableReaderCaller, uint64_t> caller_naccesses;
     uint64_t naccesses = 0;
     for (auto const& block_id : naccess_it->second) {
       BlockAccessInfo* block = block_info_map_.find(block_id)->second;
       for (auto const& caller_access : block->caller_num_access_map) {
-        if (!user_access_only ||
-            (user_access_only && is_user_access(caller_access.first))) {
+        if (!user_access_only || is_user_access(caller_access.first)) {
           caller_naccesses[caller_access.first] += caller_access.second;
           naccesses += caller_access.second;
         }
@@ -1712,15 +1710,13 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
       std::string statistics("Caller:");
       uint64_t naccesses = 0;
       for (auto const& caller_access : block->caller_num_access_map) {
-        if (!user_access_only ||
-            (user_access_only && is_user_access(caller_access.first))) {
+        if (!user_access_only || is_user_access(caller_access.first)) {
           naccesses += caller_access.second;
         }
       }
       assert(naccesses > 0);
       for (auto const& caller_access : block->caller_num_access_map) {
-        if (!user_access_only ||
-            (user_access_only && is_user_access(caller_access.first))) {
+        if (!user_access_only || is_user_access(caller_access.first)) {
           statistics += ",";
           statistics += caller_to_string(caller_access.first);
           statistics += ":";
@@ -1732,8 +1728,7 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
       uint64_t ref_keys_does_not_exist_accesses = 0;
       for (auto const& ref_key_caller_access : block->key_num_access_map) {
         for (auto const& caller_access : ref_key_caller_access.second) {
-          if (!user_access_only ||
-              (user_access_only && is_user_access(caller_access.first))) {
+          if (!user_access_only || is_user_access(caller_access.first)) {
             ref_keys_accesses += caller_access.second;
           }
         }
@@ -1741,8 +1736,7 @@ void BlockCacheTraceAnalyzer::PrintAccessCountStats(bool user_access_only,
       for (auto const& ref_key_caller_access :
            block->non_exist_key_num_access_map) {
         for (auto const& caller_access : ref_key_caller_access.second) {
-          if (!user_access_only ||
-              (user_access_only && is_user_access(caller_access.first))) {
+          if (!user_access_only || is_user_access(caller_access.first)) {
             ref_keys_does_not_exist_accesses += caller_access.second;
           }
         }
@@ -2307,7 +2301,7 @@ int block_cache_trace_analyzer_tool(int argc, char** argv) {
   return 0;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // GFLAGS
 #endif  // ROCKSDB_LITE

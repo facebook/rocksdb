@@ -4,11 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 // This file implements the callback "bridge" between Java and C++ for
-// rocksdb::Statistics
+// ROCKSDB_NAMESPACE::Statistics
 
 #include "rocksjni/statisticsjni.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 StatisticsJni::StatisticsJni(std::shared_ptr<Statistics> stats)
     : StatisticsImpl(stats), m_ignore_histograms() {}
@@ -28,5 +28,4 @@ bool StatisticsJni::HistEnabledForType(uint32_t type) const {
 
   return true;
 }
-// @lint-ignore TXT4 T25377293 Grandfathered in
-};
+}  // namespace ROCKSDB_NAMESPACE

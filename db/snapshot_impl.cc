@@ -7,7 +7,7 @@
 
 #include "rocksdb/db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 ManagedSnapshot::ManagedSnapshot(DB* db) : db_(db),
                                            snapshot_(db->GetSnapshot()) {}
@@ -23,4 +23,4 @@ ManagedSnapshot::~ManagedSnapshot() {
 
 const Snapshot* ManagedSnapshot::snapshot() { return snapshot_;}
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

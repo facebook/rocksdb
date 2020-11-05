@@ -15,7 +15,7 @@
 #include <unistd.h>
 #endif
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -668,13 +668,12 @@ TEST_F(TtlTest, ChangeTtlOnOpenDb) {
 
   OpenTtl(1);                                  // T=0:Open the db with ttl = 2
   SetTtl(3);
-  // @lint-ignore TXT2 T25377293 Grandfathered in
-  PutValues(0, kSampleSize_);		       // T=0:Insert Set1. Delete at t=2
+  PutValues(0, kSampleSize_);                  // T=0:Insert Set1. Delete at t=2
   SleepCompactCheck(2, 0, kSampleSize_, true); // T=2:Set1 should be there
   CloseTtl();
 }
 
-} //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 // A black-box test for the ttl wrapper around rocksdb
 int main(int argc, char** argv) {

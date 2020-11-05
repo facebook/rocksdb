@@ -8,10 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <random>
 #include <stdint.h>
+#include <algorithm>
+#include <random>
 
-namespace rocksdb {
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 
 // A very simple random number generator.  Not especially good at
 // generating truly random bits, but good enough for our needs in this
@@ -63,7 +66,18 @@ class Random {
 
   // Randomly returns true ~"1/n" of the time, and false otherwise.
   // REQUIRES: n > 0
-  bool OneIn(int n) { return (Next() % n) == 0; }
+  bool OneIn(int n) { return Uniform(n) == 0; }
+
+  // "Optional" one-in-n, where 0 or negative always returns false
+  // (may or may not consume a random value)
+  bool OneInOpt(int n) { return n > 0 && OneIn(n); }
+
+  // Returns random bool that is true for the given percentage of
+  // calls on average. Zero or less is always false and 100 or more
+  // is always true (may or may not consume a random value)
+  bool PercentTrue(int percentage) {
+    return static_cast<int>(Uniform(100)) < percentage;
+  }
 
   // Skewed: pick "base" uniformly from range [0,max_log] and then
   // return "base" random bits.  The effect is to pick a number in the
@@ -71,6 +85,12 @@ class Random {
   uint32_t Skewed(int max_log) {
     return Uniform(1 << Uniform(max_log + 1));
   }
+
+  // Returns a random string of length "len"
+  std::string RandomString(int len);
+
+  // Generates a random string of len bytes using human-readable characters
+  std::string HumanReadableString(int len);
 
   // Returns a Random instance for use by the current thread without
   // additional locking
@@ -150,4 +170,17 @@ class Random64 {
   }
 };
 
-}  // namespace rocksdb
+// A seeded replacement for removed std::random_shuffle
+template <class RandomIt>
+void RandomShuffle(RandomIt first, RandomIt last, uint32_t seed) {
+  std::mt19937 rng(seed);
+  std::shuffle(first, last, rng);
+}
+
+// A replacement for removed std::random_shuffle
+template <class RandomIt>
+void RandomShuffle(RandomIt first, RandomIt last) {
+  RandomShuffle(first, last, std::random_device{}());
+}
+
+}  // namespace ROCKSDB_NAMESPACE

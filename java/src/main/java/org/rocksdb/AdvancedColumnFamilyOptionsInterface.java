@@ -254,7 +254,8 @@ public interface AdvancedColumnFamilyOptionsInterface<
    * levels extra size. After the data accumulates more so that we need to
    * move the base level to the third last one, and so on.</p>
    *
-   * <h2>Example</h2>
+   * <p><b>Example</b></p>
+   *
    * <p>For example, assume {@code max_bytes_for_level_multiplier=10},
    * {@code num_levels=6}, and {@code max_bytes_for_level_base=10MB}.</p>
    *

@@ -9,6 +9,7 @@
 
 #include "db/log_reader.h"
 #include "db/log_writer.h"
+#include "env/composite_env_wrapper.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
@@ -18,7 +19,7 @@
 #include "util/crc32c.h"
 #include "util/random.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace log {
 
 // Construct a string of the specified length made out of the supplied
@@ -120,6 +121,13 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
     }
   };
 
+  inline StringSource* GetStringSourceFromLegacyReader(
+      SequentialFileReader* reader) {
+    LegacySequentialFileWrapper* file =
+        static_cast<LegacySequentialFileWrapper*>(reader->file());
+    return static_cast<StringSource*>(file->target());
+  }
+
   class ReportCollector : public Reader::Reporter {
    public:
     size_t dropped_bytes_;
@@ -133,21 +141,19 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   };
 
   std::string& dest_contents() {
-    auto dest =
-      dynamic_cast<test::StringSink*>(writer_.file()->writable_file());
+    auto dest = test::GetStringSinkFromLegacyWriter(writer_.file());
     assert(dest);
     return dest->contents_;
   }
 
   const std::string& dest_contents() const {
-    auto dest =
-      dynamic_cast<const test::StringSink*>(writer_.file()->writable_file());
+    auto dest = test::GetStringSinkFromLegacyWriter(writer_.file());
     assert(dest);
     return dest->contents_;
   }
 
   void reset_source_contents() {
-    auto src = dynamic_cast<StringSource*>(reader_->file()->file());
+    auto src = GetStringSourceFromLegacyReader(reader_->file());
     assert(src);
     src->contents_ = dest_contents();
   }
@@ -214,8 +220,7 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   }
 
   void ShrinkSize(int bytes) {
-    auto dest =
-      dynamic_cast<test::StringSink*>(writer_.file()->writable_file());
+    auto dest = test::GetStringSinkFromLegacyWriter(writer_.file());
     assert(dest);
     dest->Drop(bytes);
   }
@@ -230,7 +235,7 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   }
 
   void ForceError(size_t position = 0) {
-    auto src = dynamic_cast<StringSource*>(reader_->file()->file());
+    auto src = GetStringSourceFromLegacyReader(reader_->file());
     src->force_error_ = true;
     src->force_error_position_ = position;
   }
@@ -244,13 +249,13 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   }
 
   void ForceEOF(size_t position = 0) {
-    auto src = dynamic_cast<StringSource*>(reader_->file()->file());
+    auto src = GetStringSourceFromLegacyReader(reader_->file());
     src->force_eof_ = true;
     src->force_eof_position_ = position;
   }
 
   void UnmarkEOF() {
-    auto src = dynamic_cast<StringSource*>(reader_->file()->file());
+    auto src = GetStringSourceFromLegacyReader(reader_->file());
     src->returned_partial_ = false;
     reader_->UnmarkEOF();
   }
@@ -752,8 +757,9 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
       s = env_->NewWritableFile(log_file_, &writable_file, env_options_);
     }
     if (s.ok()) {
-      writer_.reset(new WritableFileWriter(std::move(writable_file), log_file_,
-                                           env_options_));
+      writer_.reset(new WritableFileWriter(
+          NewLegacyWritableFileWrapper(std::move(writable_file)), log_file_,
+          env_options_));
       assert(writer_ != nullptr);
     }
     std::unique_ptr<SequentialFile> seq_file;
@@ -761,7 +767,8 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
       s = env_->NewSequentialFile(log_file_, &seq_file, env_options_);
     }
     if (s.ok()) {
-      reader_.reset(new SequentialFileReader(std::move(seq_file), log_file_));
+      reader_.reset(new SequentialFileReader(
+          NewLegacySequentialFileWrapper(seq_file), log_file_));
       assert(reader_ != nullptr);
       log_reader_.reset(new FragmentBufferedReader(
           nullptr, std::move(reader_), &report_, true /* checksum */,
@@ -772,8 +779,7 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
   }
 
   std::string contents() {
-    auto file =
-        dynamic_cast<test::StringSink*>(log_writer_->file()->writable_file());
+    auto file = test::GetStringSinkFromLegacyWriter(log_writer_->file());
     assert(file != nullptr);
     return file->contents_;
   }
@@ -914,7 +920,7 @@ TEST_P(RetriableLogTest, NonBlockingReadFullRecord) {
 INSTANTIATE_TEST_CASE_P(bool, RetriableLogTest, ::testing::Values(0, 2));
 
 }  // namespace log
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

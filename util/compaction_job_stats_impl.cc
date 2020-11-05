@@ -5,7 +5,7 @@
 
 #include "rocksdb/compaction_job_stats.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 
@@ -20,7 +20,8 @@ void CompactionJobStats::Reset() {
   num_output_records = 0;
   num_output_files = 0;
 
-  is_manual_compaction = 0;
+  is_full_compaction = false;
+  is_manual_compaction = false;
 
   total_input_bytes = 0;
   total_output_bytes = 0;
@@ -88,4 +89,4 @@ void CompactionJobStats::Add(const CompactionJobStats& /*stats*/) {}
 
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

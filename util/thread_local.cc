@@ -12,7 +12,7 @@
 #include "port/likely.h"
 #include <stdlib.h>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct Entry {
   Entry() : ptr(nullptr) {}
@@ -29,7 +29,7 @@ class StaticMeta;
 // global StaticMeta singleton. So if we instantiated 3 ThreadLocalPtr
 // instances, each thread will have a ThreadData with a vector of size 3:
 //     ---------------------------------------------------
-//     |          | instance 1 | instance 2 | instnace 3 |
+//     |          | instance 1 | instance 2 | instance 3 |
 //     ---------------------------------------------------
 //     | thread 1 |    void*   |    void*   |    void*   | <- ThreadData
 //     ---------------------------------------------------
@@ -551,4 +551,4 @@ void ThreadLocalPtr::Fold(FoldFunc func, void* res) {
   Instance()->Fold(id_, func, res);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

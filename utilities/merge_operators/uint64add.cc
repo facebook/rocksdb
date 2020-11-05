@@ -12,7 +12,7 @@
 #include "util/coding.h"
 #include "utilities/merge_operators.h"
 
-using namespace rocksdb;
+using namespace ROCKSDB_NAMESPACE;
 
 namespace { // anonymous namespace
 
@@ -60,10 +60,10 @@ class UInt64AddOperator : public AssociativeMergeOperator {
 
 }
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 std::shared_ptr<MergeOperator> MergeOperators::CreateUInt64AddOperator() {
   return std::make_shared<UInt64AddOperator>();
 }
 
-}
+}  // namespace ROCKSDB_NAMESPACE

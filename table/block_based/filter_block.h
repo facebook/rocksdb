@@ -33,7 +33,7 @@
 #include "trace_replay/block_cache_tracer.h"
 #include "util/hash.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const uint64_t kNotValid = ULLONG_MAX;
 class FilterPolicy;
@@ -108,11 +108,11 @@ class FilterBlockReader {
                             uint64_t block_offset, const bool no_io,
                             BlockCacheLookupContext* lookup_context) {
     for (auto iter = range->begin(); iter != range->end(); ++iter) {
-      const Slice ukey = iter->ukey;
+      const Slice ukey_without_ts = iter->ukey_without_ts;
       const Slice ikey = iter->ikey;
       GetContext* const get_context = iter->get_context;
-      if (!KeyMayMatch(ukey, prefix_extractor, block_offset, no_io, &ikey,
-                       get_context, lookup_context)) {
+      if (!KeyMayMatch(ukey_without_ts, prefix_extractor, block_offset, no_io,
+                       &ikey, get_context, lookup_context)) {
         range->SkipKey(iter);
       }
     }
@@ -133,13 +133,13 @@ class FilterBlockReader {
                                 uint64_t block_offset, const bool no_io,
                                 BlockCacheLookupContext* lookup_context) {
     for (auto iter = range->begin(); iter != range->end(); ++iter) {
-      const Slice ukey = iter->ukey;
+      const Slice ukey_without_ts = iter->ukey_without_ts;
       const Slice ikey = iter->ikey;
       GetContext* const get_context = iter->get_context;
-      if (prefix_extractor->InDomain(ukey) &&
-          !PrefixMayMatch(prefix_extractor->Transform(ukey), prefix_extractor,
-                          block_offset, no_io, &ikey, get_context,
-                          lookup_context)) {
+      if (prefix_extractor->InDomain(ukey_without_ts) &&
+          !PrefixMayMatch(prefix_extractor->Transform(ukey_without_ts),
+                          prefix_extractor, block_offset, no_io, &ikey,
+                          get_context, lookup_context)) {
         range->SkipKey(iter);
       }
     }
@@ -153,22 +153,27 @@ class FilterBlockReader {
     return error_msg;
   }
 
-  virtual void CacheDependencies(bool /*pin*/) {}
+  virtual Status CacheDependencies(const ReadOptions& /*ro*/, bool /*pin*/) {
+    return Status::OK();
+  }
 
   virtual bool RangeMayExist(const Slice* /*iterate_upper_bound*/,
                              const Slice& user_key,
                              const SliceTransform* prefix_extractor,
                              const Comparator* /*comparator*/,
                              const Slice* const const_ikey_ptr,
-                             bool* filter_checked,
-                             bool /*need_upper_bound_check*/,
+                             bool* filter_checked, bool need_upper_bound_check,
+                             bool no_io,
                              BlockCacheLookupContext* lookup_context) {
+    if (need_upper_bound_check) {
+      return true;
+    }
     *filter_checked = true;
     Slice prefix = prefix_extractor->Transform(user_key);
-    return PrefixMayMatch(prefix, prefix_extractor, kNotValid, false,
+    return PrefixMayMatch(prefix, prefix_extractor, kNotValid, no_io,
                           const_ikey_ptr, /* get_context */ nullptr,
                           lookup_context);
   }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

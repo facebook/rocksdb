@@ -26,8 +26,10 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "test_util/sync_point.h"
+#include "util/cast_util.h"
+#include "util/file_checksum_helper.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
   *checkpoint_ptr = new CheckpointImpl(db);
@@ -35,7 +37,8 @@ Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
 }
 
 Status Checkpoint::CreateCheckpoint(const std::string& /*checkpoint_dir*/,
-                                    uint64_t /*log_size_for_flush*/) {
+                                    uint64_t /*log_size_for_flush*/,
+                                    uint64_t* /*sequence_number_ptr*/) {
   return Status::NotSupported("");
 }
 
@@ -69,7 +72,8 @@ Status Checkpoint::ExportColumnFamily(
 
 // Builds an openable snapshot of RocksDB
 Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
-                                        uint64_t log_size_for_flush) {
+                                        uint64_t log_size_for_flush,
+                                        uint64_t* sequence_number_ptr) {
   DBOptions db_options = db_->GetDBOptions();
 
   Status s = db_->GetEnv()->FileExists(checkpoint_dir);
@@ -111,20 +115,23 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
         [&](const std::string& src_dirname, const std::string& fname,
             FileType) {
           ROCKS_LOG_INFO(db_options.info_log, "Hard Linking %s", fname.c_str());
-          return db_->GetEnv()->LinkFile(src_dirname + fname,
-                                         full_private_path + fname);
+          return db_->GetFileSystem()->LinkFile(src_dirname + fname,
+                                                full_private_path + fname,
+                                                IOOptions(), nullptr);
         } /* link_file_cb */,
         [&](const std::string& src_dirname, const std::string& fname,
-            uint64_t size_limit_bytes, FileType) {
+            uint64_t size_limit_bytes, FileType,
+            const std::string& /* checksum_func_name */,
+            const std::string& /* checksum_val */) {
           ROCKS_LOG_INFO(db_options.info_log, "Copying %s", fname.c_str());
-          return CopyFile(db_->GetEnv(), src_dirname + fname,
+          return CopyFile(db_->GetFileSystem(), src_dirname + fname,
                           full_private_path + fname, size_limit_bytes,
                           db_options.use_fsync);
         } /* copy_file_cb */,
         [&](const std::string& fname, const std::string& contents, FileType) {
           ROCKS_LOG_INFO(db_options.info_log, "Creating %s", fname.c_str());
-          return CreateFile(db_->GetEnv(), full_private_path + fname, contents,
-                            db_options.use_fsync);
+          return CreateFile(db_->GetFileSystem(), full_private_path + fname,
+                            contents, db_options.use_fsync);
         } /* create_file_cb */,
         &sequence_number, log_size_for_flush);
     // we copied all the files, enable file deletions
@@ -144,6 +151,9 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
   }
 
   if (s.ok()) {
+    if (sequence_number_ptr != nullptr) {
+      *sequence_number_ptr = sequence_number;
+    }
     // here we know that we succeeded and installed the new snapshot
     ROCKS_LOG_INFO(db_options.info_log, "Snapshot DONE. All is good");
     ROCKS_LOG_INFO(db_options.info_log, "Snapshot sequence number: %" PRIu64,
@@ -162,14 +172,16 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     std::function<Status(const std::string& src_dirname,
                          const std::string& src_fname, FileType type)>
         link_file_cb,
-    std::function<Status(const std::string& src_dirname,
-                         const std::string& src_fname,
-                         uint64_t size_limit_bytes, FileType type)>
+    std::function<Status(
+        const std::string& src_dirname, const std::string& src_fname,
+        uint64_t size_limit_bytes, FileType type,
+        const std::string& checksum_func_name, const std::string& checksum_val)>
         copy_file_cb,
     std::function<Status(const std::string& fname, const std::string& contents,
                          FileType type)>
         create_file_cb,
-    uint64_t* sequence_number, uint64_t log_size_for_flush) {
+    uint64_t* sequence_number, uint64_t log_size_for_flush,
+    bool get_live_table_checksum) {
   Status s;
   std::vector<std::string> live_files;
   uint64_t manifest_file_size = 0;
@@ -239,6 +251,8 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
     db_->FlushWAL(false /* sync */);
   }
+  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1");
+  TEST_SYNC_POINT("CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2");
   // if we have more than one column family, we need to also get WAL files
   if (s.ok()) {
     s = db_->GetSortedWalFiles(live_wal_files);
@@ -249,12 +263,17 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 
   size_t wal_size = live_wal_files.size();
 
-  // copy/hard link live_files
+  // process live files, non-table files first
   std::string manifest_fname, current_fname;
-  for (size_t i = 0; s.ok() && i < live_files.size(); ++i) {
+  // record table files for processing next
+  std::vector<std::pair<std::string, uint64_t>> live_table_files;
+  for (auto& live_file : live_files) {
+    if (!s.ok()) {
+      break;
+    }
     uint64_t number;
     FileType type;
-    bool ok = ParseFileName(live_files[i], &number, &type);
+    bool ok = ParseFileName(live_file, &number, &type);
     if (!ok) {
       s = Status::Corruption("Can't parse file name. This is very bad");
       break;
@@ -262,33 +281,80 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     // we should only get sst, options, manifest and current files here
     assert(type == kTableFile || type == kDescriptorFile ||
            type == kCurrentFile || type == kOptionsFile);
-    assert(live_files[i].size() > 0 && live_files[i][0] == '/');
+    assert(live_file.size() > 0 && live_file[0] == '/');
     if (type == kCurrentFile) {
       // We will craft the current file manually to ensure it's consistent with
       // the manifest number. This is necessary because current's file contents
       // can change during checkpoint creation.
-      current_fname = live_files[i];
+      current_fname = live_file;
       continue;
     } else if (type == kDescriptorFile) {
-      manifest_fname = live_files[i];
+      manifest_fname = live_file;
     }
-    std::string src_fname = live_files[i];
+    if (type != kTableFile) {
+      // copy non-table files here
+      // * if it's kDescriptorFile, limit the size to manifest_file_size
+      s = copy_file_cb(db_->GetName(), live_file,
+                       (type == kDescriptorFile) ? manifest_file_size : 0, type,
+                       kUnknownFileChecksumFuncName, kUnknownFileChecksum);
+    } else {
+      // process table files below
+      live_table_files.push_back(make_pair(live_file, number));
+    }
+  }
+
+  // get checksum info for table files
+  // get table file checksums if get_live_table_checksum is true
+  std::unique_ptr<FileChecksumList> checksum_list;
+
+  if (s.ok() && get_live_table_checksum) {
+    checksum_list.reset(NewFileChecksumList());
+    // should succeed even without checksum info present, else manifest
+    // is corrupt
+    s = GetFileChecksumsFromManifest(db_->GetEnv(),
+                                     db_->GetName() + manifest_fname,
+                                     manifest_file_size, checksum_list.get());
+  }
+
+  // copy/hard link live table files
+  for (auto& ltf : live_table_files) {
+    if (!s.ok()) {
+      break;
+    }
+    std::string& src_fname = ltf.first;
+    uint64_t number = ltf.second;
 
     // rules:
-    // * if it's kTableFile, then it's shared
-    // * if it's kDescriptorFile, limit the size to manifest_file_size
-    // * always copy if cross-device link
-    if ((type == kTableFile) && same_fs) {
-      s = link_file_cb(db_->GetName(), src_fname, type);
+    // * for kTableFile, attempt hard link instead of copy.
+    // * but can't hard link across filesystems.
+    if (same_fs) {
+      s = link_file_cb(db_->GetName(), src_fname, kTableFile);
       if (s.IsNotSupported()) {
         same_fs = false;
         s = Status::OK();
       }
     }
-    if ((type != kTableFile) || (!same_fs)) {
-      s = copy_file_cb(db_->GetName(), src_fname,
-                       (type == kDescriptorFile) ? manifest_file_size : 0,
-                       type);
+    if (!same_fs) {
+      std::string checksum_name = kUnknownFileChecksumFuncName;
+      std::string checksum_value = kUnknownFileChecksum;
+
+      // we ignore the checksums either they are not required or we failed to
+      // obtain the checksum lsit for old table files that have no file
+      // checksums
+      if (get_live_table_checksum) {
+        // find checksum info for table files
+        Status search = checksum_list->SearchOneFileChecksum(
+            number, &checksum_value, &checksum_name);
+
+        // could be a legacy file lacking checksum info. overall OK if
+        // not found
+        if (!search.ok()) {
+          assert(checksum_name == kUnknownFileChecksumFuncName);
+          assert(checksum_value == kUnknownFileChecksum);
+        }
+      }
+      s = copy_file_cb(db_->GetName(), src_fname, 0, kTableFile, checksum_name,
+                       checksum_value);
     }
   }
   if (s.ok() && !current_fname.empty() && !manifest_fname.empty()) {
@@ -307,13 +373,14 @@ Status CheckpointImpl::CreateCustomCheckpoint(
          live_wal_files[i]->LogNumber() >= min_log_num)) {
       if (i + 1 == wal_size) {
         s = copy_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(),
-                         live_wal_files[i]->SizeFileBytes(), kLogFile);
+                         live_wal_files[i]->SizeFileBytes(), kWalFile,
+                         kUnknownFileChecksumFuncName, kUnknownFileChecksum);
         break;
       }
       if (same_fs) {
         // we only care about live log files
         s = link_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(),
-                         kLogFile);
+                         kWalFile);
         if (s.IsNotSupported()) {
           same_fs = false;
           s = Status::OK();
@@ -321,7 +388,8 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       }
       if (!same_fs) {
         s = copy_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(), 0,
-                         kLogFile);
+                         kWalFile, kUnknownFileChecksumFuncName,
+                         kUnknownFileChecksum);
       }
     }
   }
@@ -334,7 +402,7 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 Status CheckpointImpl::ExportColumnFamily(
     ColumnFamilyHandle* handle, const std::string& export_dir,
     ExportImportFilesMetaData** metadata) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(handle);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(handle);
   const auto cf_name = cfh->GetName();
   const auto db_options = db_->GetDBOptions();
 
@@ -362,7 +430,7 @@ Status CheckpointImpl::ExportColumnFamily(
   s = db_->GetEnv()->CreateDir(tmp_export_dir);
 
   if (s.ok()) {
-    s = db_->Flush(rocksdb::FlushOptions(), handle);
+    s = db_->Flush(ROCKSDB_NAMESPACE::FlushOptions(), handle);
   }
 
   ColumnFamilyMetaData db_metadata;
@@ -383,7 +451,7 @@ Status CheckpointImpl::ExportColumnFamily(
           [&](const std::string& src_dirname, const std::string& fname) {
             ROCKS_LOG_INFO(db_options.info_log, "[%s] Copying %s",
                            cf_name.c_str(), fname.c_str());
-            return CopyFile(db_->GetEnv(), src_dirname + fname,
+            return CopyFile(db_->GetFileSystem(), src_dirname + fname,
                             tmp_export_dir + fname, 0, db_options.use_fsync);
           } /*copy_file_cb*/);
 
@@ -510,6 +578,6 @@ Status CheckpointImpl::ExportFilesInMetaData(
 
   return s;
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

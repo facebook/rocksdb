@@ -25,7 +25,7 @@
 #include "table/plain/plain_table_index.h"
 #include "table/table_reader.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Block;
 struct BlockContents;
@@ -84,7 +84,8 @@ class PlainTableReader: public TableReader {
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena, bool skip_filters,
                                 TableReaderCaller caller,
-                                size_t compaction_readahead_size = 0) override;
+                                size_t compaction_readahead_size = 0,
+                                bool allow_unprepared_value = false) override;
 
   void Prepare(const Slice& target) override;
 
@@ -242,5 +243,5 @@ class PlainTableReader: public TableReader {
   explicit PlainTableReader(const TableReader&) = delete;
   void operator=(const TableReader&) = delete;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

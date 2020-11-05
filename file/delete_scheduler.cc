@@ -7,6 +7,7 @@
 
 #include "file/delete_scheduler.h"
 
+#include <cinttypes>
 #include <thread>
 #include <vector>
 
@@ -17,27 +18,28 @@
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
-DeleteScheduler::DeleteScheduler(Env* env, int64_t rate_bytes_per_sec,
-                                 Logger* info_log,
+DeleteScheduler::DeleteScheduler(Env* env, FileSystem* fs,
+                                 int64_t rate_bytes_per_sec, Logger* info_log,
                                  SstFileManagerImpl* sst_file_manager,
                                  double max_trash_db_ratio,
                                  uint64_t bytes_max_delete_chunk)
     : env_(env),
+      fs_(fs),
       total_trash_size_(0),
       rate_bytes_per_sec_(rate_bytes_per_sec),
       pending_files_(0),
       bytes_max_delete_chunk_(bytes_max_delete_chunk),
       closing_(false),
       cv_(&mu_),
+      bg_thread_(nullptr),
       info_log_(info_log),
       sst_file_manager_(sst_file_manager),
       max_trash_db_ratio_(max_trash_db_ratio) {
   assert(sst_file_manager != nullptr);
   assert(max_trash_db_ratio >= 0);
-  bg_thread_.reset(
-      new port::Thread(&DeleteScheduler::BackgroundEmptyTrash, this));
+  MaybeCreateBackgroundThread();
 }
 
 DeleteScheduler::~DeleteScheduler() {
@@ -61,9 +63,16 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
     // Rate limiting is disabled or trash size makes up more than
     // max_trash_db_ratio_ (default 25%) of the total DB size
     TEST_SYNC_POINT("DeleteScheduler::DeleteFile");
-    s = env_->DeleteFile(file_path);
+    s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
     if (s.ok()) {
-      sst_file_manager_->OnDeleteFile(file_path);
+      s = sst_file_manager_->OnDeleteFile(file_path);
+      ROCKS_LOG_INFO(info_log_,
+                     "Deleted file %s immediately, rate_bytes_per_sec %" PRIi64
+                     ", total_trash_size %" PRIu64 " max_trash_db_ratio %lf",
+                     file_path.c_str(), rate_bytes_per_sec_.load(),
+                     total_trash_size_.load(), max_trash_db_ratio_.load());
+      InstrumentedMutexLock l(&mu_);
+      RecordTick(stats_.get(), FILES_DELETED_IMMEDIATELY);
     }
     return s;
   }
@@ -71,24 +80,32 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
   // Move file to trash
   std::string trash_file;
   s = MarkAsTrash(file_path, &trash_file);
+  ROCKS_LOG_INFO(info_log_, "Mark file: %s as trash -- %s", trash_file.c_str(),
+                 s.ToString().c_str());
 
   if (!s.ok()) {
-    ROCKS_LOG_ERROR(info_log_, "Failed to mark %s as trash", file_path.c_str());
-    s = env_->DeleteFile(file_path);
+    ROCKS_LOG_ERROR(info_log_, "Failed to mark %s as trash -- %s",
+                    file_path.c_str(), s.ToString().c_str());
+    s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
     if (s.ok()) {
-      sst_file_manager_->OnDeleteFile(file_path);
+      s = sst_file_manager_->OnDeleteFile(file_path);
+      ROCKS_LOG_INFO(info_log_, "Deleted file %s immediately",
+                     trash_file.c_str());
+      InstrumentedMutexLock l(&mu_);
+      RecordTick(stats_.get(), FILES_DELETED_IMMEDIATELY);
     }
     return s;
   }
 
   // Update the total trash size
   uint64_t trash_file_size = 0;
-  env_->GetFileSize(trash_file, &trash_file_size);
+  fs_->GetFileSize(trash_file, IOOptions(), &trash_file_size, nullptr);
   total_trash_size_.fetch_add(trash_file_size);
 
   // Add file to delete queue
   {
     InstrumentedMutexLock l(&mu_);
+    RecordTick(stats_.get(), FILES_MARKED_TRASH);
     queue_.emplace(trash_file, dir_to_sync);
     pending_files_++;
     if (pending_files_ == 1) {
@@ -129,7 +146,7 @@ Status DeleteScheduler::CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
     std::string trash_file = path + "/" + current_file;
     if (sfm) {
       // We have an SstFileManager that will schedule the file delete
-      sfm->OnAddFile(trash_file);
+      s = sfm->OnAddFile(trash_file);
       file_delete = sfm->ScheduleFileDeletion(trash_file, path);
     } else {
       // Delete the file immediately
@@ -165,10 +182,10 @@ Status DeleteScheduler::MarkAsTrash(const std::string& file_path,
   int cnt = 0;
   InstrumentedMutexLock l(&file_move_mu_);
   while (true) {
-    s = env_->FileExists(*trash_file);
+    s = fs_->FileExists(*trash_file, IOOptions(), nullptr);
     if (s.IsNotFound()) {
       // We found a path for our file in trash
-      s = env_->RenameFile(file_path, *trash_file);
+      s = fs_->RenameFile(file_path, *trash_file, IOOptions(), nullptr);
       break;
     } else if (s.ok()) {
       // Name conflict, generate new random suffix
@@ -208,13 +225,15 @@ void DeleteScheduler::BackgroundEmptyTrash() {
         current_delete_rate = rate_bytes_per_sec_.load();
         start_time = env_->NowMicros();
         total_deleted_bytes = 0;
+        ROCKS_LOG_INFO(info_log_, "rate_bytes_per_sec is changed to %" PRIi64,
+                       current_delete_rate);
       }
 
       // Get new file to delete
       const FileAndDir& fad = queue_.front();
       std::string path_in_trash = fad.fname;
 
-      // We dont need to hold the lock while deleting the file
+      // We don't need to hold the lock while deleting the file
       mu_.Unlock();
       uint64_t deleted_bytes = 0;
       bool is_complete = true;
@@ -231,19 +250,27 @@ void DeleteScheduler::BackgroundEmptyTrash() {
         bg_errors_[path_in_trash] = s;
       }
 
-      // Apply penlty if necessary
-      uint64_t total_penlty;
+      // Apply penalty if necessary
+      uint64_t total_penalty;
       if (current_delete_rate > 0) {
         // rate limiting is enabled
-        total_penlty =
+        total_penalty =
             ((total_deleted_bytes * kMicrosInSecond) / current_delete_rate);
-        while (!closing_ && !cv_.TimedWait(start_time + total_penlty)) {}
+        ROCKS_LOG_INFO(info_log_,
+                       "Rate limiting is enabled with penalty %" PRIu64
+                       " after deleting file %s",
+                       total_penalty, path_in_trash.c_str());
+        while (!closing_ && !cv_.TimedWait(start_time + total_penalty)) {
+        }
       } else {
         // rate limiting is disabled
-        total_penlty = 0;
+        total_penalty = 0;
+        ROCKS_LOG_INFO(info_log_,
+                       "Rate limiting is disabled after deleting file %s",
+                       path_in_trash.c_str());
       }
       TEST_SYNC_POINT_CALLBACK("DeleteScheduler::BackgroundEmptyTrash:Wait",
-                               &total_penlty);
+                               &total_penalty);
 
       if (is_complete) {
         pending_files_--;
@@ -262,7 +289,7 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
                                         uint64_t* deleted_bytes,
                                         bool* is_complete) {
   uint64_t file_size;
-  Status s = env_->GetFileSize(path_in_trash, &file_size);
+  Status s = fs_->GetFileSize(path_in_trash, IOOptions(), &file_size, nullptr);
   *is_complete = true;
   TEST_SYNC_POINT("DeleteScheduler::DeleteTrashFile:DeleteFile");
   if (s.ok()) {
@@ -273,17 +300,19 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
       // file after the number of file link check and ftruncte because
       // the file is now in trash and no hardlink is supposed to create
       // to trash files by RocksDB.
-      Status my_status = env_->NumFileLinks(path_in_trash, &num_hard_links);
+      Status my_status = fs_->NumFileLinks(path_in_trash, IOOptions(),
+                                           &num_hard_links, nullptr);
       if (my_status.ok()) {
         if (num_hard_links == 1) {
-          std::unique_ptr<WritableFile> wf;
-          my_status =
-              env_->ReopenWritableFile(path_in_trash, &wf, EnvOptions());
+          std::unique_ptr<FSWritableFile> wf;
+          my_status = fs_->ReopenWritableFile(path_in_trash, FileOptions(),
+                                              &wf, nullptr);
           if (my_status.ok()) {
-            my_status = wf->Truncate(file_size - bytes_max_delete_chunk_);
+            my_status = wf->Truncate(file_size - bytes_max_delete_chunk_,
+                                     IOOptions(), nullptr);
             if (my_status.ok()) {
               TEST_SYNC_POINT("DeleteScheduler::DeleteTrashFile:Fsync");
-              my_status = wf->Fsync();
+              my_status = wf->Fsync(IOOptions(), nullptr);
             }
           }
           if (my_status.ok()) {
@@ -312,21 +341,23 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
     }
 
     if (need_full_delete) {
-      s = env_->DeleteFile(path_in_trash);
+      s = fs_->DeleteFile(path_in_trash, IOOptions(), nullptr);
       if (!dir_to_sync.empty()) {
-        std::unique_ptr<Directory> dir_obj;
+        std::unique_ptr<FSDirectory> dir_obj;
         if (s.ok()) {
-          s = env_->NewDirectory(dir_to_sync, &dir_obj);
+          s = fs_->NewDirectory(dir_to_sync, IOOptions(), &dir_obj, nullptr);
         }
         if (s.ok()) {
-          s = dir_obj->Fsync();
+          s = dir_obj->Fsync(IOOptions(), nullptr);
           TEST_SYNC_POINT_CALLBACK(
               "DeleteScheduler::DeleteTrashFile::AfterSyncDir",
               reinterpret_cast<void*>(const_cast<std::string*>(&dir_to_sync)));
         }
       }
-      *deleted_bytes = file_size;
-      sst_file_manager_->OnDeleteFile(path_in_trash);
+      if (s.ok()) {
+        *deleted_bytes = file_size;
+        s = sst_file_manager_->OnDeleteFile(path_in_trash);
+      }
     }
   }
   if (!s.ok()) {
@@ -348,6 +379,17 @@ void DeleteScheduler::WaitForEmptyTrash() {
   }
 }
 
-}  // namespace rocksdb
+void DeleteScheduler::MaybeCreateBackgroundThread() {
+  if (bg_thread_ == nullptr && rate_bytes_per_sec_.load() > 0) {
+    bg_thread_.reset(
+        new port::Thread(&DeleteScheduler::BackgroundEmptyTrash, this));
+    ROCKS_LOG_INFO(info_log_,
+                   "Created background thread for deletion scheduler with "
+                   "rate_bytes_per_sec: %" PRIi64,
+                   rate_bytes_per_sec_.load());
+  }
+}
+
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

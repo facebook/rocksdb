@@ -8,20 +8,21 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/debug.h"
 #include "table/block_based/block_builder.h"
-#include "test_util/fault_injection_test_env.h"
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
 #endif
 #include "rocksdb/merge_operator.h"
+#include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/sortlist.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBMergeOperandTest : public DBTestBase {
  public:
-  DBMergeOperandTest() : DBTestBase("/db_merge_operand_test") {}
+  DBMergeOperandTest()
+      : DBTestBase("/db_merge_operand_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
@@ -231,10 +232,10 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_EQ(values[2], "am");
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

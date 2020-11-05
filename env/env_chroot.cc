@@ -18,7 +18,7 @@
 
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class ChrootEnv : public EnvWrapper {
  public:
@@ -36,6 +36,32 @@ class ChrootEnv : public EnvWrapper {
 #if !defined(OS_AIX)
     free(real_chroot_dir);
 #endif
+  }
+
+  Status RegisterDbPaths(const std::vector<std::string>& paths) override {
+    std::vector<std::string> encoded_paths;
+    encoded_paths.reserve(paths.size());
+    for (auto& path : paths) {
+      auto status_and_enc_path = EncodePathWithNewBasename(path);
+      if (!status_and_enc_path.first.ok()) {
+        return status_and_enc_path.first;
+      }
+      encoded_paths.emplace_back(status_and_enc_path.second);
+    }
+    return EnvWrapper::Env::RegisterDbPaths(encoded_paths);
+  }
+
+  Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
+    std::vector<std::string> encoded_paths;
+    encoded_paths.reserve(paths.size());
+    for (auto& path : paths) {
+      auto status_and_enc_path = EncodePathWithNewBasename(path);
+      if (!status_and_enc_path.first.ok()) {
+        return status_and_enc_path.first;
+      }
+      encoded_paths.emplace_back(status_and_enc_path.second);
+    }
+    return EnvWrapper::Env::UnregisterDbPaths(encoded_paths);
   }
 
   Status NewSequentialFile(const std::string& fname,
@@ -230,8 +256,7 @@ class ChrootEnv : public EnvWrapper {
     *path = buf;
 
     // Directory may already exist, so ignore return
-    CreateDir(*path);
-    return Status::OK();
+    return CreateDirIfMissing(*path);
   }
 
   Status NewLogger(const std::string& fname,
@@ -316,6 +341,6 @@ Env* NewChrootEnv(Env* base_env, const std::string& chroot_dir) {
   return new ChrootEnv(base_env, chroot_dir);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)

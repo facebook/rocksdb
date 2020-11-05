@@ -159,6 +159,22 @@ public enum HistogramType {
    */
   BLOB_DB_DECOMPRESSION_MICROS((byte) 0x2E),
 
+  /**
+   * Num of Index and Filter blocks read from file system per level in MultiGet
+   * request
+   */
+  NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL((byte) 0x2F),
+
+  /**
+   * Num of Data blocks read from file system per level in MultiGet request.
+   */
+  NUM_DATA_BLOCKS_READ_PER_LEVEL((byte) 0x30),
+
+  /**
+   * Num of SST files read from file system per level in MultiGet request.
+   */
+  NUM_SST_READ_PER_LEVEL((byte) 0x31),
+
   // 0x1F for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x1F);
 
@@ -169,12 +185,30 @@ public enum HistogramType {
   }
 
   /**
-   * @deprecated
-   * Exposes internal value of native enum mappings. This method will be marked private in the
-   * next major release.
+   * Returns the byte value of the enumerations value
+   *
+   * @return byte representation
    */
-  @Deprecated
   public byte getValue() {
     return value;
+  }
+
+  /**
+   * Get Histogram type by byte value.
+   *
+   * @param value byte representation of HistogramType.
+   *
+   * @return {@link org.rocksdb.HistogramType} instance.
+   * @throws java.lang.IllegalArgumentException if an invalid
+   *     value is provided.
+   */
+  public static HistogramType getHistogramType(final byte value) {
+    for (final HistogramType histogramType : HistogramType.values()) {
+      if (histogramType.getValue() == value) {
+        return histogramType;
+      }
+    }
+    throw new IllegalArgumentException(
+        "Illegal value provided for HistogramType.");
   }
 }

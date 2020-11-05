@@ -11,7 +11,7 @@
 
 #include "rocksdb/table.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 uint32_t PackIndexTypeAndNumRestarts(
     BlockBasedTableOptions::DataBlockIndexType index_type,
@@ -22,4 +22,4 @@ void UnPackIndexTypeAndNumRestarts(
     BlockBasedTableOptions::DataBlockIndexType* index_type,
     uint32_t* num_restarts);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

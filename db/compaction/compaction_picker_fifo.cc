@@ -17,7 +17,7 @@
 #include "logging/log_buffer.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace {
 uint64_t GetTotalFilesSize(const std::vector<FileMetaData*>& files) {
   uint64_t total_size = 0;
@@ -36,7 +36,8 @@ bool FIFOCompactionPicker::NeedsCompaction(
 
 Compaction* FIFOCompactionPicker::PickTTLCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+    const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+    LogBuffer* log_buffer) {
   assert(mutable_cf_options.ttl > 0);
 
   const int kLevel0 = 0;
@@ -70,18 +71,18 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   // avoid underflow
   if (current_time > mutable_cf_options.ttl) {
     for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
-      auto f = *ritr;
-      if (f->fd.table_reader != nullptr &&
-          f->fd.table_reader->GetTableProperties() != nullptr) {
-        auto creation_time =
+      FileMetaData* f = *ritr;
+      assert(f);
+      if (f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
+        uint64_t creation_time =
             f->fd.table_reader->GetTableProperties()->creation_time;
         if (creation_time == 0 ||
             creation_time >= (current_time - mutable_cf_options.ttl)) {
           break;
         }
-        total_size -= f->compensated_file_size;
-        inputs[0].files.push_back(f);
       }
+      total_size -= f->compensated_file_size;
+      inputs[0].files.push_back(f);
     }
   }
 
@@ -96,24 +97,31 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   }
 
   for (const auto& f : inputs[0].files) {
+    uint64_t creation_time = 0;
+    assert(f);
+    if (f->fd.table_reader && f->fd.table_reader->GetTableProperties()) {
+      creation_time = f->fd.table_reader->GetTableProperties()->creation_time;
+    }
     ROCKS_LOG_BUFFER(log_buffer,
                      "[%s] FIFO compaction: picking file %" PRIu64
                      " with creation time %" PRIu64 " for deletion",
-                     cf_name.c_str(), f->fd.GetNumber(),
-                     f->fd.table_reader->GetTableProperties()->creation_time);
+                     cf_name.c_str(), f->fd.GetNumber(), creation_time);
   }
 
   Compaction* c = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
-      kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
-      {}, /* is manual */ false, vstorage->CompactionScore(0),
+      vstorage, ioptions_, mutable_cf_options, mutable_db_options,
+      std::move(inputs), 0, 0, 0, 0, kNoCompression,
+      mutable_cf_options.compression_opts,
+      /* max_subcompactions */ 0, {}, /* is manual */ false,
+      vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOTtl);
   return c;
 }
 
 Compaction* FIFOCompactionPicker::PickSizeCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+    const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+    LogBuffer* log_buffer) {
   const int kLevel0 = 0;
   const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
   uint64_t total_size = GetTotalFilesSize(level_files);
@@ -142,11 +150,11 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
               max_compact_bytes_per_del_file,
               mutable_cf_options.max_compaction_bytes, &comp_inputs)) {
         Compaction* c = new Compaction(
-            vstorage, ioptions_, mutable_cf_options, {comp_inputs}, 0,
-            16 * 1024 * 1024 /* output file size limit */,
+            vstorage, ioptions_, mutable_cf_options, mutable_db_options,
+            {comp_inputs}, 0, 16 * 1024 * 1024 /* output file size limit */,
             0 /* max compaction bytes, not applicable */,
             0 /* output path ID */, mutable_cf_options.compression,
-            ioptions_.compression_opts, 0 /* max_subcompactions */, {},
+            mutable_cf_options.compression_opts, 0 /* max_subcompactions */, {},
             /* is manual */ false, vstorage->CompactionScore(0),
             /* is deletion compaction */ false,
             CompactionReason::kFIFOReduceNumFiles);
@@ -193,24 +201,29 @@ Compaction* FIFOCompactionPicker::PickSizeCompaction(
   }
 
   Compaction* c = new Compaction(
-      vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
-      kNoCompression, ioptions_.compression_opts, /* max_subcompactions */ 0,
-      {}, /* is manual */ false, vstorage->CompactionScore(0),
+      vstorage, ioptions_, mutable_cf_options, mutable_db_options,
+      std::move(inputs), 0, 0, 0, 0, kNoCompression,
+      mutable_cf_options.compression_opts,
+      /* max_subcompactions */ 0, {}, /* is manual */ false,
+      vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOMaxSize);
   return c;
 }
 
 Compaction* FIFOCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+    const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+    LogBuffer* log_buffer, SequenceNumber /*earliest_memtable_seqno*/) {
   assert(vstorage->num_levels() == 1);
 
   Compaction* c = nullptr;
   if (mutable_cf_options.ttl > 0) {
-    c = PickTTLCompaction(cf_name, mutable_cf_options, vstorage, log_buffer);
+    c = PickTTLCompaction(cf_name, mutable_cf_options, mutable_db_options,
+                          vstorage, log_buffer);
   }
   if (c == nullptr) {
-    c = PickSizeCompaction(cf_name, mutable_cf_options, vstorage, log_buffer);
+    c = PickSizeCompaction(cf_name, mutable_cf_options, mutable_db_options,
+                           vstorage, log_buffer);
   }
   RegisterCompaction(c);
   return c;
@@ -218,7 +231,8 @@ Compaction* FIFOCompactionPicker::PickCompaction(
 
 Compaction* FIFOCompactionPicker::CompactRange(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-    VersionStorageInfo* vstorage, int input_level, int output_level,
+    const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+    int input_level, int output_level,
     const CompactRangeOptions& /*compact_range_options*/,
     const InternalKey* /*begin*/, const InternalKey* /*end*/,
     InternalKey** compaction_end, bool* /*manual_conflict*/,
@@ -231,11 +245,11 @@ Compaction* FIFOCompactionPicker::CompactRange(
   assert(output_level == 0);
   *compaction_end = nullptr;
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, ioptions_.info_log);
-  Compaction* c =
-      PickCompaction(cf_name, mutable_cf_options, vstorage, &log_buffer);
+  Compaction* c = PickCompaction(cf_name, mutable_cf_options,
+                                 mutable_db_options, vstorage, &log_buffer);
   log_buffer.FlushBufferToLog();
   return c;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // !ROCKSDB_LITE

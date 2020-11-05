@@ -12,7 +12,7 @@
 #include <string>
 #include <tuple>
 
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction_job.h"
 #include "db/db_impl/db_impl.h"
@@ -29,7 +29,7 @@
 #include "util/string_util.h"
 #include "utilities/merge_operators.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
@@ -72,20 +72,24 @@ class CompactionJobTest : public testing::Test {
  public:
   CompactionJobTest()
       : env_(Env::Default()),
+        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
         dbname_(test::PerThreadDBPath("compaction_job_test")),
         db_options_(),
         mutable_cf_options_(cf_options_),
+        mutable_db_options_(),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
-        versions_(new VersionSet(dbname_, &db_options_, env_options_,
-                                 table_cache_.get(), &write_buffer_manager_,
-                                 &write_controller_,
-                                 /*block_cache_tracer=*/nullptr)),
+        versions_(new VersionSet(
+            dbname_, &db_options_, env_options_, table_cache_.get(),
+            &write_buffer_manager_, &write_controller_,
+            /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr)),
         shutting_down_(false),
         preserve_deletes_seqnum_(0),
         mock_table_factory_(new mock::MockTableFactory()),
         error_handler_(nullptr, db_options_, &mutex_) {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
+    db_options_.env = env_;
+    db_options_.fs = fs_;
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
   }
@@ -126,7 +130,7 @@ class CompactionJobTest : public testing::Test {
     return blob_index;
   }
 
-  void AddMockFile(const stl_wrappers::KVMap& contents, int level = 0) {
+  void AddMockFile(const mock::KVVector& contents, int level = 0) {
     assert(contents.size() > 0);
 
     bool first_key = true;
@@ -140,7 +144,8 @@ class CompactionJobTest : public testing::Test {
       std::string skey;
       std::string value;
       std::tie(skey, value) = kv;
-      bool parsed = ParseInternalKey(skey, &key);
+      const Status pik_status =
+          ParseInternalKey(skey, &key, true /* log_err_key */);
 
       smallest_seqno = std::min(smallest_seqno, key.sequence);
       largest_seqno = std::max(largest_seqno, key.sequence);
@@ -158,7 +163,7 @@ class CompactionJobTest : public testing::Test {
 
       first_key = false;
 
-      if (parsed && key.type == kTypeBlobIndex) {
+      if (pik_status.ok() && key.type == kTypeBlobIndex) {
         BlobIndex blob_index;
         const Status s = blob_index.DecodeFrom(value);
         if (!s.ok()) {
@@ -183,11 +188,14 @@ class CompactionJobTest : public testing::Test {
 
     VersionEdit edit;
     edit.AddFile(level, file_number, 0, 10, smallest_key, largest_key,
-                 smallest_seqno, largest_seqno, false, oldest_blob_file_number);
+                 smallest_seqno, largest_seqno, false, oldest_blob_file_number,
+                 kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                 kUnknownFileChecksum, kUnknownFileChecksumFuncName);
 
     mutex_.Lock();
-    versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                           mutable_cf_options_, &edit, &mutex_);
+    EXPECT_OK(
+        versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                               mutable_cf_options_, &edit, &mutex_));
     mutex_.Unlock();
   }
 
@@ -198,8 +206,8 @@ class CompactionJobTest : public testing::Test {
   }
 
   // returns expected result after compaction
-  stl_wrappers::KVMap CreateTwoFiles(bool gen_corrupted_keys) {
-    auto expected_results = mock::MakeMockFile();
+  mock::KVVector CreateTwoFiles(bool gen_corrupted_keys) {
+    stl_wrappers::KVMap expected_results;
     const int kKeysPerFile = 10000;
     const int kCorruptKeysPerFile = 200;
     const int kMatchingKeys = kKeysPerFile / 2;
@@ -225,28 +233,34 @@ class CompactionJobTest : public testing::Test {
           test::CorruptKeyType(&internal_key);
           test::CorruptKeyType(&bottommost_internal_key);
         }
-        contents.insert({ internal_key.Encode().ToString(), value });
+        contents.push_back({internal_key.Encode().ToString(), value});
         if (i == 1 || k < kMatchingKeys || corrupt_id(k - kMatchingKeys)) {
           expected_results.insert(
-              { bottommost_internal_key.Encode().ToString(), value });
+              {bottommost_internal_key.Encode().ToString(), value});
         }
       }
+      mock::SortKVVector(&contents);
 
       AddMockFile(contents);
     }
 
     SetLastSequence(sequence_number);
 
-    return expected_results;
+    mock::KVVector expected_results_kvvector;
+    for (auto& kv : expected_results) {
+      expected_results_kvvector.push_back({kv.first, kv.second});
+    }
+
+    return expected_results_kvvector;
   }
 
   void NewDB() {
     DestroyDB(dbname_, Options());
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
-    versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
-                                   table_cache_.get(), &write_buffer_manager_,
-                                   &write_controller_,
-                                   /*block_cache_tracer=*/nullptr));
+    versions_.reset(
+        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+                       &write_buffer_manager_, &write_controller_,
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
     compaction_job_stats_.Reset();
     SetIdentityFile(env_, dbname_);
 
@@ -266,8 +280,8 @@ class CompactionJobTest : public testing::Test {
     Status s = env_->NewWritableFile(
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(std::move(file), manifest, env_options_));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(file)), manifest, env_options_));
     {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;
@@ -276,7 +290,9 @@ class CompactionJobTest : public testing::Test {
     }
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(env_, dbname_, 1, nullptr);
+    s = SetCurrentFile(fs_.get(), dbname_, 1, nullptr);
+
+    ASSERT_OK(s);
 
     std::vector<ColumnFamilyDescriptor> column_families;
     cf_options_.table_factory = mock_table_factory_;
@@ -290,7 +306,7 @@ class CompactionJobTest : public testing::Test {
 
   void RunCompaction(
       const std::vector<std::vector<FileMetaData*>>& input_files,
-      const stl_wrappers::KVMap& expected_results,
+      const mock::KVVector& expected_results,
       const std::vector<SequenceNumber>& snapshots = {},
       SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber,
       int output_level = 1, bool verify = true,
@@ -309,11 +325,12 @@ class CompactionJobTest : public testing::Test {
       num_input_files += level_files.size();
     }
 
-    Compaction compaction(cfd->current()->storage_info(), *cfd->ioptions(),
-                          *cfd->GetLatestMutableCFOptions(),
-                          compaction_input_files, output_level, 1024 * 1024,
-                          10 * 1024 * 1024, 0, kNoCompression,
-                          cfd->ioptions()->compression_opts, 0, {}, true);
+    Compaction compaction(
+        cfd->current()->storage_info(), *cfd->ioptions(),
+        *cfd->GetLatestMutableCFOptions(), mutable_db_options_,
+        compaction_input_files, output_level, 1024 * 1024, 10 * 1024 * 1024, 0,
+        kNoCompression, cfd->GetLatestMutableCFOptions()->compression_opts, 0,
+        {}, true);
     compaction.SetInputVersion(cfd->current());
 
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
@@ -324,10 +341,10 @@ class CompactionJobTest : public testing::Test {
     CompactionJob compaction_job(
         0, &compaction, db_options_, env_options_, versions_.get(),
         &shutting_down_, preserve_deletes_seqnum_, &log_buffer, nullptr,
-        nullptr, nullptr, &mutex_, &error_handler_, snapshots,
+        nullptr, nullptr, nullptr, &mutex_, &error_handler_, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
         &event_logger, false, false, dbname_, &compaction_job_stats_,
-        Env::Priority::USER);
+        Env::Priority::USER, nullptr /* IOTracer */);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
     compaction_job.Prepare();
@@ -335,8 +352,10 @@ class CompactionJobTest : public testing::Test {
     Status s;
     s = compaction_job.Run();
     ASSERT_OK(s);
+    ASSERT_OK(compaction_job.io_status());
     mutex_.Lock();
     ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions()));
+    ASSERT_OK(compaction_job.io_status());
     mutex_.Unlock();
 
     if (verify) {
@@ -359,11 +378,13 @@ class CompactionJobTest : public testing::Test {
   }
 
   Env* env_;
+  std::shared_ptr<FileSystem> fs_;
   std::string dbname_;
   EnvOptions env_options_;
   ImmutableDBOptions db_options_;
   ColumnFamilyOptions cf_options_;
   MutableCFOptions mutable_cf_options_;
+  MutableDBOptions mutable_db_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
   WriteBufferManager write_buffer_manager_;
@@ -389,7 +410,7 @@ TEST_F(CompactionJobTest, Simple) {
   RunCompaction({ files }, expected_results);
 }
 
-TEST_F(CompactionJobTest, SimpleCorrupted) {
+TEST_F(CompactionJobTest, DISABLED_SimpleCorrupted) {
   NewDB();
 
   auto expected_results = CreateTwoFiles(true);
@@ -630,7 +651,7 @@ TEST_F(CompactionJobTest, FilterAllMergeOperands) {
   SetLastSequence(11U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
 
-  stl_wrappers::KVMap empty_map;
+  mock::KVVector empty_map;
   RunCompaction({files}, empty_map);
 }
 
@@ -983,7 +1004,7 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
 // single deletion and the (single) deletion gets removed while the corrupt key
 // gets written out. TODO(noetzli): We probably want a better way to treat
 // corrupt keys.
-TEST_F(CompactionJobTest, CorruptionAfterDeletion) {
+TEST_F(CompactionJobTest, DISABLED_CorruptionAfterDeletion) {
   NewDB();
 
   auto file1 =
@@ -1057,7 +1078,7 @@ TEST_F(CompactionJobTest, OldestBlobFileNumber) {
                 /* expected_oldest_blob_file_number */ 19);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

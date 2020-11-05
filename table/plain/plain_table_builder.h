@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include "db/version_edit.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -18,7 +19,7 @@
 #include "table/plain/plain_table_key_coding.h"
 #include "table/table_builder.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class BlockBuilder;
 class BlockHandle;
@@ -44,7 +45,8 @@ class PlainTableBuilder: public TableBuilder {
       size_t index_sparseness, uint32_t bloom_bits_per_key,
       const std::string& column_family_name, uint32_t num_probes = 6,
       size_t huge_page_tlb_size = 0, double hash_table_ratio = 0,
-      bool store_index_in_file = false);
+      bool store_index_in_file = false, const std::string& db_id = "",
+      const std::string& db_session_id = "");
   // No copying allowed
   PlainTableBuilder(const PlainTableBuilder&) = delete;
   void operator=(const PlainTableBuilder&) = delete;
@@ -58,7 +60,10 @@ class PlainTableBuilder: public TableBuilder {
   void Add(const Slice& key, const Slice& value) override;
 
   // Return non-ok iff some error has been detected.
-  Status status() const override;
+  Status status() const override { return status_; }
+
+  // Return non-ok iff some error happens during IO.
+  IOStatus io_status() const override { return io_status_; }
 
   // Finish building the table.  Stops using the file passed to the
   // constructor after this function returns.
@@ -83,6 +88,12 @@ class PlainTableBuilder: public TableBuilder {
 
   bool SaveIndexInFile() const { return store_index_in_file_; }
 
+  // Get file checksum
+  std::string GetFileChecksum() const override;
+
+  // Get file checksum function name
+  const char* GetFileChecksumFuncName() const override;
+
  private:
   Arena arena_;
   const ImmutableCFOptions& ioptions_;
@@ -98,6 +109,7 @@ class PlainTableBuilder: public TableBuilder {
   uint32_t bloom_bits_per_key_;
   size_t huge_page_tlb_size_;
   Status status_;
+  IOStatus io_status_;
   TableProperties properties_;
   PlainTableKeyEncoder encoder_;
 
@@ -136,6 +148,6 @@ class PlainTableBuilder: public TableBuilder {
   bool IsTotalOrderMode() const { return (prefix_extractor_ == nullptr); }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

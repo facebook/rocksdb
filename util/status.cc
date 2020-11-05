@@ -15,13 +15,18 @@
 #include <cstring>
 #include "port/port.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 const char* Status::CopyState(const char* state) {
 #ifdef OS_WIN
   const size_t cch = std::strlen(state) + 1;  // +1 for the null terminator
   char* result = new char[cch];
-  errno_t ret;
+  errno_t ret
+#if defined(_MSC_VER)
+    ;
+#else
+    __attribute__((__unused__));
+#endif
   ret = strncpy_s(result, cch, state, cch - 1);
   result[cch - 1] = '\0';
   assert(ret == 0);
@@ -47,6 +52,9 @@ static const char* msgs[static_cast<int>(Status::kMaxSubCode)] = {
     "Insufficient capacity for merge operands",
     // kManualCompactionPaused
     "Manual compaction paused",
+    " (overwritten)",    // kOverwritten, subcode of OK
+    "Txn not prepared",  // kTxnNotPrepared
+    "IO fenced off",     // kIOFenced
 };
 
 Status::Status(Code _code, SubCode _subcode, const Slice& msg,
@@ -69,6 +77,9 @@ Status::Status(Code _code, SubCode _subcode, const Slice& msg,
 }
 
 std::string Status::ToString() const {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+  checked_ = true;
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
   char tmp[30];
   const char* type;
   switch (code_) {
@@ -125,7 +136,7 @@ std::string Status::ToString() const {
   std::string result(type);
   if (subcode_ != kNone) {
     uint32_t index = static_cast<int32_t>(subcode_);
-    assert(sizeof(msgs) > index);
+    assert(sizeof(msgs) / sizeof(msgs[0]) > index);
     result.append(msgs[index]);
   }
 
@@ -135,4 +146,4 @@ std::string Status::ToString() const {
   return result;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

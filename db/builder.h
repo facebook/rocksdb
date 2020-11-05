@@ -22,13 +22,15 @@
 #include "rocksdb/types.h"
 #include "table/scoped_arena_iterator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 struct Options;
 struct FileMetaData;
 
+class VersionSet;
 class Env;
 struct EnvOptions;
+class BlobFileAddition;
 class Iterator;
 class SnapshotChecker;
 class TableCache;
@@ -51,7 +53,8 @@ TableBuilder* NewTableBuilder(
     const CompressionOptions& compression_opts, int level,
     const bool skip_filters = false, const uint64_t creation_time = 0,
     const uint64_t oldest_key_time = 0, const uint64_t target_file_size = 0,
-    const uint64_t file_creation_time = 0);
+    const uint64_t file_creation_time = 0, const std::string& db_id = "",
+    const std::string& db_session_id = "");
 
 // Build a Table file from the contents of *iter.  The generated file
 // will be named according to number specified in meta. On success, the rest of
@@ -62,12 +65,14 @@ TableBuilder* NewTableBuilder(
 // @param column_family_name Name of the column family that is also identified
 //    by column_family_id, or empty string if unknown.
 extern Status BuildTable(
-    const std::string& dbname, Env* env, const ImmutableCFOptions& options,
-    const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
+    const std::string& dbname, VersionSet* versions, Env* env, FileSystem* fs,
+    const ImmutableCFOptions& options,
+    const MutableCFOptions& mutable_cf_options, const FileOptions& file_options,
     TableCache* table_cache, InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
         range_del_iters,
-    FileMetaData* meta, const InternalKeyComparator& internal_comparator,
+    FileMetaData* meta, std::vector<BlobFileAddition>* blob_file_additions,
+    const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
@@ -77,11 +82,13 @@ extern Status BuildTable(
     const uint64_t sample_for_compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats, TableFileCreationReason reason,
+    IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
     EventLogger* event_logger = nullptr, int job_id = 0,
     const Env::IOPriority io_priority = Env::IO_HIGH,
     TableProperties* table_properties = nullptr, int level = -1,
     const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0,
     Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,
-    const uint64_t file_creation_time = 0);
+    const uint64_t file_creation_time = 0, const std::string& db_id = "",
+    const std::string& db_session_id = "");
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

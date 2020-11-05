@@ -27,22 +27,18 @@
 #include "test_util/testutil.h"
 #include "util/random.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
-static std::string RandomString(Random *rnd, int len) {
-  std::string r;
-  test::RandomString(rnd, len, &r);
-  return r;
-}
-std::string GenerateKey(int primary_key, int secondary_key, int padding_size,
-                        Random *rnd) {
+std::string GenerateInternalKey(int primary_key, int secondary_key,
+                                int padding_size, Random *rnd) {
   char buf[50];
   char *p = &buf[0];
   snprintf(buf, sizeof(buf), "%6d%4d", primary_key, secondary_key);
   std::string k(p);
   if (padding_size) {
-    k += RandomString(rnd, padding_size);
+    k += rnd->RandomString(padding_size);
   }
+  AppendInternalKeyFooter(&k, 0 /* seqno */, kTypeValue);
 
   return k;
 }
@@ -61,10 +57,11 @@ void GenerateRandomKVs(std::vector<std::string> *keys,
   for (int i = from; i < from + len; i += step) {
     // generating keys that shares the prefix
     for (int j = 0; j < keys_share_prefix; ++j) {
-      keys->emplace_back(GenerateKey(i, j, padding_size, &rnd));
+      // `DataBlockIter` assumes it reads only internal keys.
+      keys->emplace_back(GenerateInternalKey(i, j, padding_size, &rnd));
 
       // 100 bytes values
-      values->emplace_back(RandomString(&rnd, 100));
+      values->emplace_back(rnd.RandomString(100));
     }
   }
 }
@@ -93,12 +90,12 @@ TEST_F(BlockTest, SimpleTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+  Block reader(std::move(contents));
 
   // read contents of block sequentially
   int count = 0;
   InternalIterator *iter =
-      reader.NewDataIterator(options.comparator, options.comparator);
+      reader.NewDataIterator(options.comparator, kDisableGlobalSequenceNumber);
   for (iter->SeekToFirst(); iter->Valid(); count++, iter->Next()) {
     // read kv from block
     Slice k = iter->key();
@@ -111,7 +108,8 @@ TEST_F(BlockTest, SimpleTest) {
   delete iter;
 
   // read block contents randomly
-  iter = reader.NewDataIterator(options.comparator, options.comparator);
+  iter =
+      reader.NewDataIterator(options.comparator, kDisableGlobalSequenceNumber);
   for (int i = 0; i < num_records; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
@@ -151,14 +149,14 @@ void CheckBlockContents(BlockContents contents, const int max_key,
   const size_t prefix_size = 6;
   // create block reader
   BlockContents contents_ref(contents.data);
-  Block reader1(std::move(contents), kDisableGlobalSequenceNumber);
-  Block reader2(std::move(contents_ref), kDisableGlobalSequenceNumber);
+  Block reader1(std::move(contents));
+  Block reader2(std::move(contents_ref));
 
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));
 
-  std::unique_ptr<InternalIterator> regular_iter(
-      reader2.NewDataIterator(BytewiseComparator(), BytewiseComparator()));
+  std::unique_ptr<InternalIterator> regular_iter(reader2.NewDataIterator(
+      BytewiseComparator(), kDisableGlobalSequenceNumber));
 
   // Seek existent keys
   for (size_t i = 0; i < keys.size(); i++) {
@@ -175,7 +173,8 @@ void CheckBlockContents(BlockContents contents, const int max_key,
   // simply be set as invalid; whereas the binary search based iterator will
   // return the one that is closest.
   for (int i = 1; i < max_key - 1; i += 2) {
-    auto key = GenerateKey(i, 0, 0, nullptr);
+    // `DataBlockIter` assumes its APIs receive only internal keys.
+    auto key = GenerateInternalKey(i, 0, 0, nullptr);
     regular_iter->Seek(key);
     ASSERT_TRUE(regular_iter->Valid());
   }
@@ -292,7 +291,7 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
 
   Random rnd(301);
   for (size_t block_size : block_sizes) {
-    std::shared_ptr<Statistics> stats = rocksdb::CreateDBStatistics();
+    std::shared_ptr<Statistics> stats = ROCKSDB_NAMESPACE::CreateDBStatistics();
     BlockReadAmpBitmap read_amp_bitmap(block_size, kBytesPerBit, stats.get());
     BlockReadAmpBitmapSlowAndAccurate read_amp_slow_and_accurate;
 
@@ -370,18 +369,17 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
 
   // Read the block sequentially using Next()
   {
-    std::shared_ptr<Statistics> stats = rocksdb::CreateDBStatistics();
+    std::shared_ptr<Statistics> stats = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber,
-                 kBytesPerBit, stats.get());
+    Block reader(std::move(contents), kBytesPerBit, stats.get());
 
     // read contents of block sequentially
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
-        options.comparator, options.comparator, nullptr, stats.get());
+        options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get());
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       iter->value();
       read_bytes += iter->TEST_CurrentEntrySize();
@@ -403,17 +401,16 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
 
   // Read the block sequentially using Seek()
   {
-    std::shared_ptr<Statistics> stats = rocksdb::CreateDBStatistics();
+    std::shared_ptr<Statistics> stats = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber,
-                 kBytesPerBit, stats.get());
+    Block reader(std::move(contents), kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
-        options.comparator, options.comparator, nullptr, stats.get());
+        options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get());
     for (int i = 0; i < num_records; i++) {
       Slice k(keys[i]);
 
@@ -438,17 +435,16 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
 
   // Read the block randomly
   {
-    std::shared_ptr<Statistics> stats = rocksdb::CreateDBStatistics();
+    std::shared_ptr<Statistics> stats = ROCKSDB_NAMESPACE::CreateDBStatistics();
 
     // create block reader
     BlockContents contents;
     contents.data = rawblock;
-    Block reader(std::move(contents), kDisableGlobalSequenceNumber,
-                 kBytesPerBit, stats.get());
+    Block reader(std::move(contents), kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
     DataBlockIter *iter = reader.NewDataIterator(
-        options.comparator, options.comparator, nullptr, stats.get());
+        options.comparator, kDisableGlobalSequenceNumber, nullptr, stats.get());
     std::unordered_set<int> read_keys;
     for (int i = 0; i < num_records; i++) {
       int index = rnd.Uniform(num_records);
@@ -477,7 +473,7 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
 }
 
 TEST_F(BlockTest, ReadAmpBitmapPow2) {
-  std::shared_ptr<Statistics> stats = rocksdb::CreateDBStatistics();
+  std::shared_ptr<Statistics> stats = ROCKSDB_NAMESPACE::CreateDBStatistics();
   ASSERT_EQ(BlockReadAmpBitmap(100, 1, stats.get()).GetBytesPerBit(), 1u);
   ASSERT_EQ(BlockReadAmpBitmap(100, 2, stats.get()).GetBytesPerBit(), 2u);
   ASSERT_EQ(BlockReadAmpBitmap(100, 4, stats.get()).GetBytesPerBit(), 4u);
@@ -563,7 +559,7 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   // create block reader
   BlockContents contents;
   contents.data = rawblock;
-  Block reader(std::move(contents), kDisableGlobalSequenceNumber);
+  Block reader(std::move(contents));
 
   const bool kTotalOrderSeek = true;
   const bool kIncludesSeq = true;
@@ -572,7 +568,7 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   Statistics *kNullStats = nullptr;
   // read contents of block sequentially
   InternalIteratorBase<IndexValue> *iter = reader.NewIndexIterator(
-      options.comparator, options.comparator, kNullIter, kNullStats,
+      options.comparator, kDisableGlobalSequenceNumber, kNullIter, kNullStats,
       kTotalOrderSeek, includeFirstKey(), kIncludesSeq, kValueIsFull);
   iter->SeekToFirst();
   for (int index = 0; index < num_records; ++index) {
@@ -592,9 +588,9 @@ TEST_P(IndexBlockTest, IndexValueEncodingTest) {
   delete iter;
 
   // read block contents randomly
-  iter = reader.NewIndexIterator(options.comparator, options.comparator,
-                                 kNullIter, kNullStats, kTotalOrderSeek,
-                                 includeFirstKey(), kIncludesSeq, kValueIsFull);
+  iter = reader.NewIndexIterator(
+      options.comparator, kDisableGlobalSequenceNumber, kNullIter, kNullStats,
+      kTotalOrderSeek, includeFirstKey(), kIncludesSeq, kValueIsFull);
   for (int i = 0; i < num_records * 2; i++) {
     // find a random key in the lookaside array
     int index = rnd.Uniform(num_records);
@@ -619,7 +615,7 @@ INSTANTIATE_TEST_CASE_P(P, IndexBlockTest,
                                           std::make_tuple(true, false),
                                           std::make_tuple(true, true)));
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);

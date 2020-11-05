@@ -9,7 +9,7 @@
 #include "monitoring/histogram_windowing.h"
 #include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class HistogramTest : public testing::Test {};
 
@@ -213,7 +213,7 @@ TEST_F(HistogramTest, HistogramWindowingMerge) {
   ASSERT_EQ(histogramWindowing.max(), 5);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

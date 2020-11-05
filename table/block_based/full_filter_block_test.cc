@@ -16,7 +16,7 @@
 #include "util/hash.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TestFilterBitsBuilder : public FilterBitsBuilder {
  public:
@@ -110,8 +110,7 @@ class PluginFullFilterBlockTest : public mock::MockBlockBasedTableTester,
 };
 
 TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
-  FullFilterBlockBuilder builder(
-      nullptr, true, table_options_.filter_policy->GetFilterBitsBuilder());
+  FullFilterBlockBuilder builder(nullptr, true, GetBuilder());
   Slice slice = builder.Finish();
   ASSERT_EQ("", EscapeString(slice));
 
@@ -130,8 +129,7 @@ TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
 }
 
 TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
-  FullFilterBlockBuilder builder(
-      nullptr, true, table_options_.filter_policy->GetFilterBitsBuilder());
+  FullFilterBlockBuilder builder(nullptr, true, GetBuilder());
   builder.Add("foo");
   builder.Add("bar");
   builder.Add("box");
@@ -188,8 +186,7 @@ class FullFilterBlockTest : public mock::MockBlockBasedTableTester,
 };
 
 TEST_F(FullFilterBlockTest, EmptyBuilder) {
-  FullFilterBlockBuilder builder(
-      nullptr, true, table_options_.filter_policy->GetFilterBitsBuilder());
+  FullFilterBlockBuilder builder(nullptr, true, GetBuilder());
   Slice slice = builder.Finish();
   ASSERT_EQ("", EscapeString(slice));
 
@@ -238,8 +235,7 @@ TEST_F(FullFilterBlockTest, DuplicateEntries) {
   {  // empty prefixes
     std::unique_ptr<const SliceTransform> prefix_extractor(
         NewFixedPrefixTransform(0));
-    auto bits_builder = new CountUniqueFilterBitsBuilderWrapper(
-        table_options_.filter_policy->GetFilterBitsBuilder());
+    auto bits_builder = new CountUniqueFilterBitsBuilderWrapper(GetBuilder());
     const bool WHOLE_KEY = true;
     FullFilterBlockBuilder builder(prefix_extractor.get(), WHOLE_KEY,
                                    bits_builder);
@@ -262,8 +258,7 @@ TEST_F(FullFilterBlockTest, DuplicateEntries) {
   // mix of empty and non-empty
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(7));
-  auto bits_builder = new CountUniqueFilterBitsBuilderWrapper(
-      table_options_.filter_policy->GetFilterBitsBuilder());
+  auto bits_builder = new CountUniqueFilterBitsBuilderWrapper(GetBuilder());
   const bool WHOLE_KEY = true;
   FullFilterBlockBuilder builder(prefix_extractor.get(), WHOLE_KEY,
                                  bits_builder);
@@ -279,8 +274,7 @@ TEST_F(FullFilterBlockTest, DuplicateEntries) {
 }
 
 TEST_F(FullFilterBlockTest, SingleChunk) {
-  FullFilterBlockBuilder builder(
-      nullptr, true, table_options_.filter_policy->GetFilterBitsBuilder());
+  FullFilterBlockBuilder builder(nullptr, true, GetBuilder());
   ASSERT_EQ(0, builder.NumAdded());
   builder.Add("foo");
   builder.Add("bar");
@@ -331,7 +325,7 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
       /*lookup_context=*/nullptr));
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

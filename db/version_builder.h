@@ -8,41 +8,62 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 #pragma once
-#include "rocksdb/env.h"
+
+#include <memory>
+
+#include "rocksdb/file_system.h"
 #include "rocksdb/slice_transform.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
+struct ImmutableCFOptions;
 class TableCache;
 class VersionStorageInfo;
 class VersionEdit;
 struct FileMetaData;
 class InternalStats;
+class Version;
+class VersionSet;
+class ColumnFamilyData;
 
 // A helper class so we can efficiently apply a whole sequence
 // of edits to a particular state without creating intermediate
 // Versions that contain full copies of the intermediate state.
 class VersionBuilder {
  public:
-  VersionBuilder(const EnvOptions& env_options, TableCache* table_cache,
-                 VersionStorageInfo* base_vstorage, Logger* info_log = nullptr);
+  VersionBuilder(const FileOptions& file_options,
+                 const ImmutableCFOptions* ioptions, TableCache* table_cache,
+                 VersionStorageInfo* base_vstorage, VersionSet* version_set);
   ~VersionBuilder();
-  Status CheckConsistency(VersionStorageInfo* vstorage);
-  Status CheckConsistencyForDeletes(VersionEdit* edit, uint64_t number,
-                                    int level);
+
   bool CheckConsistencyForNumLevels();
   Status Apply(VersionEdit* edit);
   Status SaveTo(VersionStorageInfo* vstorage);
   Status LoadTableHandlers(InternalStats* internal_stats, int max_threads,
                            bool prefetch_index_and_filter_in_cache,
                            bool is_initial_load,
-                           const SliceTransform* prefix_extractor);
-  void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f);
+                           const SliceTransform* prefix_extractor,
+                           size_t max_file_size_for_l0_meta_pin);
 
  private:
   class Rep;
-  Rep* rep_;
+  std::unique_ptr<Rep> rep_;
+};
+
+// A wrapper of version builder which references the current version in
+// constructor and unref it in the destructor.
+// Both of the constructor and destructor need to be called inside DB Mutex.
+class BaseReferencedVersionBuilder {
+ public:
+  explicit BaseReferencedVersionBuilder(ColumnFamilyData* cfd);
+  BaseReferencedVersionBuilder(ColumnFamilyData* cfd, Version* v);
+  ~BaseReferencedVersionBuilder();
+  VersionBuilder* version_builder() const { return version_builder_.get(); }
+
+ private:
+  std::unique_ptr<VersionBuilder> version_builder_;
+  Version* version_;
 };
 
 extern bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b);
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

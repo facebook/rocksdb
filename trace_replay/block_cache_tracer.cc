@@ -16,11 +16,9 @@
 #include "util/hash.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
-const unsigned int kCharSize = 1;
-
 bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
   if (trace_options.sampling_frequency == 0 ||
       trace_options.sampling_frequency == 1) {
@@ -28,8 +26,7 @@ bool ShouldTrace(const Slice& block_key, const TraceOptions& trace_options) {
   }
   // We use spatial downsampling so that we have a complete access history for a
   // block.
-  return 0 == fastrange64(GetSliceNPHash64(block_key),
-                          trace_options.sampling_frequency);
+  return 0 == GetSliceRangedNPHash(block_key, trace_options.sampling_frequency);
 }
 }  // namespace
 
@@ -217,6 +214,8 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
   record->block_type = trace.type;
   Slice enc_slice = Slice(trace.payload);
 
+  const unsigned int kCharSize = 1;
+
   Slice block_key;
   if (!GetLengthPrefixedSlice(&enc_slice, &block_key)) {
     return Status::Incomplete(
@@ -306,13 +305,14 @@ Status BlockCacheTraceReader::ReadAccess(BlockCacheTraceRecord* record) {
 
 BlockCacheHumanReadableTraceWriter::~BlockCacheHumanReadableTraceWriter() {
   if (human_readable_trace_file_writer_) {
-    human_readable_trace_file_writer_->Flush();
-    human_readable_trace_file_writer_->Close();
+    human_readable_trace_file_writer_->Flush().PermitUncheckedError();
+    human_readable_trace_file_writer_->Close().PermitUncheckedError();
   }
 }
 
 Status BlockCacheHumanReadableTraceWriter::NewWritableFile(
-    const std::string& human_readable_trace_file_path, rocksdb::Env* env) {
+    const std::string& human_readable_trace_file_path,
+    ROCKSDB_NAMESPACE::Env* env) {
   if (human_readable_trace_file_path.empty()) {
     return Status::InvalidArgument(
         "The provided human_readable_trace_file_path is null.");
@@ -493,4 +493,4 @@ uint64_t BlockCacheTracer::NextGetId() {
   return prev_value;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

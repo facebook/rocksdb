@@ -11,12 +11,11 @@
 
 #include <assert.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string>
 
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 LRUHandleTable::LRUHandleTable() : list_(nullptr), length_(0), elems_(0) {
   Resize();
@@ -386,6 +385,7 @@ Status LRUCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
       LRUHandle* old = table_.Insert(e);
       usage_ += total_charge;
       if (old != nullptr) {
+        s = Status::OkOverwritten();
         assert(old->InCache());
         old->SetInCache(false);
         if (!old->HasRefs()) {
@@ -571,4 +571,4 @@ std::shared_ptr<Cache> NewLRUCache(
       std::move(memory_allocator), use_adaptive_mutex, metadata_charge_policy);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -9,6 +9,7 @@
 
 // Syncpoint prevents us building and running tests in release
 #ifndef ROCKSDB_LITE
+#include "rocksdb/utilities/checkpoint.h"
 
 #ifndef OS_WIN
 #include <unistd.h>
@@ -16,19 +17,20 @@
 #include <iostream>
 #include <thread>
 #include <utility>
+
 #include "db/db_impl/db_impl.h"
+#include "file/file_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/transaction_db.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "utilities/fault_injection_env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class CheckpointTest : public testing::Test {
  protected:
   // Sequence of option configurations to try
@@ -68,16 +70,16 @@ class CheckpointTest : public testing::Test {
     EXPECT_OK(DestroyDB(snapshot_tmp_name, options));
     env_->DeleteDir(snapshot_tmp_name);
     Reopen(options);
-    export_path_ = test::TmpDir(env_) + "/export";
-    test::DestroyDir(env_, export_path_);
+    export_path_ = test::PerThreadDBPath("/export");
+    DestroyDir(env_, export_path_);
     cfh_reverse_comp_ = nullptr;
     metadata_ = nullptr;
   }
 
   ~CheckpointTest() override {
-    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-    rocksdb::SyncPoint::GetInstance()->LoadDependency({});
-    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({});
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
     if (cfh_reverse_comp_) {
       EXPECT_OK(db_->DestroyColumnFamilyHandle(cfh_reverse_comp_));
       cfh_reverse_comp_ = nullptr;
@@ -94,7 +96,7 @@ class CheckpointTest : public testing::Test {
     options.db_paths.emplace_back(dbname_ + "_4", 0);
     EXPECT_OK(DestroyDB(dbname_, options));
     EXPECT_OK(DestroyDB(snapshot_name_, options));
-    test::DestroyDir(env_, export_path_);
+    DestroyDir(env_, export_path_);
   }
 
   // Return the current option configuration.
@@ -347,7 +349,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
                                              export_path_, &metadata_));
     verify_files_exported(*metadata_, 1);
     ASSERT_EQ(metadata_->db_comparator_name, options.comparator->Name());
-    test::DestroyDir(env_, export_path_);
+    DestroyDir(env_, export_path_);
     delete metadata_;
     metadata_ = nullptr;
 
@@ -358,7 +360,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
                                              export_path_, &metadata_));
     verify_files_exported(*metadata_, 2);
     ASSERT_EQ(metadata_->db_comparator_name, options.comparator->Name());
-    test::DestroyDir(env_, export_path_);
+    DestroyDir(env_, export_path_);
     delete metadata_;
     metadata_ = nullptr;
     delete checkpoint;
@@ -404,7 +406,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyNegativeTest) {
   ASSERT_EQ(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
                                            export_path_, &metadata_),
             Status::InvalidArgument("Specified export_dir exists"));
-  test::DestroyDir(env_, export_path_);
+  DestroyDir(env_, export_path_);
 
   // Export with invalid directory specification
   export_path_ = "";
@@ -417,11 +419,11 @@ TEST_F(CheckpointTest, ExportColumnFamilyNegativeTest) {
 TEST_F(CheckpointTest, CheckpointCF) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"one", "two", "three", "four", "five"}, options);
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"CheckpointTest::CheckpointCF:2", "DBImpl::GetLiveFiles:2"},
        {"DBImpl::GetLiveFiles:1", "CheckpointTest::CheckpointCF:1"}});
 
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Put(0, "Default", "Default"));
   ASSERT_OK(Put(1, "one", "one"));
@@ -437,7 +439,7 @@ TEST_F(CheckpointTest, CheckpointCF) {
 
   Status s;
   // Take a snapshot
-  rocksdb::port::Thread t([&]() {
+  ROCKSDB_NAMESPACE::port::Thread t([&]() {
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
     ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
@@ -452,7 +454,7 @@ TEST_F(CheckpointTest, CheckpointCF) {
   ASSERT_OK(Put(5, "five", "fifteen"));
   TEST_SYNC_POINT("CheckpointTest::CheckpointCF:2");
   t.join();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ASSERT_OK(Put(1, "one", "twentyone"));
   ASSERT_OK(Put(2, "two", "twentytwo"));
   ASSERT_OK(Put(3, "three", "twentythree"));
@@ -487,7 +489,7 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"one", "two", "three", "four", "five"}, options);
 
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Put(0, "Default", "Default"));
   ASSERT_OK(Put(1, "one", "one"));
@@ -501,16 +503,16 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
 
   Status s;
   // Take a snapshot
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCallFlush:start", [&](void* /*arg*/) {
         // Flush should never trigger.
         FAIL();
       });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   Checkpoint* checkpoint;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_, 1000000));
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   delete checkpoint;
   ASSERT_OK(Put(1, "one", "two"));
@@ -548,7 +550,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
   options.max_manifest_file_size = 0;  // always rollover manifest for file add
   Reopen(options);
 
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {// Get past the flush in the checkpoint thread before adding any keys to
        // the db so the checkpoint thread won't hit the WriteManifest
        // syncpoints.
@@ -560,9 +562,9 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
         "VersionSet::LogAndApply:WriteManifest"},
        {"VersionSet::LogAndApply:WriteManifestDone",
         "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  rocksdb::port::Thread t([&]() {
+  ROCKSDB_NAMESPACE::port::Thread t([&]() {
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
     ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
@@ -574,7 +576,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
   ASSERT_OK(Flush());
   t.join();
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   DB* snapshotDB;
   // Successful Open() implies that CURRENT pointed to the manifest in the
@@ -636,13 +638,13 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
     }
     delete tx;
   }
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
         "CheckpointTest::CurrentFileModifiedWhileCheckpointing2PC:PreCommit"},
        {"CheckpointTest::CurrentFileModifiedWhileCheckpointing2PC:PostCommit",
         "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  rocksdb::port::Thread t([&]() {
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::port::Thread t([&]() {
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(txdb, &checkpoint));
     ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
@@ -656,7 +658,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
       "CheckpointTest::CurrentFileModifiedWhileCheckpointing2PC:PostCommit");
   t.join();
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   // No more than two logs files should exist.
   std::vector<std::string> files;
@@ -666,7 +668,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
     uint64_t num;
     FileType type;
     WalFileType log_type;
-    if (ParseFileName(file, &num, &type, &log_type) && type == kLogFile) {
+    if (ParseFileName(file, &num, &type, &log_type) && type == kWalFile) {
       num_log_files++;
     }
   }
@@ -682,7 +684,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
       ColumnFamilyDescriptor("CFA", ColumnFamilyOptions()));
   column_families.push_back(
       ColumnFamilyDescriptor("CFB", ColumnFamilyOptions()));
-  std::vector<rocksdb::ColumnFamilyHandle*> cf_handles;
+  std::vector<ROCKSDB_NAMESPACE::ColumnFamilyHandle*> cf_handles;
   ASSERT_OK(TransactionDB::Open(options, txn_db_options, snapshot_name_,
                                 column_families, &cf_handles, &snapshotDB));
   ASSERT_OK(snapshotDB->Get(read_options, "foo", &value));
@@ -810,10 +812,10 @@ TEST_F(CheckpointTest, CheckpointReadOnlyDBWithMultipleColumnFamilies) {
   delete snapshot_db;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

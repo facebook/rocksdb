@@ -5,23 +5,23 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.ArrayList;
-
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 public class MergeTest {
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
@@ -46,13 +46,13 @@ public class MergeTest {
   }
 
   private byte[] longToByteArray(long l) {
-    ByteBuffer buf = ByteBuffer.allocate(Long.SIZE / Byte.SIZE);
+    ByteBuffer buf = ByteBuffer.allocate(Long.SIZE / Byte.SIZE).order(ByteOrder.LITTLE_ENDIAN);
     buf.putLong(l);
     return buf.array();
   }
 
   private long longFromByteArray(byte[] a) {
-    ByteBuffer buf = ByteBuffer.allocate(Long.SIZE / Byte.SIZE);
+    ByteBuffer buf = ByteBuffer.allocate(Long.SIZE / Byte.SIZE).order(ByteOrder.LITTLE_ENDIAN);
     buf.put(a);
     buf.flip();
     return buf.getLong();
@@ -144,14 +144,13 @@ public class MergeTest {
           // writing (long)100 under key
           db.put(columnFamilyHandleList.get(1),
               "cfkey".getBytes(), longToByteArray(100));
-          // merge (long)1 under key
-          db.merge(columnFamilyHandleList.get(1),
-              "cfkey".getBytes(), longToByteArray(1));
+          // merge (long)157 under key
+          db.merge(columnFamilyHandleList.get(1), "cfkey".getBytes(), longToByteArray(157));
 
           byte[] value = db.get(columnFamilyHandleList.get(1),
               "cfkey".getBytes());
           long longValue = longFromByteArray(value);
-          assertThat(longValue).isEqualTo(101);
+          assertThat(longValue).isEqualTo(257);
         } finally {
           for (final ColumnFamilyHandle handle : columnFamilyHandleList) {
             handle.close();

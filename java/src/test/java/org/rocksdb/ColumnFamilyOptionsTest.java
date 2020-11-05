@@ -5,22 +5,22 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertEquals;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.*;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.rocksdb.test.RemoveEmptyValueCompactionFilterFactory;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Properties;
-import java.util.Random;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
 public class ColumnFamilyOptionsTest {
 
   @ClassRule
-  public static final RocksMemoryResource rocksMemoryResource =
-      new RocksMemoryResource();
+  public static final RocksNativeLibraryResource ROCKS_NATIVE_LIBRARY_RESOURCE =
+      new RocksNativeLibraryResource();
 
   public static final Random rand = PlatformRandomHelper.
       getPlatformSpecificRandomFactory();
@@ -51,6 +51,27 @@ public class ColumnFamilyOptionsTest {
           isEqualTo(properties.get("write_buffer_size"));
       assertThat(String.valueOf(opt.maxWriteBufferNumber())).
           isEqualTo(properties.get("max_write_buffer_number"));
+    }
+  }
+
+  @Test
+  public void getColumnFamilyOptionsFromPropsWithIgnoreIllegalValue() {
+    // setup sample properties
+    final Properties properties = new Properties();
+    properties.put("tomato", "1024");
+    properties.put("burger", "2");
+    properties.put("write_buffer_size", "112");
+    properties.put("max_write_buffer_number", "13");
+
+    try (final ConfigOptions cfgOpts = new ConfigOptions().setIgnoreUnknownOptions(true);
+         final ColumnFamilyOptions opt =
+             ColumnFamilyOptions.getColumnFamilyOptionsFromProps(cfgOpts, properties)) {
+      // setup sample properties
+      assertThat(opt).isNotNull();
+      assertThat(String.valueOf(opt.writeBufferSize()))
+          .isEqualTo(properties.get("write_buffer_size"));
+      assertThat(String.valueOf(opt.maxWriteBufferNumber()))
+          .isEqualTo(properties.get("max_write_buffer_number"));
     }
   }
 
@@ -622,4 +643,46 @@ public class ColumnFamilyOptionsTest {
     }
   }
 
+  @Test
+  public void compactionThreadLimiter() {
+    try (final ColumnFamilyOptions options = new ColumnFamilyOptions();
+         final ConcurrentTaskLimiter compactionThreadLimiter =
+             new ConcurrentTaskLimiterImpl("name", 3)) {
+      options.setCompactionThreadLimiter(compactionThreadLimiter);
+      assertThat(options.compactionThreadLimiter()).isEqualTo(compactionThreadLimiter);
+    }
+  }
+
+  @Test
+  public void oldDefaults() {
+    try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
+      options.oldDefaults(4, 6);
+      assertEquals(4 << 20, options.writeBufferSize());
+      assertThat(options.compactionPriority()).isEqualTo(CompactionPriority.ByCompensatedSize);
+      assertThat(options.targetFileSizeBase()).isEqualTo(2 * 1048576);
+      assertThat(options.maxBytesForLevelBase()).isEqualTo(10 * 1048576);
+      assertThat(options.softPendingCompactionBytesLimit()).isEqualTo(0);
+      assertThat(options.hardPendingCompactionBytesLimit()).isEqualTo(0);
+      assertThat(options.level0StopWritesTrigger()).isEqualTo(24);
+    }
+  }
+
+  @Test
+  public void optimizeForSmallDbWithCache() {
+    try (final ColumnFamilyOptions options = new ColumnFamilyOptions();
+         final Cache cache = new LRUCache(1024)) {
+      assertThat(options.optimizeForSmallDb(cache)).isEqualTo(options);
+    }
+  }
+
+  @Test
+  public void cfPaths() throws IOException {
+    try (final ColumnFamilyOptions options = new ColumnFamilyOptions()) {
+      final List<DbPath> paths = Arrays.asList(
+          new DbPath(Paths.get("test1"), 2 << 25), new DbPath(Paths.get("/test2/path"), 2 << 25));
+      assertThat(options.cfPaths()).isEqualTo(Collections.emptyList());
+      assertThat(options.setCfPaths(paths)).isEqualTo(options);
+      assertThat(options.cfPaths()).isEqualTo(paths);
+    }
+  }
 }

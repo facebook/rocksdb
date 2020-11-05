@@ -13,11 +13,12 @@
 #include <memory>
 #include <vector>
 
+#include "env/composite_env_wrapper.h"
 #include "logging/logging.h"
 #include "port/port.h"
 #include "util/crc32c.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 //
 // File creation factories
@@ -217,7 +218,8 @@ bool RandomAccessCacheFile::OpenImpl(const bool enable_direct_reads) {
           status.ToString().c_str());
     return false;
   }
-  freader_.reset(new RandomAccessFileReader(std::move(file), Path(), env_));
+  freader_.reset(new RandomAccessFileReader(
+      NewLegacyRandomAccessFileWrapper(file), Path(), env_));
 
   return true;
 }
@@ -233,7 +235,8 @@ bool RandomAccessCacheFile::Read(const LBA& lba, Slice* key, Slice* val,
   }
 
   Slice result;
-  Status s = freader_->Read(lba.off_, lba.size_, &result, scratch);
+  Status s = freader_->Read(IOOptions(), lba.off_, lba.size_, &result, scratch,
+                            nullptr);
   if (!s.ok()) {
     Error(log_, "Error reading from file %s. %s", Path().c_str(),
           s.ToString().c_str());
@@ -601,6 +604,6 @@ void ThreadedWriter::DispatchIO(const IO& io) {
   }
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif

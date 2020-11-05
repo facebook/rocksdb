@@ -9,7 +9,7 @@
 
 #include "table/format.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class FilterBitsReader;
 class FilterPolicy;
@@ -25,7 +25,7 @@ class ParsedFullFilterBlock {
     return filter_bits_reader_.get();
   }
 
-  // TODO: consider memory usage of FullFilterBitsReader
+  // TODO: consider memory usage of the FilterBitsReader
   size_t ApproximateMemoryUsage() const {
     return block_contents_.ApproximateMemoryUsage();
   }
@@ -37,4 +37,4 @@ class ParsedFullFilterBlock {
   std::unique_ptr<FilterBitsReader> filter_bits_reader_;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

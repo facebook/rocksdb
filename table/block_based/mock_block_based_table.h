@@ -4,11 +4,12 @@
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
 
-#include "table/block_based/block_based_filter_block.h"
 #include "rocksdb/filter_policy.h"
+#include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/filter_policy_internal.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace mock {
 
 class MockBlockBasedTable : public BlockBasedTable {
@@ -18,6 +19,8 @@ class MockBlockBasedTable : public BlockBasedTable {
 };
 
 class MockBlockBasedTableTester {
+  static constexpr int kMockLevel = 0;
+
  public:
   Options options_;
   ImmutableCFOptions ioptions_;
@@ -33,13 +36,21 @@ class MockBlockBasedTableTester {
     table_options_.filter_policy.reset(filter_policy);
 
     constexpr bool skip_filters = false;
-    constexpr int level = 0;
     constexpr bool immortal_table = false;
-    table_.reset(new MockBlockBasedTable(
-        new BlockBasedTable::Rep(ioptions_, env_options_, table_options_,
-                                 icomp_, skip_filters, level, immortal_table)));
+    table_.reset(new MockBlockBasedTable(new BlockBasedTable::Rep(
+        ioptions_, env_options_, table_options_, icomp_, skip_filters,
+        12345 /*file_size*/, kMockLevel, immortal_table)));
+  }
+
+  FilterBitsBuilder* GetBuilder() const {
+    FilterBuildingContext context(table_options_);
+    context.column_family_name = "mock_cf";
+    context.compaction_style = ioptions_.compaction_style;
+    context.level_at_creation = kMockLevel;
+    context.info_log = ioptions_.info_log;
+    return BloomFilterPolicy::GetBuilderFromContext(context);
   }
 };
 
 }  // namespace mock
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

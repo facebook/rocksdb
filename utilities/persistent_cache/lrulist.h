@@ -11,7 +11,7 @@
 
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // LRU element definition
 //
@@ -169,6 +169,6 @@ class LRUList {
   T* tail_ = nullptr;         // back (hot)
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif

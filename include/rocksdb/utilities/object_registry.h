@@ -15,7 +15,7 @@
 #include <vector>
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class Logger;
 // Returns a new T when called with a string. Populates the std::unique_ptr
 // argument if granting ownership to caller.
@@ -125,7 +125,7 @@ class ObjectRegistry {
 
   // Creates a new unique T using the input factory functions.
   // Returns OK if a new unique T was successfully created
-  // Returns NotFound if the type/target could not be created
+  // Returns NotSupported if the type/target could not be created
   // Returns InvalidArgument if the factory return an unguarded object
   //                      (meaning it cannot be managed by a unique ptr)
   template <typename T>
@@ -134,7 +134,7 @@ class ObjectRegistry {
     std::string errmsg;
     T* ptr = NewObject(target, result, &errmsg);
     if (ptr == nullptr) {
-      return Status::NotFound(errmsg, target);
+      return Status::NotSupported(errmsg, target);
     } else if (*result) {
       return Status::OK();
     } else {
@@ -146,7 +146,7 @@ class ObjectRegistry {
 
   // Creates a new shared T using the input factory functions.
   // Returns OK if a new shared T was successfully created
-  // Returns NotFound if the type/target could not be created
+  // Returns NotSupported if the type/target could not be created
   // Returns InvalidArgument if the factory return an unguarded object
   //                      (meaning it cannot be managed by a shared ptr)
   template <typename T>
@@ -156,7 +156,7 @@ class ObjectRegistry {
     std::unique_ptr<T> guard;
     T* ptr = NewObject(target, &guard, &errmsg);
     if (ptr == nullptr) {
-      return Status::NotFound(errmsg, target);
+      return Status::NotSupported(errmsg, target);
     } else if (guard) {
       result->reset(guard.release());
       return Status::OK();
@@ -169,7 +169,7 @@ class ObjectRegistry {
 
   // Creates a new static T using the input factory functions.
   // Returns OK if a new static T was successfully created
-  // Returns NotFound if the type/target could not be created
+  // Returns NotSupported if the type/target could not be created
   // Returns InvalidArgument if the factory return a guarded object
   //                      (meaning it is managed by a unique ptr)
   template <typename T>
@@ -178,7 +178,7 @@ class ObjectRegistry {
     std::unique_ptr<T> guard;
     T* ptr = NewObject(target, &guard, &errmsg);
     if (ptr == nullptr) {
-      return Status::NotFound(errmsg, target);
+      return Status::NotSupported(errmsg, target);
     } else if (guard.get()) {
       return Status::InvalidArgument(std::string("Cannot make a static ") +
                                          T::Type() + " from a guarded one ",
@@ -201,5 +201,5 @@ class ObjectRegistry {
   // searching for entries.
   std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

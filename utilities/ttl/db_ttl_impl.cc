@@ -14,7 +14,7 @@
 #include "rocksdb/utilities/db_ttl.h"
 #include "util/coding.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 void DBWithTTLImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
                                     Env* env) {
@@ -91,8 +91,7 @@ Status DBWithTTL::Open(
     const DBOptions& db_options, const std::string& dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles, DBWithTTL** dbptr,
-    std::vector<int32_t> ttls, bool read_only) {
-
+    const std::vector<int32_t>& ttls, bool read_only) {
   if (ttls.size() != column_families.size()) {
     return Status::InvalidArgument(
         "ttls size has to be the same as number of column families");
@@ -331,5 +330,5 @@ void DBWithTTLImpl::SetTtl(ColumnFamilyHandle *h, int32_t ttl) {
   filter->SetTtl(ttl);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

@@ -10,14 +10,14 @@
 #include "db/write_batch_internal.h"
 #include "file/sequence_file_reader.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 TransactionLogIteratorImpl::TransactionLogIteratorImpl(
     const std::string& dir, const ImmutableDBOptions* options,
     const TransactionLogIterator::ReadOptions& read_options,
     const EnvOptions& soptions, const SequenceNumber seq,
     std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions,
-    const bool seq_per_batch)
+    const bool seq_per_batch, const std::shared_ptr<IOTracer>& io_tracer)
     : dir_(dir),
       options_(options),
       read_options_(read_options),
@@ -30,7 +30,8 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       current_batch_seq_(0),
       current_last_seq_(0),
       versions_(versions),
-      seq_per_batch_(seq_per_batch) {
+      seq_per_batch_(seq_per_batch),
+      io_tracer_(io_tracer) {
   assert(files_ != nullptr);
   assert(versions_ != nullptr);
 
@@ -42,26 +43,28 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
 Status TransactionLogIteratorImpl::OpenLogFile(
     const LogFile* log_file,
     std::unique_ptr<SequentialFileReader>* file_reader) {
-  Env* env = options_->env;
-  std::unique_ptr<SequentialFile> file;
+  FileSystemPtr fs(options_->fs, io_tracer_);
+  std::unique_ptr<FSSequentialFile> file;
   std::string fname;
   Status s;
-  EnvOptions optimized_env_options = env->OptimizeForLogRead(soptions_);
+  EnvOptions optimized_env_options = fs->OptimizeForLogRead(soptions_);
   if (log_file->Type() == kArchivedLogFile) {
     fname = ArchivedLogFileName(dir_, log_file->LogNumber());
-    s = env->NewSequentialFile(fname, &file, optimized_env_options);
+    s = fs->NewSequentialFile(fname, optimized_env_options, &file, nullptr);
   } else {
     fname = LogFileName(dir_, log_file->LogNumber());
-    s = env->NewSequentialFile(fname, &file, optimized_env_options);
+    s = fs->NewSequentialFile(fname, optimized_env_options, &file, nullptr);
     if (!s.ok()) {
       //  If cannot open file in DB directory.
       //  Try the archive dir, as it could have moved in the meanwhile.
       fname = ArchivedLogFileName(dir_, log_file->LogNumber());
-      s = env->NewSequentialFile(fname, &file, optimized_env_options);
+      s = fs->NewSequentialFile(fname, optimized_env_options,
+                                &file, nullptr);
     }
   }
   if (s.ok()) {
-    file_reader->reset(new SequentialFileReader(std::move(file), fname));
+    file_reader->reset(
+        new SequentialFileReader(std::move(file), fname, io_tracer_));
   }
   return s;
 }
@@ -310,5 +313,5 @@ Status TransactionLogIteratorImpl::OpenLogReader(const LogFile* log_file) {
                       read_options_.verify_checksums_, log_file->LogNumber()));
   return Status::OK();
 }
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

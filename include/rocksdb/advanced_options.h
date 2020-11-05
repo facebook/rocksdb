@@ -10,14 +10,14 @@
 
 #include <memory>
 
+#include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/universal_compaction.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class SliceTransform;
-enum CompressionType : unsigned char;
 class TablePropertiesCollectorFactory;
 class TableFactory;
 struct Options;
@@ -117,6 +117,21 @@ struct CompressionOptions {
   // Default: 0.
   uint32_t zstd_max_train_bytes;
 
+  // Number of threads for parallel compression.
+  // Parallel compression is enabled only if threads > 1.
+  // THE FEATURE IS STILL EXPERIMENTAL
+  //
+  // This option is valid only when BlockBasedTable is used.
+  //
+  // When parallel compression is enabled, SST size file sizes might be
+  // more inflated compared to the target size, because more data of unknown
+  // compressed size is in flight when compression is parallelized. To be
+  // reasonably accurate, this inflation is also estimated by using historical
+  // compression ratio and current bytes inflight.
+  //
+  // Default: 1.
+  uint32_t parallel_threads;
+
   // When the compression options are set by the user, it will be set to "true".
   // For bottommost_compression_opts, to enable it, user must set enabled=true.
   // Otherwise, bottommost compression will use compression_opts as default
@@ -134,14 +149,17 @@ struct CompressionOptions {
         strategy(0),
         max_dict_bytes(0),
         zstd_max_train_bytes(0),
+        parallel_threads(1),
         enabled(false) {}
   CompressionOptions(int wbits, int _lev, int _strategy, int _max_dict_bytes,
-                     int _zstd_max_train_bytes, bool _enabled)
+                     int _zstd_max_train_bytes, int _parallel_threads,
+                     bool _enabled)
       : window_bits(wbits),
         level(_lev),
         strategy(_strategy),
         max_dict_bytes(_max_dict_bytes),
         zstd_max_train_bytes(_zstd_max_train_bytes),
+        parallel_threads(_parallel_threads),
         enabled(_enabled) {}
 };
 
@@ -150,7 +168,6 @@ enum UpdateStatus {    // Return status For inplace update callback
   UPDATED_INPLACE = 1, // Value updated inplace
   UPDATED         = 2, // No inplace update. Merged value set
 };
-
 
 struct AdvancedColumnFamilyOptions {
   // The maximum number of write buffers that are built up in memory.
@@ -330,10 +347,9 @@ struct AdvancedColumnFamilyOptions {
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor = nullptr;
 
-  // Control locality of bloom filter probes to improve cache miss rate.
-  // This option only applies to memtable prefix bloom and plaintable
-  // prefix bloom. It essentially limits every bloom checking to one cache line.
-  // This optimization is turned off when set to 0, and positive number to turn
+  // Control locality of bloom filter probes to improve CPU cache hit rate.
+  // This option now only applies to plaintable prefix bloom. This
+  // optimization is turned off when set to 0, and positive number to turn
   // it on.
   // Default: 0
   uint32_t bloom_locality = 0;
@@ -626,18 +642,30 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   bool optimize_filters_for_hits = false;
 
+  // During flush or compaction, check whether keys inserted to output files
+  // are in order.
+  //
+  // Default: true
+  //
+  // Dynamically changeable through SetOptions() API
+  bool check_flush_compaction_key_order = true;
+
   // After writing every SST file, reopen it and read all the keys.
+  // Checks the hash of all of the keys and values written versus the
+  // keys in the file and signals a corruption if they do not match
   //
   // Default: false
   //
   // Dynamically changeable through SetOptions() API
   bool paranoid_file_checks = false;
 
-  // In debug mode, RocksDB run consistency checks on the LSM every time the LSM
-  // change (Flush, Compaction, AddFile). These checks are disabled in release
-  // mode, use this option to enable them in release mode as well.
-  // Default: false
-  bool force_consistency_checks = false;
+  // In debug mode, RocksDB runs consistency checks on the LSM every time the
+  // LSM changes (Flush, Compaction, AddFile). When this option is true, these
+  // checks are also enabled in release mode. These checks were historically
+  // disabled in release mode, but are now enabled by default for proactive
+  // corruption detection, at almost no cost in extra CPU.
+  // Default: true
+  bool force_consistency_checks = true;
 
   // Measure IO stats in compactions and flushes, if true.
   //
@@ -647,7 +675,6 @@ struct AdvancedColumnFamilyOptions {
   bool report_bg_io_stats = false;
 
   // Files older than TTL will go through the compaction process.
-  // Supported in Level and FIFO compaction.
   // Pre-req: This needs max_open_files to be set to -1.
   // In Level: Non-bottom-level files older than TTL will go through the
   //           compation process.
@@ -655,11 +682,15 @@ struct AdvancedColumnFamilyOptions {
   // unit: seconds. Ex: 1 day = 1 * 24 * 60 * 60
   // In FIFO, this option will have the same meaning as
   // periodic_compaction_seconds. Whichever stricter will be used.
+  // 0 means disabling.
+  // UINT64_MAX - 1 (0xfffffffffffffffe) is special flag to allow RocksDB to
+  // pick default.
   //
-  // Default: 0 (disabled)
+  // Default: 30 days for leveled compaction + block based table. disable
+  //          otherwise.
   //
   // Dynamically changeable through SetOptions() API
-  uint64_t ttl = 0;
+  uint64_t ttl = 0xfffffffffffffffe;
 
   // Files older than this value will be picked up for compaction, and
   // re-written to the same level as they were before.
@@ -677,7 +708,7 @@ struct AdvancedColumnFamilyOptions {
   //
   // Values:
   // 0: Turn off Periodic compactions.
-  // UINT64_MAX (i.e 0xffffffffffffffff): Let RocksDB control this feature
+  // UINT64_MAX - 1 (i.e 0xfffffffffffffffe): Let RocksDB control this feature
   //     as needed. For now, RocksDB will change this value to 30 days
   //     (i.e 30 * 24 * 60 * 60) so that every file goes through the compaction
   //     process at least once every 30 days if not compacted sooner.
@@ -685,16 +716,61 @@ struct AdvancedColumnFamilyOptions {
   //     when this value is left default, and ttl is left to 0, 30 days will be
   //     used. Otherwise, min(ttl, periodic_compaction_seconds) will be used.
   //
-  // Default: UINT64_MAX (allow RocksDB to auto-tune)
+  // Default: UINT64_MAX - 1 (allow RocksDB to auto-tune)
   //
   // Dynamically changeable through SetOptions() API
-  uint64_t periodic_compaction_seconds = 0xffffffffffffffff;
+  uint64_t periodic_compaction_seconds = 0xfffffffffffffffe;
 
   // If this option is set then 1 in N blocks are compressed
   // using a fast (lz4) and slow (zstd) compression algorithm.
   // The compressibility is reported as stats and the stored
   // data is left uncompressed (unless compression is also requested).
   uint64_t sample_for_compression = 0;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // When set, large values (blobs) are written to separate blob files, and
+  // only pointers to them are stored in SST files. This can reduce write
+  // amplification for large-value use cases at the cost of introducing a level
+  // of indirection for reads. See also the options min_blob_size,
+  // blob_file_size, and blob_compression_type below.
+  //
+  // Default: false
+  //
+  // Dynamically changeable through the SetOptions() API
+  bool enable_blob_files = false;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The size of the smallest value to be stored separately in a blob file.
+  // Values which have an uncompressed size smaller than this threshold are
+  // stored alongside the keys in SST files in the usual fashion. A value of
+  // zero for this option means that all values are stored in blob files. Note
+  // that enable_blob_files has to be set in order for this option to have any
+  // effect.
+  //
+  // Default: 0
+  //
+  // Dynamically changeable through the SetOptions() API
+  uint64_t min_blob_size = 0;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The size limit for blob files. When writing blob files, a new file is
+  // opened once this limit is reached. Note that enable_blob_files has to be
+  // set in order for this option to have any effect.
+  //
+  // Default: 256 MB
+  //
+  // Dynamically changeable through the SetOptions() API
+  uint64_t blob_file_size = 1ULL << 28;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The compression algorithm to use for large values stored in blob files.
+  // Note that enable_blob_files has to be set in order for this option to have
+  // any effect.
+  //
+  // Default: no compression
+  //
+  // Dynamically changeable through the SetOptions() API
+  CompressionType blob_compression_type = kNoCompression;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
@@ -727,4 +803,4 @@ struct AdvancedColumnFamilyOptions {
   bool purge_redundant_kvs_while_flush = true;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

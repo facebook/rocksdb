@@ -15,7 +15,7 @@
 #include "trace_replay/block_cache_tracer.h"
 #include "utilities/simulator_cache/cache_simulator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Statistics of a key refereneced by a Get.
 struct GetKeyInfo {
@@ -103,7 +103,9 @@ struct BlockAccessInfo {
         num_referenced_key_exist_in_block++;
         if (referenced_data_size > block_size && block_size != 0) {
           ParsedInternalKey internal_key;
-          ParseInternalKey(access.referenced_key, &internal_key);
+          Status s = ParseInternalKey(access.referenced_key, &internal_key,
+                                      false /* log_err_key */);  // TODO
+          assert(s.ok());  // TODO
         }
       } else {
         non_exist_key_num_access_map[access.referenced_key][access.caller]++;
@@ -289,7 +291,7 @@ class BlockCacheTraceAnalyzer {
   // The file is named
   // "block_type_user_access_only_reuse_window_reuse_timeline". The file format
   // is start_time,0,1,...,N where N equals trace_duration / reuse_window.
-  void WriteBlockReuseTimeline(uint64_t reuse_window, bool user_access_only,
+  void WriteBlockReuseTimeline(const uint64_t reuse_window, bool user_access_only,
                                TraceType block_type) const;
 
   // Write the Get spatical locality into csv files saved in 'output_dir'.
@@ -366,7 +368,7 @@ class BlockCacheTraceAnalyzer {
       const std::map<std::string, Predictions>& label_predictions,
       uint32_t max_number_of_values) const;
 
-  rocksdb::Env* env_;
+  ROCKSDB_NAMESPACE::Env* env_;
   const std::string trace_file_path_;
   const std::string output_dir_;
   std::string human_readable_trace_file_path_;
@@ -390,4 +392,4 @@ class BlockCacheTraceAnalyzer {
 
 int block_cache_trace_analyzer_tool(int argc, char** argv);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

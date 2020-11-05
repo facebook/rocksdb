@@ -11,16 +11,16 @@
 
 #include <string>
 
-namespace rocksdb {
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 namespace port {
 namespace xpress {
 
 bool Compress(const char* input, size_t length, std::string* output);
 
 char* Decompress(const char* input_data, size_t input_length,
-                 int* decompress_size);
-
+                 size_t* uncompressed_size);
 }
 }
-}
-
+}  // namespace ROCKSDB_NAMESPACE

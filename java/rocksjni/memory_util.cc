@@ -22,23 +22,17 @@
  * Signature: ([J[J)Ljava/util/Map;
  */
 jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
-    JNIEnv *env, jclass /*jclazz*/, jlongArray jdb_handles, jlongArray jcache_handles) {
-
-  std::vector<rocksdb::DB*> dbs;
-  jsize db_handle_count = env->GetArrayLength(jdb_handles);
-  if(db_handle_count > 0) {
-    jlong *ptr_jdb_handles = env->GetLongArrayElements(jdb_handles, nullptr);
-    if (ptr_jdb_handles == nullptr) {
-      // exception thrown: OutOfMemoryError
-      return nullptr;
-    }
-    for (jsize i = 0; i < db_handle_count; i++) {
-      dbs.push_back(reinterpret_cast<rocksdb::DB *>(ptr_jdb_handles[i]));
-    }
-    env->ReleaseLongArrayElements(jdb_handles, ptr_jdb_handles, JNI_ABORT);
+    JNIEnv *env, jclass, jlongArray jdb_handles, jlongArray jcache_handles) {
+  jboolean has_exception = JNI_FALSE;
+  std::vector<ROCKSDB_NAMESPACE::DB *> dbs =
+      ROCKSDB_NAMESPACE::JniUtil::fromJPointers<ROCKSDB_NAMESPACE::DB>(
+          env, jdb_handles, &has_exception);
+  if (has_exception == JNI_TRUE) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
   }
 
-  std::unordered_set<const rocksdb::Cache*> cache_set;
+  std::unordered_set<const ROCKSDB_NAMESPACE::Cache *> cache_set;
   jsize cache_handle_count = env->GetArrayLength(jcache_handles);
   if(cache_handle_count > 0) {
     jlong *ptr_jcache_handles = env->GetLongArrayElements(jcache_handles, nullptr);
@@ -48,37 +42,43 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
     }
     for (jsize i = 0; i < cache_handle_count; i++) {
       auto *cache_ptr =
-          reinterpret_cast<std::shared_ptr<rocksdb::Cache> *>(ptr_jcache_handles[i]);
+          reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache> *>(
+              ptr_jcache_handles[i]);
       cache_set.insert(cache_ptr->get());
     }
     env->ReleaseLongArrayElements(jcache_handles, ptr_jcache_handles, JNI_ABORT);
   }
 
-  std::map<rocksdb::MemoryUtil::UsageType, uint64_t> usage_by_type;
-  if(rocksdb::MemoryUtil::GetApproximateMemoryUsageByType(dbs, cache_set, &usage_by_type) != rocksdb::Status::OK()) {
+  std::map<ROCKSDB_NAMESPACE::MemoryUtil::UsageType, uint64_t> usage_by_type;
+  if (ROCKSDB_NAMESPACE::MemoryUtil::GetApproximateMemoryUsageByType(
+          dbs, cache_set, &usage_by_type) != ROCKSDB_NAMESPACE::Status::OK()) {
     // Non-OK status
     return nullptr;
   }
 
-  jobject jusage_by_type = rocksdb::HashMapJni::construct(
+  jobject jusage_by_type = ROCKSDB_NAMESPACE::HashMapJni::construct(
       env, static_cast<uint32_t>(usage_by_type.size()));
   if (jusage_by_type == nullptr) {
     // exception occurred
     return nullptr;
   }
-  const rocksdb::HashMapJni::FnMapKV<const rocksdb::MemoryUtil::UsageType, const uint64_t, jobject, jobject>
-      fn_map_kv =
-      [env](const std::pair<rocksdb::MemoryUtil::UsageType, uint64_t>& pair) {
+  const ROCKSDB_NAMESPACE::HashMapJni::FnMapKV<
+      const ROCKSDB_NAMESPACE::MemoryUtil::UsageType, const uint64_t, jobject,
+      jobject>
+      fn_map_kv = [env](
+                      const std::pair<ROCKSDB_NAMESPACE::MemoryUtil::UsageType,
+                                      uint64_t> &pair) {
         // Construct key
-        const jobject jusage_type =
-            rocksdb::ByteJni::valueOf(env, rocksdb::MemoryUsageTypeJni::toJavaMemoryUsageType(pair.first));
+        const jobject jusage_type = ROCKSDB_NAMESPACE::ByteJni::valueOf(
+            env, ROCKSDB_NAMESPACE::MemoryUsageTypeJni::toJavaMemoryUsageType(
+                     pair.first));
         if (jusage_type == nullptr) {
           // an error occurred
           return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
         }
         // Construct value
         const jobject jusage_value =
-            rocksdb::LongJni::valueOf(env, pair.second);
+            ROCKSDB_NAMESPACE::LongJni::valueOf(env, pair.second);
         if (jusage_value == nullptr) {
           // an error occurred
           return std::unique_ptr<std::pair<jobject, jobject>>(nullptr);
@@ -89,12 +89,12 @@ jobject Java_org_rocksdb_MemoryUtil_getApproximateMemoryUsageByType(
                                             jusage_value));
       };
 
-  if (!rocksdb::HashMapJni::putAll(env, jusage_by_type, usage_by_type.begin(),
-                                   usage_by_type.end(), fn_map_kv)) {
+  if (!ROCKSDB_NAMESPACE::HashMapJni::putAll(env, jusage_by_type,
+                                             usage_by_type.begin(),
+                                             usage_by_type.end(), fn_map_kv)) {
     // exception occcurred
     jusage_by_type = nullptr;
   }
 
   return jusage_by_type;
-
 }

@@ -52,7 +52,7 @@
 //               |
 //               V
 //              null
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Persistent Cache Config
 //
@@ -266,6 +266,8 @@ class PersistentCacheTier : public PersistentCache {
 
   virtual std::string GetPrintableOptions() const override = 0;
 
+  virtual uint64_t NewId() override;
+
   // Return a reference to next tier
   virtual Tier& next_tier() { return next_tier_; }
 
@@ -283,6 +285,7 @@ class PersistentCacheTier : public PersistentCache {
 
  private:
   Tier next_tier_;  // next tier
+  std::atomic<uint64_t> last_id_{1};
 };
 
 // PersistentTieredCache
@@ -331,6 +334,6 @@ class PersistentTieredCache : public PersistentCacheTier {
   std::list<Tier> tiers_;  // list of tiers top-down
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif

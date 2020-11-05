@@ -5,6 +5,7 @@
 //
 #include <algorithm>
 #include <vector>
+#include "env/composite_env_wrapper.h"
 #include "file/random_access_file_reader.h"
 #include "file/readahead_raf.h"
 #include "file/sequence_file_reader.h"
@@ -13,7 +14,7 @@
 #include "test_util/testutil.h"
 #include "util/random.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class WritableFileWriterTest : public testing::Test {};
 
@@ -76,20 +77,25 @@ TEST_F(WritableFileWriterTest, RangeSync) {
   env_options.bytes_per_sync = kMb;
   std::unique_ptr<FakeWF> wf(new FakeWF);
   std::unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(std::move(wf), "" /* don't care */, env_options));
+      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
+                             "" /* don't care */, env_options));
   Random r(301);
+  Status s;
   std::unique_ptr<char[]> large_buf(new char[10 * kMb]);
   for (int i = 0; i < 1000; i++) {
     int skew_limit = (i < 700) ? 10 : 15;
     uint32_t num = r.Skewed(skew_limit) * 100 + r.Uniform(100);
-    writer->Append(Slice(large_buf.get(), num));
+    s = writer->Append(Slice(large_buf.get(), num));
+    ASSERT_OK(s);
 
     // Flush in a chance of 1/10.
     if (r.Uniform(10) == 0) {
-      writer->Flush();
+      s = writer->Flush();
+      ASSERT_OK(s);
     }
   }
-  writer->Close();
+  s = writer->Close();
+  ASSERT_OK(s);
 }
 
 TEST_F(WritableFileWriterTest, IncrementalBuffer) {
@@ -157,14 +163,14 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
                                           false,
 #endif
                                           no_flush));
-    std::unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
-        std::move(wf), "" /* don't care */, env_options));
+    std::unique_ptr<WritableFileWriter> writer(
+        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
+                               "" /* don't care */, env_options));
 
     std::string target;
     for (int i = 0; i < 20; i++) {
       uint32_t num = r.Skewed(16) * 100 + r.Uniform(100);
-      std::string random_string;
-      test::RandomString(&r, num, &random_string);
+      std::string random_string = r.RandomString(num);
       writer->Append(Slice(random_string.c_str(), num));
       target.append(random_string.c_str(), num);
 
@@ -212,12 +218,15 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   std::unique_ptr<FakeWF> wf(new FakeWF());
   wf->Setuse_direct_io(true);
   std::unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
+      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
+                             "" /* don't care */, EnvOptions()));
 
   ASSERT_OK(writer->Append(std::string(2 * kMb, 'a')));
 
   // Next call to WritableFile::Append() should fail
-  dynamic_cast<FakeWF*>(writer->writable_file())->SetIOError(true);
+  LegacyWritableFileWrapper* file =
+      static_cast<LegacyWritableFileWrapper*>(writer->writable_file());
+  static_cast<FakeWF*>(file->target())->SetIOError(true);
   ASSERT_NOK(writer->Append(std::string(2 * kMb, 'b')));
 }
 #endif
@@ -237,15 +246,18 @@ class ReadaheadRandomAccessFileTest
   ReadaheadRandomAccessFileTest() : control_contents_() {}
   std::string Read(uint64_t offset, size_t n) {
     Slice result;
-    test_read_holder_->Read(offset, n, &result, scratch_.get());
+    Status s = test_read_holder_->Read(offset, n, &result, scratch_.get());
+    EXPECT_TRUE(s.ok() || s.IsInvalidArgument());
     return std::string(result.data(), result.size());
   }
   void ResetSourceStr(const std::string& str = "") {
     auto write_holder =
         std::unique_ptr<WritableFileWriter>(test::GetWritableFileWriter(
             new test::StringSink(&control_contents_), "" /* don't care */));
-    write_holder->Append(Slice(str));
-    write_holder->Flush();
+    Status s = write_holder->Append(Slice(str));
+    EXPECT_OK(s);
+    s = write_holder->Flush();
+    EXPECT_OK(s);
     auto read_holder = std::unique_ptr<RandomAccessFile>(
         new test::StringSource(control_contents_));
     test_read_holder_ =
@@ -260,13 +272,13 @@ class ReadaheadRandomAccessFileTest
   std::unique_ptr<char[]> scratch_;
 };
 
-TEST_P(ReadaheadRandomAccessFileTest, EmptySourceStrTest) {
+TEST_P(ReadaheadRandomAccessFileTest, EmptySourceStr) {
   ASSERT_EQ("", Read(0, 1));
   ASSERT_EQ("", Read(0, 0));
   ASSERT_EQ("", Read(13, 13));
 }
 
-TEST_P(ReadaheadRandomAccessFileTest, SourceStrLenLessThanReadaheadSizeTest) {
+TEST_P(ReadaheadRandomAccessFileTest, SourceStrLenLessThanReadaheadSize) {
   std::string str = "abcdefghijklmnopqrs";
   ResetSourceStr(str);
   ASSERT_EQ(str.substr(3, 4), Read(3, 4));
@@ -277,14 +289,12 @@ TEST_P(ReadaheadRandomAccessFileTest, SourceStrLenLessThanReadaheadSizeTest) {
   ASSERT_EQ("", Read(100, 100));
 }
 
-TEST_P(ReadaheadRandomAccessFileTest,
-       SourceStrLenGreaterThanReadaheadSizeTest) {
+TEST_P(ReadaheadRandomAccessFileTest, SourceStrLenGreaterThanReadaheadSize) {
   Random rng(42);
   for (int k = 0; k < 100; ++k) {
     size_t strLen = k * GetReadaheadSize() +
                     rng.Uniform(static_cast<int>(GetReadaheadSize()));
-    std::string str =
-        test::RandomHumanReadableString(&rng, static_cast<int>(strLen));
+    std::string str = rng.HumanReadableString(static_cast<int>(strLen));
     ResetSourceStr(str);
     for (int test = 1; test <= 100; ++test) {
       size_t offset = rng.Uniform(static_cast<int>(strLen));
@@ -295,12 +305,11 @@ TEST_P(ReadaheadRandomAccessFileTest,
   }
 }
 
-TEST_P(ReadaheadRandomAccessFileTest, ReadExceedsReadaheadSizeTest) {
+TEST_P(ReadaheadRandomAccessFileTest, ReadExceedsReadaheadSize) {
   Random rng(7);
   size_t strLen = 4 * GetReadaheadSize() +
                   rng.Uniform(static_cast<int>(GetReadaheadSize()));
-  std::string str =
-      test::RandomHumanReadableString(&rng, static_cast<int>(strLen));
+  std::string str = rng.HumanReadableString(static_cast<int>(strLen));
   ResetSourceStr(str);
   for (int test = 1; test <= 100; ++test) {
     size_t offset = rng.Uniform(static_cast<int>(strLen));
@@ -312,16 +321,16 @@ TEST_P(ReadaheadRandomAccessFileTest, ReadExceedsReadaheadSizeTest) {
 }
 
 INSTANTIATE_TEST_CASE_P(
-    EmptySourceStrTest, ReadaheadRandomAccessFileTest,
+    EmptySourceStr, ReadaheadRandomAccessFileTest,
     ::testing::ValuesIn(ReadaheadRandomAccessFileTest::GetReadaheadSizeList()));
 INSTANTIATE_TEST_CASE_P(
-    SourceStrLenLessThanReadaheadSizeTest, ReadaheadRandomAccessFileTest,
+    SourceStrLenLessThanReadaheadSize, ReadaheadRandomAccessFileTest,
     ::testing::ValuesIn(ReadaheadRandomAccessFileTest::GetReadaheadSizeList()));
 INSTANTIATE_TEST_CASE_P(
-    SourceStrLenGreaterThanReadaheadSizeTest, ReadaheadRandomAccessFileTest,
+    SourceStrLenGreaterThanReadaheadSize, ReadaheadRandomAccessFileTest,
     ::testing::ValuesIn(ReadaheadRandomAccessFileTest::GetReadaheadSizeList()));
 INSTANTIATE_TEST_CASE_P(
-    ReadExceedsReadaheadSizeTest, ReadaheadRandomAccessFileTest,
+    ReadExceedsReadaheadSize, ReadaheadRandomAccessFileTest,
     ::testing::ValuesIn(ReadaheadRandomAccessFileTest::GetReadaheadSizeList()));
 
 class ReadaheadSequentialFileTest : public testing::Test,
@@ -338,15 +347,16 @@ class ReadaheadSequentialFileTest : public testing::Test,
   ReadaheadSequentialFileTest() {}
   std::string Read(size_t n) {
     Slice result;
-    test_read_holder_->Read(n, &result, scratch_.get());
+    Status s = test_read_holder_->Read(n, &result, scratch_.get());
+    EXPECT_TRUE(s.ok() || s.IsInvalidArgument());
     return std::string(result.data(), result.size());
   }
   void Skip(size_t n) { test_read_holder_->Skip(n); }
   void ResetSourceStr(const std::string& str = "") {
-    auto read_holder =
-        std::unique_ptr<SequentialFile>(new test::SeqStringSource(str));
-    test_read_holder_.reset(new SequentialFileReader(std::move(read_holder),
-                                                     "test", readahead_size_));
+    auto read_holder = std::unique_ptr<SequentialFile>(
+        new test::SeqStringSource(str, &seq_read_count_));
+    test_read_holder_.reset(new SequentialFileReader(
+        NewLegacySequentialFileWrapper(read_holder), "test", readahead_size_));
   }
   size_t GetReadaheadSize() const { return readahead_size_; }
 
@@ -354,15 +364,16 @@ class ReadaheadSequentialFileTest : public testing::Test,
   size_t readahead_size_;
   std::unique_ptr<SequentialFileReader> test_read_holder_;
   std::unique_ptr<char[]> scratch_;
+  std::atomic<int> seq_read_count_;
 };
 
-TEST_P(ReadaheadSequentialFileTest, EmptySourceStrTest) {
+TEST_P(ReadaheadSequentialFileTest, EmptySourceStr) {
   ASSERT_EQ("", Read(0));
   ASSERT_EQ("", Read(1));
   ASSERT_EQ("", Read(13));
 }
 
-TEST_P(ReadaheadSequentialFileTest, SourceStrLenLessThanReadaheadSizeTest) {
+TEST_P(ReadaheadSequentialFileTest, SourceStrLenLessThanReadaheadSize) {
   std::string str = "abcdefghijklmnopqrs";
   ResetSourceStr(str);
   ASSERT_EQ(str.substr(0, 3), Read(3));
@@ -371,14 +382,13 @@ TEST_P(ReadaheadSequentialFileTest, SourceStrLenLessThanReadaheadSizeTest) {
   ASSERT_EQ("", Read(100));
 }
 
-TEST_P(ReadaheadSequentialFileTest, SourceStrLenGreaterThanReadaheadSizeTest) {
+TEST_P(ReadaheadSequentialFileTest, SourceStrLenGreaterThanReadaheadSize) {
   Random rng(42);
   for (int s = 0; s < 1; ++s) {
     for (int k = 0; k < 100; ++k) {
       size_t strLen = k * GetReadaheadSize() +
                       rng.Uniform(static_cast<int>(GetReadaheadSize()));
-      std::string str =
-          test::RandomHumanReadableString(&rng, static_cast<int>(strLen));
+      std::string str = rng.HumanReadableString(static_cast<int>(strLen));
       ResetSourceStr(str);
       size_t offset = 0;
       for (int test = 1; test <= 100; ++test) {
@@ -394,14 +404,13 @@ TEST_P(ReadaheadSequentialFileTest, SourceStrLenGreaterThanReadaheadSizeTest) {
   }
 }
 
-TEST_P(ReadaheadSequentialFileTest, ReadExceedsReadaheadSizeTest) {
+TEST_P(ReadaheadSequentialFileTest, ReadExceedsReadaheadSize) {
   Random rng(42);
   for (int s = 0; s < 1; ++s) {
     for (int k = 0; k < 100; ++k) {
       size_t strLen = k * GetReadaheadSize() +
                       rng.Uniform(static_cast<int>(GetReadaheadSize()));
-      std::string str =
-          test::RandomHumanReadableString(&rng, static_cast<int>(strLen));
+      std::string str = rng.HumanReadableString(static_cast<int>(strLen));
       ResetSourceStr(str);
       size_t offset = 0;
       for (int test = 1; test <= 100; ++test) {
@@ -419,18 +428,18 @@ TEST_P(ReadaheadSequentialFileTest, ReadExceedsReadaheadSizeTest) {
 }
 
 INSTANTIATE_TEST_CASE_P(
-    EmptySourceStrTest, ReadaheadSequentialFileTest,
+    EmptySourceStr, ReadaheadSequentialFileTest,
     ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
 INSTANTIATE_TEST_CASE_P(
-    SourceStrLenLessThanReadaheadSizeTest, ReadaheadSequentialFileTest,
+    SourceStrLenLessThanReadaheadSize, ReadaheadSequentialFileTest,
     ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
 INSTANTIATE_TEST_CASE_P(
-    SourceStrLenGreaterThanReadaheadSizeTest, ReadaheadSequentialFileTest,
+    SourceStrLenGreaterThanReadaheadSize, ReadaheadSequentialFileTest,
     ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
 INSTANTIATE_TEST_CASE_P(
-    ReadExceedsReadaheadSizeTest, ReadaheadSequentialFileTest,
+    ReadExceedsReadaheadSize, ReadaheadSequentialFileTest,
     ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

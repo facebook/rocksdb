@@ -11,11 +11,10 @@
 #include <stdint.h>
 #include <algorithm>
 #include <memory>
-#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace {
 class BytewiseComparatorImpl : public Comparator {
@@ -125,7 +124,9 @@ class BytewiseComparatorImpl : public Comparator {
     return false;
   }
 
-  int CompareWithoutTimestamp(const Slice& a, const Slice& b) const override {
+  using Comparator::CompareWithoutTimestamp;
+  int CompareWithoutTimestamp(const Slice& a, bool /*a_has_ts*/, const Slice& b,
+                              bool /*b_has_ts*/) const override {
     return a.compare(b);
   }
 };
@@ -197,7 +198,9 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
     return false;
   }
 
-  int CompareWithoutTimestamp(const Slice& a, const Slice& b) const override {
+  using Comparator::CompareWithoutTimestamp;
+  int CompareWithoutTimestamp(const Slice& a, bool /*a_has_ts*/, const Slice& b,
+                              bool /*b_has_ts*/) const override {
     return -a.compare(b);
   }
 };
@@ -213,4 +216,4 @@ const Comparator* ReverseBytewiseComparator() {
   return &rbytewise;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

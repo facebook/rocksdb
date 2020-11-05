@@ -6,11 +6,11 @@
 #include "test_util/sync_point_impl.h"
 
 #ifndef NDEBUG
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 void TestKillRandom(std::string kill_point, int odds,
                     const std::string& srcfile, int srcline) {
-  for (auto& p : rocksdb_kill_prefix_blacklist) {
+  for (auto& p : rocksdb_kill_exclude_prefixes) {
     if (kill_point.substr(0, p.length()) == p) {
       return;
     }
@@ -125,5 +125,5 @@ void SyncPoint::Data::Process(const std::string& point, void* cb_arg) {
   cleared_points_.insert(point);
   cv_.notify_all();
 }
-} // rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif

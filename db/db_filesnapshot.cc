@@ -21,58 +21,7 @@
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
-
-Status DBImpl::DisableFileDeletions() {
-  InstrumentedMutexLock l(&mutex_);
-  ++disable_delete_obsolete_files_;
-  if (disable_delete_obsolete_files_ == 1) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Disabled");
-  } else {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                   "File Deletions Disabled, but already disabled. Counter: %d",
-                   disable_delete_obsolete_files_);
-  }
-  return Status::OK();
-}
-
-Status DBImpl::EnableFileDeletions(bool force) {
-  // Job id == 0 means that this is not our background process, but rather
-  // user thread
-  JobContext job_context(0);
-  bool file_deletion_enabled = false;
-  {
-    InstrumentedMutexLock l(&mutex_);
-    if (force) {
-      // if force, we need to enable file deletions right away
-      disable_delete_obsolete_files_ = 0;
-    } else if (disable_delete_obsolete_files_ > 0) {
-      --disable_delete_obsolete_files_;
-    }
-    if (disable_delete_obsolete_files_ == 0)  {
-      file_deletion_enabled = true;
-      FindObsoleteFiles(&job_context, true);
-      bg_cv_.SignalAll();
-    }
-  }
-  if (file_deletion_enabled) {
-    ROCKS_LOG_INFO(immutable_db_options_.info_log, "File Deletions Enabled");
-    if (job_context.HaveSomethingToDelete()) {
-      PurgeObsoleteFiles(job_context);
-    }
-  } else {
-    ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                   "File Deletions Enable, but not really enabled. Counter: %d",
-                   disable_delete_obsolete_files_);
-  }
-  job_context.Clean();
-  LogFlush(immutable_db_options_.info_log);
-  return Status::OK();
-}
-
-int DBImpl::IsFileDeletionsEnabled() const {
-  return !disable_delete_obsolete_files_;
-}
+namespace ROCKSDB_NAMESPACE {
 
 Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
                             uint64_t* manifest_file_size,
@@ -90,6 +39,9 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
       mutex_.Unlock();
       status = AtomicFlushMemTables(cfds, FlushOptions(),
                                     FlushReason::kGetLiveFiles);
+      if (status.IsColumnFamilyDropped()) {
+        status = Status::OK();
+      }
       mutex_.Lock();
     } else {
       for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -102,9 +54,11 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
         TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
         TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
         mutex_.Lock();
-        cfd->Unref();
-        if (!status.ok()) {
+        cfd->UnrefAndTryDelete();
+        if (!status.ok() && !status.IsColumnFamilyDropped()) {
           break;
+        } else if (status.IsColumnFamilyDropped()) {
+          status = Status::OK();
         }
       }
     }
@@ -118,27 +72,33 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
     }
   }
 
-  // Make a set of all of the live *.sst files
-  std::vector<FileDescriptor> live;
+  // Make a set of all of the live table and blob files
+  std::vector<uint64_t> live_table_files;
+  std::vector<uint64_t> live_blob_files;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
     }
-    cfd->current()->AddLiveFiles(&live);
+    cfd->current()->AddLiveFiles(&live_table_files, &live_blob_files);
   }
 
   ret.clear();
-  ret.reserve(live.size() + 3);  // *.sst + CURRENT + MANIFEST + OPTIONS
+  ret.reserve(live_table_files.size() + live_blob_files.size() +
+              3);  // for CURRENT + MANIFEST + OPTIONS
 
   // create names of the live files. The names are not absolute
   // paths, instead they are relative to dbname_;
-  for (const auto& live_file : live) {
-    ret.push_back(MakeTableFileName("", live_file.GetNumber()));
+  for (const auto& table_file_number : live_table_files) {
+    ret.emplace_back(MakeTableFileName("", table_file_number));
   }
 
-  ret.push_back(CurrentFileName(""));
-  ret.push_back(DescriptorFileName("", versions_->manifest_file_number()));
-  ret.push_back(OptionsFileName("", versions_->options_file_number()));
+  for (const auto& blob_file_number : live_blob_files) {
+    ret.emplace_back(BlobFileName("", blob_file_number));
+  }
+
+  ret.emplace_back(CurrentFileName(""));
+  ret.emplace_back(DescriptorFileName("", versions_->manifest_file_number()));
+  ret.emplace_back(OptionsFileName("", versions_->options_file_number()));
 
   // find length of manifest file while holding the mutex lock
   *manifest_file_size = versions_->manifest_file_size();
@@ -156,7 +116,7 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
     // long as deletions are disabled (so the below loop must terminate).
     InstrumentedMutexLock l(&mutex_);
     while (disable_delete_obsolete_files_ > 0 &&
-           pending_purge_obsolete_files_ > 0) {
+           (pending_purge_obsolete_files_ > 0 || bg_purge_scheduled_ > 0)) {
       bg_cv_.Wait();
     }
   }
@@ -172,6 +132,6 @@ Status DBImpl::GetCurrentWalFile(std::unique_ptr<LogFile>* current_log_file) {
 
   return wal_manager_.GetLiveWalFile(current_logfile_number, current_log_file);
 }
-}
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

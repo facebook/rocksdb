@@ -18,7 +18,7 @@
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // MSVC complains that it is already defined since it is static in the header.
 #ifndef _MSC_VER
@@ -160,7 +160,7 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
 
 #ifdef MAP_HUGETLB
   if (huge_page_size > 0 && bytes > 0) {
-    // Allocate from a huge page TBL table.
+    // Allocate from a huge page TLB table.
     assert(logger != nullptr);  // logger need to be passed in.
     size_t reserved_size =
         ((bytes - 1U) / huge_page_size + 1U) * huge_page_size;
@@ -230,4 +230,4 @@ char* Arena::AllocateNewBlock(size_t block_bytes) {
   return block;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

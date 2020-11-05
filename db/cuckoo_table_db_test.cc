@@ -13,9 +13,10 @@
 #include "table/meta_blocks.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CuckooTableDBTest : public testing::Test {
  private:
@@ -46,9 +47,7 @@ class CuckooTableDBTest : public testing::Test {
     return options;
   }
 
-  DBImpl* dbfull() {
-    return reinterpret_cast<DBImpl*>(db_);
-  }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
   // The following util methods are copied from plain_table_db_test.
   void Reopen(Options* options = nullptr) {
@@ -298,17 +297,25 @@ TEST_F(CuckooTableDBTest, AdaptiveTable) {
   dbfull()->TEST_FlushMemTable();
 
   // Write some keys using plain table.
+  std::shared_ptr<TableFactory> block_based_factory(
+      NewBlockBasedTableFactory());
+  std::shared_ptr<TableFactory> plain_table_factory(
+      NewPlainTableFactory());
+  std::shared_ptr<TableFactory> cuckoo_table_factory(
+      NewCuckooTableFactory());
   options.create_if_missing = false;
-  options.table_factory.reset(NewPlainTableFactory());
+  options.table_factory.reset(NewAdaptiveTableFactory(
+    plain_table_factory, block_based_factory, plain_table_factory,
+    cuckoo_table_factory));
   Reopen(&options);
   ASSERT_OK(Put("key4", "v4"));
   ASSERT_OK(Put("key1", "v5"));
   dbfull()->TEST_FlushMemTable();
 
   // Write some keys using block based table.
-  std::shared_ptr<TableFactory> block_based_factory(
-      NewBlockBasedTableFactory());
-  options.table_factory.reset(NewAdaptiveTableFactory(block_based_factory));
+  options.table_factory.reset(NewAdaptiveTableFactory(
+    block_based_factory, block_based_factory, plain_table_factory,
+    cuckoo_table_factory));
   Reopen(&options);
   ASSERT_OK(Put("key5", "v6"));
   ASSERT_OK(Put("key2", "v7"));
@@ -320,14 +327,13 @@ TEST_F(CuckooTableDBTest, AdaptiveTable) {
   ASSERT_EQ("v4", Get("key4"));
   ASSERT_EQ("v6", Get("key5"));
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  if (rocksdb::port::kLittleEndian) {
+  if (ROCKSDB_NAMESPACE::port::kLittleEndian) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
-  }
-  else {
+  } else {
     fprintf(stderr, "SKIPPED as Cuckoo table doesn't support Big Endian\n");
     return 0;
   }
