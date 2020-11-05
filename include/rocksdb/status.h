@@ -266,7 +266,7 @@ class Status {
   }
 
   static Status EncryptionUnknown(const Slice& msg,
-                                    const Slice& msg2 = Slice()) {
+                                  const Slice& msg2 = Slice()) {
     return Status(kEncryptionUnknown, msg, msg2);
   }
 
