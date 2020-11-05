@@ -399,6 +399,22 @@ TEST(EnvOpenssl_Provider, BigEndianAdd) {
   ASSERT_TRUE(0 == memcmp(nounce3, expect3, sizeof(nounce3)));
 }
 
+// next statements run env test against encrypt_2 code.
+static std::string KeyName = {"A key name"};
+static ShaDescription KeyDesc(KeyName);
+
+// this key is from
+// https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38a.pdf,
+//  example F.5.5
+
+static char key256[] =
+    "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4";
+std::shared_ptr<OpenSSLEncryptionProvider> openssl_provider_ctr(
+    new OpenSSLEncryptionProvider());
+
+std::unique_ptr<Env> encrypted(NewEncryptedEnv(Env::Default(),
+                                               openssl_provider_ctr));
+
 //
 // The following is copied from env_basic_test.cc
 //
@@ -411,7 +427,11 @@ class NormalizingEnvWrapper : public EnvWrapper {
 
  public:
   explicit NormalizingEnvWrapper(std::unique_ptr<Env>&& base)
-      : EnvWrapper(base.get()), base_(std::move(base)) {}
+      : EnvWrapper(base.get()), base_(std::move(base)) {
+    // put a key in the provider
+    openssl_provider_ctr->AddCipher(KeyName, key256, sizeof(key256) - 1, true);
+  }
+
   explicit NormalizingEnvWrapper(Env* base) : EnvWrapper(base) {}
 
   // Removes . and .. from directory listing
@@ -473,27 +493,6 @@ class EnvBasicTestWithParam : public testing::Test,
 
 class EnvMoreTestWithParam : public EnvBasicTestWithParam {};
 
-// next statements run env test against encrypt_2 code.
-static std::string KeyName = {"A key name"};
-static ShaDescription KeyDesc(KeyName);
-
-// this key is from
-// https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-38a.pdf,
-//  example F.5.5
-#if 0
-static uint8_t key256[] = {0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe,
-                           0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d, 0x77, 0x81,
-                           0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7,
-                           0x2d, 0x98, 0x10, 0xa3, 0x09, 0x14, 0xdf, 0xf4};
-#endif
-static char key256[] =
-    "603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4";
-
-std::shared_ptr<OpenSSLEncryptionProvider> openssl_provider_ctr(
-    new OpenSSLEncryptionProvider());
-
-std::unique_ptr<Env> encrypted(NewEncryptedEnv(Env::Default(),
-                                               openssl_provider_ctr));
 static std::unique_ptr<Env> openssl_env(
     new NormalizingEnvWrapper(std::move(encrypted)));
 
@@ -504,10 +503,6 @@ TEST_P(EnvBasicTestWithParam, Basics) {
   uint64_t file_size;
   std::unique_ptr<WritableFile> writable_file;
   std::vector<std::string> children;
-
-  // put a key in the provider
-  ASSERT_EQ(Status::OK(), openssl_provider_ctr->AddCipher(
-                              KeyName, key256, sizeof(key256) - 1, true));
 
   // kill warning
   std::string warn(kEncryptMarker);
