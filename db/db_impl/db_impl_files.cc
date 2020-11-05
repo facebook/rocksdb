@@ -769,7 +769,7 @@ Status DBImpl::SetDBId() {
       versions_->db_id_ = db_id_;
       s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
                                  mutable_cf_options, &edit, &mutex_, nullptr,
-                                 false);
+                                 /* new_descriptor_log */ false);
     }
   } else {
     s = SetIdentityFile(env_, dbname_, db_id_);
@@ -833,10 +833,13 @@ Status DBImpl::DeleteUnreferencedSstFilesAndSwitchToNewManifest() {
   assert(versions_->GetColumnFamilySet());
   ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
   assert(default_cfd);
-  // Switch to a new MANIFEST.
+  // If SetDBId writes db_id to MANIFEST, then a new MANIFEST is created in
+  // SetDBId, so we don't create new MANIFEST here. Otherwise, this is the first
+  // time LogAndApply is called, even if new_descriptor_log is false, a new
+  // MANIFEST is created since VersionSet::descriptor_log_ is created lazily.
   s = versions_->LogAndApply(
       default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
-      directories_.GetDbDir(), /*new_descriptor_log*/ true);
+      directories_.GetDbDir(), /*new_descriptor_log*/ false);
   if (!s.ok()) {
     return s;
   }
