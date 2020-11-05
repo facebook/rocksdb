@@ -867,6 +867,19 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_TRUE(dbi->VerifyFileChecksums(ReadOptions()).IsCorruption());
   ASSERT_EQ(1, count);
+
+  CloseDb();
+  ASSERT_OK(DestroyDB(dbname_, options));
+  Reopen(&options);
+  Build(10, 5);
+  dbi = static_cast_with_check<DBImpl>(db_);
+  ASSERT_OK(dbi->VerifyFileChecksums(ReadOptions()));
+  CloseDb();
+  Corrupt(kTableFile, 0, 1);
+
+  // Set best_efforts_recovery to true
+  options.best_efforts_recovery = true;
+  ASSERT_TRUE(TryReopen(&options).IsCorruption());
 }
 
 }  // namespace ROCKSDB_NAMESPACE
