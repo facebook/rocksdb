@@ -23,12 +23,14 @@
 #include "test_util/sync_point.h"
 #include "util/rate_limiter.h"
 
+#if !defined(ROCKSDB_LITE) && defined(OS_LINUX)
 // VerifyFileChecksums is a weak symbol.
 // If it is defined and returns true, and options.best_efforts_recovery = true,
 // and file checksum is enabled, then the checksums of table files will be
 // computed and verified with MANIFEST.
 extern "C" bool RocksDbFileChecksumsVerificationEnabledOnRecovery()
     __attribute__((__weak__));
+#endif  // !ROCKSDB_LITE && OS_LINUX
 
 namespace ROCKSDB_NAMESPACE {
 Options SanitizeOptions(const std::string& dbname, const Options& src) {
