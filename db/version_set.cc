@@ -1059,6 +1059,7 @@ class LevelIterator final : public InternalIterator {
 void LevelIterator::Seek(const Slice& target) {
   // Check whether the seek key fall under the same file
   bool need_to_reseek = true;
+  fprintf(stdout, "JJJ6: seek\n");
   if (file_iter_.iter() != nullptr && file_index_ < flevel_->num_files) {
     const FdWithKeyRange& cur_file = flevel_->files[file_index_];
     if (icomparator_.InternalKeyComparator::Compare(
