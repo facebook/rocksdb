@@ -779,11 +779,14 @@ Status DBTestBase::SingleDelete(int cf, const std::string& k) {
   return db_->SingleDelete(WriteOptions(), handles_[cf], k);
 }
 
-Status DBTestBase::DeleteRange(const std::string& begin, const std::string& end) {
-  return db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), begin, end);
+Status DBTestBase::DeleteRange(const std::string& begin,
+                               const std::string& end) {
+  return db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), begin,
+                          end);
 }
 
-Status DBTestBase::DeleteRange(int cf, const std::string& begin, const std::string& end) {
+Status DBTestBase::DeleteRange(int cf, const std::string& begin,
+                               const std::string& end) {
   return db_->DeleteRange(WriteOptions(), handles_[cf], begin, end);
 }
 
