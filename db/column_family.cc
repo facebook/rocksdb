@@ -12,9 +12,11 @@
 #include <algorithm>
 #include <cinttypes>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <vector>
 
+#include "db/blob/blob_file_cache.h"
 #include "db/compaction/compaction_picker.h"
 #include "db/compaction/compaction_picker_fifo.h"
 #include "db/compaction/compaction_picker_level.h"
@@ -31,7 +33,7 @@
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
-#include "table/block_based/block_based_table_factory.h"
+#include "rocksdb/table.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
 #include "util/cast_util.h"
@@ -148,6 +150,16 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
           "should be nonzero if we're using zstd's dictionary generator.");
     }
   }
+
+  if (!CompressionTypeSupported(cf_options.blob_compression_type)) {
+    std::ostringstream oss;
+    oss << "The specified blob compression type "
+        << CompressionTypeToString(cf_options.blob_compression_type)
+        << " is not available.";
+
+    return Status::InvalidArgument(oss.str());
+  }
+
   return Status::OK();
 }
 
@@ -346,8 +358,8 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.max_compaction_bytes = result.target_file_size_base * 25;
   }
 
-  bool is_block_based_table =
-      (result.table_factory->Name() == BlockBasedTableFactory::kName);
+  bool is_block_based_table = (result.table_factory->IsInstanceOf(
+      TableFactory::kBlockBasedTableName()));
 
   const uint64_t kAdjustedTtl = 30 * 24 * 60 * 60;
   if (result.ttl == kDefaultTtl) {
@@ -488,7 +500,8 @@ ColumnFamilyData::ColumnFamilyData(
     Cache* _table_cache, WriteBufferManager* write_buffer_manager,
     const ColumnFamilyOptions& cf_options, const ImmutableDBOptions& db_options,
     const FileOptions& file_options, ColumnFamilySet* column_family_set,
-    BlockCacheTracer* const block_cache_tracer)
+    BlockCacheTracer* const block_cache_tracer,
+    const std::shared_ptr<IOTracer>& io_tracer)
     : id_(id),
       name_(name),
       dummy_versions_(_dummy_versions),
@@ -546,7 +559,11 @@ ColumnFamilyData::ColumnFamilyData(
     internal_stats_.reset(
         new InternalStats(ioptions_.num_levels, db_options.env, this));
     table_cache_.reset(new TableCache(ioptions_, file_options, _table_cache,
-                                      block_cache_tracer));
+                                      block_cache_tracer, io_tracer));
+    blob_file_cache_.reset(
+        new BlobFileCache(_table_cache, ioptions(), soptions(), id_,
+                          internal_stats_->GetBlobFileReadHist()));
+
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(ioptions_, &internal_comparator_));
@@ -1043,7 +1060,8 @@ void ColumnFamilyData::CreateNewMemtable(
 }
 
 bool ColumnFamilyData::NeedsCompaction() const {
-  return compaction_picker_->NeedsCompaction(current_->storage_info());
+  return !mutable_cf_options_.disable_auto_compactions &&
+         compaction_picker_->NeedsCompaction(current_->storage_info());
 }
 
 Compaction* ColumnFamilyData::PickCompaction(
@@ -1070,7 +1088,7 @@ bool ColumnFamilyData::RangeOverlapWithCompaction(
 
 Status ColumnFamilyData::RangesOverlapWithMemtables(
     const autovector<Range>& ranges, SuperVersion* super_version,
-    bool* overlap) {
+    bool allow_data_in_errors, bool* overlap) {
   assert(overlap != nullptr);
   *overlap = false;
   // Create an InternalIterator over all unflushed memtables
@@ -1089,10 +1107,12 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
       super_version->mem->NewRangeTombstoneIterator(read_opts, read_seq);
   range_del_agg.AddTombstones(
       std::unique_ptr<FragmentedRangeTombstoneIterator>(active_range_del_iter));
-  super_version->imm->AddRangeTombstoneIterators(read_opts, nullptr /* arena */,
-                                                 &range_del_agg);
-
   Status status;
+  status = super_version->imm->AddRangeTombstoneIterators(
+      read_opts, nullptr /* arena */, &range_del_agg);
+  // AddRangeTombstoneIterators always return Status::OK.
+  assert(status.ok());
+
   for (size_t i = 0; i < ranges.size() && status.ok() && !*overlap; ++i) {
     auto* vstorage = super_version->current->storage_info();
     auto* ucmp = vstorage->InternalComparator()->user_comparator();
@@ -1101,12 +1121,12 @@ Status ColumnFamilyData::RangesOverlapWithMemtables(
     memtable_iter->Seek(range_start.Encode());
     status = memtable_iter->status();
     ParsedInternalKey seek_result;
-    if (status.ok()) {
-      if (memtable_iter->Valid() &&
-          !ParseInternalKey(memtable_iter->key(), &seek_result)) {
-        status = Status::Corruption("DB have corrupted keys");
-      }
+
+    if (status.ok() && memtable_iter->Valid()) {
+      status = ParseInternalKey(memtable_iter->key(), &seek_result,
+                                allow_data_in_errors);
     }
+
     if (status.ok()) {
       if (memtable_iter->Valid() &&
           ucmp->Compare(seek_result.user_key, ranges[i].limit) <= 0) {
@@ -1303,7 +1323,8 @@ Status ColumnFamilyData::ValidateOptions(
   }
 
   if (cf_options.ttl > 0 && cf_options.ttl != kDefaultTtl) {
-    if (cf_options.table_factory->Name() != BlockBasedTableFactory::kName) {
+    if (!cf_options.table_factory->IsInstanceOf(
+            TableFactory::kBlockBasedTableName())) {
       return Status::NotSupported(
           "TTL is only supported in Block-Based Table format. ");
     }
@@ -1311,7 +1332,8 @@ Status ColumnFamilyData::ValidateOptions(
 
   if (cf_options.periodic_compaction_seconds > 0 &&
       cf_options.periodic_compaction_seconds != kDefaultPeriodicCompSecs) {
-    if (cf_options.table_factory->Name() != BlockBasedTableFactory::kName) {
+    if (!cf_options.table_factory->IsInstanceOf(
+            TableFactory::kBlockBasedTableName())) {
       return Status::NotSupported(
           "Periodic Compaction is only supported in "
           "Block-Based Table format. ");
@@ -1403,12 +1425,13 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  Cache* table_cache,
                                  WriteBufferManager* _write_buffer_manager,
                                  WriteController* _write_controller,
-                                 BlockCacheTracer* const block_cache_tracer)
+                                 BlockCacheTracer* const block_cache_tracer,
+                                 const std::shared_ptr<IOTracer>& io_tracer)
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(
           ColumnFamilyData::kDummyColumnFamilyDataId, "", nullptr, nullptr,
           nullptr, ColumnFamilyOptions(), *db_options, file_options, nullptr,
-          block_cache_tracer)),
+          block_cache_tracer, io_tracer)),
       default_cfd_cache_(nullptr),
       db_name_(dbname),
       db_options_(db_options),
@@ -1416,7 +1439,8 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       table_cache_(table_cache),
       write_buffer_manager_(_write_buffer_manager),
       write_controller_(_write_controller),
-      block_cache_tracer_(block_cache_tracer) {
+      block_cache_tracer_(block_cache_tracer),
+      io_tracer_(io_tracer) {
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;
   dummy_cfd_->next_ = dummy_cfd_;
@@ -1482,7 +1506,7 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   assert(column_families_.find(name) == column_families_.end());
   ColumnFamilyData* new_cfd = new ColumnFamilyData(
       id, name, dummy_versions, table_cache_, write_buffer_manager_, options,
-      *db_options_, file_options_, this, block_cache_tracer_);
+      *db_options_, file_options_, this, block_cache_tracer_, io_tracer_);
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
   max_column_family_ = std::max(max_column_family_, id);

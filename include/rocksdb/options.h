@@ -24,6 +24,7 @@
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/sst_partitioner.h"
+#include "rocksdb/types.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -303,8 +304,24 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
 
 enum class WALRecoveryMode : char {
   // Original levelDB recovery
-  // We tolerate incomplete record in trailing data on all logs
-  // Use case : This is legacy behavior
+  //
+  // We tolerate the last record in any log to be incomplete due to a crash
+  // while writing it. Zeroed bytes from preallocation are also tolerated in the
+  // trailing data of any log.
+  //
+  // Use case: Applications for which updates, once applied, must not be rolled
+  // back even after a crash-recovery. In this recovery mode, RocksDB guarantees
+  // this as long as `WritableFile::Append()` writes are durable. In case the
+  // user needs the guarantee in more situations (e.g., when
+  // `WritableFile::Append()` writes to page cache, but the user desires this
+  // guarantee in face of power-loss crash-recovery), RocksDB offers various
+  // mechanisms to additionally invoke `WritableFile::Sync()` in order to
+  // strengthen the guarantee.
+  //
+  // This differs from `kPointInTimeRecovery` in that, in case a corruption is
+  // detected during recovery, this mode will refuse to open the DB. Whereas,
+  // `kPointInTimeRecovery` will stop recovery just before the corruption since
+  // that is a valid point-in-time to which to recover.
   kTolerateCorruptedTailRecords = 0x00,
   // Recover from clean shutdown
   // We don't expect to find any corruption in the WAL
@@ -331,6 +348,8 @@ struct DbPath {
   DbPath() : target_size(0) {}
   DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
 };
+
+static const std::string kHostnameForDbHostId = "__hostname__";
 
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
@@ -373,6 +392,20 @@ struct DBOptions {
   // In most cases you want this to be set to true.
   // Default: true
   bool paranoid_checks = true;
+
+  // If true, track WALs in MANIFEST and verify them on recovery.
+  //
+  // If a WAL is tracked in MANIFEST but is missing from disk on recovery,
+  // or the size of the tracked WAL is larger than the WAL's on-disk size,
+  // an error is reported and recovery is aborted.
+  //
+  // If a WAL is not tracked in MANIFEST, then no verification will happen
+  // during recovery.
+  //
+  // Default: false
+  // FIXME(cheng): This option is part of a work in progress and does not yet
+  // work
+  bool track_and_verify_wals_in_manifest = false;
 
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc. In the near
@@ -1141,6 +1174,28 @@ struct DBOptions {
   //
   // Default: 1000000 (microseconds).
   uint64_t bgerror_resume_retry_interval = 1000000;
+
+  // It allows user to opt-in to get error messages containing corrupted
+  // keys/values. Corrupt keys, values will be logged in the
+  // messages/logs/status that will help users with the useful information
+  // regarding affected data. By default value is set false to prevent users
+  // data to be exposed in the logs/messages etc.
+  //
+  // Default: false
+  bool allow_data_in_errors = false;
+
+  // A string identifying the machine hosting the DB. This
+  // will be written as a property in every SST file written by the DB (or
+  // by offline writers such as SstFileWriter and RepairDB). It can be useful
+  // for troubleshooting in memory corruption caused by a failing host when
+  // writing a file, by tracing back to the writing host. These corruptions
+  // may not be caught by the checksum since they happen before checksumming.
+  // If left as default, the table writer will substitute it with the actual
+  // hostname when writing the SST file. If set to an empty stirng, the
+  // property will not be written to the SST file.
+  //
+  // Default: hostname
+  std::string db_host_id = kHostnameForDbHostId;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1347,7 +1402,8 @@ struct ReadOptions {
   const Slice* timestamp;
   const Slice* iter_start_ts;
 
-  // Deadline for completing the read request (only Get/MultiGet for now) in us.
+  // Deadline for completing an API call (Get/MultiGet/Seek/Next for now)
+  // in microseconds.
   // It should be set to microseconds since epoch, i.e, gettimeofday or
   // equivalent plus allowed duration in microseconds. The best way is to use
   // env->NowMicros() + some timeout.
@@ -1356,6 +1412,12 @@ struct ReadOptions {
   // checking for deadline periodically rather than for every key if
   // processing a batch
   std::chrono::microseconds deadline;
+
+  // A timeout in microseconds to be passed to the underlying FileSystem for
+  // reads. As opposed to deadline, this determines the timeout for each
+  // individual file read request. If a MultiGet/Get/Seek/Next etc call
+  // results in multiple reads, each read can last upto io_timeout us.
+  std::chrono::microseconds io_timeout;
 
   // It limits the maximum cumulative value size of the keys in batch while
   // reading through MultiGet. Once the cumulative value size exceeds this

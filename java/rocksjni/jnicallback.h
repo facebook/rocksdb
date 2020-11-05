@@ -19,6 +19,8 @@ class JniCallback {
   JniCallback(JNIEnv* env, jobject jcallback_obj);
   virtual ~JniCallback();
 
+  const jobject& GetJavaObject() const { return m_jcallback_obj; }
+
  protected:
   JavaVM* m_jvm;
   jobject m_jcallback_obj;

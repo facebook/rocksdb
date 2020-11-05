@@ -20,7 +20,8 @@
 namespace ROCKSDB_NAMESPACE {
 class DBTestDynamicLevel : public DBTestBase {
  public:
-  DBTestDynamicLevel() : DBTestBase("/db_dynamic_level_test") {}
+  DBTestDynamicLevel()
+      : DBTestBase("/db_dynamic_level_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
@@ -140,6 +141,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
   options.max_background_compactions = 2;
   options.num_levels = 5;
   options.max_compaction_bytes = 0;  // Force not expanding in compactions
+  options.db_host_id = "";  // Setting this messes up the file size calculation
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));

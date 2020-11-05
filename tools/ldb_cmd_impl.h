@@ -136,7 +136,7 @@ class DBLoaderCommand : public LDBCommand {
   static void Help(std::string& ret);
   virtual void DoCommand() override;
 
-  virtual Options PrepareOptionsForOpenDB() override;
+  virtual void OverrideBaseOptions() override;
 
  private:
   bool disable_wal_;
@@ -246,7 +246,7 @@ class ReduceDBLevelsCommand : public LDBCommand {
                         const std::map<std::string, std::string>& options,
                         const std::vector<std::string>& flags);
 
-  virtual Options PrepareOptionsForOpenDB() override;
+  virtual void OverrideBaseOptions() override;
 
   virtual void DoCommand() override;
 
@@ -278,7 +278,7 @@ class ChangeCompactionStyleCommand : public LDBCommand {
       const std::map<std::string, std::string>& options,
       const std::vector<std::string>& flags);
 
-  virtual Options PrepareOptionsForOpenDB() override;
+  virtual void OverrideBaseOptions() override;
 
   virtual void DoCommand() override;
 
@@ -362,7 +362,7 @@ class BatchPutCommand : public LDBCommand {
 
   static void Help(std::string& ret);
 
-  virtual Options PrepareOptionsForOpenDB() override;
+  virtual void OverrideBaseOptions() override;
 
  private:
   /**
@@ -437,7 +437,7 @@ class PutCommand : public LDBCommand {
 
   static void Help(std::string& ret);
 
-  virtual Options PrepareOptionsForOpenDB() override;
+  virtual void OverrideBaseOptions() override;
 
  private:
   std::string key_;
@@ -511,6 +511,8 @@ class RepairCommand : public LDBCommand {
 
   virtual bool NoDBOpen() override { return true; }
 
+  virtual void OverrideBaseOptions() override;
+
   static void Help(std::string& ret);
 };
 
@@ -568,7 +570,7 @@ class WriteExternalSstFilesCommand : public LDBCommand {
 
   virtual bool NoDBOpen() override { return false; }
 
-  virtual Options PrepareOptionsForOpenDB() override;
+  virtual void OverrideBaseOptions() override;
 
   static void Help(std::string& ret);
 
@@ -588,7 +590,7 @@ class IngestExternalSstFilesCommand : public LDBCommand {
 
   virtual bool NoDBOpen() override { return false; }
 
-  virtual Options PrepareOptionsForOpenDB() override;
+  virtual void OverrideBaseOptions() override;
 
   static void Help(std::string& ret);
 
@@ -623,6 +625,25 @@ class ListFileRangeDeletesCommand : public LDBCommand {
 
  private:
   int max_keys_ = 1000;
+};
+
+// Command that removes the SST file forcibly from the manifest.
+class UnsafeRemoveSstFileCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "unsafe_remove_sst_file"; }
+
+  UnsafeRemoveSstFileCommand(const std::vector<std::string>& params,
+                             const std::map<std::string, std::string>& options,
+                             const std::vector<std::string>& flags);
+
+  static void Help(std::string& ret);
+
+  virtual void DoCommand() override;
+
+  virtual bool NoDBOpen() override { return true; }
+
+ private:
+  uint64_t sst_file_number_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

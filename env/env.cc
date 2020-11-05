@@ -15,7 +15,6 @@
 #include "memory/arena.h"
 #include "options/db_options.h"
 #include "port/port.h"
-#include "port/sys_time.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
@@ -44,7 +43,7 @@ Status Env::LoadEnv(const std::string& value, Env** result) {
 #ifndef ROCKSDB_LITE
   s = ObjectRegistry::NewInstance()->NewStaticObject<Env>(value, &env);
 #else
-  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
+  s = Status::NotSupported("Cannot load environment in LITE mode", value);
 #endif
   if (s.ok()) {
     *result = env;
@@ -77,7 +76,7 @@ Status Env::LoadEnv(const std::string& value, Env** result,
 #else
   (void)result;
   (void)guard;
-  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
+  s = Status::NotSupported("Cannot load environment in LITE mode", value);
 #endif
   return s;
 }
@@ -138,6 +137,16 @@ Status Env::GetChildrenFileAttributes(const std::string& dir,
   }
   result->resize(result_size);
   return Status::OK();
+}
+
+Status Env::GetHostNameString(std::string* result) {
+  std::array<char, kMaxHostNameLen> hostname_buf;
+  Status s = GetHostName(hostname_buf.data(), hostname_buf.size());
+  if (s.ok()) {
+    hostname_buf[hostname_buf.size() - 1] = '\0';
+    result->assign(hostname_buf.data());
+  }
+  return s;
 }
 
 SequentialFile::~SequentialFile() {
@@ -207,6 +216,14 @@ void Logger::Logv(const InfoLogLevel log_level, const char* format, va_list ap) 
     snprintf(new_format, sizeof(new_format) - 1, "[%s] %s",
       kInfoLogLevelNames[log_level], format);
     Logv(new_format, ap);
+  }
+
+  if (log_level >= InfoLogLevel::WARN_LEVEL &&
+      log_level != InfoLogLevel::HEADER_LEVEL) {
+    // Log messages with severity of warning or higher should be rare and are
+    // sometimes followed by an unclean crash. We want to be sure important
+    // messages are not lost in an application buffer when that happens.
+    Flush();
   }
 }
 

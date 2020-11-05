@@ -7,6 +7,7 @@
 
 #include "rocksdb/sst_file_reader.h"
 
+#include "db/arena_wrapped_db_iter.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "env/composite_env_wrapper.h"
@@ -62,18 +63,23 @@ Status SstFileReader::Open(const std::string& file_path) {
   return s;
 }
 
-Iterator* SstFileReader::NewIterator(const ReadOptions& options) {
+Iterator* SstFileReader::NewIterator(const ReadOptions& roptions) {
   auto r = rep_.get();
-  auto sequence = options.snapshot != nullptr
-                      ? options.snapshot->GetSequenceNumber()
+  auto sequence = roptions.snapshot != nullptr
+                      ? roptions.snapshot->GetSequenceNumber()
                       : kMaxSequenceNumber;
+  ArenaWrappedDBIter* res = new ArenaWrappedDBIter();
+  res->Init(r->options.env, roptions, r->ioptions, r->moptions, sequence,
+            r->moptions.max_sequential_skip_in_iterations,
+            0 /* version_number */, nullptr /* read_callback */,
+            nullptr /* db_impl */, nullptr /* cfd */, false /* allow_blob */,
+            false /* allow_refresh */);
   auto internal_iter = r->table_reader->NewIterator(
-      options, r->moptions.prefix_extractor.get(), /*arena=*/nullptr,
-      /*skip_filters=*/false, TableReaderCaller::kSSTFileReader);
-  return NewDBIterator(r->options.env, options, r->ioptions, r->moptions,
-                       r->ioptions.user_comparator, internal_iter, sequence,
-                       r->moptions.max_sequential_skip_in_iterations,
-                       nullptr /* read_callback */);
+      res->GetReadOptions(), r->moptions.prefix_extractor.get(),
+      res->GetArena(), false /* skip_filters */,
+      TableReaderCaller::kSSTFileReader);
+  res->SetIterUnderDBIter(internal_iter);
+  return res;
 }
 
 std::shared_ptr<const TableProperties> SstFileReader::GetTableProperties()

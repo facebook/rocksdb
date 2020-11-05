@@ -38,7 +38,7 @@ class Status {
   ~Status() {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
     if (!checked_) {
-      fprintf(stderr, "Failed to check Status\n");
+      fprintf(stderr, "Failed to check Status %p\n", this);
       port::PrintStack();
       abort();
     }
@@ -113,6 +113,7 @@ class Status {
     kManualCompactionPaused = 11,
     kOverwritten = 12,
     kTxnNotPrepared = 13,
+    kIOFenced = 14,
     kMaxSubCode
   };
 
@@ -161,8 +162,14 @@ class Status {
   static Status NotFound(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kNotFound, msg, msg2);
   }
+
   // Fast path for not found without malloc;
   static Status NotFound(SubCode msg = kNone) { return Status(kNotFound, msg); }
+
+  static Status NotFound(SubCode sc, const Slice& msg,
+                         const Slice& msg2 = Slice()) {
+    return Status(kNotFound, sc, msg, msg2);
+  }
 
   static Status Corruption(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kCorruption, msg, msg2);
@@ -462,7 +469,8 @@ class Status {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
     checked_ = true;
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
-    return (code() == kIOError) && (subcode() == kPathNotFound);
+    return (code() == kIOError || code() == kNotFound) &&
+           (subcode() == kPathNotFound);
   }
 
   // Returns true iff the status indicates manual compaction paused. This
@@ -480,6 +488,14 @@ class Status {
     checked_ = true;
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
     return (code() == kInvalidArgument) && (subcode() == kTxnNotPrepared);
+  }
+
+  // Returns true iff the status indicates a IOFenced error.
+  bool IsIOFenced() const {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    checked_ = true;
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+    return (code() == kIOError) && (subcode() == kIOFenced);
   }
 
   // Return a string representation of this status suitable for printing.

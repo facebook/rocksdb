@@ -107,11 +107,12 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
 }
 
 bool DBIter::ParseKey(ParsedInternalKey* ikey) {
-  if (!ParseInternalKey(iter_.key(), ikey)) {
-    status_ = Status::Corruption("corrupted internal key in DBIter");
+  Status s =
+      ParseInternalKey(iter_.key(), ikey, false /* log_err_key */);  // TODO
+  if (!s.ok()) {
+    status_ = Status::Corruption("In DBIter: ", s.getState());
     valid_ = false;
-    ROCKS_LOG_ERROR(logger_, "corrupted internal key in DBIter: %s",
-                    iter_.key().ToString(true).c_str());
+    ROCKS_LOG_ERROR(logger_, "In DBIter: %s", status_.getState());
     return false;
   } else {
     return true;
@@ -147,13 +148,13 @@ void DBIter::Next() {
 
   local_stats_.next_count_++;
   if (ok && iter_.Valid()) {
-    Slice prefix;
     if (prefix_same_as_start_) {
       assert(prefix_extractor_ != nullptr);
-      prefix = prefix_.GetUserKey();
+      const Slice prefix = prefix_.GetUserKey();
+      FindNextUserEntry(true /* skipping the current user key */, &prefix);
+    } else {
+      FindNextUserEntry(true /* skipping the current user key */, nullptr);
     }
-    FindNextUserEntry(true /* skipping the current user key */,
-                      prefix_same_as_start_ ? &prefix : nullptr);
   } else {
     is_key_seqnum_zero_ = false;
     valid_ = false;
@@ -384,8 +385,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             }
             break;
           default:
-            assert(false);
-            break;
+            valid_ = false;
+            status_ = Status::Corruption(
+                "Unknown value type: " +
+                std::to_string(static_cast<unsigned int>(ikey_.type)));
+            return false;
         }
       }
     } else {
@@ -433,11 +437,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               &last_key,
               ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion));
         } else {
-          std::string min_ts(timestamp_size_, static_cast<char>(0));
+          const std::string kTsMin(timestamp_size_, static_cast<char>(0));
           AppendInternalKeyWithDifferentTimestamp(
               &last_key,
               ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion),
-              min_ts);
+              kTsMin);
         }
         // Don't set skipping_saved_key = false because we may still see more
         // user-keys equal to saved_key_.
@@ -556,7 +560,11 @@ bool DBIter::MergeValuesNewToOld() {
       valid_ = false;
       return false;
     } else {
-      assert(false);
+      valid_ = false;
+      status_ = Status::Corruption(
+          "Unrecognized value type: " +
+          std::to_string(static_cast<unsigned int>(ikey.type)));
+      return false;
     }
   }
 
@@ -832,7 +840,11 @@ bool DBIter::FindValueForCurrentKey() {
         }
         break;
       default:
-        assert(false);
+        valid_ = false;
+        status_ = Status::Corruption(
+            "Unknown value type: " +
+            std::to_string(static_cast<unsigned int>(last_key_entry_type)));
+        return false;
     }
 
     PERF_COUNTER_ADD(internal_key_skipped_count, 1);
@@ -846,6 +858,7 @@ bool DBIter::FindValueForCurrentKey() {
   }
 
   Status s;
+  s.PermitUncheckedError();
   is_blob_ = false;
   switch (last_key_entry_type) {
     case kTypeDeletion:
@@ -897,8 +910,11 @@ bool DBIter::FindValueForCurrentKey() {
       is_blob_ = true;
       break;
     default:
-      assert(false);
-      break;
+      valid_ = false;
+      status_ = Status::Corruption(
+          "Unknown value type: " +
+          std::to_string(static_cast<unsigned int>(last_key_entry_type)));
+      return false;
   }
   if (!s.ok()) {
     valid_ = false;
@@ -1047,7 +1063,11 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       valid_ = false;
       return false;
     } else {
-      assert(false);
+      valid_ = false;
+      status_ = Status::Corruption(
+          "Unknown value type: " +
+          std::to_string(static_cast<unsigned int>(ikey.type)));
+      return false;
     }
   }
 
@@ -1209,7 +1229,8 @@ void DBIter::Seek(const Slice& target) {
 
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
-    db_impl_->TraceIteratorSeek(cfd_->GetID(), target);
+    // TODO: What do we do if this returns an error?
+    db_impl_->TraceIteratorSeek(cfd_->GetID(), target).PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 
@@ -1270,7 +1291,9 @@ void DBIter::SeekForPrev(const Slice& target) {
 
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
-    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target);
+    // TODO: What do we do if this returns an error?
+    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target)
+        .PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 

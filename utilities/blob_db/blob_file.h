@@ -11,7 +11,6 @@
 #include <unordered_set>
 
 #include "db/blob/blob_log_format.h"
-#include "db/blob/blob_log_reader.h"
 #include "db/blob/blob_log_writer.h"
 #include "file/random_access_file_reader.h"
 #include "port/port.h"
@@ -189,7 +188,9 @@ class BlobFile {
 
   // All Get functions which are not atomic, will need ReadLock on the mutex
 
-  ExpirationRange GetExpirationRange() const { return expiration_range_; }
+  const ExpirationRange& GetExpirationRange() const {
+    return expiration_range_;
+  }
 
   void ExtendExpirationRange(uint64_t expiration) {
     expiration_range_.first = std::min(expiration_range_.first, expiration);
@@ -214,10 +215,6 @@ class BlobFile {
                    bool* fresh_open);
 
  private:
-  std::shared_ptr<BlobLogReader> OpenRandomAccessReader(
-      Env* env, const DBOptions& db_options,
-      const EnvOptions& env_options) const;
-
   Status ReadFooter(BlobLogFooter* footer);
 
   Status WriteFooterAndCloseLocked(SequenceNumber sequence);

@@ -12,6 +12,7 @@
 #include <sstream>
 #include <string>
 
+#include "env/file_system_tracer.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
@@ -64,7 +65,7 @@ class RandomAccessFileReader {
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
 
-  std::unique_ptr<FSRandomAccessFile> file_;
+  FSRandomAccessFilePtr file_;
   std::string file_name_;
   Env* env_;
   Statistics* stats_;
@@ -76,11 +77,12 @@ class RandomAccessFileReader {
  public:
   explicit RandomAccessFileReader(
       std::unique_ptr<FSRandomAccessFile>&& raf, const std::string& _file_name,
-      Env* _env = nullptr, Statistics* stats = nullptr, uint32_t hist_type = 0,
+      Env* _env = nullptr, const std::shared_ptr<IOTracer>& io_tracer = nullptr,
+      Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {})
-      : file_(std::move(raf)),
+      : file_(std::move(raf), io_tracer),
         file_name_(std::move(_file_name)),
         env_(_env),
         stats_(stats),
@@ -98,21 +100,6 @@ class RandomAccessFileReader {
 #else  // !ROCKSDB_LITE
     (void)listeners;
 #endif
-  }
-
-  RandomAccessFileReader(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT {
-    *this = std::move(o);
-  }
-
-  RandomAccessFileReader& operator=(RandomAccessFileReader&& o)
-      ROCKSDB_NOEXCEPT {
-    file_ = std::move(o.file_);
-    env_ = std::move(o.env_);
-    stats_ = std::move(o.stats_);
-    hist_type_ = std::move(o.hist_type_);
-    file_read_hist_ = std::move(o.file_read_hist_);
-    rate_limiter_ = std::move(o.rate_limiter_);
-    return *this;
   }
 
   RandomAccessFileReader(const RandomAccessFileReader&) = delete;

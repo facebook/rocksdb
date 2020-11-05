@@ -196,6 +196,8 @@ void TableProperties::Add(const TableProperties& tp) {
 const std::string TablePropertiesNames::kDbId = "rocksdb.creating.db.identity";
 const std::string TablePropertiesNames::kDbSessionId =
     "rocksdb.creating.session.identity";
+const std::string TablePropertiesNames::kDbHostId =
+    "rocksdb.creating.host.identity";
 const std::string TablePropertiesNames::kDataSize  =
     "rocksdb.data.size";
 const std::string TablePropertiesNames::kIndexSize =

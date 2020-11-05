@@ -6,6 +6,9 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors
+
+#if !defined(OS_WIN)
+
 #include <dirent.h>
 #ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
 #include <dlfcn.h>
@@ -13,9 +16,6 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#if defined(OS_LINUX)
-#include <linux/fs.h>
-#endif
 #if defined(ROCKSDB_IOURING_PRESENT)
 #include <liburing.h>
 #endif
@@ -24,13 +24,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
 #include <sys/statfs.h>
-#include <sys/syscall.h>
-#include <sys/sysmacros.h>
 #endif
 #include <sys/statvfs.h>
 #include <sys/time.h>
@@ -55,7 +52,6 @@
 
 #include "env/composite_env_wrapper.h"
 #include "env/io_posix.h"
-#include "logging/logging.h"
 #include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
@@ -517,3 +513,5 @@ std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs) {
 }
 
 }  // namespace ROCKSDB_NAMESPACE
+
+#endif

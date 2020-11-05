@@ -6,7 +6,6 @@
 #include "test_util/sync_point.h"
 
 #include <fcntl.h>
-#include <sys/stat.h>
 
 #include "test_util/sync_point_impl.h"
 
@@ -80,6 +79,11 @@ void SetupSyncPointsToMockDirectIO() {
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
+        int* val = static_cast<int*>(arg);
+        *val &= ~O_DIRECT;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "NewSequentialFile:O_DIRECT", [&](void* arg) {
         int* val = static_cast<int*>(arg);
         *val &= ~O_DIRECT;
       });

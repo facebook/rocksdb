@@ -27,7 +27,6 @@
 #include <sys/types.h>
 #ifdef OS_LINUX
 #include <sys/statfs.h>
-#include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #endif
 #include "monitoring/iostats_context_imp.h"

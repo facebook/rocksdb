@@ -28,17 +28,14 @@
 #include "test_util/testutil.h"
 #include "util/string_util.h"
 
-using std::cerr;
-using std::cout;
-using std::endl;
-using std::flush;
 
 namespace ROCKSDB_NAMESPACE {
 
 class ObsoleteFilesTest : public DBTestBase {
  public:
   ObsoleteFilesTest()
-      : DBTestBase("/obsolete_files_test"), wal_dir_(dbname_ + "/wal_files") {}
+      : DBTestBase("/obsolete_files_test", /*env_do_fsync=*/true),
+        wal_dir_(dbname_ + "/wal_files") {}
 
   void AddKeys(int numkeys, int startkey) {
     WriteOptions options;
@@ -73,7 +70,7 @@ class ObsoleteFilesTest : public DBTestBase {
       uint64_t number;
       FileType type;
       if (ParseFileName(file, &number, &type)) {
-        log_cnt += (type == kLogFile);
+        log_cnt += (type == kWalFile);
         sst_cnt += (type == kTableFile);
         manifest_cnt += (type == kDescriptorFile);
       }

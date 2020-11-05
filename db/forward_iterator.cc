@@ -661,8 +661,10 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
         sv_->mem->NewRangeTombstoneIterator(
             read_options_, sv_->current->version_set()->LastSequence()));
     range_del_agg.AddTombstones(std::move(range_del_iter));
-    sv_->imm->AddRangeTombstoneIterators(read_options_, &arena_,
-                                         &range_del_agg);
+    // Always return Status::OK().
+    Status temp_s = sv_->imm->AddRangeTombstoneIterators(read_options_, &arena_,
+                                                         &range_del_agg);
+    assert(temp_s.ok());
   }
   has_iter_trimmed_for_upper_bound_ = false;
 
@@ -724,8 +726,10 @@ void ForwardIterator::RenewIterators() {
         svnew->mem->NewRangeTombstoneIterator(
             read_options_, sv_->current->version_set()->LastSequence()));
     range_del_agg.AddTombstones(std::move(range_del_iter));
-    svnew->imm->AddRangeTombstoneIterators(read_options_, &arena_,
-                                           &range_del_agg);
+    // Always return Status::OK().
+    Status temp_s = svnew->imm->AddRangeTombstoneIterators(
+        read_options_, &arena_, &range_del_agg);
+    assert(temp_s.ok());
   }
 
   const auto* vstorage = sv_->current->storage_info();

@@ -44,14 +44,7 @@ class AdaptiveTableFactory : public TableFactory {
       const TableBuilderOptions& table_builder_options,
       uint32_t column_family_id, WritableFileWriter* file) const override;
 
-  // Sanitizes the specified DB Options.
-  Status SanitizeOptions(
-      const DBOptions& /*db_opts*/,
-      const ColumnFamilyOptions& /*cf_opts*/) const override {
-    return Status::OK();
-  }
-
-  std::string GetPrintableTableOptions() const override;
+  std::string GetPrintableOptions() const override;
 
  private:
   std::shared_ptr<TableFactory> table_factory_to_write_;

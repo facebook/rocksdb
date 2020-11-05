@@ -28,8 +28,8 @@ DBImplSecondary::~DBImplSecondary() {}
 
 Status DBImplSecondary::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    bool /*readonly*/, bool /*error_if_log_file_exist*/,
-    bool /*error_if_data_exists_in_logs*/, uint64_t*) {
+    bool /*readonly*/, bool /*error_if_wal_file_exists*/,
+    bool /*error_if_data_exists_in_wals*/, uint64_t*) {
   mutex_.AssertHeld();
 
   JobContext job_context(0);
@@ -112,7 +112,7 @@ Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
   for (size_t i = 0; i < filenames.size(); i++) {
     uint64_t number;
     FileType type;
-    if (ParseFileName(filenames[i], &number, &type) && type == kLogFile &&
+    if (ParseFileName(filenames[i], &number, &type) && type == kWalFile &&
         number >= log_number_min) {
       logs->push_back(number);
     }
@@ -153,7 +153,8 @@ Status DBImplSecondary::MaybeInitLogReader(
         return status;
       }
       file_reader.reset(new SequentialFileReader(
-          std::move(file), fname, immutable_db_options_.log_readahead_size));
+          std::move(file), fname, immutable_db_options_.log_readahead_size,
+          io_tracer_));
     }
 
     // Create the log reader.
@@ -191,6 +192,8 @@ Status DBImplSecondary::RecoverLogFiles(
     auto it  = log_readers_.find(log_number);
     assert(it != log_readers_.end());
     log::FragmentBufferedReader* reader = it->second->reader_;
+    Status* wal_read_status = it->second->status_;
+    assert(wal_read_status);
     // Manually update the file number allocation counter in VersionSet.
     versions_->MarkFileNumberUsed(log_number);
 
@@ -202,13 +205,16 @@ Status DBImplSecondary::RecoverLogFiles(
 
     while (reader->ReadRecord(&record, &scratch,
                               immutable_db_options_.wal_recovery_mode) &&
-           status.ok()) {
+           wal_read_status->ok() && status.ok()) {
       if (record.size() < WriteBatchInternal::kHeader) {
         reader->GetReporter()->Corruption(
             record.size(), Status::Corruption("log record too small"));
         continue;
       }
-      WriteBatchInternal::SetContents(&batch, record);
+      status = WriteBatchInternal::SetContents(&batch, record);
+      if (!status.ok()) {
+        break;
+      }
       SequenceNumber seq_of_batch = WriteBatchInternal::Sequence(&batch);
       std::vector<uint32_t> column_family_ids;
       status = CollectColumnFamilyIdsFromWriteBatch(batch, &column_family_ids);
@@ -293,6 +299,9 @@ Status DBImplSecondary::RecoverLogFiles(
         // blocks that do not form coherent data
         reader->GetReporter()->Corruption(record.size(), status);
       }
+    }
+    if (status.ok() && !wal_read_status->ok()) {
+      status = *wal_read_status;
     }
     if (!status.ok()) {
       return status;
@@ -611,7 +620,7 @@ Status DB::OpenAsSecondary(
   impl->versions_.reset(new ReactiveVersionSet(
       dbname, &impl->immutable_db_options_, impl->file_options_,
       impl->table_cache_.get(), impl->write_buffer_manager_,
-      &impl->write_controller_));
+      &impl->write_controller_, impl->io_tracer_));
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->wal_in_db_path_ = IsWalDirSameAsDBPath(&impl->immutable_db_options_);
@@ -623,7 +632,7 @@ Status DB::OpenAsSecondary(
       auto cfd =
           impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
       if (nullptr == cfd) {
-        s = Status::InvalidArgument("Column family not found: ", cf.name);
+        s = Status::InvalidArgument("Column family not found", cf.name);
         break;
       }
       handles->push_back(new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));

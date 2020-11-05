@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 
+#include "cache/cache_helpers.h"
 #include "db/blob/blob_file_meta.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction.h"
@@ -42,6 +43,7 @@
 #include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "db/write_controller.h"
+#include "env/file_system_tracer.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/db_options.h"
 #include "port/port.h"
@@ -119,7 +121,7 @@ class VersionStorageInfo {
 
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
 
-  void AddFile(int level, FileMetaData* f, Logger* info_log = nullptr);
+  void AddFile(int level, FileMetaData* f);
 
   void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
 
@@ -763,7 +765,6 @@ class Version {
 
  private:
   Env* env_;
-  FileSystem* fs_;
   friend class ReactiveVersionSet;
   friend class VersionSet;
   friend class VersionEditHandler;
@@ -775,6 +776,13 @@ class Version {
   const Comparator* user_comparator() const {
     return storage_info_.user_comparator_;
   }
+
+  // Interprets *value as a blob reference, and (assuming the corresponding
+  // blob file is part of this Version) retrieves the blob and saves it in
+  // *value, replacing the blob reference.
+  // REQUIRES: *value stores an encoded blob reference
+  Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                 PinnableSlice* value) const;
 
   // Returns true if the filter blocks in the specified level will not be
   // checked during read operations. In certain cases (trivial move or preload),
@@ -800,6 +808,7 @@ class Version {
   Logger* info_log_;
   Statistics* db_statistics_;
   TableCache* table_cache_;
+  BlobFileCache* blob_file_cache_;
   const MergeOperator* merge_operator_;
 
   VersionStorageInfo storage_info_;
@@ -815,9 +824,12 @@ class Version {
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
   uint64_t version_number_;
+  std::shared_ptr<IOTracer> io_tracer_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, const FileOptions& file_opt,
-          MutableCFOptions mutable_cf_options, uint64_t version_number = 0);
+          MutableCFOptions mutable_cf_options,
+          const std::shared_ptr<IOTracer>& io_tracer,
+          uint64_t version_number = 0);
 
   ~Version();
 
@@ -897,12 +909,24 @@ class VersionSet {
              const FileOptions& file_options, Cache* table_cache,
              WriteBufferManager* write_buffer_manager,
              WriteController* write_controller,
-             BlockCacheTracer* const block_cache_tracer);
+             BlockCacheTracer* const block_cache_tracer,
+             const std::shared_ptr<IOTracer>& io_tracer);
   // No copying allowed
   VersionSet(const VersionSet&) = delete;
   void operator=(const VersionSet&) = delete;
 
   virtual ~VersionSet();
+
+  Status LogAndApplyToDefaultColumnFamily(
+      VersionEdit* edit, InstrumentedMutex* mu,
+      FSDirectory* db_directory = nullptr, bool new_descriptor_log = false,
+      const ColumnFamilyOptions* column_family_options = nullptr) {
+    ColumnFamilyData* default_cf = GetColumnFamilySet()->GetDefault();
+    const MutableCFOptions* cf_options =
+        default_cf->GetLatestMutableCFOptions();
+    return LogAndApply(default_cf, *cf_options, edit, mu, db_directory,
+                       new_descriptor_log, column_family_options);
+  }
 
   // Apply *edit to the current version to form a new descriptor that
   // is both saved to persistent state and installed as the new
@@ -934,7 +958,8 @@ class VersionSet {
       const MutableCFOptions& mutable_cf_options,
       const autovector<VersionEdit*>& edit_list, InstrumentedMutex* mu,
       FSDirectory* db_directory = nullptr, bool new_descriptor_log = false,
-      const ColumnFamilyOptions* column_family_options = nullptr) {
+      const ColumnFamilyOptions* column_family_options = nullptr,
+      const std::function<void(const Status&)>& manifest_wcb = {}) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
     autovector<const MutableCFOptions*> mutable_cf_options_list;
@@ -942,7 +967,8 @@ class VersionSet {
     autovector<autovector<VersionEdit*>> edit_lists;
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                       db_directory, new_descriptor_log, column_family_options);
+                       db_directory, new_descriptor_log, column_family_options,
+                       {manifest_wcb});
   }
 
   // The across-multi-cf batch version. If edit_lists contain more than
@@ -954,7 +980,9 @@ class VersionSet {
       const autovector<autovector<VersionEdit*>>& edit_lists,
       InstrumentedMutex* mu, FSDirectory* db_directory = nullptr,
       bool new_descriptor_log = false,
-      const ColumnFamilyOptions* new_cf_options = nullptr);
+      const ColumnFamilyOptions* new_cf_options = nullptr,
+      const std::vector<std::function<void(const Status&)>>& manifest_wcbs =
+          {});
 
   static Status GetCurrentManifestPath(const std::string& dbname,
                                        FileSystem* fs,
@@ -1031,23 +1059,8 @@ class VersionSet {
     return next_file_number_.fetch_add(n);
   }
 
-// TSAN failure is suppressed in most sequence read/write functions when
-// clang is used, because it would show a warning of conflcit for those
-// updates. Since we haven't figured out a correctnes violation caused
-// by those sharing, we suppress them for now to keep the build clean.
-#if defined(__clang__)
-#if defined(__has_feature)
-#if __has_feature(thread_sanitizer)
-#define SUPPRESS_TSAN __attribute__((no_sanitize("thread")))
-#endif  // __has_feature(thread_sanitizer)
-#endif  // efined(__has_feature)
-#endif  // defined(__clang__)
-#ifndef SUPPRESS_TSAN
-#define SUPPRESS_TSAN
-#endif  // SUPPRESS_TSAN
-
   // Return the last sequence number.
-  SUPPRESS_TSAN uint64_t LastSequence() const {
+  uint64_t LastSequence() const {
     return last_sequence_.load(std::memory_order_acquire);
   }
 
@@ -1057,12 +1070,12 @@ class VersionSet {
   }
 
   // Note: memory_order_acquire must be sufficient.
-  SUPPRESS_TSAN uint64_t LastPublishedSequence() const {
+  uint64_t LastPublishedSequence() const {
     return last_published_sequence_.load(std::memory_order_seq_cst);
   }
 
   // Set the last sequence number to s.
-  SUPPRESS_TSAN void SetLastSequence(uint64_t s) {
+  void SetLastSequence(uint64_t s) {
     assert(s >= last_sequence_);
     // Last visible sequence must always be less than last written seq
     assert(!db_options_->two_write_queues || s <= last_allocated_sequence_);
@@ -1070,7 +1083,7 @@ class VersionSet {
   }
 
   // Note: memory_order_release must be sufficient
-  SUPPRESS_TSAN void SetLastPublishedSequence(uint64_t s) {
+  void SetLastPublishedSequence(uint64_t s) {
     assert(s >= last_published_sequence_);
     last_published_sequence_.store(s, std::memory_order_seq_cst);
   }
@@ -1161,6 +1174,10 @@ class VersionSet {
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
   void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
+    assert(table_cache_);
+
+    table_cache_->Erase(GetSlice(&blob_file_number));
+
     obsolete_blob_files_.emplace_back(blob_file_number, std::move(path));
   }
 
@@ -1185,6 +1202,7 @@ class VersionSet {
   // Get the IO Status returned by written Manifest.
   const IOStatus& io_status() const { return io_status_; }
 
+  // The returned WalSet needs to be accessed with DB mutex held.
   const WalSet& GetWalSet() const { return wals_; }
 
   void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {
@@ -1192,7 +1210,7 @@ class VersionSet {
 
     const auto& mutable_cf_options = *cfd->GetLatestMutableCFOptions();
     Version* const version =
-        new Version(cfd, this, file_options_, mutable_cf_options);
+        new Version(cfd, this, file_options_, mutable_cf_options, io_tracer_);
 
     constexpr bool update_stats = false;
     version->PrepareApply(mutable_cf_options, update_stats);
@@ -1240,7 +1258,7 @@ class VersionSet {
   // Save current contents to *log
   Status WriteCurrentStateToManifest(
       const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-      log::Writer* log, IOStatus& io_s);
+      const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
@@ -1273,11 +1291,13 @@ class VersionSet {
   Status VerifyFileMetadata(const std::string& fpath,
                             const FileMetaData& meta) const;
 
+  // Protected by DB mutex.
   WalSet wals_;
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
+  Cache* table_cache_;
   Env* const env_;
-  FileSystem* const fs_;
+  FileSystemPtr const fs_;
   const std::string dbname_;
   std::string db_id_;
   const ImmutableDBOptions* const db_options_;
@@ -1330,6 +1350,8 @@ class VersionSet {
   // Store the IO status when Manifest is written
   IOStatus io_status_;
 
+  std::shared_ptr<IOTracer> io_tracer_;
+
  private:
   // REQUIRES db mutex at beginning. may release and re-acquire db mutex
   Status ProcessManifestWrites(std::deque<ManifestWriter>& writers,
@@ -1352,7 +1374,8 @@ class ReactiveVersionSet : public VersionSet {
                      const ImmutableDBOptions* _db_options,
                      const FileOptions& _file_options, Cache* table_cache,
                      WriteBufferManager* write_buffer_manager,
-                     WriteController* write_controller);
+                     WriteController* write_controller,
+                     const std::shared_ptr<IOTracer>& io_tracer);
 
   ~ReactiveVersionSet() override;
 
@@ -1400,8 +1423,9 @@ class ReactiveVersionSet : public VersionSet {
       const autovector<const MutableCFOptions*>& /*mutable_cf_options_list*/,
       const autovector<autovector<VersionEdit*>>& /*edit_lists*/,
       InstrumentedMutex* /*mu*/, FSDirectory* /*db_directory*/,
-      bool /*new_descriptor_log*/,
-      const ColumnFamilyOptions* /*new_cf_option*/) override {
+      bool /*new_descriptor_log*/, const ColumnFamilyOptions* /*new_cf_option*/,
+      const std::vector<std::function<void(const Status&)>>& /*manifest_wcbs*/)
+      override {
     return Status::NotSupported("not supported in reactive mode");
   }
 

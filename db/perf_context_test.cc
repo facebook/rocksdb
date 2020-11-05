@@ -817,6 +817,11 @@ TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
 }
 
 TEST_F(PerfContextTest, CPUTimer) {
+  if (Env::Default()->NowCPUNanos() == 0) {
+    ROCKSDB_GTEST_SKIP("Target without NowCPUNanos support");
+    return;
+  }
+
   DestroyDB(kDbName, Options());
   auto db = OpenDb();
   WriteOptions write_options;

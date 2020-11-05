@@ -709,10 +709,13 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * <li><strong>4</strong> - Can be read by RocksDB's versions since 5.16. Changes the way we
    * encode the values in index blocks. If you don't plan to run RocksDB before
    * version 5.16 and you are using index_block_restart_interval &gt; 1, you should
-   * probably use this as it would reduce the index size.</li>
+   * probably use this as it would reduce the index size.
+   * This option only affects newly written tables. When reading existing
+   * tables, the information about version is read from the footer.</li>
+   * <li><strong>5</strong> - Can be read by RocksDB's versions since 6.6.0.
+   * Full and partitioned filters use a generally faster and more accurate
+   * Bloom filter implementation, with a different schema.</li>
    * </ul>
-   * <p> This option only affects newly written tables. When reading existing
-   * tables, the information about version is read from the footer.</p>
    *
    * @param formatVersion integer representing the version to be used.
    *
@@ -720,7 +723,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    */
   public BlockBasedTableConfig setFormatVersion(
       final int formatVersion) {
-    assert(formatVersion >= 0 && formatVersion <= 4);
+    assert (formatVersion >= 0);
     this.formatVersion = formatVersion;
     return this;
   }

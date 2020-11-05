@@ -23,7 +23,8 @@ using BFP = BloomFilterPolicy;
 
 class DBBloomFilterTest : public DBTestBase {
  public:
-  DBBloomFilterTest() : DBTestBase("/db_bloom_filter_test") {}
+  DBBloomFilterTest()
+      : DBTestBase("/db_bloom_filter_test", /*env_do_fsync=*/true) {}
 };
 
 class DBBloomFilterTestWithParam : public DBTestBase,
@@ -36,7 +37,8 @@ class DBBloomFilterTestWithParam : public DBTestBase,
   uint32_t format_version_;
 
  public:
-  DBBloomFilterTestWithParam() : DBTestBase("/db_bloom_filter_tests") {}
+  DBBloomFilterTestWithParam()
+      : DBTestBase("/db_bloom_filter_tests", /*env_do_fsync=*/true) {}
 
   ~DBBloomFilterTestWithParam() override {}
 
@@ -81,13 +83,16 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
     options_override.partition_filters = partition_filters_;
     options_override.metadata_block_size = 32;
     Options options = CurrentOptions(options_override);
-    if (partition_filters_ &&
-        static_cast<BlockBasedTableOptions*>(
-            options.table_factory->GetOptions())
-                ->index_type != BlockBasedTableOptions::kTwoLevelIndexSearch) {
-      // In the current implementation partitioned filters depend on partitioned
-      // indexes
-      continue;
+    if (partition_filters_) {
+      auto* table_options =
+          options.table_factory->GetOptions<BlockBasedTableOptions>();
+      if (table_options != nullptr &&
+          table_options->index_type !=
+              BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        // In the current implementation partitioned filters depend on
+        // partitioned indexes
+        continue;
+      }
     }
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -1039,7 +1044,7 @@ class DBBloomFilterTestVaryPrefixAndFormatVer
 
  public:
   DBBloomFilterTestVaryPrefixAndFormatVer()
-      : DBTestBase("/db_bloom_filter_tests") {}
+      : DBTestBase("/db_bloom_filter_tests", /*env_do_fsync=*/true) {}
 
   ~DBBloomFilterTestVaryPrefixAndFormatVer() override {}
 
@@ -1725,6 +1730,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
     int using_full_builder = bfp_impl != BFP::kDeprecatedBlock;
     Options options;
     options.create_if_missing = true;
+    options.env = CurrentOptions().env;
     options.prefix_extractor.reset(NewCappedPrefixTransform(4));
     options.disable_auto_compactions = true;
     options.statistics = CreateDBStatistics();
@@ -1855,6 +1861,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
   for (auto bfp_impl : BFP::kAllFixedImpls) {
     int using_full_builder = bfp_impl != BFP::kDeprecatedBlock;
     Options options;
+    options.env = CurrentOptions().env;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
     options.disable_auto_compactions = true;
@@ -2047,6 +2054,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
 TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
   for (auto bfp_impl : BFP::kAllFixedImpls) {
     Options options;
+    options.env = CurrentOptions().env;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
     options.disable_auto_compactions = true;

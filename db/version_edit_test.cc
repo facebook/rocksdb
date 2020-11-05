@@ -312,10 +312,10 @@ TEST_F(VersionEditTest, BlobFileAdditionAndGarbage) {
 TEST_F(VersionEditTest, AddWalEncodeDecode) {
   VersionEdit edit;
   for (uint64_t log_number = 1; log_number <= 20; log_number++) {
-    WalMetadata meta(rand() % 100);
+    WalMetadata meta;
     bool has_size = rand() % 2 == 0;
     if (has_size) {
-      meta.SetSizeInBytes(rand() % 1000);
+      meta.SetSyncedSizeInBytes(rand() % 1000);
     }
     edit.AddWal(log_number, meta);
   }
@@ -373,7 +373,7 @@ TEST_F(VersionEditTest, AddWalDecodeBadTag) {
     // Only has size tag, no terminate tag.
     std::string encoded_with_size = encoded_without_tag;
     PutVarint32(&encoded_with_size,
-                static_cast<uint32_t>(WalAdditionTag::kSize));
+                static_cast<uint32_t>(WalAdditionTag::kSyncedSize));
     PutVarint64(&encoded_with_size, kSizeInBytes);
     VersionEdit edit;
     Status s = edit.DecodeFrom(encoded_with_size);
@@ -391,7 +391,7 @@ TEST_F(VersionEditTest, AddWalDecodeBadTag) {
     ASSERT_OK(edit.DecodeFrom(encoded_with_terminate));
     auto& wal_addition = edit.GetWalAdditions()[0];
     ASSERT_EQ(wal_addition.GetLogNumber(), kLogNumber);
-    ASSERT_FALSE(wal_addition.GetMetadata().HasSize());
+    ASSERT_FALSE(wal_addition.GetMetadata().HasSyncedSize());
   }
 }
 
@@ -401,7 +401,7 @@ TEST_F(VersionEditTest, AddWalDecodeNoSize) {
   std::string encoded;
   PutVarint32(&encoded, Tag::kWalAddition);
   PutVarint64(&encoded, kLogNumber);
-  PutVarint32(&encoded, static_cast<uint32_t>(WalAdditionTag::kSize));
+  PutVarint32(&encoded, static_cast<uint32_t>(WalAdditionTag::kSyncedSize));
   // No real size after the size tag.
 
   {
@@ -438,19 +438,19 @@ TEST_F(VersionEditTest, AddWalDebug) {
 
   const WalAdditions& wals = edit.GetWalAdditions();
 
-  ASSERT_TRUE(edit.HasWalAddition());
+  ASSERT_TRUE(edit.IsWalAddition());
   ASSERT_EQ(wals.size(), n);
   for (int i = 0; i < n; i++) {
     const WalAddition& wal = wals[i];
     ASSERT_EQ(wal.GetLogNumber(), kLogNumbers[i]);
-    ASSERT_EQ(wal.GetMetadata().GetSizeInBytes(), kSizeInBytes[i]);
+    ASSERT_EQ(wal.GetMetadata().GetSyncedSizeInBytes(), kSizeInBytes[i]);
   }
 
   std::string expected_str = "VersionEdit {\n";
   for (int i = 0; i < n; i++) {
     std::stringstream ss;
     ss << "  WalAddition: log_number: " << kLogNumbers[i]
-       << " size_in_bytes: " << kSizeInBytes[i] << "\n";
+       << " synced_size_in_bytes: " << kSizeInBytes[i] << "\n";
     expected_str += ss.str();
   }
   expected_str += "  ColumnFamily: 0\n}\n";
@@ -460,7 +460,7 @@ TEST_F(VersionEditTest, AddWalDebug) {
   for (int i = 0; i < n; i++) {
     std::stringstream ss;
     ss << "{\"LogNumber\": " << kLogNumbers[i] << ", "
-       << "\"SizeInBytes\": " << kSizeInBytes[i] << "}";
+       << "\"SyncedSizeInBytes\": " << kSizeInBytes[i] << "}";
     if (i < n - 1) ss << ", ";
     expected_json += ss.str();
   }
@@ -487,7 +487,7 @@ TEST_F(VersionEditTest, DeleteWalDebug) {
 
   const WalDeletions& wals = edit.GetWalDeletions();
 
-  ASSERT_TRUE(edit.HasWalDeletion());
+  ASSERT_TRUE(edit.IsWalDeletion());
   ASSERT_EQ(wals.size(), n);
   for (int i = 0; i < n; i++) {
     const WalDeletion& wal = wals[i];

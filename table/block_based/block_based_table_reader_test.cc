@@ -93,9 +93,12 @@ class BlockBasedTableReaderTest
 
     std::unique_ptr<TableReader> table_reader;
     ReadOptions ro;
-    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(),
-                                    table_factory_->table_options(), comparator,
-                                    std::move(file), file_size, &table_reader));
+    const auto* table_options =
+        table_factory_->GetOptions<BlockBasedTableOptions>();
+    ASSERT_NE(table_options, nullptr);
+    ASSERT_OK(BlockBasedTable::Open(ro, ioptions, EnvOptions(), *table_options,
+                                    comparator, std::move(file), file_size,
+                                    &table_reader));
 
     table->reset(reinterpret_cast<BlockBasedTable*>(table_reader.release()));
   }
@@ -290,13 +293,14 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   }
   ASSERT_OK(iiter->status());
   iiter->SeekToFirst();
-  BlockHandle handle = static_cast<ParititionedIndexIterator*>(iiter)
+  BlockHandle handle = static_cast<PartitionedIndexIterator*>(iiter)
                            ->index_iter_->value()
                            .handle;
   table.reset();
 
   // Corrupt the block pointed to by handle
-  test::CorruptFile(Path(table_name), static_cast<int>(handle.offset()), 128);
+  ASSERT_OK(test::CorruptFile(options.env, Path(table_name),
+                              static_cast<int>(handle.offset()), 128));
 
   NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
   Status s = table->VerifyChecksum(ReadOptions(),

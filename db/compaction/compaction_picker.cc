@@ -639,6 +639,7 @@ Compaction* CompactionPicker::CompactRange(
         compact_range_options.max_subcompactions, /* grandparents */ {},
         /* is manual */ true);
     RegisterCompaction(c);
+    vstorage->ComputeCompactionScore(ioptions_, mutable_cf_options);
     return c;
   }
 

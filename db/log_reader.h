@@ -71,6 +71,11 @@ class Reader {
   // Undefined before the first call to ReadRecord.
   uint64_t LastRecordOffset();
 
+  // Returns the first physical offset after the last record returned by
+  // ReadRecord, or zero before first call to ReadRecord. This can also be
+  // thought of as the "current" position in processing the file bytes.
+  uint64_t LastRecordEnd();
+
   // returns true if the reader has encountered an eof condition.
   bool IsEOF() {
     return eof_;

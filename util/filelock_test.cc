@@ -127,9 +127,11 @@ TEST_F(LockTest, LockBySameThread) {
   // re-acquire the lock on the same file. This should fail.
   Status s = LockFile(&lock2);
   ASSERT_TRUE(s.IsIOError());
+#ifndef OS_WIN
   // Validate that error message contains current thread ID.
   ASSERT_TRUE(s.ToString().find(ToString(Env::Default()->GetThreadID())) !=
               std::string::npos);
+#endif
 
   // check the file is locked
   ASSERT_TRUE( AssertFileIsLocked() );

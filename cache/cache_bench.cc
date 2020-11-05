@@ -136,7 +136,7 @@ struct KeyGen {
     for (uint32_t i = 0; i < FLAGS_skew; ++i) {
       raw = std::min(raw, rnd.Next());
     }
-    uint64_t key = fastrange64(raw, max_key);
+    uint64_t key = FastRange64(raw, max_key);
     // Variable size and alignment
     size_t off = key % 8;
     key_data[0] = char{42};

@@ -17,7 +17,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBMemTableTest : public DBTestBase {
  public:
-  DBMemTableTest() : DBTestBase("/db_memtable_test") {}
+  DBMemTableTest() : DBTestBase("/db_memtable_test", /*env_do_fsync=*/true) {}
 };
 
 class MockMemTableRep : public MemTableRep {
@@ -316,6 +316,7 @@ TEST_F(DBMemTableTest, InsertWithHint) {
 TEST_F(DBMemTableTest, ColumnFamilyId) {
   // Verifies MemTableRepFactory is told the right column family id.
   Options options;
+  options.env = CurrentOptions().env;
   options.allow_concurrent_memtable_write = false;
   options.create_if_missing = true;
   options.memtable_factory.reset(new MockMemTableRepFactory());

@@ -18,8 +18,8 @@ namespace ROCKSDB_NAMESPACE {
 
 // Utility function to copy a file up to a specified length
 IOStatus CopyFile(FileSystem* fs, const std::string& source,
-                  const std::string& destination, uint64_t size,
-                  bool use_fsync) {
+                  const std::string& destination, uint64_t size, bool use_fsync,
+                  const std::shared_ptr<IOTracer>& io_tracer) {
   const FileOptions soptions;
   IOStatus io_s;
   std::unique_ptr<SequentialFileReader> src_reader;
@@ -44,7 +44,8 @@ IOStatus CopyFile(FileSystem* fs, const std::string& source,
         return io_s;
       }
     }
-    src_reader.reset(new SequentialFileReader(std::move(srcfile), source));
+    src_reader.reset(
+        new SequentialFileReader(std::move(srcfile), source, io_tracer));
     dest_writer.reset(
         new WritableFileWriter(std::move(destfile), destination, soptions));
   }
@@ -122,12 +123,16 @@ bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
   return same;
 }
 
-IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
-                                 FileChecksumGenFactory* checksum_factory,
-                                 std::string* file_checksum,
-                                 std::string* file_checksum_func_name,
-                                 size_t verify_checksums_readahead_size,
-                                 bool allow_mmap_reads) {
+// requested_checksum_func_name brings the function name of the checksum
+// generator in checksum_factory. Checksum factories may use or ignore
+// requested_checksum_func_name.
+IOStatus GenerateOneFileChecksum(
+    FileSystem* fs, const std::string& file_path,
+    FileChecksumGenFactory* checksum_factory,
+    const std::string& requested_checksum_func_name, std::string* file_checksum,
+    std::string* file_checksum_func_name,
+    size_t verify_checksums_readahead_size, bool allow_mmap_reads,
+    std::shared_ptr<IOTracer>& io_tracer) {
   if (checksum_factory == nullptr) {
     return IOStatus::InvalidArgument("Checksum factory is invalid");
   }
@@ -135,8 +140,25 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
   assert(file_checksum_func_name != nullptr);
 
   FileChecksumGenContext gen_context;
+  gen_context.requested_checksum_func_name = requested_checksum_func_name;
+  gen_context.file_name = file_path;
   std::unique_ptr<FileChecksumGenerator> checksum_generator =
       checksum_factory->CreateFileChecksumGenerator(gen_context);
+  if (checksum_generator == nullptr) {
+    std::string msg =
+        "Cannot get the file checksum generator based on the requested "
+        "checksum function name: " +
+        requested_checksum_func_name +
+        " from checksum factory: " + checksum_factory->Name();
+    return IOStatus::InvalidArgument(msg);
+  }
+
+  // For backward compatable, requested_checksum_func_name can be empty.
+  // If we give the requested checksum function name, we expect it is the
+  // same name of the checksum generator.
+  assert(!checksum_generator || requested_checksum_func_name.empty() ||
+         requested_checksum_func_name == checksum_generator->Name());
+
   uint64_t size;
   IOStatus io_s;
   std::unique_ptr<RandomAccessFileReader> reader;
@@ -150,7 +172,8 @@ IOStatus GenerateOneFileChecksum(FileSystem* fs, const std::string& file_path,
     if (!io_s.ok()) {
       return io_s;
     }
-    reader.reset(new RandomAccessFileReader(std::move(r_file), file_path));
+    reader.reset(new RandomAccessFileReader(std::move(r_file), file_path,
+                                            nullptr /*Env*/, io_tracer));
   }
 
   // Found that 256 KB readahead size provides the best performance, based on
@@ -208,6 +231,8 @@ Status DestroyDir(Env* env, const std::string& dir) {
         } else {
           s = env->DeleteFile(path);
         }
+      } else if (s.IsNotSupported()) {
+        s = Status::OK();
       }
       if (!s.ok()) {
         // IsDirectory, etc. might not report NotFound

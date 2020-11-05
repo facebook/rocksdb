@@ -100,8 +100,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       }
     }
     if (!hardlink_files) {
-      status = CopyFile(fs_, path_outside_db, path_inside_db, 0,
-                        db_options_.use_fsync);
+      status = CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
+                        db_options_.use_fsync, io_tracer_);
     }
     if (!status.ok()) {
       break;
@@ -217,8 +217,8 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(
-      new RandomAccessFileReader(std::move(sst_file), external_file));
+  sst_file_reader.reset(new RandomAccessFileReader(
+      std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(*cfd_->ioptions(),
@@ -252,15 +252,21 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
 
   // Get first (smallest) key from file
   iter->SeekToFirst();
-  if (!ParseInternalKey(iter->key(), &key)) {
-    return Status::Corruption("external file have corrupted keys");
+  Status pik_status =
+      ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
+  if (!pik_status.ok()) {
+    return Status::Corruption("Corrupted Key in external file. ",
+                              pik_status.getState());
   }
   file_to_import->smallest_internal_key.SetFrom(key);
 
   // Get last (largest) key from file
   iter->SeekToLast();
-  if (!ParseInternalKey(iter->key(), &key)) {
-    return Status::Corruption("external file have corrupted keys");
+  pik_status =
+      ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
+  if (!pik_status.ok()) {
+    return Status::Corruption("Corrupted Key in external file. ",
+                              pik_status.getState());
   }
   file_to_import->largest_internal_key.SetFrom(key);
 

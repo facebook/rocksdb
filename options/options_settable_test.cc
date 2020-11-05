@@ -9,6 +9,8 @@
 
 #include <cstring>
 
+#include "options/cf_options.h"
+#include "options/db_options.h"
 #include "options/options_helper.h"
 #include "rocksdb/convenience.h"
 #include "test_util/testharness.h"
@@ -156,6 +158,9 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       *bbto,
       "cache_index_and_filter_blocks=1;"
       "cache_index_and_filter_blocks_with_high_priority=true;"
+      "metadata_cache_options={top_level_index_pinning=kFallback;"
+      "partition_pinning=kAll;"
+      "unpartitioned_pinning=kFlushedAndSimilar;};"
       "pin_l0_filter_and_index_blocks_in_cache=1;"
       "pin_top_level_index_and_filter=1;"
       "index_type=kHashSearch;"
@@ -221,6 +226,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, wal_filter), sizeof(const WalFilter*)},
       {offsetof(struct DBOptions, file_checksum_gen_factory),
        sizeof(std::shared_ptr<FileChecksumGenFactory>)},
+      {offsetof(struct DBOptions, db_host_id), sizeof(std::string)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];
@@ -276,6 +282,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "skip_log_error_on_recovery=true;"
                              "writable_file_max_buffer_size=1048576;"
                              "paranoid_checks=true;"
+                             "track_and_verify_wals_in_manifest=true;"
                              "is_fd_close_on_exec=false;"
                              "bytes_per_sync=4295013613;"
                              "strict_bytes_per_sync=true;"
@@ -326,7 +333,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "write_dbid_to_manifest=false;"
                              "best_efforts_recovery=false;"
                              "max_bgerror_resume_count=2;"
-                             "bgerror_resume_retry_interval=1000000",
+                             "bgerror_resume_retry_interval=1000000"
+                             "db_host_id=hostname",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
@@ -424,6 +432,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   options->compaction_options_universal = CompactionOptionsUniversal();
   options->hard_rate_limit = 0;
   options->soft_rate_limit = 0;
+  options->num_levels = 42;  // Initialize options for MutableCF
   options->purge_redundant_kvs_while_flush = false;
   options->max_mem_compaction_level = 0;
   options->compaction_filter = nullptr;
@@ -476,6 +485,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "memtable_prefix_bloom_size_ratio=0.4642;"
       "memtable_whole_key_filtering=true;"
       "memtable_insert_with_hint_prefix_extractor=rocksdb.CappedPrefix.13;"
+      "check_flush_compaction_key_order=false;"
       "paranoid_file_checks=true;"
       "force_consistency_checks=true;"
       "inplace_update_num_locks=7429;"
@@ -490,6 +500,10 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "ttl=60;"
       "periodic_compaction_seconds=3600;"
       "sample_for_compression=0;"
+      "enable_blob_files=true;"
+      "min_blob_size=256;"
+      "blob_file_size=1000000;"
+      "blob_compression_type=kBZip2Compression;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;};",
       new_options));

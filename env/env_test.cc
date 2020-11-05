@@ -1148,7 +1148,9 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
   }
 }
 
-TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDDeletes) {
+// TODO: Disable the flaky test, it's a known issue that ext4 may return same
+// key after file deletion. The issue is tracked in #7405, #7470.
+TEST_P(EnvPosixTestWithParam, DISABLED_RandomAccessUniqueIDDeletes) {
   if (env_ == Env::Default()) {
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
@@ -2049,6 +2051,26 @@ TEST_F(EnvTest, Close) {
   delete env;
 }
 
+class LogvWithInfoLogLevelLogger : public Logger {
+ public:
+  using Logger::Logv;
+  void Logv(const InfoLogLevel /* log_level */, const char* /* format */,
+            va_list /* ap */) override {}
+};
+
+TEST_F(EnvTest, LogvWithInfoLogLevel) {
+  // Verifies the log functions work on a `Logger` that only overrides the
+  // `Logv()` overload including `InfoLogLevel`.
+  const std::string kSampleMessage("sample log message");
+  LogvWithInfoLogLevelLogger logger;
+  ROCKS_LOG_HEADER(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_DEBUG(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_INFO(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_WARN(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_ERROR(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_FATAL(&logger, "%s", kSampleMessage.c_str());
+}
+
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),
                                                                 false)));
@@ -2111,8 +2133,6 @@ class EnvFSTestWithParam
   std::string dbname2_;
 };
 
-#ifndef ROCKSDB_ASSERT_STATUS_CHECKED  // Database tests do not do well with
-                                       // this flag
 TEST_P(EnvFSTestWithParam, OptionsTest) {
   Options opts;
   opts.env = env_;
@@ -2132,11 +2152,11 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
     ASSERT_OK(s);
 
     WriteOptions wo;
-    db->Put(wo, "a", "a");
-    db->Flush(FlushOptions());
-    db->Put(wo, "b", "b");
-    db->Flush(FlushOptions());
-    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ASSERT_OK(db->Put(wo, "a", "a"));
+    ASSERT_OK(db->Flush(FlushOptions()));
+    ASSERT_OK(db->Put(wo, "b", "b"));
+    ASSERT_OK(db->Flush(FlushOptions()));
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
     std::string val;
     ASSERT_OK(db->Get(ReadOptions(), "a", &val));
@@ -2144,14 +2164,13 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
     ASSERT_OK(db->Get(ReadOptions(), "b", &val));
     ASSERT_EQ("b", val);
 
-    db->Close();
+    ASSERT_OK(db->Close());
     delete db;
     DestroyDB(dbname, opts);
 
     dbname = dbname2_;
   }
 }
-#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 
 // The parameters are as follows -
 // 1. True means Options::env is non-null, false means null

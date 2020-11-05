@@ -47,6 +47,11 @@ struct GetContextStats {
   uint64_t num_cache_compression_dict_add = 0;
   uint64_t num_cache_compression_dict_add_redundant = 0;
   uint64_t num_cache_compression_dict_bytes_insert = 0;
+  // MultiGet stats.
+  uint64_t num_filter_read = 0;
+  uint64_t num_index_read = 0;
+  uint64_t num_data_read = 0;
+  uint64_t num_sst_read = 0;
 };
 
 // A class to hold context about a point lookup, such as pointer to value
@@ -66,7 +71,7 @@ class GetContext {
     kDeleted,
     kCorrupt,
     kMerge,  // saver contains the current merge result (the operands)
-    kBlobIndex,
+    kUnexpectedBlobIndex,
   };
   GetContextStats get_context_stats_;
 

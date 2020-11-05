@@ -4,15 +4,19 @@
 // (found in the LICENSE.Apache file in the root directory).
 
 // WAL related classes used in VersionEdit and VersionSet.
+// Modifications to WalAddition and WalDeletion may need to update
+// VersionEdit and its related tests.
 
 #pragma once
 
 #include <map>
 #include <ostream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "logging/event_logger.h"
+#include "port/port.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -28,28 +32,30 @@ class WalMetadata {
  public:
   WalMetadata() = default;
 
-  explicit WalMetadata(uint64_t size_bytes) : size_bytes_(size_bytes) {}
+  explicit WalMetadata(uint64_t synced_size_bytes)
+      : synced_size_bytes_(synced_size_bytes) {}
 
-  bool HasSize() const { return size_bytes_ != kUnknownWalSize; }
+  bool HasSyncedSize() const { return synced_size_bytes_ != kUnknownWalSize; }
 
-  void SetSizeInBytes(uint64_t bytes) { size_bytes_ = bytes; }
+  void SetSyncedSizeInBytes(uint64_t bytes) { synced_size_bytes_ = bytes; }
 
-  uint64_t GetSizeInBytes() const { return size_bytes_; }
+  uint64_t GetSyncedSizeInBytes() const { return synced_size_bytes_; }
 
  private:
-  // The size of WAL is unknown, used when the WAL is not closed yet.
-  constexpr static uint64_t kUnknownWalSize = 0;
+  // The size of WAL is unknown, used when the WAL is not synced yet or is
+  // empty.
+  constexpr static uint64_t kUnknownWalSize = port::kMaxUint64;
 
-  // Size of a closed WAL in bytes.
-  uint64_t size_bytes_ = kUnknownWalSize;
+  // Size of the most recently synced WAL in bytes.
+  uint64_t synced_size_bytes_ = kUnknownWalSize;
 };
 
 // These tags are persisted to MANIFEST, so it's part of the user API.
 enum class WalAdditionTag : uint32_t {
   // Indicates that there are no more tags.
   kTerminate = 1,
-  // Size in bytes.
-  kSize = 2,
+  // Synced Size in bytes.
+  kSyncedSize = 2,
   // Add tags in the future, such as checksum?
 };
 
@@ -83,10 +89,10 @@ JSONWriter& operator<<(JSONWriter& jw, const WalAddition& wal);
 
 using WalAdditions = std::vector<WalAddition>;
 
-// Records the event of deleting/archiving a WAL in VersionEdit.
+// Records the event of deleting a WAL.
 class WalDeletion {
  public:
-  WalDeletion() : number_(0) {}
+  WalDeletion() : number_(kEmpty) {}
 
   explicit WalDeletion(WalNumber number) : number_(number) {}
 
@@ -99,6 +105,8 @@ class WalDeletion {
   std::string DebugString() const;
 
  private:
+  static constexpr WalNumber kEmpty = 0;
+
   WalNumber number_;
 };
 
@@ -117,24 +125,37 @@ using WalDeletions = std::vector<WalDeletion>;
 class WalSet {
  public:
   // Add WAL(s).
-  // If the WAL has size, it means the WAL is closed,
-  // then there must be an existing WAL without size that is added
-  // when creating the WAL, otherwise, return Status::Corruption.
+  // If the WAL is closed,
+  // then there must be an existing unclosed WAL,
+  // otherwise, return Status::Corruption.
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
   Status AddWal(const WalAddition& wal);
   Status AddWals(const WalAdditions& wals);
 
   // Delete WAL(s).
-  // The WAL to be deleted must exist, otherwise,
+  // The WAL to be deleted must exist and be closed, otherwise,
   // return Status::Corruption.
   // Can happen when applying a VersionEdit or recovering from MANIFEST.
   Status DeleteWal(const WalDeletion& wal);
   Status DeleteWals(const WalDeletions& wals);
 
+  // Delete WALs with log number < wal_number.
+  void DeleteWalsBefore(WalNumber wal_number);
+
   // Resets the internal state.
   void Reset();
 
   const std::map<WalNumber, WalMetadata>& GetWals() const { return wals_; }
+
+  // Checks whether there are missing or corrupted WALs.
+  // Returns Status::OK if there is no missing nor corrupted WAL,
+  // otherwise returns Status::Corruption.
+  // logs_on_disk is a map from log number to the log filename.
+  // Note that logs_on_disk may contain logs that is obsolete but
+  // haven't been deleted from disk.
+  Status CheckWals(
+      Env* env,
+      const std::unordered_map<WalNumber, std::string>& logs_on_disk) const;
 
  private:
   std::map<WalNumber, WalMetadata> wals_;

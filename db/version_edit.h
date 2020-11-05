@@ -414,10 +414,18 @@ class VersionEdit {
         std::move(checksum_method), std::move(checksum_value));
   }
 
+  void AddBlobFile(BlobFileAddition blob_file_addition) {
+    blob_file_additions_.emplace_back(std::move(blob_file_addition));
+  }
+
   // Retrieve all the blob files added.
   using BlobFileAdditions = std::vector<BlobFileAddition>;
   const BlobFileAdditions& GetBlobFileAdditions() const {
     return blob_file_additions_;
+  }
+
+  void SetBlobFileAdditions(BlobFileAdditions blob_file_additions) {
+    blob_file_additions_ = std::move(blob_file_additions);
   }
 
   // Add garbage for an existing blob file.  Note: intentionally broken English
@@ -429,29 +437,42 @@ class VersionEdit {
                                      garbage_blob_bytes);
   }
 
+  void AddBlobFileGarbage(BlobFileGarbage blob_file_garbage) {
+    blob_file_garbages_.emplace_back(std::move(blob_file_garbage));
+  }
+
   // Retrieve all the blob file garbage added.
   using BlobFileGarbages = std::vector<BlobFileGarbage>;
   const BlobFileGarbages& GetBlobFileGarbages() const {
     return blob_file_garbages_;
   }
 
+  void SetBlobFileGarbages(BlobFileGarbages blob_file_garbages) {
+    blob_file_garbages_ = std::move(blob_file_garbages);
+  }
+
   // Add a WAL (either just created or closed).
   void AddWal(WalNumber number, WalMetadata metadata = WalMetadata()) {
+    assert(NumEntries() == wal_additions_.size());
     wal_additions_.emplace_back(number, std::move(metadata));
   }
 
   // Retrieve all the added WALs.
   const WalAdditions& GetWalAdditions() const { return wal_additions_; }
 
-  bool HasWalAddition() const { return !wal_additions_.empty(); }
+  bool IsWalAddition() const { return !wal_additions_.empty(); }
 
   // Delete a WAL (either directly deleted or archived).
-  void DeleteWal(WalNumber number) { wal_deletions_.emplace_back(number); }
+  void DeleteWal(WalNumber number) {
+    assert(NumEntries() == wal_deletions_.size());
+    wal_deletions_.emplace_back(number);
+  }
 
-  // Retrieve all the deleted WALs.
   const WalDeletions& GetWalDeletions() const { return wal_deletions_; }
 
-  bool HasWalDeletion() const { return !wal_deletions_.empty(); }
+  bool IsWalDeletion() const { return !wal_deletions_.empty(); }
+
+  bool IsWalManipulation() const { return IsWalAddition() || IsWalDeletion(); }
 
   // Number of edits
   size_t NumEntries() const {
@@ -485,6 +506,10 @@ class VersionEdit {
   bool IsColumnFamilyManipulation() const {
     return is_column_family_add_ || is_column_family_drop_;
   }
+
+  bool IsColumnFamilyAdd() const { return is_column_family_add_; }
+
+  bool IsColumnFamilyDrop() const { return is_column_family_drop_; }
 
   void MarkAtomicGroup(uint32_t remaining_entries) {
     is_in_atomic_group_ = true;

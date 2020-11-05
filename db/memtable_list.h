@@ -148,7 +148,8 @@ class MemTableListVersion {
   // REQUIRE: m is an immutable memtable
   void Remove(MemTable* m, autovector<MemTable*>* to_delete);
 
-  void TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
+  // Return true if memtable is trimmed
+  bool TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
                    std::string* value, std::string* timestamp, Status* s,
@@ -291,7 +292,9 @@ class MemTableList {
   // max_write_buffer_size_to_maintain is used, total size of mutable and
   // immutable memtables is checked against it to decide whether to trim
   // memtable list.
-  void TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
+  //
+  // Return true if memtable is trimmed
+  bool TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   // Returns an estimate of the number of bytes of data used by
   // the unflushed mem-tables.
@@ -385,6 +388,13 @@ class MemTableList {
 
   // DB mutex held
   void InstallNewVersion();
+
+  // DB mutex held
+  // Called after writing to MANIFEST
+  void RemoveMemTablesOrRestoreFlags(const Status& s, ColumnFamilyData* cfd,
+                                     size_t batch_count, LogBuffer* log_buffer,
+                                     autovector<MemTable*>* to_delete,
+                                     InstrumentedMutex* mu);
 
   const int min_write_buffer_number_to_merge_;
 

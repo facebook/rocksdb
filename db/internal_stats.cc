@@ -13,13 +13,14 @@
 #include <algorithm>
 #include <cinttypes>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
-#include "table/block_based/block_based_table_factory.h"
+#include "rocksdb/table.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -907,19 +908,9 @@ bool InternalStats::HandleBlockCacheStat(Cache** block_cache) {
   assert(block_cache != nullptr);
   auto* table_factory = cfd_->ioptions()->table_factory;
   assert(table_factory != nullptr);
-  if (BlockBasedTableFactory::kName != table_factory->Name()) {
-    return false;
-  }
-  auto* table_options =
-      reinterpret_cast<BlockBasedTableOptions*>(table_factory->GetOptions());
-  if (table_options == nullptr) {
-    return false;
-  }
-  *block_cache = table_options->block_cache.get();
-  if (table_options->no_block_cache || *block_cache == nullptr) {
-    return false;
-  }
-  return true;
+  *block_cache =
+      table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());
+  return *block_cache != nullptr;
 }
 
 bool InternalStats::HandleBlockCacheCapacity(uint64_t* value, DBImpl* /*db*/,
@@ -1396,21 +1387,26 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
 }
 
 void InternalStats::DumpCFFileHistogram(std::string* value) {
-  char buf[2000];
-  snprintf(buf, sizeof(buf),
-           "\n** File Read Latency Histogram By Level [%s] **\n",
-           cfd_->GetName().c_str());
-  value->append(buf);
+  assert(value);
+  assert(cfd_);
+
+  std::ostringstream oss;
+  oss << "\n** File Read Latency Histogram By Level [" << cfd_->GetName()
+      << "] **\n";
 
   for (int level = 0; level < number_levels_; level++) {
     if (!file_read_latency_[level].Empty()) {
-      char buf2[5000];
-      snprintf(buf2, sizeof(buf2),
-               "** Level %d read latency histogram (micros):\n%s\n", level,
-               file_read_latency_[level].ToString().c_str());
-      value->append(buf2);
+      oss << "** Level " << level << " read latency histogram (micros):\n"
+          << file_read_latency_[level].ToString() << '\n';
     }
   }
+
+  if (!blob_file_read_latency_.Empty()) {
+    oss << "** Blob file read latency histogram (micros):\n"
+        << blob_file_read_latency_.ToString() << '\n';
+  }
+
+  *value = oss.str();
 }
 
 #else
