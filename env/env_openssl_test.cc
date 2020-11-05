@@ -492,9 +492,10 @@ static char key256[] =
 std::shared_ptr<OpenSSLEncryptionProvider> openssl_provider_ctr(
     new OpenSSLEncryptionProvider());
 
-std::unique_ptr<Env> encrypted(NewEncryptedEnv(Env::Default(), openssl_provider_ctr));
-static std::unique_ptr<Env> openssl_env(new NormalizingEnvWrapper(std::move(encrypted)));
-
+std::unique_ptr<Env> encrypted(NewEncryptedEnv(Env::Default(),
+                                               openssl_provider_ctr));
+static std::unique_ptr<Env> openssl_env(
+    new NormalizingEnvWrapper(std::move(encrypted)));
 
 INSTANTIATE_TEST_CASE_P(OpenSSLEnv, EnvBasicTestWithParam,
                         ::testing::Values(openssl_env.get()));
