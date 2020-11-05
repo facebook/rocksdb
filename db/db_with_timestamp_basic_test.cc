@@ -244,7 +244,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp, Seek) {
+TEST_F(DBBasicTestWithTimestamp, SeekWithPrefix) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -265,26 +265,25 @@ TEST_F(DBBasicTestWithTimestamp, Seek) {
   write_opts.timestamp = &ts;
 
   ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
-
   Flush();
 
   ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
-
   Flush();
 
+  // Move sst file to next level
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   ASSERT_OK(db_->Put(write_opts, "foo3", "bar"));
-
   Flush();
 
+  ReadOptions read_opts;
+  std::string read_ts = Timestamp(1, 0);
+  ts = read_ts;
+  read_opts.timestamp = &ts;
   {
-    ReadOptions read_opts;
-    std::string read_ts = Timestamp(1, 0);
-    ts = read_ts;
-    read_opts.timestamp = &ts;
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
     iter->Seek("foo");
+    ASSERT_TRUE(iter->Valid());
   }
 
   Close();
