@@ -248,7 +248,7 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefix) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
-  options.prefix_extractor.reset(NewFixedPrefixTransform(5));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
   BlockBasedTableOptions bbto;
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.cache_index_and_filter_blocks = true;
@@ -284,6 +284,8 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefix) {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
     iter->Seek("foo");
     ASSERT_TRUE(iter->Valid());
+    iter->Seek("bbb");
+    ASSERT_FALSE(iter->Valid());
   }
 
   Close();
