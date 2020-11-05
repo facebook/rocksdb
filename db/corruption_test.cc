@@ -879,7 +879,9 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
 
   // Set best_efforts_recovery to true
   options.best_efforts_recovery = true;
+#ifdef OS_LINUX
   ASSERT_TRUE(TryReopen(&options).IsCorruption());
+#endif  // OS_LINUX
 }
 
 }  // namespace ROCKSDB_NAMESPACE
