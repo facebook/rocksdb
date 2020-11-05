@@ -818,7 +818,6 @@ bool DBIter::FindValueForCurrentKey() {
           status_ = Status::NotSupported(
               "Backward iteration not supported if underlying iterator's value "
               "cannot be pinned.");
-          assert(false);
         }
         merge_context_.Clear();
         last_not_merge_type = last_key_entry_type;
