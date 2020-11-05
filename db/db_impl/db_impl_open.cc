@@ -486,8 +486,7 @@ Status DBImpl::Recover(
   }
   s = SetDBId();
   if (s.ok() && !read_only) {
-    // switching to new manifest requires DB ID to be set.
-    s = DeleteUnreferencedSstFilesAndSwitchToNewManifest();
+    s = DeleteUnreferencedSstFiles();
   }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {

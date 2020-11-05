@@ -777,7 +777,7 @@ Status DBImpl::SetDBId() {
   return s;
 }
 
-Status DBImpl::DeleteUnreferencedSstFilesAndSwitchToNewManifest() {
+Status DBImpl::DeleteUnreferencedSstFiles() {
   mutex_.AssertHeld();
   std::vector<std::string> paths;
   paths.push_back(NormalizePath(dbname_ + std::string(1, kFilePathSeparator)));

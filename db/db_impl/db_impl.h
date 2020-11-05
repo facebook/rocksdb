@@ -1230,9 +1230,7 @@ class DBImpl : public DB {
   // We delete these SST files. In the
   // meantime, we find out the largest file number present in the paths, and
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
-  // We also switch to a new MANIFEST.
-  // The unreferenced SSTs won't be deleted if switching to new MANIFEST fails.
-  Status DeleteUnreferencedSstFilesAndSwitchToNewManifest();
+  Status DeleteUnreferencedSstFiles();
 
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened
