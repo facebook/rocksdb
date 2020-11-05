@@ -37,7 +37,7 @@ class TestReadCallback : public ReadCallback {
 class DBMergeOperatorTest : public DBTestBase {
  public:
   DBMergeOperatorTest()
-      : DBTestBase("/db_merge_operator_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("/db_merge_operator_test", /*env_do_fsync=*/false) {}
 
   std::string GetWithReadCallback(SnapshotChecker* snapshot_checker,
                                   const Slice& key,
