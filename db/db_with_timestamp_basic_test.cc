@@ -284,8 +284,10 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefix) {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
     iter->Seek("foo");
     ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
     iter->Seek("bbb");
     ASSERT_FALSE(iter->Valid());
+    ASSERT_OK(iter->status());
   }
 
   Close();
