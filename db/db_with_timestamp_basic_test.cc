@@ -309,7 +309,7 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLargerThanKey) {
   DestroyAndReopen(options);
 
   WriteOptions write_opts;
-  std::string ts_str = Timestamp(2, 0);
+  std::string ts_str = Timestamp(1, 0);
   Slice ts = ts_str;
   write_opts.timestamp = &ts;
 
@@ -326,7 +326,7 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLargerThanKey) {
   Flush();
 
   ReadOptions read_opts;
-  std::string read_ts = Timestamp(1, 0);
+  std::string read_ts = Timestamp(2, 0);
   ts = read_ts;
   read_opts.timestamp = &ts;
   {
