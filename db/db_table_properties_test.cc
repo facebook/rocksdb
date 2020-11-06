@@ -52,7 +52,7 @@ class DBTablePropertiesTest : public DBTestBase,
                               public testing::WithParamInterface<std::string> {
  public:
   DBTablePropertiesTest()
-      : DBTestBase("/db_table_properties_test", /*env_do_fsync=*/true) {}
+      : DBTestBase("/db_table_properties_test", /*env_do_fsync=*/false) {}
   TablePropertiesCollection TestGetPropertiesOfTablesInRange(
       std::vector<Range> ranges, std::size_t* num_properties = nullptr,
       std::size_t* num_files = nullptr);
