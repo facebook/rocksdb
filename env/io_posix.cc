@@ -850,7 +850,11 @@ IOStatus PosixRandomAccessFile::MultiReadAsync(
 #endif
 }
 
-IOStatus PosixRandomAccessFile::Poll(size_t n, PosixIOUring* posix_iu) {
+IOStatus PosixRandomAccessFile::Poll(size_t n
+#if defined(ROCKSDB_IOURING_PRESENT)
+    , PosixIOUring* posix_iu
+#endif
+    ) {
 #if defined(ROCKSDB_IOURING_PRESENT)
   assert(posix_iu);
   struct io_uring* iu = &posix_iu->iu;
@@ -940,6 +944,7 @@ IOStatus PosixRandomAccessFile::Poll(size_t n, PosixIOUring* posix_iu) {
   }
   return IOStatus::OK();
 #else
+  (void)n;
   return IOStatus::OK();
 #endif
 }

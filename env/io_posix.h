@@ -179,6 +179,7 @@ inline PosixIOUring* CreateIOUring() {
 
 class PosixRandomAccessFile : public FSRandomAccessFile {
  private:
+#if defined(ROCKSDB_IOURING_PRESENT)
   struct PosixMultiReadContext;
 
   // Store some context for each read request in a MultiRead
@@ -221,6 +222,7 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
   };
   using PosixMultiReadContextPool =
       ThreadLocalContextPool<PosixMultiReadContext>;
+#endif
 
  protected:
   std::string filename_;
@@ -257,7 +259,11 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
       std::unique_ptr<void, IOHandleDeleter>* handle,
       IODebugContext* dbg) override;
 
-  static IOStatus Poll(size_t n, PosixIOUring* posix_iu);
+  static IOStatus Poll(size_t n
+#if defined(ROCKSDB_IOURING_PRESENT)
+      , PosixIOUring* posix_iu
+#endif
+      );
 
   virtual IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& opts,
                             IODebugContext* dbg) override;
@@ -271,9 +277,11 @@ class PosixRandomAccessFile : public FSRandomAccessFile {
   virtual size_t GetRequiredBufferAlignment() const override {
     return logical_sector_size_;
   }
+#if defined(ROCKSDB_IOURING_PRESENT)
   static void DeleteCtxPool(void* p) {
     delete static_cast<PosixMultiReadContextPool*>(p);
   }
+#endif
 };
 
 class PosixWritableFile : public FSWritableFile {
