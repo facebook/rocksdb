@@ -95,25 +95,27 @@ class DBTestWithParam
 };
 
 TEST_F(DBTest, MockEnvTest) {
-  const Slice keys[] = {Slice("aaa"), Slice("bbb"), Slice("ccc")};
-  const Slice vals[] = {Slice("foo"), Slice("bar"), Slice("baz")};
-
   std::unique_ptr<MockEnv> env{new MockEnv(Env::Default())};
   Options options;
   options.create_if_missing = true;
   options.env = env.get();
-  DestroyAndReopen(options);
+  DB* db;
+
+  const Slice keys[] = {Slice("aaa"), Slice("bbb"), Slice("ccc")};
+  const Slice vals[] = {Slice("foo"), Slice("bar"), Slice("baz")};
+
+  ASSERT_OK(DB::Open(options, "/dir/db", &db));
   for (size_t i = 0; i < 3; ++i) {
-    ASSERT_OK(db_->Put(WriteOptions(), keys[i], vals[i]));
+    ASSERT_OK(db->Put(WriteOptions(), keys[i], vals[i]));
   }
 
   for (size_t i = 0; i < 3; ++i) {
     std::string res;
-    ASSERT_OK(db_->Get(ReadOptions(), keys[i], &res));
+    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
     ASSERT_TRUE(res == vals[i]);
   }
 
-  Iterator* iterator = db_->NewIterator(ReadOptions());
+  Iterator* iterator = db->NewIterator(ReadOptions());
   iterator->SeekToFirst();
   for (size_t i = 0; i < 3; ++i) {
     ASSERT_TRUE(iterator->Valid());
@@ -126,41 +128,44 @@ TEST_F(DBTest, MockEnvTest) {
 
 // TEST_FlushMemTable() is not supported in ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db);
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
   for (size_t i = 0; i < 3; ++i) {
     std::string res;
-    ASSERT_OK(db_->Get(ReadOptions(), keys[i], &res));
+    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
     ASSERT_TRUE(res == vals[i]);
   }
 #endif  // ROCKSDB_LITE
+
+  delete db;
 }
 
 // NewMemEnv returns nullptr in ROCKSDB_LITE since class InMemoryEnv isn't
 // defined.
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, MemEnvTest) {
-  const Slice keys[] = {Slice("aaa"), Slice("bbb"), Slice("ccc")};
-  const Slice vals[] = {Slice("foo"), Slice("bar"), Slice("baz")};
-
   std::unique_ptr<Env> env{NewMemEnv(Env::Default())};
   Options options;
   options.create_if_missing = true;
   options.env = env.get();
-  DestroyAndReopen(options);
+  DB* db;
 
+  const Slice keys[] = {Slice("aaa"), Slice("bbb"), Slice("ccc")};
+  const Slice vals[] = {Slice("foo"), Slice("bar"), Slice("baz")};
+
+  ASSERT_OK(DB::Open(options, "/dir/db", &db));
   for (size_t i = 0; i < 3; ++i) {
-    ASSERT_OK(db_->Put(WriteOptions(), keys[i], vals[i]));
+    ASSERT_OK(db->Put(WriteOptions(), keys[i], vals[i]));
   }
 
   for (size_t i = 0; i < 3; ++i) {
     std::string res;
-    ASSERT_OK(db_->Get(ReadOptions(), keys[i], &res));
+    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
     ASSERT_TRUE(res == vals[i]);
   }
 
-  Iterator* iterator = db_->NewIterator(ReadOptions());
+  Iterator* iterator = db->NewIterator(ReadOptions());
   iterator->SeekToFirst();
   for (size_t i = 0; i < 3; ++i) {
     ASSERT_TRUE(iterator->Valid());
@@ -171,22 +176,25 @@ TEST_F(DBTest, MemEnvTest) {
   ASSERT_TRUE(!iterator->Valid());
   delete iterator;
 
-  DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+  DBImpl* dbi = static_cast_with_check<DBImpl>(db);
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
   for (size_t i = 0; i < 3; ++i) {
     std::string res;
-    ASSERT_OK(db_->Get(ReadOptions(), keys[i], &res));
+    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
     ASSERT_TRUE(res == vals[i]);
   }
 
+  delete db;
+
   options.create_if_missing = false;
-  Reopen(options);
+  ASSERT_OK(DB::Open(options, "/dir/db", &db));
   for (size_t i = 0; i < 3; ++i) {
     std::string res;
-    ASSERT_OK(db_->Get(ReadOptions(), keys[i], &res));
+    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
     ASSERT_TRUE(res == vals[i]);
   }
+  delete db;
 }
 #endif  // ROCKSDB_LITE
 
