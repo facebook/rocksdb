@@ -833,10 +833,6 @@ Status DBImpl::DeleteUnreferencedSstFiles() {
   assert(versions_->GetColumnFamilySet());
   ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
   assert(default_cfd);
-  // If SetDBId writes db_id to MANIFEST, then a new MANIFEST is created in
-  // SetDBId, so we don't create new MANIFEST here. Otherwise, this is the first
-  // time LogAndApply is called, even if new_descriptor_log is false, a new
-  // MANIFEST is created since VersionSet::descriptor_log_ is created lazily.
   s = versions_->LogAndApply(
       default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
       directories_.GetDbDir(), /*new_descriptor_log*/ false);
