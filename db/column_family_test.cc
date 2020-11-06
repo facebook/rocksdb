@@ -35,10 +35,10 @@ namespace ROCKSDB_NAMESPACE {
 static const int kValueSize = 1000;
 
 // counts how many operations were performed
-class EnvCounter : public EnvWrapper {
+class EnvCounter : public SpecialEnv {
  public:
   explicit EnvCounter(Env* base)
-      : EnvWrapper(base), num_new_writable_file_(0) {}
+      : SpecialEnv(base), num_new_writable_file_(0) {}
   int GetNumberOfNewWritableFileCalls() {
     return num_new_writable_file_;
   }
@@ -68,6 +68,7 @@ class ColumnFamilyTestBase : public testing::Test {
 #endif  // !ROCKSDB_LITE
     EXPECT_NE(nullptr, base_env);
     env_ = new EnvCounter(base_env);
+    env_->skip_fsync_ = true;
     dbname_ = test::PerThreadDBPath("column_family_test");
     db_options_.create_if_missing = true;
     db_options_.fail_if_options_file_error = true;
