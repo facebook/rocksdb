@@ -212,4 +212,8 @@ class FilterPolicy {
 // trailing spaces in keys.
 extern const FilterPolicy* NewBloomFilterPolicy(
     double bits_per_key, bool use_block_based_builder = false);
+
+extern const FilterPolicy* NewExperimentalRibbonFilterPolicy(
+    double bloom_equivalent_bits_per_key);
+
 }  // namespace ROCKSDB_NAMESPACE

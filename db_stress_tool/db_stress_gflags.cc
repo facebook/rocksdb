@@ -375,6 +375,9 @@ DEFINE_bool(use_block_based_filter, false,
             "use block based filter"
             "instead of full filter for block based table");
 
+DEFINE_bool(use_ribbon_filter, false,
+            "Use Ribbon filter instead of Bloom filter");
+
 DEFINE_bool(partition_filters, false,
             "use partitioned filters "
             "for block-based table");

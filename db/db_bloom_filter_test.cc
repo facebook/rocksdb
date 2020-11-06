@@ -514,24 +514,24 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         std::make_tuple(BFP::kDeprecatedBlock, false,
                         test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAuto, true, test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAuto, false, test::kDefaultFormatVersion)));
+        std::make_tuple(BFP::kAutoBloom, true, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, false, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestWithParam,
     ::testing::Values(
         std::make_tuple(BFP::kDeprecatedBlock, false,
                         test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAuto, true, test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAuto, false, test::kDefaultFormatVersion)));
+        std::make_tuple(BFP::kAutoBloom, true, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, false, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, DBBloomFilterTestWithParam,
     ::testing::Values(
         std::make_tuple(BFP::kDeprecatedBlock, false,
                         test::kLatestFormatVersion),
-        std::make_tuple(BFP::kAuto, true, test::kLatestFormatVersion),
-        std::make_tuple(BFP::kAuto, false, test::kLatestFormatVersion)));
+        std::make_tuple(BFP::kAutoBloom, true, test::kLatestFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, false, test::kLatestFormatVersion)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {

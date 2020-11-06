@@ -381,7 +381,8 @@ class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
       case BloomFilterPolicy::kFastLocalBloom:
         return for_fast_local_bloom;
       case BloomFilterPolicy::kDeprecatedBlock:
-      case BloomFilterPolicy::kAuto:
+      case BloomFilterPolicy::kAutoBloom:
+      case BloomFilterPolicy::kStandard128Ribbon:
           /* N/A */;
     }
     // otherwise
@@ -473,7 +474,7 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
     }
     Build();
 
-    ASSERT_LE(FilterSize(),
+    EXPECT_LE(FilterSize(),
               (size_t)((length * 10 / 8) + CACHE_LINE_SIZE * 2 + 5));
 
     // All added keys must match
@@ -488,7 +489,7 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
       fprintf(stderr, "False positives: %5.2f%% @ length = %6d ; bytes = %6d\n",
               rate*100.0, length, static_cast<int>(FilterSize()));
     }
-    ASSERT_LE(rate, 0.02);   // Must not be over 2%
+    EXPECT_LE(rate, 0.02);  // Must not be over 2%
     if (rate > 0.0125)
       mediocre_filters++;  // Allowed, but not too often
     else
@@ -498,10 +499,14 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
     fprintf(stderr, "Filters: %d good, %d mediocre\n",
             good_filters, mediocre_filters);
   }
-  ASSERT_LE(mediocre_filters, good_filters/5);
+  EXPECT_LE(mediocre_filters, good_filters / 5);
 }
 
 TEST_P(FullBloomTest, OptimizeForMemory) {
+  if (GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
+    // TODO Not yet implemented
+    return;
+  }
   char buffer[sizeof(int)];
   for (bool offm : {true, false}) {
     table_options_.optimize_filters_for_memory = offm;
@@ -596,6 +601,10 @@ inline uint32_t SelectByCacheLineSize(uint32_t for64, uint32_t for128,
 // ability to read filters generated using other cache line sizes.
 // See RawSchema.
 TEST_P(FullBloomTest, Schema) {
+  if (GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
+    // TODO ASAP to ensure schema stability
+    return;
+  }
   char buffer[sizeof(int)];
 
   // Use enough keys so that changing bits / key by 1 is guaranteed to
@@ -974,7 +983,8 @@ TEST_P(FullBloomTest, CorruptFilters) {
 
 INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
                         testing::Values(BloomFilterPolicy::kLegacyBloom,
-                                        BloomFilterPolicy::kFastLocalBloom));
+                                        BloomFilterPolicy::kFastLocalBloom,
+                                        BloomFilterPolicy::kStandard128Ribbon));
 
 }  // namespace ROCKSDB_NAMESPACE
 
