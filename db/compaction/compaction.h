@@ -256,7 +256,8 @@ class Compaction {
   void ResetNextCompactionIndex();
 
   // Create a CompactionFilter from compaction_filter_factory
-  std::unique_ptr<CompactionFilter> CreateCompactionFilter() const;
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const Slice* start, const Slice* end) const;
 
   // Create a SstPartitioner from sst_partitioner_factory
   std::unique_ptr<SstPartitioner> CreateSstPartitioner() const;
@@ -330,8 +331,9 @@ class Compaction {
 
   // Get the atomic file boundaries for all files in the compaction. Necessary
   // in order to avoid the scenario described in
-  // https://github.com/facebook/rocksdb/pull/4432#discussion_r221072219 and plumb
-  // down appropriate key boundaries to RangeDelAggregator during compaction.
+  // https://github.com/facebook/rocksdb/pull/4432#discussion_r221072219 and
+  // plumb down appropriate key boundaries to RangeDelAggregator during
+  // compaction.
   static std::vector<CompactionInputFiles> PopulateWithAtomicBoundaries(
       VersionStorageInfo* vstorage, std::vector<CompactionInputFiles> inputs);
 
@@ -346,7 +348,7 @@ class Compaction {
 
   VersionStorageInfo* input_vstorage_;
 
-  const int start_level_;    // the lowest level to be compacted
+  const int start_level_;   // the lowest level to be compacted
   const int output_level_;  // levels to which output files are stored
   uint64_t max_output_file_size_;
   uint64_t max_compaction_bytes_;
@@ -357,7 +359,7 @@ class Compaction {
   VersionEdit edit_;
   const int number_levels_;
   ColumnFamilyData* cfd_;
-  Arena arena_;          // Arena used to allocate space for file_levels_
+  Arena arena_;  // Arena used to allocate space for file_levels_
 
   const uint32_t output_path_id_;
   CompressionType output_compression_;
@@ -375,7 +377,7 @@ class Compaction {
   // State used to check for number of overlapping grandparent files
   // (grandparent == "output_level_ + 1")
   std::vector<FileMetaData*> grandparents_;
-  const double score_;         // score that was used to pick this compaction.
+  const double score_;  // score that was used to pick this compaction.
 
   // Is this compaction creating a file in the bottom most level?
   const bool bottommost_level_;

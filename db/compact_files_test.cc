@@ -12,6 +12,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "port/port.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
@@ -60,6 +61,86 @@ class FlushedFileCollector : public EventListener {
   std::vector<std::string> flushed_files_;
   std::mutex mutex_;
 };
+
+class TestFilterFactory : public CompactionFilterFactory {
+ public:
+  std::shared_ptr<CompactionFilter::Context> context_;
+  std::shared_ptr<int> compaction_count_;
+
+  TestFilterFactory(std::shared_ptr<CompactionFilter::Context> context,
+                    std::shared_ptr<int> compaction_count) {
+    this->context_ = context;
+    this->compaction_count_ = compaction_count;
+  }
+
+  ~TestFilterFactory() {}
+
+  const char* Name() const { return "TestFilterFactory"; }
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& context) {
+    context_->start_key = context.start_key;
+    context_->end_key = context.end_key;
+    context_->is_end_key_inclusive = context.is_end_key_inclusive;
+    context_->file_numbers.clear();
+    context_->table_properties.clear();
+    for (size_t i = 0; i < context.file_numbers.size(); ++i) {
+      context_->file_numbers.push_back(context.file_numbers[i]);
+      context_->table_properties.push_back(context.table_properties[i]);
+    }
+    *compaction_count_.get() += 1;
+    return nullptr;
+  }
+};
+
+TEST_F(CompactFilesTest, FilterContext) {
+  Options options;
+  // to trigger compaction more easily
+  const int kWriteBufferSize = 10000;
+  const int kLevel0Trigger = 10;
+  options.create_if_missing = true;
+  options.compaction_style = kCompactionStyleLevel;
+  // Small slowdown and stop trigger for experimental purpose.
+  options.level0_slowdown_writes_trigger = 20;
+  options.level0_stop_writes_trigger = 20;
+  options.level0_stop_writes_trigger = 20;
+  options.write_buffer_size = kWriteBufferSize;
+  options.level0_file_num_compaction_trigger = kLevel0Trigger;
+  options.compression = kNoCompression;
+
+  std::shared_ptr<CompactionFilter::Context> expected_context(
+      new CompactionFilter::Context);
+  std::shared_ptr<int> compaction_count(new int(0));
+  CompactionFilterFactory* factory =
+      new TestFilterFactory(expected_context, compaction_count);
+  options.compaction_filter_factory =
+      std::shared_ptr<CompactionFilterFactory>(factory);
+
+  DB* db = nullptr;
+  DestroyDB(db_name_, options);
+  Status s = DB::Open(options, db_name_, &db);
+  assert(s.ok());
+  assert(db);
+
+  // `Flush` is different from `Compaction`.
+  db->Put(WriteOptions(), ToString(1), "");
+  db->Put(WriteOptions(), ToString(51), "");
+  db->Flush(FlushOptions());
+  db->Put(WriteOptions(), ToString(50), "");
+  db->Put(WriteOptions(), ToString(99), "");
+  db->Flush(FlushOptions());
+  ASSERT_EQ(*compaction_count.get(), 0);
+
+  db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  usleep(10000);  // Wait for compaction start.
+  ASSERT_EQ(expected_context->start_key, Slice("1"));
+  ASSERT_EQ(expected_context->end_key, Slice("99"));
+  ASSERT_EQ(expected_context->is_end_key_inclusive, 1);
+  ASSERT_EQ(expected_context->file_numbers[0], 11);
+  ASSERT_EQ(*compaction_count.get(), 1);
+
+  delete (db);
+}
 
 TEST_F(CompactFilesTest, L0ConflictsFiles) {
   Options options;

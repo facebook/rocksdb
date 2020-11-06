@@ -15,6 +15,8 @@
 
 #include "rocksdb/customizable.h"
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -58,6 +60,18 @@ class CompactionFilter : public Customizable {
     bool is_manual_compaction;
     // Whether output files are in bottommost level or not.
     bool is_bottommost_level;
+
+    // The range of the compaction.
+    Slice start_key;
+    Slice end_key;
+    bool is_end_key_inclusive;
+
+    // File numbers of all involved SST files.
+    std::vector<uint64_t> file_numbers;
+
+    // Properties of all involved SST files.
+    std::vector<std::shared_ptr<const TableProperties>> table_properties;
+
     // The column family that will contain the created table file.
     uint32_t column_family_id;
     // Reason this table file is being created.
