@@ -132,7 +132,7 @@ struct DefaultTypesAndSettings {
   static constexpr bool kFirstCoeffAlwaysOne = true;
   static constexpr bool kUseSmash = false;
   static constexpr bool kAllowZeroStarts = false;
-  static Hash HashFn(const Key& key, Hash raw_seed) {
+  static Hash HashFn(const Key& key, uint64_t raw_seed) {
     // This version 0.7.2 preview of XXH3 (a.k.a. XXH3p) function does
     // not pass SmallKeyGen tests below without some seed premixing from
     // StandardHasher. See https://github.com/Cyan4973/xxHash/issues/469
@@ -192,6 +192,9 @@ struct TypesAndSettings_NoAlwaysOne : public DefaultTypesAndSettings {
 struct TypesAndSettings_AllowZeroStarts : public DefaultTypesAndSettings {
   static constexpr bool kAllowZeroStarts = true;
 };
+struct TypesAndSettings_Seed64 : public DefaultTypesAndSettings {
+  using Seed = uint64_t;
+};
 struct TypesAndSettings_Rehasher
     : public StandardRehasherAdapter<DefaultTypesAndSettings> {
   using KeyGen = Hash64KeyGenWrapper<StandardKeyGen>;
@@ -201,6 +204,11 @@ struct TypesAndSettings_Rehasher_Result16 : public TypesAndSettings_Rehasher {
 };
 struct TypesAndSettings_Rehasher_Result32 : public TypesAndSettings_Rehasher {
   using ResultRow = uint32_t;
+};
+struct TypesAndSettings_Rehasher_Seed64
+    : public StandardRehasherAdapter<TypesAndSettings_Seed64> {
+  using KeyGen = Hash64KeyGenWrapper<StandardKeyGen>;
+  // Note: 64-bit seed with Rehasher gives slightly better average reseeds
 };
 struct TypesAndSettings_Rehasher32
     : public StandardRehasherAdapter<TypesAndSettings_Hash32> {
@@ -227,8 +235,9 @@ using TestTypesAndSettings = ::testing::Types<
     TypesAndSettings_Hash32, TypesAndSettings_Hash32_Result16,
     TypesAndSettings_KeyString, TypesAndSettings_Seed8,
     TypesAndSettings_NoAlwaysOne, TypesAndSettings_AllowZeroStarts,
-    TypesAndSettings_Rehasher, TypesAndSettings_Rehasher_Result16,
-    TypesAndSettings_Rehasher_Result32, TypesAndSettings_Rehasher32,
+    TypesAndSettings_Seed64, TypesAndSettings_Rehasher,
+    TypesAndSettings_Rehasher_Result16, TypesAndSettings_Rehasher_Result32,
+    TypesAndSettings_Rehasher_Seed64, TypesAndSettings_Rehasher32,
     TypesAndSettings_Rehasher32_Coeff64, TypesAndSettings_SmallKeyGen,
     TypesAndSettings_Hash32_SmallKeyGen>;
 TYPED_TEST_CASE(RibbonTypeParamTest, TestTypesAndSettings);
@@ -712,10 +721,6 @@ TEST(RibbonTest, AllowZeroStarts) {
   ASSERT_EQ(isoln.ExpectedFpRate(), 0.0);
   ASSERT_EQ(soln.ExpectedFpRate(), 0.0);
 }
-
-struct TypesAndSettings_Seed64 : public DefaultTypesAndSettings {
-  using Seed = uint64_t;
-};
 
 TEST(RibbonTest, RawAndOrdinalSeeds) {
   StandardHasher<TypesAndSettings_Seed64> hasher64;

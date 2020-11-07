@@ -212,7 +212,7 @@ class StandardHasher {
     // Note that we cast to Hash because if we use product bits beyond
     // original input size, that's going to correlate with Start (FastRange)
     // even with a (likely) different multiplier here.
-    auto a = h * static_cast<Hash>(0xc28f82822b650bedULL);
+    Hash a = h * kCoeffAndResultFactor;
 
     // If that's big enough, we're done. If not, we have to expand it,
     // maybe up to 4x size.
@@ -222,7 +222,7 @@ class StandardHasher {
         "Supported sizes");
     if (sizeof(Hash) < sizeof(uint64_t)) {
       // Trivial expansion (OK) but favor equal number of 1's and 0's
-      b = (b << 32) ^ b ^ 0xC2B2AE63U;
+      b = (b << 32) ^ b ^ kCoeffXor32;
     }
     Unsigned128 c = b;
     static_assert(sizeof(CoeffRow) == sizeof(uint64_t) ||
@@ -230,7 +230,7 @@ class StandardHasher {
                   "Supported sizes");
     if (sizeof(uint64_t) < sizeof(CoeffRow)) {
       // Trivial expansion (OK) but favor equal number of 1's and 0's
-      c = (c << 64) ^ c ^ 0x9E3779B185EBCA87ULL;
+      c = (c << 64) ^ c ^ kCoeffXor64;
     }
     auto cr = static_cast<CoeffRow>(c);
 
@@ -262,7 +262,7 @@ class StandardHasher {
       // which are reasonably independent from Start. (Inlining and common
       // subexpression elimination with GetCoeffRow should make this
       // a single shared multiplication in generated code.)
-      auto a = h * static_cast<Hash>(0xc28f82822b650bedULL);
+      Hash a = h * kCoeffAndResultFactor;
       // The bits here that are *most* independent of Start are the highest
       // order bits (as in Knuth multiplicative hash). To make those the
       // most preferred for use in the result row, we do a bswap here.
@@ -302,9 +302,9 @@ class StandardHasher {
     // Multiply by a large random prime (one-to-one for any prefix of bits)
     Hash tmp = count * kToRawSeedFactor;
     // Within-byte one-to-one mixing
-    static_assert((kMixMask & (kMixMask >> kMixShift)) == 0,
+    static_assert((kSeedMixMask & (kSeedMixMask >> kSeedMixShift)) == 0,
                   "Illegal mask+shift");
-    tmp ^= (tmp & kMixMask) >> kMixShift;
+    tmp ^= (tmp & kSeedMixMask) >> kSeedMixShift;
     raw_seed_ = static_cast<Seed>(tmp);
     // dynamic verification
     assert(GetOrdinalSeed() == count);
@@ -312,7 +312,7 @@ class StandardHasher {
   Seed GetOrdinalSeed() {
     Hash tmp = raw_seed_;
     // Within-byte one-to-one mixing (its own inverse)
-    tmp ^= (tmp & kMixMask) >> kMixShift;
+    tmp ^= (tmp & kSeedMixMask) >> kSeedMixShift;
     // Multiply by 64-bit multiplicative inverse
     static_assert(kToRawSeedFactor * kFromRawSeedFactor == Hash{1},
                   "Must be inverses");
@@ -320,8 +320,17 @@ class StandardHasher {
   }
 
  protected:
-  static constexpr Hash kMixMask = static_cast<Hash>(0xf0f0f0f0f0f0f0f0U);
-  static constexpr unsigned kMixShift = 4U;
+  // For expanding hash:
+  // large random prime
+  static constexpr Hash kCoeffAndResultFactor =
+      static_cast<Hash>(0xc28f82822b650bedU);
+  // random-ish data
+  static constexpr uint32_t kCoeffXor32 = 0xa6293635;
+  static constexpr uint64_t kCoeffXor64 = 0xc367844a6e52731d;
+
+  // For pre-mixing seeds
+  static constexpr Hash kSeedMixMask = static_cast<Hash>(0xf0f0f0f0f0f0f0f0U);
+  static constexpr unsigned kSeedMixShift = 4U;
   static constexpr Hash kToRawSeedFactor =
       static_cast<Hash>(0xc78219a23eeadd03U);
   static constexpr Hash kFromRawSeedFactor =
