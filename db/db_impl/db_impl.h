@@ -431,8 +431,28 @@ class DBImpl : public DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) override;
 
+  using DB::VerifyFileChecksums;
+  Status VerifyFileChecksums(const ReadOptions& read_options) override;
+
   using DB::VerifyChecksum;
   virtual Status VerifyChecksum(const ReadOptions& /*read_options*/) override;
+  // Verify the checksums of files in db. Currently only tables are checked.
+  //
+  // read_options: controls file I/O behavior, e.g. read ahead size while
+  //               reading all the live table files.
+  //
+  // use_file_checksum: if false, verify the block checksums of all live table
+  //                    in db. Otherwise, obtain the file checksums and compare
+  //                    with the MANIFEST. Currently, file checksums are
+  //                    recomputed by reading all table files.
+  //
+  // Returns: OK if there is no file whose file or block checksum mismatches.
+  Status VerifyChecksumInternal(const ReadOptions& read_options,
+                                bool use_file_checksum);
+
+  Status VerifySstFileChecksum(const FileMetaData& fmeta,
+                               const std::string& fpath,
+                               const ReadOptions& read_options);
 
   using DB::StartTrace;
   virtual Status StartTrace(
@@ -1682,7 +1702,9 @@ class DBImpl : public DB {
       std::unique_ptr<TaskLimiterToken>* token, LogBuffer* log_buffer);
 
   // helper function to call after some of the logs_ were synced
-  void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
+  Status MarkLogsSynced(uint64_t up_to, bool synced_dir);
+  // WALs with log number up to up_to are not synced successfully.
+  void MarkLogsNotSynced(uint64_t up_to);
 
   SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary,
                                 bool lock = true);
@@ -2184,11 +2206,17 @@ extern CompressionType GetCompressionFlush(
 // `memtables_to_flush`) will be flushed and thus will not depend on any WAL
 // file.
 // The function is only applicable to 2pc mode.
-extern uint64_t PrecomputeMinLogNumberToKeep(
+extern uint64_t PrecomputeMinLogNumberToKeep2PC(
     VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
-    autovector<VersionEdit*> edit_list,
+    const autovector<VersionEdit*>& edit_list,
     const autovector<MemTable*>& memtables_to_flush,
     LogsWithPrepTracker* prep_tracker);
+
+// In non-2PC mode, WALs with log number < the returned number can be
+// deleted after the cfd_to_flush column family is flushed successfully.
+extern uint64_t PrecomputeMinLogNumberToKeepNon2PC(
+    VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
+    const autovector<VersionEdit*>& edit_list);
 
 // `cfd_to_flush` is the column family whose memtable will be flushed and thus
 // will not depend on any WAL file. nullptr means no memtable is being flushed.

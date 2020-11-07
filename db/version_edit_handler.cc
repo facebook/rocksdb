@@ -201,7 +201,8 @@ Status VersionEditHandler::OnWalAddition(VersionEdit& edit) {
 
 Status VersionEditHandler::OnWalDeletion(VersionEdit& edit) {
   assert(edit.IsWalDeletion());
-  return version_set_->wals_.DeleteWals(edit.GetWalDeletions());
+  return version_set_->wals_.DeleteWalsBefore(
+      edit.GetWalDeletion().GetLogNumber());
 }
 
 Status VersionEditHandler::OnNonCfOperation(VersionEdit& edit,

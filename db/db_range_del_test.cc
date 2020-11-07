@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBRangeDelTest : public DBTestBase {
  public:
-  DBRangeDelTest() : DBTestBase("/db_range_del_test", /*env_do_fsync=*/true) {}
+  DBRangeDelTest() : DBTestBase("/db_range_del_test", /*env_do_fsync=*/false) {}
 
   std::string GetNumericStr(int key) {
     uint64_t uint64_key = static_cast<uint64_t>(key);
@@ -159,7 +159,7 @@ TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
   // Want max_compaction_bytes to trigger the end of compaction output file, not
   // target_file_size_base, so make the latter much bigger
   opts.target_file_size_base = 100 * opts.max_compaction_bytes;
-  Reopen(opts);
+  DestroyAndReopen(opts);
 
   // snapshot protects range tombstone from dropping due to becoming obsolete.
   const Snapshot* snapshot = db_->GetSnapshot();
