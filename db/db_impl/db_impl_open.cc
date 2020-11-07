@@ -589,18 +589,20 @@ Status DBImpl::Recover(
     }
 
     if (immutable_db_options_.track_and_verify_wals_in_manifest) {
-      // Verify WALs in MANIFEST.
-      s = versions_->GetWalSet().CheckWals(env_, wal_files);
+      if (!immutable_db_options_.best_efforts_recovery) {
+        // Verify WALs in MANIFEST.
+        s = versions_->GetWalSet().CheckWals(env_, wal_files);
+      }  // else since best effort recovery does not recover from WALs, no need
+         // to check WALs.
     } else if (!versions_->GetWalSet().GetWals().empty()) {
       // Tracking is disabled, clear previously tracked WALs from MANIFEST,
       // otherwise, in the future, if WAL tracking is enabled again,
       // since the WALs deleted when WAL tracking is disabled are not persisted
       // into MANIFEST, WAL check may fail.
       VersionEdit edit;
-      for (const auto& wal : versions_->GetWalSet().GetWals()) {
-        WalNumber number = wal.first;
-        edit.DeleteWal(number);
-      }
+      WalNumber max_wal_number =
+          versions_->GetWalSet().GetWals().rbegin()->first;
+      edit.DeleteWalsBefore(max_wal_number + 1);
       s = versions_->LogAndApplyToDefaultColumnFamily(&edit, &mutex_);
     }
     if (!s.ok()) {

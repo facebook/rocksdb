@@ -159,7 +159,7 @@ TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
   // Want max_compaction_bytes to trigger the end of compaction output file, not
   // target_file_size_base, so make the latter much bigger
   opts.target_file_size_base = 100 * opts.max_compaction_bytes;
-  Reopen(opts);
+  DestroyAndReopen(opts);
 
   // snapshot protects range tombstone from dropping due to becoming obsolete.
   const Snapshot* snapshot = db_->GetSnapshot();

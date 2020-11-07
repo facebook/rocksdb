@@ -4179,7 +4179,7 @@ Status VersionSet::ProcessManifestWrites(
       if (e->IsWalAddition()) {
         s = wals_.AddWals(e->GetWalAdditions());
       } else if (e->IsWalDeletion()) {
-        s = wals_.DeleteWals(e->GetWalDeletions());
+        s = wals_.DeleteWalsBefore(e->GetWalDeletion().GetLogNumber());
       }
       if (!s.ok()) {
         break;
@@ -4527,7 +4527,7 @@ Status VersionSet::ApplyOneVersionEditToBuilder(
       return s;
     }
   } else if (edit.IsWalDeletion()) {
-    Status s = wals_.DeleteWals(edit.GetWalDeletions());
+    Status s = wals_.DeleteWalsBefore(edit.GetWalDeletion().GetLogNumber());
     if (!s.ok()) {
       return s;
     }

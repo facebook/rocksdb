@@ -680,16 +680,10 @@ uint64_t FindMinPrepLogReferencedByMemTable(
   return min_log;
 }
 
-uint64_t PrecomputeMinLogNumberToKeep(
+uint64_t PrecomputeMinLogNumberToKeepNon2PC(
     VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
-    autovector<VersionEdit*> edit_list,
-    const autovector<MemTable*>& memtables_to_flush,
-    LogsWithPrepTracker* prep_tracker) {
+    const autovector<VersionEdit*>& edit_list) {
   assert(vset != nullptr);
-  assert(prep_tracker != nullptr);
-  // Calculate updated min_log_number_to_keep
-  // Since the function should only be called in 2pc mode, log number in
-  // the version edit should be sufficient.
 
   // Precompute the min log number containing unflushed data for the column
   // family being flushed (`cfd_to_flush`).
@@ -713,6 +707,22 @@ uint64_t PrecomputeMinLogNumberToKeep(
     min_log_number_to_keep =
         std::min(cf_min_log_number_to_keep, min_log_number_to_keep);
   }
+  return min_log_number_to_keep;
+}
+
+uint64_t PrecomputeMinLogNumberToKeep2PC(
+    VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
+    const autovector<VersionEdit*>& edit_list,
+    const autovector<MemTable*>& memtables_to_flush,
+    LogsWithPrepTracker* prep_tracker) {
+  assert(vset != nullptr);
+  assert(prep_tracker != nullptr);
+  // Calculate updated min_log_number_to_keep
+  // Since the function should only be called in 2pc mode, log number in
+  // the version edit should be sufficient.
+
+  uint64_t min_log_number_to_keep =
+      PrecomputeMinLogNumberToKeepNon2PC(vset, cfd_to_flush, edit_list);
 
   // if are 2pc we must consider logs containing prepared
   // sections of outstanding transactions.
