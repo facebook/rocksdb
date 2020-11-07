@@ -601,7 +601,7 @@ class MockFileSystem : public FileSystem {
 
   std::string NormalizeMockPath(const std::string& path) {
     std::string p = NormalizePath(path);
-    if (p.back() == '/' && p.size() > 1) {
+    if (p.back() == kFilePathSeparator && p.size() > 1) {
       p.pop_back();
     }
     return p;
