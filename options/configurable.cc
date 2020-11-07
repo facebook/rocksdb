@@ -384,7 +384,7 @@ Status ConfigurableHelper::ConfigureOption(
     return configurable.ParseOption(config_options, opt_info, opt_name, value,
                                     opt_ptr);
   } else if (opt_info.IsCustomizable() &&
-             EndsWith(opt_name, Configurable::kIdPropSuffix)) {
+             EndsWith(opt_name, ConfigurableHelper::kIdPropSuffix)) {
     return configurable.ParseOption(config_options, opt_info, name, value,
                                     opt_ptr);
 
@@ -660,7 +660,7 @@ Status ConfigurableHelper::GetOptionsMap(
   } else {
     status = StringToMap(value, props);
     if (status.ok()) {
-      auto iter = props->find(Configurable::kIdPropName);
+      auto iter = props->find(ConfigurableHelper::kIdPropName);
       if (iter != props->end()) {
         *id = iter->second;
         props->erase(iter);

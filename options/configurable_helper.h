@@ -20,6 +20,8 @@ namespace ROCKSDB_NAMESPACE {
 // of configuring the objects.
 class ConfigurableHelper {
  public:
+  constexpr static const char* kIdPropName = "id";
+  constexpr static const char* kIdPropSuffix = ".id";
   // Registers the input name with the options and associated map.
   // When classes register their options in this manner, most of the
   // functionality (excluding unknown options and validate/prepare) is

@@ -467,18 +467,6 @@ TEST_F(CustomizableTest, UniqueIdTest) {
   ASSERT_EQ(simple->cu->GetId(), std::string("A_2"));
 }
 
-class WrappedCustomizable : public Customizable {
- public:
-  WrappedCustomizable(const std::shared_ptr<Customizable>& w) : inner(w) {}
-  const char* Name() const override { return "Wrapped"; }
-
- protected:
-  Customizable* Inner() const override { return inner.get(); }
-
- private:
-  std::shared_ptr<Customizable> inner;
-};
-
 TEST_F(CustomizableTest, IsInstanceOfTest) {
   std::shared_ptr<TestCustomizable> tc = std::make_shared<ACustomizable>("A");
 
@@ -496,11 +484,6 @@ TEST_F(CustomizableTest, IsInstanceOfTest) {
   ASSERT_EQ(tc->CheckedCast<BCustomizable>(), tc.get());
   ASSERT_EQ(tc->CheckedCast<TestCustomizable>(), tc.get());
   ASSERT_EQ(tc->CheckedCast<ACustomizable>(), nullptr);
-
-  WrappedCustomizable wc(tc);
-  ASSERT_EQ(wc.CheckedCast<TestCustomizable>(), tc.get());
-  ASSERT_EQ(wc.CheckedCast<BCustomizable>(), tc.get());
-  ASSERT_EQ(wc.CheckedCast<ACustomizable>(), nullptr);
 }
 
 static std::unordered_map<std::string, OptionTypeInfo> inner_option_info = {

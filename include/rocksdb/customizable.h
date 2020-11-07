@@ -95,12 +95,7 @@ class Customizable : public Configurable {
     if (IsInstanceOf(T::kClassName())) {
       return static_cast<const T*>(this);
     } else {
-      const auto inner = static_cast<const Customizable*>(Inner());
-      if (inner != nullptr) {
-        return inner->CheckedCast<T>();
-      } else {
-        return nullptr;
-      }
+      return nullptr;
     }
   }
 
@@ -109,12 +104,7 @@ class Customizable : public Configurable {
     if (IsInstanceOf(T::kClassName())) {
       return static_cast<T*>(this);
     } else {
-      const auto inner = Inner();
-      if (inner != nullptr) {
-        return inner->CheckedCast<T>();
-      } else {
-        return nullptr;
-      }
+      return nullptr;
     }
   }
 
@@ -129,24 +119,6 @@ class Customizable : public Configurable {
   bool AreEquivalent(const ConfigOptions& config_options,
                      const Configurable* other,
                      std::string* mismatch) const override;
-
-  // Validates that the settings are valid/consistent and performs any object
-  // initialization required by this object.  This method may be called as part
-  // of Configure (if invoke_prepare_options is set), or may be invoked
-  // separately.
-  // @see Configurable::PrepareOptions for more details
-  Status PrepareOptions(const ConfigOptions& config_options) override;
-
-  // Returns true if this object has been initialized via PrepareOptions, false
-  // otherwise. Once an object has been prepared, only mutable options may be
-  // changed.
-  // @see Configurable::IsPrepared for more details
-  bool IsPrepared() const override;
-
-  // Checks to see if the settings are valid for this object.
-  // @see Configurable::ValidateOptions for more details
-  Status ValidateOptions(const DBOptions& db_opts,
-                         const ColumnFamilyOptions& cf_opts) const override;
 #ifndef ROCKSDB_LITE
   // Gets the value of the option associated with the input name
   // @see Configurable::GetOption for more details
@@ -155,16 +127,6 @@ class Customizable : public Configurable {
 
 #endif  // ROCKSDB_LITE
  protected:
-  // If this class is a wrapper (has-a), this method should be
-  // over-written to return the inner customizable (like an EnvWrapper).
-  // This method should NOT recurse, but should instead return the
-  // direct Inner object.
-  virtual Customizable* Inner() const { return nullptr; }
-
-  // Returns the raw pointer for the associated named option.
-  // @see Configurable::GetOptionsPtr for more details
-  const void* GetOptionsPtr(const std::string& name) const override;
-
   //  Given a name (e.g. rocksdb.my.type.opt), returns the short name (opt)
   std::string GetOptionName(const std::string& long_name) const override;
 #ifndef ROCKSDB_LITE
