@@ -110,6 +110,12 @@ struct AddInputSelector<Key, ResultRow, true /*IsFilter*/> {
                     0,                                                       \
                 "avoid unused warnings, semicolon expected after macro call")
 
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4309)  // cast truncating constant
+#pragma warning(disable : 4307)  // arithmetic constant overflow
+#endif
+
 // StandardHasher: A standard implementation of concepts RibbonTypes,
 // PhsfQueryHasher, FilterQueryHasher, and BandingHasher from ribbon_alg.h.
 //
@@ -221,7 +227,8 @@ class StandardHasher {
         sizeof(Hash) == sizeof(uint64_t) || sizeof(Hash) == sizeof(uint32_t),
         "Supported sizes");
     if (sizeof(Hash) < sizeof(uint64_t)) {
-      // Trivial expansion (OK) but favor equal number of 1's and 0's
+      // Almost-trivial hash expansion (OK - see above), favoring roughly
+      // equal number of 1's and 0's in result
       b = (b << 32) ^ b ^ kCoeffXor32;
     }
     Unsigned128 c = b;
@@ -229,7 +236,8 @@ class StandardHasher {
                       sizeof(CoeffRow) == sizeof(Unsigned128),
                   "Supported sizes");
     if (sizeof(uint64_t) < sizeof(CoeffRow)) {
-      // Trivial expansion (OK) but favor equal number of 1's and 0's
+      // Almost-trivial hash expansion (OK - see above), favoring roughly
+      // equal number of 1's and 0's in result
       c = (c << 64) ^ c ^ kCoeffXor64;
     }
     auto cr = static_cast<CoeffRow>(c);
@@ -323,18 +331,18 @@ class StandardHasher {
   // For expanding hash:
   // large random prime
   static constexpr Hash kCoeffAndResultFactor =
-      static_cast<Hash>(0xc28f82822b650bedU);
+      static_cast<Hash>(0xc28f82822b650bedULL);
   // random-ish data
-  static constexpr uint32_t kCoeffXor32 = 0xa6293635;
-  static constexpr uint64_t kCoeffXor64 = 0xc367844a6e52731d;
+  static constexpr uint32_t kCoeffXor32 = 0xa6293635U;
+  static constexpr uint64_t kCoeffXor64 = 0xc367844a6e52731dU;
 
   // For pre-mixing seeds
-  static constexpr Hash kSeedMixMask = static_cast<Hash>(0xf0f0f0f0f0f0f0f0U);
+  static constexpr Hash kSeedMixMask = static_cast<Hash>(0xf0f0f0f0f0f0f0f0ULL);
   static constexpr unsigned kSeedMixShift = 4U;
   static constexpr Hash kToRawSeedFactor =
-      static_cast<Hash>(0xc78219a23eeadd03U);
+      static_cast<Hash>(0xc78219a23eeadd03ULL);
   static constexpr Hash kFromRawSeedFactor =
-      static_cast<Hash>(0xfe1a137d14b475abU);
+      static_cast<Hash>(0xfe1a137d14b475abULL);
 
   // See class description
   Seed raw_seed_ = 0;
@@ -376,14 +384,22 @@ class StandardRehasherAdapter : public RehasherTypesAndSettings {
     // mixing than Start.)
     // Also note: did consider adding ^ (input >> some) before the
     // multiplication, but doesn't appear to be necessary.
-    return (input ^ raw_seed) * static_cast<Hash>(0x6193d459236a3a0dULL);
+    return (input ^ raw_seed) * kRehashFactor;
   }
+
+ private:
+  static constexpr Hash kRehashFactor =
+      static_cast<Hash>(0x6193d459236a3a0dULL);
 };
 
 // See comment on StandardRehasherAdapter
 template <class RehasherTypesAndSettings>
 using StandardRehasher =
     StandardHasher<StandardRehasherAdapter<RehasherTypesAndSettings>>;
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 
 // Especially with smaller hashes (e.g. 32 bit), there can be noticeable
 // false positives due to collisions in the Hash returned by GetHash.
