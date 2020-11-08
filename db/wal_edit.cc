@@ -141,31 +141,9 @@ Status WalSet::AddWals(const WalAdditions& wals) {
   return s;
 }
 
-Status WalSet::DeleteWal(const WalDeletion& wal) {
-  auto it = wals_.find(wal.GetLogNumber());
-  // The WAL must exist.
-  if (it == wals_.end()) {
-    std::stringstream ss;
-    ss << "WAL " << wal.GetLogNumber() << " must exist before deletion";
-    return Status::Corruption("WalSet", ss.str());
-  }
-  wals_.erase(it);
+Status WalSet::DeleteWalsBefore(WalNumber wal) {
+  wals_.erase(wals_.begin(), wals_.lower_bound(wal));
   return Status::OK();
-}
-
-Status WalSet::DeleteWals(const WalDeletions& wals) {
-  Status s;
-  for (const WalDeletion& wal : wals) {
-    s = DeleteWal(wal);
-    if (!s.ok()) {
-      break;
-    }
-  }
-  return s;
-}
-
-void WalSet::DeleteWalsBefore(WalNumber number) {
-  wals_.erase(wals_.begin(), wals_.lower_bound(number));
 }
 
 void WalSet::Reset() { wals_.clear(); }

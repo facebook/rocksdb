@@ -473,12 +473,27 @@ Status MemTableList::TryInstallMemtableFlushResults(
 
     // TODO(myabandeh): Not sure how batch_count could be 0 here.
     if (batch_count > 0) {
+      uint64_t min_wal_number_to_keep = 0;
       if (vset->db_options()->allow_2pc) {
         assert(edit_list.size() > 0);
+        min_wal_number_to_keep = PrecomputeMinLogNumberToKeep2PC(
+            vset, *cfd, edit_list, memtables_to_flush, prep_tracker);
         // We piggyback the information of  earliest log file to keep in the
         // manifest entry for the last file flushed.
-        edit_list.back()->SetMinLogNumberToKeep(PrecomputeMinLogNumberToKeep(
-            vset, *cfd, edit_list, memtables_to_flush, prep_tracker));
+        edit_list.back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
+      } else {
+        min_wal_number_to_keep =
+            PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
+      }
+
+      std::unique_ptr<VersionEdit> wal_deletion;
+      if (vset->db_options()->track_and_verify_wals_in_manifest) {
+        const auto& wals = vset->GetWalSet().GetWals();
+        if (!wals.empty() && min_wal_number_to_keep > wals.begin()->first) {
+          wal_deletion.reset(new VersionEdit);
+          wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
+          edit_list.push_back(wal_deletion.get());
+        }
       }
 
       const auto manifest_write_cb = [this, cfd, batch_count, log_buffer,
@@ -704,6 +719,10 @@ Status InstallMemtableAtomicFlushResults(
   if (imm_lists != nullptr) {
     assert(imm_lists->size() == num);
   }
+  if (num == 0) {
+    return Status::OK();
+  }
+
   for (size_t k = 0; k != num; ++k) {
 #ifndef NDEBUG
     const auto* imm =
@@ -732,12 +751,36 @@ Status InstallMemtableAtomicFlushResults(
     ++num_entries;
     edit_lists.emplace_back(edits);
   }
+
+  // TODO(cc): after https://github.com/facebook/rocksdb/pull/7570, handle 2pc
+  // here.
+  std::unique_ptr<VersionEdit> wal_deletion;
+  if (vset->db_options()->track_and_verify_wals_in_manifest) {
+    uint64_t min_wal_number_to_keep =
+        PrecomputeMinLogNumberToKeepNon2PC(vset, *cfds[0], edit_lists[0]);
+    for (size_t i = 1; i < cfds.size(); i++) {
+      min_wal_number_to_keep = std::min(
+          min_wal_number_to_keep,
+          PrecomputeMinLogNumberToKeepNon2PC(vset, *cfds[i], edit_lists[i]));
+    }
+    const auto& wals = vset->GetWalSet().GetWals();
+    if (!wals.empty() && min_wal_number_to_keep > wals.begin()->first) {
+      wal_deletion.reset(new VersionEdit);
+      wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
+      edit_lists.back().push_back(wal_deletion.get());
+      ++num_entries;
+    }
+  }
+
   // Mark the version edits as an atomic group if the number of version edits
   // exceeds 1.
   if (cfds.size() > 1) {
-    for (auto& edits : edit_lists) {
-      assert(edits.size() == 1);
-      edits[0]->MarkAtomicGroup(--num_entries);
+    for (size_t i = 0; i < edit_lists.size(); i++) {
+      assert((edit_lists[i].size() == 1) ||
+             ((edit_lists[i].size() == 2) && (i == edit_lists.size() - 1)));
+      for (auto& e : edit_lists[i]) {
+        e->MarkAtomicGroup(--num_entries);
+      }
     }
     assert(0 == num_entries);
   }
