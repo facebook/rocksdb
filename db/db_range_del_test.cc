@@ -269,7 +269,7 @@ TEST_F(DBRangeDelTest, FlushRemovesCoveredKeys) {
   const int kNum = 300, kRangeBegin = 50, kRangeEnd = 250;
   Options opts = CurrentOptions();
   opts.comparator = test::Uint64Comparator();
-  Reopen(opts);
+  DestroyAndReopen(opts);
 
   // Write a third before snapshot, a third between snapshot and tombstone, and
   // a third after the tombstone. Keys older than snapshot or newer than the
@@ -309,7 +309,7 @@ TEST_F(DBRangeDelTest, CompactionRemovesCoveredKeys) {
   opts.memtable_factory.reset(new SpecialSkipListFactory(kNumPerFile));
   opts.num_levels = 2;
   opts.statistics = CreateDBStatistics();
-  Reopen(opts);
+  DestroyAndReopen(opts);
 
   for (int i = 0; i < kNumFiles; ++i) {
     if (i > 0) {
@@ -603,7 +603,7 @@ TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
   bbto.cache_index_and_filter_blocks = true;
   bbto.block_cache = NewLRUCache(8 << 20);
   opts.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  Reopen(opts);
+  DestroyAndReopen(opts);
 
   // Hold a snapshot so range deletions can't become obsolete during compaction
   // to bottommost level (i.e., L1).
@@ -761,7 +761,7 @@ TEST_F(DBRangeDelTest, IteratorRemovesCoveredKeys) {
   Options opts = CurrentOptions();
   opts.comparator = test::Uint64Comparator();
   opts.memtable_factory.reset(new SpecialSkipListFactory(kNumPerFile));
-  Reopen(opts);
+  DestroyAndReopen(opts);
 
   // Write half of the keys before the tombstone and half after the tombstone.
   // Only covered keys (i.e., within the range and older than the tombstone)
@@ -794,7 +794,7 @@ TEST_F(DBRangeDelTest, IteratorOverUserSnapshot) {
   Options opts = CurrentOptions();
   opts.comparator = test::Uint64Comparator();
   opts.memtable_factory.reset(new SpecialSkipListFactory(kNumPerFile));
-  Reopen(opts);
+  DestroyAndReopen(opts);
 
   const Snapshot* snapshot = nullptr;
   // Put a snapshot before the range tombstone, verify an iterator using that
