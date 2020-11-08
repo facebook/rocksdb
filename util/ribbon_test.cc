@@ -27,22 +27,119 @@ class RibbonTypeParamTest : public ::testing::Test {};
 
 class RibbonTest : public ::testing::Test {};
 
+namespace {
+
+// Different ways of generating keys for testing
+
+// Generate semi-sequential keys
+struct StandardKeyGen {
+  StandardKeyGen(const std::string& prefix, uint64_t id)
+      : id_(id), str_(prefix) {
+    ROCKSDB_NAMESPACE::PutFixed64(&str_, /*placeholder*/ 0);
+  }
+
+  // Prefix (only one required)
+  StandardKeyGen& operator++() {
+    ++id_;
+    return *this;
+  }
+
+  const std::string& operator*() {
+    // Use multiplication to mix things up a little in the key
+    ROCKSDB_NAMESPACE::EncodeFixed64(&str_[str_.size() - 8],
+                                     id_ * uint64_t{0x1500000001});
+    return str_;
+  }
+
+  bool operator==(const StandardKeyGen& other) {
+    // Same prefix is assumed
+    return id_ == other.id_;
+  }
+  bool operator!=(const StandardKeyGen& other) {
+    // Same prefix is assumed
+    return id_ != other.id_;
+  }
+
+  uint64_t id_;
+  std::string str_;
+};
+
+// Generate small sequential keys, that can misbehave with sequential seeds
+// as in https://github.com/Cyan4973/xxHash/issues/469.
+// These keys are only heuristically unique, but that's OK with 64 bits,
+// for testing purposes.
+struct SmallKeyGen {
+  SmallKeyGen(const std::string& prefix, uint64_t id) : id_(id) {
+    // Hash the prefix for a heuristically unique offset
+    id_ += ROCKSDB_NAMESPACE::GetSliceHash64(prefix);
+    ROCKSDB_NAMESPACE::PutFixed64(&str_, id_);
+  }
+
+  // Prefix (only one required)
+  SmallKeyGen& operator++() {
+    ++id_;
+    return *this;
+  }
+
+  const std::string& operator*() {
+    ROCKSDB_NAMESPACE::EncodeFixed64(&str_[str_.size() - 8], id_);
+    return str_;
+  }
+
+  bool operator==(const SmallKeyGen& other) { return id_ == other.id_; }
+  bool operator!=(const SmallKeyGen& other) { return id_ != other.id_; }
+
+  uint64_t id_;
+  std::string str_;
+};
+
+template <typename KeyGen>
+struct Hash32KeyGenWrapper : public KeyGen {
+  Hash32KeyGenWrapper(const std::string& prefix, uint64_t id)
+      : KeyGen(prefix, id) {}
+  uint32_t operator*() {
+    auto& key = *static_cast<KeyGen&>(*this);
+    // unseeded
+    return ROCKSDB_NAMESPACE::GetSliceHash(key);
+  }
+};
+
+template <typename KeyGen>
+struct Hash64KeyGenWrapper : public KeyGen {
+  Hash64KeyGenWrapper(const std::string& prefix, uint64_t id)
+      : KeyGen(prefix, id) {}
+  uint64_t operator*() {
+    auto& key = *static_cast<KeyGen&>(*this);
+    // unseeded
+    return ROCKSDB_NAMESPACE::GetSliceHash64(key);
+  }
+};
+
+}  // namespace
+
+using ROCKSDB_NAMESPACE::ribbon::ExpectedCollisionFpRate;
+using ROCKSDB_NAMESPACE::ribbon::StandardHasher;
+using ROCKSDB_NAMESPACE::ribbon::StandardRehasherAdapter;
+
 struct DefaultTypesAndSettings {
   using CoeffRow = ROCKSDB_NAMESPACE::Unsigned128;
   using ResultRow = uint8_t;
   using Index = uint32_t;
   using Hash = uint64_t;
-  using Key = ROCKSDB_NAMESPACE::Slice;
   using Seed = uint32_t;
+  using Key = ROCKSDB_NAMESPACE::Slice;
   static constexpr bool kIsFilter = true;
   static constexpr bool kFirstCoeffAlwaysOne = true;
   static constexpr bool kUseSmash = false;
   static constexpr bool kAllowZeroStarts = false;
-  static Hash HashFn(const Key& key, Seed seed) {
-    // TODO/FIXME: is there sufficient independence with sequential keys and
-    // sequential seeds?
-    return ROCKSDB_NAMESPACE::Hash64(key.data(), key.size(), seed);
+  static Hash HashFn(const Key& key, uint64_t raw_seed) {
+    // This version 0.7.2 preview of XXH3 (a.k.a. XXH3p) function does
+    // not pass SmallKeyGen tests below without some seed premixing from
+    // StandardHasher. See https://github.com/Cyan4973/xxHash/issues/469
+    return ROCKSDB_NAMESPACE::Hash64(key.data(), key.size(), raw_seed);
   }
+  // For testing
+  using KeyGen = StandardKeyGen;
 };
 
 using TypesAndSettings_Coeff128 = DefaultTypesAndSettings;
@@ -62,16 +159,19 @@ struct TypesAndSettings_Coeff64Smash0 : public TypesAndSettings_Coeff64Smash1 {
 struct TypesAndSettings_Result16 : public DefaultTypesAndSettings {
   using ResultRow = uint16_t;
 };
+struct TypesAndSettings_Result32 : public DefaultTypesAndSettings {
+  using ResultRow = uint32_t;
+};
 struct TypesAndSettings_IndexSizeT : public DefaultTypesAndSettings {
   using Index = size_t;
 };
 struct TypesAndSettings_Hash32 : public DefaultTypesAndSettings {
   using Hash = uint32_t;
-  static Hash HashFn(const Key& key, Seed seed) {
-    // NOTE: Using RocksDB 32-bit Hash() here fails test below because of
-    // insufficient mixing of seed (or generally insufficient mixing)
-    return ROCKSDB_NAMESPACE::Upper32of64(
-        ROCKSDB_NAMESPACE::Hash64(key.data(), key.size(), seed));
+  static Hash HashFn(const Key& key, Hash raw_seed) {
+    // This MurmurHash1 function does not pass tests below without the
+    // seed premixing from StandardHasher. In fact, it needs more than
+    // just a multiplication mixer on the ordinal seed.
+    return ROCKSDB_NAMESPACE::Hash(key.data(), key.size(), raw_seed);
   }
 };
 struct TypesAndSettings_Hash32_Result16 : public TypesAndSettings_Hash32 {
@@ -81,6 +181,9 @@ struct TypesAndSettings_KeyString : public DefaultTypesAndSettings {
   using Key = std::string;
 };
 struct TypesAndSettings_Seed8 : public DefaultTypesAndSettings {
+  // This is not a generally recommended configuration. With the configured
+  // hash function, it would fail with SmallKeyGen due to insufficient
+  // independence among the seeds.
   using Seed = uint8_t;
 };
 struct TypesAndSettings_NoAlwaysOne : public DefaultTypesAndSettings {
@@ -89,77 +192,57 @@ struct TypesAndSettings_NoAlwaysOne : public DefaultTypesAndSettings {
 struct TypesAndSettings_AllowZeroStarts : public DefaultTypesAndSettings {
   static constexpr bool kAllowZeroStarts = true;
 };
-struct TypesAndSettings_RehasherWrapped : public DefaultTypesAndSettings {
-  // This doesn't directly use StandardRehasher as a whole, but simulates
-  // its behavior with unseeded hash of key, then seeded hash-to-hash
-  // transform.
-  static Hash HashFn(const Key& key, Seed seed) {
-    Hash unseeded = DefaultTypesAndSettings::HashFn(key, /*seed*/ 0);
-    using Rehasher = ROCKSDB_NAMESPACE::ribbon::StandardRehasherAdapter<
-        DefaultTypesAndSettings>;
-    return Rehasher::HashFn(unseeded, seed);
-  }
+struct TypesAndSettings_Seed64 : public DefaultTypesAndSettings {
+  using Seed = uint64_t;
 };
-struct TypesAndSettings_RehasherWrapped_Result16
-    : public TypesAndSettings_RehasherWrapped {
+struct TypesAndSettings_Rehasher
+    : public StandardRehasherAdapter<DefaultTypesAndSettings> {
+  using KeyGen = Hash64KeyGenWrapper<StandardKeyGen>;
+};
+struct TypesAndSettings_Rehasher_Result16 : public TypesAndSettings_Rehasher {
   using ResultRow = uint16_t;
 };
-struct TypesAndSettings_Rehasher32Wrapped : public TypesAndSettings_Hash32 {
-  // This doesn't directly use StandardRehasher as a whole, but simulates
-  // its behavior with unseeded hash of key, then seeded hash-to-hash
-  // transform.
-  static Hash HashFn(const Key& key, Seed seed) {
-    Hash unseeded = TypesAndSettings_Hash32::HashFn(key, /*seed*/ 0);
-    using Rehasher = ROCKSDB_NAMESPACE::ribbon::StandardRehasherAdapter<
-        TypesAndSettings_Hash32>;
-    return Rehasher::HashFn(unseeded, seed);
-  }
+struct TypesAndSettings_Rehasher_Result32 : public TypesAndSettings_Rehasher {
+  using ResultRow = uint32_t;
+};
+struct TypesAndSettings_Rehasher_Seed64
+    : public StandardRehasherAdapter<TypesAndSettings_Seed64> {
+  using KeyGen = Hash64KeyGenWrapper<StandardKeyGen>;
+  // Note: 64-bit seed with Rehasher gives slightly better average reseeds
+};
+struct TypesAndSettings_Rehasher32
+    : public StandardRehasherAdapter<TypesAndSettings_Hash32> {
+  using KeyGen = Hash32KeyGenWrapper<StandardKeyGen>;
+};
+struct TypesAndSettings_Rehasher32_Coeff64
+    : public TypesAndSettings_Rehasher32 {
+  using CoeffRow = uint64_t;
+};
+struct TypesAndSettings_SmallKeyGen : public DefaultTypesAndSettings {
+  // SmallKeyGen stresses the independence of different hash seeds
+  using KeyGen = SmallKeyGen;
+};
+struct TypesAndSettings_Hash32_SmallKeyGen : public TypesAndSettings_Hash32 {
+  // SmallKeyGen stresses the independence of different hash seeds
+  using KeyGen = SmallKeyGen;
 };
 
 using TestTypesAndSettings = ::testing::Types<
     TypesAndSettings_Coeff128, TypesAndSettings_Coeff128Smash,
     TypesAndSettings_Coeff64, TypesAndSettings_Coeff64Smash0,
     TypesAndSettings_Coeff64Smash1, TypesAndSettings_Result16,
-    TypesAndSettings_IndexSizeT, TypesAndSettings_Hash32,
-    TypesAndSettings_Hash32_Result16, TypesAndSettings_KeyString,
-    TypesAndSettings_Seed8, TypesAndSettings_NoAlwaysOne,
-    TypesAndSettings_AllowZeroStarts, TypesAndSettings_RehasherWrapped,
-    TypesAndSettings_RehasherWrapped_Result16,
-    TypesAndSettings_Rehasher32Wrapped>;
+    TypesAndSettings_Result32, TypesAndSettings_IndexSizeT,
+    TypesAndSettings_Hash32, TypesAndSettings_Hash32_Result16,
+    TypesAndSettings_KeyString, TypesAndSettings_Seed8,
+    TypesAndSettings_NoAlwaysOne, TypesAndSettings_AllowZeroStarts,
+    TypesAndSettings_Seed64, TypesAndSettings_Rehasher,
+    TypesAndSettings_Rehasher_Result16, TypesAndSettings_Rehasher_Result32,
+    TypesAndSettings_Rehasher_Seed64, TypesAndSettings_Rehasher32,
+    TypesAndSettings_Rehasher32_Coeff64, TypesAndSettings_SmallKeyGen,
+    TypesAndSettings_Hash32_SmallKeyGen>;
 TYPED_TEST_CASE(RibbonTypeParamTest, TestTypesAndSettings);
 
 namespace {
-
-struct KeyGen {
-  KeyGen(const std::string& prefix, uint64_t id) : id_(id), str_(prefix) {
-    ROCKSDB_NAMESPACE::PutFixed64(&str_, id_);
-  }
-
-  // Prefix (only one required)
-  KeyGen& operator++() {
-    ++id_;
-    return *this;
-  }
-
-  const std::string& operator*() {
-    // Use multiplication to mix things up a little in the key
-    ROCKSDB_NAMESPACE::EncodeFixed64(&str_[str_.size() - 8],
-                                     id_ * uint64_t{0x1500000001});
-    return str_;
-  }
-
-  bool operator==(const KeyGen& other) {
-    // Same prefix is assumed
-    return id_ == other.id_;
-  }
-  bool operator!=(const KeyGen& other) {
-    // Same prefix is assumed
-    return id_ != other.id_;
-  }
-
-  uint64_t id_;
-  std::string str_;
-};
 
 // For testing Poisson-distributed (or similar) statistics, get value for
 // `stddevs_allowed` standard deviations above expected mean
@@ -199,14 +282,13 @@ uint64_t InfrequentPoissonLowerBound(double expected_count) {
 TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
   IMPORT_RIBBON_TYPES_AND_SETTINGS(TypeParam);
   IMPORT_RIBBON_IMPL_TYPES(TypeParam);
+  using KeyGen = typename TypeParam::KeyGen;
 
   // For testing FP rate etc.
   constexpr Index kNumToCheck = 100000;
 
   const auto log2_thoroughness =
-      static_cast<Seed>(ROCKSDB_NAMESPACE::FloorLog2(FLAGS_thoroughness));
-  // FIXME: This upper bound seems excessive
-  const Seed max_seed = 12 + log2_thoroughness;
+      static_cast<Hash>(ROCKSDB_NAMESPACE::FloorLog2(FLAGS_thoroughness));
 
   // With overhead of just 2%, expect ~50% encoding success per
   // seed with ~5k keys on 64-bit ribbon, or ~150k keys on 128-bit ribbon.
@@ -224,12 +306,15 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
   uint64_t isoln_query_nanos = 0;
   uint64_t isoln_query_count = 0;
 
+  // Take different samples if you change thoroughness
+  ROCKSDB_NAMESPACE::Random32 rnd(FLAGS_thoroughness);
+
   for (uint32_t i = 0; i < FLAGS_thoroughness; ++i) {
-    Index num_to_add =
+    uint32_t num_to_add =
         sizeof(CoeffRow) == 16 ? 130000 : TypeParam::kUseSmash ? 5500 : 2500;
 
     // Use different values between that number and 50% of that number
-    num_to_add -= (i * /* misc prime */ 15485863) % (num_to_add / 2);
+    num_to_add -= rnd.Uniformish(num_to_add / 2);
 
     total_added += num_to_add;
 
@@ -243,18 +328,20 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
       // Round to nearest multiple of kCoeffBits
       num_slots = ((num_slots + kCoeffBits / 2) / kCoeffBits) * kCoeffBits;
       // Re-adjust num_to_add to get as close as possible to kFactor
-      num_to_add = static_cast<Index>(num_slots / kFactor);
+      num_to_add = static_cast<uint32_t>(num_slots / kFactor);
     }
 
     std::string prefix;
-    // Take different samples if you change thoroughness
-    ROCKSDB_NAMESPACE::PutFixed32(&prefix,
-                                  i + (FLAGS_thoroughness * 123456789U));
+    ROCKSDB_NAMESPACE::PutFixed32(&prefix, rnd.Next());
 
     // Batch that must be added
     std::string added_str = prefix + "added";
     KeyGen keys_begin(added_str, 0);
     KeyGen keys_end(added_str, num_to_add);
+
+    // A couple more that will probably be added
+    KeyGen one_more(prefix + "more", 1);
+    KeyGen two_more(prefix + "more", 2);
 
     // Batch that may or may not be added
     const Index kBatchSize =
@@ -268,11 +355,19 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     KeyGen other_keys_begin(not_str, 0);
     KeyGen other_keys_end(not_str, kNumToCheck);
 
-    // Vary bytes uniformly for InterleavedSoln to use number of solution
-    // columns varying from 0 to max allowed by ResultRow type (and used by
-    // SimpleSoln).
-    size_t ibytes =
-        (i * /* misc odd */ 67896789) % (sizeof(ResultRow) * num_to_add + 1);
+    // Vary bytes for InterleavedSoln to use number of solution columns
+    // from 0 to max allowed by ResultRow type (and used by SimpleSoln).
+    // Specifically include 0 and max, and otherwise skew toward max.
+    uint32_t max_ibytes = static_cast<uint32_t>(sizeof(ResultRow) * num_slots);
+    size_t ibytes;
+    if (i == 0) {
+      ibytes = 0;
+    } else if (i == 1) {
+      ibytes = max_ibytes;
+    } else {
+      // Skewed
+      ibytes = std::max(rnd.Uniformish(max_ibytes), rnd.Uniformish(max_ibytes));
+    }
     std::unique_ptr<char[]> idata(new char[ibytes]);
     InterleavedSoln isoln(idata.get(), ibytes);
 
@@ -284,20 +379,23 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     {
       Banding banding;
       // Traditional solve for a fixed set.
-      ASSERT_TRUE(banding.ResetAndFindSeedToSolve(num_slots, keys_begin,
-                                                  keys_end, max_seed));
+      ASSERT_TRUE(
+          banding.ResetAndFindSeedToSolve(num_slots, keys_begin, keys_end));
 
-      // Now to test backtracking, starting with guaranteed fail
+      // Now to test backtracking, starting with guaranteed fail. By using
+      // the keys that will be used to test FP rate, we are then doing an
+      // extra check that after backtracking there are no remnants (e.g. in
+      // result side of banding) of these entries.
       Index occupied_count = banding.GetOccupiedCount();
       banding.EnsureBacktrackSize(kNumToCheck);
-      ASSERT_FALSE(
+      EXPECT_FALSE(
           banding.AddRangeOrRollBack(other_keys_begin, other_keys_end));
-      ASSERT_EQ(occupied_count, banding.GetOccupiedCount());
+      EXPECT_EQ(occupied_count, banding.GetOccupiedCount());
 
       // Check that we still have a good chance of adding a couple more
       // individually
-      first_single = banding.Add("one_more");
-      second_single = banding.Add("two_more");
+      first_single = banding.Add(*one_more);
+      second_single = banding.Add(*two_more);
       Index more_added = (first_single ? 1 : 0) + (second_single ? 1 : 0);
       total_single_failures += 2U - more_added;
 
@@ -307,12 +405,12 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
         more_added += kBatchSize;
         ++total_batch_successes;
       }
-      ASSERT_LE(banding.GetOccupiedCount(), occupied_count + more_added);
+      EXPECT_LE(banding.GetOccupiedCount(), occupied_count + more_added);
 
       // Also verify that redundant adds are OK (no effect)
       ASSERT_TRUE(
           banding.AddRange(keys_begin, KeyGen(added_str, num_to_add / 8)));
-      ASSERT_LE(banding.GetOccupiedCount(), occupied_count + more_added);
+      EXPECT_LE(banding.GetOccupiedCount(), occupied_count + more_added);
 
       // Now back-substitution
       soln.BackSubstFrom(banding);
@@ -320,39 +418,42 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
         isoln.BackSubstFrom(banding);
       }
 
-      Seed seed = banding.GetSeed();
-      total_reseeds += seed;
-      if (seed > log2_thoroughness + 1) {
-        fprintf(stderr, "%s high reseeds at %u, %u/%u: %u\n",
-                seed > log2_thoroughness + 8 ? "FIXME Extremely" : "Somewhat",
-                static_cast<unsigned>(i), static_cast<unsigned>(num_to_add),
-                static_cast<unsigned>(num_slots), static_cast<unsigned>(seed));
+      Seed reseeds = banding.GetOrdinalSeed();
+      total_reseeds += reseeds;
+
+      EXPECT_LE(reseeds, 8 + log2_thoroughness);
+      if (reseeds > log2_thoroughness + 1) {
+        fprintf(
+            stderr, "%s high reseeds at %u, %u/%u: %u\n",
+            reseeds > log2_thoroughness + 8 ? "ERROR Extremely" : "Somewhat",
+            static_cast<unsigned>(i), static_cast<unsigned>(num_to_add),
+            static_cast<unsigned>(num_slots), static_cast<unsigned>(reseeds));
       }
-      hasher.ResetSeed(seed);
+      hasher.SetOrdinalSeed(reseeds);
     }
     // soln and hasher now independent of Banding object
 
     // Verify keys added
     KeyGen cur = keys_begin;
     while (cur != keys_end) {
-      EXPECT_TRUE(soln.FilterQuery(*cur, hasher));
-      EXPECT_TRUE(!test_interleaved || isoln.FilterQuery(*cur, hasher));
+      ASSERT_TRUE(soln.FilterQuery(*cur, hasher));
+      ASSERT_TRUE(!test_interleaved || isoln.FilterQuery(*cur, hasher));
       ++cur;
     }
     // We (maybe) snuck these in!
     if (first_single) {
-      EXPECT_TRUE(soln.FilterQuery("one_more", hasher));
-      EXPECT_TRUE(!test_interleaved || isoln.FilterQuery("one_more", hasher));
+      ASSERT_TRUE(soln.FilterQuery(*one_more, hasher));
+      ASSERT_TRUE(!test_interleaved || isoln.FilterQuery(*one_more, hasher));
     }
     if (second_single) {
-      EXPECT_TRUE(soln.FilterQuery("two_more", hasher));
-      EXPECT_TRUE(!test_interleaved || isoln.FilterQuery("two_more", hasher));
+      ASSERT_TRUE(soln.FilterQuery(*two_more, hasher));
+      ASSERT_TRUE(!test_interleaved || isoln.FilterQuery(*two_more, hasher));
     }
     if (batch_success) {
       cur = batch_begin;
       while (cur != batch_end) {
-        EXPECT_TRUE(soln.FilterQuery(*cur, hasher));
-        EXPECT_TRUE(!test_interleaved || isoln.FilterQuery(*cur, hasher));
+        ASSERT_TRUE(soln.FilterQuery(*cur, hasher));
+        ASSERT_TRUE(!test_interleaved || isoln.FilterQuery(*cur, hasher));
         ++cur;
       }
     }
@@ -364,7 +465,8 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
       ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
                                              true);
       while (cur != other_keys_end) {
-        fp_count += soln.FilterQuery(*cur, hasher) ? 1 : 0;
+        bool fp = soln.FilterQuery(*cur, hasher);
+        fp_count += fp ? 1 : 0;
         ++cur;
       }
       soln_query_nanos += timer.ElapsedNanos();
@@ -375,8 +477,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
       // For expected FP rate, also include false positives due to collisions
       // in Hash value. (Negligible for 64-bit, can matter for 32-bit.)
       double correction =
-          kNumToCheck * ROCKSDB_NAMESPACE::ribbon::ExpectedCollisionFpRate(
-                            hasher, num_to_add);
+          kNumToCheck * ExpectedCollisionFpRate(hasher, num_to_add);
       EXPECT_LE(fp_count,
                 FrequentPoissonUpperBound(expected_fp_count + correction));
       EXPECT_GE(fp_count,
@@ -401,8 +502,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
         // For expected FP rate, also include false positives due to collisions
         // in Hash value. (Negligible for 64-bit, can matter for 32-bit.)
         double correction =
-            kNumToCheck * ROCKSDB_NAMESPACE::ribbon::ExpectedCollisionFpRate(
-                              hasher, num_to_add);
+            kNumToCheck * ExpectedCollisionFpRate(hasher, num_to_add);
         EXPECT_LE(ifp_count,
                   FrequentPoissonUpperBound(expected_fp_count + correction));
         EXPECT_GE(ifp_count,
@@ -448,12 +548,17 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     double average_reseeds = 1.0 * total_reseeds / FLAGS_thoroughness;
     fprintf(stderr, "Average re-seeds: %g\n", average_reseeds);
     // Values above were chosen to target around 50% chance of encoding success
-    // rate (average of 1.0 re-seeds) or slightly better. But 1.1 is also close
+    // rate (average of 1.0 re-seeds) or slightly better. But 1.15 is also close
     // enough.
     EXPECT_LE(total_reseeds,
-              InfrequentPoissonUpperBound(1.1 * FLAGS_thoroughness));
+              InfrequentPoissonUpperBound(1.15 * FLAGS_thoroughness));
+    // Would use 0.85 here instead of 0.75, but
+    // TypesAndSettings_Hash32_SmallKeyGen can "beat the odds" because of
+    // sequential keys with a small, cheap hash function. We accept that
+    // there are surely inputs that are somewhat bad for this setup, but
+    // these somewhat good inputs are probably more likely.
     EXPECT_GE(total_reseeds,
-              InfrequentPoissonLowerBound(0.9 * FLAGS_thoroughness));
+              InfrequentPoissonLowerBound(0.75 * FLAGS_thoroughness));
   }
 
   {
@@ -489,8 +594,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     // in Hash value. (Negligible for 64-bit, can matter for 32-bit.)
     double average_added = 1.0 * total_added / FLAGS_thoroughness;
     expected_total_fp_count +=
-        total_checked * ROCKSDB_NAMESPACE::ribbon::ExpectedCollisionFpRate(
-                            Hasher(), average_added);
+        total_checked * ExpectedCollisionFpRate(Hasher(), average_added);
 
     uint64_t upper_bound = InfrequentPoissonUpperBound(expected_total_fp_count);
     uint64_t lower_bound = InfrequentPoissonLowerBound(expected_total_fp_count);
@@ -499,10 +603,6 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
             expected_total_fp_count / total_checked,
             1.0 * upper_bound / total_checked,
             1.0 * lower_bound / total_checked);
-    // FIXME: this can fail for Result16, e.g. --thoroughness=300
-    // Seems due to inexpensive hashing in StandardHasher::GetCoeffRow and
-    // GetResultRowFromHash as replacing those with different Hash64 instances
-    // fixes it, at least mostly.
     EXPECT_LE(total_fp_count, upper_bound);
     EXPECT_GE(total_fp_count, lower_bound);
   }
@@ -511,6 +611,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
 TYPED_TEST(RibbonTypeParamTest, Extremes) {
   IMPORT_RIBBON_TYPES_AND_SETTINGS(TypeParam);
   IMPORT_RIBBON_IMPL_TYPES(TypeParam);
+  using KeyGen = typename TypeParam::KeyGen;
 
   size_t bytes = 128 * 1024;
   std::unique_ptr<char[]> buf(new char[bytes]);
@@ -523,7 +624,8 @@ TYPED_TEST(RibbonTypeParamTest, Extremes) {
   // Add zero keys to minimal number of slots
   KeyGen begin_and_end("foo", 123);
   ASSERT_TRUE(banding.ResetAndFindSeedToSolve(
-      /*slots*/ kCoeffBits, begin_and_end, begin_and_end, /*max_seed*/ 0));
+      /*slots*/ kCoeffBits, begin_and_end, begin_and_end, /*first seed*/ 0,
+      /* seed mask*/ 0));
 
   soln.BackSubstFrom(banding);
   isoln.BackSubstFrom(banding);
@@ -547,9 +649,10 @@ TYPED_TEST(RibbonTypeParamTest, Extremes) {
     // Solutions are equivalent
     ASSERT_EQ(isoln_query_result, soln_query_result);
     // And in fact we only expect an FP when ResultRow is 0
-    ASSERT_EQ(soln_query_result, hasher.GetResultRowFromHash(
-                                     hasher.GetHash(*cur)) == ResultRow{0});
-
+    // CHANGE: no longer true because of filling some unused slots
+    // with pseudorandom values.
+    // ASSERT_EQ(soln_query_result, hasher.GetResultRowFromHash(
+    //                                hasher.GetHash(*cur)) == ResultRow{0});
     fp_count += soln_query_result ? 1 : 0;
     ++cur;
   }
@@ -567,7 +670,8 @@ TYPED_TEST(RibbonTypeParamTest, Extremes) {
   KeyGen key_begin("added", 0);
   KeyGen key_end("added", 1);
   ASSERT_TRUE(banding.ResetAndFindSeedToSolve(
-      /*slots*/ kCoeffBits, key_begin, key_end, /*max_seed*/ 0));
+      /*slots*/ kCoeffBits, key_begin, key_end, /*first seed*/ 0,
+      /* seed mask*/ 0));
 
   InterleavedSoln isoln2(nullptr, /*bytes*/ 0);
 
@@ -584,6 +688,7 @@ TYPED_TEST(RibbonTypeParamTest, Extremes) {
 TEST(RibbonTest, AllowZeroStarts) {
   IMPORT_RIBBON_TYPES_AND_SETTINGS(TypesAndSettings_AllowZeroStarts);
   IMPORT_RIBBON_IMPL_TYPES(TypesAndSettings_AllowZeroStarts);
+  using KeyGen = StandardKeyGen;
 
   InterleavedSoln isoln(nullptr, /*bytes*/ 0);
   SimpleSoln soln;
@@ -593,17 +698,16 @@ TEST(RibbonTest, AllowZeroStarts) {
   KeyGen begin("foo", 0);
   KeyGen end("foo", 1);
   // Can't add 1 entry
-  ASSERT_FALSE(
-      banding.ResetAndFindSeedToSolve(/*slots*/ 0, begin, end, /*max_seed*/ 5));
+  ASSERT_FALSE(banding.ResetAndFindSeedToSolve(/*slots*/ 0, begin, end));
 
   KeyGen begin_and_end("foo", 123);
   // Can add 0 entries
   ASSERT_TRUE(banding.ResetAndFindSeedToSolve(/*slots*/ 0, begin_and_end,
-                                              begin_and_end, /*max_seed*/ 5));
+                                              begin_and_end));
 
-  Seed seed = banding.GetSeed();
-  ASSERT_EQ(seed, 0U);
-  hasher.ResetSeed(seed);
+  Seed reseeds = banding.GetOrdinalSeed();
+  ASSERT_EQ(reseeds, 0U);
+  hasher.SetOrdinalSeed(reseeds);
 
   // Can construct 0-slot solutions
   isoln.BackSubstFrom(banding);
@@ -616,6 +720,123 @@ TEST(RibbonTest, AllowZeroStarts) {
   // And report that in FP rate
   ASSERT_EQ(isoln.ExpectedFpRate(), 0.0);
   ASSERT_EQ(soln.ExpectedFpRate(), 0.0);
+}
+
+TEST(RibbonTest, RawAndOrdinalSeeds) {
+  StandardHasher<TypesAndSettings_Seed64> hasher64;
+  StandardHasher<DefaultTypesAndSettings> hasher64_32;
+  StandardHasher<TypesAndSettings_Hash32> hasher32;
+  StandardHasher<TypesAndSettings_Seed8> hasher8;
+
+  for (uint32_t limit : {0xffU, 0xffffU}) {
+    std::vector<bool> seen(limit + 1);
+    for (uint32_t i = 0; i < limit; ++i) {
+      hasher64.SetOrdinalSeed(i);
+      auto raw64 = hasher64.GetRawSeed();
+      hasher32.SetOrdinalSeed(i);
+      auto raw32 = hasher32.GetRawSeed();
+      hasher8.SetOrdinalSeed(static_cast<uint8_t>(i));
+      auto raw8 = hasher8.GetRawSeed();
+      {
+        hasher64_32.SetOrdinalSeed(i);
+        auto raw64_32 = hasher64_32.GetRawSeed();
+        ASSERT_EQ(raw64_32, raw32);  // Same size seed
+      }
+      if (i == 0) {
+        // Documented that ordinal seed 0 == raw seed 0
+        ASSERT_EQ(raw64, 0U);
+        ASSERT_EQ(raw32, 0U);
+        ASSERT_EQ(raw8, 0U);
+      } else {
+        // Extremely likely that upper bits are set
+        ASSERT_GT(raw64, raw32);
+        ASSERT_GT(raw32, raw8);
+      }
+      // Hashers agree on lower bits
+      ASSERT_EQ(static_cast<uint32_t>(raw64), raw32);
+      ASSERT_EQ(static_cast<uint8_t>(raw32), raw8);
+
+      // The translation is one-to-one for this size prefix
+      uint32_t v = static_cast<uint32_t>(raw32 & limit);
+      ASSERT_EQ(raw64 & limit, v);
+      ASSERT_FALSE(seen[v]);
+      seen[v] = true;
+    }
+  }
+}
+
+namespace {
+
+struct PhsfInputGen {
+  PhsfInputGen(const std::string& prefix, uint64_t id) : id_(id) {
+    val_.first = prefix;
+    ROCKSDB_NAMESPACE::PutFixed64(&val_.first, /*placeholder*/ 0);
+  }
+
+  // Prefix (only one required)
+  PhsfInputGen& operator++() {
+    ++id_;
+    return *this;
+  }
+
+  const std::pair<std::string, uint8_t>& operator*() {
+    // Use multiplication to mix things up a little in the key
+    ROCKSDB_NAMESPACE::EncodeFixed64(&val_.first[val_.first.size() - 8],
+                                     id_ * uint64_t{0x1500000001});
+    // Occasionally repeat values etc.
+    val_.second = static_cast<uint8_t>(id_ * 7 / 8);
+    return val_;
+  }
+
+  const std::pair<std::string, uint8_t>* operator->() { return &**this; }
+
+  bool operator==(const PhsfInputGen& other) {
+    // Same prefix is assumed
+    return id_ == other.id_;
+  }
+  bool operator!=(const PhsfInputGen& other) {
+    // Same prefix is assumed
+    return id_ != other.id_;
+  }
+
+  uint64_t id_;
+  std::pair<std::string, uint8_t> val_;
+};
+
+struct PhsfTypesAndSettings : public DefaultTypesAndSettings {
+  static constexpr bool kIsFilter = false;
+};
+}  // namespace
+
+TEST(RibbonTest, PhsfBasic) {
+  IMPORT_RIBBON_TYPES_AND_SETTINGS(PhsfTypesAndSettings);
+  IMPORT_RIBBON_IMPL_TYPES(PhsfTypesAndSettings);
+
+  Index num_slots = 12800;
+  Index num_to_add = static_cast<Index>(num_slots / 1.02);
+
+  PhsfInputGen begin("in", 0);
+  PhsfInputGen end("in", num_to_add);
+
+  std::unique_ptr<char[]> idata(new char[/*bytes*/ num_slots]);
+  InterleavedSoln isoln(idata.get(), /*bytes*/ num_slots);
+  SimpleSoln soln;
+  Hasher hasher;
+
+  {
+    Banding banding;
+    ASSERT_TRUE(banding.ResetAndFindSeedToSolve(num_slots, begin, end));
+
+    soln.BackSubstFrom(banding);
+    isoln.BackSubstFrom(banding);
+
+    hasher.SetOrdinalSeed(banding.GetOrdinalSeed());
+  }
+
+  for (PhsfInputGen cur = begin; cur != end; ++cur) {
+    ASSERT_EQ(cur->second, soln.PhsfQuery(cur->first, hasher));
+    ASSERT_EQ(cur->second, isoln.PhsfQuery(cur->first, hasher));
+  }
 }
 
 int main(int argc, char** argv) {
