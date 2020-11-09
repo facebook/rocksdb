@@ -29,6 +29,8 @@ namespace ROCKSDB_NAMESPACE {
 
 // Stable/persistent 64-bit hash. Higher quality and generally faster than
 // Hash(), especially for inputs > 24 bytes.
+// KNOWN FLAW: incrementing seed by 1 might not give sufficiently independent
+// results from previous seed. Recommend incrementing by a large odd number.
 extern uint64_t Hash64(const char* data, size_t n, uint64_t seed);
 
 // Specific optimization without seed (same as seed = 0)
@@ -38,6 +40,8 @@ extern uint64_t Hash64(const char* data, size_t n);
 // The hash results are thus subject to change between releases,
 // architectures, build configuration, etc. (Thus, it rarely makes sense
 // to specify a seed for this function, except for a "rolling" hash.)
+// KNOWN FLAW: incrementing seed by 1 might not give sufficiently independent
+// results from previous seed. Recommend incrementing by a large odd number.
 inline uint64_t NPHash64(const char* data, size_t n, uint64_t seed) {
 #ifdef ROCKSDB_MODIFY_NPHASH
   // For testing "subject to change"
@@ -62,6 +66,8 @@ inline uint64_t NPHash64(const char* data, size_t n) {
 // Stable/persistent 32-bit hash. Moderate quality and high speed on
 // small inputs.
 // TODO: consider rename to Hash32
+// KNOWN FLAW: incrementing seed by 1 might not give sufficiently independent
+// results from previous seed. Recommend pseudorandom or hashed seeds.
 extern uint32_t Hash(const char* data, size_t n, uint32_t seed);
 
 // TODO: consider rename to LegacyBloomHash32

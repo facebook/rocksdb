@@ -1439,7 +1439,6 @@ Status CompactionJob::FinishCompactionOutputFile(
              ExtractInternalKeyFooter(meta->smallest.Encode()) !=
                  PackSequenceAndType(0, kTypeRangeDeletion));
     }
-    meta->marked_for_compaction = sub_compact->builder->NeedCompact();
   }
   const uint64_t current_entries = sub_compact->builder->NumEntries();
   if (s.ok()) {
@@ -1454,6 +1453,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   const uint64_t current_bytes = sub_compact->builder->FileSize();
   if (s.ok()) {
     meta->fd.file_size = current_bytes;
+    meta->marked_for_compaction = sub_compact->builder->NeedCompact();
   }
   sub_compact->current_output()->finished = true;
   sub_compact->total_bytes += current_bytes;

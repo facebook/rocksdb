@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <map>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -1282,7 +1283,11 @@ Status DBImpl::SyncWAL() {
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
   {
     InstrumentedMutexLock l(&mutex_);
-    MarkLogsSynced(current_log_number, need_log_dir_sync, status);
+    if (status.ok()) {
+      status = MarkLogsSynced(current_log_number, need_log_dir_sync);
+    } else {
+      MarkLogsNotSynced(current_log_number);
+    }
   }
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
 
@@ -1308,27 +1313,53 @@ Status DBImpl::UnlockWAL() {
   return Status::OK();
 }
 
-void DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir,
-                            const Status& status) {
+Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
   mutex_.AssertHeld();
-  if (synced_dir && logfile_number_ == up_to && status.ok()) {
+  if (synced_dir && logfile_number_ == up_to) {
     log_dir_synced_ = true;
   }
+  VersionEdit synced_wals;
   for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
-    auto& log = *it;
-    assert(log.getting_synced);
-    if (status.ok() && logs_.size() > 1) {
-      logs_to_free_.push_back(log.ReleaseWriter());
+    auto& wal = *it;
+    assert(wal.getting_synced);
+    if (logs_.size() > 1) {
+      if (immutable_db_options_.track_and_verify_wals_in_manifest) {
+        synced_wals.AddWal(wal.number,
+                           WalMetadata(wal.writer->file()->GetFileSize()));
+      }
+      logs_to_free_.push_back(wal.ReleaseWriter());
       // To modify logs_ both mutex_ and log_write_mutex_ must be held
       InstrumentedMutexLock l(&log_write_mutex_);
       it = logs_.erase(it);
     } else {
-      log.getting_synced = false;
+      wal.getting_synced = false;
       ++it;
     }
   }
-  assert(!status.ok() || logs_.empty() || logs_[0].number > up_to ||
+  assert(logs_.empty() || logs_[0].number > up_to ||
          (logs_.size() == 1 && !logs_[0].getting_synced));
+
+  Status s;
+  if (synced_wals.IsWalAddition()) {
+    // not empty, write to MANIFEST.
+    s = versions_->LogAndApplyToDefaultColumnFamily(&synced_wals, &mutex_);
+    if (!s.ok() && versions_->io_status().IsIOError()) {
+      s = error_handler_.SetBGError(versions_->io_status(),
+                                    BackgroundErrorReason::kManifestWrite);
+    }
+  }
+  log_sync_cv_.SignalAll();
+  return s;
+}
+
+void DBImpl::MarkLogsNotSynced(uint64_t up_to) {
+  mutex_.AssertHeld();
+  for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;
+       ++it) {
+    auto& wal = *it;
+    assert(wal.getting_synced);
+    wal.getting_synced = false;
+  }
   log_sync_cv_.SignalAll();
 }
 
@@ -4727,8 +4758,29 @@ Status DBImpl::CreateColumnFamilyWithImport(
   return status;
 }
 
+Status DBImpl::VerifyFileChecksums(const ReadOptions& read_options) {
+  return VerifyChecksumInternal(read_options, /*use_file_checksum=*/true);
+}
+
 Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
+  return VerifyChecksumInternal(read_options, /*use_file_checksum=*/false);
+}
+
+Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
+                                      bool use_file_checksum) {
   Status s;
+
+  if (use_file_checksum) {
+    FileChecksumGenFactory* const file_checksum_gen_factory =
+        immutable_db_options_.file_checksum_gen_factory.get();
+    if (!file_checksum_gen_factory) {
+      s = Status::InvalidArgument(
+          "Cannot verify file checksum if options.file_checksum_gen_factory is "
+          "null");
+      return s;
+    }
+  }
+
   std::vector<ColumnFamilyData*> cfd_list;
   {
     InstrumentedMutexLock l(&mutex_);
@@ -4743,11 +4795,12 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
   for (auto cfd : cfd_list) {
     sv_list.push_back(cfd->GetReferencedSuperVersion(this));
   }
+
   for (auto& sv : sv_list) {
     VersionStorageInfo* vstorage = sv->current->storage_info();
     ColumnFamilyData* cfd = sv->current->cfd();
     Options opts;
-    {
+    if (!use_file_checksum) {
       InstrumentedMutexLock l(&mutex_);
       opts = Options(BuildDBOptions(immutable_db_options_, mutable_db_options_),
                      cfd->GetLatestCFOptions());
@@ -4755,11 +4808,18 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
     for (int i = 0; i < vstorage->num_non_empty_levels() && s.ok(); i++) {
       for (size_t j = 0; j < vstorage->LevelFilesBrief(i).num_files && s.ok();
            j++) {
-        const auto& fd = vstorage->LevelFilesBrief(i).files[j].fd;
+        const auto& fd_with_krange = vstorage->LevelFilesBrief(i).files[j];
+        const auto& fd = fd_with_krange.fd;
+        const FileMetaData* fmeta = fd_with_krange.file_metadata;
+        assert(fmeta);
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
-        s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
-                                                     read_options, fname);
+        if (use_file_checksum) {
+          s = VerifySstFileChecksum(*fmeta, fname, read_options);
+        } else {
+          s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
+                                                       read_options, fname);
+        }
       }
     }
     if (!s.ok()) {
@@ -4785,6 +4845,34 @@ Status DBImpl::VerifyChecksum(const ReadOptions& read_options) {
     }
     for (auto cfd : cfd_list) {
       cfd->UnrefAndTryDelete();
+    }
+  }
+  return s;
+}
+
+Status DBImpl::VerifySstFileChecksum(const FileMetaData& fmeta,
+                                     const std::string& fname,
+                                     const ReadOptions& read_options) {
+  Status s;
+  if (fmeta.file_checksum == kUnknownFileChecksum) {
+    return s;
+  }
+  std::string file_checksum;
+  std::string func_name;
+  s = ROCKSDB_NAMESPACE::GenerateOneFileChecksum(
+      fs_.get(), fname, immutable_db_options_.file_checksum_gen_factory.get(),
+      fmeta.file_checksum_func_name, &file_checksum, &func_name,
+      read_options.readahead_size, immutable_db_options_.allow_mmap_reads,
+      io_tracer_);
+  if (s.ok()) {
+    assert(fmeta.file_checksum_func_name == func_name);
+    if (file_checksum != fmeta.file_checksum) {
+      std::ostringstream oss;
+      oss << fname << " file checksum mismatch, ";
+      oss << "expecting " << Slice(fmeta.file_checksum).ToString(/*hex=*/true);
+      oss << ", but actual " << Slice(file_checksum).ToString(/*hex=*/true);
+      s = Status::Corruption(oss.str());
+      TEST_SYNC_POINT_CALLBACK("DBImpl::VerifySstFileChecksum:mismatch", &s);
     }
   }
   return s;
