@@ -1143,7 +1143,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
   if (!read_only) {
     // no need to refcount since client still doesn't have access
     // to the DB and can not drop column families while we iterate
-    auto max_wal_number = wal_numbers.back();
+    const WalNumber max_wal_number = wal_numbers.back();
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       auto iter = version_edits.find(cfd->GetID());
       assert(iter != version_edits.end());
@@ -1210,6 +1210,14 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         assert(iter != version_edits.end());
         edit_lists.push_back({&iter->second});
       }
+
+      std::unique_ptr<VersionEdit> wal_deletion;
+      if (immutable_db_options_.track_and_verify_wals_in_manifest) {
+        wal_deletion.reset(new VersionEdit);
+        wal_deletion->DeleteWalsBefore(max_wal_number + 1);
+        edit_lists.back().push_back(wal_deletion.get());
+      }
+
       // write MANIFEST with update
       status = versions_->LogAndApply(cfds, cf_opts, edit_lists, &mutex_,
                                       directories_.GetDbDir(),

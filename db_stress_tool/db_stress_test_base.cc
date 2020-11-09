@@ -2066,6 +2066,7 @@ void StressTest::Open() {
         FLAGS_level_compaction_dynamic_level_bytes;
     options_.file_checksum_gen_factory =
         GetFileChecksumImpl(FLAGS_file_checksum_impl);
+    options_.track_and_verify_wals_in_manifest = true;
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");
