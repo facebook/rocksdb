@@ -197,24 +197,28 @@ Status WriteUnpreparedTxn::RebuildFromWriteBatch(WriteBatch* wb) {
     TrackKeyHandler(WriteUnpreparedTxn* txn, bool rollback_merge_operands)
         : txn_(txn), rollback_merge_operands_(rollback_merge_operands) {}
 
+    using WriteBatch::Handler::PutCF;
     Status PutCF(uint32_t cf, const Slice& key, const Slice&) override {
       txn_->TrackKey(cf, key.ToString(), kMaxSequenceNumber,
                      false /* read_only */, true /* exclusive */);
       return Status::OK();
     }
 
+    using WriteBatch::Handler::DeleteCF;
     Status DeleteCF(uint32_t cf, const Slice& key) override {
       txn_->TrackKey(cf, key.ToString(), kMaxSequenceNumber,
                      false /* read_only */, true /* exclusive */);
       return Status::OK();
     }
 
+    using WriteBatch::Handler::SingleDeleteCF;
     Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
       txn_->TrackKey(cf, key.ToString(), kMaxSequenceNumber,
                      false /* read_only */, true /* exclusive */);
       return Status::OK();
     }
 
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
       if (rollback_merge_operands_) {
         txn_->TrackKey(cf, key.ToString(), kMaxSequenceNumber,
@@ -307,18 +311,22 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
       return Status::OK();
     }
 
+    using WriteBatch::Handler::PutCF;
     Status PutCF(uint32_t cf, const Slice& key, const Slice&) override {
       return AddUntrackedKey(cf, key);
     }
 
+    using WriteBatch::Handler::DeleteCF;
     Status DeleteCF(uint32_t cf, const Slice& key) override {
       return AddUntrackedKey(cf, key);
     }
 
+    using WriteBatch::Handler::SingleDeleteCF;
     Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
       return AddUntrackedKey(cf, key);
     }
 
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
       if (rollback_merge_operands_) {
         return AddUntrackedKey(cf, key);
@@ -422,18 +430,22 @@ Status WriteUnpreparedTxn::FlushWriteBatchWithSavePointToDB() {
         const std::map<uint32_t, ColumnFamilyHandle*>& handles)
         : wb_(wb), handles_(handles) {}
 
+    using WriteBatch::Handler::PutCF;
     Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
       return wb_->Put(handles_.at(cf), key, value);
     }
 
+    using WriteBatch::Handler::DeleteCF;
     Status DeleteCF(uint32_t cf, const Slice& key) override {
       return wb_->Delete(handles_.at(cf), key);
     }
 
+    using WriteBatch::Handler::SingleDeleteCF;
     Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
       return wb_->SingleDelete(handles_.at(cf), key);
     }
 
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) override {
       return wb_->Merge(handles_.at(cf), key, value);
     }

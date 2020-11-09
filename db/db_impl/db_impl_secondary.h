@@ -241,29 +241,35 @@ class DBImplSecondary : public DBImpl {
 
     ~ColumnFamilyCollector() override {}
 
+    using WriteBatch::Handler::PutCF;
     Status PutCF(uint32_t column_family_id, const Slice&,
                  const Slice&) override {
       return AddColumnFamilyId(column_family_id);
     }
 
+    using WriteBatch::Handler::DeleteCF;
     Status DeleteCF(uint32_t column_family_id, const Slice&) override {
       return AddColumnFamilyId(column_family_id);
     }
 
+    using WriteBatch::Handler::SingleDeleteCF;
     Status SingleDeleteCF(uint32_t column_family_id, const Slice&) override {
       return AddColumnFamilyId(column_family_id);
     }
 
+    using WriteBatch::Handler::DeleteRangeCF;
     Status DeleteRangeCF(uint32_t column_family_id, const Slice&,
                          const Slice&) override {
       return AddColumnFamilyId(column_family_id);
     }
 
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t column_family_id, const Slice&,
                    const Slice&) override {
       return AddColumnFamilyId(column_family_id);
     }
 
+    using WriteBatch::Handler::PutBlobIndexCF;
     Status PutBlobIndexCF(uint32_t column_family_id, const Slice&,
                           const Slice&) override {
       return AddColumnFamilyId(column_family_id);

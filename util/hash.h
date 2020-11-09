@@ -83,6 +83,10 @@ inline uint64_t GetSliceNPHash64(const Slice& s) {
   return NPHash64(s.data(), s.size());
 }
 
+// Similar to `GetSliceNPHash64()` without `seed`, but input comes from
+// concatenation of `Slice`s in `data`.
+extern uint64_t GetSlicePartsNPHash64(const SliceParts& data);
+
 inline size_t GetSliceRangedNPHash(const Slice& s, size_t range) {
   return FastRange64(NPHash64(s.data(), s.size()), range);
 }

@@ -2215,12 +2215,14 @@ class InMemoryHandler : public WriteBatch::Handler {
     }
   }
 
+  using WriteBatch::Handler::PutCF;
   Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
     row_ << "PUT(" << cf << ") : ";
     commonPutMerge(key, value);
     return Status::OK();
   }
 
+  using WriteBatch::Handler::MergeCF;
   Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) override {
     row_ << "MERGE(" << cf << ") : ";
     commonPutMerge(key, value);
@@ -2232,18 +2234,21 @@ class InMemoryHandler : public WriteBatch::Handler {
     return Status::OK();
   }
 
+  using WriteBatch::Handler::DeleteCF;
   Status DeleteCF(uint32_t cf, const Slice& key) override {
     row_ << "DELETE(" << cf << ") : ";
     row_ << LDBCommand::StringToHex(key.ToString()) << " ";
     return Status::OK();
   }
 
+  using WriteBatch::Handler::SingleDeleteCF;
   Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
     row_ << "SINGLE_DELETE(" << cf << ") : ";
     row_ << LDBCommand::StringToHex(key.ToString()) << " ";
     return Status::OK();
   }
 
+  using WriteBatch::Handler::DeleteRangeCF;
   Status DeleteRangeCF(uint32_t cf, const Slice& begin_key,
                        const Slice& end_key) override {
     row_ << "DELETE_RANGE(" << cf << ") : ";

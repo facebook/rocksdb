@@ -320,18 +320,22 @@ Status WritePreparedTxn::RollbackInternal() {
       return s;
     }
 
+    using WriteBatch::Handler::PutCF;
     Status PutCF(uint32_t cf, const Slice& key, const Slice& /*val*/) override {
       return Rollback(cf, key);
     }
 
+    using WriteBatch::Handler::DeleteCF;
     Status DeleteCF(uint32_t cf, const Slice& key) override {
       return Rollback(cf, key);
     }
 
+    using WriteBatch::Handler::SingleDeleteCF;
     Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
       return Rollback(cf, key);
     }
 
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t cf, const Slice& key,
                    const Slice& /*val*/) override {
       if (rollback_merge_operands_) {

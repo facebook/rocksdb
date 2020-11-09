@@ -246,6 +246,7 @@ TEST_F(WriteBatchTest, SingleDeletion) {
 namespace {
   struct TestHandler : public WriteBatch::Handler {
     std::string seen;
+    using WriteBatch::Handler::PutCF;
     Status PutCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
       if (column_family_id == 0) {
@@ -256,6 +257,7 @@ namespace {
       }
       return Status::OK();
     }
+    using WriteBatch::Handler::DeleteCF;
     Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
       if (column_family_id == 0) {
         seen += "Delete(" + key.ToString() + ")";
@@ -265,6 +267,7 @@ namespace {
       }
       return Status::OK();
     }
+    using WriteBatch::Handler::SingleDeleteCF;
     Status SingleDeleteCF(uint32_t column_family_id,
                           const Slice& key) override {
       if (column_family_id == 0) {
@@ -275,6 +278,7 @@ namespace {
       }
       return Status::OK();
     }
+    using WriteBatch::Handler::DeleteRangeCF;
     Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
                          const Slice& end_key) override {
       if (column_family_id == 0) {
@@ -286,6 +290,7 @@ namespace {
       }
       return Status::OK();
     }
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t column_family_id, const Slice& key,
                    const Slice& value) override {
       if (column_family_id == 0) {
@@ -457,6 +462,7 @@ TEST_F(WriteBatchTest, DISABLED_ManyUpdates) {
   struct NoopHandler : public WriteBatch::Handler {
     uint32_t num_seen = 0;
     char expected_char = 'A';
+    using WriteBatch::Handler::PutCF;
     Status PutCF(uint32_t /*column_family_id*/, const Slice& key,
                  const Slice& value) override {
       EXPECT_EQ(kKeyValueSize, key.size());
@@ -472,16 +478,19 @@ TEST_F(WriteBatchTest, DISABLED_ManyUpdates) {
       ++num_seen;
       return Status::OK();
     }
+    using WriteBatch::Handler::DeleteCF;
     Status DeleteCF(uint32_t /*column_family_id*/,
                     const Slice& /*key*/) override {
       ADD_FAILURE();
       return Status::OK();
     }
+    using WriteBatch::Handler::SingleDeleteCF;
     Status SingleDeleteCF(uint32_t /*column_family_id*/,
                           const Slice& /*key*/) override {
       ADD_FAILURE();
       return Status::OK();
     }
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
                    const Slice& /*value*/) override {
       ADD_FAILURE();
@@ -512,6 +521,7 @@ TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
 
   struct NoopHandler : public WriteBatch::Handler {
     int num_seen = 0;
+    using WriteBatch::Handler::PutCF;
     Status PutCF(uint32_t /*column_family_id*/, const Slice& key,
                  const Slice& value) override {
       EXPECT_EQ(kKeyValueSize, key.size());
@@ -523,16 +533,19 @@ TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
       ++num_seen;
       return Status::OK();
     }
+    using WriteBatch::Handler::DeleteCF;
     Status DeleteCF(uint32_t /*column_family_id*/,
                     const Slice& /*key*/) override {
       ADD_FAILURE();
       return Status::OK();
     }
+    using WriteBatch::Handler::SingleDeleteCF;
     Status SingleDeleteCF(uint32_t /*column_family_id*/,
                           const Slice& /*key*/) override {
       ADD_FAILURE();
       return Status::OK();
     }
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
                    const Slice& /*value*/) override {
       ADD_FAILURE();
@@ -551,20 +564,24 @@ TEST_F(WriteBatchTest, Continue) {
 
   struct Handler : public TestHandler {
     int num_seen = 0;
+    using WriteBatch::Handler::PutCF;
     Status PutCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
       ++num_seen;
       return TestHandler::PutCF(column_family_id, key, value);
     }
+    using WriteBatch::Handler::DeleteCF;
     Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
       ++num_seen;
       return TestHandler::DeleteCF(column_family_id, key);
     }
+    using WriteBatch::Handler::SingleDeleteCF;
     Status SingleDeleteCF(uint32_t column_family_id,
                           const Slice& key) override {
       ++num_seen;
       return TestHandler::SingleDeleteCF(column_family_id, key);
     }
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t column_family_id, const Slice& key,
                    const Slice& value) override {
       ++num_seen;

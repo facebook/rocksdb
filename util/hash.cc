@@ -80,4 +80,19 @@ uint64_t Hash64(const char* data, size_t n) {
   return XXH3p_64bits(data, n);
 }
 
+uint64_t GetSlicePartsNPHash64(const SliceParts& data) {
+  // TODO(ajkr): use XXH3 streaming APIs to avoid the copy/allocation.
+  size_t concat_len = 0;
+  for (int i = 0; i < data.num_parts; ++i) {
+    concat_len += data.parts[i].size();
+  }
+  std::string concat_data;
+  concat_data.reserve(concat_len);
+  for (int i = 0; i < data.num_parts; ++i) {
+    concat_data.append(data.parts[i].data(), data.parts[i].size());
+  }
+  assert(concat_data.size() == concat_len);
+  return NPHash64(concat_data.data(), concat_len);
+}
+
 }  // namespace ROCKSDB_NAMESPACE

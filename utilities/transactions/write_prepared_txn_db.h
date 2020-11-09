@@ -1052,18 +1052,22 @@ struct SubBatchCounter : public WriteBatch::Handler {
   Status MarkNoop(bool) override { return Status::OK(); }
   Status MarkEndPrepare(const Slice&) override { return Status::OK(); }
   Status MarkCommit(const Slice&) override { return Status::OK(); }
+  using WriteBatch::Handler::PutCF;
   Status PutCF(uint32_t cf, const Slice& key, const Slice&) override {
     AddKey(cf, key);
     return Status::OK();
   }
+  using WriteBatch::Handler::DeleteCF;
   Status DeleteCF(uint32_t cf, const Slice& key) override {
     AddKey(cf, key);
     return Status::OK();
   }
+  using WriteBatch::Handler::SingleDeleteCF;
   Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
     AddKey(cf, key);
     return Status::OK();
   }
+  using WriteBatch::Handler::MergeCF;
   Status MergeCF(uint32_t cf, const Slice& key, const Slice&) override {
     AddKey(cf, key);
     return Status::OK();
