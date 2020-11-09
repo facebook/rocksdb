@@ -757,4 +757,7 @@ DEFINE_string(file_checksum_impl, "none",
               "Name of an implementation for file_checksum_gen_factory, or "
               "\"none\" for null.");
 
+DEFINE_int32(write_fault_one_in, 0,
+             "On non-zero, enables fault injection on write");
+
 #endif  // GFLAGS

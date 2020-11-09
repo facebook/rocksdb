@@ -15,6 +15,7 @@
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/types.h"
 #include "util/cast_util.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -524,6 +525,16 @@ void StressTest::OperateDb(ThreadState* thread) {
   if (FLAGS_read_fault_one_in) {
     fault_fs_guard->SetThreadLocalReadErrorContext(thread->shared->GetSeed(),
                                             FLAGS_read_fault_one_in);
+  }
+  if (FLAGS_write_fault_one_in) {
+    IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+    error_msg.SetRetryable(true);
+    std::vector<FileType> types;
+    types.push_back(FileType::kTableFile);
+    types.push_back(FileType::kDescriptorFile);
+    types.push_back(FileType::kCurrentFile);
+    fault_fs_guard->SetRandomWriteError(
+        thread->shared->GetSeed(), FLAGS_write_fault_one_in, error_msg, types);
   }
 #endif // NDEBUG
   thread->stats.Start();
@@ -1952,6 +1963,7 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Use dynamic level         : %d\n",
           static_cast<int>(FLAGS_level_compaction_dynamic_level_bytes));
   fprintf(stdout, "Read fault one in         : %d\n", FLAGS_read_fault_one_in);
+  fprintf(stdout, "Write fault one in        : %d\n", FLAGS_write_fault_one_in);
   fprintf(stdout, "Sync fault injection      : %d\n", FLAGS_sync_fault_injection);
   fprintf(stdout, "Best efforts recovery     : %d\n",
           static_cast<int>(FLAGS_best_efforts_recovery));

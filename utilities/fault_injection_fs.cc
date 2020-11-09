@@ -99,7 +99,8 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions&,
   state_.buffer_.append(data.data(), data.size());
   state_.pos_ += data.size();
   fs_->WritableFileAppended(state_);
-  return IOStatus::OK();
+  IOStatus io_s = fs_->InjectWriteError(state_.filename_);
+  return io_s;
 }
 
 IOStatus TestFSWritableFile::Close(const IOOptions& options,
@@ -531,6 +532,31 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
         return IOStatus::IOError();
       default:
         assert(false);
+    }
+  }
+  return IOStatus::OK();
+}
+
+IOStatus FaultInjectionTestFS::InjectWriteError(const std::string& file_name) {
+  MutexLock l(&mutex_);
+  if (!enable_write_error_injection_ || !write_error_one_in_) {
+    return IOStatus::OK();
+  }
+  bool allowed_type = false;
+
+  uint64_t number;
+  FileType c_type;
+  if (ParseFileName(file_name, &number, &c_type)) {
+    for (const auto& type : write_error_allowed_types_) {
+      if (c_type == type) {
+        allowed_type = true;
+      }
+    }
+  }
+
+  if (allowed_type) {
+    if (write_error_rand_.OneIn(write_error_one_in_)) {
+      return error_;
     }
   }
   return IOStatus::OK();
