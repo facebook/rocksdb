@@ -63,6 +63,15 @@ class CuckooTableDBTest : public testing::Test {
     ASSERT_OK(DB::Open(opts, dbname_, &db_));
   }
 
+  void DestroyAndReopen(Options* options) {
+    assert(options);
+    ASSERT_OK(db_->Close());
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, *options));
+    Reopen(options);
+  }
+
   Status Put(const Slice& k, const Slice& v) {
     return db_->Put(WriteOptions(), k, v);
   }
@@ -205,7 +214,7 @@ static std::string Uint64Key(uint64_t i) {
 TEST_F(CuckooTableDBTest, Uint64Comparator) {
   Options options = CurrentOptions();
   options.comparator = test::Uint64Comparator();
-  Reopen(&options);
+  DestroyAndReopen(&options);
 
   ASSERT_OK(Put(Uint64Key(1), "v1"));
   ASSERT_OK(Put(Uint64Key(2), "v2"));
