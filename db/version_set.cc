@@ -1096,13 +1096,17 @@ void LevelIterator::Seek(const Slice& target) {
     //    next key after the prefix, or make the iterator invalid.
     // A side benefit will be that it invalidates the iterator earlier so that
     // the upper level merging iterator can merge fewer child iterators.
-    Slice target_user_key = ExtractUserKey(target);
-    Slice file_user_key = ExtractUserKey(file_iter_.key());
-    if (prefix_extractor_->InDomain(target_user_key) &&
-        (!prefix_extractor_->InDomain(file_user_key) ||
-         user_comparator_.Compare(
-             prefix_extractor_->Transform(target_user_key),
-             prefix_extractor_->Transform(file_user_key)) != 0)) {
+    size_t ts_sz = user_comparator_.timestamp_size();
+    Slice target_user_key_without_ts =
+        ExtractUserKeyAndStripTimestamp(target, ts_sz);
+    Slice file_user_key_without_ts =
+        ExtractUserKeyAndStripTimestamp(file_iter_.key(), ts_sz);
+    if (prefix_extractor_->InDomain(target_user_key_without_ts) &&
+        (!prefix_extractor_->InDomain(file_user_key_without_ts) ||
+         user_comparator_.CompareWithoutTimestamp(
+             prefix_extractor_->Transform(target_user_key_without_ts), false,
+             prefix_extractor_->Transform(file_user_key_without_ts),
+             false) != 0)) {
       SetFileIterator(nullptr);
     }
   }
