@@ -31,7 +31,6 @@ class KvProtectionInfo {
   Status VerifyAgainst(const KvProtectionInfo& expected);
 
   void Clear();
-  bool IsEmpty() const;
 
   void SetKeyChecksum(uint64_t key_checksum);
   uint64_t GetKeyChecksum() const;

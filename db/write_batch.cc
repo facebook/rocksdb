@@ -545,14 +545,9 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
     return Status::Corruption("Invalid start/end bounds for Iterate");
   }
   assert(begin <= end);
-  // TODO(ajkr): empty `wb->kv_prot_infos_` is only allowed temporarily
-  // until we finish generating the `KvProtectionInfo` along all code
-  // paths. It is not yet generated for `WriteBatch`es filled by
-  // `WriteBatchInternal::SetContents()`, which is used, for example, during
-  // recovery.
   assert(wb->kv_prot_infos_.empty() ||
          static_cast<uint32_t>(wb->kv_prot_infos_.size()) ==
-         WriteBatchInternal::Count(wb));
+             WriteBatchInternal::Count(wb));
   Slice input(wb->rep_.data() + begin, static_cast<size_t>(end - begin));
   bool whole_batch =
       (begin == WriteBatchInternal::kHeader) && (end == wb->rep_.size());
@@ -599,29 +594,35 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
 
     switch (tag) {
       case kTypeColumnFamilyValue:
-      case kTypeValue:
-      {
+      case kTypeValue: {
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_PUT));
+
         KvProtectionInfo kv_prot_info;
         if (!wb->kv_prot_infos_.empty()) {
           kv_prot_info = wb->kv_prot_infos_[found];
-        }
-        if (!kv_prot_info.IsEmpty()) {
           // `ValueType` is used differently in `WriteBatch` and
           // `WriteBatch::Handler`. Here in `WriteBatch`, different `ValueType`s
           // are used to distinguish whether an entry specifies a column family.
           // Later in `WriteBatch::Handler`, that distinction is dropped and a
           // single `ValueType` is used for both cases. So, this is our last
           // chance to verify against the distinguished `ValueType`.
-          KvProtectionInfo expected;
-          expected.SetValueType(static_cast<ValueType>(tag));
-          s = kv_prot_info.VerifyAgainst(expected);
+          KvProtectionInfo expected_kv_prot_info;
+          expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
+          s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
           if (!s.ok()) {
             return s;
           }
+        } else {
+          // TODO(ajkr): We are manufacturing unsafe checksums here. This is a
+          // stopgap solution until we finish coordinating integrity info for
+          // all ways of populating a `WriteBatch`.
+          kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
+          kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
+          kv_prot_info.SetColumnFamilyId(column_family);
         }
         kv_prot_info.SetValueType(kTypeValue);
+
         s = handler->PutCF(column_family, key, value, kv_prot_info);
         if (LIKELY(s.ok())) {
           empty_batch = false;
@@ -630,24 +631,26 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         break;
       }
       case kTypeColumnFamilyDeletion:
-      case kTypeDeletion:
-      {
+      case kTypeDeletion: {
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE));
+
         KvProtectionInfo kv_prot_info;
         if (!wb->kv_prot_infos_.empty()) {
           kv_prot_info = wb->kv_prot_infos_[found];
-        }
-        if (!kv_prot_info.IsEmpty()) {
           // See comment in `kType*Value` cases.
-          KvProtectionInfo expected;
-          expected.SetValueType(static_cast<ValueType>(tag));
-          s = kv_prot_info.VerifyAgainst(expected);
+          KvProtectionInfo expected_kv_prot_info;
+          expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
+          s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
           if (!s.ok()) {
             return s;
           }
+        } else {
+          kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
+          kv_prot_info.SetColumnFamilyId(column_family);
         }
         kv_prot_info.SetValueType(kTypeDeletion);
+
         s = handler->DeleteCF(column_family, key, kv_prot_info);
         if (LIKELY(s.ok())) {
           empty_batch = false;
@@ -656,24 +659,26 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         break;
       }
       case kTypeColumnFamilySingleDeletion:
-      case kTypeSingleDeletion:
-      {
+      case kTypeSingleDeletion: {
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_SINGLE_DELETE));
+
         KvProtectionInfo kv_prot_info;
         if (!wb->kv_prot_infos_.empty()) {
           kv_prot_info = wb->kv_prot_infos_[found];
-        }
-        if (!kv_prot_info.IsEmpty()) {
           // See comment in `kType*Value` cases.
-          KvProtectionInfo expected;
-          expected.SetValueType(static_cast<ValueType>(tag));
-          s = kv_prot_info.VerifyAgainst(expected);
+          KvProtectionInfo expected_kv_prot_info;
+          expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
+          s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
           if (!s.ok()) {
             return s;
           }
+        } else {
+          kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
+          kv_prot_info.SetColumnFamilyId(column_family);
         }
         kv_prot_info.SetValueType(kTypeSingleDeletion);
+
         s = handler->SingleDeleteCF(column_family, key, kv_prot_info);
         if (LIKELY(s.ok())) {
           empty_batch = false;
@@ -682,24 +687,27 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         break;
       }
       case kTypeColumnFamilyRangeDeletion:
-      case kTypeRangeDeletion:
-      {
+      case kTypeRangeDeletion: {
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE_RANGE));
+
         KvProtectionInfo kv_prot_info;
         if (!wb->kv_prot_infos_.empty()) {
           kv_prot_info = wb->kv_prot_infos_[found];
-        }
-        if (!kv_prot_info.IsEmpty()) {
           // See comment in `kType*Value` cases.
-          KvProtectionInfo expected;
-          expected.SetValueType(static_cast<ValueType>(tag));
-          s = kv_prot_info.VerifyAgainst(expected);
+          KvProtectionInfo expected_kv_prot_info;
+          expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
+          s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
           if (!s.ok()) {
             return s;
           }
+        } else {
+          kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
+          kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
+          kv_prot_info.SetColumnFamilyId(column_family);
         }
         kv_prot_info.SetValueType(kTypeRangeDeletion);
+
         s = handler->DeleteRangeCF(column_family, key, value, kv_prot_info);
         if (LIKELY(s.ok())) {
           empty_batch = false;
@@ -708,24 +716,27 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         break;
       }
       case kTypeColumnFamilyMerge:
-      case kTypeMerge:
-      {
+      case kTypeMerge: {
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_MERGE));
+
         KvProtectionInfo kv_prot_info;
         if (!wb->kv_prot_infos_.empty()) {
           kv_prot_info = wb->kv_prot_infos_[found];
-        }
-        if (!kv_prot_info.IsEmpty()) {
           // See comment in `kType*Value` cases.
-          KvProtectionInfo expected;
-          expected.SetValueType(static_cast<ValueType>(tag));
-          s = kv_prot_info.VerifyAgainst(expected);
+          KvProtectionInfo expected_kv_prot_info;
+          expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
+          s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
           if (!s.ok()) {
             return s;
           }
+        } else {
+          kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
+          kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
+          kv_prot_info.SetColumnFamilyId(column_family);
         }
         kv_prot_info.SetValueType(kTypeMerge);
+
         s = handler->MergeCF(column_family, key, value, kv_prot_info);
         if (LIKELY(s.ok())) {
           empty_batch = false;
@@ -734,24 +745,27 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         break;
       }
       case kTypeColumnFamilyBlobIndex:
-      case kTypeBlobIndex:
-      {
+      case kTypeBlobIndex: {
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BLOB_INDEX));
+
         KvProtectionInfo kv_prot_info;
         if (!wb->kv_prot_infos_.empty()) {
           kv_prot_info = wb->kv_prot_infos_[found];
-        }
-        if (!kv_prot_info.IsEmpty()) {
           // See comment in `kType*Value` cases.
-          KvProtectionInfo expected;
-          expected.SetValueType(static_cast<ValueType>(tag));
-          s = kv_prot_info.VerifyAgainst(expected);
+          KvProtectionInfo expected_kv_prot_info;
+          expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
+          s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
           if (!s.ok()) {
             return s;
           }
+        } else {
+          kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
+          kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
+          kv_prot_info.SetColumnFamilyId(column_family);
         }
         kv_prot_info.SetValueType(kTypeBlobIndex);
+
         s = handler->PutBlobIndexCF(column_family, key, value, kv_prot_info);
         if (LIKELY(s.ok())) {
           found++;
@@ -2352,7 +2366,7 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
   }
 
   if (dst->kv_prot_infos_.size() == Count(dst) &&
-      src->kv_prot_infos_.size() >= static_cast<size_t>(src_count)) {
+      src->kv_prot_infos_.size() == Count(src)) {
     dst->kv_prot_infos_.reserve(dst->kv_prot_infos_.size() + src_count);
     std::copy(src->kv_prot_infos_.begin(),
               src->kv_prot_infos_.begin() + src_count,

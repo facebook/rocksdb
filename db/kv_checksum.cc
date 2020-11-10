@@ -42,32 +42,28 @@ Status KvProtectionInfo::VerifyAgainst(const KvProtectionInfo& expected) {
          expected.coverage_flags_);
   if (expected.HasKeyChecksum() &&
       GetKeyChecksum() != expected.GetKeyChecksum()) {
-    return Status::Corruption();
+    return Status::Corruption("key checksum mismatch");
   }
   if (expected.HasValueChecksum() &&
       GetValueChecksum() != expected.GetValueChecksum()) {
-    return Status::Corruption();
+    return Status::Corruption("value checksum mismatch");
   }
   if (expected.HasSequenceNumber() &&
       GetSequenceNumber() != expected.GetSequenceNumber()) {
-    return Status::Corruption();
+    return Status::Corruption("sequence number mismatch");
   }
   if (expected.HasColumnFamilyId() &&
       GetColumnFamilyId() != expected.GetColumnFamilyId()) {
-    return Status::Corruption();
+    return Status::Corruption("column family ID mismatch");
   }
   if (expected.HasValueType() && GetValueType() != expected.GetValueType()) {
-    return Status::Corruption();
+    return Status::Corruption("value type mismatch");
   }
   return Status::OK();
 }
 
 void KvProtectionInfo::Clear() {
   coverage_flags_ = static_cast<CoverageFlags>(0);
-}
-
-bool KvProtectionInfo::IsEmpty() const {
-  return coverage_flags_ == static_cast<CoverageFlags>(0);
 }
 
 void KvProtectionInfo::SetKeyChecksum(uint64_t key_checksum) {
