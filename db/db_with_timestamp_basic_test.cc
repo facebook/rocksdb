@@ -341,7 +341,6 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLargerThanKey) {
   Close();
 }
 
-
 TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
   constexpr int kNumKeysPerFile = 128;
   constexpr uint64_t kMaxKey = 1024;
