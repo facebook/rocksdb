@@ -3021,6 +3021,44 @@ TEST_F(DBIteratorWithReadCallbackTest, ReadCallback) {
   delete iter;
 }
 
+TEST_F(DBIteratorTest, BackwardIterationOnInplaceUpdateMemtable) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.inplace_update_support = false;
+  options.env = env_;
+  DestroyAndReopen(options);
+  constexpr int kNumKeys = 10;
+
+  // Write kNumKeys to WAL.
+  for (int i = 0; i < kNumKeys; ++i) {
+    ASSERT_OK(Put(Key(i), "val"));
+  }
+  ReadOptions read_opts;
+  read_opts.total_order_seek = true;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    int count = 0;
+    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+      ++count;
+    }
+    ASSERT_EQ(kNumKeys, count);
+  }
+
+  // Reopen and rebuild the memtable from WAL.
+  options.create_if_missing = false;
+  options.avoid_flush_during_recovery = true;
+  options.inplace_update_support = true;
+  options.allow_concurrent_memtable_write = false;
+  Reopen(options);
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    iter->SeekToLast();
+    // Backward iteration not supported due to inplace_update_support = true.
+    ASSERT_TRUE(iter->status().IsNotSupported());
+    ASSERT_FALSE(iter->Valid());
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
