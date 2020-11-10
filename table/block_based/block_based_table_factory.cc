@@ -359,7 +359,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionTypeFlags::kNone}},
         {"read_amp_bytes_per_bit",
          {offsetof(struct BlockBasedTableOptions, read_amp_bytes_per_bit),
-          OptionType::kSizeT, OptionVerificationType::kNormal,
+          OptionType::kUInt32T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
         {"enable_index_compression",
          {offsetof(struct BlockBasedTableOptions, enable_index_compression),
