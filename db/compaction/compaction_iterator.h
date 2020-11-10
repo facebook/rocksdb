@@ -157,12 +157,14 @@ class CompactionIterator {
   // Extract user-defined timestamp from user key if possible and compare it
   // with *full_history_ts_low_ if applicable.
   inline void UpdateTimestampAndCompareWithFullHistoryLow() {
+    if (!timestamp_size_) {
+      return;
+    }
+    Slice ts = ExtractTimestampFromUserKey(ikey_.user_key, timestamp_size_);
+    curr_ts_.assign(ts.data(), ts.size());
     if (full_history_ts_low_) {
-      assert(timestamp_size_ > 0);
-      current_ts_ =
-          ExtractTimestampFromUserKey(ikey_.user_key, timestamp_size_);
       cmp_with_history_ts_low_ =
-          cmp_->CompareTimestamp(current_ts_, *full_history_ts_low_);
+          cmp_->CompareTimestamp(ts, *full_history_ts_low_);
     }
   }
 
@@ -195,6 +197,20 @@ class CompactionIterator {
   SequenceNumber earliest_snapshot_;
   SequenceNumber latest_snapshot_;
 
+  std::shared_ptr<Logger> info_log_;
+
+  bool allow_data_in_errors_;
+
+  // Comes from comparator.
+  const size_t timestamp_size_;
+
+  // Lower bound timestamp to retain full history in terms of user-defined
+  // timestamp. If a key's timestamp is older than full_history_ts_low_, then
+  // the key *may* be eligible for garbage collection (GC). The skipping logic
+  // is in `NextFromInput()` and `PrepareOutput()`.
+  // If nullptr, NO GC will be performed and all history will be preserved.
+  const std::string* const full_history_ts_low_;
+
   // State
   //
   // Points to a copy of the current compaction iterator output (current_key_)
@@ -219,7 +235,7 @@ class CompactionIterator {
 
   IterKey current_key_;
   Slice current_user_key_;
-  Slice current_ts_;
+  std::string curr_ts_;
   SequenceNumber current_user_key_sequence_;
   SequenceNumber current_user_key_snapshot_;
 
@@ -249,19 +265,6 @@ class CompactionIterator {
   // Used to avoid purging uncommitted values. The application can specify
   // uncommitted values by providing a SnapshotChecker object.
   bool current_key_committed_;
-  std::shared_ptr<Logger> info_log_;
-
-  bool allow_data_in_errors_;
-
-  // Comes from comparator.
-  const size_t timestamp_size_;
-
-  // Lower bound timestamp to retain full history in terms of user-defined
-  // timestamp. If a key's timestamp is older than full_history_ts_low_, then
-  // the key *may* be eligible for garbage collection (GC). The skipping logic
-  // is in `NextFromInput()` and `PrepareOutput()`.
-  // If nullptr, NO GC will be performed and all history will be preserved.
-  const std::string* const full_history_ts_low_;
 
   // Saved result of ucmp->CompareTimestamp(current_ts_, *full_history_ts_low_)
   int cmp_with_history_ts_low_;

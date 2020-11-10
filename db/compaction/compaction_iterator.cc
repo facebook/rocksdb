@@ -87,14 +87,14 @@ CompactionIterator::CompactionIterator(
       shutting_down_(shutting_down),
       manual_compaction_paused_(manual_compaction_paused),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
-      current_user_key_sequence_(0),
-      current_user_key_snapshot_(0),
-      merge_out_iter_(merge_helper_),
-      current_key_committed_(false),
       info_log_(info_log),
       allow_data_in_errors_(allow_data_in_errors),
       timestamp_size_(cmp_ ? cmp_->timestamp_size() : 0),
       full_history_ts_low_(full_history_ts_low),
+      current_user_key_sequence_(0),
+      current_user_key_snapshot_(0),
+      merge_out_iter_(merge_helper_),
+      current_key_committed_(false),
       cmp_with_history_ts_low_(0) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   assert(snapshots_ != nullptr);
@@ -311,15 +311,32 @@ void CompactionIterator::NextFromInput() {
     // merge_helper_->compaction_filter_skip_until_.
     Slice skip_until;
 
+    int cmp_user_key_without_ts = 0;
+    int cmp_ts = 0;
+    if (has_current_user_key_) {
+      cmp_user_key_without_ts =
+          timestamp_size_
+              ? cmp_->CompareWithoutTimestamp(ikey_.user_key, current_user_key_)
+              : cmp_->Compare(ikey_.user_key, current_user_key_);
+      // if timestamp_size_ > 0, then curr_ts_ has been initialized by a
+      // previous key.
+      cmp_ts = timestamp_size_ ? cmp_->CompareTimestamp(
+                                     ExtractTimestampFromUserKey(
+                                         ikey_.user_key, timestamp_size_),
+                                     curr_ts_)
+                               : 0;
+    }
+
     // Check whether the user key changed. After this if statement current_key_
     // is a copy of the current input key (maybe converted to a delete by the
     // compaction filter). ikey_.user_key is pointing to the copy.
-    if (!has_current_user_key_ ||
-        !cmp_->Equal(ikey_.user_key, current_user_key_)) {
+    if (!has_current_user_key_ || cmp_user_key_without_ts != 0 || cmp_ts != 0) {
       // First occurrence of this user key
       // Copy key for output
       key_ = current_key_.SetInternalKey(key_, &ikey_);
 
+      // If timestamp_size_ > 0, then copy from ikey_ to curr_ts_ for the use
+      // in next iteration to compare with the timestamp of next key.
       UpdateTimestampAndCompareWithFullHistoryLow();
 
       // If
@@ -334,9 +351,7 @@ void CompactionIterator::NextFromInput() {
       // consider this key for GC, e.g. it may be dropped if certain conditions
       // match.
       if (!has_current_user_key_ || !timestamp_size_ || !full_history_ts_low_ ||
-          0 != cmp_->CompareWithoutTimestamp(ikey_.user_key,
-                                             current_user_key_) ||
-          cmp_with_history_ts_low_ >= 0) {
+          0 != cmp_user_key_without_ts || cmp_with_history_ts_low_ >= 0) {
         // Initialize for future comparison for rule (A) and etc.
         current_user_key_sequence_ = kMaxSequenceNumber;
         current_user_key_snapshot_ = 0;
