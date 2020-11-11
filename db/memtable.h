@@ -240,13 +240,9 @@ class MemTable {
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                 ReadCallback* callback, bool* is_blob);
 
-  // Attempts to update the new_value inplace, else does normal Add
-  // Pseudocode
-  //   if key exists in current memtable && prev_value is of type kTypeValue
-  //     if new sizeof(new_value) <= sizeof(prev_value)
-  //       update inplace
-  //     else add(key, new_value)
-  //   else add(key, new_value)
+  // If `key` exists in current memtable with type `kTypeValue` and the existing
+  // value is at least as large as the new value, updates it in-place. Otherwise
+  // adds the new value to the memtable out-of-place.
   //
   // Returns `Status::TryAgain` if the `seq`, `key` combination already exists
   // in the memtable and `MemTableRepFactory::CanHandleDuplicatedKey()` is true.
@@ -256,17 +252,12 @@ class MemTable {
   // operations on the same MemTable.
   Status Update(SequenceNumber seq, const Slice& key, const Slice& value);
 
-  // If prev_value for key exists, attempts to update it inplace.
-  // Pseudocode
-  //   if key exists in current memtable && prev_value is of type kTypeValue
-  //     new_value = delta(prev_value)
-  //     if sizeof(new_value) <= sizeof(prev_value)
-  //       update inplace
-  //     else add(key, new_value)
-  //   else return false
+  // If `key` exists in current memtable with type `kTypeValue` and the existing
+  // value is at least as large as the new value, updates it in-place. Otherwise
+  // adds the new value to the memtable out-of-place.
   //
-  // Returns `Status::NotFound` if `key` does not exist or the latest version of
-  // `key` does not have `kTypeValue`.
+  // Returns `Status::NotFound` if `key` does not exist in current memtable or
+  // the latest version of `key` does not have `kTypeValue`.
   //
   // Returns `Status::TryAgain` if the `seq`, `key` combination already exists
   // in the memtable and `MemTableRepFactory::CanHandleDuplicatedKey()` is true.

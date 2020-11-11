@@ -1526,11 +1526,11 @@ class MemTableInserter : public WriteBatch::Handler {
       CheckMemtableFull();
     }
     // optimize for non-recovery mode
+    // If `ret_status` is `TryAgain` then the next (successful) try will add
+    // the key to the rebuilding transaction object. If `ret_status` is
+    // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
+    // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
-      // If `ret_status` is `TryAgain` then the next (successful) try will add
-      // the key to the rebuilding transaction object. If `ret_status` is
-      // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
-      // away. So we only add to it here where `ret_status.ok()`.
       assert(!write_after_commit_);
       ret_status = WriteBatchInternal::Put(rebuilding_trx_, column_family_id,
                                            key, value);
@@ -1596,11 +1596,11 @@ class MemTableInserter : public WriteBatch::Handler {
         (0 == ts_sz) ? kTypeDeletion : kTypeDeletionWithTimestamp;
     ret_status = DeleteImpl(column_family_id, key, Slice(), delete_type);
     // optimize for non-recovery mode
+    // If `ret_status` is `TryAgain` then the next (successful) try will add
+    // the key to the rebuilding transaction object. If `ret_status` is
+    // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
+    // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
-      // If `ret_status` is `TryAgain` then the next (successful) try will add
-      // the key to the rebuilding transaction object. If `ret_status` is
-      // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
-      // away. So we only add to it here where `ret_status.ok()`.
       assert(!write_after_commit_);
       ret_status =
           WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
@@ -1637,11 +1637,11 @@ class MemTableInserter : public WriteBatch::Handler {
     ret_status =
         DeleteImpl(column_family_id, key, Slice(), kTypeSingleDeletion);
     // optimize for non-recovery mode
+    // If `ret_status` is `TryAgain` then the next (successful) try will add
+    // the key to the rebuilding transaction object. If `ret_status` is
+    // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
+    // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
-      // If `ret_status` is `TryAgain` then the next (successful) try will add
-      // the key to the rebuilding transaction object. If `ret_status` is
-      // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
-      // away. So we only add to it here where `ret_status.ok()`.
       assert(!write_after_commit_);
       ret_status = WriteBatchInternal::SingleDelete(rebuilding_trx_,
                                                     column_family_id, key);
@@ -1684,33 +1684,36 @@ class MemTableInserter : public WriteBatch::Handler {
       auto* cfd =
           static_cast_with_check<ColumnFamilyHandleImpl>(cf_handle)->cfd();
       if (!cfd->is_delete_range_supported()) {
-        ret_status = Status::NotSupported(
+        // TODO(ajkr): refactor `SeekToColumnFamily()` so it returns a `Status`.
+        ret_status.PermitUncheckedError();
+        return Status::NotSupported(
             std::string("DeleteRange not supported for table type ") +
             cfd->ioptions()->table_factory->Name() + " in CF " +
             cfd->GetName());
-        return ret_status;
       }
       int cmp = cfd->user_comparator()->Compare(begin_key, end_key);
       if (cmp > 0) {
+        // TODO(ajkr): refactor `SeekToColumnFamily()` so it returns a `Status`.
+        ret_status.PermitUncheckedError();
         // It's an empty range where endpoints appear mistaken. Don't bother
         // applying it to the DB, and return an error to the user.
-        ret_status = Status::InvalidArgument("end key comes before start key");
-        return ret_status;
+        return Status::InvalidArgument("end key comes before start key");
       } else if (cmp == 0) {
+        // TODO(ajkr): refactor `SeekToColumnFamily()` so it returns a `Status`.
+        ret_status.PermitUncheckedError();
         // It's an empty range. Don't bother applying it to the DB.
-        ret_status = Status::OK();
-        return ret_status;
+        return Status::OK();
       }
     }
 
     ret_status =
         DeleteImpl(column_family_id, begin_key, end_key, kTypeRangeDeletion);
     // optimize for non-recovery mode
+    // If `ret_status` is `TryAgain` then the next (successful) try will add
+    // the key to the rebuilding transaction object. If `ret_status` is
+    // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
+    // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
-      // If `ret_status` is `TryAgain` then the next (successful) try will add
-      // the key to the rebuilding transaction object. If `ret_status` is
-      // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
-      // away. So we only add to it here where `ret_status.ok()`.
       assert(!write_after_commit_);
       ret_status = WriteBatchInternal::DeleteRange(
           rebuilding_trx_, column_family_id, begin_key, end_key);
@@ -1833,11 +1836,11 @@ class MemTableInserter : public WriteBatch::Handler {
       CheckMemtableFull();
     }
     // optimize for non-recovery mode
+    // If `ret_status` is `TryAgain` then the next (successful) try will add
+    // the key to the rebuilding transaction object. If `ret_status` is
+    // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
+    // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
-      // If `ret_status` is `TryAgain` then the next (successful) try will add
-      // the key to the rebuilding transaction object. If `ret_status` is
-      // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
-      // away. So we only add to it here where `ret_status.ok()`.
       assert(!write_after_commit_);
       ret_status = WriteBatchInternal::Merge(rebuilding_trx_, column_family_id,
                                              key, value);

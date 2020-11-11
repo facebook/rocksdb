@@ -1090,7 +1090,8 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
             UpdateFlushState();
             return s;
           } else if (status == UpdateStatus::UPDATE_FAILED) {
-            // No action required. Return.
+            // `UPDATE_FAILED` is named incorrectly. It indicates no update
+            // happened. It does not indicate a failure happened.
             UpdateFlushState();
             return Status::OK();
           }
