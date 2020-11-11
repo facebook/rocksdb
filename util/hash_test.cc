@@ -585,6 +585,8 @@ TEST(MathTest, CodingGeneric) {
 }
 
 int main(int argc, char** argv) {
+  fprintf(stderr, "NPHash64 id: %x\n",
+          static_cast<int>(ROCKSDB_NAMESPACE::GetSliceNPHash64("RocksDB")));
   ::testing::InitGoogleTest(&argc, argv);
 
   return RUN_ALL_TESTS();
