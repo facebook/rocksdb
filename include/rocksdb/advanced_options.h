@@ -237,6 +237,7 @@ struct AdvancedColumnFamilyOptions {
   // achieve point-in-time consistency using snapshot or iterator (assuming
   // concurrent updates). Hence iterator and multi-get will return results
   // which are not consistent as of any point-in-time.
+  // Backward iteration on memtables will not work either.
   // If inplace_callback function is not set,
   //   Put(key, new_value) will update inplace the existing_value iff
   //   * key exists in current memtable

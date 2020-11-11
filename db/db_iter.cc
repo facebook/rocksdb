@@ -811,12 +811,19 @@ bool DBIter::FindValueForCurrentKey() {
                 ikey, RangeDelPositioningMode::kBackwardTraversal)) {
           last_key_entry_type = kTypeRangeDeletion;
           PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-        } else {
-          assert(iter_.iter()->IsValuePinned());
+        } else if (iter_.iter()->IsValuePinned()) {
           pinned_value_ = iter_.value();
+        } else {
+          valid_ = false;
+          status_ = Status::NotSupported(
+              "Backward iteration not supported if underlying iterator's value "
+              "cannot be pinned.");
         }
         merge_context_.Clear();
         last_not_merge_type = last_key_entry_type;
+        if (!status_.ok()) {
+          return false;
+        }
         break;
       case kTypeDeletion:
       case kTypeSingleDeletion:
