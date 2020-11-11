@@ -182,12 +182,13 @@ class MemTable {
   // REQUIRES: if allow_concurrent = false, external synchronization to prevent
   // simultaneous operations on the same MemTable.
   //
-  // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
-  // the <key, seq> already exists.
-  bool Add(SequenceNumber seq, ValueType type, const Slice& key,
-           const Slice& value, bool allow_concurrent = false,
-           MemTablePostProcessInfo* post_process_info = nullptr,
-           void** hint = nullptr);
+  // Returns `Status::TryAgain` if the `seq`, `key` combination already exists
+  // in the memtable and `MemTableRepFactory::CanHandleDuplicatedKey()` is true.
+  // The next attempt should try a larger value for `seq`.
+  Status Add(SequenceNumber seq, ValueType type, const Slice& key,
+             const Slice& value, bool allow_concurrent = false,
+             MemTablePostProcessInfo* post_process_info = nullptr,
+             void** hint = nullptr);
 
   // Used to Get value associated with key or Get Merge Operands associated
   // with key.
@@ -247,14 +248,15 @@ class MemTable {
   //     else add(key, new_value)
   //   else add(key, new_value)
   //
+  // Returns `Status::TryAgain` if the `seq`, `key` combination already exists
+  // in the memtable and `MemTableRepFactory::CanHandleDuplicatedKey()` is true.
+  // The next attempt should try a larger value for `seq`.
+  //
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  void Update(SequenceNumber seq,
-              const Slice& key,
-              const Slice& value);
+  Status Update(SequenceNumber seq, const Slice& key, const Slice& value);
 
   // If prev_value for key exists, attempts to update it inplace.
-  // else returns false
   // Pseudocode
   //   if key exists in current memtable && prev_value is of type kTypeValue
   //     new_value = delta(prev_value)
@@ -263,11 +265,17 @@ class MemTable {
   //     else add(key, new_value)
   //   else return false
   //
+  // Returns `Status::NotFound` if `key` does not exist or the latest version of
+  // `key` does not have `kTypeValue`.
+  //
+  // Returns `Status::TryAgain` if the `seq`, `key` combination already exists
+  // in the memtable and `MemTableRepFactory::CanHandleDuplicatedKey()` is true.
+  // The next attempt should try a larger value for `seq`.
+  //
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable.
-  bool UpdateCallback(SequenceNumber seq,
-                      const Slice& key,
-                      const Slice& delta);
+  Status UpdateCallback(SequenceNumber seq, const Slice& key,
+                        const Slice& delta);
 
   // Returns the number of successive merge entries starting from the newest
   // entry for the key up to the last non-merge entry or last entry for the
