@@ -7,10 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/filter_policy.h"
+
 #include <array>
 #include <deque>
-
-#include "rocksdb/filter_policy.h"
 
 #include "rocksdb/slice.h"
 #include "table/block_based/block_based_filter_block.h"
