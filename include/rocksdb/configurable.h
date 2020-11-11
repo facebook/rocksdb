@@ -270,11 +270,6 @@ class Configurable {
   // True once the object is prepared.  Once the object is prepared, only
   // mutable options can be configured.
   bool prepared_;
-  // If this class is a wrapper (has-a), this method should be
-  // over-written to return the inner configurable (like an EnvWrapper).
-  // This method should NOT recurse, but should instead return the
-  // direct Inner object.
-  virtual Configurable* Inner() const { return nullptr; }
 
   // Returns the raw pointer for the associated named option.
   // The name is typically the name of an option registered via the

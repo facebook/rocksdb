@@ -22,7 +22,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "rocksdb/configurable.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -613,7 +613,7 @@ extern TableFactory* NewCuckooTableFactory(
 class RandomAccessFileReader;
 
 // A base class for table factories.
-class TableFactory : public Configurable {
+class TableFactory : public Customizable {
  public:
   virtual ~TableFactory() override {}
 
@@ -627,21 +627,7 @@ class TableFactory : public Configurable {
                                  const std::string& id,
                                  std::shared_ptr<TableFactory>* factory);
 
-  // The type of the table.
-  //
-  // The client of this package should switch to a new name whenever
-  // the table format implementation changes.
-  //
-  // Names starting with "rocksdb." are reserved and should not be used
-  // by any clients of this package.
-  virtual const char* Name() const = 0;
-
-  // Returns true if the class is an instance of the input name.
-  // This is typically determined by if the input name matches the
-  // name of this object.
-  virtual bool IsInstanceOf(const std::string& name) const {
-    return name == Name();
-  }
+  static const char* Type() { return "TableFactory"; }
 
   // Returns a Table object table that can fetch data from file specified
   // in parameter file. It's the caller's responsibility to make sure

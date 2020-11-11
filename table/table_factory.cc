@@ -3,6 +3,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "options/customizable_helper.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -11,23 +12,9 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-Status TableFactory::CreateFromString(const ConfigOptions& config_options_in,
-                                      const std::string& id,
-                                      std::shared_ptr<TableFactory>* factory) {
-  Status status;
-  std::string name = id;
-
-  std::string existing_opts;
-
-  ConfigOptions config_options = config_options_in;
-  if (factory->get() != nullptr && name == factory->get()->Name()) {
-    config_options.delimiter = ";";
-
-    status = factory->get()->GetOptionString(config_options, &existing_opts);
-    if (!status.ok()) {
-      return status;
-    }
-  }
+static bool LoadFactory(const std::string& name,
+                        std::shared_ptr<TableFactory>* factory) {
+  bool success = true;
   if (name == TableFactory::kBlockBasedTableName()) {
     factory->reset(new BlockBasedTableFactory());
 #ifndef ROCKSDB_LITE
@@ -37,14 +24,15 @@ Status TableFactory::CreateFromString(const ConfigOptions& config_options_in,
     factory->reset(new CuckooTableFactory());
 #endif  // ROCKSDB_LITE
   } else {
-    status = Status::NotSupported("Could not load table factory: ", name);
-    return status;
+    success = false;
   }
-  if (status.ok() && !existing_opts.empty()) {
-    config_options.invoke_prepare_options = false;
-    status = factory->get()->ConfigureFromString(config_options, existing_opts);
-  }
-  return status;
+  return success;
 }
 
+Status TableFactory::CreateFromString(const ConfigOptions& config_options,
+                                      const std::string& value,
+                                      std::shared_ptr<TableFactory>* factory) {
+  return LoadSharedObject<TableFactory>(config_options, value, LoadFactory,
+                                        factory);
+}
 }  // namespace ROCKSDB_NAMESPACE
