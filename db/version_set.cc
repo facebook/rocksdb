@@ -4713,15 +4713,6 @@ Status VersionSet::ReadAndRecover(
 Status VersionSet::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     std::string* db_id) {
-  std::unordered_map<std::string, ColumnFamilyOptions> cf_name_to_options;
-  for (const auto& cf : column_families) {
-    cf_name_to_options.emplace(cf.name, cf.options);
-  }
-  // keeps track of column families in manifest that were not found in
-  // column families parameters. if those column families are not dropped
-  // by subsequent manifest records, Recover() will return failure status
-  std::unordered_map<int, std::string> column_families_not_found;
-
   // Read "CURRENT" file, which contains a pointer to the current manifest file
   std::string manifest_path;
   Status s = GetCurrentManifestPath(dbname_, fs_.get(), &manifest_path,
@@ -4746,139 +4737,30 @@ Status VersionSet::Recover(
         new SequentialFileReader(std::move(manifest_file), manifest_path,
                                  db_options_->log_readahead_size, io_tracer_));
   }
-
-  VersionBuilderMap builders;
-
-  // add default column family
-  auto default_cf_iter = cf_name_to_options.find(kDefaultColumnFamilyName);
-  if (default_cf_iter == cf_name_to_options.end()) {
-    return Status::InvalidArgument("Default column family not specified");
-  }
-  VersionEdit default_cf_edit;
-  default_cf_edit.AddColumnFamily(kDefaultColumnFamilyName);
-  default_cf_edit.SetColumnFamily(0);
-  ColumnFamilyData* default_cfd =
-      CreateColumnFamily(default_cf_iter->second, &default_cf_edit);
-  // In recovery, nobody else can access it, so it's fine to set it to be
-  // initialized earlier.
-  default_cfd->set_initialized();
-  builders.insert(
-      std::make_pair(0, std::unique_ptr<BaseReferencedVersionBuilder>(
-                            new BaseReferencedVersionBuilder(default_cfd))));
   uint64_t current_manifest_file_size = 0;
-  VersionEditParams version_edit_params;
+  uint64_t log_number = 0;
   {
     VersionSet::LogReporter reporter;
     Status log_read_status;
     reporter.status = &log_read_status;
     log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                        true /* checksum */, 0 /* log_number */);
-    AtomicGroupReadBuffer read_buffer;
-    s = ReadAndRecover(reader, &read_buffer, cf_name_to_options,
-                       column_families_not_found, builders, &log_read_status,
-                       &version_edit_params, db_id);
-    current_manifest_file_size = reader.GetReadOffset();
-    assert(current_manifest_file_size != 0);
-  }
-
-  if (s.ok()) {
-    if (!version_edit_params.has_next_file_number_) {
-      s = Status::Corruption("no meta-nextfile entry in descriptor");
-    } else if (!version_edit_params.has_log_number_) {
-      s = Status::Corruption("no meta-lognumber entry in descriptor");
-    } else if (!version_edit_params.has_last_sequence_) {
-      s = Status::Corruption("no last-sequence-number entry in descriptor");
-    }
-
-    if (!version_edit_params.has_prev_log_number_) {
-      version_edit_params.SetPrevLogNumber(0);
-    }
-
-    column_family_set_->UpdateMaxColumnFamily(
-        version_edit_params.max_column_family_);
-
-    // When reading DB generated using old release, min_log_number_to_keep=0.
-    // All log files will be scanned for potential prepare entries.
-    MarkMinLogNumberToKeep2PC(version_edit_params.min_log_number_to_keep_);
-    MarkFileNumberUsed(version_edit_params.prev_log_number_);
-    MarkFileNumberUsed(version_edit_params.log_number_);
-  }
-
-  // there were some column families in the MANIFEST that weren't specified
-  // in the argument. This is OK in read_only mode
-  if (read_only == false && !column_families_not_found.empty()) {
-    std::string list_of_not_found;
-    for (const auto& cf : column_families_not_found) {
-      list_of_not_found += ", " + cf.second;
-    }
-    list_of_not_found = list_of_not_found.substr(2);
-    s = Status::InvalidArgument(
-        "You have to open all column families. Column families not opened: " +
-        list_of_not_found);
-  }
-
-  if (s.ok()) {
-    for (auto cfd : *column_family_set_) {
-      assert(builders.count(cfd->GetID()) > 0);
-      auto* builder = builders[cfd->GetID()]->version_builder();
-      if (!builder->CheckConsistencyForNumLevels()) {
-        s = Status::InvalidArgument(
-            "db has more levels than options.num_levels");
-        break;
-      }
+    VersionEditHandler handler(
+        read_only, column_families, const_cast<VersionSet*>(this),
+        /*track_missing_files=*/false,
+        /*no_error_if_table_files_missing=*/false, io_tracer_);
+    handler.Iterate(reader, &log_read_status);
+    s = handler.status();
+    if (s.ok()) {
+      log_number = handler.GetVersionEditParams().log_number_;
+      current_manifest_file_size = reader.GetReadOffset();
+      assert(current_manifest_file_size != 0);
+      handler.GetDbId(db_id);
     }
   }
 
   if (s.ok()) {
-    for (auto cfd : *column_family_set_) {
-      if (cfd->IsDropped()) {
-        continue;
-      }
-      if (read_only) {
-        cfd->table_cache()->SetTablesAreImmortal();
-      }
-      assert(cfd->initialized());
-      auto builders_iter = builders.find(cfd->GetID());
-      assert(builders_iter != builders.end());
-      auto builder = builders_iter->second->version_builder();
-
-      // unlimited table cache. Pre-load table handle now.
-      // Need to do it out of the mutex.
-      s = builder->LoadTableHandlers(
-          cfd->internal_stats(), db_options_->max_file_opening_threads,
-          false /* prefetch_index_and_filter_in_cache */,
-          true /* is_initial_load */,
-          cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
-          MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
-      if (!s.ok()) {
-        if (db_options_->paranoid_checks) {
-          return s;
-        }
-        s = Status::OK();
-      }
-
-      Version* v = new Version(cfd, this, file_options_,
-                               *cfd->GetLatestMutableCFOptions(), io_tracer_,
-                               current_version_number_++);
-      s = builder->SaveTo(v->storage_info());
-      if (!s.ok()) {
-        delete v;
-        return s;
-      }
-
-      // Install recovered version
-      v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
-          !(db_options_->skip_stats_update_on_db_open));
-      AppendVersion(cfd, v);
-    }
-
     manifest_file_size_ = current_manifest_file_size;
-    next_file_number_.store(version_edit_params.next_file_number_ + 1);
-    last_allocated_sequence_ = version_edit_params.last_sequence_;
-    last_published_sequence_ = version_edit_params.last_sequence_;
-    last_sequence_ = version_edit_params.last_sequence_;
-    prev_log_number_ = version_edit_params.prev_log_number_;
-
     ROCKS_LOG_INFO(
         db_options_->info_log,
         "Recovered from manifest file:%s succeeded,"
@@ -4887,9 +4769,8 @@ Status VersionSet::Recover(
         ",prev_log_number is %" PRIu64 ",max_column_family is %" PRIu32
         ",min_log_number_to_keep is %" PRIu64 "\n",
         manifest_path.c_str(), manifest_file_number_, next_file_number_.load(),
-        last_sequence_.load(), version_edit_params.log_number_,
-        prev_log_number_, column_family_set_->GetMaxColumnFamily(),
-        min_log_number_to_keep_2pc());
+        last_sequence_.load(), log_number, prev_log_number_,
+        column_family_set_->GetMaxColumnFamily(), min_log_number_to_keep_2pc());
 
     for (auto cfd : *column_family_set_) {
       if (cfd->IsDropped()) {
@@ -5037,7 +4918,9 @@ Status VersionSet::TryRecoverFromOneManifest(
   VersionEditHandlerPointInTime handler_pit(
       read_only, column_families, const_cast<VersionSet*>(this), io_tracer_);
 
-  handler_pit.Iterate(reader, &s, db_id);
+  handler_pit.Iterate(reader, &s);
+
+  handler_pit.GetDbId(db_id);
 
   assert(nullptr != has_missing_table_file);
   *has_missing_table_file = handler_pit.HasMissingFiles();
@@ -5071,48 +4954,23 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
                                              nullptr /*IOTracer*/));
   }
 
-  std::map<uint32_t, std::string> column_family_names;
-  // default column family is always implicitly there
-  column_family_names.insert({0, kDefaultColumnFamilyName});
   VersionSet::LogReporter reporter;
   reporter.status = &s;
   log::Reader reader(nullptr, std::move(file_reader), &reporter,
                      true /* checksum */, 0 /* log_number */);
-  Slice record;
-  std::string scratch;
-  while (reader.ReadRecord(&record, &scratch) && s.ok()) {
-    VersionEdit edit;
-    s = edit.DecodeFrom(record);
-    if (!s.ok()) {
-      break;
-    }
-    if (edit.is_column_family_add_) {
-      if (column_family_names.find(edit.column_family_) !=
-          column_family_names.end()) {
-        s = Status::Corruption("Manifest adding the same column family twice");
-        break;
-      }
-      column_family_names.insert(
-          {edit.column_family_, edit.column_family_name_});
-    } else if (edit.is_column_family_drop_) {
-      if (column_family_names.find(edit.column_family_) ==
-          column_family_names.end()) {
-        s = Status::Corruption(
-            "Manifest - dropping non-existing column family");
-        break;
-      }
-      column_family_names.erase(edit.column_family_);
-    }
-  }
 
+  ListColumnFamiliesHandler handler;
+  handler.Iterate(reader, &s);
+
+  assert(column_families);
   column_families->clear();
-  if (s.ok()) {
-    for (const auto& iter : column_family_names) {
+  if (handler.status().ok()) {
+    for (const auto& iter : handler.GetColumnFamilyNames()) {
       column_families->push_back(iter.second);
     }
   }
 
-  return s;
+  return handler.status();
 }
 
 #ifndef ROCKSDB_LITE
@@ -5271,194 +5129,19 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
         std::move(file), dscname, db_options_->log_readahead_size, io_tracer_));
   }
 
-  bool have_prev_log_number = false;
-  bool have_next_file = false;
-  bool have_last_sequence = false;
-  uint64_t next_file = 0;
-  uint64_t last_sequence = 0;
-  uint64_t previous_log_number = 0;
-  int count = 0;
-  std::unordered_map<uint32_t, std::string> comparators;
-  std::unordered_map<uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>
-      builders;
-
-  // add default column family
-  VersionEdit default_cf_edit;
-  default_cf_edit.AddColumnFamily(kDefaultColumnFamilyName);
-  default_cf_edit.SetColumnFamily(0);
-  ColumnFamilyData* default_cfd =
-      CreateColumnFamily(ColumnFamilyOptions(options), &default_cf_edit);
-  builders.insert(
-      std::make_pair(0, std::unique_ptr<BaseReferencedVersionBuilder>(
-                            new BaseReferencedVersionBuilder(default_cfd))));
-
+  std::vector<ColumnFamilyDescriptor> column_families(
+      1, ColumnFamilyDescriptor(kDefaultColumnFamilyName, options));
+  DumpManifestHandler handler(column_families, this, io_tracer_, verbose, hex,
+                              json);
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
     log::Reader reader(nullptr, std::move(file_reader), &reporter,
                        true /* checksum */, 0 /* log_number */);
-    Slice record;
-    std::string scratch;
-    while (reader.ReadRecord(&record, &scratch) && s.ok()) {
-      VersionEdit edit;
-      s = edit.DecodeFrom(record);
-      if (!s.ok()) {
-        break;
-      }
-
-      // Write out each individual edit
-      if (verbose && !json) {
-        printf("%s\n", edit.DebugString(hex).c_str());
-      } else if (json) {
-        printf("%s\n", edit.DebugJSON(count, hex).c_str());
-      }
-      count++;
-
-      bool cf_in_builders =
-          builders.find(edit.column_family_) != builders.end();
-
-      if (edit.has_comparator_) {
-        comparators.insert({edit.column_family_, edit.comparator_});
-      }
-
-      ColumnFamilyData* cfd = nullptr;
-
-      if (edit.is_column_family_add_) {
-        if (cf_in_builders) {
-          s = Status::Corruption(
-              "Manifest adding the same column family twice");
-          break;
-        }
-        cfd = CreateColumnFamily(ColumnFamilyOptions(options), &edit);
-        cfd->set_initialized();
-        builders.insert(std::make_pair(
-            edit.column_family_, std::unique_ptr<BaseReferencedVersionBuilder>(
-                                     new BaseReferencedVersionBuilder(cfd))));
-      } else if (edit.is_column_family_drop_) {
-        if (!cf_in_builders) {
-          s = Status::Corruption(
-              "Manifest - dropping non-existing column family");
-          break;
-        }
-        auto builder_iter = builders.find(edit.column_family_);
-        builders.erase(builder_iter);
-        comparators.erase(edit.column_family_);
-        cfd = column_family_set_->GetColumnFamily(edit.column_family_);
-        assert(cfd != nullptr);
-        cfd->UnrefAndTryDelete();
-        cfd = nullptr;
-      } else {
-        if (!cf_in_builders) {
-          s = Status::Corruption(
-              "Manifest record referencing unknown column family");
-          break;
-        }
-
-        cfd = column_family_set_->GetColumnFamily(edit.column_family_);
-        // this should never happen since cf_in_builders is true
-        assert(cfd != nullptr);
-
-        // if it is not column family add or column family drop,
-        // then it's a file add/delete, which should be forwarded
-        // to builder
-        auto builder = builders.find(edit.column_family_);
-        assert(builder != builders.end());
-        s = builder->second->version_builder()->Apply(&edit);
-        if (!s.ok()) {
-          break;
-        }
-      }
-
-      if (cfd != nullptr && edit.has_log_number_) {
-        cfd->SetLogNumber(edit.log_number_);
-      }
-
-
-      if (edit.has_prev_log_number_) {
-        previous_log_number = edit.prev_log_number_;
-        have_prev_log_number = true;
-      }
-
-      if (edit.has_next_file_number_) {
-        next_file = edit.next_file_number_;
-        have_next_file = true;
-      }
-
-      if (edit.has_last_sequence_) {
-        last_sequence = edit.last_sequence_;
-        have_last_sequence = true;
-      }
-
-      if (edit.has_max_column_family_) {
-        column_family_set_->UpdateMaxColumnFamily(edit.max_column_family_);
-      }
-
-      if (edit.has_min_log_number_to_keep_) {
-        MarkMinLogNumberToKeep2PC(edit.min_log_number_to_keep_);
-      }
-    }
-  }
-  file_reader.reset();
-
-  if (s.ok()) {
-    if (!have_next_file) {
-      s = Status::Corruption("no meta-nextfile entry in descriptor");
-      printf("no meta-nextfile entry in descriptor");
-    } else if (!have_last_sequence) {
-      printf("no last-sequence-number entry in descriptor");
-      s = Status::Corruption("no last-sequence-number entry in descriptor");
-    }
-
-    if (!have_prev_log_number) {
-      previous_log_number = 0;
-    }
+    handler.Iterate(reader, &s);
   }
 
-  if (s.ok()) {
-    for (auto cfd : *column_family_set_) {
-      if (cfd->IsDropped()) {
-        continue;
-      }
-      auto builders_iter = builders.find(cfd->GetID());
-      assert(builders_iter != builders.end());
-      auto builder = builders_iter->second->version_builder();
-
-      Version* v = new Version(cfd, this, file_options_,
-                               *cfd->GetLatestMutableCFOptions(), io_tracer_,
-                               current_version_number_++);
-      s = builder->SaveTo(v->storage_info());
-      v->PrepareApply(*cfd->GetLatestMutableCFOptions(), false);
-
-      printf("--------------- Column family \"%s\"  (ID %" PRIu32
-             ") --------------\n",
-             cfd->GetName().c_str(), cfd->GetID());
-      printf("log number: %" PRIu64 "\n", cfd->GetLogNumber());
-      auto comparator = comparators.find(cfd->GetID());
-      if (comparator != comparators.end()) {
-        printf("comparator: %s\n", comparator->second.c_str());
-      } else {
-        printf("comparator: <NO COMPARATOR>\n");
-      }
-      printf("%s \n", v->DebugString(hex).c_str());
-      delete v;
-    }
-
-    next_file_number_.store(next_file + 1);
-    last_allocated_sequence_ = last_sequence;
-    last_published_sequence_ = last_sequence;
-    last_sequence_ = last_sequence;
-    prev_log_number_ = previous_log_number;
-
-    printf("next_file_number %" PRIu64 " last_sequence %" PRIu64
-           "  prev_log_number %" PRIu64 " max_column_family %" PRIu32
-           " min_log_number_to_keep "
-           "%" PRIu64 "\n",
-           next_file_number_.load(), last_sequence, previous_log_number,
-           column_family_set_->GetMaxColumnFamily(),
-           min_log_number_to_keep_2pc());
-  }
-
-  return s;
+  return handler.status();
 }
 #endif  // ROCKSDB_LITE
 

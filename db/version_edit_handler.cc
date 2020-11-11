@@ -9,28 +9,14 @@
 
 #include "db/version_edit_handler.h"
 
+#include <cinttypes>
+
 #include "monitoring/persistent_stats_history.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-VersionEditHandler::VersionEditHandler(
-    bool read_only, const std::vector<ColumnFamilyDescriptor>& column_families,
-    VersionSet* version_set, bool track_missing_files,
-    bool no_error_if_table_files_missing,
-    const std::shared_ptr<IOTracer>& io_tracer)
-    : read_only_(read_only),
-      column_families_(column_families),
-      status_(),
-      version_set_(version_set),
-      track_missing_files_(track_missing_files),
-      no_error_if_table_files_missing_(no_error_if_table_files_missing),
-      initialized_(false),
-      io_tracer_(io_tracer) {
-  assert(version_set_ != nullptr);
-}
-
-void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
-                                 std::string* db_id) {
+void VersionEditHandlerBase::Iterate(log::Reader& reader,
+                                     Status* log_read_status) {
   Slice record;
   std::string scratch;
   assert(log_read_status);
@@ -38,19 +24,14 @@ void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
 
   size_t recovered_edits = 0;
   Status s = Initialize();
-  while (s.ok() && reader.ReadRecord(&record, &scratch) &&
-         log_read_status->ok()) {
+  while (reader.LastRecordEnd() < max_manifest_read_size_ && s.ok() &&
+         reader.ReadRecord(&record, &scratch) && log_read_status->ok()) {
     VersionEdit edit;
     s = edit.DecodeFrom(record);
     if (!s.ok()) {
       break;
     }
-    if (edit.has_db_id_) {
-      version_set_->db_id_ = edit.GetDbId();
-      if (db_id != nullptr) {
-        *db_id = version_set_->db_id_;
-      }
-    }
+
     s = read_buffer_.AddEdit(&edit);
     if (!s.ok()) {
       break;
@@ -81,11 +62,67 @@ void VersionEditHandler::Iterate(log::Reader& reader, Status* log_read_status,
     s = *log_read_status;
   }
 
+  read_buffer_.Clear();
+
   CheckIterationResult(reader, &s);
 
   if (!s.ok()) {
     status_ = s;
   }
+  TEST_SYNC_POINT_CALLBACK("VersionEditHandlerBase::Iterate:Finish",
+                           &recovered_edits);
+}
+
+Status ListColumnFamiliesHandler::ApplyVersionEdit(
+    VersionEdit& edit, ColumnFamilyData** /*unused*/) {
+  Status s;
+  if (edit.is_column_family_add_) {
+    if (column_family_names_.find(edit.column_family_) !=
+        column_family_names_.end()) {
+      s = Status::Corruption("Manifest adding the same column family twice");
+    } else {
+      column_family_names_.insert(
+          {edit.column_family_, edit.column_family_name_});
+    }
+  } else if (edit.is_column_family_drop_) {
+    if (column_family_names_.find(edit.column_family_) ==
+        column_family_names_.end()) {
+      s = Status::Corruption("Manifest - dropping non-existing column family");
+    } else {
+      column_family_names_.erase(edit.column_family_);
+    }
+  }
+  return s;
+}
+
+Status FileChecksumRetriever::ApplyVersionEdit(VersionEdit& edit,
+                                               ColumnFamilyData** /*unused*/) {
+  for (const auto& deleted_file : edit.GetDeletedFiles()) {
+    file_checksum_list_.RemoveOneFileChecksum(deleted_file.second);
+  }
+  for (const auto& new_file : edit.GetNewFiles()) {
+    file_checksum_list_.InsertOneFileChecksum(
+        new_file.second.fd.GetNumber(), new_file.second.file_checksum,
+        new_file.second.file_checksum_func_name);
+  }
+  return Status::OK();
+}
+
+VersionEditHandler::VersionEditHandler(
+    bool read_only, const std::vector<ColumnFamilyDescriptor>& column_families,
+    VersionSet* version_set, bool track_missing_files,
+    bool no_error_if_table_files_missing,
+    const std::shared_ptr<IOTracer>& io_tracer, bool skip_load_table_files)
+    : VersionEditHandlerBase(),
+      read_only_(read_only),
+      column_families_(column_families),
+      version_set_(version_set),
+      track_missing_files_(track_missing_files),
+      no_error_if_table_files_missing_(no_error_if_table_files_missing),
+      io_tracer_(io_tracer),
+      skip_load_table_files_(skip_load_table_files),
+      initialized_(false) {
+  assert(version_set_ != nullptr);
 }
 
 Status VersionEditHandler::Initialize() {
@@ -274,7 +311,7 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
                                               Status* s) {
   assert(s != nullptr);
   if (!s->ok()) {
-    read_buffer_.Clear();
+    // Do nothing here.
   } else if (!version_edit_params_.has_log_number_ ||
              !version_edit_params_.has_next_file_number_ ||
              !version_edit_params_.has_last_sequence_) {
@@ -292,6 +329,8 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
     msg.append(" entry in MANIFEST");
     *s = Status::Corruption(msg);
   }
+  // There were some column families in the MANIFEST that weren't specified
+  // in the argument. This is OK in read_only mode
   if (s->ok() && !read_only_ && !column_families_not_found_.empty()) {
     std::string msg;
     for (const auto& cf : column_families_not_found_) {
@@ -330,6 +369,10 @@ void VersionEditHandler::CheckIterationResult(const log::Reader& reader,
       *s = LoadTables(cfd, /*prefetch_index_and_filter_in_cache=*/false,
                       /*is_initial_load=*/true);
       if (!s->ok()) {
+        // If s is IOError::PathNotFound, then we mark the db as corrupted.
+        if (s->IsPathNotFound()) {
+          *s = Status::Corruption("Corruption: " + s->ToString());
+        }
         break;
       }
     }
@@ -426,6 +469,9 @@ Status VersionEditHandler::MaybeCreateVersion(const VersionEdit& /*edit*/,
 Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
                                       bool prefetch_index_and_filter_in_cache,
                                       bool is_initial_load) {
+  if (skip_load_table_files_) {
+    return Status::OK();
+  }
   assert(cfd != nullptr);
   assert(!cfd->IsDropped());
   auto builder_iter = builders_.find(cfd->GetID());
@@ -452,10 +498,11 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
 Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                                                       const VersionEdit& edit) {
   Status s;
+  if (edit.has_db_id_) {
+    version_set_->db_id_ = edit.GetDbId();
+    version_edit_params_.SetDBId(edit.db_id_);
+  }
   if (cfd != nullptr) {
-    if (edit.has_db_id_) {
-      version_edit_params_.SetDBId(edit.db_id_);
-    }
     if (edit.has_log_number_) {
       if (cfd->GetLogNumber() > edit.log_number_) {
         ROCKS_LOG_WARN(
@@ -505,8 +552,7 @@ VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer)
     : VersionEditHandler(read_only, column_families, version_set,
                          /*track_missing_files=*/true,
-                         /*no_error_if_table_files_missing=*/true, io_tracer),
-      io_tracer_(io_tracer) {}
+                         /*no_error_if_table_files_missing=*/true, io_tracer) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   for (const auto& elem : versions_) {
@@ -610,6 +656,34 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     }
   }
   return s;
+}
+
+void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
+                                               Status* s) {
+  VersionEditHandler::CheckIterationResult(reader, s);
+  if (!s->ok()) {
+    fprintf(stdout, "%s\n", s->ToString().c_str());
+    return;
+  }
+  for (auto* cfd : *(version_set_->column_family_set_)) {
+    fprintf(stdout,
+            "--------------- Column family \"%s\"  (ID %" PRIu32
+            ") --------------\n",
+            cfd->GetName().c_str(), cfd->GetID());
+    fprintf(stdout, "log number: %" PRIu64 "\n", cfd->GetLogNumber());
+    fprintf(stdout, "comparator: %s\n", cfd->user_comparator()->Name());
+    assert(cfd->current());
+    fprintf(stdout, "%s \n", cfd->current()->DebugString(hex_).c_str());
+  }
+  fprintf(stdout,
+          "next_file_number %" PRIu64 " last_sequence %" PRIu64
+          "  prev_log_number %" PRIu64 " max_column_family %" PRIu32
+          " min_log_number_to_keep "
+          "%" PRIu64 "\n",
+          version_set_->current_next_file_number(),
+          version_set_->LastSequence(), version_set_->prev_log_number(),
+          version_set_->column_family_set_->GetMaxColumnFamily(),
+          version_set_->min_log_number_to_keep_2pc());
 }
 
 }  // namespace ROCKSDB_NAMESPACE
