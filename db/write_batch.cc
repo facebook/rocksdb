@@ -1425,16 +1425,17 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
+      bool batch_boundary = false;
       if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status = WriteBatchInternal::Put(rebuilding_trx_, column_family_id,
                                              key, value);
-        if (ret_status.ok()) {
-          bool batch_boundary = IsDuplicateKeySeq(column_family_id, key);
-          MaybeAdvanceSeq(batch_boundary);
-        }
+        batch_boundary = IsDuplicateKeySeq(column_family_id, key);
+      }
+      if (ret_status.ok()) {
+        MaybeAdvanceSeq(batch_boundary);
       }
       return ret_status;
     }
@@ -1570,16 +1571,17 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
+      bool batch_boundary = false;
       if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status =
             WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
-        if (ret_status.ok()) {
-          bool batch_boundary = IsDuplicateKeySeq(column_family_id, key);
-          MaybeAdvanceSeq(batch_boundary);
-        }
+        batch_boundary = IsDuplicateKeySeq(column_family_id, key);
+      }
+      if (ret_status.ok()) {
+        MaybeAdvanceSeq(batch_boundary);
       }
       return ret_status;
     }
@@ -1616,16 +1618,17 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
+      bool batch_boundary = false;
       if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status = WriteBatchInternal::SingleDelete(rebuilding_trx_,
                                                       column_family_id, key);
-        if (ret_status.ok()) {
-          bool batch_boundary = IsDuplicateKeySeq(column_family_id, key);
-          MaybeAdvanceSeq(batch_boundary);
-        }
+        batch_boundary = IsDuplicateKeySeq(column_family_id, key);
+      }
+      if (ret_status.ok()) {
+        MaybeAdvanceSeq(batch_boundary);
       }
       return ret_status;
     }
@@ -1657,16 +1660,17 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
+      bool batch_boundary = false;
       if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status = WriteBatchInternal::DeleteRange(
             rebuilding_trx_, column_family_id, begin_key, end_key);
-        if (ret_status.ok()) {
-          bool batch_boundary = IsDuplicateKeySeq(column_family_id, begin_key);
-          MaybeAdvanceSeq(batch_boundary);
-        }
+        batch_boundary = IsDuplicateKeySeq(column_family_id, begin_key);
+      }
+      if (ret_status.ok()) {
+        MaybeAdvanceSeq(batch_boundary);
       }
       return ret_status;
     }
@@ -1725,16 +1729,17 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
+      bool batch_boundary = false;
       if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status = WriteBatchInternal::Merge(rebuilding_trx_,
                                                column_family_id, key, value);
-        if (ret_status.ok()) {
-          bool batch_boundary = IsDuplicateKeySeq(column_family_id, key);
-          MaybeAdvanceSeq(batch_boundary);
-        }
+        batch_boundary = IsDuplicateKeySeq(column_family_id, key);
+      }
+      if (ret_status.ok()) {
+        MaybeAdvanceSeq(batch_boundary);
       }
       return ret_status;
     }
