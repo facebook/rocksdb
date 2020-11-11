@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cctype>
 #include <cstdlib>
+#include <sstream>
 #include <unordered_set>
 #include <vector>
 
@@ -1000,6 +1001,19 @@ Status OptionTypeInfo::Parse(const ConfigOptions& config_options,
       return Status::InvalidArgument("Error parsing:", opt_name);
     }
   } catch (std::exception& e) {
+    if (opt_name == "read_amp_bytes_per_bit") {
+      assert(type_ == OptionType::kUInt32T);
+      char* opt_addr = reinterpret_cast<char*>(opt_ptr) + offset_;
+      const std::string& opt_value = config_options.input_strings_escaped
+                                         ? UnescapeOptionString(value)
+                                         : value;
+      uint64_t read_amp_bytes_per_bit = 0;
+      std::stringstream ss(opt_value);
+      ss >> read_amp_bytes_per_bit;
+      EncodeFixed32(opt_addr,
+                    static_cast<uint32_t>(read_amp_bytes_per_bit & 0xFFFFFFFF));
+      return Status::OK();
+    }
     return Status::InvalidArgument("Error parsing " + opt_name + ":" +
                                    std::string(e.what()));
   }
