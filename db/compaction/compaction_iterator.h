@@ -45,6 +45,10 @@ class CompactionIterator {
     virtual bool allow_ingest_behind() const = 0;
 
     virtual bool preserve_deletes() const = 0;
+
+    virtual bool enable_blob_garbage_collection() const = 0;
+
+    virtual Version* input_version() const = 0;
   };
 
   class RealCompaction : public CompactionProxy {
@@ -53,6 +57,7 @@ class CompactionIterator {
         : compaction_(compaction) {
       assert(compaction_);
       assert(compaction_->immutable_cf_options());
+      assert(compaction_->mutable_cf_options());
     }
 
     int level() const override { return compaction_->level(); }
@@ -78,6 +83,14 @@ class CompactionIterator {
 
     bool preserve_deletes() const override {
       return compaction_->immutable_cf_options()->preserve_deletes;
+    }
+
+    bool enable_blob_garbage_collection() const override {
+      return compaction_->mutable_cf_options()->enable_blob_garbage_collection;
+    }
+
+    Version* input_version() const override {
+      return compaction_->input_version();
     }
 
    private:
