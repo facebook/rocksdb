@@ -121,6 +121,8 @@ class BloomFilterPolicy : public FilterPolicy {
   int GetMillibitsPerKey() const { return millibits_per_key_; }
   // Essentially for testing only: legacy whole bits/key
   int GetWholeBitsPerKey() const { return whole_bits_per_key_; }
+  // Testing only
+  Mode GetMode() const { return mode_; }
 
  private:
   // Bits per key settings are for configuring Bloom filters.

@@ -1211,6 +1211,7 @@ Status FilterPolicy::CreateFromString(
     const ConfigOptions& /*options*/, const std::string& value,
     std::shared_ptr<const FilterPolicy>* policy) {
   const std::string kBloomName = "bloomfilter:";
+  const std::string kExpRibbonName = "experimental_ribbon:";
   if (value == kNullptrString || value == "rocksdb.BuiltinBloomFilter") {
     policy->reset();
 #ifndef ROCKSDB_LITE
@@ -1227,6 +1228,11 @@ Status FilterPolicy::CreateFromString(
       policy->reset(
           NewBloomFilterPolicy(bits_per_key, use_block_based_builder));
     }
+  } else if (value.compare(0, kExpRibbonName.size(), kExpRibbonName) == 0) {
+    double bloom_equivalent_bits_per_key =
+        ParseDouble(trim(value.substr(kExpRibbonName.size())));
+    policy->reset(
+        NewExperimentalRibbonFilterPolicy(bloom_equivalent_bits_per_key));
   } else {
     return Status::NotFound("Invalid filter policy name ", value);
 #else
