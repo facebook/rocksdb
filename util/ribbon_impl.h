@@ -959,8 +959,8 @@ class SerializableInterleavedSolution {
         // Note: Ignoring smash setting; still close enough in that case
         Index num_starts = num_slots - kCoeffBits + 1;
         // Lower upper_start_block means lower FP rate (higher accuracy)
-        Index upper_start_block =
-            (lower_portion * num_starts + rounding_bias) / kCoeffBits;
+        Index upper_start_block = static_cast<Index>(
+            (lower_portion * num_starts + rounding_bias) / kCoeffBits);
         Index num_blocks = num_slots / kCoeffBits;
         assert(upper_start_block < num_blocks);
 
