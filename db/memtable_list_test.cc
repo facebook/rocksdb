@@ -242,10 +242,10 @@ TEST_F(MemTableListTest, GetTest) {
   mem->Ref();
 
   // Write some keys to this memtable.
-  mem->Add(++seq, kTypeDeletion, "key1", "");
-  mem->Add(++seq, kTypeValue, "key2", "value2");
-  mem->Add(++seq, kTypeValue, "key1", "value1");
-  mem->Add(++seq, kTypeValue, "key2", "value2.2");
+  ASSERT_OK(mem->Add(++seq, kTypeDeletion, "key1", ""));
+  ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2"));
+  ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", "value1"));
+  ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2.2"));
 
   // Fetch the newly written keys
   merge_context.Clear();
@@ -283,8 +283,8 @@ TEST_F(MemTableListTest, GetTest) {
                                 kMaxSequenceNumber, 0 /* column_family_id */);
   mem2->Ref();
 
-  mem2->Add(++seq, kTypeDeletion, "key1", "");
-  mem2->Add(++seq, kTypeValue, "key2", "value2.3");
+  ASSERT_OK(mem2->Add(++seq, kTypeDeletion, "key1", ""));
+  ASSERT_OK(mem2->Add(++seq, kTypeValue, "key2", "value2.3"));
 
   // Add second memtable to list
   list.Add(mem2, &to_delete);
@@ -359,9 +359,9 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   mem->Ref();
 
   // Write some keys to this memtable.
-  mem->Add(++seq, kTypeDeletion, "key1", "");
-  mem->Add(++seq, kTypeValue, "key2", "value2");
-  mem->Add(++seq, kTypeValue, "key2", "value2.2");
+  ASSERT_OK(mem->Add(++seq, kTypeDeletion, "key1", ""));
+  ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2"));
+  ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2.2"));
 
   // Fetch the newly written keys
   merge_context.Clear();
@@ -443,8 +443,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
                                 kMaxSequenceNumber, 0 /* column_family_id */);
   mem2->Ref();
 
-  mem2->Add(++seq, kTypeDeletion, "key1", "");
-  mem2->Add(++seq, kTypeValue, "key3", "value3");
+  ASSERT_OK(mem2->Add(++seq, kTypeDeletion, "key1", ""));
+  ASSERT_OK(mem2->Add(++seq, kTypeValue, "key3", "value3"));
 
   // Add second memtable to list
   list.Add(mem2, &to_delete);
@@ -554,11 +554,11 @@ TEST_F(MemTableListTest, FlushPendingTest) {
     std::string value;
     MergeContext merge_context;
 
-    mem->Add(++seq, kTypeValue, "key1", ToString(i));
-    mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN");
-    mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value");
-    mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM");
-    mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), "");
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", ToString(i)));
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN"));
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value"));
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM"));
+    ASSERT_OK(mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), ""));
 
     tables.push_back(mem);
   }
@@ -823,11 +823,11 @@ TEST_F(MemTableListTest, AtomicFlusTest) {
 
       std::string value;
 
-      mem->Add(++seq, kTypeValue, "key1", ToString(i));
-      mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN");
-      mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value");
-      mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM");
-      mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), "");
+      ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", ToString(i)));
+      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN"));
+      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value"));
+      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM"));
+      ASSERT_OK(mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), ""));
 
       elem.push_back(mem);
     }
