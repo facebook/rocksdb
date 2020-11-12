@@ -1124,7 +1124,7 @@ TEST_F(CompactionJobTimestampTest, GCDisabled) {
        {KeyStr("b", 7, ValueType::kTypeDeletionWithTimestamp, 97), ""},
        {KeyStr("c", 6, ValueType::kTypeDeletionWithTimestamp, 96), ""},
        {KeyStr("c", 5, ValueType::kTypeValue, 95), "c5"}});
-  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  const auto& files = cfd_->current()->storage_info()->LevelFiles(0);
   RunCompaction({files}, expected_results);
 }
 
@@ -1150,7 +1150,7 @@ TEST_F(CompactionJobTimestampTest, NoKeyExpired) {
                           {KeyStr("b", 7, ValueType::kTypeValue, 101), "b7"},
                           {KeyStr("c", 5, ValueType::kTypeValue, 99), "c5"},
                           {KeyStr("c", 3, ValueType::kTypeValue, 97), "c3"}});
-  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  const auto& files = cfd_->current()->storage_info()->LevelFiles(0);
 
   full_history_ts_low_ = encode_u64_ts_(0);
   RunCompaction({files}, expected_results);
@@ -1174,7 +1174,7 @@ TEST_F(CompactionJobTimestampTest, AllKeysExpired) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("b", 0, ValueType::kTypeValue, 0), "b6"}});
-  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  const auto& files = cfd_->current()->storage_info()->LevelFiles(0);
 
   full_history_ts_low_ = encode_u64_ts_(std::numeric_limits<uint64_t>::max());
   RunCompaction({files}, expected_results);
@@ -1199,7 +1199,7 @@ TEST_F(CompactionJobTimestampTest, SomeKeysExpired) {
   auto expected_results =
       mock::MakeMockFile({{KeyStr("a", 5, ValueType::kTypeValue, 50), "a5"},
                           {KeyStr("b", 6, ValueType::kTypeValue, 49), "b6"}});
-  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  const auto& files = cfd_->current()->storage_info()->LevelFiles(0);
 
   full_history_ts_low_ = encode_u64_ts_(49);
   RunCompaction({files}, expected_results);
