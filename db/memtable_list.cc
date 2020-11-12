@@ -757,12 +757,7 @@ Status InstallMemtableAtomicFlushResults(
   std::unique_ptr<VersionEdit> wal_deletion;
   if (vset->db_options()->track_and_verify_wals_in_manifest) {
     uint64_t min_wal_number_to_keep =
-        PrecomputeMinLogNumberToKeepNon2PC(vset, *cfds[0], edit_lists[0]);
-    for (size_t i = 1; i < cfds.size(); i++) {
-      min_wal_number_to_keep = std::min(
-          min_wal_number_to_keep,
-          PrecomputeMinLogNumberToKeepNon2PC(vset, *cfds[i], edit_lists[i]));
-    }
+        PrecomputeMinLogNumberToKeepNon2PC(vset, cfds, edit_lists);
     const auto& wals = vset->GetWalSet().GetWals();
     if (!wals.empty() && min_wal_number_to_keep > wals.begin()->first) {
       wal_deletion.reset(new VersionEdit);

@@ -710,6 +710,42 @@ uint64_t PrecomputeMinLogNumberToKeepNon2PC(
   return min_log_number_to_keep;
 }
 
+uint64_t PrecomputeMinLogNumberToKeepNon2PC(
+    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    const autovector<autovector<VersionEdit*>>& edit_lists) {
+  assert(vset != nullptr);
+  assert(!cfds_to_flush.empty());
+  assert(cfds_to_flush.size() == edit_lists.size());
+
+  const uint64_t kUint64Max = std::numeric_limits<uint64_t>::max();
+  uint64_t min_log_flushed = kUint64Max;
+  for (auto& edit_list : edit_lists) {
+    uint64_t log = 0;
+    for (auto& e : edit_list) {
+      if (e->HasLogNumber()) {
+        log = std::max(log, e->GetLogNumber());
+      }
+    }
+    if (log != 0) {
+      min_log_flushed = std::min(min_log_flushed, log);
+    }
+  }
+  if (min_log_flushed == kUint64Max) {
+    min_log_flushed = cfds_to_flush[0]->GetLogNumber();
+    for (size_t i = 1; i < cfds_to_flush.size(); i++) {
+      min_log_flushed =
+          std::min(min_log_flushed, cfds_to_flush[i]->GetLogNumber());
+    }
+  }
+
+  std::unordered_set<const ColumnFamilyData*> flushed_cfds(
+      cfds_to_flush.begin(), cfds_to_flush.end());
+  uint64_t min_log_unflushed =
+      vset->PreComputeMinLogNumberWithUnflushedData(flushed_cfds);
+
+  return std::min(min_log_flushed, min_log_unflushed);
+}
+
 uint64_t PrecomputeMinLogNumberToKeep2PC(
     VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
     const autovector<VersionEdit*>& edit_list,
