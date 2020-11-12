@@ -10,6 +10,7 @@
 #include <thread>
 
 #include "db/db_impl/db_impl.h"
+#include "db/db_test_util.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/perf_context.h"
@@ -37,6 +38,7 @@ class OptimisticTransactionTest
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
     options.max_write_buffer_size_to_maintain = 1600;
+    options.merge_operator.reset(new TestPutOperator());
     dbname = test::PerThreadDBPath("optimistic_transaction_testdb");
 
     DestroyDB(dbname, options);
