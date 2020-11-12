@@ -334,7 +334,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "best_efforts_recovery=false;"
                              "max_bgerror_resume_count=2;"
                              "bgerror_resume_retry_interval=1000000"
-                             "db_host_id=hostname",
+                             "db_host_id=hostname;"
+                             "allow_data_in_errors=false",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
