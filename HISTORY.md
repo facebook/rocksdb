@@ -42,6 +42,7 @@
 * Added is_full_compaction to CompactionJobStats, so that the information is available through the EventListener interface.
 * Add more stats for MultiGet in Histogram to get number of data blocks, index blocks, filter blocks and sst files read from file system per level.
 * SST files have a new table property called db_host_id, which is set to the hostname by default. A new option in DBOptions, db_host_id, allows the property value to be overridden with a user specified string, or disable it completely by making the option string empty.
+* Methods to create customizable extensions -- such as TableFactory -- are exposed directly through the Customizable base class (from which these objects inherit).  This change will allow these Customizable classes to be loaded and configured in a standard way (via CreateFromString).  More information on how to write and use Customizable classes is in the customizable.h header file.
 
 ## 6.13 (09/12/2020)
 ### Bug fixes

@@ -49,6 +49,7 @@ enum class OptionType {
   kStruct,
   kVector,
   kConfigurable,
+  kCustomizable,
   kUnknown,
 };
 
@@ -93,13 +94,14 @@ enum class OptionTypeFlags : uint32_t {
   kCompareLoose = ConfigOptions::kSanityLevelLooselyCompatible,
   kCompareExact = ConfigOptions::kSanityLevelExactMatch,
 
-  kMutable = 0x0100,        // Option is mutable
-  kRawPointer = 0x0200,     // The option is stored as a raw pointer
-  kShared = 0x0400,         // The option is stored as a shared_ptr
-  kUnique = 0x0800,         // The option is stored as a unique_ptr
-  kAllowNull = 0x1000,      // The option can be null
-  kDontSerialize = 0x2000,  // Don't serialize the option
-  kDontPrepare = 0x4000,    // Don't prepare or sanitize this option
+  kMutable = 0x0100,         // Option is mutable
+  kRawPointer = 0x0200,      // The option is stored as a raw pointer
+  kShared = 0x0400,          // The option is stored as a shared_ptr
+  kUnique = 0x0800,          // The option is stored as a unique_ptr
+  kAllowNull = 0x1000,       // The option can be null
+  kDontSerialize = 0x2000,   // Don't serialize the option
+  kDontPrepare = 0x4000,     // Don't prepare or sanitize this option
+  kStringNameOnly = 0x8000,  // The option serializes to a name only
 };
 
 inline OptionTypeFlags operator|(const OptionTypeFlags &a,
@@ -406,6 +408,103 @@ class OptionTypeInfo {
         });
   }
 
+  // Create a new std::shared_ptr<Customizable> OptionTypeInfo
+  // This function will call the T::CreateFromString method to create a new
+  // std::shared_ptr<T> object.
+  //
+  // @param offset The offset for the Customizable from the base pointer
+  // @param ovt How to verify this option
+  // @param flags, Extra flags specifying the behavior of this option
+  // @param _sfunc Optional function for serializing this option
+  // @param _efunc Optional function for comparing this option
+  template <typename T>
+  static OptionTypeInfo AsCustomSharedPtr(int offset,
+                                          OptionVerificationType ovt,
+                                          OptionTypeFlags flags) {
+    return AsCustomSharedPtr<T>(offset, ovt, flags, nullptr, nullptr);
+  }
+
+  template <typename T>
+  static OptionTypeInfo AsCustomSharedPtr(int offset,
+                                          OptionVerificationType ovt,
+                                          OptionTypeFlags flags,
+                                          const SerializeFunc& serialize_func,
+                                          const EqualsFunc& equals_func) {
+    return OptionTypeInfo(
+        offset, OptionType::kCustomizable, ovt,
+        flags | OptionTypeFlags::kShared,
+        [](const ConfigOptions& opts, const std::string&,
+           const std::string& value, char* addr) {
+          auto* shared = reinterpret_cast<std::shared_ptr<T>*>(addr);
+          return T::CreateFromString(opts, value, shared);
+        },
+        serialize_func, equals_func);
+  }
+
+  // Create a new std::unique_ptr<Customizable> OptionTypeInfo
+  // This function will call the T::CreateFromString method to create a new
+  // std::unique_ptr<T> object.
+  //
+  // @param offset The offset for the Customizable from the base pointer
+  // @param ovt How to verify this option
+  // @param flags, Extra flags specifying the behavior of this option
+  // @param _sfunc Optional function for serializing this option
+  // @param _efunc Optional function for comparing this option
+  template <typename T>
+  static OptionTypeInfo AsCustomUniquePtr(int offset,
+                                          OptionVerificationType ovt,
+                                          OptionTypeFlags flags) {
+    return AsCustomUniquePtr<T>(offset, ovt, flags, nullptr, nullptr);
+  }
+
+  template <typename T>
+  static OptionTypeInfo AsCustomUniquePtr(int offset,
+                                          OptionVerificationType ovt,
+                                          OptionTypeFlags flags,
+                                          const SerializeFunc& serialize_func,
+                                          const EqualsFunc& equals_func) {
+    return OptionTypeInfo(
+        offset, OptionType::kCustomizable, ovt,
+        flags | OptionTypeFlags::kUnique,
+        [](const ConfigOptions& opts, const std::string&,
+           const std::string& value, char* addr) {
+          auto* unique = reinterpret_cast<std::unique_ptr<T>*>(addr);
+          return T::CreateFromString(opts, value, unique);
+        },
+        serialize_func, equals_func);
+  }
+
+  // Create a new Customizable* OptionTypeInfo
+  // This function will call the T::CreateFromString method to create a new
+  // T object.
+  //
+  // @param _offset The offset for the Customizable from the base pointer
+  // @param ovt How to verify this option
+  // @param flags, Extra flags specifying the behavior of this option
+  // @param _sfunc Optional function for serializing this option
+  // @param _efunc Optional function for comparing this option
+  template <typename T>
+  static OptionTypeInfo AsCustomRawPtr(int offset, OptionVerificationType ovt,
+                                       OptionTypeFlags flags) {
+    return AsCustomRawPtr<T>(offset, ovt, flags, nullptr, nullptr);
+  }
+
+  template <typename T>
+  static OptionTypeInfo AsCustomRawPtr(int offset, OptionVerificationType ovt,
+                                       OptionTypeFlags flags,
+                                       const SerializeFunc& serialize_func,
+                                       const EqualsFunc& equals_func) {
+    return OptionTypeInfo(
+        offset, OptionType::kCustomizable, ovt,
+        flags | OptionTypeFlags::kRawPointer,
+        [](const ConfigOptions& opts, const std::string&,
+           const std::string& value, char* addr) {
+          auto** pointer = reinterpret_cast<T**>(addr);
+          return T::CreateFromString(opts, value, pointer);
+        },
+        serialize_func, equals_func);
+  }
+
   bool IsEnabled(OptionTypeFlags otf) const { return (flags_ & otf) == otf; }
 
   bool IsMutable() const { return IsEnabled(OptionTypeFlags::kMutable); }
@@ -475,7 +574,12 @@ class OptionTypeInfo {
 
   bool IsStruct() const { return (type_ == OptionType::kStruct); }
 
-  bool IsConfigurable() const { return (type_ == OptionType::kConfigurable); }
+  bool IsConfigurable() const {
+    return (type_ == OptionType::kConfigurable ||
+            type_ == OptionType::kCustomizable);
+  }
+
+  bool IsCustomizable() const { return (type_ == OptionType::kCustomizable); }
 
   // Returns the underlying pointer for the type at base_addr
   // The value returned is the underlying "raw" pointer, offset from base.
@@ -660,6 +764,10 @@ Status ParseVector(const ConfigOptions& config_options,
   result->clear();
   Status status;
 
+  // Turn off ignore_unknown_objects so we can tell if the returned
+  // object is valid or not.
+  ConfigOptions copy = config_options;
+  copy.ignore_unsupported_options = false;
   for (size_t start = 0, end = 0;
        status.ok() && start < value.size() && end != std::string::npos;
        start = end + 1) {
@@ -667,10 +775,15 @@ Status ParseVector(const ConfigOptions& config_options,
     status = OptionTypeInfo::NextToken(value, separator, start, &end, &token);
     if (status.ok()) {
       T elem;
-      status = elem_info.Parse(config_options, name, token,
-                               reinterpret_cast<char*>(&elem));
+      status =
+          elem_info.Parse(copy, name, token, reinterpret_cast<char*>(&elem));
       if (status.ok()) {
         result->emplace_back(elem);
+      } else if (config_options.ignore_unsupported_options &&
+                 status.IsNotSupported()) {
+        // If we were ignoring unsupported options and this one should be
+        // ignored, ignore it by setting the status to OK
+        status = Status::OK();
       }
     }
   }

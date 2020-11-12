@@ -628,6 +628,7 @@ ifdef ASSERT_STATUS_CHECKED
 		plain_table_db_test \
 		repair_test \
 		configurable_test \
+		customizable_test \
 		options_settable_test \
 		options_test \
 		random_test \
@@ -1798,6 +1799,9 @@ compact_files_test: $(OBJ_DIR)/db/compact_files_test.o $(TEST_LIBRARY) $(LIBRARY
 	$(AM_LINK)
 
 configurable_test: options/configurable_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+customizable_test: options/customizable_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 options_test: $(OBJ_DIR)/options/options_test.o $(TEST_LIBRARY) $(LIBRARY)
