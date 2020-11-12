@@ -159,19 +159,29 @@ class BlockBasedTableBuilder : public TableBuilder {
 
   // Get blocks from mem-table walking thread, compress them and
   // pass them to the write thread. Used in parallel compression mode only
-  void BGWorkCompression(CompressionContext& compression_ctx,
+  void BGWorkCompression(const CompressionContext& compression_ctx,
                          UncompressionContext* verify_ctx);
 
   // Given raw block content, try to compress it and return result and
   // compression type
-  void CompressAndVerifyBlock(
-      const Slice& raw_block_contents, bool is_data_block,
-      CompressionContext& compression_ctx, UncompressionContext* verify_ctx,
-      std::string* compressed_output, Slice* result_block_contents,
-      CompressionType* result_compression_type, Status* out_status);
+  void CompressAndVerifyBlock(const Slice& raw_block_contents,
+                              bool is_data_block,
+                              const CompressionContext& compression_ctx,
+                              UncompressionContext* verify_ctx,
+                              std::string* compressed_output,
+                              Slice* result_block_contents,
+                              CompressionType* result_compression_type,
+                              Status* out_status);
 
   // Get compressed blocks from BGWorkCompression and write them into SST
   void BGWorkWriteRawBlock();
+
+  // Initialize parallel compression context and
+  // start BGWorkCompression and BGWorkWriteRawBlock threads
+  void StartParallelCompression();
+
+  // Stop BGWorkCompression and BGWorkWriteRawBlock threads
+  void StopParallelCompression();
 };
 
 Slice CompressBlock(const Slice& raw, const CompressionInfo& info,

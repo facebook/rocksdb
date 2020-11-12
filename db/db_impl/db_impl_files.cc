@@ -312,7 +312,7 @@ void DBImpl::DeleteObsoleteFileImpl(int job_id, const std::string& fname,
                            const_cast<std::string*>(&fname));
 
   Status file_deletion_status;
-  if (type == kTableFile || type == kBlobFile || type == kLogFile) {
+  if (type == kTableFile || type == kBlobFile || type == kWalFile) {
     file_deletion_status =
         DeleteDBFile(&immutable_db_options_, fname, path_to_sync,
                      /*force_bg=*/false, /*force_fg=*/!wal_in_db_path_);
@@ -459,7 +459,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
 
     bool keep = true;
     switch (type) {
-      case kLogFile:
+      case kWalFile:
         keep = ((number >= state.log_number) ||
                 (number == state.prev_log_number) ||
                 (log_recycle_files_set.find(number) !=
@@ -539,7 +539,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
       dir_to_sync = candidate_file.file_path;
     } else {
       dir_to_sync =
-          (type == kLogFile) ? immutable_db_options_.wal_dir : dbname_;
+          (type == kWalFile) ? immutable_db_options_.wal_dir : dbname_;
       fname = dir_to_sync +
               ((!dir_to_sync.empty() && dir_to_sync.back() == '/') ||
                        (!to_delete.empty() && to_delete.front() == '/')
@@ -549,7 +549,7 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
 
 #ifndef ROCKSDB_LITE
-    if (type == kLogFile && (immutable_db_options_.wal_ttl_seconds > 0 ||
+    if (type == kWalFile && (immutable_db_options_.wal_ttl_seconds > 0 ||
                              immutable_db_options_.wal_size_limit_mb > 0)) {
       wal_manager_.ArchiveWALFile(fname, number);
       continue;
@@ -673,16 +673,10 @@ uint64_t FindMinPrepLogReferencedByMemTable(
   return min_log;
 }
 
-uint64_t PrecomputeMinLogNumberToKeep(
+uint64_t PrecomputeMinLogNumberToKeepNon2PC(
     VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
-    autovector<VersionEdit*> edit_list,
-    const autovector<MemTable*>& memtables_to_flush,
-    LogsWithPrepTracker* prep_tracker) {
+    const autovector<VersionEdit*>& edit_list) {
   assert(vset != nullptr);
-  assert(prep_tracker != nullptr);
-  // Calculate updated min_log_number_to_keep
-  // Since the function should only be called in 2pc mode, log number in
-  // the version edit should be sufficient.
 
   // Precompute the min log number containing unflushed data for the column
   // family being flushed (`cfd_to_flush`).
@@ -706,6 +700,22 @@ uint64_t PrecomputeMinLogNumberToKeep(
     min_log_number_to_keep =
         std::min(cf_min_log_number_to_keep, min_log_number_to_keep);
   }
+  return min_log_number_to_keep;
+}
+
+uint64_t PrecomputeMinLogNumberToKeep2PC(
+    VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
+    const autovector<VersionEdit*>& edit_list,
+    const autovector<MemTable*>& memtables_to_flush,
+    LogsWithPrepTracker* prep_tracker) {
+  assert(vset != nullptr);
+  assert(prep_tracker != nullptr);
+  // Calculate updated min_log_number_to_keep
+  // Since the function should only be called in 2pc mode, log number in
+  // the version edit should be sufficient.
+
+  uint64_t min_log_number_to_keep =
+      PrecomputeMinLogNumberToKeepNon2PC(vset, cfd_to_flush, edit_list);
 
   // if are 2pc we must consider logs containing prepared
   // sections of outstanding transactions.
@@ -734,7 +744,43 @@ uint64_t PrecomputeMinLogNumberToKeep(
   return min_log_number_to_keep;
 }
 
-Status DBImpl::FinishBestEffortsRecovery() {
+Status DBImpl::SetDBId() {
+  Status s;
+  // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
+  // the very first time.
+  if (db_id_.empty()) {
+    // Check for the IDENTITY file and create it if not there.
+    s = fs_->FileExists(IdentityFileName(dbname_), IOOptions(), nullptr);
+    // Typically Identity file is created in NewDB() and for some reason if
+    // it is no longer available then at this point DB ID is not in Identity
+    // file or Manifest.
+    if (s.IsNotFound()) {
+      s = SetIdentityFile(env_, dbname_);
+      if (!s.ok()) {
+        return s;
+      }
+    } else if (!s.ok()) {
+      assert(s.IsIOError());
+      return s;
+    }
+    s = GetDbIdentityFromIdentityFile(&db_id_);
+    if (immutable_db_options_.write_dbid_to_manifest && s.ok()) {
+      VersionEdit edit;
+      edit.SetDBId(db_id_);
+      Options options;
+      MutableCFOptions mutable_cf_options(options);
+      versions_->db_id_ = db_id_;
+      s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
+                                 mutable_cf_options, &edit, &mutex_, nullptr,
+                                 /* new_descriptor_log */ false);
+    }
+  } else {
+    s = SetIdentityFile(env_, dbname_, db_id_);
+  }
+  return s;
+}
+
+Status DBImpl::DeleteUnreferencedSstFiles() {
   mutex_.AssertHeld();
   std::vector<std::string> paths;
   paths.push_back(NormalizePath(dbname_ + std::string(1, kFilePathSeparator)));
@@ -790,8 +836,6 @@ Status DBImpl::FinishBestEffortsRecovery() {
   assert(versions_->GetColumnFamilySet());
   ColumnFamilyData* default_cfd = versions_->GetColumnFamilySet()->GetDefault();
   assert(default_cfd);
-  // Even if new_descriptor_log is false, we will still switch to a new
-  // MANIFEST and update CURRENT file, since this is in recovery.
   s = versions_->LogAndApply(
       default_cfd, *default_cfd->GetLatestMutableCFOptions(), &edit, &mutex_,
       directories_.GetDbDir(), /*new_descriptor_log*/ false);

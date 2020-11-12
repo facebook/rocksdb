@@ -452,28 +452,39 @@ class VersionEdit {
   }
 
   // Add a WAL (either just created or closed).
+  // AddWal and DeleteWalsBefore cannot be called on the same VersionEdit.
   void AddWal(WalNumber number, WalMetadata metadata = WalMetadata()) {
+    assert(NumEntries() == wal_additions_.size());
     wal_additions_.emplace_back(number, std::move(metadata));
   }
 
   // Retrieve all the added WALs.
   const WalAdditions& GetWalAdditions() const { return wal_additions_; }
 
-  bool HasWalAddition() const { return !wal_additions_.empty(); }
+  bool IsWalAddition() const { return !wal_additions_.empty(); }
 
   // Delete a WAL (either directly deleted or archived).
-  void DeleteWal(WalNumber number) { wal_deletions_.emplace_back(number); }
+  // AddWal and DeleteWalsBefore cannot be called on the same VersionEdit.
+  void DeleteWalsBefore(WalNumber number) {
+    assert((NumEntries() == 1) == !wal_deletion_.IsEmpty());
+    wal_deletion_ = WalDeletion(number);
+  }
 
-  // Retrieve all the deleted WALs.
-  const WalDeletions& GetWalDeletions() const { return wal_deletions_; }
+  const WalDeletion& GetWalDeletion() const { return wal_deletion_; }
 
-  bool HasWalDeletion() const { return !wal_deletions_.empty(); }
+  bool IsWalDeletion() const { return !wal_deletion_.IsEmpty(); }
+
+  bool IsWalManipulation() const {
+    size_t entries = NumEntries();
+    return (entries > 0) && ((entries == wal_additions_.size()) ||
+                             (entries == !wal_deletion_.IsEmpty()));
+  }
 
   // Number of edits
   size_t NumEntries() const {
     return new_files_.size() + deleted_files_.size() +
            blob_file_additions_.size() + blob_file_garbages_.size() +
-           wal_additions_.size() + wal_deletions_.size();
+           wal_additions_.size() + !wal_deletion_.IsEmpty();
   }
 
   void SetColumnFamily(uint32_t column_family_id) {
@@ -522,8 +533,11 @@ class VersionEdit {
 
  private:
   friend class ReactiveVersionSet;
+  friend class VersionEditHandlerBase;
+  friend class ListColumnFamiliesHandler;
   friend class VersionEditHandler;
   friend class VersionEditHandlerPointInTime;
+  friend class DumpManifestHandler;
   friend class VersionSet;
   friend class Version;
   friend class AtomicGroupReadBuffer;
@@ -558,7 +572,7 @@ class VersionEdit {
   BlobFileGarbages blob_file_garbages_;
 
   WalAdditions wal_additions_;
-  WalDeletions wal_deletions_;
+  WalDeletion wal_deletion_;
 
   // Each version edit record should have column_family_ set
   // If it's not set, it is default (0)

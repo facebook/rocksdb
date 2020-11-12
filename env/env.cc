@@ -15,7 +15,6 @@
 #include "memory/arena.h"
 #include "options/db_options.h"
 #include "port/port.h"
-#include "port/sys_time.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
@@ -138,6 +137,16 @@ Status Env::GetChildrenFileAttributes(const std::string& dir,
   }
   result->resize(result_size);
   return Status::OK();
+}
+
+Status Env::GetHostNameString(std::string* result) {
+  std::array<char, kMaxHostNameLen> hostname_buf;
+  Status s = GetHostName(hostname_buf.data(), hostname_buf.size());
+  if (s.ok()) {
+    hostname_buf[hostname_buf.size() - 1] = '\0';
+    result->assign(hostname_buf.data());
+  }
+  return s;
 }
 
 SequentialFile::~SequentialFile() {

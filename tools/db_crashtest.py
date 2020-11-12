@@ -137,6 +137,8 @@ default_params = {
     "sync_fault_injection": False,
     "get_property_one_in": 1000000,
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
+    "max_write_buffer_size_to_maintain": lambda: random.choice(
+        [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]),
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -276,8 +278,11 @@ def finalize_and_sanitize(src_params):
             or dest_params["use_direct_reads"] == 1) and \
             not is_direct_io_supported(dest_params["db"]):
         if is_release_mode():
-            print("{} does not support direct IO".format(dest_params["db"]))
-            sys.exit(1)
+            print("{} does not support direct IO. Disabling use_direct_reads and "
+                    "use_direct_io_for_flush_and_compaction.\n".format(
+                        dest_params["db"]))
+            dest_params["use_direct_reads"] = 0
+            dest_params["use_direct_io_for_flush_and_compaction"] = 0
         else:
             dest_params["mock_direct_io"] = True
 

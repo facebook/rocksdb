@@ -567,31 +567,15 @@ static std::unordered_map<std::string, OptionTypeInfo>
             }
             return s;
           }}},
-        {"table_factory",
-         {offset_of(&ColumnFamilyOptions::table_factory),
-          OptionType::kConfigurable, OptionVerificationType::kByName,
-          (OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose |
-           OptionTypeFlags::kDontPrepare),
-          // Creates a new TableFactory based on value
-          [](const ConfigOptions& opts, const std::string& /*name*/,
-             const std::string& value, char* addr) {
-            auto table_factory =
-                reinterpret_cast<std::shared_ptr<TableFactory>*>(addr);
-            return TableFactory::CreateFromString(opts, value, table_factory);
-          },
-          // Converts the TableFactory into its string representation
-          [](const ConfigOptions& /*opts*/, const std::string& /*name*/,
-             const char* addr, std::string* value) {
-            const auto* table_factory =
-                reinterpret_cast<const std::shared_ptr<TableFactory>*>(addr);
-            *value = table_factory->get() ? table_factory->get()->Name()
-                                          : kNullptrString;
-            return Status::OK();
-          },
-          /* No equals function for table factories */ nullptr}},
+        {"table_factory", OptionTypeInfo::AsCustomSharedPtr<TableFactory>(
+                              offset_of(&ColumnFamilyOptions::table_factory),
+                              OptionVerificationType::kByName,
+                              (OptionTypeFlags::kCompareLoose |
+                               OptionTypeFlags::kStringNameOnly |
+                               OptionTypeFlags::kDontPrepare))},
         {"block_based_table_factory",
          {offset_of(&ColumnFamilyOptions::table_factory),
-          OptionType::kConfigurable, OptionVerificationType::kAlias,
+          OptionType::kCustomizable, OptionVerificationType::kAlias,
           OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
           // Parses the input value and creates a BlockBasedTableFactory
           [](const ConfigOptions& opts, const std::string& name,
@@ -623,7 +607,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           }}},
         {"plain_table_factory",
          {offset_of(&ColumnFamilyOptions::table_factory),
-          OptionType::kConfigurable, OptionVerificationType::kAlias,
+          OptionType::kCustomizable, OptionVerificationType::kAlias,
           OptionTypeFlags::kShared | OptionTypeFlags::kCompareLoose,
           // Parses the input value and creates a PlainTableFactory
           [](const ConfigOptions& opts, const std::string& name,
@@ -853,7 +837,8 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
       file_checksum_gen_factory(db_options.file_checksum_gen_factory.get()),
       sst_partitioner_factory(cf_options.sst_partitioner_factory),
-      allow_data_in_errors(db_options.allow_data_in_errors) {}
+      allow_data_in_errors(db_options.allow_data_in_errors),
+      db_host_id(db_options.db_host_id) {}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {

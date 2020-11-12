@@ -423,7 +423,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (log_context.need_log_sync) {
     log_write_mutex_.Lock();
-    MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync, status);
+    if (status.ok()) {
+      status = MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync);
+    } else {
+      MarkLogsNotSynced(logfile_number_);
+    }
     log_write_mutex_.Unlock();
     // Requesting sync with two_write_queues_ is expected to be very rare. We
     // hence provide a simple implementation that is not necessarily efficient.
@@ -545,7 +549,11 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
     if (log_context.need_log_sync) {
       InstrumentedMutexLock l(&log_write_mutex_);
-      MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync, w.status);
+      if (w.status.ok()) {
+        w.status = MarkLogsSynced(logfile_number_, log_context.need_log_dir_sync);
+      } else {
+        MarkLogsNotSynced(logfile_number_);
+      }
     }
 
     write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);

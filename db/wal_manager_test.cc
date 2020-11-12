@@ -171,7 +171,7 @@ uint64_t GetLogDirSize(std::string dir_path, Env* env) {
   for (auto& f : files) {
     uint64_t number;
     FileType type;
-    if (ParseFileName(f, &number, &type) && type == kLogFile) {
+    if (ParseFileName(f, &number, &type) && type == kWalFile) {
       std::string const file_path = dir_path + "/" + f;
       uint64_t file_size;
       env->GetFileSize(file_path, &file_size);
@@ -232,7 +232,7 @@ TEST_F(WalManagerTest, WALArchivalSizeLimit) {
   CreateArchiveLogs(20, 5000);
 
   std::vector<std::uint64_t> log_files =
-      ListSpecificFiles(env_.get(), archive_dir, kLogFile);
+      ListSpecificFiles(env_.get(), archive_dir, kWalFile);
   ASSERT_EQ(log_files.size(), 20U);
 
   db_options_.wal_size_limit_mb = 8;
@@ -247,7 +247,7 @@ TEST_F(WalManagerTest, WALArchivalSizeLimit) {
   Reopen();
   wal_manager_->PurgeObsoleteWALFiles();
 
-  log_files = ListSpecificFiles(env_.get(), archive_dir, kLogFile);
+  log_files = ListSpecificFiles(env_.get(), archive_dir, kWalFile);
   ASSERT_TRUE(log_files.empty());
 }
 
@@ -265,7 +265,7 @@ TEST_F(WalManagerTest, WALArchivalTtl) {
   CreateArchiveLogs(20, 5000);
 
   std::vector<uint64_t> log_files =
-      ListSpecificFiles(env_.get(), archive_dir, kLogFile);
+      ListSpecificFiles(env_.get(), archive_dir, kWalFile);
   ASSERT_GT(log_files.size(), 0U);
 
   db_options_.wal_ttl_seconds = 1;
@@ -273,7 +273,7 @@ TEST_F(WalManagerTest, WALArchivalTtl) {
   Reopen();
   wal_manager_->PurgeObsoleteWALFiles();
 
-  log_files = ListSpecificFiles(env_.get(), archive_dir, kLogFile);
+  log_files = ListSpecificFiles(env_.get(), archive_dir, kWalFile);
   ASSERT_TRUE(log_files.empty());
 }
 

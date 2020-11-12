@@ -18,7 +18,7 @@ class DBBlobBasicTest : public DBTestBase {
 };
 
 TEST_F(DBBlobBasicTest, GetBlob) {
-  Options options;
+  Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
 
@@ -45,7 +45,7 @@ TEST_F(DBBlobBasicTest, GetBlob) {
 }
 
 TEST_F(DBBlobBasicTest, GetBlob_CorruptIndex) {
-  Options options;
+  Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
 
@@ -70,7 +70,7 @@ TEST_F(DBBlobBasicTest, GetBlob_CorruptIndex) {
 TEST_F(DBBlobBasicTest, GetBlob_InlinedTTLIndex) {
   constexpr uint64_t min_blob_size = 10;
 
-  Options options;
+  Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = min_blob_size;
 
@@ -100,7 +100,7 @@ TEST_F(DBBlobBasicTest, GetBlob_InlinedTTLIndex) {
 }
 
 TEST_F(DBBlobBasicTest, GetBlob_IndexWithInvalidFileNumber) {
-  Options options;
+  Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
 
@@ -132,11 +132,12 @@ TEST_F(DBBlobBasicTest, GetBlob_IndexWithInvalidFileNumber) {
 class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
                                public testing::WithParamInterface<std::string> {
  protected:
-  DBBlobBasicIOErrorTest()
-      : fault_injection_env_(Env::Default()), sync_point_(GetParam()) {}
+  DBBlobBasicIOErrorTest() : sync_point_(GetParam()) {
+    fault_injection_env_.reset(new FaultInjectionTestEnv(env_));
+  }
   ~DBBlobBasicIOErrorTest() { Close(); }
 
-  FaultInjectionTestEnv fault_injection_env_;
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env_;
   std::string sync_point_;
 };
 
@@ -147,7 +148,7 @@ INSTANTIATE_TEST_CASE_P(DBBlobBasicTest, DBBlobBasicIOErrorTest,
 
 TEST_P(DBBlobBasicIOErrorTest, GetBlob_IOError) {
   Options options;
-  options.env = &fault_injection_env_;
+  options.env = fault_injection_env_.get();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
 
@@ -161,8 +162,8 @@ TEST_P(DBBlobBasicIOErrorTest, GetBlob_IOError) {
   ASSERT_OK(Flush());
 
   SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
-    fault_injection_env_.SetFilesystemActive(false,
-                                             Status::IOError(sync_point_));
+    fault_injection_env_->SetFilesystemActive(false,
+                                              Status::IOError(sync_point_));
   });
   SyncPoint::GetInstance()->EnableProcessing();
 

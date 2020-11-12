@@ -8,6 +8,7 @@
 #include "logging/logging.h"
 #include "options/configurable_helper.h"
 #include "options/options_helper.h"
+#include "rocksdb/customizable.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/options_type.h"
@@ -57,13 +58,9 @@ Status Configurable::PrepareOptions(const ConfigOptions& opts) {
       }
     }
   }
+#else
+  (void)opts;
 #endif  // ROCKSDB_LITE
-  if (status.ok()) {
-    auto inner = Inner();
-    if (inner != nullptr) {
-      status = inner->PrepareOptions(opts);
-    }
-  }
   if (status.ok()) {
     prepared_ = true;
   }
@@ -94,13 +91,10 @@ Status Configurable::ValidateOptions(const DBOptions& db_opts,
       }
     }
   }
+#else
+  (void)db_opts;
+  (void)cf_opts;
 #endif  // ROCKSDB_LITE
-  if (status.ok()) {
-    const auto inner = Inner();
-    if (inner != nullptr) {
-      status = inner->ValidateOptions(db_opts, cf_opts);
-    }
-  }
   return status;
 }
 
@@ -116,12 +110,7 @@ const void* Configurable::GetOptionsPtr(const std::string& name) const {
       return o.opt_ptr;
     }
   }
-  auto inner = Inner();
-  if (inner != nullptr) {
-    return inner->GetOptionsPtr(name);
-  } else {
-    return nullptr;
-  }
+  return nullptr;
 }
 
 std::string Configurable::GetOptionName(const std::string& opt_name) const {
@@ -394,6 +383,23 @@ Status ConfigurableHelper::ConfigureOption(
   if (opt_name == name) {
     return configurable.ParseOption(config_options, opt_info, opt_name, value,
                                     opt_ptr);
+  } else if (opt_info.IsCustomizable() &&
+             EndsWith(opt_name, ConfigurableHelper::kIdPropSuffix)) {
+    return configurable.ParseOption(config_options, opt_info, name, value,
+                                    opt_ptr);
+
+  } else if (opt_info.IsCustomizable()) {
+    Customizable* custom = opt_info.AsRawPointer<Customizable>(opt_ptr);
+    if (value.empty()) {
+      return Status::OK();
+    } else if (custom == nullptr || !StartsWith(name, custom->GetId() + ".")) {
+      return configurable.ParseOption(config_options, opt_info, name, value,
+                                      opt_ptr);
+    } else if (value.find("=") != std::string::npos) {
+      return custom->ConfigureFromString(config_options, value);
+    } else {
+      return custom->ConfigureOption(config_options, name, value);
+    }
   } else if (opt_info.IsStruct() || opt_info.IsConfigurable()) {
     return configurable.ParseOption(config_options, opt_info, name, value,
                                     opt_ptr);
@@ -402,6 +408,32 @@ Status ConfigurableHelper::ConfigureOption(
   }
 }
 #endif  // ROCKSDB_LITE
+
+Status ConfigurableHelper::ConfigureNewObject(
+    const ConfigOptions& config_options_in, Configurable* object,
+    const std::string& id, const std::string& base_opts,
+    const std::unordered_map<std::string, std::string>& opts) {
+  if (object != nullptr) {
+    ConfigOptions config_options = config_options_in;
+    config_options.invoke_prepare_options = false;
+    if (!base_opts.empty()) {
+#ifndef ROCKSDB_LITE
+      // Don't run prepare options on the base, as we would do that on the
+      // overlay opts instead
+      Status status = object->ConfigureFromString(config_options, base_opts);
+      if (!status.ok()) {
+        return status;
+      }
+#endif  // ROCKSDB_LITE
+    }
+    if (!opts.empty()) {
+      return object->ConfigureFromMap(config_options, opts);
+    }
+  } else if (!opts.empty()) {  // No object but no map.  This is OK
+    return Status::InvalidArgument("Cannot configure null object ", id);
+  }
+  return Status::OK();
+}
 
 //*******************************************************************************
 //
@@ -607,4 +639,43 @@ bool ConfigurableHelper::AreEquivalent(const ConfigOptions& config_options,
   return true;
 }
 #endif  // ROCKSDB_LITE
+
+Status ConfigurableHelper::GetOptionsMap(
+    const std::string& value, std::string* id,
+    std::unordered_map<std::string, std::string>* props) {
+  return GetOptionsMap(value, "", id, props);
+}
+
+Status ConfigurableHelper::GetOptionsMap(
+    const std::string& value, const std::string& default_id, std::string* id,
+    std::unordered_map<std::string, std::string>* props) {
+  assert(id);
+  assert(props);
+  Status status;
+  if (value.empty() || value == kNullptrString) {
+    *id = default_id;
+  } else if (value.find('=') == std::string::npos) {
+    *id = value;
+#ifndef ROCKSDB_LITE
+  } else {
+    status = StringToMap(value, props);
+    if (status.ok()) {
+      auto iter = props->find(ConfigurableHelper::kIdPropName);
+      if (iter != props->end()) {
+        *id = iter->second;
+        props->erase(iter);
+      } else if (default_id.empty()) {  // Should this be an error??
+        status = Status::InvalidArgument("Name property is missing");
+      } else {
+        *id = default_id;
+      }
+    }
+#else
+  } else {
+    *id = value;
+    props->clear();
+#endif
+  }
+  return status;
+}
 }  // namespace ROCKSDB_NAMESPACE

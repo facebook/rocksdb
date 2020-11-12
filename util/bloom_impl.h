@@ -10,8 +10,10 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+
 #include <cmath>
 
+#include "port/port.h"  // for PREFETCH
 #include "rocksdb/slice.h"
 #include "util/hash.h"
 

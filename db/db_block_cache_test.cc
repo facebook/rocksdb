@@ -837,8 +837,9 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
   Random rnd(301);
   for (auto compression_type : compression_types) {
     Options options = CurrentOptions();
-    options.compression = compression_type;
-    options.compression_opts.max_dict_bytes = 4096;
+    options.bottommost_compression = compression_type;
+    options.bottommost_compression_opts.max_dict_bytes = 4096;
+    options.bottommost_compression_opts.enabled = true;
     options.create_if_missing = true;
     options.num_levels = 2;
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -990,6 +991,9 @@ TEST_P(DBBlockCachePinningTest, TwoLevelDB) {
       ++expected_filter_misses;
       ++expected_index_misses;
     }
+  }
+  if (unpartitioned_pinning_ == PinningTier::kNone) {
+    ++expected_compression_dict_misses;
   }
   ASSERT_EQ(expected_filter_misses,
             TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));

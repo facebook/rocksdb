@@ -90,8 +90,11 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
     return;
   }
   ParsedInternalKey ikey;
-  if (ParseInternalKey(key, &ikey) != Status::OK()) {
-    status_ = Status::Corruption("Unable to parse key into inernal key.");
+  Status pik_status =
+      ParseInternalKey(key, &ikey, false /* log_err_key */);  // TODO
+  if (!pik_status.ok()) {
+    status_ = Status::Corruption("Unable to parse key into internal key. ",
+                                 pik_status.getState());
     return;
   }
   if (ikey.type != kTypeDeletion && ikey.type != kTypeValue) {
