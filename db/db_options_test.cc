@@ -960,9 +960,9 @@ TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
     return;
   }
 
-  const int kUpperCompressionLevel = 1;
-  const int kBottommostCompressionLevel = 2;
-  const int kNumL0Files = 2;
+  constexpr int kUpperCompressionLevel = 1;
+  constexpr int kBottommostCompressionLevel = 2;
+  constexpr int kNumL0Files = 2;
 
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = kNumL0Files;
@@ -977,7 +977,7 @@ TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
   bool compacted = false;
   SyncPoint::GetInstance()->SetCallBack(
       "CompactionPicker::RegisterCompaction:Registered", [&](void* arg) {
-        Compaction* c = reinterpret_cast<Compaction*>(arg);
+        Compaction* c = static_cast<Compaction*>(arg);
         compression_used = c->output_compression();
         compression_opt_used = c->output_compression_opts();
         compacted = true;
@@ -1003,6 +1003,9 @@ TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   ASSERT_TRUE(compacted);
   ASSERT_EQ(CompressionType::kLZ4Compression, compression_used);
