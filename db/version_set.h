@@ -1139,7 +1139,7 @@ class VersionSet {
   }
   uint64_t PreComputeMinLogNumberWithUnflushedData(
       const std::unordered_set<const ColumnFamilyData*>& cfds_to_skip) const {
-    uint64_t min_log_num = std::numeric_limits<uint64_t>::max();
+    uint64_t min_log_num = port::kMaxUint64;
     for (auto cfd : *column_family_set_) {
       if (cfds_to_skip.count(cfd)) {
         continue;
