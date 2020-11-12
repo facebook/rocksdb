@@ -156,19 +156,22 @@ class LoggingForwardVectorIterator : public InternalIterator {
 
 class FakeCompaction : public CompactionIterator::CompactionProxy {
  public:
-  FakeCompaction() = default;
+  int level() const override { return 0; }
 
-  int level(size_t /*compaction_input_level*/) const override { return 0; }
   bool KeyNotExistsBeyondOutputLevel(
       const Slice& /*user_key*/,
       std::vector<size_t>* /*level_ptrs*/) const override {
     return is_bottommost_level || key_not_exists_beyond_output_level;
   }
+
   bool bottommost_level() const override { return is_bottommost_level; }
+
   int number_levels() const override { return 1; }
+
   Slice GetLargestUserKey() const override {
     return "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
   }
+
   bool allow_ingest_behind() const override { return is_allow_ingest_behind; }
 
   bool preserve_deletes() const override { return false; }
