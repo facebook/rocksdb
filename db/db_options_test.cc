@@ -952,6 +952,66 @@ TEST_F(DBOptionsTest, ChangeCompression) {
 
 #endif  // ROCKSDB_LITE
 
+TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
+  // Verify the bottommost compression options still take effect even when the
+  // bottommost compression type is left at its default value. Verify for both
+  // automatic and manual compaction.
+  if (!Snappy_Supported() || !LZ4_Supported()) {
+    return;
+  }
+
+  constexpr int kUpperCompressionLevel = 1;
+  constexpr int kBottommostCompressionLevel = 2;
+  constexpr int kNumL0Files = 2;
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.compression = CompressionType::kLZ4Compression;
+  options.compression_opts.level = kUpperCompressionLevel;
+  options.bottommost_compression_opts.level = kBottommostCompressionLevel;
+  options.bottommost_compression_opts.enabled = true;
+  Reopen(options);
+
+  CompressionType compression_used = CompressionType::kDisableCompressionOption;
+  CompressionOptions compression_opt_used;
+  bool compacted = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionPicker::RegisterCompaction:Registered", [&](void* arg) {
+        Compaction* c = static_cast<Compaction*>(arg);
+        compression_used = c->output_compression();
+        compression_opt_used = c->output_compression_opts();
+        compacted = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // First, verify for automatic compaction.
+  for (int i = 0; i < kNumL0Files; ++i) {
+    ASSERT_OK(Put("foo", "foofoofoo"));
+    ASSERT_OK(Put("bar", "foofoofoo"));
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ASSERT_TRUE(compacted);
+  ASSERT_EQ(CompressionType::kLZ4Compression, compression_used);
+  ASSERT_EQ(kBottommostCompressionLevel, compression_opt_used.level);
+
+  // Second, verify for manual compaction.
+  compacted = false;
+  compression_used = CompressionType::kDisableCompressionOption;
+  compression_opt_used = CompressionOptions();
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(compacted);
+  ASSERT_EQ(CompressionType::kLZ4Compression, compression_used);
+  ASSERT_EQ(kBottommostCompressionLevel, compression_opt_used.level);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
