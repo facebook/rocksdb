@@ -69,8 +69,8 @@ TableBuilder* NewTableBuilder(
 }
 
 Status BuildTable(
-    const std::string& dbname, VersionSet* versions, Env* env, FileSystem* fs,
-    const ImmutableCFOptions& ioptions,
+    const std::string& dbname, VersionSet* versions,
+    const ImmutableDBOptions& db_options, const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const FileOptions& file_options,
     TableCache* table_cache, InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
@@ -120,6 +120,10 @@ Status BuildTable(
   EventHelpers::NotifyTableFileCreationStarted(
       ioptions.listeners, dbname, column_family_name, fname, job_id, reason);
 #endif  // !ROCKSDB_LITE
+  Env* env = db_options.env;
+  assert(env);
+  FileSystem* fs = db_options.fs.get();
+  assert(fs);
   TableProperties tp;
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
@@ -175,7 +179,6 @@ Status BuildTable(
                                   blob_file_additions)
             : nullptr);
 
-    std::shared_ptr<Logger> info_log;
     CompactionIterator c_iter(
         iter, internal_comparator.user_comparator(), &merge, kMaxSequenceNumber,
         &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
@@ -185,7 +188,7 @@ Status BuildTable(
         /*compaction=*/nullptr,
         /*compaction_filter=*/nullptr, /*shutting_down=*/nullptr,
         /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
-        /*info_log=*/info_log, full_history_ts_low);
+        db_options.info_log, full_history_ts_low);
 
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
