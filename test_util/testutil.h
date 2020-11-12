@@ -703,6 +703,8 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd);
 // cf_opt->compaction_filter.
 void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions&, Random* rnd);
 
+BlockBasedTableOptions RandomBlockBasedTableOptions(Random* rnd);
+
 // A dummy merge operator which can change its name
 class ChanglingMergeOperator : public MergeOperator {
  public:

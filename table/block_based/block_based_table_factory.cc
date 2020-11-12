@@ -454,7 +454,8 @@ void BlockBasedTableFactory::InitializeOptions() {
   }
   if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
       table_options_.index_block_restart_interval != 1) {
-    // Currently kHashSearch is incompatible with index_block_restart_interval > 1
+    // Currently kHashSearch is incompatible with index_block_restart_interval >
+    // 1
     table_options_.index_block_restart_interval = 1;
   }
   if (table_options_.partition_filters &&
@@ -815,6 +816,22 @@ Status GetBlockBasedTableOptionsFromMap(
     *new_table_options = table_options;
   }
   return s;
+}
+
+Status GetStringFromBlockBasedTableOptions(
+    std::string* opt_string, const BlockBasedTableOptions& bbtf_options,
+    const std::string& delimiter) {
+  ConfigOptions config_options;
+  config_options.delimiter = delimiter;
+  return GetStringFromBlockBasedTableOptions(config_options, bbtf_options,
+                                             opt_string);
+}
+
+Status GetStringFromBlockBasedTableOptions(
+    const ConfigOptions& config_options,
+    const BlockBasedTableOptions& bbtf_options, std::string* opt_string) {
+  BlockBasedTableFactory bbtf(bbtf_options);
+  return bbtf.GetOptionString(config_options, opt_string);
 }
 #endif  // !ROCKSDB_LITE
 

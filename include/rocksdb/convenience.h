@@ -433,11 +433,20 @@ Status GetStringFromColumnFamilyOptions(std::string* opts_str,
 Status GetStringFromCompressionType(std::string* compression_str,
                                     CompressionType compression_type);
 
+Status GetStringFromBlockBasedTableOptions(
+    const ConfigOptions& config_options,
+    const BlockBasedTableOptions& bbt_options, std::string* opts_str);
+
+Status GetStringFromBlockBasedTableOptions(
+    std::string* opt_string, const BlockBasedTableOptions& bbtf_options,
+    const std::string& delimiter);
+
 std::vector<CompressionType> GetSupportedCompressions();
 
 Status GetBlockBasedTableOptionsFromString(
     const BlockBasedTableOptions& table_options, const std::string& opts_str,
     BlockBasedTableOptions* new_table_options);
+
 Status GetBlockBasedTableOptionsFromString(
     const ConfigOptions& config_options,
     const BlockBasedTableOptions& table_options, const std::string& opts_str,

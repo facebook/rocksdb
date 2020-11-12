@@ -876,6 +876,36 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   // new_opt.read_amp_bytes_per_bit.
   EXPECT_EQ(1U, new_opt.read_amp_bytes_per_bit);
 
+  {
+    // Get string from block based table options.
+    std::string opt_str;
+    BlockBasedTableOptions opt_from_str;
+    ASSERT_OK(
+        GetStringFromBlockBasedTableOptions(config_options, new_opt, &opt_str));
+
+    // Check options from string opt_str is same as previous ones.
+    ASSERT_OK(
+        GetBlockBasedTableOptionsFromString(table_opt, opt_str, &opt_from_str));
+
+    ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
+    ASSERT_EQ(new_opt.index_type, BlockBasedTableOptions::kHashSearch);
+    ASSERT_EQ(new_opt.checksum, ChecksumType::kxxHash);
+    ASSERT_TRUE(new_opt.hash_index_allow_collision);
+    ASSERT_TRUE(new_opt.block_cache != nullptr);
+    ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL * 1024UL);
+    ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
+    ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL);
+    ASSERT_EQ(new_opt.block_size, 1024UL);
+    ASSERT_EQ(new_opt.block_size_deviation, 8);
+    ASSERT_EQ(new_opt.block_restart_interval, 4);
+    ASSERT_EQ(new_opt.format_version, 5U);
+    ASSERT_EQ(new_opt.whole_key_filtering, true);
+    ASSERT_TRUE(new_opt.filter_policy != nullptr);
+    const BloomFilterPolicy& bfp1 =
+        dynamic_cast<const BloomFilterPolicy&>(*new_opt.filter_policy);
+    EXPECT_EQ(bfp1.GetMillibitsPerKey(), 4567);
+    EXPECT_EQ(bfp1.GetWholeBitsPerKey(), 5);
+  }
   // unknown option
   Status s = GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
@@ -1318,6 +1348,32 @@ TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
   if (base_opt.compaction_filter) {
     delete base_opt.compaction_filter;
   }
+}
+
+TEST_F(OptionsTest, BlockBasedTableOptionsSerialization) {
+  BlockBasedTableOptions base_options, new_options;
+  Random rnd(301);
+  ConfigOptions config_options;
+  config_options.input_strings_escaped = false;
+  config_options.ignore_unknown_options = false;
+
+  // Phase 1: Make big change in base_options
+  base_options = test::RandomBlockBasedTableOptions(&rnd);
+
+  // Phase 2: obtain a string from base_option
+  std::string base_options_file_content;
+  ASSERT_OK(GetStringFromBlockBasedTableOptions(config_options, base_options,
+                                                &base_options_file_content));
+
+  // Phase 3: Set new_options from the derived string
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, BlockBasedTableOptions(), base_options_file_content,
+      &new_options));
+
+  // Phase 4: new_options == base_options
+  ASSERT_OK(RocksDBOptionsParser::VerifyTableFactory(
+      config_options, NewBlockBasedTableFactory(base_options),
+      NewBlockBasedTableFactory(new_options)));
 }
 
 TEST_F(OptionsTest, CheckBlockBasedTableOptions) {
@@ -2124,6 +2180,38 @@ TEST_F(OptionsOldApiTest, GetBlockBasedTableOptionsFromString) {
       dynamic_cast<const BloomFilterPolicy&>(*new_opt.filter_policy);
   EXPECT_EQ(bfp.GetMillibitsPerKey(), 4567);
   EXPECT_EQ(bfp.GetWholeBitsPerKey(), 5);
+
+  {
+    // Get string from block based table options.
+    ConfigOptions config_options;
+    std::string opt_str;
+    BlockBasedTableOptions opt_from_str;
+    ASSERT_OK(
+        GetStringFromBlockBasedTableOptions(config_options, new_opt, &opt_str));
+    // Check options from string opt_str is same as previous ones.
+    ASSERT_OK(
+        GetBlockBasedTableOptionsFromString(table_opt, opt_str, &opt_from_str));
+
+    ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
+    ASSERT_EQ(new_opt.index_type, BlockBasedTableOptions::kHashSearch);
+    ASSERT_EQ(new_opt.checksum, ChecksumType::kxxHash);
+    ASSERT_TRUE(new_opt.hash_index_allow_collision);
+    ASSERT_TRUE(new_opt.no_block_cache);
+    ASSERT_TRUE(new_opt.block_cache != nullptr);
+    ASSERT_EQ(new_opt.block_cache->GetCapacity(), 1024UL * 1024UL);
+    ASSERT_TRUE(new_opt.block_cache_compressed != nullptr);
+    ASSERT_EQ(new_opt.block_cache_compressed->GetCapacity(), 1024UL);
+    ASSERT_EQ(new_opt.block_size, 1024UL);
+    ASSERT_EQ(new_opt.block_size_deviation, 8);
+    ASSERT_EQ(new_opt.block_restart_interval, 4);
+    ASSERT_EQ(new_opt.format_version, 5U);
+    ASSERT_EQ(new_opt.whole_key_filtering, true);
+    ASSERT_TRUE(new_opt.filter_policy != nullptr);
+    const BloomFilterPolicy& bfp1 =
+        dynamic_cast<const BloomFilterPolicy&>(*new_opt.filter_policy);
+    EXPECT_EQ(bfp1.GetMillibitsPerKey(), 4567);
+    EXPECT_EQ(bfp1.GetWholeBitsPerKey(), 5);
+  }
 
   // unknown option
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
