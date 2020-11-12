@@ -109,7 +109,7 @@ class FlushJobTestBase : public testing::Test {
     db_options_.fs = fs_;
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
-    db_options_.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+    db_options_.statistics = CreateDBStatistics();
 
     cf_options_.comparator = ucmp_;
 
@@ -513,13 +513,11 @@ class FlushJobTimestampTest : public FlushJobTestBase {
       : FlushJobTestBase(test::PerThreadDBPath("flush_job_ts_gc_test"),
                          test::ComparatorWithU64Ts()) {}
 
-  void AddKeyValueToMemtable(MemTable* memtable, Slice key, uint64_t ts,
+  void AddKeyValueToMemtable(MemTable* memtable, std::string key, uint64_t ts,
                              SequenceNumber seq, ValueType value_type,
                              Slice value) {
-    std::string key_str(key.data(), key.size());
-    std::string ts_str;
-    PutFixed64(&ts_str, ts);
-    key_str.append(ts_str);
+    std::string key_str(std::move(key));
+    PutFixed64(&key_str, ts);
     memtable->Add(seq, value_type, key_str, value);
   }
 
@@ -552,7 +550,7 @@ TEST_F(FlushJobTimestampTest, AllKeysExpired) {
   }
 
   std::vector<SequenceNumber> snapshots;
-  SnapshotChecker* const snapshot_checker = nullptr;
+  constexpr SnapshotChecker* const snapshot_checker = nullptr;
   JobContext job_context(0);
   EventLogger event_logger(db_options_.info_log.get());
   std::string full_history_ts_low;
