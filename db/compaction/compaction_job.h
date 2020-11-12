@@ -78,7 +78,8 @@ class CompactionJob {
       const std::string& dbname, CompactionJobStats* compaction_job_stats,
       Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
       const std::atomic<int>* manual_compaction_paused = nullptr,
-      const std::string& db_id = "", const std::string& db_session_id = "");
+      const std::string& db_id = "", const std::string& db_session_id = "",
+      std::string full_history_ts_low = "");
 
   ~CompactionJob();
 
@@ -201,6 +202,7 @@ class CompactionJob {
   Env::WriteLifeTimeHint write_hint_;
   Env::Priority thread_pri_;
   IOStatus io_status_;
+  std::string full_history_ts_low_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

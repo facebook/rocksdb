@@ -18,8 +18,8 @@ namespace mock {
 
 KVVector MakeMockFile(std::initializer_list<KVPair> l) { return KVVector(l); }
 
-void SortKVVector(KVVector* kv_vector) {
-  InternalKeyComparator icmp(BytewiseComparator());
+void SortKVVector(KVVector* kv_vector, const Comparator* ucmp) {
+  InternalKeyComparator icmp(ucmp);
   std::sort(kv_vector->begin(), kv_vector->end(),
             [icmp](KVPair a, KVPair b) -> bool {
               return icmp.Compare(a.first, b.first) < 0;
