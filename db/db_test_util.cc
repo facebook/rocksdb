@@ -26,6 +26,18 @@ int64_t MaybeCurrentTime(Env* env) {
 }
 }  // namespace
 
+KvProtectionInfo CalculateKvProtectionInfo(const std::string& key,
+                                           const std::string& value,
+                                           SequenceNumber seqno,
+                                           ValueType value_type) {
+  KvProtectionInfo res;
+  res.SetKeyChecksum(GetSliceNPHash64(key));
+  res.SetValueChecksum(GetSliceNPHash64(value));
+  res.SetSequenceNumber(seqno);
+  res.SetValueType(value_type);
+  return res;
+}
+
 // Special Env used to delay background operations
 
 SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)

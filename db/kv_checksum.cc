@@ -37,9 +37,7 @@ KvProtectionInfo::CoverageFlags operator&(KvProtectionInfo::CoverageFlags lhs,
 
 KvProtectionInfo::KvProtectionInfo() { Clear(); }
 
-Status KvProtectionInfo::VerifyAgainst(const KvProtectionInfo& expected) {
-  assert((coverage_flags_ & expected.coverage_flags_) ==
-         expected.coverage_flags_);
+Status KvProtectionInfo::VerifyAgainst(const KvProtectionInfo& expected) const {
   if (expected.HasKeyChecksum() &&
       GetKeyChecksum() != expected.GetKeyChecksum()) {
     return Status::Corruption("key checksum mismatch");

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include "db/db_test_util.h"
 #include "db/merge_context.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
@@ -243,10 +244,24 @@ TEST_F(MemTableListTest, GetTest) {
   mem->Ref();
 
   // Write some keys to this memtable.
-  ASSERT_OK(mem->Add(++seq, kTypeDeletion, "key1", ""));
-  ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2"));
-  ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", "value1"));
-  ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2.2"));
+  const std::string kKey1 = "key1", kKey2 = "key2", kValue1 = "value1",
+                    kValue2 = "value2", kValue2_2 = "value2.2";
+  seq++;
+  ASSERT_OK(mem->Add(
+      seq, kTypeDeletion, kKey1, "" /* value */,
+      CalculateKvProtectionInfo(kKey1, "" /* value */, seq, kTypeDeletion)));
+  seq++;
+  ASSERT_OK(
+      mem->Add(seq, kTypeValue, kKey2, kValue2,
+               CalculateKvProtectionInfo(kKey2, kValue2, seq, kTypeValue)));
+  seq++;
+  ASSERT_OK(
+      mem->Add(seq, kTypeValue, kKey1, kValue1,
+               CalculateKvProtectionInfo(kKey1, kValue1, seq, kTypeValue)));
+  seq++;
+  ASSERT_OK(
+      mem->Add(seq, kTypeValue, kKey2, kValue2_2,
+               CalculateKvProtectionInfo(kKey2, kValue2_2, seq, kTypeValue)));
 
   // Fetch the newly written keys
   merge_context.Clear();
@@ -284,8 +299,15 @@ TEST_F(MemTableListTest, GetTest) {
                                 kMaxSequenceNumber, 0 /* column_family_id */);
   mem2->Ref();
 
-  ASSERT_OK(mem2->Add(++seq, kTypeDeletion, "key1", ""));
-  ASSERT_OK(mem2->Add(++seq, kTypeValue, "key2", "value2.3"));
+  const std::string kValue2_3 = "value2.3";
+  seq++;
+  ASSERT_OK(mem2->Add(
+      seq, kTypeDeletion, kKey1, "" /* value */,
+      CalculateKvProtectionInfo(kKey1, "" /* value */, seq, kTypeDeletion)));
+  seq++;
+  ASSERT_OK(
+      mem2->Add(seq, kTypeValue, kKey2, kValue2_3,
+                CalculateKvProtectionInfo(kKey2, kValue2_3, seq, kTypeValue)));
 
   // Add second memtable to list
   list.Add(mem2, &to_delete);
@@ -360,9 +382,20 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   mem->Ref();
 
   // Write some keys to this memtable.
-  ASSERT_OK(mem->Add(++seq, kTypeDeletion, "key1", ""));
-  ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2"));
-  ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2.2"));
+  const std::string kKey1 = "key1", kKey2 = "key2", kValue2 = "value2",
+                    kValue2_2 = "value2.2";
+  seq++;
+  ASSERT_OK(mem->Add(
+      seq, kTypeDeletion, kKey1, "" /* value */,
+      CalculateKvProtectionInfo(kKey1, "" /* value */, seq, kTypeDeletion)));
+  seq++;
+  ASSERT_OK(
+      mem->Add(seq, kTypeValue, kKey2, kValue2,
+               CalculateKvProtectionInfo(kKey2, kValue2, seq, kTypeValue)));
+  seq++;
+  ASSERT_OK(
+      mem->Add(seq, kTypeValue, kKey2, kValue2_2,
+               CalculateKvProtectionInfo(kKey2, kValue2_2, seq, kTypeValue)));
 
   // Fetch the newly written keys
   merge_context.Clear();
@@ -444,8 +477,15 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
                                 kMaxSequenceNumber, 0 /* column_family_id */);
   mem2->Ref();
 
-  ASSERT_OK(mem2->Add(++seq, kTypeDeletion, "key1", ""));
-  ASSERT_OK(mem2->Add(++seq, kTypeValue, "key3", "value3"));
+  const std::string kKey3 = "key3", kValue3 = "value3";
+  seq++;
+  ASSERT_OK(mem2->Add(
+      seq, kTypeDeletion, kKey1, "" /* value */,
+      CalculateKvProtectionInfo(kKey1, "" /* value */, seq, kTypeDeletion)));
+  seq++;
+  ASSERT_OK(
+      mem2->Add(seq, kTypeValue, kKey3, kValue3,
+                CalculateKvProtectionInfo(kKey3, kValue3, seq, kTypeValue)));
 
   // Add second memtable to list
   list.Add(mem2, &to_delete);
@@ -555,11 +595,41 @@ TEST_F(MemTableListTest, FlushPendingTest) {
     std::string value;
     MergeContext merge_context;
 
-    ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", ToString(i)));
-    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN"));
-    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value"));
-    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM"));
-    ASSERT_OK(mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), ""));
+    {
+      const std::string kKey1 = "key1", kValueI = ToString(i);
+      seq++;
+      ASSERT_OK(
+          mem->Add(seq, kTypeValue, kKey1, kValueI,
+                   CalculateKvProtectionInfo(kKey1, kValueI, seq, kTypeValue)));
+    }
+    {
+      const std::string kKeyN = "keyN" + ToString(i), kValueN = "valueN";
+      seq++;
+      ASSERT_OK(
+          mem->Add(seq, kTypeValue, kKeyN, kValueN,
+                   CalculateKvProtectionInfo(kKeyN, kValueN, seq, kTypeValue)));
+    }
+    {
+      const std::string kKeyX = "keyX" + ToString(i), kValue = "value";
+      seq++;
+      ASSERT_OK(
+          mem->Add(seq, kTypeValue, kKeyX, kValue,
+                   CalculateKvProtectionInfo(kKeyX, kValue, seq, kTypeValue)));
+    }
+    {
+      const std::string kKeyM = "keyM" + ToString(i), kValueM = "valueM";
+      seq++;
+      ASSERT_OK(
+          mem->Add(seq, kTypeValue, kKeyM, kValueM,
+                   CalculateKvProtectionInfo(kKeyM, kValueM, seq, kTypeValue)));
+    }
+    {
+      const std::string kKeyX = "keyX" + ToString(i);
+      seq++;
+      ASSERT_OK(mem->Add(seq, kTypeDeletion, kKeyX, "" /* value */,
+                         CalculateKvProtectionInfo(kKeyX, "" /* value */, seq,
+                                                   kTypeDeletion)));
+    }
 
     tables.push_back(mem);
   }
@@ -824,11 +894,41 @@ TEST_F(MemTableListTest, AtomicFlusTest) {
 
       std::string value;
 
-      ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", ToString(i)));
-      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN"));
-      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value"));
-      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM"));
-      ASSERT_OK(mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), ""));
+      {
+        const std::string kKey1 = "key1", kValueI = ToString(i);
+        seq++;
+        ASSERT_OK(mem->Add(
+            seq, kTypeValue, kKey1, kValueI,
+            CalculateKvProtectionInfo(kKey1, kValueI, seq, kTypeValue)));
+      }
+      {
+        const std::string kKeyN = "keyN" + ToString(i), kValueN = "valueN";
+        seq++;
+        ASSERT_OK(mem->Add(
+            seq, kTypeValue, kKeyN, kValueN,
+            CalculateKvProtectionInfo(kKeyN, kValueN, seq, kTypeValue)));
+      }
+      {
+        const std::string kKeyX = "keyX" + ToString(i), kValue = "value";
+        seq++;
+        ASSERT_OK(mem->Add(
+            seq, kTypeValue, kKeyX, kValue,
+            CalculateKvProtectionInfo(kKeyX, kValue, seq, kTypeValue)));
+      }
+      {
+        const std::string kKeyM = "keyM" + ToString(i), kValueM = "valueM";
+        seq++;
+        ASSERT_OK(mem->Add(
+            seq, kTypeValue, kKeyM, kValueM,
+            CalculateKvProtectionInfo(kKeyM, kValueM, seq, kTypeValue)));
+      }
+      {
+        const std::string kKeyX = "keyX" + ToString(i);
+        seq++;
+        ASSERT_OK(mem->Add(seq, kTypeDeletion, kKeyX, "" /* value */,
+                           CalculateKvProtectionInfo(kKeyX, "" /* value */, seq,
+                                                     kTypeDeletion)));
+      }
 
       elem.push_back(mem);
     }

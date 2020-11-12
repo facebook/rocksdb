@@ -610,9 +610,6 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
           KvProtectionInfo expected_kv_prot_info;
           expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
           s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
-          if (!s.ok()) {
-            return s;
-          }
         } else {
           // TODO(ajkr): We are manufacturing unsafe checksums here. This is a
           // stopgap solution until we finish coordinating integrity info for
@@ -621,9 +618,10 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
           kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
           kv_prot_info.SetColumnFamilyId(column_family);
         }
-        kv_prot_info.SetValueType(kTypeValue);
-
-        s = handler->PutCF(column_family, key, value, kv_prot_info);
+        if (s.ok()) {
+          kv_prot_info.SetValueType(kTypeValue);
+          s = handler->PutCF(column_family, key, value, kv_prot_info);
+        }
         if (LIKELY(s.ok())) {
           empty_batch = false;
           found++;
@@ -635,23 +633,22 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE));
 
+        // See explanatory comments in `kType*Value` cases.
         KvProtectionInfo kv_prot_info;
         if (!wb->kv_prot_infos_.empty()) {
           kv_prot_info = wb->kv_prot_infos_[found];
-          // See comment in `kType*Value` cases.
           KvProtectionInfo expected_kv_prot_info;
           expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
           s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
-          if (!s.ok()) {
-            return s;
-          }
         } else {
           kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
+          kv_prot_info.SetValueChecksum(GetSliceNPHash64(""));
           kv_prot_info.SetColumnFamilyId(column_family);
         }
-        kv_prot_info.SetValueType(kTypeDeletion);
-
-        s = handler->DeleteCF(column_family, key, kv_prot_info);
+        if (s.ok()) {
+          kv_prot_info.SetValueType(kTypeDeletion);
+          s = handler->DeleteCF(column_family, key, kv_prot_info);
+        }
         if (LIKELY(s.ok())) {
           empty_batch = false;
           found++;
@@ -663,23 +660,22 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_SINGLE_DELETE));
 
+        // See explanatory comments in `kType*Value` cases.
         KvProtectionInfo kv_prot_info;
         if (!wb->kv_prot_infos_.empty()) {
           kv_prot_info = wb->kv_prot_infos_[found];
-          // See comment in `kType*Value` cases.
           KvProtectionInfo expected_kv_prot_info;
           expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
           s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
-          if (!s.ok()) {
-            return s;
-          }
         } else {
           kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
+          kv_prot_info.SetValueChecksum(GetSliceNPHash64(""));
           kv_prot_info.SetColumnFamilyId(column_family);
         }
-        kv_prot_info.SetValueType(kTypeSingleDeletion);
-
-        s = handler->SingleDeleteCF(column_family, key, kv_prot_info);
+        if (s.ok()) {
+          kv_prot_info.SetValueType(kTypeSingleDeletion);
+          s = handler->SingleDeleteCF(column_family, key, kv_prot_info);
+        }
         if (LIKELY(s.ok())) {
           empty_batch = false;
           found++;
@@ -691,24 +687,22 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE_RANGE));
 
+        // See explanatory comments in `kType*Value` cases.
         KvProtectionInfo kv_prot_info;
         if (!wb->kv_prot_infos_.empty()) {
           kv_prot_info = wb->kv_prot_infos_[found];
-          // See comment in `kType*Value` cases.
           KvProtectionInfo expected_kv_prot_info;
           expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
           s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
-          if (!s.ok()) {
-            return s;
-          }
         } else {
           kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
           kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
           kv_prot_info.SetColumnFamilyId(column_family);
         }
-        kv_prot_info.SetValueType(kTypeRangeDeletion);
-
-        s = handler->DeleteRangeCF(column_family, key, value, kv_prot_info);
+        if (s.ok()) {
+          kv_prot_info.SetValueType(kTypeRangeDeletion);
+          s = handler->DeleteRangeCF(column_family, key, value, kv_prot_info);
+        }
         if (LIKELY(s.ok())) {
           empty_batch = false;
           found++;
@@ -720,24 +714,22 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_MERGE));
 
+        // See explanatory comments in `kType*Value` cases.
         KvProtectionInfo kv_prot_info;
         if (!wb->kv_prot_infos_.empty()) {
           kv_prot_info = wb->kv_prot_infos_[found];
-          // See comment in `kType*Value` cases.
           KvProtectionInfo expected_kv_prot_info;
           expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
           s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
-          if (!s.ok()) {
-            return s;
-          }
         } else {
           kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
           kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
           kv_prot_info.SetColumnFamilyId(column_family);
         }
-        kv_prot_info.SetValueType(kTypeMerge);
-
-        s = handler->MergeCF(column_family, key, value, kv_prot_info);
+        if (s.ok()) {
+          kv_prot_info.SetValueType(kTypeMerge);
+          s = handler->MergeCF(column_family, key, value, kv_prot_info);
+        }
         if (LIKELY(s.ok())) {
           empty_batch = false;
           found++;
@@ -749,24 +741,22 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_BLOB_INDEX));
 
+        // See explanatory comments in `kType*Value` cases.
         KvProtectionInfo kv_prot_info;
         if (!wb->kv_prot_infos_.empty()) {
           kv_prot_info = wb->kv_prot_infos_[found];
-          // See comment in `kType*Value` cases.
           KvProtectionInfo expected_kv_prot_info;
           expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
           s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
-          if (!s.ok()) {
-            return s;
-          }
         } else {
           kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
           kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
           kv_prot_info.SetColumnFamilyId(column_family);
         }
-        kv_prot_info.SetValueType(kTypeBlobIndex);
-
-        s = handler->PutBlobIndexCF(column_family, key, value, kv_prot_info);
+        if (s.ok()) {
+          kv_prot_info.SetValueType(kTypeBlobIndex);
+          s = handler->PutBlobIndexCF(column_family, key, value, kv_prot_info);
+        }
         if (LIKELY(s.ok())) {
           found++;
         }
@@ -1063,6 +1053,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
   LocalSavePoint save(b);
   b->kv_prot_infos_.emplace_back();
   b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(key));
+  b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(""));
   b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -1097,6 +1088,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
   LocalSavePoint save(b);
   b->kv_prot_infos_.emplace_back();
   b->kv_prot_infos_.back().SetKeyChecksum(GetSlicePartsNPHash64(key));
+  b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(""));
   b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -1130,6 +1122,7 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
   LocalSavePoint save(b);
   b->kv_prot_infos_.emplace_back();
   b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(key));
+  b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(""));
   b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -1159,6 +1152,7 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
   LocalSavePoint save(b);
   b->kv_prot_infos_.emplace_back();
   b->kv_prot_infos_.back().SetKeyChecksum(GetSlicePartsNPHash64(key));
+  b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(""));
   b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
@@ -1620,9 +1614,11 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   Status PutCFImpl(uint32_t column_family_id, const Slice& key,
-                   const Slice& value, ValueType value_type) {
+                   const Slice& value, ValueType value_type,
+                   const KvProtectionInfo& kv_prot_info) {
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
+      // TODO(ajkr): propagate `KvProtectionInfo`.
       return WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key,
                                      value);
       // else insert the values to the memtable right away
@@ -1634,6 +1630,7 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
+        // TODO(ajkr): propagate `KvProtectionInfo`.
         ret_status = WriteBatchInternal::Put(rebuilding_trx_, column_family_id,
                                              key, value);
         if (ret_status.ok()) {
@@ -1653,15 +1650,15 @@ class MemTableInserter : public WriteBatch::Handler {
     assert(!seq_per_batch_ || !moptions->inplace_update_support);
     if (!moptions->inplace_update_support) {
       ret_status =
-          mem->Add(sequence_, value_type, key, value,
+          mem->Add(sequence_, value_type, key, value, kv_prot_info,
                    concurrent_memtable_writes_, get_post_process_info(mem),
                    hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
     } else if (moptions->inplace_callback == nullptr) {
       assert(!concurrent_memtable_writes_);
-      ret_status = mem->Update(sequence_, key, value);
+      ret_status = mem->Update(sequence_, key, value, kv_prot_info);
     } else {
       assert(!concurrent_memtable_writes_);
-      ret_status = mem->UpdateCallback(sequence_, key, value);
+      ret_status = mem->UpdateCallback(sequence_, key, value, kv_prot_info);
       if (ret_status.IsNotFound()) {
         // key not found in memtable. Do sst get, update, add
         SnapshotImpl read_from_snapshot;
@@ -1689,7 +1686,13 @@ class MemTableInserter : public WriteBatch::Handler {
         } else {
           ret_status = Status::OK();
         }
-
+        if (ret_status.ok()) {
+          // TODO(ajkr): Push down this checksum verification and the below
+          // `merged_value` checksum generation  into `inplace_callback()`.
+          KvProtectionInfo expected_kv_prot_info;
+          expected_kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
+          ret_status = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
+        }
         if (ret_status.ok()) {
           UpdateStatus update_status;
           char* prev_buffer = const_cast<char*>(prev_value.c_str());
@@ -1702,18 +1705,21 @@ class MemTableInserter : public WriteBatch::Handler {
                 nullptr /* existing_value */, nullptr /* existing_value_size */,
                 value, &merged_value);
           }
+          KvProtectionInfo merged_kv_prot_info(kv_prot_info);
+          merged_kv_prot_info.SetValueChecksum(GetSliceNPHash64(merged_value));
           if (update_status == UpdateStatus::UPDATED_INPLACE) {
             assert(get_status.ok());
             // prev_value is updated in-place with final value.
-            ret_status = mem->Add(sequence_, value_type, key,
-                                  Slice(prev_buffer, prev_size));
+            ret_status =
+                mem->Add(sequence_, value_type, key,
+                         Slice(prev_buffer, prev_size), merged_kv_prot_info);
             if (ret_status.ok()) {
               RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
             }
           } else if (update_status == UpdateStatus::UPDATED) {
             // merged_value contains the final value.
-            ret_status =
-                mem->Add(sequence_, value_type, key, Slice(merged_value));
+            ret_status = mem->Add(sequence_, value_type, key,
+                                  Slice(merged_value), merged_kv_prot_info);
             if (ret_status.ok()) {
               RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
             }
@@ -1736,6 +1742,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
+      // TODO(ajkr): propagate `KvProtectionInfo`.
       ret_status = WriteBatchInternal::Put(rebuilding_trx_, column_family_id,
                                            key, value);
     }
@@ -1743,17 +1750,20 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   using WriteBatch::Handler::PutCF;
-  Status PutCF(uint32_t column_family_id, const Slice& key,
-               const Slice& value) override {
-    return PutCFImpl(column_family_id, key, value, kTypeValue);
+  Status PutCF(uint32_t column_family_id, const Slice& key, const Slice& value,
+               const KvProtectionInfo& _kv_prot_info) override {
+    KvProtectionInfo kv_prot_info(_kv_prot_info);
+    kv_prot_info.SetSequenceNumber(sequence_);
+    return PutCFImpl(column_family_id, key, value, kTypeValue, kv_prot_info);
   }
 
   Status DeleteImpl(uint32_t /*column_family_id*/, const Slice& key,
-                    const Slice& value, ValueType delete_type) {
+                    const Slice& value, ValueType delete_type,
+                    const KvProtectionInfo& kv_prot_info) {
     Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
     ret_status =
-        mem->Add(sequence_, delete_type, key, value,
+        mem->Add(sequence_, delete_type, key, value, kv_prot_info,
                  concurrent_memtable_writes_, get_post_process_info(mem),
                  hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
     if (UNLIKELY(ret_status.IsTryAgain())) {
@@ -1768,9 +1778,13 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   using WriteBatch::Handler::DeleteCF;
-  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
+  Status DeleteCF(uint32_t column_family_id, const Slice& key,
+                  const KvProtectionInfo& _kv_prot_info) override {
+    KvProtectionInfo kv_prot_info(_kv_prot_info);
+    kv_prot_info.SetSequenceNumber(sequence_);
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
+      // TODO(ajkr): propagate `KvProtectionInfo`.
       return WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
       // else insert the values to the memtable right away
     }
@@ -1781,6 +1795,7 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
+        // TODO(ajkr): propagate `KvProtectionInfo`.
         ret_status =
             WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
         if (ret_status.ok()) {
@@ -1797,9 +1812,17 @@ class MemTableInserter : public WriteBatch::Handler {
     const size_t ts_sz = (cfd && cfd->user_comparator())
                              ? cfd->user_comparator()->timestamp_size()
                              : 0;
-    const ValueType delete_type =
-        (0 == ts_sz) ? kTypeDeletion : kTypeDeletionWithTimestamp;
-    ret_status = DeleteImpl(column_family_id, key, Slice(), delete_type);
+    KvProtectionInfo expected_kv_prot_info;
+    expected_kv_prot_info.SetValueType(kTypeDeletion);
+    ret_status = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
+    if (ret_status.ok()) {
+      const ValueType delete_type =
+          (0 == ts_sz) ? kTypeDeletion : kTypeDeletionWithTimestamp;
+      KvProtectionInfo memtable_kv_prot_info(kv_prot_info);
+      memtable_kv_prot_info.SetValueType(delete_type);
+      ret_status = DeleteImpl(column_family_id, key, Slice(), delete_type,
+                              memtable_kv_prot_info);
+    }
     // optimize for non-recovery mode
     // If `ret_status` is `TryAgain` then the next (successful) try will add
     // the key to the rebuilding transaction object. If `ret_status` is
@@ -1807,6 +1830,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
+      // TODO(ajkr): propagate `KvProtectionInfo`.
       ret_status =
           WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
     }
@@ -1814,9 +1838,13 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   using WriteBatch::Handler::SingleDeleteCF;
-  Status SingleDeleteCF(uint32_t column_family_id, const Slice& key) override {
+  Status SingleDeleteCF(uint32_t column_family_id, const Slice& key,
+                        const KvProtectionInfo& _kv_prot_info) override {
+    KvProtectionInfo kv_prot_info(_kv_prot_info);
+    kv_prot_info.SetSequenceNumber(sequence_);
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
+      // TODO(ajkr): propagate `KvProtectionInfo`.
       return WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id,
                                               key);
       // else insert the values to the memtable right away
@@ -1828,6 +1856,7 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
+        // TODO(ajkr): propagate `KvProtectionInfo`.
         ret_status = WriteBatchInternal::SingleDelete(rebuilding_trx_,
                                                       column_family_id, key);
         if (ret_status.ok()) {
@@ -1840,8 +1869,8 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     assert(ret_status.ok());
 
-    ret_status =
-        DeleteImpl(column_family_id, key, Slice(), kTypeSingleDeletion);
+    ret_status = DeleteImpl(column_family_id, key, Slice(), kTypeSingleDeletion,
+                            kv_prot_info);
     // optimize for non-recovery mode
     // If `ret_status` is `TryAgain` then the next (successful) try will add
     // the key to the rebuilding transaction object. If `ret_status` is
@@ -1849,6 +1878,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
+      // TODO(ajkr): propagate `KvProtectionInfo`.
       ret_status = WriteBatchInternal::SingleDelete(rebuilding_trx_,
                                                     column_family_id, key);
     }
@@ -1857,9 +1887,13 @@ class MemTableInserter : public WriteBatch::Handler {
 
   using WriteBatch::Handler::DeleteRangeCF;
   Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
-                       const Slice& end_key) override {
+                       const Slice& end_key,
+                       const KvProtectionInfo& _kv_prot_info) override {
+    KvProtectionInfo kv_prot_info(_kv_prot_info);
+    kv_prot_info.SetSequenceNumber(sequence_);
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
+      // TODO(ajkr): propagate `KvProtectionInfo`.
       return WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
                                              begin_key, end_key);
       // else insert the values to the memtable right away
@@ -1871,6 +1905,7 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
+        // TODO(ajkr): propagate `KvProtectionInfo`.
         ret_status = WriteBatchInternal::DeleteRange(
             rebuilding_trx_, column_family_id, begin_key, end_key);
         if (ret_status.ok()) {
@@ -1913,8 +1948,8 @@ class MemTableInserter : public WriteBatch::Handler {
       }
     }
 
-    ret_status =
-        DeleteImpl(column_family_id, begin_key, end_key, kTypeRangeDeletion);
+    ret_status = DeleteImpl(column_family_id, begin_key, end_key,
+                            kTypeRangeDeletion, kv_prot_info);
     // optimize for non-recovery mode
     // If `ret_status` is `TryAgain` then the next (successful) try will add
     // the key to the rebuilding transaction object. If `ret_status` is
@@ -1922,6 +1957,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
+      // TODO(ajkr): propagate `KvProtectionInfo`.
       ret_status = WriteBatchInternal::DeleteRange(
           rebuilding_trx_, column_family_id, begin_key, end_key);
     }
@@ -1930,9 +1966,13 @@ class MemTableInserter : public WriteBatch::Handler {
 
   using WriteBatch::Handler::MergeCF;
   Status MergeCF(uint32_t column_family_id, const Slice& key,
-                 const Slice& value) override {
+                 const Slice& value,
+                 const KvProtectionInfo& _kv_prot_info) override {
+    KvProtectionInfo kv_prot_info(_kv_prot_info);
+    kv_prot_info.SetSequenceNumber(sequence_);
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
+      // TODO(ajkr): propagate `KvProtectionInfo`.
       return WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key,
                                        value);
       // else insert the values to the memtable right away
@@ -1944,6 +1984,7 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
+        // TODO(ajkr): propagate `KvProtectionInfo`.
         ret_status = WriteBatchInternal::Merge(rebuilding_trx_,
                                                column_family_id, key, value);
         if (ret_status.ok()) {
@@ -2010,28 +2051,41 @@ class MemTableInserter : public WriteBatch::Handler {
         auto merge_operator = moptions->merge_operator;
         assert(merge_operator);
 
-        std::string new_value;
+        // TODO(ajkr): Push down this checksum verification and the below
+        // `new_value` checksum generation  into
+        // `MergeHelper::TimedFullMerge()`.
+        KvProtectionInfo expected_kv_prot_info;
+        expected_kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
+        ret_status = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
 
-        Status merge_status = MergeHelper::TimedFullMerge(
-            merge_operator, key, &get_value_slice, {value}, &new_value,
-            moptions->info_log, moptions->statistics, SystemClock::Default());
+        if (ret_status.ok()) {
+          std::string new_value;
+          Status merge_status = MergeHelper::TimedFullMerge(
+              merge_operator, key, &get_value_slice, {value}, &new_value,
+              moptions->info_log, moptions->statistics, SystemClock::Default());
 
-        if (!merge_status.ok()) {
-          // Failed to merge!
-          // Store the delta in memtable
-          perform_merge = false;
-        } else {
-          // 3) Add value to memtable
-          assert(!concurrent_memtable_writes_);
-          ret_status = mem->Add(sequence_, kTypeValue, key, new_value);
+          if (!merge_status.ok()) {
+            // Failed to merge!
+            // Store the delta in memtable
+            perform_merge = false;
+          } else {
+            // 3) Add value to memtable
+            KvProtectionInfo merged_kv_prot_info(kv_prot_info);
+            merged_kv_prot_info.SetValueChecksum(GetSliceNPHash64(new_value));
+            merged_kv_prot_info.SetValueType(kTypeValue);
+            assert(!concurrent_memtable_writes_);
+            ret_status = mem->Add(sequence_, kTypeValue, key, new_value,
+                                  merged_kv_prot_info);
+          }
         }
       }
     }
 
     if (!perform_merge) {
+      assert(ret_status.ok());
       // Add merge operand to memtable
       ret_status =
-          mem->Add(sequence_, kTypeMerge, key, value,
+          mem->Add(sequence_, kTypeMerge, key, value, kv_prot_info,
                    concurrent_memtable_writes_, get_post_process_info(mem));
     }
 
@@ -2050,6 +2104,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
+      // TODO(ajkr): propagate `KvProtectionInfo`.
       ret_status = WriteBatchInternal::Merge(rebuilding_trx_, column_family_id,
                                              key, value);
     }
@@ -2058,9 +2113,13 @@ class MemTableInserter : public WriteBatch::Handler {
 
   using WriteBatch::Handler::PutBlobIndexCF;
   Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
-                        const Slice& value) override {
+                        const Slice& value,
+                        const KvProtectionInfo& _kv_prot_info) override {
+    KvProtectionInfo kv_prot_info(_kv_prot_info);
+    kv_prot_info.SetSequenceNumber(sequence_);
     // Same as PutCF except for value type.
-    return PutCFImpl(column_family_id, key, value, kTypeBlobIndex);
+    return PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
+                     kv_prot_info);
   }
 
   void CheckMemtableFull() {

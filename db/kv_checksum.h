@@ -28,7 +28,7 @@ class KvProtectionInfo {
   // covers.
   //
   // Returns a `Status::Corruption` when a mismatch is detected.
-  Status VerifyAgainst(const KvProtectionInfo& expected);
+  Status VerifyAgainst(const KvProtectionInfo& expected) const;
 
   void Clear();
 

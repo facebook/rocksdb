@@ -14,6 +14,7 @@
 #include <limits>
 #include <memory>
 #include "db/dbformat.h"
+#include "db/kv_checksum.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
@@ -486,7 +487,8 @@ MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
 
 Status MemTable::Add(SequenceNumber s, ValueType type,
                      const Slice& key, /* user key */
-                     const Slice& value, bool allow_concurrent,
+                     const Slice& value, const KvProtectionInfo& kv_prot_info,
+                     bool allow_concurrent,
                      MemTablePostProcessInfo* post_process_info, void** hint) {
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()
@@ -516,6 +518,53 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
   Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz);
+
+  {
+    Status verify_status;
+    KvProtectionInfo memtable_kv_prot_info;
+    Slice input(buf, encoded_len);
+    uint32_t verify_ikey_len;
+    if (!GetVarint32(&input, &verify_ikey_len)) {
+      verify_status = Status::Corruption("Unable to parse internal key length");
+    }
+    if (verify_status.ok() && verify_ikey_len < 8) {
+      verify_status = Status::Corruption("Internal key length too short");
+    }
+    if (verify_status.ok() && verify_ikey_len > input.size()) {
+      verify_status = Status::Corruption("Internal key length too long");
+    }
+    uint32_t verify_value_len;
+    if (verify_status.ok()) {
+      memtable_kv_prot_info.SetKeyChecksum(
+          GetSliceNPHash64(Slice(input.data(), verify_ikey_len - 8)));
+      input = Slice(input.data() + verify_ikey_len - 8,
+                    input.size() + 8 - verify_ikey_len);
+      uint64_t verify_packed = DecodeFixed64(input.data());
+      input = Slice(input.data() + 8, input.size() - 8);
+      uint64_t verify_seq;
+      ValueType verify_value_type;
+      UnPackSequenceAndType(verify_packed, &verify_seq, &verify_value_type);
+      memtable_kv_prot_info.SetSequenceNumber(verify_seq);
+      memtable_kv_prot_info.SetValueType(verify_value_type);
+      if (!GetVarint32(&input, &verify_value_len)) {
+        verify_status = Status::Corruption("Unable to parse value length");
+      }
+    }
+    if (verify_status.ok() && verify_value_len < input.size()) {
+      verify_status = Status::Corruption("Value length too short");
+    }
+    if (verify_status.ok() && verify_value_len > input.size()) {
+      verify_status = Status::Corruption("Value length too long");
+    }
+    if (verify_status.ok()) {
+      Slice verify_value = Slice(input.data(), verify_value_len);
+      memtable_kv_prot_info.SetValueChecksum(GetSliceNPHash64(verify_value));
+      verify_status = kv_prot_info.VerifyAgainst(memtable_kv_prot_info);
+    }
+    if (!verify_status.ok()) {
+      return verify_status;
+    }
+  }
 
   if (!allow_concurrent) {
     // Extract prefix for insert with hint.
@@ -979,7 +1028,8 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 }
 
 Status MemTable::Update(SequenceNumber seq, const Slice& key,
-                        const Slice& value) {
+                        const Slice& value,
+                        const KvProtectionInfo& kv_prot_info) {
   LookupKey lkey(key, seq);
   Slice mem_key = lkey.memtable_key();
 
@@ -1030,11 +1080,12 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
   }
 
   // The latest value is not `kTypeValue` or key doesn't exist
-  return Add(seq, kTypeValue, key, value);
+  return Add(seq, kTypeValue, key, value, kv_prot_info);
 }
 
 Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
-                                const Slice& delta) {
+                                const Slice& delta,
+                                const KvProtectionInfo& kv_prot_info) {
   LookupKey lkey(key, seq);
   Slice memkey = lkey.memtable_key();
 
@@ -1070,36 +1121,44 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
           char* prev_buffer = const_cast<char*>(prev_value.data());
           uint32_t new_prev_size = prev_size;
 
-          std::string str_value;
-          WriteLock wl(GetLock(lkey.user_key()));
-          auto status = moptions_.inplace_callback(prev_buffer, &new_prev_size,
-                                                   delta, &str_value);
-          if (status == UpdateStatus::UPDATED_INPLACE) {
-            // Value already updated by callback.
-            assert(new_prev_size <= prev_size);
-            if (new_prev_size < prev_size) {
-              // overwrite the new prev_size
-              char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
-                                       new_prev_size);
-              if (VarintLength(new_prev_size) < VarintLength(prev_size)) {
-                // shift the value buffer as well.
-                memcpy(p, prev_buffer, new_prev_size);
+          // TODO(ajkr): Push down this checksum verification and the below
+          // `str_value` checksum generation  into `inplace_callback()`.
+          KvProtectionInfo expected_kv_prot_info;
+          expected_kv_prot_info.SetValueChecksum(GetSliceNPHash64(delta));
+          Status s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
+          if (s.ok()) {
+            std::string str_value;
+            WriteLock wl(GetLock(lkey.user_key()));
+            auto status = moptions_.inplace_callback(
+                prev_buffer, &new_prev_size, delta, &str_value);
+            if (status == UpdateStatus::UPDATED_INPLACE) {
+              // Value already updated by callback.
+              assert(new_prev_size <= prev_size);
+              if (new_prev_size < prev_size) {
+                // overwrite the new prev_size
+                char* p = EncodeVarint32(
+                    const_cast<char*>(key_ptr) + key_length, new_prev_size);
+                if (VarintLength(new_prev_size) < VarintLength(prev_size)) {
+                  // shift the value buffer as well.
+                  memcpy(p, prev_buffer, new_prev_size);
+                }
               }
+              RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
+              UpdateFlushState();
+            } else if (status == UpdateStatus::UPDATED) {
+              KvProtectionInfo merged_kv_prot_info(kv_prot_info);
+              merged_kv_prot_info.SetValueChecksum(GetSliceNPHash64(str_value));
+              s = Add(seq, kTypeValue, key, Slice(str_value),
+                      merged_kv_prot_info);
+              RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
+              UpdateFlushState();
+            } else if (status == UpdateStatus::UPDATE_FAILED) {
+              // `UPDATE_FAILED` is named incorrectly. It indicates no update
+              // happened. It does not indicate a failure happened.
+              UpdateFlushState();
             }
-            RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
-            UpdateFlushState();
-            return Status::OK();
-          } else if (status == UpdateStatus::UPDATED) {
-            Status s = Add(seq, kTypeValue, key, Slice(str_value));
-            RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
-            UpdateFlushState();
-            return s;
-          } else if (status == UpdateStatus::UPDATE_FAILED) {
-            // `UPDATE_FAILED` is named incorrectly. It indicates no update
-            // happened. It does not indicate a failure happened.
-            UpdateFlushState();
-            return Status::OK();
           }
+          return s;
         }
         default:
           break;

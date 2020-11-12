@@ -110,6 +110,11 @@ struct OptionsOverride {
 
 }  // namespace anon
 
+KvProtectionInfo CalculateKvProtectionInfo(const std::string& key,
+                                           const std::string& value,
+                                           SequenceNumber seqno,
+                                           ValueType value_type);
+
 enum SkipPolicy { kSkipNone = 0, kSkipNoSnapshot = 1, kSkipNoPrefix = 2 };
 
 // A hacky skip list mem table that triggers flush after number of entries.
