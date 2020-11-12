@@ -341,6 +341,58 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLargerThanKey) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, SeekWithBound) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.cache_index_and_filter_blocks = true;
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
+
+  ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
+  Flush();
+
+  ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
+  Flush();
+
+  // Move sst file to next level
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_OK(db_->Put(write_opts, "foo3", "bar"));
+  Flush();
+
+  ReadOptions read_opts;
+  std::string read_ts = Timestamp(2, 0);
+  ts = read_ts;
+  read_opts.timestamp = &ts;
+  std::string up_bound = "foo5";
+  Slice up_bound_slice = up_bound;
+  read_opts.iterate_upper_bound = &up_bound_slice;
+  read_opts.auto_prefix_mode = true;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    // Make sure the prefix extractor doesn't include timestamp, otherwise it
+    // may return invalid result.
+    iter->Seek("foo");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterateLowerTsBound) {
   constexpr int kNumKeysPerFile = 128;
   constexpr uint64_t kMaxKey = 1024;

@@ -230,7 +230,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
 
   bool CheckPrefixMayMatch(const Slice& ikey, IterDirection direction) {
     if (need_upper_bound_check_ && direction == IterDirection::kBackward) {
-      // Upper bound check isn't sufficnet for backward direction to
+      // Upper bound check isn't sufficient for backward direction to
       // guarantee the same result as total order, so disable prefix
       // check.
       return true;
