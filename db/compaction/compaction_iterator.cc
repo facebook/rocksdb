@@ -52,7 +52,7 @@ CompactionIterator::CompactionIterator(
           report_detailed_time, expect_valid_internal_key, range_del_agg,
           blob_file_builder, allow_data_in_errors,
           std::unique_ptr<CompactionProxy>(
-              compaction ? new CompactionProxy(compaction) : nullptr),
+              compaction ? new RealCompaction(compaction) : nullptr),
           compaction_filter, shutting_down, preserve_deletes_seqnum,
           manual_compaction_paused, info_log, full_history_ts_low) {}
 

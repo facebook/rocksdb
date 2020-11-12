@@ -29,33 +29,56 @@ class CompactionIterator {
   // CompactionIterator uses. Tests can override it.
   class CompactionProxy {
    public:
-    explicit CompactionProxy(const Compaction* compaction)
-        : compaction_(compaction) {}
-
     virtual ~CompactionProxy() = default;
-    virtual int level(size_t /*compaction_input_level*/ = 0) const {
-      return compaction_->level();
-    }
+
+    virtual int level() const = 0;
+
     virtual bool KeyNotExistsBeyondOutputLevel(
-        const Slice& user_key, std::vector<size_t>* level_ptrs) const {
+        const Slice& user_key, std::vector<size_t>* level_ptrs) const = 0;
+
+    virtual bool bottommost_level() const = 0;
+
+    virtual int number_levels() const = 0;
+
+    virtual Slice GetLargestUserKey() const = 0;
+
+    virtual bool allow_ingest_behind() const = 0;
+
+    virtual bool preserve_deletes() const = 0;
+  };
+
+  class RealCompaction : public CompactionProxy {
+   public:
+    explicit RealCompaction(const Compaction* compaction)
+        : compaction_(compaction) {
+      assert(compaction_);
+      assert(compaction_->immutable_cf_options());
+    }
+
+    int level() const override { return compaction_->level(); }
+
+    bool KeyNotExistsBeyondOutputLevel(
+        const Slice& user_key, std::vector<size_t>* level_ptrs) const override {
       return compaction_->KeyNotExistsBeyondOutputLevel(user_key, level_ptrs);
     }
-    virtual bool bottommost_level() const {
+
+    bool bottommost_level() const override {
       return compaction_->bottommost_level();
     }
-    virtual int number_levels() const { return compaction_->number_levels(); }
-    virtual Slice GetLargestUserKey() const {
+
+    int number_levels() const override { return compaction_->number_levels(); }
+
+    Slice GetLargestUserKey() const override {
       return compaction_->GetLargestUserKey();
     }
-    virtual bool allow_ingest_behind() const {
+
+    bool allow_ingest_behind() const override {
       return compaction_->immutable_cf_options()->allow_ingest_behind;
     }
-    virtual bool preserve_deletes() const {
+
+    bool preserve_deletes() const override {
       return compaction_->immutable_cf_options()->preserve_deletes;
     }
-
-   protected:
-    CompactionProxy() = default;
 
    private:
     const Compaction* compaction_;

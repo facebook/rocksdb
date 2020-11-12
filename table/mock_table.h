@@ -31,7 +31,8 @@ using KVPair = std::pair<std::string, std::string>;
 using KVVector = std::vector<KVPair>;
 
 KVVector MakeMockFile(std::initializer_list<KVPair> l = {});
-void SortKVVector(KVVector* kv_vector);
+void SortKVVector(KVVector* kv_vector,
+                  const Comparator* ucmp = BytewiseComparator());
 
 struct MockTableFileSystem {
   port::Mutex mutex;
