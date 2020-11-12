@@ -231,8 +231,8 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.blob_compression_type = mutable_cf_options.blob_compression_type;
   cf_opts.enable_blob_garbage_collection =
       mutable_cf_options.enable_blob_garbage_collection;
-  cf_opts.blob_garbage_collection_cutoff =
-      mutable_cf_options.blob_garbage_collection_cutoff;
+  cf_opts.blob_garbage_collection_age_cutoff =
+      mutable_cf_options.blob_garbage_collection_age_cutoff;
 
   // Misc options
   cf_opts.max_sequential_skip_in_iterations =

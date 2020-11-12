@@ -94,7 +94,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       blob_file_size(options.blob_file_size),
       blob_compression_type(options.blob_compression_type),
       enable_blob_garbage_collection(options.enable_blob_garbage_collection),
-      blob_garbage_collection_cutoff(options.blob_garbage_collection_cutoff) {
+      blob_garbage_collection_age_cutoff(
+          options.blob_garbage_collection_age_cutoff) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -387,8 +388,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      CompressionTypeToString(blob_compression_type).c_str());
     ROCKS_LOG_HEADER(log, "      Options.enable_blob_garbage_collection: %s",
                      enable_blob_garbage_collection ? "true" : "false");
-    ROCKS_LOG_HEADER(log, "      Options.blob_garbage_collection_cutoff: %f",
-                     blob_garbage_collection_cutoff);
+    ROCKS_LOG_HEADER(log, "  Options.blob_garbage_collection_age_cutoff: %f",
+                     blob_garbage_collection_age_cutoff);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

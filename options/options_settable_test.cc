@@ -505,7 +505,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "blob_file_size=1000000;"
       "blob_compression_type=kBZip2Compression;"
       "enable_blob_garbage_collection=true;"
-      "blob_garbage_collection_cutoff=0.5;"
+      "blob_garbage_collection_age_cutoff=0.5;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;};",
       new_options));

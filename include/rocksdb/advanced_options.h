@@ -734,7 +734,7 @@ struct AdvancedColumnFamilyOptions {
   // amplification for large-value use cases at the cost of introducing a level
   // of indirection for reads. See also the options min_blob_size,
   // blob_file_size, blob_compression_type, enable_blob_garbage_collection,
-  // and blob_garbage_collection_cutoff below.
+  // and blob_garbage_collection_age_cutoff below.
   //
   // Default: false
   //
@@ -779,7 +779,7 @@ struct AdvancedColumnFamilyOptions {
   // compaction. Valid blobs residing in blob files older than a cutoff get
   // relocated to new files as they are encountered during compaction, which
   // makes it possible to clean up blob files once they contain nothing but
-  // obsolete/garbage blobs. See also blob_garbage_collection_cutoff below.
+  // obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff below.
   //
   // Default: false
   //
@@ -796,7 +796,7 @@ struct AdvancedColumnFamilyOptions {
   // Default: 0.25
   //
   // Dynamically changeable through the SetOptions() API
-  double blob_garbage_collection_cutoff = 0.25;
+  double blob_garbage_collection_age_cutoff = 0.25;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
