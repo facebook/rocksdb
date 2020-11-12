@@ -874,7 +874,7 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kAutoBloom);
   // Verify that only the lower 32bits are stored in
   // new_opt.read_amp_bytes_per_bit.
-  EXPECT_EQ(1, new_opt.read_amp_bytes_per_bit);
+  EXPECT_EQ(1U, new_opt.read_amp_bytes_per_bit);
 
   // unknown option
   Status s = GetBlockBasedTableOptionsFromString(
