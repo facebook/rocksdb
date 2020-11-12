@@ -7,13 +7,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "rocksdb/db.h"
-
 #include <memory>
+
 #include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
