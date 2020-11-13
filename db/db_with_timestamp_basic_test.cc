@@ -39,7 +39,8 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
     return prefix + ret;
   }
 
-  static std::vector<Slice> ConvertStrToSlice(std::vector<std::string>& strings) {
+  static std::vector<Slice> ConvertStrToSlice(
+      std::vector<std::string>& strings) {
     std::vector<Slice> ret;
     for (auto& s : strings) {
       ret.emplace_back(s);

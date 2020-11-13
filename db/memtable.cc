@@ -521,8 +521,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     // Extract prefix for insert with hint.
     if (insert_with_hint_prefix_extractor_ != nullptr &&
         insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
-      Slice prefix =
-          insert_with_hint_prefix_extractor_->Transform(key_slice);
+      Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
       bool res = table->InsertKeyWithHint(handle, &insert_hints_[prefix]);
       if (UNLIKELY(!res)) {
         return Status::TryAgain("key+seq exists");
