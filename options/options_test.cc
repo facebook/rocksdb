@@ -102,6 +102,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"min_blob_size", "1K"},
       {"blob_file_size", "1G"},
       {"blob_compression_type", "kZSTD"},
+      {"enable_blob_garbage_collection", "true"},
+      {"blob_garbage_collection_age_cutoff", "0.5"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -231,6 +233,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
   ASSERT_EQ(new_cf_opt.blob_compression_type, kZSTD);
+  ASSERT_EQ(new_cf_opt.enable_blob_garbage_collection, true);
+  ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(exact, base_cf_opt, cf_options_map,
@@ -1649,6 +1653,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"min_blob_size", "1K"},
       {"blob_file_size", "1G"},
       {"blob_compression_type", "kZSTD"},
+      {"enable_blob_garbage_collection", "true"},
+      {"blob_garbage_collection_age_cutoff", "0.5"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -1770,6 +1776,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
   ASSERT_EQ(new_cf_opt.blob_compression_type, kZSTD);
+  ASSERT_EQ(new_cf_opt.enable_blob_garbage_collection, true);
+  ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(

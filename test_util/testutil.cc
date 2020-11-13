@@ -381,12 +381,14 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, DBOptions& db_options,
   cf_opt->compaction_options_fifo.allow_compaction = rnd->Uniform(2);
   cf_opt->memtable_whole_key_filtering = rnd->Uniform(2);
   cf_opt->enable_blob_files = rnd->Uniform(2);
+  cf_opt->enable_blob_garbage_collection = rnd->Uniform(2);
 
   // double options
   cf_opt->hard_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
   cf_opt->soft_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
   cf_opt->memtable_prefix_bloom_size_ratio =
       static_cast<double>(rnd->Uniform(10000)) / 20000.0;
+  cf_opt->blob_garbage_collection_age_cutoff = rnd->Uniform(10000) / 10000.0;
 
   // int options
   cf_opt->level0_file_num_compaction_trigger = rnd->Uniform(100);
