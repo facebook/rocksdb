@@ -73,8 +73,8 @@ class FlushJob {
            EventLogger* event_logger, bool measure_io_stats,
            const bool sync_output_directory, const bool write_manifest,
            Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-           const std::string& db_id = "",
-           const std::string& db_session_id = "");
+           const std::string& db_id = "", const std::string& db_session_id = "",
+           std::string full_history_ts_low = "");
 
   ~FlushJob();
 
@@ -164,6 +164,8 @@ class FlushJob {
   IOStatus io_status_;
 
   const std::shared_ptr<IOTracer> io_tracer_;
+
+  const std::string full_history_ts_low_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

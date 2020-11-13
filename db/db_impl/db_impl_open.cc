@@ -1347,7 +1347,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
       IOStatus io_s;
       s = BuildTable(
-          dbname_, versions_.get(), env_, fs_.get(), *cfd->ioptions(),
+          dbname_, versions_.get(), immutable_db_options_, *cfd->ioptions(),
           mutable_cf_options, file_options_for_compaction_, cfd->table_cache(),
           iter.get(), std::move(range_del_iters), &meta, &blob_file_additions,
           cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),

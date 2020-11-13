@@ -65,8 +65,8 @@ TableBuilder* NewTableBuilder(
 // @param column_family_name Name of the column family that is also identified
 //    by column_family_id, or empty string if unknown.
 extern Status BuildTable(
-    const std::string& dbname, VersionSet* versions, Env* env, FileSystem* fs,
-    const ImmutableCFOptions& options,
+    const std::string& dbname, VersionSet* versions,
+    const ImmutableDBOptions& db_options, const ImmutableCFOptions& options,
     const MutableCFOptions& mutable_cf_options, const FileOptions& file_options,
     TableCache* table_cache, InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
@@ -89,6 +89,7 @@ extern Status BuildTable(
     const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0,
     Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,
     const uint64_t file_creation_time = 0, const std::string& db_id = "",
-    const std::string& db_session_id = "");
+    const std::string& db_session_id = "",
+    const std::string* full_history_ts_low = nullptr);
 
 }  // namespace ROCKSDB_NAMESPACE

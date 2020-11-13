@@ -94,7 +94,8 @@ FlushJob::FlushJob(
     Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
     const bool sync_output_directory, const bool write_manifest,
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-    const std::string& db_id, const std::string& db_session_id)
+    const std::string& db_id, const std::string& db_session_id,
+    std::string full_history_ts_low)
     : dbname_(dbname),
       db_id_(db_id),
       db_session_id_(db_session_id),
@@ -123,7 +124,8 @@ FlushJob::FlushJob(
       base_(nullptr),
       pick_memtable_called(false),
       thread_pri_(thread_pri),
-      io_tracer_(io_tracer) {
+      io_tracer_(io_tracer),
+      full_history_ts_low_(std::move(full_history_ts_low)) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -398,13 +400,14 @@ Status FlushJob::WriteLevel0Table() {
                                    : meta_.oldest_ancester_time;
 
       IOStatus io_s;
+      const std::string* const full_history_ts_low =
+          (full_history_ts_low_.empty()) ? nullptr : &full_history_ts_low_;
       s = BuildTable(
-          dbname_, versions_, db_options_.env, db_options_.fs.get(),
-          *cfd_->ioptions(), mutable_cf_options_, file_options_,
-          cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
-          &blob_file_additions, cfd_->internal_comparator(),
-          cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),
-          cfd_->GetName(), existing_snapshots_,
+          dbname_, versions_, db_options_, *cfd_->ioptions(),
+          mutable_cf_options_, file_options_, cfd_->table_cache(), iter.get(),
+          std::move(range_del_iters), &meta_, &blob_file_additions,
+          cfd_->internal_comparator(), cfd_->int_tbl_prop_collector_factories(),
+          cfd_->GetID(), cfd_->GetName(), existing_snapshots_,
           earliest_write_conflict_snapshot_, snapshot_checker_,
           output_compression_, mutable_cf_options_.sample_for_compression,
           mutable_cf_options_.compression_opts,
@@ -412,7 +415,7 @@ Status FlushJob::WriteLevel0Table() {
           TableFileCreationReason::kFlush, &io_s, io_tracer_, event_logger_,
           job_context_->job_id, Env::IO_HIGH, &table_properties_, 0 /* level */,
           creation_time, oldest_key_time, write_hint, current_time, db_id_,
-          db_session_id_);
+          db_session_id_, full_history_ts_low);
       if (!io_s.ok()) {
         io_status_ = io_s;
       }

@@ -442,9 +442,9 @@ class Repairer {
       LegacyFileSystemWrapper fs(env_);
       IOStatus io_s;
       status = BuildTable(
-          dbname_, /* versions */ nullptr, env_, &fs, *cfd->ioptions(),
-          *cfd->GetLatestMutableCFOptions(), env_options_, table_cache_.get(),
-          iter.get(), std::move(range_del_iters), &meta,
+          dbname_, /* versions */ nullptr, immutable_db_options_,
+          *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(), env_options_,
+          table_cache_.get(), iter.get(), std::move(range_del_iters), &meta,
           nullptr /* blob_file_additions */, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
           {}, kMaxSequenceNumber, snapshot_checker, kNoCompression,

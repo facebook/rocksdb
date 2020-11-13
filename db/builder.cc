@@ -69,8 +69,8 @@ TableBuilder* NewTableBuilder(
 }
 
 Status BuildTable(
-    const std::string& dbname, VersionSet* versions, Env* env, FileSystem* fs,
-    const ImmutableCFOptions& ioptions,
+    const std::string& dbname, VersionSet* versions,
+    const ImmutableDBOptions& db_options, const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const FileOptions& file_options,
     TableCache* table_cache, InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
@@ -91,7 +91,7 @@ Status BuildTable(
     TableProperties* table_properties, int level, const uint64_t creation_time,
     const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
     const uint64_t file_creation_time, const std::string& db_id,
-    const std::string& db_session_id) {
+    const std::string& db_session_id, const std::string* full_history_ts_low) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -120,6 +120,10 @@ Status BuildTable(
   EventHelpers::NotifyTableFileCreationStarted(
       ioptions.listeners, dbname, column_family_name, fname, job_id, reason);
 #endif  // !ROCKSDB_LITE
+  Env* env = db_options.env;
+  assert(env);
+  FileSystem* fs = db_options.fs.get();
+  assert(fs);
   TableProperties tp;
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
@@ -180,7 +184,11 @@ Status BuildTable(
         &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
         ShouldReportDetailedTime(env, ioptions.statistics),
         true /* internal key corruption is not ok */, range_del_agg.get(),
-        blob_file_builder.get(), ioptions.allow_data_in_errors);
+        blob_file_builder.get(), ioptions.allow_data_in_errors,
+        /*compaction=*/nullptr,
+        /*compaction_filter=*/nullptr, /*shutting_down=*/nullptr,
+        /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
+        db_options.info_log, full_history_ts_low);
 
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
