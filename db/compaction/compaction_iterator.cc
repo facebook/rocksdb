@@ -5,7 +5,8 @@
 
 #include "db/compaction/compaction_iterator.h"
 
-#include <cinttypes>
+#include <iterator>
+#include <limits>
 
 #include "db/blob/blob_file_builder.h"
 #include "db/snapshot_checker.h"
@@ -94,6 +95,8 @@ CompactionIterator::CompactionIterator(
       current_user_key_sequence_(0),
       current_user_key_snapshot_(0),
       merge_out_iter_(merge_helper_),
+      blob_garbage_collection_cutoff_file_number_(
+          ComputeBlobGarbageCollectionCutoffFileNumber(compaction_.get())),
       current_key_committed_(false),
       cmp_with_history_ts_low_(0) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
@@ -892,6 +895,32 @@ bool CompactionIterator::IsInEarliestSnapshot(SequenceNumber sequence) {
                     "Unexpected released snapshot in IsInEarliestSnapshot");
   }
   return in_snapshot == SnapshotCheckerResult::kInSnapshot;
+}
+
+uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(
+    const CompactionProxy* compaction) {
+  if (!compaction) {
+    return 0;
+  }
+
+  if (!compaction->enable_blob_garbage_collection()) {
+    return 0;
+  }
+
+  Version* const version = compaction->input_version();
+  assert(version);
+
+  const VersionStorageInfo* const storage_info = version->storage_info();
+  assert(storage_info);
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+
+  auto it = blob_files.begin();
+  std::advance(
+      it, compaction->blob_garbage_collection_age_cutoff() * blob_files.size());
+
+  return it != blob_files.end() ? it->first
+                                : std::numeric_limits<uint64_t>::max();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

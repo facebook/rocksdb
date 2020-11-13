@@ -5,6 +5,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cinttypes>
 #include <deque>
 #include <string>
 #include <unordered_set>
@@ -211,6 +212,9 @@ class CompactionIterator {
     }
   }
 
+  static uint64_t ComputeBlobGarbageCollectionCutoffFileNumber(
+      const CompactionProxy* compaction);
+
   InternalIterator* input_;
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
@@ -293,6 +297,9 @@ class CompactionIterator {
   // PinnedIteratorsManager used to pin input_ Iterator blocks while reading
   // merge operands and then releasing them after consuming them.
   PinnedIteratorsManager pinned_iters_mgr_;
+
+  uint64_t blob_garbage_collection_cutoff_file_number_;
+
   std::string blob_index_;
   std::string compaction_filter_value_;
   InternalKey compaction_filter_skip_until_;
