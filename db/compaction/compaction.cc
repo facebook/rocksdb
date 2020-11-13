@@ -553,7 +553,8 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter(
   for (auto l = inputs_.begin(); l != inputs_.end(); ++l) {
     for (auto f = l->files.begin(); f != l->files.end(); ++f) {
       std::shared_ptr<const TableProperties> tp;
-      Status s = input_version_->GetTableProperties(&tp, *f);
+      Status s =
+          input_version_->GetTableProperties(&tp, *f, nullptr, false /*no_io*/);
       assert(s.ok());
       context.file_numbers.push_back((*f)->fd.GetNumber());
       context.table_properties.push_back(tp);
