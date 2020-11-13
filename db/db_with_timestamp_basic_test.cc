@@ -983,11 +983,11 @@ class DBBasicTestWithTimestampFilterPrefixSettings
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<
           std::tuple<std::shared_ptr<const FilterPolicy>, bool, bool,
-              std::shared_ptr<const SliceTransform>, bool, double>> {
+                     std::shared_ptr<const SliceTransform>, bool, double>> {
  public:
   DBBasicTestWithTimestampFilterPrefixSettings()
       : DBBasicTestWithTimestampBase(
-      "db_basic_test_with_timestamp_filter_prefix") {}
+            "db_basic_test_with_timestamp_filter_prefix") {}
 };
 
 TEST_P(DBBasicTestWithTimestampFilterPrefixSettings, GetAndMultiGet) {
@@ -1086,20 +1086,18 @@ TEST_P(DBBasicTestWithTimestampFilterPrefixSettings, GetAndMultiGet) {
 INSTANTIATE_TEST_CASE_P(
     Timestamp, DBBasicTestWithTimestampFilterPrefixSettings,
     ::testing::Combine(
-        ::testing::Values(std::shared_ptr<const FilterPolicy>(nullptr),
-                          std::shared_ptr<const FilterPolicy>(
-                              NewBloomFilterPolicy(10, true)),
-                          std::shared_ptr<const FilterPolicy>(
-                              NewBloomFilterPolicy(10, false))),
-        ::testing::Bool(),
-        ::testing::Bool(),
         ::testing::Values(
-        std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(1)),
-        std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(4)),
-        std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(7)),
-        std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(8))),
-        ::testing::Bool(),
-        ::testing::Values(0, 0.1)));
+            std::shared_ptr<const FilterPolicy>(nullptr),
+            std::shared_ptr<const FilterPolicy>(NewBloomFilterPolicy(10, true)),
+            std::shared_ptr<const FilterPolicy>(NewBloomFilterPolicy(10,
+                                                                     false))),
+        ::testing::Bool(), ::testing::Bool(),
+        ::testing::Values(
+            std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(1)),
+            std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(4)),
+            std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(7)),
+            std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(8))),
+        ::testing::Bool(), ::testing::Values(0, 0.1)));
 
 class DataVisibilityTest : public DBBasicTestWithTimestampBase {
  public:

@@ -28,17 +28,19 @@ FullFilterBlockBuilder::FullFilterBlockBuilder(
 }
 
 void FullFilterBlockBuilder::Add(const Slice& key_without_ts) {
-  const bool add_prefix = prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts);
+  const bool add_prefix =
+      prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts);
   if (whole_key_filtering_) {
     if (!add_prefix) {
       AddKey(key_without_ts);
     } else {
       // if both whole_key and prefix are added to bloom then we will have whole
-      // key_without_ts and prefix addition being interleaved and thus cannot rely on the
-      // bits builder to properly detect the duplicates by comparing with the
-      // last item.
+      // key_without_ts and prefix addition being interleaved and thus cannot
+      // rely on the bits builder to properly detect the duplicates by comparing
+      // with the last item.
       Slice last_whole_key = Slice(last_whole_key_str_);
-      if (!last_whole_key_recorded_ || last_whole_key.compare(key_without_ts) != 0) {
+      if (!last_whole_key_recorded_ ||
+          last_whole_key.compare(key_without_ts) != 0) {
         AddKey(key_without_ts);
         last_whole_key_recorded_ = true;
         last_whole_key_str_.assign(key_without_ts.data(),
@@ -319,7 +321,8 @@ bool FullFilterBlockReader::IsFilterCompatible(
     }
     Slice upper_bound_xform = prefix_extractor->Transform(*iterate_upper_bound);
     // first check if user_key and upper_bound all share the same prefix
-    if (comparator->CompareWithoutTimestamp(prefix, false, upper_bound_xform, false) != 0) {
+    if (comparator->CompareWithoutTimestamp(prefix, false, upper_bound_xform,
+                                            false) != 0) {
       // second check if user_key's prefix is the immediate predecessor of
       // upper_bound and have the same length. If so, we know for sure all
       // keys in the range [user_key, upper_bound) share the same prefix.

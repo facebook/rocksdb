@@ -2065,7 +2065,8 @@ bool BlockBasedTable::PrefixMayMatch(
     prefix_extractor = rep_->table_prefix_extractor.get();
   }
   auto ts_sz = rep_->internal_comparator.user_comparator()->timestamp_size();
-  auto user_key_without_ts = ExtractUserKeyAndStripTimestamp(internal_key, ts_sz);
+  auto user_key_without_ts =
+      ExtractUserKeyAndStripTimestamp(internal_key, ts_sz);
   if (!prefix_extractor->InDomain(user_key_without_ts)) {
     return true;
   }
@@ -2081,9 +2082,10 @@ bool BlockBasedTable::PrefixMayMatch(
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
       may_match = filter->RangeMayExist(
-          read_options.iterate_upper_bound, user_key_without_ts, prefix_extractor,
-          rep_->internal_comparator.user_comparator(), const_ikey_ptr,
-          &filter_checked, need_upper_bound_check, no_io, lookup_context);
+          read_options.iterate_upper_bound, user_key_without_ts,
+          prefix_extractor, rep_->internal_comparator.user_comparator(),
+          const_ikey_ptr, &filter_checked, need_upper_bound_check, no_io,
+          lookup_context);
     } else {
       // if prefix_extractor changed for block based filter, skip filter
       if (need_upper_bound_check) {

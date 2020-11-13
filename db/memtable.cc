@@ -331,7 +331,8 @@ class MemTableIterator : public InternalIterator {
       auto ts_sz = comparator_.comparator.user_comparator()->timestamp_size();
       Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz));
       if (prefix_extractor_->InDomain(user_k_without_ts) &&
-          !bloom_->MayContain(prefix_extractor_->Transform(user_k_without_ts))) {
+          !bloom_->MayContain(
+              prefix_extractor_->Transform(user_k_without_ts))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -349,7 +350,8 @@ class MemTableIterator : public InternalIterator {
       auto ts_sz = comparator_.comparator.user_comparator()->timestamp_size();
       Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz));
       if (prefix_extractor_->InDomain(user_k_without_ts) &&
-          !bloom_->MayContain(prefix_extractor_->Transform(user_k_without_ts))) {
+          !bloom_->MayContain(
+              prefix_extractor_->Transform(user_k_without_ts))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -518,7 +520,8 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     // Extract prefix for insert with hint.
     if (insert_with_hint_prefix_extractor_ != nullptr &&
         insert_with_hint_prefix_extractor_->InDomain(key_without_ts)) {
-      Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_without_ts);
+      Slice prefix =
+          insert_with_hint_prefix_extractor_->Transform(key_without_ts);
       bool res = table->InsertKeyWithHint(handle, &insert_hints_[prefix]);
       if (UNLIKELY(!res)) {
         return Status::TryAgain("key+seq exists");
@@ -543,8 +546,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
 
     if (bloom_filter_ && prefix_extractor_ &&
         prefix_extractor_->InDomain(key_without_ts)) {
-      bloom_filter_->Add(
-          prefix_extractor_->Transform(key_without_ts));
+      bloom_filter_->Add(prefix_extractor_->Transform(key_without_ts));
     }
     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
       bloom_filter_->Add(key_without_ts);
@@ -580,7 +582,8 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
 
     if (bloom_filter_ && prefix_extractor_ &&
         prefix_extractor_->InDomain(key_without_ts)) {
-      bloom_filter_->AddConcurrently(prefix_extractor_->Transform(key_without_ts));
+      bloom_filter_->AddConcurrently(
+          prefix_extractor_->Transform(key_without_ts));
     }
     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
       bloom_filter_->AddConcurrently(key_without_ts);
@@ -832,13 +835,12 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
     // when both memtable_whole_key_filtering and prefix_extractor_ are set,
     // only do whole key filtering for Get() to save CPU
     if (moptions_.memtable_whole_key_filtering) {
-      may_contain =
-          bloom_filter_->MayContain(user_key_without_ts);
+      may_contain = bloom_filter_->MayContain(user_key_without_ts);
     } else {
       assert(prefix_extractor_);
-      may_contain =
-          !prefix_extractor_->InDomain(user_key_without_ts) ||
-          bloom_filter_->MayContain(prefix_extractor_->Transform(user_key_without_ts));
+      may_contain = !prefix_extractor_->InDomain(user_key_without_ts) ||
+                    bloom_filter_->MayContain(
+                        prefix_extractor_->Transform(user_key_without_ts));
     }
   }
 
