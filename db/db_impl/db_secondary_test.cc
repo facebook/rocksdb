@@ -104,7 +104,7 @@ void DBSecondaryTest::CheckFileTypeCounts(const std::string& dir,
     uint64_t number;
     FileType type;
     if (ParseFileName(file, &number, &type)) {
-      log_cnt += (type == kLogFile);
+      log_cnt += (type == kWalFile);
       sst_cnt += (type == kTableFile);
       manifest_cnt += (type == kDescriptorFile);
     }
@@ -883,6 +883,7 @@ TEST_F(DBSecondaryTest, StartFromInconsistent) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   Options options1;
+  options1.env = env_;
   Status s = TryOpenSecondary(options1);
   ASSERT_TRUE(s.IsCorruption());
 }
@@ -894,6 +895,7 @@ TEST_F(DBSecondaryTest, InconsistencyDuringCatchUp) {
   ASSERT_OK(Flush());
 
   Options options1;
+  options1.env = env_;
   OpenSecondary(options1);
 
   {

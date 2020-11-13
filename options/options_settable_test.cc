@@ -226,6 +226,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, wal_filter), sizeof(const WalFilter*)},
       {offsetof(struct DBOptions, file_checksum_gen_factory),
        sizeof(std::shared_ptr<FileChecksumGenFactory>)},
+      {offsetof(struct DBOptions, db_host_id), sizeof(std::string)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];
@@ -332,7 +333,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "write_dbid_to_manifest=false;"
                              "best_efforts_recovery=false;"
                              "max_bgerror_resume_count=2;"
-                             "bgerror_resume_retry_interval=1000000",
+                             "bgerror_resume_retry_interval=1000000"
+                             "db_host_id=hostname",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
@@ -502,6 +504,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "min_blob_size=256;"
       "blob_file_size=1000000;"
       "blob_compression_type=kBZip2Compression;"
+      "enable_blob_garbage_collection=true;"
+      "blob_garbage_collection_age_cutoff=0.5;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;};",
       new_options));

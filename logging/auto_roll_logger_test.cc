@@ -7,7 +7,6 @@
 #ifndef ROCKSDB_LITE
 
 #include "logging/auto_roll_logger.h"
-#include <errno.h>
 #include <sys/stat.h>
 #include <algorithm>
 #include <cmath>

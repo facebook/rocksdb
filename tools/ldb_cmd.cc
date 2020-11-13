@@ -24,7 +24,6 @@
 #include "db/write_batch_internal.h"
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"
-#include "port/port_dirent.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/table_properties.h"
@@ -1129,7 +1128,7 @@ void ManifestDumpCommand::DoCommand() {
         fname = file_path;
       }
       uint64_t file_num = 0;
-      FileType file_type = kLogFile;  // Just for initialization
+      FileType file_type = kWalFile;  // Just for initialization
       if (ParseFileName(fname, &file_num, &file_type) &&
           file_type == kDescriptorFile) {
         if (!matched_file.empty()) {
@@ -1672,7 +1671,7 @@ void DBDumperCommand::DoCommand() {
     }
 
     switch (type) {
-      case kLogFile:
+      case kWalFile:
         // TODO(myabandeh): allow configuring is_write_commited
         DumpWalFile(options_, path_, /* print_header_ */ true,
                     /* print_values_ */ true, true /* is_write_commited */,

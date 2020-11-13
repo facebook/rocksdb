@@ -32,7 +32,7 @@ jobs:
     - name: Download clang-format-diff.py
       uses: wei/wget@v1
       with:
-        args: https://raw.githubusercontent.com/llvm-mirror/clang/master/tools/clang-format/clang-format-diff.py
+        args: https://raw.githubusercontent.com/llvm/llvm-project/master/clang/tools/clang-format/clang-format-diff.py
 
     - name: Check format
       run: VERBOSE_CHECK=1 make check-format

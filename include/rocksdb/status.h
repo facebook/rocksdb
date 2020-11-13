@@ -162,8 +162,14 @@ class Status {
   static Status NotFound(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kNotFound, msg, msg2);
   }
+
   // Fast path for not found without malloc;
   static Status NotFound(SubCode msg = kNone) { return Status(kNotFound, msg); }
+
+  static Status NotFound(SubCode sc, const Slice& msg,
+                         const Slice& msg2 = Slice()) {
+    return Status(kNotFound, sc, msg, msg2);
+  }
 
   static Status Corruption(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kCorruption, msg, msg2);
@@ -463,7 +469,8 @@ class Status {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
     checked_ = true;
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
-    return (code() == kIOError) && (subcode() == kPathNotFound);
+    return (code() == kIOError || code() == kNotFound) &&
+           (subcode() == kPathNotFound);
   }
 
   // Returns true iff the status indicates manual compaction paused. This

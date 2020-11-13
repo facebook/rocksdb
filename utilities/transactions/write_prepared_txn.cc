@@ -104,8 +104,9 @@ Status WritePreparedTxn::PrepareInternal() {
   write_options.disableWAL = false;
   const bool WRITE_AFTER_COMMIT = true;
   const bool kFirstPrepareBatch = true;
-  WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_,
-                                     !WRITE_AFTER_COMMIT);
+  auto s = WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(),
+                                              name_, !WRITE_AFTER_COMMIT);
+  assert(s.ok());
   // For each duplicate key we account for a new sub-batch
   prepare_batch_cnt_ = GetWriteBatch()->SubBatchCnt();
   // Having AddPrepared in the PreReleaseCallback allows in-order addition of
@@ -116,10 +117,10 @@ Status WritePreparedTxn::PrepareInternal() {
       db_impl_->immutable_db_options().two_write_queues, kFirstPrepareBatch);
   const bool DISABLE_MEMTABLE = true;
   uint64_t seq_used = kMaxSequenceNumber;
-  Status s = db_impl_->WriteImpl(
-      write_options, GetWriteBatch()->GetWriteBatch(),
-      /*callback*/ nullptr, &log_number_, /*log ref*/ 0, !DISABLE_MEMTABLE,
-      &seq_used, prepare_batch_cnt_, &add_prepared_callback);
+  s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
+                          /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
+                          !DISABLE_MEMTABLE, &seq_used, prepare_batch_cnt_,
+                          &add_prepared_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   auto prepare_seq = seq_used;
   SetId(prepare_seq);
@@ -144,7 +145,8 @@ Status WritePreparedTxn::CommitInternal() {
   // The Memtable will ignore the Commit marker in non-recovery mode
   WriteBatch* working_batch = GetCommitTimeWriteBatch();
   const bool empty = working_batch->Count() == 0;
-  WriteBatchInternal::MarkCommit(working_batch, name_);
+  auto s = WriteBatchInternal::MarkCommit(working_batch, name_);
+  assert(s.ok());
 
   const bool for_recovery = use_only_the_last_commit_time_batch_for_recovery_;
   if (!empty && for_recovery) {
@@ -162,7 +164,7 @@ Status WritePreparedTxn::CommitInternal() {
     ROCKS_LOG_WARN(db_impl_->immutable_db_options().info_log,
                    "Duplicate key overhead");
     SubBatchCounter counter(*wpt_db_->GetCFComparatorMap());
-    auto s = working_batch->Iterate(&counter);
+    s = working_batch->Iterate(&counter);
     assert(s.ok());
     commit_batch_cnt = counter.BatchCount();
   }
@@ -188,9 +190,9 @@ Status WritePreparedTxn::CommitInternal() {
   // redundantly reference the log that contains the prepared data.
   const uint64_t zero_log_number = 0ull;
   size_t batch_cnt = UNLIKELY(commit_batch_cnt) ? commit_batch_cnt : 1;
-  auto s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
-                               zero_log_number, disable_memtable, &seq_used,
-                               batch_cnt, pre_release_callback);
+  s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
+                          zero_log_number, disable_memtable, &seq_used,
+                          batch_cnt, pre_release_callback);
   assert(!s.ok() || seq_used != kMaxSequenceNumber);
   const SequenceNumber commit_batch_seq = seq_used;
   if (LIKELY(do_one_write || !s.ok())) {
@@ -217,9 +219,11 @@ Status WritePreparedTxn::CommitInternal() {
       wpt_db_, db_impl_, prepare_seq, prepare_batch_cnt_, kZeroData,
       commit_batch_seq, commit_batch_cnt);
   WriteBatch empty_batch;
-  empty_batch.PutLogData(Slice());
+  s = empty_batch.PutLogData(Slice());
+  assert(s.ok());
   // In the absence of Prepare markers, use Noop as a batch separator
-  WriteBatchInternal::InsertNoop(&empty_batch);
+  s = WriteBatchInternal::InsertNoop(&empty_batch);
+  assert(s.ok());
   const bool DISABLE_MEMTABLE = true;
   const size_t ONE_BATCH = 1;
   const uint64_t NO_REF_LOG = 0;
@@ -347,12 +351,12 @@ Status WritePreparedTxn::RollbackInternal() {
                      wpt_db_->txn_db_options_.rollback_merge_operands,
                      roptions);
   auto s = GetWriteBatch()->GetWriteBatch()->Iterate(&rollback_handler);
-  assert(s.ok());
   if (!s.ok()) {
     return s;
   }
   // The Rollback marker will be used as a batch separator
-  WriteBatchInternal::MarkRollback(&rollback_batch, name_);
+  s = WriteBatchInternal::MarkRollback(&rollback_batch, name_);
+  assert(s.ok());
   bool do_one_write = !db_impl_->immutable_db_options().two_write_queues;
   const bool DISABLE_MEMTABLE = true;
   const uint64_t NO_REF_LOG = 0;
@@ -402,9 +406,11 @@ Status WritePreparedTxn::RollbackInternal() {
   WritePreparedRollbackPreReleaseCallback update_commit_map_with_prepare(
       wpt_db_, db_impl_, GetId(), rollback_seq, prepare_batch_cnt_);
   WriteBatch empty_batch;
-  empty_batch.PutLogData(Slice());
+  s = empty_batch.PutLogData(Slice());
+  assert(s.ok());
   // In the absence of Prepare markers, use Noop as a batch separator
-  WriteBatchInternal::InsertNoop(&empty_batch);
+  s = WriteBatchInternal::InsertNoop(&empty_batch);
+  assert(s.ok());
   s = db_impl_->WriteImpl(write_options_, &empty_batch, nullptr, nullptr,
                           NO_REF_LOG, DISABLE_MEMTABLE, &seq_used, ONE_BATCH,
                           &update_commit_map_with_prepare);

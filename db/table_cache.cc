@@ -502,8 +502,8 @@ Status TableCache::MultiGet(const ReadOptions& options,
 
     for (auto miter = table_range.begin(); miter != table_range.end();
          ++miter) {
-      const Slice& user_key = miter->ukey;
-      ;
+      const Slice& user_key = miter->ukey_with_ts;
+
       GetContext* get_context = miter->get_context;
 
       if (GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix_size,
@@ -539,9 +539,9 @@ Status TableCache::MultiGet(const ReadOptions& options,
              ++iter) {
           SequenceNumber* max_covering_tombstone_seq =
               iter->get_context->max_covering_tombstone_seq();
-          *max_covering_tombstone_seq =
-              std::max(*max_covering_tombstone_seq,
-                       range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey));
+          *max_covering_tombstone_seq = std::max(
+              *max_covering_tombstone_seq,
+              range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey_with_ts));
         }
       }
     }
@@ -566,7 +566,7 @@ Status TableCache::MultiGet(const ReadOptions& options,
     for (auto miter = table_range.begin(); miter != table_range.end();
          ++miter) {
       std::string& row_cache_entry = row_cache_entries[row_idx++];
-      const Slice& user_key = miter->ukey;
+      const Slice& user_key = miter->ukey_with_ts;
       ;
       GetContext* get_context = miter->get_context;
 

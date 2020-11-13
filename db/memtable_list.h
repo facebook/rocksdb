@@ -389,6 +389,13 @@ class MemTableList {
   // DB mutex held
   void InstallNewVersion();
 
+  // DB mutex held
+  // Called after writing to MANIFEST
+  void RemoveMemTablesOrRestoreFlags(const Status& s, ColumnFamilyData* cfd,
+                                     size_t batch_count, LogBuffer* log_buffer,
+                                     autovector<MemTable*>* to_delete,
+                                     InstrumentedMutex* mu);
+
   const int min_write_buffer_number_to_merge_;
 
   MemTableListVersion* current_;

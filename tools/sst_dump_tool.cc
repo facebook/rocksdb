@@ -238,12 +238,13 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       Slice sl_key = ROCKSDB_NAMESPACE::Slice(in_key);
       ParsedInternalKey ikey;
       int retc = 0;
-      if (ParseInternalKey(sl_key, &ikey) != Status::OK()) {
-        std::cerr << "Internal Key [" << sl_key.ToString(true /* in hex*/)
-                  << "] parse error!\n";
+      Status pik_status =
+          ParseInternalKey(sl_key, &ikey, true /* log_err_key */);
+      if (!pik_status.ok()) {
+        std::cerr << pik_status.getState() << "\n";
         retc = -1;
       }
-      fprintf(stdout, "key=%s\n", ikey.DebugString(true).c_str());
+      fprintf(stdout, "key=%s\n", ikey.DebugString(true, true).c_str());
       return retc;
     } else if (ParseIntArg(argv[i], "--compression_level_from=",
                            "compression_level_from must be numeric",

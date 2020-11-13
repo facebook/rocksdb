@@ -123,7 +123,11 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
 
     // "number <= current_log_number - 1" is equivalent to
     // "number < current_log_number".
-    MarkLogsSynced(current_log_number - 1, true, io_s);
+    if (io_s.ok()) {
+      io_s = status_to_io_status(MarkLogsSynced(current_log_number - 1, true));
+    } else {
+      MarkLogsNotSynced(current_log_number - 1);
+    }
     if (!io_s.ok()) {
       if (total_log_size_ > 0) {
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
@@ -792,7 +796,9 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     // changes to RangesOverlapWithMemtables.
     Range range(*begin, *end);
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
-    cfd->RangesOverlapWithMemtables({range}, super_version, &flush_needed);
+    cfd->RangesOverlapWithMemtables({range}, super_version,
+                                    immutable_db_options_.allow_data_in_errors,
+                                    &flush_needed);
     CleanupSuperVersion(super_version);
   }
 
@@ -950,7 +956,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
       s = ReFitLevel(cfd, final_output_level, options.target_level);
       TEST_SYNC_POINT("DBImpl::CompactRange:PostRefitLevel");
       // ContinueBackgroundWork always return Status::OK().
-      assert(ContinueBackgroundWork().ok());
+      Status temp_s = ContinueBackgroundWork();
+      assert(temp_s.ok());
     }
     EnableManualCompaction();
   }
@@ -1146,9 +1153,10 @@ Status DBImpl::CompactFilesImpl(
       job_context->job_id, c.get(), immutable_db_options_,
       file_options_for_compaction_, versions_.get(), &shutting_down_,
       preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
-      GetDataDir(c->column_family_data(), c->output_path_id()), stats_, &mutex_,
-      &error_handler_, snapshot_seqs, earliest_write_conflict_snapshot,
-      snapshot_checker, table_cache_, &event_logger_,
+      GetDataDir(c->column_family_data(), c->output_path_id()),
+      GetDataDir(c->column_family_data(), 0), stats_, &mutex_, &error_handler_,
+      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
+      table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER, io_tracer_,
@@ -2953,10 +2961,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         job_context->job_id, c.get(), immutable_db_options_,
         file_options_for_compaction_, versions_.get(), &shutting_down_,
         preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
-        GetDataDir(c->column_family_data(), c->output_path_id()), stats_,
-        &mutex_, &error_handler_, snapshot_seqs,
-        earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
-        &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
+        GetDataDir(c->column_family_data(), c->output_path_id()),
+        GetDataDir(c->column_family_data(), 0), stats_, &mutex_,
+        &error_handler_, snapshot_seqs, earliest_write_conflict_snapshot,
+        snapshot_checker, table_cache_, &event_logger_,
+        c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats, thread_pri, io_tracer_,
         is_manual ? &manual_compaction_paused_ : nullptr, db_id_,

@@ -9,7 +9,6 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -33,12 +32,13 @@
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-static const int kValueSize = 1000;
+static constexpr int kValueSize = 1000;
 
 class CorruptionTest : public testing::Test {
  public:
@@ -69,9 +69,16 @@ class CorruptionTest : public testing::Test {
   }
 
   ~CorruptionTest() override {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->LoadDependency({});
+    SyncPoint::GetInstance()->ClearAllCallBacks();
     delete db_;
     db_ = nullptr;
-    DestroyDB(dbname_, Options());
+    if (getenv("KEEP_DB")) {
+      fprintf(stdout, "db is still at %s\n", dbname_.c_str());
+    } else {
+      EXPECT_OK(DestroyDB(dbname_, Options()));
+    }
   }
 
   void CloseDb() {
@@ -184,7 +191,7 @@ class CorruptionTest : public testing::Test {
     }
     ASSERT_TRUE(!fname.empty()) << filetype;
 
-    test::CorruptFile(fname, offset, bytes_to_corrupt);
+    ASSERT_OK(test::CorruptFile(&env_, fname, offset, bytes_to_corrupt));
   }
 
   // corrupts exactly one file at level `level`. if no file found at level,
@@ -194,7 +201,8 @@ class CorruptionTest : public testing::Test {
     db_->GetLiveFilesMetaData(&metadata);
     for (const auto& m : metadata) {
       if (m.level == level) {
-        test::CorruptFile(dbname_ + "/" + m.name, offset, bytes_to_corrupt);
+        ASSERT_OK(test::CorruptFile(&env_, dbname_ + "/" + m.name, offset,
+                                    bytes_to_corrupt));
         return;
       }
     }
@@ -249,8 +257,8 @@ TEST_F(CorruptionTest, Recovery) {
   // is not available for WAL though.
   CloseDb();
 #endif
-  Corrupt(kLogFile, 19, 1);      // WriteBatch tag for first record
-  Corrupt(kLogFile, log::kBlockSize + 1000, 1);  // Somewhere in second block
+  Corrupt(kWalFile, 19, 1);  // WriteBatch tag for first record
+  Corrupt(kWalFile, log::kBlockSize + 1000, 1);  // Somewhere in second block
   ASSERT_TRUE(!TryReopen().ok());
   options_.paranoid_checks = false;
   Reopen(&options_);
@@ -529,7 +537,8 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
       ImmutableCFOptions(options_), kRangeDelBlock, &range_del_handle));
 
   ASSERT_OK(TryReopen());
-  test::CorruptFile(filename, static_cast<int>(range_del_handle.offset()), 1);
+  ASSERT_OK(test::CorruptFile(&env_, filename,
+                              static_cast<int>(range_del_handle.offset()), 1));
   ASSERT_TRUE(TryReopen().IsCorruption());
 }
 
@@ -544,7 +553,7 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
     DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
     std::vector<LiveFileMetaData> metadata;
     dbi->GetLiveFilesMetaData(&metadata);
-    ASSERT_GT(metadata.size(), size_t(0));
+    ASSERT_GT(metadata.size(), 0);
     std::string filename = dbname_ + metadata[0].name;
 
     delete db_;
@@ -560,7 +569,7 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
     } else {  // delete the file
       ASSERT_OK(env_.DeleteFile(filename));
       Status x = TryReopen(&options);
-      ASSERT_TRUE(x.IsPathNotFound());
+      ASSERT_TRUE(x.IsCorruption());
     }
 
     ASSERT_OK(DestroyDB(dbname_, options_));
@@ -822,6 +831,41 @@ TEST_F(CorruptionTest, DisableKeyOrderCheck) {
   ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
+  CloseDb();
+  Options options;
+  options.env = &env_;
+  ASSERT_OK(DestroyDB(dbname_, options));
+  options.create_if_missing = true;
+  options.file_checksum_gen_factory =
+      ROCKSDB_NAMESPACE::GetFileChecksumGenCrc32cFactory();
+  Reopen(&options);
+
+  Build(10, 5);
+
+  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+  CloseDb();
+
+  // Corrupt the first byte of each table file, this must be data block.
+  Corrupt(kTableFile, 0, 1);
+
+  ASSERT_OK(TryReopen(&options));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  int count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::VerifySstFileChecksum:mismatch", [&](void* arg) {
+        auto* s = reinterpret_cast<Status*>(arg);
+        assert(s);
+        ++count;
+        ASSERT_NOK(*s);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsCorruption());
+  ASSERT_EQ(1, count);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
