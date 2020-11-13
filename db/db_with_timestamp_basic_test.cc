@@ -1082,6 +1082,7 @@ TEST_P(DBBasicTestWithTimestampFilterPrefixSettings, GetAndMultiGet) {
       ASSERT_OK(db_->Get(read_opts, keys[i], &value));
       std::unique_ptr<Iterator> it1(db_->NewIterator(read_opts));
       ASSERT_NE(nullptr, it1);
+      ASSERT_OK(it1->status());
       // TODO(zjay) Fix seek with prefix
       // it1->Seek(keys[i]);
       // ASSERT_TRUE(it1->Valid());
@@ -1089,7 +1090,8 @@ TEST_P(DBBasicTestWithTimestampFilterPrefixSettings, GetAndMultiGet) {
 
     for (int i = 2; i < 4; i++) {
       std::string value;
-      ASSERT_TRUE(db_->Get(read_opts, keys[i], &value).IsNotFound());
+      Status s = db_->Get(read_opts, keys[i], &value);
+      ASSERT_TRUE(s.IsNotFound());
     }
   }
   Close();
