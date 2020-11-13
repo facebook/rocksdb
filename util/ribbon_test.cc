@@ -14,12 +14,36 @@
 
 #ifndef GFLAGS
 uint32_t FLAGS_thoroughness = 5;
+bool FLAGS_find_occ = false;
+double FLAGS_find_next_factor = 1.414;
+double FLAGS_find_success = 0.95;
+double FLAGS_find_delta_start = 0.01;
+double FLAGS_find_delta_end = 0.0001;
+double FLAGS_find_delta_shrink = 0.99;
+uint32_t FLAGS_find_min_slots = 128;
+uint32_t FLAGS_find_max_slots = 12800000;
 #else
 #include "util/gflags_compat.h"
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 // Using 500 is a good test when you have time to be thorough.
 // Default is for general RocksDB regression test runs.
 DEFINE_uint32(thoroughness, 5, "iterations per configuration");
+
+// Options for FindOccupancyForSuccessRate, which is more of a tool
+// than a test.
+DEFINE_bool(find_occ, false,
+            "whether to run the FindOccupancyForSuccessRate tool");
+DEFINE_double(find_next_factor, 1.414,
+              "target success rate for FindOccupancyForSuccessRate");
+DEFINE_double(find_success, 0.95,
+              "target success rate for FindOccupancyForSuccessRate");
+DEFINE_double(find_delta_start, 0.01, " for FindOccupancyForSuccessRate");
+DEFINE_double(find_delta_end, 0.0001, " for FindOccupancyForSuccessRate");
+DEFINE_double(find_delta_shrink, 0.99, " for FindOccupancyForSuccessRate");
+DEFINE_uint32(find_min_slots, 128,
+              "number of slots for FindOccupancyForSuccessRate");
+DEFINE_uint32(find_max_slots, 12800000,
+              "number of slots for FindOccupancyForSuccessRate");
 #endif  // GFLAGS
 
 template <typename TypesAndSettings>
@@ -41,6 +65,11 @@ struct StandardKeyGen {
   // Prefix (only one required)
   StandardKeyGen& operator++() {
     ++id_;
+    return *this;
+  }
+
+  StandardKeyGen& operator+=(uint64_t i) {
+    id_ += i;
     return *this;
   }
 
@@ -78,6 +107,11 @@ struct SmallKeyGen {
   // Prefix (only one required)
   SmallKeyGen& operator++() {
     ++id_;
+    return *this;
+  }
+
+  SmallKeyGen& operator+=(uint64_t i) {
+    id_ += i;
     return *this;
   }
 
@@ -325,8 +359,8 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
 
     Index num_slots = static_cast<Index>(num_to_add * kFactor);
     if (test_interleaved) {
-      // Round to nearest multiple of kCoeffBits
-      num_slots = ((num_slots + kCoeffBits / 2) / kCoeffBits) * kCoeffBits;
+      // Round to supported number of slots
+      num_slots = InterleavedSoln::RoundUpNumSlots(num_slots);
       // Re-adjust num_to_add to get as close as possible to kFactor
       num_to_add = static_cast<uint32_t>(num_slots / kFactor);
     }
@@ -838,6 +872,55 @@ TEST(RibbonTest, PhsfBasic) {
     ASSERT_EQ(cur->second, isoln.PhsfQuery(cur->first, hasher));
   }
 }
+
+// Not a real test, but a tool used to build GetNumSlotsFor95PctSuccess
+TYPED_TEST(RibbonTypeParamTest, FindOccupancyForSuccessRate) {
+  IMPORT_RIBBON_TYPES_AND_SETTINGS(TypeParam);
+  IMPORT_RIBBON_IMPL_TYPES(TypeParam);
+  using KeyGen = typename TypeParam::KeyGen;
+
+  if (!FLAGS_find_occ) {
+    fprintf(stderr, "Tool disabled during unit test runs\n");
+    return;
+  }
+
+  KeyGen cur("blah", 0);
+
+  Banding banding;
+  Index num_slots = InterleavedSoln::RoundUpNumSlots(FLAGS_find_min_slots);
+  while (num_slots < FLAGS_find_max_slots) {
+    double factor = 0.95;
+    double delta = FLAGS_find_delta_start;
+    while (delta > FLAGS_find_delta_end) {
+      Index num_to_add = static_cast<Index>(factor * num_slots);
+      KeyGen end = cur;
+      end += num_to_add;
+      bool success = banding.ResetAndFindSeedToSolve(num_slots, cur, end, 0, 0);
+      cur = end;  // fresh keys
+      if (success) {
+        factor += delta * (1.0 - FLAGS_find_success);
+        factor = std::min(factor, 1.0);
+      } else {
+        factor -= delta * FLAGS_find_success;
+        factor = std::max(factor, 0.0);
+      }
+      delta *= FLAGS_find_delta_shrink;
+      fprintf(stderr,
+              "slots: %u log2_slots: %g target_success: %g ->overhead: %g\r",
+              static_cast<unsigned>(num_slots),
+              std::log(num_slots * 1.0) / std::log(2.0), FLAGS_find_success,
+              1.0 / factor);
+    }
+    fprintf(stderr, "\n");
+
+    num_slots = std::max(
+        num_slots + 1, static_cast<Index>(num_slots * FLAGS_find_next_factor));
+    num_slots = InterleavedSoln::RoundUpNumSlots(num_slots);
+  }
+}
+
+// TODO: unit tests for configuration APIs
+// TODO: unit tests for small filter FP rates
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

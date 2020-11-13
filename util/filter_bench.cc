@@ -80,7 +80,8 @@ DEFINE_bool(new_builder, false,
 
 DEFINE_uint32(impl, 0,
               "Select filter implementation. Without -use_plain_table_bloom:"
-              "0 = full filter, 1 = block-based filter. With "
+              "0 = legacy full Bloom filter, 1 = block-based Bloom filter, "
+              "2 = format_version 5 Bloom filter, 3 = Ribbon128 filter. With "
               "-use_plain_table_bloom: 0 = no locality, 1 = locality.");
 
 DEFINE_bool(net_includes_hashing, false,
@@ -306,9 +307,9 @@ void FilterBench::Go() {
       throw std::runtime_error(
           "Block-based filter not currently supported by filter_bench");
     }
-    if (FLAGS_impl > 2) {
+    if (FLAGS_impl > 3) {
       throw std::runtime_error(
-          "-impl must currently be 0 or 2 for Block-based table");
+          "-impl must currently be 0, 2, or 3 for Block-based table");
     }
   }
 

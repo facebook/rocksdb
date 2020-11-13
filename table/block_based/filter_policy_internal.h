@@ -29,6 +29,10 @@ class BuiltinFilterBitsBuilder : public FilterBitsBuilder {
   // return >= the num_entry passed in.
   virtual uint32_t CalculateSpace(const int num_entry) = 0;
 
+  // A somewhat expensive but workable default implementation
+  // using binary search on CalculateSpace
+  int CalculateNumEntry(const uint32_t bytes) override;
+
   // Returns an estimate of the FP rate of the returned filter if
   // `keys` keys are added and the filter returned by Finish is `bytes`
   // bytes.
@@ -64,10 +68,12 @@ class BloomFilterPolicy : public FilterPolicy {
     // FastLocalBloomImpl.
     // NOTE: TESTING ONLY as this mode does not check format_version
     kFastLocalBloom = 2,
-    // Automatically choose from the above (except kDeprecatedBlock) based on
+    // A Bloom alternative saving about 30% space for ~3-4x construction
+    // CPU time. See ribbon_alg.h and ribbon_impl.h.
+    kStandard128Ribbon = 3,
+    // Automatically choose between kLegacyBloom and kFastLocalBloom based on
     // context at build time, including compatibility with format_version.
-    // NOTE: This is currently the only recommended mode that is user exposed.
-    kAuto = 100,
+    kAutoBloom = 100,
   };
   // All the different underlying implementations that a BloomFilterPolicy
   // might use, as a mode that says "always use this implementation."
@@ -115,8 +121,12 @@ class BloomFilterPolicy : public FilterPolicy {
   int GetMillibitsPerKey() const { return millibits_per_key_; }
   // Essentially for testing only: legacy whole bits/key
   int GetWholeBitsPerKey() const { return whole_bits_per_key_; }
+  // Testing only
+  Mode GetMode() const { return mode_; }
 
  private:
+  // Bits per key settings are for configuring Bloom filters.
+
   // Newer filters support fractional bits per key. For predictable behavior
   // of 0.001-precision values across floating point implementations, we
   // round to thousandths of a bit (on average) per key.
@@ -126,6 +136,10 @@ class BloomFilterPolicy : public FilterPolicy {
   // compatibility issue with fractional bits per key, but preserving old
   // behavior with format_version < 5 just in case.)
   int whole_bits_per_key_;
+
+  // For configuring Ribbon filter: a desired value for 1/fp_rate. For
+  // example, 100 -> 1% fp rate.
+  double desired_one_in_fp_rate_;
 
   // Selected mode (a specific implementation or way of selecting an
   // implementation) for building new SST filters.
@@ -147,6 +161,9 @@ class BloomFilterPolicy : public FilterPolicy {
 
   // For newer Bloom filter implementation(s)
   FilterBitsReader* GetBloomBitsReader(const Slice& contents) const;
+
+  // For Ribbon filter implementation(s)
+  FilterBitsReader* GetRibbonBitsReader(const Slice& contents) const;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
