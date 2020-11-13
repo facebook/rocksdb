@@ -340,7 +340,9 @@ Options DBTestBase::GetDefaultOptions() const {
   options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   options.compaction_pri = CompactionPri::kByCompensatedSize;
   options.env = env_;
-  options.track_and_verify_wals_in_manifest = true;
+  if (!env_->skip_fsync_) {
+    options.track_and_verify_wals_in_manifest = true;
+  }
   return options;
 }
 
