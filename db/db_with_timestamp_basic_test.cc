@@ -39,6 +39,14 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
     return prefix + ret;
   }
 
+  static std::vector<Slice> ConvertStrToSlice(std::vector<std::string>& strings) {
+    std::vector<Slice> ret;
+    for (auto& s : strings) {
+      ret.emplace_back(s);
+    }
+    return ret;
+  }
+
   class TestComparator : public Comparator {
    private:
     const Comparator* cmp_without_ts_;
@@ -1046,15 +1054,18 @@ TEST_P(DBBasicTestWithTimestampFilterPrefixSettings, GetAndMultiGet) {
 
   for (idx = 0; idx < kMaxKey; idx++) {
     size_t batch_size = 4;
-    std::vector<Slice> keys(batch_size);
+    std::vector<std::string> keys_str(batch_size);
     std::vector<PinnableSlice> values(batch_size);
     std::vector<Status> statuses(batch_size);
     ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
 
-    keys[0] = Key1(idx);
-    keys[1] = KeyWithPrefix("foo", idx);
-    keys[2] = Key1(kMaxKey + idx);
-    keys[2] = KeyWithPrefix("foo", kMaxKey + idx);
+    keys_str[0] = Key1(idx);
+    keys_str[1] = KeyWithPrefix("foo", idx);
+    keys_str[2] = Key1(kMaxKey + idx);
+    keys_str[3] = KeyWithPrefix("foo", kMaxKey + idx);
+
+    auto keys = ConvertStrToSlice(keys_str);
+
     db_->MultiGet(read_opts, cfh, batch_size, keys.data(), values.data(),
                   statuses.data());
 

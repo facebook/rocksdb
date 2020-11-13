@@ -506,6 +506,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
 
   char* p = EncodeVarint32(buf, internal_key_size);
   memcpy(p, key.data(), key_size);
+  Slice key_slice(p, key_size);
   p += key_size;
   uint64_t packed = PackSequenceAndType(s, type);
   EncodeFixed64(p, packed);
@@ -519,9 +520,9 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   if (!allow_concurrent) {
     // Extract prefix for insert with hint.
     if (insert_with_hint_prefix_extractor_ != nullptr &&
-        insert_with_hint_prefix_extractor_->InDomain(key_without_ts)) {
+        insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
       Slice prefix =
-          insert_with_hint_prefix_extractor_->Transform(key_without_ts);
+          insert_with_hint_prefix_extractor_->Transform(key_slice);
       bool res = table->InsertKeyWithHint(handle, &insert_hints_[prefix]);
       if (UNLIKELY(!res)) {
         return Status::TryAgain("key+seq exists");
