@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.13.4 (11/15/2020)
+### Bug Fixes
+* Fix a bug of encoding and parsing BlockBasedTableOptions::read_amp_bytes_per_bit as a 64-bit integer.
+
 ## 6.13.3 (10/14/2020)
 ### Bug Fixes
 * Fix a bug that could cause a stalled write to crash with mixed of slowdown and no_slowdown writes (`WriteOptions.no_slowdown=true`).
