@@ -1110,6 +1110,10 @@ class DBImpl : public DB {
   // If need_enter_write_thread = false, the method will enter write thread.
   Status WriteOptionsFile(bool need_mutex_lock, bool need_enter_write_thread);
 
+  Status CompactRangeInternal(const CompactRangeOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice* begin, const Slice* end);
+
   // The following two functions can only be called when:
   // 1. WriteThread::Writer::EnterUnbatched() is used.
   // 2. db_mutex is NOT held

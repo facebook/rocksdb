@@ -781,7 +781,36 @@ void DBImpl::NotifyOnFlushCompleted(
 
 Status DBImpl::CompactRange(const CompactRangeOptions& options,
                             ColumnFamilyHandle* column_family,
-                            const Slice* begin, const Slice* end) {
+                            const Slice* begin_without_ts,
+                            const Slice* end_without_ts) {
+  auto ts_sz = column_family->GetComparator()->timestamp_size();
+  if (ts_sz == 0) {
+    return CompactRangeInternal(options, column_family, begin_without_ts,
+                                end_without_ts);
+  } else {
+    std::string begin_str;
+    std::string end_str;
+
+    if (begin_without_ts != nullptr) {
+      AppendKeyWithMinTimestamp(&begin_str, *begin_without_ts, ts_sz);
+    }
+    if (end_without_ts != nullptr) {
+      AppendKeyWithMaxTimestamp(&end_str, *end_without_ts, ts_sz);
+    }
+    Slice begin(begin_str);
+    Slice end(end_str);
+
+    Slice* begin_with_ts = begin_without_ts ? &begin : nullptr;
+    Slice* end_with_ts = end_without_ts ? &end : nullptr;
+
+    return CompactRangeInternal(options, column_family, begin_with_ts,
+                                end_with_ts);
+  }
+}
+
+Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
+                                    ColumnFamilyHandle* column_family,
+                                    const Slice* begin, const Slice* end) {
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
 

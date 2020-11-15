@@ -195,6 +195,34 @@ class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
       : DBBasicTestWithTimestampBase("db_basic_test_with_timestamp") {}
 };
 
+TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
+
+  ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
+  Flush();
+
+  ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
+  Flush();
+
+  std::string start_str = "foo";
+  std::string end_str = "foo2";
+  Slice start(start_str), end(end_str);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 1024;
