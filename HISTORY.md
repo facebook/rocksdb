@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.11.7 (11/15/2020)
+### Bug Fixes
+* Fix a bug of encoding and parsing BlockBasedTableOptions::read_amp_bytes_per_bit as a 64-bit integer.
+
 ## 6.11.6 (10/12/2020)
 ### Bug Fixes
 * Fixed a bug in the following combination of features: indexes with user keys (`format_version >= 3`), indexes are partitioned (`index_type == kTwoLevelIndexSearch`), and some index partitions are pinned in memory (`BlockBasedTableOptions::pin_l0_filter_and_index_blocks_in_cache`). The bug could cause keys to be truncated when read from the index leading to wrong read results or other unexpected behavior.
