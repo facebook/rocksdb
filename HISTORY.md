@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.12.8 (2020-11-15)
+### Bug Fixes
+* Fix a bug of encoding and parsing BlockBasedTableOptions::read_amp_bytes_per_bit as a 64-bit integer.
+
 ## 6.12.7 (2020-10-14)
 ### Other
 Fix build issue to enable RocksJava release for ppc64le
