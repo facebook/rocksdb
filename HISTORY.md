@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.10.4 (11/15/2020)
+### Bug fix
+* Fix a bug of encoding and parsing BlockBasedTableOptions::read_amp_bytes_per_bit as a 64-bit integer.
+
 ## 6.10.3 (6/16/2020)
 ### Bug fix
 * Fix potential file descriptor leakage in PosixEnv's IsDirectory() and NewRandomAccessFile().
