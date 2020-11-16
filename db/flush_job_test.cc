@@ -32,7 +32,7 @@ class FlushJobTestBase : public testing::Test {
  protected:
   FlushJobTestBase(std::string dbname, const Comparator* ucmp)
       : env_(Env::Default()),
-        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
+        fs_(env_->GetFileSystem()),
         dbname_(std::move(dbname)),
         ucmp_(ucmp),
         options_(),

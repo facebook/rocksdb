@@ -2416,12 +2416,12 @@ class OptionsParserTest : public testing::Test {
  public:
   OptionsParserTest() {
     env_.reset(new test::StringEnv(Env::Default()));
-    fs_.reset(new LegacyFileSystemWrapper(env_.get()));
+    fs_ = env_->GetFileSystem();
   }
 
  protected:
   std::unique_ptr<test::StringEnv> env_;
-  std::unique_ptr<LegacyFileSystemWrapper> fs_;
+  std::shared_ptr<FileSystem> fs_;
 };
 
 TEST_F(OptionsParserTest, Comment) {

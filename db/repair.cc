@@ -439,7 +439,6 @@ class Repairer {
         range_del_iters.emplace_back(range_del_iter);
       }
 
-      LegacyFileSystemWrapper fs(env_);
       IOStatus io_s;
       status = BuildTable(
           dbname_, /* versions */ nullptr, immutable_db_options_,

@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
-#include "env/composite_env_wrapper.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/sst_file_manager.h"
@@ -485,13 +484,7 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   bool delete_existing_trash, Status* status,
                                   double max_trash_db_ratio,
                                   uint64_t bytes_max_delete_chunk) {
-  std::shared_ptr<FileSystem> fs;
-
-  if (env == Env::Default()) {
-    fs = FileSystem::Default();
-  } else {
-    fs.reset(new LegacyFileSystemWrapper(env));
-  }
+  const auto& fs = env->GetFileSystem();
 
   return NewSstFileManager(env, fs, info_log, trash_dir, rate_bytes_per_sec,
                            delete_existing_trash, status, max_trash_db_ratio,

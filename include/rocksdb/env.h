@@ -1663,6 +1663,6 @@ Env* NewTimedEnv(Env* base_env);
 Status NewEnvLogger(const std::string& fname, Env* env,
                     std::shared_ptr<Logger>* result);
 
-std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs);
+std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs);
 
 }  // namespace ROCKSDB_NAMESPACE

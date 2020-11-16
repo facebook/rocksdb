@@ -1048,7 +1048,8 @@ class FSDirectory {
 class FileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit FileSystemWrapper(std::shared_ptr<FileSystem> t) : target_(t) {}
+  explicit FileSystemWrapper(const std::shared_ptr<FileSystem>& t)
+      : target_(t) {}
   ~FileSystemWrapper() override {}
 
   const char* Name() const override { return target_->Name(); }
