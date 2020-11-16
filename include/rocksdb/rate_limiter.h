@@ -132,6 +132,8 @@ class RateLimiter : public Customizable {
     return true;
   }
 
+  virtual void PaceUp() {}
+
  protected:
   Mode GetMode() { return mode_; }
 

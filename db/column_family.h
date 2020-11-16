@@ -482,7 +482,8 @@ class ColumnFamilyData {
   // DBImpl::MakeRoomForWrite function to decide, if it need to make
   // a write stall
   WriteStallCondition RecalculateWriteStallConditions(
-      const MutableCFOptions& mutable_cf_options);
+      const MutableCFOptions& mutable_cf_options,
+      RateLimiter* rate_limiter = nullptr);
 
   void set_initialized() { initialized_.store(true); }
 
