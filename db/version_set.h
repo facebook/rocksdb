@@ -1137,6 +1137,8 @@ class VersionSet {
     }
     return min_log_num;
   }
+  // Returns the minimum log number which still has data not flushed to any SST
+  // file, except data from `cfds_to_skip`.
   uint64_t PreComputeMinLogNumberWithUnflushedData(
       const std::unordered_set<const ColumnFamilyData*>& cfds_to_skip) const {
     uint64_t min_log_num = port::kMaxUint64;

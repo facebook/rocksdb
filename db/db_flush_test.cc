@@ -654,6 +654,7 @@ TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
   CreateAndReopenWithCF({"pikachu"}, options);
 
   const size_t num_cfs = handles_.size();
+  ASSERT_EQ(num_cfs, 2);
   WriteOptions wopts;
   for (size_t i = 0; i != num_cfs; ++i) {
     ASSERT_OK(Put(static_cast<int>(i) /*cf*/, "key", "value", wopts));
@@ -671,8 +672,8 @@ TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
     flush_edits.push_back({});
     auto unflushed_cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[1]);
 
-    ASSERT_EQ(dbfull()->TEST_PrecomputeMinLogNumberToKeepNon2PC(flushed_cfds,
-                                                                flush_edits),
+    ASSERT_EQ(PrecomputeMinLogNumberToKeepNon2PC(dbfull()->TEST_GetVersionSet(),
+                                                 flushed_cfds, flush_edits),
               unflushed_cfh->cfd()->GetLogNumber());
   }
 

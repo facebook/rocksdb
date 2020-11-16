@@ -1017,12 +1017,9 @@ class DBImpl : public DB {
 
   VersionSet* TEST_GetVersionSet() const { return versions_.get(); }
 
-  uint64_t TEST_PrecomputeMinLogNumberToKeepNon2PC(
-      const autovector<ColumnFamilyData*>& cfds_to_flush,
-      const autovector<autovector<VersionEdit*>>& edit_lists);
-
   uint64_t TEST_GetCurrentLogNumber() const {
     InstrumentedMutexLock l(mutex());
+    assert(!logs_.empty());
     return logs_.back().number;
   }
 

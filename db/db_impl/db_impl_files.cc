@@ -747,15 +747,6 @@ uint64_t PrecomputeMinLogNumberToKeepNon2PC(
   return min_log_number_to_keep;
 }
 
-#ifndef NDEBUG
-uint64_t DBImpl::TEST_PrecomputeMinLogNumberToKeepNon2PC(
-    const autovector<ColumnFamilyData*>& cfds_to_flush,
-    const autovector<autovector<VersionEdit*>>& edit_lists) {
-  return PrecomputeMinLogNumberToKeepNon2PC(versions_.get(), cfds_to_flush,
-                                            edit_lists);
-}
-#endif
-
 uint64_t PrecomputeMinLogNumberToKeep2PC(
     VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
     const autovector<VersionEdit*>& edit_list,
