@@ -3498,6 +3498,8 @@ uint64_t rocksdb_perfcontext_metric(rocksdb_perfcontext_t* context,
       return rep->seek_internal_seek_time;
     case rocksdb_find_next_user_entry_time:
       return rep->find_next_user_entry_time;
+    case rocksdb_find_prev_user_entry_time:
+      return rep->find_prev_user_entry_time;
     case rocksdb_write_wal_time:
       return rep->write_wal_time;
     case rocksdb_write_memtable_time:

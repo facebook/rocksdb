@@ -172,6 +172,7 @@ PerfContext::PerfContext(PerfContext&& other) noexcept {
   seek_min_heap_time = other.seek_min_heap_time;
   seek_internal_seek_time = other.seek_internal_seek_time;
   find_next_user_entry_time = other.find_next_user_entry_time;
+  find_prev_user_entry_time = other.find_prev_user_entry_time;
   write_pre_and_post_process_time = other.write_pre_and_post_process_time;
   write_memtable_time = other.write_memtable_time;
   write_delay_time = other.write_delay_time;
@@ -271,6 +272,7 @@ PerfContext& PerfContext::operator=(const PerfContext& other) {
   seek_min_heap_time = other.seek_min_heap_time;
   seek_internal_seek_time = other.seek_internal_seek_time;
   find_next_user_entry_time = other.find_next_user_entry_time;
+  find_prev_user_entry_time = other.find_prev_user_entry_time;
   write_pre_and_post_process_time = other.write_pre_and_post_process_time;
   write_memtable_time = other.write_memtable_time;
   write_delay_time = other.write_delay_time;
@@ -368,6 +370,7 @@ void PerfContext::Reset() {
   seek_min_heap_time = 0;
   seek_internal_seek_time = 0;
   find_next_user_entry_time = 0;
+  find_prev_user_entry_time = 0;
   write_pre_and_post_process_time = 0;
   write_memtable_time = 0;
   write_delay_time = 0;
@@ -487,6 +490,7 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(seek_min_heap_time);
   PERF_CONTEXT_OUTPUT(seek_internal_seek_time);
   PERF_CONTEXT_OUTPUT(find_next_user_entry_time);
+  PERF_CONTEXT_OUTPUT(find_prev_user_entry_time);
   PERF_CONTEXT_OUTPUT(write_pre_and_post_process_time);
   PERF_CONTEXT_OUTPUT(write_memtable_time);
   PERF_CONTEXT_OUTPUT(write_thread_wait_nanos);

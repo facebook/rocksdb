@@ -140,6 +140,8 @@ struct PerfContext {
   uint64_t seek_internal_seek_time;
   // total nanos spent on iterating internal entries to find the next user entry
   uint64_t find_next_user_entry_time;
+  // total nanos spent on iterating internal entries to find the prev user entry
+  uint64_t find_prev_user_entry_time;
 
   // This group of stats provide a breakdown of time spent by Write().
   // May be inaccurate when 2PC, two_write_queues or enable_pipelined_write

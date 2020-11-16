@@ -697,6 +697,7 @@ bool DBIter::ReverseToBackward() {
 }
 
 void DBIter::PrevInternal(const Slice* prefix) {
+  PERF_TIMER_GUARD(find_prev_user_entry_time);
   while (iter_.Valid()) {
     saved_key_.SetUserKey(
         ExtractUserKey(iter_.key()),

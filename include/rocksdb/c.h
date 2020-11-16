@@ -1419,6 +1419,7 @@ enum {
   rocksdb_seek_max_heap_time,
   rocksdb_seek_internal_seek_time,
   rocksdb_find_next_user_entry_time,
+  rocksdb_find_prev_user_entry_time,
   rocksdb_write_wal_time,
   rocksdb_write_memtable_time,
   rocksdb_write_delay_time,
