@@ -697,8 +697,8 @@ TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
           std::min(min_log_number_to_keep, cfh->cfd()->GetLogNumber());
     }
     ASSERT_EQ(min_log_number_to_keep, log_num_after_flush);
-    ASSERT_EQ(dbfull()->TEST_PrecomputeMinLogNumberToKeepNon2PC(flushed_cfds,
-                                                                flush_edits),
+    ASSERT_EQ(PrecomputeMinLogNumberToKeepNon2PC(dbfull()->TEST_GetVersionSet(),
+                                                 flushed_cfds, flush_edits),
               min_log_number_to_keep);
   }
 }
