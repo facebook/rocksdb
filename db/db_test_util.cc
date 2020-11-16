@@ -200,28 +200,28 @@ bool DBTestBase::ChangeCompactOptions() {
     Destroy(last_options_);
     auto options = CurrentOptions();
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kUniversalCompaction) {
     option_config_ = kUniversalCompactionMultiLevel;
     Destroy(last_options_);
     auto options = CurrentOptions();
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kUniversalCompactionMultiLevel) {
     option_config_ = kLevelSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
     assert(options.max_subcompactions > 1);
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kLevelSubcompactions) {
     option_config_ = kUniversalSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
     assert(options.max_subcompactions > 1);
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else {
     return false;
@@ -680,7 +680,7 @@ void DBTestBase::Close() {
 void DBTestBase::DestroyAndReopen(const Options& options) {
   // Destroy using last options
   Destroy(last_options_);
-  ASSERT_OK(TryReopen(options));
+  Reopen(options);
 }
 
 void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
