@@ -391,6 +391,14 @@ Status PessimisticTransactionDB::TryLock(PessimisticTransaction* txn,
   return lock_manager_->TryLock(txn, cfh_id, key, GetEnv(), exclusive);
 }
 
+Status PessimisticTransactionDB::TryRangeLock(PessimisticTransaction* txn,
+                                              uint32_t cfh_id,
+                                              const Endpoint& start_endp,
+                                              const Endpoint& end_endp) {
+  return lock_manager_->TryLock(txn, cfh_id, start_endp, end_endp, GetEnv(),
+                                /*exclusive=*/true);
+}
+
 void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn,
                                       const LockTracker& keys) {
   lock_manager_->UnLock(txn, keys, GetEnv());

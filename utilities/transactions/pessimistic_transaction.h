@@ -116,6 +116,10 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
 
+  virtual Status GetRangeLock(ColumnFamilyHandle* column_family,
+                              const Endpoint& start_key,
+                              const Endpoint& end_key) override;
+
  protected:
   // Refer to
   // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery
