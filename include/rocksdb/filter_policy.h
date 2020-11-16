@@ -212,4 +212,24 @@ class FilterPolicy {
 // trailing spaces in keys.
 extern const FilterPolicy* NewBloomFilterPolicy(
     double bits_per_key, bool use_block_based_builder = false);
+
+// An EXPERIMENTAL new Bloom alternative that saves about 30% space
+// compared to Bloom filters, with about 3-4x construction time and
+// similar query times. For example, if you pass in 10 for
+// bloom_equivalent_bits_per_key, you'll get the same 0.95% FP rate
+// as Bloom filter but only using about 7 bits per key. (This
+// way of configuring the new filter is considered experimental
+// and/or transitional, so is expected to go away.)
+//
+// Ribbon filters are ignored by previous versions of RocksDB, as if
+// no filter was used.
+//
+// Note: this policy can generate Bloom filters in some cases.
+// For very small filters (well under 1KB), Bloom fallback is by
+// design, as the current Ribbon schema is not optimized to save vs.
+// Bloom for such small filters. Other cases of Bloom fallback should
+// be exceptional and log an appropriate warning.
+extern const FilterPolicy* NewExperimentalRibbonFilterPolicy(
+    double bloom_equivalent_bits_per_key);
+
 }  // namespace ROCKSDB_NAMESPACE

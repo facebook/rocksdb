@@ -165,6 +165,9 @@ struct MutableCFOptions {
         min_blob_size(options.min_blob_size),
         blob_file_size(options.blob_file_size),
         blob_compression_type(options.blob_compression_type),
+        enable_blob_garbage_collection(options.enable_blob_garbage_collection),
+        blob_garbage_collection_age_cutoff(
+            options.blob_garbage_collection_age_cutoff),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         check_flush_compaction_key_order(
@@ -208,6 +211,8 @@ struct MutableCFOptions {
         min_blob_size(0),
         blob_file_size(0),
         blob_compression_type(kNoCompression),
+        enable_blob_garbage_collection(false),
+        blob_garbage_collection_age_cutoff(0.0),
         max_sequential_skip_in_iterations(0),
         check_flush_compaction_key_order(true),
         paranoid_file_checks(false),
@@ -269,6 +274,8 @@ struct MutableCFOptions {
   uint64_t min_blob_size;
   uint64_t blob_file_size;
   CompressionType blob_compression_type;
+  bool enable_blob_garbage_collection;
+  double blob_garbage_collection_age_cutoff;
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;

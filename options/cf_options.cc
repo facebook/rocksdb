@@ -408,6 +408,14 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct MutableCFOptions, blob_compression_type),
           OptionType::kCompressionType, OptionVerificationType::kNormal,
           OptionTypeFlags::kMutable}},
+        {"enable_blob_garbage_collection",
+         {offsetof(struct MutableCFOptions, enable_blob_garbage_collection),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
+        {"blob_garbage_collection_age_cutoff",
+         {offsetof(struct MutableCFOptions, blob_garbage_collection_age_cutoff),
+          OptionType::kDouble, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
         {"sample_for_compression",
          {offsetof(struct MutableCFOptions, sample_for_compression),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
@@ -1006,6 +1014,10 @@ void MutableCFOptions::Dump(Logger* log) const {
                  blob_file_size);
   ROCKS_LOG_INFO(log, "                    blob_compression_type: %s",
                  CompressionTypeToString(blob_compression_type).c_str());
+  ROCKS_LOG_INFO(log, "           enable_blob_garbage_collection: %s",
+                 enable_blob_garbage_collection ? "true" : "false");
+  ROCKS_LOG_INFO(log, "       blob_garbage_collection_age_cutoff: %f",
+                 blob_garbage_collection_age_cutoff);
 }
 
 MutableCFOptions::MutableCFOptions(const Options& options)

@@ -179,11 +179,11 @@ class StandardHasher {
       // this function) when number of slots is roughly 10k or larger.
       //
       // The best values for these smash weights might depend on how
-      // densely you're packing entries, but this seems to work well for
-      // 2% overhead and roughly 50% success probability.
+      // densely you're packing entries, and also kCoeffBits, but this
+      // seems to work well for roughly 95% success probability.
       //
-      constexpr auto kFrontSmash = kCoeffBits / 3;
-      constexpr auto kBackSmash = kCoeffBits / 3;
+      constexpr Index kFrontSmash = kCoeffBits / 4;
+      constexpr Index kBackSmash = kCoeffBits / 4;
       Index start = FastRangeGeneric(h, num_starts + kFrontSmash + kBackSmash);
       start = std::max(start, kFrontSmash);
       start -= kFrontSmash;
@@ -265,11 +265,16 @@ class StandardHasher {
       // This is not so much "critical path" code because it can be done in
       // parallel (instruction level) with memory lookup.
       //
-      // There is no evidence that ResultRow needs to be independent from
-      // CoeffRow, so we draw from the same bits computed for CoeffRow,
-      // which are reasonably independent from Start. (Inlining and common
-      // subexpression elimination with GetCoeffRow should make this
+      // ResultRow bits only needs to be independent from CoeffRow bits if
+      // many entries might have the same start location, where "many" is
+      // comparable to number of hash bits or kCoeffBits. If !kUseSmash
+      // and num_starts > kCoeffBits, it is safe and efficient to draw from
+      // the same bits computed for CoeffRow, which are reasonably
+      // independent from Start. (Inlining and common subexpression
+      // elimination with GetCoeffRow should make this
       // a single shared multiplication in generated code.)
+      //
+      // TODO: fix & test the kUseSmash case with very small num_starts
       Hash a = h * kCoeffAndResultFactor;
       // The bits here that are *most* independent of Start are the highest
       // order bits (as in Knuth multiplicative hash). To make those the
@@ -432,6 +437,7 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
   StandardBanding(Index num_slots = 0, Index backtrack_size = 0) {
     Reset(num_slots, backtrack_size);
   }
+
   void Reset(Index num_slots, Index backtrack_size = 0) {
     if (num_slots == 0) {
       // Unusual (TypesAndSettings::kAllowZeroStarts) or "uninitialized"
@@ -456,6 +462,7 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
     }
     EnsureBacktrackSize(backtrack_size);
   }
+
   void EnsureBacktrackSize(Index backtrack_size) {
     if (backtrack_size > backtrack_size_) {
       backtrack_.reset(new Index[backtrack_size]);
@@ -599,6 +606,54 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
     } while (cur_ordinal_seed != starting_ordinal_seed);
     // Reached limit by circling around
     return false;
+  }
+
+  // ********************************************************************
+  // Static high-level API
+
+  // Based on data from FindOccupancyForSuccessRate in ribbon_test,
+  // returns a number of slots for a given number of entries to add
+  // that should have roughly 95% or better chance of successful
+  // construction per seed. Does NOT do rounding for InterleavedSoln;
+  // call RoundUpNumSlots for that.
+  //
+  // num_to_add should not exceed roughly 2/3rds of the maximum value
+  // of the Index type to avoid overflow.
+  static Index GetNumSlotsFor95PctSuccess(Index num_to_add) {
+    if (num_to_add == 0) {
+      return 0;
+    }
+    double factor = GetFactorFor95PctSuccess(num_to_add);
+    Index num_slots = static_cast<Index>(num_to_add * factor);
+    assert(num_slots >= num_to_add);
+    return num_slots;
+  }
+
+  // Based on data from FindOccupancyForSuccessRate in ribbon_test,
+  // given a number of entries to add, returns a space overhead factor
+  // (slots divided by num_to_add) that should have roughly 95% or better
+  // chance of successful construction per seed. Does NOT do rounding for
+  // InterleavedSoln; call RoundUpNumSlots for that.
+  //
+  // The reason that num_to_add is needed is that Ribbon filters of a
+  // particular CoeffRow size do not scale infinitely.
+  static double GetFactorFor95PctSuccess(Index num_to_add) {
+    double log2_num_to_add = std::log(num_to_add) * 1.442695;
+    if (kCoeffBits == 64) {
+      if (TypesAndSettings::kUseSmash) {
+        return 1.02 + std::max(log2_num_to_add - 8.5, 0.0) * 0.009;
+      } else {
+        return 1.05 + std::max(log2_num_to_add - 11.0, 0.0) * 0.009;
+      }
+    } else {
+      // Currently only support 64 and 128
+      assert(kCoeffBits == 128);
+      if (TypesAndSettings::kUseSmash) {
+        return 1.01 + std::max(log2_num_to_add - 10.0, 0.0) * 0.0042;
+      } else {
+        return 1.02 + std::max(log2_num_to_add - 12.0, 0.0) * 0.0042;
+      }
+    }
   }
 
  protected:
@@ -759,6 +814,19 @@ class SerializableInterleavedSolution {
   // ********************************************************************
   // High-level API
 
+  void ConfigureForNumBlocks(Index num_blocks) {
+    if (num_blocks == 0) {
+      PrepareForNumStarts(0);
+    } else {
+      PrepareForNumStarts(num_blocks * kCoeffBits - kCoeffBits + 1);
+    }
+  }
+
+  void ConfigureForNumSlots(Index num_slots) {
+    assert(num_slots % kCoeffBits == 0);
+    ConfigureForNumBlocks(num_slots / kCoeffBits);
+  }
+
   template <typename BandingStorage>
   void BackSubstFrom(const BandingStorage& bs) {
     if (TypesAndSettings::kAllowZeroStarts && bs.GetNumStarts() == 0) {
@@ -805,7 +873,7 @@ class SerializableInterleavedSolution {
 
     // Note: Ignoring smash setting; still close enough in that case
     double lower_portion =
-        (upper_start_block_ * kCoeffBits * 1.0) / num_starts_;
+        (upper_start_block_ * 1.0 * kCoeffBits) / num_starts_;
 
     // Each result (solution) bit (column) cuts FP rate in half. Weight that
     // for upper and lower number of bits (columns).
@@ -813,7 +881,112 @@ class SerializableInterleavedSolution {
            (1.0 - lower_portion) * std::pow(0.5, upper_num_columns_);
   }
 
+  // ********************************************************************
+  // Static high-level API
+
+  // Round up to a number of slots supported by this structure. Note that
+  // this needs to be must be taken into account for the banding if this
+  // solution layout/storage is to be used.
+  static Index RoundUpNumSlots(Index num_slots) {
+    // Must be multiple of kCoeffBits
+    Index corrected = (num_slots + kCoeffBits - 1) / kCoeffBits * kCoeffBits;
+
+    // Do not use num_starts==1 unless kUseSmash, because the hashing
+    // might not be equipped for stacking up so many entries on a
+    // single start location.
+    if (!TypesAndSettings::kUseSmash && corrected == kCoeffBits) {
+      corrected += kCoeffBits;
+    }
+    return corrected;
+  }
+
+  // Compute the number of bytes for a given number of slots and desired
+  // FP rate. Since desired FP rate might not be exactly achievable,
+  // rounding_bias32==0 means to always round toward lower FP rate
+  // than desired (more bytes); rounding_bias32==max uint32_t means always
+  // round toward higher FP rate than desired (fewer bytes); other values
+  // act as a proportional threshold or bias between the two.
+  static size_t GetBytesForFpRate(Index num_slots, double desired_fp_rate,
+                                  uint32_t rounding_bias32) {
+    return InternalGetBytesForFpRate(num_slots, desired_fp_rate,
+                                     1.0 / desired_fp_rate, rounding_bias32);
+  }
+
+  // The same, but specifying desired accuracy as 1.0 / FP rate, or
+  // one_in_fp_rate. E.g. desired_one_in_fp_rate=100 means 1% FP rate.
+  static size_t GetBytesForOneInFpRate(Index num_slots,
+                                       double desired_one_in_fp_rate,
+                                       uint32_t rounding_bias32) {
+    return InternalGetBytesForFpRate(num_slots, 1.0 / desired_one_in_fp_rate,
+                                     desired_one_in_fp_rate, rounding_bias32);
+  }
+
  protected:
+  static size_t InternalGetBytesForFpRate(Index num_slots,
+                                          double desired_fp_rate,
+                                          double desired_one_in_fp_rate,
+                                          uint32_t rounding_bias32) {
+    assert(TypesAndSettings::kIsFilter);
+    if (TypesAndSettings::kAllowZeroStarts && num_slots == 0) {
+      // Unusual. Zero starts presumes no keys added -> always false (no FPs)
+      return 0U;
+    }
+    // Must be rounded up already.
+    assert(RoundUpNumSlots(num_slots) == num_slots);
+
+    if (desired_one_in_fp_rate > 1.0 && desired_fp_rate < 1.0) {
+      // Typical: less than 100% FP rate
+      if (desired_one_in_fp_rate <= static_cast<ResultRow>(-1)) {
+        // Typical: Less than maximum result row entropy
+        ResultRow rounded = static_cast<ResultRow>(desired_one_in_fp_rate);
+        int lower_columns = FloorLog2(rounded);
+        double lower_columns_fp_rate = std::pow(2.0, -lower_columns);
+        double upper_columns_fp_rate = std::pow(2.0, -(lower_columns + 1));
+        // Floating point don't let me down!
+        assert(lower_columns_fp_rate >= desired_fp_rate);
+        assert(upper_columns_fp_rate <= desired_fp_rate);
+
+        double lower_portion = (desired_fp_rate - upper_columns_fp_rate) /
+                               (lower_columns_fp_rate - upper_columns_fp_rate);
+        // Floating point don't let me down!
+        assert(lower_portion >= 0.0);
+        assert(lower_portion <= 1.0);
+
+        double rounding_bias = (rounding_bias32 + 0.5) / double{0x100000000};
+        assert(rounding_bias > 0.0);
+        assert(rounding_bias < 1.0);
+
+        // Note: Ignoring smash setting; still close enough in that case
+        Index num_starts = num_slots - kCoeffBits + 1;
+        // Lower upper_start_block means lower FP rate (higher accuracy)
+        Index upper_start_block = static_cast<Index>(
+            (lower_portion * num_starts + rounding_bias) / kCoeffBits);
+        Index num_blocks = num_slots / kCoeffBits;
+        assert(upper_start_block < num_blocks);
+
+        // Start by assuming all blocks use lower number of columns
+        Index num_segments = num_blocks * static_cast<Index>(lower_columns);
+        // Correct by 1 each for blocks using upper number of columns
+        num_segments += (num_blocks - upper_start_block);
+        // Total bytes
+        return num_segments * sizeof(CoeffRow);
+      } else {
+        // one_in_fp_rate too big, thus requested FP rate is smaller than
+        // supported. Use max number of columns for minimum supported FP rate.
+        return num_slots * sizeof(ResultRow);
+      }
+    } else {
+      // Effectively asking for 100% FP rate, or NaN etc.
+      if (TypesAndSettings::kAllowZeroStarts) {
+        // Zero segments
+        return 0U;
+      } else {
+        // One segment (minimum size, maximizing FP rate)
+        return sizeof(CoeffRow);
+      }
+    }
+  }
+
   void InternalConfigure() {
     const Index num_blocks = GetNumBlocks();
     Index num_segments = GetNumSegments();
@@ -842,11 +1015,11 @@ class SerializableInterleavedSolution {
     data_len_ = num_segments * sizeof(CoeffRow);
   }
 
+  char* const data_;
+  size_t data_len_;
   Index num_starts_ = 0;
   Index upper_num_columns_ = 0;
   Index upper_start_block_ = 0;
-  char* const data_;
-  size_t data_len_;
 };
 
 }  // namespace ribbon
