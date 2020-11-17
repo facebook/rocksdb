@@ -737,80 +737,136 @@ void CompactionIterator::NextFromInput() {
   }
 }
 
+bool CompactionIterator::ExtractLargeValueImpl() {
+  if (!blob_file_builder_) {
+    return false;
+  }
+
+  blob_index_.clear();
+  const Status s = blob_file_builder_->Add(user_key(), value_, &blob_index_);
+
+  if (!s.ok()) {
+    status_ = s;
+    valid_ = false;
+
+    return false;
+  }
+
+  if (blob_index_.empty()) {
+    return false;
+  }
+
+  value_ = blob_index_;
+
+  return true;
+}
+
+void CompactionIterator::ExtractLargeValue() {
+  assert(ikey_.type == kTypeValue);
+
+  if (!ExtractLargeValueImpl()) {
+    return;
+  }
+
+  ikey_.type = kTypeBlobIndex;
+  current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+}
+
+void CompactionIterator::GarbageCollectBlob() {
+  assert(ikey_.type == kTypeBlobIndex);
+
+  if (!compaction_) {
+    return;
+  }
+
+  // GC for integrated BlobDB
+  if (compaction_->enable_blob_garbage_collection()) {
+    BlobIndex blob_index;
+
+    {
+      const Status s = blob_index.DecodeFrom(value_);
+
+      if (!s.ok()) {
+        status_ = s;
+        valid_ = false;
+
+        return;
+      }
+    }
+
+    if (blob_index.IsInlined() || blob_index.HasTTL()) {
+      status_ = Status::Corruption("Unexpected TTL/inlined blob index");
+      valid_ = false;
+
+      return;
+    }
+
+    if (blob_index.file_number() >=
+        blob_garbage_collection_cutoff_file_number_) {
+      return;
+    }
+
+    const Version* const version = compaction_->input_version();
+    assert(version);
+
+    {
+      const Status s =
+          version->GetBlob(ReadOptions(), user_key(), blob_index, &blob_value_);
+
+      if (!s.ok()) {
+        status_ = s;
+        valid_ = false;
+
+        return;
+      }
+    }
+
+    value_ = blob_value_;
+
+    if (ExtractLargeValueImpl()) {
+      return;
+    }
+
+    ikey_.type = kTypeValue;
+    current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+
+    return;
+  }
+
+  // GC for stacked BlobDB
+  if (compaction_filter_) {
+    const auto blob_decision = compaction_filter_->PrepareBlobOutput(
+        user_key(), value_, &compaction_filter_value_);
+
+    if (blob_decision == CompactionFilter::BlobDecision::kCorruption) {
+      status_ =
+          Status::Corruption("Corrupted blob reference encountered during GC");
+      valid_ = false;
+
+      return;
+    }
+
+    if (blob_decision == CompactionFilter::BlobDecision::kIOError) {
+      status_ = Status::IOError("Could not relocate blob during GC");
+      valid_ = false;
+
+      return;
+    }
+
+    if (blob_decision == CompactionFilter::BlobDecision::kChangeValue) {
+      value_ = compaction_filter_value_;
+
+      return;
+    }
+  }
+}
+
 void CompactionIterator::PrepareOutput() {
   if (valid_) {
     if (ikey_.type == kTypeValue) {
-      if (blob_file_builder_) {
-        blob_index_.clear();
-        const Status s =
-            blob_file_builder_->Add(user_key(), value_, &blob_index_);
-
-        if (!s.ok()) {
-          status_ = s;
-          valid_ = false;
-        } else if (!blob_index_.empty()) {
-          value_ = blob_index_;
-          ikey_.type = kTypeBlobIndex;
-          current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
-        }
-      }
+      ExtractLargeValue();
     } else if (ikey_.type == kTypeBlobIndex) {
-      if (compaction_) {
-        if (compaction_
-                ->enable_blob_garbage_collection()) {  // GC for integrated
-                                                       // BlobDB
-          BlobIndex blob_index;
-          Status s = blob_index.DecodeFrom(value_);
-
-          if (!s.ok()) {
-            status_ = s;
-            valid_ = false;
-          } else if (!blob_index.IsInlined() && !blob_index.HasTTL() &&
-                     blob_index.file_number() <
-                         blob_garbage_collection_cutoff_file_number_) {
-            const Version* const version = compaction_->input_version();
-            assert(version);
-
-            s = version->GetBlob(ReadOptions(), user_key(), blob_index,
-                                 &blob_value_);
-
-            if (!s.ok()) {
-              status_ = s;
-              valid_ = false;
-            } else if (blob_file_builder_) {
-              blob_index_.clear();
-              s = blob_file_builder_->Add(user_key(), value_, &blob_index_);
-
-              if (!s.ok()) {
-                status_ = s;
-                valid_ = false;
-              } else if (!blob_index_.empty()) {
-                value_ = blob_index_;
-              }
-            } else {
-              value_ = blob_value_;
-              ikey_.type = kTypeValue;
-              current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
-            }
-          }
-        } else if (compaction_filter_) {  // GC for stacked BlobDB
-          const auto blob_decision = compaction_filter_->PrepareBlobOutput(
-              user_key(), value_, &compaction_filter_value_);
-
-          if (blob_decision == CompactionFilter::BlobDecision::kCorruption) {
-            status_ = Status::Corruption(
-                "Corrupted blob reference encountered during GC");
-            valid_ = false;
-          } else if (blob_decision ==
-                     CompactionFilter::BlobDecision::kIOError) {
-            status_ = Status::IOError("Could not relocate blob during GC");
-            valid_ = false;
-          } else if (blob_decision ==
-                     CompactionFilter::BlobDecision::kChangeValue) {
-            value_ = compaction_filter_value_;
-          }
-        }
-      }
+      GarbageCollectBlob();
     }
 
     // Zeroing out the sequence number leads to better compression.

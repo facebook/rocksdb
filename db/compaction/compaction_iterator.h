@@ -167,10 +167,12 @@ class CompactionIterator {
   // Processes the input stream to find the next output
   void NextFromInput();
 
-  // Do last preparations before presenting the output to the callee. At this
-  // point this only zeroes out the sequence number if possible for better
-  // compression.
+  // Do last preparations before presenting the output to the callee.
   void PrepareOutput();
+
+  bool ExtractLargeValueImpl();
+  void ExtractLargeValue();
+  void GarbageCollectBlob();
 
   // Invoke compaction filter if needed.
   // Return true on success, false on failures (e.g.: kIOError).
