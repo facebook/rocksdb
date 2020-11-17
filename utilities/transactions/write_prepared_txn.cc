@@ -77,6 +77,7 @@ Status WritePreparedTxn::Get(const ReadOptions& options,
                                        backed_by_snapshot))) {
     return res;
   } else {
+    res.PermitUncheckedError();
     wpt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
     return Status::TryAgain();
   }

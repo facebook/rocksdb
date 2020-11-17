@@ -73,7 +73,7 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
   for (uint64_t max_skip : {0, std::numeric_limits<int>::max()}) {
     options.max_sequential_skip_in_iterations = max_skip;
     options.disable_auto_compactions = true;
-    ReOpen();
+    ASSERT_OK(ReOpen());
 
     TransactionOptions txn_options;
     WriteOptions woptions;
@@ -90,7 +90,7 @@ TEST_P(WriteUnpreparedTransactionTest, ReadYourOwnWrite) {
       std::string stored_value = "v" + ToString(i);
       ASSERT_OK(txn->Put("a", stored_value));
       ASSERT_OK(txn->Put("b", stored_value));
-      wup_txn->FlushWriteBatchToDB(false);
+      ASSERT_OK(wup_txn->FlushWriteBatchToDB(false));
 
       // Test Get()
       std::string value;
@@ -155,7 +155,7 @@ TEST_P(WriteUnpreparedStressTest, ReadYourOwnWriteStress) {
   WriteOptions write_options;
   txn_db_options.transaction_lock_timeout = -1;
   options.disable_auto_compactions = true;
-  ReOpen();
+  ASSERT_OK(ReOpen());
 
   std::vector<std::string> keys;
   for (uint32_t k = 0; k < kNumKeys * kNumThreads; k++) {
@@ -188,7 +188,7 @@ TEST_P(WriteUnpreparedStressTest, ReadYourOwnWriteStress) {
       }
 
       txn = db->BeginTransaction(write_options, txn_options);
-      txn->SetName(ToString(id));
+      ASSERT_OK(txn->SetName(ToString(id)));
       txn->SetSnapshot();
       if (a >= RO_SNAPSHOT) {
         read_options.snapshot = txn->GetSnapshot();
@@ -273,23 +273,27 @@ TEST_P(WriteUnpreparedStressTest, ReadYourOwnWriteStress) {
         case 1:  // Validate Next()
         {
           Iterator* iter = txn->GetIterator(read_options);
+          ASSERT_OK(iter->status());
           for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
             verify_key(iter->key().ToString(), iter->value().ToString());
           }
+          ASSERT_OK(iter->status());
           delete iter;
           break;
         }
         case 2:  // Validate Prev()
         {
           Iterator* iter = txn->GetIterator(read_options);
+          ASSERT_OK(iter->status());
           for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
             verify_key(iter->key().ToString(), iter->value().ToString());
           }
+          ASSERT_OK(iter->status());
           delete iter;
           break;
         }
         default:
-          ASSERT_TRUE(false);
+          FAIL();
       }
 
       if (rnd.OneIn(2)) {
@@ -334,7 +338,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
         for (int num_batches = 1; num_batches < 10; num_batches++) {
           // Reset database.
           prepared_trans.clear();
-          ReOpen();
+          ASSERT_OK(ReOpen());
           wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
           if (!empty) {
             for (int i = 0; i < num_batches; i++) {
@@ -346,7 +350,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
           // Write num_batches unprepared batches.
           Transaction* txn = db->BeginTransaction(write_options, txn_options);
           WriteUnpreparedTxn* wup_txn = dynamic_cast<WriteUnpreparedTxn*>(txn);
-          txn->SetName("xid");
+          ASSERT_OK(txn->SetName("xid"));
           for (int i = 0; i < num_batches; i++) {
             ASSERT_OK(txn->Put("k" + ToString(i), "value" + ToString(i)));
             if (txn_options.write_batch_flush_threshold == 1) {
@@ -365,14 +369,14 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
             // test that recovery does the rollback.
             wup_txn->unprep_seqs_.clear();
           } else {
-            txn->Prepare();
+            ASSERT_OK(txn->Prepare());
           }
           delete txn;
 
           // Crash and run recovery code paths.
-          wup_db->db_impl_->FlushWAL(true);
+          ASSERT_OK(wup_db->db_impl_->FlushWAL(true));
           wup_db->TEST_Crash();
-          ReOpenNoDelete();
+          ASSERT_OK(ReOpenNoDelete());
           assert(db != nullptr);
 
           db->GetAllPreparedTransactions(&prepared_trans);
@@ -386,6 +390,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
           }
 
           Iterator* iter = db->NewIterator(ReadOptions());
+          ASSERT_OK(iter->status());
           iter->SeekToFirst();
           // Check that DB has before values.
           if (!empty || a == COMMIT) {
@@ -402,6 +407,7 @@ TEST_P(WriteUnpreparedTransactionTest, RecoveryTest) {
             }
           }
           ASSERT_FALSE(iter->Valid());
+          ASSERT_OK(iter->status());
           delete iter;
         }
       }
@@ -422,13 +428,13 @@ TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
     txn_options.write_batch_flush_threshold = batch_size;
     for (bool prepare : {false, true}) {
       for (bool commit : {false, true}) {
-        ReOpen();
+        ASSERT_OK(ReOpen());
         Transaction* txn = db->BeginTransaction(write_options, txn_options);
         WriteUnpreparedTxn* wup_txn = dynamic_cast<WriteUnpreparedTxn*>(txn);
-        txn->SetName("xid");
+        ASSERT_OK(txn->SetName("xid"));
 
         for (int i = 0; i < kNumKeys; i++) {
-          txn->Put("k" + ToString(i), "v" + ToString(i));
+          ASSERT_OK(txn->Put("k" + ToString(i), "v" + ToString(i)));
           if (txn_options.write_batch_flush_threshold == 1) {
             // WriteUnprepared will check write_batch_flush_threshold and
             // possibly flush before appending to the write batch. No flush will
@@ -445,9 +451,11 @@ TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
         }
 
         Iterator* iter = db->NewIterator(ReadOptions());
+        ASSERT_OK(iter->status());
         iter->SeekToFirst();
         assert(!iter->Valid());
         ASSERT_FALSE(iter->Valid());
+        ASSERT_OK(iter->status());
         delete iter;
 
         if (commit) {
@@ -458,6 +466,7 @@ TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
         delete txn;
 
         iter = db->NewIterator(ReadOptions());
+        ASSERT_OK(iter->status());
         iter->SeekToFirst();
 
         for (int i = 0; i < (commit ? kNumKeys : 0); i++) {
@@ -467,6 +476,7 @@ TEST_P(WriteUnpreparedTransactionTest, UnpreparedBatch) {
           iter->Next();
         }
         ASSERT_FALSE(iter->Valid());
+        ASSERT_OK(iter->status());
         delete iter;
       }
     }
@@ -490,7 +500,7 @@ TEST_P(WriteUnpreparedTransactionTest, MarkLogWithPrepSection) {
 
   for (bool prepare : {false, true}) {
     for (bool commit : {false, true}) {
-      ReOpen();
+      ASSERT_OK(ReOpen());
       auto wup_db = dynamic_cast<WriteUnpreparedTxnDB*>(db);
       auto db_impl = wup_db->db_impl_;
 
@@ -508,7 +518,7 @@ TEST_P(WriteUnpreparedTransactionTest, MarkLogWithPrepSection) {
         }
 
         if (i > 0) {
-          db_impl->TEST_SwitchWAL();
+          ASSERT_OK(db_impl->TEST_SwitchWAL());
         }
       }
 
@@ -568,12 +578,14 @@ TEST_P(WriteUnpreparedTransactionTest, NoSnapshotWrite) {
   // snapshot, if iterator snapshot is fresh enough.
   ReadOptions roptions;
   auto iter = txn->GetIterator(roptions);
+  ASSERT_OK(iter->status());
   int keys = 0;
   for (iter->SeekToLast(); iter->Valid(); iter->Prev(), keys++) {
     ASSERT_OK(iter->status());
     ASSERT_EQ(iter->key().ToString(), iter->value().ToString());
   }
   ASSERT_EQ(keys, 3);
+  ASSERT_OK(iter->status());
 
   delete iter;
   delete txn;
@@ -598,6 +610,7 @@ TEST_P(WriteUnpreparedTransactionTest, IterateAndWrite) {
 
     ReadOptions roptions;
     auto iter = txn->GetIterator(roptions);
+    ASSERT_OK(iter->status());
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_OK(iter->status());
       if (iter->key() == "9") {
@@ -612,11 +625,13 @@ TEST_P(WriteUnpreparedTransactionTest, IterateAndWrite) {
         ASSERT_OK(txn->Put(iter->key(), "b"));
       }
     }
+    ASSERT_OK(iter->status());
 
     delete iter;
     ASSERT_OK(txn->Commit());
 
     iter = db->NewIterator(roptions);
+    ASSERT_OK(iter->status());
     if (a == DO_DELETE) {
       // Check that db is empty.
       iter->SeekToFirst();
@@ -630,6 +645,7 @@ TEST_P(WriteUnpreparedTransactionTest, IterateAndWrite) {
       }
       ASSERT_EQ(keys, 100);
     }
+    ASSERT_OK(iter->status());
 
     delete iter;
     delete txn;
