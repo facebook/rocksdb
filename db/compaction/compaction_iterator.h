@@ -301,6 +301,7 @@ class CompactionIterator {
   uint64_t blob_garbage_collection_cutoff_file_number_;
 
   std::string blob_index_;
+  PinnableSlice blob_value_;
   std::string compaction_filter_value_;
   InternalKey compaction_filter_skip_until_;
   // "level_ptrs" holds indices that remember which file of an associated

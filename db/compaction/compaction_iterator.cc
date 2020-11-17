@@ -9,6 +9,7 @@
 #include <limits>
 
 #include "db/blob/blob_file_builder.h"
+#include "db/blob/blob_index.h"
 #include "db/snapshot_checker.h"
 #include "port/likely.h"
 #include "rocksdb/listener.h"
@@ -754,20 +755,60 @@ void CompactionIterator::PrepareOutput() {
         }
       }
     } else if (ikey_.type == kTypeBlobIndex) {
-      if (compaction_filter_) {
-        const auto blob_decision = compaction_filter_->PrepareBlobOutput(
-            user_key(), value_, &compaction_filter_value_);
+      if (compaction_) {
+        if (compaction_
+                ->enable_blob_garbage_collection()) {  // GC for integrated
+                                                       // BlobDB
+          BlobIndex blob_index;
+          Status s = blob_index.DecodeFrom(value_);
 
-        if (blob_decision == CompactionFilter::BlobDecision::kCorruption) {
-          status_ = Status::Corruption(
-              "Corrupted blob reference encountered during GC");
-          valid_ = false;
-        } else if (blob_decision == CompactionFilter::BlobDecision::kIOError) {
-          status_ = Status::IOError("Could not relocate blob during GC");
-          valid_ = false;
-        } else if (blob_decision ==
-                   CompactionFilter::BlobDecision::kChangeValue) {
-          value_ = compaction_filter_value_;
+          if (!s.ok()) {
+            status_ = s;
+            valid_ = false;
+          } else if (!blob_index.IsInlined() && !blob_index.HasTTL() &&
+                     blob_index.file_number() <
+                         blob_garbage_collection_cutoff_file_number_) {
+            const Version* const version = compaction_->input_version();
+            assert(version);
+
+            s = version->GetBlob(ReadOptions(), user_key(), blob_index,
+                                 &blob_value_);
+
+            if (!s.ok()) {
+              status_ = s;
+              valid_ = false;
+            } else if (blob_file_builder_) {
+              blob_index_.clear();
+              s = blob_file_builder_->Add(user_key(), value_, &blob_index_);
+
+              if (!s.ok()) {
+                status_ = s;
+                valid_ = false;
+              } else if (!blob_index_.empty()) {
+                value_ = blob_index_;
+              }
+            } else {
+              value_ = blob_value_;
+              ikey_.type = kTypeValue;
+              current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+            }
+          }
+        } else if (compaction_filter_) {  // GC for stacked BlobDB
+          const auto blob_decision = compaction_filter_->PrepareBlobOutput(
+              user_key(), value_, &compaction_filter_value_);
+
+          if (blob_decision == CompactionFilter::BlobDecision::kCorruption) {
+            status_ = Status::Corruption(
+                "Corrupted blob reference encountered during GC");
+            valid_ = false;
+          } else if (blob_decision ==
+                     CompactionFilter::BlobDecision::kIOError) {
+            status_ = Status::IOError("Could not relocate blob during GC");
+            valid_ = false;
+          } else if (blob_decision ==
+                     CompactionFilter::BlobDecision::kChangeValue) {
+            value_ = compaction_filter_value_;
+          }
         }
       }
     }
