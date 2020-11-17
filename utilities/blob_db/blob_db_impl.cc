@@ -1692,6 +1692,11 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
                        ", blob count %" PRIu64 ", immutable %d",
                        blob_file->BlobFileNumber(), blob_file->GetFileSize(),
                        blob_file->BlobCount(), blob_file->Immutable());
+    if (pos >= static_cast<int>(sizeof(buf))) {
+      pos = sizeof(buf);
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "Buffer too small for sanity check.");
+    }
     if (blob_file->HasTTL()) {
       ExpirationRange expiration_range;
 
@@ -1703,15 +1708,31 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
       pos += snprintf(buf + pos, sizeof(buf) - pos,
                       ", expiration range (%" PRIu64 ", %" PRIu64 ")",
                       expiration_range.first, expiration_range.second);
+      if (pos >= static_cast<int>(sizeof(buf))) {
+        pos = sizeof(buf);
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Buffer too small for sanity check.");
+      }
+
       if (!blob_file->Obsolete()) {
         pos += snprintf(buf + pos, sizeof(buf) - pos,
                         ", expire in %" PRIu64 " seconds",
                         expiration_range.second - now);
+        if (pos >= static_cast<int>(sizeof(buf))) {
+          pos = sizeof(buf);
+          ROCKS_LOG_WARN(db_options_.info_log,
+                         "Buffer too small for sanity check.");
+        }
       }
     }
     if (blob_file->Obsolete()) {
       pos += snprintf(buf + pos, sizeof(buf) - pos, ", obsolete at %" PRIu64,
                       blob_file->GetObsoleteSequence());
+      if (pos >= static_cast<int>(sizeof(buf))) {
+        pos = sizeof(buf);
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Buffer too small for sanity check.");
+      }
     }
     snprintf(buf + pos, sizeof(buf) - pos, ".");
     ROCKS_LOG_INFO(db_options_.info_log, "%s", buf);

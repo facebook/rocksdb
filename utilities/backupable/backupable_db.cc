@@ -2248,8 +2248,14 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   std::unique_ptr<char[]> buf(new char[max_backup_meta_file_size_]);
   size_t len = 0, buf_size = max_backup_meta_file_size_;
   len += snprintf(buf.get(), buf_size, "%" PRId64 "\n", timestamp_);
+  if (len >= buf_size) {
+    return Status::Corruption("Buffer too small to fit backup metadata");
+  }
   len += snprintf(buf.get() + len, buf_size - len, "%" PRIu64 "\n",
                   sequence_number_);
+  if (len >= buf_size) {
+    return Status::Corruption("Buffer too small to fit backup metadata");
+  }
   if (!app_metadata_.empty()) {
     std::string hex_encoded_metadata =
         Slice(app_metadata_).ToString(/* hex */ true);
@@ -2271,6 +2277,9 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     len += snprintf(buf.get() + len, buf_size - len, "%s%s\n",
                     kMetaDataPrefix.ToString().c_str(),
                     hex_encoded_metadata.c_str());
+    if (len >= buf_size) {
+      return Status::Corruption("Buffer too small to fit backup metadata");
+    }
   }
 
   char writelen_temp[19];
@@ -2285,6 +2294,9 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   {
     const char *const_write = writelen_temp;
     len += snprintf(buf.get() + len, buf_size - len, "%s", const_write);
+    if (len >= buf_size) {
+      return Status::Corruption("Buffer too small to fit backup metadata");
+    }
   }
 
   for (const auto& file : files_) {
@@ -2306,6 +2318,9 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     }
     len += snprintf(buf.get() + len, buf_size - len, "%s%s",
                     file->filename.c_str(), const_write);
+    if (len >= buf_size) {
+      return Status::Corruption("Buffer too small to fit backup metadata");
+    }
   }
 
   s = backup_meta_file->Append(Slice(buf.get(), len));

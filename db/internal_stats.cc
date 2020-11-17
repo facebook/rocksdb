@@ -61,6 +61,7 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name,
                            const std::string& group_by) {
   int written_size =
       snprintf(buf, len, "\n** Compaction Stats [%s] **\n", cf_name.c_str());
+  written_size = std::min(written_size, static_cast<int>(len));
   auto hdr = [](LevelStatType t) {
     return InternalStats::compaction_level_stats.at(t).header_name.c_str();
   };
@@ -80,6 +81,7 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name,
       hdr(LevelStatType::KEY_DROP));
 
   written_size += line_size;
+  written_size = std::min(written_size, static_cast<int>(len));
   snprintf(buf + written_size, len - written_size, "%s\n",
            std::string(line_size, '-').c_str());
 }
