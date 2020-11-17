@@ -252,7 +252,8 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   SizeApproximationOptions size_approx_options;
   size_approx_options.include_memtabtles = true;
   size_approx_options.include_files = true;
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_GT(size, 6000);
   ASSERT_LT(size, 204800);
   // Zero if not including mem table
@@ -262,7 +263,8 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, 0);
 
   Close();
