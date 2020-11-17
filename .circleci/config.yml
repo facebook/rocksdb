@@ -10,9 +10,26 @@ aliases:
     only_for_branches: master
 
 commands:
+  install-pyenv-on-macos:
+    steps:
+      - run:
+          name: Install pyenv on macos
+          command: |
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install pyenv
+
+  increase-max-open-files-on-macos:
+    steps:
+      - run:
+          name: Increase max open files
+          command: |
+            sudo sysctl -w kern.maxfiles=1048576
+            sudo sysctl -w kern.maxfilesperproc=1048576
+            sudo launchctl limit maxfiles 1048576
+
   pre-steps:
     steps:
       - checkout
+      - run: pyenv install --skip-existing 3.5.9
       - run: pyenv global 3.5.9
       - run:
           name: Setup Environment Variables
@@ -46,6 +63,13 @@ commands:
           name: Install gflags
           command: |
             sudo apt-get update -y && sudo apt-get install -y libgflags-dev
+  
+  install-gflags-on-macos:
+    steps:
+      - run:
+          name: Install gflags on macos
+          command: |
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install gflags
 
   install-gtest-parallel:
     steps:
@@ -63,6 +87,17 @@ executors:
       shell: bash.exe
 
 jobs:
+  build-macos:
+    macos:
+      xcode: 11.3.0
+    steps:
+      - increase-max-open-files-on-macos
+      - install-pyenv-on-macos
+      - pre-steps
+      - install-gflags-on-macos
+      - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - post-steps
+
   build-linux:
     machine:
       image: ubuntu-1604:202007-01
@@ -73,6 +108,26 @@ jobs:
       - run: make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
       - post-steps
 
+  build-linux-mem-env:
+    machine:
+      image: ubuntu-1604:202007-01
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - run: MEM_ENV=1 make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-linux-encrypted-env:
+    machine:
+      image: ubuntu-1604:202007-01
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - run: ENCRYPTED_ENV=1 make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - post-steps
+
   build-linux-shared_lib-alt_namespace-status_checked:
     machine:
       image: ubuntu-1604:202007-01
@@ -80,7 +135,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
-      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 all check_some | .circleci/cat_ignore_eagain
+      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 all check_some | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-release:
@@ -343,6 +398,12 @@ workflows:
   build-linux:
     jobs:
       - build-linux
+  build-linux-mem-env:
+    jobs:
+      - build-linux-mem-env
+  build-linux-encrypted-env:
+    jobs:
+      - build-linux-encrypted-env
   build-linux-shared_lib-alt_namespace-status_checked:
     jobs:
       - build-linux-shared_lib-alt_namespace-status_checked
@@ -419,3 +480,6 @@ workflows:
   build-linux-gcc-4-8:
     jobs:
       - build-linux-gcc-4-8
+  build-macos:
+    jobs:
+      - build-macos

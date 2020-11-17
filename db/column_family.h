@@ -44,6 +44,7 @@ class LogBuffer;
 class InstrumentedMutex;
 class InstrumentedMutexLock;
 struct SuperVersionContext;
+class BlobFileCache;
 
 extern const double kIncSlowdownRatio;
 // This file contains a list of data structures for managing column family
@@ -381,6 +382,7 @@ class ColumnFamilyData {
                          SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
+  BlobFileCache* blob_file_cache() const { return blob_file_cache_.get(); }
 
   // See documentation in compaction_picker.h
   // REQUIRES: DB mutex held
@@ -404,7 +406,8 @@ class ColumnFamilyData {
   //
   // Thread-safe
   Status RangesOverlapWithMemtables(const autovector<Range>& ranges,
-                                    SuperVersion* super_version, bool* overlap);
+                                    SuperVersion* super_version,
+                                    bool allow_data_in_errors, bool* overlap);
 
   // A flag to tell a manual compaction is to compact all levels together
   // instead of a specific level.
@@ -543,6 +546,7 @@ class ColumnFamilyData {
   const bool is_delete_range_supported_;
 
   std::unique_ptr<TableCache> table_cache_;
+  std::unique_ptr<BlobFileCache> blob_file_cache_;
 
   std::unique_ptr<InternalStats> internal_stats_;
 

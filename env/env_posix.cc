@@ -16,9 +16,6 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#if defined(OS_LINUX)
-#include <linux/fs.h>
-#endif
 #if defined(ROCKSDB_IOURING_PRESENT)
 #include <liburing.h>
 #endif
@@ -27,13 +24,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
 #include <sys/statfs.h>
-#include <sys/syscall.h>
-#include <sys/sysmacros.h>
 #endif
 #include <sys/statvfs.h>
 #include <sys/time.h>
@@ -58,7 +52,6 @@
 
 #include "env/composite_env_wrapper.h"
 #include "env/io_posix.h"
-#include "logging/logging.h"
 #include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
@@ -470,11 +463,12 @@ void PosixEnv::WaitForJoin() {
 
 std::string Env::GenerateUniqueId() {
   std::string uuid_file = "/proc/sys/kernel/random/uuid";
+  std::shared_ptr<FileSystem> fs = FileSystem::Default();
 
-  Status s = FileExists(uuid_file);
+  Status s = fs->FileExists(uuid_file, IOOptions(), nullptr);
   if (s.ok()) {
     std::string uuid;
-    s = ReadFileToString(this, uuid_file, &uuid);
+    s = ReadFileToString(fs.get(), uuid_file, &uuid);
     if (s.ok()) {
       return uuid;
     }

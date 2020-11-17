@@ -245,7 +245,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         assert(state_ == kNotFound || state_ == kMerge);
         if (type == kTypeBlobIndex && is_blob_index_ == nullptr) {
           // Blob value not supported. Stop.
-          state_ = kBlobIndex;
+          state_ = kUnexpectedBlobIndex;
           return false;
         }
         if (kNotFound == state_) {

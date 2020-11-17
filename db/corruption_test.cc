@@ -9,7 +9,6 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -33,12 +32,13 @@
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-static const int kValueSize = 1000;
+static constexpr int kValueSize = 1000;
 
 class CorruptionTest : public testing::Test {
  public:
@@ -69,9 +69,16 @@ class CorruptionTest : public testing::Test {
   }
 
   ~CorruptionTest() override {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->LoadDependency({});
+    SyncPoint::GetInstance()->ClearAllCallBacks();
     delete db_;
     db_ = nullptr;
-    DestroyDB(dbname_, Options());
+    if (getenv("KEEP_DB")) {
+      fprintf(stdout, "db is still at %s\n", dbname_.c_str());
+    } else {
+      EXPECT_OK(DestroyDB(dbname_, Options()));
+    }
   }
 
   void CloseDb() {
@@ -106,7 +113,7 @@ class CorruptionTest : public testing::Test {
     ASSERT_OK(::ROCKSDB_NAMESPACE::RepairDB(dbname_, options_));
   }
 
-  void Build(int n, int flush_every = 0) {
+  void Build(int n, int start, int flush_every) {
     std::string key_space, value_space;
     WriteBatch batch;
     for (int i = 0; i < n; i++) {
@@ -115,12 +122,14 @@ class CorruptionTest : public testing::Test {
         ASSERT_OK(dbi->TEST_FlushMemTable());
       }
       //if ((i % 100) == 0) fprintf(stderr, "@ %d of %d\n", i, n);
-      Slice key = Key(i, &key_space);
+      Slice key = Key(i + start, &key_space);
       batch.Clear();
-      ASSERT_OK(batch.Put(key, Value(i, &value_space)));
+      ASSERT_OK(batch.Put(key, Value(i + start, &value_space)));
       ASSERT_OK(db_->Write(WriteOptions(), &batch));
     }
   }
+
+  void Build(int n, int flush_every = 0) { Build(n, 0, flush_every); }
 
   void Check(int min_expected, int max_expected) {
     uint64_t next_expected = 0;
@@ -182,7 +191,7 @@ class CorruptionTest : public testing::Test {
     }
     ASSERT_TRUE(!fname.empty()) << filetype;
 
-    test::CorruptFile(fname, offset, bytes_to_corrupt);
+    ASSERT_OK(test::CorruptFile(&env_, fname, offset, bytes_to_corrupt));
   }
 
   // corrupts exactly one file at level `level`. if no file found at level,
@@ -192,7 +201,8 @@ class CorruptionTest : public testing::Test {
     db_->GetLiveFilesMetaData(&metadata);
     for (const auto& m : metadata) {
       if (m.level == level) {
-        test::CorruptFile(dbname_ + "/" + m.name, offset, bytes_to_corrupt);
+        ASSERT_OK(test::CorruptFile(&env_, dbname_ + "/" + m.name, offset,
+                                    bytes_to_corrupt));
         return;
       }
     }
@@ -247,8 +257,8 @@ TEST_F(CorruptionTest, Recovery) {
   // is not available for WAL though.
   CloseDb();
 #endif
-  Corrupt(kLogFile, 19, 1);      // WriteBatch tag for first record
-  Corrupt(kLogFile, log::kBlockSize + 1000, 1);  // Somewhere in second block
+  Corrupt(kWalFile, 19, 1);  // WriteBatch tag for first record
+  Corrupt(kWalFile, log::kBlockSize + 1000, 1);  // Somewhere in second block
   ASSERT_TRUE(!TryReopen().ok());
   options_.paranoid_checks = false;
   Reopen(&options_);
@@ -527,7 +537,8 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
       ImmutableCFOptions(options_), kRangeDelBlock, &range_del_handle));
 
   ASSERT_OK(TryReopen());
-  test::CorruptFile(filename, static_cast<int>(range_del_handle.offset()), 1);
+  ASSERT_OK(test::CorruptFile(&env_, filename,
+                              static_cast<int>(range_del_handle.offset()), 1));
   ASSERT_TRUE(TryReopen().IsCorruption());
 }
 
@@ -542,7 +553,7 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
     DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
     std::vector<LiveFileMetaData> metadata;
     dbi->GetLiveFilesMetaData(&metadata);
-    ASSERT_GT(metadata.size(), size_t(0));
+    ASSERT_GT(metadata.size(), 0);
     std::string filename = dbname_ + metadata[0].name;
 
     delete db_;
@@ -558,7 +569,7 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
     } else {  // delete the file
       ASSERT_OK(env_.DeleteFile(filename));
       Status x = TryReopen(&options);
-      ASSERT_TRUE(x.IsPathNotFound());
+      ASSERT_TRUE(x.IsCorruption());
     }
 
     ASSERT_OK(DestroyDB(dbname_, options_));
@@ -623,6 +634,105 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
     } else {
       ASSERT_NOK(s);
     }
+  }
+}
+
+TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
+  Options options;
+  options.check_flush_compaction_key_order = false;
+  options.paranoid_file_checks = true;
+  options.create_if_missing = true;
+  for (bool do_flush : {true, false}) {
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, options));
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    std::string start, end;
+    assert(db_ != nullptr);
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(3, &start), Key(7, &end)));
+    auto snap = db_->GetSnapshot();
+    ASSERT_NE(snap, nullptr);
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(8, &start), Key(9, &end)));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(2, &start), Key(5, &end)));
+    Build(10);
+    if (do_flush) {
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    } else {
+      DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+      ASSERT_OK(dbi->TEST_FlushMemTable());
+      ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+    }
+    db_->ReleaseSnapshot(snap);
+  }
+}
+
+TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
+  Options options;
+  options.check_flush_compaction_key_order = false;
+  options.paranoid_file_checks = true;
+  options.create_if_missing = true;
+  for (bool do_flush : {true, false}) {
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, options));
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    assert(db_ != nullptr);
+    Build(10, 0, 0);
+    std::string start, end;
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(5, &start), Key(15, &end)));
+    auto snap = db_->GetSnapshot();
+    ASSERT_NE(snap, nullptr);
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(8, &start), Key(9, &end)));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(12, &start), Key(17, &end)));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(2, &start), Key(4, &end)));
+    Build(10, 10, 0);
+    if (do_flush) {
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    } else {
+      DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+      ASSERT_OK(dbi->TEST_FlushMemTable());
+      ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+    }
+    db_->ReleaseSnapshot(snap);
+  }
+}
+
+TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
+  Options options;
+  options.check_flush_compaction_key_order = false;
+  options.paranoid_file_checks = true;
+  options.create_if_missing = true;
+  for (bool do_flush : {true, false}) {
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, options));
+    ASSERT_OK(DB::Open(options, dbname_, &db_));
+    assert(db_ != nullptr);
+    std::string start, end;
+    Build(10);
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(3, &start), Key(7, &end)));
+    auto snap = db_->GetSnapshot();
+    ASSERT_NE(snap, nullptr);
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(6, &start), Key(8, &end)));
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               Key(2, &start), Key(5, &end)));
+    if (do_flush) {
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    } else {
+      DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+      ASSERT_OK(dbi->TEST_FlushMemTable());
+      ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
+    }
+    db_->ReleaseSnapshot(snap);
   }
 }
 
@@ -721,6 +831,41 @@ TEST_F(CorruptionTest, DisableKeyOrderCheck) {
   ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr, nullptr, true));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
+  CloseDb();
+  Options options;
+  options.env = &env_;
+  ASSERT_OK(DestroyDB(dbname_, options));
+  options.create_if_missing = true;
+  options.file_checksum_gen_factory =
+      ROCKSDB_NAMESPACE::GetFileChecksumGenCrc32cFactory();
+  Reopen(&options);
+
+  Build(10, 5);
+
+  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+  CloseDb();
+
+  // Corrupt the first byte of each table file, this must be data block.
+  Corrupt(kTableFile, 0, 1);
+
+  ASSERT_OK(TryReopen(&options));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  int count{0};
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::VerifySstFileChecksum:mismatch", [&](void* arg) {
+        auto* s = reinterpret_cast<Status*>(arg);
+        assert(s);
+        ++count;
+        ASSERT_NOK(*s);
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsCorruption());
+  ASSERT_EQ(1, count);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

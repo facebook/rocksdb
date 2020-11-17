@@ -47,8 +47,8 @@ class EnrichedSpecialEnv : public SpecialEnv {
     InstrumentedMutexLock l(&env_mutex_);
     if (f == skipped_wal) {
       deleted_wal_reopened = true;
-      if (IsWAL(f) && largetest_deleted_wal.size() != 0 &&
-          f.compare(largetest_deleted_wal) <= 0) {
+      if (IsWAL(f) && largest_deleted_wal.size() != 0 &&
+          f.compare(largest_deleted_wal) <= 0) {
         gap_in_wals = true;
       }
     }
@@ -62,9 +62,9 @@ class EnrichedSpecialEnv : public SpecialEnv {
       // remember its name partly because the application might attempt to
       // delete the file again.
       if (skipped_wal.size() != 0 && skipped_wal != fname) {
-        if (largetest_deleted_wal.size() == 0 ||
-            largetest_deleted_wal.compare(fname) < 0) {
-          largetest_deleted_wal = fname;
+        if (largest_deleted_wal.size() == 0 ||
+            largest_deleted_wal.compare(fname) < 0) {
+          largest_deleted_wal = fname;
         }
       } else {
         skipped_wal = fname;
@@ -82,7 +82,7 @@ class EnrichedSpecialEnv : public SpecialEnv {
   // the wal whose actual delete was skipped by the env
   std::string skipped_wal = "";
   // the largest WAL that was requested to be deleted
-  std::string largetest_deleted_wal = "";
+  std::string largest_deleted_wal = "";
   // number of WALs that were successfully deleted
   std::atomic<size_t> deleted_wal_cnt = {0};
   // the WAL whose delete from fs was skipped is reopened during recovery
@@ -380,13 +380,12 @@ TEST_F(DBWALTest, RecoverWithBlob) {
   options.min_blob_size = min_blob_size;
   options.avoid_flush_during_recovery = false;
   options.disable_auto_compactions = true;
+  options.env = env_;
 
   Reopen(options);
 
   ASSERT_EQ(Get("key1"), short_value);
-
-  // TODO: enable once Get support is implemented for blobs
-  // ASSERT_EQ(Get("key2"), long_value);
+  ASSERT_EQ(Get("key2"), long_value);
 
   VersionSet* const versions = dbfull()->TEST_GetVersionSet();
   assert(versions);
@@ -442,10 +441,12 @@ class DBRecoveryTestBlobError
     : public DBWALTest,
       public testing::WithParamInterface<std::string> {
  public:
-  DBRecoveryTestBlobError() : fault_injection_env_(env_) {}
+  DBRecoveryTestBlobError()
+      : fault_injection_env_(env_), sync_point_(GetParam()) {}
   ~DBRecoveryTestBlobError() { Close(); }
 
   FaultInjectionTestEnv fault_injection_env_;
+  std::string sync_point_;
 };
 
 INSTANTIATE_TEST_CASE_P(DBRecoveryTestBlobError, DBRecoveryTestBlobError,
@@ -459,11 +460,12 @@ TEST_P(DBRecoveryTestBlobError, RecoverWithBlobError) {
 
   // Reopen with blob files enabled but make blob file writing fail during
   // recovery.
-  SyncPoint::GetInstance()->SetCallBack(GetParam(), [this](void* /* arg */) {
-    fault_injection_env_.SetFilesystemActive(false, Status::IOError());
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_.SetFilesystemActive(false,
+                                             Status::IOError(sync_point_));
   });
   SyncPoint::GetInstance()->SetCallBack(
-      "BuildTable:BeforeFinishBuildTable", [this](void* /* arg */) {
+      "BuildTable:BeforeDeleteFile", [this](void* /* arg */) {
         fault_injection_env_.SetFilesystemActive(true);
       });
   SyncPoint::GetInstance()->EnableProcessing();
@@ -1179,31 +1181,12 @@ class RecoveryTestHelper {
     test->Close();
 #endif
     if (trunc) {
-      ASSERT_EQ(0, truncate(fname.c_str(), static_cast<int64_t>(size * off)));
+      ASSERT_OK(
+          test::TruncateFile(env, fname, static_cast<uint64_t>(size * off)));
     } else {
-      InduceCorruption(fname, static_cast<size_t>(size * off + 8),
-                       static_cast<size_t>(size * len));
+      ASSERT_OK(test::CorruptFile(env, fname, static_cast<int>(size * off + 8),
+                                  static_cast<int>(size * len), false));
     }
-  }
-
-  // Overwrite data with 'a' from offset for length len
-  static void InduceCorruption(const std::string& filename, size_t offset,
-                               size_t len) {
-    ASSERT_GT(len, 0U);
-
-    int fd = open(filename.c_str(), O_RDWR);
-
-    // On windows long is 32-bit
-    ASSERT_LE(offset, std::numeric_limits<long>::max());
-
-    ASSERT_GT(fd, 0);
-    ASSERT_EQ(offset, lseek(fd, static_cast<long>(offset), SEEK_SET));
-
-    void* buf = alloca(len);
-    memset(buf, 'b', len);
-    ASSERT_EQ(len, write(fd, buf, static_cast<unsigned int>(len)));
-
-    close(fd);
   }
 };
 
@@ -1326,8 +1309,7 @@ TEST_F(DBWALTest, kPointInTimeRecoveryCFConsistency) {
 
   ASSERT_OK(Put(1, "key3", "val3"));
   // Corrupt WAL at location of key3
-  RecoveryTestHelper::InduceCorruption(
-      fname, static_cast<size_t>(offset_to_corrupt), static_cast<size_t>(4));
+  test::CorruptFile(env, fname, static_cast<int>(offset_to_corrupt), 4, false);
   ASSERT_OK(Put(2, "key4", "val4"));
   ASSERT_OK(Put(1, "key5", "val5"));
   Flush(2);
@@ -1714,7 +1696,12 @@ TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
 TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
   constexpr size_t kKB = 1024;
   Options options = CurrentOptions();
+  options.env = env_;
   options.avoid_flush_during_recovery = true;
+  if (mem_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem environment");
+    return;
+  }
   // Test fallocate support of running file system.
   // Skip this test if fallocate is not supported.
   std::string fname_test_fallocate = dbname_ + "/preallocate_testfile";

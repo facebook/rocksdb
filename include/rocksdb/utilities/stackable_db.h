@@ -141,6 +141,11 @@ class StackableDB : public DB {
                                              import_options, metadata, handle);
   }
 
+  using DB::VerifyFileChecksums;
+  Status VerifyFileChecksums(const ReadOptions& read_opts) override {
+    return db_->VerifyFileChecksums(read_opts);
+  }
+
   virtual Status VerifyChecksum() override { return db_->VerifyChecksum(); }
 
   virtual Status VerifyChecksum(const ReadOptions& options) override {
@@ -366,6 +371,24 @@ class StackableDB : public DB {
 
   using DB::EndBlockCacheTrace;
   Status EndBlockCacheTrace() override { return db_->EndBlockCacheTrace(); }
+
+  using DB::StartIOTrace;
+  Status StartIOTrace(Env* env, const TraceOptions& options,
+                      std::unique_ptr<TraceWriter>&& trace_writer) override {
+    return db_->StartIOTrace(env, options, std::move(trace_writer));
+  }
+
+  using DB::EndIOTrace;
+  Status EndIOTrace() override { return db_->EndIOTrace(); }
+
+  using DB::StartTrace;
+  Status StartTrace(const TraceOptions& options,
+                    std::unique_ptr<TraceWriter>&& trace_writer) override {
+    return db_->StartTrace(options, std::move(trace_writer));
+  }
+
+  using DB::EndTrace;
+  Status EndTrace() override { return db_->EndTrace(); }
 
 #endif  // ROCKSDB_LITE
 

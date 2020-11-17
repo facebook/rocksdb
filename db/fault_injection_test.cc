@@ -16,7 +16,6 @@
 #include "db/version_set.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
-#include "logging/logging.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"

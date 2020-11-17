@@ -237,6 +237,7 @@ struct AdvancedColumnFamilyOptions {
   // achieve point-in-time consistency using snapshot or iterator (assuming
   // concurrent updates). Hence iterator and multi-get will return results
   // which are not consistent as of any point-in-time.
+  // Backward iteration on memtables will not work either.
   // If inplace_callback function is not set,
   //   Put(key, new_value) will update inplace the existing_value iff
   //   * key exists in current memtable
@@ -732,7 +733,8 @@ struct AdvancedColumnFamilyOptions {
   // only pointers to them are stored in SST files. This can reduce write
   // amplification for large-value use cases at the cost of introducing a level
   // of indirection for reads. See also the options min_blob_size,
-  // blob_file_size, and blob_compression_type below.
+  // blob_file_size, blob_compression_type, enable_blob_garbage_collection,
+  // and blob_garbage_collection_age_cutoff below.
   //
   // Default: false
   //
@@ -771,6 +773,30 @@ struct AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through the SetOptions() API
   CompressionType blob_compression_type = kNoCompression;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // Enables garbage collection of blobs. Blob GC is performed as part of
+  // compaction. Valid blobs residing in blob files older than a cutoff get
+  // relocated to new files as they are encountered during compaction, which
+  // makes it possible to clean up blob files once they contain nothing but
+  // obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff below.
+  //
+  // Default: false
+  //
+  // Dynamically changeable through the SetOptions() API
+  bool enable_blob_garbage_collection = false;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The cutoff in terms of blob file age for garbage collection. Blobs in
+  // the oldest N blob files will be relocated when encountered during
+  // compaction, where N = garbage_collection_cutoff * number_of_blob_files.
+  // Note that enable_blob_garbage_collection has to be set in order for this
+  // option to have any effect.
+  //
+  // Default: 0.25
+  //
+  // Dynamically changeable through the SetOptions() API
+  double blob_garbage_collection_age_cutoff = 0.25;
 
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();

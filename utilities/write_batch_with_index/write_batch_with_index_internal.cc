@@ -45,6 +45,9 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
   uint32_t column_family;
   Status s = ReadRecordFromWriteBatch(&input, &tag, &column_family, Key, value,
                                       blob, xid);
+  if (!s.ok()) {
+    return s;
+  }
 
   switch (tag) {
     case kTypeColumnFamilyValue:

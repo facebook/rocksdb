@@ -198,6 +198,11 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, paranoid_checks),
           OptionType::kBoolean, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"track_and_verify_wals_in_manifest",
+         {offsetof(struct ImmutableDBOptions,
+                   track_and_verify_wals_in_manifest),
+          OptionType::kBoolean, OptionVerificationType::kNormal,
+          OptionTypeFlags::kNone}},
         {"skip_log_error_on_recovery",
          {0, OptionType::kBoolean, OptionVerificationType::kDeprecated,
           OptionTypeFlags::kNone}},
@@ -384,6 +389,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct ImmutableDBOptions, bgerror_resume_retry_interval),
           OptionType::kUInt64T, OptionVerificationType::kNormal,
           OptionTypeFlags::kNone}},
+        {"db_host_id",
+         {offsetof(struct ImmutableDBOptions, db_host_id), OptionType::kString,
+          OptionVerificationType::kNormal, OptionTypeFlags::kCompareNever}},
         // The following properties were handled as special cases in ParseOption
         // This means that the properties could be read from the options file
         // but never written to the file or compared to each other.
@@ -497,6 +505,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       create_missing_column_families(options.create_missing_column_families),
       error_if_exists(options.error_if_exists),
       paranoid_checks(options.paranoid_checks),
+      track_and_verify_wals_in_manifest(
+          options.track_and_verify_wals_in_manifest),
       env(options.env),
       fs(options.env->GetFileSystem()),
       rate_limiter(options.rate_limiter),
@@ -569,7 +579,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       best_efforts_recovery(options.best_efforts_recovery),
       max_bgerror_resume_count(options.max_bgerror_resume_count),
       bgerror_resume_retry_interval(options.bgerror_resume_retry_interval),
-      allow_data_in_errors(options.allow_data_in_errors) {
+      allow_data_in_errors(options.allow_data_in_errors),
+      db_host_id(options.db_host_id) {
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
@@ -579,6 +590,10 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    create_if_missing);
   ROCKS_LOG_HEADER(log, "                        Options.paranoid_checks: %d",
                    paranoid_checks);
+  ROCKS_LOG_HEADER(log,
+                   "                              "
+                   "Options.track_and_verify_wals_in_manifest: %d",
+                   track_and_verify_wals_in_manifest);
   ROCKS_LOG_HEADER(log, "                                    Options.env: %p",
                    env);
   ROCKS_LOG_HEADER(log, "                                     Options.fs: %s",
@@ -727,6 +742,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    bgerror_resume_retry_interval);
   ROCKS_LOG_HEADER(log, "            Options.allow_data_in_errors: %d",
                    allow_data_in_errors);
+  ROCKS_LOG_HEADER(log, "            Options.db_host_id: %s",
+                   db_host_id.c_str());
 }
 
 MutableDBOptions::MutableDBOptions()

@@ -403,7 +403,7 @@ Status DBImpl::Recover(
       }
       for (const std::string& file : files_in_dbname) {
         uint64_t number = 0;
-        FileType type = kLogFile;  // initialize
+        FileType type = kWalFile;  // initialize
         if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
           // Found MANIFEST (descriptor log), thus best-efforts recovery does
           // not have to treat the db as empty.
@@ -481,42 +481,14 @@ Status DBImpl::Recover(
       // TryRecover may delete previous column_family_set_.
       column_family_memtables_.reset(
           new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
-      s = FinishBestEffortsRecovery();
     }
   }
   if (!s.ok()) {
     return s;
   }
-  // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
-  // the very first time.
-  if (db_id_.empty()) {
-    // Check for the IDENTITY file and create it if not there.
-    s = fs_->FileExists(IdentityFileName(dbname_), IOOptions(), nullptr);
-    // Typically Identity file is created in NewDB() and for some reason if
-    // it is no longer available then at this point DB ID is not in Identity
-    // file or Manifest.
-    if (s.IsNotFound()) {
-      s = SetIdentityFile(env_, dbname_);
-      if (!s.ok()) {
-        return s;
-      }
-    } else if (!s.ok()) {
-      assert(s.IsIOError());
-      return s;
-    }
-    s = GetDbIdentityFromIdentityFile(&db_id_);
-    if (immutable_db_options_.write_dbid_to_manifest && s.ok()) {
-      VersionEdit edit;
-      edit.SetDBId(db_id_);
-      Options options;
-      MutableCFOptions mutable_cf_options(options);
-      versions_->db_id_ = db_id_;
-      s = versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
-                             mutable_cf_options, &edit, &mutex_, nullptr,
-                             false);
-    }
-  } else {
-    s = SetIdentityFile(env_, dbname_, db_id_);
+  s = SetDBId();
+  if (s.ok() && !read_only) {
+    s = DeleteUnreferencedSstFiles();
   }
 
   if (immutable_db_options_.paranoid_checks && s.ok()) {
@@ -538,7 +510,7 @@ Status DBImpl::Recover(
 
   std::vector<std::string> files_in_wal_dir;
   if (s.ok()) {
-    // Initial max_total_in_memory_state_ before recovery logs. Log recovery
+    // Initial max_total_in_memory_state_ before recovery wals. Log recovery
     // may check this value to decide whether to flush.
     max_total_in_memory_state_ = 0;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -573,32 +545,53 @@ Status DBImpl::Recover(
       return s;
     }
 
-    std::vector<uint64_t> logs;
+    std::unordered_map<uint64_t, std::string> wal_files;
     for (const auto& file : files_in_wal_dir) {
       uint64_t number;
       FileType type;
-      if (ParseFileName(file, &number, &type) && type == kLogFile) {
+      if (ParseFileName(file, &number, &type) && type == kWalFile) {
         if (is_new_db) {
           return Status::Corruption(
               "While creating a new Db, wal_dir contains "
               "existing log file: ",
               file);
         } else {
-          logs.push_back(number);
+          wal_files[number] =
+              LogFileName(immutable_db_options_.wal_dir, number);
         }
       }
     }
 
-    if (logs.size() > 0) {
+    if (immutable_db_options_.track_and_verify_wals_in_manifest) {
+      if (!immutable_db_options_.best_efforts_recovery) {
+        // Verify WALs in MANIFEST.
+        s = versions_->GetWalSet().CheckWals(env_, wal_files);
+      }  // else since best effort recovery does not recover from WALs, no need
+         // to check WALs.
+    } else if (!versions_->GetWalSet().GetWals().empty()) {
+      // Tracking is disabled, clear previously tracked WALs from MANIFEST,
+      // otherwise, in the future, if WAL tracking is enabled again,
+      // since the WALs deleted when WAL tracking is disabled are not persisted
+      // into MANIFEST, WAL check may fail.
+      VersionEdit edit;
+      WalNumber max_wal_number =
+          versions_->GetWalSet().GetWals().rbegin()->first;
+      edit.DeleteWalsBefore(max_wal_number + 1);
+      s = versions_->LogAndApplyToDefaultColumnFamily(&edit, &mutex_);
+    }
+    if (!s.ok()) {
+      return s;
+    }
+
+    if (!wal_files.empty()) {
       if (error_if_wal_file_exists) {
         return Status::Corruption(
             "The db was opened in readonly mode with error_if_wal_file_exists"
             "flag but a WAL file already exists");
       } else if (error_if_data_exists_in_wals) {
-        for (auto& log : logs) {
-          std::string fname = LogFileName(immutable_db_options_.wal_dir, log);
+        for (auto& wal_file : wal_files) {
           uint64_t bytes;
-          s = env_->GetFileSize(fname, &bytes);
+          s = env_->GetFileSize(wal_file.second, &bytes);
           if (s.ok()) {
             if (bytes > 0) {
               return Status::Corruption(
@@ -610,13 +603,19 @@ Status DBImpl::Recover(
       }
     }
 
-    if (!logs.empty()) {
-      // Recover in the order in which the logs were generated
-      std::sort(logs.begin(), logs.end());
-      bool corrupted_log_found = false;
-      s = RecoverLogFiles(logs, &next_sequence, read_only,
-                          &corrupted_log_found);
-      if (corrupted_log_found && recovered_seq != nullptr) {
+    if (!wal_files.empty()) {
+      // Recover in the order in which the wals were generated
+      std::vector<uint64_t> wals;
+      wals.reserve(wal_files.size());
+      for (const auto& wal_file : wal_files) {
+        wals.push_back(wal_file.first);
+      }
+      std::sort(wals.begin(), wals.end());
+
+      bool corrupted_wal_found = false;
+      s = RecoverLogFiles(wals, &next_sequence, read_only,
+                          &corrupted_wal_found);
+      if (corrupted_wal_found && recovered_seq != nullptr) {
         *recovered_seq = next_sequence;
       }
       if (!s.ok()) {
@@ -769,10 +768,10 @@ Status DBImpl::InitPersistStatsColumnFamily() {
   return s;
 }
 
-// REQUIRES: log_numbers are sorted in ascending order
-Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
+// REQUIRES: wal_numbers are sorted in ascending order
+Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
                                SequenceNumber* next_sequence, bool read_only,
-                               bool* corrupted_log_found) {
+                               bool* corrupted_wal_found) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -802,10 +801,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     auto stream = event_logger_.Log();
     stream << "job" << job_id << "event"
            << "recovery_started";
-    stream << "log_files";
+    stream << "wal_files";
     stream.StartArray();
-    for (auto log_number : log_numbers) {
-      stream << log_number;
+    for (auto wal_number : wal_numbers) {
+      stream << wal_number;
     }
     stream.EndArray();
   }
@@ -828,25 +827,25 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   bool stop_replay_by_wal_filter = false;
   bool stop_replay_for_corruption = false;
   bool flushed = false;
-  uint64_t corrupted_log_number = kMaxSequenceNumber;
-  uint64_t min_log_number = MinLogNumberToKeep();
-  for (auto log_number : log_numbers) {
-    if (log_number < min_log_number) {
+  uint64_t corrupted_wal_number = kMaxSequenceNumber;
+  uint64_t min_wal_number = MinLogNumberToKeep();
+  for (auto wal_number : wal_numbers) {
+    if (wal_number < min_wal_number) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "Skipping log #%" PRIu64
                      " since it is older than min log to keep #%" PRIu64,
-                     log_number, min_log_number);
+                     wal_number, min_wal_number);
       continue;
     }
     // The previous incarnation may not have written any MANIFEST
     // records after allocating this log number.  So we manually
     // update the file number allocation counter in VersionSet.
-    versions_->MarkFileNumberUsed(log_number);
+    versions_->MarkFileNumberUsed(wal_number);
     // Open the log file
-    std::string fname = LogFileName(immutable_db_options_.wal_dir, log_number);
+    std::string fname = LogFileName(immutable_db_options_.wal_dir, wal_number);
 
     ROCKS_LOG_INFO(immutable_db_options_.info_log,
-                   "Recovering log #%" PRIu64 " mode %d", log_number,
+                   "Recovering log #%" PRIu64 " mode %d", wal_number,
                    static_cast<int>(immutable_db_options_.wal_recovery_mode));
     auto logFileDropped = [this, &fname]() {
       uint64_t bytes;
@@ -899,7 +898,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     // to be skipped instead of propagating bad information (like overly
     // large sequence numbers).
     log::Reader reader(immutable_db_options_.info_log, std::move(file_reader),
-                       &reporter, true /*checksum*/, log_number);
+                       &reporter, true /*checksum*/, wal_number);
 
     // Determine if we should tolerate incomplete records at the tail end of the
     // Read all the records and add to a memtable
@@ -947,7 +946,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
 
         WalFilter::WalProcessingOption wal_processing_option =
             immutable_db_options_.wal_filter->LogRecordFound(
-                log_number, fname, batch, &new_batch, &batch_changed);
+                wal_number, fname, batch, &new_batch, &batch_changed);
 
         switch (wal_processing_option) {
           case WalFilter::WalProcessingOption::kContinueProcessing:
@@ -999,7 +998,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                 " mode %d log filter %s returned "
                 "more records (%d) than original (%d) which is not allowed. "
                 "Aborting recovery.",
-                log_number,
+                wal_number,
                 static_cast<int>(immutable_db_options_.wal_recovery_mode),
                 immutable_db_options_.wal_filter->Name(), new_count,
                 original_count);
@@ -1026,7 +1025,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       bool has_valid_writes = false;
       status = WriteBatchInternal::InsertInto(
           &batch, column_family_memtables_.get(), &flush_scheduler_,
-          &trim_history_scheduler_, true, log_number, this,
+          &trim_history_scheduler_, true, wal_number, this,
           false /* concurrent_memtable_writes */, next_sequence,
           &has_valid_writes, seq_per_batch_, batch_per_txn_);
       MaybeIgnoreError(&status);
@@ -1046,7 +1045,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           cfd->UnrefAndTryDelete();
           // If this asserts, it means that InsertInto failed in
           // filtering updates to already-flushed column families
-          assert(cfd->GetLogNumber() <= log_number);
+          assert(cfd->GetLogNumber() <= wal_number);
           auto iter = version_edits.find(cfd->GetID());
           assert(iter != version_edits.end());
           VersionEdit* edit = &iter->second;
@@ -1083,21 +1082,21 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                           " seq #%" PRIu64
                           ". %s. This likely mean loss of synced WAL, "
                           "thus recovery fails.",
-                          log_number, *next_sequence,
+                          wal_number, *next_sequence,
                           status.ToString().c_str());
           return status;
         }
         // We should ignore the error but not continue replaying
         status = Status::OK();
         stop_replay_for_corruption = true;
-        corrupted_log_number = log_number;
-        if (corrupted_log_found != nullptr) {
-          *corrupted_log_found = true;
+        corrupted_wal_number = wal_number;
+        if (corrupted_wal_found != nullptr) {
+          *corrupted_wal_found = true;
         }
         ROCKS_LOG_INFO(immutable_db_options_.info_log,
                        "Point in time recovered to log #%" PRIu64
                        " seq #%" PRIu64,
-                       log_number, *next_sequence);
+                       wal_number, *next_sequence);
       } else {
         assert(immutable_db_options_.wal_recovery_mode ==
                    WALRecoveryMode::kTolerateCorruptedTailRecords ||
@@ -1123,7 +1122,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   // corruption. This could during PIT recovery when the WAL is corrupted and
   // some (but not all) CFs are flushed
   // Exclude the PIT case where no log is dropped after the corruption point.
-  // This is to cover the case for empty logs after corrupted log, in which we
+  // This is to cover the case for empty wals after corrupted log, in which we
   // don't reset stop_replay_for_corruption.
   if (stop_replay_for_corruption == true &&
       (immutable_db_options_.wal_recovery_mode ==
@@ -1131,7 +1130,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
        immutable_db_options_.wal_recovery_mode ==
            WALRecoveryMode::kTolerateCorruptedTailRecords)) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->GetLogNumber() > corrupted_log_number) {
+      if (cfd->GetLogNumber() > corrupted_wal_number) {
         ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                         "Column family inconsistency: SST file contains data"
                         " beyond the point of corruption.");
@@ -1146,16 +1145,16 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   if (!read_only) {
     // no need to refcount since client still doesn't have access
     // to the DB and can not drop column families while we iterate
-    auto max_log_number = log_numbers.back();
+    const WalNumber max_wal_number = wal_numbers.back();
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       auto iter = version_edits.find(cfd->GetID());
       assert(iter != version_edits.end());
       VersionEdit* edit = &iter->second;
 
-      if (cfd->GetLogNumber() > max_log_number) {
+      if (cfd->GetLogNumber() > max_wal_number) {
         // Column family cfd has already flushed the data
-        // from all logs. Memtable has to be empty because
-        // we filter the updates based on log_number
+        // from all wals. Memtable has to be empty because
+        // we filter the updates based on wal_number
         // (in WriteBatch::InsertInto)
         assert(cfd->mem()->GetFirstSequenceNumber() == 0);
         assert(edit->NumEntries() == 0);
@@ -1187,13 +1186,13 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // Update the log number info in the version edit corresponding to this
       // column family. Note that the version edits will be written to MANIFEST
       // together later.
-      // writing log_number in the manifest means that any log file
-      // with number strongly less than (log_number + 1) is already
+      // writing wal_number in the manifest means that any log file
+      // with number strongly less than (wal_number + 1) is already
       // recovered and should be ignored on next reincarnation.
-      // Since we already recovered max_log_number, we want all logs
-      // with numbers `<= max_log_number` (includes this one) to be ignored
+      // Since we already recovered max_wal_number, we want all wals
+      // with numbers `<= max_wal_number` (includes this one) to be ignored
       if (flushed || cfd->mem()->GetFirstSequenceNumber() == 0) {
-        edit->SetLogNumber(max_log_number + 1);
+        edit->SetLogNumber(max_wal_number + 1);
       }
     }
     if (status.ok()) {
@@ -1201,7 +1200,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // not actually used. that is because VersionSet assumes
       // VersionSet::next_file_number_ always to be strictly greater than any
       // log number
-      versions_->MarkFileNumberUsed(max_log_number + 1);
+      versions_->MarkFileNumberUsed(max_wal_number + 1);
 
       autovector<ColumnFamilyData*> cfds;
       autovector<const MutableCFOptions*> cf_opts;
@@ -1213,6 +1212,14 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         assert(iter != version_edits.end());
         edit_lists.push_back({&iter->second});
       }
+
+      std::unique_ptr<VersionEdit> wal_deletion;
+      if (immutable_db_options_.track_and_verify_wals_in_manifest) {
+        wal_deletion.reset(new VersionEdit);
+        wal_deletion->DeleteWalsBefore(max_wal_number + 1);
+        edit_lists.back().push_back(wal_deletion.get());
+      }
+
       // write MANIFEST with update
       status = versions_->LogAndApply(cfds, cf_opts, edit_lists, &mutex_,
                                       directories_.GetDbDir(),
@@ -1221,7 +1228,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   }
 
   if (status.ok() && data_seen && !flushed) {
-    status = RestoreAliveLogFiles(log_numbers);
+    status = RestoreAliveLogFiles(wal_numbers);
   }
 
   event_logger_.Log() << "job" << job_id << "event"
@@ -1230,8 +1237,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   return status;
 }
 
-Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers) {
-  if (log_numbers.empty()) {
+Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
+  if (wal_numbers.empty()) {
     return Status::OK();
   }
   Status s;
@@ -1244,20 +1251,20 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers) {
   // FindObsoleteFiles()
   total_log_size_ = 0;
   log_empty_ = false;
-  for (auto log_number : log_numbers) {
-    LogFileNumberSize log(log_number);
-    std::string fname = LogFileName(immutable_db_options_.wal_dir, log_number);
-    // This gets the appear size of the logs, not including preallocated space.
+  for (auto wal_number : wal_numbers) {
+    LogFileNumberSize log(wal_number);
+    std::string fname = LogFileName(immutable_db_options_.wal_dir, wal_number);
+    // This gets the appear size of the wals, not including preallocated space.
     s = env_->GetFileSize(fname, &log.size);
     if (!s.ok()) {
       break;
     }
     total_log_size_ += log.size;
     alive_log_files_.push_back(log);
-    // We preallocate space for logs, but then after a crash and restart, those
+    // We preallocate space for wals, but then after a crash and restart, those
     // preallocated space are not needed anymore. It is likely only the last
     // log has such preallocated space, so we only truncate for the last log.
-    if (log_number == log_numbers.back()) {
+    if (wal_number == wal_numbers.back()) {
       std::unique_ptr<FSWritableFile> last_log;
       Status truncate_status = fs_->ReopenWritableFile(
           fname,
@@ -1274,7 +1281,7 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& log_numbers) {
       // Not a critical error if fail to truncate.
       if (!truncate_status.ok()) {
         ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                       "Failed to truncate log #%" PRIu64 ": %s", log_number,
+                       "Failed to truncate log #%" PRIu64 ": %s", wal_number,
                        truncate_status.ToString().c_str());
       }
     }
@@ -1342,7 +1349,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
       IOStatus io_s;
       s = BuildTable(
-          dbname_, versions_.get(), env_, fs_.get(), *cfd->ioptions(),
+          dbname_, versions_.get(), immutable_db_options_, *cfd->ioptions(),
           mutable_cf_options, file_options_for_compaction_, cfd->table_cache(),
           iter.get(), std::move(range_del_iters), &meta, &blob_file_additions,
           cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
@@ -1370,7 +1377,6 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
   const bool has_output = meta.fd.GetFileSize() > 0;
-  assert(has_output || blob_file_additions.empty());
 
   constexpr int level = 0;
 
@@ -1390,14 +1396,15 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
   if (has_output) {
     stats.bytes_written = meta.fd.GetFileSize();
-
-    const auto& blobs = edit->GetBlobFileAdditions();
-    for (const auto& blob : blobs) {
-      stats.bytes_written += blob.GetTotalBlobBytes();
-    }
-
-    stats.num_output_files = static_cast<int>(blobs.size()) + 1;
+    stats.num_output_files = 1;
   }
+
+  const auto& blobs = edit->GetBlobFileAdditions();
+  for (const auto& blob : blobs) {
+    stats.bytes_written += blob.GetTotalBlobBytes();
+  }
+
+  stats.num_output_files += static_cast<int>(blobs.size());
 
   cfd->internal_stats()->AddCompactionStats(level, Env::Priority::USER, stats);
   cfd->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
@@ -1612,7 +1619,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       // In WritePrepared there could be gap in sequence numbers. This breaks
       // the trick we use in kPointInTimeRecovery which assumes the first seq in
       // the log right after the corrupted log is one larger than the last seq
-      // we read from the logs. To let this trick keep working, we add a dummy
+      // we read from the wals. To let this trick keep working, we add a dummy
       // entry with the expected sequence to the first log right after recovery.
       // In non-WritePrepared case also the new log after recovery could be
       // empty, and thus missing the consecutive seq hint to distinguish
