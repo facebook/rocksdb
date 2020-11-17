@@ -3397,6 +3397,25 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
 Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
                                    ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes) {
+  auto ts_sz = column_family->GetComparator()->timestamp_size();
+  if (ts_sz == 0) {
+    return GetApproximateSizesInternal(options, column_family, range, n, sizes);
+  } else {
+    std::string start_str;
+    std::string limit_str;
+    AppendKeyWithMinTimestamp(&start_str, range->start, ts_sz);
+    // Append a minimal timestamp as the range limit is exclusive:
+    // [start, limit)
+    AppendKeyWithMinTimestamp(&limit_str, range->limit, ts_sz);
+    Range range_with_ts(start_str, limit_str);
+    return GetApproximateSizesInternal(options, column_family, &range_with_ts,
+                                       n, sizes);
+  }
+}
+
+Status DBImpl::GetApproximateSizesInternal(
+    const SizeApproximationOptions& options, ColumnFamilyHandle* column_family,
+    const Range* range, int n, uint64_t* sizes) {
   if (!options.include_memtabtles && !options.include_files) {
     return Status::InvalidArgument("Invalid options");
   }

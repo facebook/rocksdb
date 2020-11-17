@@ -223,6 +223,51 @@ TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100000000;  // Large write buffer
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  auto default_cf = db_->DefaultColumnFamily();
+
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
+
+  const int N = 128;
+  Random rnd(301);
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(db_->Put(write_opts, Key(i), rnd.RandomString(1024)));
+  }
+
+  uint64_t size;
+  std::string start = Key(50);
+  std::string end = Key(60);
+  Range r(start, end);
+  SizeApproximationOptions size_approx_options;
+  size_approx_options.include_memtabtles = true;
+  size_approx_options.include_files = true;
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_GT(size, 6000);
+  ASSERT_LT(size, 204800);
+  // Zero if not including mem table
+  db_->GetApproximateSizes(&r, 1, &size);
+  ASSERT_EQ(size, 0);
+
+  start = Key(500);
+  end = Key(600);
+  r = Range(start, end);
+  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_EQ(size, 0);
+
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 1024;
