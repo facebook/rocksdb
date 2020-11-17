@@ -1715,6 +1715,10 @@ class MemTableInserter : public WriteBatch::Handler {
 
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetImmutableMemTableOptions();
+    if (moptions->merge_operator == nullptr) {
+      return Status::InvalidArgument(
+          "Merge requires `ColumnFamilyOptions::merge_operator != nullptr`");
+    }
     bool perform_merge = false;
     assert(!concurrent_memtable_writes_ ||
            moptions->max_successive_merges == 0);
