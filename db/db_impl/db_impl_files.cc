@@ -6,16 +6,17 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#include "db/db_impl/db_impl.h"
-
 #include <cinttypes>
 #include <set>
 #include <unordered_set>
+
+#include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
 #include "db/memtable_list.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/sst_file_manager_impl.h"
+#include "port/port.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -707,6 +708,42 @@ uint64_t PrecomputeMinLogNumberToKeepNon2PC(
     min_log_number_to_keep =
         std::min(cf_min_log_number_to_keep, min_log_number_to_keep);
   }
+  return min_log_number_to_keep;
+}
+
+uint64_t PrecomputeMinLogNumberToKeepNon2PC(
+    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    const autovector<autovector<VersionEdit*>>& edit_lists) {
+  assert(vset != nullptr);
+  assert(!cfds_to_flush.empty());
+  assert(cfds_to_flush.size() == edit_lists.size());
+
+  uint64_t min_log_number_to_keep = port::kMaxUint64;
+  for (const auto& edit_list : edit_lists) {
+    uint64_t log = 0;
+    for (const auto& e : edit_list) {
+      if (e->HasLogNumber()) {
+        log = std::max(log, e->GetLogNumber());
+      }
+    }
+    if (log != 0) {
+      min_log_number_to_keep = std::min(min_log_number_to_keep, log);
+    }
+  }
+  if (min_log_number_to_keep == port::kMaxUint64) {
+    min_log_number_to_keep = cfds_to_flush[0]->GetLogNumber();
+    for (size_t i = 1; i < cfds_to_flush.size(); i++) {
+      min_log_number_to_keep =
+          std::min(min_log_number_to_keep, cfds_to_flush[i]->GetLogNumber());
+    }
+  }
+
+  std::unordered_set<const ColumnFamilyData*> flushed_cfds(
+      cfds_to_flush.begin(), cfds_to_flush.end());
+  min_log_number_to_keep =
+      std::min(min_log_number_to_keep,
+               vset->PreComputeMinLogNumberWithUnflushedData(flushed_cfds));
+
   return min_log_number_to_keep;
 }
 

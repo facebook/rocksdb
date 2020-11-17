@@ -26,6 +26,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -1126,6 +1127,23 @@ class VersionSet {
     uint64_t min_log_num = std::numeric_limits<uint64_t>::max();
     for (auto cfd : *column_family_set_) {
       if (cfd == cfd_to_skip) {
+        continue;
+      }
+      // It's safe to ignore dropped column families here:
+      // cfd->IsDropped() becomes true after the drop is persisted in MANIFEST.
+      if (min_log_num > cfd->GetLogNumber() && !cfd->IsDropped()) {
+        min_log_num = cfd->GetLogNumber();
+      }
+    }
+    return min_log_num;
+  }
+  // Returns the minimum log number which still has data not flushed to any SST
+  // file, except data from `cfds_to_skip`.
+  uint64_t PreComputeMinLogNumberWithUnflushedData(
+      const std::unordered_set<const ColumnFamilyData*>& cfds_to_skip) const {
+    uint64_t min_log_num = port::kMaxUint64;
+    for (auto cfd : *column_family_set_) {
+      if (cfds_to_skip.count(cfd)) {
         continue;
       }
       // It's safe to ignore dropped column families here:
