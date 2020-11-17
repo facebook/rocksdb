@@ -81,7 +81,7 @@ void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
 void AppendKeyWithMinTimestamp(std::string* result, const Slice& key,
                                size_t ts_sz) {
   assert(ts_sz > 0);
-  const std::string kTsMin(ts_sz, static_cast<char>(0));
+  const std::string kTsMin(ts_sz, static_cast<unsigned char>(0));
   result->append(key.data(), key.size());
   result->append(kTsMin.data(), ts_sz);
 }
@@ -89,7 +89,7 @@ void AppendKeyWithMinTimestamp(std::string* result, const Slice& key,
 void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
                                size_t ts_sz) {
   assert(ts_sz > 0);
-  const std::string kTsMax(ts_sz, static_cast<char>(0xff));
+  const std::string kTsMax(ts_sz, static_cast<unsigned char>(0xff));
   result->append(key.data(), key.size());
   result->append(kTsMax.data(), ts_sz);
 }
