@@ -6114,6 +6114,11 @@ TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGC) {
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
+  ASSERT_EQ(Get(first_key), first_value);
+  ASSERT_EQ(Get(second_key), second_value);
+  ASSERT_EQ(Get(third_key), third_value);
+  ASSERT_EQ(Get(fourth_key), fourth_value);
+
   const std::vector<uint64_t> new_blob_files = GetBlobFileNumbers();
 
   ASSERT_EQ(new_blob_files.size(), expected_number_of_files);
