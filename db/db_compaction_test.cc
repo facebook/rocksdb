@@ -9,6 +9,7 @@
 
 #include <tuple>
 
+#include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -6160,6 +6161,59 @@ TEST_F(DBCompactionTest, CompactionWithBlobGCError_CorruptIndex) {
   WriteBatch batch;
   ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, fourth_key,
                                              corrupt_blob_index));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  ASSERT_OK(Flush());
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_TRUE(
+      db_->CompactRange(CompactRangeOptions(), begin, end).IsCorruption());
+}
+
+TEST_F(DBCompactionTest, CompactionWithBlobGCError_InlinedTTLIndex) {
+  constexpr uint64_t min_blob_size = 10;
+
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = min_blob_size;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "first_value";
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "second_value";
+  ASSERT_OK(Put(second_key, second_value));
+
+  ASSERT_OK(Flush());
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "third_value";
+  ASSERT_OK(Put(third_key, third_value));
+
+  constexpr char fourth_key[] = "fourth_key";
+  constexpr char blob[] = "short";
+  static_assert(sizeof(short) - 1 < min_blob_size,
+                "Blob too long to be inlined");
+
+  // Fake an inlined TTL blob index.
+  std::string blob_index;
+
+  constexpr uint64_t expiration = 1234567890;
+
+  BlobIndex::EncodeInlinedTTL(&blob_index, expiration, blob);
+
+  WriteBatch batch;
+  ASSERT_OK(
+      WriteBatchInternal::PutBlobIndex(&batch, 0, fourth_key, blob_index));
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
   ASSERT_OK(Flush());
