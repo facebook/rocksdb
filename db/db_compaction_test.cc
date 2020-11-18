@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <algorithm>
+
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -28,6 +30,31 @@ class DBCompactionTest : public DBTestBase {
  public:
   DBCompactionTest()
       : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {}
+
+  std::vector<uint64_t> GetBlobFileNumbers() {
+    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+    assert(versions);
+
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    assert(cfd);
+
+    Version* const current = cfd->current();
+    assert(current);
+
+    const VersionStorageInfo* const storage_info = current->storage_info();
+    assert(storage_info);
+
+    const auto& blob_files = storage_info->GetBlobFiles();
+
+    std::vector<uint64_t> result;
+    result.reserve(blob_files.size());
+
+    for (const auto& blob_file : blob_files) {
+      result.emplace_back(blob_file.first);
+    }
+
+    return result;
+  }
 };
 
 class DBCompactionTestWithParam
@@ -6017,6 +6044,62 @@ TEST_P(DBCompactionTestBlobError, CompactionError) {
     // SST file writing succeeded; blob file writing failed (during Finish)
     ASSERT_GT(compaction_stats[1].bytes_written, 0);
     ASSERT_EQ(compaction_stats[1].num_output_files, 1);
+  }
+}
+
+TEST_F(DBCompactionTest, CompactionWithBlobGC) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.blob_file_size = 32;  // one blob per file
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 0.5;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "first_value";
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "second_value";
+
+  ASSERT_OK(Put(first_key, first_value));
+  ASSERT_OK(Put(second_key, second_value));
+  ASSERT_OK(Flush());
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "third_value";
+  constexpr char fourth_key[] = "fourth_key";
+  constexpr char fourth_value[] = "fourth_value";
+
+  ASSERT_OK(Put(third_key, third_value));
+  ASSERT_OK(Put(fourth_key, fourth_value));
+  ASSERT_OK(Flush());
+
+  const std::vector<uint64_t> original_blob_files = GetBlobFileNumbers();
+
+  ASSERT_EQ(original_blob_files.size(), 4);
+
+  const size_t cutoff_index =
+      options.blob_garbage_collection_age_cutoff * original_blob_files.size();
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  const std::vector<uint64_t> new_blob_files = GetBlobFileNumbers();
+
+  // Original blob files below the cutoff should be gone
+  for (size_t i = 0; i < cutoff_index; ++i) {
+    ASSERT_FALSE(std::binary_search(
+        new_blob_files.begin(), new_blob_files.end(), original_blob_files[i]));
+  }
+
+  // Original blob files at or above the cutoff should be still there
+  for (size_t i = cutoff_index; i < original_blob_files.size(); ++i) {
+    ASSERT_TRUE(std::binary_search(new_blob_files.begin(), new_blob_files.end(),
+                                   original_blob_files[i]));
   }
 }
 
