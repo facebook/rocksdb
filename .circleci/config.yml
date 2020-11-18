@@ -354,7 +354,7 @@ jobs:
   build-examples:
     machine:
       image: ubuntu-1604:202007-01
-    resource_class: medium
+    resource_class: large
     steps:
       - pre-steps
       - install-gflags
@@ -362,6 +362,29 @@ jobs:
           name: "Build examples"
           command: |
             OPT=-DTRAVIS V=1 make -j4 static_lib && cd examples && make -j4 | ../.circleci/cat_ignore_eagain
+      - post-steps
+
+  build-cmake-mingw:
+    machine:
+      image: ubuntu-1604:202007-01
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - run: sudo apt-get update -y && sudo apt-get install -y mingw-w64
+      - run: sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+      - run:
+          name: "Build cmake-mingw"
+          command: |
+            sudo apt-get install snapd && sudo snap install cmake --beta --classic
+            export PATH=/snap/bin:$PATH
+            sudo apt-get install -y openjdk-8-jdk
+            export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+            export PATH=$JAVA_HOME/bin:$PATH
+            echo "JAVA_HOME=${JAVA_HOME}"
+            which java && java -version
+            which javac && javac -version
+            mkdir build && cd build && cmake -DJNI=1 -DWITH_GFLAGS=OFF .. -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ -DCMAKE_SYSTEM_NAME=Windows && make -j4 rocksdb rocksdbjni
       - post-steps
 
   build-linux-non-shm:
@@ -483,3 +506,6 @@ workflows:
   build-macos:
     jobs:
       - build-macos
+  build-cmake-mingw:
+    jobs:
+      - build-cmake-mingw
