@@ -842,8 +842,7 @@ void DBImpl::WriteStatusCheckOnLocked(const Status& status) {
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
       !status.IsBusy() && !status.IsIncomplete()) {
     // Maybe change the return status to void?
-    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
   }
 }
 
@@ -855,8 +854,7 @@ void DBImpl::WriteStatusCheck(const Status& status) {
       !status.IsBusy() && !status.IsIncomplete()) {
     mutex_.Lock();
     // Maybe change the return status to void?
-    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
     mutex_.Unlock();
   }
 }
@@ -869,8 +867,7 @@ void DBImpl::IOStatusCheck(const IOStatus& io_status) {
       io_status.IsIOFenced()) {
     mutex_.Lock();
     // Maybe change the return status to void?
-    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback);
     mutex_.Unlock();
   }
 }
@@ -885,8 +882,8 @@ void DBImpl::MemTableInsertStatusCheck(const Status& status) {
     mutex_.Lock();
     assert(!error_handler_.IsBGWorkStopped());
     // Maybe change the return status to void?
-    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable);
+    .PermitUncheckedError();
     mutex_.Unlock();
   }
 }
@@ -1784,11 +1781,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     // the current log, so treat it as a fatal error and set bg_error
     // Should handle return error?
     if (!io_s.ok()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable);
     } else {
-      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
     }
     // Read back bg_error in order to get the right severity
     s = error_handler_.GetBGError();
