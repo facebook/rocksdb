@@ -6097,8 +6097,8 @@ TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGC) {
 
   ASSERT_EQ(original_blob_files.size(), 4);
 
-  const size_t cutoff_index =
-      options.blob_garbage_collection_age_cutoff * original_blob_files.size();
+  const size_t cutoff_index = static_cast<size_t>(
+      options.blob_garbage_collection_age_cutoff * original_blob_files.size());
 
   // Note: turning off enable_blob_files before the compaction results in
   // garbage collected values getting inlined.
