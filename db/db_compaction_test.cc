@@ -6102,8 +6102,12 @@ TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGC) {
 
   // Note: turning off enable_blob_files before the compaction results in
   // garbage collected values getting inlined.
+  size_t expected_number_of_files = original_blob_files.size();
+
   if (!updated_enable_blob_files_) {
     ASSERT_OK(db_->SetOptions({{"enable_blob_files", "false"}}));
+
+    expected_number_of_files -= cutoff_index;
   }
 
   constexpr Slice* begin = nullptr;
@@ -6112,11 +6116,6 @@ TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGC) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
   const std::vector<uint64_t> new_blob_files = GetBlobFileNumbers();
-
-  size_t expected_number_of_files = original_blob_files.size();
-  if (!updated_enable_blob_files_) {
-    expected_number_of_files -= cutoff_index;
-  }
 
   ASSERT_EQ(new_blob_files.size(), expected_number_of_files);
 
