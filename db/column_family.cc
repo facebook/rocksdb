@@ -1339,6 +1339,15 @@ Status ColumnFamilyData::ValidateOptions(
           "Block-Based Table format. ");
     }
   }
+
+  if (cf_options.enable_blob_garbage_collection &&
+      (cf_options.blob_garbage_collection_age_cutoff < 0.0 ||
+       cf_options.blob_garbage_collection_age_cutoff > 1.0)) {
+    return Status::InvalidArgument(
+        "The age cutoff for blob garbage collection should be in the range "
+        "[0.0, 1.0].");
+  }
+
   return s;
 }
 
