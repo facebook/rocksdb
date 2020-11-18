@@ -7,7 +7,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <algorithm>
 #include <tuple>
 
 #include "db/db_test_util.h"
@@ -6119,16 +6118,10 @@ TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGC) {
 
   ASSERT_EQ(new_blob_files.size(), expected_number_of_files);
 
-  // Original blob files below the cutoff should be gone
-  for (size_t i = 0; i < cutoff_index; ++i) {
-    ASSERT_FALSE(std::binary_search(
-        new_blob_files.begin(), new_blob_files.end(), original_blob_files[i]));
-  }
-
-  // Original blob files at or above the cutoff should be still there
+  // Original blob files below the cutoff should be gone, original blob files at
+  // or above the cutoff should be still there
   for (size_t i = cutoff_index; i < original_blob_files.size(); ++i) {
-    ASSERT_TRUE(std::binary_search(new_blob_files.begin(), new_blob_files.end(),
-                                   original_blob_files[i]));
+    ASSERT_EQ(new_blob_files[i - cutoff_index], original_blob_files[i]);
   }
 }
 
