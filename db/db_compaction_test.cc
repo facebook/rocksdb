@@ -6057,7 +6057,7 @@ class DBCompactionTestBlobGC
         updated_enable_blob_files_(std::get<1>(GetParam())) {}
 
   double blob_gc_age_cutoff_;
-  uint64_t updated_enable_blob_files_;
+  bool updated_enable_blob_files_;
 };
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestBlobGC, DBCompactionTestBlobGC,
