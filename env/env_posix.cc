@@ -463,11 +463,12 @@ void PosixEnv::WaitForJoin() {
 
 std::string Env::GenerateUniqueId() {
   std::string uuid_file = "/proc/sys/kernel/random/uuid";
+  std::shared_ptr<FileSystem> fs = FileSystem::Default();
 
-  Status s = FileExists(uuid_file);
+  Status s = fs->FileExists(uuid_file, IOOptions(), nullptr);
   if (s.ok()) {
     std::string uuid;
-    s = ReadFileToString(this, uuid_file, &uuid);
+    s = ReadFileToString(fs.get(), uuid_file, &uuid);
     if (s.ok()) {
       return uuid;
     }
