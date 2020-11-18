@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <algorithm>
+#include <tuple>
 
 #include "db/db_test_util.h"
 #include "port/port.h"
@@ -6047,14 +6048,30 @@ TEST_P(DBCompactionTestBlobError, CompactionError) {
   }
 }
 
-TEST_F(DBCompactionTest, CompactionWithBlobGC) {
+class DBCompactionTestBlobGC
+    : public DBCompactionTest,
+      public testing::WithParamInterface<std::tuple<double, bool>> {
+ public:
+  DBCompactionTestBlobGC()
+      : blob_gc_age_cutoff_(std::get<0>(GetParam())),
+        updated_enable_blob_files_(std::get<1>(GetParam())) {}
+
+  double blob_gc_age_cutoff_;
+  uint64_t updated_enable_blob_files_;
+};
+
+INSTANTIATE_TEST_CASE_P(DBCompactionTestBlobGC, DBCompactionTestBlobGC,
+                        ::testing::Combine(::testing::Values(0.0, 0.5, 1.0),
+                                           ::testing::Bool()));
+
+TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGC) {
   Options options;
   options.env = env_;
   options.disable_auto_compactions = true;
   options.enable_blob_files = true;
   options.blob_file_size = 32;  // one blob per file
   options.enable_blob_garbage_collection = true;
-  options.blob_garbage_collection_age_cutoff = 0.5;
+  options.blob_garbage_collection_age_cutoff = blob_gc_age_cutoff_;
 
   Reopen(options);
 
@@ -6083,12 +6100,25 @@ TEST_F(DBCompactionTest, CompactionWithBlobGC) {
   const size_t cutoff_index =
       options.blob_garbage_collection_age_cutoff * original_blob_files.size();
 
+  // Note: turning off enable_blob_files before the compaction results in
+  // garbage collected values getting inlined.
+  if (!updated_enable_blob_files_) {
+    ASSERT_OK(db_->SetOptions({{"enable_blob_files", "false"}}));
+  }
+
   constexpr Slice* begin = nullptr;
   constexpr Slice* end = nullptr;
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
 
   const std::vector<uint64_t> new_blob_files = GetBlobFileNumbers();
+
+  size_t expected_number_of_files = original_blob_files.size();
+  if (!updated_enable_blob_files_) {
+    expected_number_of_files -= cutoff_index;
+  }
+
+  ASSERT_EQ(new_blob_files.size(), expected_number_of_files);
 
   // Original blob files below the cutoff should be gone
   for (size_t i = 0; i < cutoff_index; ++i) {
