@@ -882,8 +882,8 @@ void DBImpl::MemTableInsertStatusCheck(const Status& status) {
     mutex_.Lock();
     assert(!error_handler_.IsBGWorkStopped());
     // Maybe change the return status to void?
-    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable);
-    .PermitUncheckedError();
+    error_handler_.SetBGError(status, BackgroundErrorReason::kMemTable)
+        .PermitUncheckedError();
     mutex_.Unlock();
   }
 }
