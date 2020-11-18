@@ -1406,7 +1406,7 @@ void InternalStats::DumpCFFileHistogram(std::string* value) {
         << blob_file_read_latency_.ToString() << '\n';
   }
 
-  *value = oss.str();
+  value->append(oss.str());
 }
 
 #else

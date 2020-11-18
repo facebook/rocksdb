@@ -18,6 +18,13 @@ class DBEncryptionTest : public DBTestBase {
  public:
   DBEncryptionTest()
       : DBTestBase("/db_encryption_test", /*env_do_fsync=*/true) {}
+  Env* GetTargetEnv() {
+    if (encrypted_env_ != nullptr) {
+      return (static_cast<EnvWrapper*>(encrypted_env_))->target();
+    } else {
+      return env_;
+    }
+  }
 };
 
 #ifndef ROCKSDB_LITE
@@ -34,20 +41,20 @@ TEST_F(DBEncryptionTest, CheckEncrypted) {
   auto status = env_->GetChildren(dbname_, &fileNames);
   ASSERT_OK(status);
 
-  auto defaultEnv = Env::Default();
+  Env* target = GetTargetEnv();
   int hits = 0;
   for (auto it = fileNames.begin() ; it != fileNames.end(); ++it) {
-    if ((*it == "..") || (*it == ".")) {
+    if ((*it == "..") || (*it == ".") || (*it == "LOCK")) {
       continue;
     }
     auto filePath = dbname_ + "/" + *it;
     std::unique_ptr<SequentialFile> seqFile;
     auto envOptions = EnvOptions(CurrentOptions());
-    status = defaultEnv->NewSequentialFile(filePath, &seqFile, envOptions);
+    status = target->NewSequentialFile(filePath, &seqFile, envOptions);
     ASSERT_OK(status);
 
     uint64_t fileSize;
-    status = defaultEnv->GetFileSize(filePath, &fileSize);
+    status = target->GetFileSize(filePath, &fileSize);
     ASSERT_OK(status);
 
     std::string scratch;
@@ -85,7 +92,7 @@ TEST_F(DBEncryptionTest, CheckEncrypted) {
 }
 
 TEST_F(DBEncryptionTest, ReadEmptyFile) {
-  auto defaultEnv = Env::Default();
+  auto defaultEnv = GetTargetEnv();
 
   // create empty file for reading it back in later
   auto envOptions = EnvOptions(CurrentOptions());

@@ -32,6 +32,7 @@ typedef std::map<std::string, std::string> UserCollectedProperties;
 struct TablePropertiesNames {
   static const std::string kDbId;
   static const std::string kDbSessionId;
+  static const std::string kDbHostId;
   static const std::string kDataSize;
   static const std::string kIndexSize;
   static const std::string kIndexPartitions;
@@ -205,6 +206,12 @@ struct TableProperties {
   // If DB session identity is unset or unassigned, `db_session_id` will be an
   // empty string.
   std::string db_session_id;
+
+  // Location of the machine hosting the DB instance
+  // db_host_id identifies the location of the host in some form
+  // (hostname by default, but can also be any string of the user's choosing).
+  // It can potentially change whenever the DB is opened
+  std::string db_host_id;
 
   // Name of the column family with which this SST file is associated.
   // If column family is unknown, `column_family_name` will be an empty string.

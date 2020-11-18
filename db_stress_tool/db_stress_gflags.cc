@@ -287,6 +287,24 @@ DEFINE_int64(cache_size, 2LL * KB * KB * KB,
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "True if indexes/filters should be cached in block cache.");
 
+DEFINE_int32(
+    top_level_index_pinning,
+    static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
+    "Type of pinning for top-level indexes into metadata partitions (see "
+    "`enum PinningTier` in table.h)");
+
+DEFINE_int32(
+    partition_pinning,
+    static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
+    "Type of pinning for metadata partitions (see `enum PinningTier` in "
+    "table.h)");
+
+DEFINE_int32(
+    unpartitioned_pinning,
+    static_cast<int32_t>(ROCKSDB_NAMESPACE::PinningTier::kFallback),
+    "Type of pinning for unpartitioned metadata blocks (see `enum PinningTier` "
+    "in table.h)");
+
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 
@@ -356,6 +374,9 @@ DEFINE_double(bloom_bits, 10,
 DEFINE_bool(use_block_based_filter, false,
             "use block based filter"
             "instead of full filter for block based table");
+
+DEFINE_bool(use_ribbon_filter, false,
+            "Use Ribbon filter instead of Bloom filter");
 
 DEFINE_bool(partition_filters, false,
             "use partitioned filters "

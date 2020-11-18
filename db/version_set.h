@@ -26,9 +26,11 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include "cache/cache_helpers.h"
 #include "db/blob/blob_file_meta.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction.h"
@@ -776,6 +778,13 @@ class Version {
     return storage_info_.user_comparator_;
   }
 
+  // Interprets *value as a blob reference, and (assuming the corresponding
+  // blob file is part of this Version) retrieves the blob and saves it in
+  // *value, replacing the blob reference.
+  // REQUIRES: *value stores an encoded blob reference
+  Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                 PinnableSlice* value) const;
+
   // Returns true if the filter blocks in the specified level will not be
   // checked during read operations. In certain cases (trivial move or preload),
   // the filter block may already be cached, but we still do not access it such
@@ -800,6 +809,7 @@ class Version {
   Logger* info_log_;
   Statistics* db_statistics_;
   TableCache* table_cache_;
+  BlobFileCache* blob_file_cache_;
   const MergeOperator* merge_operator_;
 
   VersionStorageInfo storage_info_;
@@ -908,6 +918,17 @@ class VersionSet {
 
   virtual ~VersionSet();
 
+  Status LogAndApplyToDefaultColumnFamily(
+      VersionEdit* edit, InstrumentedMutex* mu,
+      FSDirectory* db_directory = nullptr, bool new_descriptor_log = false,
+      const ColumnFamilyOptions* column_family_options = nullptr) {
+    ColumnFamilyData* default_cf = GetColumnFamilySet()->GetDefault();
+    const MutableCFOptions* cf_options =
+        default_cf->GetLatestMutableCFOptions();
+    return LogAndApply(default_cf, *cf_options, edit, mu, db_directory,
+                       new_descriptor_log, column_family_options);
+  }
+
   // Apply *edit to the current version to form a new descriptor that
   // is both saved to persistent state and installed as the new
   // current version.  Will release *mu while actually writing to the file.
@@ -938,7 +959,8 @@ class VersionSet {
       const MutableCFOptions& mutable_cf_options,
       const autovector<VersionEdit*>& edit_list, InstrumentedMutex* mu,
       FSDirectory* db_directory = nullptr, bool new_descriptor_log = false,
-      const ColumnFamilyOptions* column_family_options = nullptr) {
+      const ColumnFamilyOptions* column_family_options = nullptr,
+      const std::function<void(const Status&)>& manifest_wcb = {}) {
     autovector<ColumnFamilyData*> cfds;
     cfds.emplace_back(column_family_data);
     autovector<const MutableCFOptions*> mutable_cf_options_list;
@@ -946,7 +968,8 @@ class VersionSet {
     autovector<autovector<VersionEdit*>> edit_lists;
     edit_lists.emplace_back(edit_list);
     return LogAndApply(cfds, mutable_cf_options_list, edit_lists, mu,
-                       db_directory, new_descriptor_log, column_family_options);
+                       db_directory, new_descriptor_log, column_family_options,
+                       {manifest_wcb});
   }
 
   // The across-multi-cf batch version. If edit_lists contain more than
@@ -958,7 +981,9 @@ class VersionSet {
       const autovector<autovector<VersionEdit*>>& edit_lists,
       InstrumentedMutex* mu, FSDirectory* db_directory = nullptr,
       bool new_descriptor_log = false,
-      const ColumnFamilyOptions* new_cf_options = nullptr);
+      const ColumnFamilyOptions* new_cf_options = nullptr,
+      const std::vector<std::function<void(const Status&)>>& manifest_wcbs =
+          {});
 
   static Status GetCurrentManifestPath(const std::string& dbname,
                                        FileSystem* fs,
@@ -1112,6 +1137,23 @@ class VersionSet {
     }
     return min_log_num;
   }
+  // Returns the minimum log number which still has data not flushed to any SST
+  // file, except data from `cfds_to_skip`.
+  uint64_t PreComputeMinLogNumberWithUnflushedData(
+      const std::unordered_set<const ColumnFamilyData*>& cfds_to_skip) const {
+    uint64_t min_log_num = port::kMaxUint64;
+    for (auto cfd : *column_family_set_) {
+      if (cfds_to_skip.count(cfd)) {
+        continue;
+      }
+      // It's safe to ignore dropped column families here:
+      // cfd->IsDropped() becomes true after the drop is persisted in MANIFEST.
+      if (min_log_num > cfd->GetLogNumber() && !cfd->IsDropped()) {
+        min_log_num = cfd->GetLogNumber();
+      }
+    }
+    return min_log_num;
+  }
 
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
@@ -1150,6 +1192,10 @@ class VersionSet {
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
   void AddObsoleteBlobFile(uint64_t blob_file_number, std::string path) {
+    assert(table_cache_);
+
+    table_cache_->Erase(GetSlice(&blob_file_number));
+
     obsolete_blob_files_.emplace_back(blob_file_number, std::move(path));
   }
 
@@ -1174,6 +1220,7 @@ class VersionSet {
   // Get the IO Status returned by written Manifest.
   const IOStatus& io_status() const { return io_status_; }
 
+  // The returned WalSet needs to be accessed with DB mutex held.
   const WalSet& GetWalSet() const { return wals_; }
 
   void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {
@@ -1198,6 +1245,7 @@ class VersionSet {
   friend class Version;
   friend class VersionEditHandler;
   friend class VersionEditHandlerPointInTime;
+  friend class DumpManifestHandler;
   friend class DBImpl;
   friend class DBImplReadOnly;
 
@@ -1229,7 +1277,7 @@ class VersionSet {
   // Save current contents to *log
   Status WriteCurrentStateToManifest(
       const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-      log::Writer* log, IOStatus& io_s);
+      const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s);
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
@@ -1262,9 +1310,11 @@ class VersionSet {
   Status VerifyFileMetadata(const std::string& fpath,
                             const FileMetaData& meta) const;
 
+  // Protected by DB mutex.
   WalSet wals_;
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
+  Cache* table_cache_;
   Env* const env_;
   FileSystemPtr const fs_;
   const std::string dbname_;
@@ -1392,8 +1442,9 @@ class ReactiveVersionSet : public VersionSet {
       const autovector<const MutableCFOptions*>& /*mutable_cf_options_list*/,
       const autovector<autovector<VersionEdit*>>& /*edit_lists*/,
       InstrumentedMutex* /*mu*/, FSDirectory* /*db_directory*/,
-      bool /*new_descriptor_log*/,
-      const ColumnFamilyOptions* /*new_cf_option*/) override {
+      bool /*new_descriptor_log*/, const ColumnFamilyOptions* /*new_cf_option*/,
+      const std::vector<std::function<void(const Status&)>>& /*manifest_wcbs*/)
+      override {
     return Status::NotSupported("not supported in reactive mode");
   }
 

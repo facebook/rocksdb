@@ -1443,6 +1443,14 @@ class DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) = 0;
 
+  // Verify the checksums of files in db. Currently the whole-file checksum of
+  // table files are checked.
+  virtual Status VerifyFileChecksums(const ReadOptions& /*read_options*/) {
+    return Status::NotSupported("File verification not supported");
+  }
+
+  // Verify the block checksums of files in db. The block checksums of table
+  // files are checked.
   virtual Status VerifyChecksum(const ReadOptions& read_options) = 0;
 
   virtual Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
@@ -1597,14 +1605,14 @@ class DB {
     return Status::NotSupported("EndTrace() is not implemented.");
   }
 
-  // StartIOTrace and EndIOTrace are experimental. They are not enabled yet.
+  // IO Tracing operations. Use EndIOTrace() to stop tracing.
   virtual Status StartIOTrace(Env* /*env*/, const TraceOptions& /*options*/,
                               std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
-    return Status::NotSupported("StartTrace() is not implemented.");
+    return Status::NotSupported("StartIOTrace() is not implemented.");
   }
 
   virtual Status EndIOTrace() {
-    return Status::NotSupported("StartTrace() is not implemented.");
+    return Status::NotSupported("EndIOTrace() is not implemented.");
   }
 
   // Trace block cache accesses. Use EndBlockCacheTrace() to stop tracing.

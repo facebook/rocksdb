@@ -514,24 +514,24 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         std::make_tuple(BFP::kDeprecatedBlock, false,
                         test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAuto, true, test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAuto, false, test::kDefaultFormatVersion)));
+        std::make_tuple(BFP::kAutoBloom, true, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, false, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestWithParam,
     ::testing::Values(
         std::make_tuple(BFP::kDeprecatedBlock, false,
                         test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAuto, true, test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAuto, false, test::kDefaultFormatVersion)));
+        std::make_tuple(BFP::kAutoBloom, true, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, false, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, DBBloomFilterTestWithParam,
     ::testing::Values(
         std::make_tuple(BFP::kDeprecatedBlock, false,
                         test::kLatestFormatVersion),
-        std::make_tuple(BFP::kAuto, true, test::kLatestFormatVersion),
-        std::make_tuple(BFP::kAuto, false, test::kLatestFormatVersion)));
+        std::make_tuple(BFP::kAutoBloom, true, test::kLatestFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, false, test::kLatestFormatVersion)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
@@ -1730,6 +1730,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
     int using_full_builder = bfp_impl != BFP::kDeprecatedBlock;
     Options options;
     options.create_if_missing = true;
+    options.env = CurrentOptions().env;
     options.prefix_extractor.reset(NewCappedPrefixTransform(4));
     options.disable_auto_compactions = true;
     options.statistics = CreateDBStatistics();
@@ -1860,6 +1861,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
   for (auto bfp_impl : BFP::kAllFixedImpls) {
     int using_full_builder = bfp_impl != BFP::kDeprecatedBlock;
     Options options;
+    options.env = CurrentOptions().env;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
     options.disable_auto_compactions = true;
@@ -2052,6 +2054,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
 TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
   for (auto bfp_impl : BFP::kAllFixedImpls) {
     Options options;
+    options.env = CurrentOptions().env;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
     options.disable_auto_compactions = true;

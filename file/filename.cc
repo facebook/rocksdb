@@ -13,7 +13,6 @@
 #include <stdio.h>
 #include <vector>
 #include "file/writable_file_writer.h"
-#include "logging/logging.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 #include "util/stop_watch.h"
@@ -184,7 +183,8 @@ InfoLogPrefix::InfoLogPrefix(bool has_log_dir,
     snprintf(buf, sizeof(buf), kInfoLogPrefix);
     prefix = Slice(buf, sizeof(kInfoLogPrefix) - 1);
   } else {
-    size_t len = GetInfoLogPrefix(db_absolute_path, buf, sizeof(buf));
+    size_t len =
+        GetInfoLogPrefix(NormalizePath(db_absolute_path), buf, sizeof(buf));
     prefix = Slice(buf, len);
   }
 }
@@ -352,7 +352,7 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
 
     Slice suffix = rest;
     if (suffix == Slice("log")) {
-      *type = kLogFile;
+      *type = kWalFile;
       if (log_type && !archive_dir_found) {
         *log_type = kAliveLogFile;
       }
@@ -432,7 +432,7 @@ Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
   assert(parent_dir != nullptr);
   assert(info_log_list != nullptr);
   uint64_t number = 0;
-  FileType type = kLogFile;
+  FileType type = kWalFile;
 
   if (!db_log_dir.empty()) {
     *parent_dir = db_log_dir;

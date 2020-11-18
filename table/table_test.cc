@@ -252,9 +252,11 @@ class KeyConvertingIterator : public InternalIterator {
   Slice key() const override {
     assert(Valid());
     ParsedInternalKey parsed_key;
-    if (ParseInternalKey(iter_->key(), &parsed_key) != Status::OK()) {
-      status_ = Status::Corruption("malformed internal key");
-      return Slice("corrupted key");
+    Status pik_status =
+        ParseInternalKey(iter_->key(), &parsed_key, true /* log_err_key */);
+    if (!pik_status.ok()) {
+      status_ = pik_status;
+      return Slice(status_.getState());
     }
     return parsed_key.user_key;
   }
@@ -1571,7 +1573,8 @@ TEST_P(BlockBasedTableTest, RangeDelBlock) {
     for (size_t i = 0; i < expected_tombstones.size(); i++) {
       ASSERT_TRUE(iter->Valid());
       ParsedInternalKey parsed_key;
-      ASSERT_OK(ParseInternalKey(iter->key(), &parsed_key));
+      ASSERT_OK(
+          ParseInternalKey(iter->key(), &parsed_key, true /* log_err_key */));
       RangeTombstone t(parsed_key, iter->value());
       const auto& expected_t = expected_tombstones[i];
       ASSERT_EQ(t.start_key_, expected_t.start_key_);
@@ -3529,6 +3532,7 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfPlain) {
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
   Options options;
+  options.db_host_id = "";
   test::PlainInternalKeyComparator internal_comparator(options.comparator);
   options.compression = kNoCompression;
   BlockBasedTableOptions table_options;
@@ -3661,19 +3665,33 @@ TEST_F(DBHarnessTest, RandomizedLongDB) {
 #endif  // ROCKSDB_LITE
 #endif  // ROCKSDB_VALGRIND_RUN
 
-class MemTableTest : public testing::Test {};
+class MemTableTest : public testing::Test {
+ public:
+  MemTableTest() {
+    InternalKeyComparator cmp(BytewiseComparator());
+    auto table_factory = std::make_shared<SkipListFactory>();
+    options_.memtable_factory = table_factory;
+    ImmutableCFOptions ioptions(options_);
+    wb_ = new WriteBufferManager(options_.db_write_buffer_size);
+    memtable_ = new MemTable(cmp, ioptions, MutableCFOptions(options_), wb_,
+                             kMaxSequenceNumber, 0 /* column_family_id */);
+    memtable_->Ref();
+  }
+
+  ~MemTableTest() {
+    delete memtable_->Unref();
+    delete wb_;
+  }
+
+  MemTable* GetMemTable() { return memtable_; }
+
+ private:
+  MemTable* memtable_;
+  Options options_;
+  WriteBufferManager* wb_;
+};
 
 TEST_F(MemTableTest, Simple) {
-  InternalKeyComparator cmp(BytewiseComparator());
-  auto table_factory = std::make_shared<SkipListFactory>();
-  Options options;
-  options.memtable_factory = table_factory;
-  ImmutableCFOptions ioptions(options);
-  WriteBufferManager wb(options.db_write_buffer_size);
-  MemTable* memtable =
-      new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
-                   kMaxSequenceNumber, 0 /* column_family_id */);
-  memtable->Ref();
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);
   ASSERT_OK(batch.Put(std::string("k1"), std::string("v1")));
@@ -3682,7 +3700,7 @@ TEST_F(MemTableTest, Simple) {
   ASSERT_OK(batch.Put(std::string("largekey"), std::string("vlarge")));
   ASSERT_OK(batch.DeleteRange(std::string("chi"), std::string("xigua")));
   ASSERT_OK(batch.DeleteRange(std::string("begin"), std::string("end")));
-  ColumnFamilyMemTablesDefault cf_mems_default(memtable);
+  ColumnFamilyMemTablesDefault cf_mems_default(GetMemTable());
   ASSERT_TRUE(
       WriteBatchInternal::InsertInto(&batch, &cf_mems_default, nullptr, nullptr)
           .ok());
@@ -3693,10 +3711,10 @@ TEST_F(MemTableTest, Simple) {
     std::unique_ptr<InternalIterator> iter_guard;
     InternalIterator* iter;
     if (i == 0) {
-      iter = memtable->NewIterator(ReadOptions(), &arena);
+      iter = GetMemTable()->NewIterator(ReadOptions(), &arena);
       arena_iter_guard.set(iter);
     } else {
-      iter = memtable->NewRangeTombstoneIterator(
+      iter = GetMemTable()->NewRangeTombstoneIterator(
           ReadOptions(), kMaxSequenceNumber /* read_seq */);
       iter_guard.reset(iter);
     }
@@ -3710,8 +3728,6 @@ TEST_F(MemTableTest, Simple) {
       iter->Next();
     }
   }
-
-  delete memtable->Unref();
 }
 
 // Test the empty key
@@ -4125,7 +4141,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   char current_c = 'a';
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ParsedInternalKey pik;
-    ASSERT_OK(ParseInternalKey(iter->key(), &pik));
+    ASSERT_OK(ParseInternalKey(iter->key(), &pik, true /* log_err_key */));
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 0);
@@ -4146,7 +4162,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   current_c = 'a';
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ParsedInternalKey pik;
-    ASSERT_OK(ParseInternalKey(iter->key(), &pik));
+    ASSERT_OK(ParseInternalKey(iter->key(), &pik, true /* log_err_key */));
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 10);
@@ -4164,7 +4180,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
     ASSERT_TRUE(iter->Valid());
 
     ParsedInternalKey pik;
-    ASSERT_OK(ParseInternalKey(iter->key(), &pik));
+    ASSERT_OK(ParseInternalKey(iter->key(), &pik, true /* log_err_key */));
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 10);
@@ -4183,7 +4199,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   current_c = 'a';
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ParsedInternalKey pik;
-    ASSERT_OK(ParseInternalKey(iter->key(), &pik));
+    ASSERT_OK(ParseInternalKey(iter->key(), &pik, true /* log_err_key */));
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 3);
@@ -4202,7 +4218,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
     ASSERT_TRUE(iter->Valid());
 
     ParsedInternalKey pik;
-    ASSERT_OK(ParseInternalKey(iter->key(), &pik));
+    ASSERT_OK(ParseInternalKey(iter->key(), &pik, true /* log_err_key */));
 
     ASSERT_EQ(pik.type, ValueType::kTypeValue);
     ASSERT_EQ(pik.sequence, 3);

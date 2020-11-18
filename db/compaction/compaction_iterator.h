@@ -29,33 +29,56 @@ class CompactionIterator {
   // CompactionIterator uses. Tests can override it.
   class CompactionProxy {
    public:
-    explicit CompactionProxy(const Compaction* compaction)
-        : compaction_(compaction) {}
-
     virtual ~CompactionProxy() = default;
-    virtual int level(size_t /*compaction_input_level*/ = 0) const {
-      return compaction_->level();
-    }
+
+    virtual int level() const = 0;
+
     virtual bool KeyNotExistsBeyondOutputLevel(
-        const Slice& user_key, std::vector<size_t>* level_ptrs) const {
+        const Slice& user_key, std::vector<size_t>* level_ptrs) const = 0;
+
+    virtual bool bottommost_level() const = 0;
+
+    virtual int number_levels() const = 0;
+
+    virtual Slice GetLargestUserKey() const = 0;
+
+    virtual bool allow_ingest_behind() const = 0;
+
+    virtual bool preserve_deletes() const = 0;
+  };
+
+  class RealCompaction : public CompactionProxy {
+   public:
+    explicit RealCompaction(const Compaction* compaction)
+        : compaction_(compaction) {
+      assert(compaction_);
+      assert(compaction_->immutable_cf_options());
+    }
+
+    int level() const override { return compaction_->level(); }
+
+    bool KeyNotExistsBeyondOutputLevel(
+        const Slice& user_key, std::vector<size_t>* level_ptrs) const override {
       return compaction_->KeyNotExistsBeyondOutputLevel(user_key, level_ptrs);
     }
-    virtual bool bottommost_level() const {
+
+    bool bottommost_level() const override {
       return compaction_->bottommost_level();
     }
-    virtual int number_levels() const { return compaction_->number_levels(); }
-    virtual Slice GetLargestUserKey() const {
+
+    int number_levels() const override { return compaction_->number_levels(); }
+
+    Slice GetLargestUserKey() const override {
       return compaction_->GetLargestUserKey();
     }
-    virtual bool allow_ingest_behind() const {
+
+    bool allow_ingest_behind() const override {
       return compaction_->immutable_cf_options()->allow_ingest_behind;
     }
-    virtual bool preserve_deletes() const {
+
+    bool preserve_deletes() const override {
       return compaction_->immutable_cf_options()->preserve_deletes;
     }
-
-   protected:
-    CompactionProxy() = default;
 
    private:
     const Compaction* compaction_;
@@ -75,7 +98,8 @@ class CompactionIterator {
                      const std::atomic<bool>* shutting_down = nullptr,
                      const SequenceNumber preserve_deletes_seqnum = 0,
                      const std::atomic<int>* manual_compaction_paused = nullptr,
-                     const std::shared_ptr<Logger> info_log = nullptr);
+                     const std::shared_ptr<Logger> info_log = nullptr,
+                     const std::string* full_history_ts_low = nullptr);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
@@ -92,7 +116,8 @@ class CompactionIterator {
                      const std::atomic<bool>* shutting_down = nullptr,
                      const SequenceNumber preserve_deletes_seqnum = 0,
                      const std::atomic<int>* manual_compaction_paused = nullptr,
-                     const std::shared_ptr<Logger> info_log = nullptr);
+                     const std::shared_ptr<Logger> info_log = nullptr,
+                     const std::string* full_history_ts_low = nullptr);
 
   ~CompactionIterator();
 
@@ -152,6 +177,20 @@ class CompactionIterator {
 
   bool IsInEarliestSnapshot(SequenceNumber sequence);
 
+  // Extract user-defined timestamp from user key if possible and compare it
+  // with *full_history_ts_low_ if applicable.
+  inline void UpdateTimestampAndCompareWithFullHistoryLow() {
+    if (!timestamp_size_) {
+      return;
+    }
+    Slice ts = ExtractTimestampFromUserKey(ikey_.user_key, timestamp_size_);
+    curr_ts_.assign(ts.data(), ts.size());
+    if (full_history_ts_low_) {
+      cmp_with_history_ts_low_ =
+          cmp_->CompareTimestamp(ts, *full_history_ts_low_);
+    }
+  }
+
   InternalIterator* input_;
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
@@ -181,6 +220,20 @@ class CompactionIterator {
   SequenceNumber earliest_snapshot_;
   SequenceNumber latest_snapshot_;
 
+  std::shared_ptr<Logger> info_log_;
+
+  bool allow_data_in_errors_;
+
+  // Comes from comparator.
+  const size_t timestamp_size_;
+
+  // Lower bound timestamp to retain full history in terms of user-defined
+  // timestamp. If a key's timestamp is older than full_history_ts_low_, then
+  // the key *may* be eligible for garbage collection (GC). The skipping logic
+  // is in `NextFromInput()` and `PrepareOutput()`.
+  // If nullptr, NO GC will be performed and all history will be preserved.
+  const std::string* const full_history_ts_low_;
+
   // State
   //
   // Points to a copy of the current compaction iterator output (current_key_)
@@ -199,11 +252,13 @@ class CompactionIterator {
   // Stores whether ikey_.user_key is valid. If set to false, the user key is
   // not compared against the current key in the underlying iterator.
   bool has_current_user_key_ = false;
-  bool at_next_ = false;  // If false, the iterator
-  // Holds a copy of the current compaction iterator output (or current key in
-  // the underlying iterator during NextFromInput()).
+  // If false, the iterator holds a copy of the current compaction iterator
+  // output (or current key in the underlying iterator during NextFromInput()).
+  bool at_next_ = false;
+
   IterKey current_key_;
   Slice current_user_key_;
+  std::string curr_ts_;
   SequenceNumber current_user_key_sequence_;
   SequenceNumber current_user_key_snapshot_;
 
@@ -233,9 +288,9 @@ class CompactionIterator {
   // Used to avoid purging uncommitted values. The application can specify
   // uncommitted values by providing a SnapshotChecker object.
   bool current_key_committed_;
-  std::shared_ptr<Logger> info_log_;
 
-  bool allow_data_in_errors_;
+  // Saved result of ucmp->CompareTimestamp(current_ts_, *full_history_ts_low_)
+  int cmp_with_history_ts_low_;
 
   bool IsShuttingDown() {
     // This is a best-effort facility, so memory_order_relaxed is sufficient.

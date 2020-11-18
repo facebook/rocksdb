@@ -426,7 +426,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (need_log_sync) {
     mutex_.Lock();
-    MarkLogsSynced(logfile_number_, need_log_dir_sync, status);
+    if (status.ok()) {
+      status = MarkLogsSynced(logfile_number_, need_log_dir_sync);
+    } else {
+      MarkLogsNotSynced(logfile_number_);
+    }
     mutex_.Unlock();
     // Requesting sync with two_write_queues_ is expected to be very rare. We
     // hence provide a simple implementation that is not necessarily efficient.
@@ -551,7 +555,11 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
 
     if (need_log_sync) {
       mutex_.Lock();
-      MarkLogsSynced(logfile_number_, need_log_dir_sync, w.status);
+      if (w.status.ok()) {
+        w.status = MarkLogsSynced(logfile_number_, need_log_dir_sync);
+      } else {
+        MarkLogsNotSynced(logfile_number_);
+      }
       mutex_.Unlock();
     }
 
@@ -1779,7 +1787,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     }
     // We may have lost data from the WritableFileBuffer in-memory buffer for
     // the current log, so treat it as a fatal error and set bg_error
-    // Should handle return error?
     if (!io_s.ok()) {
       error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable);
     } else {

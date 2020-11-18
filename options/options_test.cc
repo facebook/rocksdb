@@ -102,6 +102,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"min_blob_size", "1K"},
       {"blob_file_size", "1G"},
       {"blob_compression_type", "kZSTD"},
+      {"enable_blob_garbage_collection", "true"},
+      {"blob_garbage_collection_age_cutoff", "0.5"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -109,6 +111,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"create_missing_column_families", "true"},
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
+      {"track_and_verify_wals_in_manifest", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
       {"use_fsync", "true"},
@@ -230,6 +233,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
   ASSERT_EQ(new_cf_opt.blob_compression_type, kZSTD);
+  ASSERT_EQ(new_cf_opt.enable_blob_garbage_collection, true);
+  ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(exact, base_cf_opt, cf_options_map,
@@ -263,6 +268,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.create_missing_column_families, true);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
+  ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   ASSERT_EQ(new_db_opt.max_total_wal_size, static_cast<uint64_t>(33));
   ASSERT_EQ(new_db_opt.use_fsync, true);
@@ -302,8 +308,11 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.strict_bytes_per_sync, true);
 
   db_options_map["max_open_files"] = "hello";
-  ASSERT_NOK(
-      GetDBOptionsFromMap(exact, base_db_opt, db_options_map, &new_db_opt));
+  Status s =
+      GetDBOptionsFromMap(exact, base_db_opt, db_options_map, &new_db_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
+
   ASSERT_OK(
       RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
   ASSERT_OK(
@@ -311,8 +320,9 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
 
   // unknow options should fail parsing without ignore_unknown_options = true
   db_options_map["unknown_db_option"] = "1";
-  ASSERT_NOK(
-      GetDBOptionsFromMap(exact, base_db_opt, db_options_map, &new_db_opt));
+  s = GetDBOptionsFromMap(exact, base_db_opt, db_options_map, &new_db_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(
       RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
 
@@ -397,22 +407,29 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_EQ(kMoName, std::string(new_cf_opt.merge_operator->Name()));
 
   // Wrong key/value pair
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+  Status s = GetColumnFamilyOptionsFromString(
       config_options, base_cf_opt,
-      "write_buffer_size=13;max_write_buffer_number;", &new_cf_opt));
+      "write_buffer_size=13;max_write_buffer_number;", &new_cf_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
+
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base_cf_opt,
                                                   new_cf_opt));
 
-  // Error Paring value
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+  // Error Parsing value
+  s = GetColumnFamilyOptionsFromString(
       config_options, base_cf_opt,
-      "write_buffer_size=13;max_write_buffer_number=;", &new_cf_opt));
+      "write_buffer_size=13;max_write_buffer_number=;", &new_cf_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base_cf_opt,
                                                   new_cf_opt));
 
   // Missing option name
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(
-      config_options, base_cf_opt, "write_buffer_size=13; =100;", &new_cf_opt));
+  s = GetColumnFamilyOptionsFromString(
+      config_options, base_cf_opt, "write_buffer_size=13; =100;", &new_cf_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base_cf_opt,
                                                   new_cf_opt));
 
@@ -774,6 +791,7 @@ TEST_F(OptionsTest, OldInterfaceTest) {
       {"create_missing_column_families", "true"},
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
+      {"track_and_verify_wals_in_manifest", "true"},
       {"max_open_files", "32"},
   };
   ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
@@ -781,9 +799,13 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   ASSERT_EQ(new_db_opt.create_missing_column_families, true);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
+  ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   db_options_map["unknown_option"] = "1";
-  ASSERT_NOK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt));
+  Status s = GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
+
   ASSERT_OK(
       RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
   ASSERT_OK(GetDBOptionsFromMap(base_db_opt, db_options_map, &new_db_opt, true,
@@ -795,11 +817,13 @@ TEST_F(OptionsTest, OldInterfaceTest) {
   ASSERT_EQ(new_db_opt.create_if_missing, false);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.max_open_files, 42);
-  ASSERT_NOK(GetDBOptionsFromString(
+  s = GetDBOptionsFromString(
       base_db_opt,
       "create_if_missing=false;error_if_exists=false;max_open_files=42;"
       "unknown_option=1;",
-      &new_db_opt));
+      &new_db_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_OK(
       RocksDBOptionsParser::VerifyDBOptions(exact, base_db_opt, new_db_opt));
 }
@@ -822,7 +846,12 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
       "block_size_deviation=8;block_restart_interval=4;"
       "format_version=5;whole_key_filtering=1;"
-      "filter_policy=bloomfilter:4.567:false;",
+      "filter_policy=bloomfilter:4.567:false;"
+      // A bug caused read_amp_bytes_per_bit to be a large integer in OPTIONS
+      // file generated by 6.10 to 6.14. Though bug is fixed in these releases,
+      // we need to handle the case of loading OPTIONS file generated before the
+      // fix.
+      "read_amp_bytes_per_bit=17179869185;",
       &new_opt));
   ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(new_opt.index_type, BlockBasedTableOptions::kHashSearch);
@@ -838,25 +867,33 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.format_version, 5U);
   ASSERT_EQ(new_opt.whole_key_filtering, true);
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
-  const BloomFilterPolicy& bfp =
-      dynamic_cast<const BloomFilterPolicy&>(*new_opt.filter_policy);
-  EXPECT_EQ(bfp.GetMillibitsPerKey(), 4567);
-  EXPECT_EQ(bfp.GetWholeBitsPerKey(), 5);
+  const BloomFilterPolicy* bfp =
+      dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 4567);
+  EXPECT_EQ(bfp->GetWholeBitsPerKey(), 5);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kAutoBloom);
+  // Verify that only the lower 32bits are stored in
+  // new_opt.read_amp_bytes_per_bit.
+  EXPECT_EQ(1U, new_opt.read_amp_bytes_per_bit);
 
   // unknown option
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(
+  Status s = GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
       "cache_index_and_filter_blocks=1;index_type=kBinarySearch;"
       "bad_option=1",
-      &new_opt));
+      &new_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_EQ(static_cast<bool>(table_opt.cache_index_and_filter_blocks),
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized index type
-  ASSERT_NOK(GetBlockBasedTableOptionsFromString(
+  s = GetBlockBasedTableOptionsFromString(
       config_options, table_opt,
-      "cache_index_and_filter_blocks=1;index_type=kBinarySearchXX", &new_opt));
+      "cache_index_and_filter_blocks=1;index_type=kBinarySearchXX", &new_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
@@ -870,24 +907,35 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized filter policy name
-  ASSERT_NOK(
-      GetBlockBasedTableOptionsFromString(config_options, table_opt,
+  s = GetBlockBasedTableOptionsFromString(config_options, table_opt,
                                           "cache_index_and_filter_blocks=1;"
                                           "filter_policy=bloomfilterxx:4:true",
-                                          &new_opt));
+                                          &new_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
 
   // unrecognized filter policy config
-  ASSERT_NOK(
-      GetBlockBasedTableOptionsFromString(config_options, table_opt,
+  s = GetBlockBasedTableOptionsFromString(config_options, table_opt,
                                           "cache_index_and_filter_blocks=1;"
                                           "filter_policy=bloomfilter:4",
-                                          &new_opt));
+                                          &new_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
             new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
+
+  // Experimental Ribbon filter policy
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=experimental_ribbon:5.678;",
+      &new_opt));
+  ASSERT_TRUE(new_opt.filter_policy != nullptr);
+  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  EXPECT_EQ(bfp->GetMillibitsPerKey(), 5678);
+  EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
 
   // Check block cache options are overwritten when specified
   // in new format as a struct.
@@ -1017,18 +1065,22 @@ TEST_F(OptionsTest, GetPlainTableOptionsFromString) {
   ASSERT_TRUE(new_opt.store_index_in_file);
 
   // unknown option
-  ASSERT_NOK(GetPlainTableOptionsFromString(
+  Status s = GetPlainTableOptionsFromString(
       config_options, table_opt,
       "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
       "bad_option=1",
-      &new_opt));
+      &new_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
 
   // unrecognized EncodingType
-  ASSERT_NOK(GetPlainTableOptionsFromString(
+  s = GetPlainTableOptionsFromString(
       config_options, table_opt,
       "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
       "encoding_type=kPrefixXX",
-      &new_opt));
+      &new_opt);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
 }
 #endif  // !ROCKSDB_LITE
 
@@ -1147,23 +1199,29 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   base_options.dump_malloc_stats = false;
   base_options.write_buffer_size = 1024;
   Options bad_options = new_options;
-  ASSERT_NOK(GetOptionsFromString(config_options, base_options,
+  Status s = GetOptionsFromString(config_options, base_options,
                                   "create_if_missing=XX;dump_malloc_stats=true",
-                                  &bad_options));
+                                  &bad_options);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_EQ(bad_options.dump_malloc_stats, false);
 
   bad_options = new_options;
-  ASSERT_NOK(GetOptionsFromString(config_options, base_options,
-                                  "write_buffer_size=XX;dump_malloc_stats=true",
-                                  &bad_options));
+  s = GetOptionsFromString(config_options, base_options,
+                           "write_buffer_size=XX;dump_malloc_stats=true",
+                           &bad_options);
+  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsInvalidArgument());
+
   ASSERT_EQ(bad_options.dump_malloc_stats, false);
 
   // Test a bad value for a TableFactory Option returns a failure
   bad_options = new_options;
-  ASSERT_NOK(GetOptionsFromString(config_options, base_options,
-                                  "write_buffer_size=16;dump_malloc_stats=true"
-                                  "block_based_table_factory={block_size=XX;};",
-                                  &bad_options));
+  s = GetOptionsFromString(config_options, base_options,
+                           "write_buffer_size=16;dump_malloc_stats=true"
+                           "block_based_table_factory={block_size=XX;};",
+                           &bad_options);
+  ASSERT_TRUE(s.IsInvalidArgument());
   ASSERT_EQ(bad_options.dump_malloc_stats, false);
   ASSERT_EQ(bad_options.write_buffer_size, 1024);
 
@@ -1613,6 +1671,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"min_blob_size", "1K"},
       {"blob_file_size", "1G"},
       {"blob_compression_type", "kZSTD"},
+      {"enable_blob_garbage_collection", "true"},
+      {"blob_garbage_collection_age_cutoff", "0.5"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -1620,6 +1680,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
       {"create_missing_column_families", "true"},
       {"error_if_exists", "false"},
       {"paranoid_checks", "true"},
+      {"track_and_verify_wals_in_manifest", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
       {"use_fsync", "true"},
@@ -1733,6 +1794,8 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.min_blob_size, 1ULL << 10);
   ASSERT_EQ(new_cf_opt.blob_file_size, 1ULL << 30);
   ASSERT_EQ(new_cf_opt.blob_compression_type, kZSTD);
+  ASSERT_EQ(new_cf_opt.enable_blob_garbage_collection, true);
+  ASSERT_EQ(new_cf_opt.blob_garbage_collection_age_cutoff, 0.5);
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(
@@ -1768,6 +1831,7 @@ TEST_F(OptionsOldApiTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.create_missing_column_families, true);
   ASSERT_EQ(new_db_opt.error_if_exists, false);
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
+  ASSERT_EQ(new_db_opt.track_and_verify_wals_in_manifest, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   ASSERT_EQ(new_db_opt.max_total_wal_size, static_cast<uint64_t>(33));
   ASSERT_EQ(new_db_opt.use_fsync, true);

@@ -24,6 +24,7 @@
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/sst_partitioner.h"
+#include "rocksdb/types.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -348,6 +349,8 @@ struct DbPath {
   DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
 };
 
+static const std::string kHostnameForDbHostId = "__hostname__";
+
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
   DBOptions* OldDefaults(int rocksdb_major_version = 4,
@@ -389,6 +392,20 @@ struct DBOptions {
   // In most cases you want this to be set to true.
   // Default: true
   bool paranoid_checks = true;
+
+  // If true, track WALs in MANIFEST and verify them on recovery.
+  //
+  // If a WAL is tracked in MANIFEST but is missing from disk on recovery,
+  // or the size of the tracked WAL is larger than the WAL's on-disk size,
+  // an error is reported and recovery is aborted.
+  //
+  // If a WAL is not tracked in MANIFEST, then no verification will happen
+  // during recovery.
+  //
+  // Default: false
+  // FIXME(cheng): This option is part of a work in progress and does not yet
+  // work
+  bool track_and_verify_wals_in_manifest = false;
 
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc. In the near
@@ -1166,6 +1183,19 @@ struct DBOptions {
   //
   // Default: false
   bool allow_data_in_errors = false;
+
+  // A string identifying the machine hosting the DB. This
+  // will be written as a property in every SST file written by the DB (or
+  // by offline writers such as SstFileWriter and RepairDB). It can be useful
+  // for troubleshooting in memory corruption caused by a failing host when
+  // writing a file, by tracing back to the writing host. These corruptions
+  // may not be caught by the checksum since they happen before checksumming.
+  // If left as default, the table writer will substitute it with the actual
+  // hostname when writing the SST file. If set to an empty stirng, the
+  // property will not be written to the SST file.
+  //
+  // Default: hostname
+  std::string db_host_id = kHostnameForDbHostId;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

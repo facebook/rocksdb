@@ -91,8 +91,10 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
     // Expand size by at least 256KB.
     // Add a dummy record to the cache
     Cache::Handle* handle = nullptr;
-    cache_rep_->cache_->Insert(cache_rep_->GetNextCacheKey(), nullptr,
-                               kSizeDummyEntry, nullptr, &handle);
+    Status s =
+        cache_rep_->cache_->Insert(cache_rep_->GetNextCacheKey(), nullptr,
+                                   kSizeDummyEntry, nullptr, &handle);
+    s.PermitUncheckedError();  // TODO: What to do on error?
     // We keep the handle even if insertion fails and a null handle is
     // returned, so that when memory shrinks, we don't release extra
     // entries from cache.

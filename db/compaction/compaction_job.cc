@@ -20,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_file_addition.h"
+#include "db/blob/blob_file_builder.h"
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
@@ -138,6 +140,7 @@ struct CompactionJob::SubcompactionState {
 
   // State kept for output being generated
   std::vector<Output> outputs;
+  std::vector<BlobFileAddition> blob_file_additions;
   std::unique_ptr<WritableFileWriter> outfile;
   std::unique_ptr<TableBuilder> builder;
 
@@ -231,21 +234,13 @@ struct CompactionJob::CompactionState {
   std::vector<CompactionJob::SubcompactionState> sub_compact_states;
   Status status;
 
-  uint64_t total_bytes;
-  uint64_t num_output_records;
+  size_t num_output_files = 0;
+  uint64_t total_bytes = 0;
+  size_t num_blob_output_files = 0;
+  uint64_t total_blob_bytes = 0;
+  uint64_t num_output_records = 0;
 
-  explicit CompactionState(Compaction* c)
-      : compaction(c),
-        total_bytes(0),
-        num_output_records(0) {}
-
-  size_t NumOutputFiles() {
-    size_t total = 0;
-    for (auto& s : sub_compact_states) {
-      total += s.outputs.size();
-    }
-    return total;
-  }
+  explicit CompactionState(Compaction* c) : compaction(c) {}
 
   Slice SmallestUserKey() {
     for (const auto& sub_compact_state : sub_compact_states) {
@@ -272,11 +267,29 @@ struct CompactionJob::CompactionState {
 };
 
 void CompactionJob::AggregateStatistics() {
+  assert(compact_);
+
   for (SubcompactionState& sc : compact_->sub_compact_states) {
+    auto& outputs = sc.outputs;
+
+    if (!outputs.empty() && !outputs.back().meta.fd.file_size) {
+      // An error occurred, so ignore the last output.
+      outputs.pop_back();
+    }
+
+    compact_->num_output_files += outputs.size();
     compact_->total_bytes += sc.total_bytes;
+
+    const auto& blobs = sc.blob_file_additions;
+
+    compact_->num_blob_output_files += blobs.size();
+
+    for (const auto& blob : blobs) {
+      compact_->total_blob_bytes += blob.GetTotalBlobBytes();
+    }
+
     compact_->num_output_records += sc.num_output_records;
-  }
-  for (SubcompactionState& sc : compact_->sub_compact_states) {
+
     compaction_job_stats_->Add(sc.compaction_job_stats);
   }
 }
@@ -286,7 +299,8 @@ CompactionJob::CompactionJob(
     const FileOptions& file_options, VersionSet* versions,
     const std::atomic<bool>* shutting_down,
     const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
-    FSDirectory* db_directory, FSDirectory* output_directory, Statistics* stats,
+    FSDirectory* db_directory, FSDirectory* output_directory,
+    FSDirectory* blob_output_directory, Statistics* stats,
     InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
@@ -295,7 +309,7 @@ CompactionJob::CompactionJob(
     const std::string& dbname, CompactionJobStats* compaction_job_stats,
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
     const std::atomic<int>* manual_compaction_paused, const std::string& db_id,
-    const std::string& db_session_id)
+    const std::string& db_session_id, std::string full_history_ts_low)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_job_stats_(compaction_job_stats),
@@ -317,6 +331,7 @@ CompactionJob::CompactionJob(
       log_buffer_(log_buffer),
       db_directory_(db_directory),
       output_directory_(output_directory),
+      blob_output_directory_(blob_output_directory),
       stats_(stats),
       db_mutex_(db_mutex),
       db_error_handler_(db_error_handler),
@@ -329,7 +344,8 @@ CompactionJob::CompactionJob(
       paranoid_file_checks_(paranoid_file_checks),
       measure_io_stats_(measure_io_stats),
       write_hint_(Env::WLTH_NOT_SET),
-      thread_pri_(thread_pri) {
+      thread_pri_(thread_pri),
+      full_history_ts_low_(std::move(full_history_ts_low)) {
   assert(compaction_job_stats_ != nullptr);
   assert(log_buffer_ != nullptr);
   const auto* cfd = compact_->compaction->column_family_data();
@@ -604,18 +620,34 @@ Status CompactionJob::Run() {
   // Check if any thread encountered an error during execution
   Status status;
   IOStatus io_s;
+  bool wrote_new_blob_files = false;
+
   for (const auto& state : compact_->sub_compact_states) {
     if (!state.status.ok()) {
       status = state.status;
       io_s = state.io_status;
       break;
     }
+
+    if (!state.blob_file_additions.empty()) {
+      wrote_new_blob_files = true;
+    }
   }
+
   if (io_status_.ok()) {
     io_status_ = io_s;
   }
-  if (status.ok() && output_directory_) {
-    io_s = output_directory_->Fsync(IOOptions(), nullptr);
+  if (status.ok()) {
+    constexpr IODebugContext* dbg = nullptr;
+
+    if (output_directory_) {
+      io_s = output_directory_->Fsync(IOOptions(), dbg);
+    }
+
+    if (io_s.ok() && wrote_new_blob_files && blob_output_directory_ &&
+        blob_output_directory_ != output_directory_) {
+      io_s = blob_output_directory_->Fsync(IOOptions(), dbg);
+    }
   }
   if (io_status_.ok()) {
     io_status_ = io_s;
@@ -721,6 +753,7 @@ Status CompactionJob::Run() {
   // Finish up all book-keeping to unify the subcompaction results
   AggregateStatistics();
   UpdateCompactionStats();
+
   RecordCompactionIOStats();
   LogFlush(db_options_.info_log);
   TEST_SYNC_POINT("CompactionJob::Run():End");
@@ -730,11 +763,16 @@ Status CompactionJob::Run() {
 }
 
 Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
+  assert(compact_);
+
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_INSTALL);
   db_mutex_->AssertHeld();
   Status status = compact_->status;
+
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+  assert(cfd);
+
   cfd->internal_stats()->AddCompactionStats(
       compact_->compaction->output_level(), thread_pri_, compaction_stats_);
 
@@ -744,6 +782,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   if (!versions_->io_status().ok()) {
     io_status_ = versions_->io_status();
   }
+
   VersionStorageInfo::LevelSummaryStorage tmp;
   auto vstorage = cfd->current()->storage_info();
   const auto& stats = compaction_stats_;
@@ -768,6 +807,8 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
         stats.bytes_written / static_cast<double>(stats.micros);
   }
 
+  const std::string& column_family_name = cfd->GetName();
+
   ROCKS_LOG_BUFFER(
       log_buffer_,
       "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
@@ -775,8 +816,9 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s, records in: %" PRIu64
       ", records dropped: %" PRIu64 " output_compression: %s\n",
-      cfd->GetName().c_str(), vstorage->LevelSummary(&tmp), bytes_read_per_sec,
-      bytes_written_per_sec, compact_->compaction->output_level(),
+      column_family_name.c_str(), vstorage->LevelSummary(&tmp),
+      bytes_read_per_sec, bytes_written_per_sec,
+      compact_->compaction->output_level(),
       stats.num_input_files_in_non_output_levels,
       stats.num_input_files_in_output_level, stats.num_output_files,
       stats.bytes_read_non_output_levels / 1048576.0,
@@ -787,6 +829,15 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       CompressionTypeToString(compact_->compaction->output_compression())
           .c_str());
 
+  const auto& blob_files = vstorage->GetBlobFiles();
+  if (!blob_files.empty()) {
+    ROCKS_LOG_BUFFER(log_buffer_,
+                     "[%s] Blob file summary: head=%" PRIu64 ", tail=%" PRIu64
+                     "\n",
+                     column_family_name.c_str(), blob_files.begin()->first,
+                     blob_files.rbegin()->first);
+  }
+
   UpdateCompactionJobStats(stats);
 
   auto stream = event_logger_->LogToBuffer(log_buffer_);
@@ -795,11 +846,18 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
          << "compaction_time_micros" << stats.micros
          << "compaction_time_cpu_micros" << stats.cpu_micros << "output_level"
          << compact_->compaction->output_level() << "num_output_files"
-         << compact_->NumOutputFiles() << "total_output_size"
-         << compact_->total_bytes << "num_input_records"
-         << stats.num_input_records << "num_output_records"
-         << compact_->num_output_records << "num_subcompactions"
-         << compact_->sub_compact_states.size() << "output_compression"
+         << compact_->num_output_files << "total_output_size"
+         << compact_->total_bytes;
+
+  if (compact_->num_blob_output_files > 0) {
+    stream << "num_blob_output_files" << compact_->num_blob_output_files
+           << "total_blob_output_size" << compact_->total_blob_bytes;
+  }
+
+  stream << "num_input_records" << stats.num_input_records
+         << "num_output_records" << compact_->num_output_records
+         << "num_subcompactions" << compact_->sub_compact_states.size()
+         << "output_compression"
          << CompressionTypeToString(compact_->compaction->output_compression());
 
   stream << "num_single_delete_mismatches"
@@ -823,12 +881,18 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   }
   stream.EndArray();
 
+  if (!blob_files.empty()) {
+    stream << "blob_file_head" << blob_files.begin()->first;
+    stream << "blob_file_tail" << blob_files.rbegin()->first;
+  }
+
   CleanupCompaction();
   return status;
 }
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
-  assert(sub_compact != nullptr);
+  assert(sub_compact);
+  assert(sub_compact->compaction);
 
   uint64_t prev_cpu_micros = env_->NowCPUNanos() / 1000;
 
@@ -899,6 +963,22 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       snapshot_checker_, compact_->compaction->level(),
       db_options_.statistics.get());
 
+  const MutableCFOptions* mutable_cf_options =
+      sub_compact->compaction->mutable_cf_options();
+  assert(mutable_cf_options);
+
+  std::vector<std::string> blob_file_paths;
+
+  std::unique_ptr<BlobFileBuilder> blob_file_builder(
+      mutable_cf_options->enable_blob_files
+          ? new BlobFileBuilder(
+                versions_, env_, fs_.get(),
+                sub_compact->compaction->immutable_cf_options(),
+                mutable_cf_options, &file_options_, job_id_, cfd->GetID(),
+                cfd->GetName(), Env::IOPriority::IO_LOW, write_hint_,
+                &blob_file_paths, &sub_compact->blob_file_additions)
+          : nullptr);
+
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
   TEST_SYNC_POINT_CALLBACK(
       "CompactionJob::Run():PausingManualCompaction:1",
@@ -916,15 +996,17 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   Status status;
+  const std::string* const full_history_ts_low =
+      full_history_ts_low_.empty() ? nullptr : &full_history_ts_low_;
   sub_compact->c_iter.reset(new CompactionIterator(
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
       &existing_snapshots_, earliest_write_conflict_snapshot_,
       snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_),
       /*expect_valid_internal_key=*/true, &range_del_agg,
-      /* blob_file_builder */ nullptr, db_options_.allow_data_in_errors,
+      blob_file_builder.get(), db_options_.allow_data_in_errors,
       sub_compact->compaction, compaction_filter, shutting_down_,
-      preserve_deletes_seqnum_, manual_compaction_paused_,
-      db_options_.info_log));
+      preserve_deletes_seqnum_, manual_compaction_paused_, db_options_.info_log,
+      full_history_ts_low));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   if (c_iter->Valid() && sub_compact->compaction->output_level() != 0) {
@@ -1091,6 +1173,14 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       status = s;
     }
     RecordDroppedKeys(range_del_out_stats, &sub_compact->compaction_job_stats);
+  }
+
+  if (blob_file_builder) {
+    if (status.ok()) {
+      status = blob_file_builder->Finish();
+    }
+
+    blob_file_builder.reset();
   }
 
   sub_compact->compaction_job_stats.cpu_micros =
@@ -1352,7 +1442,6 @@ Status CompactionJob::FinishCompactionOutputFile(
              ExtractInternalKeyFooter(meta->smallest.Encode()) !=
                  PackSequenceAndType(0, kTypeRangeDeletion));
     }
-    meta->marked_for_compaction = sub_compact->builder->NeedCompact();
   }
   const uint64_t current_entries = sub_compact->builder->NumEntries();
   if (s.ok()) {
@@ -1367,6 +1456,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   const uint64_t current_bytes = sub_compact->builder->FileSize();
   if (s.ok()) {
     meta->fd.file_size = current_bytes;
+    meta->marked_for_compaction = sub_compact->builder->NeedCompact();
   }
   sub_compact->current_output()->finished = true;
   sub_compact->total_bytes += current_bytes;
@@ -1477,9 +1567,13 @@ Status CompactionJob::FinishCompactionOutputFile(
 
 Status CompactionJob::InstallCompactionResults(
     const MutableCFOptions& mutable_cf_options) {
+  assert(compact_);
+
   db_mutex_->AssertHeld();
 
   auto* compaction = compact_->compaction;
+  assert(compaction);
+
   // paranoia: verify that the files that we started with
   // still exist in the current version and in the same original level.
   // This ensures that a concurrent compaction did not erroneously
@@ -1495,23 +1589,32 @@ Status CompactionJob::InstallCompactionResults(
 
   {
     Compaction::InputLevelSummaryBuffer inputs_summary;
-    ROCKS_LOG_INFO(
-        db_options_.info_log, "[%s] [JOB %d] Compacted %s => %" PRIu64 " bytes",
-        compaction->column_family_data()->GetName().c_str(), job_id_,
-        compaction->InputLevelSummary(&inputs_summary), compact_->total_bytes);
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "[%s] [JOB %d] Compacted %s => %" PRIu64 " bytes",
+                   compaction->column_family_data()->GetName().c_str(), job_id_,
+                   compaction->InputLevelSummary(&inputs_summary),
+                   compact_->total_bytes + compact_->total_blob_bytes);
   }
 
+  VersionEdit* const edit = compaction->edit();
+  assert(edit);
+
   // Add compaction inputs
-  compaction->AddInputDeletions(compact_->compaction->edit());
+  compaction->AddInputDeletions(edit);
 
   for (const auto& sub_compact : compact_->sub_compact_states) {
     for (const auto& out : sub_compact.outputs) {
-      compaction->edit()->AddFile(compaction->output_level(), out.meta);
+      edit->AddFile(compaction->output_level(), out.meta);
+    }
+
+    for (const auto& blob : sub_compact.blob_file_additions) {
+      edit->AddBlobFile(blob);
     }
   }
+
   return versions_->LogAndApply(compaction->column_family_data(),
-                                mutable_cf_options, compaction->edit(),
-                                db_mutex_, db_directory_);
+                                mutable_cf_options, edit, db_mutex_,
+                                db_directory_);
 }
 
 void CompactionJob::RecordCompactionIOStats() {
@@ -1687,6 +1790,8 @@ void CopyPrefix(const Slice& src, size_t prefix_length, std::string* dst) {
 #endif  // !ROCKSDB_LITE
 
 void CompactionJob::UpdateCompactionStats() {
+  assert(compact_);
+
   Compaction* compaction = compact_->compaction;
   compaction_stats_.num_input_files_in_non_output_levels = 0;
   compaction_stats_.num_input_files_in_output_level = 0;
@@ -1704,27 +1809,15 @@ void CompactionJob::UpdateCompactionStats() {
     }
   }
 
-  uint64_t num_output_records = 0;
+  compaction_stats_.num_output_files =
+      static_cast<int>(compact_->num_output_files) +
+      static_cast<int>(compact_->num_blob_output_files);
+  compaction_stats_.bytes_written =
+      compact_->total_bytes + compact_->total_blob_bytes;
 
-  for (const auto& sub_compact : compact_->sub_compact_states) {
-    size_t num_output_files = sub_compact.outputs.size();
-    if (sub_compact.builder != nullptr) {
-      // An error occurred so ignore the last output.
-      assert(num_output_files > 0);
-      --num_output_files;
-    }
-    compaction_stats_.num_output_files += static_cast<int>(num_output_files);
-
-    num_output_records += sub_compact.num_output_records;
-
-    for (const auto& out : sub_compact.outputs) {
-      compaction_stats_.bytes_written += out.meta.fd.file_size;
-    }
-  }
-
-  if (compaction_stats_.num_input_records > num_output_records) {
+  if (compaction_stats_.num_input_records > compact_->num_output_records) {
     compaction_stats_.num_dropped_records =
-        compaction_stats_.num_input_records - num_output_records;
+        compaction_stats_.num_input_records - compact_->num_output_records;
   }
 }
 
@@ -1763,7 +1856,7 @@ void CompactionJob::UpdateCompactionJobStats(
   compaction_job_stats_->num_output_records = compact_->num_output_records;
   compaction_job_stats_->num_output_files = stats.num_output_files;
 
-  if (compact_->NumOutputFiles() > 0U) {
+  if (stats.num_output_files > 0) {
     CopyPrefix(compact_->SmallestUserKey(),
                CompactionJobStats::kMaxPrefixLength,
                &compaction_job_stats_->smallest_output_key_prefix);

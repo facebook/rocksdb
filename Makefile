@@ -414,6 +414,10 @@ ifdef TEST_UINT128_COMPAT
   PLATFORM_CCFLAGS += -DTEST_UINT128_COMPAT=1
   PLATFORM_CXXFLAGS += -DTEST_UINT128_COMPAT=1
 endif
+ifdef ROCKSDB_MODIFY_NPHASH
+  PLATFORM_CCFLAGS += -DROCKSDB_MODIFY_NPHASH=1
+  PLATFORM_CXXFLAGS += -DROCKSDB_MODIFY_NPHASH=1
+endif
 
 # This (the first rule) must depend on "all".
 default: all
@@ -553,7 +557,7 @@ PARALLEL_TEST = \
 	persistent_cache_test \
 	table_test \
 	transaction_test \
-	transaction_lock_mgr_test \
+	point_lock_manager_test \
 	write_prepared_transaction_test \
 	write_unprepared_transaction_test \
 
@@ -577,6 +581,7 @@ ifdef ASSERT_STATUS_CHECKED
 		lru_cache_test \
 		blob_file_addition_test \
 		blob_file_builder_test \
+		blob_file_cache_test \
 		blob_file_garbage_test \
 		blob_file_reader_test \
 		bloom_test \
@@ -588,6 +593,8 @@ ifdef ASSERT_STATUS_CHECKED
 		crc32c_test \
 		dbformat_test \
 		db_basic_test \
+		db_blob_basic_test \
+		db_flush_test \
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
 		db_options_test \
@@ -618,8 +625,10 @@ ifdef ASSERT_STATUS_CHECKED
 		mock_env_test \
 		object_registry_test \
 		prefix_test \
+		plain_table_db_test \
 		repair_test \
 		configurable_test \
+		customizable_test \
 		options_settable_test \
 		options_test \
 		random_test \
@@ -627,6 +636,7 @@ ifdef ASSERT_STATUS_CHECKED
 		sst_file_reader_test \
 		range_tombstone_fragmenter_test \
 		repeatable_thread_test \
+		ribbon_test \
 		skiplist_test \
 		slice_test \
 		sst_dump_test \
@@ -685,6 +695,7 @@ endif
 # Not necessarily well thought out or up-to-date, but matches old list
 TESTS_PLATFORM_DEPENDENT := \
 	db_basic_test \
+	db_blob_basic_test \
 	db_with_timestamp_basic_test \
 	db_encryption_test \
 	db_test2 \
@@ -703,6 +714,7 @@ TESTS_PLATFORM_DEPENDENT := \
 	io_posix_test \
 	hash_test \
 	random_test \
+	ribbon_test \
 	thread_local_test \
 	work_queue_test \
 	rate_limiter_test \
@@ -1415,6 +1427,9 @@ hash_test: $(OBJ_DIR)/util/hash_test.o $(TEST_LIBRARY) $(LIBRARY)
 random_test: $(OBJ_DIR)/util/random_test.o  $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+ribbon_test: $(OBJ_DIR)/util/ribbon_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 option_change_migration_test: $(OBJ_DIR)/utilities/option_change_migration/option_change_migration_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1458,6 +1473,9 @@ slice_transform_test: $(OBJ_DIR)/util/slice_transform_test.o $(TEST_LIBRARY) $(L
 	$(AM_LINK)
 
 db_basic_test: $(OBJ_DIR)/db/db_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+db_blob_basic_test: $(OBJ_DIR)/db/blob/db_blob_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_with_timestamp_basic_test: $(OBJ_DIR)/db/db_with_timestamp_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1783,6 +1801,9 @@ compact_files_test: $(OBJ_DIR)/db/compact_files_test.o $(TEST_LIBRARY) $(LIBRARY
 configurable_test: options/configurable_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+customizable_test: options/customizable_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 options_test: $(OBJ_DIR)/options/options_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -1834,7 +1855,7 @@ write_callback_test: $(OBJ_DIR)/db/write_callback_test.o $(TEST_LIBRARY) $(LIBRA
 heap_test: $(OBJ_DIR)/util/heap_test.o $(GTEST)
 	$(AM_LINK)
 
-transaction_lock_mgr_test: utilities/transactions/transaction_lock_mgr_test.o $(TEST_LIBRARY) $(LIBRARY)
+point_lock_manager_test: utilities/transactions/lock/point/point_lock_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 transaction_test: $(OBJ_DIR)/utilities/transactions/transaction_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -1910,6 +1931,9 @@ blob_file_addition_test: $(OBJ_DIR)/db/blob/blob_file_addition_test.o $(TEST_LIB
 	$(AM_LINK)
 
 blob_file_builder_test: $(OBJ_DIR)/db/blob/blob_file_builder_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+blob_file_cache_test: $(OBJ_DIR)/db/blob/blob_file_cache_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 blob_file_garbage_test: $(OBJ_DIR)/db/blob/blob_file_garbage_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2049,8 +2073,8 @@ SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/archive
 LZ4_VER ?= 1.9.2
 LZ4_SHA256 ?= 658ba6191fa44c92280d4aa2c271b0f4fbc0e34d249578dd05e50e76d0e5efcc
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
-ZSTD_VER ?= 1.4.4
-ZSTD_SHA256 ?= a364f5162c7d1a455cc915e8e3cf5f4bd8b75d09bc0f53965b0c9ca1383c52c8
+ZSTD_VER ?= 1.4.5
+ZSTD_SHA256 ?= 734d1f565c42f691f8420c8d06783ad818060fc390dee43ae0a89f86d0a4f8c2
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 CURL_SSL_OPTS ?= --tlsv1
 
@@ -2098,7 +2122,7 @@ endif
 		exit 1; \
 	fi
 	tar xvzf zlib-$(ZLIB_VER).tar.gz
-	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${EXTRA_CFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --static && $(MAKE)
+	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' ./configure --static && $(MAKE)
 	cp zlib-$(ZLIB_VER)/libz.a .
 
 libbz2.a:
@@ -2112,7 +2136,7 @@ endif
 		exit 1; \
 	fi
 	tar xvzf bzip2-$(BZIP2_VER).tar.gz
-	cd bzip2-$(BZIP2_VER) && $(MAKE) CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${EXTRA_CFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
+	cd bzip2-$(BZIP2_VER) && $(MAKE) CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
 	cp bzip2-$(BZIP2_VER)/libbz2.a .
 
 libsnappy.a:
@@ -2127,7 +2151,7 @@ endif
 	fi
 	tar xvzf snappy-$(SNAPPY_VER).tar.gz
 	mkdir snappy-$(SNAPPY_VER)/build
-	cd snappy-$(SNAPPY_VER)/build && CFLAGS='${EXTRA_CFLAGS}' CXXFLAGS='${EXTRA_CXXFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON .. && $(MAKE) ${SNAPPY_MAKE_TARGET}
+	cd snappy-$(SNAPPY_VER)/build && CFLAGS='${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' CXXFLAGS='${JAVA_STATIC_DEPS_CXXFLAGS} ${EXTRA_CXXFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON ${PLATFORM_CMAKE_FLAGS} .. && $(MAKE) ${SNAPPY_MAKE_TARGET}
 	cp snappy-$(SNAPPY_VER)/build/libsnappy.a .
 
 liblz4.a:
@@ -2141,7 +2165,7 @@ endif
 		exit 1; \
 	fi
 	tar xvzf lz4-$(LZ4_VER).tar.gz
-	cd lz4-$(LZ4_VER)/lib && $(MAKE) CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' all
+	cd lz4-$(LZ4_VER)/lib && $(MAKE) CFLAGS='-fPIC -O2 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' all
 	cp lz4-$(LZ4_VER)/lib/liblz4.a .
 
 libzstd.a:
@@ -2155,7 +2179,7 @@ endif
 		exit 1; \
 	fi
 	tar xvzf zstd-$(ZSTD_VER).tar.gz
-	cd zstd-$(ZSTD_VER)/lib && DESTDIR=. PREFIX= $(MAKE) CFLAGS='-fPIC -O2 ${EXTRA_CFLAGS}' install
+	cd zstd-$(ZSTD_VER)/lib && DESTDIR=. PREFIX= $(MAKE) CFLAGS='-fPIC -O2 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' libzstd.a
 	cp zstd-$(ZSTD_VER)/lib/libzstd.a .
 
 # A version of each $(LIB_OBJECTS) compiled with -fPIC and a fixed set of static compression libraries

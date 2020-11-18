@@ -107,11 +107,12 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
 }
 
 bool DBIter::ParseKey(ParsedInternalKey* ikey) {
-  if (ParseInternalKey(iter_.key(), ikey) != Status::OK()) {
-    status_ = Status::Corruption("corrupted internal key in DBIter");
+  Status s =
+      ParseInternalKey(iter_.key(), ikey, false /* log_err_key */);  // TODO
+  if (!s.ok()) {
+    status_ = Status::Corruption("In DBIter: ", s.getState());
     valid_ = false;
-    ROCKS_LOG_ERROR(logger_, "corrupted internal key in DBIter: %s",
-                    iter_.key().ToString(true).c_str());
+    ROCKS_LOG_ERROR(logger_, "In DBIter: %s", status_.getState());
     return false;
   } else {
     return true;
@@ -436,11 +437,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               &last_key,
               ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion));
         } else {
-          std::string min_ts(timestamp_size_, static_cast<char>(0));
+          const std::string kTsMin(timestamp_size_, static_cast<char>(0));
           AppendInternalKeyWithDifferentTimestamp(
               &last_key,
               ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion),
-              min_ts);
+              kTsMin);
         }
         // Don't set skipping_saved_key = false because we may still see more
         // user-keys equal to saved_key_.
@@ -810,12 +811,19 @@ bool DBIter::FindValueForCurrentKey() {
                 ikey, RangeDelPositioningMode::kBackwardTraversal)) {
           last_key_entry_type = kTypeRangeDeletion;
           PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-        } else {
-          assert(iter_.iter()->IsValuePinned());
+        } else if (iter_.iter()->IsValuePinned()) {
           pinned_value_ = iter_.value();
+        } else {
+          valid_ = false;
+          status_ = Status::NotSupported(
+              "Backward iteration not supported if underlying iterator's value "
+              "cannot be pinned.");
         }
         merge_context_.Clear();
         last_not_merge_type = last_key_entry_type;
+        if (!status_.ok()) {
+          return false;
+        }
         break;
       case kTypeDeletion:
       case kTypeSingleDeletion:

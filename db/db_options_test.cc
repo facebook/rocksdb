@@ -79,6 +79,22 @@ class DBOptionsTest : public DBTestBase {
 #endif  // ROCKSDB_LITE
 };
 
+TEST_F(DBOptionsTest, ImmutableTrackAndVerifyWalsInManifest) {
+  Options options;
+  options.env = env_;
+  options.track_and_verify_wals_in_manifest = true;
+
+  ImmutableDBOptions db_options(options);
+  ASSERT_TRUE(db_options.track_and_verify_wals_in_manifest);
+
+  Reopen(options);
+  ASSERT_TRUE(dbfull()->GetDBOptions().track_and_verify_wals_in_manifest);
+
+  Status s =
+      dbfull()->SetDBOptions({{"track_and_verify_wals_in_manifest", "false"}});
+  ASSERT_FALSE(s.ok());
+}
+
 // RocksDB lite don't support dynamic options.
 #ifndef ROCKSDB_LITE
 
@@ -606,6 +622,7 @@ TEST_F(DBOptionsTest, MaxOpenFilesChange) {
 
 TEST_F(DBOptionsTest, SanitizeDelayedWriteRate) {
   Options options;
+  options.env = CurrentOptions().env;
   options.delayed_write_rate = 0;
   Reopen(options);
   ASSERT_EQ(16 * 1024 * 1024, dbfull()->GetDBOptions().delayed_write_rate);
@@ -617,6 +634,7 @@ TEST_F(DBOptionsTest, SanitizeDelayedWriteRate) {
 
 TEST_F(DBOptionsTest, SanitizeUniversalTTLCompaction) {
   Options options;
+  options.env = CurrentOptions().env;
   options.compaction_style = kCompactionStyleUniversal;
 
   options.ttl = 0;
@@ -646,6 +664,7 @@ TEST_F(DBOptionsTest, SanitizeUniversalTTLCompaction) {
 
 TEST_F(DBOptionsTest, SanitizeTtlDefault) {
   Options options;
+  options.env = CurrentOptions().env;
   Reopen(options);
   ASSERT_EQ(30 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
 
@@ -662,6 +681,7 @@ TEST_F(DBOptionsTest, SanitizeTtlDefault) {
 TEST_F(DBOptionsTest, SanitizeFIFOPeriodicCompaction) {
   Options options;
   options.compaction_style = kCompactionStyleFIFO;
+  options.env = CurrentOptions().env;
   options.ttl = 0;
   Reopen(options);
   ASSERT_EQ(30 * 24 * 60 * 60, dbfull()->GetOptions().ttl);
@@ -687,6 +707,7 @@ TEST_F(DBOptionsTest, SanitizeFIFOPeriodicCompaction) {
 
 TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
   Options options;
+  options.env = CurrentOptions().env;
   options.compaction_style = kCompactionStyleFIFO;
   options.write_buffer_size = 10 << 10;  // 10KB
   options.arena_block_size = 4096;
@@ -826,6 +847,7 @@ TEST_F(DBOptionsTest, FIFOTtlBackwardCompatible) {
   options.compaction_style = kCompactionStyleFIFO;
   options.write_buffer_size = 10 << 10;  // 10KB
   options.create_if_missing = true;
+  options.env = CurrentOptions().env;
 
   ASSERT_OK(TryReopen(options));
 
@@ -879,6 +901,7 @@ TEST_F(DBOptionsTest, ChangeCompression) {
   options.bottommost_compression = CompressionType::kNoCompression;
   options.bottommost_compression_opts.level = 2;
   options.bottommost_compression_opts.parallel_threads = 1;
+  options.env = CurrentOptions().env;
 
   ASSERT_OK(TryReopen(options));
 
@@ -928,6 +951,66 @@ TEST_F(DBOptionsTest, ChangeCompression) {
 }
 
 #endif  // ROCKSDB_LITE
+
+TEST_F(DBOptionsTest, BottommostCompressionOptsWithFallbackType) {
+  // Verify the bottommost compression options still take effect even when the
+  // bottommost compression type is left at its default value. Verify for both
+  // automatic and manual compaction.
+  if (!Snappy_Supported() || !LZ4_Supported()) {
+    return;
+  }
+
+  constexpr int kUpperCompressionLevel = 1;
+  constexpr int kBottommostCompressionLevel = 2;
+  constexpr int kNumL0Files = 2;
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.compression = CompressionType::kLZ4Compression;
+  options.compression_opts.level = kUpperCompressionLevel;
+  options.bottommost_compression_opts.level = kBottommostCompressionLevel;
+  options.bottommost_compression_opts.enabled = true;
+  Reopen(options);
+
+  CompressionType compression_used = CompressionType::kDisableCompressionOption;
+  CompressionOptions compression_opt_used;
+  bool compacted = false;
+  SyncPoint::GetInstance()->SetCallBack(
+      "CompactionPicker::RegisterCompaction:Registered", [&](void* arg) {
+        Compaction* c = static_cast<Compaction*>(arg);
+        compression_used = c->output_compression();
+        compression_opt_used = c->output_compression_opts();
+        compacted = true;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  // First, verify for automatic compaction.
+  for (int i = 0; i < kNumL0Files; ++i) {
+    ASSERT_OK(Put("foo", "foofoofoo"));
+    ASSERT_OK(Put("bar", "foofoofoo"));
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+
+  ASSERT_TRUE(compacted);
+  ASSERT_EQ(CompressionType::kLZ4Compression, compression_used);
+  ASSERT_EQ(kBottommostCompressionLevel, compression_opt_used.level);
+
+  // Second, verify for manual compaction.
+  compacted = false;
+  compression_used = CompressionType::kDisableCompressionOption;
+  compression_opt_used = CompressionOptions();
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
+  ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(compacted);
+  ASSERT_EQ(CompressionType::kLZ4Compression, compression_used);
+  ASSERT_EQ(kBottommostCompressionLevel, compression_opt_used.level);
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

@@ -12,6 +12,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/debug.h"
@@ -37,7 +38,10 @@ TEST_F(DBBasicTest, OpenWhenOpen) {
   options.env = env_;
   DB* db2 = nullptr;
   Status s = DB::Open(options, dbname_, &db2);
-  ASSERT_NOK(s);
+  ASSERT_NOK(s) << [db2]() {
+    delete db2;
+    return "db2 open: ok";
+  }();
   ASSERT_EQ(Status::Code::kIOError, s.code());
   ASSERT_EQ(Status::SubCode::kNone, s.subcode());
   ASSERT_TRUE(strstr(s.getState(), "lock ") != nullptr);
@@ -401,16 +405,18 @@ TEST_F(DBBasicTest, GetSnapshot) {
 
 TEST_F(DBBasicTest, CheckLock) {
   do {
-    DB* localdb;
+    DB* localdb = nullptr;
     Options options = CurrentOptions();
     ASSERT_OK(TryReopen(options));
 
     // second open should fail
     Status s = DB::Open(options, dbname_, &localdb);
-    ASSERT_NOK(s);
+    ASSERT_NOK(s) << [localdb]() {
+      delete localdb;
+      return "localdb open: ok";
+    }();
 #ifdef OS_LINUX
-    ASSERT_TRUE(s.ToString().find("lock hold by current process") !=
-                std::string::npos);
+    ASSERT_TRUE(s.ToString().find("lock ") != std::string::npos);
 #endif  // OS_LINUX
   } while (ChangeCompactOptions());
 }
@@ -1875,6 +1881,7 @@ TEST_F(DBBasicTest, MultiGetStats) {
   Options options;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
+  options.env = env_;
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.block_size = 1;
@@ -1884,7 +1891,7 @@ TEST_F(DBBasicTest, MultiGetStats) {
   table_options.no_block_cache = true;
   table_options.cache_index_and_filter_blocks = false;
   table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   int total_keys = 2000;
@@ -2168,7 +2175,7 @@ TEST_F(DBBasicTest, MultiGetIOBufferOverrun) {
   table_options.block_size = 16 * 1024;
   ASSERT_TRUE(table_options.block_size >
             BlockBasedTable::kMultiGetReadStackBufSize);
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
 
   std::string zero_str(128, '\0');
@@ -2277,6 +2284,43 @@ class TableFileListener : public EventListener {
   std::unordered_map<std::string, std::vector<std::string>> cf_to_paths_;
 };
 }  // namespace
+
+TEST_F(DBBasicTest, LastSstFileNotInManifest) {
+  // If the last sst file is not tracked in MANIFEST,
+  // or the VersionEdit for the last sst file is not synced,
+  // on recovery, the last sst file should be deleted,
+  // and new sst files shouldn't reuse its file number.
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  Close();
+
+  // Manually add a sst file.
+  constexpr uint64_t kSstFileNumber = 100;
+  const std::string kSstFile = MakeTableFileName(dbname_, kSstFileNumber);
+  ASSERT_OK(WriteStringToFile(env_, /* data = */ "bad sst file content",
+                              /* fname = */ kSstFile,
+                              /* should_sync = */ true));
+  ASSERT_OK(env_->FileExists(kSstFile));
+
+  TableFileListener* listener = new TableFileListener();
+  options.listeners.emplace_back(listener);
+  Reopen(options);
+  // kSstFile should already be deleted.
+  ASSERT_TRUE(env_->FileExists(kSstFile).IsNotFound());
+
+  ASSERT_OK(Put("k", "v"));
+  ASSERT_OK(Flush());
+  // New sst file should have file number > kSstFileNumber.
+  std::vector<std::string>& files =
+      listener->GetFiles(kDefaultColumnFamilyName);
+  ASSERT_EQ(files.size(), 1);
+  const std::string fname = files[0].erase(0, (dbname_ + "/").size());
+  uint64_t number = 0;
+  FileType type = kTableFile;
+  ASSERT_TRUE(ParseFileName(fname, &number, &type));
+  ASSERT_EQ(type, kTableFile);
+  ASSERT_GT(number, kSstFileNumber);
+}
 
 TEST_F(DBBasicTest, RecoverWithMissingFiles) {
   Options options = CurrentOptions();
@@ -2405,7 +2449,7 @@ TEST_F(DBBasicTest, RecoverWithNoManifest) {
     ASSERT_OK(env_->GetChildren(dbname_, &files));
     for (const auto& file : files) {
       uint64_t number = 0;
-      FileType type = kLogFile;
+      FileType type = kWalFile;
       if (ParseFileName(file, &number, &type) && type == kDescriptorFile) {
         ASSERT_OK(env_->DeleteFile(dbname_ + "/" + file));
       }
@@ -2549,7 +2593,7 @@ class DBBasicTestMultiGet : public DBTestBase {
     table_options.block_cache_compressed = compressed_cache_;
     table_options.flush_block_policy_factory.reset(
         new MyFlushBlockPolicyFactory());
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     if (!compression_enabled_) {
       options.compression = kNoCompression;
     } else {
@@ -2976,7 +3020,7 @@ class DeadlineFS : public FileSystemWrapper {
   // or to simply delay but return success anyway. The latter mimics the
   // behavior of PosixFileSystem, which does not enforce any timeout
   explicit DeadlineFS(SpecialEnv* env, bool error_on_delay)
-      : FileSystemWrapper(FileSystem::Default()),
+      : FileSystemWrapper(env->GetFileSystem()),
         deadline_(std::chrono::microseconds::zero()),
         io_timeout_(std::chrono::microseconds::zero()),
         env_(env),
@@ -3151,7 +3195,7 @@ TEST_F(DBBasicTestMultiGetDeadline, MultiGetDeadlineExceeded) {
   std::shared_ptr<Cache> cache = NewLRUCache(1048576);
   BlockBasedTableOptions table_options;
   table_options.block_cache = cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.env = env.get();
   SetTimeElapseOnlySleepOnReopen(&options);
   ReopenWithColumnFamilies(GetCFNames(), options);
@@ -3302,6 +3346,28 @@ TEST_F(DBBasicTest, ManifestWriteFailure) {
   SyncPoint::GetInstance()->EnableProcessing();
   Reopen(options);
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(DBBasicTest, VerifyFileChecksums) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("a", "value"));
+  ASSERT_OK(Flush());
+  ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsInvalidArgument());
+
+  options.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  Reopen(options);
+  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+
+  // Write an L0 with checksum computed.
+  ASSERT_OK(Put("b", "value"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->VerifyFileChecksums(ReadOptions()));
+}
+#endif  // !ROCKSDB_LITE
 
 // A test class for intercepting random reads and injecting artificial
 // delays. Used for testing the deadline/timeout feature
