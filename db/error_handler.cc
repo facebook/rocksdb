@@ -111,6 +111,23 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, Status::SubCode, bool>,
                          Status::Code::kIOError, Status::SubCode::kIOFenced,
                          false),
          Status::Severity::kFatalError},
+        // Errors during MANIFEST write when WAL is disabled
+        {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
+                         Status::Code::kIOError, Status::SubCode::kNoSpace,
+                         true),
+         Status::Severity::kHardError},
+        {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
+                         Status::Code::kIOError, Status::SubCode::kNoSpace,
+                         false),
+         Status::Severity::kHardError},
+        {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
+                         Status::Code::kIOError, Status::SubCode::kIOFenced,
+                         true),
+         Status::Severity::kFatalError},
+        {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
+                         Status::Code::kIOError, Status::SubCode::kIOFenced,
+                         false),
+         Status::Severity::kFatalError},
 
 };
 
@@ -175,6 +192,12 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, bool>,
         {std::make_tuple(BackgroundErrorReason::kFlushNoWAL,
                          Status::Code::kIOError, false),
          Status::Severity::kNoError},
+        {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
+                         Status::Code::kIOError, true),
+         Status::Severity::kFatalError},
+        {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
+                         Status::Code::kIOError, false),
+         Status::Severity::kFatalError},
 };
 
 std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity>
@@ -336,7 +359,8 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   if (recovery_in_prog_ && recovery_io_error_.ok()) {
     recovery_io_error_ = bg_io_err;
   }
-  if (BackgroundErrorReason::kManifestWrite == reason) {
+  if (BackgroundErrorReason::kManifestWrite == reason ||
+      BackgroundErrorReason::kManifestWriteNoWAL == reason) {
     // Always returns ok
     db_->DisableFileDeletionsWithLock().PermitUncheckedError();
   }
@@ -374,7 +398,8 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       }
       recover_context_ = context;
       return bg_error_;
-    } else if (BackgroundErrorReason::kFlushNoWAL == reason) {
+    } else if (BackgroundErrorReason::kFlushNoWAL == reason ||
+               BackgroundErrorReason::kManifestWriteNoWAL == reason) {
       // When the BG Retryable IO error reason is flush without WAL,
       // We map it to a soft error. At the same time, all the background work
       // should be stopped except the BG work from recovery. Therefore, we

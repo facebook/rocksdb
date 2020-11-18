@@ -254,8 +254,15 @@ Status DBImpl::FlushMemTableToOutputFile(
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
         // Should handle return error?
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
-            .PermitUncheckedError();
+        if (total_log_size_ > 0) {
+          // If the WAL is empty, we use different error reason
+          error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
+              .PermitUncheckedError();
+        } else {
+          error_handler_
+              .SetBGError(io_s, BackgroundErrorReason::kManifestWriteNoWAL)
+              .PermitUncheckedError();
+        }
       } else if (total_log_size_ > 0) {
         // Should handle return error?
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
@@ -656,9 +663,16 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
-        // Should Handle this error?
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
-            .PermitUncheckedError();
+        // Should handle return error?
+        if (total_log_size_ > 0) {
+          // If the WAL is empty, we use different error reason
+          error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
+              .PermitUncheckedError();
+        } else {
+          error_handler_
+              .SetBGError(io_s, BackgroundErrorReason::kManifestWriteNoWAL)
+              .PermitUncheckedError();
+        }
       } else if (total_log_size_ > 0) {
         // Should Handle this error?
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
