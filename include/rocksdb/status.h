@@ -62,13 +62,6 @@ class Status {
   bool operator==(const Status& rhs) const;
   bool operator!=(const Status& rhs) const;
 
-  inline bool IsChecked() const {
-#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
-    return checked_;
-#else
-    return true;
-#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
-  }
   // In case of intentionally swallowing an error, user must explicitly call
   // this function. That way we are easily able to search the code to find where
   // error swallowing occurs.
