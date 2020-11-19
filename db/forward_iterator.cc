@@ -53,6 +53,12 @@ class ForwardLevelIterator : public InternalIterator {
     if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
       pinned_iters_mgr_->PinIterator(file_iter_);
     } else {
+      /*
+      TODO(AR) needed for ASSERT_STATUS_CHECKED in
+      MergeOperatorPinningTest/MergeOperatorPinningTest.TailingIterator
+      */
+      status_.PermitUncheckedError();
+
       delete file_iter_;
     }
   }

@@ -404,7 +404,7 @@ TEST_P(MergeOperatorPinningTest, TailingIterator) {
     ReadOptions ro;
     ro.tailing = true;
     Iterator* iter = db_->NewIterator(ro);
-
+    ASSERT_OK(iter->status());
     iter->SeekToFirst();
     for (int i = 0; i < (kNumWrites / kNumOperands); i++) {
       while (!iter->Valid()) {
@@ -417,6 +417,7 @@ TEST_P(MergeOperatorPinningTest, TailingIterator) {
 
       iter->Next();
     }
+    ASSERT_OK(iter->status());
 
     delete iter;
   };
