@@ -664,8 +664,8 @@ TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
     ASSERT_OK(txn2->Put(handles_[i], "k2", "v2"));
   }
   // A txn must be named before prepare.
-  txn1->SetName("txn1");
-  txn2->SetName("txn2");
+  ASSERT_OK(txn1->SetName("txn1"));
+  ASSERT_OK(txn2->SetName("txn2"));
   // Prepare writes to WAL, but not to memtable. (WriteCommitted)
   ASSERT_OK(txn1->Prepare());
   ASSERT_OK(txn2->Prepare());

@@ -674,20 +674,13 @@ void MemTableList::RemoveMemTablesOrRestoreFlags(
 }
 
 uint64_t MemTableList::PrecomputeMinLogContainingPrepSection(
-    const autovector<MemTable*>& memtables_to_flush) {
+    const std::unordered_set<MemTable*>& memtables_to_flush) {
   uint64_t min_log = 0;
 
   for (auto& m : current_->memlist_) {
     // Assume the list is very short, we can live with O(m*n). We can optimize
     // if the performance has some problem.
-    bool should_skip = false;
-    for (MemTable* m_to_flush : memtables_to_flush) {
-      if (m == m_to_flush) {
-        should_skip = true;
-        break;
-      }
-    }
-    if (should_skip) {
+    if (memtables_to_flush.count(m)) {
       continue;
     }
 
@@ -753,14 +746,21 @@ Status InstallMemtableAtomicFlushResults(
     edit_lists.emplace_back(edits);
   }
 
-  // TODO(cc): after https://github.com/facebook/rocksdb/pull/7570, handle 2pc
-  // here.
+  WalNumber min_wal_number_to_keep = 0;
+  if (vset->db_options()->allow_2pc) {
+    min_wal_number_to_keep = PrecomputeMinLogNumberToKeep2PC(
+        vset, cfds, edit_lists, mems_list, prep_tracker);
+    edit_lists.back().back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
+  }
+
   std::unique_ptr<VersionEdit> wal_deletion;
-  if (vset->db_options()->track_and_verify_wals_in_manifest) {
-    uint64_t min_wal_number_to_keep =
-        PrecomputeMinLogNumberToKeepNon2PC(vset, cfds, edit_lists);
-    const auto& wals = vset->GetWalSet().GetWals();
-    if (!wals.empty() && min_wal_number_to_keep > wals.begin()->first) {
+  if (vset->db_options()->track_and_verify_wals_in_manifest &&
+      !vset->GetWalSet().GetWals().empty()) {
+    if (!vset->db_options()->allow_2pc) {
+      min_wal_number_to_keep =
+          PrecomputeMinLogNumberToKeepNon2PC(vset, cfds, edit_lists);
+    }
+    if (min_wal_number_to_keep > vset->GetWalSet().GetWals().begin()->first) {
       wal_deletion.reset(new VersionEdit);
       wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
       edit_lists.back().push_back(wal_deletion.get());
@@ -779,17 +779,6 @@ Status InstallMemtableAtomicFlushResults(
       }
     }
     assert(0 == num_entries);
-  }
-
-  if (vset->db_options()->allow_2pc) {
-    uint64_t min_log_number_to_keep = port::kMaxUint64;
-    for (size_t i = 0; i < cfds.size(); i++) {
-      min_log_number_to_keep =
-          std::min(min_log_number_to_keep,
-                   PrecomputeMinLogNumberToKeep(vset, *cfds[i], edit_lists[i],
-                                                *mems_list[i], prep_tracker));
-    }
-    edit_lists.back().back()->SetMinLogNumberToKeep(min_log_number_to_keep);
   }
 
   // this can release and reacquire the mutex.
