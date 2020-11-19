@@ -69,6 +69,7 @@ struct BackupableDBOptions {
   // If false, we won't backup log files. This option can be useful for backing
   // up in-memory databases where log file are persisted, but table files are in
   // memory.
+  // If track_and_verify_wals_in_manifest is true, this must be true.
   // Default: true
   bool backup_log_files;
 
