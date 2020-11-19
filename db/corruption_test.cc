@@ -188,44 +188,6 @@ class CorruptionTest : public testing::Test {
     ASSERT_GE(max_expected, correct);
   }
 
-  void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
-    uint64_t file_size = 0;
-    Status s = env_->GetFileSize(fname, &file_size);
-    if (!s.ok()) {
-      FAIL() << fname << ": " << s.ToString();
-    }
-    int fsz = static_cast<int>(file_size);
-
-    if (offset < 0) {
-      // Relative to end of file; make it absolute
-      if (-offset > fsz) {
-        offset = 0;
-      } else {
-        offset = fsz + offset;
-      }
-    }
-    if (offset > fsz) {
-      offset = fsz;
-    }
-    if (offset + bytes_to_corrupt > fsz) {
-      bytes_to_corrupt = fsz - offset;
-    }
-
-    // Do it
-    std::string contents;
-    s = ReadFileToString(env_, fname, &contents);
-    ASSERT_TRUE(s.ok()) << s.ToString();
-    for (int i = 0; i < bytes_to_corrupt; i++) {
-      contents[i + offset] ^= 0x80;
-    }
-    s = WriteStringToFile(env_->target(), contents, fname);
-    ASSERT_TRUE(s.ok());
-    Options options;
-    options.env = env_;
-    EnvOptions env_options;
-    ASSERT_NOK(VerifySstFileChecksum(options, env_options, fname));
-  }
-
   void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {
     // Pick file to corrupt
     std::vector<std::string> filenames;
