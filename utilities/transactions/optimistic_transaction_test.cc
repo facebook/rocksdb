@@ -577,6 +577,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
   std::vector<ColumnFamilyHandle*> handles;
   ASSERT_OK(OptimisticTransactionDB::Open(options, dbname, column_families,
                                           &handles, &txn_db));
+  assert(txn_db != nullptr);
   ASSERT_NE(txn_db, nullptr);
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
