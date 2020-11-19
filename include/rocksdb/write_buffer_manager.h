@@ -13,10 +13,15 @@
 #pragma once
 
 #include <atomic>
+#include <condition_variable>
 #include <cstddef>
+#include <list>
+#include <mutex>
+
 #include "rocksdb/cache.h"
 
 namespace ROCKSDB_NAMESPACE {
+class DB;
 
 class WriteBufferManager {
  public:
@@ -32,20 +37,29 @@ class WriteBufferManager {
 
   ~WriteBufferManager();
 
+  // Returns true if buffer_limit is passed to limit the total memory usage and
+  // is greater than 0.
   bool enabled() const { return buffer_size() > 0; }
 
+  // Returns true if pointer to cache is passed.
   bool cost_to_cache() const { return cache_rep_ != nullptr; }
 
+  // Returns the total memory used by memtables.
   // Only valid if enabled()
   size_t memory_usage() const {
     return memory_used_.load(std::memory_order_relaxed);
   }
+
+  // Returns the total memory used by active memtables.
   size_t mutable_memtable_memory_usage() const {
     return memory_active_.load(std::memory_order_relaxed);
   }
+
   size_t dummy_entries_in_cache_usage() const {
     return dummy_size_.load(std::memory_order_relaxed);
   }
+
+// Returns the buffer_size.
   size_t buffer_size() const {
     return buffer_size_.load(std::memory_order_relaxed);
   }
@@ -69,30 +83,29 @@ class WriteBufferManager {
     return false;
   }
 
-  void ReserveMem(size_t mem) {
-    if (cache_rep_ != nullptr) {
-      ReserveMemWithCache(mem);
-    } else if (enabled()) {
-      memory_used_.fetch_add(mem, std::memory_order_relaxed);
-    }
-    if (enabled()) {
-      memory_active_.fetch_add(mem, std::memory_order_relaxed);
-    }
-  }
+  void ReserveMem(size_t mem);
+
   // We are in the process of freeing `mem` bytes, so it is not considered
   // when checking the soft limit.
-  void ScheduleFreeMem(size_t mem) {
-    if (enabled()) {
-      memory_active_.fetch_sub(mem, std::memory_order_relaxed);
-    }
-  }
-  void FreeMem(size_t mem) {
-    if (cache_rep_ != nullptr) {
-      FreeMemWithCache(mem);
-    } else if (enabled()) {
-      memory_used_.fetch_sub(mem, std::memory_order_relaxed);
-    }
-  }
+  void ScheduleFreeMem(size_t mem);
+
+  void FreeMem(size_t mem);
+
+  // Returns true if total memory usage exceeded buffer_size and still more than
+  // half of memory is currently in process of flush. We stall the writes untill
+  // some flush completes and memory is freed and is below buffer_size. When it
+  // returns true, all writer threads (including one checking this condition)
+  // across all DBs will be stalled.
+  //
+  // Should only be called by RocksDB internally .
+  bool ShouldStall();
+
+  // Add the DB instance to the queue and block the DB.
+  // Should only be called by RocksDB internally.
+  void BeginWriteStall(DB* db);
+
+  // Remove DB instances from queue and signal them to continue.
+  void EndWriteStall();
 
   void SetBufferSize(size_t new_size) {
     buffer_size_.store(new_size, std::memory_order_relaxed);
@@ -108,6 +121,8 @@ class WriteBufferManager {
   std::atomic<size_t> dummy_size_;
   struct CacheRep;
   std::unique_ptr<CacheRep> cache_rep_;
+  std::list<DB*> queue_;
+  std::mutex mu_;
 
   void ReserveMemWithCache(size_t mem);
   void FreeMemWithCache(size_t mem);

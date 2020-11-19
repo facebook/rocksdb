@@ -8,7 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/write_buffer_manager.h"
-#include <mutex>
+
+#include "db/db_impl/db_impl.h"
 #include "util/coding.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -79,6 +80,34 @@ WriteBufferManager::~WriteBufferManager() {
 }
 
 // Should only be called from write thread
+bool WriteBufferManager::ShouldFlush() const {
+  if (enabled()) {
+    if (mutable_memtable_memory_usage() > mutable_limit_) {
+      return true;
+    }
+    if (memory_usage() >= buffer_size_ &&
+        mutable_memtable_memory_usage() >= buffer_size_ / 2) {
+      // If the memory exceeds the buffer size, we trigger more aggressive
+      // flush. But if already more than half memory is being flushed,
+      // triggering more flush may not help. We will hold it instead.
+      return true;
+    }
+  }
+  return false;
+}
+
+void WriteBufferManager::ReserveMem(size_t mem) {
+  if (cache_rep_ != nullptr) {
+    ReserveMemWithCache(mem);
+  } else if (enabled()) {
+    memory_used_.fetch_add(mem, std::memory_order_relaxed);
+  }
+  if (enabled()) {
+    memory_active_.fetch_add(mem, std::memory_order_relaxed);
+  }
+}
+
+// Should only be called from write thread
 void WriteBufferManager::ReserveMemWithCache(size_t mem) {
 #ifndef ROCKSDB_LITE
   assert(cache_rep_ != nullptr);
@@ -112,6 +141,24 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
 #endif  // ROCKSDB_LITE
 }
 
+void WriteBufferManager::ScheduleFreeMem(size_t mem) {
+  if (enabled()) {
+    memory_active_.fetch_sub(mem, std::memory_order_relaxed);
+  }
+}
+void WriteBufferManager::FreeMem(size_t mem) {
+  if (cache_rep_ != nullptr) {
+    FreeMemWithCache(mem);
+  } else if (enabled()) {
+    memory_used_.fetch_sub(mem, std::memory_order_relaxed);
+    // If memory usage is under the limit after freeing the memory then signal
+    // the stalled DBs to unblock.
+    if (!ShouldStall() && !queue_.empty()) {
+      EndWriteStall();
+    }
+  }
+}
+
 void WriteBufferManager::FreeMemWithCache(size_t mem) {
 #ifndef ROCKSDB_LITE
   assert(cache_rep_ != nullptr);
@@ -141,8 +188,43 @@ void WriteBufferManager::FreeMemWithCache(size_t mem) {
     cache_rep_->cache_allocated_size_ -= kSizeDummyEntry;
     dummy_size_.fetch_sub(kSizeDummyEntry, std::memory_order_relaxed);
   }
+
+  // Memory usage is under the limit after freeing the memory, signal the DBs if
+  // blocked.
+  if (!ShouldStall() && !queue_.empty()) {
+    EndWriteStall();
+  }
 #else
   (void)mem;
 #endif  // ROCKSDB_LITE
+}
+
+void WriteBufferManager::BeginWriteStall(DB* db) {
+  if (db && ShouldStall()) {
+    std::unique_lock<std::mutex> lock(mu_);
+    queue_.push_back(db);
+  }
+}
+
+// Called when memory is freed in FreeMem.
+void WriteBufferManager::EndWriteStall() {
+  // Get the db instances from the list and call WBMStallInterface::SignalDB to
+  // change the state to running and unblock the DB instances.
+  while (!ShouldStall() && !queue_.empty()) {
+    std::unique_lock<std::mutex> lock(mu_);
+    DB* db = queue_.front();
+    queue_.pop_front();
+    (static_cast<DBImpl*>(db))->GetWBMStallInterface()->SignalDB();
+  }
+}
+
+bool WriteBufferManager::ShouldStall() {
+  if (enabled()) {
+    if (memory_usage() >= buffer_size_ &&
+        mutable_memtable_memory_usage() < buffer_size_ / 2) {
+      return true;
+    }
+  }
+  return false;
 }
 }  // namespace ROCKSDB_NAMESPACE
