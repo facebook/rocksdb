@@ -51,22 +51,14 @@ class FilterBitsBuilder {
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
 
   // Calculate num of keys that can be added and generate a filter
-  // <= the specified number of bytes.
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable : 4702)  // unreachable code
-#endif
-  virtual int CalculateNumEntry(const uint32_t /*bytes*/) {
-#ifndef ROCKSDB_LITE
-    throw std::runtime_error("CalculateNumEntry not Implemented");
-#else
-    abort();
-#endif
-    return 0;
+  // <= the specified number of bytes, though callers (including RocksDB)
+  // should only rely on that for performance, not correctness.
+  virtual size_t CalculateNumEntry(size_t bytes) {
+    // DEBUG: ideally should not rely on this implementation
+    assert(false);
+    // RELEASE: something reasonably "safe": 2 bytes per entry
+    return bytes / 2;
   }
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
 };
 
 // A class that checks if a key can be in filter

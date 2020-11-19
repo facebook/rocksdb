@@ -224,7 +224,7 @@ class CountUniqueFilterBitsBuilderWrapper : public FilterBitsBuilder {
     return rv;
   }
 
-  int CalculateNumEntry(const uint32_t bytes) override {
+  size_t CalculateNumEntry(size_t bytes) override {
     return b_->CalculateNumEntry(bytes);
   }
 
