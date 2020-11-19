@@ -23,6 +23,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Arena;
+class Version;
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
 // iterator is supposed to be allocated. This class is used as an entry point of
@@ -72,7 +73,7 @@ class ArenaWrappedDBIter : public Iterator {
 
   void Init(Env* env, const ReadOptions& read_options,
             const ImmutableCFOptions& cf_options,
-            const MutableCFOptions& mutable_cf_options,
+            const MutableCFOptions& mutable_cf_options, const Version* version,
             const SequenceNumber& sequence,
             uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
             ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
@@ -106,9 +107,9 @@ class ArenaWrappedDBIter : public Iterator {
 extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ReadOptions& read_options,
     const ImmutableCFOptions& cf_options,
-    const MutableCFOptions& mutable_cf_options, const SequenceNumber& sequence,
-    uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
-    ReadCallback* read_callback, DBImpl* db_impl = nullptr,
-    ColumnFamilyData* cfd = nullptr, bool allow_blob = false,
-    bool allow_refresh = true);
+    const MutableCFOptions& mutable_cf_options, const Version* version,
+    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
+    uint64_t version_number, ReadCallback* read_callback,
+    DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr,
+    bool allow_blob = false, bool allow_refresh = true);
 }  // namespace ROCKSDB_NAMESPACE

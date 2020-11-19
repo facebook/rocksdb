@@ -22,6 +22,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class Version;
+
 // This file declares the factory functions of DBIter, in its original form
 // or a wrapped form with class ArenaWrappedDBIter, which is defined here.
 // Class DBIter, which is declared and implemented inside db_iter.cc, is
@@ -114,8 +116,8 @@ class DBIter final : public Iterator {
   DBIter(Env* _env, const ReadOptions& read_options,
          const ImmutableCFOptions& cf_options,
          const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
-         InternalIterator* iter, SequenceNumber s, bool arena_mode,
-         uint64_t max_sequential_skip_in_iterations,
+         InternalIterator* iter, const Version* version, SequenceNumber s,
+         bool arena_mode, uint64_t max_sequential_skip_in_iterations,
          ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
          bool allow_blob);
 
@@ -293,6 +295,7 @@ class DBIter final : public Iterator {
   UserComparatorWrapper user_comparator_;
   const MergeOperator* const merge_operator_;
   IteratorWrapper iter_;
+  const Version* version_;
   ReadCallback* read_callback_;
   // Max visible sequence number. It is normally the snapshot seq unless we have
   // uncommitted data in db as in WriteUnCommitted.
@@ -335,6 +338,8 @@ class DBIter final : public Iterator {
   // Expect the inner iterator to maintain a total order.
   // prefix_extractor_ must be non-NULL if the value is false.
   const bool expect_total_order_inner_iter_;
+  // Whether the iterator is allowed to expose blob references. Set to true when
+  // the stacked BlobDB implementation is used, false otherwise.
   bool allow_blob_;
   bool is_blob_;
   bool arena_mode_;
@@ -367,8 +372,9 @@ extern Iterator* NewDBIterator(
     const ImmutableCFOptions& cf_options,
     const MutableCFOptions& mutable_cf_options,
     const Comparator* user_key_comparator, InternalIterator* internal_iter,
-    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
-    ReadCallback* read_callback, DBImpl* db_impl = nullptr,
-    ColumnFamilyData* cfd = nullptr, bool allow_blob = false);
+    const Version* version, const SequenceNumber& sequence,
+    uint64_t max_sequential_skip_in_iterations, ReadCallback* read_callback,
+    DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr,
+    bool allow_blob = false);
 
 }  // namespace ROCKSDB_NAMESPACE

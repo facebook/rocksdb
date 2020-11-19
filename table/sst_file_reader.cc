@@ -69,7 +69,8 @@ Iterator* SstFileReader::NewIterator(const ReadOptions& roptions) {
                       ? roptions.snapshot->GetSequenceNumber()
                       : kMaxSequenceNumber;
   ArenaWrappedDBIter* res = new ArenaWrappedDBIter();
-  res->Init(r->options.env, roptions, r->ioptions, r->moptions, sequence,
+  res->Init(r->options.env, roptions, r->ioptions, r->moptions,
+            nullptr /* version */, sequence,
             r->moptions.max_sequential_skip_in_iterations,
             0 /* version_number */, nullptr /* read_callback */,
             nullptr /* db_impl */, nullptr /* cfd */, false /* allow_blob */,
