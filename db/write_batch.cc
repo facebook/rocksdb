@@ -1425,17 +1425,17 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
-      bool batch_boundary = false;
       if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status = WriteBatchInternal::Put(rebuilding_trx_, column_family_id,
                                              key, value);
-        batch_boundary = IsDuplicateKeySeq(column_family_id, key);
-      }
-      if (ret_status.ok()) {
-        MaybeAdvanceSeq(batch_boundary);
+        if (ret_status.ok()) {
+          MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
+        }
+      } else if (ret_status.ok()) {
+        MaybeAdvanceSeq(false /* batch_boundary */);
       }
       return ret_status;
     }
@@ -1479,8 +1479,7 @@ class MemTableInserter : public WriteBatch::Handler {
           get_status = db_->Get(ropts, cf_handle, key, &prev_value);
         }
         // Intentionally overwrites the `NotFound` in `ret_status`.
-        if (!get_status.ok() && !get_status.IsNotFound() &&
-            !get_status.IsNotSupported()) {
+        if (!get_status.ok() && !get_status.IsNotFound()) {
           ret_status = get_status;
         } else {
           ret_status = Status::OK();
@@ -1519,8 +1518,8 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     if (UNLIKELY(ret_status.IsTryAgain())) {
       assert(seq_per_batch_);
-      const bool BATCH_BOUNDARY = true;
-      MaybeAdvanceSeq(BATCH_BOUNDARY);
+      const bool kBatchBoundary = true;
+      MaybeAdvanceSeq(kBatchBoundary);
     } else if (ret_status.ok()) {
       MaybeAdvanceSeq();
       CheckMemtableFull();
@@ -1553,8 +1552,8 @@ class MemTableInserter : public WriteBatch::Handler {
                  hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
     if (UNLIKELY(ret_status.IsTryAgain())) {
       assert(seq_per_batch_);
-      const bool BATCH_BOUNDARY = true;
-      MaybeAdvanceSeq(BATCH_BOUNDARY);
+      const bool kBatchBoundary = true;
+      MaybeAdvanceSeq(kBatchBoundary);
     } else if (ret_status.ok()) {
       MaybeAdvanceSeq();
       CheckMemtableFull();
@@ -1571,21 +1570,20 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
-      bool batch_boundary = false;
       if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status =
             WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
-        batch_boundary = IsDuplicateKeySeq(column_family_id, key);
-      }
-      if (ret_status.ok()) {
-        MaybeAdvanceSeq(batch_boundary);
+        if (ret_status.ok()) {
+          MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
+        }
+      } else if (ret_status.ok()) {
+        MaybeAdvanceSeq(false /* batch_boundary */);
       }
       return ret_status;
     }
-    assert(ret_status.ok());
 
     ColumnFamilyData* cfd = cf_mems_->current();
     assert(!cfd || cfd->user_comparator());
@@ -1618,17 +1616,17 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
-      bool batch_boundary = false;
       if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status = WriteBatchInternal::SingleDelete(rebuilding_trx_,
                                                       column_family_id, key);
-        batch_boundary = IsDuplicateKeySeq(column_family_id, key);
-      }
-      if (ret_status.ok()) {
-        MaybeAdvanceSeq(batch_boundary);
+        if (ret_status.ok()) {
+          MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
+        }
+      } else if (ret_status.ok()) {
+        MaybeAdvanceSeq(false /* batch_boundary */);
       }
       return ret_status;
     }
@@ -1660,17 +1658,17 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
-      bool batch_boundary = false;
       if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status = WriteBatchInternal::DeleteRange(
             rebuilding_trx_, column_family_id, begin_key, end_key);
-        batch_boundary = IsDuplicateKeySeq(column_family_id, begin_key);
-      }
-      if (ret_status.ok()) {
-        MaybeAdvanceSeq(batch_boundary);
+        if (ret_status.ok()) {
+          MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, begin_key));
+        }
+      } else if (ret_status.ok()) {
+        MaybeAdvanceSeq(false /* batch_boundary */);
       }
       return ret_status;
     }
@@ -1732,17 +1730,17 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
-      bool batch_boundary = false;
       if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status = WriteBatchInternal::Merge(rebuilding_trx_,
                                                column_family_id, key, value);
-        batch_boundary = IsDuplicateKeySeq(column_family_id, key);
-      }
-      if (ret_status.ok()) {
-        MaybeAdvanceSeq(batch_boundary);
+        if (ret_status.ok()) {
+          MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
+        }
+      } else if (ret_status.ok()) {
+        MaybeAdvanceSeq(false /* batch_boundary */);
       }
       return ret_status;
     }
@@ -1829,8 +1827,8 @@ class MemTableInserter : public WriteBatch::Handler {
 
     if (UNLIKELY(ret_status.IsTryAgain())) {
       assert(seq_per_batch_);
-      const bool BATCH_BOUNDARY = true;
-      MaybeAdvanceSeq(BATCH_BOUNDARY);
+      const bool kBatchBoundary = true;
+      MaybeAdvanceSeq(kBatchBoundary);
     } else if (ret_status.ok()) {
       MaybeAdvanceSeq();
       CheckMemtableFull();
