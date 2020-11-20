@@ -21,9 +21,9 @@
 #include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
-class WinClock;
 
 namespace port {
+class WinClock;
 
 class WinLogger : public ROCKSDB_NAMESPACE::Logger {
  public:
