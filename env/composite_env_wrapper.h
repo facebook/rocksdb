@@ -18,7 +18,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-
 class CompositeEnv : public Env {
  public:
   // Initialize a CompositeEnvWrapper that delegates all thread/time related

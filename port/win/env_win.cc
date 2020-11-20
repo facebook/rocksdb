@@ -1343,6 +1343,7 @@ WinEnv::WinEnv()
       winenv_io_(this),
       winenv_threads_(this) {
   // Protected member of the base class
+  clock_ = WinClock::Default();
   thread_status_updater_ = CreateThreadStatusUpdater();
 }
 
@@ -1360,6 +1361,20 @@ Status WinEnv::GetThreadList(std::vector<ThreadStatus>* thread_list) {
 Status WinEnv::GetHostName(char* name, uint64_t len) {
   return winenv_io_.GetHostName(name, len);
 }
+
+uint64_t WinEnv::NowMicros() { return clock_->NowMicros(); }
+
+uint64_t WinEnv::NowNanos() { return clock_->NowNanos(); }
+
+Status WinEnv::GetHostName(char* name, uint64_t len) {
+  return winenv_io_.GetHostName(name, len);
+}
+
+std::string WinEnv::TimeToString(uint64_t secondsSince1970) {
+  return clock_->TimeToString(secondsSince1970);
+}
+
+>>>>>>> c74567fa2... Add WinFileSystem
 void WinEnv::Schedule(void (*function)(void*), void* arg, Env::Priority pri,
                       void* tag, void (*unschedFunction)(void* arg)) {
   return winenv_threads_.Schedule(function, arg, pri, tag, unschedFunction);
