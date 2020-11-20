@@ -519,7 +519,7 @@ class FlushJobTimestampTest : public FlushJobTestBase {
                              Slice value) {
     std::string key_str(std::move(key));
     PutFixed64(&key_str, ts);
-    memtable->Add(seq, value_type, key_str, value);
+    ASSERT_OK(memtable->Add(seq, value_type, key_str, value));
   }
 
  protected:
