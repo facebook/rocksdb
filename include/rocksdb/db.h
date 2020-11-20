@@ -1027,20 +1027,22 @@ class DB {
   // Simpler versions of the GetApproximateSizes() method above.
   // The include_flags argumenbt must of type DB::SizeApproximationFlags
   // and can not be NONE.
-  virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                   const Range* ranges, int n, uint64_t* sizes,
-                                   uint8_t include_flags = INCLUDE_FILES) {
+  virtual Status GetApproximateSizes(ColumnFamilyHandle* column_family,
+                                     const Range* ranges, int n,
+                                     uint64_t* sizes,
+                                     uint8_t include_flags = INCLUDE_FILES) {
     SizeApproximationOptions options;
     options.include_memtabtles =
         (include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) != 0;
     options.include_files =
         (include_flags & SizeApproximationFlags::INCLUDE_FILES) != 0;
-    Status s = GetApproximateSizes(options, column_family, ranges, n, sizes);
-    s.PermitUncheckedError();
+    return GetApproximateSizes(options, column_family, ranges, n, sizes);
   }
-  virtual void GetApproximateSizes(const Range* ranges, int n, uint64_t* sizes,
-                                   uint8_t include_flags = INCLUDE_FILES) {
-    GetApproximateSizes(DefaultColumnFamily(), ranges, n, sizes, include_flags);
+  virtual Status GetApproximateSizes(const Range* ranges, int n,
+                                     uint64_t* sizes,
+                                     uint8_t include_flags = INCLUDE_FILES) {
+    return GetApproximateSizes(DefaultColumnFamily(), ranges, n, sizes,
+                               include_flags);
   }
 
   // The method is similar to GetApproximateSizes, except it

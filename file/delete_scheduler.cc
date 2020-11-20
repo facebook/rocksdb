@@ -98,11 +98,13 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
 
   // Update the total trash size
   uint64_t trash_file_size = 0;
-  Status ignored =
+  IOStatus io_s =
       fs_->GetFileSize(trash_file, IOOptions(), &trash_file_size, nullptr);
-  ignored.PermitUncheckedError();  //**TODO: What should we do if we failed to
-                                   // get the file size?
-  total_trash_size_.fetch_add(trash_file_size);
+  if (io_s.ok()) {
+    total_trash_size_.fetch_add(trash_file_size);
+  }
+  //**TODO: What should we do if we failed to
+  // get the file size?
 
   // Add file to delete queue
   {
@@ -180,6 +182,7 @@ Status DeleteScheduler::MarkAsTrash(const std::string& file_path,
   *trash_file = file_path + kTrashExtension;
   // TODO(tec) : Implement Env::RenameFileIfNotExist and remove
   //             file_move_mu mutex.
+  Status s;
   int cnt = 0;
   Status s;
   InstrumentedMutexLock l(&file_move_mu_);
@@ -199,9 +202,7 @@ Status DeleteScheduler::MarkAsTrash(const std::string& file_path,
     cnt++;
   }
   if (s.ok()) {
-    //**TODO: What should we do if this returns an error?
-    sst_file_manager_->OnMoveFile(file_path, *trash_file)
-        .PermitUncheckedError();
+    s = sst_file_manager_->OnMoveFile(file_path, *trash_file);
   }
   return s;
 }

@@ -1140,15 +1140,33 @@ size_t DBTestBase::CountFiles() {
   return files.size() + logfiles.size();
 }
 
-uint64_t DBTestBase::Size(const Slice& start, const Slice& limit, int cf) {
-  Range r(start, limit);
-  uint64_t size;
-  if (cf == 0) {
-    db_->GetApproximateSizes(&r, 1, &size);
-  } else {
-    db_->GetApproximateSizes(handles_[1], &r, 1, &size);
+Status DBTestBase::CountFiles(size_t* count) {
+  std::vector<std::string> files;
+  Status s = env_->GetChildren(dbname_, &files);
+  if (!s.ok()) {
+    return s;
   }
-  return size;
+  size_t files_count = files.size();
+
+  if (dbname_ != last_options_.wal_dir) {
+    s = env_->GetChildren(last_options_.wal_dir, &files);
+    if (!s.ok()) {
+      return s;
+    }
+    *count = files_count + files.size();
+  }
+
+  return Status::OK();
+}
+
+Status DBTestBase::Size(const Slice& start, const Slice& limit, int cf,
+                        uint64_t* size) {
+  Range r(start, limit);
+  if (cf == 0) {
+    return db_->GetApproximateSizes(&r, 1, size);
+  } else {
+    return db_->GetApproximateSizes(handles_[1], &r, 1, size);
+  }
 }
 
 void DBTestBase::Compact(int cf, const Slice& start, const Slice& limit,
