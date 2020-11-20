@@ -349,7 +349,7 @@ struct DbPath {
   DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
 };
 
-static const std::string kHostnameForDbHostId = "__hostname__";
+extern const char* kHostnameForDbHostId;
 
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
