@@ -244,6 +244,10 @@ class LegacyFileSystemWrapper : public FileSystem {
       const ImmutableDBOptions& db_options) const override {
     return target_->OptimizeForCompactionTableRead(file_options, db_options);
   }
+
+#ifdef GetFreeSpace
+#undef GetFreeSpace
+#endif
   IOStatus GetFreeSpace(const std::string& path, const IOOptions& /*options*/,
                         uint64_t* diskfree, IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->GetFreeSpace(path, diskfree));

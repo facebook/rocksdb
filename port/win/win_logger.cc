@@ -13,31 +13,33 @@
 #if defined(OS_WIN)
 
 #include "port/win/win_logger.h"
-#include "port/win/io_win.h"
 
-#include <algorithm>
+#include <fcntl.h>
 #include <stdio.h>
 #include <time.h>
-#include <fcntl.h>
-#include <atomic>
 
-#include "rocksdb/env.h"
+#include <algorithm>
+#include <atomic>
 
 #include "monitoring/iostats_context_imp.h"
 #include "port/sys_time.h"
+#include "port/win/env_win.h"
+#include "port/win/io_win.h"
+#include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 namespace port {
 
-WinLogger::WinLogger(uint64_t (*gettid)(), Env* env, HANDLE file,
+WinLogger::WinLogger(uint64_t (*gettid)(),
+                     const std::shared_ptr<WinClock>& clock, HANDLE file,
                      const InfoLogLevel log_level)
     : Logger(log_level),
       file_(file),
       gettid_(gettid),
       log_size_(0),
       last_flush_micros_(0),
-      env_(env),
+      clock_(clock),
       flush_pending_(false) {
   assert(file_ != NULL);
   assert(file_ != INVALID_HANDLE_VALUE);
@@ -88,7 +90,7 @@ void WinLogger::Flush() {
     // for perf reasons.
   }
 
-  last_flush_micros_ = env_->NowMicros();
+  last_flush_micros_ = clock_->NowMicros();
 }
 
 void WinLogger::Logv(const char* format, va_list ap) {

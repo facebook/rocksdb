@@ -30,6 +30,7 @@
 // Windows API macro interference
 #undef DeleteFile
 #undef GetCurrentTime
+#undef LoadLibrary
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)

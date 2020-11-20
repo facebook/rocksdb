@@ -8,6 +8,13 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 
+#ifdef _WIN32
+// Windows API macro interference
+#undef DeleteFile
+#undef GetCurrentTime
+#undef LoadLibrary
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 
 // The CompositeEnvWrapper class provides an interface that is compatible

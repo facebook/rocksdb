@@ -366,6 +366,10 @@ class FileSystem {
     return IOStatus::OK();
   }
 
+// This seems to clash with a macro on Windows, so #undef it here
+#ifdef DeleteFile
+#undef DeleteFile
+#endif
   // Delete the named file.
   virtual IOStatus DeleteFile(const std::string& fname,
                               const IOOptions& options,
