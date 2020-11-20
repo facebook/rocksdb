@@ -214,6 +214,7 @@ void EventHelpers::NotifyOnErrorRecoveryCompleted(
     Status old_bg_error, InstrumentedMutex* db_mutex) {
 #ifndef ROCKSDB_LITE
   if (listeners.size() == 0U) {
+    old_bg_error.PermitUncheckedError();
     return;
   }
   db_mutex->AssertHeld();

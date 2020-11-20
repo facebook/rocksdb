@@ -1337,17 +1337,19 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   SizeApproximationOptions size_approx_options;
   size_approx_options.include_memtabtles = true;
   size_approx_options.include_files = true;
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_GT(size, 6000);
   ASSERT_LT(size, 204800);
   // Zero if not including mem table
-  db_->GetApproximateSizes(&r, 1, &size);
+  ASSERT_OK(db_->GetApproximateSizes(&r, 1, &size));
   ASSERT_EQ(size, 0);
 
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, 0);
 
   for (int i = 0; i < N; i++) {
@@ -1357,13 +1359,15 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, 0);
 
   start = Key(100);
   end = Key(1020);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_GT(size, 6000);
 
   options.max_write_buffer_number = 8;
@@ -1389,29 +1393,32 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(100);
   end = Key(300);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_GT(size, 6000);
 
   start = Key(2100);
   end = Key(2300);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
   uint64_t size_with_mt, size_without_mt;
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
-                           &size_with_mt);
+  ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                                     &size_with_mt));
   ASSERT_GT(size_with_mt, 6000);
-  db_->GetApproximateSizes(&r, 1, &size_without_mt);
+  ASSERT_OK(db_->GetApproximateSizes(&r, 1, &size_without_mt));
   ASSERT_EQ(size_without_mt, 0);
 
   Flush();
@@ -1423,15 +1430,16 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
-                           &size_with_mt);
-  db_->GetApproximateSizes(&r, 1, &size_without_mt);
+  ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                                     &size_with_mt));
+  ASSERT_OK(db_->GetApproximateSizes(&r, 1, &size_without_mt));
   ASSERT_GT(size_with_mt, size_without_mt);
   ASSERT_GT(size_without_mt, 6000);
 
   // Check that include_memtabtles flag works as expected
   size_approx_options.include_memtabtles = false;
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, size_without_mt);
 
   // Check that files_size_error_margin works as expected, when the heuristic
@@ -1440,10 +1448,12 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   end = Key(1000 + N - 2);
   r = Range(start, end);
   size_approx_options.files_size_error_margin = -1.0;  // disabled
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   uint64_t size2;
   size_approx_options.files_size_error_margin = 0.5;  // enabled, but not used
-  db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2));
   ASSERT_EQ(size, size2);
 }
 
@@ -1494,14 +1504,16 @@ TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
 
     // Get the precise size without any approximation heuristic
     uint64_t size;
-    db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size);
+    ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                                       &size));
     ASSERT_NE(size, 0);
 
     // Get the size with an approximation heuristic
     uint64_t size2;
     const double error_margin = 0.2;
     size_approx_options.files_size_error_margin = error_margin;
-    db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size2);
+    ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1,
+                                       &size2));
     ASSERT_LT(size2, size * (1 + error_margin));
     ASSERT_GT(size2, size * (1 - error_margin));
   }
@@ -1517,7 +1529,7 @@ TEST_F(DBTest, ApproximateSizesFilesWithErrorMargin) {
       const std::string end = Key(i + 11);  // overlap by 1 key
       const Range r(start, end);
       uint64_t size;
-      db_->GetApproximateSizes(&r, 1, &size);
+      ASSERT_OK(db_->GetApproximateSizes(&r, 1, &size));
       ASSERT_LE(size, 11 * 100);
     }
   }
@@ -1585,9 +1597,12 @@ TEST_F(DBTest, ApproximateSizes) {
     DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
-    ASSERT_TRUE(Between(Size("", "xyz", 1), 0, 0));
+    uint64_t size;
+    ASSERT_OK(Size("", "xyz", 1, &size));
+    ASSERT_TRUE(Between(size, 0, 0));
     ReopenWithColumnFamilies({"default", "pikachu"}, options);
-    ASSERT_TRUE(Between(Size("", "xyz", 1), 0, 0));
+    ASSERT_OK(Size("", "xyz", 1, &size));
+    ASSERT_TRUE(Between(size, 0, 0));
 
     // Write 8MB (80 values, each 100K)
     ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
@@ -1600,7 +1615,8 @@ TEST_F(DBTest, ApproximateSizes) {
     }
 
     // 0 because GetApproximateSizes() does not account for memtable space
-    ASSERT_TRUE(Between(Size("", Key(50), 1), 0, 0));
+    ASSERT_OK(Size("", Key(50), 1, &size));
+    ASSERT_TRUE(Between(size, 0, 0));
 
     // Check sizes across recovery by reopening a few times
     for (int run = 0; run < 3; run++) {
@@ -1608,14 +1624,17 @@ TEST_F(DBTest, ApproximateSizes) {
 
       for (int compact_start = 0; compact_start < N; compact_start += 10) {
         for (int i = 0; i < N; i += 10) {
-          ASSERT_TRUE(Between(Size("", Key(i), 1), S1 * i, S2 * i));
-          ASSERT_TRUE(Between(Size("", Key(i) + ".suffix", 1), S1 * (i + 1),
-                              S2 * (i + 1)));
-          ASSERT_TRUE(Between(Size(Key(i), Key(i + 10), 1), S1 * 10, S2 * 10));
+          ASSERT_OK(Size("", Key(i), 1, &size));
+          ASSERT_TRUE(Between(size, S1 * i, S2 * i));
+          ASSERT_OK(Size("", Key(i) + ".suffix", 1, &size));
+          ASSERT_TRUE(Between(size, S1 * (i + 1), S2 * (i + 1)));
+          ASSERT_OK(Size(Key(i), Key(i + 10), 1, &size));
+          ASSERT_TRUE(Between(size, S1 * 10, S2 * 10));
         }
-        ASSERT_TRUE(Between(Size("", Key(50), 1), S1 * 50, S2 * 50));
-        ASSERT_TRUE(
-            Between(Size("", Key(50) + ".suffix", 1), S1 * 50, S2 * 50));
+        ASSERT_OK(Size("", Key(50), 1, &size));
+        ASSERT_TRUE(Between(size, S1 * 50, S2 * 50));
+        ASSERT_OK(Size("", Key(50) + ".suffix", 1, &size));
+        ASSERT_TRUE(Between(size, S1 * 50, S2 * 50));
 
         std::string cstart_str = Key(compact_start);
         std::string cend_str = Key(compact_start + 9);
@@ -1650,21 +1669,32 @@ TEST_F(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
     ASSERT_OK(Put(1, Key(7), rnd.RandomString(10000)));
 
     // Check sizes across recovery by reopening a few times
+    uint64_t size;
     for (int run = 0; run < 3; run++) {
       ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
-      ASSERT_TRUE(Between(Size("", Key(0), 1), 0, 0));
-      ASSERT_TRUE(Between(Size("", Key(1), 1), 10000, 11000));
-      ASSERT_TRUE(Between(Size("", Key(2), 1), 20000, 21000));
-      ASSERT_TRUE(Between(Size("", Key(3), 1), 120000, 121000));
-      ASSERT_TRUE(Between(Size("", Key(4), 1), 130000, 131000));
-      ASSERT_TRUE(Between(Size("", Key(5), 1), 230000, 232000));
-      ASSERT_TRUE(Between(Size("", Key(6), 1), 240000, 242000));
+      ASSERT_OK(Size("", Key(0), 1, &size));
+      ASSERT_TRUE(Between(size, 0, 0));
+      ASSERT_OK(Size("", Key(1), 1, &size));
+      ASSERT_TRUE(Between(size, 10000, 11000));
+      ASSERT_OK(Size("", Key(2), 1, &size));
+      ASSERT_TRUE(Between(size, 20000, 21000));
+      ASSERT_OK(Size("", Key(3), 1, &size));
+      ASSERT_TRUE(Between(size, 120000, 121000));
+      ASSERT_OK(Size("", Key(4), 1, &size));
+      ASSERT_TRUE(Between(size, 130000, 131000));
+      ASSERT_OK(Size("", Key(5), 1, &size));
+      ASSERT_TRUE(Between(size, 230000, 232000));
+      ASSERT_OK(Size("", Key(6), 1, &size));
+      ASSERT_TRUE(Between(size, 240000, 242000));
       // Ensure some overhead is accounted for, even without including all
-      ASSERT_TRUE(Between(Size("", Key(7), 1), 540500, 545000));
-      ASSERT_TRUE(Between(Size("", Key(8), 1), 550500, 555000));
+      ASSERT_OK(Size("", Key(7), 1, &size));
+      ASSERT_TRUE(Between(size, 540500, 545000));
+      ASSERT_OK(Size("", Key(8), 1, &size));
+      ASSERT_TRUE(Between(size, 550500, 555000));
 
-      ASSERT_TRUE(Between(Size(Key(3), Key(5), 1), 110100, 111000));
+      ASSERT_OK(Size(Key(3), Key(5), 1, &size));
+      ASSERT_TRUE(Between(size, 110100, 111000));
 
       dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
     }
@@ -1748,6 +1778,7 @@ TEST_F(DBTest, Snapshot) {
 TEST_F(DBTest, HiddenValuesAreRemoved) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
+  uint64_t size;
   do {
     Options options = CurrentOptions(options_override);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -1765,7 +1796,8 @@ TEST_F(DBTest, HiddenValuesAreRemoved) {
     ASSERT_GT(NumTableFilesAtLevel(0, 1), 0);
 
     ASSERT_EQ(big, Get(1, "foo", snapshot));
-    ASSERT_TRUE(Between(Size("", "pastfoo", 1), 50000, 60000));
+    ASSERT_OK(Size("", "pastfoo", 1, &size));
+    ASSERT_TRUE(Between(size, 50000, 60000));
     db_->ReleaseSnapshot(snapshot);
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ tiny, " + big + " ]");
     Slice x("x");
@@ -1776,7 +1808,8 @@ TEST_F(DBTest, HiddenValuesAreRemoved) {
     dbfull()->TEST_CompactRange(1, nullptr, &x, handles_[1]);
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ tiny ]");
 
-    ASSERT_TRUE(Between(Size("", "pastfoo", 1), 0, 1000));
+    ASSERT_OK(Size("", "pastfoo", 1, &size));
+    ASSERT_TRUE(Between(size, 0, 1000));
     // ApproximateOffsetOf() is not yet implemented in plain table format,
     // which is used by Size().
   } while (ChangeOptions(kSkipUniversalCompaction | kSkipFIFOCompaction |
