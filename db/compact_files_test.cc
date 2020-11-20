@@ -128,18 +128,11 @@ TEST_F(CompactFilesTest, FilterContext) {
   // Trigger a `Compaction`.
   db->Put(WriteOptions(), ToString(50), "");
   db->Put(WriteOptions(), ToString(99), "");
-  db->Flush(FlushOptions());
-  usleep(10000);  // Wait for compaction start.
+  db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   // File numbers should be accessible.
   ASSERT_TRUE(expected_context->file_numbers[0] < 20);
   ASSERT_TRUE(expected_context->file_numbers.back() < 10);
   ASSERT_EQ(*compaction_count.get(), 1);
-
-  db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-  usleep(10000);  // Wait for compaction start.
-  // File numbers should be accessible.
-  ASSERT_TRUE(expected_context->file_numbers[0] < 20);
-  ASSERT_EQ(*compaction_count.get(), 2);
 
   delete (db);
 }
