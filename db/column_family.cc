@@ -137,6 +137,12 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
           CompressionTypeToString(cf_options.compression) +
           " is not linked with the binary.");
     }
+    if (cf_options.bottommost_compression != kDisableCompressionOption && !CompressionTypeSupported(cf_options.bottommost_compression)) {
+      return Status::InvalidArgument(
+          "Compression type " +
+          CompressionTypeToString(cf_options.bottommost_compression) +
+          " is not linked with the binary.");
+    }
   }
   if (cf_options.compression_opts.zstd_max_train_bytes > 0) {
     if (!ZSTD_TrainDictionarySupported()) {
