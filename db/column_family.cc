@@ -138,7 +138,7 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
           " is not linked with the binary.");
     }
     if (cf_options.bottommost_compression != kDisableCompressionOption &&
-      !CompressionTypeSupported(cf_options.bottommost_compression)) {
+        !CompressionTypeSupported(cf_options.bottommost_compression)) {
       return Status::InvalidArgument(
           "Compression type " +
           CompressionTypeToString(cf_options.bottommost_compression) +
