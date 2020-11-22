@@ -9,34 +9,43 @@
 #ifdef ROCKSDB_OPENSSL_AES_CTR
 #ifndef ROCKSDB_LITE
 
+#include "env/env_openssl.h"
+
 #include <algorithm>
 #include <cctype>
 #include <iostream>
 #include <mutex>
 
-#include "env/env_openssl_impl.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/port.h"
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-static std::once_flag crypto_loaded;
-static std::shared_ptr<UnixLibCrypto> crypto_shared;
+EncryptMarker kEncryptMarker = "Encrypt";
 
-std::shared_ptr<UnixLibCrypto> GetCrypto() {
-  std::call_once(crypto_loaded,
-                 []() { crypto_shared = std::make_shared<UnixLibCrypto>(); });
-  return crypto_shared;
+static port::OnceType crypto_loaded;
+static std::unique_ptr<UnixLibCrypto> crypto_local;
+
+UnixLibCrypto* GetCrypto() {
+  port::InitOnce(&crypto_loaded,
+                 []() { crypto_local.reset(new UnixLibCrypto()); });
+  return crypto_local.get();
 }
 
 // reuse cipher context between calls to Encrypt & Decrypt
-static void do_nothing(EVP_CIPHER_CTX*){};
-thread_local static std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)>
-    aes_context(nullptr, &do_nothing);
+namespace {
+void DeleteAesContext(void* ptr) {
+  EVP_CIPHER_CTX* context = static_cast<EVP_CIPHER_CTX*>(ptr);
+  (*GetCrypto()->EVP_CIPHER_CTX_free_ptr())(context);
+}
+}  // anonymous namespace
+
+ThreadLocalPtr aes_context(&DeleteAesContext);
 
 ShaDescription::ShaDescription(const std::string& key_desc_str) {
   GetCrypto();  // ensure libcryto available
@@ -45,21 +54,21 @@ ShaDescription::ShaDescription(const std::string& key_desc_str) {
   unsigned len;
 
   memset(desc, 0, EVP_MAX_MD_SIZE);
-  if (0 != key_desc_str.length() && crypto_shared->IsValid()) {
+  if (0 != key_desc_str.length()) {
     std::unique_ptr<EVP_MD_CTX, void (*)(EVP_MD_CTX*)> context(
-        crypto_shared->EVP_MD_CTX_new(), crypto_shared->EVP_MD_CTX_free_ptr());
+        GetCrypto()->EVP_MD_CTX_new(), GetCrypto()->EVP_MD_CTX_free_ptr());
 
-    ret_val = crypto_shared->EVP_DigestInit_ex(
-        context.get(), crypto_shared->EVP_sha1(), nullptr);
+    ret_val = GetCrypto()->EVP_DigestInit_ex(context.get(),
+                                             GetCrypto()->EVP_sha1(), nullptr);
     good = (1 == ret_val);
     if (good) {
-      ret_val = crypto_shared->EVP_DigestUpdate(
+      ret_val = GetCrypto()->EVP_DigestUpdate(
           context.get(), key_desc_str.c_str(), key_desc_str.length());
       good = (1 == ret_val);
     }
 
     if (good) {
-      ret_val = crypto_shared->EVP_DigestFinal_ex(context.get(), desc, &len);
+      ret_val = GetCrypto()->EVP_DigestFinal_ex(context.get(), desc, &len);
       good = (1 == ret_val);
     }
   } else {
@@ -75,7 +84,6 @@ std::shared_ptr<ShaDescription> NewShaDescription(
 }
 
 AesCtrKey::AesCtrKey(const std::string& key_str) : valid(false) {
-  GetCrypto();  // ensure libcryto available
   memset(key, 0, EVP_MAX_KEY_LENGTH);
 
   // simple parse:  must be 64 characters long and hexadecimal values
@@ -131,92 +139,87 @@ Status AESBlockAccessCipherStream::Encrypt(uint64_t file_offset, char* data,
                                            size_t data_size) {
   Status status;
   if (0 < data_size) {
-    if (crypto_shared->IsValid()) {
-      int ret_val, out_len;
-      ALIGN16 uint8_t iv[AES_BLOCK_SIZE];
-      ALIGN16 uint8_t local_data[AES_BLOCK_SIZE];
-      uint64_t block_index = file_offset / BlockSize();
-      uint64_t data_offset = file_offset % BlockSize();
-      uint64_t partial_size;
+    int ret_val, out_len;
+    ALIGN16 uint8_t iv[AES_BLOCK_SIZE];
+    ALIGN16 uint8_t local_data[AES_BLOCK_SIZE];
+    uint64_t block_index = file_offset / BlockSize();
+    uint64_t data_offset = file_offset % BlockSize();
+    uint64_t partial_size;
 
-      if (data_offset) {
-        partial_size = BlockSize() - data_offset;
-      } else {
-        partial_size = 0;
+    if (data_offset) {
+      partial_size = BlockSize() - data_offset;
+    } else {
+      partial_size = 0;
+    }
+
+    // make a context once per thread
+    if (!static_cast<EVP_CIPHER_CTX*>(aes_context.Get())) {
+      aes_context.Reset(GetCrypto()->EVP_CIPHER_CTX_new());
+    }
+
+    memcpy(iv, nonce_, AES_BLOCK_SIZE);
+    BigEndianAdd128(iv, block_index);
+
+    ret_val = GetCrypto()->EVP_EncryptInit_ex(
+        static_cast<EVP_CIPHER_CTX*>(aes_context.Get()),
+        GetCrypto()->EVP_aes_256_ctr(), nullptr, key_.key, iv);
+    if (1 == ret_val) {
+      // do partial block via local storage and xor
+      if (0 != data_offset) {
+        memset(local_data, 0, AES_BLOCK_SIZE);
+        out_len = 0;
+        ret_val = GetCrypto()->EVP_EncryptUpdate(
+            static_cast<EVP_CIPHER_CTX*>(aes_context.Get()),
+            (unsigned char*)local_data, &out_len, (unsigned char*)local_data,
+            (int)AES_BLOCK_SIZE);
+        if (partial_size < data_size) {
+          data_size -= partial_size;
+        } else {
+          partial_size = data_size;
+          data_size = 0;
+        }
+
+        if (1 == ret_val && AES_BLOCK_SIZE == out_len) {
+          for (uint64_t loop = 0; loop < partial_size; ++loop) {
+            data[loop] ^= local_data[loop + data_offset];
+          }
+        } else {
+          status = Status::InvalidArgument(
+              "EVP_EncryptUpdate failed 1: ",
+              0 == ret_val ? "bad return value" : "output length short");
+        }
       }
 
-      // make a context once per thread
-      if (!aes_context) {
-        aes_context =
-            std::unique_ptr<EVP_CIPHER_CTX, void (*)(EVP_CIPHER_CTX*)>(
-                crypto_shared->EVP_CIPHER_CTX_new(),
-                crypto_shared->EVP_CIPHER_CTX_free_ptr());
+      // do remaining, aligned segment
+      if (status.ok() && data_size) {
+        out_len = 0;
+        ret_val = GetCrypto()->EVP_EncryptUpdate(
+            static_cast<EVP_CIPHER_CTX*>(aes_context.Get()),
+            (unsigned char*)(data + partial_size), &out_len,
+            (unsigned char*)(data + partial_size), (int)data_size);
+
+        if (1 != ret_val || (int)data_size != out_len) {
+          status = Status::InvalidArgument(
+              "EVP_EncryptUpdate failed 2: ",
+              0 == ret_val ? "bad return value" : "output length short");
+        }
       }
 
-      memcpy(iv, nonce_, AES_BLOCK_SIZE);
-      BigEndianAdd128(iv, block_index);
+      if (status.ok()) {
+        // this is a soft reset of aes_context per man pages
+        out_len = 0;
+        ret_val = GetCrypto()->EVP_EncryptFinal_ex(
+            static_cast<EVP_CIPHER_CTX*>(aes_context.Get()), local_data,
+            &out_len);
 
-      ret_val = crypto_shared->EVP_EncryptInit_ex(
-          aes_context.get(), crypto_shared->EVP_aes_256_ctr(), nullptr,
-          key_.key, iv);
-      if (1 == ret_val) {
-        // do partial block via local storage and xor
-        if (0 != data_offset) {
-          memset(local_data, 0, AES_BLOCK_SIZE);
-          out_len = 0;
-          ret_val = crypto_shared->EVP_EncryptUpdate(
-              aes_context.get(), (unsigned char*)local_data, &out_len,
-              (unsigned char*)local_data, (int)AES_BLOCK_SIZE);
-          if (partial_size < data_size) {
-            data_size -= partial_size;
-          } else {
-            partial_size = data_size;
-            data_size = 0;
-          }
-
-          if (1 == ret_val && AES_BLOCK_SIZE == out_len) {
-            for (uint64_t loop = 0; loop < partial_size; ++loop) {
-              data[loop] ^= local_data[loop + data_offset];
-            }
-          } else {
-            status = Status::InvalidArgument(
-                "EVP_EncryptUpdate failed 1: ",
-                0 == ret_val ? "bad return value" : "output length short");
-          }
+        if (1 != ret_val || 0 != out_len) {
+          status = Status::InvalidArgument(
+              "EVP_EncryptFinal_ex failed: ",
+              (1 != ret_val) ? "bad return value" : "output length short");
         }
-
-        // do remaining, aligned segment
-        if (status.ok() && data_size) {
-          out_len = 0;
-          ret_val = crypto_shared->EVP_EncryptUpdate(
-              aes_context.get(), (unsigned char*)(data + partial_size),
-              &out_len, (unsigned char*)(data + partial_size), (int)data_size);
-
-          if (1 != ret_val || (int)data_size != out_len) {
-            status = Status::InvalidArgument(
-                "EVP_EncryptUpdate failed 2: ",
-                0 == ret_val ? "bad return value" : "output length short");
-          }
-        }
-
-        if (status.ok()) {
-          // this is a soft reset of aes_context per man pages
-          out_len = 0;
-          ret_val = crypto_shared->EVP_EncryptFinal_ex(aes_context.get(),
-                                                       local_data, &out_len);
-
-          if (1 != ret_val || 0 != out_len) {
-            status = Status::InvalidArgument(
-                "EVP_EncryptFinal_ex failed: ",
-                (1 != ret_val) ? "bad return value" : "output length short");
-          }
-        }
-      } else {
-        status = Status::InvalidArgument("EVP_EncryptInit_ex failed.");
       }
     } else {
-      status = Status::NotSupported(
-          "libcrypto not available for encryption/decryption.");
+      status = Status::InvalidArgument("EVP_EncryptInit_ex failed.");
     }
   }
 
@@ -237,25 +240,21 @@ Status OpenSSLEncryptionProvider::CreateNewPrefix(const std::string& /*fname*/,
                                                   size_t prefixLength) const {
   GetCrypto();  // ensure libcryto available
   Status s;
-  if (crypto_shared->IsValid()) {
-    if ((sizeof(EncryptMarker) + sizeof(PrefixVersion0)) <= prefixLength) {
-      int ret_val;
+  if ((sizeof(EncryptMarker) + sizeof(PrefixVersion0)) <= prefixLength) {
+    int ret_val;
 
-      PrefixVersion0* pf = (PrefixVersion0*)(prefix + sizeof(EncryptMarker));
-      memcpy(prefix, kEncryptMarker, sizeof(kEncryptMarker));
-      *(prefix + 7) = kEncryptCodeVersion1;
-      memcpy(pf->key_description_, encrypt_write_.first.desc,
-             sizeof(ShaDescription::desc));
-      ret_val = crypto_shared->RAND_bytes((unsigned char*)&pf->nonce_,
-                                          AES_BLOCK_SIZE);
-      if (1 != ret_val) {
-        s = Status::NotSupported("RAND_bytes failed");
-      }
-    } else {
-      s = Status::NotSupported("Prefix size needs to be 28 or more");
+    PrefixVersion0* pf = (PrefixVersion0*)(prefix + sizeof(EncryptMarker));
+    memcpy(prefix, kEncryptMarker, sizeof(kEncryptMarker));
+    *(prefix + 7) = kEncryptCodeVersion1;
+    memcpy(pf->key_description_, encrypt_write_.first.desc,
+           sizeof(ShaDescription::desc));
+    ret_val =
+        GetCrypto()->RAND_bytes((unsigned char*)&pf->nonce_, AES_BLOCK_SIZE);
+    if (1 != ret_val) {
+      s = Status::NotSupported("RAND_bytes failed");
     }
   } else {
-    s = Status::NotSupported("RAND_bytes() from libcrypto not available.");
+    s = Status::NotSupported("Prefix size needs to be 28 or more");
   }
 
   return s;
@@ -334,8 +333,7 @@ Status NewOpenSSLEncryptionProvider(
   result->reset();
 
   // is library available?
-  std::shared_ptr<UnixLibCrypto> crypto = GetCrypto();
-  if (crypto) {
+  if (nullptr != GetCrypto() && GetCrypto()->IsValid()) {
     std::shared_ptr<OpenSSLEncryptionProvider> temp(
         std::make_shared<OpenSSLEncryptionProvider>());
     result->operator=(std::static_pointer_cast<EncryptionProvider>(temp));

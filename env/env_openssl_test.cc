@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "env/env_openssl_impl.h"
+#include "env/env_openssl.h"
+
 #include "rocksdb/options.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/testharness.h"
@@ -746,6 +747,8 @@ class SstWriterBug : public testing::Test {
 #endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::Env::Default();  // force static ThreadLocalPtr
+                                      // initialization
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

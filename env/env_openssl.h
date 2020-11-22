@@ -19,7 +19,7 @@
 #include <cctype>
 #include <iostream>
 
-#include "env.h"
+#include "rocksdb/env.h"
 #include "rocksdb/env_encryption.h"
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
@@ -31,6 +31,16 @@
 namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
+
+// following define block from page 70:
+//  https://www.intel.com/content/dam/doc/white-paper/advanced-encryption-standard-new-instructions-set-paper.pdf
+#if !defined(ALIGN16)
+#if defined(__GNUC__)
+#define ALIGN16 __attribute__((aligned(16)))
+#else
+#define ALIGN16 __declspec(align(16))
+#endif
+#endif
 
 struct ShaDescription {
   uint8_t desc[EVP_MAX_MD_SIZE];
@@ -119,6 +129,58 @@ struct AesCtrKey {
 
 // code tests for 64 character hex string to yield 32 byte binary key
 std::shared_ptr<AesCtrKey> NewAesCtrKey(const std::string& hex_key_str);
+
+class AESBlockAccessCipherStream : public BlockAccessCipherStream {
+ public:
+  AESBlockAccessCipherStream(const AesCtrKey& key, uint8_t code_version,
+                             const uint8_t nonce[])
+      : key_(key), code_version_(code_version) {
+    memcpy(&nonce_, nonce, AES_BLOCK_SIZE);
+  }
+
+  // BlockSize returns the size of each block supported by this cipher stream.
+  size_t BlockSize() override { return AES_BLOCK_SIZE; };
+
+  // Encrypt one or more (partial) blocks of data at the file offset.
+  // Length of data is given in data_size.
+  Status Encrypt(uint64_t file_offset, char* data, size_t data_size) override;
+
+  // Decrypt one or more (partial) blocks of data at the file offset.
+  // Length of data is given in data_size.
+  Status Decrypt(uint64_t file_offset, char* data, size_t data_size) override;
+
+  // helper routine to combine 128 bit nounce_ with offset
+  static void BigEndianAdd128(uint8_t* buf, uint64_t value);
+
+ protected:
+  void AllocateScratch(std::string&) override{};
+
+  Status EncryptBlock(uint64_t, char*, char*) override {
+    return Status::NotSupported("Wrong EncryptionProvider assumed");
+  };
+
+  Status DecryptBlock(uint64_t, char*, char*) override {
+    return Status::NotSupported("Wrong EncryptionProvider assumed");
+  };
+
+  AesCtrKey key_;
+  uint8_t code_version_;
+  uint8_t nonce_[AES_BLOCK_SIZE];
+};
+
+constexpr uint8_t kEncryptCodeVersion0{'0'};
+constexpr uint8_t kEncryptCodeVersion1{'1'};
+
+typedef char EncryptMarker[8];
+extern EncryptMarker kEncryptMarker;
+
+// long term:  code_version could be used in a switch statement or factory
+// prefix version 0 is 12 byte sha1 description hash, 128 bit (16 byte)
+// nounce (assumed to be packed/byte aligned)
+typedef struct {
+  uint8_t key_description_[EVP_MAX_MD_SIZE];  // max md is 64
+  uint8_t nonce_[AES_BLOCK_SIZE];             // block size is 16
+} PrefixVersion0;
 
 class OpenSSLEncryptionProvider : public EncryptionProvider {
  public:
