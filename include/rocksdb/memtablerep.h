@@ -129,7 +129,8 @@ class MemTableRep {
   //
   // Currently only skip-list based memtable implement the interface. Other
   // implementations will fallback to InsertConcurrently() by default.
-  virtual void InsertWithHintConcurrently(KeyHandle handle, void** /*hint*/) {
+  virtual void InsertWithHintConcurrently(KeyHandle handle,
+                                          std::unique_ptr<char[]>* /*hint*/) {
     // Ignore the hint by default.
     InsertConcurrently(handle);
   }
@@ -137,7 +138,8 @@ class MemTableRep {
   // Same as ::InsertWithHintConcurrently
   // Returns false if MemTableRepFactory::CanHandleDuplicatedKey() is true and
   // the <key, seq> already exists.
-  virtual bool InsertKeyWithHintConcurrently(KeyHandle handle, void** hint) {
+  virtual bool InsertKeyWithHintConcurrently(KeyHandle handle,
+                                             std::unique_ptr<char[]>* hint) {
     InsertWithHintConcurrently(handle, hint);
     return true;
   }
