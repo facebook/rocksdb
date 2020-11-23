@@ -686,15 +686,16 @@ class Version {
 
   // Interprets *value as a blob reference, and (assuming the corresponding
   // blob file is part of this Version) retrieves the blob and saves it in
-  // *value, replacing the blob reference.
+  // *output_value.
   // REQUIRES: *value stores an encoded blob reference
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 PinnableSlice* value) const;
+                 const Slice& value, PinnableSlice* output_value) const;
 
   // Retrieves a blob using a blob reference and saves it in *value, assuming
   // the corresponding blob file is part of this Version.
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 const BlobIndex& blob_index, PinnableSlice* value) const;
+                 const BlobIndex& blob_index,
+                 PinnableSlice* output_value) const;
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.
