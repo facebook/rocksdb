@@ -75,7 +75,9 @@ std::string BuildKey(int num, std::string postfix = "") {
 
 TEST_P(PrefetchTest, Basic) {
   // First param is if the mockFS support_prefetch or not
-  bool support_prefetch = std::get<0>(GetParam());
+  bool support_prefetch =
+      std::get<0>(GetParam()) &&
+      test::IsPrefetchSupported(env_->GetFileSystem(), dbname_);
 
   // Second param is if directIO is enabled or not
   bool use_direct_io = std::get<1>(GetParam());
