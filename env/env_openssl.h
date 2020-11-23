@@ -152,15 +152,15 @@ struct ShaDescription {
 
   ShaDescription() : valid(false) { memset(desc, 0, EVP_MAX_MD_SIZE); }
 
-  ShaDescription(const ShaDescription& rhs) { *this = rhs; }
+  ShaDescription(const ShaDescription &rhs) { *this = rhs; }
 
-  ShaDescription& operator=(const ShaDescription& rhs) {
+  ShaDescription &operator=(const ShaDescription &rhs) {
     memcpy(desc, rhs.desc, sizeof(desc));
     valid = rhs.valid;
     return *this;
   }
 
-  ShaDescription(uint8_t* desc_in, size_t desc_len) : valid(false) {
+  ShaDescription(uint8_t *desc_in, size_t desc_len) : valid(false) {
     memset(desc, 0, EVP_MAX_MD_SIZE);
     if (desc_len <= EVP_MAX_MD_SIZE) {
       memcpy(desc, desc_in, desc_len);
@@ -168,7 +168,7 @@ struct ShaDescription {
     }
   }
 
-  ShaDescription(const std::string& key_desc_str);
+  ShaDescription(const std::string &key_desc_str);
 
   // see AesCtrKey destructor below.  This data is not really
   //  essential to clear, but trying to set pattern for future work.
@@ -178,11 +178,11 @@ struct ShaDescription {
     valid = false;
   }
 
-  bool operator<(const ShaDescription& rhs) const {
+  bool operator<(const ShaDescription &rhs) const {
     return memcmp(desc, rhs.desc, EVP_MAX_MD_SIZE) < 0;
   }
 
-  bool operator==(const ShaDescription& rhs) const {
+  bool operator==(const ShaDescription &rhs) const {
     return 0 == memcmp(desc, rhs.desc, EVP_MAX_MD_SIZE) && valid == rhs.valid;
   }
 
@@ -190,7 +190,7 @@ struct ShaDescription {
 };
 
 std::shared_ptr<ShaDescription> NewShaDescription(
-    const std::string& key_desc_str);
+    const std::string &key_desc_str);
 
 struct AesCtrKey {
   uint8_t key[EVP_MAX_KEY_LENGTH];
@@ -198,7 +198,7 @@ struct AesCtrKey {
 
   AesCtrKey() : valid(false) { memset(key, 0, EVP_MAX_KEY_LENGTH); }
 
-  AesCtrKey(const uint8_t* key_in, size_t key_len) : valid(false) {
+  AesCtrKey(const uint8_t *key_in, size_t key_len) : valid(false) {
     memset(key, 0, EVP_MAX_KEY_LENGTH);
     if (key_len <= EVP_MAX_KEY_LENGTH) {
       memcpy(key, key_in, key_len);
@@ -208,7 +208,7 @@ struct AesCtrKey {
     }
   }
 
-  AesCtrKey(const std::string& hex_key_str);
+  AesCtrKey(const std::string &hex_key_str);
 
   // see Writing Solid Code, 2nd edition
   //   Chapter 9, page 321, Managing Secrets in Memory ... bullet 4 "Scrub the
@@ -223,7 +223,7 @@ struct AesCtrKey {
     valid = false;
   }
 
-  bool operator==(const AesCtrKey& rhs) const {
+  bool operator==(const AesCtrKey &rhs) const {
     return (0 == memcmp(key, rhs.key, EVP_MAX_KEY_LENGTH)) &&
            (valid == rhs.valid);
   }
@@ -232,11 +232,11 @@ struct AesCtrKey {
 };
 
 // code tests for 64 character hex string to yield 32 byte binary key
-std::shared_ptr<AesCtrKey> NewAesCtrKey(const std::string& hex_key_str);
+std::shared_ptr<AesCtrKey> NewAesCtrKey(const std::string &hex_key_str);
 
 class AESBlockAccessCipherStream : public BlockAccessCipherStream {
  public:
-  AESBlockAccessCipherStream(const AesCtrKey& key, uint8_t code_version,
+  AESBlockAccessCipherStream(const AesCtrKey &key, uint8_t code_version,
                              const uint8_t nonce[])
       : key_(key), code_version_(code_version) {
     memcpy(&nonce_, nonce, AES_BLOCK_SIZE);
@@ -247,23 +247,23 @@ class AESBlockAccessCipherStream : public BlockAccessCipherStream {
 
   // Encrypt one or more (partial) blocks of data at the file offset.
   // Length of data is given in data_size.
-  Status Encrypt(uint64_t file_offset, char* data, size_t data_size) override;
+  Status Encrypt(uint64_t file_offset, char *data, size_t data_size) override;
 
   // Decrypt one or more (partial) blocks of data at the file offset.
   // Length of data is given in data_size.
-  Status Decrypt(uint64_t file_offset, char* data, size_t data_size) override;
+  Status Decrypt(uint64_t file_offset, char *data, size_t data_size) override;
 
   // helper routine to combine 128 bit nounce_ with offset
-  static void BigEndianAdd128(uint8_t* buf, uint64_t value);
+  static void BigEndianAdd128(uint8_t *buf, uint64_t value);
 
  protected:
-  void AllocateScratch(std::string&) override{};
+  void AllocateScratch(std::string &) override{};
 
-  Status EncryptBlock(uint64_t, char*, char*) override {
+  Status EncryptBlock(uint64_t, char *, char *) override {
     return Status::NotSupported("Wrong EncryptionProvider assumed");
   };
 
-  Status DecryptBlock(uint64_t, char*, char*) override {
+  Status DecryptBlock(uint64_t, char *, char *) override {
     return Status::NotSupported("Wrong EncryptionProvider assumed");
   };
 
@@ -290,26 +290,26 @@ class OpenSSLEncryptionProvider : public EncryptionProvider {
  public:
   OpenSSLEncryptionProvider(){};
 
-  OpenSSLEncryptionProvider(const EncryptionProvider&&) = delete;
+  OpenSSLEncryptionProvider(const EncryptionProvider &&) = delete;
 
-  OpenSSLEncryptionProvider(const OpenSSLEncryptionProvider&&) = delete;
+  OpenSSLEncryptionProvider(const OpenSSLEncryptionProvider &&) = delete;
 
-  const char* Name() const override { return kName(); }
+  const char *Name() const override { return kName(); }
 
-  static const char* kName() { return "OpenSSLEncryptionProvider"; }
+  static const char *kName() { return "OpenSSLEncryptionProvider"; }
 
   size_t GetPrefixLength() const override { return 4096; }
 
-  Status CreateNewPrefix(const std::string& /*fname*/, char* prefix,
+  Status CreateNewPrefix(const std::string & /*fname*/, char *prefix,
                          size_t prefixLength) const override;
 
-  Status AddCipher(const std::string& descriptor, const char* cipher,
+  Status AddCipher(const std::string &descriptor, const char *cipher,
                    size_t len, bool for_write) override;
 
   Status CreateCipherStream(
-      const std::string& /*fname*/, const EnvOptions& /*options*/,
-      Slice& /*prefix*/,
-      std::unique_ptr<BlockAccessCipherStream>* /*result*/) override;
+      const std::string & /*fname*/, const EnvOptions & /*options*/,
+      Slice & /*prefix*/,
+      std::unique_ptr<BlockAccessCipherStream> * /*result*/) override;
 
   std::string GetMarker() const override;
 
@@ -337,7 +337,7 @@ class OpenSSLEncryptionProvider : public EncryptionProvider {
 
 // Status::NoSupported() if libcrypto unavailable
 Status NewOpenSSLEncryptionProvider(
-    std::shared_ptr<EncryptionProvider>* result);
+    std::shared_ptr<EncryptionProvider> *result);
 
 #endif  // ROCKSDB_LITE
 

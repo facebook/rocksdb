@@ -40,7 +40,8 @@ UnixLibCrypto* GetCrypto() {
 const char* UnixLibCrypto::crypto_lib_name_ = "crypto";
 
 UnixLibCrypto::UnixLibCrypto() {
-  Status stat = Env::Default()->LoadLibrary(crypto_lib_name_, std::string(), &lib_);
+  Status stat =
+      Env::Default()->LoadLibrary(crypto_lib_name_, std::string(), &lib_);
   is_valid_ = stat.ok() && nullptr != lib_.get();
 
   if (is_valid_) {
