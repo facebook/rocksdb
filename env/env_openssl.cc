@@ -37,6 +37,64 @@ UnixLibCrypto* GetCrypto() {
   return crypto_local.get();
 }
 
+const char* UnixLibCrypto::crypto_lib_name_ = "crypto";
+
+UnixLibCrypto::UnixLibCrypto() {
+  Status stat = Env::Default()->LoadLibrary(crypto_lib_name_, std::string(), &lib_);
+  is_valid_ = stat.ok() && nullptr != lib_.get();
+
+  if (is_valid_) {
+    bool all_good{true};
+
+    stat = lib_->LoadSymbol("EVP_MD_CTX_new", (void**)&ctx_new_);
+    if (!stat.ok()) {
+      stat = lib_->LoadSymbol("EVP_MD_CTX_create", (void**)&ctx_new_);
+    }
+    all_good = all_good && stat.ok();
+
+    stat = lib_->LoadSymbol("EVP_DigestInit_ex", (void**)&digest_init_);
+    all_good = all_good && stat.ok();
+    stat = lib_->LoadSymbol("EVP_sha1", (void**)&sha1_);
+    all_good = all_good && stat.ok();
+    stat = lib_->LoadSymbol("EVP_DigestUpdate", (void**)&digest_update_);
+    all_good = all_good && stat.ok();
+    stat = lib_->LoadSymbol("EVP_DigestFinal_ex", (void**)&digest_final_);
+    all_good = all_good && stat.ok();
+
+    stat = lib_->LoadSymbol("EVP_MD_CTX_free", (void**)&ctx_free_);
+    if (!stat.ok()) {
+      stat = lib_->LoadSymbol("EVP_MD_CTX_destroy", (void**)&ctx_free_);
+    }
+    all_good = all_good && stat.ok();
+
+    stat = lib_->LoadSymbol("RAND_bytes", (void**)&rand_bytes_);
+    all_good = all_good && stat.ok();
+    stat = lib_->LoadSymbol("RAND_poll", (void**)&rand_poll_);
+    all_good = all_good && stat.ok();
+
+    stat = lib_->LoadSymbol("EVP_CIPHER_CTX_new", (void**)&cipher_new_);
+    all_good = all_good && stat.ok();
+
+    stat = lib_->LoadSymbol("EVP_CIPHER_CTX_reset", (void**)&cipher_reset_);
+    if (!stat.ok()) {
+      stat = lib_->LoadSymbol("EVP_CIPHER_CTX_cleanup", (void**)&cipher_reset_);
+    }
+    all_good = all_good && stat.ok();
+
+    stat = lib_->LoadSymbol("EVP_CIPHER_CTX_free", (void**)&cipher_free_);
+    all_good = all_good && stat.ok();
+    stat = lib_->LoadSymbol("EVP_EncryptInit_ex", (void**)&encrypt_init_);
+    all_good = all_good && stat.ok();
+    stat = lib_->LoadSymbol("EVP_aes_256_ctr", (void**)&aes_256_ctr_);
+    all_good = all_good && stat.ok();
+    stat = lib_->LoadSymbol("EVP_EncryptUpdate", (void**)&encrypt_update_);
+    all_good = all_good && stat.ok();
+    stat = lib_->LoadSymbol("EVP_EncryptFinal_ex", (void**)&encrypt_final_);
+    all_good = all_good && stat.ok();
+    is_valid_ = all_good;
+  }
+}
+
 // reuse cipher context between calls to Encrypt & Decrypt
 namespace {
 void DeleteAesContext(void* ptr) {

@@ -110,7 +110,7 @@ else()
   set(GFLAGS_LIB)
   if(WITH_GFLAGS)
     # Config with namespace available since gflags 2.2.2
-    option(GFLAGS_USE_TARGET_NAMESPACE "Use gflags import target with namespace." ON)
+    option(GFLAGS_USE_TARGET_NAMESPACE "Use gflags import target with namespace." OFF)
     find_package(gflags CONFIG)
     if(gflags_FOUND)
       if(TARGET ${GFLAGS_TARGET})

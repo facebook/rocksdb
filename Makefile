@@ -1419,9 +1419,6 @@ coding_test: $(OBJ_DIR)/util/coding_test.o $(TEST_LIBRARY) $(LIBRARY)
 hash_test: $(OBJ_DIR)/util/hash_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-library_loader_test: $(OBJ_DIR)/util/library_loader_test.o $(TEST_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-
 random_test: $(OBJ_DIR)/util/random_test.o  $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 

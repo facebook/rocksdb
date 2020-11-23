@@ -13,6 +13,38 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class UnixLibraryLoaderTest {};
+
+TEST(UnixLibraryLoaderTest, Crypto) {
+  UnixLibCrypto crypto;
+  uint8_t desc[EVP_MAX_MD_SIZE];
+  EVP_MD_CTX* context;
+  int ret_val;
+  unsigned len;
+
+  ASSERT_TRUE(crypto.IsValid());
+
+  //  context = crypto.EVP_MD_CTX_create();  ... old call
+  context = crypto.EVP_MD_CTX_new();  //  new call
+  ASSERT_TRUE(nullptr != context);
+
+  ret_val = crypto.EVP_DigestInit_ex(context, crypto.EVP_sha1(), nullptr);
+  ASSERT_TRUE(1 == ret_val);
+
+  ret_val = crypto.EVP_DigestUpdate(context, "1", 1);
+  ASSERT_TRUE(1 == ret_val);
+
+  ret_val = crypto.EVP_DigestFinal_ex(context, desc, &len);
+  ASSERT_TRUE(1 == ret_val);
+  ASSERT_TRUE(20 == len);
+
+  uint8_t md2[] = {0x35, 0x6a, 0x19, 0x2b, 0x79, 0x13, 0xb0, 0x4c, 0x54, 0x57,
+                   0x4d, 0x18, 0xc2, 0x8d, 0x46, 0xe6, 0x39, 0x54, 0x28, 0xab};
+  ASSERT_TRUE(0 == memcmp(md2, desc, sizeof(md2)));
+
+  crypto.EVP_MD_CTX_free(context);
+}
+
 class EnvOpenssl_Sha1 {};
 
 TEST(EnvOpenssl_Sha1, Default) {
