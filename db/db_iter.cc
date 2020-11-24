@@ -349,12 +349,21 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                 PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
               } else if (ikey_.type == kTypeBlobIndex) {
                 if (!allow_blob_) {
-                  ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-                  status_ = Status::NotSupported(
-                      "Encounter unexpected blob index. Please open DB with "
-                      "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-                  valid_ = false;
-                  return false;
+                  if (!version_) {
+                    status_ = Status::Corruption(
+                        "Encountered unexpected blob index.");
+                    valid_ = false;
+                    return false;
+                  }
+
+                  const Status s = version_->GetBlob(
+                      /* FIXME */ ReadOptions(), ikey_.user_key, iter_.value(),
+                      &blob_value_);
+                  if (!s.ok()) {
+                    status_ = s;
+                    valid_ = false;
+                    return false;
+                  }
                 }
 
                 is_blob_ = true;
@@ -909,13 +918,21 @@ bool DBIter::FindValueForCurrentKey() {
       break;
     case kTypeBlobIndex:
       if (!allow_blob_) {
-        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-        status_ = Status::NotSupported(
-            "Encounter unexpected blob index. Please open DB with "
-            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-        valid_ = false;
-        return false;
+        if (!version_) {
+          status_ = Status::Corruption("Encountered unexpected blob index.");
+          valid_ = false;
+          return false;
+        }
+
+        s = version_->GetBlob(/* FIXME */ ReadOptions(), ikey_.user_key,
+                              pinned_value_, &blob_value_);
+        if (!s.ok()) {
+          status_ = s;
+          valid_ = false;
+          return false;
+        }
       }
+
       is_blob_ = true;
       break;
     default:
@@ -989,14 +1006,6 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     valid_ = false;
     return true;
   }
-  if (ikey.type == kTypeBlobIndex && !allow_blob_) {
-    ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-    status_ = Status::NotSupported(
-        "Encounter unexpected blob index. Please open DB with "
-        "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-    valid_ = false;
-    return false;
-  }
   if (!iter_.PrepareValue()) {
     valid_ = false;
     return false;
@@ -1004,6 +1013,23 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex) {
     assert(iter_.iter()->IsValuePinned());
     pinned_value_ = iter_.value();
+    if (!allow_blob_ && ikey.type == kTypeBlobIndex) {
+      if (!version_) {
+        status_ = Status::Corruption("Encountered unexpected blob index.");
+        valid_ = false;
+        return false;
+      }
+
+      const Status s =
+          version_->GetBlob(/* FIXME */ ReadOptions(), ikey_.user_key,
+                            pinned_value_, &blob_value_);
+      if (!s.ok()) {
+        status_ = s;
+        valid_ = false;
+        return false;
+      }
+    }
+
     is_blob_ = (ikey.type == kTypeBlobIndex);
     valid_ = true;
     return true;
