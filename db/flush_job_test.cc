@@ -187,7 +187,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   for (int i = 1; i < 10000; ++i) {
     std::string key(ToString((i + 1000) % 10000));
     std::string value("value" + key);
-    new_mem->Add(SequenceNumber(i), kTypeValue, key, value);
+    ASSERT_OK(new_mem->Add(SequenceNumber(i), kTypeValue, key, value));
     if ((i + 1000) % 10000 < 9995) {
       InternalKey internal_key(key, SequenceNumber(i), kTypeValue);
       inserted_keys.push_back({internal_key.Encode().ToString(), value});
@@ -195,7 +195,8 @@ TEST_F(FlushJobTest, NonEmpty) {
   }
 
   {
-    new_mem->Add(SequenceNumber(10000), kTypeRangeDeletion, "9995", "9999a");
+    ASSERT_OK(new_mem->Add(SequenceNumber(10000), kTypeRangeDeletion, "9995",
+                           "9999a"));
     InternalKey internal_key("9995", SequenceNumber(10000), kTypeRangeDeletion);
     inserted_keys.push_back({internal_key.Encode().ToString(), "9999a"});
   }
@@ -222,7 +223,7 @@ TEST_F(FlushJobTest, NonEmpty) {
     }
 
     const SequenceNumber seq(i + 10001);
-    new_mem->Add(seq, kTypeBlobIndex, key, blob_index);
+    ASSERT_OK(new_mem->Add(seq, kTypeBlobIndex, key, blob_index));
 
     InternalKey internal_key(key, seq, kTypeBlobIndex);
     inserted_keys.push_back({internal_key.Encode().ToString(), blob_index});
@@ -283,8 +284,8 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
     for (size_t j = 0; j < num_keys_per_table; ++j) {
       std::string key(ToString(j + i * num_keys_per_table));
       std::string value("value" + key);
-      mem->Add(SequenceNumber(j + i * num_keys_per_table), kTypeValue, key,
-               value);
+      ASSERT_OK(mem->Add(SequenceNumber(j + i * num_keys_per_table), kTypeValue,
+                         key, value));
     }
   }
 
@@ -356,7 +357,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
       for (size_t j = 0; j != num_keys_per_memtable; ++j) {
         std::string key(ToString(j + i * num_keys_per_memtable));
         std::string value("value" + key);
-        mem->Add(curr_seqno++, kTypeValue, key, value);
+        ASSERT_OK(mem->Add(curr_seqno++, kTypeValue, key, value));
       }
 
       cfd->imm()->Add(mem, &to_delete);
@@ -466,7 +467,7 @@ TEST_F(FlushJobTest, Snapshots) {
     for (int j = 0; j < insertions; ++j) {
       std::string value(rnd.HumanReadableString(10));
       auto seqno = ++current_seqno;
-      new_mem->Add(SequenceNumber(seqno), kTypeValue, key, value);
+      ASSERT_OK(new_mem->Add(SequenceNumber(seqno), kTypeValue, key, value));
       // a key is visible only if:
       // 1. it's the last one written (j == insertions - 1)
       // 2. there's a snapshot pointing at it
@@ -518,7 +519,7 @@ class FlushJobTimestampTest : public FlushJobTestBase {
                              Slice value) {
     std::string key_str(std::move(key));
     PutFixed64(&key_str, ts);
-    memtable->Add(seq, value_type, key_str, value);
+    ASSERT_OK(memtable->Add(seq, value_type, key_str, value));
   }
 
  protected:
