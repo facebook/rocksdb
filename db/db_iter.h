@@ -161,15 +161,22 @@ class DBIter final : public Iterator {
   }
   Slice value() const override {
     assert(valid_);
+
+    if (!allow_blob_ && is_blob_) {
+      return blob_value_;
+    }
+
     if (current_entry_is_merged_) {
       // If pinned_value_ is set then the result of merge operator is one of
       // the merge operands and we should return it.
       return pinned_value_.data() ? pinned_value_ : saved_value_;
-    } else if (direction_ == kReverse) {
-      return pinned_value_;
-    } else {
-      return iter_.value();
     }
+
+    if (direction_ == kReverse) {
+      return pinned_value_;
+    }
+
+    return iter_.value();
   }
   Status status() const override {
     if (status_.ok()) {
@@ -187,7 +194,7 @@ class DBIter final : public Iterator {
     return ExtractTimestampFromUserKey(ukey_and_ts, timestamp_size_);
   }
   bool IsBlob() const {
-    assert(valid_ && (allow_blob_ || !is_blob_));
+    assert(valid_);
     return is_blob_;
   }
 
@@ -309,6 +316,7 @@ class DBIter final : public Iterator {
   std::string saved_value_;
   Slice pinned_value_;
   // for prefix seek mode to support prev()
+  PinnableSlice blob_value_;
   Statistics* statistics_;
   uint64_t max_skip_;
   uint64_t max_skippable_internal_keys_;
