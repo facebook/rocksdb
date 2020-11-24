@@ -737,7 +737,7 @@ void CompactionIterator::NextFromInput() {
   }
 }
 
-bool CompactionIterator::ExtractLargeValueImpl() {
+bool CompactionIterator::ExtractLargeValueIfNeededImpl() {
   if (!blob_file_builder_) {
     return false;
   }
@@ -761,10 +761,10 @@ bool CompactionIterator::ExtractLargeValueImpl() {
   return true;
 }
 
-void CompactionIterator::ExtractLargeValue() {
+void CompactionIterator::ExtractLargeValueIfNeeded() {
   assert(ikey_.type == kTypeValue);
 
-  if (!ExtractLargeValueImpl()) {
+  if (!ExtractLargeValueIfNeededImpl()) {
     return;
   }
 
@@ -772,7 +772,7 @@ void CompactionIterator::ExtractLargeValue() {
   current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
 }
 
-void CompactionIterator::GarbageCollectBlob() {
+void CompactionIterator::GarbageCollectBlobIfNeeded() {
   assert(ikey_.type == kTypeBlobIndex);
 
   if (!compaction_) {
@@ -823,7 +823,7 @@ void CompactionIterator::GarbageCollectBlob() {
 
     value_ = blob_value_;
 
-    if (ExtractLargeValueImpl()) {
+    if (ExtractLargeValueIfNeededImpl()) {
       return;
     }
 
@@ -864,9 +864,9 @@ void CompactionIterator::GarbageCollectBlob() {
 void CompactionIterator::PrepareOutput() {
   if (valid_) {
     if (ikey_.type == kTypeValue) {
-      ExtractLargeValue();
+      ExtractLargeValueIfNeeded();
     } else if (ikey_.type == kTypeBlobIndex) {
-      GarbageCollectBlob();
+      GarbageCollectBlobIfNeeded();
     }
 
     // Zeroing out the sequence number leads to better compression.

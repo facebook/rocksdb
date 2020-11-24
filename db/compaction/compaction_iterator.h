@@ -167,12 +167,29 @@ class CompactionIterator {
   // Processes the input stream to find the next output
   void NextFromInput();
 
-  // Do last preparations before presenting the output to the callee.
+  // Do final preparations before presenting the output to the callee.
   void PrepareOutput();
 
-  bool ExtractLargeValueImpl();
-  void ExtractLargeValue();
-  void GarbageCollectBlob();
+  // Passes the output value to the blob file builder (if any), and replaces it
+  // with the corresponding blob reference if it has been actually written to a
+  // blob file (i.e. if it passed the value size check). Returns true if the
+  // value got extracted to a blob file, false otherwise.
+  bool ExtractLargeValueIfNeededImpl();
+
+  // Extracts large values as described above, and updates the internal key's
+  // type to kTypeBlobIndex if the value got extracted. Should only be called
+  // for regular values (kTypeValue).
+  void ExtractLargeValueIfNeeded();
+
+  // Relocates valid blobs residing in the oldest blob files if garbage
+  // collection is enabled. Relocated blobs are written to new blob files or
+  // inlined in the LSM tree depending on the current settings (i.e.
+  // enable_blob_files and min_blob_size). Should only be called for blob
+  // references (kTypeBlobIndex).
+  //
+  // Note: the stacked BlobDB implementation's compaction filter based GC
+  // algorithm is also called from here.
+  void GarbageCollectBlobIfNeeded();
 
   // Invoke compaction filter if needed.
   // Return true on success, false on failures (e.g.: kIOError).
