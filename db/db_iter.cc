@@ -559,15 +559,7 @@ bool DBIter::MergeValuesNewToOld() {
           iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (kTypeBlobIndex == ikey.type) {
-      if (!allow_blob_) {
-        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-        status_ = Status::NotSupported(
-            "Encounter unexpected blob index. Please open DB with "
-            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-      } else {
-        status_ =
-            Status::NotSupported("Blob DB does not support merge operator.");
-      }
+      status_ = Status::NotSupported("BlobDB does not support merge operator.");
       valid_ = false;
       return false;
     } else {
@@ -894,15 +886,8 @@ bool DBIter::FindValueForCurrentKey() {
             merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
             env_, &pinned_value_, true);
       } else if (last_not_merge_type == kTypeBlobIndex) {
-        if (!allow_blob_) {
-          ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-          status_ = Status::NotSupported(
-              "Encounter unexpected blob index. Please open DB with "
-              "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-        } else {
-          status_ =
-              Status::NotSupported("Blob DB does not support merge operator.");
-        }
+        status_ =
+            Status::NotSupported("BlobDB does not support merge operator.");
         valid_ = false;
         return false;
       } else {
@@ -1086,15 +1071,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
           iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (ikey.type == kTypeBlobIndex) {
-      if (!allow_blob_) {
-        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-        status_ = Status::NotSupported(
-            "Encounter unexpected blob index. Please open DB with "
-            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-      } else {
-        status_ =
-            Status::NotSupported("Blob DB does not support merge operator.");
-      }
+      status_ = Status::NotSupported("BlobDB does not support merge operator.");
       valid_ = false;
       return false;
     } else {
