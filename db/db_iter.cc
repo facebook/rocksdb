@@ -163,7 +163,7 @@ void DBIter::Next() {
   }
   if (statistics_ != nullptr && valid_) {
     local_stats_.next_found_count_++;
-    local_stats_.bytes_read_ += (key().size() + value().size());
+    local_stats_.bytes_read_ += (key().size() + value().size());  // TODO
   }
 }
 
@@ -320,7 +320,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               if (ikey_.sequence >= start_seqnum_) {
                 assert(ikey_.type != kTypeBlobIndex);
                 saved_key_.SetInternalKey(ikey_);
-                valid_ = true;
+                valid_ = true;  // TODO???
                 return true;
               } else {
                 // this key and all previous versions shouldn't be included,
@@ -333,7 +333,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               }
             } else if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
-              valid_ = true;
+              valid_ = true;  // TODO
               return true;
             } else {
               saved_key_.SetUserKey(
@@ -627,7 +627,7 @@ void DBIter::Prev() {
     local_stats_.prev_count_++;
     if (valid_) {
       local_stats_.prev_found_count_++;
-      local_stats_.bytes_read_ += (key().size() + value().size());
+      local_stats_.bytes_read_ += (key().size() + value().size());  // TODO
     }
   }
 }
