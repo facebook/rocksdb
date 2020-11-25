@@ -909,8 +909,9 @@ bool DBIter::FindValueForCurrentKey() {
           return false;
         }
 
-        s = version_->GetBlob(/* FIXME */ ReadOptions(), ikey_.user_key,
-                              pinned_value_, &blob_value_);
+        s = version_->GetBlob(/* FIXME */ ReadOptions(),
+                              saved_key_.GetUserKey(), pinned_value_,
+                              &blob_value_);
         if (!s.ok()) {
           status_ = s;
           valid_ = false;
@@ -1006,7 +1007,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       }
 
       const Status s =
-          version_->GetBlob(/* FIXME */ ReadOptions(), ikey_.user_key,
+          version_->GetBlob(/* FIXME */ ReadOptions(), ikey.user_key,
                             pinned_value_, &blob_value_);
       if (!s.ok()) {
         status_ = s;
