@@ -346,7 +346,7 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   table0_[c >> 24];
 }
 
-#if defined HAVE_SSE42 || defined NO_THREEWAY_CRC32C
+#if ((!defined(HAVE_POWER8)) && (!defined(HAS_ALTIVEC))) || defined(NO_THREEWAY_CRC32C)
 static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
 #ifndef HAVE_SSE42
   Slow_CRC32(l, p);
