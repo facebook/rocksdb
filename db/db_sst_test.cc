@@ -887,7 +887,8 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
 
   // Now make sure CompactFiles also gets cancelled
   auto l0_files = collector->GetFlushedFiles();
-  ASSERT_TRUE(dbfull()
+  ASSERT_TRUE(
+      dbfull()
           ->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(), l0_files, 0)
           .IsCompactionTooLarge());
 
