@@ -198,7 +198,7 @@ TEST_F(DBIOFailureTest, ManifestWriteError) {
 
     // Merging compaction (will fail)
     error_type->store(true, std::memory_order_release);
-    Status s = 
+    Status s =
         dbfull()->TEST_CompactRange(last, nullptr, nullptr);  // Should fail
     if (iter == 0) {
       ASSERT_OK(s);
