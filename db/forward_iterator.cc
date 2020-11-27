@@ -248,6 +248,12 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
 
 ForwardIterator::~ForwardIterator() {
   Cleanup(true);
+
+  // this is a local aggregation of the status of the
+  // immutable Iterators. We have to PermitUncheckedError
+  // before it is free'd otherwise ASSERT_STATUS_CHECKED
+  // will fail.
+  immutable_status_.PermitUncheckedError();
 }
 
 void ForwardIterator::SVCleanup(DBImpl* db, SuperVersion* sv,

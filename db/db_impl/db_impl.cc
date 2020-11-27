@@ -3486,7 +3486,6 @@ Status DBImpl::DeleteFile(std::string name) {
     return Status::InvalidArgument("Invalid file name");
   }
 
-  Status status;
   if (type == kWalFile) {
     // Only allow deleting archived log files
     if (log_type != kArchivedLogFile) {
@@ -3495,7 +3494,7 @@ Status DBImpl::DeleteFile(std::string name) {
                       name.c_str());
       return Status::NotSupported("Delete only supported for archived logs");
     }
-    status = wal_manager_.DeleteFile(name, number);
+    Status status = wal_manager_.DeleteFile(name, number);
     if (!status.ok()) {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                       "DeleteFile %s failed -- %s.\n", name.c_str(),
@@ -3504,6 +3503,7 @@ Status DBImpl::DeleteFile(std::string name) {
     return status;
   }
 
+  Status status;
   int level;
   FileMetaData* metadata;
   ColumnFamilyData* cfd;
@@ -4357,7 +4357,7 @@ Status DBImpl::IngestExternalFiles(
     }
   }
   // Ingest multiple external SST files atomically.
-  size_t num_cfs = args.size();
+  const size_t num_cfs = args.size();
   for (size_t i = 0; i != num_cfs; ++i) {
     if (args[i].external_files.empty()) {
       char err_msg[128] = {0};
