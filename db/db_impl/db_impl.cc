@@ -4398,10 +4398,7 @@ Status DBImpl::IngestExternalFiles(
         env_, versions_.get(), cfd, immutable_db_options_, file_options_,
         &snapshots_, arg.options, &directories_, &event_logger_, io_tracer_);
   }
-  std::vector<std::pair<bool, Status>> exec_results;
-  for (size_t i = 0; i != num_cfs; ++i) {
-    exec_results.emplace_back(false, Status::OK());
-  }
+
   // TODO(yanqin) maybe make jobs run in parallel
   uint64_t start_file_number = next_file_number;
   for (size_t i = 1; i != num_cfs; ++i) {
@@ -4409,10 +4406,13 @@ Status DBImpl::IngestExternalFiles(
     auto* cfd =
         static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
-    exec_results[i].second = ingestion_jobs[i].Prepare(
+    Status es = ingestion_jobs[i].Prepare(
         args[i].external_files, args[i].files_checksums,
         args[i].files_checksum_func_names, start_file_number, super_version);
-    exec_results[i].first = true;
+    // capture first error only
+    if (!es.ok() && status.ok()) {
+      status = es;
+    }
     CleanupSuperVersion(super_version);
   }
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeLastJobPrepare:0");
@@ -4421,23 +4421,17 @@ Status DBImpl::IngestExternalFiles(
     auto* cfd =
         static_cast<ColumnFamilyHandleImpl*>(args[0].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
-    exec_results[0].second = ingestion_jobs[0].Prepare(
+    Status es = ingestion_jobs[0].Prepare(
         args[0].external_files, args[0].files_checksums,
         args[0].files_checksum_func_names, next_file_number, super_version);
-    exec_results[0].first = true;
-    CleanupSuperVersion(super_version);
-  }
-  for (const auto& exec_result : exec_results) {
-    if (!exec_result.second.ok()) {
-      status = exec_result.second;
-      break;
+    if (!es.ok()) {
+      status = es;
     }
+    CleanupSuperVersion(super_version);
   }
   if (!status.ok()) {
     for (size_t i = 0; i != num_cfs; ++i) {
-      if (exec_results[i].first) {
-        ingestion_jobs[i].Cleanup(status);
-      }
+      ingestion_jobs[i].Cleanup(status);
     }
     InstrumentedMutexLock l(&mutex_);
     ReleaseFileNumberFromPendingOutputs(pending_output_elem);
