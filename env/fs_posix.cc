@@ -766,9 +766,9 @@ class PosixFileSystem : public FileSystem {
     // closed, all locks the process holds for that *file* are released
     const auto it_success = locked_files.insert({fname, lhi});
     if (it_success.second == false) {
+      LockHoldingInfo prev_info = it_success.first->second;
       mutex_locked_files.Unlock();
       errno = ENOLCK;
-      LockHoldingInfo& prev_info = it_success.first->second;
       // Note that the thread ID printed is the same one as the one in
       // posix logger, but posix logger prints it hex format.
       return IOError("lock hold by current process, acquire time " +
