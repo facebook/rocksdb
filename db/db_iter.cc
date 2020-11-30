@@ -169,8 +169,8 @@ void DBIter::Next() {
 
 bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
                                   const Slice& blob_index) {
-  if (allow_blob_) {
-    // Stacked BlobDB implementation
+  if (allow_blob_) {  // Stacked BlobDB implementation
+    is_blob_ = true;
     return true;
   }
 
@@ -188,6 +188,7 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
     return false;
   }
 
+  is_blob_ = true;
   return true;
 }
 
@@ -348,8 +349,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                   if (SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
                     return false;
                   }
-
-                  is_blob_ = true;
                 }
 
                 valid_ = true;
@@ -370,8 +369,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                 if (SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
                   return false;
                 }
-
-                is_blob_ = true;
               }
 
               valid_ = true;
@@ -393,8 +390,6 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                   if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
                     return false;
                   }
-
-                  is_blob_ = true;
                 }
 
                 valid_ = true;
@@ -933,7 +928,6 @@ bool DBIter::FindValueForCurrentKey() {
         return false;
       }
 
-      is_blob_ = true;
       break;
     default:
       valid_ = false;
@@ -1017,8 +1011,6 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       if (!SetBlobValueIfNeeded(ikey.user_key, pinned_value_)) {
         return false;
       }
-
-      is_blob_ = true;
     }
 
     valid_ = true;
