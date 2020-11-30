@@ -119,15 +119,17 @@ class Timer {
 
   // Shutdown the Timer
   bool Shutdown() {
-    {
-      InstrumentedMutexLock l(&mutex_);
-      if (!running_) {
-        return false;
-      }
-      running_ = false;
-      CancelAllWithLock();
-      cond_var_.SignalAll();
+    InstrumentedMutexLock l(&mutex_);
+    if (!running_) {
+      return false;
     }
+    running_ = false;
+    CancelAllWithLock();
+    
+    /// No need to release lock after this line, because other threads which were waiting on cond_var_
+    /// will stand into implicit queue to acquire the lock. 
+    cond_var_.SignalAll();
+
 
     if (thread_) {
       thread_->join();
