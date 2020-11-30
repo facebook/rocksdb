@@ -167,6 +167,30 @@ void DBIter::Next() {
   }
 }
 
+bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
+                                  const Slice& blob_index) {
+  if (allow_blob_) {
+    // Stacked BlobDB implementation
+    return true;
+  }
+
+  if (!version_) {
+    status_ = Status::Corruption("Encountered unexpected blob index.");
+    valid_ = false;
+    return false;
+  }
+
+  const Status s = version_->GetBlob(
+      /* FIXME */ ReadOptions(), user_key, blob_index, &blob_value_);
+  if (!s.ok()) {
+    status_ = s;
+    valid_ = false;
+    return false;
+  }
+
+  return true;
+}
+
 // PRE: saved_key_ has the current user key if skipping_saved_key
 // POST: saved_key_ should have the next user key if valid_,
 //       if the current entry is a result of merge
@@ -348,22 +372,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                 reseek_done = false;
                 PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
               } else if (ikey_.type == kTypeBlobIndex) {
-                if (!allow_blob_) {
-                  if (!version_) {
-                    status_ = Status::Corruption(
-                        "Encountered unexpected blob index.");
-                    valid_ = false;
-                    return false;
-                  }
-
-                  const Status s = version_->GetBlob(
-                      /* FIXME */ ReadOptions(), ikey_.user_key, iter_.value(),
-                      &blob_value_);
-                  if (!s.ok()) {
-                    status_ = s;
-                    valid_ = false;
-                    return false;
-                  }
+                if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                  return false;
                 }
 
                 is_blob_ = true;
@@ -902,21 +912,8 @@ bool DBIter::FindValueForCurrentKey() {
       // do nothing - we've already has value in pinned_value_
       break;
     case kTypeBlobIndex:
-      if (!allow_blob_) {
-        if (!version_) {
-          status_ = Status::Corruption("Encountered unexpected blob index.");
-          valid_ = false;
-          return false;
-        }
-
-        s = version_->GetBlob(/* FIXME */ ReadOptions(),
-                              saved_key_.GetUserKey(), pinned_value_,
-                              &blob_value_);
-        if (!s.ok()) {
-          status_ = s;
-          valid_ = false;
-          return false;
-        }
+      if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
+        return false;
       }
 
       is_blob_ = true;
@@ -999,24 +996,14 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex) {
     assert(iter_.iter()->IsValuePinned());
     pinned_value_ = iter_.value();
-    if (!allow_blob_ && ikey.type == kTypeBlobIndex) {
-      if (!version_) {
-        status_ = Status::Corruption("Encountered unexpected blob index.");
-        valid_ = false;
+    if (ikey.type == kTypeBlobIndex) {
+      if (!SetBlobValueIfNeeded(ikey.user_key, pinned_value_)) {
         return false;
       }
 
-      const Status s =
-          version_->GetBlob(/* FIXME */ ReadOptions(), ikey.user_key,
-                            pinned_value_, &blob_value_);
-      if (!s.ok()) {
-        status_ = s;
-        valid_ = false;
-        return false;
-      }
+      is_blob_ = true;
     }
 
-    is_blob_ = (ikey.type == kTypeBlobIndex);
     valid_ = true;
     return true;
   }

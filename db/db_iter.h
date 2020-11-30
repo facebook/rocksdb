@@ -296,6 +296,10 @@ class DBIter final : public Iterator {
                : user_comparator_.CompareWithoutTimestamp(a, b);
   }
 
+  // Retrieves the blob value for the specified user key using the given blob
+  // index when using the integrated BlobDB implementation.
+  bool SetBlobValueIfNeeded(const Slice& user_key, const Slice& blob_index);
+
   const SliceTransform* prefix_extractor_;
   Env* const env_;
   Logger* logger_;
