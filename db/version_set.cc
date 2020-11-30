@@ -1791,7 +1791,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       io_tracer_(io_tracer) {}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                        const Slice& value, PinnableSlice* output_value) const {
+                        const Slice& blob_index_slice,
+                        PinnableSlice* value) const {
   if (read_options.read_tier == kBlockCacheTier) {
     return Status::Incomplete("Cannot read blob: no disk I/O allowed");
   }
@@ -1799,19 +1800,19 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   BlobIndex blob_index;
 
   {
-    Status s = blob_index.DecodeFrom(value);
+    Status s = blob_index.DecodeFrom(blob_index_slice);
     if (!s.ok()) {
       return s;
     }
   }
 
-  return GetBlob(read_options, user_key, blob_index, output_value);
+  return GetBlob(read_options, user_key, blob_index, value);
 }
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         const BlobIndex& blob_index,
-                        PinnableSlice* output_value) const {
-  assert(output_value);
+                        PinnableSlice* value) const {
+  assert(value);
 
   if (blob_index.HasTTL() || blob_index.IsInlined()) {
     return Status::Corruption("Unexpected TTL/inlined blob index");
@@ -1840,7 +1841,7 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   assert(blob_file_reader.GetValue());
   const Status s = blob_file_reader.GetValue()->GetBlob(
       read_options, user_key, blob_index.offset(), blob_index.size(),
-      blob_index.compression(), output_value);
+      blob_index.compression(), value);
 
   return s;
 }
