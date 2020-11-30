@@ -2,7 +2,6 @@
 ## Unreleased
 ### Behavior Changes
 * Attempting to write a merge operand without explicitly configuring `merge_operator` now fails immediately, causing the DB to enter read-only mode. Previously, failure was deferred until the `merge_operator` was needed by a user read or a background operation.
-* Users of `WALRecoveryMode::kPointInTimeRecovery` whose DB contains a mix of writes with/without `WriteOptions::disableWAL` may now see recovery terminate at an earlier point in time after a crash.
 
 ### Bug Fixes
 * Truncated WALs ending in incomplete records can no longer produce gaps in the recovered data when `WALRecoveryMode::kPointInTimeRecovery` is used. Gaps are still possible when WALs are truncated exactly on record boundaries; for complete protection, users should enable `track_and_verify_wals_in_manifest`.
