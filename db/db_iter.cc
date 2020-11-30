@@ -163,7 +163,7 @@ void DBIter::Next() {
   }
   if (statistics_ != nullptr && valid_) {
     local_stats_.next_found_count_++;
-    local_stats_.bytes_read_ += (key().size() + value().size());  // TODO
+    local_stats_.bytes_read_ += (key().size() + value().size());
   }
 }
 
@@ -649,7 +649,7 @@ void DBIter::Prev() {
     local_stats_.prev_count_++;
     if (valid_) {
       local_stats_.prev_found_count_++;
-      local_stats_.bytes_read_ += (key().size() + value().size());  // TODO
+      local_stats_.bytes_read_ += (key().size() + value().size());
     }
   }
 }
