@@ -342,9 +342,17 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           case kTypeBlobIndex:
             if (start_seqnum_ > 0) {
               if (ikey_.sequence >= start_seqnum_) {
-                assert(ikey_.type != kTypeBlobIndex);
                 saved_key_.SetInternalKey(ikey_);
-                valid_ = true;  // TODO???
+
+                if (ikey_.type == kTypeBlobIndex) {
+                  if (SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                    return false;
+                  }
+
+                  is_blob_ = true;
+                }
+
+                valid_ = true;
                 return true;
               } else {
                 // this key and all previous versions shouldn't be included,
@@ -357,7 +365,16 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               }
             } else if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
-              valid_ = true;  // TODO
+
+              if (ikey_.type == kTypeBlobIndex) {
+                if (SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                  return false;
+                }
+
+                is_blob_ = true;
+              }
+
+              valid_ = true;
               return true;
             } else {
               saved_key_.SetUserKey(
@@ -371,15 +388,15 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                 num_skipped = 0;
                 reseek_done = false;
                 PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-              } else if (ikey_.type == kTypeBlobIndex) {
-                if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
-                  return false;
+              } else {
+                if (ikey_.type == kTypeBlobIndex) {
+                  if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                    return false;
+                  }
+
+                  is_blob_ = true;
                 }
 
-                is_blob_ = true;
-                valid_ = true;
-                return true;
-              } else {
                 valid_ = true;
                 return true;
               }
