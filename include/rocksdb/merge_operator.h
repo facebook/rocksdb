@@ -109,7 +109,7 @@ class MergeOperator {
     Slice& existing_operand;
   };
 
-  // This function applies a stack of merge operands in chrionological order
+  // This function applies a stack of merge operands in chronological order
   // on top of an existing value. There are two ways in which this method is
   // being used:
   // a) During Get() operation, it used to calculate the final value of a key
