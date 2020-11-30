@@ -130,7 +130,6 @@ class Timer {
     /// will stand into implicit queue to acquire the lock. 
     cond_var_.SignalAll();
 
-
     if (thread_) {
       thread_->join();
     }
