@@ -221,25 +221,28 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       is_key_seqnum_zero_ = false;
       return false;
     }
+    Slice user_key_without_ts =
+        StripTimestampFromUserKey(ikey_.user_key, timestamp_size_);
 
     is_key_seqnum_zero_ = (ikey_.sequence == 0);
 
     assert(iterate_upper_bound_ == nullptr ||
            iter_.UpperBoundCheckResult() != IterBoundCheck::kInbound ||
            user_comparator_.CompareWithoutTimestamp(
-               ikey_.user_key, /*a_has_ts=*/true, *iterate_upper_bound_,
+               user_key_without_ts, /*a_has_ts=*/false, *iterate_upper_bound_,
                /*b_has_ts=*/false) < 0);
     if (iterate_upper_bound_ != nullptr &&
         iter_.UpperBoundCheckResult() != IterBoundCheck::kInbound &&
         user_comparator_.CompareWithoutTimestamp(
-            ikey_.user_key, /*a_has_ts=*/true, *iterate_upper_bound_,
+            user_key_without_ts, /*a_has_ts=*/false, *iterate_upper_bound_,
             /*b_has_ts=*/false) >= 0) {
       break;
     }
 
     assert(prefix == nullptr || prefix_extractor_ != nullptr);
     if (prefix != nullptr &&
-        prefix_extractor_->Transform(ikey_.user_key).compare(*prefix) != 0) {
+        prefix_extractor_->Transform(user_key_without_ts).compare(*prefix) !=
+            0) {
       assert(prefix_same_as_start_);
       break;
     }
@@ -704,7 +707,9 @@ void DBIter::PrevInternal(const Slice* prefix) {
 
     assert(prefix == nullptr || prefix_extractor_ != nullptr);
     if (prefix != nullptr &&
-        prefix_extractor_->Transform(saved_key_.GetUserKey())
+        prefix_extractor_
+                ->Transform(StripTimestampFromUserKey(saved_key_.GetUserKey(),
+                                                      timestamp_size_))
                 .compare(*prefix) != 0) {
       assert(prefix_same_as_start_);
       // Current key does not have the same prefix as start
@@ -1399,7 +1404,8 @@ void DBIter::SeekToFirst() {
   }
   if (valid_ && prefix_same_as_start_) {
     assert(prefix_extractor_ != nullptr);
-    prefix_.SetUserKey(prefix_extractor_->Transform(saved_key_.GetUserKey()));
+    prefix_.SetUserKey(prefix_extractor_->Transform(
+        StripTimestampFromUserKey(saved_key_.GetUserKey(), timestamp_size_)));
   }
 }
 
@@ -1450,7 +1456,8 @@ void DBIter::SeekToLast() {
   }
   if (valid_ && prefix_same_as_start_) {
     assert(prefix_extractor_ != nullptr);
-    prefix_.SetUserKey(prefix_extractor_->Transform(saved_key_.GetUserKey()));
+    prefix_.SetUserKey(prefix_extractor_->Transform(
+        StripTimestampFromUserKey(saved_key_.GetUserKey(), timestamp_size_)));
   }
 }
 
