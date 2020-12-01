@@ -105,6 +105,12 @@ std::string WalDeletion::DebugString() const {
 }
 
 Status WalSet::AddWal(const WalAddition& wal) {
+  if (wal.GetLogNumber() < min_wal_number_to_keep_) {
+    std::stringstream ss;
+    ss << "WAL " << wal.GetLogNumber() << " is obsolete";
+    return Status::Corruption("WalSet", ss.str());
+  }
+
   auto it = wals_.lower_bound(wal.GetLogNumber());
   bool existing = it != wals_.end() && it->first == wal.GetLogNumber();
   if (existing && !wal.GetMetadata().HasSyncedSize()) {
@@ -142,11 +148,21 @@ Status WalSet::AddWals(const WalAdditions& wals) {
 }
 
 Status WalSet::DeleteWalsBefore(WalNumber wal) {
+  if (wal < min_wal_number_to_keep_) {
+    std::stringstream ss;
+    ss << "WAL " << wal << " is obsolete";
+    return Status::Corruption("WalSet", ss.str());
+  }
+
   wals_.erase(wals_.begin(), wals_.lower_bound(wal));
+  min_wal_number_to_keep_ = wal;
   return Status::OK();
 }
 
-void WalSet::Reset() { wals_.clear(); }
+void WalSet::Reset() {
+  wals_.clear();
+  min_wal_number_to_keep_ = 0;
+}
 
 Status WalSet::CheckWals(
     Env* env,
