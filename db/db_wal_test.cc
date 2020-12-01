@@ -1348,13 +1348,19 @@ TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
   size_t recovered_row_count = RecoveryTestHelper::GetData(this);
   ASSERT_LT(recovered_row_count, row_count);
 
-  bool expect_data = true;
-  for (size_t k = 0; k < maxkeys; ++k) {
-    bool found = Get("key" + ToString(corrupt_offset)) != "NOT_FOUND";
-    if (expect_data && !found) {
-      expect_data = false;
+  // Verify a prefix of keys were recovered. But not in the case of full WAL
+  // truncation, because we have no way to know there was a corruption when
+  // truncation happened on record boundaries (preventing recovery holes in
+  // that case requires using `track_and_verify_wals_in_manifest`).
+  if (!trunc || corrupt_offset != 0) {
+    bool expect_data = true;
+    for (size_t k = 0; k < maxkeys; ++k) {
+      bool found = Get("key" + ToString(k)) != "NOT_FOUND";
+      if (expect_data && !found) {
+        expect_data = false;
+      }
+      ASSERT_EQ(found, expect_data);
     }
-    ASSERT_EQ(found, expect_data);
   }
 
   const size_t min = RecoveryTestHelper::kKeysPerWALFile *
