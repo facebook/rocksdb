@@ -2540,22 +2540,18 @@ class DBBasicTestTrackWal : public DBTestBase,
  public:
   DBBasicTestTrackWal()
       : DBTestBase("/db_basic_test_track_wal", /*env_do_fsync=*/false) {}
+
+  int CountWalFiles() {
+    VectorLogPtr log_files;
+    dbfull()->GetSortedWalFiles(log_files);
+    return static_cast<int>(log_files.size());
+  };
 };
 
 TEST_P(DBBasicTestTrackWal, DoNotTrackObsoleteWal) {
   // If a WAL becomes obsolete after flushing, but is not deleted from disk yet,
   // then if SyncWAL is called afterwards, the obsolete WAL should not be
   // tracked in MANIFEST.
-
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearTrace();
-  SyncPoint::GetInstance()->LoadDependency({
-      {"MemTableList::TryInstallMemtableFlushResults:Done",
-       "DBBasicTestTrackWal::DoNotTrackObsoleteWal:AfterFlush"},
-      {"MemTableList::InstallMemtableAtomicFlushResults:Done",
-       "DBBasicTestTrackWal::DoNotTrackObsoleteWal:AfterAtomicFlush"},
-  });
-  SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -2566,26 +2562,19 @@ TEST_P(DBBasicTestTrackWal, DoNotTrackObsoleteWal) {
   CreateAndReopenWithCF({"cf"}, options);
   ASSERT_EQ(handles_.size(), 2);  // default, cf
   // Do not delete WALs.
-  ASSERT_OK(db_->DisableFileDeletions());
+  ASSERT_OK(dbfull()->DisableFileDeletions());
   constexpr int n = 10;
   std::vector<std::unique_ptr<LogFile>> wals(n);
   for (size_t i = 0; i < n; i++) {
     // Generate a new WAL for each key-value.
     const int cf = i % 2;
-    ASSERT_OK(db_->GetCurrentWalFile(&wals[i]));
+    ASSERT_OK(dbfull()->GetCurrentWalFile(&wals[i]));
     ASSERT_OK(Put(cf, "k" + std::to_string(i), "v" + std::to_string(i)));
     ASSERT_OK(Flush({0, 1}));
-    if (options.atomic_flush) {
-      TEST_SYNC_POINT(
-          "DBBasicTestTrackWal::DoNotTrackObsoleteWal:AfterAtomicFlush");
-    } else {
-      TEST_SYNC_POINT("DBBasicTestTrackWal::DoNotTrackObsoleteWal:AfterFlush");
-    }
-    SyncPoint::GetInstance()->ClearTrace();
   }
-  SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_EQ(CountWalFiles(), n);
   // Since all WALs are obsolete, no WAL should be tracked in MANIFEST.
-  ASSERT_OK(db_->SyncWAL());
+  ASSERT_OK(dbfull()->SyncWAL());
 
   // Manually delete all WALs.
   Close();
