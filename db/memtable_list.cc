@@ -488,20 +488,12 @@ Status MemTableList::TryInstallMemtableFlushResults(
 
       std::unique_ptr<VersionEdit> wal_deletion;
       if (vset->db_options()->track_and_verify_wals_in_manifest) {
+        vset->SetMinWalNumberToKeepInWalSet(min_wal_number_to_keep);
         const auto& wals = vset->GetWalSet().GetWals();
         if (!wals.empty() && min_wal_number_to_keep > wals.begin()->first) {
           wal_deletion.reset(new VersionEdit);
           wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
           edit_list.push_back(wal_deletion.get());
-        } else if (min_wal_number_to_keep >
-                   vset->GetWalSet().GetMinWalNumberToKeep()) {
-          // No need to persist to MANIFEST, but still need to update
-          // the in-memory state so that obsolete WALs won't be tracked
-          // in MANIFEST even if synced afterwards.
-          s = vset->DeleteWalsFromWalSetBefore(min_wal_number_to_keep);
-          if (!s.ok()) {
-            return s;
-          }
         }
       }
 
@@ -767,21 +759,13 @@ Status InstallMemtableAtomicFlushResults(
   if (vset->db_options()->track_and_verify_wals_in_manifest) {
     uint64_t min_wal_number_to_keep =
         PrecomputeMinLogNumberToKeepNon2PC(vset, cfds, edit_lists);
+    vset->SetMinWalNumberToKeepInWalSet(min_wal_number_to_keep);
     const auto& wals = vset->GetWalSet().GetWals();
     if (!wals.empty() && min_wal_number_to_keep > wals.begin()->first) {
       wal_deletion.reset(new VersionEdit);
       wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
       edit_lists.back().push_back(wal_deletion.get());
       ++num_entries;
-    } else if (min_wal_number_to_keep >
-               vset->GetWalSet().GetMinWalNumberToKeep()) {
-      // No need to persist to MANIFEST, but still need to update
-      // the in-memory state so that obsolete WALs won't be tracked
-      // in MANIFEST even if synced afterwards.
-      s = vset->DeleteWalsFromWalSetBefore(min_wal_number_to_keep);
-      if (!s.ok()) {
-        return s;
-      }
     }
   }
 

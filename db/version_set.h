@@ -1230,8 +1230,8 @@ class VersionSet {
   const WalSet& GetWalSet() const { return wals_; }
 
   // Must be called with DB mutex held.
-  Status DeleteWalsFromWalSetBefore(WalNumber number) {
-    return wals_.DeleteWalsBefore(number);
+  void SetMinWalNumberToKeepInWalSet(WalNumber number) {
+    return wals_.SetMinWalNumberToKeep(number);
   }
 
   void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {

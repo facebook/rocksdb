@@ -149,14 +149,7 @@ Status WalSet::AddWals(const WalAdditions& wals) {
 }
 
 Status WalSet::DeleteWalsBefore(WalNumber wal) {
-  if (wal < min_wal_number_to_keep_) {
-    std::stringstream ss;
-    ss << "min_wal_number_to_keep is " << min_wal_number_to_keep_ << ", so WAL "
-       << wal << " is obsolete";
-    return Status::Corruption("WalSet::DeleteWalsBefore", ss.str());
-  }
   wals_.erase(wals_.begin(), wals_.lower_bound(wal));
-  min_wal_number_to_keep_ = wal;
   return Status::OK();
 }
 
