@@ -109,11 +109,10 @@ class Timer {
   // Start the Timer
   bool Start() {
     InstrumentedMutexLock l(&mutex_);
-    WaitForShuttingDownIfNecessary();
     if (running_) {
       return false;
     }
-
+    WaitForShuttingDownIfNecessary();
     running_ = true;
     thread_.reset(new port::Thread(&Timer::Run, this));
     return true;
@@ -123,12 +122,10 @@ class Timer {
   bool Shutdown() {
     {
       InstrumentedMutexLock l(&mutex_);
-      shutting_down_ = true;
       if (!running_) {
-        shutting_down_ = false;
-        cond_var_.SignalAll();
         return false;
       }
+      shutting_down_ = true;
       running_ = false;
       CancelAllWithLock();
     }
@@ -136,7 +133,7 @@ class Timer {
     if (thread_) {
       thread_->join();
     }
-
+    
     shutting_down_ = false;
     cond_var_.SignalAll();
     return true;
