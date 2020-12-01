@@ -1729,7 +1729,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
           !cached_recoverable_state_empty_.load()) {
         flush_memtable_id = cfd->imm()->GetLatestMemTableID();
         FlushRequest req{{cfd, flush_memtable_id}};
-        flush_reqs.emplace_back(req);
+        flush_reqs.emplace_back(std::move(req));
       }
       if (immutable_db_options_.persist_stats_to_disk &&
           flush_reason != FlushReason::kErrorRecoveryRetryFlush) {
@@ -1757,7 +1757,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
             s = SwitchMemtable(cfd_stats, &context);
             flush_memtable_id = cfd_stats->imm()->GetLatestMemTableID();
             FlushRequest req{{cfd_stats, flush_memtable_id}};
-            flush_reqs.emplace_back(req);
+            flush_reqs.emplace_back(std::move(req));
           }
         }
       }
