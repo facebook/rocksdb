@@ -171,6 +171,8 @@ void DBIter::Next() {
 
 bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
                                   const Slice& blob_index) {
+  assert(!is_blob_);
+
   if (expose_blob_index_) {  // Stacked BlobDB implementation
     is_blob_ = true;
     return true;
