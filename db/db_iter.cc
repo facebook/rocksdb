@@ -67,6 +67,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       expect_total_order_inner_iter_(prefix_extractor_ == nullptr ||
                                      read_options.total_order_seek ||
                                      read_options.auto_prefix_mode),
+      read_tier_(read_options.read_tier),
+      verify_checksums_(read_options.verify_checksums),
       allow_blob_(allow_blob),
       is_blob_(false),
       arena_mode_(arena_mode),
@@ -180,8 +182,15 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
     return false;
   }
 
-  const Status s = version_->GetBlob(
-      /* FIXME */ ReadOptions(), user_key, blob_index, &blob_value_);
+  // TODO: consider moving ReadOptions from ArenaWrappedDBIter to DBIter to
+  // avoid having to copy options back and forth.
+  ReadOptions read_options;
+  read_options.read_tier = read_tier_;
+  read_options.verify_checksums = verify_checksums_;
+
+  const Status s =
+      version_->GetBlob(read_options, user_key, blob_index, &blob_value_);
+
   if (!s.ok()) {
     status_ = s;
     valid_ = false;
