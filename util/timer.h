@@ -309,7 +309,7 @@ class Timer {
 
   void WaitForShuttingDownIfNecessary() {
     mutex_.AssertHeld();
-    while(shutting_down_) {
+    while (shutting_down_) {
       cond_var_.Wait();
     }
   }
