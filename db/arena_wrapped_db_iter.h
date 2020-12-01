@@ -77,16 +77,16 @@ class ArenaWrappedDBIter : public Iterator {
             const SequenceNumber& sequence,
             uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
             ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
-            bool allow_blob, bool allow_refresh);
+            bool expose_blob_index, bool allow_refresh);
 
   // Store some parameters so we can refresh the iterator at a later point
   // with these same params
   void StoreRefreshInfo(DBImpl* db_impl, ColumnFamilyData* cfd,
-                        ReadCallback* read_callback, bool allow_blob) {
+                        ReadCallback* read_callback, bool expose_blob_index) {
     db_impl_ = db_impl;
     cfd_ = cfd;
     read_callback_ = read_callback;
-    allow_blob_ = allow_blob;
+    expose_blob_index_ = expose_blob_index;
   }
 
  private:
@@ -97,7 +97,7 @@ class ArenaWrappedDBIter : public Iterator {
   DBImpl* db_impl_ = nullptr;
   ReadOptions read_options_;
   ReadCallback* read_callback_;
-  bool allow_blob_ = false;
+  bool expose_blob_index_ = false;
   bool allow_refresh_ = true;
 };
 
@@ -111,5 +111,5 @@ extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
     uint64_t version_number, ReadCallback* read_callback,
     DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr,
-    bool allow_blob = false, bool allow_refresh = true);
+    bool expose_blob_index = false, bool allow_refresh = true);
 }  // namespace ROCKSDB_NAMESPACE

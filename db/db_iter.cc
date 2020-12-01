@@ -40,7 +40,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const Version* version, SequenceNumber s, bool arena_mode,
                uint64_t max_sequential_skip_in_iterations,
                ReadCallback* read_callback, DBImpl* db_impl,
-               ColumnFamilyData* cfd, bool allow_blob)
+               ColumnFamilyData* cfd, bool expose_blob_index)
     : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       env_(_env),
       logger_(cf_options.info_log),
@@ -69,7 +69,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                                      read_options.auto_prefix_mode),
       read_tier_(read_options.read_tier),
       verify_checksums_(read_options.verify_checksums),
-      allow_blob_(allow_blob),
+      expose_blob_index_(expose_blob_index),
       is_blob_(false),
       arena_mode_(arena_mode),
       range_del_agg_(&cf_options.internal_comparator, s),
@@ -171,7 +171,7 @@ void DBIter::Next() {
 
 bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
                                   const Slice& blob_index) {
-  if (allow_blob_) {  // Stacked BlobDB implementation
+  if (expose_blob_index_) {  // Stacked BlobDB implementation
     is_blob_ = true;
     return true;
   }
@@ -1473,12 +1473,12 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                         const SequenceNumber& sequence,
                         uint64_t max_sequential_skip_in_iterations,
                         ReadCallback* read_callback, DBImpl* db_impl,
-                        ColumnFamilyData* cfd, bool allow_blob) {
+                        ColumnFamilyData* cfd, bool expose_blob_index) {
   DBIter* db_iter =
       new DBIter(env, read_options, cf_options, mutable_cf_options,
                  user_key_comparator, internal_iter, version, sequence, false,
                  max_sequential_skip_in_iterations, read_callback, db_impl, cfd,
-                 allow_blob);
+                 expose_blob_index);
   return db_iter;
 }
 

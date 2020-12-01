@@ -119,7 +119,7 @@ class DBIter final : public Iterator {
          InternalIterator* iter, const Version* version, SequenceNumber s,
          bool arena_mode, uint64_t max_sequential_skip_in_iterations,
          ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
-         bool allow_blob);
+         bool expose_blob_index);
 
   // No copying allowed
   DBIter(const DBIter&) = delete;
@@ -162,7 +162,7 @@ class DBIter final : public Iterator {
   Slice value() const override {
     assert(valid_);
 
-    if (!allow_blob_ && is_blob_) {
+    if (!expose_blob_index_ && is_blob_) {
       return blob_value_;
     }
 
@@ -354,7 +354,7 @@ class DBIter final : public Iterator {
   bool verify_checksums_;
   // Whether the iterator is allowed to expose blob references. Set to true when
   // the stacked BlobDB implementation is used, false otherwise.
-  bool allow_blob_;
+  bool expose_blob_index_;
   bool is_blob_;
   bool arena_mode_;
   // List of operands for merge operator.
@@ -389,6 +389,6 @@ extern Iterator* NewDBIterator(
     const Version* version, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, ReadCallback* read_callback,
     DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr,
-    bool allow_blob = false);
+    bool expose_blob_index = false);
 
 }  // namespace ROCKSDB_NAMESPACE

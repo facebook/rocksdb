@@ -98,7 +98,7 @@ class DBBlobIndexTest : public DBTestBase {
   ArenaWrappedDBIter* GetBlobIterator() {
     return dbfull()->NewIteratorImpl(
         ReadOptions(), cfd(), dbfull()->GetLatestSequenceNumber(),
-        nullptr /*read_callback*/, true /*allow_blob*/);
+        nullptr /*read_callback*/, true /*expose_blob_index*/);
   }
 
   Options GetTestOptions() {
@@ -238,7 +238,7 @@ TEST_F(DBBlobIndexTest, Updated) {
   }
 }
 
-// Iterator should get blob value if allow_blob flag is set,
+// Iterator should get blob value if expose_blob_index flag is set,
 // otherwise return Status::NotSupported status.
 TEST_F(DBBlobIndexTest, Iterate) {
   const std::vector<std::vector<ValueType>> data = {

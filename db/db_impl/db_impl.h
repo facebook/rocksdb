@@ -522,7 +522,7 @@ class DBImpl : public DB {
                                       ColumnFamilyData* cfd,
                                       SequenceNumber snapshot,
                                       ReadCallback* read_callback,
-                                      bool allow_blob = false,
+                                      bool expose_blob_index = false,
                                       bool allow_refresh = true);
 
   virtual SequenceNumber GetLastPublishedSequence() const {

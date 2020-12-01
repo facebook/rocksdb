@@ -36,12 +36,12 @@ void ArenaWrappedDBIter::Init(
     const MutableCFOptions& mutable_cf_options, const Version* version,
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iteration,
     uint64_t version_number, ReadCallback* read_callback, DBImpl* db_impl,
-    ColumnFamilyData* cfd, bool allow_blob, bool allow_refresh) {
+    ColumnFamilyData* cfd, bool expose_blob_index, bool allow_refresh) {
   auto mem = arena_.AllocateAligned(sizeof(DBIter));
   db_iter_ = new (mem) DBIter(env, read_options, cf_options, mutable_cf_options,
                               cf_options.user_comparator, nullptr, version,
                               sequence, true, max_sequential_skip_in_iteration,
-                              read_callback, db_impl, cfd, allow_blob);
+                              read_callback, db_impl, cfd, expose_blob_index);
   sv_number_ = version_number;
   read_options_ = read_options;
   allow_refresh_ = allow_refresh;
@@ -72,7 +72,7 @@ Status ArenaWrappedDBIter::Refresh() {
     Init(env, read_options_, *(cfd_->ioptions()), sv->mutable_cf_options,
          sv->current, latest_seq,
          sv->mutable_cf_options.max_sequential_skip_in_iterations,
-         cur_sv_number, read_callback_, db_impl_, cfd_, allow_blob_,
+         cur_sv_number, read_callback_, db_impl_, cfd_, expose_blob_index_,
          allow_refresh_);
 
     InternalIterator* internal_iter = db_impl_->NewInternalIterator(
@@ -92,13 +92,13 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     const MutableCFOptions& mutable_cf_options, const Version* version,
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
     uint64_t version_number, ReadCallback* read_callback, DBImpl* db_impl,
-    ColumnFamilyData* cfd, bool allow_blob, bool allow_refresh) {
+    ColumnFamilyData* cfd, bool expose_blob_index, bool allow_refresh) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   iter->Init(env, read_options, cf_options, mutable_cf_options, version,
              sequence, max_sequential_skip_in_iterations, version_number,
-             read_callback, db_impl, cfd, allow_blob, allow_refresh);
+             read_callback, db_impl, cfd, expose_blob_index, allow_refresh);
   if (db_impl != nullptr && cfd != nullptr && allow_refresh) {
-    iter->StoreRefreshInfo(db_impl, cfd, read_callback, allow_blob);
+    iter->StoreRefreshInfo(db_impl, cfd, read_callback, expose_blob_index);
   }
 
   return iter;
