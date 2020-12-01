@@ -128,6 +128,7 @@ class Timer {
       shutting_down_ = true;
       running_ = false;
       CancelAllWithLock();
+      cond_var_.SignalAll();
     }
 
     if (thread_) {
