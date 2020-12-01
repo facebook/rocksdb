@@ -40,7 +40,8 @@ class Timer {
         mutex_(env),
         cond_var_(&mutex_),
         running_(false),
-        executing_task_(false) {}
+        executing_task_(false),
+        shutting_down_(false) {}
 
   ~Timer() { Shutdown(); }
 
@@ -108,6 +109,7 @@ class Timer {
   // Start the Timer
   bool Start() {
     InstrumentedMutexLock l(&mutex_);
+    WaitForShuttingDownIfNecessary();
     if (running_) {
       return false;
     }
@@ -119,20 +121,25 @@ class Timer {
 
   // Shutdown the Timer
   bool Shutdown() {
-    InstrumentedMutexLock l(&mutex_);
-    if (!running_) {
-      return false;
+    {
+      InstrumentedMutexLock l(&mutex_);
+      shutting_down_ = true;
+      if (!running_) {
+        shutting_down_ = false;
+        cond_var_.SignalAll();
+        return false;
+      }
+      running_ = false;
+      CancelAllWithLock();
     }
-    running_ = false;
-    CancelAllWithLock();
     
-    /// No need to release lock after this line, because other threads which were waiting on cond_var_
-    /// will stand into implicit queue to acquire the lock. 
-    cond_var_.SignalAll();
-
     if (thread_) {
       thread_->join();
     }
+
+    mutex_.AssertHeld();
+    shutting_down_ = false;
+    cond_var_.SignalAll();
     return true;
   }
 
@@ -301,6 +308,13 @@ class Timer {
     }
   }
 
+  void WaitForShuttingDownIfNecessary() {
+    mutex_.AssertHeld();
+    while(shutting_down_) {
+      cond_var_.Wait();
+    }
+  }
+
   struct RunTimeOrder {
     bool operator()(const FunctionInfo* f1,
                     const FunctionInfo* f2) {
@@ -316,6 +330,7 @@ class Timer {
   std::unique_ptr<port::Thread> thread_;
   bool running_;
   bool executing_task_;
+  std::atomic<bool> shutting_down_;
 
   std::priority_queue<FunctionInfo*,
                       std::vector<FunctionInfo*>,
