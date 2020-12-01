@@ -636,6 +636,52 @@ TEST_P(WriteUnpreparedTransactionTest, IterateAndWrite) {
   }
 }
 
+// Test that using an iterator after transaction clear is not supported
+TEST_P(WriteUnpreparedTransactionTest, IterateAfterClear) {
+  WriteOptions woptions;
+  TransactionOptions txn_options;
+  txn_options.write_batch_flush_threshold = 1;
+
+  enum Action { kCommit, kRollback };
+
+  for (Action a : {kCommit, kRollback}) {
+    for (int i = 0; i < 100; i++) {
+      ASSERT_OK(db->Put(woptions, ToString(i), ToString(i)));
+    }
+
+    Transaction* txn = db->BeginTransaction(woptions, txn_options);
+    ASSERT_OK(txn->Put("9", "a"));
+
+    ReadOptions roptions;
+    auto iter1 = txn->GetIterator(roptions);
+    auto iter2 = txn->GetIterator(roptions);
+    iter1->SeekToFirst();
+    iter2->Seek("9");
+
+    // Check that iterators are valid before transaction finishes.
+    ASSERT_TRUE(iter1->Valid());
+    ASSERT_TRUE(iter2->Valid());
+    ASSERT_OK(iter1->status());
+    ASSERT_OK(iter2->status());
+
+    if (a == kCommit) {
+      ASSERT_OK(txn->Commit());
+    } else {
+      ASSERT_OK(txn->Rollback());
+    }
+
+    // Check that iterators are invalidated after transaction finishes.
+    ASSERT_FALSE(iter1->Valid());
+    ASSERT_FALSE(iter2->Valid());
+    ASSERT_TRUE(iter1->status().IsInvalidArgument());
+    ASSERT_TRUE(iter2->status().IsInvalidArgument());
+
+    delete iter1;
+    delete iter2;
+    delete txn;
+  }
+}
+
 TEST_P(WriteUnpreparedTransactionTest, SavePoint) {
   WriteOptions woptions;
   TransactionOptions txn_options;
