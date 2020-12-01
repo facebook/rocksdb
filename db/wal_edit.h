@@ -158,6 +158,7 @@ class WalSet {
  private:
   std::map<WalNumber, WalMetadata> wals_;
   // WAL number < min_wal_number_to_keep_ should not exist in wals_.
+  // It's monotonically increasing.
   WalNumber min_wal_number_to_keep_ = 0;
 };
 

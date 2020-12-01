@@ -493,7 +493,8 @@ Status MemTableList::TryInstallMemtableFlushResults(
           wal_deletion.reset(new VersionEdit);
           wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
           edit_list.push_back(wal_deletion.get());
-        } else {
+        } else if (min_wal_number_to_keep >
+                   vset->GetWalSet().GetMinWalNumberToKeep()) {
           // No need to persist to MANIFEST, but still need to update
           // the in-memory state so that obsolete WALs won't be tracked
           // in MANIFEST even if synced afterwards.
@@ -519,7 +520,6 @@ Status MemTableList::TryInstallMemtableFlushResults(
     }
   }
   commit_in_progress_ = false;
-  TEST_SYNC_POINT("MemTableList::TryInstallMemtableFlushResults:Done");
   return s;
 }
 
@@ -773,7 +773,8 @@ Status InstallMemtableAtomicFlushResults(
       wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
       edit_lists.back().push_back(wal_deletion.get());
       ++num_entries;
-    } else {
+    } else if (min_wal_number_to_keep >
+               vset->GetWalSet().GetMinWalNumberToKeep()) {
       // No need to persist to MANIFEST, but still need to update
       // the in-memory state so that obsolete WALs won't be tracked
       // in MANIFEST even if synced afterwards.
@@ -873,7 +874,6 @@ Status InstallMemtableAtomicFlushResults(
     }
   }
 
-  TEST_SYNC_POINT("MemTableList::InstallMemtableAtomicFlushResults:Done");
   return s;
 }
 
