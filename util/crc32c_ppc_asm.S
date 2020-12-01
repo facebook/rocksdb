@@ -7,7 +7,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #if defined (__clang__)
-#include "ppc-asm.h"
+#include "third-party/gcc/ppc-asm.h"
 #else
 #include <ppc-asm.h>
 #endif
