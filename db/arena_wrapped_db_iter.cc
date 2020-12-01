@@ -39,7 +39,7 @@ void ArenaWrappedDBIter::Init(
     ColumnFamilyData* cfd, bool expose_blob_index, bool allow_refresh) {
   auto mem = arena_.AllocateAligned(sizeof(DBIter));
   db_iter_ = new (mem) DBIter(env, read_options, cf_options, mutable_cf_options,
-                              cf_options.user_comparator, nullptr, version,
+                              cf_options.user_comparator, /* iter */ nullptr, version,
                               sequence, true, max_sequential_skip_in_iteration,
                               read_callback, db_impl, cfd, expose_blob_index);
   sv_number_ = version_number;
