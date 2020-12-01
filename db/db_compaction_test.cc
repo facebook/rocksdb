@@ -5317,7 +5317,8 @@ TEST_F(DBCompactionTest, ConsistencyFailTest2) {
   ASSERT_OK(Flush());
   ASSERT_OK(Put("foo2", value));
   ASSERT_OK(Put("z", ""));
-  ASSERT_OK(Flush());
+  Status s = Flush();
+  ASSERT_TRUE(s.ok() || s.IsCorruption());
 
   // This probably returns non-OK, but we rely on the next Put()
   // to determine the DB is frozen.
