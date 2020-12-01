@@ -63,6 +63,7 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
   }
 
   Status status;
+  status.PermitUncheckedError();
   VersionEdit edit;
   JobContext job_context(next_job_id_.fetch_add(1), true);
   {

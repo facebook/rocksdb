@@ -1161,14 +1161,11 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            BlockHandle* handle,
                                            bool is_data_block) {
   Rep* r = rep_;
-  Status s = Status::OK();
-  IOStatus io_s = IOStatus::OK();
   StopWatch sw(r->ioptions.env, r->ioptions.statistics, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->get_offset());
   handle->set_size(block_contents.size());
-  assert(status().ok());
-  assert(io_status().ok());
-  io_s = r->file->Append(block_contents);
+  Status s;
+  IOStatus io_s = r->file->Append(block_contents);
   if (io_s.ok()) {
     char trailer[kBlockTrailerSize];
     trailer[0] = type;
@@ -1209,13 +1206,11 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
         break;
     }
     EncodeFixed32(trailer + 1, checksum);
-    assert(io_s.ok());
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
         static_cast<char*>(trailer));
     io_s = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (io_s.ok()) {
-      assert(s.ok());
       s = InsertBlockInCache(block_contents, type, handle);
       if (!s.ok()) {
         r->SetStatus(s);
@@ -1424,7 +1419,7 @@ void BlockBasedTableBuilder::WriteFilterBlock(
 void BlockBasedTableBuilder::WriteIndexBlock(
     MetaIndexBuilder* meta_index_builder, BlockHandle* index_block_handle) {
   IndexBuilder::IndexBlocks index_blocks;
-  auto index_builder_status = rep_->index_builder->Finish(&index_blocks);
+  Status index_builder_status = rep_->index_builder->Finish(&index_blocks);
   if (index_builder_status.IsIncomplete()) {
     // We we have more than one index partition then meta_blocks are not
     // supported for the index. Currently meta_blocks are used only by
@@ -1452,23 +1447,20 @@ void BlockBasedTableBuilder::WriteIndexBlock(
     }
   }
   // If there are more index partitions, finish them and write them out
-  if (index_builder_status.IsIncomplete()) {
-    Status s = Status::Incomplete();
-    while (ok() && s.IsIncomplete()) {
-      s = rep_->index_builder->Finish(&index_blocks, *index_block_handle);
-      if (!s.ok() && !s.IsIncomplete()) {
-        rep_->SetStatus(s);
-        return;
-      }
-      if (rep_->table_options.enable_index_compression) {
-        WriteBlock(index_blocks.index_block_contents, index_block_handle,
-                   false);
-      } else {
-        WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
-                      index_block_handle);
-      }
-      // The last index_block_handle will be for the partition index block
+  while (ok() && index_builder_status.IsIncomplete()) {
+    index_builder_status =
+        rep_->index_builder->Finish(&index_blocks, *index_block_handle);
+    if (!index_builder_status.ok() && !index_builder_status.IsIncomplete()) {
+      rep_->SetStatus(index_builder_status);
+      return;
     }
+    if (rep_->table_options.enable_index_compression) {
+      WriteBlock(index_blocks.index_block_contents, index_block_handle, false);
+    } else {
+      WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
+                    index_block_handle);
+    }
+    // The last index_block_handle will be for the partition index block
   }
 }
 

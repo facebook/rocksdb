@@ -6,8 +6,10 @@
 #include "trace_replay/trace_replay.h"
 
 #include <chrono>
+#include <memory>
 #include <sstream>
 #include <thread>
+
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/write_batch.h"
@@ -208,8 +210,7 @@ Status Replayer::Replay() {
   WriteOptions woptions;
   ReadOptions roptions;
   Trace trace;
-  uint64_t ops = 0;
-  Iterator* single_iter = nullptr;
+  // uint64_t ops = 0;
   while (s.ok()) {
     trace.reset();
     s = ReadTrace(&trace);
@@ -222,8 +223,11 @@ Status Replayer::Replay() {
         std::chrono::microseconds((trace.ts - header.ts) / fast_forward_));
     if (trace.type == kTraceWrite) {
       WriteBatch batch(trace.payload);
-      db_->Write(woptions, &batch);
-      ops++;
+      s = db_->Write(woptions, &batch);
+      if (!s.ok()) {
+        break;
+      }
+      // ops++;
     } else if (trace.type == kTraceGet) {
       uint32_t cf_id = 0;
       Slice key;
@@ -238,7 +242,7 @@ Status Replayer::Replay() {
       } else {
         db_->Get(roptions, cf_map_[cf_id], key, &value);
       }
-      ops++;
+      // ops++;
     } else if (trace.type == kTraceIteratorSeek) {
       uint32_t cf_id = 0;
       Slice key;
@@ -247,14 +251,17 @@ Status Replayer::Replay() {
         return Status::Corruption("Invalid Column Family ID.");
       }
 
+      std::unique_ptr<Iterator> single_iter;
       if (cf_id == 0) {
-        single_iter = db_->NewIterator(roptions);
+        single_iter.reset(db_->NewIterator(roptions));
       } else {
-        single_iter = db_->NewIterator(roptions, cf_map_[cf_id]);
+        single_iter.reset(db_->NewIterator(roptions, cf_map_[cf_id]));
       }
       single_iter->Seek(key);
-      ops++;
-      delete single_iter;
+      s = single_iter->status();
+      if (!s.ok()) {
+        break;
+      }
     } else if (trace.type == kTraceIteratorSeekForPrev) {
       // Currently, only support to call the Seek()
       uint32_t cf_id = 0;
@@ -264,14 +271,17 @@ Status Replayer::Replay() {
         return Status::Corruption("Invalid Column Family ID.");
       }
 
+      std::unique_ptr<Iterator> single_iter;
       if (cf_id == 0) {
-        single_iter = db_->NewIterator(roptions);
+        single_iter.reset(db_->NewIterator(roptions));
       } else {
-        single_iter = db_->NewIterator(roptions, cf_map_[cf_id]);
+        single_iter.reset(db_->NewIterator(roptions, cf_map_[cf_id]));
       }
       single_iter->SeekForPrev(key);
-      ops++;
-      delete single_iter;
+      s = single_iter->status();
+      if (!s.ok()) {
+        break;
+      }
     } else if (trace.type == kTraceEnd) {
       // Do nothing for now.
       // TODO: Add some validations later.

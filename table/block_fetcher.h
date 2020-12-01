@@ -64,6 +64,8 @@ class BlockFetcher {
         memory_allocator_compressed_(memory_allocator_compressed),
         for_compaction_(for_compaction) {}
 
+  ~BlockFetcher() { status_.PermitUncheckedError(); }
+
   Status ReadBlockContents();
   CompressionType get_compression_type() const { return compression_type_; }
 

@@ -4940,7 +4940,7 @@ Status DBImpl::EndTrace() {
     s = tracer_->Close();
     tracer_.reset();
   } else {
-    return Status::IOError("No trace file to close");
+    s = Status::IOError("No trace file to close");
   }
   return s;
 }

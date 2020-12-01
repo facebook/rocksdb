@@ -32,7 +32,6 @@ Status VerifyBlockChecksum(ChecksumType type, const char* data,
   // And then the stored checksum value (4 bytes).
   uint32_t stored = DecodeFixed32(data + len);
 
-  Status s;
   uint32_t computed = 0;
   switch (type) {
     case kNoChecksum:
@@ -48,17 +47,17 @@ Status VerifyBlockChecksum(ChecksumType type, const char* data,
       computed = Lower32of64(XXH64(data, len, 0));
       break;
     default:
-      s = Status::Corruption(
+      return Status::Corruption(
           "unknown checksum type " + ToString(type) + " from footer of " +
           file_name + ", while checking block at offset " + ToString(offset) +
           " size " + ToString(block_size));
   }
-  if (s.ok() && stored != computed) {
-    s = Status::Corruption(
+  if (stored != computed) {
+    return Status::Corruption(
         "block checksum mismatch: stored = " + ToString(stored) +
         ", computed = " + ToString(computed) + "  in " + file_name +
         " offset " + ToString(offset) + " size " + ToString(block_size));
   }
-  return s;
+  return Status::OK();
 }
 }  // namespace ROCKSDB_NAMESPACE

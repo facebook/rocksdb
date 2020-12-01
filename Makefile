@@ -631,6 +631,8 @@ ifdef ASSERT_STATUS_CHECKED
 		db_properties_test \
 		db_range_del_test \
 		db_secondary_test \
+		db_test \
+		db_test2 \
 		deletefile_test \
 		external_sst_file_test \
 		options_file_test \
