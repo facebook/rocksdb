@@ -133,7 +133,8 @@ class Timer {
     if (thread_) {
       thread_->join();
     }
-    
+
+    InstrumentedMutexLock l(&mutex_);
     shutting_down_ = false;
     cond_var_.SignalAll();
     return true;
@@ -326,7 +327,7 @@ class Timer {
   std::unique_ptr<port::Thread> thread_;
   bool running_;
   bool executing_task_;
-  std::atomic<bool> shutting_down_;
+  bool shutting_down_;
 
   std::priority_queue<FunctionInfo*,
                       std::vector<FunctionInfo*>,
