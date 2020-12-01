@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.14.6 (12/01/2020)
 ### Bug Fixes
 * Truncated WALs ending in incomplete records can no longer produce gaps in the recovered data when `WALRecoveryMode::kPointInTimeRecovery` is used. Gaps are still possible when WALs are truncated exactly on record boundaries; for complete protection, users should enable `track_and_verify_wals_in_manifest`.
 
