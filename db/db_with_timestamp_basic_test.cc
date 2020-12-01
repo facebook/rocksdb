@@ -42,7 +42,7 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
   static std::vector<Slice> ConvertStrToSlice(
       std::vector<std::string>& strings) {
     std::vector<Slice> ret;
-    for (auto& s : strings) {
+    for (const auto& s : strings) {
       ret.emplace_back(s);
     }
     return ret;
@@ -389,16 +389,16 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithBound) {
   write_opts.timestamp = &ts;
 
   ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   // Move sst file to next level
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   ASSERT_OK(db_->Put(write_opts, "foo3", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ReadOptions read_opts;
   std::string read_ts = Timestamp(2, 0);
@@ -690,7 +690,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithFastLocalBloom) {
 
   ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
 
-  Flush();
+  ASSERT_OK(Flush());
 
   // Read with MultiGet
   ReadOptions read_opts;
@@ -731,7 +731,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithPrefix) {
 
   ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
 
-  Flush();
+  ASSERT_OK(Flush());
 
   // Read with MultiGet
   ReadOptions read_opts;
@@ -819,7 +819,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
     Slice key_slice = key;
     Slice value_slice = value;
     ASSERT_OK(db_->Put(write_opts, key_slice, value_slice));
-    Flush();
+    ASSERT_OK(Flush());
   }
 
   // Make num_levels to 2 to do key range filtering of sst files
@@ -827,7 +827,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
 
   ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
 
-  Flush();
+  ASSERT_OK(Flush());
 
   // Read with MultiGet
   ts_str = Timestamp(2, 0);
@@ -870,7 +870,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetPrefixFilter) {
 
   ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
 
-  Flush();
+  ASSERT_OK(Flush());
   // Read with MultiGet
   ts_str = Timestamp(2, 0);
   ts = ts_str;
@@ -1030,7 +1030,7 @@ TEST_P(DBBasicTestWithTimestampFilterPrefixSettings, GetAndMultiGet) {
     ASSERT_OK(db_->Put(write_opts, KeyWithPrefix("foo", idx), "bar"));
   }
 
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   for (; idx < kMaxKey / 2; idx++) {
@@ -1038,7 +1038,7 @@ TEST_P(DBBasicTestWithTimestampFilterPrefixSettings, GetAndMultiGet) {
     ASSERT_OK(db_->Put(write_opts, KeyWithPrefix("foo", idx), "bar"));
   }
 
-  Flush();
+  ASSERT_OK(Flush());
 
   for (; idx < kMaxKey; idx++) {
     ASSERT_OK(db_->Put(write_opts, Key1(idx), "bar"));
@@ -1576,7 +1576,7 @@ TEST_F(DataVisibilityTest, MultiGetWithTimestamp) {
   VerifyDefaultCF(snap0);
   VerifyDefaultCF(snap1);
 
-  Flush();
+  ASSERT_OK(Flush());
 
   const Snapshot* snap2 = db_->GetSnapshot();
   PutTestData(2);
@@ -1662,7 +1662,7 @@ TEST_F(DataVisibilityTest, MultiGetCrossCF) {
   VerifyDefaultCF(snap0);
   VerifyDefaultCF(snap1);
 
-  Flush();
+  ASSERT_OK(Flush());
 
   const Snapshot* snap2 = db_->GetSnapshot();
   PutTestData(2);
