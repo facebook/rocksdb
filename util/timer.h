@@ -132,12 +132,11 @@ class Timer {
       running_ = false;
       CancelAllWithLock();
     }
-    
+
     if (thread_) {
       thread_->join();
     }
 
-    mutex_.AssertHeld();
     shutting_down_ = false;
     cond_var_.SignalAll();
     return true;
