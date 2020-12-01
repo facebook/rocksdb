@@ -266,7 +266,7 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   uint64_t ranges_size;
   ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf, ranges, 2,
                                      &ranges_size));
-  ASSERT_LE(ranges_size, size);
+  ASSERT_GE(ranges_size, size);
 
   // Zero if not including mem table
   db_->GetApproximateSizes(&r, 1, &size);
