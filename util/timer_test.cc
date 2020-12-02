@@ -417,7 +417,7 @@ TEST_F(TimerTest, ConcurrentStartShutdown) {
       timer.Shutdown();
     }
   };
-  
+
   std::vector<port::Thread> threads;
 
   for (size_t i = 0; i < kThreadCount; ++i) {

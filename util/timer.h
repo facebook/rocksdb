@@ -39,6 +39,8 @@ class Timer {
       : env_(env),
         mutex_(env),
         cond_var_(&mutex_),
+        concurrent_shutdowns_mutex_(env),
+        concurrent_shutdowns_(&concurrent_shutdowns_mutex_),
         running_(false),
         executing_task_(false),
         shutdown_requested_(false) {}
@@ -121,12 +123,19 @@ class Timer {
   // Shutdown the Timer
   bool Shutdown() {
     if (shutdown_requested_.exchange(true)) {
+      InstrumentedMutexLock shutdown_lock(&concurrent_shutdowns_mutex_);
+      while (shutdown_requested_ == true) {
+        concurrent_shutdowns_.Wait();
+      }
       return false;
     }
+
     {
       InstrumentedMutexLock l(&mutex_);
       if (!running_) {
+        InstrumentedMutexLock shutdown_lock(&concurrent_shutdowns_mutex_);
         shutdown_requested_ = false;
+        concurrent_shutdowns_.SignalAll();
         return false;
       }
       running_ = false;
@@ -137,7 +146,10 @@ class Timer {
     if (thread_) {
       thread_->join();
     }
+
+    InstrumentedMutexLock shutdown_lock(&concurrent_shutdowns_mutex_);
     shutdown_requested_ = false;
+    concurrent_shutdowns_.SignalAll();
     return true;
   }
 
@@ -318,6 +330,9 @@ class Timer {
   // making any changes in them.
   mutable InstrumentedMutex mutex_;
   InstrumentedCondVar cond_var_;
+
+  mutable InstrumentedMutex concurrent_shutdowns_mutex_;
+  InstrumentedCondVar concurrent_shutdowns_;
 
   std::unique_ptr<port::Thread> thread_;
   bool running_;
