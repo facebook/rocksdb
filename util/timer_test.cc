@@ -410,10 +410,6 @@ TEST_F(TimerTest, ConcurrentStartShutdown) {
     for (size_t iter = 0; iter < kNumberOfIterations; ++iter) {
       timer.Start();
       std::this_thread::sleep_for(std::chrono::microseconds(10));
-      timer.HasPendingTask();
-      std::this_thread::sleep_for(std::chrono::microseconds(10));
-      timer.CancelAll();
-      std::this_thread::sleep_for(std::chrono::microseconds(10));
       timer.Shutdown();
     }
   };
