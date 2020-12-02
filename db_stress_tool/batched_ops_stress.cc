@@ -10,7 +10,7 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class BatchedOpsStressTest : public StressTest {
  public:
   BatchedOpsStressTest() {}
@@ -325,6 +325,7 @@ class BatchedOpsStressTest : public StressTest {
     if (s.ok()) {
       thread->stats.AddPrefixes(1, count);
     } else {
+      fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     }
 
@@ -336,5 +337,5 @@ class BatchedOpsStressTest : public StressTest {
 
 StressTest* CreateBatchedOpsStressTest() { return new BatchedOpsStressTest(); }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

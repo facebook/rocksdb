@@ -19,7 +19,7 @@
 #include "util/crc32c.h"
 #include "util/random.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace log {
 
 // Construct a string of the specified length made out of the supplied
@@ -465,7 +465,7 @@ TEST_P(LogTest, BadLengthAtEndIsNotIgnored) {
   ShrinkSize(1);
   ASSERT_EQ("EOF", Read(WALRecoveryMode::kAbsoluteConsistency));
   ASSERT_GT(DroppedBytes(), 0U);
-  ASSERT_EQ("OK", MatchError("Corruption: truncated header"));
+  ASSERT_EQ("OK", MatchError("Corruption: truncated record body"));
 }
 
 TEST_P(LogTest, ChecksumMismatch) {
@@ -573,9 +573,7 @@ TEST_P(LogTest, PartialLastIsNotIgnored) {
   ShrinkSize(1);
   ASSERT_EQ("EOF", Read(WALRecoveryMode::kAbsoluteConsistency));
   ASSERT_GT(DroppedBytes(), 0U);
-  ASSERT_EQ("OK", MatchError(
-                      "Corruption: truncated headerCorruption: "
-                      "error reading trailing data"));
+  ASSERT_EQ("OK", MatchError("Corruption: truncated record body"));
 }
 
 TEST_P(LogTest, ErrorJoinsRecords) {
@@ -920,7 +918,7 @@ TEST_P(RetriableLogTest, NonBlockingReadFullRecord) {
 INSTANTIATE_TEST_CASE_P(bool, RetriableLogTest, ::testing::Values(0, 2));
 
 }  // namespace log
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

@@ -13,13 +13,21 @@
 #include "rocksdb/status.h"
 #include "table/format.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class PinnedIteratorsManager;
 
+enum class IterBoundCheck : char {
+  kUnknown = 0,
+  kOutOfBound,
+  kInbound,
+};
+
 struct IterateResult {
   Slice key;
-  bool may_be_out_of_upper_bound;
+  IterBoundCheck bound_check_result = IterBoundCheck::kUnknown;
+  // If false, PrepareValue() needs to be called before value().
+  bool value_prepared = true;
 };
 
 template <class TValue>
@@ -52,6 +60,7 @@ class InternalIteratorBase : public Cleanable {
   // All Seek*() methods clear any error status() that the iterator had prior to
   // the call; after the seek, status() indicates only the error (if any) that
   // happened during the seek, not any past errors.
+  // 'target' contains user timestamp if timestamp is enabled.
   virtual void Seek(const Slice& target) = 0;
 
   // Position at the first key in the source that at or before target
@@ -66,7 +75,7 @@ class InternalIteratorBase : public Cleanable {
 
   // Moves to the next entry in the source, and return result. Iterator
   // implementation should override this method to help methods inline better,
-  // or when MayBeOutOfUpperBound() is non-trivial.
+  // or when UpperBoundCheckResult() is non-trivial.
   // REQUIRES: Valid()
   virtual bool NextAndGetResult(IterateResult* result) {
     Next();
@@ -74,10 +83,11 @@ class InternalIteratorBase : public Cleanable {
     if (is_valid) {
       result->key = key();
       // Default may_be_out_of_upper_bound to true to avoid unnecessary virtual
-      // call. If an implementation has non-trivial MayBeOutOfUpperBound(),
+      // call. If an implementation has non-trivial UpperBoundCheckResult(),
       // it should also override NextAndGetResult().
-      result->may_be_out_of_upper_bound = true;
-      assert(MayBeOutOfUpperBound());
+      result->bound_check_result = IterBoundCheck::kUnknown;
+      result->value_prepared = false;
+      assert(UpperBoundCheckResult() != IterBoundCheck::kOutOfBound);
     }
     return is_valid;
   }
@@ -101,6 +111,7 @@ class InternalIteratorBase : public Cleanable {
   // the returned slice is valid only until the next modification of
   // the iterator.
   // REQUIRES: Valid()
+  // REQUIRES: PrepareValue() has been called if needed (see PrepareValue()).
   virtual TValue value() const = 0;
 
   // If an error has occurred, return it.  Else return an ok status.
@@ -108,21 +119,32 @@ class InternalIteratorBase : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
-  // True if the iterator is invalidated because it reached a key that is above
-  // the iterator upper bound. Used by LevelIterator to decide whether it should
-  // stop or move on to the next file.
-  // Important: if iterator reached the end of the file without encountering any
-  // keys above the upper bound, IsOutOfBound() must return false.
-  virtual bool IsOutOfBound() { return false; }
+  // For some types of iterators, sometimes Seek()/Next()/SeekForPrev()/etc may
+  // load key but not value (to avoid the IO cost of reading the value from disk
+  // if it won't be not needed). This method loads the value in such situation.
+  //
+  // Needs to be called before value() at least once after each iterator
+  // movement (except if IterateResult::value_prepared = true), for iterators
+  // created with allow_unprepared_value = true.
+  //
+  // Returns false if an error occurred; in this case Valid() is also changed
+  // to false, and status() is changed to non-ok.
+  // REQUIRES: Valid()
+  virtual bool PrepareValue() { return true; }
 
   // Keys return from this iterator can be smaller than iterate_lower_bound.
   virtual bool MayBeOutOfLowerBound() { return true; }
 
-  // Keys return from this iterator can be larger or equal to
-  // iterate_upper_bound.
-  virtual bool MayBeOutOfUpperBound() { return true; }
+  // If the iterator has checked the key against iterate_upper_bound, returns
+  // the result here. The function can be used by user of the iterator to skip
+  // their own checks. If Valid() = true, IterBoundCheck::kUnknown is always
+  // a valid value. If Valid() = false, IterBoundCheck::kOutOfBound indicates
+  // that the iterator is filtered out by upper bound checks.
+  virtual IterBoundCheck UpperBoundCheckResult() {
+    return IterBoundCheck::kUnknown;
+  }
 
-  // Pass the PinnedIteratorsManager to the Iterator, most Iterators dont
+  // Pass the PinnedIteratorsManager to the Iterator, most Iterators don't
   // communicate with PinnedIteratorsManager so default implementation is no-op
   // but for Iterators that need to communicate with PinnedIteratorsManager
   // they will implement this function and use the passed pointer to communicate
@@ -143,6 +165,7 @@ class InternalIteratorBase : public Cleanable {
   // If true, this means that the Slice returned by value() is valid as long as
   // PinnedIteratorsManager::ReleasePinnedData is not called and the
   // Iterator is not deleted.
+  // REQUIRES: Same as for value().
   virtual bool IsValuePinned() const { return false; }
 
   virtual Status GetProperty(std::string /*prop_name*/, std::string* /*prop*/) {
@@ -179,4 +202,4 @@ template <class TValue = Slice>
 extern InternalIteratorBase<TValue>* NewErrorInternalIterator(
     const Status& status, Arena* arena);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -9,8 +9,9 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#include "file/file_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 class CfConsistencyStressTest : public StressTest {
  public:
   CfConsistencyStressTest() : batch_id_(0) {}
@@ -184,6 +185,7 @@ class CfConsistencyStressTest : public StressTest {
       db_->ReleaseSnapshot(snapshot);
     }
     if (!is_consistent) {
+      fprintf(stderr, "TestGet error: is_consistent is false\n");
       thread->stats.AddErrors(1);
       // Fail fast to preserve the DB state.
       thread->shared->SetVerificationFailure();
@@ -192,6 +194,7 @@ class CfConsistencyStressTest : public StressTest {
     } else if (s.IsNotFound()) {
       thread->stats.AddGets(1, 0);
     } else {
+      fprintf(stderr, "TestGet error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     }
     return s;
@@ -225,6 +228,7 @@ class CfConsistencyStressTest : public StressTest {
         thread->stats.AddGets(1, 0);
       } else {
         // errors case
+        fprintf(stderr, "MultiGet error: %s\n", s.ToString().c_str());
         thread->stats.AddErrors(1);
       }
     }
@@ -244,7 +248,9 @@ class CfConsistencyStressTest : public StressTest {
     std::string upper_bound;
     Slice ub_slice;
     ReadOptions ro_copy = readoptions;
-    if (thread->rand.OneIn(2) && GetNextPrefix(prefix, &upper_bound)) {
+    // Get the next prefix first and then see if we want to set upper bound.
+    // We'll use the next prefix in an assertion later on
+    if (GetNextPrefix(prefix, &upper_bound) && thread->rand.OneIn(2)) {
       ub_slice = Slice(upper_bound);
       ro_copy.iterate_upper_bound = &ub_slice;
     }
@@ -252,17 +258,18 @@ class CfConsistencyStressTest : public StressTest {
         column_families_[rand_column_families[thread->rand.Next() %
                                               rand_column_families.size()]];
     Iterator* iter = db_->NewIterator(ro_copy, cfh);
-    long count = 0;
+    unsigned long count = 0;
     for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix);
          iter->Next()) {
       ++count;
     }
     assert(prefix_to_use == 0 ||
-           count <= (static_cast<long>(1) << ((8 - prefix_to_use) * 8)));
+           count <= GetPrefixKeyCount(prefix.ToString(), upper_bound));
     Status s = iter->status();
     if (s.ok()) {
       thread->stats.AddPrefixes(1, count);
     } else {
+      fprintf(stderr, "TestPrefixScan error: %s\n", s.ToString().c_str());
       thread->stats.AddErrors(1);
     }
     delete iter;
@@ -275,70 +282,6 @@ class CfConsistencyStressTest : public StressTest {
     // All column families should contain the same data. Randomly pick one.
     return column_families_[thread->rand.Next() % column_families_.size()];
   }
-
-#ifdef ROCKSDB_LITE
-  Status TestCheckpoint(ThreadState* /* thread */,
-                        const std::vector<int>& /* rand_column_families */,
-                        const std::vector<int64_t>& /* rand_keys */) override {
-    assert(false);
-    fprintf(stderr,
-            "RocksDB lite does not support "
-            "TestCheckpoint\n");
-    std::terminate();
-  }
-#else
-  Status TestCheckpoint(ThreadState* thread,
-                        const std::vector<int>& /* rand_column_families */,
-                        const std::vector<int64_t>& /* rand_keys */) override {
-    std::string checkpoint_dir =
-        FLAGS_db + "/.checkpoint" + ToString(thread->tid);
-
-    // We need to clear DB including manifest files, so make a copy
-    Options opt_copy = options_;
-    opt_copy.env = db_stress_env->target();
-    DestroyDB(checkpoint_dir, opt_copy);
-
-    Checkpoint* checkpoint = nullptr;
-    Status s = Checkpoint::Create(db_, &checkpoint);
-    if (s.ok()) {
-      s = checkpoint->CreateCheckpoint(checkpoint_dir);
-    }
-    std::vector<ColumnFamilyHandle*> cf_handles;
-    DB* checkpoint_db = nullptr;
-    if (s.ok()) {
-      delete checkpoint;
-      checkpoint = nullptr;
-      Options options(options_);
-      options.listeners.clear();
-      std::vector<ColumnFamilyDescriptor> cf_descs;
-      // TODO(ajkr): `column_family_names_` is not safe to access here when
-      // `clear_column_family_one_in != 0`. But we can't easily switch to
-      // `ListColumnFamilies` to get names because it won't necessarily give
-      // the same order as `column_family_names_`.
-      if (FLAGS_clear_column_family_one_in == 0) {
-        for (const auto& name : column_family_names_) {
-          cf_descs.emplace_back(name, ColumnFamilyOptions(options));
-        }
-        s = DB::OpenForReadOnly(DBOptions(options), checkpoint_dir, cf_descs,
-                                &cf_handles, &checkpoint_db);
-      }
-    }
-    if (checkpoint_db != nullptr) {
-      for (auto cfh : cf_handles) {
-        delete cfh;
-      }
-      cf_handles.clear();
-      delete checkpoint_db;
-      checkpoint_db = nullptr;
-    }
-    DestroyDB(checkpoint_dir, opt_copy);
-    if (!s.ok()) {
-      fprintf(stderr, "A checkpoint operation failed with: %s\n",
-              s.ToString().c_str());
-    }
-    return s;
-  }
-#endif  // !ROCKSDB_LITE
 
   void VerifyDb(ThreadState* thread) const override {
     ReadOptions options(FLAGS_verify_checksum, true);
@@ -573,5 +516,5 @@ StressTest* CreateCfConsistencyStressTest() {
   return new CfConsistencyStressTest();
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

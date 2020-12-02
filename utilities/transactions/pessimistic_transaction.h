@@ -28,7 +28,7 @@
 #include "utilities/transactions/transaction_base.h"
 #include "utilities/transactions/transaction_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class PessimisticTransactionDB;
 
@@ -120,6 +120,9 @@ class PessimisticTransaction : public TransactionBaseImpl {
   // Refer to
   // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery
   bool use_only_the_last_commit_time_batch_for_recovery_ = false;
+  // Refer to
+  // TransactionOptions::skip_prepare
+  bool skip_prepare_ = false;
 
   virtual Status PrepareInternal() = 0;
 
@@ -136,7 +139,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   virtual void Initialize(const TransactionOptions& txn_options);
 
-  Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
+  Status LockBatch(WriteBatch* batch, LockTracker* keys_to_unlock);
 
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                  bool read_only, bool exclusive, const bool do_validate = true,
@@ -169,7 +172,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
   //
   // If waiting_key_ is not null, then the pointer should always point to
   // a valid string object. The reason is that it is only non-null when the
-  // transaction is blocked in the TransactionLockMgr::AcquireWithTimeout
+  // transaction is blocked in the PointLockManager::AcquireWithTimeout
   // function. At that point, the key string object is one of the function
   // parameters.
   uint32_t waiting_cf_id_;
@@ -220,6 +223,6 @@ class WriteCommittedTxn : public PessimisticTransaction {
   Status RollbackInternal() override;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

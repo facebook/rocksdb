@@ -13,10 +13,11 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Env;
 class Logger;
@@ -44,6 +45,9 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
   uint32_t column_family;
   Status s = ReadRecordFromWriteBatch(&input, &tag, &column_family, Key, value,
                                       blob, xid);
+  if (!s.ok()) {
+    return s;
+  }
 
   switch (tag) {
     case kTypeColumnFamilyValue:
@@ -249,7 +253,8 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
         const MergeOperator* merge_operator;
 
         if (column_family != nullptr) {
-          auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+          auto cfh =
+              static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
           merge_operator = cfh->cfd()->ioptions()->merge_operator;
         } else {
           *s = Status::InvalidArgument("Must provide a column_family");
@@ -283,6 +288,6 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
   return result;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // !ROCKSDB_LITE

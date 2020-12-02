@@ -15,12 +15,19 @@
 #include "memory/arena.h"
 #include "options/db_options.h"
 #include "port/port.h"
-#include "port/sys_time.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
+
+Env::Env() : thread_status_updater_(nullptr) {
+  file_system_ = std::make_shared<LegacyFileSystemWrapper>(this);
+}
+
+Env::Env(std::shared_ptr<FileSystem> fs)
+  : thread_status_updater_(nullptr),
+    file_system_(fs) {}
 
 Env::~Env() {
 }
@@ -36,7 +43,7 @@ Status Env::LoadEnv(const std::string& value, Env** result) {
 #ifndef ROCKSDB_LITE
   s = ObjectRegistry::NewInstance()->NewStaticObject<Env>(value, &env);
 #else
-  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
+  s = Status::NotSupported("Cannot load environment in LITE mode", value);
 #endif
   if (s.ok()) {
     *result = env;
@@ -69,7 +76,7 @@ Status Env::LoadEnv(const std::string& value, Env** result,
 #else
   (void)result;
   (void)guard;
-  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
+  s = Status::NotSupported("Cannot load environment in LITE mode", value);
 #endif
   return s;
 }
@@ -130,6 +137,16 @@ Status Env::GetChildrenFileAttributes(const std::string& dir,
   }
   result->resize(result_size);
   return Status::OK();
+}
+
+Status Env::GetHostNameString(std::string* result) {
+  std::array<char, kMaxHostNameLen> hostname_buf;
+  Status s = GetHostName(hostname_buf.data(), hostname_buf.size());
+  if (s.ok()) {
+    hostname_buf[hostname_buf.size() - 1] = '\0';
+    result->assign(hostname_buf.data());
+  }
+  return s;
 }
 
 SequentialFile::~SequentialFile() {
@@ -199,6 +216,14 @@ void Logger::Logv(const InfoLogLevel log_level, const char* format, va_list ap) 
     snprintf(new_format, sizeof(new_format) - 1, "[%s] %s",
       kInfoLogLevelNames[log_level], format);
     Logv(new_format, ap);
+  }
+
+  if (log_level >= InfoLogLevel::WARN_LEVEL &&
+      log_level != InfoLogLevel::HEADER_LEVEL) {
+    // Log messages with severity of warning or higher should be rare and are
+    // sometimes followed by an unclean crash. We want to be sure important
+    // messages are not lost in an application buffer when that happens.
+    Flush();
   }
 }
 
@@ -361,45 +386,13 @@ void Log(const std::shared_ptr<Logger>& info_log, const char* format, ...) {
 
 Status WriteStringToFile(Env* env, const Slice& data, const std::string& fname,
                          bool should_sync) {
-  std::unique_ptr<WritableFile> file;
-  EnvOptions soptions;
-  Status s = env->NewWritableFile(fname, &file, soptions);
-  if (!s.ok()) {
-    return s;
-  }
-  s = file->Append(data);
-  if (s.ok() && should_sync) {
-    s = file->Sync();
-  }
-  if (!s.ok()) {
-    env->DeleteFile(fname);
-  }
-  return s;
+  LegacyFileSystemWrapper lfsw(env);
+  return WriteStringToFile(&lfsw, data, fname, should_sync);
 }
 
 Status ReadFileToString(Env* env, const std::string& fname, std::string* data) {
-  EnvOptions soptions;
-  data->clear();
-  std::unique_ptr<SequentialFile> file;
-  Status s = env->NewSequentialFile(fname, &file, soptions);
-  if (!s.ok()) {
-    return s;
-  }
-  static const int kBufferSize = 8192;
-  char* space = new char[kBufferSize];
-  while (true) {
-    Slice fragment;
-    s = file->Read(kBufferSize, &fragment, space);
-    if (!s.ok()) {
-      break;
-    }
-    data->append(fragment.data(), fragment.size());
-    if (fragment.empty()) {
-      break;
-    }
-  }
-  delete[] space;
-  return s;
+  LegacyFileSystemWrapper lfsw(env);
+  return ReadFileToString(&lfsw, fname, data);
 }
 
 EnvWrapper::~EnvWrapper() {
@@ -492,4 +485,14 @@ Status NewEnvLogger(const std::string& fname, Env* env,
   return Status::OK();
 }
 
-}  // namespace rocksdb
+const std::shared_ptr<FileSystem>& Env::GetFileSystem() const {
+  return file_system_;
+}
+
+#ifdef OS_WIN
+std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs) {
+  return std::unique_ptr<Env>(new CompositeEnvWrapper(Env::Default(), fs));
+}
+#endif
+
+}  // namespace ROCKSDB_NAMESPACE

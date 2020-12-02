@@ -16,7 +16,7 @@
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<FileSystem> fs,
@@ -43,6 +43,7 @@ SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<FileSystem> fs,
 
 SstFileManagerImpl::~SstFileManagerImpl() {
   Close();
+  bg_err_.PermitUncheckedError();
 }
 
 void SstFileManagerImpl::Close() {
@@ -69,6 +70,14 @@ Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
   }
   TEST_SYNC_POINT("SstFileManagerImpl::OnAddFile");
   return s;
+}
+
+Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
+                                     uint64_t file_size, bool compaction) {
+  MutexLock l(&mu_);
+  OnAddFileImpl(file_path, file_size, compaction);
+  TEST_SYNC_POINT("SstFileManagerImpl::OnAddFile");
+  return Status::OK();
 }
 
 Status SstFileManagerImpl::OnDeleteFile(const std::string& file_path) {
@@ -175,12 +184,13 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
   // seen a NoSpace() error. This is tin order to contain a single potentially
   // misbehaving DB instance and prevent it from slowing down compactions of
   // other DB instances
-  if (CheckFreeSpace() && bg_error == Status::NoSpace()) {
+  if (bg_error == Status::NoSpace() && CheckFreeSpace()) {
     auto fn =
         TableFileName(cfd->ioptions()->cf_paths, inputs[0][0]->fd.GetNumber(),
                       inputs[0][0]->fd.GetPathId());
     uint64_t free_space = 0;
-    fs_->GetFreeSpace(fn, IOOptions(), &free_space, nullptr);
+    Status s = fs_->GetFreeSpace(fn, IOOptions(), &free_space, nullptr);
+    s.PermitUncheckedError();  // TODO: Check the status
     // needed_headroom is based on current size reserved by compactions,
     // minus any files created by running compactions as they would count
     // against the reserved size. If user didn't specify any compaction
@@ -309,6 +319,7 @@ void SstFileManagerImpl::ClearError() {
       cur_instance_ = error_handler;
       mu_.Unlock();
       s = error_handler->RecoverFromBGError();
+      TEST_SYNC_POINT("SstFileManagerImpl::ErrorCleared");
       mu_.Lock();
       // The DB instance might have been deleted while we were
       // waiting for the mutex, so check cur_instance_ to make sure its
@@ -418,7 +429,8 @@ bool SstFileManagerImpl::CancelErrorRecovery(ErrorHandler* handler) {
 Status SstFileManagerImpl::ScheduleFileDeletion(
     const std::string& file_path, const std::string& path_to_sync,
     const bool force_bg) {
-  TEST_SYNC_POINT("SstFileManagerImpl::ScheduleFileDeletion");
+  TEST_SYNC_POINT_CALLBACK("SstFileManagerImpl::ScheduleFileDeletion",
+                           const_cast<std::string*>(&file_path));
   return delete_scheduler_.DeleteFile(file_path, path_to_sync,
                                       force_bg);
 }
@@ -499,7 +511,7 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<FileSystem> fs,
 
   // trash_dir is deprecated and not needed anymore, but if user passed it
   // we will still remove files in it.
-  Status s;
+  Status s = Status::OK();
   if (delete_existing_trash && trash_dir != "") {
     std::vector<std::string> files_in_trash;
     s = fs->GetChildren(trash_dir, IOOptions(), &files_in_trash, nullptr);
@@ -522,6 +534,9 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<FileSystem> fs,
 
   if (status) {
     *status = s;
+  } else {
+    // No one passed us a Status, so they must not care about the error...
+    s.PermitUncheckedError();
   }
 
   return res;
@@ -545,4 +560,4 @@ SstFileManager* NewSstFileManager(Env* /*env*/,
 
 #endif  // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

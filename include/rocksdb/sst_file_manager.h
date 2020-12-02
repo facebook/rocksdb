@@ -11,9 +11,10 @@
 #include <vector>
 
 #include "rocksdb/file_system.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Env;
 class Logger;
@@ -80,6 +81,9 @@ class SstFileManager {
   // Return the total size of trash files
   // thread-safe
   virtual uint64_t GetTotalTrashSize() = 0;
+
+  // Set the statistics ptr to dump the stat information
+  virtual void SetStatisticsPtr(const std::shared_ptr<Statistics>& stats) = 0;
 };
 
 // Create a new SstFileManager that can be shared among multiple RocksDB
@@ -129,4 +133,4 @@ extern SstFileManager* NewSstFileManager(
     double max_trash_db_ratio = 0.25,
     uint64_t bytes_max_delete_chunk = 64 * 1024 * 1024);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

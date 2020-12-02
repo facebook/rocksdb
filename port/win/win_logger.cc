@@ -10,6 +10,8 @@
 // Logger implementation that can be shared by all environments
 // where enough posix functionality is available.
 
+#if defined(OS_WIN)
+
 #include "port/win/win_logger.h"
 #include "port/win/io_win.h"
 
@@ -24,7 +26,7 @@
 #include "monitoring/iostats_context_imp.h"
 #include "port/sys_time.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace port {
 
@@ -47,13 +49,11 @@ void WinLogger::DebugWriter(const char* str, int len) {
   BOOL ret = WriteFile(file_, str, len, &bytesWritten, NULL);
   if (ret == FALSE) {
     std::string errSz = GetWindowsErrSz(GetLastError());
-    fprintf(stderr, errSz.c_str());
+    fprintf(stderr, "%s", errSz.c_str());
   }
 }
 
-WinLogger::~WinLogger() { 
-  CloseInternal();
-}
+WinLogger::~WinLogger() { CloseInternal(); }
 
 Status WinLogger::CloseImpl() {
   return CloseInternal();
@@ -65,15 +65,13 @@ Status WinLogger::CloseInternal() {
     BOOL ret = FlushFileBuffers(file_);
     if (ret == 0) {
       auto lastError = GetLastError();
-      s = IOErrorFromWindowsError("Failed to flush LOG on Close() ", 
-        lastError);
+      s = IOErrorFromWindowsError("Failed to flush LOG on Close() ", lastError);
     }
     ret = CloseHandle(file_);
     // On error the return value is zero
     if (ret == 0 && s.ok()) {
       auto lastError = GetLastError();
-      s = IOErrorFromWindowsError("Failed to flush LOG on Close() ", 
-        lastError);
+      s = IOErrorFromWindowsError("Failed to flush LOG on Close() ", lastError);
     }
     file_ = INVALID_HANDLE_VALUE;
     closed_ = true;
@@ -163,7 +161,7 @@ void WinLogger::Logv(const char* format, va_list ap) {
       &bytesWritten, NULL);
     if (ret == FALSE) {
       std::string errSz = GetWindowsErrSz(GetLastError());
-      fprintf(stderr, errSz.c_str());
+      fprintf(stderr, "%s", errSz.c_str());
     }
 
     flush_pending_ = true;
@@ -189,4 +187,6 @@ size_t WinLogger::GetLogFileSize() const { return log_size_; }
 
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
+
+#endif

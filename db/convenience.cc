@@ -11,10 +11,10 @@
 #include "db/db_impl/db_impl.h"
 #include "util/cast_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 void CancelAllBackgroundWork(DB* db, bool wait) {
-  (static_cast_with_check<DBImpl, DB>(db->GetRootDB()))
+  (static_cast_with_check<DBImpl>(db->GetRootDB()))
       ->CancelAllBackgroundWork(wait);
 }
 
@@ -28,7 +28,7 @@ Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
 Status DeleteFilesInRanges(DB* db, ColumnFamilyHandle* column_family,
                            const RangePtr* ranges, size_t n,
                            bool include_end) {
-  return (static_cast_with_check<DBImpl, DB>(db->GetRootDB()))
+  return (static_cast_with_check<DBImpl>(db->GetRootDB()))
       ->DeleteFilesInRanges(column_family, ranges, n, include_end);
 }
 
@@ -61,7 +61,8 @@ Status VerifySstFileChecksum(const Options& options,
   s = ioptions.table_factory->NewTableReader(
       TableReaderOptions(ioptions, options.prefix_extractor.get(), env_options,
                          internal_comparator, false /* skip_filters */,
-                         !kImmortal, -1 /* level */),
+                         !kImmortal, false /* force_direct_prefetch */,
+                         -1 /* level */),
       std::move(file_reader), file_size, &table_reader,
       false /* prefetch_index_and_filter_in_cache */);
   if (!s.ok()) {
@@ -72,6 +73,6 @@ Status VerifySstFileChecksum(const Options& options,
   return s;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

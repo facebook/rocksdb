@@ -13,7 +13,9 @@
 #include <string>
 #include <vector>
 
-namespace rocksdb {
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class SliceTransform;
@@ -43,6 +45,8 @@ class CompactionFilter {
     kRemove,
     kChangeValue,
     kRemoveAndSkipUntil,
+    kChangeBlobIndex,  // used internally by BlobDB.
+    kIOError,          // used internally by BlobDB.
   };
 
   enum class BlobDecision { kKeep, kChangeValue, kCorruption, kIOError };
@@ -207,4 +211,4 @@ class CompactionFilterFactory {
   virtual const char* Name() const = 0;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

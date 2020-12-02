@@ -12,7 +12,7 @@
 
 #include "rocksdb/slice.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class Logger;
@@ -109,7 +109,7 @@ class MergeOperator {
     Slice& existing_operand;
   };
 
-  // This function applies a stack of merge operands in chrionological order
+  // This function applies a stack of merge operands in chronological order
   // on top of an existing value. There are two ways in which this method is
   // being used:
   // a) During Get() operation, it used to calculate the final value of a key
@@ -125,7 +125,7 @@ class MergeOperator {
   // In the example above, Get(K) operation will call FullMerge with a base
   // value of 2 and operands [+1, +2]. Compaction process might decide to
   // collapse the beginning of the history up to the snapshot by performing
-  // full Merge with base value of 0 and operands [+1, +2, +7, +3].
+  // full Merge with base value of 0 and operands [+1, +2, +7, +4].
   virtual bool FullMergeV2(const MergeOperationInput& merge_in,
                            MergeOperationOutput* merge_out) const;
 
@@ -254,4 +254,4 @@ class AssociativeMergeOperator : public MergeOperator {
                     Logger* logger) const override;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -19,6 +19,8 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_log_format.h"
+#include "db/blob/blob_log_writer.h"
 #include "db/db_iter.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
@@ -30,11 +32,8 @@
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_file.h"
-#include "utilities/blob_db/blob_log_format.h"
-#include "utilities/blob_db/blob_log_reader.h"
-#include "utilities/blob_db/blob_log_writer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBImpl;
 class ColumnFamilyHandle;
@@ -60,37 +59,23 @@ struct BlobFileComparator {
                   const std::shared_ptr<BlobFile>& rhs) const;
 };
 
-struct GCStats {
-  uint64_t blob_count = 0;
-  uint64_t num_keys_overwritten = 0;
-  uint64_t num_keys_expired = 0;
-  uint64_t num_keys_relocated = 0;
-  uint64_t bytes_overwritten = 0;
-  uint64_t bytes_expired = 0;
-  uint64_t bytes_relocated = 0;
-};
-
 /**
- * The implementation class for BlobDB. This manages the value
- * part in TTL aware sequentially written files. These files are
- * Garbage Collected.
+ * The implementation class for BlobDB. It manages the blob logs, which
+ * are sequentially written files. Blob logs can be of the TTL or non-TTL
+ * varieties; the former are cleaned up when they expire, while the latter
+ * are (optionally) garbage collected.
  */
 class BlobDBImpl : public BlobDB {
   friend class BlobFile;
   friend class BlobDBIterator;
   friend class BlobDBListener;
   friend class BlobDBListenerGC;
+  friend class BlobIndexCompactionFilterBase;
   friend class BlobIndexCompactionFilterGC;
 
  public:
   // deletions check period
   static constexpr uint32_t kDeleteCheckPeriodMillisecs = 2 * 1000;
-
-  // gc percentage each check period
-  static constexpr uint32_t kGCFilePercentage = 100;
-
-  // gc period
-  static constexpr uint32_t kGCCheckPeriodMillisecs = 60 * 1000;
 
   // sanity check task
   static constexpr uint32_t kSanityCheckPeriodMillisecs = 20 * 60 * 1000;
@@ -183,7 +168,7 @@ class BlobDBImpl : public BlobDB {
 
   // Common part of the two GetCompactionContext methods below.
   // REQUIRES: read lock on mutex_
-  void GetCompactionContextCommon(BlobCompactionContext* context) const;
+  void GetCompactionContextCommon(BlobCompactionContext* context);
 
   void GetCompactionContext(BlobCompactionContext* context);
   void GetCompactionContext(BlobCompactionContext* context,
@@ -208,11 +193,6 @@ class BlobDBImpl : public BlobDB {
                              SequenceNumber obsolete_seq = 0,
                              bool update_size = true);
 
-  Status TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
-                                 GCStats* gc_stats);
-
-  void TEST_RunGC();
-
   void TEST_EvictExpiredFiles();
 
   void TEST_DeleteObsoleteFiles();
@@ -231,7 +211,6 @@ class BlobDBImpl : public BlobDB {
 #endif  //  !NDEBUG
 
  private:
-  class GarbageCollectionWriteCallback;
   class BlobInserter;
 
   // Create a snapshot if there isn't one in read options.
@@ -253,11 +232,16 @@ class BlobDBImpl : public BlobDB {
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
 
+  Status DecompressSlice(const Slice& compressed_value,
+                         CompressionType compression_type,
+                         PinnableSlice* value_output) const;
+
   // Close a file by appending a footer, and removes file from open files list.
   // REQUIRES: lock held on write_mutex_, write lock held on both the db mutex_
   // and the blob file's mutex_. If called on a blob file which is visible only
-  // to a single thread (like in the case of new files written during GC), the
-  // locks on write_mutex_ and the blob file's mutex_ can be avoided.
+  // to a single thread (like in the case of new files written during
+  // compaction/GC), the locks on write_mutex_ and the blob file's mutex_ can be
+  // avoided.
   Status CloseBlobFile(std::shared_ptr<BlobFile> bfile);
 
   // Close a file if its size exceeds blob_file_size
@@ -284,7 +268,7 @@ class BlobDBImpl : public BlobDB {
                                  const ExpirationRange& expiration_range,
                                  const std::string& reason,
                                  std::shared_ptr<BlobFile>* blob_file,
-                                 std::shared_ptr<Writer>* writer);
+                                 std::shared_ptr<BlobLogWriter>* writer);
 
   // Get the open non-TTL blob log file, or create a new one if no such file
   // exists.
@@ -300,13 +284,9 @@ class BlobDBImpl : public BlobDB {
   // periodic sanity check. Bunch of checks
   std::pair<bool, int64_t> SanityCheck(bool aborted);
 
-  // delete files which have been garbage collected and marked
-  // obsolete. Check whether any snapshots exist which refer to
-  // the same
+  // Delete files that have been marked obsolete (either because of TTL
+  // or GC). Check whether any snapshots exist which refer to the same.
   std::pair<bool, int64_t> DeleteObsoleteFiles(bool aborted);
-
-  // Major task to garbage collect expired and deleted blobs
-  std::pair<bool, int64_t> RunGC(bool aborted);
 
   // periodically check if open blob files and their TTL's has expired
   // if expired, close the sequential writer and make the file immutable
@@ -393,16 +373,10 @@ class BlobDBImpl : public BlobDB {
   // creates a sequential (append) writer for this blobfile
   Status CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile);
 
-  // returns a Writer object for the file. If writer is not
+  // returns a BlobLogWriter object for the file. If writer is not
   // already present, creates one. Needs Write Mutex to be held
   Status CheckOrCreateWriterLocked(const std::shared_ptr<BlobFile>& blob_file,
-                                   std::shared_ptr<Writer>* writer);
-
-  // Iterate through keys and values on Blob and write into
-  // separate file the remaining blobs and delete/update pointers
-  // in LSM atomically
-  Status GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
-                            GCStats* gcstats);
+                                   std::shared_ptr<BlobLogWriter>* writer);
 
   // checks if there is no snapshot which is referencing the
   // blobs
@@ -522,5 +496,5 @@ class BlobDBImpl : public BlobDB {
 };
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

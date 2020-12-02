@@ -9,7 +9,7 @@
 #include "table/block_based/block_based_table_reader.h"
 #include "table/block_based/filter_policy_internal.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace mock {
 
 class MockBlockBasedTable : public BlockBasedTable {
@@ -39,7 +39,7 @@ class MockBlockBasedTableTester {
     constexpr bool immortal_table = false;
     table_.reset(new MockBlockBasedTable(new BlockBasedTable::Rep(
         ioptions_, env_options_, table_options_, icomp_, skip_filters,
-        kMockLevel, immortal_table)));
+        12345 /*file_size*/, kMockLevel, immortal_table)));
   }
 
   FilterBitsBuilder* GetBuilder() const {
@@ -47,9 +47,10 @@ class MockBlockBasedTableTester {
     context.column_family_name = "mock_cf";
     context.compaction_style = ioptions_.compaction_style;
     context.level_at_creation = kMockLevel;
+    context.info_log = ioptions_.info_log;
     return BloomFilterPolicy::GetBuilderFromContext(context);
   }
 };
 
 }  // namespace mock
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

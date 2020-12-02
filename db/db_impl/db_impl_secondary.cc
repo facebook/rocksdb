@@ -13,7 +13,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "util/cast_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
@@ -28,8 +28,8 @@ DBImplSecondary::~DBImplSecondary() {}
 
 Status DBImplSecondary::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families,
-    bool /*readonly*/, bool /*error_if_log_file_exist*/,
-    bool /*error_if_data_exists_in_logs*/) {
+    bool /*readonly*/, bool /*error_if_wal_file_exists*/,
+    bool /*error_if_data_exists_in_wals*/, uint64_t*) {
   mutex_.AssertHeld();
 
   JobContext job_context(0);
@@ -112,7 +112,7 @@ Status DBImplSecondary::FindNewLogNumbers(std::vector<uint64_t>* logs) {
   for (size_t i = 0; i < filenames.size(); i++) {
     uint64_t number;
     FileType type;
-    if (ParseFileName(filenames[i], &number, &type) && type == kLogFile &&
+    if (ParseFileName(filenames[i], &number, &type) && type == kWalFile &&
         number >= log_number_min) {
       logs->push_back(number);
     }
@@ -153,7 +153,8 @@ Status DBImplSecondary::MaybeInitLogReader(
         return status;
       }
       file_reader.reset(new SequentialFileReader(
-          std::move(file), fname, immutable_db_options_.log_readahead_size));
+          std::move(file), fname, immutable_db_options_.log_readahead_size,
+          io_tracer_));
     }
 
     // Create the log reader.
@@ -191,6 +192,8 @@ Status DBImplSecondary::RecoverLogFiles(
     auto it  = log_readers_.find(log_number);
     assert(it != log_readers_.end());
     log::FragmentBufferedReader* reader = it->second->reader_;
+    Status* wal_read_status = it->second->status_;
+    assert(wal_read_status);
     // Manually update the file number allocation counter in VersionSet.
     versions_->MarkFileNumberUsed(log_number);
 
@@ -202,13 +205,16 @@ Status DBImplSecondary::RecoverLogFiles(
 
     while (reader->ReadRecord(&record, &scratch,
                               immutable_db_options_.wal_recovery_mode) &&
-           status.ok()) {
+           wal_read_status->ok() && status.ok()) {
       if (record.size() < WriteBatchInternal::kHeader) {
         reader->GetReporter()->Corruption(
             record.size(), Status::Corruption("log record too small"));
         continue;
       }
-      WriteBatchInternal::SetContents(&batch, record);
+      status = WriteBatchInternal::SetContents(&batch, record);
+      if (!status.ok()) {
+        break;
+      }
       SequenceNumber seq_of_batch = WriteBatchInternal::Sequence(&batch);
       std::vector<uint32_t> column_family_ids;
       status = CollectColumnFamilyIdsFromWriteBatch(batch, &column_family_ids);
@@ -294,6 +300,9 @@ Status DBImplSecondary::RecoverLogFiles(
         reader->GetReporter()->Corruption(record.size(), status);
       }
     }
+    if (status.ok() && !wal_read_status->ok()) {
+      status = *wal_read_status;
+    }
     if (!status.ok()) {
       return status;
     }
@@ -340,15 +349,16 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   PERF_TIMER_STOP(get_snapshot_time);
 
   bool done = false;
-  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
+  if (super_version->mem->Get(lkey, pinnable_val->GetSelf(),
+                              /*timestamp=*/nullptr, &s, &merge_context,
                               &max_covering_tombstone_seq, read_options)) {
     done = true;
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
   } else if ((s.ok() || s.IsMergeInProgress()) &&
              super_version->imm->Get(
-                 lkey, pinnable_val->GetSelf(), &s, &merge_context,
-                 &max_covering_tombstone_seq, read_options)) {
+                 lkey, pinnable_val->GetSelf(), /*timestamp=*/nullptr, &s,
+                 &merge_context, &max_covering_tombstone_seq, read_options)) {
     done = true;
     pinnable_val->PinSelf();
     RecordTick(stats_, MEMTABLE_HIT);
@@ -359,8 +369,9 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    super_version->current->Get(read_options, lkey, pinnable_val, &s,
-                                &merge_context, &max_covering_tombstone_seq);
+    super_version->current->Get(read_options, lkey, pinnable_val,
+                                /*timestamp=*/nullptr, &s, &merge_context,
+                                &max_covering_tombstone_seq);
     RecordTick(stats_, MEMTABLE_MISS);
   }
   {
@@ -386,7 +397,7 @@ Iterator* DBImplSecondary::NewIterator(const ReadOptions& read_options,
         "ReadTier::kPersistedData is not yet supported in iterators."));
   }
   Iterator* result = nullptr;
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   ReadCallback* read_callback = nullptr;  // No read callback provided.
   if (read_options.tailing) {
@@ -413,9 +424,10 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
       snapshot,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
       super_version->version_number, read_callback);
-  auto internal_iter =
-      NewInternalIterator(read_options, cfd, super_version, db_iter->GetArena(),
-                          db_iter->GetRangeDelAggregator(), snapshot);
+  auto internal_iter = NewInternalIterator(
+      db_iter->GetReadOptions(), cfd, super_version, db_iter->GetArena(),
+      db_iter->GetRangeDelAggregator(), snapshot,
+      /* allow_unprepared_value */ true);
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
@@ -468,6 +480,11 @@ Status DBImplSecondary::CheckConsistency() {
   // approach and just proceed.
   TEST_SYNC_POINT_CALLBACK(
       "DBImplSecondary::CheckConsistency:AfterFirstAttempt", &s);
+
+  if (immutable_db_options_.skip_checking_sst_file_sizes_on_db_open) {
+    return Status::OK();
+  }
+
   std::vector<LiveFileMetaData> metadata;
   versions_->GetLiveFilesMetaData(&metadata);
 
@@ -603,7 +620,7 @@ Status DB::OpenAsSecondary(
   impl->versions_.reset(new ReactiveVersionSet(
       dbname, &impl->immutable_db_options_, impl->file_options_,
       impl->table_cache_.get(), impl->write_buffer_manager_,
-      &impl->write_controller_));
+      &impl->write_controller_, impl->io_tracer_));
   impl->column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(impl->versions_->GetColumnFamilySet()));
   impl->wal_in_db_path_ = IsWalDirSameAsDBPath(&impl->immutable_db_options_);
@@ -615,7 +632,7 @@ Status DB::OpenAsSecondary(
       auto cfd =
           impl->versions_->GetColumnFamilySet()->GetColumnFamily(cf.name);
       if (nullptr == cfd) {
-        s = Status::InvalidArgument("Column family not found: ", cf.name);
+        s = Status::InvalidArgument("Column family not found", cf.name);
         break;
       }
       handles->push_back(new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));
@@ -634,7 +651,7 @@ Status DB::OpenAsSecondary(
     *dbptr = impl;
     for (auto h : *handles) {
       impl->NewThreadStatusCfInfo(
-          reinterpret_cast<ColumnFamilyHandleImpl*>(h)->cfd());
+          static_cast_with_check<ColumnFamilyHandleImpl>(h)->cfd());
     }
   } else {
     for (auto h : *handles) {
@@ -663,4 +680,4 @@ Status DB::OpenAsSecondary(
 }
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

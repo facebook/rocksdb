@@ -19,7 +19,7 @@
 //
 // See transaction.h and examples/transaction_example.cc
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class TransactionDBMutexFactory;
 
@@ -172,6 +172,10 @@ struct TransactionOptions {
   // Default: false
   bool skip_concurrency_control = false;
 
+  // In pessimistic transaction, if this is true, then you can skip Prepare
+  // before Commit, otherwise, you must Prepare before Commit.
+  bool skip_prepare = true;
+
   // See TransactionDBOptions::default_write_batch_flush_threshold for
   // description. If a negative value is specified, then the default value from
   // TransactionDBOptions is used.
@@ -194,6 +198,13 @@ struct TransactionDBWriteOptimizations {
 
 struct KeyLockInfo {
   std::string key;
+  std::vector<TransactionID> ids;
+  bool exclusive;
+};
+
+struct RangeLockInfo {
+  Endpoint start;
+  Endpoint end;
   std::vector<TransactionID> ids;
   bool exclusive;
 };
@@ -292,6 +303,7 @@ class TransactionDB : public StackableDB {
   // The mapping is column family id -> KeyLockInfo
   virtual std::unordered_multimap<uint32_t, KeyLockInfo>
   GetLockStatusData() = 0;
+
   virtual std::vector<DeadlockPath> GetDeadlockInfoBuffer() = 0;
   virtual void SetDeadlockInfoBufferSize(uint32_t target_size) = 0;
 
@@ -304,6 +316,6 @@ class TransactionDB : public StackableDB {
   void operator=(const TransactionDB&) = delete;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

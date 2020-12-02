@@ -11,7 +11,7 @@
 
 #include "db/compaction/compaction_picker.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 // Picking compactions for leveled compaction. See wiki page
 // https://github.com/facebook/rocksdb/wiki/Leveled-Compaction
 // for description of Leveled compaction.
@@ -22,11 +22,12 @@ class LevelCompactionPicker : public CompactionPicker {
       : CompactionPicker(ioptions, icmp) {}
   virtual Compaction* PickCompaction(
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* vstorage, LogBuffer* log_buffer,
+      const MutableDBOptions& mutable_db_options, VersionStorageInfo* vstorage,
+      LogBuffer* log_buffer,
       SequenceNumber earliest_memtable_seqno = kMaxSequenceNumber) override;
 
   virtual bool NeedsCompaction(
       const VersionStorageInfo* vstorage) const override;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

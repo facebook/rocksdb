@@ -15,7 +15,7 @@
 #include "trace_replay/block_cache_tracer.h"
 #include "utilities/simulator_cache/cache_simulator.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // Statistics of a key refereneced by a Get.
 struct GetKeyInfo {
@@ -103,7 +103,9 @@ struct BlockAccessInfo {
         num_referenced_key_exist_in_block++;
         if (referenced_data_size > block_size && block_size != 0) {
           ParsedInternalKey internal_key;
-          ParseInternalKey(access.referenced_key, &internal_key);
+          Status s = ParseInternalKey(access.referenced_key, &internal_key,
+                                      false /* log_err_key */);  // TODO
+          assert(s.ok());  // TODO
         }
       } else {
         non_exist_key_num_access_map[access.referenced_key][access.caller]++;
@@ -366,7 +368,7 @@ class BlockCacheTraceAnalyzer {
       const std::map<std::string, Predictions>& label_predictions,
       uint32_t max_number_of_values) const;
 
-  rocksdb::Env* env_;
+  ROCKSDB_NAMESPACE::Env* env_;
   const std::string trace_file_path_;
   const std::string output_dir_;
   std::string human_readable_trace_file_path_;
@@ -390,4 +392,4 @@ class BlockCacheTraceAnalyzer {
 
 int block_cache_trace_analyzer_tool(int argc, char** argv);
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

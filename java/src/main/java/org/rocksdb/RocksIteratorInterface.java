@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.nio.ByteBuffer;
+
 /**
  * <p>Defines the interface for an Iterator which provides
  * access to data one entry at a time. Multiple implementations
@@ -65,6 +67,29 @@ public interface RocksIteratorInterface {
   void seekForPrev(byte[] target);
 
   /**
+   * <p>Position at the first entry in the source whose key is that or
+   * past target.</p>
+   *
+   * <p>The iterator is valid after this call if the source contains
+   * a key that comes at or past target.</p>
+   *
+   * @param target byte array describing a key or a
+   *               key prefix to seek for. Supports direct buffer only.
+   */
+  void seek(ByteBuffer target);
+
+  /**
+   * <p>Position at the last key that is less than or equal to the target key.</p>
+   *
+   * <p>The iterator is valid after this call if the source contains
+   * a key that comes at or past target.</p>
+   *
+   * @param target byte array describing a key or a
+   *               key prefix to seek for. Supports direct buffer only.
+   */
+  void seekForPrev(ByteBuffer target);
+
+  /**
    * <p>Moves to the next entry in the source.  After this call, Valid() is
    * true if the iterator was not positioned at the last entry in the source.</p>
    *
@@ -89,4 +114,14 @@ public interface RocksIteratorInterface {
    *                          native library.
    */
   void status() throws RocksDBException;
+
+  /**
+   * <p>If supported, renew the iterator to represent the latest state. The iterator will be
+   * invalidated after the call. Not supported if {@link ReadOptions#setSnapshot(Snapshot)} was
+   * specified when creating the iterator.</p>
+   *
+   * @throws RocksDBException thrown if the operation is not supported or an error happens in the
+   *     underlying native library
+   */
+  void refresh() throws RocksDBException;
 }

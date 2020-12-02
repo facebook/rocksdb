@@ -29,7 +29,7 @@
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class PosixLogger : public Logger {
  private:
@@ -68,7 +68,7 @@ class PosixLogger : public Logger {
   virtual ~PosixLogger() {
     if (!closed_) {
       closed_ = true;
-      PosixCloseHelper();
+      PosixCloseHelper().PermitUncheckedError();
     }
   }
   virtual void Flush() override {
@@ -182,4 +182,4 @@ class PosixLogger : public Logger {
   size_t GetLogFileSize() const override { return log_size_; }
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

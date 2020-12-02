@@ -15,7 +15,7 @@
 #include "util/autovector.h"
 #include "util/thread_local.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class ThreadLocalTest : public testing::Test {
  public:
@@ -119,6 +119,9 @@ TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
   ThreadLocalPtr tls2;
   p.tls2 = &tls2;
 
+  ASSERT_GT(IDChecker::PeekId(), base_id);
+  base_id = IDChecker::PeekId();
+
   auto func = [](void* ptr) {
     auto& params = *static_cast<Params*>(ptr);
 
@@ -141,7 +144,7 @@ TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
   };
 
   for (int iter = 0; iter < 1024; ++iter) {
-    ASSERT_EQ(IDChecker::PeekId(), base_id + 1u);
+    ASSERT_EQ(IDChecker::PeekId(), base_id);
     // Another new thread, read/write should not see value from previous thread
     env_->StartThread(func, static_cast<void*>(&p));
     mu.Lock();
@@ -149,7 +152,7 @@ TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
       cv.Wait();
     }
     mu.Unlock();
-    ASSERT_EQ(IDChecker::PeekId(), base_id + 1u);
+    ASSERT_EQ(IDChecker::PeekId(), base_id);
   }
 }
 
@@ -551,7 +554,7 @@ void* AccessThreadLocal(void* /*arg*/) {
 // this test and only see an ASAN error on SyncPoint, it means you pass the
 // test.
 TEST_F(ThreadLocalTest, DISABLED_MainThreadDiesFirst) {
-  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"AccessThreadLocal:Start", "MainThreadDiesFirst:End"},
        {"PosixEnv::~PosixEnv():End", "AccessThreadLocal:End"}});
 
@@ -561,7 +564,7 @@ TEST_F(ThreadLocalTest, DISABLED_MainThreadDiesFirst) {
 #ifndef ROCKSDB_LITE
   try {
 #endif  // ROCKSDB_LITE
-    rocksdb::port::Thread th(&AccessThreadLocal, nullptr);
+    ROCKSDB_NAMESPACE::port::Thread th(&AccessThreadLocal, nullptr);
     th.detach();
     TEST_SYNC_POINT("MainThreadDiesFirst:End");
 #ifndef ROCKSDB_LITE
@@ -572,7 +575,7 @@ TEST_F(ThreadLocalTest, DISABLED_MainThreadDiesFirst) {
 #endif  // ROCKSDB_LITE
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

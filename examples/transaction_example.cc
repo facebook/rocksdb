@@ -11,9 +11,13 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 
-using namespace rocksdb;
+using namespace ROCKSDB_NAMESPACE;
 
+#if defined(OS_WIN)
+std::string kDBPath = "C:\\Windows\\TEMP\\rocksdb_transaction_example";
+#else
 std::string kDBPath = "/tmp/rocksdb_transaction_example";
+#endif
 
 int main() {
   // open DB

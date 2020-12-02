@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#if defined(OS_WIN)
+
 #include "port/win/env_win.h"
 #include "port/win/win_thread.h"
 #include <algorithm>
@@ -14,7 +16,6 @@
 #include <thread>
 
 #include <errno.h>
-#include <process.h> // _getpid
 #include <io.h> // _access
 #include <direct.h> // _rmdir, _mkdir, _getcwd
 #include <sys/types.h>
@@ -40,7 +41,7 @@
 
 #include <algorithm>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 ThreadStatusUpdater* CreateThreadStatusUpdater() {
   return new ThreadStatusUpdater();
@@ -122,7 +123,7 @@ Status WinEnvIO::DeleteFile(const std::string& fname) {
 
 Status WinEnvIO::Truncate(const std::string& fname, size_t size) {
   Status s;
-  int result = rocksdb::port::Truncate(fname, size);
+  int result = ROCKSDB_NAMESPACE::port::Truncate(fname, size);
   if (result != 0) {
     s = IOError("Failed to truncate: " + fname, errno);
   }
@@ -906,7 +907,7 @@ Status WinEnvIO::GetTestDirectory(std::string* result) {
   CreateDir(output);
 
   output.append("\\testrocksdb-");
-  output.append(std::to_string(_getpid()));
+  output.append(std::to_string(GetCurrentProcessId()));
 
   CreateDir(output);
 
@@ -953,6 +954,14 @@ Status WinEnvIO::NewLogger(const std::string& fname,
     result->reset(new WinLogger(&WinEnvThreads::gettid, hosted_env_, hFile));
   }
   return s;
+}
+
+Status WinEnvIO::IsDirectory(const std::string& path, bool* is_dir) {
+  BOOL ret = RX_PathIsDirectory(RX_FN(path).c_str());
+  if (is_dir) {
+    *is_dir = ret ? true : false;
+  }
+  return Status::OK();
 }
 
 uint64_t WinEnvIO::NowMicros() {
@@ -1073,6 +1082,20 @@ std::string WinEnvIO::TimeToString(uint64_t secondsSince1970) {
   }
 
   return result;
+}
+
+Status WinEnvIO::GetFreeSpace(const std::string& path, uint64_t* diskfree) {
+  assert(diskfree != nullptr);
+  ULARGE_INTEGER freeBytes;
+  BOOL f = RX_GetDiskFreeSpaceEx(RX_FN(path).c_str(), &freeBytes, NULL, NULL);
+  if (f) {
+    *diskfree = freeBytes.QuadPart;
+    return Status::OK();
+  } else {
+    DWORD lastError = GetLastError();
+    return IOErrorFromWindowsError("Failed to get free space: " + path,
+                                   lastError);
+  }
 }
 
 EnvOptions WinEnvIO::OptimizeForLogWrite(const EnvOptions& env_options,
@@ -1229,8 +1252,7 @@ void WinEnvThreads::StartThread(void(*function)(void* arg), void* arg) {
   state->user_function = function;
   state->arg = arg;
   try {
-
-    rocksdb::port::WindowsThread th(&StartThreadWrapper, state.get());
+    ROCKSDB_NAMESPACE::port::WindowsThread th(&StartThreadWrapper, state.get());
     state.release();
 
     std::lock_guard<std::mutex> lg(mu_);
@@ -1411,13 +1433,17 @@ Status WinEnv::UnlockFile(FileLock* lock) {
   return winenv_io_.UnlockFile(lock);
 }
 
-Status  WinEnv::GetTestDirectory(std::string* result) {
+Status WinEnv::GetTestDirectory(std::string* result) {
   return winenv_io_.GetTestDirectory(result);
 }
 
 Status WinEnv::NewLogger(const std::string& fname,
                          std::shared_ptr<Logger>* result) {
   return winenv_io_.NewLogger(fname, result);
+}
+
+Status WinEnv::IsDirectory(const std::string& path, bool* is_dir) {
+  return winenv_io_.IsDirectory(path, is_dir);
 }
 
 uint64_t WinEnv::NowMicros() {
@@ -1465,6 +1491,10 @@ unsigned int  WinEnv::GetThreadPoolQueueLen(Env::Priority pri) const {
 
 uint64_t WinEnv::GetThreadID() const {
   return winenv_threads_.GetThreadID();
+}
+
+Status WinEnv::GetFreeSpace(const std::string& path, uint64_t* diskfree) {
+  return winenv_io_.GetFreeSpace(path, diskfree);
 }
 
 void WinEnv::SleepForMicroseconds(int micros) {
@@ -1520,4 +1550,6 @@ std::string Env::GenerateUniqueId() {
   return result;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
+
+#endif

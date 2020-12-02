@@ -17,7 +17,7 @@
 
 class ColumnFamilyData;
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBImpl;
 class MemTableList;
@@ -335,6 +335,7 @@ class InternalStats {
     for (auto& h : file_read_latency_) {
       h.Clear();
     }
+    blob_file_read_latency_.Clear();
     cf_stats_snapshot_.Clear();
     db_stats_snapshot_.Clear();
     bg_error_count_ = 0;
@@ -375,6 +376,8 @@ class InternalStats {
     return &file_read_latency_[level];
   }
 
+  HistogramImpl* GetBlobFileReadHist() { return &blob_file_read_latency_; }
+
   uint64_t GetBackgroundErrorCount() const { return bg_error_count_; }
 
   uint64_t BumpAndGetBackgroundErrorCount() { return ++bg_error_count_; }
@@ -391,6 +394,8 @@ class InternalStats {
 
   bool GetIntPropertyOutOfMutex(const DBPropertyInfo& property_info,
                                 Version* version, uint64_t* value);
+
+  const uint64_t* TEST_GetCFStatsValue() const { return cf_stats_value_; }
 
   const std::vector<CompactionStats>& TEST_GetCompactionStats() const {
     return comp_stats_;
@@ -424,6 +429,7 @@ class InternalStats {
   std::vector<CompactionStats> comp_stats_;
   std::vector<CompactionStats> comp_stats_by_pri_;
   std::vector<HistogramImpl> file_read_latency_;
+  HistogramImpl blob_file_read_latency_;
 
   // Used to compute per-interval statistics
   struct CFStatsSnapshot {
@@ -553,6 +559,8 @@ class InternalStats {
   bool HandleEstimateNumKeys(uint64_t* value, DBImpl* db, Version* version);
   bool HandleNumSnapshots(uint64_t* value, DBImpl* db, Version* version);
   bool HandleOldestSnapshotTime(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleOldestSnapshotSequence(uint64_t* value, DBImpl* db,
+                                    Version* version);
   bool HandleNumLiveVersions(uint64_t* value, DBImpl* db, Version* version);
   bool HandleCurrentSuperVersionNumber(uint64_t* value, DBImpl* db,
                                        Version* version);
@@ -665,6 +673,8 @@ class InternalStats {
 
   HistogramImpl* GetFileReadHist(int /*level*/) { return nullptr; }
 
+  HistogramImpl* GetBlobFileReadHist() { return nullptr; }
+
   uint64_t GetBackgroundErrorCount() const { return 0; }
 
   uint64_t BumpAndGetBackgroundErrorCount() { return 0; }
@@ -692,4 +702,4 @@ class InternalStats {
 };
 #endif  // !ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

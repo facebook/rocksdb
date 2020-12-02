@@ -8,10 +8,13 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <random>
 #include <stdint.h>
+#include <algorithm>
+#include <random>
 
-namespace rocksdb {
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 
 // A very simple random number generator.  Not especially good at
 // generating truly random bits, but good enough for our needs in this
@@ -82,6 +85,12 @@ class Random {
   uint32_t Skewed(int max_log) {
     return Uniform(1 << Uniform(max_log + 1));
   }
+
+  // Returns a random string of length "len"
+  std::string RandomString(int len);
+
+  // Generates a random string of len bytes using human-readable characters
+  std::string HumanReadableString(int len);
 
   // Returns a Random instance for use by the current thread without
   // additional locking
@@ -161,4 +170,17 @@ class Random64 {
   }
 };
 
-}  // namespace rocksdb
+// A seeded replacement for removed std::random_shuffle
+template <class RandomIt>
+void RandomShuffle(RandomIt first, RandomIt last, uint32_t seed) {
+  std::mt19937 rng(seed);
+  std::shuffle(first, last, rng);
+}
+
+// A replacement for removed std::random_shuffle
+template <class RandomIt>
+void RandomShuffle(RandomIt first, RandomIt last) {
+  RandomShuffle(first, last, std::random_device{}());
+}
+
+}  // namespace ROCKSDB_NAMESPACE

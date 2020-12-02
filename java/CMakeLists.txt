@@ -4,6 +4,8 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4")
     message("Please consider switching to CMake 3.11.4 or newer")
 endif()
 
+set(CMAKE_JAVA_COMPILE_FLAGS -source 7)
+
 set(JNI_NATIVE_SOURCES
         rocksjni/backupablejni.cc
         rocksjni/backupenginejni.cc
@@ -24,8 +26,12 @@ set(JNI_NATIVE_SOURCES
         rocksjni/comparator.cc
         rocksjni/comparatorjnicallback.cc
         rocksjni/compression_options.cc
+        rocksjni/concurrent_task_limiter.cc
+        rocksjni/config_options.cc
         rocksjni/env.cc
         rocksjni/env_options.cc
+        rocksjni/event_listener.cc
+        rocksjni/event_listener_jnicallback.cc
         rocksjni/filter.cc
         rocksjni/ingest_external_file_options.cc
         rocksjni/iterator.cc
@@ -53,6 +59,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/sst_file_writerjni.cc
         rocksjni/sst_file_readerjni.cc
         rocksjni/sst_file_reader_iterator.cc
+        rocksjni/sst_partitioner.cc
         rocksjni/statistics.cc
         rocksjni/statisticsjni.cc
         rocksjni/table.cc
@@ -82,6 +89,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/AbstractCompactionFilter.java
   src/main/java/org/rocksdb/AbstractCompactionFilterFactory.java
   src/main/java/org/rocksdb/AbstractComparator.java
+  src/main/java/org/rocksdb/AbstractEventListener.java
   src/main/java/org/rocksdb/AbstractImmutableNativeReference.java
   src/main/java/org/rocksdb/AbstractMutableOptions.java
   src/main/java/org/rocksdb/AbstractNativeReference.java
@@ -95,6 +103,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/AccessHint.java
   src/main/java/org/rocksdb/AdvancedColumnFamilyOptionsInterface.java
   src/main/java/org/rocksdb/AdvancedMutableColumnFamilyOptionsInterface.java
+  src/main/java/org/rocksdb/BackgroundErrorReason.java
   src/main/java/org/rocksdb/BackupableDBOptions.java
   src/main/java/org/rocksdb/BackupEngine.java
   src/main/java/org/rocksdb/BackupInfo.java
@@ -122,22 +131,26 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/CompactRangeOptions.java
   src/main/java/org/rocksdb/CompactionStopStyle.java
   src/main/java/org/rocksdb/CompactionStyle.java
-  src/main/java/org/rocksdb/Comparator.java
   src/main/java/org/rocksdb/ComparatorOptions.java
   src/main/java/org/rocksdb/ComparatorType.java
   src/main/java/org/rocksdb/CompressionOptions.java
   src/main/java/org/rocksdb/CompressionType.java
+  src/main/java/org/rocksdb/ConfigOptions.java
   src/main/java/org/rocksdb/DataBlockIndexType.java
   src/main/java/org/rocksdb/DBOptionsInterface.java
   src/main/java/org/rocksdb/DBOptions.java
   src/main/java/org/rocksdb/DbPath.java
-  src/main/java/org/rocksdb/DirectComparator.java
   src/main/java/org/rocksdb/DirectSlice.java
   src/main/java/org/rocksdb/EncodingType.java
   src/main/java/org/rocksdb/Env.java
   src/main/java/org/rocksdb/EnvOptions.java
+  src/main/java/org/rocksdb/EventListener.java
   src/main/java/org/rocksdb/Experimental.java
+  src/main/java/org/rocksdb/ExternalFileIngestionInfo.java
   src/main/java/org/rocksdb/Filter.java
+  src/main/java/org/rocksdb/FileOperationInfo.java
+  src/main/java/org/rocksdb/FlushJobInfo.java
+  src/main/java/org/rocksdb/FlushReason.java
   src/main/java/org/rocksdb/FlushOptions.java
   src/main/java/org/rocksdb/HashLinkedListMemTableConfig.java
   src/main/java/org/rocksdb/HashSkipListMemTableConfig.java
@@ -145,10 +158,13 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/HistogramData.java
   src/main/java/org/rocksdb/HistogramType.java
   src/main/java/org/rocksdb/Holder.java
+  src/main/java/org/rocksdb/IndexShorteningMode.java
   src/main/java/org/rocksdb/IndexType.java
   src/main/java/org/rocksdb/InfoLogLevel.java
   src/main/java/org/rocksdb/IngestExternalFileOptions.java
   src/main/java/org/rocksdb/LevelMetaData.java
+  src/main/java/org/rocksdb/ConcurrentTaskLimiter.java
+  src/main/java/org/rocksdb/ConcurrentTaskLimiterImpl.java
   src/main/java/org/rocksdb/LiveFileMetaData.java
   src/main/java/org/rocksdb/LogFile.java
   src/main/java/org/rocksdb/Logger.java
@@ -156,6 +172,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/MemoryUsageType.java
   src/main/java/org/rocksdb/MemoryUtil.java
   src/main/java/org/rocksdb/MemTableConfig.java
+  src/main/java/org/rocksdb/MemTableInfo.java
   src/main/java/org/rocksdb/MergeOperator.java
   src/main/java/org/rocksdb/MutableColumnFamilyOptions.java
   src/main/java/org/rocksdb/MutableColumnFamilyOptionsInterface.java
@@ -181,6 +198,7 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/ReadTier.java
   src/main/java/org/rocksdb/RemoveEmptyValueCompactionFilter.java
   src/main/java/org/rocksdb/RestoreOptions.java
+  src/main/java/org/rocksdb/ReusedSynchronisationType.java
   src/main/java/org/rocksdb/RocksCallbackObject.java
   src/main/java/org/rocksdb/RocksDBException.java
   src/main/java/org/rocksdb/RocksDB.java
@@ -190,15 +208,18 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/RocksMemEnv.java
   src/main/java/org/rocksdb/RocksMutableObject.java
   src/main/java/org/rocksdb/RocksObject.java
+  src/main/java/org/rocksdb/SanityLevel.java
   src/main/java/org/rocksdb/SizeApproximationFlag.java
   src/main/java/org/rocksdb/SkipListMemTableConfig.java
   src/main/java/org/rocksdb/Slice.java
   src/main/java/org/rocksdb/Snapshot.java
   src/main/java/org/rocksdb/SstFileManager.java
   src/main/java/org/rocksdb/SstFileMetaData.java
-  src/main/java/org/rocksdb/SstFileWriter.java
   src/main/java/org/rocksdb/SstFileReader.java
   src/main/java/org/rocksdb/SstFileReaderIterator.java
+  src/main/java/org/rocksdb/SstFileWriter.java
+  src/main/java/org/rocksdb/SstPartitionerFactory.java
+  src/main/java/org/rocksdb/SstPartitionerFixedPrefixFactory.java
   src/main/java/org/rocksdb/StateType.java
   src/main/java/org/rocksdb/StatisticsCollectorCallback.java
   src/main/java/org/rocksdb/StatisticsCollector.java
@@ -207,6 +228,10 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/StatsLevel.java
   src/main/java/org/rocksdb/Status.java
   src/main/java/org/rocksdb/StringAppendOperator.java
+  src/main/java/org/rocksdb/TableFileCreationBriefInfo.java
+  src/main/java/org/rocksdb/TableFileCreationInfo.java
+  src/main/java/org/rocksdb/TableFileCreationReason.java
+  src/main/java/org/rocksdb/TableFileDeletionInfo.java
   src/main/java/org/rocksdb/TableFilter.java
   src/main/java/org/rocksdb/TableProperties.java
   src/main/java/org/rocksdb/TableFormatConfig.java
@@ -236,9 +261,12 @@ set(JAVA_MAIN_CLASSES
   src/main/java/org/rocksdb/WriteBatchWithIndex.java
   src/main/java/org/rocksdb/WriteOptions.java
   src/main/java/org/rocksdb/WriteBufferManager.java
+  src/main/java/org/rocksdb/WriteStallCondition.java
+  src/main/java/org/rocksdb/WriteStallInfo.java
+  src/main/java/org/rocksdb/util/ByteUtil.java
   src/main/java/org/rocksdb/util/BytewiseComparator.java
-  src/main/java/org/rocksdb/util/DirectBytewiseComparator.java
   src/main/java/org/rocksdb/util/Environment.java
+  src/main/java/org/rocksdb/util/IntComparator.java
   src/main/java/org/rocksdb/util/ReverseBytewiseComparator.java
   src/main/java/org/rocksdb/util/SizeUnit.java
   src/main/java/org/rocksdb/UInt64AddOperator.java
@@ -313,56 +341,61 @@ if(NOT EXISTS ${JAVA_TEST_LIBDIR})
   file(MAKE_DIRECTORY mkdir ${JAVA_TEST_LIBDIR})
 endif()
 
-if (DEFINED CUSTOM_REPO_URL)
-  set(SEARCH_REPO_URL ${CUSTOM_REPO_URL}/)
-  set(CENTRAL_REPO_URL ${CUSTOM_REPO_URL}/)
+if (DEFINED CUSTOM_DEPS_URL)
+  set(DEPS_URL ${CUSTOM_DEPS_URL}/)
 else ()
-  set(SEARCH_REPO_URL "http://search.maven.org/remotecontent?filepath=")
-  set(CENTRAL_REPO_URL "http://central.maven.org/maven2/")
+  # Using a Facebook AWS account for S3 storage. (maven.org has a history
+  # of failing in Travis builds.)
+  set(DEPS_URL "https://rocksdb-deps.s3-us-west-2.amazonaws.com/jars")
 endif()
 
 if(NOT EXISTS ${JAVA_JUNIT_JAR})
   message("Downloading ${JAVA_JUNIT_JAR}")
-  file(DOWNLOAD ${SEARCH_REPO_URL}junit/junit/4.12/junit-4.12.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/junit-4.12.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_JUNIT_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_JUNIT_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_JUNIT_JAR})
 endif()
 if(NOT EXISTS ${JAVA_HAMCR_JAR})
   message("Downloading ${JAVA_HAMCR_JAR}")
-  file(DOWNLOAD ${SEARCH_REPO_URL}org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/hamcrest-core-1.3.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_HAMCR_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_HAMCR_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_HAMCR_JAR})
 endif()
 if(NOT EXISTS ${JAVA_MOCKITO_JAR})
   message("Downloading ${JAVA_MOCKITO_JAR}")
-  file(DOWNLOAD ${SEARCH_REPO_URL}org/mockito/mockito-all/1.10.19/mockito-all-1.10.19.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/mockito-all-1.10.19.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_MOCKITO_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_MOCKITO_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_MOCKITO_JAR})
 endif()
 if(NOT EXISTS ${JAVA_CGLIB_JAR})
   message("Downloading ${JAVA_CGLIB_JAR}")
-  file(DOWNLOAD ${SEARCH_REPO_URL}cglib/cglib/2.2.2/cglib-2.2.2.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/cglib-2.2.2.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_CGLIB_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_CGLIB_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_CGLIB_JAR})
 endif()
 if(NOT EXISTS ${JAVA_ASSERTJ_JAR})
   message("Downloading ${JAVA_ASSERTJ_JAR}")
-  file(DOWNLOAD ${CENTRAL_REPO_URL}org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${DEPS_URL}/assertj-core-1.7.1.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
+  list(GET downloadStatus 1 error_message)
   if(NOT error_code EQUAL 0)
-    message(FATAL_ERROR "Failed downloading ${JAVA_ASSERTJ_JAR}")
+    message(FATAL_ERROR "Failed downloading ${JAVA_ASSERTJ_JAR}: ${error_message}")
   endif()
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_ASSERTJ_JAR})
 endif()
@@ -374,6 +407,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.AbstractCompactionFilter
           org.rocksdb.AbstractCompactionFilterFactory
           org.rocksdb.AbstractComparator
+          org.rocksdb.AbstractEventListener
           org.rocksdb.AbstractImmutableNativeReference
           org.rocksdb.AbstractNativeReference
           org.rocksdb.AbstractRocksIterator
@@ -398,11 +432,9 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.CompactionOptionsFIFO
           org.rocksdb.CompactionOptionsUniversal
           org.rocksdb.CompactRangeOptions
-          org.rocksdb.Comparator
           org.rocksdb.ComparatorOptions
           org.rocksdb.CompressionOptions
           org.rocksdb.DBOptions
-          org.rocksdb.DirectComparator
           org.rocksdb.DirectSlice
           org.rocksdb.Env
           org.rocksdb.EnvOptions
@@ -443,6 +475,8 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.SstFileWriter
           org.rocksdb.SstFileReader
           org.rocksdb.SstFileReaderIterator
+          org.rocksdb.SstPartitionerFactory
+          org.rocksdb.SstPartitionerFixedPrefixFactory
           org.rocksdb.Statistics
           org.rocksdb.StringAppendOperator
           org.rocksdb.TableFormatConfig

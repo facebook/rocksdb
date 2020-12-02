@@ -10,14 +10,14 @@
 
 #include <memory>
 
+#include "rocksdb/compression_type.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/universal_compaction.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class SliceTransform;
-enum CompressionType : unsigned char;
 class TablePropertiesCollectorFactory;
 class TableFactory;
 struct Options;
@@ -117,6 +117,21 @@ struct CompressionOptions {
   // Default: 0.
   uint32_t zstd_max_train_bytes;
 
+  // Number of threads for parallel compression.
+  // Parallel compression is enabled only if threads > 1.
+  // THE FEATURE IS STILL EXPERIMENTAL
+  //
+  // This option is valid only when BlockBasedTable is used.
+  //
+  // When parallel compression is enabled, SST size file sizes might be
+  // more inflated compared to the target size, because more data of unknown
+  // compressed size is in flight when compression is parallelized. To be
+  // reasonably accurate, this inflation is also estimated by using historical
+  // compression ratio and current bytes inflight.
+  //
+  // Default: 1.
+  uint32_t parallel_threads;
+
   // When the compression options are set by the user, it will be set to "true".
   // For bottommost_compression_opts, to enable it, user must set enabled=true.
   // Otherwise, bottommost compression will use compression_opts as default
@@ -134,14 +149,17 @@ struct CompressionOptions {
         strategy(0),
         max_dict_bytes(0),
         zstd_max_train_bytes(0),
+        parallel_threads(1),
         enabled(false) {}
   CompressionOptions(int wbits, int _lev, int _strategy, int _max_dict_bytes,
-                     int _zstd_max_train_bytes, bool _enabled)
+                     int _zstd_max_train_bytes, int _parallel_threads,
+                     bool _enabled)
       : window_bits(wbits),
         level(_lev),
         strategy(_strategy),
         max_dict_bytes(_max_dict_bytes),
         zstd_max_train_bytes(_zstd_max_train_bytes),
+        parallel_threads(_parallel_threads),
         enabled(_enabled) {}
 };
 
@@ -150,7 +168,6 @@ enum UpdateStatus {    // Return status For inplace update callback
   UPDATED_INPLACE = 1, // Value updated inplace
   UPDATED         = 2, // No inplace update. Merged value set
 };
-
 
 struct AdvancedColumnFamilyOptions {
   // The maximum number of write buffers that are built up in memory.
@@ -220,6 +237,7 @@ struct AdvancedColumnFamilyOptions {
   // achieve point-in-time consistency using snapshot or iterator (assuming
   // concurrent updates). Hence iterator and multi-get will return results
   // which are not consistent as of any point-in-time.
+  // Backward iteration on memtables will not work either.
   // If inplace_callback function is not set,
   //   Put(key, new_value) will update inplace the existing_value iff
   //   * key exists in current memtable
@@ -330,10 +348,9 @@ struct AdvancedColumnFamilyOptions {
   std::shared_ptr<const SliceTransform>
       memtable_insert_with_hint_prefix_extractor = nullptr;
 
-  // Control locality of bloom filter probes to improve cache miss rate.
-  // This option only applies to memtable prefix bloom and plaintable
-  // prefix bloom. It essentially limits every bloom checking to one cache line.
-  // This optimization is turned off when set to 0, and positive number to turn
+  // Control locality of bloom filter probes to improve CPU cache hit rate.
+  // This option now only applies to plaintable prefix bloom. This
+  // optimization is turned off when set to 0, and positive number to turn
   // it on.
   // Default: 0
   uint32_t bloom_locality = 0;
@@ -626,18 +643,30 @@ struct AdvancedColumnFamilyOptions {
   // Default: false
   bool optimize_filters_for_hits = false;
 
+  // During flush or compaction, check whether keys inserted to output files
+  // are in order.
+  //
+  // Default: true
+  //
+  // Dynamically changeable through SetOptions() API
+  bool check_flush_compaction_key_order = true;
+
   // After writing every SST file, reopen it and read all the keys.
+  // Checks the hash of all of the keys and values written versus the
+  // keys in the file and signals a corruption if they do not match
   //
   // Default: false
   //
   // Dynamically changeable through SetOptions() API
   bool paranoid_file_checks = false;
 
-  // In debug mode, RocksDB run consistency checks on the LSM every time the LSM
-  // change (Flush, Compaction, AddFile). These checks are disabled in release
-  // mode, use this option to enable them in release mode as well.
-  // Default: false
-  bool force_consistency_checks = false;
+  // In debug mode, RocksDB runs consistency checks on the LSM every time the
+  // LSM changes (Flush, Compaction, AddFile). When this option is true, these
+  // checks are also enabled in release mode. These checks were historically
+  // disabled in release mode, but are now enabled by default for proactive
+  // corruption detection, at almost no cost in extra CPU.
+  // Default: true
+  bool force_consistency_checks = true;
 
   // Measure IO stats in compactions and flushes, if true.
   //
@@ -699,6 +728,76 @@ struct AdvancedColumnFamilyOptions {
   // data is left uncompressed (unless compression is also requested).
   uint64_t sample_for_compression = 0;
 
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // When set, large values (blobs) are written to separate blob files, and
+  // only pointers to them are stored in SST files. This can reduce write
+  // amplification for large-value use cases at the cost of introducing a level
+  // of indirection for reads. See also the options min_blob_size,
+  // blob_file_size, blob_compression_type, enable_blob_garbage_collection,
+  // and blob_garbage_collection_age_cutoff below.
+  //
+  // Default: false
+  //
+  // Dynamically changeable through the SetOptions() API
+  bool enable_blob_files = false;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The size of the smallest value to be stored separately in a blob file.
+  // Values which have an uncompressed size smaller than this threshold are
+  // stored alongside the keys in SST files in the usual fashion. A value of
+  // zero for this option means that all values are stored in blob files. Note
+  // that enable_blob_files has to be set in order for this option to have any
+  // effect.
+  //
+  // Default: 0
+  //
+  // Dynamically changeable through the SetOptions() API
+  uint64_t min_blob_size = 0;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The size limit for blob files. When writing blob files, a new file is
+  // opened once this limit is reached. Note that enable_blob_files has to be
+  // set in order for this option to have any effect.
+  //
+  // Default: 256 MB
+  //
+  // Dynamically changeable through the SetOptions() API
+  uint64_t blob_file_size = 1ULL << 28;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The compression algorithm to use for large values stored in blob files.
+  // Note that enable_blob_files has to be set in order for this option to have
+  // any effect.
+  //
+  // Default: no compression
+  //
+  // Dynamically changeable through the SetOptions() API
+  CompressionType blob_compression_type = kNoCompression;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // Enables garbage collection of blobs. Blob GC is performed as part of
+  // compaction. Valid blobs residing in blob files older than a cutoff get
+  // relocated to new files as they are encountered during compaction, which
+  // makes it possible to clean up blob files once they contain nothing but
+  // obsolete/garbage blobs. See also blob_garbage_collection_age_cutoff below.
+  //
+  // Default: false
+  //
+  // Dynamically changeable through the SetOptions() API
+  bool enable_blob_garbage_collection = false;
+
+  // UNDER CONSTRUCTION -- DO NOT USE
+  // The cutoff in terms of blob file age for garbage collection. Blobs in
+  // the oldest N blob files will be relocated when encountered during
+  // compaction, where N = garbage_collection_cutoff * number_of_blob_files.
+  // Note that enable_blob_garbage_collection has to be set in order for this
+  // option to have any effect.
+  //
+  // Default: 0.25
+  //
+  // Dynamically changeable through the SetOptions() API
+  double blob_garbage_collection_age_cutoff = 0.25;
+
   // Create ColumnFamilyOptions with default values for all fields
   AdvancedColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
@@ -730,4 +829,4 @@ struct AdvancedColumnFamilyOptions {
   bool purge_redundant_kvs_while_flush = true;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

@@ -18,8 +18,7 @@
 
 #include <windows.h>
 
-
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace port {
 
 std::string GetWindowsErrSz(DWORD err);
@@ -410,7 +409,7 @@ class WinRandomRWFile : private WinFileData,
 
   virtual Status Sync() override;
 
-  virtual Status Fsync() { return Sync(); }
+  virtual Status Fsync() override { return Sync(); }
 
   virtual Status Close() override;
 };
@@ -454,4 +453,4 @@ class WinFileLock : public FileLock {
   HANDLE hFile_;
 };
 }
-}
+}  // namespace ROCKSDB_NAMESPACE

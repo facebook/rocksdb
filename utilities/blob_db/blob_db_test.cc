@@ -5,6 +5,8 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "utilities/blob_db/blob_db.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
@@ -15,23 +17,21 @@
 #include <string>
 #include <vector>
 
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
 #include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "rocksdb/utilities/debug.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
-#include "util/cast_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_db_impl.h"
+#include "utilities/fault_injection_env.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 class BlobDBTest : public testing::Test {
@@ -73,6 +73,18 @@ class BlobDBTest : public testing::Test {
   Status TryOpen(BlobDBOptions bdb_options = BlobDBOptions(),
                  Options options = Options()) {
     options.create_if_missing = true;
+    if (options.env == mock_env_.get()) {
+      // Need to disable stats dumping and persisting which also use
+      // RepeatableThread, which uses InstrumentedCondVar::TimedWaitInternal.
+      // With mocked time, this can hang on some platforms (MacOS)
+      // because (a) on some platforms, pthread_cond_timedwait does not appear
+      // to release the lock for other threads to operate if the deadline time
+      // is already passed, and (b) TimedWait calls are currently a bad
+      // abstraction because the deadline parameter is usually computed from
+      // Env time, but is interpreted in real clock time.
+      options.stats_dump_period_sec = 0;
+      options.stats_persist_period_sec = 0;
+    }
     return BlobDB::Open(options, bdb_options, dbname_, &blob_db_);
   }
 
@@ -142,7 +154,7 @@ class BlobDBTest : public testing::Test {
   void PutRandomWithTTL(const std::string &key, uint64_t ttl, Random *rnd,
                         std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
-    std::string value = test::RandomHumanReadableString(rnd, len);
+    std::string value = rnd->HumanReadableString(len);
     ASSERT_OK(
         blob_db_->PutWithTTL(WriteOptions(), Slice(key), Slice(value), ttl));
     if (data != nullptr) {
@@ -153,7 +165,7 @@ class BlobDBTest : public testing::Test {
   void PutRandomUntil(const std::string &key, uint64_t expiration, Random *rnd,
                       std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
-    std::string value = test::RandomHumanReadableString(rnd, len);
+    std::string value = rnd->HumanReadableString(len);
     ASSERT_OK(blob_db_->PutUntil(WriteOptions(), Slice(key), Slice(value),
                                  expiration));
     if (data != nullptr) {
@@ -169,7 +181,7 @@ class BlobDBTest : public testing::Test {
   void PutRandom(DB *db, const std::string &key, Random *rnd,
                  std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
-    std::string value = test::RandomHumanReadableString(rnd, len);
+    std::string value = rnd->HumanReadableString(len);
     ASSERT_OK(db->Put(WriteOptions(), Slice(key), Slice(value)));
     if (data != nullptr) {
       (*data)[key] = value;
@@ -180,7 +192,7 @@ class BlobDBTest : public testing::Test {
       const std::string &key, Random *rnd, WriteBatch *batch,
       std::map<std::string, std::string> *data = nullptr) {
     int len = rnd->Next() % kMaxBlobSize + 1;
-    std::string value = test::RandomHumanReadableString(rnd, len);
+    std::string value = rnd->HumanReadableString(len);
     ASSERT_OK(batch->Put(key, value));
     if (data != nullptr) {
       (*data)[key] = value;
@@ -341,10 +353,6 @@ TEST_F(BlobDBTest, PutWithTTL) {
   ASSERT_EQ(1, blob_files.size());
   ASSERT_TRUE(blob_files[0]->HasTTL());
   ASSERT_OK(bdb_impl->TEST_CloseBlobFile(blob_files[0]));
-  GCStats gc_stats;
-  ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
-  ASSERT_EQ(100 - data.size(), gc_stats.num_keys_expired);
-  ASSERT_EQ(data.size(), gc_stats.num_keys_relocated);
   VerifyDB(data);
 }
 
@@ -371,10 +379,6 @@ TEST_F(BlobDBTest, PutUntil) {
   ASSERT_EQ(1, blob_files.size());
   ASSERT_TRUE(blob_files[0]->HasTTL());
   ASSERT_OK(bdb_impl->TEST_CloseBlobFile(blob_files[0]));
-  GCStats gc_stats;
-  ASSERT_OK(bdb_impl->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
-  ASSERT_EQ(100 - data.size(), gc_stats.num_keys_expired);
-  ASSERT_EQ(data.size(), gc_stats.num_keys_relocated);
   VerifyDB(data);
 }
 
@@ -557,7 +561,160 @@ TEST_F(BlobDBTest, DecompressAfterReopen) {
   Reopen(bdb_options);
   VerifyDB(data);
 }
-#endif
+
+TEST_F(BlobDBTest, EnableDisableCompressionGC) {
+  Random rnd(301);
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_cutoff = 1.0;
+  bdb_options.disable_background_tasks = true;
+  bdb_options.compression = kSnappyCompression;
+  Open(bdb_options);
+  std::map<std::string, std::string> data;
+  size_t data_idx = 0;
+  for (; data_idx < 100; data_idx++) {
+    PutRandom("put-key" + ToString(data_idx), &rnd, &data);
+  }
+  VerifyDB(data);
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(1, blob_files.size());
+  ASSERT_EQ(kSnappyCompression, blob_files[0]->GetCompressionType());
+
+  // disable compression
+  bdb_options.compression = kNoCompression;
+  Reopen(bdb_options);
+
+  // Add more data with new compression type
+  for (; data_idx < 200; data_idx++) {
+    PutRandom("put-key" + ToString(data_idx), &rnd, &data);
+  }
+  VerifyDB(data);
+
+  blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(2, blob_files.size());
+  ASSERT_EQ(kNoCompression, blob_files[1]->GetCompressionType());
+
+  // Trigger compaction
+  ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  VerifyDB(data);
+
+  blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  for (auto bfile : blob_files) {
+    ASSERT_EQ(kNoCompression, bfile->GetCompressionType());
+  }
+
+  // enabling the compression again
+  bdb_options.compression = kSnappyCompression;
+  Reopen(bdb_options);
+
+  // Add more data with new compression type
+  for (; data_idx < 300; data_idx++) {
+    PutRandom("put-key" + ToString(data_idx), &rnd, &data);
+  }
+  VerifyDB(data);
+
+  // Trigger compaction
+  ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  VerifyDB(data);
+
+  blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  for (auto bfile : blob_files) {
+    ASSERT_EQ(kSnappyCompression, bfile->GetCompressionType());
+  }
+}
+
+#ifdef LZ4
+// Test switch compression types and run GC, it needs both Snappy and LZ4
+// support.
+TEST_F(BlobDBTest, ChangeCompressionGC) {
+  Random rnd(301);
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_cutoff = 1.0;
+  bdb_options.disable_background_tasks = true;
+  bdb_options.compression = kLZ4Compression;
+  Open(bdb_options);
+  std::map<std::string, std::string> data;
+  size_t data_idx = 0;
+  for (; data_idx < 100; data_idx++) {
+    PutRandom("put-key" + ToString(data_idx), &rnd, &data);
+  }
+  VerifyDB(data);
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(1, blob_files.size());
+  ASSERT_EQ(kLZ4Compression, blob_files[0]->GetCompressionType());
+
+  // Change compression type
+  bdb_options.compression = kSnappyCompression;
+  Reopen(bdb_options);
+
+  // Add more data with Snappy compression type
+  for (; data_idx < 200; data_idx++) {
+    PutRandom("put-key" + ToString(data_idx), &rnd, &data);
+  }
+  VerifyDB(data);
+
+  // Verify blob file compression type
+  blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(2, blob_files.size());
+  ASSERT_EQ(kSnappyCompression, blob_files[1]->GetCompressionType());
+
+  ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyDB(data);
+
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  for (auto bfile : blob_files) {
+    ASSERT_EQ(kSnappyCompression, bfile->GetCompressionType());
+  }
+
+  // Disable compression
+  bdb_options.compression = kNoCompression;
+  Reopen(bdb_options);
+  for (; data_idx < 300; data_idx++) {
+    PutRandom("put-key" + ToString(data_idx), &rnd, &data);
+  }
+  VerifyDB(data);
+
+  ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyDB(data);
+
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  for (auto bfile : blob_files) {
+    ASSERT_EQ(kNoCompression, bfile->GetCompressionType());
+  }
+
+  // switching different compression types to generate mixed compression types
+  bdb_options.compression = kSnappyCompression;
+  Reopen(bdb_options);
+  for (; data_idx < 400; data_idx++) {
+    PutRandom("put-key" + ToString(data_idx), &rnd, &data);
+  }
+  VerifyDB(data);
+
+  bdb_options.compression = kLZ4Compression;
+  Reopen(bdb_options);
+  for (; data_idx < 500; data_idx++) {
+    PutRandom("put-key" + ToString(data_idx), &rnd, &data);
+  }
+  VerifyDB(data);
+
+  ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  VerifyDB(data);
+
+  blob_db_impl()->TEST_DeleteObsoleteFiles();
+  blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  for (auto bfile : blob_files) {
+    ASSERT_EQ(kLZ4Compression, bfile->GetCompressionType());
+  }
+}
+#endif  // LZ4
+#endif  // SNAPPY
 
 TEST_F(BlobDBTest, MultipleWriters) {
   Open(BlobDBOptions());
@@ -588,243 +745,6 @@ TEST_F(BlobDBTest, MultipleWriters) {
   VerifyDB(data);
 }
 
-TEST_F(BlobDBTest, GCAfterOverwriteKeys) {
-  Random rnd(301);
-  BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
-  bdb_options.disable_background_tasks = true;
-  Open(bdb_options);
-  DBImpl *db_impl = static_cast_with_check<DBImpl, DB>(blob_db_->GetBaseDB());
-  std::map<std::string, std::string> data;
-  for (int i = 0; i < 200; i++) {
-    PutRandom("key" + ToString(i), &rnd, &data);
-  }
-  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  ASSERT_EQ(1, blob_files.size());
-  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[0]));
-  // Test for data in SST
-  size_t new_keys = 0;
-  for (int i = 0; i < 100; i++) {
-    if (rnd.Next() % 2 == 1) {
-      new_keys++;
-      PutRandom("key" + ToString(i), &rnd, &data);
-    }
-  }
-  db_impl->TEST_FlushMemTable(true /*wait*/);
-  // Test for data in memtable
-  for (int i = 100; i < 200; i++) {
-    if (rnd.Next() % 2 == 1) {
-      new_keys++;
-      PutRandom("key" + ToString(i), &rnd, &data);
-    }
-  }
-  GCStats gc_stats;
-  ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
-  ASSERT_EQ(200, gc_stats.blob_count);
-  ASSERT_EQ(0, gc_stats.num_keys_expired);
-  ASSERT_EQ(200 - new_keys, gc_stats.num_keys_relocated);
-  VerifyDB(data);
-}
-
-TEST_F(BlobDBTest, GCRelocateKeyWhileOverwriting) {
-  Random rnd(301);
-  BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
-  bdb_options.disable_background_tasks = true;
-  Open(bdb_options);
-  ASSERT_OK(blob_db_->Put(WriteOptions(), "foo", "v1"));
-  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  ASSERT_EQ(1, blob_files.size());
-  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[0]));
-
-  SyncPoint::GetInstance()->LoadDependency(
-      {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB",
-        "BlobDBImpl::PutUntil:Start"},
-       {"BlobDBImpl::PutUntil:Finish",
-        "BlobDBImpl::GCFileAndUpdateLSM:BeforeRelocate"}});
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  auto writer = port::Thread(
-      [this]() { ASSERT_OK(blob_db_->Put(WriteOptions(), "foo", "v2")); });
-
-  GCStats gc_stats;
-  ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
-  ASSERT_EQ(1, gc_stats.blob_count);
-  ASSERT_EQ(0, gc_stats.num_keys_expired);
-  ASSERT_EQ(1, gc_stats.num_keys_overwritten);
-  ASSERT_EQ(0, gc_stats.num_keys_relocated);
-  writer.join();
-  VerifyDB({{"foo", "v2"}});
-}
-
-TEST_F(BlobDBTest, GCExpiredKeyWhileOverwriting) {
-  Random rnd(301);
-  Options options;
-  options.env = mock_env_.get();
-  BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
-  bdb_options.disable_background_tasks = true;
-  Open(bdb_options, options);
-  mock_env_->set_current_time(100);
-  ASSERT_OK(blob_db_->PutUntil(WriteOptions(), "foo", "v1", 200));
-  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  ASSERT_EQ(1, blob_files.size());
-  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[0]));
-  mock_env_->set_current_time(300);
-
-  SyncPoint::GetInstance()->LoadDependency(
-      {{"BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB",
-        "BlobDBImpl::PutUntil:Start"},
-       {"BlobDBImpl::PutUntil:Finish",
-        "BlobDBImpl::GCFileAndUpdateLSM:BeforeDelete"}});
-  SyncPoint::GetInstance()->EnableProcessing();
-
-  auto writer = port::Thread([this]() {
-    ASSERT_OK(blob_db_->PutUntil(WriteOptions(), "foo", "v2", 400));
-  });
-
-  GCStats gc_stats;
-  ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(blob_files[0], &gc_stats));
-  ASSERT_EQ(1, gc_stats.blob_count);
-  ASSERT_EQ(1, gc_stats.num_keys_expired);
-  ASSERT_EQ(0, gc_stats.num_keys_relocated);
-  writer.join();
-  VerifyDB({{"foo", "v2"}});
-}
-
-TEST_F(BlobDBTest, NewFileGeneratedFromGCShouldMarkAsImmutable) {
-  BlobDBOptions bdb_options;
-  bdb_options.min_blob_size = 0;
-  bdb_options.disable_background_tasks = true;
-  Open(bdb_options);
-  ASSERT_OK(Put("foo", "bar"));
-  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  auto blob_file1 = blob_files[0];
-  ASSERT_EQ(1, blob_files.size());
-  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file1));
-  GCStats gc_stats;
-  ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(blob_file1, &gc_stats));
-  ASSERT_EQ(1, gc_stats.blob_count);
-  ASSERT_EQ(1, gc_stats.num_keys_relocated);
-  blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  ASSERT_EQ(2, blob_files.size());
-  ASSERT_EQ(blob_file1, blob_files[0]);
-  ASSERT_TRUE(blob_files[1]->Immutable());
-}
-
-// This test is no longer valid since we now return an error when we go
-// over the configured max_db_size.
-// The test needs to be re-written later in such a way that writes continue
-// after a GC happens.
-TEST_F(BlobDBTest, DISABLED_GCOldestSimpleBlobFileWhenOutOfSpace) {
-  // Use mock env to stop wall clock.
-  Options options;
-  options.env = mock_env_.get();
-  BlobDBOptions bdb_options;
-  bdb_options.max_db_size = 100;
-  bdb_options.blob_file_size = 100;
-  bdb_options.min_blob_size = 0;
-  bdb_options.disable_background_tasks = true;
-  Open(bdb_options);
-  std::string value(100, 'v');
-  ASSERT_OK(blob_db_->PutWithTTL(WriteOptions(), "key_with_ttl", value, 60));
-  for (int i = 0; i < 10; i++) {
-    ASSERT_OK(blob_db_->Put(WriteOptions(), "key" + ToString(i), value));
-  }
-  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
-  ASSERT_EQ(11, blob_files.size());
-  ASSERT_TRUE(blob_files[0]->HasTTL());
-  ASSERT_TRUE(blob_files[0]->Immutable());
-  for (int i = 1; i <= 10; i++) {
-    ASSERT_FALSE(blob_files[i]->HasTTL());
-    if (i < 10) {
-      ASSERT_TRUE(blob_files[i]->Immutable());
-    }
-  }
-  blob_db_impl()->TEST_RunGC();
-  // The oldest simple blob file (i.e. blob_files[1]) has been selected for GC.
-  auto obsolete_files = blob_db_impl()->TEST_GetObsoleteFiles();
-  ASSERT_EQ(1, obsolete_files.size());
-  ASSERT_EQ(blob_files[1]->BlobFileNumber(),
-            obsolete_files[0]->BlobFileNumber());
-}
-
-TEST_F(BlobDBTest, ReadWhileGC) {
-  // run the same test for Get(), MultiGet() and Iterator each.
-  for (int i = 0; i < 2; i++) {
-    BlobDBOptions bdb_options;
-    bdb_options.min_blob_size = 0;
-    bdb_options.disable_background_tasks = true;
-    Open(bdb_options);
-    blob_db_->Put(WriteOptions(), "foo", "bar");
-    auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
-    ASSERT_EQ(1, blob_files.size());
-    std::shared_ptr<BlobFile> bfile = blob_files[0];
-    uint64_t bfile_number = bfile->BlobFileNumber();
-    ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(bfile));
-
-    switch (i) {
-      case 0:
-        SyncPoint::GetInstance()->LoadDependency(
-            {{"BlobDBImpl::Get:AfterIndexEntryGet:1",
-              "BlobDBTest::ReadWhileGC:1"},
-             {"BlobDBTest::ReadWhileGC:2",
-              "BlobDBImpl::Get:AfterIndexEntryGet:2"}});
-        break;
-      case 1:
-        SyncPoint::GetInstance()->LoadDependency(
-            {{"BlobDBIterator::UpdateBlobValue:Start:1",
-              "BlobDBTest::ReadWhileGC:1"},
-             {"BlobDBTest::ReadWhileGC:2",
-              "BlobDBIterator::UpdateBlobValue:Start:2"}});
-        break;
-    }
-    SyncPoint::GetInstance()->EnableProcessing();
-
-    auto reader = port::Thread([this, i]() {
-      std::string value;
-      std::vector<std::string> values;
-      std::vector<Status> statuses;
-      switch (i) {
-        case 0:
-          ASSERT_OK(blob_db_->Get(ReadOptions(), "foo", &value));
-          ASSERT_EQ("bar", value);
-          break;
-        case 1:
-          // VerifyDB use iterator to scan the DB.
-          VerifyDB({{"foo", "bar"}});
-          break;
-      }
-    });
-
-    TEST_SYNC_POINT("BlobDBTest::ReadWhileGC:1");
-    GCStats gc_stats;
-    ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(bfile, &gc_stats));
-    ASSERT_EQ(1, gc_stats.blob_count);
-    ASSERT_EQ(1, gc_stats.num_keys_relocated);
-    blob_db_impl()->TEST_DeleteObsoleteFiles();
-    // The file shouln't be deleted
-    blob_files = blob_db_impl()->TEST_GetBlobFiles();
-    ASSERT_EQ(2, blob_files.size());
-    ASSERT_EQ(bfile_number, blob_files[0]->BlobFileNumber());
-    auto obsolete_files = blob_db_impl()->TEST_GetObsoleteFiles();
-    ASSERT_EQ(1, obsolete_files.size());
-    ASSERT_EQ(bfile_number, obsolete_files[0]->BlobFileNumber());
-    TEST_SYNC_POINT("BlobDBTest::ReadWhileGC:2");
-    reader.join();
-    SyncPoint::GetInstance()->DisableProcessing();
-
-    // The file is deleted this time
-    blob_db_impl()->TEST_DeleteObsoleteFiles();
-    blob_files = blob_db_impl()->TEST_GetBlobFiles();
-    ASSERT_EQ(1, blob_files.size());
-    ASSERT_NE(bfile_number, blob_files[0]->BlobFileNumber());
-    ASSERT_EQ(0, blob_db_impl()->TEST_GetObsoleteFiles().size());
-    VerifyDB({{"foo", "bar"}});
-    Destroy();
-  }
-}
-
 TEST_F(BlobDBTest, SstFileManager) {
   // run the same test for Get(), MultiGet() and Iterator each.
   std::shared_ptr<SstFileManager> sst_file_manager(
@@ -835,16 +755,20 @@ TEST_F(BlobDBTest, SstFileManager) {
 
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = 0;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_cutoff = 1.0;
   Options db_options;
 
-  int files_deleted_directly = 0;
   int files_scheduled_to_delete = 0;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "SstFileManagerImpl::ScheduleFileDeletion",
-      [&](void * /*arg*/) { files_scheduled_to_delete++; });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteScheduler::DeleteFile",
-      [&](void * /*arg*/) { files_deleted_directly++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleFileDeletion", [&](void *arg) {
+        assert(arg);
+        const std::string *const file_path =
+            static_cast<const std::string *>(arg);
+        if (file_path->find(".blob") != std::string::npos) {
+          ++files_scheduled_to_delete;
+        }
+      });
   SyncPoint::GetInstance()->EnableProcessing();
   db_options.sst_file_manager = sst_file_manager;
 
@@ -856,34 +780,29 @@ TEST_F(BlobDBTest, SstFileManager) {
   ASSERT_EQ(1, blob_files.size());
   std::shared_ptr<BlobFile> bfile = blob_files[0];
   ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(bfile));
-  GCStats gc_stats;
-  ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(bfile, &gc_stats));
+  ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   blob_db_impl()->TEST_DeleteObsoleteFiles();
 
   // Even if SSTFileManager is not set, DB is creating a dummy one.
   ASSERT_EQ(1, files_scheduled_to_delete);
-  ASSERT_EQ(0, files_deleted_directly);
   Destroy();
   // Make sure that DestroyBlobDB() also goes through delete scheduler.
-  ASSERT_GE(files_scheduled_to_delete, 2);
-  // Due to a timing issue, the WAL may or may not be deleted directly. The
-  // blob file is first scheduled, followed by WAL. If the background trash
-  // thread does not wake up on time, the WAL file will be directly
-  // deleted as the trash size will be > DB size
-  ASSERT_LE(files_deleted_directly, 1);
+  ASSERT_EQ(2, files_scheduled_to_delete);
   SyncPoint::GetInstance()->DisableProcessing();
   sfm->WaitForEmptyTrash();
 }
 
 TEST_F(BlobDBTest, SstFileManagerRestart) {
-  int files_deleted_directly = 0;
   int files_scheduled_to_delete = 0;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "SstFileManagerImpl::ScheduleFileDeletion",
-      [&](void * /*arg*/) { files_scheduled_to_delete++; });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteScheduler::DeleteFile",
-      [&](void * /*arg*/) { files_deleted_directly++; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::ScheduleFileDeletion", [&](void *arg) {
+        assert(arg);
+        const std::string *const file_path =
+            static_cast<const std::string *>(arg);
+        if (file_path->find(".blob") != std::string::npos) {
+          ++files_scheduled_to_delete;
+        }
+      });
 
   // run the same test for Get(), MultiGet() and Iterator each.
   std::shared_ptr<SstFileManager> sst_file_manager(
@@ -912,9 +831,7 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
 
   // Make sure that reopening the DB rescan the existing trash files
   Open(bdb_options, db_options);
-  ASSERT_GE(files_scheduled_to_delete, 3);
-  // Depending on timing, the WAL file may or may not be directly deleted
-  ASSERT_LE(files_deleted_directly, 1);
+  ASSERT_EQ(files_scheduled_to_delete, 2);
 
   sfm->WaitForEmptyTrash();
 
@@ -937,67 +854,68 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
 TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = 0;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_cutoff = 1.0;
   bdb_options.disable_background_tasks = true;
+
   // i = when to take snapshot
   for (int i = 0; i < 4; i++) {
-    for (bool delete_key : {true, false}) {
-      const Snapshot *snapshot = nullptr;
-      Destroy();
-      Open(bdb_options);
-      // First file
-      ASSERT_OK(Put("key1", "value"));
-      if (i == 0) {
-        snapshot = blob_db_->GetSnapshot();
-      }
-      auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
-      ASSERT_EQ(1, blob_files.size());
-      ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[0]));
-      // Second file
-      ASSERT_OK(Put("key2", "value"));
-      if (i == 1) {
-        snapshot = blob_db_->GetSnapshot();
-      }
-      blob_files = blob_db_impl()->TEST_GetBlobFiles();
-      ASSERT_EQ(2, blob_files.size());
-      auto bfile = blob_files[1];
-      ASSERT_FALSE(bfile->Immutable());
-      ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(bfile));
-      // Third file
-      ASSERT_OK(Put("key3", "value"));
-      if (i == 2) {
-        snapshot = blob_db_->GetSnapshot();
-      }
-      if (delete_key) {
-        Delete("key2");
-      }
-      GCStats gc_stats;
-      ASSERT_OK(blob_db_impl()->TEST_GCFileAndUpdateLSM(bfile, &gc_stats));
-      ASSERT_TRUE(bfile->Obsolete());
-      ASSERT_EQ(1, gc_stats.blob_count);
-      if (delete_key) {
-        ASSERT_EQ(0, gc_stats.num_keys_relocated);
-      } else {
-        ASSERT_EQ(1, gc_stats.num_keys_relocated);
-      }
-      ASSERT_EQ(blob_db_->GetLatestSequenceNumber(),
-                bfile->GetObsoleteSequence());
-      if (i == 3) {
-        snapshot = blob_db_->GetSnapshot();
-      }
-      size_t num_files = delete_key ? 3 : 4;
-      ASSERT_EQ(num_files, blob_db_impl()->TEST_GetBlobFiles().size());
+    Destroy();
+    Open(bdb_options);
+
+    const Snapshot *snapshot = nullptr;
+
+    // First file
+    ASSERT_OK(Put("key1", "value"));
+    if (i == 0) {
+      snapshot = blob_db_->GetSnapshot();
+    }
+
+    auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+    ASSERT_EQ(1, blob_files.size());
+    ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[0]));
+
+    // Second file
+    ASSERT_OK(Put("key2", "value"));
+    if (i == 1) {
+      snapshot = blob_db_->GetSnapshot();
+    }
+
+    blob_files = blob_db_impl()->TEST_GetBlobFiles();
+    ASSERT_EQ(2, blob_files.size());
+    auto bfile = blob_files[1];
+    ASSERT_FALSE(bfile->Immutable());
+    ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(bfile));
+
+    // Third file
+    ASSERT_OK(Put("key3", "value"));
+    if (i == 2) {
+      snapshot = blob_db_->GetSnapshot();
+    }
+
+    ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    ASSERT_TRUE(bfile->Obsolete());
+    ASSERT_EQ(blob_db_->GetLatestSequenceNumber(),
+              bfile->GetObsoleteSequence());
+
+    Delete("key2");
+    if (i == 3) {
+      snapshot = blob_db_->GetSnapshot();
+    }
+
+    ASSERT_EQ(4, blob_db_impl()->TEST_GetBlobFiles().size());
+    blob_db_impl()->TEST_DeleteObsoleteFiles();
+
+    if (i >= 2) {
+      // The snapshot shouldn't see data in bfile
+      ASSERT_EQ(2, blob_db_impl()->TEST_GetBlobFiles().size());
+      blob_db_->ReleaseSnapshot(snapshot);
+    } else {
+      // The snapshot will see data in bfile, so the file shouldn't be deleted
+      ASSERT_EQ(4, blob_db_impl()->TEST_GetBlobFiles().size());
+      blob_db_->ReleaseSnapshot(snapshot);
       blob_db_impl()->TEST_DeleteObsoleteFiles();
-      if (i == 3) {
-        // The snapshot shouldn't see data in bfile
-        ASSERT_EQ(num_files - 1, blob_db_impl()->TEST_GetBlobFiles().size());
-        blob_db_->ReleaseSnapshot(snapshot);
-      } else {
-        // The snapshot will see data in bfile, so the file shouldn't be deleted
-        ASSERT_EQ(num_files, blob_db_impl()->TEST_GetBlobFiles().size());
-        blob_db_->ReleaseSnapshot(snapshot);
-        blob_db_impl()->TEST_DeleteObsoleteFiles();
-        ASSERT_EQ(num_files - 1, blob_db_impl()->TEST_GetBlobFiles().size());
-      }
+      ASSERT_EQ(2, blob_db_impl()->TEST_GetBlobFiles().size());
     }
   }
 }
@@ -1037,29 +955,50 @@ TEST_F(BlobDBTest, ColumnFamilyNotSupported) {
 
 TEST_F(BlobDBTest, GetLiveFilesMetaData) {
   Random rnd(301);
+
   BlobDBOptions bdb_options;
   bdb_options.blob_dir = "blob_dir";
   bdb_options.path_relative = true;
+  bdb_options.ttl_range_secs = 10;
   bdb_options.min_blob_size = 0;
   bdb_options.disable_background_tasks = true;
-  Open(bdb_options);
+
+  Options options;
+  options.env = mock_env_.get();
+
+  Open(bdb_options, options);
+
   std::map<std::string, std::string> data;
   for (size_t i = 0; i < 100; i++) {
     PutRandom("key" + ToString(i), &rnd, &data);
   }
+
+  constexpr uint64_t expiration = 1000ULL;
+  PutRandomUntil("key100", expiration, &rnd, &data);
+
   std::vector<LiveFileMetaData> metadata;
   blob_db_->GetLiveFilesMetaData(&metadata);
-  ASSERT_EQ(1U, metadata.size());
+
+  ASSERT_EQ(2U, metadata.size());
   // Path should be relative to db_name, but begin with slash.
-  std::string filename = "/blob_dir/000001.blob";
-  ASSERT_EQ(filename, metadata[0].name);
+  const std::string filename1("/blob_dir/000001.blob");
+  ASSERT_EQ(filename1, metadata[0].name);
   ASSERT_EQ(1, metadata[0].file_number);
-  ASSERT_EQ("default", metadata[0].column_family_name);
+  ASSERT_EQ(0, metadata[0].oldest_ancester_time);
+  ASSERT_EQ(kDefaultColumnFamilyName, metadata[0].column_family_name);
+
+  const std::string filename2("/blob_dir/000002.blob");
+  ASSERT_EQ(filename2, metadata[1].name);
+  ASSERT_EQ(2, metadata[1].file_number);
+  ASSERT_EQ(expiration, metadata[1].oldest_ancester_time);
+  ASSERT_EQ(kDefaultColumnFamilyName, metadata[1].column_family_name);
+
   std::vector<std::string> livefile;
   uint64_t mfs;
   ASSERT_OK(blob_db_->GetLiveFiles(livefile, &mfs, false));
-  ASSERT_EQ(4U, livefile.size());
-  ASSERT_EQ(filename, livefile[3]);
+  ASSERT_EQ(5U, livefile.size());
+  ASSERT_EQ(filename1, livefile[3]);
+  ASSERT_EQ(filename2, livefile[4]);
   VerifyDB(data);
 }
 
@@ -1106,7 +1045,7 @@ TEST_F(BlobDBTest, MigrateFromPlainRocksDB) {
     if (data.count(key) == 0) {
       ASSERT_TRUE(s.IsNotFound());
     } else if (is_blob[i]) {
-      ASSERT_TRUE(s.IsNotSupported());
+      ASSERT_TRUE(s.IsCorruption());
     } else {
       ASSERT_OK(s);
       ASSERT_EQ(data[key], value);
@@ -1326,7 +1265,7 @@ TEST_F(BlobDBTest, InlineSmallValues) {
     uint64_t expiration = rnd.Next() % kMaxExpiration;
     int len = is_small_value ? 50 : 200;
     std::string key = "key" + ToString(i);
-    std::string value = test::RandomHumanReadableString(&rnd, len);
+    std::string value = rnd.HumanReadableString(len);
     std::string blob_index;
     data[key] = value;
     SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
@@ -1358,27 +1297,187 @@ TEST_F(BlobDBTest, InlineSmallValues) {
   ASSERT_TRUE(ttl_file->HasTTL());
 }
 
-TEST_F(BlobDBTest, CompactionFilterNotSupported) {
-  class TestCompactionFilter : public CompactionFilter {
-    const char *Name() const override { return "TestCompactionFilter"; }
+TEST_F(BlobDBTest, UserCompactionFilter) {
+  class CustomerFilter : public CompactionFilter {
+   public:
+    bool Filter(int /*level*/, const Slice & /*key*/, const Slice &value,
+                std::string *new_value, bool *value_changed) const override {
+      *value_changed = false;
+      // changing value size to test value transitions between inlined data
+      // and stored-in-blob data
+      if (value.size() % 4 == 1) {
+        *new_value = value.ToString();
+        // double size by duplicating value
+        *new_value += *new_value;
+        *value_changed = true;
+        return false;
+      } else if (value.size() % 3 == 1) {
+        *new_value = value.ToString();
+        // trancate value size by half
+        *new_value = new_value->substr(0, new_value->size() / 2);
+        *value_changed = true;
+        return false;
+      } else if (value.size() % 2 == 1) {
+        return true;
+      }
+      return false;
+    }
+    bool IgnoreSnapshots() const override { return true; }
+    const char *Name() const override { return "CustomerFilter"; }
   };
-  class TestCompactionFilterFactory : public CompactionFilterFactory {
-    const char *Name() const override { return "TestCompactionFilterFactory"; }
+  class CustomerFilterFactory : public CompactionFilterFactory {
+    const char *Name() const override { return "CustomerFilterFactory"; }
     std::unique_ptr<CompactionFilter> CreateCompactionFilter(
         const CompactionFilter::Context & /*context*/) override {
-      return std::unique_ptr<CompactionFilter>(new TestCompactionFilter());
+      return std::unique_ptr<CompactionFilter>(new CustomerFilter());
     }
   };
-  for (int i = 0; i < 2; i++) {
+
+  constexpr size_t kNumPuts = 1 << 10;
+  // Generate both inlined and blob value
+  constexpr uint64_t kMinValueSize = 1 << 6;
+  constexpr uint64_t kMaxValueSize = 1 << 8;
+  constexpr uint64_t kMinBlobSize = 1 << 7;
+  static_assert(kMinValueSize < kMinBlobSize, "");
+  static_assert(kMaxValueSize > kMinBlobSize, "");
+
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = kMinBlobSize;
+  bdb_options.blob_file_size = kMaxValueSize * 10;
+  bdb_options.disable_background_tasks = true;
+  if (Snappy_Supported()) {
+    bdb_options.compression = CompressionType::kSnappyCompression;
+  }
+  // case_num == 0: Test user defined compaction filter
+  // case_num == 1: Test user defined compaction filter factory
+  for (int case_num = 0; case_num < 2; case_num++) {
     Options options;
-    if (i == 0) {
-      options.compaction_filter = new TestCompactionFilter();
+    if (case_num == 0) {
+      options.compaction_filter = new CustomerFilter();
     } else {
-      options.compaction_filter_factory.reset(
-          new TestCompactionFilterFactory());
+      options.compaction_filter_factory.reset(new CustomerFilterFactory());
     }
-    ASSERT_TRUE(TryOpen(BlobDBOptions(), options).IsNotSupported());
+    options.disable_auto_compactions = true;
+    options.env = mock_env_.get();
+    options.statistics = CreateDBStatistics();
+    Open(bdb_options, options);
+
+    std::map<std::string, std::string> data;
+    std::map<std::string, std::string> data_after_compact;
+    Random rnd(301);
+    uint64_t value_size = kMinValueSize;
+    int drop_record = 0;
+    for (size_t i = 0; i < kNumPuts; ++i) {
+      std::ostringstream oss;
+      oss << "key" << std::setw(4) << std::setfill('0') << i;
+
+      const std::string key(oss.str());
+      const std::string value = rnd.HumanReadableString((int)value_size);
+      const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
+
+      ASSERT_OK(Put(key, value));
+      ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
+
+      data[key] = value;
+      if (value.length() % 4 == 1) {
+        data_after_compact[key] = value + value;
+      } else if (value.length() % 3 == 1) {
+        data_after_compact[key] = value.substr(0, value.size() / 2);
+      } else if (value.length() % 2 == 1) {
+        ++drop_record;
+      } else {
+        data_after_compact[key] = value;
+      }
+
+      if (++value_size > kMaxValueSize) {
+        value_size = kMinValueSize;
+      }
+    }
+    // Verify full data set
+    VerifyDB(data);
+    // Applying compaction filter for records
+    ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    // Verify data after compaction, only value with even length left.
+    VerifyDB(data_after_compact);
+    ASSERT_EQ(drop_record,
+              options.statistics->getTickerCount(COMPACTION_KEY_DROP_USER));
     delete options.compaction_filter;
+    Destroy();
+  }
+}
+
+// Test user comapction filter when there is IO error on blob data.
+TEST_F(BlobDBTest, UserCompactionFilter_BlobIOError) {
+  class CustomerFilter : public CompactionFilter {
+   public:
+    bool Filter(int /*level*/, const Slice & /*key*/, const Slice &value,
+                std::string *new_value, bool *value_changed) const override {
+      *new_value = value.ToString() + "_new";
+      *value_changed = true;
+      return false;
+    }
+    bool IgnoreSnapshots() const override { return true; }
+    const char *Name() const override { return "CustomerFilter"; }
+  };
+
+  constexpr size_t kNumPuts = 100;
+  constexpr int kValueSize = 100;
+
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.blob_file_size = kValueSize * 10;
+  bdb_options.disable_background_tasks = true;
+  bdb_options.compression = CompressionType::kNoCompression;
+
+  std::vector<std::string> io_failure_cases = {
+      "BlobDBImpl::CreateBlobFileAndWriter",
+      "BlobIndexCompactionFilterBase::WriteBlobToNewFile",
+      "BlobDBImpl::CloseBlobFile"};
+
+  for (size_t case_num = 0; case_num < io_failure_cases.size(); case_num++) {
+    Options options;
+    options.compaction_filter = new CustomerFilter();
+    options.disable_auto_compactions = true;
+    options.env = fault_injection_env_.get();
+    options.statistics = CreateDBStatistics();
+    Open(bdb_options, options);
+
+    std::map<std::string, std::string> data;
+    Random rnd(301);
+    for (size_t i = 0; i < kNumPuts; ++i) {
+      std::ostringstream oss;
+      oss << "key" << std::setw(4) << std::setfill('0') << i;
+
+      const std::string key(oss.str());
+      const std::string value = rnd.HumanReadableString(kValueSize);
+      const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
+
+      ASSERT_OK(Put(key, value));
+      ASSERT_EQ(blob_db_->GetLatestSequenceNumber(), sequence);
+      data[key] = value;
+    }
+
+    // Verify full data set
+    VerifyDB(data);
+
+    SyncPoint::GetInstance()->SetCallBack(
+        io_failure_cases[case_num], [&](void * /*arg*/) {
+          fault_injection_env_->SetFilesystemActive(false, Status::IOError());
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    auto s = blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ASSERT_TRUE(s.IsIOError());
+
+    // Reactivate file system to allow test to verify and close DB.
+    fault_injection_env_->SetFilesystemActive(true);
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    // Verify full data set after compaction failure
+    VerifyDB(data);
+
+    delete options.compaction_filter;
+    Destroy();
   }
 }
 
@@ -1406,7 +1505,7 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
     uint64_t expiration = rnd.Next() % kMaxExpiration;
     int len = is_small_value ? 10 : 200;
     std::string key = "key" + ToString(rnd.Next() % kNumKeys);
-    std::string value = test::RandomHumanReadableString(&rnd, len);
+    std::string value = rnd.HumanReadableString(len);
     if (!has_ttl) {
       if (is_small_value) {
         std::string blob_entry;
@@ -1434,9 +1533,7 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
   // filtered regardless of snapshot.
   const Snapshot *snapshot = blob_db_->GetSnapshot();
   // Issue manual compaction to trigger compaction filter.
-  ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(),
-                                   blob_db_->DefaultColumnFamily(), nullptr,
-                                   nullptr));
+  ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   blob_db_->ReleaseSnapshot(snapshot);
   // Verify expired blob index are filtered.
   std::vector<KeyVersion> versions;
@@ -1450,7 +1547,7 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
 }
 
 // Test compaction filter should remove any blob index where corresponding
-// blob file has been removed (either by FIFO or garbage collection).
+// blob file has been removed.
 TEST_F(BlobDBTest, FilterFileNotAvailable) {
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = 0;
@@ -1481,7 +1578,6 @@ TEST_F(BlobDBTest, FilterFileNotAvailable) {
   ASSERT_EQ("foo", versions[1].user_key);
   VerifyDB({{"bar", "v2"}, {"foo", "v1"}});
 
-  ASSERT_OK(blob_db_->Flush(FlushOptions()));
   ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_OK(GetAllKeyVersions(base_db, "", "", kMaxKeys, &versions));
   ASSERT_EQ(2, versions.size());
@@ -1530,7 +1626,7 @@ TEST_F(BlobDBTest, FilterForFIFOEviction) {
   // Insert some small values that will be inlined.
   for (int i = 0; i < 1000; i++) {
     std::string key = "key" + ToString(i);
-    std::string value = test::RandomHumanReadableString(&rnd, 50);
+    std::string value = rnd.HumanReadableString(50);
     uint64_t ttl = rnd.Next() % 120 + 1;
     ASSERT_OK(PutWithTTL(key, value, ttl, &data));
     if (ttl >= 60) {
@@ -1621,6 +1717,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
   Options options;
   options.env = mock_env_.get();
+  options.statistics = CreateDBStatistics();
 
   Open(bdb_options, options);
 
@@ -1637,8 +1734,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
     oss << "key" << std::setw(4) << std::setfill('0') << i;
 
     const std::string key(oss.str());
-    const std::string value(
-        test::RandomHumanReadableString(&rnd, kLargeValueSize));
+    const std::string value = rnd.HumanReadableString(kLargeValueSize);
     const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
 
     ASSERT_OK(Put(key, value));
@@ -1655,8 +1751,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
   // First, add a large TTL value will be written to its own TTL blob file.
   {
     const std::string key("key2000");
-    const std::string value(
-        test::RandomHumanReadableString(&rnd, kLargeValueSize));
+    const std::string value = rnd.HumanReadableString(kLargeValueSize);
     const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
 
     ASSERT_OK(PutUntil(key, value, kExpiration));
@@ -1672,8 +1767,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
   // Now add a small TTL value (which will be inlined).
   {
     const std::string key("key3000");
-    const std::string value(
-        test::RandomHumanReadableString(&rnd, kSmallValueSize));
+    const std::string value = rnd.HumanReadableString(kSmallValueSize);
     const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
 
     ASSERT_OK(PutUntil(key, value, kExpiration));
@@ -1689,8 +1783,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
   // value).
   {
     const std::string key("key4000");
-    const std::string value(
-        test::RandomHumanReadableString(&rnd, kSmallValueSize));
+    const std::string value = rnd.HumanReadableString(kSmallValueSize);
     const SequenceNumber sequence = blob_db_->GetLatestSequenceNumber() + 1;
 
     ASSERT_OK(Put(key, value));
@@ -1720,9 +1813,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
   mock_env_->set_current_time(kCompactTime);
 
-  ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(),
-                                   blob_db_->DefaultColumnFamily(), nullptr,
-                                   nullptr));
+  ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   // We expect the data to remain the same and the blobs from the oldest N files
   // to be moved to new files. Sequence numbers get zeroed out during the
@@ -1756,6 +1847,17 @@ TEST_F(BlobDBTest, GarbageCollection) {
 
   VerifyBaseDBBlobIndex(blob_index_versions);
 
+  const Statistics *const statistics = options.statistics.get();
+  assert(statistics);
+
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_FILES), cutoff);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES), cutoff);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_FAILURES), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED),
+            cutoff * kBlobsPerFile);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_BYTES_RELOCATED),
+            cutoff * kBlobsPerFile * kLargeValueSize);
+
   // At this point, we should have 128 immutable non-TTL files with file numbers
   // 33..128 and 130..161. (129 was taken by the TTL blob file.)
   {
@@ -1772,6 +1874,47 @@ TEST_F(BlobDBTest, GarbageCollection) {
                 kBlobFileSize + BlobLogFooter::kSize);
     }
   }
+}
+
+TEST_F(BlobDBTest, GarbageCollectionFailure) {
+  BlobDBOptions bdb_options;
+  bdb_options.min_blob_size = 0;
+  bdb_options.enable_garbage_collection = true;
+  bdb_options.garbage_collection_cutoff = 1.0;
+  bdb_options.disable_background_tasks = true;
+
+  Options db_options;
+  db_options.statistics = CreateDBStatistics();
+
+  Open(bdb_options, db_options);
+
+  // Write a couple of valid blobs.
+  Put("foo", "bar");
+  Put("dead", "beef");
+
+  // Write a fake blob reference into the base DB that cannot be parsed.
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::PutBlobIndex(
+      &batch, blob_db_->DefaultColumnFamily()->GetID(), "key",
+      "not a valid blob index"));
+  ASSERT_OK(blob_db_->GetRootDB()->Write(WriteOptions(), &batch));
+
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+  auto blob_file = blob_files[0];
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_file));
+
+  ASSERT_TRUE(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                  .IsCorruption());
+
+  const Statistics *const statistics = db_options.statistics.get();
+  assert(statistics);
+
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_FILES), 0);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_NEW_FILES), 1);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_FAILURES), 1);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_NUM_KEYS_RELOCATED), 2);
+  ASSERT_EQ(statistics->getTickerCount(BLOB_DB_GC_BYTES_RELOCATED), 7);
 }
 
 // File should be evicted after expiration.
@@ -2124,7 +2267,7 @@ TEST_F(BlobDBTest, ShutdownWait) {
       {"BlobDBTest.ShutdownWait:3", "BlobDBImpl::EvictExpiredFiles:3"},
   });
   // Force all tasks to be scheduled immediately.
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       "TimeQueue::Add:item.end", [&](void *arg) {
         std::chrono::steady_clock::time_point *tp =
             static_cast<std::chrono::steady_clock::time_point *>(arg);
@@ -2132,7 +2275,7 @@ TEST_F(BlobDBTest, ShutdownWait) {
             std::chrono::steady_clock::now() - std::chrono::milliseconds(10000);
       });
 
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+  SyncPoint::GetInstance()->SetCallBack(
       "BlobDBImpl::EvictExpiredFiles:cb", [&](void * /*arg*/) {
         // Sleep 3 ms to increase the chance of data race.
         // We've synced up the code so that EvictExpiredFiles()
@@ -2171,8 +2314,59 @@ TEST_F(BlobDBTest, ShutdownWait) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(BlobDBTest, SyncBlobFileBeforeClose) {
+  Options options;
+  options.statistics = CreateDBStatistics();
+
+  BlobDBOptions blob_options;
+  blob_options.min_blob_size = 0;
+  blob_options.bytes_per_sync = 1 << 20;
+  blob_options.disable_background_tasks = true;
+
+  Open(blob_options, options);
+
+  Put("foo", "bar");
+
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+
+  ASSERT_OK(blob_db_impl()->TEST_CloseBlobFile(blob_files[0]));
+  ASSERT_EQ(options.statistics->getTickerCount(BLOB_DB_BLOB_FILE_SYNCED), 1);
+}
+
+TEST_F(BlobDBTest, SyncBlobFileBeforeCloseIOError) {
+  Options options;
+  options.env = fault_injection_env_.get();
+
+  BlobDBOptions blob_options;
+  blob_options.min_blob_size = 0;
+  blob_options.bytes_per_sync = 1 << 20;
+  blob_options.disable_background_tasks = true;
+
+  Open(blob_options, options);
+
+  Put("foo", "bar");
+
+  auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "BlobLogWriter::Sync", [this](void * /* arg */) {
+        fault_injection_env_->SetFilesystemActive(false, Status::IOError());
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  const Status s = blob_db_impl()->TEST_CloseBlobFile(blob_files[0]);
+
+  fault_injection_env_->SetFilesystemActive(true);
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(s.IsIOError());
+}
+
 }  //  namespace blob_db
-}  //  namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 // A black-box test for the ttl wrapper around rocksdb
 int main(int argc, char** argv) {

@@ -20,7 +20,7 @@
 #include "util/coding.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 BlobDumpTool::BlobDumpTool()
@@ -101,7 +101,8 @@ Status BlobDumpTool::Read(uint64_t offset, size_t size, Slice* result) {
     }
     buffer_.reset(new char[buffer_size_]);
   }
-  Status s = reader_->Read(offset, size, result, buffer_.get());
+  Status s =
+      reader_->Read(IOOptions(), offset, size, result, buffer_.get(), nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -254,7 +255,7 @@ void BlobDumpTool::DumpSlice(const Slice s, DisplayType type) {
         snprintf(buf + j * 3 + 16, 2, "%x", c & 0xf);
         snprintf(buf + j + 65, 2, "%c", (0x20 <= c && c <= 0x7e) ? c : '.');
       }
-      for (size_t p = 0; p < sizeof(buf) - 1; p++) {
+      for (size_t p = 0; p + 1 < sizeof(buf); p++) {
         if (buf[p] == 0) {
           buf[p] = ' ';
         }
@@ -273,6 +274,6 @@ std::string BlobDumpTool::GetString(std::pair<T, T> p) {
 }
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

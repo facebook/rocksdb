@@ -8,27 +8,30 @@
 #ifndef ROCKSDB_LITE
 
 #include <functional>
+#include <limits>
 #include <string>
 #include <vector>
+
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/stackable_db.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 namespace blob_db {
 
 // A wrapped database which puts values of KV pairs in a separate log
 // and store location to the log in the underlying DB.
-// It lacks lots of importatant functionalities, e.g. DB restarts,
-// garbage collection, iterators, etc.
 //
 // The factory needs to be moved to include/rocksdb/utilities to allow
 // users to use blob DB.
 
+constexpr uint64_t kNoExpiration = std::numeric_limits<uint64_t>::max();
+
 struct BlobDBOptions {
-  // name of the directory under main db, where blobs will be stored.
-  // default is "blob_dir"
+  // Name of the directory under the base DB where blobs will be stored. Using
+  // a directory where the base DB stores its SST files is not supported.
+  // Default is "blob_dir"
   std::string blob_dir = "blob_dir";
 
   // whether the blob_dir path is relative or absolute.
@@ -85,7 +88,7 @@ struct BlobDBOptions {
 
 class BlobDB : public StackableDB {
  public:
-  using rocksdb::StackableDB::Put;
+  using ROCKSDB_NAMESPACE::StackableDB::Put;
   virtual Status Put(const WriteOptions& options, const Slice& key,
                      const Slice& value) override = 0;
   virtual Status Put(const WriteOptions& options,
@@ -98,7 +101,7 @@ class BlobDB : public StackableDB {
     return Put(options, key, value);
   }
 
-  using rocksdb::StackableDB::Delete;
+  using ROCKSDB_NAMESPACE::StackableDB::Delete;
   virtual Status Delete(const WriteOptions& options,
                         ColumnFamilyHandle* column_family,
                         const Slice& key) override {
@@ -136,7 +139,7 @@ class BlobDB : public StackableDB {
     return PutUntil(options, key, value, expiration);
   }
 
-  using rocksdb::StackableDB::Get;
+  using ROCKSDB_NAMESPACE::StackableDB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override = 0;
@@ -150,7 +153,7 @@ class BlobDB : public StackableDB {
     return Get(options, DefaultColumnFamily(), key, value, expiration);
   }
 
-  using rocksdb::StackableDB::MultiGet;
+  using ROCKSDB_NAMESPACE::StackableDB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<Slice>& keys,
@@ -181,14 +184,14 @@ class BlobDB : public StackableDB {
     }
   }
 
-  using rocksdb::StackableDB::SingleDelete;
+  using ROCKSDB_NAMESPACE::StackableDB::SingleDelete;
   virtual Status SingleDelete(const WriteOptions& /*wopts*/,
                               ColumnFamilyHandle* /*column_family*/,
                               const Slice& /*key*/) override {
     return Status::NotSupported("Not supported operation in blob db.");
   }
 
-  using rocksdb::StackableDB::Merge;
+  using ROCKSDB_NAMESPACE::StackableDB::Merge;
   virtual Status Merge(const WriteOptions& /*options*/,
                        ColumnFamilyHandle* /*column_family*/,
                        const Slice& /*key*/, const Slice& /*value*/) override {
@@ -197,7 +200,7 @@ class BlobDB : public StackableDB {
 
   virtual Status Write(const WriteOptions& opts,
                        WriteBatch* updates) override = 0;
-  using rocksdb::StackableDB::NewIterator;
+  using ROCKSDB_NAMESPACE::StackableDB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options) override = 0;
   virtual Iterator* NewIterator(const ReadOptions& options,
                                 ColumnFamilyHandle* column_family) override {
@@ -230,7 +233,7 @@ class BlobDB : public StackableDB {
                         output_path_id, output_file_names, compaction_job_info);
   }
 
-  using rocksdb::StackableDB::Close;
+  using ROCKSDB_NAMESPACE::StackableDB::Close;
   virtual Status Close() override = 0;
 
   // Opening blob db.
@@ -259,5 +262,5 @@ Status DestroyBlobDB(const std::string& dbname, const Options& options,
                      const BlobDBOptions& bdb_options);
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

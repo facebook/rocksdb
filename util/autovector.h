@@ -11,12 +11,20 @@
 #include <stdexcept>
 #include <vector>
 
-namespace rocksdb {
+#include "rocksdb/rocksdb_namespace.h"
+
+namespace ROCKSDB_NAMESPACE {
 
 #ifdef ROCKSDB_LITE
 template <class T, size_t kSize = 8>
 class autovector : public std::vector<T> {
   using std::vector<T>::vector;
+
+ public:
+  autovector() {
+    // Make sure the initial vector has space for kSize elements
+    std::vector<T>::reserve(kSize);
+  }
 };
 #else
 // A vector that leverages pre-allocated stack-based array to achieve better
@@ -356,4 +364,4 @@ autovector<T, kSize>& autovector<T, kSize>::assign(const autovector& other) {
   return *this;
 }
 #endif  // ROCKSDB_LITE
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

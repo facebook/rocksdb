@@ -9,11 +9,12 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class DBTestInPlaceUpdate : public DBTestBase {
  public:
-  DBTestInPlaceUpdate() : DBTestBase("/db_inplace_update_test") {}
+  DBTestInPlaceUpdate()
+      : DBTestBase("/db_inplace_update_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBTestInPlaceUpdate, InPlaceUpdate) {
@@ -73,7 +74,7 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackSmallerSize) {
     options.env = env_;
     options.write_buffer_size = 100000;
     options.inplace_callback =
-      rocksdb::DBTestInPlaceUpdate::updateInPlaceSmallerSize;
+        ROCKSDB_NAMESPACE::DBTestInPlaceUpdate::updateInPlaceSmallerSize;
     options.allow_concurrent_memtable_write = false;
     Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -102,7 +103,7 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackSmallerVarintSize) {
     options.env = env_;
     options.write_buffer_size = 100000;
     options.inplace_callback =
-      rocksdb::DBTestInPlaceUpdate::updateInPlaceSmallerVarintSize;
+        ROCKSDB_NAMESPACE::DBTestInPlaceUpdate::updateInPlaceSmallerVarintSize;
     options.allow_concurrent_memtable_write = false;
     Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -131,7 +132,7 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackLargeNewValue) {
     options.env = env_;
     options.write_buffer_size = 100000;
     options.inplace_callback =
-      rocksdb::DBTestInPlaceUpdate::updateInPlaceLargerSize;
+        ROCKSDB_NAMESPACE::DBTestInPlaceUpdate::updateInPlaceLargerSize;
     options.allow_concurrent_memtable_write = false;
     Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -158,7 +159,7 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackNoAction) {
     options.env = env_;
     options.write_buffer_size = 100000;
     options.inplace_callback =
-        rocksdb::DBTestInPlaceUpdate::updateInPlaceNoAction;
+        ROCKSDB_NAMESPACE::DBTestInPlaceUpdate::updateInPlaceNoAction;
     options.allow_concurrent_memtable_write = false;
     Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -168,10 +169,10 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackNoAction) {
     ASSERT_EQ(Get(1, "key"), "NOT_FOUND");
   } while (ChangeCompactOptions());
 }
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
-  rocksdb::port::InstallStackTraceHandler();
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

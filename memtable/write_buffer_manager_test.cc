@@ -10,7 +10,7 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class WriteBufferManagerTest : public testing::Test {};
 
@@ -146,8 +146,37 @@ TEST_F(WriteBufferManagerTest, NoCapCacheCost) {
   ASSERT_GE(cache->GetPinnedUsage(), 1024 * 1024);
   ASSERT_LT(cache->GetPinnedUsage(), 1024 * 1024 + 10000);
 }
+
+TEST_F(WriteBufferManagerTest, CacheFull) {
+  // 15MB cache size with strict capacity
+  LRUCacheOptions lo;
+  lo.capacity = 12 * 1024 * 1024;
+  lo.num_shard_bits = 0;
+  lo.strict_capacity_limit = true;
+  std::shared_ptr<Cache> cache = NewLRUCache(lo);
+  std::unique_ptr<WriteBufferManager> wbf(new WriteBufferManager(0, cache));
+  wbf->ReserveMem(10 * 1024 * 1024);
+  size_t prev_pinned = cache->GetPinnedUsage();
+  ASSERT_GE(prev_pinned, 10 * 1024 * 1024);
+  // Some insert will fail
+  wbf->ReserveMem(10 * 1024 * 1024);
+  ASSERT_LE(cache->GetPinnedUsage(), 12 * 1024 * 1024);
+
+  // Increase capacity so next insert will succeed
+  cache->SetCapacity(30 * 1024 * 1024);
+  wbf->ReserveMem(10 * 1024 * 1024);
+  ASSERT_GT(cache->GetPinnedUsage(), 20 * 1024 * 1024);
+
+  // Gradually release 20 MB
+  for (int i = 0; i < 40; i++) {
+    wbf->FreeMem(512 * 1024);
+  }
+  ASSERT_GE(cache->GetPinnedUsage(), 10 * 1024 * 1024);
+  ASSERT_LT(cache->GetPinnedUsage(), 20 * 1024 * 1024);
+}
+
 #endif  // ROCKSDB_LITE
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

@@ -25,7 +25,7 @@
 #include "rocksdb/types.h"
 #include "util/autovector.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class ColumnFamilyData;
 class InternalKeyComparator;
@@ -44,7 +44,7 @@ struct FlushJobInfo;
 class MemTableListVersion {
  public:
   explicit MemTableListVersion(size_t* parent_memtable_list_memory_usage,
-                               MemTableListVersion* old = nullptr);
+                               const MemTableListVersion& old);
   explicit MemTableListVersion(size_t* parent_memtable_list_memory_usage,
                                int max_write_buffer_number_to_maintain,
                                int64_t max_write_buffer_size_to_maintain);
@@ -58,20 +58,21 @@ class MemTableListVersion {
   // If any operation was found for this key, its most recent sequence number
   // will be stored in *seq on success (regardless of whether true/false is
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
-  bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context,
+  bool Get(const LookupKey& key, std::string* value, std::string* timestamp,
+           Status* s, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq, SequenceNumber* seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
            bool* is_blob_index = nullptr);
 
-  bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context,
+  bool Get(const LookupKey& key, std::string* value, std::string* timestamp,
+           Status* s, MergeContext* merge_context,
            SequenceNumber* max_covering_tombstone_seq,
            const ReadOptions& read_opts, ReadCallback* callback = nullptr,
            bool* is_blob_index = nullptr) {
     SequenceNumber seq;
-    return Get(key, value, s, merge_context, max_covering_tombstone_seq, &seq,
-               read_opts, callback, is_blob_index);
+    return Get(key, value, timestamp, s, merge_context,
+               max_covering_tombstone_seq, &seq, read_opts, callback,
+               is_blob_index);
   }
 
   void MultiGet(const ReadOptions& read_options, MultiGetRange* range,
@@ -88,18 +89,20 @@ class MemTableListVersion {
   // have already been flushed.  Should only be used from in-memory only
   // queries (such as Transaction validation) as the history may contain
   // writes that are also present in the SST files.
-  bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
+  bool GetFromHistory(const LookupKey& key, std::string* value,
+                      std::string* timestamp, Status* s,
                       MergeContext* merge_context,
                       SequenceNumber* max_covering_tombstone_seq,
                       SequenceNumber* seq, const ReadOptions& read_opts,
                       bool* is_blob_index = nullptr);
-  bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
+  bool GetFromHistory(const LookupKey& key, std::string* value,
+                      std::string* timestamp, Status* s,
                       MergeContext* merge_context,
                       SequenceNumber* max_covering_tombstone_seq,
                       const ReadOptions& read_opts,
                       bool* is_blob_index = nullptr) {
     SequenceNumber seq;
-    return GetFromHistory(key, value, s, merge_context,
+    return GetFromHistory(key, value, timestamp, s, merge_context,
                           max_covering_tombstone_seq, &seq, read_opts,
                           is_blob_index);
   }
@@ -137,7 +140,7 @@ class MemTableListVersion {
       const autovector<const autovector<MemTable*>*>& mems_list,
       VersionSet* vset, InstrumentedMutex* mu,
       const autovector<FileMetaData*>& file_meta,
-      autovector<MemTable*>* to_delete, Directory* db_directory,
+      autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer);
 
   // REQUIRE: m is an immutable memtable
@@ -145,10 +148,12 @@ class MemTableListVersion {
   // REQUIRE: m is an immutable memtable
   void Remove(MemTable* m, autovector<MemTable*>* to_delete);
 
-  void TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
+  // Return true if memtable is trimmed
+  bool TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
-                   std::string* value, Status* s, MergeContext* merge_context,
+                   std::string* value, std::string* timestamp, Status* s,
+                   MergeContext* merge_context,
                    SequenceNumber* max_covering_tombstone_seq,
                    SequenceNumber* seq, const ReadOptions& read_opts,
                    ReadCallback* callback = nullptr,
@@ -260,9 +265,10 @@ class MemTableList {
       ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
       const autovector<MemTable*>& m, LogsWithPrepTracker* prep_tracker,
       VersionSet* vset, InstrumentedMutex* mu, uint64_t file_number,
-      autovector<MemTable*>* to_delete, Directory* db_directory,
+      autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer,
-      std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info);
+      std::list<std::unique_ptr<FlushJobInfo>>* committed_flush_jobs_info,
+      IOStatus* io_s);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().
@@ -286,7 +292,9 @@ class MemTableList {
   // max_write_buffer_size_to_maintain is used, total size of mutable and
   // immutable memtables is checked against it to decide whether to trim
   // memtable list.
-  void TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
+  //
+  // Return true if memtable is trimmed
+  bool TrimHistory(autovector<MemTable*>* to_delete, size_t usage);
 
   // Returns an estimate of the number of bytes of data used by
   // the unflushed mem-tables.
@@ -375,11 +383,18 @@ class MemTableList {
       const autovector<const autovector<MemTable*>*>& mems_list,
       VersionSet* vset, InstrumentedMutex* mu,
       const autovector<FileMetaData*>& file_meta,
-      autovector<MemTable*>* to_delete, Directory* db_directory,
+      autovector<MemTable*>* to_delete, FSDirectory* db_directory,
       LogBuffer* log_buffer);
 
   // DB mutex held
   void InstallNewVersion();
+
+  // DB mutex held
+  // Called after writing to MANIFEST
+  void RemoveMemTablesOrRestoreFlags(const Status& s, ColumnFamilyData* cfd,
+                                     size_t batch_count, LogBuffer* log_buffer,
+                                     autovector<MemTable*>* to_delete,
+                                     InstrumentedMutex* mu);
 
   const int min_write_buffer_number_to_merge_;
 
@@ -417,6 +432,6 @@ extern Status InstallMemtableAtomicFlushResults(
     const autovector<const MutableCFOptions*>& mutable_cf_options_list,
     const autovector<const autovector<MemTable*>*>& mems_list, VersionSet* vset,
     InstrumentedMutex* mu, const autovector<FileMetaData*>& file_meta,
-    autovector<MemTable*>* to_delete, Directory* db_directory,
+    autovector<MemTable*>* to_delete, FSDirectory* db_directory,
     LogBuffer* log_buffer);
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

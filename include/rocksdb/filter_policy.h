@@ -20,17 +20,20 @@
 #pragma once
 
 #include <stdlib.h>
+
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "rocksdb/advanced_options.h"
+#include "rocksdb/status.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 struct BlockBasedTableOptions;
+struct ConfigOptions;
 
 // A class that takes a bunch of keys, then generates filter
 class FilterBitsBuilder {
@@ -84,7 +87,8 @@ class FilterBitsReader {
 };
 
 // Contextual information passed to BloomFilterPolicy at filter building time.
-// Used in overriding FilterPolicy::GetBuilderWithContext().
+// Used in overriding FilterPolicy::GetBuilderWithContext(). References other
+// structs because this is expected to be a temporary, stack-allocated object.
 struct FilterBuildingContext {
   // This constructor is for internal use only and subject to change.
   FilterBuildingContext(const BlockBasedTableOptions& table_options);
@@ -101,6 +105,9 @@ struct FilterBuildingContext {
   // The table level at time of constructing the SST file, or -1 if unknown.
   // (The table file could later be used at a different level.)
   int level_at_creation = -1;
+
+  // An optional logger for reporting errors, warnings, etc.
+  Logger* info_log = nullptr;
 };
 
 // We add a new format of filter block called full filter block
@@ -120,6 +127,18 @@ struct FilterBuildingContext {
 class FilterPolicy {
  public:
   virtual ~FilterPolicy();
+
+  // Creates a new FilterPolicy based on the input value string and returns the
+  // result The value might be an ID, and ID with properties, or an old-style
+  // policy string.
+  // The value describes the FilterPolicy being created.
+  // For BloomFilters, value may be a ":"-delimited value of the form:
+  //   "bloomfilter:[bits_per_key]:[use_block_based_builder]",
+  //   e.g. ""bloomfilter:4:true"
+  //   The above string is equivalent to calling NewBloomFilterPolicy(4, true).
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& value,
+                                 std::shared_ptr<const FilterPolicy>* result);
 
   // Return the name of this policy.  Note that if the filter encoding
   // changes in an incompatible way, the name returned by this method
@@ -193,4 +212,24 @@ class FilterPolicy {
 // trailing spaces in keys.
 extern const FilterPolicy* NewBloomFilterPolicy(
     double bits_per_key, bool use_block_based_builder = false);
-}  // namespace rocksdb
+
+// An EXPERIMENTAL new Bloom alternative that saves about 30% space
+// compared to Bloom filters, with about 3-4x construction time and
+// similar query times. For example, if you pass in 10 for
+// bloom_equivalent_bits_per_key, you'll get the same 0.95% FP rate
+// as Bloom filter but only using about 7 bits per key. (This
+// way of configuring the new filter is considered experimental
+// and/or transitional, so is expected to go away.)
+//
+// Ribbon filters are ignored by previous versions of RocksDB, as if
+// no filter was used.
+//
+// Note: this policy can generate Bloom filters in some cases.
+// For very small filters (well under 1KB), Bloom fallback is by
+// design, as the current Ribbon schema is not optimized to save vs.
+// Bloom for such small filters. Other cases of Bloom fallback should
+// be exceptional and log an appropriate warning.
+extern const FilterPolicy* NewExperimentalRibbonFilterPolicy(
+    double bloom_equivalent_bits_per_key);
+
+}  // namespace ROCKSDB_NAMESPACE

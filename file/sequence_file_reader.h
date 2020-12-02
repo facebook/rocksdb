@@ -10,40 +10,36 @@
 #pragma once
 #include <atomic>
 #include <string>
+
+#include "env/file_system_tracer.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // SequentialFileReader is a wrapper on top of Env::SequentialFile. It handles
 // Buffered (i.e when page cache is enabled) and Direct (with O_DIRECT / page
 // cache disabled) reads appropriately, and also updates the IO stats.
 class SequentialFileReader {
  private:
-  std::unique_ptr<FSSequentialFile> file_;
   std::string file_name_;
+  FSSequentialFilePtr file_;
   std::atomic<size_t> offset_{0};  // read offset
 
  public:
-  explicit SequentialFileReader(std::unique_ptr<FSSequentialFile>&& _file,
-                                const std::string& _file_name)
-      : file_(std::move(_file)), file_name_(_file_name) {}
+  explicit SequentialFileReader(
+      std::unique_ptr<FSSequentialFile>&& _file, const std::string& _file_name,
+      const std::shared_ptr<IOTracer>& io_tracer = nullptr)
+      : file_name_(_file_name), file_(std::move(_file), io_tracer) {}
 
-  explicit SequentialFileReader(std::unique_ptr<FSSequentialFile>&& _file,
-                                const std::string& _file_name,
-                                size_t _readahead_size)
-      : file_(NewReadaheadSequentialFile(std::move(_file), _readahead_size)),
-        file_name_(_file_name) {}
-
-  SequentialFileReader(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
-    *this = std::move(o);
-  }
-
-  SequentialFileReader& operator=(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
-    file_ = std::move(o.file_);
-    return *this;
-  }
+  explicit SequentialFileReader(
+      std::unique_ptr<FSSequentialFile>&& _file, const std::string& _file_name,
+      size_t _readahead_size,
+      const std::shared_ptr<IOTracer>& io_tracer = nullptr)
+      : file_name_(_file_name),
+        file_(NewReadaheadSequentialFile(std::move(_file), _readahead_size),
+              io_tracer) {}
 
   SequentialFileReader(const SequentialFileReader&) = delete;
   SequentialFileReader& operator=(const SequentialFileReader&) = delete;
@@ -64,4 +60,4 @@ class SequentialFileReader {
   static std::unique_ptr<FSSequentialFile> NewReadaheadSequentialFile(
       std::unique_ptr<FSSequentialFile>&& file, size_t readahead_size);
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

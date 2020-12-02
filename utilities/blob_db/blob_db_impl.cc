@@ -12,7 +12,7 @@
 #include <memory>
 #include <sstream>
 
-#include "db/blob_index.h"
+#include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/write_batch_internal.h"
 #include "env/composite_env_wrapper.h"
@@ -48,7 +48,7 @@ namespace {
 int kBlockBasedTableVersionFormat = 2;
 }  // end namespace
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 bool BlobFileComparator::operator()(
@@ -137,11 +137,6 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
     return Status::NotSupported("No blob directory in options");
   }
 
-  if (cf_options_.compaction_filter != nullptr ||
-      cf_options_.compaction_filter_factory != nullptr) {
-    return Status::NotSupported("Blob DB doesn't support compaction filter.");
-  }
-
   if (bdb_options_.garbage_collection_cutoff < 0.0 ||
       bdb_options_.garbage_collection_cutoff > 1.0) {
     return Status::InvalidArgument(
@@ -169,6 +164,12 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
 
   ROCKS_LOG_INFO(db_options_.info_log, "Opening BlobDB...");
 
+  if ((cf_options_.compaction_filter != nullptr ||
+       cf_options_.compaction_filter_factory != nullptr)) {
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "BlobDB only support compaction filter on non-TTL values.");
+  }
+
   // Open blob directory.
   s = env_->CreateDirIfMissing(blob_dir_);
   if (!s.ok()) {
@@ -194,14 +195,17 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   if (bdb_options_.enable_garbage_collection) {
     db_options_.listeners.push_back(std::make_shared<BlobDBListenerGC>(this));
     cf_options_.compaction_filter_factory =
-        std::make_shared<BlobIndexCompactionFilterFactoryGC>(this, env_,
-                                                             statistics_);
+        std::make_shared<BlobIndexCompactionFilterFactoryGC>(
+            this, env_, cf_options_, statistics_);
   } else {
     db_options_.listeners.push_back(std::make_shared<BlobDBListener>(this));
     cf_options_.compaction_filter_factory =
-        std::make_shared<BlobIndexCompactionFilterFactory>(this, env_,
-                                                           statistics_);
+        std::make_shared<BlobIndexCompactionFilterFactory>(
+            this, env_, cf_options_, statistics_);
   }
+
+  // Reset user compaction filter after building into compaction factory.
+  cf_options_.compaction_filter = nullptr;
 
   // Open base db.
   ColumnFamilyDescriptor cf_descriptor(kDefaultColumnFamilyName, cf_options_);
@@ -209,7 +213,35 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   if (!s.ok()) {
     return s;
   }
-  db_impl_ = static_cast_with_check<DBImpl, DB>(db_->GetRootDB());
+  db_impl_ = static_cast_with_check<DBImpl>(db_->GetRootDB());
+
+  // Sanitize the blob_dir provided. Using a directory where the
+  // base DB stores its files for the default CF is not supported.
+  const ColumnFamilyData* const cfd =
+      static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->cfd();
+  assert(cfd);
+
+  const ImmutableCFOptions* const ioptions = cfd->ioptions();
+  assert(ioptions);
+
+  assert(env_);
+
+  for (const auto& cf_path : ioptions->cf_paths) {
+    bool blob_dir_same_as_cf_dir = false;
+    s = env_->AreFilesSame(blob_dir_, cf_path.path, &blob_dir_same_as_cf_dir);
+    if (!s.ok()) {
+      ROCKS_LOG_ERROR(db_options_.info_log,
+                      "Error while sanitizing blob_dir %s, status: %s",
+                      blob_dir_.c_str(), s.ToString().c_str());
+      return s;
+    }
+
+    if (blob_dir_same_as_cf_dir) {
+      return Status::NotSupported(
+          "Using the base DB's storage directories for BlobDB files is not "
+          "supported.");
+    }
+  }
 
   // Initialize SST file <-> oldest blob file mapping if garbage collection
   // is enabled.
@@ -476,25 +508,69 @@ void BlobDBImpl::ProcessCompactionJobInfo(const CompactionJobInfo& info) {
   }
 
   // Note: the same SST file may appear in both the input and the output
-  // file list in case of a trivial move. We process the inputs first
-  // to ensure the blob file still has a link after processing all updates.
+  // file list in case of a trivial move. We walk through the two lists
+  // below in a fashion that's similar to merge sort to detect this.
+
+  auto cmp = [](const CompactionFileInfo& lhs, const CompactionFileInfo& rhs) {
+    return lhs.file_number < rhs.file_number;
+  };
+
+  auto inputs = info.input_file_infos;
+  auto iit = inputs.begin();
+  const auto iit_end = inputs.end();
+
+  std::sort(iit, iit_end, cmp);
+
+  auto outputs = info.output_file_infos;
+  auto oit = outputs.begin();
+  const auto oit_end = outputs.end();
+
+  std::sort(oit, oit_end, cmp);
 
   WriteLock lock(&mutex_);
 
-  for (const auto& input : info.input_file_infos) {
-    if (input.oldest_blob_file_number == kInvalidBlobFileNumber) {
-      continue;
-    }
+  while (iit != iit_end && oit != oit_end) {
+    const auto& input = *iit;
+    const auto& output = *oit;
 
-    UnlinkSstFromBlobFile(input.file_number, input.oldest_blob_file_number);
+    if (input.file_number == output.file_number) {
+      ++iit;
+      ++oit;
+    } else if (input.file_number < output.file_number) {
+      if (input.oldest_blob_file_number != kInvalidBlobFileNumber) {
+        UnlinkSstFromBlobFile(input.file_number, input.oldest_blob_file_number);
+      }
+
+      ++iit;
+    } else {
+      assert(output.file_number < input.file_number);
+
+      if (output.oldest_blob_file_number != kInvalidBlobFileNumber) {
+        LinkSstToBlobFile(output.file_number, output.oldest_blob_file_number);
+      }
+
+      ++oit;
+    }
   }
 
-  for (const auto& output : info.output_file_infos) {
-    if (output.oldest_blob_file_number == kInvalidBlobFileNumber) {
-      continue;
+  while (iit != iit_end) {
+    const auto& input = *iit;
+
+    if (input.oldest_blob_file_number != kInvalidBlobFileNumber) {
+      UnlinkSstFromBlobFile(input.file_number, input.oldest_blob_file_number);
     }
 
-    LinkSstToBlobFile(output.file_number, output.oldest_blob_file_number);
+    ++iit;
+  }
+
+  while (oit != oit_end) {
+    const auto& output = *oit;
+
+    if (output.oldest_blob_file_number != kInvalidBlobFileNumber) {
+      LinkSstToBlobFile(output.file_number, output.oldest_blob_file_number);
+    }
+
+    ++oit;
   }
 
   MarkUnreferencedBlobFilesObsolete();
@@ -540,6 +616,8 @@ void BlobDBImpl::MarkUnreferencedBlobFilesObsoleteImpl(Functor mark_if_needed) {
   // Note: we need to stop as soon as we find a blob file that has any
   // linked SSTs (or one potentially referenced by memtables).
 
+  uint64_t obsoleted_files = 0;
+
   auto it = live_imm_non_ttl_blob_files_.begin();
   while (it != live_imm_non_ttl_blob_files_.end()) {
     const auto& blob_file = it->second;
@@ -560,6 +638,15 @@ void BlobDBImpl::MarkUnreferencedBlobFilesObsoleteImpl(Functor mark_if_needed) {
     }
 
     it = live_imm_non_ttl_blob_files_.erase(it);
+
+    ++obsoleted_files;
+  }
+
+  if (obsoleted_files > 0) {
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "%" PRIu64 " blob file(s) marked obsolete by GC",
+                   obsoleted_files);
+    RecordTick(statistics_, BLOB_DB_GC_NUM_FILES, obsoleted_files);
   }
 }
 
@@ -567,7 +654,7 @@ void BlobDBImpl::MarkUnreferencedBlobFilesObsolete() {
   const SequenceNumber obsolete_seq = GetLatestSequenceNumber();
 
   MarkUnreferencedBlobFilesObsoleteImpl(
-      [=](const std::shared_ptr<BlobFile>& blob_file) {
+      [this, obsolete_seq](const std::shared_ptr<BlobFile>& blob_file) {
         WriteLock file_lock(&blob_file->mutex_);
         return MarkBlobFileObsoleteIfNeeded(blob_file, obsolete_seq);
       });
@@ -575,7 +662,7 @@ void BlobDBImpl::MarkUnreferencedBlobFilesObsolete() {
 
 void BlobDBImpl::MarkUnreferencedBlobFilesObsoleteDuringOpen() {
   MarkUnreferencedBlobFilesObsoleteImpl(
-      [=](const std::shared_ptr<BlobFile>& blob_file) {
+      [this](const std::shared_ptr<BlobFile>& blob_file) {
         return MarkBlobFileObsoleteIfNeeded(blob_file, /* obsolete_seq */ 0);
       });
 }
@@ -655,11 +742,11 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
                     boffset);
   }
 
-  Writer::ElemType et = Writer::kEtNone;
+  BlobLogWriter::ElemType et = BlobLogWriter::kEtNone;
   if (bfile->file_size_ == BlobLogHeader::kSize) {
-    et = Writer::kEtFileHdr;
+    et = BlobLogWriter::kEtFileHdr;
   } else if (bfile->file_size_ > BlobLogHeader::kSize) {
-    et = Writer::kEtRecord;
+    et = BlobLogWriter::kEtRecord;
   } else if (bfile->file_size_) {
     ROCKS_LOG_WARN(db_options_.info_log,
                    "Open blob file: %s with wrong size: %" PRIu64,
@@ -667,9 +754,9 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
     return Status::Corruption("Invalid blob file size");
   }
 
-  bfile->log_writer_ = std::make_shared<Writer>(
+  bfile->log_writer_ = std::make_shared<BlobLogWriter>(
       std::move(fwriter), env_, statistics_, bfile->file_number_,
-      bdb_options_.bytes_per_sync, db_options_.use_fsync, boffset);
+      db_options_.use_fsync, boffset);
   bfile->log_writer_->last_elem_type_ = et;
 
   return s;
@@ -711,7 +798,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::FindBlobFileLocked(
 
 Status BlobDBImpl::CheckOrCreateWriterLocked(
     const std::shared_ptr<BlobFile>& blob_file,
-    std::shared_ptr<Writer>* writer) {
+    std::shared_ptr<BlobLogWriter>* writer) {
   assert(writer != nullptr);
   *writer = blob_file->GetWriter();
   if (*writer != nullptr) {
@@ -727,7 +814,8 @@ Status BlobDBImpl::CheckOrCreateWriterLocked(
 Status BlobDBImpl::CreateBlobFileAndWriter(
     bool has_ttl, const ExpirationRange& expiration_range,
     const std::string& reason, std::shared_ptr<BlobFile>* blob_file,
-    std::shared_ptr<Writer>* writer) {
+    std::shared_ptr<BlobLogWriter>* writer) {
+  TEST_SYNC_POINT("BlobDBImpl::CreateBlobFileAndWriter");
   assert(has_ttl == (expiration_range.first || expiration_range.second));
   assert(blob_file);
   assert(writer);
@@ -783,7 +871,7 @@ Status BlobDBImpl::SelectBlobFile(std::shared_ptr<BlobFile>* blob_file) {
     return Status::OK();
   }
 
-  std::shared_ptr<Writer> writer;
+  std::shared_ptr<BlobLogWriter> writer;
   const Status s = CreateBlobFileAndWriter(
       /* has_ttl */ false, ExpirationRange(),
       /* reason */ "SelectBlobFile", blob_file, &writer);
@@ -829,7 +917,7 @@ Status BlobDBImpl::SelectBlobFileTTL(uint64_t expiration,
   std::ostringstream oss;
   oss << "SelectBlobFileTTL range: [" << exp_low << ',' << exp_high << ')';
 
-  std::shared_ptr<Writer> writer;
+  std::shared_ptr<BlobLogWriter> writer;
   const Status s =
       CreateBlobFileAndWriter(/* has_ttl */ true, expiration_range,
                               /* reason */ oss.str(), blob_file, &writer);
@@ -907,7 +995,8 @@ Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   StopWatch write_sw(env_, statistics_, BLOB_DB_WRITE_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_WRITE);
   uint32_t default_cf_id =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+      static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
+          ->GetID();
   Status s;
   BlobInserter blob_inserter(options, this, default_cf_id);
   {
@@ -940,7 +1029,6 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
                             const Slice& value, uint64_t expiration) {
   StopWatch write_sw(env_, statistics_, BLOB_DB_WRITE_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_PUT);
-  TEST_SYNC_POINT("BlobDBImpl::PutUntil:Start");
   Status s;
   WriteBatch batch;
   {
@@ -953,7 +1041,6 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
   if (s.ok()) {
     s = db_->Write(options, &batch);
   }
-  TEST_SYNC_POINT("BlobDBImpl::PutUntil:Finish");
   return s;
 }
 
@@ -964,7 +1051,8 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
   Status s;
   std::string index_entry;
   uint32_t column_family_id =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+      static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
+          ->GetID();
   if (value.size() < bdb_options_.min_blob_size) {
     if (expiration == kNoExpiration) {
       // Put as normal value
@@ -982,7 +1070,8 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
     Slice value_compressed = GetCompressedSlice(value, &compression_output);
 
     std::string headerbuf;
-    Writer::ConstructBlobHeader(&headerbuf, key, value_compressed, expiration);
+    BlobLogWriter::ConstructBlobHeader(&headerbuf, key, value_compressed,
+                                       expiration);
 
     // Check DB size limit before selecting blob file to
     // Since CheckSizeAndEvictBlobFiles() can close blob files, it needs to be
@@ -1056,6 +1145,32 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   return *compression_output;
 }
 
+Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
+                                   CompressionType compression_type,
+                                   PinnableSlice* value_output) const {
+  assert(compression_type != kNoCompression);
+
+  BlockContents contents;
+  auto cfh = static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
+
+  {
+    StopWatch decompression_sw(env_, statistics_, BLOB_DB_DECOMPRESSION_MICROS);
+    UncompressionContext context(compression_type);
+    UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
+                           compression_type);
+    Status s = UncompressBlockContentsForCompressionType(
+        info, compressed_value.data(), compressed_value.size(), &contents,
+        kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
+    if (!s.ok()) {
+      return Status::Corruption("Unable to decompress blob.");
+    }
+  }
+
+  value_output->PinSelf(contents.data);
+
+  return Status::OK();
+}
+
 Status BlobDBImpl::CompactFiles(
     const CompactionOptions& compact_options,
     const std::vector<std::string>& input_file_names, const int output_level,
@@ -1084,10 +1199,10 @@ Status BlobDBImpl::CompactFiles(
   return s;
 }
 
-void BlobDBImpl::GetCompactionContextCommon(
-    BlobCompactionContext* context) const {
+void BlobDBImpl::GetCompactionContextCommon(BlobCompactionContext* context) {
   assert(context);
 
+  context->blob_db_impl = this;
   context->next_file_number = next_file_number_.load();
   context->current_blob_files.clear();
   for (auto& p : blob_files_) {
@@ -1111,8 +1226,6 @@ void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context,
 
   ReadLock l(&mutex_);
   GetCompactionContextCommon(context);
-
-  context_gc->blob_db_impl = this;
 
   if (!live_imm_non_ttl_blob_files_.empty()) {
     auto it = live_imm_non_ttl_blob_files_.begin();
@@ -1231,7 +1344,7 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
   uint64_t key_offset = 0;
   {
     WriteLock lockbfile_w(&bfile->mutex_);
-    std::shared_ptr<Writer> writer;
+    std::shared_ptr<BlobLogWriter> writer;
     s = CheckOrCreateWriterLocked(bfile, &writer);
     if (!s.ok()) {
       return s;
@@ -1337,20 +1450,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   }
 
   if (compression_type != kNoCompression) {
-    BlockContents contents;
-    auto cfh = static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
-
-    {
-      StopWatch decompression_sw(env_, statistics_,
-                                 BLOB_DB_DECOMPRESSION_MICROS);
-      UncompressionContext context(compression_type);
-      UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
-                             compression_type);
-      s = UncompressBlockContentsForCompressionType(
-          info, value->data(), value->size(), &contents,
-          kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
-    }
-
+    s = DecompressSlice(*value, compression_type, value);
     if (!s.ok()) {
       if (debug_level_ >= 2) {
         ROCKS_LOG_ERROR(
@@ -1361,11 +1461,8 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
             blob_index.file_number(), blob_index.offset(), blob_index.size(),
             key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
       }
-
-      return Status::Corruption("Unable to uncompress blob.");
+      return s;
     }
-
-    value->PinSelf(contents.data);
   }
 
   return Status::OK();
@@ -1429,15 +1526,24 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
   const uint64_t record_size = sizeof(uint32_t) + key.size() + size;
 
   // Allocate the buffer. This is safe in C++11
-  std::string buffer_str(static_cast<size_t>(record_size), static_cast<char>(0));
-  char* buffer = &buffer_str[0];
+  std::string buf;
+  AlignedBuf aligned_buf;
 
   // A partial blob record contain checksum, key and value.
   Slice blob_record;
 
   {
     StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
-    s = reader->Read(record_offset, static_cast<size_t>(record_size), &blob_record, buffer);
+    if (reader->use_direct_io()) {
+      s = reader->Read(IOOptions(), record_offset,
+                       static_cast<size_t>(record_size), &blob_record, nullptr,
+                       &aligned_buf);
+    } else {
+      buf.reserve(static_cast<size_t>(record_size));
+      s = reader->Read(IOOptions(), record_offset,
+                       static_cast<size_t>(record_size), &blob_record, &buf[0],
+                       nullptr);
+    }
     RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_READ, blob_record.size());
   }
 
@@ -1499,7 +1605,8 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
 Status BlobDBImpl::Get(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value) {
-  return Get(read_options, column_family, key, value, nullptr /*expiration*/);
+  return Get(read_options, column_family, key, value,
+             static_cast<uint64_t*>(nullptr) /*expiration*/);
 }
 
 Status BlobDBImpl::Get(const ReadOptions& read_options,
@@ -1531,8 +1638,6 @@ Status BlobDBImpl::GetImpl(const ReadOptions& read_options,
   get_impl_options.value = &index_entry;
   get_impl_options.is_blob_index = &is_blob_index;
   s = db_impl_->GetImpl(ro, key, get_impl_options);
-  TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:1");
-  TEST_SYNC_POINT("BlobDBImpl::Get:AfterIndexEntryGet:2");
   if (expiration != nullptr) {
     *expiration = kNoExpiration;
   }
@@ -1617,6 +1722,7 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
 }
 
 Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile) {
+  TEST_SYNC_POINT("BlobDBImpl::CloseBlobFile");
   assert(bfile);
   assert(!bfile->Immutable());
   assert(!bfile->Obsolete());
@@ -1836,321 +1942,6 @@ std::pair<bool, int64_t> BlobDBImpl::ReclaimOpenFiles(bool aborted) {
   return std::make_pair(true, -1);
 }
 
-// Write callback for garbage collection to check if key has been updated
-// since last read. Similar to how OptimisticTransaction works. See inline
-// comment in GCFileAndUpdateLSM().
-class BlobDBImpl::GarbageCollectionWriteCallback : public WriteCallback {
- public:
-  GarbageCollectionWriteCallback(ColumnFamilyData* cfd, const Slice& key,
-                                 SequenceNumber upper_bound)
-      : cfd_(cfd), key_(key), upper_bound_(upper_bound) {}
-
-  Status Callback(DB* db) override {
-    auto* db_impl = static_cast_with_check<DBImpl, DB>(db);
-    auto* sv = db_impl->GetAndRefSuperVersion(cfd_);
-    SequenceNumber latest_seq = 0;
-    bool found_record_for_key = false;
-    bool is_blob_index = false;
-    Status s = db_impl->GetLatestSequenceForKey(
-        sv, key_, false /*cache_only*/, 0 /*lower_bound_seq*/, &latest_seq,
-        &found_record_for_key, &is_blob_index);
-    db_impl->ReturnAndCleanupSuperVersion(cfd_, sv);
-    if (!s.ok() && !s.IsNotFound()) {
-      // Error.
-      assert(!s.IsBusy());
-      return s;
-    }
-    if (s.IsNotFound()) {
-      assert(!found_record_for_key);
-      return Status::Busy("Key deleted");
-    }
-    assert(found_record_for_key);
-    assert(is_blob_index);
-    if (latest_seq > upper_bound_) {
-      return Status::Busy("Key overwritten");
-    }
-    return s;
-  }
-
-  bool AllowWriteBatching() override { return false; }
-
- private:
-  ColumnFamilyData* cfd_;
-  // Key to check
-  Slice key_;
-  // Upper bound of sequence number to proceed.
-  SequenceNumber upper_bound_;
-};
-
-// iterate over the blobs sequentially and check if the blob sequence number
-// is the latest. If it is the latest, preserve it, otherwise delete it
-// if it is TTL based, and the TTL has expired, then
-// we can blow the entity if the key is still the latest or the Key is not
-// found
-// WHAT HAPPENS IF THE KEY HAS BEEN OVERRIDEN. Then we can drop the blob
-// without doing anything if the earliest snapshot is not
-// referring to that sequence number, i.e. it is later than the sequence number
-// of the new key
-//
-// if it is not TTL based, then we can blow the key if the key has been
-// DELETED in the LSM
-Status BlobDBImpl::GCFileAndUpdateLSM(const std::shared_ptr<BlobFile>& bfptr,
-                                      GCStats* gc_stats) {
-  StopWatch gc_sw(env_, statistics_, BLOB_DB_GC_MICROS);
-  uint64_t now = EpochNow();
-
-  std::shared_ptr<Reader> reader =
-      bfptr->OpenRandomAccessReader(env_, db_options_, env_options_);
-  if (!reader) {
-    ROCKS_LOG_ERROR(db_options_.info_log,
-                    "File sequential reader could not be opened for %s",
-                    bfptr->PathName().c_str());
-    return Status::IOError("failed to create sequential reader");
-  }
-
-  BlobLogHeader header;
-  Status s = reader->ReadHeader(&header);
-  if (!s.ok()) {
-    ROCKS_LOG_ERROR(db_options_.info_log,
-                    "Failure to read header for blob-file %s",
-                    bfptr->PathName().c_str());
-    return s;
-  }
-
-  auto cfh = db_impl_->DefaultColumnFamily();
-  auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
-  auto column_family_id = cfd->GetID();
-  bool has_ttl = header.has_ttl;
-
-  // this reads the key but skips the blob
-  Reader::ReadLevel shallow = Reader::kReadHeaderKey;
-
-  ExpirationRange expiration_range;
-
-  {
-    ReadLock file_lock(&bfptr->mutex_);
-    expiration_range = bfptr->GetExpirationRange();
-  }
-
-  bool file_expired = has_ttl && now >= expiration_range.second;
-
-  if (!file_expired) {
-    // read the blob because you have to write it back to new file
-    shallow = Reader::kReadHeaderKeyBlob;
-  }
-
-  BlobLogRecord record;
-  std::shared_ptr<BlobFile> newfile;
-  std::shared_ptr<Writer> new_writer;
-  uint64_t blob_offset = 0;
-
-  while (true) {
-    assert(s.ok());
-
-    // Read the next blob record.
-    Status read_record_status =
-        reader->ReadRecord(&record, shallow, &blob_offset);
-    // Exit if we reach the end of blob file.
-    // TODO(yiwu): properly handle ReadRecord error.
-    if (!read_record_status.ok()) {
-      break;
-    }
-    gc_stats->blob_count++;
-
-    // Similar to OptimisticTransaction, we obtain latest_seq from
-    // base DB, which is guaranteed to be no smaller than the sequence of
-    // current key. We use a WriteCallback on write to check the key sequence
-    // on write. If the key sequence is larger than latest_seq, we know
-    // a new versions is inserted and the old blob can be disgard.
-    //
-    // We cannot use OptimisticTransaction because we need to pass
-    // is_blob_index flag to GetImpl.
-    SequenceNumber latest_seq = GetLatestSequenceNumber();
-    bool is_blob_index = false;
-    PinnableSlice index_entry;
-    DBImpl::GetImplOptions get_impl_options;
-    get_impl_options.column_family = cfh;
-    get_impl_options.value = &index_entry;
-    get_impl_options.is_blob_index = &is_blob_index;
-    Status get_status =
-        db_impl_->GetImpl(ReadOptions(), record.key, get_impl_options);
-    TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:AfterGetFromBaseDB");
-    if (!get_status.ok() && !get_status.IsNotFound()) {
-      // error
-      s = get_status;
-      ROCKS_LOG_ERROR(db_options_.info_log,
-                      "Error while getting index entry: %s",
-                      s.ToString().c_str());
-      break;
-    }
-    if (get_status.IsNotFound() || !is_blob_index) {
-      // Either the key is deleted or updated with a newer version whish is
-      // inlined in LSM.
-      gc_stats->num_keys_overwritten++;
-      gc_stats->bytes_overwritten += record.record_size();
-      continue;
-    }
-
-    BlobIndex blob_index;
-    s = blob_index.DecodeFrom(index_entry);
-    if (!s.ok()) {
-      ROCKS_LOG_ERROR(db_options_.info_log,
-                      "Error while decoding index entry: %s",
-                      s.ToString().c_str());
-      break;
-    }
-    if (blob_index.IsInlined() ||
-        blob_index.file_number() != bfptr->BlobFileNumber() ||
-        blob_index.offset() != blob_offset) {
-      // Key has been overwritten. Drop the blob record.
-      gc_stats->num_keys_overwritten++;
-      gc_stats->bytes_overwritten += record.record_size();
-      continue;
-    }
-
-    GarbageCollectionWriteCallback callback(cfd, record.key, latest_seq);
-
-    // If key has expired, remove it from base DB.
-    // TODO(yiwu): Blob indexes will be remove by BlobIndexCompactionFilter.
-    // We can just drop the blob record.
-    if (file_expired || (has_ttl && now >= record.expiration)) {
-      gc_stats->num_keys_expired++;
-      gc_stats->bytes_expired += record.record_size();
-      TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:BeforeDelete");
-      WriteBatch delete_batch;
-      Status delete_status = delete_batch.Delete(record.key);
-      if (delete_status.ok()) {
-        delete_status = db_impl_->WriteWithCallback(WriteOptions(),
-                                                    &delete_batch, &callback);
-      }
-      if (!delete_status.ok() && !delete_status.IsBusy()) {
-        // We hit an error.
-        s = delete_status;
-        ROCKS_LOG_ERROR(db_options_.info_log,
-                        "Error while deleting expired key: %s",
-                        s.ToString().c_str());
-        break;
-      }
-      // Continue to next blob record or retry.
-      continue;
-    }
-
-    // Relocate the blob record to new file.
-    if (!newfile) {
-      // new file
-      std::string reason("GC of ");
-      reason += bfptr->PathName();
-      newfile = NewBlobFile(bfptr->HasTTL(), bfptr->expiration_range_, reason);
-
-      s = CheckOrCreateWriterLocked(newfile, &new_writer);
-      if (!s.ok()) {
-        ROCKS_LOG_ERROR(db_options_.info_log,
-                        "Failed to open file %s for writer, error: %s",
-                        newfile->PathName().c_str(), s.ToString().c_str());
-        break;
-      }
-      newfile->file_size_ = BlobLogHeader::kSize;
-
-      s = new_writer->WriteHeader(newfile->header_);
-      if (!s.ok()) {
-        ROCKS_LOG_ERROR(db_options_.info_log,
-                        "File: %s - header writing failed",
-                        newfile->PathName().c_str());
-        break;
-      }
-
-      // We don't add the file to open_ttl_files_ or open_non_ttl_files_, to
-      // avoid user writes writing to the file, and avoid
-      // EvictExpiredFiles close the file by mistake.
-      WriteLock wl(&mutex_);
-      blob_files_.insert(std::make_pair(newfile->BlobFileNumber(), newfile));
-    }
-
-    std::string new_index_entry;
-    uint64_t new_blob_offset = 0;
-    uint64_t new_key_offset = 0;
-    // write the blob to the blob log.
-    s = new_writer->AddRecord(record.key, record.value, record.expiration,
-                              &new_key_offset, &new_blob_offset);
-
-    BlobIndex::EncodeBlob(&new_index_entry, newfile->BlobFileNumber(),
-                          new_blob_offset, record.value.size(),
-                          bdb_options_.compression);
-
-    newfile->blob_count_++;
-    newfile->file_size_ +=
-        BlobLogRecord::kHeaderSize + record.key.size() + record.value.size();
-
-    TEST_SYNC_POINT("BlobDBImpl::GCFileAndUpdateLSM:BeforeRelocate");
-    WriteBatch rewrite_batch;
-    Status rewrite_status = WriteBatchInternal::PutBlobIndex(
-        &rewrite_batch, column_family_id, record.key, new_index_entry);
-    if (rewrite_status.ok()) {
-      rewrite_status = db_impl_->WriteWithCallback(WriteOptions(),
-                                                   &rewrite_batch, &callback);
-    }
-    if (rewrite_status.ok()) {
-      gc_stats->num_keys_relocated++;
-      gc_stats->bytes_relocated += record.record_size();
-    } else if (rewrite_status.IsBusy()) {
-      // The key is overwritten in the meanwhile. Drop the blob record.
-      gc_stats->num_keys_overwritten++;
-      gc_stats->bytes_overwritten += record.record_size();
-    } else {
-      // We hit an error.
-      s = rewrite_status;
-      ROCKS_LOG_ERROR(db_options_.info_log, "Error while relocating key: %s",
-                      s.ToString().c_str());
-      break;
-    }
-  }  // end of ReadRecord loop
-
-  {
-    WriteLock wl(&mutex_);
-    ObsoleteBlobFile(bfptr, GetLatestSequenceNumber(), true /*update_size*/);
-  }
-
-  ROCKS_LOG_INFO(
-      db_options_.info_log,
-      "%s blob file %" PRIu64 ". Total blob records: %" PRIu64
-      ", expired: %" PRIu64 " keys/%" PRIu64
-      " bytes, updated or deleted by user: %" PRIu64 " keys/%" PRIu64
-      " bytes, rewrite to new file: %" PRIu64 " keys/%" PRIu64 " bytes.",
-      s.ok() ? "Successfully garbage collected" : "Failed to garbage collect",
-      bfptr->BlobFileNumber(), gc_stats->blob_count, gc_stats->num_keys_expired,
-      gc_stats->bytes_expired, gc_stats->num_keys_overwritten,
-      gc_stats->bytes_overwritten, gc_stats->num_keys_relocated,
-      gc_stats->bytes_relocated);
-  RecordTick(statistics_, BLOB_DB_GC_NUM_FILES);
-  RecordTick(statistics_, BLOB_DB_GC_NUM_KEYS_OVERWRITTEN,
-             gc_stats->num_keys_overwritten);
-  RecordTick(statistics_, BLOB_DB_GC_NUM_KEYS_EXPIRED,
-             gc_stats->num_keys_expired);
-  RecordTick(statistics_, BLOB_DB_GC_BYTES_OVERWRITTEN,
-             gc_stats->bytes_overwritten);
-  RecordTick(statistics_, BLOB_DB_GC_BYTES_EXPIRED, gc_stats->bytes_expired);
-  if (newfile != nullptr) {
-    {
-      MutexLock l(&write_mutex_);
-      WriteLock lock(&mutex_);
-      WriteLock file_lock(&newfile->mutex_);
-      CloseBlobFile(newfile);
-    }
-    total_blob_size_ += newfile->file_size_;
-    ROCKS_LOG_INFO(db_options_.info_log, "New blob file %" PRIu64 ".",
-                   newfile->BlobFileNumber());
-    RecordTick(statistics_, BLOB_DB_GC_NUM_NEW_FILES);
-    RecordTick(statistics_, BLOB_DB_GC_NUM_KEYS_RELOCATED,
-               gc_stats->num_keys_relocated);
-    RecordTick(statistics_, BLOB_DB_GC_BYTES_RELOCATED,
-               gc_stats->bytes_relocated);
-  }
-  if (!s.ok()) {
-    RecordTick(statistics_, BLOB_DB_GC_FAILURES);
-  }
-  return s;
-}
-
 std::pair<bool, int64_t> BlobDBImpl::DeleteObsoleteFiles(bool aborted) {
   if (aborted) {
     return std::make_pair(false, -1);
@@ -2240,20 +2031,10 @@ void BlobDBImpl::CopyBlobFiles(
   }
 }
 
-std::pair<bool, int64_t> BlobDBImpl::RunGC(bool aborted) {
-  if (aborted) {
-    return std::make_pair(false, -1);
-  }
-
-  // TODO(yiwu): Garbage collection implementation.
-
-  // reschedule
-  return std::make_pair(true, -1);
-}
-
 Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
   auto* cfd =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->cfd();
+      static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
+          ->cfd();
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
   ManagedSnapshot* own_snapshot = nullptr;
@@ -2365,13 +2146,6 @@ void BlobDBImpl::TEST_ObsoleteBlobFile(std::shared_ptr<BlobFile>& blob_file,
   return ObsoleteBlobFile(blob_file, obsolete_seq, update_size);
 }
 
-Status BlobDBImpl::TEST_GCFileAndUpdateLSM(std::shared_ptr<BlobFile>& bfile,
-                                           GCStats* gc_stats) {
-  return GCFileAndUpdateLSM(bfile, gc_stats);
-}
-
-void BlobDBImpl::TEST_RunGC() { RunGC(false /*abort*/); }
-
 void BlobDBImpl::TEST_EvictExpiredFiles() {
   EvictExpiredFiles(false /*abort*/);
 }
@@ -2394,5 +2168,5 @@ void BlobDBImpl::TEST_ProcessCompactionJobInfo(const CompactionJobInfo& info) {
 #endif  //  !NDEBUG
 
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

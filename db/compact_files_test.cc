@@ -16,9 +16,10 @@
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class CompactFilesTest : public testing::Test {
  public:
@@ -81,11 +82,11 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
   assert(s.ok());
   assert(db);
 
-  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"CompactFilesImpl:0", "BackgroundCallCompaction:0"},
       {"BackgroundCallCompaction:1", "CompactFilesImpl:1"},
   });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // create couple files
   // Background compaction starts and waits in BackgroundCallCompaction:0
@@ -95,7 +96,7 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
     db->Flush(FlushOptions());
   }
 
-  rocksdb::ColumnFamilyMetaData meta;
+  ROCKSDB_NAMESPACE::ColumnFamilyMetaData meta;
   db->GetColumnFamilyMetaData(&meta);
   std::string file1;
   for (auto& file : meta.levels[0].files) {
@@ -108,12 +109,12 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
       // The background compaction then notices that there is an L0 compaction
       // already in progress and doesn't do an L0 compaction
       // Once the background compaction finishes, the compact files finishes
-      ASSERT_OK(
-          db->CompactFiles(rocksdb::CompactionOptions(), {file1, file2}, 0));
+      ASSERT_OK(db->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(),
+                                 {file1, file2}, 0));
       break;
     }
   }
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   delete db;
 }
 
@@ -148,7 +149,7 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
 
   auto l0_files = collector->GetFlushedFiles();
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files, 1));
-  reinterpret_cast<DBImpl*>(db)->TEST_WaitForCompact();
+  static_cast_with_check<DBImpl>(db)->TEST_WaitForCompact();
 
   // verify all compaction input files are deleted
   for (auto fname : l0_files) {
@@ -183,13 +184,13 @@ TEST_F(CompactFilesTest, NotCutOutputOnLevel0) {
   for (int i = 0; i < 500; ++i) {
     db->Put(WriteOptions(), ToString(i), std::string(1000, 'a' + (i % 26)));
   }
-  reinterpret_cast<DBImpl*>(db)->TEST_WaitForFlushMemTable();
+  static_cast_with_check<DBImpl>(db)->TEST_WaitForFlushMemTable();
   auto l0_files_1 = collector->GetFlushedFiles();
   collector->ClearFlushedFiles();
   for (int i = 0; i < 500; ++i) {
     db->Put(WriteOptions(), ToString(i), std::string(1000, 'a' + (i % 26)));
   }
-  reinterpret_cast<DBImpl*>(db)->TEST_WaitForFlushMemTable();
+  static_cast_with_check<DBImpl>(db)->TEST_WaitForFlushMemTable();
   auto l0_files_2 = collector->GetFlushedFiles();
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files_1, 0));
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files_2, 0));
@@ -224,14 +225,14 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
   auto l0_files = collector->GetFlushedFiles();
   EXPECT_EQ(5, l0_files.size());
 
-  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"CompactFilesImpl:2", "CompactFilesTest.CapturingPendingFiles:0"},
       {"CompactFilesTest.CapturingPendingFiles:1", "CompactFilesImpl:3"},
   });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // Start compacting files.
-  rocksdb::port::Thread compaction_thread(
+  ROCKSDB_NAMESPACE::port::Thread compaction_thread(
       [&] { EXPECT_OK(db->CompactFiles(CompactionOptions(), l0_files, 1)); });
 
   // In the meantime flush another file.
@@ -242,7 +243,7 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
 
   compaction_thread.join();
 
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   delete db;
 
@@ -296,12 +297,12 @@ TEST_F(CompactFilesTest, CompactionFilterWithGetSv) {
   db->Flush(FlushOptions());
 
   // Compact all L0 files using CompactFiles
-  rocksdb::ColumnFamilyMetaData meta;
+  ROCKSDB_NAMESPACE::ColumnFamilyMetaData meta;
   db->GetColumnFamilyMetaData(&meta);
   for (auto& file : meta.levels[0].files) {
     std::string fname = file.db_path + "/" + file.name;
     ASSERT_OK(
-        db->CompactFiles(rocksdb::CompactionOptions(), {fname}, 0));
+        db->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(), {fname}, 0));
   }
 
 
@@ -347,7 +348,7 @@ TEST_F(CompactFilesTest, SentinelCompressionType) {
     compaction_opts.compression = CompressionType::kDisableCompressionOption;
     ASSERT_OK(db->CompactFiles(compaction_opts, l0_files, 1));
 
-    rocksdb::TablePropertiesCollection all_tables_props;
+    ROCKSDB_NAMESPACE::TablePropertiesCollection all_tables_props;
     ASSERT_OK(db->GetPropertiesOfAllTables(&all_tables_props));
     for (const auto& name_and_table_props : all_tables_props) {
       ASSERT_EQ(CompressionTypeToString(CompressionType::kZlibCompression),
@@ -383,7 +384,7 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
   for (int i = 0; i < 500; ++i) {
     db->Put(WriteOptions(), ToString(i), std::string(1000, 'a' + (i % 26)));
   }
-  reinterpret_cast<DBImpl*>(db)->TEST_WaitForFlushMemTable();
+  static_cast_with_check<DBImpl>(db)->TEST_WaitForFlushMemTable();
   auto l0_files_1 = collector->GetFlushedFiles();
   CompactionOptions co;
   co.compression = CompressionType::kLZ4Compression;
@@ -402,7 +403,7 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
   delete db;
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

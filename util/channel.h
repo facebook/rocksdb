@@ -10,7 +10,7 @@
 #include <queue>
 #include <utility>
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 template <class T>
 class channel {
@@ -64,4 +64,4 @@ class channel {
   std::queue<T> buffer_;
   bool eof_;
 };
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

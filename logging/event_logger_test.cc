@@ -8,7 +8,7 @@
 #include "logging/event_logger.h"
 #include "test_util/testharness.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class EventLoggerTest : public testing::Test {};
 
@@ -35,7 +35,7 @@ TEST_F(EventLoggerTest, SimpleTest) {
   ASSERT_TRUE(output.find("\"time_micros\"") != std::string::npos);
 }
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

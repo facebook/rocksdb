@@ -10,15 +10,14 @@
 #include <memory>
 #include <unordered_set>
 
+#include "db/blob/blob_log_format.h"
+#include "db/blob/blob_log_writer.h"
 #include "file/random_access_file_reader.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "utilities/blob_db/blob_log_format.h"
-#include "utilities/blob_db/blob_log_reader.h"
-#include "utilities/blob_db/blob_log_writer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 namespace blob_db {
 
 class BlobDBImpl;
@@ -27,6 +26,7 @@ class BlobFile {
   friend class BlobDBImpl;
   friend struct BlobFileComparator;
   friend struct BlobFileComparatorTTL;
+  friend class BlobIndexCompactionFilterBase;
   friend class BlobIndexCompactionFilterGC;
 
  private:
@@ -76,7 +76,7 @@ class BlobFile {
   // The latest sequence number when the file was closed/made immutable.
   SequenceNumber immutable_sequence_{0};
 
-  // has a pass of garbage collection successfully finished on this file
+  // Whether the file was marked obsolete (due to either TTL or GC).
   // obsolete_ still needs to do iterator/snapshot checks
   std::atomic<bool> obsolete_{false};
 
@@ -85,7 +85,7 @@ class BlobFile {
   SequenceNumber obsolete_sequence_{0};
 
   // Sequential/Append writer for blobs
-  std::shared_ptr<Writer> log_writer_;
+  std::shared_ptr<BlobLogWriter> log_writer_;
 
   // random access file reader for GET calls
   std::shared_ptr<RandomAccessFileReader> ra_file_reader_;
@@ -96,9 +96,6 @@ class BlobFile {
 
   // time when the random access reader was last created.
   std::atomic<std::int64_t> last_access_{-1};
-
-  // last time file was fsync'd/fdatasyncd
-  std::atomic<uint64_t> last_fsync_{0};
 
   bool header_valid_{false};
 
@@ -168,13 +165,13 @@ class BlobFile {
     return immutable_sequence_;
   }
 
-  // if the file has gone through GC and blobs have been relocated
+  // Whether the file was marked obsolete (due to either TTL or GC).
   bool Obsolete() const {
     assert(Immutable() || !obsolete_.load());
     return obsolete_.load();
   }
 
-  // Mark file as obsolete by garbage collection. The file is not visible to
+  // Mark file as obsolete (due to either TTL or GC). The file is not visible to
   // snapshots with sequence greater or equal to the given sequence.
   void MarkObsolete(SequenceNumber sequence);
 
@@ -182,9 +179,6 @@ class BlobFile {
     assert(Obsolete());
     return obsolete_sequence_;
   }
-
-  // we will assume this is atomic
-  bool NeedsFsync(bool hard, uint64_t bytes_per_sync) const;
 
   Status Fsync();
 
@@ -194,7 +188,9 @@ class BlobFile {
 
   // All Get functions which are not atomic, will need ReadLock on the mutex
 
-  ExpirationRange GetExpirationRange() const { return expiration_range_; }
+  const ExpirationRange& GetExpirationRange() const {
+    return expiration_range_;
+  }
 
   void ExtendExpirationRange(uint64_t expiration) {
     expiration_range_.first = std::min(expiration_range_.first, expiration);
@@ -207,7 +203,7 @@ class BlobFile {
 
   CompressionType GetCompressionType() const { return compression_; }
 
-  std::shared_ptr<Writer> GetWriter() const { return log_writer_; }
+  std::shared_ptr<BlobLogWriter> GetWriter() const { return log_writer_; }
 
   // Read blob file header and footer. Return corruption if file header is
   // malform or incomplete. If footer is malform or incomplete, set
@@ -219,10 +215,6 @@ class BlobFile {
                    bool* fresh_open);
 
  private:
-  std::shared_ptr<Reader> OpenRandomAccessReader(
-      Env* env, const DBOptions& db_options,
-      const EnvOptions& env_options) const;
-
   Status ReadFooter(BlobLogFooter* footer);
 
   Status WriteFooterAndCloseLocked(SequenceNumber sequence);
@@ -248,5 +240,5 @@ class BlobFile {
   }
 };
 }  // namespace blob_db
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

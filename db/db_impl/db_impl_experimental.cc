@@ -7,22 +7,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "db/db_impl/db_impl.h"
-
 #include <cinttypes>
 #include <vector>
 
 #include "db/column_family.h"
+#include "db/db_impl/db_impl.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
 #include "rocksdb/status.h"
+#include "util/cast_util.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 Status DBImpl::SuggestCompactRange(ColumnFamilyHandle* column_family,
                                    const Slice* begin, const Slice* end) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   InternalKey start_key, end_key;
   if (begin != nullptr) {
@@ -129,7 +129,8 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
                    f->fd.GetFileSize(), f->smallest, f->largest,
                    f->fd.smallest_seqno, f->fd.largest_seqno,
                    f->marked_for_compaction, f->oldest_blob_file_number,
-                   f->oldest_ancester_time, f->file_creation_time);
+                   f->oldest_ancester_time, f->file_creation_time,
+                   f->file_checksum, f->file_checksum_func_name);
     }
 
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
@@ -147,4 +148,4 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
 }
 #endif  // ROCKSDB_LITE
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

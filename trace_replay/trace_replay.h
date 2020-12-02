@@ -13,7 +13,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/trace_reader_writer.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 // This file contains Tracer and Replayer classes that enable capturing and
 // replaying RocksDB traces.
@@ -46,6 +46,12 @@ enum TraceType : char {
   kBlockTraceDataBlock = 9,
   kBlockTraceUncompressionDictBlock = 10,
   kBlockTraceRangeDeletionBlock = 11,
+  // IO Trace related types based on options that will be added in trace file.
+  kIOGeneral = 12,
+  kIOFileName = 13,
+  kIOFileNameAndFileSize = 14,
+  kIOLen = 15,
+  kIOLenAndOffset = 16,
   // All trace types should be added before kTraceMax
   kTraceMax,
 };
@@ -186,4 +192,4 @@ struct ReplayerWorkerArg {
   ReadOptions roptions;
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

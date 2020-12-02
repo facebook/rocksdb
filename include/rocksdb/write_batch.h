@@ -32,7 +32,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Slice;
 class ColumnFamilyHandle;
@@ -374,4 +374,4 @@ class WriteBatch : public WriteBatchBase {
   // Intentionally copyable
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE

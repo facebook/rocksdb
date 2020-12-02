@@ -21,7 +21,7 @@
 #include "rocksdb/options.h"
 #include "table/table_reader.h"
 
-namespace rocksdb {
+namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class TableReader;
@@ -52,7 +52,8 @@ class CuckooTableReader: public TableReader {
                                 const SliceTransform* prefix_extractor,
                                 Arena* arena, bool skip_filters,
                                 TableReaderCaller caller,
-                                size_t compaction_readahead_size = 0) override;
+                                size_t compaction_readahead_size = 0,
+                                bool allow_unprepared_value = false) override;
   void Prepare(const Slice& target) override;
 
   // Report an approximation of how much memory has been used.
@@ -96,5 +97,5 @@ class CuckooTableReader: public TableReader {
       uint64_t max_num_buckets);
 };
 
-}  // namespace rocksdb
+}  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE
