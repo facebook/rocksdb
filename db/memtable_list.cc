@@ -674,13 +674,11 @@ void MemTableList::RemoveMemTablesOrRestoreFlags(
 }
 
 uint64_t MemTableList::PrecomputeMinLogContainingPrepSection(
-    const std::unordered_set<MemTable*>& memtables_to_flush) {
+    const std::unordered_set<MemTable*>* memtables_to_flush) {
   uint64_t min_log = 0;
 
   for (auto& m : current_->memlist_) {
-    // Assume the list is very short, we can live with O(m*n). We can optimize
-    // if the performance has some problem.
-    if (memtables_to_flush.count(m)) {
+    if (memtables_to_flush && memtables_to_flush->count(m)) {
       continue;
     }
 

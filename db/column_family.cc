@@ -708,8 +708,7 @@ uint64_t ColumnFamilyData::OldestLogToKeep() {
   auto current_log = GetLogNumber();
 
   if (allow_2pc_) {
-    std::unordered_set<MemTable*> empty_set;
-    auto imm_prep_log = imm()->PrecomputeMinLogContainingPrepSection(empty_set);
+    auto imm_prep_log = imm()->PrecomputeMinLogContainingPrepSection();
     auto mem_prep_log = mem()->GetMinLogContainingPrepSection();
 
     if (imm_prep_log > 0 && imm_prep_log < current_log) {

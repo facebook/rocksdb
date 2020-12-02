@@ -335,7 +335,7 @@ class MemTableList {
   // Returns the min log containing the prep section after memtables listsed in
   // `memtables_to_flush` are flushed and their status is persisted in manifest.
   uint64_t PrecomputeMinLogContainingPrepSection(
-      const std::unordered_set<MemTable*>& memtables_to_flush);
+      const std::unordered_set<MemTable*>* memtables_to_flush = nullptr);
 
   uint64_t GetEarliestMemTableID() const {
     auto& memlist = current_->memlist_;

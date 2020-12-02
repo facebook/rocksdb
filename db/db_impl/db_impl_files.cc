@@ -667,7 +667,7 @@ uint64_t FindMinPrepLogReferencedByMemTable(
     }
 
     auto log = loop_cfd->imm()->PrecomputeMinLogContainingPrepSection(
-        memtables_to_flush_set);
+        &memtables_to_flush_set);
 
     if (log > 0 && (min_log == 0 || log < min_log)) {
       min_log = log;
@@ -700,7 +700,7 @@ uint64_t FindMinPrepLogReferencedByMemTable(
     }
 
     auto log = loop_cfd->imm()->PrecomputeMinLogContainingPrepSection(
-        memtables_to_flush_set);
+        &memtables_to_flush_set);
     if (log > 0 && (min_log == 0 || log < min_log)) {
       min_log = log;
     }
