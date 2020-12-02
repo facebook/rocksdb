@@ -390,6 +390,49 @@ TEST_F(TimerTest, DestroyTimerWithRunningFunc) {
   control_thr.join();
 }
 
+TEST_F(TimerTest, ConcurrentStartShutdown) {
+  const int kThreadCount = 8;
+  const int kNumberOfIterations = 1000;
+  const int kRepeatUs = 1 * kUsPerSec;
+
+  Timer timer(mock_env_.get());
+  std::atomic_int count{0};
+
+  timer.Add(
+      [&count]() {
+        TEST_SYNC_POINT("TimerTest::ConcurrentStartShutdown:test_func:0");
+        count++;
+        TEST_SYNC_POINT("TimerTest::ConcurrentStartShutdown:test_func:1");
+      },
+      "fn_running_test", 0, kRepeatUs);
+
+  auto thread_routine = [&]() {
+    for (size_t iter = 0; iter < kNumberOfIterations; ++iter) {
+      timer.Start();
+      std::this_thread::sleep_for(std::chrono::microseconds(10));
+      timer.HasPendingTask();
+      std::this_thread::sleep_for(std::chrono::microseconds(10));
+      timer.CancelAll();
+      std::this_thread::sleep_for(std::chrono::microseconds(10));
+      timer.Shutdown();
+    }
+  };
+  
+  std::vector<port::Thread> threads;
+
+  for (size_t i = 0; i < kThreadCount; ++i) {
+    threads.emplace_back(thread_routine);
+  }
+
+  for (size_t i = 0; i < kThreadCount; ++i) {
+    threads[i].join();
+  }
+
+  timer.Shutdown();
+  ASSERT_TRUE(timer.Start());
+  ASSERT_TRUE(timer.Shutdown());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

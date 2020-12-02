@@ -37,10 +37,8 @@ class Timer {
  public:
   explicit Timer(Env* env)
       : env_(env),
-        state_mutex_(env),
-        task_complete_condvar_(&state_mutex_),
-        no_tasks_mutex_(env),
-        no_tasks_condvar_(&no_tasks_mutex_),
+        mutex_(env),
+        cond_var_(&mutex_),
         running_(false),
         executing_task_(false) {}
 
@@ -60,30 +58,29 @@ class Timer {
            uint64_t start_after_us,
            uint64_t repeat_every_us) {
     std::unique_ptr<FunctionInfo> fn_info(
-      new FunctionInfo(std::move(fn), fn_name, 
-      env_->NowMicros() + start_after_us, repeat_every_us));
-    
-    InstrumentedMutexLock l(&state_mutex_);
-    
-    auto it = map_.find(fn_name);
-    if (it == map_.end()) {
-      heap_.push(fn_info.get());
-      map_.emplace(std::make_pair(fn_name, std::move(fn_info)));
-    } else {
-      // If it already exists, overriding it.
-      it->second->fn = std::move(fn_info->fn);
-      it->second->valid = true;
-      it->second->next_run_time_us = env_->NowMicros() + start_after_us;
-      it->second->repeat_every_us = repeat_every_us;
+        new FunctionInfo(std::move(fn), fn_name,
+                         env_->NowMicros() + start_after_us, repeat_every_us));
+    InstrumentedMutexLock call_lock_(&call_mutex_);
+    {
+      InstrumentedMutexLock l(&mutex_);
+      auto it = map_.find(fn_name);
+      if (it == map_.end()) {
+        heap_.push(fn_info.get());
+        map_.emplace(std::make_pair(fn_name, std::move(fn_info)));
+      } else {
+        // If it already exists, overriding it.
+        it->second->fn = std::move(fn_info->fn);
+        it->second->valid = true;
+        it->second->next_run_time_us = env_->NowMicros() + start_after_us;
+        it->second->repeat_every_us = repeat_every_us;
+      }
     }
-
-    // Signal our thread that new task is added.
-    InstrumentedMutexLock no_tasks_lock(&no_tasks_mutex_);
-    no_tasks_condvar_.SignalAll();
+    cond_var_.SignalAll();
   }
 
   void Cancel(const std::string& fn_name) {
-    InstrumentedMutexLock l(&state_mutex_);
+    InstrumentedMutexLock call_lock_(&call_mutex_);
+    InstrumentedMutexLock l(&mutex_);
 
     // Mark the function with fn_name as invalid so that it will not be
     // requeued.
@@ -106,34 +103,35 @@ class Timer {
   }
 
   void CancelAll() {
-    InstrumentedMutexLock l(&state_mutex_);
+    InstrumentedMutexLock call_lock_(&call_mutex_);
+    InstrumentedMutexLock l(&mutex_);
     CancelAllWithLock();
   }
 
   // Start the Timer
   bool Start() {
-    InstrumentedMutexLock l(&state_mutex_);
+    InstrumentedMutexLock call_lock_(&call_mutex_);
+    InstrumentedMutexLock l(&mutex_);
     if (running_) {
       return false;
     }
+
     running_ = true;
     thread_.reset(new port::Thread(&Timer::Run, this));
     return true;
   }
 
-  // If Shutdown() returns true - no background thread is running.
+  // Shutdown the Timer
   bool Shutdown() {
-    InstrumentedMutexLock l(&state_mutex_);
-    if (!running_) {
-      return false;
-    }
-    running_ = false;
-    CancelAllWithLock();
-
-    // Thread may wait only for a new task.
+    InstrumentedMutexLock call_lock_(&call_mutex_);
     {
-      InstrumentedMutexLock no_tasks_lock(&state_mutex_);
-      no_tasks_condvar_.SignalAll();
+      InstrumentedMutexLock l(&mutex_);
+      if (!running_) {
+        return false;
+      }
+      running_ = false;
+      CancelAllWithLock();
+      cond_var_.SignalAll();
     }
 
     if (thread_) {
@@ -143,8 +141,8 @@ class Timer {
   }
 
   bool HasPendingTask() const {
-    InstrumentedMutexLock l(&state_mutex_);
-
+    InstrumentedMutexLock call_lock_(&call_mutex_);
+    InstrumentedMutexLock l(&mutex_);
     for (auto it = map_.begin(); it != map_.end(); it++) {
       if (it->second->IsValid()) {
         return true;
@@ -161,26 +159,28 @@ class Timer {
   //
   // Note: only support one caller of this method.
   void TEST_WaitForRun(std::function<void()> callback = nullptr) {
-    InstrumentedMutexLock l(&state_mutex_);
+    InstrumentedMutexLock call_lock_(&call_mutex_);
+    InstrumentedMutexLock l(&mutex_);
     // It act as a spin lock
     while (executing_task_ ||
            (!heap_.empty() &&
             heap_.top()->next_run_time_us <= env_->NowMicros())) {
-      task_complete_condvar_.TimedWait(env_->NowMicros() + 1000);
+      cond_var_.TimedWait(env_->NowMicros() + 1000);
     }
     if (callback != nullptr) {
       callback();
     }
-    task_complete_condvar_.SignalAll();
+    cond_var_.SignalAll();
     do {
-      task_complete_condvar_.TimedWait(env_->NowMicros() + 1000);
+      cond_var_.TimedWait(env_->NowMicros() + 1000);
     } while (
         executing_task_ ||
         (!heap_.empty() && heap_.top()->next_run_time_us <= env_->NowMicros()));
   }
 
   size_t TEST_GetPendingTaskNum() const {
-    InstrumentedMutexLock l(&state_mutex_);
+    InstrumentedMutexLock call_lock_(&call_mutex_);
+    InstrumentedMutexLock l(&mutex_);
     size_t ret = 0;
     for (auto it = map_.begin(); it != map_.end(); it++) {
       if (it->second->IsValid()) {
@@ -194,66 +194,36 @@ class Timer {
  private:
 
   void Run() {
+    InstrumentedMutexLock l(&mutex_);
+
     while (running_) {
-      bool is_heap_empty = false;
-      {
-        InstrumentedMutexLock l(&state_mutex_);
-        is_heap_empty = heap_.empty();
-      }
-
-      if (is_heap_empty) {
-        // Wait for somebody to add new task or request shutdown.
-        InstrumentedMutexLock l(&no_tasks_mutex_);
+      if (heap_.empty()) {
+        // wait
         TEST_SYNC_POINT("Timer::Run::Waiting");
-        no_tasks_condvar_.Wait();
+        cond_var_.Wait();
         continue;
       }
 
-      FunctionInfo* current_fn = nullptr;
-      // Make a copy of the function so it won't be changed while the execution.
-      std::function<  void()> func_to_execute{};
-      bool can_run_task = true;
-      uint64_t now = 0;
+      FunctionInfo* current_fn = heap_.top();
+      assert(current_fn);
 
-      // Choose a function, check the conditions.
-      {
-        InstrumentedMutexLock l(&state_mutex_);
-
-        current_fn = heap_.top();
-        assert(current_fn);
-
-        if (!current_fn->IsValid()) {
-          heap_.pop();
-          map_.erase(current_fn->name);
-          continue;
-        }
-
-        now = env_->NowMicros();
-        can_run_task = (current_fn->next_run_time_us <= now);
-      }
-
-      if (!can_run_task) {
-        InstrumentedMutexLock no_tasks_lock(&no_tasks_mutex_);
-        // No tasks to execute, we have to wait until the deadline is reached or
-        // somebody will add new task (probably we need to execute it firstly)
-        no_tasks_condvar_.TimedWait(current_fn->next_run_time_us - now);
+      if (!current_fn->IsValid()) {
+        heap_.pop();
+        map_.erase(current_fn->name);
         continue;
       }
 
-      {
-        InstrumentedMutexLock l(&state_mutex_);
-        func_to_execute = current_fn->fn;
+      if (current_fn->next_run_time_us <= env_->NowMicros()) {
+        // make a copy of the function so it won't be changed after
+        // mutex_.unlock.
+        std::function<void()> fn = current_fn->fn;
         executing_task_ = true;
-      }
-      
-      // Execute the task without any lock.
-      func_to_execute();
-
-      // Reshedule the current task.
-      {
-        InstrumentedMutexLock l(&state_mutex_);
+        mutex_.Unlock();
+        // Execute the work
+        fn();
+        mutex_.Lock();
         executing_task_ = false;
-        task_complete_condvar_.SignalAll();
+        cond_var_.SignalAll();
 
         // Remove the work from the heap once it is done executing.
         // Note that we are just removing the pointer from the heap. Its
@@ -270,12 +240,14 @@ class Timer {
           // Schedule new work into the heap with new time.
           heap_.push(current_fn);
         }
+      } else {
+        cond_var_.TimedWait(current_fn->next_run_time_us);
       }
     }
   }
 
   void CancelAllWithLock() {
-    state_mutex_.AssertHeld();
+    mutex_.AssertHeld();
     if (map_.empty() && heap_.empty()) {
       return;
     }
@@ -329,10 +301,10 @@ class Timer {
   };
 
   void WaitForTaskCompleteIfNecessary() {
-    state_mutex_.AssertHeld();
+    mutex_.AssertHeld();
     while (executing_task_) {
       TEST_SYNC_POINT("Timer::WaitForTaskCompleteIfNecessary:TaskExecuting");
-      task_complete_condvar_.Wait();
+      cond_var_.Wait();
     }
   }
 
@@ -346,15 +318,13 @@ class Timer {
   Env* const env_;
   // This mutex controls both the heap_ and the map_. It needs to be held for
   // making any changes in them.
-  mutable InstrumentedMutex state_mutex_;
-  InstrumentedCondVar task_complete_condvar_;
+  mutable InstrumentedMutex mutex_;
+  InstrumentedCondVar cond_var_;
 
-  mutable InstrumentedMutex no_tasks_mutex_;
-  InstrumentedCondVar no_tasks_condvar_;
+  mutable InstrumentedMutex call_mutex_;
 
   std::unique_ptr<port::Thread> thread_;
-  // This is atomic, because internal thread doesn't acquire a lock.
-  std::atomic_bool running_;
+  bool running_;
   bool executing_task_;
 
   std::priority_queue<FunctionInfo*,
