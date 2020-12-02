@@ -158,7 +158,7 @@ TEST_F(FlushJobTest, Empty) {
   SnapshotChecker* snapshot_checker = nullptr;  // not relavant
   FlushJob flush_job(
       dbname_, versions_->GetColumnFamilySet()->GetDefault(), db_options_,
-      *cfd->GetLatestMutableCFOptions(), nullptr /* memtable_id */,
+      *cfd->GetLatestMutableCFOptions(), port::kMaxUint64 /* memtable_id */,
       env_options_, versions_.get(), &mutex_, &shutting_down_, {},
       kMaxSequenceNumber, snapshot_checker, &job_context, nullptr, nullptr,
       nullptr, kNoCompression, nullptr, &event_logger, false,
@@ -240,7 +240,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   SnapshotChecker* snapshot_checker = nullptr;  // not relavant
   FlushJob flush_job(
       dbname_, versions_->GetColumnFamilySet()->GetDefault(), db_options_,
-      *cfd->GetLatestMutableCFOptions(), nullptr /* memtable_id */,
+      *cfd->GetLatestMutableCFOptions(), port::kMaxUint64 /* memtable_id */,
       env_options_, versions_.get(), &mutex_, &shutting_down_, {},
       kMaxSequenceNumber, snapshot_checker, &job_context, nullptr, nullptr,
       nullptr, kNoCompression, db_options_.statistics.get(), &event_logger,
@@ -302,7 +302,7 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
   uint64_t flush_memtable_id = smallest_memtable_id + num_mems_to_flush - 1;
   FlushJob flush_job(
       dbname_, versions_->GetColumnFamilySet()->GetDefault(), db_options_,
-      *cfd->GetLatestMutableCFOptions(), &flush_memtable_id, env_options_,
+      *cfd->GetLatestMutableCFOptions(), flush_memtable_id, env_options_,
       versions_.get(), &mutex_, &shutting_down_, {}, kMaxSequenceNumber,
       snapshot_checker, &job_context, nullptr, nullptr, nullptr, kNoCompression,
       db_options_.statistics.get(), &event_logger, true,
@@ -374,7 +374,7 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
     std::vector<SequenceNumber> snapshot_seqs;
     flush_jobs.emplace_back(new FlushJob(
         dbname_, cfd, db_options_, *cfd->GetLatestMutableCFOptions(),
-        &memtable_ids[k], env_options_, versions_.get(), &mutex_,
+        memtable_ids[k], env_options_, versions_.get(), &mutex_,
         &shutting_down_, snapshot_seqs, kMaxSequenceNumber, snapshot_checker,
         &job_context, nullptr, nullptr, nullptr, kNoCompression,
         db_options_.statistics.get(), &event_logger, true,
@@ -491,7 +491,7 @@ TEST_F(FlushJobTest, Snapshots) {
   SnapshotChecker* snapshot_checker = nullptr;  // not relavant
   FlushJob flush_job(
       dbname_, versions_->GetColumnFamilySet()->GetDefault(), db_options_,
-      *cfd->GetLatestMutableCFOptions(), nullptr /* memtable_id */,
+      *cfd->GetLatestMutableCFOptions(), port::kMaxUint64 /* memtable_id */,
       env_options_, versions_.get(), &mutex_, &shutting_down_, snapshots,
       kMaxSequenceNumber, snapshot_checker, &job_context, nullptr, nullptr,
       nullptr, kNoCompression, db_options_.statistics.get(), &event_logger,
@@ -558,8 +558,8 @@ TEST_F(FlushJobTimestampTest, AllKeysExpired) {
   PutFixed64(&full_history_ts_low, std::numeric_limits<uint64_t>::max());
   FlushJob flush_job(
       dbname_, cfd, db_options_, *cfd->GetLatestMutableCFOptions(),
-      nullptr /* memtable_id */, env_options_, versions_.get(), &mutex_,
-      &shutting_down_, snapshots, kMaxSequenceNumber, snapshot_checker,
+      port::kMaxUint64 /* memtable_id */, env_options_, versions_.get(),
+      &mutex_, &shutting_down_, snapshots, kMaxSequenceNumber, snapshot_checker,
       &job_context, nullptr, nullptr, nullptr, kNoCompression,
       db_options_.statistics.get(), &event_logger, true,
       true /* sync_output_directory */, true /* write_manifest */,
@@ -609,8 +609,8 @@ TEST_F(FlushJobTimestampTest, NoKeyExpired) {
   PutFixed64(&full_history_ts_low, 0);
   FlushJob flush_job(
       dbname_, cfd, db_options_, *cfd->GetLatestMutableCFOptions(),
-      nullptr /* memtable_id */, env_options_, versions_.get(), &mutex_,
-      &shutting_down_, snapshots, kMaxSequenceNumber, snapshot_checker,
+      port::kMaxUint64 /* memtable_id */, env_options_, versions_.get(),
+      &mutex_, &shutting_down_, snapshots, kMaxSequenceNumber, snapshot_checker,
       &job_context, nullptr, nullptr, nullptr, kNoCompression,
       db_options_.statistics.get(), &event_logger, true,
       true /* sync_output_directory */, true /* write_manifest */,

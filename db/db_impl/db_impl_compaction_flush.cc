@@ -159,10 +159,10 @@ Status DBImpl::FlushMemTableToOutputFile(
 
   FlushJob flush_job(
       dbname_, cfd, immutable_db_options_, mutable_cf_options,
-      nullptr /* memtable_id */, file_options_for_compaction_, versions_.get(),
-      &mutex_, &shutting_down_, snapshot_seqs, earliest_write_conflict_snapshot,
-      snapshot_checker, job_context, log_buffer, directories_.GetDbDir(),
-      GetDataDir(cfd, 0U),
+      port::kMaxUint64 /* memtable_id */, file_options_for_compaction_,
+      versions_.get(), &mutex_, &shutting_down_, snapshot_seqs,
+      earliest_write_conflict_snapshot, snapshot_checker, job_context,
+      log_buffer, directories_.GetDbDir(), GetDataDir(cfd, 0U),
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
       true /* sync_output_directory */, true /* write_manifest */, thread_pri,
@@ -391,7 +391,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
     all_mutable_cf_options.emplace_back(*cfd->GetLatestMutableCFOptions());
     const MutableCFOptions& mutable_cf_options = all_mutable_cf_options.back();
-    const uint64_t* max_memtable_id = &(bg_flush_args[i].max_memtable_id_);
+    uint64_t max_memtable_id = bg_flush_args[i].max_memtable_id_;
     jobs.emplace_back(new FlushJob(
         dbname_, cfd, immutable_db_options_, mutable_cf_options,
         max_memtable_id, file_options_for_compaction_, versions_.get(), &mutex_,
@@ -1692,7 +1692,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   // This method should not be called if atomic_flush is true.
   assert(!immutable_db_options_.atomic_flush);
   Status s;
-  uint64_t flush_memtable_id = 0;
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
     s = WaitUntilFlushWouldNotStallWrites(cfd, &flush_needed);
@@ -1703,6 +1702,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   }
 
   autovector<FlushRequest> flush_reqs;
+  autovector<uint64_t> memtable_ids_to_wait;
   {
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);
@@ -1724,12 +1724,13 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         assert(cfd->imm()->NumNotFlushed() > 0);
       }
     }
+    const uint64_t flush_memtable_id = port::kMaxUint64;
     if (s.ok()) {
       if (cfd->imm()->NumNotFlushed() != 0 || !cfd->mem()->IsEmpty() ||
           !cached_recoverable_state_empty_.load()) {
-        flush_memtable_id = cfd->imm()->GetLatestMemTableID();
         FlushRequest req{{cfd, flush_memtable_id}};
         flush_reqs.emplace_back(std::move(req));
+        memtable_ids_to_wait.emplace_back(cfd->imm()->GetLatestMemTableID());
       }
       if (immutable_db_options_.persist_stats_to_disk &&
           flush_reason != FlushReason::kErrorRecoveryRetryFlush) {
@@ -1755,9 +1756,10 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                            "to avoid holding old logs",
                            cfd->GetName().c_str());
             s = SwitchMemtable(cfd_stats, &context);
-            flush_memtable_id = cfd_stats->imm()->GetLatestMemTableID();
             FlushRequest req{{cfd_stats, flush_memtable_id}};
             flush_reqs.emplace_back(std::move(req));
+            memtable_ids_to_wait.emplace_back(
+                cfd->imm()->GetLatestMemTableID());
           }
         }
       }
@@ -1798,10 +1800,11 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   if (s.ok() && flush_options.wait) {
     autovector<ColumnFamilyData*> cfds;
     autovector<const uint64_t*> flush_memtable_ids;
-    for (const auto& req : flush_reqs) {
-      assert(req.size() == 1);
-      cfds.push_back(req[0].first);
-      flush_memtable_ids.push_back(&(req[0].second));
+    assert(flush_reqs.size() == memtable_ids_to_wait.size());
+    for (size_t i = 0; i < flush_reqs.size(); ++i) {
+      assert(flush_reqs[i].size() == 1);
+      cfds.push_back(flush_reqs[i][0].first);
+      flush_memtable_ids.push_back(&(memtable_ids_to_wait[i]));
     }
     s = WaitForFlushMemTables(
         cfds, flush_memtable_ids,
