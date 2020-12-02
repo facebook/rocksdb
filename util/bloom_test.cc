@@ -426,9 +426,9 @@ TEST_P(FullBloomTest, FilterSize) {
     size_t n = 1;
     size_t space = 0;
     for (; n < 100; n++) {
-      // Ensure consistency between CalculateSpace and CalculateNumEntry
+      // Ensure consistency between CalculateSpace and CalculateNumEntries
       space = bits_builder->CalculateSpace(n);
-      size_t n2 = bits_builder->CalculateNumEntry(space);
+      size_t n2 = bits_builder->CalculateNumEntries(space);
       EXPECT_GE(n2, n);
       size_t space2 = bits_builder->CalculateSpace(n2);
       EXPECT_EQ(space, space2);

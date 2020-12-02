@@ -25,13 +25,13 @@ class Slice;
 class BuiltinFilterBitsBuilder : public FilterBitsBuilder {
  public:
   // Calculate number of bytes needed for a new filter, including
-  // metadata. Passing the result to CalculateNumEntry should
+  // metadata. Passing the result to CalculateNumEntries should
   // return >= the num_entry passed in.
   virtual size_t CalculateSpace(size_t num_entries) = 0;
 
   // A somewhat expensive but workable default implementation
   // using binary search on CalculateSpace
-  size_t CalculateNumEntry(size_t bytes) override;
+  size_t CalculateNumEntries(size_t bytes) override;
 
   // Returns an estimate of the FP rate of the returned filter if
   // `num_entries` keys are added and the filter returned by Finish

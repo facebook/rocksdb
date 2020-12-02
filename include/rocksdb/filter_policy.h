@@ -53,11 +53,20 @@ class FilterBitsBuilder {
   // Calculate num of keys that can be added and generate a filter
   // <= the specified number of bytes, though callers (including RocksDB)
   // should only rely on that for performance, not correctness.
-  virtual size_t CalculateNumEntry(size_t bytes) {
+  // This default implementation is for old API compatibility.
+  virtual size_t CalculateNumEntries(size_t bytes) {
+    bytes = std::min(bytes, size_t{0xffffffff});
+    return static_cast<size_t>(CalculateNumEntry(static_cast<uint32_t>(bytes)));
+  }
+
+  // Old, DEPRECATED version of CalculateNumEntries. This is not
+  // called by RocksDB except as the default implementation of
+  // CalculateNumEntries for API compatibility.
+  virtual int CalculateNumEntry(const uint32_t bytes) {
     // DEBUG: ideally should not rely on this implementation
     assert(false);
     // RELEASE: something reasonably "safe": 2 bytes per entry
-    return bytes / 2;
+    return static_cast<int>(bytes / 2);
   }
 };
 

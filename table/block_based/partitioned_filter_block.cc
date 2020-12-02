@@ -35,7 +35,7 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
       p_index_builder_(p_index_builder),
       keys_added_to_partition_(0) {
   keys_per_partition_ = static_cast<uint32_t>(
-      filter_bits_builder_->CalculateNumEntry(partition_size));
+      filter_bits_builder_->CalculateNumEntries(partition_size));
   if (keys_per_partition_ < 1) {
     // partition_size (minus buffer, ~10%) might be smaller than minimum
     // filter size, sometimes based on cache line size. Try to find that
@@ -43,7 +43,7 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     uint32_t larger = std::max(partition_size + 4, uint32_t{16});
     for (;;) {
       keys_per_partition_ = static_cast<uint32_t>(
-          filter_bits_builder_->CalculateNumEntry(larger));
+          filter_bits_builder_->CalculateNumEntries(larger));
       if (keys_per_partition_ >= 1) {
         break;
       }

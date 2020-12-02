@@ -24,7 +24,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-size_t BuiltinFilterBitsBuilder::CalculateNumEntry(size_t bytes) {
+size_t BuiltinFilterBitsBuilder::CalculateNumEntries(size_t bytes) {
   size_t cur = 1;
   // Find overestimate
   while (CalculateSpace(cur) <= bytes && cur * 2 > cur) {
@@ -135,7 +135,7 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     return rv;
   }
 
-  size_t CalculateNumEntry(size_t bytes) override {
+  size_t CalculateNumEntries(size_t bytes) override {
     size_t bytes_no_meta = bytes >= 5u ? bytes - 5u : 0;
     return static_cast<size_t>(uint64_t{8000} * bytes_no_meta /
                                millibits_per_key_);
