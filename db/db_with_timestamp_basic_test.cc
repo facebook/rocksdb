@@ -258,14 +258,14 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   ASSERT_LT(size, 204800);
 
   // test multiple ranges
-  Range ranges[2];
-  ranges[0].start = Key(10);
-  ranges[0].limit = Key(20);
-  ranges[1].start = Key(50);
-  ranges[1].limit = Key(60);
+  std::vector<Range> ranges;
+  std::string start_tmp = Key(10);
+  std::string end_tmp = Key(20);
+  ranges.emplace_back(Range(start_tmp, end_tmp));
+  ranges.emplace_back(Range(start, end));
   uint64_t range_sizes[2];
-  ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf, ranges, 2,
-                                     range_sizes));
+  ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf,
+                                     ranges.data(), 2, range_sizes));
 
   ASSERT_EQ(range_sizes[1], size);
 
