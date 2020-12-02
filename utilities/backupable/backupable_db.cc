@@ -105,6 +105,7 @@ class BackupEngineImpl : public BackupEngine {
   // The returned BackupInfos are in chronological order, which means the
   // latest backup comes last.
   void GetBackupInfo(std::vector<BackupInfo>* backup_info) override;
+  void GetLatestValidBackupID(BackupID* backup_id) override;
   void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) override;
   Status RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
@@ -1081,6 +1082,11 @@ Status BackupEngineImpl::DeleteBackupInternal(BackupID backup_id) {
     might_need_garbage_collect_ = true;
   }
   return Status::OK();
+}
+
+void BackupEngineImpl::GetLatestValidBackupID(BackupID* backup_id) {
+  assert(initialized_);
+  *backup_id = latest_valid_backup_id_;
 }
 
 void BackupEngineImpl::GetBackupInfo(std::vector<BackupInfo>* backup_info) {

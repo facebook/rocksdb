@@ -298,6 +298,9 @@ class BackupEngine {
   // Returns info about backups in backup_info
   virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) = 0;
 
+  // Returns latest valid backup id
+  virtual void GetLatestValidBackupID(BackupID* backup_id) = 0;
+
   // Returns info about corrupt backups in corrupt_backups
   virtual void GetCorruptedBackups(
       std::vector<BackupID>* corrupt_backup_ids) = 0;
