@@ -794,11 +794,14 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   std::string begin_str;
   std::string end_str;
 
+  // CompactRange compact all keys: [begin, end] inclusively. Add maximum
+  // timestamp to include all `begin` keys, and add minimal timestamp to include
+  // all `end` keys.
   if (begin_without_ts != nullptr) {
-    AppendKeyWithMinTimestamp(&begin_str, *begin_without_ts, ts_sz);
+    AppendKeyWithMaxTimestamp(&begin_str, *begin_without_ts, ts_sz);
   }
   if (end_without_ts != nullptr) {
-    AppendKeyWithMaxTimestamp(&end_str, *end_without_ts, ts_sz);
+    AppendKeyWithMinTimestamp(&end_str, *end_without_ts, ts_sz);
   }
   Slice begin(begin_str);
   Slice end(end_str);

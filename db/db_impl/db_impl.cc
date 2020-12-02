@@ -3418,10 +3418,11 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
     // Add timestamp if needed
     std::string start_with_ts, limit_with_ts;
     if (ts_sz > 0) {
-      // Append a minimal timestamp as the range limit is exclusive:
+      // Maximum timestamp means including all key with any timestamp
+      AppendKeyWithMaxTimestamp(&start_with_ts, start, ts_sz);
+      // Append a maximum timestamp as the range limit is exclusive:
       // [start, limit)
-      AppendKeyWithMinTimestamp(&start_with_ts, start, ts_sz);
-      AppendKeyWithMinTimestamp(&limit_with_ts, limit, ts_sz);
+      AppendKeyWithMaxTimestamp(&limit_with_ts, limit, ts_sz);
       start = start_with_ts;
       limit = limit_with_ts;
     }
