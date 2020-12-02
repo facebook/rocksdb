@@ -137,17 +137,17 @@ class TtlTest : public testing::Test {
     for (int64_t i = 0; i < num_ops && kv_it_ != kvmap_.end(); i++, ++kv_it_) {
       switch (batch_ops[i]) {
         case OP_PUT:
-          ASSERT_OK(batch.Put(kv_it_->first, kv_it_->second));
+          batch.Put(kv_it_->first, kv_it_->second);
           break;
         case OP_DELETE:
-          ASSERT_OK(batch.Delete(kv_it_->first));
+          batch.Delete(kv_it_->first);
           break;
         default:
           FAIL();
       }
     }
-    ASSERT_OK(db_ttl_->Write(wopts, &batch));
-    ASSERT_OK(db_ttl_->Flush(flush_opts));
+    db_ttl_->Write(wopts, &batch);
+    db_ttl_->Flush(flush_opts);
   }
 
   // Puts num_entries starting from start_pos_map from kvmap_ into the database
@@ -170,9 +170,9 @@ class TtlTest : public testing::Test {
                             : db_ttl_->Put(wopts, cf, "keymock", "valuemock"));
     if (flush) {
       if (cf == nullptr) {
-        ASSERT_OK(db_ttl_->Flush(flush_opts));
+        db_ttl_->Flush(flush_opts);
       } else {
-        ASSERT_OK(db_ttl_->Flush(flush_opts, cf));
+        db_ttl_->Flush(flush_opts, cf);
       }
     }
   }
@@ -180,10 +180,9 @@ class TtlTest : public testing::Test {
   // Runs a manual compaction
   void ManualCompact(ColumnFamilyHandle* cf = nullptr) {
     if (cf == nullptr) {
-      ASSERT_OK(db_ttl_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+      db_ttl_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
     } else {
-      ASSERT_OK(
-          db_ttl_->CompactRange(CompactRangeOptions(), cf, nullptr, nullptr));
+      db_ttl_->CompactRange(CompactRangeOptions(), cf, nullptr, nullptr);
     }
   }
 
