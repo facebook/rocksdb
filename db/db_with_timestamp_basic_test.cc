@@ -263,10 +263,11 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   ranges[0].limit = Key(20);
   ranges[1].start = Key(50);
   ranges[1].limit = Key(60);
-  uint64_t ranges_size;
+  uint64_t range_sizes[2];
   ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf, ranges, 2,
-                                     &ranges_size));
-  ASSERT_GE(ranges_size, size);
+                                     range_sizes));
+
+  ASSERT_EQ(range_sizes[1], size);
 
   // Zero if not including mem table
   db_->GetApproximateSizes(&r, 1, &size);

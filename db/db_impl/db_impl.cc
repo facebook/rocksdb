@@ -3397,34 +3397,13 @@ void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
 Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
                                    ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes) {
-  const Comparator* const ucmp = column_family->GetComparator();
-  assert(ucmp);
-  size_t ts_sz = ucmp->timestamp_size();
-  if (ts_sz == 0) {
-    return GetApproximateSizesInternal(options, column_family, range, n, sizes);
-  }
-
-  std::string start_str[n];
-  std::string limit_str[n];
-  Range range_with_ts[n];
-  for (int i = 0; i < n; i++) {
-    AppendKeyWithMinTimestamp(&start_str[i], range[i].start, ts_sz);
-    // Append a minimal timestamp as the range limit is exclusive:
-    // [start, limit)
-    AppendKeyWithMinTimestamp(&limit_str[i], range[i].limit, ts_sz);
-    range_with_ts[i].start = start_str[i];
-    range_with_ts[i].limit = limit_str[i];
-  }
-  return GetApproximateSizesInternal(options, column_family, range_with_ts, n,
-                                     sizes);
-}
-
-Status DBImpl::GetApproximateSizesInternal(
-    const SizeApproximationOptions& options, ColumnFamilyHandle* column_family,
-    const Range* range, int n, uint64_t* sizes) {
   if (!options.include_memtabtles && !options.include_files) {
     return Status::InvalidArgument("Invalid options");
   }
+
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
 
   Version* v;
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
@@ -3433,9 +3412,22 @@ Status DBImpl::GetApproximateSizesInternal(
   v = sv->current;
 
   for (int i = 0; i < n; i++) {
+    Slice start = range[i].start;
+    Slice limit = range[i].limit;
+
+    // Add timestamp if needed
+    std::string start_with_ts, limit_with_ts;
+    if (ts_sz > 0) {
+      // Append a minimal timestamp as the range limit is exclusive:
+      // [start, limit)
+      AppendKeyWithMinTimestamp(&start_with_ts, start, ts_sz);
+      AppendKeyWithMinTimestamp(&limit_with_ts, limit, ts_sz);
+      start = start_with_ts;
+      limit = limit_with_ts;
+    }
     // Convert user_key into a corresponding internal key.
-    InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
-    InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey k2(limit, kMaxSequenceNumber, kValueTypeForSeek);
     sizes[i] = 0;
     if (options.include_files) {
       sizes[i] += versions_->ApproximateSize(
