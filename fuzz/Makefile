@@ -17,8 +17,11 @@ ROCKSDB_LIB_DIR = $(CWD)/..
 PROTO_IN = $(CWD)/proto
 PROTO_OUT = $(CWD)/proto/gen
 
+ifneq ($(FUZZ_ENV), ossfuzz)
 CC = clang++
 CCFLAGS += -std=c++14 -Wall -fsanitize=address,fuzzer
+endif
+
 CFLAGS += $(PROTOBUF_CFLAGS) $(PROTOBUF_MUTATOR_CFLAGS) -I$(PROTO_OUT) -I$(ROCKSDB_INCLUDE_DIR)
 LDFLAGS += $(PROTOBUF_LDFLAGS) $(PROTOBUF_MUTATOR_LDFLAGS) -L$(ROCKSDB_LIB_DIR) -lrocksdb -lz -lbz2
 
@@ -33,6 +36,9 @@ gen_proto:
 		--proto_path=$(PROTO_IN) \
 		--cpp_out=$(PROTO_OUT) \
 		$(PROTO_IN)/*.proto
+
+db_fuzzer: librocksdb
+	$(CC) $(CCFLAGS) -o db_fuzzer db_fuzzer.cc
 
 sst_file_writer_fuzzer: librocksdb gen_proto sst_file_writer_fuzzer.cc proto/gen/db_operation.pb.cc
 	$(CC) $(CCFLAGS) $(CFLAGS) $(LDFLAGS) -o sst_file_writer_fuzzer sst_file_writer_fuzzer.cc proto/gen/db_operation.pb.cc
