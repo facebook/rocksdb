@@ -622,7 +622,6 @@ ifdef ASSERT_STATUS_CHECKED
 		perf_context_test \
 		version_set_test \
 		wal_manager_test \
-		write_callback_test \
 		defer_test \
 		filename_test \
 		dynamic_bloom_test \
