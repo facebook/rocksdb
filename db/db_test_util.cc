@@ -1133,7 +1133,8 @@ size_t DBTestBase::CountFiles() {
 
   std::vector<std::string> logfiles;
   if (dbname_ != last_options_.wal_dir) {
-    EXPECT_OK(env_->GetChildren(last_options_.wal_dir, &logfiles));
+    Status s = env_->GetChildren(last_options_.wal_dir, &logfiles);
+    EXPECT_TRUE(s.ok() || s.IsNotFound());
   }
 
   return files.size() + logfiles.size();
