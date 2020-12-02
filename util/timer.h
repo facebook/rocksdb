@@ -40,7 +40,8 @@ class Timer {
         mutex_(env),
         cond_var_(&mutex_),
         running_(false),
-        executing_task_(false) {}
+        executing_task_(false),
+        shutdown_requested_(false) {}
 
   ~Timer() { Shutdown(); }
 
@@ -60,7 +61,6 @@ class Timer {
     std::unique_ptr<FunctionInfo> fn_info(
         new FunctionInfo(std::move(fn), fn_name,
                          env_->NowMicros() + start_after_us, repeat_every_us));
-    InstrumentedMutexLock call_lock_(&call_mutex_);
     {
       InstrumentedMutexLock l(&mutex_);
       auto it = map_.find(fn_name);
@@ -79,7 +79,6 @@ class Timer {
   }
 
   void Cancel(const std::string& fn_name) {
-    InstrumentedMutexLock call_lock_(&call_mutex_);
     InstrumentedMutexLock l(&mutex_);
 
     // Mark the function with fn_name as invalid so that it will not be
@@ -103,16 +102,14 @@ class Timer {
   }
 
   void CancelAll() {
-    InstrumentedMutexLock call_lock_(&call_mutex_);
     InstrumentedMutexLock l(&mutex_);
     CancelAllWithLock();
   }
 
   // Start the Timer
   bool Start() {
-    InstrumentedMutexLock call_lock_(&call_mutex_);
     InstrumentedMutexLock l(&mutex_);
-    if (running_) {
+    if (running_ || shutdown_requested_) {
       return false;
     }
 
@@ -123,10 +120,13 @@ class Timer {
 
   // Shutdown the Timer
   bool Shutdown() {
-    InstrumentedMutexLock call_lock_(&call_mutex_);
+    if (shutdown_requested_.exchange(true)) {
+      return false;
+    }
     {
       InstrumentedMutexLock l(&mutex_);
       if (!running_) {
+        shutdown_requested_ = false;
         return false;
       }
       running_ = false;
@@ -137,11 +137,11 @@ class Timer {
     if (thread_) {
       thread_->join();
     }
+    shutdown_requested_ = false;
     return true;
   }
 
   bool HasPendingTask() const {
-    InstrumentedMutexLock call_lock_(&call_mutex_);
     InstrumentedMutexLock l(&mutex_);
     for (auto it = map_.begin(); it != map_.end(); it++) {
       if (it->second->IsValid()) {
@@ -159,7 +159,6 @@ class Timer {
   //
   // Note: only support one caller of this method.
   void TEST_WaitForRun(std::function<void()> callback = nullptr) {
-    InstrumentedMutexLock call_lock_(&call_mutex_);
     InstrumentedMutexLock l(&mutex_);
     // It act as a spin lock
     while (executing_task_ ||
@@ -179,7 +178,6 @@ class Timer {
   }
 
   size_t TEST_GetPendingTaskNum() const {
-    InstrumentedMutexLock call_lock_(&call_mutex_);
     InstrumentedMutexLock l(&mutex_);
     size_t ret = 0;
     for (auto it = map_.begin(); it != map_.end(); it++) {
@@ -321,11 +319,11 @@ class Timer {
   mutable InstrumentedMutex mutex_;
   InstrumentedCondVar cond_var_;
 
-  mutable InstrumentedMutex call_mutex_;
-
   std::unique_ptr<port::Thread> thread_;
   bool running_;
   bool executing_task_;
+
+  std::atomic_bool shutdown_requested_;
 
   std::priority_queue<FunctionInfo*,
                       std::vector<FunctionInfo*>,
