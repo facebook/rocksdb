@@ -347,6 +347,22 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
   return bg_error_;
 }
 
+// This is the main function for looking at IO related error during the
+// background operations. The main logic is:
+// 1) if the error is caused by data loss, the error is mapped to
+//    unrecoverable error. Application/user must take action to handle
+//    this situation.
+// 2) if the error is a Retryable IO error, auto resume will be called and the
+//    auto resume can be controlled by resume count and resume interval
+//    options. There are three sub-cases:
+//    a) if the error happens during compaction, it is mapped to a soft error.
+//       the compaction thread will reschedule a new compaction.
+//    b) if the error happens during flush and also WAL is empty, it is mapped
+//       to a soft error. Note that, it includes the case that IO error happens
+//       in SST or manifest write during flush.
+//    c) all other errors are mapped to hard error.
+// 3) for other cases, SetBGError(const Status& bg_err, BackgroundErrorReason
+//    reason) will be called to handle other error cases.
 Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
                                 BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
