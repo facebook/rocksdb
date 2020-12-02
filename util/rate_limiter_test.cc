@@ -59,7 +59,6 @@ TEST_F(RateLimiterTest, Modes) {
   }
 }
 
-#if !((defined(TRAVIS) || defined(CIRCLECI)) && defined(OS_MACOSX))
 TEST_F(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
@@ -90,6 +89,9 @@ TEST_F(RateLimiterTest, Rate) {
     }
   };
 
+  int samples = 0;
+  int samples_at_minimum = 0;
+
   for (int i = 1; i <= 16; i *= 2) {
     int32_t target = i * 1024 * 10;
     Arg arg(target, i / 4 + 1);
@@ -117,12 +119,28 @@ TEST_F(RateLimiterTest, Rate) {
               arg.request_size - 1, target / 1024, rate / 1024,
               elapsed / 1000000.0);
 
-      ASSERT_GE(rate / target, 0.80);
+      ++samples;
+      if (rate / target >= 0.80) {
+        ++samples_at_minimum;
+      }
       ASSERT_LE(rate / target, 1.25);
     }
   }
-}
+
+  // This can fail in heavily loaded CI environments
+  bool skip_minimum_rate_check =
+#if (defined(TRAVIS) || defined(CIRCLECI)) && defined(OS_MACOSX)
+      true;
+#else
+      getenv("SANDCASTLE");
 #endif
+  if (skip_minimum_rate_check) {
+    fprintf(stderr, "Skipped minimum rate check (%d / %d passed)\n",
+            samples_at_minimum, samples);
+  } else {
+    ASSERT_EQ(samples_at_minimum, samples);
+  }
+}
 
 TEST_F(RateLimiterTest, LimitChangeTest) {
   // starvation test when limit changes to a smaller value
