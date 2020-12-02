@@ -210,10 +210,10 @@ TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
   write_opts.timestamp = &ts;
 
   ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   std::string start_str = "foo";
   std::string end_str = "foo2";
@@ -371,16 +371,16 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLessThanKey) {
   write_opts.timestamp = &ts;
 
   ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   // Move sst file to next level
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   ASSERT_OK(db_->Put(write_opts, "foo3", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ReadOptions read_opts;
   std::string read_ts = Timestamp(1, 0);
@@ -426,16 +426,16 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLargerThanKey) {
   write_opts.timestamp = &ts;
 
   ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   // Move sst file to next level
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   ASSERT_OK(db_->Put(write_opts, "foo3", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ReadOptions read_opts;
   std::string read_ts = Timestamp(2, 0);
