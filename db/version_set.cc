@@ -1807,6 +1807,12 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
     }
   }
 
+  return GetBlob(read_options, user_key, blob_index, value);
+}
+
+Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                        const BlobIndex& blob_index,
+                        PinnableSlice* value) const {
   if (blob_index.HasTTL() || blob_index.IsInlined()) {
     return Status::Corruption("Unexpected TTL/inlined blob index");
   }

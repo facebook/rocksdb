@@ -200,7 +200,7 @@ TEST_F(MemTableListTest, Empty) {
   ASSERT_FALSE(list.IsFlushPending());
 
   autovector<MemTable*> mems;
-  list.PickMemtablesToFlush(nullptr /* memtable_id */, &mems);
+  list.PickMemtablesToFlush(port::kMaxUint64 /* memtable_id */, &mems);
   ASSERT_EQ(0, mems.size());
 
   autovector<MemTable*> to_delete;
@@ -243,10 +243,10 @@ TEST_F(MemTableListTest, GetTest) {
   mem->Ref();
 
   // Write some keys to this memtable.
-  mem->Add(++seq, kTypeDeletion, "key1", "");
-  mem->Add(++seq, kTypeValue, "key2", "value2");
-  mem->Add(++seq, kTypeValue, "key1", "value1");
-  mem->Add(++seq, kTypeValue, "key2", "value2.2");
+  ASSERT_OK(mem->Add(++seq, kTypeDeletion, "key1", ""));
+  ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2"));
+  ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", "value1"));
+  ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2.2"));
 
   // Fetch the newly written keys
   merge_context.Clear();
@@ -284,8 +284,8 @@ TEST_F(MemTableListTest, GetTest) {
                                 kMaxSequenceNumber, 0 /* column_family_id */);
   mem2->Ref();
 
-  mem2->Add(++seq, kTypeDeletion, "key1", "");
-  mem2->Add(++seq, kTypeValue, "key2", "value2.3");
+  ASSERT_OK(mem2->Add(++seq, kTypeDeletion, "key1", ""));
+  ASSERT_OK(mem2->Add(++seq, kTypeValue, "key2", "value2.3"));
 
   // Add second memtable to list
   list.Add(mem2, &to_delete);
@@ -360,9 +360,9 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   mem->Ref();
 
   // Write some keys to this memtable.
-  mem->Add(++seq, kTypeDeletion, "key1", "");
-  mem->Add(++seq, kTypeValue, "key2", "value2");
-  mem->Add(++seq, kTypeValue, "key2", "value2.2");
+  ASSERT_OK(mem->Add(++seq, kTypeDeletion, "key1", ""));
+  ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2"));
+  ASSERT_OK(mem->Add(++seq, kTypeValue, "key2", "value2.2"));
 
   // Fetch the newly written keys
   merge_context.Clear();
@@ -400,7 +400,7 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   // Flush this memtable from the list.
   // (It will then be a part of the memtable history).
   autovector<MemTable*> to_flush;
-  list.PickMemtablesToFlush(nullptr /* memtable_id */, &to_flush);
+  list.PickMemtablesToFlush(port::kMaxUint64 /* memtable_id */, &to_flush);
   ASSERT_EQ(1, to_flush.size());
 
   MutableCFOptions mutable_cf_options(options);
@@ -444,15 +444,15 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
                                 kMaxSequenceNumber, 0 /* column_family_id */);
   mem2->Ref();
 
-  mem2->Add(++seq, kTypeDeletion, "key1", "");
-  mem2->Add(++seq, kTypeValue, "key3", "value3");
+  ASSERT_OK(mem2->Add(++seq, kTypeDeletion, "key1", ""));
+  ASSERT_OK(mem2->Add(++seq, kTypeValue, "key3", "value3"));
 
   // Add second memtable to list
   list.Add(mem2, &to_delete);
   ASSERT_EQ(0, to_delete.size());
 
   to_flush.clear();
-  list.PickMemtablesToFlush(nullptr /* memtable_id */, &to_flush);
+  list.PickMemtablesToFlush(port::kMaxUint64 /* memtable_id */, &to_flush);
   ASSERT_EQ(1, to_flush.size());
 
   // Flush second memtable
@@ -555,11 +555,11 @@ TEST_F(MemTableListTest, FlushPendingTest) {
     std::string value;
     MergeContext merge_context;
 
-    mem->Add(++seq, kTypeValue, "key1", ToString(i));
-    mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN");
-    mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value");
-    mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM");
-    mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), "");
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", ToString(i)));
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN"));
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value"));
+    ASSERT_OK(mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM"));
+    ASSERT_OK(mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), ""));
 
     tables.push_back(mem);
   }
@@ -568,7 +568,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_FALSE(list.IsFlushPending());
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
   autovector<MemTable*> to_flush;
-  list.PickMemtablesToFlush(nullptr /* memtable_id */, &to_flush);
+  list.PickMemtablesToFlush(port::kMaxUint64 /* memtable_id */, &to_flush);
   ASSERT_EQ(0, to_flush.size());
 
   // Request a flush even though there is nothing to flush
@@ -577,7 +577,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Attempt to 'flush' to clear request for flush
-  list.PickMemtablesToFlush(nullptr /* memtable_id */, &to_flush);
+  list.PickMemtablesToFlush(port::kMaxUint64 /* memtable_id */, &to_flush);
   ASSERT_EQ(0, to_flush.size());
   ASSERT_FALSE(list.IsFlushPending());
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
@@ -601,7 +601,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Pick tables to flush
-  list.PickMemtablesToFlush(nullptr /* memtable_id */, &to_flush);
+  list.PickMemtablesToFlush(port::kMaxUint64 /* memtable_id */, &to_flush);
   ASSERT_EQ(2, to_flush.size());
   ASSERT_EQ(2, list.NumNotFlushed());
   ASSERT_FALSE(list.IsFlushPending());
@@ -622,7 +622,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_EQ(0, to_delete.size());
 
   // Pick tables to flush
-  list.PickMemtablesToFlush(nullptr /* memtable_id */, &to_flush);
+  list.PickMemtablesToFlush(port::kMaxUint64 /* memtable_id */, &to_flush);
   ASSERT_EQ(3, to_flush.size());
   ASSERT_EQ(3, list.NumNotFlushed());
   ASSERT_FALSE(list.IsFlushPending());
@@ -630,7 +630,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
 
   // Pick tables to flush again
   autovector<MemTable*> to_flush2;
-  list.PickMemtablesToFlush(nullptr /* memtable_id */, &to_flush2);
+  list.PickMemtablesToFlush(port::kMaxUint64 /* memtable_id */, &to_flush2);
   ASSERT_EQ(0, to_flush2.size());
   ASSERT_EQ(3, list.NumNotFlushed());
   ASSERT_FALSE(list.IsFlushPending());
@@ -648,7 +648,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Pick tables to flush again
-  list.PickMemtablesToFlush(nullptr /* memtable_id */, &to_flush2);
+  list.PickMemtablesToFlush(port::kMaxUint64 /* memtable_id */, &to_flush2);
   ASSERT_EQ(1, to_flush2.size());
   ASSERT_EQ(4, list.NumNotFlushed());
   ASSERT_FALSE(list.IsFlushPending());
@@ -669,7 +669,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_EQ(0, to_delete.size());
 
   // Pick tables to flush
-  list.PickMemtablesToFlush(nullptr /* memtable_id */, &to_flush);
+  list.PickMemtablesToFlush(port::kMaxUint64 /* memtable_id */, &to_flush);
   // Should pick 4 of 5 since 1 table has been picked in to_flush2
   ASSERT_EQ(4, to_flush.size());
   ASSERT_EQ(5, list.NumNotFlushed());
@@ -678,7 +678,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
 
   // Pick tables to flush again
   autovector<MemTable*> to_flush3;
-  list.PickMemtablesToFlush(nullptr /* memtable_id */, &to_flush3);
+  list.PickMemtablesToFlush(port::kMaxUint64 /* memtable_id */, &to_flush3);
   ASSERT_EQ(0, to_flush3.size());  // nothing not in progress of being flushed
   ASSERT_EQ(5, list.NumNotFlushed());
   ASSERT_FALSE(list.IsFlushPending());
@@ -739,7 +739,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   autovector<MemTable*> to_flush4;
   list.FlushRequested();
   ASSERT_TRUE(list.HasFlushRequested());
-  list.PickMemtablesToFlush(&memtable_id, &to_flush4);
+  list.PickMemtablesToFlush(memtable_id, &to_flush4);
   ASSERT_TRUE(to_flush4.empty());
   ASSERT_EQ(1, list.NumNotFlushed());
   ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
@@ -750,7 +750,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   // equal to 5. Therefore, only tables[5] will be selected.
   memtable_id = 5;
   list.FlushRequested();
-  list.PickMemtablesToFlush(&memtable_id, &to_flush4);
+  list.PickMemtablesToFlush(memtable_id, &to_flush4);
   ASSERT_EQ(1, static_cast<int>(to_flush4.size()));
   ASSERT_EQ(1, list.NumNotFlushed());
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
@@ -824,11 +824,11 @@ TEST_F(MemTableListTest, AtomicFlusTest) {
 
       std::string value;
 
-      mem->Add(++seq, kTypeValue, "key1", ToString(i));
-      mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN");
-      mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value");
-      mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM");
-      mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), "");
+      ASSERT_OK(mem->Add(++seq, kTypeValue, "key1", ToString(i)));
+      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN"));
+      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value"));
+      ASSERT_OK(mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM"));
+      ASSERT_OK(mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), ""));
 
       elem.push_back(mem);
     }
@@ -842,7 +842,8 @@ TEST_F(MemTableListTest, AtomicFlusTest) {
     auto* list = lists[i];
     ASSERT_FALSE(list->IsFlushPending());
     ASSERT_FALSE(list->imm_flush_needed.load(std::memory_order_acquire));
-    list->PickMemtablesToFlush(nullptr /* memtable_id */, &flush_candidates[i]);
+    list->PickMemtablesToFlush(port::kMaxUint64 /* memtable_id */,
+                               &flush_candidates[i]);
     ASSERT_EQ(0, flush_candidates[i].size());
   }
   // Request flush even though there is nothing to flush
@@ -872,8 +873,7 @@ TEST_F(MemTableListTest, AtomicFlusTest) {
   // Pick memtables to flush
   for (auto i = 0; i != num_cfs; ++i) {
     flush_candidates[i].clear();
-    lists[i]->PickMemtablesToFlush(&flush_memtable_ids[i],
-                                   &flush_candidates[i]);
+    lists[i]->PickMemtablesToFlush(flush_memtable_ids[i], &flush_candidates[i]);
     ASSERT_EQ(flush_memtable_ids[i] - 0 + 1,
               static_cast<uint64_t>(flush_candidates[i].size()));
   }

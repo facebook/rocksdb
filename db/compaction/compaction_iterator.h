@@ -5,6 +5,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cinttypes>
 #include <deque>
 #include <string>
 #include <unordered_set>
@@ -45,6 +46,12 @@ class CompactionIterator {
     virtual bool allow_ingest_behind() const = 0;
 
     virtual bool preserve_deletes() const = 0;
+
+    virtual bool enable_blob_garbage_collection() const = 0;
+
+    virtual double blob_garbage_collection_age_cutoff() const = 0;
+
+    virtual Version* input_version() const = 0;
   };
 
   class RealCompaction : public CompactionProxy {
@@ -53,6 +60,7 @@ class CompactionIterator {
         : compaction_(compaction) {
       assert(compaction_);
       assert(compaction_->immutable_cf_options());
+      assert(compaction_->mutable_cf_options());
     }
 
     int level() const override { return compaction_->level(); }
@@ -78,6 +86,19 @@ class CompactionIterator {
 
     bool preserve_deletes() const override {
       return compaction_->immutable_cf_options()->preserve_deletes;
+    }
+
+    bool enable_blob_garbage_collection() const override {
+      return compaction_->mutable_cf_options()->enable_blob_garbage_collection;
+    }
+
+    double blob_garbage_collection_age_cutoff() const override {
+      return compaction_->mutable_cf_options()
+          ->blob_garbage_collection_age_cutoff;
+    }
+
+    Version* input_version() const override {
+      return compaction_->input_version();
     }
 
    private:
@@ -146,10 +167,29 @@ class CompactionIterator {
   // Processes the input stream to find the next output
   void NextFromInput();
 
-  // Do last preparations before presenting the output to the callee. At this
-  // point this only zeroes out the sequence number if possible for better
-  // compression.
+  // Do final preparations before presenting the output to the callee.
   void PrepareOutput();
+
+  // Passes the output value to the blob file builder (if any), and replaces it
+  // with the corresponding blob reference if it has been actually written to a
+  // blob file (i.e. if it passed the value size check). Returns true if the
+  // value got extracted to a blob file, false otherwise.
+  bool ExtractLargeValueIfNeededImpl();
+
+  // Extracts large values as described above, and updates the internal key's
+  // type to kTypeBlobIndex if the value got extracted. Should only be called
+  // for regular values (kTypeValue).
+  void ExtractLargeValueIfNeeded();
+
+  // Relocates valid blobs residing in the oldest blob files if garbage
+  // collection is enabled. Relocated blobs are written to new blob files or
+  // inlined in the LSM tree depending on the current settings (i.e.
+  // enable_blob_files and min_blob_size). Should only be called for blob
+  // references (kTypeBlobIndex).
+  //
+  // Note: the stacked BlobDB implementation's compaction filter based GC
+  // algorithm is also called from here.
+  void GarbageCollectBlobIfNeeded();
 
   // Invoke compaction filter if needed.
   // Return true on success, false on failures (e.g.: kIOError).
@@ -190,6 +230,9 @@ class CompactionIterator {
           cmp_->CompareTimestamp(ts, *full_history_ts_low_);
     }
   }
+
+  static uint64_t ComputeBlobGarbageCollectionCutoffFileNumber(
+      const CompactionProxy* compaction);
 
   InternalIterator* input_;
   const Comparator* cmp_;
@@ -273,7 +316,11 @@ class CompactionIterator {
   // PinnedIteratorsManager used to pin input_ Iterator blocks while reading
   // merge operands and then releasing them after consuming them.
   PinnedIteratorsManager pinned_iters_mgr_;
+
+  uint64_t blob_garbage_collection_cutoff_file_number_;
+
   std::string blob_index_;
+  PinnableSlice blob_value_;
   std::string compaction_filter_value_;
   InternalKey compaction_filter_skip_until_;
   // "level_ptrs" holds indices that remember which file of an associated
