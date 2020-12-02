@@ -55,9 +55,9 @@ class ErrorHandler {
    const Status& SetBGError(const IOStatus& bg_io_err,
                             BackgroundErrorReason reason);
 
-   const Status& GetBGError() const { return bg_error_; }
+   Status GetBGError() const { return bg_error_; }
 
-   const Status& GetRecoveryError() const { return recovery_error_; }
+   Status GetRecoveryError() const { return recovery_error_; }
 
    Status ClearBGError();
 
