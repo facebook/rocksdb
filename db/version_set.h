@@ -26,6 +26,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -59,6 +60,7 @@ namespace log {
 class Writer;
 }
 
+class BlobIndex;
 class Compaction;
 class LogBuffer;
 class LookupKey;
@@ -682,6 +684,18 @@ class Version {
   void MultiGet(const ReadOptions&, MultiGetRange* range,
                 ReadCallback* callback = nullptr, bool* is_blob = nullptr);
 
+  // Interprets *value as a blob reference, and (assuming the corresponding
+  // blob file is part of this Version) retrieves the blob and saves it in
+  // *value, replacing the blob reference.
+  // REQUIRES: *value stores an encoded blob reference
+  Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                 PinnableSlice* value) const;
+
+  // Retrieves a blob using a blob reference and saves it in *value, assuming
+  // the corresponding blob file is part of this Version.
+  Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                 const BlobIndex& blob_index, PinnableSlice* value) const;
+
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.
   void PrepareApply(const MutableCFOptions& mutable_cf_options,
@@ -776,13 +790,6 @@ class Version {
   const Comparator* user_comparator() const {
     return storage_info_.user_comparator_;
   }
-
-  // Interprets *value as a blob reference, and (assuming the corresponding
-  // blob file is part of this Version) retrieves the blob and saves it in
-  // *value, replacing the blob reference.
-  // REQUIRES: *value stores an encoded blob reference
-  Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 PinnableSlice* value) const;
 
   // Returns true if the filter blocks in the specified level will not be
   // checked during read operations. In certain cases (trivial move or preload),
@@ -1126,6 +1133,23 @@ class VersionSet {
     uint64_t min_log_num = std::numeric_limits<uint64_t>::max();
     for (auto cfd : *column_family_set_) {
       if (cfd == cfd_to_skip) {
+        continue;
+      }
+      // It's safe to ignore dropped column families here:
+      // cfd->IsDropped() becomes true after the drop is persisted in MANIFEST.
+      if (min_log_num > cfd->GetLogNumber() && !cfd->IsDropped()) {
+        min_log_num = cfd->GetLogNumber();
+      }
+    }
+    return min_log_num;
+  }
+  // Returns the minimum log number which still has data not flushed to any SST
+  // file, except data from `cfds_to_skip`.
+  uint64_t PreComputeMinLogNumberWithUnflushedData(
+      const std::unordered_set<const ColumnFamilyData*>& cfds_to_skip) const {
+    uint64_t min_log_num = port::kMaxUint64;
+    for (auto cfd : *column_family_set_) {
+      if (cfds_to_skip.count(cfd)) {
         continue;
       }
       // It's safe to ignore dropped column families here:

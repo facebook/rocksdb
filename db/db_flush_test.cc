@@ -646,6 +646,63 @@ TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   }
 }
 
+TEST_P(DBAtomicFlushTest, PrecomputeMinLogNumberToKeepNon2PC) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.atomic_flush = GetParam();
+  options.write_buffer_size = (static_cast<size_t>(64) << 20);
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  const size_t num_cfs = handles_.size();
+  ASSERT_EQ(num_cfs, 2);
+  WriteOptions wopts;
+  for (size_t i = 0; i != num_cfs; ++i) {
+    ASSERT_OK(Put(static_cast<int>(i) /*cf*/, "key", "value", wopts));
+  }
+
+  {
+    // Flush the default CF only.
+    std::vector<int> cf_ids{0};
+    ASSERT_OK(Flush(cf_ids));
+
+    autovector<ColumnFamilyData*> flushed_cfds;
+    autovector<autovector<VersionEdit*>> flush_edits;
+    auto flushed_cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[0]);
+    flushed_cfds.push_back(flushed_cfh->cfd());
+    flush_edits.push_back({});
+    auto unflushed_cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[1]);
+
+    ASSERT_EQ(PrecomputeMinLogNumberToKeepNon2PC(dbfull()->TEST_GetVersionSet(),
+                                                 flushed_cfds, flush_edits),
+              unflushed_cfh->cfd()->GetLogNumber());
+  }
+
+  {
+    // Flush all CFs.
+    std::vector<int> cf_ids;
+    for (size_t i = 0; i != num_cfs; ++i) {
+      cf_ids.emplace_back(static_cast<int>(i));
+    }
+    ASSERT_OK(Flush(cf_ids));
+    uint64_t log_num_after_flush = dbfull()->TEST_GetCurrentLogNumber();
+
+    uint64_t min_log_number_to_keep = port::kMaxUint64;
+    autovector<ColumnFamilyData*> flushed_cfds;
+    autovector<autovector<VersionEdit*>> flush_edits;
+    for (size_t i = 0; i != num_cfs; ++i) {
+      auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+      flushed_cfds.push_back(cfh->cfd());
+      flush_edits.push_back({});
+      min_log_number_to_keep =
+          std::min(min_log_number_to_keep, cfh->cfd()->GetLogNumber());
+    }
+    ASSERT_EQ(min_log_number_to_keep, log_num_after_flush);
+    ASSERT_EQ(PrecomputeMinLogNumberToKeepNon2PC(dbfull()->TEST_GetVersionSet(),
+                                                 flushed_cfds, flush_edits),
+              min_log_number_to_keep);
+  }
+}
+
 TEST_P(DBAtomicFlushTest, AtomicFlushTriggeredByMemTableFull) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
