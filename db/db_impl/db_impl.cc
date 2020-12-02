@@ -1323,7 +1323,8 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
     auto& wal = *it;
     assert(wal.getting_synced);
     if (logs_.size() > 1) {
-      if (immutable_db_options_.track_and_verify_wals_in_manifest) {
+      if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+          wal.writer->file()->GetFileSize() > 0) {
         synced_wals.AddWal(wal.number,
                            WalMetadata(wal.writer->file()->GetFileSize()));
       }

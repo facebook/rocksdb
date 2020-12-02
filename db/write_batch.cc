@@ -1425,19 +1425,21 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
-      bool batch_boundry = false;
-      if (rebuilding_trx_ != nullptr) {
+      if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status = WriteBatchInternal::Put(rebuilding_trx_, column_family_id,
                                              key, value);
-        assert(ret_status.ok());
-        batch_boundry = IsDuplicateKeySeq(column_family_id, key);
+        if (ret_status.ok()) {
+          MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
+        }
+      } else if (ret_status.ok()) {
+        MaybeAdvanceSeq(false /* batch_boundary */);
       }
-      MaybeAdvanceSeq(batch_boundry);
       return ret_status;
     }
+    assert(ret_status.ok());
 
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetImmutableMemTableOptions();
@@ -1445,23 +1447,17 @@ class MemTableInserter : public WriteBatch::Handler {
     // any kind of transactions including the ones that use seq_per_batch
     assert(!seq_per_batch_ || !moptions->inplace_update_support);
     if (!moptions->inplace_update_support) {
-      bool mem_res =
+      ret_status =
           mem->Add(sequence_, value_type, key, value,
                    concurrent_memtable_writes_, get_post_process_info(mem),
                    hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
-      if (UNLIKELY(!mem_res)) {
-        assert(seq_per_batch_);
-        ret_status = Status::TryAgain("key+seq exists");
-        const bool BATCH_BOUNDRY = true;
-        MaybeAdvanceSeq(BATCH_BOUNDRY);
-      }
     } else if (moptions->inplace_callback == nullptr) {
       assert(!concurrent_memtable_writes_);
-      mem->Update(sequence_, key, value);
+      ret_status = mem->Update(sequence_, key, value);
     } else {
       assert(!concurrent_memtable_writes_);
-      if (mem->UpdateCallback(sequence_, key, value)) {
-      } else {
+      ret_status = mem->UpdateCallback(sequence_, key, value);
+      if (ret_status.IsNotFound()) {
         // key not found in memtable. Do sst get, update, add
         SnapshotImpl read_from_snapshot;
         read_from_snapshot.number_ = sequence_;
@@ -1475,50 +1471,69 @@ class MemTableInserter : public WriteBatch::Handler {
         std::string merged_value;
 
         auto cf_handle = cf_mems_->GetColumnFamilyHandle();
-        Status s = Status::NotSupported();
+        Status get_status = Status::NotSupported();
         if (db_ != nullptr && recovering_log_number_ == 0) {
           if (cf_handle == nullptr) {
             cf_handle = db_->DefaultColumnFamily();
           }
-          s = db_->Get(ropts, cf_handle, key, &prev_value);
+          get_status = db_->Get(ropts, cf_handle, key, &prev_value);
+        }
+        // Intentionally overwrites the `NotFound` in `ret_status`.
+        if (!get_status.ok() && !get_status.IsNotFound()) {
+          ret_status = get_status;
+        } else {
+          ret_status = Status::OK();
         }
 
-        char* prev_buffer = const_cast<char*>(prev_value.c_str());
-        uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
-        auto status = moptions->inplace_callback(s.ok() ? prev_buffer : nullptr,
-                                                 s.ok() ? &prev_size : nullptr,
-                                                 value, &merged_value);
-        if (status == UpdateStatus::UPDATED_INPLACE) {
-          // prev_value is updated in-place with final value.
-          bool mem_res __attribute__((__unused__));
-          mem_res = mem->Add(
-              sequence_, value_type, key, Slice(prev_buffer, prev_size));
-          assert(mem_res);
-          RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
-        } else if (status == UpdateStatus::UPDATED) {
-          // merged_value contains the final value.
-          bool mem_res __attribute__((__unused__));
-          mem_res =
-              mem->Add(sequence_, value_type, key, Slice(merged_value));
-          assert(mem_res);
-          RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
+        if (ret_status.ok()) {
+          UpdateStatus update_status;
+          char* prev_buffer = const_cast<char*>(prev_value.c_str());
+          uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
+          if (get_status.ok()) {
+            update_status = moptions->inplace_callback(prev_buffer, &prev_size,
+                                                       value, &merged_value);
+          } else {
+            update_status = moptions->inplace_callback(
+                nullptr /* existing_value */, nullptr /* existing_value_size */,
+                value, &merged_value);
+          }
+          if (update_status == UpdateStatus::UPDATED_INPLACE) {
+            assert(get_status.ok());
+            // prev_value is updated in-place with final value.
+            ret_status = mem->Add(sequence_, value_type, key,
+                                  Slice(prev_buffer, prev_size));
+            if (ret_status.ok()) {
+              RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
+            }
+          } else if (update_status == UpdateStatus::UPDATED) {
+            // merged_value contains the final value.
+            ret_status =
+                mem->Add(sequence_, value_type, key, Slice(merged_value));
+            if (ret_status.ok()) {
+              RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
+            }
+          }
         }
       }
     }
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      assert(seq_per_batch_);
+      const bool kBatchBoundary = true;
+      MaybeAdvanceSeq(kBatchBoundary);
+    } else if (ret_status.ok()) {
+      MaybeAdvanceSeq();
+      CheckMemtableFull();
+    }
     // optimize for non-recovery mode
-    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+    // If `ret_status` is `TryAgain` then the next (successful) try will add
+    // the key to the rebuilding transaction object. If `ret_status` is
+    // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
+    // away. So we only need to add to it when `ret_status.ok()`.
+    if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
-      // If the ret_status is TryAgain then let the next try to add the ky to
-      // the rebuilding transaction object.
       ret_status = WriteBatchInternal::Put(rebuilding_trx_, column_family_id,
                                            key, value);
-      assert(ret_status.ok());
     }
-    // Since all Puts are logged in transaction logs (if enabled), always bump
-    // sequence number. Even if the update eventually fails and does not result
-    // in memtable add/update.
-    MaybeAdvanceSeq();
-    CheckMemtableFull();
     return ret_status;
   }
 
@@ -1531,18 +1546,18 @@ class MemTableInserter : public WriteBatch::Handler {
                     const Slice& value, ValueType delete_type) {
     Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
-    bool mem_res =
+    ret_status =
         mem->Add(sequence_, delete_type, key, value,
                  concurrent_memtable_writes_, get_post_process_info(mem),
                  hint_per_batch_ ? &GetHintMap()[mem] : nullptr);
-    if (UNLIKELY(!mem_res)) {
+    if (UNLIKELY(ret_status.IsTryAgain())) {
       assert(seq_per_batch_);
-      ret_status = Status::TryAgain("key+seq exists");
-      const bool BATCH_BOUNDRY = true;
-      MaybeAdvanceSeq(BATCH_BOUNDRY);
+      const bool kBatchBoundary = true;
+      MaybeAdvanceSeq(kBatchBoundary);
+    } else if (ret_status.ok()) {
+      MaybeAdvanceSeq();
+      CheckMemtableFull();
     }
-    MaybeAdvanceSeq();
-    CheckMemtableFull();
     return ret_status;
   }
 
@@ -1555,17 +1570,18 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
-      bool batch_boundry = false;
-      if (rebuilding_trx_ != nullptr) {
+      if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status =
             WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
-        assert(ret_status.ok());
-        batch_boundry = IsDuplicateKeySeq(column_family_id, key);
+        if (ret_status.ok()) {
+          MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
+        }
+      } else if (ret_status.ok()) {
+        MaybeAdvanceSeq(false /* batch_boundary */);
       }
-      MaybeAdvanceSeq(batch_boundry);
       return ret_status;
     }
 
@@ -1578,10 +1594,12 @@ class MemTableInserter : public WriteBatch::Handler {
         (0 == ts_sz) ? kTypeDeletion : kTypeDeletionWithTimestamp;
     ret_status = DeleteImpl(column_family_id, key, Slice(), delete_type);
     // optimize for non-recovery mode
-    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+    // If `ret_status` is `TryAgain` then the next (successful) try will add
+    // the key to the rebuilding transaction object. If `ret_status` is
+    // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
+    // away. So we only need to add to it when `ret_status.ok()`.
+    if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
-      // If the ret_status is TryAgain then let the next try to add the ky to
-      // the rebuilding transaction object.
       ret_status =
           WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
     }
@@ -1598,27 +1616,31 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
-      bool batch_boundry = false;
-      if (rebuilding_trx_ != nullptr) {
+      if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status = WriteBatchInternal::SingleDelete(rebuilding_trx_,
                                                       column_family_id, key);
-        assert(ret_status.ok());
-        batch_boundry = IsDuplicateKeySeq(column_family_id, key);
+        if (ret_status.ok()) {
+          MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
+        }
+      } else if (ret_status.ok()) {
+        MaybeAdvanceSeq(false /* batch_boundary */);
       }
-      MaybeAdvanceSeq(batch_boundry);
       return ret_status;
     }
+    assert(ret_status.ok());
 
     ret_status =
         DeleteImpl(column_family_id, key, Slice(), kTypeSingleDeletion);
     // optimize for non-recovery mode
-    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+    // If `ret_status` is `TryAgain` then the next (successful) try will add
+    // the key to the rebuilding transaction object. If `ret_status` is
+    // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
+    // away. So we only need to add to it when `ret_status.ok()`.
+    if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
-      // If the ret_status is TryAgain then let the next try to add the ky to
-      // the rebuilding transaction object.
       ret_status = WriteBatchInternal::SingleDelete(rebuilding_trx_,
                                                     column_family_id, key);
     }
@@ -1636,21 +1658,22 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
-      bool batch_boundry = false;
-      if (rebuilding_trx_ != nullptr) {
+      if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status = WriteBatchInternal::DeleteRange(
             rebuilding_trx_, column_family_id, begin_key, end_key);
-        assert(ret_status.ok());
-        // TODO(myabandeh): when transactional DeleteRange support is added,
-        // check if end_key must also be added.
-        batch_boundry = IsDuplicateKeySeq(column_family_id, begin_key);
+        if (ret_status.ok()) {
+          MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, begin_key));
+        }
+      } else if (ret_status.ok()) {
+        MaybeAdvanceSeq(false /* batch_boundary */);
       }
-      MaybeAdvanceSeq(batch_boundry);
       return ret_status;
     }
+    assert(ret_status.ok());
+
     if (db_ != nullptr) {
       auto cf_handle = cf_mems_->GetColumnFamilyHandle();
       if (cf_handle == nullptr) {
@@ -1659,6 +1682,8 @@ class MemTableInserter : public WriteBatch::Handler {
       auto* cfd =
           static_cast_with_check<ColumnFamilyHandleImpl>(cf_handle)->cfd();
       if (!cfd->is_delete_range_supported()) {
+        // TODO(ajkr): refactor `SeekToColumnFamily()` so it returns a `Status`.
+        ret_status.PermitUncheckedError();
         return Status::NotSupported(
             std::string("DeleteRange not supported for table type ") +
             cfd->ioptions()->table_factory->Name() + " in CF " +
@@ -1666,10 +1691,14 @@ class MemTableInserter : public WriteBatch::Handler {
       }
       int cmp = cfd->user_comparator()->Compare(begin_key, end_key);
       if (cmp > 0) {
+        // TODO(ajkr): refactor `SeekToColumnFamily()` so it returns a `Status`.
+        ret_status.PermitUncheckedError();
         // It's an empty range where endpoints appear mistaken. Don't bother
         // applying it to the DB, and return an error to the user.
         return Status::InvalidArgument("end key comes before start key");
       } else if (cmp == 0) {
+        // TODO(ajkr): refactor `SeekToColumnFamily()` so it returns a `Status`.
+        ret_status.PermitUncheckedError();
         // It's an empty range. Don't bother applying it to the DB.
         return Status::OK();
       }
@@ -1678,10 +1707,12 @@ class MemTableInserter : public WriteBatch::Handler {
     ret_status =
         DeleteImpl(column_family_id, begin_key, end_key, kTypeRangeDeletion);
     // optimize for non-recovery mode
+    // If `ret_status` is `TryAgain` then the next (successful) try will add
+    // the key to the rebuilding transaction object. If `ret_status` is
+    // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
+    // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
-      // If the ret_status is TryAgain then let the next try to add the ky to
-      // the rebuilding transaction object.
       ret_status = WriteBatchInternal::DeleteRange(
           rebuilding_trx_, column_family_id, begin_key, end_key);
     }
@@ -1699,19 +1730,21 @@ class MemTableInserter : public WriteBatch::Handler {
 
     Status ret_status;
     if (UNLIKELY(!SeekToColumnFamily(column_family_id, &ret_status))) {
-      bool batch_boundry = false;
-      if (rebuilding_trx_ != nullptr) {
+      if (ret_status.ok() && rebuilding_trx_ != nullptr) {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
         ret_status = WriteBatchInternal::Merge(rebuilding_trx_,
                                                column_family_id, key, value);
-        assert(ret_status.ok());
-        batch_boundry = IsDuplicateKeySeq(column_family_id, key);
+        if (ret_status.ok()) {
+          MaybeAdvanceSeq(IsDuplicateKeySeq(column_family_id, key));
+        }
+      } else if (ret_status.ok()) {
+        MaybeAdvanceSeq(false /* batch_boundary */);
       }
-      MaybeAdvanceSeq(batch_boundry);
       return ret_status;
     }
+    assert(ret_status.ok());
 
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetImmutableMemTableOptions();
@@ -1756,60 +1789,60 @@ class MemTableInserter : public WriteBatch::Handler {
       if (cf_handle == nullptr) {
         cf_handle = db_->DefaultColumnFamily();
       }
-      db_->Get(read_options, cf_handle, key, &get_value);
-      Slice get_value_slice = Slice(get_value);
-
-      // 2) Apply this merge
-      auto merge_operator = moptions->merge_operator;
-      assert(merge_operator);
-
-      std::string new_value;
-
-      Status merge_status = MergeHelper::TimedFullMerge(
-          merge_operator, key, &get_value_slice, {value}, &new_value,
-          moptions->info_log, moptions->statistics, Env::Default());
-
-      if (!merge_status.ok()) {
-        // Failed to merge!
-        // Store the delta in memtable
+      Status get_status = db_->Get(read_options, cf_handle, key, &get_value);
+      if (!get_status.ok()) {
+        // Failed to read a key we know exists. Store the delta in memtable.
         perform_merge = false;
       } else {
-        // 3) Add value to memtable
-        assert(!concurrent_memtable_writes_);
-        bool mem_res = mem->Add(sequence_, kTypeValue, key, new_value);
-        if (UNLIKELY(!mem_res)) {
-          assert(seq_per_batch_);
-          ret_status = Status::TryAgain("key+seq exists");
-          const bool BATCH_BOUNDRY = true;
-          MaybeAdvanceSeq(BATCH_BOUNDRY);
+        Slice get_value_slice = Slice(get_value);
+
+        // 2) Apply this merge
+        auto merge_operator = moptions->merge_operator;
+        assert(merge_operator);
+
+        std::string new_value;
+
+        Status merge_status = MergeHelper::TimedFullMerge(
+            merge_operator, key, &get_value_slice, {value}, &new_value,
+            moptions->info_log, moptions->statistics, Env::Default());
+
+        if (!merge_status.ok()) {
+          // Failed to merge!
+          // Store the delta in memtable
+          perform_merge = false;
+        } else {
+          // 3) Add value to memtable
+          assert(!concurrent_memtable_writes_);
+          ret_status = mem->Add(sequence_, kTypeValue, key, new_value);
         }
       }
     }
 
     if (!perform_merge) {
-      // Add merge operator to memtable
-      bool mem_res =
+      // Add merge operand to memtable
+      ret_status =
           mem->Add(sequence_, kTypeMerge, key, value,
                    concurrent_memtable_writes_, get_post_process_info(mem));
-      if (UNLIKELY(!mem_res)) {
-        assert(seq_per_batch_);
-        ret_status = Status::TryAgain("key+seq exists");
-        const bool BATCH_BOUNDRY = true;
-        MaybeAdvanceSeq(BATCH_BOUNDRY);
-      }
     }
 
+    if (UNLIKELY(ret_status.IsTryAgain())) {
+      assert(seq_per_batch_);
+      const bool kBatchBoundary = true;
+      MaybeAdvanceSeq(kBatchBoundary);
+    } else if (ret_status.ok()) {
+      MaybeAdvanceSeq();
+      CheckMemtableFull();
+    }
     // optimize for non-recovery mode
-    if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
+    // If `ret_status` is `TryAgain` then the next (successful) try will add
+    // the key to the rebuilding transaction object. If `ret_status` is
+    // another non-OK `Status`, then the `rebuilding_trx_` will be thrown
+    // away. So we only need to add to it when `ret_status.ok()`.
+    if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
-      // If the ret_status is TryAgain then let the next try to add the ky to
-      // the rebuilding transaction object.
       ret_status = WriteBatchInternal::Merge(rebuilding_trx_, column_family_id,
                                              key, value);
-      assert(ret_status.ok());
     }
-    MaybeAdvanceSeq();
-    CheckMemtableFull();
     return ret_status;
   }
 
