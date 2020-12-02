@@ -179,7 +179,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
 
     if (i % 100 == 99) {
       ASSERT_OK(Flush(1));
-      dbfull()->TEST_WaitForCompact();
+      ASSERT_OK(dbfull()->TEST_WaitForCompact());
       if (i == 299) {
         file_iters_deleted = true;
       }
@@ -411,7 +411,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorUpperBound) {
   it->Next();
   // Not valid since "21" is over the upper bound.
   ASSERT_FALSE(it->Valid());
-
+  ASSERT_OK(it->status());
   // This keeps track of the number of times NeedToSeekImmutable() was true.
   int immutable_seeks = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -424,6 +424,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorUpperBound) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
   ASSERT_FALSE(it->Valid());
+  ASSERT_OK(it->status());
   ASSERT_EQ(0, immutable_seeks);
 }
 

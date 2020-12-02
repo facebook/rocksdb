@@ -27,7 +27,7 @@ enum BatchOperation { OP_PUT = 0, OP_DELETE = 1 };
 class SpecialTimeEnv : public EnvWrapper {
  public:
   explicit SpecialTimeEnv(Env* base) : EnvWrapper(base) {
-    base->GetCurrentTime(&current_time_);
+    base->GetCurrentTime(&current_time_).PermitUncheckedError();
   }
 
   void Sleep(int64_t sleep_time) { current_time_ += sleep_time; }
@@ -137,17 +137,17 @@ class TtlTest : public testing::Test {
     for (int64_t i = 0; i < num_ops && kv_it_ != kvmap_.end(); i++, ++kv_it_) {
       switch (batch_ops[i]) {
         case OP_PUT:
-          batch.Put(kv_it_->first, kv_it_->second);
+          ASSERT_OK(batch.Put(kv_it_->first, kv_it_->second));
           break;
         case OP_DELETE:
-          batch.Delete(kv_it_->first);
+          ASSERT_OK(batch.Delete(kv_it_->first));
           break;
         default:
           FAIL();
       }
     }
-    db_ttl_->Write(wopts, &batch);
-    db_ttl_->Flush(flush_opts);
+    ASSERT_OK(db_ttl_->Write(wopts, &batch));
+    ASSERT_OK(db_ttl_->Flush(flush_opts));
   }
 
   // Puts num_entries starting from start_pos_map from kvmap_ into the database
@@ -170,9 +170,9 @@ class TtlTest : public testing::Test {
                             : db_ttl_->Put(wopts, cf, "keymock", "valuemock"));
     if (flush) {
       if (cf == nullptr) {
-        db_ttl_->Flush(flush_opts);
+        ASSERT_OK(db_ttl_->Flush(flush_opts));
       } else {
-        db_ttl_->Flush(flush_opts, cf);
+        ASSERT_OK(db_ttl_->Flush(flush_opts, cf));
       }
     }
   }
@@ -180,9 +180,10 @@ class TtlTest : public testing::Test {
   // Runs a manual compaction
   void ManualCompact(ColumnFamilyHandle* cf = nullptr) {
     if (cf == nullptr) {
-      db_ttl_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+      ASSERT_OK(db_ttl_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     } else {
-      db_ttl_->CompactRange(CompactRangeOptions(), cf, nullptr, nullptr);
+      ASSERT_OK(
+          db_ttl_->CompactRange(CompactRangeOptions(), cf, nullptr, nullptr));
     }
   }
 

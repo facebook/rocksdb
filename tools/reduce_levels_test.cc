@@ -107,7 +107,7 @@ bool ReduceLevelTest::ReduceLevels(int target_level) {
 TEST_F(ReduceLevelTest, Last_Level) {
   ASSERT_OK(OpenDB(true, 4));
   ASSERT_OK(Put("aaaa", "11111"));
-  Flush();
+  ASSERT_OK(Flush());
   MoveL0FileToLevel(3);
   ASSERT_EQ(FilesOnLevel(3), 1);
   CloseDB();
@@ -126,7 +126,7 @@ TEST_F(ReduceLevelTest, Last_Level) {
 TEST_F(ReduceLevelTest, Top_Level) {
   ASSERT_OK(OpenDB(true, 5));
   ASSERT_OK(Put("aaaa", "11111"));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_EQ(FilesOnLevel(0), 1);
   CloseDB();
 

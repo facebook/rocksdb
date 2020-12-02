@@ -243,9 +243,13 @@ void WalManager::PurgeObsoleteWALFiles() {
 
   size_t files_del_num = log_files_num - files_keep_num;
   VectorLogPtr archived_logs;
-  GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
-
-  if (files_del_num > archived_logs.size()) {
+  s = GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Unable to get archived WALs from: %s: %s",
+                   archival_dir.c_str(), s.ToString().c_str());
+    files_del_num = 0;
+  } else if (files_del_num > archived_logs.size()) {
     ROCKS_LOG_WARN(db_options_.info_log,
                    "Trying to delete more archived log files than "
                    "exist. Deleting all");

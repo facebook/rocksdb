@@ -209,8 +209,11 @@ Status DBWithTTLImpl::Put(const WriteOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
                           const Slice& val) {
   WriteBatch batch;
-  batch.Put(column_family, key, val);
-  return Write(options, &batch);
+  Status st = batch.Put(column_family, key, val);
+  if (st.ok()) {
+    st = Write(options, &batch);
+  }
+  return st;
 }
 
 Status DBWithTTLImpl::Get(const ReadOptions& options,
@@ -262,8 +265,11 @@ Status DBWithTTLImpl::Merge(const WriteOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             const Slice& value) {
   WriteBatch batch;
-  batch.Merge(column_family, key, value);
-  return Write(options, &batch);
+  Status st = batch.Merge(column_family, key, value);
+  if (st.ok()) {
+    st = Write(options, &batch);
+  }
+  return st;
 }
 
 Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {

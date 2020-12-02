@@ -38,10 +38,11 @@ TEST(CompactOnDeletionCollector, DeletionRatio) {
           factory->CreateTablePropertiesCollector(context));
       for (size_t i = 0; i < kTotalEntries; i++) {
         // All entries are deletion entries.
-        collector->AddUserKey("hello", "rocksdb", kEntryDelete, 0, 0);
+        ASSERT_OK(
+            collector->AddUserKey("hello", "rocksdb", kEntryDelete, 0, 0));
         ASSERT_FALSE(collector->NeedCompact());
       }
-      collector->Finish(nullptr);
+      ASSERT_OK(collector->Finish(nullptr));
       ASSERT_FALSE(collector->NeedCompact());
     }
   }
@@ -58,13 +59,15 @@ TEST(CompactOnDeletionCollector, DeletionRatio) {
             factory->CreateTablePropertiesCollector(context));
         for (size_t i = 0; i < kTotalEntries; i++) {
           if (i < actual_deletion_entries) {
-            collector->AddUserKey("hello", "rocksdb", kEntryDelete, 0, 0);
+            ASSERT_OK(
+                collector->AddUserKey("hello", "rocksdb", kEntryDelete, 0, 0));
           } else {
-            collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0);
+            ASSERT_OK(
+                collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0));
           }
           ASSERT_FALSE(collector->NeedCompact());
         }
-        collector->Finish(nullptr);
+        ASSERT_OK(collector->Finish(nullptr));
         if (delta >= 0) {
           // >= deletion_ratio
           ASSERT_TRUE(collector->NeedCompact());
@@ -123,10 +126,12 @@ TEST(CompactOnDeletionCollector, SlidingWindow) {
         int deletions = 0;
         for (int i = 0; i < kPaddedWindowSize; ++i) {
           if (i % kSample < delete_rate) {
-            collector->AddUserKey("hello", "rocksdb", kEntryDelete, 0, 0);
+            ASSERT_OK(
+                collector->AddUserKey("hello", "rocksdb", kEntryDelete, 0, 0));
             deletions++;
           } else {
-            collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0);
+            ASSERT_OK(
+                collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0));
           }
         }
         if (collector->NeedCompact() !=
@@ -138,7 +143,7 @@ TEST(CompactOnDeletionCollector, SlidingWindow) {
                   kWindowSize, kNumDeletionTrigger);
           ASSERT_TRUE(false);
         }
-        collector->Finish(nullptr);
+        ASSERT_OK(collector->Finish(nullptr));
       }
     }
 
@@ -154,21 +159,25 @@ TEST(CompactOnDeletionCollector, SlidingWindow) {
         for (int section = 0; section < 5; ++section) {
           int initial_entries = rnd.Uniform(kWindowSize) + kWindowSize;
           for (int i = 0; i < initial_entries; ++i) {
-            collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0);
+            ASSERT_OK(
+                collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0));
           }
         }
         for (int i = 0; i < kPaddedWindowSize; ++i) {
           if (i % kSample < delete_rate) {
-            collector->AddUserKey("hello", "rocksdb", kEntryDelete, 0, 0);
+            ASSERT_OK(
+                collector->AddUserKey("hello", "rocksdb", kEntryDelete, 0, 0));
             deletions++;
           } else {
-            collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0);
+            ASSERT_OK(
+                collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0));
           }
         }
         for (int section = 0; section < 5; ++section) {
           int ending_entries = rnd.Uniform(kWindowSize) + kWindowSize;
           for (int i = 0; i < ending_entries; ++i) {
-            collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0);
+            ASSERT_OK(
+                collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0));
           }
         }
         if (collector->NeedCompact() != (deletions >= kNumDeletionTrigger) &&
@@ -180,7 +189,7 @@ TEST(CompactOnDeletionCollector, SlidingWindow) {
                   kNumDeletionTrigger);
           ASSERT_TRUE(false);
         }
-        collector->Finish(nullptr);
+        ASSERT_OK(collector->Finish(nullptr));
       }
     }
 
@@ -199,9 +208,11 @@ TEST(CompactOnDeletionCollector, SlidingWindow) {
         for (int section = 0; section < 200; ++section) {
           for (int i = 0; i < kPaddedWindowSize; ++i) {
             if (i < kDeletionsPerSection) {
-              collector->AddUserKey("hello", "rocksdb", kEntryDelete, 0, 0);
+              ASSERT_OK(collector->AddUserKey("hello", "rocksdb", kEntryDelete,
+                                              0, 0));
             } else {
-              collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0);
+              ASSERT_OK(
+                  collector->AddUserKey("hello", "rocksdb", kEntryPut, 0, 0));
             }
           }
         }
@@ -212,7 +223,7 @@ TEST(CompactOnDeletionCollector, SlidingWindow) {
                   kWindowSize, kNumDeletionTrigger);
           ASSERT_TRUE(false);
         }
-        collector->Finish(nullptr);
+        ASSERT_OK(collector->Finish(nullptr));
       }
     }
   }

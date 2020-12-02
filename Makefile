@@ -586,6 +586,7 @@ ifdef ASSERT_STATUS_CHECKED
 		blob_file_reader_test \
 		bloom_test \
 		cassandra_format_test \
+		cassandra_functional_test \
 		cassandra_row_merge_test \
 		cassandra_serialize_test \
 		cleanable_test \
@@ -593,6 +594,9 @@ ifdef ASSERT_STATUS_CHECKED
 		crc32c_test \
 		dbformat_test \
 		db_basic_test \
+		compact_files_test \
+		compaction_picker_test \
+		comparator_db_test \
 		db_encryption_test \
 		db_iter_test \
 		db_iter_stress_test \
@@ -605,8 +609,20 @@ ifdef ASSERT_STATUS_CHECKED
 		db_options_test \
 		db_properties_test \
 		db_secondary_test \
+		db_statistics_test \
+		db_table_properties_test \
+		db_tailing_iter_test \
+		fault_injection_test \
+		listener_test \
+		log_test \
+		manual_compaction_test \
+		obsolete_files_test \
 		perf_context_test \
-		options_file_test \
+		periodic_work_scheduler_test \
+		perf_context_test \
+		version_set_test \
+		wal_manager_test \
+		write_callback_test \
 		defer_test \
 		filename_test \
 		dynamic_bloom_test \
@@ -645,6 +661,7 @@ ifdef ASSERT_STATUS_CHECKED
 		ribbon_test \
 		skiplist_test \
 		slice_test \
+		slice_transform_test \
 		sst_dump_test \
 		statistics_test \
 		stats_history_test \
@@ -674,12 +691,17 @@ ifdef ASSERT_STATUS_CHECKED
 		flush_job_test \
 		block_based_filter_block_test \
 		block_fetcher_test \
+		block_test \
+		data_block_hash_index_test \
 		full_filter_block_test \
 		partitioned_filter_block_test \
 		column_family_test \
 		file_reader_writer_test \
 		rate_limiter_test \
 		corruption_test \
+		reduce_levels_test \
+		thread_list_test \
+		compact_on_deletion_collector_test \
 		db_universal_compaction_test \
 		import_column_family_test \
 		option_change_migration_test \
