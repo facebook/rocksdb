@@ -7,12 +7,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "rocksdb/db.h"
-
 #include <memory>
+
 #include "db/column_family.h"
+#include "db/db_test_util.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
@@ -23,11 +24,15 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-static std::string PrintContents(WriteBatch* b) {
+static std::string PrintContents(WriteBatch* b,
+                                 bool merge_operator_supported = true) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto factory = std::make_shared<SkipListFactory>();
   Options options;
   options.memtable_factory = factory;
+  if (merge_operator_supported) {
+    options.merge_operator.reset(new TestPutOperator());
+  }
   ImmutableCFOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
@@ -113,15 +118,17 @@ static std::string PrintContents(WriteBatch* b) {
       state.append(NumberToString(ikey.sequence));
     }
   }
-  EXPECT_EQ(b->HasPut(), put_count > 0);
-  EXPECT_EQ(b->HasDelete(), delete_count > 0);
-  EXPECT_EQ(b->HasSingleDelete(), single_delete_count > 0);
-  EXPECT_EQ(b->HasDeleteRange(), delete_range_count > 0);
-  EXPECT_EQ(b->HasMerge(), merge_count > 0);
-  if (!s.ok()) {
+  if (s.ok()) {
+    EXPECT_EQ(b->HasPut(), put_count > 0);
+    EXPECT_EQ(b->HasDelete(), delete_count > 0);
+    EXPECT_EQ(b->HasSingleDelete(), single_delete_count > 0);
+    EXPECT_EQ(b->HasDeleteRange(), delete_range_count > 0);
+    EXPECT_EQ(b->HasMerge(), merge_count > 0);
+    if (count != WriteBatchInternal::Count(b)) {
+      state.append("CountMismatch()");
+    }
+  } else {
     state.append(s.ToString());
-  } else if (count != WriteBatchInternal::Count(b)) {
-    state.append("CountMismatch()");
   }
   delete mem->Unref();
   return state;
@@ -352,6 +359,16 @@ TEST_F(WriteBatchTest, MergeNotImplemented) {
 
   WriteBatch::Handler handler;
   ASSERT_OK(batch.Iterate(&handler));
+}
+
+TEST_F(WriteBatchTest, MergeWithoutOperatorInsertionFailure) {
+  WriteBatch batch;
+  ASSERT_OK(batch.Merge(Slice("foo"), Slice("bar")));
+  ASSERT_EQ(1u, batch.Count());
+  ASSERT_EQ(
+      "Invalid argument: Merge requires `ColumnFamilyOptions::merge_operator "
+      "!= nullptr`",
+      PrintContents(&batch, false /* merge_operator_supported */));
 }
 
 TEST_F(WriteBatchTest, Blob) {

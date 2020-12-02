@@ -7,6 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <tuple>
+
+#include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -28,6 +31,31 @@ class DBCompactionTest : public DBTestBase {
  public:
   DBCompactionTest()
       : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {}
+
+  std::vector<uint64_t> GetBlobFileNumbers() {
+    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+    assert(versions);
+
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    assert(cfd);
+
+    Version* const current = cfd->current();
+    assert(current);
+
+    const VersionStorageInfo* const storage_info = current->storage_info();
+    assert(storage_info);
+
+    const auto& blob_files = storage_info->GetBlobFiles();
+
+    std::vector<uint64_t> result;
+    result.reserve(blob_files.size());
+
+    for (const auto& blob_file : blob_files) {
+      result.emplace_back(blob_file.first);
+    }
+
+    return result;
+  }
 };
 
 class DBCompactionTestWithParam
@@ -6018,6 +6046,233 @@ TEST_P(DBCompactionTestBlobError, CompactionError) {
     ASSERT_GT(compaction_stats[1].bytes_written, 0);
     ASSERT_EQ(compaction_stats[1].num_output_files, 1);
   }
+}
+
+class DBCompactionTestBlobGC
+    : public DBCompactionTest,
+      public testing::WithParamInterface<std::tuple<double, bool>> {
+ public:
+  DBCompactionTestBlobGC()
+      : blob_gc_age_cutoff_(std::get<0>(GetParam())),
+        updated_enable_blob_files_(std::get<1>(GetParam())) {}
+
+  double blob_gc_age_cutoff_;
+  bool updated_enable_blob_files_;
+};
+
+INSTANTIATE_TEST_CASE_P(DBCompactionTestBlobGC, DBCompactionTestBlobGC,
+                        ::testing::Combine(::testing::Values(0.0, 0.5, 1.0),
+                                           ::testing::Bool()));
+
+TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGC) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.blob_file_size = 32;  // one blob per file
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = blob_gc_age_cutoff_;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "first_value";
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "second_value";
+
+  ASSERT_OK(Put(first_key, first_value));
+  ASSERT_OK(Put(second_key, second_value));
+  ASSERT_OK(Flush());
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "third_value";
+  constexpr char fourth_key[] = "fourth_key";
+  constexpr char fourth_value[] = "fourth_value";
+
+  ASSERT_OK(Put(third_key, third_value));
+  ASSERT_OK(Put(fourth_key, fourth_value));
+  ASSERT_OK(Flush());
+
+  const std::vector<uint64_t> original_blob_files = GetBlobFileNumbers();
+
+  ASSERT_EQ(original_blob_files.size(), 4);
+
+  const size_t cutoff_index = static_cast<size_t>(
+      options.blob_garbage_collection_age_cutoff * original_blob_files.size());
+
+  // Note: turning off enable_blob_files before the compaction results in
+  // garbage collected values getting inlined.
+  size_t expected_number_of_files = original_blob_files.size();
+
+  if (!updated_enable_blob_files_) {
+    ASSERT_OK(db_->SetOptions({{"enable_blob_files", "false"}}));
+
+    expected_number_of_files -= cutoff_index;
+  }
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  ASSERT_EQ(Get(first_key), first_value);
+  ASSERT_EQ(Get(second_key), second_value);
+  ASSERT_EQ(Get(third_key), third_value);
+  ASSERT_EQ(Get(fourth_key), fourth_value);
+
+  const std::vector<uint64_t> new_blob_files = GetBlobFileNumbers();
+
+  ASSERT_EQ(new_blob_files.size(), expected_number_of_files);
+
+  // Original blob files below the cutoff should be gone, original blob files at
+  // or above the cutoff should be still there
+  for (size_t i = cutoff_index; i < original_blob_files.size(); ++i) {
+    ASSERT_EQ(new_blob_files[i - cutoff_index], original_blob_files[i]);
+  }
+}
+
+TEST_F(DBCompactionTest, CompactionWithBlobGCError_CorruptIndex) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "first_value";
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "second_value";
+  ASSERT_OK(Put(second_key, second_value));
+
+  ASSERT_OK(Flush());
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "third_value";
+  ASSERT_OK(Put(third_key, third_value));
+
+  constexpr char fourth_key[] = "fourth_key";
+  constexpr char corrupt_blob_index[] = "foobar";
+
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, fourth_key,
+                                             corrupt_blob_index));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  ASSERT_OK(Flush());
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_TRUE(
+      db_->CompactRange(CompactRangeOptions(), begin, end).IsCorruption());
+}
+
+TEST_F(DBCompactionTest, CompactionWithBlobGCError_InlinedTTLIndex) {
+  constexpr uint64_t min_blob_size = 10;
+
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = min_blob_size;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "first_value";
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "second_value";
+  ASSERT_OK(Put(second_key, second_value));
+
+  ASSERT_OK(Flush());
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "third_value";
+  ASSERT_OK(Put(third_key, third_value));
+
+  constexpr char fourth_key[] = "fourth_key";
+  constexpr char blob[] = "short";
+  static_assert(sizeof(short) - 1 < min_blob_size,
+                "Blob too long to be inlined");
+
+  // Fake an inlined TTL blob index.
+  std::string blob_index;
+
+  constexpr uint64_t expiration = 1234567890;
+
+  BlobIndex::EncodeInlinedTTL(&blob_index, expiration, blob);
+
+  WriteBatch batch;
+  ASSERT_OK(
+      WriteBatchInternal::PutBlobIndex(&batch, 0, fourth_key, blob_index));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  ASSERT_OK(Flush());
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_TRUE(
+      db_->CompactRange(CompactRangeOptions(), begin, end).IsCorruption());
+}
+
+TEST_F(DBCompactionTest, CompactionWithBlobGCError_IndexWithInvalidFileNumber) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "first_value";
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "second_value";
+  ASSERT_OK(Put(second_key, second_value));
+
+  ASSERT_OK(Flush());
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "third_value";
+  ASSERT_OK(Put(third_key, third_value));
+
+  constexpr char fourth_key[] = "fourth_key";
+
+  // Fake a blob index referencing a non-existent blob file.
+  std::string blob_index;
+
+  constexpr uint64_t blob_file_number = 1000;
+  constexpr uint64_t offset = 1234;
+  constexpr uint64_t size = 5678;
+
+  BlobIndex::EncodeBlob(&blob_index, blob_file_number, offset, size,
+                        kNoCompression);
+
+  WriteBatch batch;
+  ASSERT_OK(
+      WriteBatchInternal::PutBlobIndex(&batch, 0, fourth_key, blob_index));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  ASSERT_OK(Flush());
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_TRUE(
+      db_->CompactRange(CompactRangeOptions(), begin, end).IsCorruption());
 }
 
 #endif  // !defined(ROCKSDB_LITE)

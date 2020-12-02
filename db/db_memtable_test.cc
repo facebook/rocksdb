@@ -146,22 +146,15 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
                                kMaxSequenceNumber, 0 /* column_family_id */);
 
   // Write some keys and make sure it returns false on duplicates
-  bool res;
-  res = mem->Add(seq, kTypeValue, "key", "value2");
-  ASSERT_TRUE(res);
-  res = mem->Add(seq, kTypeValue, "key", "value2");
-  ASSERT_FALSE(res);
+  ASSERT_OK(mem->Add(seq, kTypeValue, "key", "value2"));
+  ASSERT_TRUE(mem->Add(seq, kTypeValue, "key", "value2").IsTryAgain());
   // Changing the type should still cause the duplicatae key
-  res = mem->Add(seq, kTypeMerge, "key", "value2");
-  ASSERT_FALSE(res);
+  ASSERT_TRUE(mem->Add(seq, kTypeMerge, "key", "value2").IsTryAgain());
   // Changing the seq number will make the key fresh
-  res = mem->Add(seq + 1, kTypeMerge, "key", "value2");
-  ASSERT_TRUE(res);
+  ASSERT_OK(mem->Add(seq + 1, kTypeMerge, "key", "value2"));
   // Test with different types for duplicate keys
-  res = mem->Add(seq, kTypeDeletion, "key", "");
-  ASSERT_FALSE(res);
-  res = mem->Add(seq, kTypeSingleDeletion, "key", "");
-  ASSERT_FALSE(res);
+  ASSERT_TRUE(mem->Add(seq, kTypeDeletion, "key", "").IsTryAgain());
+  ASSERT_TRUE(mem->Add(seq, kTypeSingleDeletion, "key", "").IsTryAgain());
 
   // Test the duplicate keys under stress
   for (int i = 0; i < 10000; i++) {
@@ -169,11 +162,11 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
     if (!insert_dup) {
       seq++;
     }
-    res = mem->Add(seq, kTypeValue, "foo", "value" + ToString(seq));
+    s = mem->Add(seq, kTypeValue, "foo", "value" + ToString(seq));
     if (insert_dup) {
-      ASSERT_FALSE(res);
+      ASSERT_TRUE(s.IsTryAgain());
     } else {
-      ASSERT_TRUE(res);
+      ASSERT_OK(s);
     }
   }
   delete mem;
@@ -185,10 +178,8 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
                      kMaxSequenceNumber, 0 /* column_family_id */);
   // Insert a duplicate key with _ in it
-  res = mem->Add(seq, kTypeValue, "key_1", "value");
-  ASSERT_TRUE(res);
-  res = mem->Add(seq, kTypeValue, "key_1", "value");
-  ASSERT_FALSE(res);
+  ASSERT_OK(mem->Add(seq, kTypeValue, "key_1", "value"));
+  ASSERT_TRUE(mem->Add(seq, kTypeValue, "key_1", "value").IsTryAgain());
   delete mem;
 
   // Test when InsertConcurrently will be invoked
@@ -197,10 +188,11 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
   mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
                      kMaxSequenceNumber, 0 /* column_family_id */);
   MemTablePostProcessInfo post_process_info;
-  res = mem->Add(seq, kTypeValue, "key", "value", true, &post_process_info);
-  ASSERT_TRUE(res);
-  res = mem->Add(seq, kTypeValue, "key", "value", true, &post_process_info);
-  ASSERT_FALSE(res);
+  ASSERT_OK(
+      mem->Add(seq, kTypeValue, "key", "value", true, &post_process_info));
+  ASSERT_TRUE(
+      mem->Add(seq, kTypeValue, "key", "value", true, &post_process_info)
+          .IsTryAgain());
   delete mem;
 }
 
@@ -227,8 +219,7 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
 
   // Put 0 as the base
   PutFixed64(&value, static_cast<uint64_t>(0));
-  bool res = mem->Add(0, kTypeValue, "key", value);
-  ASSERT_TRUE(res);
+  ASSERT_OK(mem->Add(0, kTypeValue, "key", value));
   value.clear();
 
   // Write Merge concurrently
@@ -237,9 +228,8 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
     std::string v1;
     for (int seq = 1; seq < num_ops / 2; seq++) {
       PutFixed64(&v1, seq);
-      bool res1 =
-          mem->Add(seq, kTypeMerge, "key", v1, true, &post_process_info1);
-      ASSERT_TRUE(res1);
+      ASSERT_OK(
+          mem->Add(seq, kTypeMerge, "key", v1, true, &post_process_info1));
       v1.clear();
     }
   });
@@ -248,9 +238,8 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
     std::string v2;
     for (int seq = num_ops / 2; seq < num_ops; seq++) {
       PutFixed64(&v2, seq);
-      bool res2 =
-          mem->Add(seq, kTypeMerge, "key", v2, true, &post_process_info2);
-      ASSERT_TRUE(res2);
+      ASSERT_OK(
+          mem->Add(seq, kTypeMerge, "key", v2, true, &post_process_info2));
       v2.clear();
     }
   });
@@ -261,8 +250,8 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
   ReadOptions roptions;
   SequenceNumber max_covering_tombstone_seq = 0;
   LookupKey lkey("key", kMaxSequenceNumber);
-  res = mem->Get(lkey, &value, /*timestamp=*/nullptr, &status, &merge_context,
-                 &max_covering_tombstone_seq, roptions);
+  bool res = mem->Get(lkey, &value, /*timestamp=*/nullptr, &status,
+                      &merge_context, &max_covering_tombstone_seq, roptions);
   ASSERT_TRUE(res);
   uint64_t ivalue = DecodeFixed64(Slice(value).data());
   uint64_t sum = 0;

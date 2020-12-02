@@ -6,7 +6,11 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#if defined (__clang__)
+#include "third-party/gcc/ppc-asm.h"
+#else
 #include <ppc-asm.h>
+#endif
 #include "ppc-opcode.h"
 
 #undef toc

@@ -27,7 +27,7 @@ unsigned int __crc32_vpmsum(unsigned int crc, unsigned char const *p,
                             unsigned long len);
 
 static uint32_t crc32_vpmsum(uint32_t crc, unsigned char const *data,
-                             unsigned len) {
+                             size_t len) {
   unsigned int prealign;
   unsigned int tail;
 
@@ -67,7 +67,7 @@ out:
  * does not gracefully handle the case where the data pointer is NULL.  There
  * may be room for performance improvement here.
  */
-uint32_t crc32c_ppc(uint32_t crc, unsigned char const *data, unsigned len) {
+uint32_t crc32c_ppc(uint32_t crc, unsigned char const *data, size_t len) {
   unsigned char *buf2;
 
   if (!data) {
@@ -87,7 +87,7 @@ uint32_t crc32c_ppc(uint32_t crc, unsigned char const *data, unsigned len) {
  * ppc systems using power7 or below) in order to compile properly
  * there, even though it won't be called.
  */
-uint32_t crc32c_ppc(uint32_t crc, unsigned char const *data, unsigned len) {
+uint32_t crc32c_ppc(uint32_t crc, unsigned char const *data, size_t len) {
   return 0;
 }
 
