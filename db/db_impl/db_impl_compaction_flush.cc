@@ -773,7 +773,41 @@ void DBImpl::NotifyOnFlushCompleted(
 
 Status DBImpl::CompactRange(const CompactRangeOptions& options,
                             ColumnFamilyHandle* column_family,
-                            const Slice* begin, const Slice* end) {
+                            const Slice* begin_without_ts,
+                            const Slice* end_without_ts) {
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+  if (ts_sz == 0) {
+    return CompactRangeInternal(options, column_family, begin_without_ts,
+                                end_without_ts);
+  }
+
+  std::string begin_str;
+  std::string end_str;
+
+  // CompactRange compact all keys: [begin, end] inclusively. Add maximum
+  // timestamp to include all `begin` keys, and add minimal timestamp to include
+  // all `end` keys.
+  if (begin_without_ts != nullptr) {
+    AppendKeyWithMaxTimestamp(&begin_str, *begin_without_ts, ts_sz);
+  }
+  if (end_without_ts != nullptr) {
+    AppendKeyWithMinTimestamp(&end_str, *end_without_ts, ts_sz);
+  }
+  Slice begin(begin_str);
+  Slice end(end_str);
+
+  Slice* begin_with_ts = begin_without_ts ? &begin : nullptr;
+  Slice* end_with_ts = end_without_ts ? &end : nullptr;
+
+  return CompactRangeInternal(options, column_family, begin_with_ts,
+                              end_with_ts);
+}
+
+Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
+                                    ColumnFamilyHandle* column_family,
+                                    const Slice* begin, const Slice* end) {
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
 
