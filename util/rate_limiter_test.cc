@@ -128,11 +128,13 @@ TEST_F(RateLimiterTest, Rate) {
   }
 
   // This can fail in heavily loaded CI environments
-  if (getenv("SANDCASTLE")
+  bool skip_minimum_rate_check =
 #if (defined(TRAVIS) || defined(CIRCLECI)) && defined(OS_MACOSX)
-      || true
+      true;
+#else
+      getenv("SANDCASTLE");
 #endif
-  ) {
+  if (skip_minimum_rate_check) {
     fprintf(stderr, "Skipped minimum rate check (%d / %d passed)\n",
             samples_at_minimum, samples);
   } else {
