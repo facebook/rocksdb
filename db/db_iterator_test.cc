@@ -2274,6 +2274,7 @@ TEST_P(DBIteratorTest, Refresh) {
   ASSERT_OK(Put("x", "y"));
 
   std::unique_ptr<Iterator> iter(NewIterator(ReadOptions()));
+  ASSERT_OK(iter->status());
   iter->Seek(Slice("a"));
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(iter->key().compare(Slice("x")), 0);
@@ -2288,6 +2289,7 @@ TEST_P(DBIteratorTest, Refresh) {
   iter->Next();
   ASSERT_FALSE(iter->Valid());
 
+  ASSERT_OK(iter->status());
   ASSERT_OK(iter->Refresh());
 
   iter->Seek(Slice("a"));
@@ -2312,6 +2314,7 @@ TEST_P(DBIteratorTest, Refresh) {
   iter->Next();
   ASSERT_FALSE(iter->Valid());
 
+  ASSERT_OK(iter->status());
   ASSERT_OK(iter->Refresh());
 
   iter->Seek(Slice("a"));
@@ -2335,6 +2338,7 @@ TEST_P(DBIteratorTest, RefreshWithSnapshot) {
   ReadOptions options;
   options.snapshot = snapshot;
   Iterator* iter = NewIterator(options);
+  ASSERT_OK(iter->status());
 
   iter->Seek(Slice("a"));
   ASSERT_TRUE(iter->Valid());
@@ -2350,8 +2354,8 @@ TEST_P(DBIteratorTest, RefreshWithSnapshot) {
   iter->Next();
   ASSERT_FALSE(iter->Valid());
 
-  Status s;
-  s = iter->Refresh();
+  ASSERT_OK(iter->status());
+  Status s = iter->Refresh();
   ASSERT_TRUE(s.IsNotSupported());
   db_->ReleaseSnapshot(snapshot);
   delete iter;
