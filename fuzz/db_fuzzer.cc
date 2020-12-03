@@ -1,9 +1,6 @@
-#include <stdlib.h>
-#include <string.h>
+#include <fuzzer/FuzzedDataProvider.h>
 
 #include "rocksdb/db.h"
-
-#include <fuzzer/FuzzedDataProvider.h>
 
 enum OperationType {
   kPut,
@@ -143,6 +140,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   // Cleanup DB
+  db->Close();
   delete db;
   rocksdb::DestroyDB("/tmp/testdb", rocksdb::Options());
   return 0;
