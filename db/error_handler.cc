@@ -111,6 +111,23 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, Status::SubCode, bool>,
                          Status::Code::kIOError, Status::SubCode::kIOFenced,
                          false),
          Status::Severity::kFatalError},
+        // Errors during MANIFEST write when WAL is disabled
+        {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
+                         Status::Code::kIOError, Status::SubCode::kNoSpace,
+                         true),
+         Status::Severity::kHardError},
+        {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
+                         Status::Code::kIOError, Status::SubCode::kNoSpace,
+                         false),
+         Status::Severity::kHardError},
+        {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
+                         Status::Code::kIOError, Status::SubCode::kIOFenced,
+                         true),
+         Status::Severity::kFatalError},
+        {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
+                         Status::Code::kIOError, Status::SubCode::kIOFenced,
+                         false),
+         Status::Severity::kFatalError},
 
 };
 
@@ -175,6 +192,12 @@ std::map<std::tuple<BackgroundErrorReason, Status::Code, bool>,
         {std::make_tuple(BackgroundErrorReason::kFlushNoWAL,
                          Status::Code::kIOError, false),
          Status::Severity::kNoError},
+        {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
+                         Status::Code::kIOError, true),
+         Status::Severity::kFatalError},
+        {std::make_tuple(BackgroundErrorReason::kManifestWriteNoWAL,
+                         Status::Code::kIOError, false),
+         Status::Severity::kFatalError},
 };
 
 std::map<std::tuple<BackgroundErrorReason, bool>, Status::Severity>
@@ -324,6 +347,22 @@ Status ErrorHandler::SetBGError(const Status& bg_err, BackgroundErrorReason reas
   return bg_error_;
 }
 
+// This is the main function for looking at IO related error during the
+// background operations. The main logic is:
+// 1) if the error is caused by data loss, the error is mapped to
+//    unrecoverable error. Application/user must take action to handle
+//    this situation.
+// 2) if the error is a Retryable IO error, auto resume will be called and the
+//    auto resume can be controlled by resume count and resume interval
+//    options. There are three sub-cases:
+//    a) if the error happens during compaction, it is mapped to a soft error.
+//       the compaction thread will reschedule a new compaction.
+//    b) if the error happens during flush and also WAL is empty, it is mapped
+//       to a soft error. Note that, it includes the case that IO error happens
+//       in SST or manifest write during flush.
+//    c) all other errors are mapped to hard error.
+// 3) for other cases, SetBGError(const Status& bg_err, BackgroundErrorReason
+//    reason) will be called to handle other error cases.
 Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
                                 BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
@@ -336,7 +375,8 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
   if (recovery_in_prog_ && recovery_io_error_.ok()) {
     recovery_io_error_ = bg_io_err;
   }
-  if (BackgroundErrorReason::kManifestWrite == reason) {
+  if (BackgroundErrorReason::kManifestWrite == reason ||
+      BackgroundErrorReason::kManifestWriteNoWAL == reason) {
     // Always returns ok
     db_->DisableFileDeletionsWithLock().PermitUncheckedError();
   }
@@ -374,7 +414,8 @@ Status ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       }
       recover_context_ = context;
       return bg_error_;
-    } else if (BackgroundErrorReason::kFlushNoWAL == reason) {
+    } else if (BackgroundErrorReason::kFlushNoWAL == reason ||
+               BackgroundErrorReason::kManifestWriteNoWAL == reason) {
       // When the BG Retryable IO error reason is flush without WAL,
       // We map it to a soft error. At the same time, all the background work
       // should be stopped except the BG work from recovery. Therefore, we

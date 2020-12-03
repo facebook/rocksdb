@@ -453,6 +453,51 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableError) {
   Close();
 }
 
+TEST_F(DBErrorHandlingFSTest, ManifestWriteNoWALRetryableError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
+  Status s;
+  std::string old_manifest;
+  std::string new_manifest;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+  old_manifest = GetManifestNameFromLiveFiles();
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  WriteOptions wo = WriteOptions();
+  wo.disableWAL = true;
+  ASSERT_OK(Put(Key(0), "val", wo));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(1), "val", wo));
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_EQ(s, Status::OK());
+
+  new_manifest = GetManifestNameFromLiveFiles();
+  ASSERT_NE(new_manifest, old_manifest);
+
+  Reopen(options);
+  ASSERT_EQ("val", Get(Key(0)));
+  ASSERT_EQ("val", Get(Key(1)));
+  Close();
+}
+
 TEST_F(DBErrorHandlingFSTest, DoubleManifestWriteError) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -1778,6 +1823,61 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableErrorAutoRecover) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   TEST_SYNC_POINT("ManifestWriteRetryableErrorAutoRecover:1");
   TEST_SYNC_POINT("ManifestWriteRetryableErrorAutoRecover:2");
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  new_manifest = GetManifestNameFromLiveFiles();
+  ASSERT_NE(new_manifest, old_manifest);
+
+  Reopen(options);
+  ASSERT_EQ("val", Get(Key(0)));
+  ASSERT_EQ("val", Get(Key(1)));
+  Close();
+}
+
+TEST_F(DBErrorHandlingFSTest, ManifestWriteNoWALRetryableErrorAutoRecover) {
+  // Fail the first resume and let the second resume be successful
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 2;
+  options.bgerror_resume_retry_interval = 100000;  // 0.1 second
+  Status s;
+  std::string old_manifest;
+  std::string new_manifest;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+  old_manifest = GetManifestNameFromLiveFiles();
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  WriteOptions wo = WriteOptions();
+  wo.disableWAL = true;
+  ASSERT_OK(Put(Key(0), "val", wo));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(1), "val", wo));
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"RecoverFromRetryableBGIOError:BeforeStart",
+        "ManifestWriteNoWALRetryableErrorAutoRecover:0"},
+       {"ManifestWriteNoWALRetryableErrorAutoRecover:1",
+        "RecoverFromRetryableBGIOError:BeforeWait1"},
+       {"RecoverFromRetryableBGIOError:RecoverSuccess",
+        "ManifestWriteNoWALRetryableErrorAutoRecover:2"}});
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  TEST_SYNC_POINT("ManifestWriteNoWALRetryableErrorAutoRecover:0");
+  fault_fs_->SetFilesystemActive(true);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  TEST_SYNC_POINT("ManifestWriteNoWALRetryableErrorAutoRecover:1");
+  TEST_SYNC_POINT("ManifestWriteNoWALRetryableErrorAutoRecover:2");
   SyncPoint::GetInstance()->DisableProcessing();
 
   new_manifest = GetManifestNameFromLiveFiles();
