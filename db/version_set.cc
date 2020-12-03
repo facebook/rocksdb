@@ -2008,7 +2008,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 }
 
 void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                       ReadCallback* callback, bool* is_blob) {
+                       ReadCallback* callback) {
   PinnedIteratorsManager pinned_iters_mgr;
 
   // Pin blocks that we read to hold merge operands
@@ -2033,7 +2033,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         iter->ukey_with_ts, iter->value, iter->timestamp, nullptr,
         &(iter->merge_context), true, &iter->max_covering_tombstone_seq,
         this->env_, nullptr, merge_operator_ ? &pinned_iters_mgr : nullptr,
-        callback, is_blob, tracing_mget_id);
+        callback, /* is_blob_index */ nullptr, tracing_mget_id);
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
     // be used for IO errors, and get_context state will be used for any

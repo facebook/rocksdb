@@ -2205,7 +2205,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   for (; cf_iter != multiget_cf_data.end(); ++cf_iter) {
     s = MultiGetImpl(read_options, cf_iter->start, cf_iter->num_keys,
                      &sorted_keys, cf_iter->super_version, consistent_seqnum,
-                     read_callback, nullptr);
+                     read_callback);
     if (!s.ok()) {
       break;
     }
@@ -2377,7 +2377,7 @@ void DBImpl::MultiGetWithCallback(
 
   Status s = MultiGetImpl(read_options, 0, num_keys, sorted_keys,
                           multiget_cf_data[0].super_version, consistent_seqnum,
-                          read_callback, nullptr);
+                          read_callback);
   assert(s.ok() || s.IsTimedOut() || s.IsAborted());
   ReturnAndCleanupSuperVersion(multiget_cf_data[0].cfd,
                                multiget_cf_data[0].super_version);
@@ -2396,7 +2396,7 @@ Status DBImpl::MultiGetImpl(
     const ReadOptions& read_options, size_t start_key, size_t num_keys,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
     SuperVersion* super_version, SequenceNumber snapshot,
-    ReadCallback* callback, bool* is_blob_index) {
+    ReadCallback* callback) {
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_MULTIGET);
 
@@ -2435,11 +2435,9 @@ Status DBImpl::MultiGetImpl(
         (read_options.read_tier == kPersistedTier &&
          has_unpersisted_data_.load(std::memory_order_relaxed));
     if (!skip_memtable) {
-      super_version->mem->MultiGet(read_options, &range, callback,
-                                   is_blob_index);
+      super_version->mem->MultiGet(read_options, &range, callback);
       if (!range.empty()) {
-        super_version->imm->MultiGet(read_options, &range, callback,
-                                     is_blob_index);
+        super_version->imm->MultiGet(read_options, &range, callback);
       }
       if (!range.empty()) {
         lookup_current = true;
@@ -2449,8 +2447,7 @@ Status DBImpl::MultiGetImpl(
     }
     if (lookup_current) {
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->MultiGet(read_options, &range, callback,
-                                       is_blob_index);
+      super_version->current->MultiGet(read_options, &range, callback);
     }
     curr_value_size = range.GetValueSize();
     if (curr_value_size > read_options.value_size_soft_limit) {

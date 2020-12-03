@@ -113,10 +113,10 @@ bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
 }
 
 void MemTableListVersion::MultiGet(const ReadOptions& read_options,
-                                   MultiGetRange* range, ReadCallback* callback,
-                                   bool* is_blob) {
+                                   MultiGetRange* range,
+                                   ReadCallback* callback) {
   for (auto memtable : memlist_) {
-    memtable->MultiGet(read_options, range, callback, is_blob);
+    memtable->MultiGet(read_options, range, callback);
     if (range->empty()) {
       return;
     }

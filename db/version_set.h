@@ -682,7 +682,7 @@ class Version {
            bool* is_blob = nullptr, bool do_merge = true);
 
   void MultiGet(const ReadOptions&, MultiGetRange* range,
-                ReadCallback* callback = nullptr, bool* is_blob = nullptr);
+                ReadCallback* callback = nullptr);
 
   // Interprets blob_index_slice as a blob reference, and (assuming the
   // corresponding blob file is part of this Version) retrieves the blob and
