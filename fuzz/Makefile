@@ -37,13 +37,12 @@ librocksdb:
 gen_proto:
 	mkdir -p $(PROTO_OUT)
 	protoc \
-                --proto_path=$(PROTO_IN) \
-                --cpp_out=$(PROTO_OUT) \
-                $(PROTO_IN)/*.proto
+		--proto_path=$(PROTO_IN) \
+		--cpp_out=$(PROTO_OUT) \
+		$(PROTO_IN)/*.proto
 
 db_fuzzer: librocksdb
 	$(CC) $(CCFLAGS) -o db_fuzzer db_fuzzer.cc $(CFLAGS) $(LDFLAGS)
 
 sst_file_writer_fuzzer: librocksdb gen_proto sst_file_writer_fuzzer.cc proto/gen/db_operation.pb.cc
 	$(CC) $(CCFLAGS) -o sst_file_writer_fuzzer sst_file_writer_fuzzer.cc proto/gen/db_operation.pb.cc $(CFLAGS) $(LDFLAGS)
-
