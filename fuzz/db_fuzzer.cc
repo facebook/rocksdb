@@ -1,15 +1,15 @@
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
 #include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <filesystem>
 
 #include "rocksdb/db.h"
 
 // Helper function to getting strings based on the random data.
-std::string get_string(const uint8_t **data, size_t *remaining) {
+std::string get_string(const uint8_t** data, size_t* remaining) {
   if (*remaining == 0) {
-    return std::string("");   
+    return std::string("");
   }
   uint8_t s_size = (*data)[0];
 
@@ -26,7 +26,7 @@ std::string get_string(const uint8_t **data, size_t *remaining) {
   return s1;
 }
 
-extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
+extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   rocksdb::DB* db;
   rocksdb::Options options;
   options.create_if_missing = true;
@@ -40,7 +40,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 
   // perform a sequence of calls on our db instance
   int max_iter = (int)data[0];
-  for(int i = 0; i < max_iter && i < size; i++) {
+  for (int i = 0; i < max_iter && i < size; i++) {
 #define SIZE_OF_FUNCS 10
     char c = data[i] % SIZE_OF_FUNCS;
 
@@ -48,32 +48,32 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
       std::string tmp1 = get_string(&curr_offset, &curr_size);
       std::string tmp2 = get_string(&curr_offset, &curr_size);
       db->Put(rocksdb::WriteOptions(), tmp1, tmp2);
-    } else if (c == 1) { // Get
+    } else if (c == 1) {  // Get
       std::string tmp1 = get_string(&curr_offset, &curr_size);
       db->Get(rocksdb::ReadOptions(), tmp1, &value);
-    } else if (c == 2) { // Delete
+    } else if (c == 2) {  // Delete
       std::string tmp1 = get_string(&curr_offset, &curr_size);
       db->Delete(rocksdb::WriteOptions(), tmp1);
-    } else if (c == 3) { // GetProperty
+    } else if (c == 3) {  // GetProperty
       std::string prop;
       std::string tmp1 = get_string(&curr_offset, &curr_size);
       db->GetProperty(tmp1, &prop);
-    } else if (c == 4) { // Iterator
+    } else if (c == 4) {  // Iterator
       rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
       for (it->SeekToFirst(); it->Valid(); it->Next()) {
         continue;
       }
       delete it;
-    } else if (c == 5) { // GetSnapshot and Release Snapshot
+    } else if (c == 5) {  // GetSnapshot and Release Snapshot
       rocksdb::ReadOptions snapshot_options;
       snapshot_options.snapshot = db->GetSnapshot();
       rocksdb::Iterator* it = db->NewIterator(snapshot_options);
       db->ReleaseSnapshot(snapshot_options.snapshot);
       delete it;
-    } else if (c == 6) { // Open and close DB
+    } else if (c == 6) {  // Open and close DB
       delete db;
       status = rocksdb::DB::Open(options, "/tmp/testdb", &db);
-    } else if (c == 7) { // Create column family
+    } else if (c == 7) {  // Create column family
       rocksdb::ColumnFamilyHandle* cf;
       rocksdb::Status s;
       s = db->CreateColumnFamily(rocksdb::ColumnFamilyOptions(), "new_cf", &cf);
@@ -89,7 +89,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
       column_families.push_back(rocksdb::ColumnFamilyDescriptor(
           "new_cf", rocksdb::ColumnFamilyOptions()));
       std::vector<rocksdb::ColumnFamilyHandle*> handles;
-      s = rocksdb::DB::Open(rocksdb::DBOptions(), "/tmp/testdb", 
+      s = rocksdb::DB::Open(rocksdb::DBOptions(), "/tmp/testdb",
                             column_families, &handles, &db);
 
       if (s.ok()) {
@@ -103,8 +103,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         for (auto handle : handles) {
           s = db->DestroyColumnFamilyHandle(handle);
         }
-      }
-      else {
+      } else {
         status = rocksdb::DB::Open(options, "/tmp/testdb", &db);
         if (!status.ok()) {
           // At this point there is no saving to do. So we exit
@@ -112,7 +111,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
           return 0;
         }
       }
-    } else if (c == 8) { // CompactRange
+    } else if (c == 8) {  // CompactRange
       std::string tmp1 = get_string(&curr_offset, &curr_size);
       std::string tmp2 = get_string(&curr_offset, &curr_size);
 
@@ -120,7 +119,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
       rocksdb::Slice end(tmp2);
       rocksdb::CompactRangeOptions options;
       rocksdb::Status s = db->CompactRange(options, &begin, &end);
-    } else if (c == 9) { // SeekForPrev
+    } else if (c == 9) {  // SeekForPrev
       std::string tmp1 = get_string(&curr_offset, &curr_size);
       auto iter = db->NewIterator(rocksdb::ReadOptions());
       iter->SeekForPrev(tmp1);
