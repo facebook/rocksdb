@@ -4255,9 +4255,10 @@ Status VersionSet::ProcessManifestWrites(
         if (!full_history_ts_low.empty()) {
           const Comparator* const ucmp = version->cfd_->user_comparator();
           assert(ucmp);
-          if (ucmp->CompareTimestamp(full_history_ts_low,
+          if (version->cfd_->GetFullHistoryTsLow().empty() ||
+              ucmp->CompareTimestamp(full_history_ts_low,
                                      version->cfd_->GetFullHistoryTsLow()) >
-              0) {
+                  0) {
             version->cfd_->SetFullHistoryTsLow(full_history_ts_low);
           }
         }
