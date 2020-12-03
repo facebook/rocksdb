@@ -43,14 +43,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     #define SIZE_OF_FUNCS 10
     char c = data[i] % SIZE_OF_FUNCS;
 
-    if(c == 0) {  // PUT
+    if (c == 0) {  // PUT
       std::string tmp1 = get_string(&curr_offset, &curr_size);
       std::string tmp2 = get_string(&curr_offset, &curr_size);
       db->Put(rocksdb::WriteOptions(), 
         tmp1,
         tmp2);
     }
-    else if(c == 1) { // Get
+    else if (c == 1) { // Get
       std::string tmp1 = get_string(&curr_offset, &curr_size);
       db->Get(rocksdb::ReadOptions(), tmp1, &value);
     }
@@ -63,25 +63,25 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
       std::string tmp1 = get_string(&curr_offset, &curr_size);
       db->GetProperty(tmp1, &prop);
     }
-    else if(c == 4) { // Iterator
+    else if (c == 4) { // Iterator
       rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
       for (it->SeekToFirst(); it->Valid(); it->Next()) {
         continue;
       }
       delete it;
     }
-    else if(c == 5) { // GetSnapshot and Release Snapshot
+    else if (c == 5) { // GetSnapshot and Release Snapshot
       rocksdb::ReadOptions snapshot_options;
       snapshot_options.snapshot = db->GetSnapshot();
       rocksdb::Iterator* it = db->NewIterator(snapshot_options);
       db->ReleaseSnapshot(snapshot_options.snapshot);
       delete it;
     }
-    else if(c == 6) { // Open and close DB
+    else if (c == 6) { // Open and close DB
       delete db;
       status = rocksdb::DB::Open(options, "/tmp/testdb", &db);
     }
-    else if(c == 7) { // Create column family
+    else if (c == 7) { // Create column family
       rocksdb::ColumnFamilyHandle* cf;
       rocksdb::Status s;
       s = db->CreateColumnFamily(rocksdb::ColumnFamilyOptions(), "new_cf", &cf);
@@ -121,7 +121,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         }
       }
     }
-    else if(c==8) { // CompactRange
+    else if (c == 8) { // CompactRange
       std::string tmp1 = get_string(&curr_offset, &curr_size);
       std::string tmp2 = get_string(&curr_offset, &curr_size);
 
@@ -130,7 +130,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
       rocksdb::CompactRangeOptions options;
       rocksdb::Status s = db->CompactRange(options, &begin, &end);
     }
-    else if(c==9) { // SeekForPrev
+    else if (c == 9) { // SeekForPrev
       std::string tmp1 = get_string(&curr_offset, &curr_size);
       auto iter = db->NewIterator(rocksdb::ReadOptions());
       iter->SeekForPrev(tmp1);
