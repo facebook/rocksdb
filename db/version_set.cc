@@ -2141,12 +2141,12 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
                                     fp.GetHitFileLevel());
 
+          file_range.MarkKeyDone(iter);
+
           if (iter->is_blob_index) {
             if (iter->value) {
               *status = GetBlob(read_options, iter->ukey_with_ts, iter->value);
               if (!status->ok()) {
-                file_range.MarkKeyDone(iter);
-
                 if (status->IsIncomplete()) {
                   get_context.MarkKeyMayExist();
                 }
@@ -2157,7 +2157,6 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           }
 
           file_range.AddValueSize(iter->value->size());
-          file_range.MarkKeyDone(iter);
           if (file_range.GetValueSize() > read_options.value_size_soft_limit) {
             s = Status::Aborted();
             break;
