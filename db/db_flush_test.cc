@@ -14,6 +14,7 @@
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
@@ -620,6 +621,96 @@ TEST_P(DBFlushTestBlobError, FlushError) {
 #endif  // ROCKSDB_LITE
 }
 
+#ifndef ROCKSDB_LITE
+TEST_P(DBAtomicFlushTest, ManualFlushUnder2PC) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.allow_2pc = true;
+  options.atomic_flush = GetParam();
+  // 64MB so that memtable flush won't be trigger by the small writes.
+  options.write_buffer_size = (static_cast<size_t>(64) << 20);
+
+  // Destroy the DB to recreate as a TransactionDB.
+  Close();
+  Destroy(options, true);
+
+  // Create a TransactionDB.
+  TransactionDB* txn_db = nullptr;
+  TransactionDBOptions txn_db_opts;
+  txn_db_opts.write_policy = TxnDBWritePolicy::WRITE_COMMITTED;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_opts, dbname_, &txn_db));
+  ASSERT_NE(txn_db, nullptr);
+  db_ = txn_db;
+
+  // Create two more columns other than default CF.
+  std::vector<std::string> cfs = {"puppy", "kitty"};
+  CreateColumnFamilies(cfs, options);
+  ASSERT_EQ(handles_.size(), 2);
+  ASSERT_EQ(handles_[0]->GetName(), cfs[0]);
+  ASSERT_EQ(handles_[1]->GetName(), cfs[1]);
+  const size_t kNumCfToFlush = options.atomic_flush ? 2 : 1;
+
+  WriteOptions wopts;
+  TransactionOptions txn_opts;
+  // txn1 only prepare, but does not commit.
+  // The WAL containing the prepared but uncommitted data must be kept.
+  Transaction* txn1 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  // txn2 not only prepare, but also commit.
+  Transaction* txn2 = txn_db->BeginTransaction(wopts, txn_opts, nullptr);
+  ASSERT_NE(txn1, nullptr);
+  ASSERT_NE(txn2, nullptr);
+  for (size_t i = 0; i < kNumCfToFlush; i++) {
+    ASSERT_OK(txn1->Put(handles_[i], "k1", "v1"));
+    ASSERT_OK(txn2->Put(handles_[i], "k2", "v2"));
+  }
+  // A txn must be named before prepare.
+  ASSERT_OK(txn1->SetName("txn1"));
+  ASSERT_OK(txn2->SetName("txn2"));
+  // Prepare writes to WAL, but not to memtable. (WriteCommitted)
+  ASSERT_OK(txn1->Prepare());
+  ASSERT_OK(txn2->Prepare());
+  // Commit writes to memtable.
+  ASSERT_OK(txn2->Commit());
+  delete txn1;
+  delete txn2;
+
+  // There are still data in memtable not flushed.
+  // But since data is small enough to reside in the active memtable,
+  // there are no immutable memtable.
+  for (size_t i = 0; i < kNumCfToFlush; i++) {
+    auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+    ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+    ASSERT_FALSE(cfh->cfd()->mem()->IsEmpty());
+  }
+
+  // Atomic flush memtables,
+  // the min log with prepared data should be written to MANIFEST.
+  std::vector<ColumnFamilyHandle*> cfs_to_flush(kNumCfToFlush);
+  for (size_t i = 0; i < kNumCfToFlush; i++) {
+    cfs_to_flush[i] = handles_[i];
+  }
+  ASSERT_OK(txn_db->Flush(FlushOptions(), cfs_to_flush));
+
+  // There are no remaining data in memtable after flush.
+  for (size_t i = 0; i < kNumCfToFlush; i++) {
+    auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+    ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+    ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
+    ASSERT_EQ(cfh->cfd()->GetFlushReason(), FlushReason::kManualFlush);
+  }
+
+  // The recovered min log number with prepared data should be non-zero.
+  // In 2pc mode, MinLogNumberToKeep returns the
+  // VersionSet::min_log_number_to_keep_2pc recovered from MANIFEST, if it's 0,
+  // it means atomic flush didn't write the min_log_number_to_keep to MANIFEST.
+  cfs.push_back(kDefaultColumnFamilyName);
+  ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
+  ASSERT_TRUE(db_impl->allow_2pc());
+  ASSERT_NE(db_impl->MinLogNumberToKeep(), 0);
+}
+#endif  // ROCKSDB_LITE
+
 TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -634,13 +725,22 @@ TEST_P(DBAtomicFlushTest, ManualAtomicFlush) {
   for (size_t i = 0; i != num_cfs; ++i) {
     ASSERT_OK(Put(static_cast<int>(i) /*cf*/, "key", "value", wopts));
   }
+
+  for (size_t i = 0; i != num_cfs; ++i) {
+    auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+    ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
+    ASSERT_FALSE(cfh->cfd()->mem()->IsEmpty());
+  }
+
   std::vector<int> cf_ids;
   for (size_t i = 0; i != num_cfs; ++i) {
     cf_ids.emplace_back(static_cast<int>(i));
   }
   ASSERT_OK(Flush(cf_ids));
+
   for (size_t i = 0; i != num_cfs; ++i) {
     auto cfh = static_cast<ColumnFamilyHandleImpl*>(handles_[i]);
+    ASSERT_EQ(cfh->cfd()->GetFlushReason(), FlushReason::kManualFlush);
     ASSERT_EQ(0, cfh->cfd()->imm()->NumNotFlushed());
     ASSERT_TRUE(cfh->cfd()->mem()->IsEmpty());
   }

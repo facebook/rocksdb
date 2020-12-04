@@ -708,9 +708,7 @@ uint64_t ColumnFamilyData::OldestLogToKeep() {
   auto current_log = GetLogNumber();
 
   if (allow_2pc_) {
-    autovector<MemTable*> empty_list;
-    auto imm_prep_log =
-        imm()->PrecomputeMinLogContainingPrepSection(empty_list);
+    auto imm_prep_log = imm()->PrecomputeMinLogContainingPrepSection();
     auto mem_prep_log = mem()->GetMinLogContainingPrepSection();
 
     if (imm_prep_log > 0 && imm_prep_log < current_log) {

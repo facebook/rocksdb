@@ -185,8 +185,9 @@ class MemTableListTest : public testing::Test {
     InstrumentedMutex mutex;
     InstrumentedMutexLock l(&mutex);
     return InstallMemtableAtomicFlushResults(
-        &lists, cfds, mutable_cf_options_list, mems_list, &versions, &mutex,
-        file_meta_ptrs, to_delete, nullptr, &log_buffer);
+        &lists, cfds, mutable_cf_options_list, mems_list, &versions,
+        nullptr /* prep_tracker */, &mutex, file_meta_ptrs, to_delete, nullptr,
+        &log_buffer);
   }
 };
 

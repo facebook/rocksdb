@@ -2234,6 +2234,12 @@ extern uint64_t PrecomputeMinLogNumberToKeep2PC(
     const autovector<VersionEdit*>& edit_list,
     const autovector<MemTable*>& memtables_to_flush,
     LogsWithPrepTracker* prep_tracker);
+// For atomic flush.
+extern uint64_t PrecomputeMinLogNumberToKeep2PC(
+    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    const autovector<autovector<VersionEdit*>>& edit_lists,
+    const autovector<const autovector<MemTable*>*>& memtables_to_flush,
+    LogsWithPrepTracker* prep_tracker);
 
 // In non-2PC mode, WALs with log number < the returned number can be
 // deleted after the cfd_to_flush column family is flushed successfully.
@@ -2251,6 +2257,10 @@ extern uint64_t PrecomputeMinLogNumberToKeepNon2PC(
 extern uint64_t FindMinPrepLogReferencedByMemTable(
     VersionSet* vset, const ColumnFamilyData* cfd_to_flush,
     const autovector<MemTable*>& memtables_to_flush);
+// For atomic flush.
+extern uint64_t FindMinPrepLogReferencedByMemTable(
+    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    const autovector<const autovector<MemTable*>*>& memtables_to_flush);
 
 // Fix user-supplied options to be reasonable
 template <class T, class V>

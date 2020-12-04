@@ -584,7 +584,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
 
     s = InstallMemtableAtomicFlushResults(
         nullptr /* imm_lists */, tmp_cfds, mutable_cf_options_list, mems_list,
-        versions_.get(), &mutex_, tmp_file_meta,
+        versions_.get(), &logs_with_prep_tracker_, &mutex_, tmp_file_meta,
         &job_context->memtables_to_free, directories_.GetDbDir(), log_buffer);
   }
 

@@ -412,8 +412,9 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
 
   Status s = InstallMemtableAtomicFlushResults(
       nullptr /* imm_lists */, all_cfds, mutable_cf_options_list, mems_list,
-      versions_.get(), &mutex_, file_meta_ptrs, &job_context.memtables_to_free,
-      nullptr /* db_directory */, nullptr /* log_buffer */);
+      versions_.get(), nullptr /* prep_tracker */, &mutex_, file_meta_ptrs,
+      &job_context.memtables_to_free, nullptr /* db_directory */,
+      nullptr /* log_buffer */);
   ASSERT_OK(s);
 
   mutex_.Unlock();
