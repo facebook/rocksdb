@@ -18,7 +18,6 @@ enum OperationType {
 
 constexpr char db_path[] = "/tmp/testdb";
 
-
 // Fuzzes DB operations by doing interpretations on the data. Both the
 // sequence of API calls to be called on the DB as well as the arguments
 // to each of these APIs are interpreted by way of the data buffer.
@@ -108,7 +107,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         column_families.push_back(rocksdb::ColumnFamilyDescriptor(
             "new_cf", rocksdb::ColumnFamilyOptions()));
         std::vector<rocksdb::ColumnFamilyHandle*> handles;
-        s = rocksdb::DB::Open(rocksdb::DBOptions(), db_path, column_families, 
+        s = rocksdb::DB::Open(rocksdb::DBOptions(), db_path, column_families,
                               &handles, &db);
 
         if (s.ok()) {
