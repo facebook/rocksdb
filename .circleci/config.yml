@@ -517,6 +517,9 @@ workflows:
   build-macos:
     jobs:
       - build-macos
+  build-macos-cmake:
+    jobs:
+      - build-macos-cmake
   build-cmake-mingw:
     jobs:
       - build-cmake-mingw
