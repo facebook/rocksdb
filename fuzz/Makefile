@@ -41,7 +41,7 @@ gen_proto:
 		--cpp_out=$(PROTO_OUT) \
 		$(PROTO_IN)/*.proto
 
-db_fuzzer: librocksdb
+db_fuzzer: librocksdb db_fuzzer.cc
 	$(CC) $(CCFLAGS) -o db_fuzzer db_fuzzer.cc $(CFLAGS) $(LDFLAGS)
 
 sst_file_writer_fuzzer: librocksdb gen_proto sst_file_writer_fuzzer.cc proto/gen/db_operation.pb.cc
