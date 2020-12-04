@@ -950,7 +950,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
     }
     GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
-                 callback, /* is_blob_index */ nullptr, iter->value->GetSelf(),
+                 callback, &iter->is_blob_index, iter->value->GetSelf(),
                  iter->timestamp, iter->s, &(iter->merge_context), &seq,
                  &found_final_value, &merge_in_progress);
 
