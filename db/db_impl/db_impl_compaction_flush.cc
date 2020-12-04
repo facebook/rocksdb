@@ -1765,12 +1765,16 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
     WaitForPendingWrites();
 
-    if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
-      if (flush_reason != FlushReason::kErrorRecoveryRetryFlush) {
-        s = SwitchMemtable(cfd, &context);
-      } else {
-        assert(cfd->imm()->NumNotFlushed() > 0);
-      }
+    if (flush_reason != FlushReason::kErrorRecoveryRetryFlush &&
+        (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load())) {
+      // Note that, when flush reason is kErrorRecoveryRetryFlush, during the
+      // auto retry resume, we want to avoid creating new small memtables.
+      // Therefore, SwitchMemtable will not be called. Also, since ResumeImpl
+      // will iterate through all the CFs and call FlushMemtable during auto
+      // retry resume, it is possible that in some CFs,
+      // cfd->imm()->NumNotFlushed() = 0. In this case, so no flush request will
+      // be created and scheduled, status::OK() will be returned.
+      s = SwitchMemtable(cfd, &context);
     }
     const uint64_t flush_memtable_id = port::kMaxUint64;
     if (s.ok()) {
