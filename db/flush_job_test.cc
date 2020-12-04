@@ -13,7 +13,6 @@
 #include "db/blob/blob_index.h"
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
-#include "db/db_test_util.h"
 #include "db/version_set.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/cache.h"
@@ -189,9 +188,8 @@ TEST_F(FlushJobTest, NonEmpty) {
   for (int i = 1; i < 10000; ++i) {
     std::string key(ToString((i + 1000) % 10000));
     std::string value("value" + key);
-    ASSERT_OK(new_mem->Add(
-        SequenceNumber(i), kTypeValue, key, value,
-        CalculateKvProtectionInfo(key, value, SequenceNumber(i), kTypeValue)));
+    ASSERT_OK(new_mem->Add(SequenceNumber(i), kTypeValue, key, value,
+                           nullptr /* kv_prot_info */));
     if ((i + 1000) % 10000 < 9995) {
       InternalKey internal_key(key, SequenceNumber(i), kTypeValue);
       inserted_keys.push_back({internal_key.Encode().ToString(), value});
@@ -199,11 +197,8 @@ TEST_F(FlushJobTest, NonEmpty) {
   }
 
   {
-    const std::string kKey9995 = "9995", kKey9999A = "9999a";
-    ASSERT_OK(new_mem->Add(
-        SequenceNumber(10000), kTypeRangeDeletion, kKey9995, kKey9999A,
-        CalculateKvProtectionInfo(kKey9995, kKey9999A, SequenceNumber(10000),
-                                  kTypeRangeDeletion)));
+    ASSERT_OK(new_mem->Add(SequenceNumber(10000), kTypeRangeDeletion, "9995",
+                           "9999a", nullptr /* kv_prot_info */));
     InternalKey internal_key("9995", SequenceNumber(10000), kTypeRangeDeletion);
     inserted_keys.push_back({internal_key.Encode().ToString(), "9999a"});
   }
@@ -230,9 +225,8 @@ TEST_F(FlushJobTest, NonEmpty) {
     }
 
     const SequenceNumber seq(i + 10001);
-    ASSERT_OK(new_mem->Add(
-        seq, kTypeBlobIndex, key, blob_index,
-        CalculateKvProtectionInfo(key, blob_index, seq, kTypeBlobIndex)));
+    ASSERT_OK(new_mem->Add(seq, kTypeBlobIndex, key, blob_index,
+                           nullptr /* kv_prot_info */));
 
     InternalKey internal_key(key, seq, kTypeBlobIndex);
     inserted_keys.push_back({internal_key.Encode().ToString(), blob_index});
@@ -293,10 +287,8 @@ TEST_F(FlushJobTest, FlushMemTablesSingleColumnFamily) {
     for (size_t j = 0; j < num_keys_per_table; ++j) {
       std::string key(ToString(j + i * num_keys_per_table));
       std::string value("value" + key);
-      auto seqno = SequenceNumber(j + i * num_keys_per_table);
-      ASSERT_OK(
-          mem->Add(seqno, kTypeValue, key, value,
-                   CalculateKvProtectionInfo(key, value, seqno, kTypeValue)));
+      ASSERT_OK(mem->Add(SequenceNumber(j + i * num_keys_per_table), kTypeValue,
+                         key, value, nullptr /* kv_prot_info */));
     }
   }
 
@@ -368,10 +360,8 @@ TEST_F(FlushJobTest, FlushMemtablesMultipleColumnFamilies) {
       for (size_t j = 0; j != num_keys_per_memtable; ++j) {
         std::string key(ToString(j + i * num_keys_per_memtable));
         std::string value("value" + key);
-        ASSERT_OK(mem->Add(
-            curr_seqno, kTypeValue, key, value,
-            CalculateKvProtectionInfo(key, value, curr_seqno, kTypeValue)));
-        curr_seqno++;
+        ASSERT_OK(mem->Add(curr_seqno++, kTypeValue, key, value,
+                           nullptr /* kv_prot_info */));
       }
 
       cfd->imm()->Add(mem, &to_delete);
@@ -482,10 +472,8 @@ TEST_F(FlushJobTest, Snapshots) {
     for (int j = 0; j < insertions; ++j) {
       std::string value(rnd.HumanReadableString(10));
       auto seqno = ++current_seqno;
-      ASSERT_OK(
-          new_mem->Add(SequenceNumber(seqno), kTypeValue, key, value,
-                       CalculateKvProtectionInfo(
-                           key, value, SequenceNumber(seqno), kTypeValue)));
+      ASSERT_OK(new_mem->Add(SequenceNumber(seqno), kTypeValue, key, value,
+                             nullptr /* kv_prot_info */));
       // a key is visible only if:
       // 1. it's the last one written (j == insertions - 1)
       // 2. there's a snapshot pointing at it
@@ -537,9 +525,8 @@ class FlushJobTimestampTest : public FlushJobTestBase {
                              Slice value) {
     std::string key_str(std::move(key));
     PutFixed64(&key_str, ts);
-    ASSERT_OK(memtable->Add(
-        seq, value_type, key_str, value,
-        CalculateKvProtectionInfo(key_str, value.ToString(), seq, value_type)));
+    ASSERT_OK(memtable->Add(seq, value_type, key_str, value,
+                            nullptr /* kv_prot_info */));
   }
 
  protected:

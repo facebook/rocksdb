@@ -272,6 +272,19 @@ WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz)
   rep_.resize(WriteBatchInternal::kHeader);
 }
 
+WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz,
+                       bool _protected)
+    : content_flags_(0),
+      max_bytes_(max_bytes),
+      protected_(_protected),
+      rep_(),
+      timestamp_size_(ts_sz) {
+  rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader)
+                   ? reserved_bytes
+                   : WriteBatchInternal::kHeader);
+  rep_.resize(WriteBatchInternal::kHeader);
+}
+
 WriteBatch::WriteBatch(const std::string& rep)
     : content_flags_(ContentFlags::DEFERRED),
       max_bytes_(0),
@@ -288,6 +301,7 @@ WriteBatch::WriteBatch(const WriteBatch& src)
     : wal_term_point_(src.wal_term_point_),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
+      protected_(src.protected_),
       kv_prot_infos_(src.kv_prot_infos_),
       rep_(src.rep_),
       timestamp_size_(src.timestamp_size_) {
@@ -302,6 +316,7 @@ WriteBatch::WriteBatch(WriteBatch&& src) noexcept
       wal_term_point_(std::move(src.wal_term_point_)),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       max_bytes_(src.max_bytes_),
+      protected_(src.protected_),
       kv_prot_infos_(std::move(src.kv_prot_infos_)),
       rep_(std::move(src.rep_)),
       timestamp_size_(src.timestamp_size_) {}
@@ -545,9 +560,6 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
     return Status::Corruption("Invalid start/end bounds for Iterate");
   }
   assert(begin <= end);
-  assert(wb->kv_prot_infos_.empty() ||
-         static_cast<uint32_t>(wb->kv_prot_infos_.size()) ==
-             WriteBatchInternal::Count(wb));
   Slice input(wb->rep_.data() + begin, static_cast<size_t>(end - begin));
   bool whole_batch =
       (begin == WriteBatchInternal::kHeader) && (end == wb->rep_.size());
@@ -598,9 +610,8 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_PUT));
 
-        KvProtectionInfo kv_prot_info;
-        if (!wb->kv_prot_infos_.empty()) {
-          kv_prot_info = wb->kv_prot_infos_[found];
+        if (wb->protected_) {
+          KvProtectionInfo kv_prot_info = wb->kv_prot_infos_[found];
           // `ValueType` is used differently in `WriteBatch` and
           // `WriteBatch::Handler`. Here in `WriteBatch`, different `ValueType`s
           // are used to distinguish whether an entry specifies a column family.
@@ -610,17 +621,13 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
           KvProtectionInfo expected_kv_prot_info;
           expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
           s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
+          if (s.ok()) {
+            kv_prot_info.SetValueType(kTypeValue);
+            s = handler->PutCF(column_family, key, value, &kv_prot_info);
+          }
         } else {
-          // TODO(ajkr): We are manufacturing unsafe checksums here. This is a
-          // stopgap solution until we finish coordinating integrity info for
-          // all ways of populating a `WriteBatch`.
-          kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
-          kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
-          kv_prot_info.SetColumnFamilyId(column_family);
-        }
-        if (s.ok()) {
-          kv_prot_info.SetValueType(kTypeValue);
-          s = handler->PutCF(column_family, key, value, kv_prot_info);
+          s = handler->PutCF(column_family, key, value,
+                             nullptr /* kv_prot_info */);
         }
         if (LIKELY(s.ok())) {
           empty_batch = false;
@@ -633,21 +640,19 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE));
 
-        // See explanatory comments in `kType*Value` cases.
-        KvProtectionInfo kv_prot_info;
-        if (!wb->kv_prot_infos_.empty()) {
+        if (wb->protected_) {
+          // See explanatory comments in `kType*Value` cases.
+          KvProtectionInfo kv_prot_info;
           kv_prot_info = wb->kv_prot_infos_[found];
           KvProtectionInfo expected_kv_prot_info;
           expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
           s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
+          if (s.ok()) {
+            kv_prot_info.SetValueType(kTypeDeletion);
+            s = handler->DeleteCF(column_family, key, &kv_prot_info);
+          }
         } else {
-          kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
-          kv_prot_info.SetValueChecksum(GetSliceNPHash64(""));
-          kv_prot_info.SetColumnFamilyId(column_family);
-        }
-        if (s.ok()) {
-          kv_prot_info.SetValueType(kTypeDeletion);
-          s = handler->DeleteCF(column_family, key, kv_prot_info);
+          s = handler->DeleteCF(column_family, key, nullptr /* kv_prot_info */);
         }
         if (LIKELY(s.ok())) {
           empty_batch = false;
@@ -660,21 +665,20 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_SINGLE_DELETE));
 
-        // See explanatory comments in `kType*Value` cases.
-        KvProtectionInfo kv_prot_info;
-        if (!wb->kv_prot_infos_.empty()) {
+        if (wb->protected_) {
+          // See explanatory comments in `kType*Value` cases.
+          KvProtectionInfo kv_prot_info;
           kv_prot_info = wb->kv_prot_infos_[found];
           KvProtectionInfo expected_kv_prot_info;
           expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
           s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
+          if (s.ok()) {
+            kv_prot_info.SetValueType(kTypeSingleDeletion);
+            s = handler->SingleDeleteCF(column_family, key, &kv_prot_info);
+          }
         } else {
-          kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
-          kv_prot_info.SetValueChecksum(GetSliceNPHash64(""));
-          kv_prot_info.SetColumnFamilyId(column_family);
-        }
-        if (s.ok()) {
-          kv_prot_info.SetValueType(kTypeSingleDeletion);
-          s = handler->SingleDeleteCF(column_family, key, kv_prot_info);
+          s = handler->SingleDeleteCF(column_family, key,
+                                      nullptr /* kv_prot_info */);
         }
         if (LIKELY(s.ok())) {
           empty_batch = false;
@@ -687,21 +691,21 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
         assert(wb->content_flags_.load(std::memory_order_relaxed) &
                (ContentFlags::DEFERRED | ContentFlags::HAS_DELETE_RANGE));
 
-        // See explanatory comments in `kType*Value` cases.
-        KvProtectionInfo kv_prot_info;
-        if (!wb->kv_prot_infos_.empty()) {
+        if (wb->protected_) {
+          // See explanatory comments in `kType*Value` cases.
+          KvProtectionInfo kv_prot_info;
           kv_prot_info = wb->kv_prot_infos_[found];
           KvProtectionInfo expected_kv_prot_info;
           expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
           s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
+          if (s.ok()) {
+            kv_prot_info.SetValueType(kTypeRangeDeletion);
+            s = handler->DeleteRangeCF(column_family, key, value,
+                                       &kv_prot_info);
+          }
         } else {
-          kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
-          kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
-          kv_prot_info.SetColumnFamilyId(column_family);
-        }
-        if (s.ok()) {
-          kv_prot_info.SetValueType(kTypeRangeDeletion);
-          s = handler->DeleteRangeCF(column_family, key, value, kv_prot_info);
+          s = handler->DeleteRangeCF(column_family, key, value,
+                                     nullptr /* kv_prot_info */);
         }
         if (LIKELY(s.ok())) {
           empty_batch = false;
@@ -716,19 +720,18 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
 
         // See explanatory comments in `kType*Value` cases.
         KvProtectionInfo kv_prot_info;
-        if (!wb->kv_prot_infos_.empty()) {
+        if (wb->protected_) {
           kv_prot_info = wb->kv_prot_infos_[found];
           KvProtectionInfo expected_kv_prot_info;
           expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
           s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
+          if (s.ok()) {
+            kv_prot_info.SetValueType(kTypeMerge);
+            s = handler->MergeCF(column_family, key, value, &kv_prot_info);
+          }
         } else {
-          kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
-          kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
-          kv_prot_info.SetColumnFamilyId(column_family);
-        }
-        if (s.ok()) {
-          kv_prot_info.SetValueType(kTypeMerge);
-          s = handler->MergeCF(column_family, key, value, kv_prot_info);
+          s = handler->MergeCF(column_family, key, value,
+                               nullptr /* kv_prot_info */);
         }
         if (LIKELY(s.ok())) {
           empty_batch = false;
@@ -743,19 +746,19 @@ Status WriteBatchInternal::Iterate(const WriteBatch* wb,
 
         // See explanatory comments in `kType*Value` cases.
         KvProtectionInfo kv_prot_info;
-        if (!wb->kv_prot_infos_.empty()) {
+        if (wb->protected_) {
           kv_prot_info = wb->kv_prot_infos_[found];
           KvProtectionInfo expected_kv_prot_info;
           expected_kv_prot_info.SetValueType(static_cast<ValueType>(tag));
           s = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
+          if (s.ok()) {
+            kv_prot_info.SetValueType(kTypeBlobIndex);
+            s = handler->PutBlobIndexCF(column_family, key, value,
+                                        &kv_prot_info);
+          }
         } else {
-          kv_prot_info.SetKeyChecksum(GetSliceNPHash64(key));
-          kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
-          kv_prot_info.SetColumnFamilyId(column_family);
-        }
-        if (s.ok()) {
-          kv_prot_info.SetValueType(kTypeBlobIndex);
-          s = handler->PutBlobIndexCF(column_family, key, value, kv_prot_info);
+          s = handler->PutBlobIndexCF(column_family, key, value,
+                                      nullptr /* kv_prot_info */);
         }
         if (LIKELY(s.ok())) {
           found++;
@@ -900,16 +903,22 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
   }
 
   LocalSavePoint save(b);
-  b->kv_prot_infos_.emplace_back();
-  b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(key));
-  b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(value));
-  b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  if (b->protected_) {
+    b->kv_prot_infos_.emplace_back();
+    b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(key));
+    b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(value));
+    b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  }
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->kv_prot_infos_.back().SetValueType(kTypeValue);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeValue);
+    }
     b->rep_.push_back(static_cast<char>(kTypeValue));
   } else {
-    b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyValue);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyValue);
+    }
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
     PutVarint32(&b->rep_, column_family_id);
   }
@@ -962,16 +971,22 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
   }
 
   LocalSavePoint save(b);
-  b->kv_prot_infos_.emplace_back();
-  b->kv_prot_infos_.back().SetKeyChecksum(GetSlicePartsNPHash64(key));
-  b->kv_prot_infos_.back().SetValueChecksum(GetSlicePartsNPHash64(value));
-  b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  if (b->protected_) {
+    b->kv_prot_infos_.emplace_back();
+    b->kv_prot_infos_.back().SetKeyChecksum(GetSlicePartsNPHash64(key));
+    b->kv_prot_infos_.back().SetValueChecksum(GetSlicePartsNPHash64(value));
+    b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  }
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->kv_prot_infos_.back().SetValueType(kTypeValue);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeValue);
+    }
     b->rep_.push_back(static_cast<char>(kTypeValue));
   } else {
-    b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyValue);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyValue);
+    }
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
     PutVarint32(&b->rep_, column_family_id);
   }
@@ -1051,16 +1066,22 @@ Status WriteBatchInternal::MarkRollback(WriteBatch* b, const Slice& xid) {
 Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
                                   const Slice& key) {
   LocalSavePoint save(b);
-  b->kv_prot_infos_.emplace_back();
-  b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(key));
-  b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(""));
-  b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  if (b->protected_) {
+    b->kv_prot_infos_.emplace_back();
+    b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(key));
+    b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(""));
+    b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  }
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->kv_prot_infos_.back().SetValueType(kTypeDeletion);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeDeletion);
+    }
     b->rep_.push_back(static_cast<char>(kTypeDeletion));
   } else {
-    b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyDeletion);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyDeletion);
+    }
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
@@ -1086,16 +1107,22 @@ Status WriteBatch::Delete(ColumnFamilyHandle* column_family, const Slice& key) {
 Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
                                   const SliceParts& key) {
   LocalSavePoint save(b);
-  b->kv_prot_infos_.emplace_back();
-  b->kv_prot_infos_.back().SetKeyChecksum(GetSlicePartsNPHash64(key));
-  b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(""));
-  b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  if (b->protected_) {
+    b->kv_prot_infos_.emplace_back();
+    b->kv_prot_infos_.back().SetKeyChecksum(GetSlicePartsNPHash64(key));
+    b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(""));
+    b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  }
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->kv_prot_infos_.back().SetValueType(kTypeDeletion);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeDeletion);
+    }
     b->rep_.push_back(static_cast<char>(kTypeDeletion));
   } else {
-    b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyDeletion);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyDeletion);
+    }
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
@@ -1120,16 +1147,22 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
                                         uint32_t column_family_id,
                                         const Slice& key) {
   LocalSavePoint save(b);
-  b->kv_prot_infos_.emplace_back();
-  b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(key));
-  b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(""));
-  b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  if (b->protected_) {
+    b->kv_prot_infos_.emplace_back();
+    b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(key));
+    b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(""));
+    b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  }
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->kv_prot_infos_.back().SetValueType(kTypeSingleDeletion);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeSingleDeletion);
+    }
     b->rep_.push_back(static_cast<char>(kTypeSingleDeletion));
   } else {
-    b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilySingleDeletion);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilySingleDeletion);
+    }
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilySingleDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
@@ -1150,16 +1183,22 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
                                         uint32_t column_family_id,
                                         const SliceParts& key) {
   LocalSavePoint save(b);
-  b->kv_prot_infos_.emplace_back();
-  b->kv_prot_infos_.back().SetKeyChecksum(GetSlicePartsNPHash64(key));
-  b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(""));
-  b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  if (b->protected_) {
+    b->kv_prot_infos_.emplace_back();
+    b->kv_prot_infos_.back().SetKeyChecksum(GetSlicePartsNPHash64(key));
+    b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(""));
+    b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  }
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->kv_prot_infos_.back().SetValueType(kTypeSingleDeletion);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeSingleDeletion);
+    }
     b->rep_.push_back(static_cast<char>(kTypeSingleDeletion));
   } else {
-    b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilySingleDeletion);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilySingleDeletion);
+    }
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilySingleDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
@@ -1180,17 +1219,23 @@ Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
                                        const Slice& begin_key,
                                        const Slice& end_key) {
   LocalSavePoint save(b);
-  b->kv_prot_infos_.emplace_back();
-  b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(begin_key));
-  // In `DeleteRange()`, the end key is treated as the value.
-  b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(end_key));
-  b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  if (b->protected_) {
+    b->kv_prot_infos_.emplace_back();
+    b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(begin_key));
+    // In `DeleteRange()`, the end key is treated as the value.
+    b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(end_key));
+    b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  }
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->kv_prot_infos_.back().SetValueType(kTypeRangeDeletion);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeRangeDeletion);
+    }
     b->rep_.push_back(static_cast<char>(kTypeRangeDeletion));
   } else {
-    b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyRangeDeletion);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyRangeDeletion);
+    }
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyRangeDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
@@ -1212,17 +1257,23 @@ Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
                                        const SliceParts& begin_key,
                                        const SliceParts& end_key) {
   LocalSavePoint save(b);
-  b->kv_prot_infos_.emplace_back();
-  b->kv_prot_infos_.back().SetKeyChecksum(GetSlicePartsNPHash64(begin_key));
-  // In `DeleteRange()`, the end key is treated as the value.
-  b->kv_prot_infos_.back().SetValueChecksum(GetSlicePartsNPHash64(end_key));
-  b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  if (b->protected_) {
+    b->kv_prot_infos_.emplace_back();
+    b->kv_prot_infos_.back().SetKeyChecksum(GetSlicePartsNPHash64(begin_key));
+    // In `DeleteRange()`, the end key is treated as the value.
+    b->kv_prot_infos_.back().SetValueChecksum(GetSlicePartsNPHash64(end_key));
+    b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  }
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->kv_prot_infos_.back().SetValueType(kTypeRangeDeletion);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeRangeDeletion);
+    }
     b->rep_.push_back(static_cast<char>(kTypeRangeDeletion));
   } else {
-    b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyRangeDeletion);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyRangeDeletion);
+    }
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyRangeDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
@@ -1251,16 +1302,22 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
   }
 
   LocalSavePoint save(b);
-  b->kv_prot_infos_.emplace_back();
-  b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(key));
-  b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(value));
-  b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  if (b->protected_) {
+    b->kv_prot_infos_.emplace_back();
+    b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(key));
+    b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(value));
+    b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  }
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->kv_prot_infos_.back().SetValueType(kTypeMerge);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeMerge);
+    }
     b->rep_.push_back(static_cast<char>(kTypeMerge));
   } else {
-    b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyMerge);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyMerge);
+    }
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyMerge));
     PutVarint32(&b->rep_, column_family_id);
   }
@@ -1287,16 +1344,22 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
   }
 
   LocalSavePoint save(b);
-  b->kv_prot_infos_.emplace_back();
-  b->kv_prot_infos_.back().SetKeyChecksum(GetSlicePartsNPHash64(key));
-  b->kv_prot_infos_.back().SetValueChecksum(GetSlicePartsNPHash64(value));
-  b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  if (b->protected_) {
+    b->kv_prot_infos_.emplace_back();
+    b->kv_prot_infos_.back().SetKeyChecksum(GetSlicePartsNPHash64(key));
+    b->kv_prot_infos_.back().SetValueChecksum(GetSlicePartsNPHash64(value));
+    b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  }
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->kv_prot_infos_.back().SetValueType(kTypeMerge);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeMerge);
+    }
     b->rep_.push_back(static_cast<char>(kTypeMerge));
   } else {
-    b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyMerge);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyMerge);
+    }
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyMerge));
     PutVarint32(&b->rep_, column_family_id);
   }
@@ -1318,16 +1381,22 @@ Status WriteBatchInternal::PutBlobIndex(WriteBatch* b,
                                         uint32_t column_family_id,
                                         const Slice& key, const Slice& value) {
   LocalSavePoint save(b);
-  b->kv_prot_infos_.emplace_back();
-  b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(key));
-  b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(value));
-  b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  if (b->protected_) {
+    b->kv_prot_infos_.emplace_back();
+    b->kv_prot_infos_.back().SetKeyChecksum(GetSliceNPHash64(key));
+    b->kv_prot_infos_.back().SetValueChecksum(GetSliceNPHash64(value));
+    b->kv_prot_infos_.back().SetColumnFamilyId(column_family_id);
+  }
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
   if (column_family_id == 0) {
-    b->kv_prot_infos_.back().SetValueType(kTypeBlobIndex);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeBlobIndex);
+    }
     b->rep_.push_back(static_cast<char>(kTypeBlobIndex));
   } else {
-    b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyBlobIndex);
+    if (b->protected_) {
+      b->kv_prot_infos_.back().SetValueType(kTypeColumnFamilyBlobIndex);
+    }
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyBlobIndex));
     PutVarint32(&b->rep_, column_family_id);
   }
@@ -1615,7 +1684,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
   Status PutCFImpl(uint32_t column_family_id, const Slice& key,
                    const Slice& value, ValueType value_type,
-                   const KvProtectionInfo& kv_prot_info) {
+                   const KvProtectionInfo* kv_prot_info) {
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       // TODO(ajkr): propagate `KvProtectionInfo`.
@@ -1686,12 +1755,12 @@ class MemTableInserter : public WriteBatch::Handler {
         } else {
           ret_status = Status::OK();
         }
-        if (ret_status.ok()) {
+        if (ret_status.ok() && kv_prot_info != nullptr) {
           // TODO(ajkr): Push down this checksum verification and the below
           // `merged_value` checksum generation  into `inplace_callback()`.
           KvProtectionInfo expected_kv_prot_info;
           expected_kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
-          ret_status = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
+          ret_status = kv_prot_info->VerifyAgainst(expected_kv_prot_info);
         }
         if (ret_status.ok()) {
           UpdateStatus update_status;
@@ -1705,21 +1774,38 @@ class MemTableInserter : public WriteBatch::Handler {
                 nullptr /* existing_value */, nullptr /* existing_value_size */,
                 value, &merged_value);
           }
-          KvProtectionInfo merged_kv_prot_info(kv_prot_info);
-          merged_kv_prot_info.SetValueChecksum(GetSliceNPHash64(merged_value));
           if (update_status == UpdateStatus::UPDATED_INPLACE) {
             assert(get_status.ok());
-            // prev_value is updated in-place with final value.
-            ret_status =
-                mem->Add(sequence_, value_type, key,
-                         Slice(prev_buffer, prev_size), merged_kv_prot_info);
+            if (kv_prot_info != nullptr) {
+              KvProtectionInfo merged_kv_prot_info(*kv_prot_info);
+              merged_kv_prot_info.SetValueChecksum(
+                  GetSliceNPHash64(merged_value));
+              // prev_value is updated in-place with final value.
+              ret_status =
+                  mem->Add(sequence_, value_type, key,
+                           Slice(prev_buffer, prev_size), &merged_kv_prot_info);
+            } else {
+              ret_status = mem->Add(sequence_, value_type, key,
+                                    Slice(prev_buffer, prev_size),
+                                    nullptr /* kv_prot_info */);
+            }
             if (ret_status.ok()) {
               RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
             }
           } else if (update_status == UpdateStatus::UPDATED) {
-            // merged_value contains the final value.
-            ret_status = mem->Add(sequence_, value_type, key,
-                                  Slice(merged_value), merged_kv_prot_info);
+            if (kv_prot_info != nullptr) {
+              KvProtectionInfo merged_kv_prot_info(*kv_prot_info);
+              merged_kv_prot_info.SetValueChecksum(
+                  GetSliceNPHash64(merged_value));
+              // merged_value contains the final value.
+              ret_status = mem->Add(sequence_, value_type, key,
+                                    Slice(merged_value), &merged_kv_prot_info);
+            } else {
+              // merged_value contains the final value.
+              ret_status =
+                  mem->Add(sequence_, value_type, key, Slice(merged_value),
+                           nullptr /* kv_prot_info */);
+            }
             if (ret_status.ok()) {
               RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
             }
@@ -1751,15 +1837,19 @@ class MemTableInserter : public WriteBatch::Handler {
 
   using WriteBatch::Handler::PutCF;
   Status PutCF(uint32_t column_family_id, const Slice& key, const Slice& value,
-               const KvProtectionInfo& _kv_prot_info) override {
-    KvProtectionInfo kv_prot_info(_kv_prot_info);
-    kv_prot_info.SetSequenceNumber(sequence_);
-    return PutCFImpl(column_family_id, key, value, kTypeValue, kv_prot_info);
+               const KvProtectionInfo* _kv_prot_info) override {
+    if (_kv_prot_info != nullptr) {
+      KvProtectionInfo kv_prot_info(*_kv_prot_info);
+      kv_prot_info.SetSequenceNumber(sequence_);
+      return PutCFImpl(column_family_id, key, value, kTypeValue, &kv_prot_info);
+    }
+    return PutCFImpl(column_family_id, key, value, kTypeValue,
+                     nullptr /* kv_prot_info */);
   }
 
   Status DeleteImpl(uint32_t /*column_family_id*/, const Slice& key,
                     const Slice& value, ValueType delete_type,
-                    const KvProtectionInfo& kv_prot_info) {
+                    const KvProtectionInfo* kv_prot_info) {
     Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
     ret_status =
@@ -1779,9 +1869,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
   using WriteBatch::Handler::DeleteCF;
   Status DeleteCF(uint32_t column_family_id, const Slice& key,
-                  const KvProtectionInfo& _kv_prot_info) override {
-    KvProtectionInfo kv_prot_info(_kv_prot_info);
-    kv_prot_info.SetSequenceNumber(sequence_);
+                  const KvProtectionInfo* _kv_prot_info) override {
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       // TODO(ajkr): propagate `KvProtectionInfo`.
@@ -1812,16 +1900,22 @@ class MemTableInserter : public WriteBatch::Handler {
     const size_t ts_sz = (cfd && cfd->user_comparator())
                              ? cfd->user_comparator()->timestamp_size()
                              : 0;
-    KvProtectionInfo expected_kv_prot_info;
-    expected_kv_prot_info.SetValueType(kTypeDeletion);
-    ret_status = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
-    if (ret_status.ok()) {
-      const ValueType delete_type =
-          (0 == ts_sz) ? kTypeDeletion : kTypeDeletionWithTimestamp;
-      KvProtectionInfo memtable_kv_prot_info(kv_prot_info);
-      memtable_kv_prot_info.SetValueType(delete_type);
+    const ValueType delete_type =
+        (0 == ts_sz) ? kTypeDeletion : kTypeDeletionWithTimestamp;
+    if (_kv_prot_info != nullptr) {
+      KvProtectionInfo memtable_kv_prot_info(*_kv_prot_info);
+      memtable_kv_prot_info.SetSequenceNumber(sequence_);
+      KvProtectionInfo expected_kv_prot_info;
+      expected_kv_prot_info.SetValueType(kTypeDeletion);
+      ret_status = memtable_kv_prot_info.VerifyAgainst(expected_kv_prot_info);
+      if (ret_status.ok()) {
+        memtable_kv_prot_info.SetValueType(delete_type);
+        ret_status = DeleteImpl(column_family_id, key, Slice(), delete_type,
+                                &memtable_kv_prot_info);
+      }
+    } else {
       ret_status = DeleteImpl(column_family_id, key, Slice(), delete_type,
-                              memtable_kv_prot_info);
+                              nullptr /* kv_prot_info */);
     }
     // optimize for non-recovery mode
     // If `ret_status` is `TryAgain` then the next (successful) try will add
@@ -1839,9 +1933,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
   using WriteBatch::Handler::SingleDeleteCF;
   Status SingleDeleteCF(uint32_t column_family_id, const Slice& key,
-                        const KvProtectionInfo& _kv_prot_info) override {
-    KvProtectionInfo kv_prot_info(_kv_prot_info);
-    kv_prot_info.SetSequenceNumber(sequence_);
+                        const KvProtectionInfo* _kv_prot_info) override {
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       // TODO(ajkr): propagate `KvProtectionInfo`.
@@ -1869,8 +1961,15 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     assert(ret_status.ok());
 
-    ret_status = DeleteImpl(column_family_id, key, Slice(), kTypeSingleDeletion,
-                            kv_prot_info);
+    if (_kv_prot_info != nullptr) {
+      KvProtectionInfo kv_prot_info(*_kv_prot_info);
+      kv_prot_info.SetSequenceNumber(sequence_);
+      ret_status = DeleteImpl(column_family_id, key, Slice(),
+                              kTypeSingleDeletion, &kv_prot_info);
+    } else {
+      ret_status = DeleteImpl(column_family_id, key, Slice(),
+                              kTypeSingleDeletion, nullptr /* kv_prot_info */);
+    }
     // optimize for non-recovery mode
     // If `ret_status` is `TryAgain` then the next (successful) try will add
     // the key to the rebuilding transaction object. If `ret_status` is
@@ -1888,9 +1987,7 @@ class MemTableInserter : public WriteBatch::Handler {
   using WriteBatch::Handler::DeleteRangeCF;
   Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
                        const Slice& end_key,
-                       const KvProtectionInfo& _kv_prot_info) override {
-    KvProtectionInfo kv_prot_info(_kv_prot_info);
-    kv_prot_info.SetSequenceNumber(sequence_);
+                       const KvProtectionInfo* _kv_prot_info) override {
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       // TODO(ajkr): propagate `KvProtectionInfo`.
@@ -1948,8 +2045,15 @@ class MemTableInserter : public WriteBatch::Handler {
       }
     }
 
-    ret_status = DeleteImpl(column_family_id, begin_key, end_key,
-                            kTypeRangeDeletion, kv_prot_info);
+    if (_kv_prot_info != nullptr) {
+      KvProtectionInfo kv_prot_info(*_kv_prot_info);
+      kv_prot_info.SetSequenceNumber(sequence_);
+      ret_status = DeleteImpl(column_family_id, begin_key, end_key,
+                              kTypeRangeDeletion, &kv_prot_info);
+    } else {
+      ret_status = DeleteImpl(column_family_id, begin_key, end_key,
+                              kTypeRangeDeletion, nullptr /* kv_prot_info */);
+    }
     // optimize for non-recovery mode
     // If `ret_status` is `TryAgain` then the next (successful) try will add
     // the key to the rebuilding transaction object. If `ret_status` is
@@ -1967,9 +2071,7 @@ class MemTableInserter : public WriteBatch::Handler {
   using WriteBatch::Handler::MergeCF;
   Status MergeCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value,
-                 const KvProtectionInfo& _kv_prot_info) override {
-    KvProtectionInfo kv_prot_info(_kv_prot_info);
-    kv_prot_info.SetSequenceNumber(sequence_);
+                 const KvProtectionInfo* _kv_prot_info) override {
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
       // TODO(ajkr): propagate `KvProtectionInfo`.
@@ -2054,10 +2156,11 @@ class MemTableInserter : public WriteBatch::Handler {
         // TODO(ajkr): Push down this checksum verification and the below
         // `new_value` checksum generation  into
         // `MergeHelper::TimedFullMerge()`.
-        KvProtectionInfo expected_kv_prot_info;
-        expected_kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
-        ret_status = kv_prot_info.VerifyAgainst(expected_kv_prot_info);
-
+        if (_kv_prot_info != nullptr) {
+          KvProtectionInfo expected_kv_prot_info;
+          expected_kv_prot_info.SetValueChecksum(GetSliceNPHash64(value));
+          ret_status = _kv_prot_info->VerifyAgainst(expected_kv_prot_info);
+        }
         if (ret_status.ok()) {
           std::string new_value;
           Status merge_status = MergeHelper::TimedFullMerge(
@@ -2070,12 +2173,18 @@ class MemTableInserter : public WriteBatch::Handler {
             perform_merge = false;
           } else {
             // 3) Add value to memtable
-            KvProtectionInfo merged_kv_prot_info(kv_prot_info);
-            merged_kv_prot_info.SetValueChecksum(GetSliceNPHash64(new_value));
-            merged_kv_prot_info.SetValueType(kTypeValue);
             assert(!concurrent_memtable_writes_);
-            ret_status = mem->Add(sequence_, kTypeValue, key, new_value,
-                                  merged_kv_prot_info);
+            if (_kv_prot_info != nullptr) {
+              KvProtectionInfo merged_kv_prot_info(*_kv_prot_info);
+              merged_kv_prot_info.SetSequenceNumber(sequence_);
+              merged_kv_prot_info.SetValueChecksum(GetSliceNPHash64(new_value));
+              merged_kv_prot_info.SetValueType(kTypeValue);
+              ret_status = mem->Add(sequence_, kTypeValue, key, new_value,
+                                    &merged_kv_prot_info);
+            } else {
+              ret_status = mem->Add(sequence_, kTypeValue, key, new_value,
+                                    nullptr /* kv_prot_info */);
+            }
           }
         }
       }
@@ -2084,9 +2193,17 @@ class MemTableInserter : public WriteBatch::Handler {
     if (!perform_merge) {
       assert(ret_status.ok());
       // Add merge operand to memtable
-      ret_status =
-          mem->Add(sequence_, kTypeMerge, key, value, kv_prot_info,
-                   concurrent_memtable_writes_, get_post_process_info(mem));
+      if (_kv_prot_info != nullptr) {
+        KvProtectionInfo kv_prot_info(*_kv_prot_info);
+        kv_prot_info.SetSequenceNumber(sequence_);
+        ret_status =
+            mem->Add(sequence_, kTypeMerge, key, value, &kv_prot_info,
+                     concurrent_memtable_writes_, get_post_process_info(mem));
+      } else {
+        ret_status = mem->Add(
+            sequence_, kTypeMerge, key, value, nullptr /* kv_prot_info */,
+            concurrent_memtable_writes_, get_post_process_info(mem));
+      }
     }
 
     if (UNLIKELY(ret_status.IsTryAgain())) {
@@ -2114,12 +2231,17 @@ class MemTableInserter : public WriteBatch::Handler {
   using WriteBatch::Handler::PutBlobIndexCF;
   Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
                         const Slice& value,
-                        const KvProtectionInfo& _kv_prot_info) override {
-    KvProtectionInfo kv_prot_info(_kv_prot_info);
-    kv_prot_info.SetSequenceNumber(sequence_);
-    // Same as PutCF except for value type.
-    return PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
-                     kv_prot_info);
+                        const KvProtectionInfo* _kv_prot_info) override {
+    if (_kv_prot_info != nullptr) {
+      KvProtectionInfo kv_prot_info(*_kv_prot_info);
+      kv_prot_info.SetSequenceNumber(sequence_);
+      // Same as PutCF except for value type.
+      return PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
+                       &kv_prot_info);
+    } else {
+      return PutCFImpl(column_family_id, key, value, kTypeBlobIndex,
+                       nullptr /* kv_prot_info */);
+    }
   }
 
   void CheckMemtableFull() {
@@ -2408,6 +2530,7 @@ Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
 
 Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
                                   const bool wal_only) {
+  assert(dst->protected_ == src->protected_);
   size_t src_len;
   int src_count;
   uint32_t src_flags;
@@ -2424,8 +2547,7 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
     src_flags = src->content_flags_.load(std::memory_order_relaxed);
   }
 
-  if (dst->kv_prot_infos_.size() == Count(dst) &&
-      src->kv_prot_infos_.size() == Count(src)) {
+  if (dst->protected_) {
     dst->kv_prot_infos_.reserve(dst->kv_prot_infos_.size() + src_count);
     std::copy(src->kv_prot_infos_.begin(),
               src->kv_prot_infos_.begin() + src_count,

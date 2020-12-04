@@ -63,6 +63,8 @@ class WriteBatch : public WriteBatchBase {
  public:
   explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
   explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz);
+  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz,
+                      bool _protected);
   ~WriteBatch() override;
 
   using WriteBatchBase::Put;
@@ -185,7 +187,7 @@ class WriteBatch : public WriteBatchBase {
     // Default implementation will just call `PutCF()` without
     // `KvProtectionInfo` for backwards compatibility.
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value, const KvProtectionInfo&) {
+                         const Slice& value, const KvProtectionInfo*) {
       return PutCF(column_family_id, key, value);
     }
 
@@ -209,7 +211,7 @@ class WriteBatch : public WriteBatchBase {
     // Default implementation will just call `DeleteCF()` without
     // `KvProtectionInfo` for backwards compatibility.
     virtual Status DeleteCF(uint32_t column_family_id, const Slice& key,
-                            const KvProtectionInfo&) {
+                            const KvProtectionInfo*) {
       return DeleteCF(column_family_id, key);
     }
     virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
@@ -225,7 +227,7 @@ class WriteBatch : public WriteBatchBase {
     // Default implementation will just call `SingleDeleteCF()` without
     // `KvProtectionInfo` for backwards compatibility.
     virtual Status SingleDeleteCF(uint32_t column_family_id, const Slice& key,
-                                  const KvProtectionInfo&) {
+                                  const KvProtectionInfo*) {
       return SingleDeleteCF(column_family_id, key);
     }
     virtual Status SingleDeleteCF(uint32_t column_family_id, const Slice& key) {
@@ -242,7 +244,7 @@ class WriteBatch : public WriteBatchBase {
     // `KvProtectionInfo` for backwards compatibility.
     virtual Status DeleteRangeCF(uint32_t column_family_id,
                                  const Slice& begin_key, const Slice& end_key,
-                                 const KvProtectionInfo&) {
+                                 const KvProtectionInfo*) {
       return DeleteRangeCF(column_family_id, begin_key, end_key);
     }
     virtual Status DeleteRangeCF(uint32_t /*column_family_id*/,
@@ -254,7 +256,7 @@ class WriteBatch : public WriteBatchBase {
     // Default implementation will just call `MergeCF()` without
     // `KvProtectionInfo` for backwards compatibility.
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                           const Slice& value, const KvProtectionInfo&) {
+                           const Slice& value, const KvProtectionInfo*) {
       return MergeCF(column_family_id, key, value);
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
@@ -271,7 +273,7 @@ class WriteBatch : public WriteBatchBase {
     // Default implementation will just call `PutBlobIndexCF()` without
     // `KvProtectionInfo` for backwards compatibility.
     virtual Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
-                                  const Slice& value, const KvProtectionInfo&) {
+                                  const Slice& value, const KvProtectionInfo*) {
       return PutBlobIndexCF(column_family_id, key, value);
     }
     virtual Status PutBlobIndexCF(uint32_t /*column_family_id*/,
@@ -405,6 +407,11 @@ class WriteBatch : public WriteBatchBase {
   // TransactionOptions::use_only_the_last_commit_time_batch_for_recovery for
   // more details.
   bool is_latest_persistent_state_ = false;
+
+  // If true, each entry of the batch is checksummed on its original buffer
+  // upon entry, and the integrity protection info is stored as an entry in
+  // `kv_prot_infos_`.
+  const bool protected_ = false;
 
   std::vector<KvProtectionInfo> kv_prot_infos_;
 
