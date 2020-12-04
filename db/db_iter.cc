@@ -357,7 +357,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                 saved_key_.SetInternalKey(ikey_);
 
                 if (ikey_.type == kTypeBlobIndex) {
-                  if (SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                  if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
                     return false;
                   }
                 }
@@ -377,7 +377,7 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               saved_key_.SetInternalKey(ikey_);
 
               if (ikey_.type == kTypeBlobIndex) {
-                if (SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
                   return false;
                 }
               }
