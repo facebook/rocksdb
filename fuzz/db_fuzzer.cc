@@ -21,6 +21,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   rocksdb::Options options;
   options.create_if_missing = true;
   rocksdb::Status status = rocksdb::DB::Open(options, "/tmp/testdb", &db);
+  if (!status.ok()) {
+    return 0;
+  }
   FuzzedDataProvider fuzzed_data(data, size);
 
   // for random string generation
