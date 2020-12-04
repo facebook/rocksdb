@@ -584,10 +584,18 @@ Status ErrorHandler::StartRecoverFromRetryableBGIOError(IOStatus io_error) {
   if (bg_error_.ok() || io_error.ok()) {
     return Status::OK();
   }
-  if (db_options_.max_bgerror_resume_count <= 0 || recovery_in_prog_ ||
-      recovery_thread_) {
+  if (db_options_.max_bgerror_resume_count <= 0 || recovery_in_prog_) {
     // Auto resume BG error is not enabled, directly return bg_error_.
     return bg_error_;
+  }
+
+  if (recovery_thread_) {
+    // In this case, if recovery_in_prog_ is false, current thread should
+    // wait the previous recover thread to finish and create a new thread
+    // to recover from the bg error.
+    db_mutex_->Unlock();
+    recovery_thread_->join();
+    db_mutex_->Lock();
   }
 
   recovery_in_prog_ = true;
