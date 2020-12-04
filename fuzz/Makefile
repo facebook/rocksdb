@@ -23,6 +23,17 @@ CCFLAGS += -std=c++14 -Wall -fsanitize=address,fuzzer
 CFLAGS += $(PROTOBUF_CFLAGS) $(PROTOBUF_MUTATOR_CFLAGS) -I$(PROTO_OUT) -I$(ROCKSDB_INCLUDE_DIR)
 LDFLAGS += $(PROTOBUF_LDFLAGS) $(PROTOBUF_MUTATOR_LDFLAGS) -L$(ROCKSDB_LIB_DIR) -lrocksdb -lz -lbz2
 else
+# OSS-Fuzz sets various environment flags that are used for compilation.
+# These environment flags depend on which type of sanitizer build is being
+# used, however, an ASan build would set the environment flags as follows:
+# CFLAGS="-O1 -fno-omit-frame-pointer -gline-tables-only \
+         -DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION -fsanitize=address \
+         -fsanitize-address-use-after-scope -fsanitize=fuzzer-no-link"
+# CXXFLAGS="-O1 -fno-omit-frame-pointer -gline-tables-only \
+           -DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION -fsanitize=address \
+           -fsanitize-address-use-after-scope -fsanitize=fuzzer-no-link \
+           -stdlib=libc++"
+# LIB_FUZZING_ENGINE="-fsanitize=fuzzer"
 CC = $(CXX)
 CCFLAGS = $(CXXFLAGS)
 CFLAGS += $(PROTOBUF_CFLAGS) $(PROTOBUF_MUTATOR_CFLAGS) -I$(PROTO_OUT) -I$(ROCKSDB_INCLUDE_DIR)

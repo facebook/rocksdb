@@ -18,6 +18,13 @@ enum OperationType {
 
 constexpr char db_path[] = "/tmp/testdb";
 
+
+// Fuzzes DB operations by doing interpretations on the data. Both the
+// sequence of API calls to be called on the DB as well as the arguments
+// to each of these APIs are interpreted by way of the data buffer.
+// The operations that the fuzzer supports are given by the OperationType
+// enum. The goal is to capture sanitizer bugs, so the code should be
+// compiled with a given sanitizer (ASan, UBSan, MSan).
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   rocksdb::DB* db;
   rocksdb::Options options;
@@ -59,7 +66,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       }
       case kIterator: {
         rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
-        for (it->SeekToFirst(); it->Valid(); it->Next()) {}
+        for (it->SeekToFirst(); it->Valid(); it->Next()) {
+        }
         delete it;
         break;
       }
@@ -100,8 +108,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         column_families.push_back(rocksdb::ColumnFamilyDescriptor(
             "new_cf", rocksdb::ColumnFamilyOptions()));
         std::vector<rocksdb::ColumnFamilyHandle*> handles;
-        s = rocksdb::DB::Open(rocksdb::DBOptions(), db_path,
-                              column_families, &handles, &db);
+        s = rocksdb::DB::Open(rocksdb::DBOptions(), db_path, column_families, 
+                              &handles, &db);
 
         if (s.ok()) {
           std::string key1 = fuzzed_data.ConsumeRandomLengthString();
