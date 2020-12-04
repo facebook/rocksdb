@@ -1938,6 +1938,17 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         // TODO: update per-level perfcontext user_key_return_count for kMerge
         break;
       case GetContext::kFound:
+        if (fp.GetHitFileLevel() == 0) {
+          RecordTick(db_statistics_, GET_HIT_L0);
+        } else if (fp.GetHitFileLevel() == 1) {
+          RecordTick(db_statistics_, GET_HIT_L1);
+        } else if (fp.GetHitFileLevel() >= 2) {
+          RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
+        }
+
+        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
+                                  fp.GetHitFileLevel());
+
         if (is_blob_index) {
           if (do_merge && value) {
             *status = GetBlob(read_options, user_key, *value, value);
@@ -1950,15 +1961,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
           }
         }
 
-        if (fp.GetHitFileLevel() == 0) {
-          RecordTick(db_statistics_, GET_HIT_L0);
-        } else if (fp.GetHitFileLevel() == 1) {
-          RecordTick(db_statistics_, GET_HIT_L1);
-        } else if (fp.GetHitFileLevel() >= 2) {
-          RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
-        }
-        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
-                                  fp.GetHitFileLevel());
         return;
       case GetContext::kDeleted:
         // Use empty error message for speed
@@ -2128,6 +2130,17 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           // TODO: update per-level perfcontext user_key_return_count for kMerge
           break;
         case GetContext::kFound:
+          if (fp.GetHitFileLevel() == 0) {
+            RecordTick(db_statistics_, GET_HIT_L0);
+          } else if (fp.GetHitFileLevel() == 1) {
+            RecordTick(db_statistics_, GET_HIT_L1);
+          } else if (fp.GetHitFileLevel() >= 2) {
+            RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
+          }
+
+          PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
+                                    fp.GetHitFileLevel());
+
           if (iter->is_blob_index) {
             if (iter->value) {
               *status = GetBlob(read_options, iter->ukey_with_ts, iter->value);
@@ -2143,15 +2156,6 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
             }
           }
 
-          if (fp.GetHitFileLevel() == 0) {
-            RecordTick(db_statistics_, GET_HIT_L0);
-          } else if (fp.GetHitFileLevel() == 1) {
-            RecordTick(db_statistics_, GET_HIT_L1);
-          } else if (fp.GetHitFileLevel() >= 2) {
-            RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
-          }
-          PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
-                                    fp.GetHitFileLevel());
           file_range.AddValueSize(iter->value->size());
           file_range.MarkKeyDone(iter);
           if (file_range.GetValueSize() > read_options.value_size_soft_limit) {
