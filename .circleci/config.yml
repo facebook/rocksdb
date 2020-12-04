@@ -63,7 +63,7 @@ commands:
           name: Install gflags
           command: |
             sudo apt-get update -y && sudo apt-get install -y libgflags-dev
-  
+
   install-gflags-on-macos:
     steps:
       - run:
@@ -96,6 +96,17 @@ jobs:
       - pre-steps
       - install-gflags-on-macos
       - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-macos-cmake:
+    macos:
+      xcode: 11.3.0
+    steps:
+      - increase-max-open-files-on-macos
+      - install-pyenv-on-macos
+      - pre-steps
+      - install-gflags-on-macos
+      - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=0 .. && make V=1 -j32) | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux:
