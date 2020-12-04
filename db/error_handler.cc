@@ -365,7 +365,7 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
 // 3) for other cases, SetBGError(const Status& bg_err, BackgroundErrorReason
 //    reason) will be called to handle other error cases.
 const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
-                                BackgroundErrorReason reason) {
+                                       BackgroundErrorReason reason) {
   db_mutex_->AssertHeld();
   if (bg_io_err.ok()) {
     return bg_io_err;

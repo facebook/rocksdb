@@ -252,10 +252,12 @@ Status DBImpl::FlushMemTableToOutputFile(
       if (!versions_->io_status().ok()) {
         if (total_log_size_ > 0) {
           // If the WAL is empty, we use different error reason
-          error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWrite);
         } else {
-          error_handler_
-            .SetBGError(io_s, BackgroundErrorReason::kManifestWriteNoWAL);
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWriteNoWAL);
+        }
       } else if (total_log_size_ > 0) {
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
       } else {
@@ -649,10 +651,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (!versions_->io_status().ok()) {
         if (total_log_size_ > 0) {
           // If the WAL is empty, we use different error reason
-          error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWrite);
         } else {
-          error_handler_
-            .SetBGError(io_s, BackgroundErrorReason::kManifestWriteNoWAL);
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWriteNoWAL);
         }
       } else if (total_log_size_ > 0) {
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
