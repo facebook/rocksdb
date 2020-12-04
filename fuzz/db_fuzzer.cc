@@ -16,55 +16,50 @@ enum OperationType {
   OP_COUNT
 };
 
+constexpr char db_path[] = "/tmp/testdb";
+
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   rocksdb::DB* db;
   rocksdb::Options options;
   options.create_if_missing = true;
-  rocksdb::Status status = rocksdb::DB::Open(options, "/tmp/testdb", &db);
+  rocksdb::Status status = rocksdb::DB::Open(options, db_path, &db);
   if (!status.ok()) {
     return 0;
   }
   FuzzedDataProvider fuzzed_data(data, size);
 
-  // for random string generation
-  const uint8_t* curr_offset = data;
-  size_t curr_size = size;
-
-  std::string value;
-
   // perform a sequence of calls on our db instance
   int max_iter = static_cast<int>(data[0]);
   for (int i = 0; i < max_iter && i < size; i++) {
-    OperationType c = static_cast<OperationType>(data[i] % OP_COUNT);
+    OperationType kOp = static_cast<OperationType>(data[i] % OP_COUNT);
 
-    switch (c) {  // PUT
+    switch (kOp) {
       case kPut: {
-        std::string tmp1 = fuzzed_data.ConsumeRandomLengthString();
-        std::string tmp2 = fuzzed_data.ConsumeRandomLengthString();
-        db->Put(rocksdb::WriteOptions(), tmp1, tmp2);
+        std::string key = fuzzed_data.ConsumeRandomLengthString();
+        std::string val = fuzzed_data.ConsumeRandomLengthString();
+        db->Put(rocksdb::WriteOptions(), key, val);
         break;
       }
       case kGet: {
-        std::string tmp1 = fuzzed_data.ConsumeRandomLengthString();
-        db->Get(rocksdb::ReadOptions(), tmp1, &value);
+        std::string key = fuzzed_data.ConsumeRandomLengthString();
+        std::string value;
+        db->Get(rocksdb::ReadOptions(), key, &value);
         break;
       }
       case kDelete: {
-        std::string tmp1 = fuzzed_data.ConsumeRandomLengthString();
-        db->Delete(rocksdb::WriteOptions(), tmp1);
+        std::string key = fuzzed_data.ConsumeRandomLengthString();
+        db->Delete(rocksdb::WriteOptions(), key);
         break;
       }
       case kGetProperty: {
         std::string prop;
-        std::string tmp1 = fuzzed_data.ConsumeRandomLengthString();
-        db->GetProperty(tmp1, &prop);
+        std::string property_name = fuzzed_data.ConsumeRandomLengthString();
+        db->GetProperty(property_name, &prop);
         break;
       }
       case kIterator: {
         rocksdb::Iterator* it = db->NewIterator(rocksdb::ReadOptions());
-        for (it->SeekToFirst(); it->Valid(); it->Next()) {
-          continue;
-        }
+        for (it->SeekToFirst(); it->Valid(); it->Next()) {}
         delete it;
         break;
       }
@@ -77,8 +72,14 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         break;
       }
       case kOpenClose: {
+        db->Close();
         delete db;
-        status = rocksdb::DB::Open(options, "/tmp/testdb", &db);
+        status = rocksdb::DB::Open(options, db_path, &db);
+        if (!status.ok()) {
+          rocksdb::DestroyDB(db_path, options);
+          return 0;
+        }
+
         break;
       }
       case kColumn: {
@@ -87,6 +88,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         s = db->CreateColumnFamily(rocksdb::ColumnFamilyOptions(), "new_cf",
                                    &cf);
         s = db->DestroyColumnFamilyHandle(cf);
+        db->Close();
         delete db;
 
         // open DB with two column families
@@ -98,44 +100,44 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         column_families.push_back(rocksdb::ColumnFamilyDescriptor(
             "new_cf", rocksdb::ColumnFamilyOptions()));
         std::vector<rocksdb::ColumnFamilyHandle*> handles;
-        s = rocksdb::DB::Open(rocksdb::DBOptions(), "/tmp/testdb",
+        s = rocksdb::DB::Open(rocksdb::DBOptions(), db_path,
                               column_families, &handles, &db);
 
         if (s.ok()) {
-          std::string tmp1 = fuzzed_data.ConsumeRandomLengthString();
-          std::string tmp2 = fuzzed_data.ConsumeRandomLengthString();
-          std::string tmp3 = fuzzed_data.ConsumeRandomLengthString();
-          s = db->Put(rocksdb::WriteOptions(), handles[1], tmp1, tmp2);
+          std::string key1 = fuzzed_data.ConsumeRandomLengthString();
+          std::string val1 = fuzzed_data.ConsumeRandomLengthString();
+          std::string key2 = fuzzed_data.ConsumeRandomLengthString();
+          s = db->Put(rocksdb::WriteOptions(), handles[1], key1, val1);
           std::string value;
-          s = db->Get(rocksdb::ReadOptions(), handles[1], tmp3, &value);
+          s = db->Get(rocksdb::ReadOptions(), handles[1], key2, &value);
           s = db->DropColumnFamily(handles[1]);
           for (auto handle : handles) {
             s = db->DestroyColumnFamilyHandle(handle);
           }
         } else {
-          status = rocksdb::DB::Open(options, "/tmp/testdb", &db);
+          status = rocksdb::DB::Open(options, db_path, &db);
           if (!status.ok()) {
             // At this point there is no saving to do. So we exit
-            rocksdb::DestroyDB("/tmp/testdb", rocksdb::Options());
+            rocksdb::DestroyDB(db_path, rocksdb::Options());
             return 0;
           }
         }
         break;
       }
       case kCompactRange: {
-        std::string tmp1 = fuzzed_data.ConsumeRandomLengthString();
-        std::string tmp2 = fuzzed_data.ConsumeRandomLengthString();
+        std::string slice_start = fuzzed_data.ConsumeRandomLengthString();
+        std::string slice_end = fuzzed_data.ConsumeRandomLengthString();
 
-        rocksdb::Slice begin(tmp1);
-        rocksdb::Slice end(tmp2);
+        rocksdb::Slice begin(slice_start);
+        rocksdb::Slice end(slice_end);
         rocksdb::CompactRangeOptions options;
         rocksdb::Status s = db->CompactRange(options, &begin, &end);
         break;
       }
       case kSeekForPrev: {
-        std::string tmp1 = fuzzed_data.ConsumeRandomLengthString();
+        std::string key = fuzzed_data.ConsumeRandomLengthString();
         auto iter = db->NewIterator(rocksdb::ReadOptions());
-        iter->SeekForPrev(tmp1);
+        iter->SeekForPrev(key);
         delete iter;
         break;
       }
@@ -145,6 +147,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // Cleanup DB
   db->Close();
   delete db;
-  rocksdb::DestroyDB("/tmp/testdb", rocksdb::Options());
+  rocksdb::DestroyDB(db_path, options);
   return 0;
 }
