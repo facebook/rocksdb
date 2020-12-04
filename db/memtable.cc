@@ -328,9 +328,11 @@ class MemTableIterator : public InternalIterator {
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_) {
       // iterator should only use prefix bloom filter
-      Slice user_k(ExtractUserKey(k));
-      if (prefix_extractor_->InDomain(user_k) &&
-          !bloom_->MayContain(prefix_extractor_->Transform(user_k))) {
+      auto ts_sz = comparator_.comparator.user_comparator()->timestamp_size();
+      Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz));
+      if (prefix_extractor_->InDomain(user_k_without_ts) &&
+          !bloom_->MayContain(
+              prefix_extractor_->Transform(user_k_without_ts))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -345,9 +347,11 @@ class MemTableIterator : public InternalIterator {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_) {
-      Slice user_k(ExtractUserKey(k));
-      if (prefix_extractor_->InDomain(user_k) &&
-          !bloom_->MayContain(prefix_extractor_->Transform(user_k))) {
+      auto ts_sz = comparator_.comparator.user_comparator()->timestamp_size();
+      Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz));
+      if (prefix_extractor_->InDomain(user_k_without_ts) &&
+          !bloom_->MayContain(
+              prefix_extractor_->Transform(user_k_without_ts))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -511,6 +515,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
+  Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz);
 
   if (!allow_concurrent) {
     // Extract prefix for insert with hint.
@@ -540,12 +545,11 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     }
 
     if (bloom_filter_ && prefix_extractor_ &&
-        prefix_extractor_->InDomain(key)) {
-      bloom_filter_->Add(
-          prefix_extractor_->Transform(StripTimestampFromUserKey(key, ts_sz)));
+        prefix_extractor_->InDomain(key_without_ts)) {
+      bloom_filter_->Add(prefix_extractor_->Transform(key_without_ts));
     }
     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
-      bloom_filter_->Add(StripTimestampFromUserKey(key, ts_sz));
+      bloom_filter_->Add(key_without_ts);
     }
 
     // The first sequence number inserted into the memtable
@@ -577,11 +581,12 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     }
 
     if (bloom_filter_ && prefix_extractor_ &&
-        prefix_extractor_->InDomain(key)) {
-      bloom_filter_->AddConcurrently(prefix_extractor_->Transform(key));
+        prefix_extractor_->InDomain(key_without_ts)) {
+      bloom_filter_->AddConcurrently(
+          prefix_extractor_->Transform(key_without_ts));
     }
     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
-      bloom_filter_->AddConcurrently(StripTimestampFromUserKey(key, ts_sz));
+      bloom_filter_->AddConcurrently(key_without_ts);
     }
 
     // atomically update first_seqno_ and earliest_seqno_.
@@ -821,22 +826,21 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
                  range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
   }
 
-  Slice user_key = key.user_key();
   bool found_final_value = false;
   bool merge_in_progress = s->IsMergeInProgress();
   bool may_contain = true;
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
+  Slice user_key_without_ts = StripTimestampFromUserKey(key.user_key(), ts_sz);
   if (bloom_filter_) {
     // when both memtable_whole_key_filtering and prefix_extractor_ are set,
     // only do whole key filtering for Get() to save CPU
     if (moptions_.memtable_whole_key_filtering) {
-      may_contain =
-          bloom_filter_->MayContain(StripTimestampFromUserKey(user_key, ts_sz));
+      may_contain = bloom_filter_->MayContain(user_key_without_ts);
     } else {
       assert(prefix_extractor_);
-      may_contain =
-          !prefix_extractor_->InDomain(user_key) ||
-          bloom_filter_->MayContain(prefix_extractor_->Transform(user_key));
+      may_contain = !prefix_extractor_->InDomain(user_key_without_ts) ||
+                    bloom_filter_->MayContain(
+                        prefix_extractor_->Transform(user_key_without_ts));
     }
   }
 

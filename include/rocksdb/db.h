@@ -1032,7 +1032,8 @@ class DB {
         (include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) != 0;
     options.include_files =
         (include_flags & SizeApproximationFlags::INCLUDE_FILES) != 0;
-    GetApproximateSizes(options, column_family, ranges, n, sizes);
+    Status s = GetApproximateSizes(options, column_family, ranges, n, sizes);
+    s.PermitUncheckedError();
   }
   virtual void GetApproximateSizes(const Range* ranges, int n, uint64_t* sizes,
                                    uint8_t include_flags = INCLUDE_FILES) {

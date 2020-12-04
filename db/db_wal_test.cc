@@ -1348,13 +1348,19 @@ TEST_P(DBWALTestWithParams, kPointInTimeRecovery) {
   size_t recovered_row_count = RecoveryTestHelper::GetData(this);
   ASSERT_LT(recovered_row_count, row_count);
 
-  bool expect_data = true;
-  for (size_t k = 0; k < maxkeys; ++k) {
-    bool found = Get("key" + ToString(corrupt_offset)) != "NOT_FOUND";
-    if (expect_data && !found) {
-      expect_data = false;
+  // Verify a prefix of keys were recovered. But not in the case of full WAL
+  // truncation, because we have no way to know there was a corruption when
+  // truncation happened on record boundaries (preventing recovery holes in
+  // that case requires using `track_and_verify_wals_in_manifest`).
+  if (!trunc || corrupt_offset != 0) {
+    bool expect_data = true;
+    for (size_t k = 0; k < maxkeys; ++k) {
+      bool found = Get("key" + ToString(k)) != "NOT_FOUND";
+      if (expect_data && !found) {
+        expect_data = false;
+      }
+      ASSERT_EQ(found, expect_data);
     }
-    ASSERT_EQ(found, expect_data);
   }
 
   const size_t min = RecoveryTestHelper::kKeysPerWALFile *
@@ -1640,7 +1646,7 @@ TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
 
     void OnFlushBegin(DB* /*db*/, const FlushJobInfo& flush_job_info) override {
       count++;
-      assert(FlushReason::kWriteBufferManager == flush_job_info.flush_reason);
+      ASSERT_EQ(FlushReason::kWriteBufferManager, flush_job_info.flush_reason);
     }
   };
   std::shared_ptr<TestFlushListener> test_listener =
@@ -1684,7 +1690,9 @@ TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
             1 * kMB);
   // Write one more key to trigger flush.
   ASSERT_OK(Put(0, "foo", "v2"));
-  dbfull()->TEST_WaitForFlushMemTable();
+  for (auto* h : handles_) {
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(h));
+  }
   // Flushed two column families.
   ASSERT_EQ(2, test_listener->count.load());
 }
