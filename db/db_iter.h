@@ -164,19 +164,15 @@ class DBIter final : public Iterator {
 
     if (!expose_blob_index_ && is_blob_) {
       return blob_value_;
-    }
-
-    if (current_entry_is_merged_) {
+    } else if (current_entry_is_merged_) {
       // If pinned_value_ is set then the result of merge operator is one of
       // the merge operands and we should return it.
       return pinned_value_.data() ? pinned_value_ : saved_value_;
-    }
-
-    if (direction_ == kReverse) {
+    } else if (direction_ == kReverse) {
       return pinned_value_;
+    } else {
+      return iter_.value();
     }
-
-    return iter_.value();
   }
   Status status() const override {
     if (status_.ok()) {
