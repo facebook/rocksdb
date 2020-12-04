@@ -2128,6 +2128,21 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           // TODO: update per-level perfcontext user_key_return_count for kMerge
           break;
         case GetContext::kFound:
+          if (iter->is_blob_index) {
+            if (iter->value) {
+              *status = GetBlob(read_options, iter->ukey_with_ts, iter->value);
+              if (!status->ok()) {
+                file_range.MarkKeyDone(iter);
+
+                if (status->IsIncomplete()) {
+                  get_context.MarkKeyMayExist();
+                }
+
+                continue;
+              }
+            }
+          }
+
           if (fp.GetHitFileLevel() == 0) {
             RecordTick(db_statistics_, GET_HIT_L0);
           } else if (fp.GetHitFileLevel() == 1) {
