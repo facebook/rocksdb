@@ -37,9 +37,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // perform a sequence of calls on our db instance
   int max_iter = static_cast<int>(data[0]);
   for (int i = 0; i < max_iter && i < size; i++) {
-    OperationType kOp = static_cast<OperationType>(data[i] % OP_COUNT);
+    OperationType op = static_cast<OperationType>(data[i] % OP_COUNT);
 
-    switch (kOp) {
+    switch (op) {
       case kPut: {
         std::string key = fuzzed_data.ConsumeRandomLengthString();
         std::string val = fuzzed_data.ConsumeRandomLengthString();
