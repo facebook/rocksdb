@@ -449,9 +449,7 @@ void SuperVersion::Cleanup() {
     to_delete.push_back(m);
   }
   current->Unref();
-  if (cfd->Unref()) {
-    delete cfd;
-  }
+  cfd->UnrefAndTryDelete(this);
 }
 
 void SuperVersion::Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
@@ -660,7 +658,7 @@ ColumnFamilyData::~ColumnFamilyData() {
   }
 }
 
-bool ColumnFamilyData::UnrefAndTryDelete() {
+bool ColumnFamilyData::UnrefAndTryDelete(SuperVersion* sv_under_cleanup) {
   int old_refs = refs_.fetch_sub(1);
   assert(old_refs > 0);
 
@@ -670,7 +668,11 @@ bool ColumnFamilyData::UnrefAndTryDelete() {
     return true;
   }
 
-  if (old_refs == 2 && super_version_ != nullptr) {
+  // If called under SuperVersion::Cleanup, we should not re-enter Cleanup on
+  // the same SuperVersion. (But while installing a new SuperVersion, this
+  // cfd could be referenced only by two SuperVersions.)
+  if (old_refs == 2 && super_version_ != nullptr &&
+      super_version_ != sv_under_cleanup) {
     // Only the super_version_ holds me
     SuperVersion* sv = super_version_;
     super_version_ = nullptr;

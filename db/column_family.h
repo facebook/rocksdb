@@ -279,21 +279,11 @@ class ColumnFamilyData {
   // holding a DB mutex, or as the leader in a write batch group).
   void Ref() { refs_.fetch_add(1); }
 
-  // Unref decreases the reference count, but does not handle deletion
-  // when the count goes to 0.  If this method returns true then the
-  // caller should delete the instance immediately, or later, by calling
-  // FreeDeadColumnFamilies().  Unref() can only be called while holding
-  // a DB mutex, or during single-threaded recovery.
-  bool Unref() {
-    int old_refs = refs_.fetch_sub(1);
-    assert(old_refs > 0);
-    return old_refs == 1;
-  }
-
   // UnrefAndTryDelete() decreases the reference count and do free if needed,
   // return true if this is freed else false, UnrefAndTryDelete() can only
   // be called while holding a DB mutex, or during single-threaded recovery.
-  bool UnrefAndTryDelete();
+  // sv_under_cleanup is only provided when called from SuperVersion::Cleanup.
+  bool UnrefAndTryDelete(SuperVersion* sv_under_cleanup = nullptr);
 
   // SetDropped() can only be called under following conditions:
   // 1) Holding a DB mutex,
