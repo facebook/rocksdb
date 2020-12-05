@@ -384,8 +384,8 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
                                             ColumnFamilyHandle* column_family,
                                             WriteUnpreparedTxn* txn) {
   // TODO(lth): Refactor so that this logic is shared with WritePrepared.
-  constexpr bool ALLOW_BLOB = true;
-  constexpr bool ALLOW_REFRESH = true;
+  constexpr bool expose_blob_index = false;
+  constexpr bool allow_refresh = false;
   std::shared_ptr<ManagedSnapshot> own_snapshot = nullptr;
   SequenceNumber snapshot_seq = kMaxSequenceNumber;
   SequenceNumber min_uncommitted = 0;
@@ -456,9 +456,9 @@ Iterator* WriteUnpreparedTxnDB::NewIterator(const ReadOptions& options,
       static_cast_with_check<ColumnFamilyHandleImpl>(column_family)->cfd();
   auto* state =
       new IteratorState(this, snapshot_seq, own_snapshot, min_uncommitted, txn);
-  auto* db_iter =
-      db_impl_->NewIteratorImpl(options, cfd, state->MaxVisibleSeq(),
-                                &state->callback, !ALLOW_BLOB, !ALLOW_REFRESH);
+  auto* db_iter = db_impl_->NewIteratorImpl(
+      options, cfd, state->MaxVisibleSeq(), &state->callback, expose_blob_index,
+      allow_refresh);
   db_iter->RegisterCleanup(CleanupWriteUnpreparedTxnDBIterator, state, nullptr);
   return db_iter;
 }

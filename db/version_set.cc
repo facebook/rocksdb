@@ -1791,9 +1791,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       io_tracer_(io_tracer) {}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                        const Slice& blob_index_slice,
                         PinnableSlice* value) const {
-  assert(value);
-
   if (read_options.read_tier == kBlockCacheTier) {
     return Status::Incomplete("Cannot read blob: no disk I/O allowed");
   }
@@ -1801,7 +1800,7 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   BlobIndex blob_index;
 
   {
-    Status s = blob_index.DecodeFrom(*value);
+    Status s = blob_index.DecodeFrom(blob_index_slice);
     if (!s.ok()) {
       return s;
     }
@@ -1813,6 +1812,8 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         const BlobIndex& blob_index,
                         PinnableSlice* value) const {
+  assert(value);
+
   if (blob_index.HasTTL() || blob_index.IsInlined()) {
     return Status::Corruption("Unexpected TTL/inlined blob index");
   }
@@ -1939,7 +1940,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       case GetContext::kFound:
         if (is_blob_index) {
           if (do_merge && value) {
-            *status = GetBlob(read_options, user_key, value);
+            *status = GetBlob(read_options, user_key, *value, value);
             if (!status->ok()) {
               if (status->IsIncomplete()) {
                 get_context.MarkKeyMayExist();

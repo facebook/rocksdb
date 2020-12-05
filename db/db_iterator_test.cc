@@ -2883,6 +2883,127 @@ TEST_P(DBIteratorTest, IterateWithLowerBoundAcrossFileBoundary) {
   ASSERT_OK(iter->status());
 }
 
+TEST_P(DBIteratorTest, Blob) {
+  Options options = CurrentOptions();
+  options.enable_blob_files = true;
+  options.max_sequential_skip_in_iterations = 2;
+  options.statistics = CreateDBStatistics();
+
+  Reopen(options);
+
+  // Note: we have 4 KVs (3 of which are hidden) for key "b" and
+  // max_sequential_skip_in_iterations is set to 2. Thus, we need to do a reseek
+  // anytime we move from "b" to "c" or vice versa.
+  ASSERT_OK(Put("a", "va"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("b", "vb0"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("b", "vb1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("b", "vb2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("b", "vb3"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("c", "vc"));
+  ASSERT_OK(Flush());
+
+  std::unique_ptr<Iterator> iter_guard(NewIterator(ReadOptions()));
+  Iterator* const iter = iter_guard.get();
+
+  iter->SeekToFirst();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 0);
+  ASSERT_EQ(IterStatus(iter), "a->va");
+  iter->Next();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 0);
+  ASSERT_EQ(IterStatus(iter), "b->vb3");
+  iter->Next();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 1);
+  ASSERT_EQ(IterStatus(iter), "c->vc");
+  iter->Next();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 1);
+  ASSERT_EQ(IterStatus(iter), "(invalid)");
+  iter->SeekToFirst();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 1);
+  ASSERT_EQ(IterStatus(iter), "a->va");
+  iter->Prev();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 1);
+  ASSERT_EQ(IterStatus(iter), "(invalid)");
+
+  iter->SeekToLast();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 1);
+  ASSERT_EQ(IterStatus(iter), "c->vc");
+  iter->Prev();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 2);
+  ASSERT_EQ(IterStatus(iter), "b->vb3");
+  iter->Prev();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 2);
+  ASSERT_EQ(IterStatus(iter), "a->va");
+  iter->Prev();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 2);
+  ASSERT_EQ(IterStatus(iter), "(invalid)");
+  iter->SeekToLast();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 2);
+  ASSERT_EQ(IterStatus(iter), "c->vc");
+  iter->Next();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 2);
+  ASSERT_EQ(IterStatus(iter), "(invalid)");
+
+  iter->Seek("");
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 2);
+  ASSERT_EQ(IterStatus(iter), "a->va");
+  iter->Seek("a");
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 2);
+  ASSERT_EQ(IterStatus(iter), "a->va");
+  iter->Seek("ax");
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 2);
+  ASSERT_EQ(IterStatus(iter), "b->vb3");
+
+  iter->SeekForPrev("d");
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 2);
+  ASSERT_EQ(IterStatus(iter), "c->vc");
+  iter->SeekForPrev("c");
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 2);
+  ASSERT_EQ(IterStatus(iter), "c->vc");
+  iter->SeekForPrev("bx");
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 3);
+  ASSERT_EQ(IterStatus(iter), "b->vb3");
+
+  iter->Seek("b");
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 3);
+  ASSERT_EQ(IterStatus(iter), "b->vb3");
+  iter->Seek("z");
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 3);
+  ASSERT_EQ(IterStatus(iter), "(invalid)");
+  iter->SeekForPrev("b");
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 4);
+  ASSERT_EQ(IterStatus(iter), "b->vb3");
+  iter->SeekForPrev("");
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 4);
+  ASSERT_EQ(IterStatus(iter), "(invalid)");
+
+  // Switch from reverse to forward
+  iter->SeekToLast();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 4);
+  iter->Prev();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 5);
+  iter->Prev();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 5);
+  iter->Next();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 5);
+  ASSERT_EQ(IterStatus(iter), "b->vb3");
+
+  // Switch from forward to reverse
+  iter->SeekToFirst();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 5);
+  iter->Next();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 5);
+  iter->Next();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 6);
+  iter->Prev();
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 7);
+  ASSERT_EQ(IterStatus(iter), "b->vb3");
+}
+
 INSTANTIATE_TEST_CASE_P(DBIteratorTestInstance, DBIteratorTest,
                         testing::Values(true, false));
 

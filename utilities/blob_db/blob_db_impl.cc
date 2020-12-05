@@ -2045,7 +2045,7 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
   }
   auto* iter = db_impl_->NewIteratorImpl(
       read_options, cfd, snapshot->GetSequenceNumber(),
-      nullptr /*read_callback*/, true /*allow_blob*/);
+      nullptr /*read_callback*/, true /*expose_blob_index*/);
   return new BlobDBIterator(own_snapshot, iter, this, env_, statistics_);
 }
 
