@@ -4229,6 +4229,7 @@ Status VersionSet::ProcessManifestWrites(
       // Each version in versions corresponds to a column family.
       // For each column family, update its log number indicating that logs
       // with number smaller than this should be ignored.
+      // TODO (yanqin): remove the nested loop if possible.
       for (const auto version : versions) {
         uint64_t max_log_number_in_batch = 0;
         uint32_t cf_id = version->cfd_->GetID();
@@ -4253,14 +4254,7 @@ Status VersionSet::ProcessManifestWrites(
         }
         assert(version->cfd_);
         if (!full_history_ts_low.empty()) {
-          const Comparator* const ucmp = version->cfd_->user_comparator();
-          assert(ucmp);
-          if (version->cfd_->GetFullHistoryTsLow().empty() ||
-              ucmp->CompareTimestamp(full_history_ts_low,
-                                     version->cfd_->GetFullHistoryTsLow()) >
-                  0) {
-            version->cfd_->SetFullHistoryTsLow(full_history_ts_low);
-          }
+          version->cfd_->SetFullHistoryTsLow(full_history_ts_low);
         }
         if (max_log_number_in_batch != 0) {
           assert(version->cfd_->GetLogNumber() <= max_log_number_in_batch);
@@ -4616,13 +4610,8 @@ Status VersionSet::ExtractInfoFromVersionEdit(
           "does not match existing comparator " + from_edit.comparator_);
     }
     if (from_edit.HasFullHistoryTsLow()) {
-      const Comparator* const ucmp = cfd->user_comparator();
-      assert(ucmp);
-      const std::string& ts = cfd->GetFullHistoryTsLow();
       const std::string& new_ts = from_edit.GetFullHistoryTsLow();
-      if (ts.empty() || ucmp->CompareTimestamp(ts, new_ts) < 0) {
-        cfd->SetFullHistoryTsLow(new_ts);
-      }
+      cfd->SetFullHistoryTsLow(new_ts);
     }
   }
 
