@@ -122,6 +122,17 @@ int db_stress_tool(int argc, char** argv) {
   env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
   db_stress_env = env_wrapper_guard.get();
 
+#ifndef NDEBUG
+  if (FLAGS_write_fault_one_in) {
+    // In the write injection case, we need to use the FS interface and returns
+    // the IOStatus with different error and flags. Therefore,
+    // DbStressEnvWrapper cannot be used which will swallow the FS
+    // implementations. We should directly use the raw_env which is the
+    // CompositeEnvWrapper of env and fault_fs.
+    db_stress_env = raw_env;
+  }
+#endif
+
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 
   // The number of background threads should be at least as much the

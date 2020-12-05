@@ -545,10 +545,13 @@ IOStatus FaultInjectionTestFS::InjectWriteError(const std::string& file_name) {
   bool allowed_type = false;
 
   uint64_t number;
-  FileType c_type;
-  if (ParseFileName(file_name, &number, &c_type)) {
+  FileType cur_type = kTempFile;
+  std::size_t found = file_name.find_last_of("/");
+  std::string file = file_name.substr(found);
+  bool ret = ParseFileName(file, &number, &cur_type);
+  if (ret) {
     for (const auto& type : write_error_allowed_types_) {
-      if (c_type == type) {
+      if (cur_type == type) {
         allowed_type = true;
       }
     }
@@ -556,7 +559,7 @@ IOStatus FaultInjectionTestFS::InjectWriteError(const std::string& file_name) {
 
   if (allowed_type) {
     if (write_error_rand_.OneIn(write_error_one_in_)) {
-      return error_;
+      return GetError();
     }
   }
   return IOStatus::OK();
