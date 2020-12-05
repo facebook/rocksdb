@@ -17,6 +17,13 @@ commands:
           command: |
             HOMEBREW_NO_AUTO_UPDATE=1 brew install pyenv
 
+  install-cmake-on-macos:
+    steps:
+      - run:
+          name: Install cmake on macos
+          command: |
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake
+
   increase-max-open-files-on-macos:
     steps:
       - run:
@@ -63,7 +70,7 @@ commands:
           name: Install gflags
           command: |
             sudo apt-get update -y && sudo apt-get install -y libgflags-dev
-  
+
   install-gflags-on-macos:
     steps:
       - run:
@@ -93,9 +100,21 @@ jobs:
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
-      - pre-steps
       - install-gflags-on-macos
+      - pre-steps
       - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-macos-cmake:
+    macos:
+      xcode: 11.3.0
+    steps:
+      - increase-max-open-files-on-macos
+      - install-pyenv-on-macos
+      - install-cmake-on-macos
+      - install-gflags-on-macos
+      - pre-steps
+      - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=0 .. && make V=1 -j32) | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux:
@@ -506,6 +525,9 @@ workflows:
   build-macos:
     jobs:
       - build-macos
+  build-macos-cmake:
+    jobs:
+      - build-macos-cmake
   build-cmake-mingw:
     jobs:
       - build-cmake-mingw
