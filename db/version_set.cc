@@ -5278,6 +5278,14 @@ Status VersionSet::WriteCurrentStateToManifest(
       assert(iter != curr_state.end());
       uint64_t log_number = iter->second.log_number;
       edit.SetLogNumber(log_number);
+
+      if (cfd->GetID() == 0) {
+        uint64_t min_log = min_log_number_to_keep_2pc();
+        if (min_log != 0) {
+          edit.SetMinLogNumberToKeep(min_log);
+        }
+      }
+
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption(
