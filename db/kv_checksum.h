@@ -16,10 +16,11 @@ class KvProtectionInfo {
  public:
   enum class CoverageFlags : unsigned char {
     kKey = 1 << 0,
-    kValue = 1 << 1,
-    kSequenceNumber = 1 << 2,
-    kColumnFamilyId = 1 << 3,
-    kValueType = 1 << 4,
+    kTimestamp = 1 << 1,
+    kValue = 1 << 2,
+    kSequenceNumber = 1 << 3,
+    kColumnFamilyId = 1 << 4,
+    kValueType = 1 << 5,
   };
 
   KvProtectionInfo();
@@ -35,6 +36,10 @@ class KvProtectionInfo {
   void SetKeyChecksum(uint64_t key_checksum);
   uint64_t GetKeyChecksum() const;
   bool HasKeyChecksum() const;
+
+  void SetTimestampChecksum(uint64_t ts_checksum);
+  uint64_t GetTimestampChecksum() const;
+  bool HasTimestampChecksum() const;
 
   void SetValueChecksum(uint64_t value_checksum);
   uint64_t GetValueChecksum() const;
@@ -54,6 +59,7 @@ class KvProtectionInfo {
 
  private:
   uint64_t key_checksum_;
+  uint64_t ts_checksum_;
   uint64_t value_checksum_;
   SequenceNumber sequence_number_;
   ColumnFamilyId column_family_id_;

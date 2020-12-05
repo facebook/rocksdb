@@ -527,7 +527,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     if (!GetVarint32(&input, &verify_ikey_len)) {
       verify_status = Status::Corruption("Unable to parse internal key length");
     }
-    if (verify_status.ok() && verify_ikey_len < 8) {
+    if (verify_status.ok() && verify_ikey_len < 8 + ts_sz) {
       verify_status = Status::Corruption("Internal key length too short");
     }
     if (verify_status.ok() && verify_ikey_len > input.size()) {
@@ -535,12 +535,17 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     }
     uint32_t verify_value_len;
     if (verify_status.ok()) {
+      const size_t verify_key_without_ts_len = verify_ikey_len - ts_sz - 8;
       memtable_kv_prot_info.SetKeyChecksum(
-          GetSliceNPHash64(Slice(input.data(), verify_ikey_len - 8)));
-      input = Slice(input.data() + verify_ikey_len - 8,
-                    input.size() + 8 - verify_ikey_len);
+          GetSliceNPHash64(Slice(input.data(), verify_key_without_ts_len)));
+      input.remove_prefix(verify_key_without_ts_len);
+      if (ts_sz > 0) {
+        memtable_kv_prot_info.SetTimestampChecksum(
+            GetSliceNPHash64(Slice(input.data(), ts_sz)));
+      }
+      input.remove_prefix(ts_sz);
       uint64_t verify_packed = DecodeFixed64(input.data());
-      input = Slice(input.data() + 8, input.size() - 8);
+      input.remove_prefix(8);
       uint64_t verify_seq;
       ValueType verify_value_type;
       UnPackSequenceAndType(verify_packed, &verify_seq, &verify_value_type);

@@ -1463,11 +1463,24 @@ Status WriteBatch::PopSavePoint() {
 }
 
 Status WriteBatch::AssignTimestamp(const Slice& ts) {
+  if (protected_) {
+    uint64_t ts_checksum = GetSliceNPHash64(ts);
+    for (auto& kv_prot_info : kv_prot_infos_) {
+      kv_prot_info.SetTimestampChecksum(ts_checksum);
+    }
+  }
   TimestampAssigner ts_assigner(ts);
   return Iterate(&ts_assigner);
 }
 
 Status WriteBatch::AssignTimestamps(const std::vector<Slice>& ts_list) {
+  if (protected_) {
+    assert(kv_prot_infos_.size() == ts_list.size());
+    for (size_t i = 0; i < kv_prot_infos_.size(); ++i) {
+      uint64_t ts_checksum = GetSliceNPHash64(ts_list[i]);
+      kv_prot_infos_[i].SetTimestampChecksum(ts_checksum);
+    }
+  }
   TimestampAssigner ts_assigner(ts_list);
   return Iterate(&ts_assigner);
 }
