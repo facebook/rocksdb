@@ -78,14 +78,14 @@ bool KvProtectionInfo::HasKeyChecksum() const {
   return (coverage_flags_ & CoverageFlags::kKey) == CoverageFlags::kKey;
 }
 
-void KvProtectionInfo::SetTimestampChecksum(uint64_t key_checksum) {
-  key_checksum_ = key_checksum;
+void KvProtectionInfo::SetTimestampChecksum(uint64_t ts_checksum) {
+  ts_checksum_ = ts_checksum;
   coverage_flags_ |= CoverageFlags::kTimestamp;
 }
 
 uint64_t KvProtectionInfo::GetTimestampChecksum() const {
   assert(HasTimestampChecksum());
-  return key_checksum_;
+  return ts_checksum_;
 }
 
 bool KvProtectionInfo::HasTimestampChecksum() const {

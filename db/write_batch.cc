@@ -2535,7 +2535,7 @@ Status WriteBatchInternal::InsertInto(
 
 Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   assert(contents.size() >= WriteBatchInternal::kHeader);
-  b->kv_prot_infos_.clear();
+  assert(!b->protected_);
   b->rep_.assign(contents.data(), contents.size());
   b->content_flags_.store(ContentFlags::DEFERRED, std::memory_order_relaxed);
   return Status::OK();

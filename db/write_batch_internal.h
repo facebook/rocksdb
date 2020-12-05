@@ -9,6 +9,7 @@
 
 #pragma once
 #include <vector>
+
 #include "db/flush_scheduler.h"
 #include "db/kv_checksum.h"
 #include "db/trim_history_scheduler.h"

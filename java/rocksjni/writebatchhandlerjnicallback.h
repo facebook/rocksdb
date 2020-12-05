@@ -27,20 +27,26 @@ class WriteBatchHandlerJniCallback : public JniCallback, public WriteBatch::Hand
  public:
     WriteBatchHandlerJniCallback(
       JNIEnv* env, jobject jWriteBackHandler);
+    using WriteBatch::Handler::PutCF;
     Status PutCF(uint32_t column_family_id, const Slice& key,
         const Slice& value);
     void Put(const Slice& key, const Slice& value);
+    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t column_family_id, const Slice& key,
         const Slice& value);
     void Merge(const Slice& key, const Slice& value);
+    using WriteBatch::Handler::DeleteCF;
     Status DeleteCF(uint32_t column_family_id, const Slice& key);
     void Delete(const Slice& key);
+    using WriteBatch::Handler::SingleDeleteCF;
     Status SingleDeleteCF(uint32_t column_family_id, const Slice& key);
     void SingleDelete(const Slice& key);
+    using WriteBatch::Handler::DeleteRangeCF;
     Status DeleteRangeCF(uint32_t column_family_id, const Slice& beginKey,
         const Slice& endKey);
     void DeleteRange(const Slice& beginKey, const Slice& endKey);
     void LogData(const Slice& blob);
+    using WriteBatch::Handler::PutBlobIndexCF;
     Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
                           const Slice& value);
     Status MarkBeginPrepare(bool);

@@ -13,6 +13,7 @@
 #include <array>
 #include <limits>
 #include <memory>
+
 #include "db/dbformat.h"
 #include "db/kv_checksum.h"
 #include "db/merge_context.h"
@@ -523,7 +524,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     Status verify_status;
     KvProtectionInfo memtable_kv_prot_info;
     Slice input(buf, encoded_len);
-    uint32_t verify_ikey_len;
+    uint32_t verify_ikey_len = 0;
     if (!GetVarint32(&input, &verify_ikey_len)) {
       verify_status = Status::Corruption("Unable to parse internal key length");
     }
@@ -533,7 +534,7 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     if (verify_status.ok() && verify_ikey_len > input.size()) {
       verify_status = Status::Corruption("Internal key length too long");
     }
-    uint32_t verify_value_len;
+    uint32_t verify_value_len = 0;
     if (verify_status.ok()) {
       const size_t verify_key_without_ts_len = verify_ikey_len - ts_sz - 8;
       memtable_kv_prot_info.SetKeyChecksum(
