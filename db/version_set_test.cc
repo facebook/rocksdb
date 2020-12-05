@@ -869,9 +869,8 @@ class VersionSetTestBase {
     mutex_.Unlock();
   }
 
-  void CreateColumnFamily(const std::string& cf_name,
-                          const ColumnFamilyOptions& cf_options,
-                          ColumnFamilyData*& cfd) {
+  ColumnFamilyData* CreateColumnFamily(const std::string& cf_name,
+                                       const ColumnFamilyOptions& cf_options) {
     VersionEdit new_cf;
     new_cf.AddColumnFamily(cf_name);
     uint32_t new_id = versions_->GetColumnFamilySet()->GetNextColumnFamilyID();
@@ -880,14 +879,16 @@ class VersionSetTestBase {
     new_cf.SetComparatorName(cf_options.comparator->Name());
     Status s;
     mutex_.Lock();
-    s = versions_->LogAndApply(/*column_family=*/nullptr,
+    s = versions_->LogAndApply(/*column_family_data=*/nullptr,
                                MutableCFOptions(cf_options), &new_cf, &mutex_,
                                /*db_directory=*/nullptr,
                                /*new_descriptor_log=*/false, &cf_options);
     mutex_.Unlock();
     EXPECT_OK(s);
-    cfd = versions_->GetColumnFamilySet()->GetColumnFamily(cf_name);
-    ASSERT_NE(nullptr, cfd);
+    ColumnFamilyData* cfd =
+        versions_->GetColumnFamilySet()->GetColumnFamily(cf_name);
+    EXPECT_NE(nullptr, cfd);
+    return cfd;
   }
 
   Env* mem_env_;
@@ -1698,7 +1699,7 @@ class VersionSetWithTimestampTest : public VersionSetTest {
     NewDB();
     Options options;
     options.comparator = test::ComparatorWithU64Ts();
-    CreateColumnFamily(kNewCfName, options, cfd_);
+    cfd_ = CreateColumnFamily(kNewCfName, options);
     EXPECT_NE(nullptr, cfd_);
     EXPECT_NE(nullptr, cfd_->GetLatestMutableCFOptions());
     column_families_.emplace_back(kNewCfName, options);
@@ -1731,7 +1732,7 @@ class VersionSetWithTimestampTest : public VersionSetTest {
                             /*db_id=*/nullptr));
     for (auto* cfd : *(vset->GetColumnFamilySet())) {
       ASSERT_NE(nullptr, cfd);
-      if (cfd->GetName().compare(kNewCfName) == 0) {
+      if (cfd->GetName() == kNewCfName) {
         ASSERT_EQ(test::EncodeInt(expected_ts_low), cfd->GetFullHistoryTsLow());
       } else {
         ASSERT_TRUE(cfd->GetFullHistoryTsLow().empty());

@@ -4232,6 +4232,7 @@ Status VersionSet::ProcessManifestWrites(
       // TODO (yanqin): remove the nested loop if possible.
       for (const auto version : versions) {
         uint64_t max_log_number_in_batch = 0;
+        assert(version->cfd_);
         uint32_t cf_id = version->cfd_->GetID();
         std::string full_history_ts_low;
         for (const auto& e : batch_edits) {
@@ -4241,20 +4242,9 @@ Status VersionSet::ProcessManifestWrites(
                   std::max(max_log_number_in_batch, e->log_number_);
             }
             if (e->HasFullHistoryTsLow()) {
-              assert(version->cfd_);
-              const Comparator* const ucmp = version->cfd_->user_comparator();
-              assert(ucmp);
-              if (full_history_ts_low.empty() ||
-                  ucmp->CompareTimestamp(full_history_ts_low,
-                                         e->GetFullHistoryTsLow()) <= 0) {
-                full_history_ts_low.assign(e->GetFullHistoryTsLow());
-              }
+              version->cfd_->SetFullHistoryTsLow(e->GetFullHistoryTsLow());
             }
           }
-        }
-        assert(version->cfd_);
-        if (!full_history_ts_low.empty()) {
-          version->cfd_->SetFullHistoryTsLow(full_history_ts_low);
         }
         if (max_log_number_in_batch != 0) {
           assert(version->cfd_->GetLogNumber() <= max_log_number_in_batch);
