@@ -620,13 +620,9 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
 
       case kFullHistoryTsLow:
         if (!GetLengthPrefixedSlice(&input, &str)) {
-          if (!msg) {
-            msg = "full_history_ts_low";
-          }
-        } else if (str.size() == 0) {
-          if (!msg) {
-            msg = "full_history_ts_low: empty";
-          }
+          msg = "full_history_ts_low";
+        } else if (str.empty()) {
+          msg = "full_history_ts_low: empty";
         } else {
           full_history_ts_low_.assign(str.data(), str.size());
         }
@@ -898,7 +894,7 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   }
 
   if (HasFullHistoryTsLow()) {
-    jw << "FullHistoryTsLow" << full_history_ts_low_;
+    jw << "FullHistoryTsLow" << Slice(full_history_ts_low_).ToString(hex_key);
   }
 
   jw.EndObject();
