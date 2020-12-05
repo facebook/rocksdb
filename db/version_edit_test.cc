@@ -8,8 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/version_edit.h"
+
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
+#include "test_util/testutil.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
@@ -503,6 +505,14 @@ TEST_F(VersionEditTest, DeleteWalDebug) {
   }
   expected_json += ", \"ColumnFamily\": 0}";
   ASSERT_EQ(edit.DebugJSON(4, true), expected_json);
+}
+
+TEST_F(VersionEditTest, FullHistoryTsLow) {
+  VersionEdit edit;
+  ASSERT_FALSE(edit.HasFullHistoryTsLow());
+  std::string ts = test::EncodeInt(0);
+  edit.SetFullHistoryTsLow(ts);
+  TestEncodeDecode(edit);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

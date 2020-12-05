@@ -61,6 +61,7 @@ enum Tag : uint32_t {
   kBlobFileGarbage,
   kWalAddition,
   kWalDeletion,
+  kFullHistoryTsLow,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -524,6 +525,16 @@ class VersionEdit {
   bool IsInAtomicGroup() const { return is_in_atomic_group_; }
   uint32_t GetRemainingEntries() const { return remaining_entries_; }
 
+  bool HasFullHistoryTsLow() const { return !full_history_ts_low_.empty(); }
+  const std::string& GetFullHistoryTsLow() const {
+    assert(HasFullHistoryTsLow());
+    return full_history_ts_low_;
+  }
+  void SetFullHistoryTsLow(std::string full_history_ts_low) {
+    assert(!full_history_ts_low.empty());
+    full_history_ts_low_ = std::move(full_history_ts_low);
+  }
+
   // return true on success.
   bool EncodeTo(std::string* dst) const;
   Status DecodeFrom(const Slice& src);
@@ -586,6 +597,8 @@ class VersionEdit {
 
   bool is_in_atomic_group_ = false;
   uint32_t remaining_entries_ = 0;
+
+  std::string full_history_ts_low_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
