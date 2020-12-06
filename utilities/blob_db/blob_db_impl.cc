@@ -1686,56 +1686,34 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
 
   for (auto blob_file_pair : blob_files_) {
     auto blob_file = blob_file_pair.second;
-    char buf[1000];
-    int pos = snprintf(buf, sizeof(buf),
-                       "Blob file %" PRIu64 ", size %" PRIu64
-                       ", blob count %" PRIu64 ", immutable %d",
-                       blob_file->BlobFileNumber(), blob_file->GetFileSize(),
-                       blob_file->BlobCount(), blob_file->Immutable());
-    if (pos >= static_cast<int>(sizeof(buf))) {
-      pos = sizeof(buf);
-      ROCKS_LOG_WARN(db_options_.info_log,
-                     "Buffer too small for sanity check.");
-    }
+    std::string buf;
+
+    buf = buf + "Blob file " + std::to_string(blob_file->BlobFileNumber());
+    buf = buf + ", size " + std::to_string(blob_file->GetFileSize());
+    buf = buf + ", blob count " + std::to_string(blob_file->BlobCount());
+    buf = buf + ", immutable " + std::to_string(blob_file->Immutable());
+
     if (blob_file->HasTTL()) {
       ExpirationRange expiration_range;
-
       {
         ReadLock file_lock(&blob_file->mutex_);
         expiration_range = blob_file->GetExpirationRange();
       }
-
-      pos += snprintf(buf + pos, sizeof(buf) - pos,
-                      ", expiration range (%" PRIu64 ", %" PRIu64 ")",
-                      expiration_range.first, expiration_range.second);
-      if (pos >= static_cast<int>(sizeof(buf))) {
-        pos = sizeof(buf);
-        ROCKS_LOG_WARN(db_options_.info_log,
-                       "Buffer too small for sanity check.");
-      }
+      buf = buf + ", expiration range (" +
+            std::to_string(expiration_range.first) + ", " +
+            std::to_string(expiration_range.second) + ")";
 
       if (!blob_file->Obsolete()) {
-        pos += snprintf(buf + pos, sizeof(buf) - pos,
-                        ", expire in %" PRIu64 " seconds",
-                        expiration_range.second - now);
-        if (pos >= static_cast<int>(sizeof(buf))) {
-          pos = sizeof(buf);
-          ROCKS_LOG_WARN(db_options_.info_log,
-                         "Buffer too small for sanity check.");
-        }
+        buf = buf + ", expire in " +
+              std::to_string(expiration_range.second - now) + "seconds";
       }
     }
     if (blob_file->Obsolete()) {
-      pos += snprintf(buf + pos, sizeof(buf) - pos, ", obsolete at %" PRIu64,
-                      blob_file->GetObsoleteSequence());
-      if (pos >= static_cast<int>(sizeof(buf))) {
-        pos = sizeof(buf);
-        ROCKS_LOG_WARN(db_options_.info_log,
-                       "Buffer too small for sanity check.");
-      }
+      buf = buf + ", obsolete at " +
+            std::to_string(blob_file->GetObsoleteSequence());
     }
-    snprintf(buf + pos, sizeof(buf) - pos, ".");
-    ROCKS_LOG_INFO(db_options_.info_log, "%s", buf);
+    buf += ".";
+    ROCKS_LOG_INFO(db_options_.info_log, "%s", buf.c_str());
   }
 
   // reschedule
