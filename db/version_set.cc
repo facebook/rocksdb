@@ -1791,9 +1791,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       io_tracer_(io_tracer) {}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                        const Slice& blob_index_slice,
                         PinnableSlice* value) const {
-  assert(value);
-
   if (read_options.read_tier == kBlockCacheTier) {
     return Status::Incomplete("Cannot read blob: no disk I/O allowed");
   }
@@ -1801,11 +1800,19 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   BlobIndex blob_index;
 
   {
-    Status s = blob_index.DecodeFrom(*value);
+    Status s = blob_index.DecodeFrom(blob_index_slice);
     if (!s.ok()) {
       return s;
     }
   }
+
+  return GetBlob(read_options, user_key, blob_index, value);
+}
+
+Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                        const BlobIndex& blob_index,
+                        PinnableSlice* value) const {
+  assert(value);
 
   if (blob_index.HasTTL() || blob_index.IsInlined()) {
     return Status::Corruption("Unexpected TTL/inlined blob index");
@@ -1933,7 +1940,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       case GetContext::kFound:
         if (is_blob_index) {
           if (do_merge && value) {
-            *status = GetBlob(read_options, user_key, value);
+            *status = GetBlob(read_options, user_key, *value, value);
             if (!status->ok()) {
               if (status->IsIncomplete()) {
                 get_context.MarkKeyMayExist();
@@ -4037,7 +4044,9 @@ Status VersionSet::ProcessManifestWrites(
     }
     for (const auto* cfd : *column_family_set_) {
       assert(curr_state.find(cfd->GetID()) == curr_state.end());
-      curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
+      curr_state.emplace(std::make_pair(
+          cfd->GetID(),
+          MutableCFState(cfd->GetLogNumber(), cfd->GetFullHistoryTsLow())));
     }
 
     for (const auto& wal : wals_.GetWals()) {
@@ -4220,13 +4229,21 @@ Status VersionSet::ProcessManifestWrites(
       // Each version in versions corresponds to a column family.
       // For each column family, update its log number indicating that logs
       // with number smaller than this should be ignored.
+      // TODO (yanqin): remove the nested loop if possible.
       for (const auto version : versions) {
         uint64_t max_log_number_in_batch = 0;
+        assert(version->cfd_);
         uint32_t cf_id = version->cfd_->GetID();
+        std::string full_history_ts_low;
         for (const auto& e : batch_edits) {
-          if (e->has_log_number_ && e->column_family_ == cf_id) {
-            max_log_number_in_batch =
-                std::max(max_log_number_in_batch, e->log_number_);
+          if (e->column_family_ == cf_id) {
+            if (e->has_log_number_) {
+              max_log_number_in_batch =
+                  std::max(max_log_number_in_batch, e->log_number_);
+            }
+            if (e->HasFullHistoryTsLow()) {
+              version->cfd_->SetFullHistoryTsLow(e->GetFullHistoryTsLow());
+            }
           }
         }
         if (max_log_number_in_batch != 0) {
@@ -4581,6 +4598,10 @@ Status VersionSet::ExtractInfoFromVersionEdit(
       return Status::InvalidArgument(
           cfd->user_comparator()->Name(),
           "does not match existing comparator " + from_edit.comparator_);
+    }
+    if (from_edit.HasFullHistoryTsLow()) {
+      const std::string& new_ts = from_edit.GetFullHistoryTsLow();
+      cfd->SetFullHistoryTsLow(new_ts);
     }
   }
 
@@ -5272,6 +5293,10 @@ Status VersionSet::WriteCurrentStateToManifest(
       assert(iter != curr_state.end());
       uint64_t log_number = iter->second.log_number;
       edit.SetLogNumber(log_number);
+      const std::string& full_history_ts_low = iter->second.full_history_ts_low;
+      if (!full_history_ts_low.empty()) {
+        edit.SetFullHistoryTsLow(full_history_ts_low);
+      }
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption(

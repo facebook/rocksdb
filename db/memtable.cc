@@ -328,9 +328,11 @@ class MemTableIterator : public InternalIterator {
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_) {
       // iterator should only use prefix bloom filter
-      Slice user_k(ExtractUserKey(k));
-      if (prefix_extractor_->InDomain(user_k) &&
-          !bloom_->MayContain(prefix_extractor_->Transform(user_k))) {
+      auto ts_sz = comparator_.comparator.user_comparator()->timestamp_size();
+      Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz));
+      if (prefix_extractor_->InDomain(user_k_without_ts) &&
+          !bloom_->MayContain(
+              prefix_extractor_->Transform(user_k_without_ts))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -345,9 +347,11 @@ class MemTableIterator : public InternalIterator {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_) {
-      Slice user_k(ExtractUserKey(k));
-      if (prefix_extractor_->InDomain(user_k) &&
-          !bloom_->MayContain(prefix_extractor_->Transform(user_k))) {
+      auto ts_sz = comparator_.comparator.user_comparator()->timestamp_size();
+      Slice user_k_without_ts(ExtractUserKeyAndStripTimestamp(k, ts_sz));
+      if (prefix_extractor_->InDomain(user_k_without_ts) &&
+          !bloom_->MayContain(
+              prefix_extractor_->Transform(user_k_without_ts))) {
         PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
         valid_ = false;
         return;
@@ -480,10 +484,10 @@ MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
   return {entry_count * (data_size / n), entry_count};
 }
 
-bool MemTable::Add(SequenceNumber s, ValueType type,
-                   const Slice& key, /* user key */
-                   const Slice& value, bool allow_concurrent,
-                   MemTablePostProcessInfo* post_process_info, void** hint) {
+Status MemTable::Add(SequenceNumber s, ValueType type,
+                     const Slice& key, /* user key */
+                     const Slice& value, bool allow_concurrent,
+                     MemTablePostProcessInfo* post_process_info, void** hint) {
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()
   //  key bytes    : char[internal_key.size()]
@@ -511,6 +515,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
+  Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz);
 
   if (!allow_concurrent) {
     // Extract prefix for insert with hint.
@@ -519,12 +524,12 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
       Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
       bool res = table->InsertKeyWithHint(handle, &insert_hints_[prefix]);
       if (UNLIKELY(!res)) {
-        return res;
+        return Status::TryAgain("key+seq exists");
       }
     } else {
       bool res = table->InsertKey(handle);
       if (UNLIKELY(!res)) {
-        return res;
+        return Status::TryAgain("key+seq exists");
       }
     }
 
@@ -540,12 +545,11 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     }
 
     if (bloom_filter_ && prefix_extractor_ &&
-        prefix_extractor_->InDomain(key)) {
-      bloom_filter_->Add(
-          prefix_extractor_->Transform(StripTimestampFromUserKey(key, ts_sz)));
+        prefix_extractor_->InDomain(key_without_ts)) {
+      bloom_filter_->Add(prefix_extractor_->Transform(key_without_ts));
     }
     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
-      bloom_filter_->Add(StripTimestampFromUserKey(key, ts_sz));
+      bloom_filter_->Add(key_without_ts);
     }
 
     // The first sequence number inserted into the memtable
@@ -566,7 +570,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
                    ? table->InsertKeyConcurrently(handle)
                    : table->InsertKeyWithHintConcurrently(handle, hint);
     if (UNLIKELY(!res)) {
-      return res;
+      return Status::TryAgain("key+seq exists");
     }
 
     assert(post_process_info != nullptr);
@@ -577,11 +581,12 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     }
 
     if (bloom_filter_ && prefix_extractor_ &&
-        prefix_extractor_->InDomain(key)) {
-      bloom_filter_->AddConcurrently(prefix_extractor_->Transform(key));
+        prefix_extractor_->InDomain(key_without_ts)) {
+      bloom_filter_->AddConcurrently(
+          prefix_extractor_->Transform(key_without_ts));
     }
     if (bloom_filter_ && moptions_.memtable_whole_key_filtering) {
-      bloom_filter_->AddConcurrently(StripTimestampFromUserKey(key, ts_sz));
+      bloom_filter_->AddConcurrently(key_without_ts);
     }
 
     // atomically update first_seqno_ and earliest_seqno_.
@@ -600,7 +605,7 @@ bool MemTable::Add(SequenceNumber s, ValueType type,
     is_range_del_table_empty_.store(false, std::memory_order_relaxed);
   }
   UpdateOldestKeyTime();
-  return true;
+  return Status::OK();
 }
 
 // Callback from MemTable::Get()
@@ -821,22 +826,21 @@ bool MemTable::Get(const LookupKey& key, std::string* value,
                  range_del_iter->MaxCoveringTombstoneSeqnum(key.user_key()));
   }
 
-  Slice user_key = key.user_key();
   bool found_final_value = false;
   bool merge_in_progress = s->IsMergeInProgress();
   bool may_contain = true;
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
+  Slice user_key_without_ts = StripTimestampFromUserKey(key.user_key(), ts_sz);
   if (bloom_filter_) {
     // when both memtable_whole_key_filtering and prefix_extractor_ are set,
     // only do whole key filtering for Get() to save CPU
     if (moptions_.memtable_whole_key_filtering) {
-      may_contain =
-          bloom_filter_->MayContain(StripTimestampFromUserKey(user_key, ts_sz));
+      may_contain = bloom_filter_->MayContain(user_key_without_ts);
     } else {
       assert(prefix_extractor_);
-      may_contain =
-          !prefix_extractor_->InDomain(user_key) ||
-          bloom_filter_->MayContain(prefix_extractor_->Transform(user_key));
+      may_contain = !prefix_extractor_->InDomain(user_key_without_ts) ||
+                    bloom_filter_->MayContain(
+                        prefix_extractor_->Transform(user_key_without_ts));
     }
   }
 
@@ -973,9 +977,8 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
 }
 
-void MemTable::Update(SequenceNumber seq,
-                      const Slice& key,
-                      const Slice& value) {
+Status MemTable::Update(SequenceNumber seq, const Slice& key,
+                        const Slice& value) {
   LookupKey lkey(key, seq);
   Slice mem_key = lkey.memtable_key();
 
@@ -1019,22 +1022,18 @@ void MemTable::Update(SequenceNumber seq,
                  (unsigned)(VarintLength(key_length) + key_length +
                             VarintLength(value.size()) + value.size()));
           RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
-          return;
+          return Status::OK();
         }
       }
     }
   }
 
-  // key doesn't exist
-  bool add_res __attribute__((__unused__));
-  add_res = Add(seq, kTypeValue, key, value);
-  // We already checked unused != seq above. In that case, Add should not fail.
-  assert(add_res);
+  // The latest value is not `kTypeValue` or key doesn't exist
+  return Add(seq, kTypeValue, key, value);
 }
 
-bool MemTable::UpdateCallback(SequenceNumber seq,
-                              const Slice& key,
-                              const Slice& delta) {
+Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
+                                const Slice& delta) {
   LookupKey lkey(key, seq);
   Slice memkey = lkey.memtable_key();
 
@@ -1088,16 +1087,17 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
             }
             RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
             UpdateFlushState();
-            return true;
+            return Status::OK();
           } else if (status == UpdateStatus::UPDATED) {
-            Add(seq, kTypeValue, key, Slice(str_value));
+            Status s = Add(seq, kTypeValue, key, Slice(str_value));
             RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
             UpdateFlushState();
-            return true;
+            return s;
           } else if (status == UpdateStatus::UPDATE_FAILED) {
-            // No action required. Return.
+            // `UPDATE_FAILED` is named incorrectly. It indicates no update
+            // happened. It does not indicate a failure happened.
             UpdateFlushState();
-            return true;
+            return Status::OK();
           }
         }
         default:
@@ -1105,9 +1105,8 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
       }
     }
   }
-  // If the latest value is not kTypeValue
-  // or key doesn't exist
-  return false;
+  // The latest value is not `kTypeValue` or key doesn't exist
+  return Status::NotFound();
 }
 
 size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {

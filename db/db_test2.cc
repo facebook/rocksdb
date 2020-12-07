@@ -174,7 +174,9 @@ TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
     ASSERT_OK(Put("keykey_" + std::to_string(j), value));
     snapshots.push_back(db_->GetSnapshot());
   }
-  Flush();
+  ASSERT_OK(Flush());
+  dbfull()->TEST_WaitForFlushMemTable();
+
   for (auto s : snapshots) {
     db_->ReleaseSnapshot(s);
   }

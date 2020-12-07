@@ -38,7 +38,10 @@ TEST_F(DBBasicTest, OpenWhenOpen) {
   options.env = env_;
   DB* db2 = nullptr;
   Status s = DB::Open(options, dbname_, &db2);
-  ASSERT_NOK(s);
+  ASSERT_NOK(s) << [db2]() {
+    delete db2;
+    return "db2 open: ok";
+  }();
   ASSERT_EQ(Status::Code::kIOError, s.code());
   ASSERT_EQ(Status::SubCode::kNone, s.subcode());
   ASSERT_TRUE(strstr(s.getState(), "lock ") != nullptr);
@@ -402,13 +405,16 @@ TEST_F(DBBasicTest, GetSnapshot) {
 
 TEST_F(DBBasicTest, CheckLock) {
   do {
-    DB* localdb;
+    DB* localdb = nullptr;
     Options options = CurrentOptions();
     ASSERT_OK(TryReopen(options));
 
     // second open should fail
     Status s = DB::Open(options, dbname_, &localdb);
-    ASSERT_NOK(s);
+    ASSERT_NOK(s) << [localdb]() {
+      delete localdb;
+      return "localdb open: ok";
+    }();
 #ifdef OS_LINUX
     ASSERT_TRUE(s.ToString().find("lock ") != std::string::npos);
 #endif  // OS_LINUX

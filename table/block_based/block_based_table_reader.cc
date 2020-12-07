@@ -2064,8 +2064,10 @@ bool BlockBasedTable::PrefixMayMatch(
   } else {
     prefix_extractor = rep_->table_prefix_extractor.get();
   }
-  auto user_key = ExtractUserKey(internal_key);
-  if (!prefix_extractor->InDomain(user_key)) {
+  auto ts_sz = rep_->internal_comparator.user_comparator()->timestamp_size();
+  auto user_key_without_ts =
+      ExtractUserKeyAndStripTimestamp(internal_key, ts_sz);
+  if (!prefix_extractor->InDomain(user_key_without_ts)) {
     return true;
   }
 
@@ -2080,15 +2082,16 @@ bool BlockBasedTable::PrefixMayMatch(
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
       may_match = filter->RangeMayExist(
-          read_options.iterate_upper_bound, user_key, prefix_extractor,
-          rep_->internal_comparator.user_comparator(), const_ikey_ptr,
-          &filter_checked, need_upper_bound_check, no_io, lookup_context);
+          read_options.iterate_upper_bound, user_key_without_ts,
+          prefix_extractor, rep_->internal_comparator.user_comparator(),
+          const_ikey_ptr, &filter_checked, need_upper_bound_check, no_io,
+          lookup_context);
     } else {
       // if prefix_extractor changed for block based filter, skip filter
       if (need_upper_bound_check) {
         return true;
       }
-      auto prefix = prefix_extractor->Transform(user_key);
+      auto prefix = prefix_extractor->Transform(user_key_without_ts);
       InternalKey internal_key_prefix(prefix, kMaxSequenceNumber, kTypeValue);
       auto internal_prefix = internal_key_prefix.Encode();
 

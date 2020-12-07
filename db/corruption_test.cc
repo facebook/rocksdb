@@ -21,6 +21,7 @@
 #include "db/version_set.h"
 #include "env/composite_env_wrapper.h"
 #include "file/filename.h"
+#include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
@@ -42,7 +43,8 @@ static constexpr int kValueSize = 1000;
 
 class CorruptionTest : public testing::Test {
  public:
-  test::ErrorEnv env_;
+  std::shared_ptr<Env> env_guard_;
+  test::ErrorEnv* env_;
   std::string dbname_;
   std::shared_ptr<Cache> tiny_cache_;
   Options options_;
@@ -53,9 +55,19 @@ class CorruptionTest : public testing::Test {
     // set it to 0), test SequenceNumberRecovery will fail, likely because of a
     // bug in recovery code. Keep it 4 for now to make the test passes.
     tiny_cache_ = NewLRUCache(100, 4);
+    Env* base_env = Env::Default();
+#ifndef ROCKSDB_LITE
+    const char* test_env_uri = getenv("TEST_ENV_URI");
+    if (test_env_uri) {
+      Status s = Env::LoadEnv(test_env_uri, &base_env, &env_guard_);
+      EXPECT_OK(s);
+      EXPECT_NE(Env::Default(), base_env);
+    }
+#endif  //! ROCKSDB_LITE
+    env_ = new test::ErrorEnv(base_env);
     options_.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
-    options_.env = &env_;
-    dbname_ = test::PerThreadDBPath("corruption_test");
+    options_.env = env_;
+    dbname_ = test::PerThreadDBPath(env_, "corruption_test");
     Status s = DestroyDB(dbname_, options_);
     EXPECT_OK(s);
 
@@ -77,8 +89,11 @@ class CorruptionTest : public testing::Test {
     if (getenv("KEEP_DB")) {
       fprintf(stdout, "db is still at %s\n", dbname_.c_str());
     } else {
-      EXPECT_OK(DestroyDB(dbname_, Options()));
+      Options opts;
+      opts.env = env_->target();
+      EXPECT_OK(DestroyDB(dbname_, opts));
     }
+    delete env_;
   }
 
   void CloseDb() {
@@ -93,7 +108,7 @@ class CorruptionTest : public testing::Test {
     if (opt.env == Options().env) {
       // If env is not overridden, replace it with ErrorEnv.
       // Otherwise, the test already uses a non-default Env.
-      opt.env = &env_;
+      opt.env = env_;
     }
     opt.arena_block_size = 4096;
     BlockBasedTableOptions table_options;
@@ -176,7 +191,7 @@ class CorruptionTest : public testing::Test {
   void Corrupt(FileType filetype, int offset, int bytes_to_corrupt) {
     // Pick file to corrupt
     std::vector<std::string> filenames;
-    ASSERT_OK(env_.GetChildren(dbname_, &filenames));
+    ASSERT_OK(env_->GetChildren(dbname_, &filenames));
     uint64_t number;
     FileType type;
     std::string fname;
@@ -191,7 +206,7 @@ class CorruptionTest : public testing::Test {
     }
     ASSERT_TRUE(!fname.empty()) << filetype;
 
-    ASSERT_OK(test::CorruptFile(&env_, fname, offset, bytes_to_corrupt));
+    ASSERT_OK(test::CorruptFile(env_, fname, offset, bytes_to_corrupt));
   }
 
   // corrupts exactly one file at level `level`. if no file found at level,
@@ -201,7 +216,7 @@ class CorruptionTest : public testing::Test {
     db_->GetLiveFilesMetaData(&metadata);
     for (const auto& m : metadata) {
       if (m.level == level) {
-        ASSERT_OK(test::CorruptFile(&env_, dbname_ + "/" + m.name, offset,
+        ASSERT_OK(test::CorruptFile(env_, dbname_ + "/" + m.name, offset,
                                     bytes_to_corrupt));
         return;
       }
@@ -268,14 +283,14 @@ TEST_F(CorruptionTest, Recovery) {
 }
 
 TEST_F(CorruptionTest, RecoverWriteError) {
-  env_.writable_file_error_ = true;
+  env_->writable_file_error_ = true;
   Status s = TryReopen();
   ASSERT_TRUE(!s.ok());
 }
 
 TEST_F(CorruptionTest, NewFileErrorDuringWrite) {
   // Do enough writing to force minor compaction
-  env_.writable_file_error_ = true;
+  env_->writable_file_error_ = true;
   const int num =
       static_cast<int>(3 + (Options().write_buffer_size / kValueSize));
   std::string value_storage;
@@ -291,8 +306,8 @@ TEST_F(CorruptionTest, NewFileErrorDuringWrite) {
     ASSERT_TRUE(!failed || !s.ok());
   }
   ASSERT_TRUE(!s.ok());
-  ASSERT_GE(env_.num_writable_file_errors_, 1);
-  env_.writable_file_error_ = false;
+  ASSERT_GE(env_->num_writable_file_errors_, 1);
+  env_->writable_file_error_ = false;
   Reopen();
 }
 
@@ -310,7 +325,7 @@ TEST_F(CorruptionTest, TableFile) {
 
 TEST_F(CorruptionTest, VerifyChecksumReadahead) {
   Options options;
-  SpecialEnv senv(Env::Default());
+  SpecialEnv senv(env_->target());
   options.env = &senv;
   // Disable block cache as we are going to check checksum for
   // the same file twice and measure number of reads.
@@ -432,6 +447,7 @@ TEST_F(CorruptionTest, CorruptedDescriptor) {
 
 TEST_F(CorruptionTest, CompactionInputError) {
   Options options;
+  options.env = env_;
   Reopen(&options);
   Build(10);
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
@@ -452,6 +468,7 @@ TEST_F(CorruptionTest, CompactionInputError) {
 
 TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
   Options options;
+  options.env = env_;
   options.paranoid_checks = true;
   options.write_buffer_size = 131072;
   options.max_write_buffer_number = 2;
@@ -537,7 +554,7 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
       ImmutableCFOptions(options_), kRangeDelBlock, &range_del_handle));
 
   ASSERT_OK(TryReopen());
-  ASSERT_OK(test::CorruptFile(&env_, filename,
+  ASSERT_OK(test::CorruptFile(env_, filename,
                               static_cast<int>(range_del_handle.offset()), 1));
   ASSERT_TRUE(TryReopen().IsCorruption());
 }
@@ -545,6 +562,7 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
 TEST_F(CorruptionTest, FileSystemStateCorrupted) {
   for (int iter = 0; iter < 2; ++iter) {
     Options options;
+    options.env = env_;
     options.paranoid_checks = true;
     options.create_if_missing = true;
     Reopen(&options);
@@ -561,13 +579,13 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
 
     if (iter == 0) {  // corrupt file size
       std::unique_ptr<WritableFile> file;
-      env_.NewWritableFile(filename, &file, EnvOptions());
+      env_->NewWritableFile(filename, &file, EnvOptions());
       ASSERT_OK(file->Append(Slice("corrupted sst")));
       file.reset();
       Status x = TryReopen(&options);
       ASSERT_TRUE(x.IsCorruption());
     } else {  // delete the file
-      ASSERT_OK(env_.DeleteFile(filename));
+      ASSERT_OK(env_->DeleteFile(filename));
       Status x = TryReopen(&options);
       ASSERT_TRUE(x.IsCorruption());
     }
@@ -583,6 +601,7 @@ static const auto& corruption_modes = {
 
 TEST_F(CorruptionTest, ParanoidFileChecksOnFlush) {
   Options options;
+  options.env = env_;
   options.check_flush_compaction_key_order = false;
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
@@ -610,6 +629,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnFlush) {
 
 TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
   Options options;
+  options.env = env_;
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
   options.check_flush_compaction_key_order = false;
@@ -639,6 +659,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
 
 TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
   Options options;
+  options.env = env_;
   options.check_flush_compaction_key_order = false;
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
@@ -671,6 +692,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
 
 TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
   Options options;
+  options.env = env_;
   options.check_flush_compaction_key_order = false;
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
@@ -706,6 +728,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
 
 TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
   Options options;
+  options.env = env_;
   options.check_flush_compaction_key_order = false;
   options.paranoid_file_checks = true;
   options.create_if_missing = true;
@@ -738,6 +761,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
 
 TEST_F(CorruptionTest, LogCorruptionErrorsInCompactionIterator) {
   Options options;
+  options.env = env_;
   options.create_if_missing = true;
   options.allow_data_in_errors = true;
   auto mode = mock::MockTableFactory::kCorruptKey;
@@ -763,6 +787,7 @@ TEST_F(CorruptionTest, LogCorruptionErrorsInCompactionIterator) {
 
 TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
   Options options;
+  options.env = env_;
   options.paranoid_file_checks = false;
   options.create_if_missing = true;
   options.check_flush_compaction_key_order = false;
@@ -786,6 +811,7 @@ TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
 
 TEST_F(CorruptionTest, FlushKeyOrderCheck) {
   Options options;
+  options.env = env_;
   options.paranoid_file_checks = false;
   options.create_if_missing = true;
   ASSERT_OK(db_->SetOptions({{"check_flush_compaction_key_order", "true"}}));
@@ -814,7 +840,6 @@ TEST_F(CorruptionTest, FlushKeyOrderCheck) {
 }
 
 TEST_F(CorruptionTest, DisableKeyOrderCheck) {
-  Options options;
   ASSERT_OK(db_->SetOptions({{"check_flush_compaction_key_order", "false"}}));
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
 
@@ -836,7 +861,7 @@ TEST_F(CorruptionTest, DisableKeyOrderCheck) {
 TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   CloseDb();
   Options options;
-  options.env = &env_;
+  options.env = env_;
   ASSERT_OK(DestroyDB(dbname_, options));
   options.create_if_missing = true;
   options.file_checksum_gen_factory =
@@ -870,8 +895,18 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
 
 }  // namespace ROCKSDB_NAMESPACE
 
+#ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+extern "C" {
+void RegisterCustomObjects(int argc, char** argv);
+}
+#else
+void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
+#endif  // !ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
+
 int main(int argc, char** argv) {
+  ROCKSDB_NAMESPACE::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
+  RegisterCustomObjects(argc, argv);
   return RUN_ALL_TESTS();
 }
 

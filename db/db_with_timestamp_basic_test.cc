@@ -32,6 +32,22 @@ class DBBasicTestWithTimestampBase : public DBTestBase {
     return ret;
   }
 
+  static std::string KeyWithPrefix(std::string prefix, uint64_t k) {
+    std::string ret;
+    PutFixed64(&ret, k);
+    std::reverse(ret.begin(), ret.end());
+    return prefix + ret;
+  }
+
+  static std::vector<Slice> ConvertStrToSlice(
+      std::vector<std::string>& strings) {
+    std::vector<Slice> ret;
+    for (const auto& s : strings) {
+      ret.emplace_back(s);
+    }
+    return ret;
+  }
+
   class TestComparator : public Comparator {
    private:
     const Comparator* cmp_without_ts_;
@@ -179,6 +195,113 @@ class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
       : DBBasicTestWithTimestampBase("db_basic_test_with_timestamp") {}
 };
 
+TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
+
+  ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
+  ASSERT_OK(Flush());
+
+  std::string start_str = "foo";
+  std::string end_str = "foo2";
+  Slice start(start_str), end(end_str);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100000000;  // Large write buffer
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  auto default_cf = db_->DefaultColumnFamily();
+
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
+
+  const int N = 128;
+  Random rnd(301);
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(db_->Put(write_opts, Key(i), rnd.RandomString(1024)));
+  }
+
+  uint64_t size;
+  std::string start = Key(50);
+  std::string end = Key(60);
+  Range r(start, end);
+  SizeApproximationOptions size_approx_options;
+  size_approx_options.include_memtabtles = true;
+  size_approx_options.include_files = true;
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
+  ASSERT_GT(size, 6000);
+  ASSERT_LT(size, 204800);
+
+  // test multiple ranges
+  std::vector<Range> ranges;
+  std::string start_tmp = Key(10);
+  std::string end_tmp = Key(20);
+  ranges.emplace_back(Range(start_tmp, end_tmp));
+  ranges.emplace_back(Range(start, end));
+  uint64_t range_sizes[2];
+  ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf,
+                                     ranges.data(), 2, range_sizes));
+
+  ASSERT_EQ(range_sizes[1], size);
+
+  // Zero if not including mem table
+  db_->GetApproximateSizes(&r, 1, &size);
+  ASSERT_EQ(size, 0);
+
+  start = Key(500);
+  end = Key(600);
+  r = Range(start, end);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
+  ASSERT_EQ(size, 0);
+
+  // Test range boundaries
+  ASSERT_OK(db_->Put(write_opts, Key(1000), rnd.RandomString(1024)));
+  // Should include start key
+  start = Key(1000);
+  end = Key(1100);
+  r = Range(start, end);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
+  ASSERT_GT(size, 0);
+
+  // Should exclude end key
+  start = Key(900);
+  end = Key(1000);
+  r = Range(start, end);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
+  ASSERT_EQ(size, 0);
+  std::cout << size << std::endl;
+
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 1024;
@@ -249,6 +372,8 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLessThanKey) {
   options.env = env_;
   options.create_if_missing = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.memtable_whole_key_filtering = true;
+  options.memtable_prefix_bloom_size_ratio = 0.1;
   BlockBasedTableOptions bbto;
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.cache_index_and_filter_blocks = true;
@@ -265,16 +390,16 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLessThanKey) {
   write_opts.timestamp = &ts;
 
   ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   // Move sst file to next level
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   ASSERT_OK(db_->Put(write_opts, "foo3", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ReadOptions read_opts;
   std::string read_ts = Timestamp(1, 0);
@@ -285,6 +410,10 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLessThanKey) {
     iter->Seek("foo");
     ASSERT_TRUE(iter->Valid());
     ASSERT_OK(iter->status());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+
     iter->Seek("bbb");
     ASSERT_FALSE(iter->Valid());
     ASSERT_OK(iter->status());
@@ -298,6 +427,8 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLargerThanKey) {
   options.env = env_;
   options.create_if_missing = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(20));
+  options.memtable_whole_key_filtering = true;
+  options.memtable_prefix_bloom_size_ratio = 0.1;
   BlockBasedTableOptions bbto;
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.cache_index_and_filter_blocks = true;
@@ -314,21 +445,76 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLargerThanKey) {
   write_opts.timestamp = &ts;
 
   ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   // Move sst file to next level
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   ASSERT_OK(db_->Put(write_opts, "foo3", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ReadOptions read_opts;
   std::string read_ts = Timestamp(2, 0);
   ts = read_ts;
   read_opts.timestamp = &ts;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    // Make sure the prefix extractor doesn't include timestamp, otherwise it
+    // may return invalid result.
+    iter->Seek("foo");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_OK(iter->status());
+  }
+
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, SeekWithBound) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(2));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.cache_index_and_filter_blocks = true;
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
+
+  ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
+  ASSERT_OK(Flush());
+
+  // Move sst file to next level
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  ASSERT_OK(db_->Put(write_opts, "foo3", "bar"));
+  ASSERT_OK(Flush());
+
+  ReadOptions read_opts;
+  std::string read_ts = Timestamp(2, 0);
+  ts = read_ts;
+  read_opts.timestamp = &ts;
+  std::string up_bound = "foo5";
+  Slice up_bound_slice = up_bound;
+  read_opts.iterate_upper_bound = &up_bound_slice;
+  read_opts.auto_prefix_mode = true;
   {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
     // Make sure the prefix extractor doesn't include timestamp, otherwise it
@@ -611,7 +797,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithFastLocalBloom) {
 
   ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
 
-  Flush();
+  ASSERT_OK(Flush());
 
   // Read with MultiGet
   ReadOptions read_opts;
@@ -652,7 +838,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithPrefix) {
 
   ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
 
-  Flush();
+  ASSERT_OK(Flush());
 
   // Read with MultiGet
   ReadOptions read_opts;
@@ -740,7 +926,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
     Slice key_slice = key;
     Slice value_slice = value;
     ASSERT_OK(db_->Put(write_opts, key_slice, value_slice));
-    Flush();
+    ASSERT_OK(Flush());
   }
 
   // Make num_levels to 2 to do key range filtering of sst files
@@ -748,7 +934,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
 
   ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
 
-  Flush();
+  ASSERT_OK(Flush());
 
   // Read with MultiGet
   ts_str = Timestamp(2, 0);
@@ -791,7 +977,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetPrefixFilter) {
 
   ASSERT_OK(db_->Put(write_opts, "foo", "bar"));
 
-  Flush();
+  ASSERT_OK(Flush());
   // Read with MultiGet
   ts_str = Timestamp(2, 0);
   ts = ts_str;
@@ -908,6 +1094,131 @@ TEST_F(DBBasicTestWithTimestamp, CompactDeletionWithTimestampMarkerToBottom) {
   ASSERT_EQ("value0", value);
   Close();
 }
+
+class DBBasicTestWithTimestampFilterPrefixSettings
+    : public DBBasicTestWithTimestampBase,
+      public testing::WithParamInterface<
+          std::tuple<std::shared_ptr<const FilterPolicy>, bool, bool,
+                     std::shared_ptr<const SliceTransform>, bool, double>> {
+ public:
+  DBBasicTestWithTimestampFilterPrefixSettings()
+      : DBBasicTestWithTimestampBase(
+            "db_basic_test_with_timestamp_filter_prefix") {}
+};
+
+TEST_P(DBBasicTestWithTimestampFilterPrefixSettings, GetAndMultiGet) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy = std::get<0>(GetParam());
+  bbto.whole_key_filtering = std::get<1>(GetParam());
+  bbto.cache_index_and_filter_blocks = std::get<2>(GetParam());
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.prefix_extractor = std::get<3>(GetParam());
+  options.memtable_whole_key_filtering = std::get<4>(GetParam());
+  options.memtable_prefix_bloom_size_ratio = std::get<5>(GetParam());
+
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  const int kMaxKey = 1000;
+
+  // Write any value
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
+
+  int idx = 0;
+  for (; idx < kMaxKey / 4; idx++) {
+    ASSERT_OK(db_->Put(write_opts, Key1(idx), "bar"));
+    ASSERT_OK(db_->Put(write_opts, KeyWithPrefix("foo", idx), "bar"));
+  }
+
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  for (; idx < kMaxKey / 2; idx++) {
+    ASSERT_OK(db_->Put(write_opts, Key1(idx), "bar"));
+    ASSERT_OK(db_->Put(write_opts, KeyWithPrefix("foo", idx), "bar"));
+  }
+
+  ASSERT_OK(Flush());
+
+  for (; idx < kMaxKey; idx++) {
+    ASSERT_OK(db_->Put(write_opts, Key1(idx), "bar"));
+    ASSERT_OK(db_->Put(write_opts, KeyWithPrefix("foo", idx), "bar"));
+  }
+
+  // Read with MultiGet
+  ReadOptions read_opts;
+  read_opts.timestamp = &ts;
+
+  ReadOptions read_opts_total_order;
+  read_opts_total_order.timestamp = &ts;
+  read_opts_total_order.total_order_seek = true;
+
+  for (idx = 0; idx < kMaxKey; idx++) {
+    size_t batch_size = 4;
+    std::vector<std::string> keys_str(batch_size);
+    std::vector<PinnableSlice> values(batch_size);
+    std::vector<Status> statuses(batch_size);
+    ColumnFamilyHandle* cfh = db_->DefaultColumnFamily();
+
+    keys_str[0] = Key1(idx);
+    keys_str[1] = KeyWithPrefix("foo", idx);
+    keys_str[2] = Key1(kMaxKey + idx);
+    keys_str[3] = KeyWithPrefix("foo", kMaxKey + idx);
+
+    auto keys = ConvertStrToSlice(keys_str);
+
+    db_->MultiGet(read_opts, cfh, batch_size, keys.data(), values.data(),
+                  statuses.data());
+
+    for (int i = 0; i < 2; i++) {
+      ASSERT_OK(statuses[i]);
+    }
+    for (int i = 2; i < 4; i++) {
+      ASSERT_TRUE(statuses[i].IsNotFound());
+    }
+
+    for (int i = 0; i < 2; i++) {
+      std::string value;
+      ASSERT_OK(db_->Get(read_opts, keys[i], &value));
+      std::unique_ptr<Iterator> it1(db_->NewIterator(read_opts));
+      ASSERT_NE(nullptr, it1);
+      ASSERT_OK(it1->status());
+      // TODO(zjay) Fix seek with prefix
+      // it1->Seek(keys[i]);
+      // ASSERT_TRUE(it1->Valid());
+    }
+
+    for (int i = 2; i < 4; i++) {
+      std::string value;
+      Status s = db_->Get(read_opts, keys[i], &value);
+      ASSERT_TRUE(s.IsNotFound());
+    }
+  }
+  Close();
+}
+
+INSTANTIATE_TEST_CASE_P(
+    Timestamp, DBBasicTestWithTimestampFilterPrefixSettings,
+    ::testing::Combine(
+        ::testing::Values(
+            std::shared_ptr<const FilterPolicy>(nullptr),
+            std::shared_ptr<const FilterPolicy>(NewBloomFilterPolicy(10, true)),
+            std::shared_ptr<const FilterPolicy>(NewBloomFilterPolicy(10,
+                                                                     false))),
+        ::testing::Bool(), ::testing::Bool(),
+        ::testing::Values(
+            std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(1)),
+            std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(4)),
+            std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(7)),
+            std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(8))),
+        ::testing::Bool(), ::testing::Values(0, 0.1)));
 
 class DataVisibilityTest : public DBBasicTestWithTimestampBase {
  public:
@@ -1372,7 +1683,7 @@ TEST_F(DataVisibilityTest, MultiGetWithTimestamp) {
   VerifyDefaultCF(snap0);
   VerifyDefaultCF(snap1);
 
-  Flush();
+  ASSERT_OK(Flush());
 
   const Snapshot* snap2 = db_->GetSnapshot();
   PutTestData(2);
@@ -1458,7 +1769,7 @@ TEST_F(DataVisibilityTest, MultiGetCrossCF) {
   VerifyDefaultCF(snap0);
   VerifyDefaultCF(snap1);
 
-  Flush();
+  ASSERT_OK(Flush());
 
   const Snapshot* snap2 = db_->GetSnapshot();
   PutTestData(2);
@@ -1839,6 +2150,8 @@ TEST_F(DBBasicTestWithTimestamp, BatchWriteAndMultiGet) {
   options.create_if_missing = true;
   options.env = env_;
   options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options.memtable_prefix_bloom_size_ratio = 0.1;
+  options.memtable_whole_key_filtering = true;
 
   size_t ts_sz = Timestamp(0, 0).size();
   TestComparator test_cmp(ts_sz);
@@ -2093,6 +2406,7 @@ INSTANTIATE_TEST_CASE_P(
     Timestamp, DBBasicTestWithTimestampPrefixSeek,
     ::testing::Combine(
         ::testing::Values(
+            std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(1)),
             std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(4)),
             std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(7)),
             std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(8))),

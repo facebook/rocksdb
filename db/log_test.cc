@@ -465,7 +465,7 @@ TEST_P(LogTest, BadLengthAtEndIsNotIgnored) {
   ShrinkSize(1);
   ASSERT_EQ("EOF", Read(WALRecoveryMode::kAbsoluteConsistency));
   ASSERT_GT(DroppedBytes(), 0U);
-  ASSERT_EQ("OK", MatchError("Corruption: truncated header"));
+  ASSERT_EQ("OK", MatchError("Corruption: truncated record body"));
 }
 
 TEST_P(LogTest, ChecksumMismatch) {
@@ -573,9 +573,7 @@ TEST_P(LogTest, PartialLastIsNotIgnored) {
   ShrinkSize(1);
   ASSERT_EQ("EOF", Read(WALRecoveryMode::kAbsoluteConsistency));
   ASSERT_GT(DroppedBytes(), 0U);
-  ASSERT_EQ("OK", MatchError(
-                      "Corruption: truncated headerCorruption: "
-                      "error reading trailing data"));
+  ASSERT_EQ("OK", MatchError("Corruption: truncated record body"));
 }
 
 TEST_P(LogTest, ErrorJoinsRecords) {

@@ -176,6 +176,12 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
 
   bool preserve_deletes() const override { return false; }
 
+  bool enable_blob_garbage_collection() const override { return false; }
+
+  double blob_garbage_collection_age_cutoff() const override { return 0.0; }
+
+  Version* input_version() const override { return nullptr; }
+
   bool key_not_exists_beyond_output_level = false;
 
   bool is_bottommost_level = false;

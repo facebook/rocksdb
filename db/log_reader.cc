@@ -119,16 +119,26 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       case kBadHeader:
-        if (wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency) {
-          // in clean shutdown we don't expect any error in the log files
+        if (wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency ||
+            wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery) {
+          // In clean shutdown we don't expect any error in the log files.
+          // In point-in-time recovery an incomplete record at the end could
+          // produce a hole in the recovered data. Report an error here, which
+          // higher layers can choose to ignore when it's provable there is no
+          // hole.
           ReportCorruption(drop_size, "truncated header");
         }
         FALLTHROUGH_INTENDED;
 
       case kEof:
         if (in_fragmented_record) {
-          if (wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency) {
-            // in clean shutdown we don't expect any error in the log files
+          if (wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency ||
+              wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery) {
+            // In clean shutdown we don't expect any error in the log files.
+            // In point-in-time recovery an incomplete record at the end could
+            // produce a hole in the recovered data. Report an error here, which
+            // higher layers can choose to ignore when it's provable there is no
+            // hole.
             ReportCorruption(scratch->size(), "error reading trailing data");
           }
           // This can be caused by the writer dying immediately after
@@ -142,8 +152,13 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         if (wal_recovery_mode != WALRecoveryMode::kSkipAnyCorruptedRecords) {
           // Treat a record from a previous instance of the log as EOF.
           if (in_fragmented_record) {
-            if (wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency) {
-              // in clean shutdown we don't expect any error in the log files
+            if (wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency ||
+                wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery) {
+              // In clean shutdown we don't expect any error in the log files.
+              // In point-in-time recovery an incomplete record at the end could
+              // produce a hole in the recovered data. Report an error here,
+              // which higher layers can choose to ignore when it's provable
+              // there is no hole.
               ReportCorruption(scratch->size(), "error reading trailing data");
             }
             // This can be caused by the writer dying immediately after
@@ -164,6 +179,20 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       case kBadRecordLen:
+        if (eof_) {
+          if (wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency ||
+              wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery) {
+            // In clean shutdown we don't expect any error in the log files.
+            // In point-in-time recovery an incomplete record at the end could
+            // produce a hole in the recovered data. Report an error here, which
+            // higher layers can choose to ignore when it's provable there is no
+            // hole.
+            ReportCorruption(drop_size, "truncated record body");
+          }
+          return false;
+        }
+        FALLTHROUGH_INTENDED;
+
       case kBadRecordChecksum:
         if (recycled_ &&
             wal_recovery_mode ==
@@ -355,18 +384,14 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       }
     }
     if (header_size + length > buffer_.size()) {
+      assert(buffer_.size() >= static_cast<size_t>(header_size));
       *drop_size = buffer_.size();
       buffer_.clear();
-      if (!eof_) {
-        return kBadRecordLen;
-      }
-      // If the end of the file has been reached without reading |length|
-      // bytes of payload, assume the writer died in the middle of writing the
-      // record. Don't report a corruption unless requested.
-      if (*drop_size) {
-        return kBadHeader;
-      }
-      return kEof;
+      // If the end of the read has been reached without seeing
+      // `header_size + length` bytes of payload, report a corruption. The
+      // higher layers can decide how to handle it based on the recovery mode,
+      // whether this occurred at EOF, whether this is the final WAL, etc.
+      return kBadRecordLen;
     }
 
     if (type == kZeroType && length == 0) {

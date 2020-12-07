@@ -167,6 +167,14 @@ extern void AppendInternalKeyWithDifferentTimestamp(
 extern void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
                                     ValueType t);
 
+// Append the key and a minimal timestamp to *result
+extern void AppendKeyWithMinTimestamp(std::string* result, const Slice& key,
+                                      size_t ts_sz);
+
+// Append the key and a maximal timestamp to *result
+extern void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                                      size_t ts_sz);
+
 // Attempt to parse an internal key from "internal_key".  On success,
 // stores the parsed data in "*result", and returns true.
 //

@@ -708,9 +708,7 @@ uint64_t ColumnFamilyData::OldestLogToKeep() {
   auto current_log = GetLogNumber();
 
   if (allow_2pc_) {
-    autovector<MemTable*> empty_list;
-    auto imm_prep_log =
-        imm()->PrecomputeMinLogContainingPrepSection(empty_list);
+    auto imm_prep_log = imm()->PrecomputeMinLogContainingPrepSection();
     auto mem_prep_log = mem()->GetMinLogContainingPrepSection();
 
     if (imm_prep_log > 0 && imm_prep_log < current_log) {
@@ -1339,6 +1337,15 @@ Status ColumnFamilyData::ValidateOptions(
           "Block-Based Table format. ");
     }
   }
+
+  if (cf_options.enable_blob_garbage_collection &&
+      (cf_options.blob_garbage_collection_age_cutoff < 0.0 ||
+       cf_options.blob_garbage_collection_age_cutoff > 1.0)) {
+    return Status::InvalidArgument(
+        "The age cutoff for blob garbage collection should be in the range "
+        "[0.0, 1.0].");
+  }
+
   return s;
 }
 

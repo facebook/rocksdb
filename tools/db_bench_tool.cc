@@ -323,6 +323,9 @@ DEFINE_int64(db_write_buffer_size,
 DEFINE_bool(cost_write_buffer_to_cache, false,
             "The usage of memtable is costed to the block cache");
 
+DEFINE_int64(arena_block_size, ROCKSDB_NAMESPACE::Options().arena_block_size,
+             "The size, in bytes, of one block in arena memory allocation.");
+
 DEFINE_int64(write_buffer_size, ROCKSDB_NAMESPACE::Options().write_buffer_size,
              "Number of bytes to buffer in memtable before compacting");
 
@@ -3627,6 +3630,7 @@ class Benchmark {
       options.write_buffer_manager.reset(
           new WriteBufferManager(FLAGS_db_write_buffer_size, cache_));
     }
+    options.arena_block_size = FLAGS_arena_block_size;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options.min_write_buffer_number_to_merge =

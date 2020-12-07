@@ -520,6 +520,10 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
           cfd->user_comparator()->Name(),
           "does not match existing comparator " + edit.comparator_);
     }
+    if (edit.HasFullHistoryTsLow()) {
+      const std::string& new_ts = edit.GetFullHistoryTsLow();
+      cfd->SetFullHistoryTsLow(new_ts);
+    }
   }
 
   if (s.ok()) {
