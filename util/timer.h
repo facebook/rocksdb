@@ -39,9 +39,11 @@ class Timer {
       : env_(env),
         mutex_(env),
         cond_var_(&mutex_),
+        concurrent_shutdowns_mutex_(env),
+        concurrent_shutdowns_(&concurrent_shutdowns_mutex_),
         running_(false),
         executing_task_(false),
-        shutting_down_(false) {}
+        shutdown_requested_(false) {}
 
   ~Timer() { Shutdown(); }
 
@@ -109,10 +111,10 @@ class Timer {
   // Start the Timer
   bool Start() {
     InstrumentedMutexLock l(&mutex_);
-    if (running_) {
+    if (running_ || shutdown_requested_) {
       return false;
     }
-    WaitForShuttingDownIfNecessary();
+
     running_ = true;
     thread_.reset(new port::Thread(&Timer::Run, this));
     return true;
@@ -120,12 +122,22 @@ class Timer {
 
   // Shutdown the Timer
   bool Shutdown() {
+    if (shutdown_requested_.exchange(true)) {
+      InstrumentedMutexLock shutdown_lock(&concurrent_shutdowns_mutex_);
+      while (shutdown_requested_ == true) {
+        concurrent_shutdowns_.Wait();
+      }
+      return false;
+    }
+
     {
       InstrumentedMutexLock l(&mutex_);
       if (!running_) {
+        InstrumentedMutexLock shutdown_lock(&concurrent_shutdowns_mutex_);
+        shutdown_requested_ = false;
+        concurrent_shutdowns_.SignalAll();
         return false;
       }
-      shutting_down_ = true;
       running_ = false;
       CancelAllWithLock();
       cond_var_.SignalAll();
@@ -135,9 +147,9 @@ class Timer {
       thread_->join();
     }
 
-    InstrumentedMutexLock l(&mutex_);
-    shutting_down_ = false;
-    cond_var_.SignalAll();
+    InstrumentedMutexLock shutdown_lock(&concurrent_shutdowns_mutex_);
+    shutdown_requested_ = false;
+    concurrent_shutdowns_.SignalAll();
     return true;
   }
 
@@ -306,13 +318,6 @@ class Timer {
     }
   }
 
-  void WaitForShuttingDownIfNecessary() {
-    mutex_.AssertHeld();
-    while (shutting_down_) {
-      cond_var_.Wait();
-    }
-  }
-
   struct RunTimeOrder {
     bool operator()(const FunctionInfo* f1,
                     const FunctionInfo* f2) {
@@ -325,10 +330,15 @@ class Timer {
   // making any changes in them.
   mutable InstrumentedMutex mutex_;
   InstrumentedCondVar cond_var_;
+
+  mutable InstrumentedMutex concurrent_shutdowns_mutex_;
+  InstrumentedCondVar concurrent_shutdowns_;
+
   std::unique_ptr<port::Thread> thread_;
   bool running_;
   bool executing_task_;
-  bool shutting_down_;
+
+  std::atomic_bool shutdown_requested_;
 
   std::priority_queue<FunctionInfo*,
                       std::vector<FunctionInfo*>,
