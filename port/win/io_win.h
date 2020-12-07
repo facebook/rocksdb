@@ -203,6 +203,11 @@ class WinMmapFile : private WinFileData, public FSWritableFile {
 
   IOStatus Append(const Slice& data, const IOOptions& options,
                   IODebugContext* dbg) override;
+  IOStatus Append(const Slice& data, const IOOptions& opts,
+                  const DataVerificationInfo& /* verification_info */,
+                  IODebugContext* dbg) override {
+    return Append(data, opts, dbg);
+  }
 
   // Means Close() will properly take care of truncate
   // and it does not need any additional information
@@ -356,12 +361,23 @@ class WinWritableFile : private WinFileData,
 
   IOStatus Append(const Slice& data, const IOOptions& options,
                   IODebugContext* dbg) override;
+  IOStatus Append(const Slice& data, const IOOptions& opts,
+                  const DataVerificationInfo& /* verification_info */,
+                  IODebugContext* dbg) override {
+    return Append(data, opts, dbg);
+  }
 
   // Requires that the data is aligned as specified by
   // GetRequiredBufferAlignment()
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
                             IODebugContext* dbg) override;
+  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                            const IOOptions& opts,
+                            const DataVerificationInfo& /* verification_info */,
+                            IODebugContext* dbg) override {
+    return PositionedAppend(data, offset, opts, dbg);
+  }
 
   // Need to implement this so the file is truncated correctly
   // when buffered and unbuffered mode
