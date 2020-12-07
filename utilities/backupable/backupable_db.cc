@@ -2245,32 +2245,25 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     return s;
   }
 
-  std::string buf;
-  buf += std::to_string(timestamp_);
-  buf += "\n";
-  buf += std::to_string(sequence_number_);
-  buf += "\n";
+  std::ostringstream buf;
+  buf << timestamp_ << "\n";
+  buf << sequence_number_ << "\n";
 
   if (!app_metadata_.empty()) {
     std::string hex_encoded_metadata =
         Slice(app_metadata_).ToString(/* hex */ true);
-    buf += kMetaDataPrefix.ToString();
-    buf += hex_encoded_metadata;
-    buf += "\n";
+    buf << kMetaDataPrefix.ToString() << hex_encoded_metadata << "\n";
   }
-  buf += std::to_string(files_.size());
-  buf += "\n";
+  buf << files_.size() << "\n";
 
   for (const auto& file : files_) {
     // use crc32c for now, switch to something else if needed
     // WART: The checksums are crc32c, not original crc32
-    buf += file->filename;
-    buf += " crc32 ";
-    buf += std::to_string(ChecksumHexToInt32(file->checksum_hex));
-    buf += "\n";
+    buf << file->filename << " crc32 " << ChecksumHexToInt32(file->checksum_hex)
+        << "\n";
   }
 
-  s = backup_meta_file->Append(Slice(buf));
+  s = backup_meta_file->Append(Slice(buf.str()));
   if (s.ok() && sync) {
     s = backup_meta_file->Sync();
   }

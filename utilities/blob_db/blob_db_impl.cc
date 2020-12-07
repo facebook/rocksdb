@@ -1686,12 +1686,11 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
 
   for (auto blob_file_pair : blob_files_) {
     auto blob_file = blob_file_pair.second;
-    std::string buf;
+    std::ostringstream buf;
 
-    buf = buf + "Blob file " + std::to_string(blob_file->BlobFileNumber());
-    buf = buf + ", size " + std::to_string(blob_file->GetFileSize());
-    buf = buf + ", blob count " + std::to_string(blob_file->BlobCount());
-    buf = buf + ", immutable " + std::to_string(blob_file->Immutable());
+    buf << "Blob file " << blob_file->BlobFileNumber() << ", size "
+        << blob_file->GetFileSize() << ", blob count " << blob_file->BlobCount()
+        << ", immutable " << blob_file->Immutable();
 
     if (blob_file->HasTTL()) {
       ExpirationRange expiration_range;
@@ -1699,21 +1698,18 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
         ReadLock file_lock(&blob_file->mutex_);
         expiration_range = blob_file->GetExpirationRange();
       }
-      buf = buf + ", expiration range (" +
-            std::to_string(expiration_range.first) + ", " +
-            std::to_string(expiration_range.second) + ")";
+      buf << ", expiration range (" << expiration_range.first << ", "
+          << expiration_range.second << ")";
 
       if (!blob_file->Obsolete()) {
-        buf = buf + ", expire in " +
-              std::to_string(expiration_range.second - now) + "seconds";
+        buf << ", expire in " << (expiration_range.second - now) << "seconds";
       }
     }
     if (blob_file->Obsolete()) {
-      buf = buf + ", obsolete at " +
-            std::to_string(blob_file->GetObsoleteSequence());
+      buf << ", obsolete at " << blob_file->GetObsoleteSequence();
     }
-    buf += ".";
-    ROCKS_LOG_INFO(db_options_.info_log, "%s", buf.c_str());
+    buf << ".";
+    ROCKS_LOG_INFO(db_options_.info_log, "%s", buf.str().c_str());
   }
 
   // reschedule
