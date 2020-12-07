@@ -47,8 +47,8 @@ class ExternSSTFileLinkFailFallbackTest
       : DBTestBase("/external_sst_file_test", /*env_do_fsync=*/true),
         test_env_(new ExternalSSTTestEnv(env_, true)) {
     sst_files_dir_ = dbname_ + "/sst_files/";
-    assert(DestroyDir(env_, sst_files_dir_).ok());
-    assert(env_->CreateDir(sst_files_dir_).ok());
+    EXPECT_EQ(DestroyDir(env_, sst_files_dir_), Status::OK());
+    EXPECT_EQ(env_->CreateDir(sst_files_dir_), Status::OK());
     options_ = CurrentOptions();
     options_.disable_auto_compactions = true;
     options_.env = test_env_;

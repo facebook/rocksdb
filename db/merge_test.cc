@@ -80,8 +80,8 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
   options.create_if_missing = true;
   options.merge_operator = std::make_shared<CountMergeOperator>();
   options.max_successive_merges = max_successive_merges;
+  EXPECT_OK(DestroyDB(dbname, Options()));
   Status s;
-  DestroyDB(dbname, Options()).PermitUncheckedError();
 // DBWithTTL is not supported in ROCKSDB_LITE
 #ifndef ROCKSDB_LITE
   if (ttl) {
@@ -95,10 +95,8 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
   assert(!ttl);
   s = DB::Open(options, dbname, &db);
 #endif  // !ROCKSDB_LITE
-  if (!s.ok()) {
-    std::cerr << s.ToString() << std::endl;
-    assert(false);
-  }
+  EXPECT_OK(s);
+  assert(s.ok());
   return std::shared_ptr<DB>(db);
 }
 

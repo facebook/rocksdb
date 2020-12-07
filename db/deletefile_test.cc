@@ -213,6 +213,7 @@ TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
   itr = db_->NewIterator(ReadOptions());
   ASSERT_OK(itr->status());
   ASSERT_OK(db_->CompactRange(compact_options, &first_slice, &last_slice));
+  ASSERT_OK(itr->status());
   // 3 sst after compaction with live iterator
   CheckFileTypeCounts(dbname_, 0, 3, 1);
   delete itr;
