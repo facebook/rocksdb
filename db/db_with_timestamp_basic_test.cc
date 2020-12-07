@@ -195,6 +195,113 @@ class DBBasicTestWithTimestamp : public DBBasicTestWithTimestampBase {
       : DBBasicTestWithTimestampBase("db_basic_test_with_timestamp") {}
 };
 
+TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
+
+  ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
+  ASSERT_OK(Flush());
+
+  std::string start_str = "foo";
+  std::string end_str = "foo2";
+  Slice start(start_str), end(end_str);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &end));
+
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100000000;  // Large write buffer
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  auto default_cf = db_->DefaultColumnFamily();
+
+  WriteOptions write_opts;
+  std::string ts_str = Timestamp(1, 0);
+  Slice ts = ts_str;
+  write_opts.timestamp = &ts;
+
+  const int N = 128;
+  Random rnd(301);
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(db_->Put(write_opts, Key(i), rnd.RandomString(1024)));
+  }
+
+  uint64_t size;
+  std::string start = Key(50);
+  std::string end = Key(60);
+  Range r(start, end);
+  SizeApproximationOptions size_approx_options;
+  size_approx_options.include_memtabtles = true;
+  size_approx_options.include_files = true;
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
+  ASSERT_GT(size, 6000);
+  ASSERT_LT(size, 204800);
+
+  // test multiple ranges
+  std::vector<Range> ranges;
+  std::string start_tmp = Key(10);
+  std::string end_tmp = Key(20);
+  ranges.emplace_back(Range(start_tmp, end_tmp));
+  ranges.emplace_back(Range(start, end));
+  uint64_t range_sizes[2];
+  ASSERT_OK(db_->GetApproximateSizes(size_approx_options, default_cf,
+                                     ranges.data(), 2, range_sizes));
+
+  ASSERT_EQ(range_sizes[1], size);
+
+  // Zero if not including mem table
+  db_->GetApproximateSizes(&r, 1, &size);
+  ASSERT_EQ(size, 0);
+
+  start = Key(500);
+  end = Key(600);
+  r = Range(start, end);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
+  ASSERT_EQ(size, 0);
+
+  // Test range boundaries
+  ASSERT_OK(db_->Put(write_opts, Key(1000), rnd.RandomString(1024)));
+  // Should include start key
+  start = Key(1000);
+  end = Key(1100);
+  r = Range(start, end);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
+  ASSERT_GT(size, 0);
+
+  // Should exclude end key
+  start = Key(900);
+  end = Key(1000);
+  r = Range(start, end);
+  ASSERT_OK(
+      db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
+  ASSERT_EQ(size, 0);
+  std::cout << size << std::endl;
+
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 1024;
@@ -283,16 +390,16 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLessThanKey) {
   write_opts.timestamp = &ts;
 
   ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   // Move sst file to next level
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   ASSERT_OK(db_->Put(write_opts, "foo3", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ReadOptions read_opts;
   std::string read_ts = Timestamp(1, 0);
@@ -338,16 +445,16 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLargerThanKey) {
   write_opts.timestamp = &ts;
 
   ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   // Move sst file to next level
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   ASSERT_OK(db_->Put(write_opts, "foo3", "bar"));
-  Flush();
+  ASSERT_OK(Flush());
 
   ReadOptions read_opts;
   std::string read_ts = Timestamp(2, 0);

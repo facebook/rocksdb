@@ -22,6 +22,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+class Version;
+
 // This file declares the factory functions of DBIter, in its original form
 // or a wrapped form with class ArenaWrappedDBIter, which is defined here.
 // Class DBIter, which is declared and implemented inside db_iter.cc, is
@@ -114,10 +116,10 @@ class DBIter final : public Iterator {
   DBIter(Env* _env, const ReadOptions& read_options,
          const ImmutableCFOptions& cf_options,
          const MutableCFOptions& mutable_cf_options, const Comparator* cmp,
-         InternalIterator* iter, SequenceNumber s, bool arena_mode,
-         uint64_t max_sequential_skip_in_iterations,
+         InternalIterator* iter, const Version* version, SequenceNumber s,
+         bool arena_mode, uint64_t max_sequential_skip_in_iterations,
          ReadCallback* read_callback, DBImpl* db_impl, ColumnFamilyData* cfd,
-         bool allow_blob);
+         bool expose_blob_index);
 
   // No copying allowed
   DBIter(const DBIter&) = delete;
@@ -159,7 +161,10 @@ class DBIter final : public Iterator {
   }
   Slice value() const override {
     assert(valid_);
-    if (current_entry_is_merged_) {
+
+    if (!expose_blob_index_ && is_blob_) {
+      return blob_value_;
+    } else if (current_entry_is_merged_) {
       // If pinned_value_ is set then the result of merge operator is one of
       // the merge operands and we should return it.
       return pinned_value_.data() ? pinned_value_ : saved_value_;
@@ -185,7 +190,7 @@ class DBIter final : public Iterator {
     return ExtractTimestampFromUserKey(ukey_and_ts, timestamp_size_);
   }
   bool IsBlob() const {
-    assert(valid_ && (allow_blob_ || !is_blob_));
+    assert(valid_);
     return is_blob_;
   }
 
@@ -287,12 +292,17 @@ class DBIter final : public Iterator {
                : user_comparator_.CompareWithoutTimestamp(a, b);
   }
 
+  // Retrieves the blob value for the specified user key using the given blob
+  // index when using the integrated BlobDB implementation.
+  bool SetBlobValueIfNeeded(const Slice& user_key, const Slice& blob_index);
+
   const SliceTransform* prefix_extractor_;
   Env* const env_;
   Logger* logger_;
   UserComparatorWrapper user_comparator_;
   const MergeOperator* const merge_operator_;
   IteratorWrapper iter_;
+  const Version* version_;
   ReadCallback* read_callback_;
   // Max visible sequence number. It is normally the snapshot seq unless we have
   // uncommitted data in db as in WriteUnCommitted.
@@ -306,6 +316,7 @@ class DBIter final : public Iterator {
   std::string saved_value_;
   Slice pinned_value_;
   // for prefix seek mode to support prev()
+  PinnableSlice blob_value_;
   Statistics* statistics_;
   uint64_t max_skip_;
   uint64_t max_skippable_internal_keys_;
@@ -335,7 +346,11 @@ class DBIter final : public Iterator {
   // Expect the inner iterator to maintain a total order.
   // prefix_extractor_ must be non-NULL if the value is false.
   const bool expect_total_order_inner_iter_;
-  bool allow_blob_;
+  ReadTier read_tier_;
+  bool verify_checksums_;
+  // Whether the iterator is allowed to expose blob references. Set to true when
+  // the stacked BlobDB implementation is used, false otherwise.
+  bool expose_blob_index_;
   bool is_blob_;
   bool arena_mode_;
   // List of operands for merge operator.
@@ -367,8 +382,9 @@ extern Iterator* NewDBIterator(
     const ImmutableCFOptions& cf_options,
     const MutableCFOptions& mutable_cf_options,
     const Comparator* user_key_comparator, InternalIterator* internal_iter,
-    const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
-    ReadCallback* read_callback, DBImpl* db_impl = nullptr,
-    ColumnFamilyData* cfd = nullptr, bool allow_blob = false);
+    const Version* version, const SequenceNumber& sequence,
+    uint64_t max_sequential_skip_in_iterations, ReadCallback* read_callback,
+    DBImpl* db_impl = nullptr, ColumnFamilyData* cfd = nullptr,
+    bool expose_blob_index = false);
 
 }  // namespace ROCKSDB_NAMESPACE
