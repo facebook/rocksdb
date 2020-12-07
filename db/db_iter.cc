@@ -36,16 +36,18 @@ namespace ROCKSDB_NAMESPACE {
 DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const ImmutableCFOptions& cf_options,
                const MutableCFOptions& mutable_cf_options,
-               const Comparator* cmp, InternalIterator* iter, SequenceNumber s,
-               bool arena_mode, uint64_t max_sequential_skip_in_iterations,
+               const Comparator* cmp, InternalIterator* iter,
+               const Version* version, SequenceNumber s, bool arena_mode,
+               uint64_t max_sequential_skip_in_iterations,
                ReadCallback* read_callback, DBImpl* db_impl,
-               ColumnFamilyData* cfd, bool allow_blob)
+               ColumnFamilyData* cfd, bool expose_blob_index)
     : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       env_(_env),
       logger_(cf_options.info_log),
       user_comparator_(cmp),
       merge_operator_(cf_options.merge_operator),
       iter_(iter),
+      version_(version),
       read_callback_(read_callback),
       sequence_(s),
       statistics_(cf_options.statistics),
@@ -65,7 +67,9 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       expect_total_order_inner_iter_(prefix_extractor_ == nullptr ||
                                      read_options.total_order_seek ||
                                      read_options.auto_prefix_mode),
-      allow_blob_(allow_blob),
+      read_tier_(read_options.read_tier),
+      verify_checksums_(read_options.verify_checksums),
+      expose_blob_index_(expose_blob_index),
       is_blob_(false),
       arena_mode_(arena_mode),
       range_del_agg_(&cf_options.internal_comparator, s),
@@ -163,6 +167,40 @@ void DBIter::Next() {
     local_stats_.next_found_count_++;
     local_stats_.bytes_read_ += (key().size() + value().size());
   }
+}
+
+bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
+                                  const Slice& blob_index) {
+  assert(!is_blob_);
+
+  if (expose_blob_index_) {  // Stacked BlobDB implementation
+    is_blob_ = true;
+    return true;
+  }
+
+  if (!version_) {
+    status_ = Status::Corruption("Encountered unexpected blob index.");
+    valid_ = false;
+    return false;
+  }
+
+  // TODO: consider moving ReadOptions from ArenaWrappedDBIter to DBIter to
+  // avoid having to copy options back and forth.
+  ReadOptions read_options;
+  read_options.read_tier = read_tier_;
+  read_options.verify_checksums = verify_checksums_;
+
+  const Status s =
+      version_->GetBlob(read_options, user_key, blob_index, &blob_value_);
+
+  if (!s.ok()) {
+    status_ = s;
+    valid_ = false;
+    return false;
+  }
+
+  is_blob_ = true;
+  return true;
 }
 
 // PRE: saved_key_ has the current user key if skipping_saved_key
@@ -319,8 +357,14 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           case kTypeBlobIndex:
             if (start_seqnum_ > 0) {
               if (ikey_.sequence >= start_seqnum_) {
-                assert(ikey_.type != kTypeBlobIndex);
                 saved_key_.SetInternalKey(ikey_);
+
+                if (ikey_.type == kTypeBlobIndex) {
+                  if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                    return false;
+                  }
+                }
+
                 valid_ = true;
                 return true;
               } else {
@@ -334,6 +378,13 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               }
             } else if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
+
+              if (ikey_.type == kTypeBlobIndex) {
+                if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                  return false;
+                }
+              }
+
               valid_ = true;
               return true;
             } else {
@@ -348,20 +399,13 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                 num_skipped = 0;
                 reseek_done = false;
                 PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-              } else if (ikey_.type == kTypeBlobIndex) {
-                if (!allow_blob_) {
-                  ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-                  status_ = Status::NotSupported(
-                      "Encounter unexpected blob index. Please open DB with "
-                      "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-                  valid_ = false;
-                  return false;
+              } else {
+                if (ikey_.type == kTypeBlobIndex) {
+                  if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                    return false;
+                  }
                 }
 
-                is_blob_ = true;
-                valid_ = true;
-                return true;
-              } else {
                 valid_ = true;
                 return true;
               }
@@ -551,15 +595,7 @@ bool DBIter::MergeValuesNewToOld() {
           iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (kTypeBlobIndex == ikey.type) {
-      if (!allow_blob_) {
-        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-        status_ = Status::NotSupported(
-            "Encounter unexpected blob index. Please open DB with "
-            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-      } else {
-        status_ =
-            Status::NotSupported("Blob DB does not support merge operator.");
-      }
+      status_ = Status::NotSupported("BlobDB does not support merge operator.");
       valid_ = false;
       return false;
     } else {
@@ -888,15 +924,8 @@ bool DBIter::FindValueForCurrentKey() {
             merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
             env_, &pinned_value_, true);
       } else if (last_not_merge_type == kTypeBlobIndex) {
-        if (!allow_blob_) {
-          ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-          status_ = Status::NotSupported(
-              "Encounter unexpected blob index. Please open DB with "
-              "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-        } else {
-          status_ =
-              Status::NotSupported("Blob DB does not support merge operator.");
-        }
+        status_ =
+            Status::NotSupported("BlobDB does not support merge operator.");
         valid_ = false;
         return false;
       } else {
@@ -911,15 +940,10 @@ bool DBIter::FindValueForCurrentKey() {
       // do nothing - we've already has value in pinned_value_
       break;
     case kTypeBlobIndex:
-      if (!allow_blob_) {
-        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-        status_ = Status::NotSupported(
-            "Encounter unexpected blob index. Please open DB with "
-            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-        valid_ = false;
+      if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
         return false;
       }
-      is_blob_ = true;
+
       break;
     default:
       valid_ = false;
@@ -992,14 +1016,6 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     valid_ = false;
     return true;
   }
-  if (ikey.type == kTypeBlobIndex && !allow_blob_) {
-    ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-    status_ = Status::NotSupported(
-        "Encounter unexpected blob index. Please open DB with "
-        "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-    valid_ = false;
-    return false;
-  }
   if (!iter_.PrepareValue()) {
     valid_ = false;
     return false;
@@ -1007,7 +1023,12 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex) {
     assert(iter_.iter()->IsValuePinned());
     pinned_value_ = iter_.value();
-    is_blob_ = (ikey.type == kTypeBlobIndex);
+    if (ikey.type == kTypeBlobIndex) {
+      if (!SetBlobValueIfNeeded(ikey.user_key, pinned_value_)) {
+        return false;
+      }
+    }
+
     valid_ = true;
     return true;
   }
@@ -1063,15 +1084,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
           iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (ikey.type == kTypeBlobIndex) {
-      if (!allow_blob_) {
-        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-        status_ = Status::NotSupported(
-            "Encounter unexpected blob index. Please open DB with "
-            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-      } else {
-        status_ =
-            Status::NotSupported("Blob DB does not support merge operator.");
-      }
+      status_ = Status::NotSupported("BlobDB does not support merge operator.");
       valid_ = false;
       return false;
     } else {
@@ -1465,15 +1478,16 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                         const ImmutableCFOptions& cf_options,
                         const MutableCFOptions& mutable_cf_options,
                         const Comparator* user_key_comparator,
-                        InternalIterator* internal_iter,
+                        InternalIterator* internal_iter, const Version* version,
                         const SequenceNumber& sequence,
                         uint64_t max_sequential_skip_in_iterations,
                         ReadCallback* read_callback, DBImpl* db_impl,
-                        ColumnFamilyData* cfd, bool allow_blob) {
-  DBIter* db_iter = new DBIter(
-      env, read_options, cf_options, mutable_cf_options, user_key_comparator,
-      internal_iter, sequence, false, max_sequential_skip_in_iterations,
-      read_callback, db_impl, cfd, allow_blob);
+                        ColumnFamilyData* cfd, bool expose_blob_index) {
+  DBIter* db_iter =
+      new DBIter(env, read_options, cf_options, mutable_cf_options,
+                 user_key_comparator, internal_iter, version, sequence, false,
+                 max_sequential_skip_in_iterations, read_callback, db_impl, cfd,
+                 expose_blob_index);
   return db_iter;
 }
 

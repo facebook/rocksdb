@@ -105,6 +105,13 @@ matrix:
     os: linux
     arch: ppc64le
     env: JOB_NAME=cmake
+  # Exclude all osx since it should be covered by CircleCI
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os: osx
+    env: TEST_GROUP=platform_dependent
+  - if: type = pull_request AND commit_message !~ /FULL_CI/
+    os: osx
+    env: JOB_NAME=cmake
   # NB: the cmake build is a partial java test
   - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: osx
