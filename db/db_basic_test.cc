@@ -2532,6 +2532,14 @@ TEST_F(DBBasicTest, DisableTrackWal) {
   ASSERT_OK(TryReopen(options));
   // Previously tracked WALs are cleared.
   ASSERT_TRUE(dbfull()->TEST_GetVersionSet()->GetWalSet().GetWals().empty());
+  Close();
+
+  // Re-enable WAL tracking again.
+  options.track_and_verify_wals_in_manifest = true;
+  options.create_if_missing = false;
+  ASSERT_OK(TryReopen(options));
+  ASSERT_TRUE(dbfull()->TEST_GetVersionSet()->GetWalSet().GetWals().empty());
+  Close();
 }
 #endif  // !ROCKSDB_LITE
 
