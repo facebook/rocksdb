@@ -2562,19 +2562,19 @@ TEST_P(DBBasicTestTrackWal, DoNotTrackObsoleteWal) {
   CreateAndReopenWithCF({"cf"}, options);
   ASSERT_EQ(handles_.size(), 2);  // default, cf
   // Do not delete WALs.
-  ASSERT_OK(dbfull()->DisableFileDeletions());
+  ASSERT_OK(db_->DisableFileDeletions());
   constexpr int n = 10;
   std::vector<std::unique_ptr<LogFile>> wals(n);
   for (size_t i = 0; i < n; i++) {
     // Generate a new WAL for each key-value.
     const int cf = i % 2;
-    ASSERT_OK(dbfull()->GetCurrentWalFile(&wals[i]));
+    ASSERT_OK(db_->GetCurrentWalFile(&wals[i]));
     ASSERT_OK(Put(cf, "k" + std::to_string(i), "v" + std::to_string(i)));
     ASSERT_OK(Flush({0, 1}));
   }
   ASSERT_EQ(CountWalFiles(), n);
   // Since all WALs are obsolete, no WAL should be tracked in MANIFEST.
-  ASSERT_OK(dbfull()->SyncWAL());
+  ASSERT_OK(db_->SyncWAL());
 
   // Manually delete all WALs.
   Close();
