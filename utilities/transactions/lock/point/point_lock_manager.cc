@@ -94,64 +94,6 @@ struct LockMap {
   size_t GetStripe(const std::string& key) const;
 };
 
-void DeadlockInfoBuffer::AddNewPath(DeadlockPath path) {
-  std::lock_guard<std::mutex> lock(paths_buffer_mutex_);
-
-  if (paths_buffer_.empty()) {
-    return;
-  }
-
-  paths_buffer_[buffer_idx_] = std::move(path);
-  buffer_idx_ = (buffer_idx_ + 1) % paths_buffer_.size();
-}
-
-void DeadlockInfoBuffer::Resize(uint32_t target_size) {
-  std::lock_guard<std::mutex> lock(paths_buffer_mutex_);
-
-  paths_buffer_ = Normalize();
-
-  // Drop the deadlocks that will no longer be needed ater the normalize
-  if (target_size < paths_buffer_.size()) {
-    paths_buffer_.erase(
-        paths_buffer_.begin(),
-        paths_buffer_.begin() + (paths_buffer_.size() - target_size));
-    buffer_idx_ = 0;
-  }
-  // Resize the buffer to the target size and restore the buffer's idx
-  else {
-    auto prev_size = paths_buffer_.size();
-    paths_buffer_.resize(target_size);
-    buffer_idx_ = (uint32_t)prev_size;
-  }
-}
-
-std::vector<DeadlockPath> DeadlockInfoBuffer::Normalize() {
-  auto working = paths_buffer_;
-
-  if (working.empty()) {
-    return working;
-  }
-
-  // Next write occurs at a nonexistent path's slot
-  if (paths_buffer_[buffer_idx_].empty()) {
-    working.resize(buffer_idx_);
-  } else {
-    std::rotate(working.begin(), working.begin() + buffer_idx_, working.end());
-  }
-
-  return working;
-}
-
-std::vector<DeadlockPath> DeadlockInfoBuffer::PrepareBuffer() {
-  std::lock_guard<std::mutex> lock(paths_buffer_mutex_);
-
-  // Reversing the normalized vector returns the latest deadlocks first
-  auto working = Normalize();
-  std::reverse(working.begin(), working.end());
-
-  return working;
-}
-
 namespace {
 void UnrefLockMapsCache(void* ptr) {
   // Called when a thread exits or a ThreadLocalPtr gets destroyed.
