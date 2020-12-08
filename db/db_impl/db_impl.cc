@@ -2808,7 +2808,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
                                     /* allow_unprepared_value */ true);
     result = NewDBIterator(
         env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
-        cfd->user_comparator(), iter, kMaxSequenceNumber,
+        cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
         sv->mutable_cf_options.max_sequential_skip_in_iterations, read_callback,
         this, cfd);
 #endif
@@ -2829,7 +2829,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
                                             ColumnFamilyData* cfd,
                                             SequenceNumber snapshot,
                                             ReadCallback* read_callback,
-                                            bool allow_blob,
+                                            bool expose_blob_index,
                                             bool allow_refresh) {
   SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
 
@@ -2894,9 +2894,9 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
   // likely that any iterator pointer is close to the iterator it points to so
   // that they are likely to be in the same cache line and/or page.
   ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, snapshot,
-      sv->mutable_cf_options.max_sequential_skip_in_iterations,
-      sv->version_number, read_callback, this, cfd, allow_blob,
+      env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, sv->current,
+      snapshot, sv->mutable_cf_options.max_sequential_skip_in_iterations,
+      sv->version_number, read_callback, this, cfd, expose_blob_index,
       read_options.snapshot != nullptr ? false : allow_refresh);
 
   InternalIterator* internal_iter = NewInternalIterator(
@@ -2934,7 +2934,7 @@ Status DBImpl::NewIterators(
                                       /* allow_unprepared_value */ true);
       iterators->push_back(NewDBIterator(
           env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
-          cfd->user_comparator(), iter, kMaxSequenceNumber,
+          cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
           read_callback, this, cfd));
     }
@@ -3405,6 +3405,10 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
     return Status::InvalidArgument("Invalid options");
   }
 
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+
   Version* v;
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
@@ -3412,9 +3416,23 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
   v = sv->current;
 
   for (int i = 0; i < n; i++) {
+    Slice start = range[i].start;
+    Slice limit = range[i].limit;
+
+    // Add timestamp if needed
+    std::string start_with_ts, limit_with_ts;
+    if (ts_sz > 0) {
+      // Maximum timestamp means including all key with any timestamp
+      AppendKeyWithMaxTimestamp(&start_with_ts, start, ts_sz);
+      // Append a maximum timestamp as the range limit is exclusive:
+      // [start, limit)
+      AppendKeyWithMaxTimestamp(&limit_with_ts, limit, ts_sz);
+      start = start_with_ts;
+      limit = limit_with_ts;
+    }
     // Convert user_key into a corresponding internal key.
-    InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
-    InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey k2(limit, kMaxSequenceNumber, kValueTypeForSeek);
     sizes[i] = 0;
     if (options.include_files) {
       sizes[i] += versions_->ApproximateSize(

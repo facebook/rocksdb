@@ -2245,70 +2245,25 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     return s;
   }
 
-  std::unique_ptr<char[]> buf(new char[max_backup_meta_file_size_]);
-  size_t len = 0, buf_size = max_backup_meta_file_size_;
-  len += snprintf(buf.get(), buf_size, "%" PRId64 "\n", timestamp_);
-  len += snprintf(buf.get() + len, buf_size - len, "%" PRIu64 "\n",
-                  sequence_number_);
+  std::ostringstream buf;
+  buf << timestamp_ << "\n";
+  buf << sequence_number_ << "\n";
+
   if (!app_metadata_.empty()) {
     std::string hex_encoded_metadata =
         Slice(app_metadata_).ToString(/* hex */ true);
-
-    // +1 to accommodate newline character
-    size_t hex_meta_strlen =
-        kMetaDataPrefix.ToString().length() + hex_encoded_metadata.length() + 1;
-    if (hex_meta_strlen >= buf_size) {
-      return Status::Corruption("Buffer too small to fit backup metadata");
-    }
-    else if (len + hex_meta_strlen >= buf_size) {
-      backup_meta_file->Append(Slice(buf.get(), len));
-      buf.reset();
-      std::unique_ptr<char[]> new_reset_buf(
-          new char[max_backup_meta_file_size_]);
-      buf.swap(new_reset_buf);
-      len = 0;
-    }
-    len += snprintf(buf.get() + len, buf_size - len, "%s%s\n",
-                    kMetaDataPrefix.ToString().c_str(),
-                    hex_encoded_metadata.c_str());
+    buf << kMetaDataPrefix.ToString() << hex_encoded_metadata << "\n";
   }
-
-  char writelen_temp[19];
-  if (len + snprintf(writelen_temp, sizeof(writelen_temp),
-                     "%" ROCKSDB_PRIszt "\n", files_.size()) >= buf_size) {
-    backup_meta_file->Append(Slice(buf.get(), len));
-    buf.reset();
-    std::unique_ptr<char[]> new_reset_buf(new char[max_backup_meta_file_size_]);
-    buf.swap(new_reset_buf);
-    len = 0;
-  }
-  {
-    const char *const_write = writelen_temp;
-    len += snprintf(buf.get() + len, buf_size - len, "%s", const_write);
-  }
+  buf << files_.size() << "\n";
 
   for (const auto& file : files_) {
     // use crc32c for now, switch to something else if needed
     // WART: The checksums are crc32c, not original crc32
-
-    size_t newlen =
-        len + file->filename.length() +
-        snprintf(writelen_temp, sizeof(writelen_temp), " crc32 %u\n",
-                 ChecksumHexToInt32(file->checksum_hex));
-    const char* const_write = writelen_temp;
-    if (newlen >= buf_size) {
-      backup_meta_file->Append(Slice(buf.get(), len));
-      buf.reset();
-      std::unique_ptr<char[]> new_reset_buf(
-          new char[max_backup_meta_file_size_]);
-      buf.swap(new_reset_buf);
-      len = 0;
-    }
-    len += snprintf(buf.get() + len, buf_size - len, "%s%s",
-                    file->filename.c_str(), const_write);
+    buf << file->filename << " crc32 " << ChecksumHexToInt32(file->checksum_hex)
+        << "\n";
   }
 
-  s = backup_meta_file->Append(Slice(buf.get(), len));
+  s = backup_meta_file->Append(Slice(buf.str()));
   if (s.ok() && sync) {
     s = backup_meta_file->Sync();
   }
