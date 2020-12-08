@@ -81,6 +81,27 @@ TEST(WalSet, DeleteAllWals) {
   ASSERT_OK(wals.DeleteWalsBefore(kMaxWalNumber + 1));
 }
 
+TEST(WalSet, AddObsoleteWal) {
+  constexpr WalNumber kNumber = 100;
+  WalSet wals;
+  ASSERT_OK(wals.DeleteWalsBefore(kNumber + 1));
+  Status s = wals.AddWal(WalAddition(kNumber));
+  ASSERT_TRUE(s.IsCorruption());
+  ASSERT_TRUE(s.ToString().find("WAL 100 is obsolete") != std::string::npos);
+}
+
+TEST(WalSet, MinWalNumberToKeep) {
+  constexpr WalNumber kNumber = 100;
+  WalSet wals;
+  ASSERT_EQ(wals.GetMinWalNumberToKeep(), 0);
+  wals.SetMinWalNumberToKeep(kNumber);
+  ASSERT_EQ(wals.GetMinWalNumberToKeep(), kNumber);
+  wals.SetMinWalNumberToKeep(kNumber - 1);
+  ASSERT_EQ(wals.GetMinWalNumberToKeep(), kNumber);
+  wals.SetMinWalNumberToKeep(kNumber + 1);
+  ASSERT_EQ(wals.GetMinWalNumberToKeep(), kNumber + 1);
+}
+
 class WalSetTest : public DBTestBase {
  public:
   WalSetTest() : DBTestBase("WalSetTest", /* env_do_fsync */ true) {}
