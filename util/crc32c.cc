@@ -37,6 +37,10 @@
 #define AT_HWCAP2 26
 #endif
 
+#elif __FreeBSD__
+#include <machine/cpu.h>
+#include <sys/auxv.h>
+#include <sys/elf_common.h>
 #endif /* __linux__ */
 
 #endif
@@ -468,9 +472,6 @@ static int arch_ppc_probe(void) {
   return arch_ppc_crc32;
 }
 #elif __FreeBSD__
-#include <machine/cpu.h>
-#include <sys/auxv.h>
-#include <sys/elf_common.h>
 static int arch_ppc_probe(void) {
   unsigned long cpufeatures;
   arch_ppc_crc32 = 0;
