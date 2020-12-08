@@ -4229,31 +4229,23 @@ Status VersionSet::ProcessManifestWrites(
       // Each version in versions corresponds to a column family.
       // For each column family, update its log number indicating that logs
       // with number smaller than this should be ignored.
-      // TODO (yanqin): remove the nested loop if possible.
-      for (const auto version : versions) {
-        uint64_t max_log_number_in_batch = 0;
-        assert(version->cfd_);
-        uint32_t cf_id = version->cfd_->GetID();
-        std::string full_history_ts_low;
-        for (const auto& e : batch_edits) {
-          if (e->column_family_ == cf_id) {
-            if (e->has_log_number_) {
-              max_log_number_in_batch =
-                  std::max(max_log_number_in_batch, e->log_number_);
-            }
-            if (e->HasFullHistoryTsLow()) {
-              version->cfd_->SetFullHistoryTsLow(e->GetFullHistoryTsLow());
-            }
+      uint64_t last_min_log_number_to_keep = 0;
+      for (const auto& e : batch_edits) {
+        ColumnFamilyData* cfd = nullptr;
+        if (!e->IsColumnFamilyManipulation()) {
+          cfd = column_family_set_->GetColumnFamily(e->column_family_);
+          // e would not have been added to batch_edits if its corresponding
+          // column family is dropped.
+          assert(cfd);
+        }
+        if (cfd) {
+          if (e->has_log_number_ && e->log_number_ > cfd->GetLogNumber()) {
+            cfd->SetLogNumber(e->log_number_);
+          }
+          if (e->HasFullHistoryTsLow()) {
+            cfd->SetFullHistoryTsLow(e->GetFullHistoryTsLow());
           }
         }
-        if (max_log_number_in_batch != 0) {
-          assert(version->cfd_->GetLogNumber() <= max_log_number_in_batch);
-          version->cfd_->SetLogNumber(max_log_number_in_batch);
-        }
-      }
-
-      uint64_t last_min_log_number_to_keep = 0;
-      for (auto& e : batch_edits) {
         if (e->has_min_log_number_to_keep_) {
           last_min_log_number_to_keep =
               std::max(last_min_log_number_to_keep, e->min_log_number_to_keep_);
