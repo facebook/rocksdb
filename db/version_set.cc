@@ -4234,7 +4234,6 @@ Status VersionSet::ProcessManifestWrites(
         ColumnFamilyData* cfd = nullptr;
         if (!e->IsColumnFamilyManipulation()) {
           cfd = column_family_set_->GetColumnFamily(e->column_family_);
-          assert(cfd);
         }
         if (cfd) {
           if (e->has_log_number_ && e->log_number_ > cfd->GetLogNumber()) {
