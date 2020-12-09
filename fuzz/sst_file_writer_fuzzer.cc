@@ -22,6 +22,20 @@ protobuf_mutator::libfuzzer::PostProcessorRegistration<DBOperations> reg = {
     [](DBOperations* input, unsigned int /* seed */) {
       const rocksdb::Comparator* comparator = rocksdb::BytewiseComparator();
       auto ops = input->mutable_operations();
+
+      // Make sure begin <= end for DELETE_RANGE.
+      for (DBOperation& op : *ops) {
+        if (op.type() == OpType::DELETE_RANGE) {
+          auto begin = op.key();
+          auto end = op.value();
+          if (comparator->Compare(begin, end) > 0) {
+            std::swap(begin, end);
+            op.set_key(begin);
+            op.set_value(end);
+          }
+        }
+      }
+
       std::sort(ops->begin(), ops->end(),
                 [&comparator](const DBOperation& a, const DBOperation& b) {
                   return comparator->Compare(a.key(), b.key()) < 0;
@@ -93,20 +107,9 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
         break;
       }
       case OpType::DELETE_RANGE: {
-        auto begin = op.key();
-        auto end = op.value();
-        if (options.comparator->Compare(begin, end) > 0) {
-          std::swap(begin, end);
-        }
-
-        s = writer.DeleteRange(begin, end);
+        s = writer.DeleteRange(op.key(), op.value());
         CHECK_OK(s);
-
-        auto lb = kv.lower_bound(begin);
-        if (lb != kv.end()) {
-          kv.erase(lb, kv.lower_bound(end));
-        }
-
+        kv.erase(kv.lower_bound(op.key()), kv.lower_bound(op.value()));
         break;
       }
       default: {
@@ -128,7 +131,8 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
 
   // Iterate and verify key-value pairs.
   auto kv_it = kv.begin();
-  std::unique_ptr<rocksdb::Iterator> it(reader.NewIterator(rocksdb::ReadOptions()));
+  std::unique_ptr<rocksdb::Iterator> it(
+      reader.NewIterator(rocksdb::ReadOptions()));
   for (it->SeekToFirst(); it->Valid(); it->Next(), kv_it++) {
     CHECK_TRUE(kv_it != kv.end());
     CHECK_EQ(it->key().ToString(), kv_it->first);
