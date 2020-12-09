@@ -1833,8 +1833,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
       // buffer or there is no cache at all.
       CompressionType compression_type =
           raw_block_contents.get_compression_type();
-      if (use_shared_buffer && ((compression_type == kNoCompression &&
-                                 rep_->table_options.block_cache) ||
+      if (use_shared_buffer && (compression_type == kNoCompression ||
                                 (compression_type != kNoCompression &&
                                  rep_->table_options.block_cache_compressed))) {
         Slice raw = Slice(req.result.data() + req_offset, block_size(handle));
