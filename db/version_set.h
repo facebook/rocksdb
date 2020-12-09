@@ -1229,11 +1229,6 @@ class VersionSet {
   // The returned WalSet needs to be accessed with DB mutex held.
   const WalSet& GetWalSet() const { return wals_; }
 
-  // Must be called with DB mutex held.
-  void SetMinWalNumberToKeepInWalSet(WalNumber number) {
-    return wals_.SetMinWalNumberToKeep(number);
-  }
-
   void TEST_CreateAndAppendVersion(ColumnFamilyData* cfd) {
     assert(cfd);
 

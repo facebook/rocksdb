@@ -143,10 +143,6 @@ class WalSet {
 
   // WALs with number less than MinWalNumberToKeep should not exist in WalSet.
   WalNumber GetMinWalNumberToKeep() const { return min_wal_number_to_keep_; }
-  // If number < MinWalNumberToKeep, then it's a no-op.
-  void SetMinWalNumberToKeep(WalNumber number) {
-    min_wal_number_to_keep_ = std::max(min_wal_number_to_keep_, number);
-  }
 
   const std::map<WalNumber, WalMetadata>& GetWals() const { return wals_; }
 
