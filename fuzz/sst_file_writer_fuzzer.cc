@@ -63,7 +63,7 @@ protobuf_mutator::libfuzzer::PostProcessorRegistration<DBOperations> reg = {
 
 #define CHECK_TRUE(cond)                                      \
   if (!(cond)) {                                              \
-    std::cout << "\"" << #cond << "\" is false" << std::endl; \
+    std::cerr << "\"" << #cond << "\" is false" << std::endl; \
     abort();                                                  \
   }
 
