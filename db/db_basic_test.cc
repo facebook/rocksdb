@@ -2964,21 +2964,6 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
    public:
     FakeDirectIOEnv(Env* env) : EnvWrapper(env) {}
 
-#if 0
-    Status NewSequentialFile(const std::string& fname,
-                             std::unique_ptr<SequentialFile>* result,
-                             const EnvOptions& options) override {
-      std::unique_ptr<SequentialFile> file;
-      assert(options.use_direct_reads);
-      Status s = target()->NewSequentialFile(fname, &file, options);
-      if (!s.ok()) {
-        return s;
-      }
-      result->reset(new FakeDirectIOSequentialFile(std::move(file)));
-      return s;
-    }
-#endif
-
     Status NewRandomAccessFile(const std::string& fname,
                                std::unique_ptr<RandomAccessFile>* result,
                                const EnvOptions& options) override {
