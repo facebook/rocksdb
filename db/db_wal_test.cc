@@ -1532,7 +1532,7 @@ TEST_F(DBWALTest, RecoverWithoutFlushMultipleCF) {
   auto countWalFiles = [this]() {
     VectorLogPtr log_files;
     if (!dbfull()->GetSortedWalFiles(log_files).ok()) {
-      return static_cast<size_t>(0);
+      return size_t{0};
     }
     return log_files.size();
   };
