@@ -19,9 +19,11 @@
 #pragma once
 
 #include <string>
+
 #include "rocksdb/cleanable.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -83,6 +85,11 @@ class Iterator : public Cleanable {
   // the iterator.
   // REQUIRES: Valid()
   virtual Slice value() const = 0;
+
+  // Return the sequence number for the current entry if it's available.
+  // Return false if it's not available.
+  // REQUIRES: Valid()
+  virtual bool seqno(SequenceNumber* /*seqno*/) const { return false; }
 
   // If an error has occurred, return it.  Else return an ok status.
   // If non-blocking IO is requested and this operation cannot be

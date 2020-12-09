@@ -239,7 +239,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
 
         // For integrated BlobDB impl, CompactionIterator reads blob value.
         // For Stacked BlobDB impl, the corresponding CompactionFilter's
-        // FilterV2 method should read the blob value.
+        // FilterV3 method should read the blob value.
         BlobIndex blob_index;
         Status s = blob_index.DecodeFrom(value_);
         if (!s.ok()) {
@@ -273,8 +273,8 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       }
     }
     if (CompactionFilter::Decision::kUndetermined == filter) {
-      filter = compaction_filter_->FilterV2(
-          level_, filter_key, value_type,
+      filter = compaction_filter_->FilterV3(
+          level_, filter_key, ikey_.sequence, value_type,
           blob_value_.empty() ? value_ : blob_value_, &compaction_filter_value_,
           compaction_filter_skip_until_.rep());
     }
@@ -283,9 +283,9 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   }
 
   if (CompactionFilter::Decision::kUndetermined == filter) {
-    // Should not reach here, since FilterV2 should never return kUndetermined.
+    // Should not reach here, since FilterV3 should never return kUndetermined.
     status_ =
-        Status::NotSupported("FilterV2() should never return kUndetermined");
+        Status::NotSupported("FilterV3() should never return kUndetermined");
     valid_ = false;
     return false;
   }
@@ -294,7 +294,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
       cmp_->Compare(*compaction_filter_skip_until_.rep(), ikey_.user_key) <=
           0) {
     // Can't skip to a key smaller than the current one.
-    // Keep the key as per FilterV2 documentation.
+    // Keep the key as per FilterV3 documentation.
     filter = CompactionFilter::Decision::kKeep;
   }
 

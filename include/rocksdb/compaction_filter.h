@@ -137,6 +137,30 @@ class CompactionFilter : public Customizable {
     return false;
   }
 
+  // Almost same as FilterV3, except won't pass out sequence numbers.
+  virtual Decision FilterV2(int level, const Slice& key, ValueType value_type,
+                            const Slice& existing_value, std::string* new_value,
+                            std::string* /*skip_until*/) const {
+    switch (value_type) {
+      case ValueType::kValue: {
+        bool value_changed = false;
+        bool rv = Filter(level, key, existing_value, new_value, &value_changed);
+        if (rv) {
+          return Decision::kRemove;
+        }
+        return value_changed ? Decision::kChangeValue : Decision::kKeep;
+      }
+      case ValueType::kMergeOperand: {
+        bool rv = FilterMergeOperand(level, key, existing_value);
+        return rv ? Decision::kRemove : Decision::kKeep;
+      }
+      case ValueType::kBlobIndex:
+        return Decision::kKeep;
+    }
+    assert(false);
+    return Decision::kKeep;
+  }
+
   // An extended API. Called for both values and merge operands.
   // Allows changing value and skipping ranges of keys.
   // The default implementation uses Filter() and FilterMergeOperand().
@@ -178,27 +202,14 @@ class CompactionFilter : public Customizable {
   // is a write conflict and may allow a Transaction to Commit that should have
   // failed. Instead, it is better to implement any Merge filtering inside the
   // MergeOperator.
-  virtual Decision FilterV2(int level, const Slice& key, ValueType value_type,
+  //
+  // Note: for kTypeBlobIndex, `key` is internal key instead of user key.
+  virtual Decision FilterV3(int level, const Slice& key,
+                            SequenceNumber /*seqno*/, ValueType value_type,
                             const Slice& existing_value, std::string* new_value,
-                            std::string* /*skip_until*/) const {
-    switch (value_type) {
-      case ValueType::kValue: {
-        bool value_changed = false;
-        bool rv = Filter(level, key, existing_value, new_value, &value_changed);
-        if (rv) {
-          return Decision::kRemove;
-        }
-        return value_changed ? Decision::kChangeValue : Decision::kKeep;
-      }
-      case ValueType::kMergeOperand: {
-        bool rv = FilterMergeOperand(level, key, existing_value);
-        return rv ? Decision::kRemove : Decision::kKeep;
-      }
-      case ValueType::kBlobIndex:
-        return Decision::kKeep;
-    }
-    assert(false);
-    return Decision::kKeep;
+                            std::string* skip_until) const {
+    return FilterV2(level, key, value_type, existing_value, new_value,
+                    skip_until);
   }
 
   // Internal (BlobDB) use only. Do not override in application code.

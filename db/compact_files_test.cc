@@ -134,7 +134,6 @@ TEST_F(CompactFilesTest, FilterContext) {
   db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   usleep(10000);  // Wait for compaction start.
   ASSERT_EQ(expected_context->start_key, Slice("1"));
-  ASSERT_EQ(expected_context->end_key, Slice("99"));
   ASSERT_EQ(expected_context->is_end_key_inclusive, 1);
   ASSERT_EQ(expected_context->file_numbers[0], 11);
   ASSERT_EQ(*compaction_count.get(), 1);

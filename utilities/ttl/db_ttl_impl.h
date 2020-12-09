@@ -147,6 +147,8 @@ class TtlIterator : public Iterator {
     return trimmed_value;
   }
 
+  bool seqno(SequenceNumber* no) const override { return iter_->seqno(no); }
+
   Status status() const override { return iter_->status(); }
 
  private:
