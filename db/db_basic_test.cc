@@ -2727,7 +2727,7 @@ class DBBasicTestMultiGet : public DBTestBase {
   bool compression_enabled() { return compression_enabled_; }
   bool has_compressed_cache() { return compressed_cache_ != nullptr; }
   bool has_uncompressed_cache() { return uncompressed_cache_ != nullptr; }
-  Options options() { return options_; }
+  Options get_options() { return options_; }
 
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
@@ -2813,8 +2813,8 @@ class DBBasicTestMultiGet : public DBTestBase {
 
   std::shared_ptr<MyBlockCache> compressed_cache_;
   std::shared_ptr<MyBlockCache> uncompressed_cache_;
-  bool compression_enabled_;
   Options options_;
+  bool compression_enabled_;
   std::vector<std::string> values_;
   std::vector<std::string> uncompressable_values_;
   bool fill_cache_;
@@ -2956,6 +2956,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGet) {
   }
 }
 
+#ifndef ROCKSDB_LITE
 TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
   class FakeDirectIOEnv : public EnvWrapper {
     class FakeDirectIOSequentialFile;
@@ -3008,7 +3009,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
   };
 
   std::unique_ptr<FakeDirectIOEnv> env(new FakeDirectIOEnv(env_));
-  Options opts = options();
+  Options opts = get_options();
   opts.env = env.get();
   opts.use_direct_reads = true;
   Reopen(opts);
@@ -3070,6 +3071,7 @@ TEST_P(DBBasicTestWithParallelIO, MultiGetDirectIO) {
   }
   Close();
 }
+#endif  // ROCKSDB_LITE
 
 TEST_P(DBBasicTestWithParallelIO, MultiGetWithChecksumMismatch) {
   std::vector<std::string> key_data(10);
