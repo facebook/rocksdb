@@ -77,14 +77,16 @@ enum class IOType : uint8_t {
 // honored. More hints can be added here in the future to indicate things like
 // storage media (HDD/SSD) to be used, replication level etc.
 struct IOOptions {
-  // Timeout for the operation in milliseconds
-  std::chrono::milliseconds timeout;
+  // Timeout for the operation in microseconds
+  std::chrono::microseconds timeout;
 
   // Priority - high or low
   IOPriority prio;
 
   // Type of data being read/written
   IOType type;
+
+  IOOptions() : timeout(0), prio(IOPriority::kIOLow), type(IOType::kUnknown) {}
 };
 
 // File scope options that control how a file is opened/created and accessed
@@ -105,6 +107,8 @@ struct FileOptions : EnvOptions {
 
   FileOptions(const FileOptions& opts)
     : EnvOptions(opts), io_options(opts.io_options) {}
+
+  FileOptions& operator=(const FileOptions& opts) = default;
 };
 
 // A structure to pass back some debugging information from the FileSystem
@@ -258,7 +262,7 @@ class FileSystem {
   virtual IOStatus ReopenWritableFile(
       const std::string& /*fname*/, const FileOptions& /*options*/,
       std::unique_ptr<FSWritableFile>* /*result*/, IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported();
+    return IOStatus::NotSupported("ReopenWritableFile");
   }
 
   // Reuse an existing file by renaming it and opening it as writable.
@@ -519,8 +523,12 @@ class FileSystem {
                                 const IOOptions& /*options*/,
                                 uint64_t* /*diskfree*/,
                                 IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported();
+    return IOStatus::NotSupported("GetFreeSpace");
   }
+
+  virtual IOStatus IsDirectory(const std::string& /*path*/,
+                               const IOOptions& options, bool* is_dir,
+                               IODebugContext* /*dgb*/) = 0;
 
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
@@ -576,7 +584,7 @@ class FSSequentialFile {
                                   const IOOptions& /*options*/,
                                   Slice* /*result*/, char* /*scratch*/,
                                   IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported();
+    return IOStatus::NotSupported("PositionedRead");
   }
 
   // If you're adding methods here, remember to add them to
@@ -625,10 +633,12 @@ class FSRandomAccessFile {
                         IODebugContext* dbg) const = 0;
 
   // Readahead the file starting from offset by n bytes for caching.
+  // If it's not implemented (default: `NotSupported`), RocksDB will create
+  // internal prefetch buffer to improve read performance.
   virtual IOStatus Prefetch(uint64_t /*offset*/, size_t /*n*/,
                             const IOOptions& /*options*/,
                             IODebugContext* /*dbg*/) {
-    return IOStatus::OK();
+    return IOStatus::NotSupported("Prefetch");
   }
 
   // Read a bunch of blocks as described by reqs. The blocks can
@@ -692,6 +702,13 @@ class FSRandomAccessFile {
   // RandomAccessFileWrapper too.
 };
 
+// A data structure brings the data verification information, which is
+// used togther with data being written to a file.
+struct DataVerificationInfo {
+  // checksum of the data being written.
+  Slice checksum;
+};
+
 // A file abstraction for sequential writing.  The implementation
 // must provide buffering since callers may append small fragments
 // at a time to the file.
@@ -719,6 +736,16 @@ class FSWritableFile {
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;
 
+  // EXPERIMENTAL / CURRENTLY UNUSED
+  // Append data with verification information
+  // Note that this API change is experimental and it might be changed in
+  // the future. Currently, RocksDB does not use this API.
+  virtual IOStatus Append(const Slice& data, const IOOptions& options,
+                          const DataVerificationInfo& /* verification_info */,
+                          IODebugContext* dbg) {
+    return Append(data, options, dbg);
+  }
+
   // PositionedAppend data to the specified offset. The new EOF after append
   // must be larger than the previous EOF. This is to be used when writes are
   // not backed by OS buffers and hence has to always start from the start of
@@ -743,7 +770,19 @@ class FSWritableFile {
                                     uint64_t /* offset */,
                                     const IOOptions& /*options*/,
                                     IODebugContext* /*dbg*/) {
-    return IOStatus::NotSupported();
+    return IOStatus::NotSupported("PositionedAppend");
+  }
+
+  // EXPERIMENTAL / CURRENTLY UNUSED
+  // PositionedAppend data with verification information.
+  // Note that this API change is experimental and it might be changed in
+  // the future. Currently, RocksDB does not use this API.
+  virtual IOStatus PositionedAppend(
+      const Slice& /* data */, uint64_t /* offset */,
+      const IOOptions& /*options*/,
+      const DataVerificationInfo& /* verification_info */,
+      IODebugContext* /*dbg*/) {
+    return IOStatus::NotSupported("PositionedAppend");
   }
 
   // Truncate is necessary to trim the file to the correct size
@@ -861,7 +900,8 @@ class FSWritableFile {
       size_t num_spanned_blocks =
           new_last_preallocated_block - last_preallocated_block_;
       Allocate(block_size * last_preallocated_block_,
-               block_size * num_spanned_blocks, options, dbg);
+               block_size * num_spanned_blocks, options, dbg)
+          .PermitUncheckedError();
       last_preallocated_block_ = new_last_preallocated_block;
     }
   }
@@ -1193,6 +1233,10 @@ class FileSystemWrapper : public FileSystem {
                         uint64_t* diskfree, IODebugContext* dbg) override {
     return target_->GetFreeSpace(path, options, diskfree, dbg);
   }
+  IOStatus IsDirectory(const std::string& path, const IOOptions& options,
+                       bool* is_dir, IODebugContext* dbg) override {
+    return target_->IsDirectory(path, options, is_dir, dbg);
+  }
 
  private:
   std::shared_ptr<FileSystem> target_;
@@ -1200,8 +1244,9 @@ class FileSystemWrapper : public FileSystem {
 
 class FSSequentialFileWrapper : public FSSequentialFile {
  public:
-  explicit FSSequentialFileWrapper(FSSequentialFile* target)
-      : target_(target) {}
+  explicit FSSequentialFileWrapper(FSSequentialFile* t) : target_(t) {}
+
+  FSSequentialFile* target() const { return target_; }
 
   IOStatus Read(size_t n, const IOOptions& options, Slice* result,
                 char* scratch, IODebugContext* dbg) override {
@@ -1227,8 +1272,9 @@ class FSSequentialFileWrapper : public FSSequentialFile {
 
 class FSRandomAccessFileWrapper : public FSRandomAccessFile {
  public:
-  explicit FSRandomAccessFileWrapper(FSRandomAccessFile* target)
-      : target_(target) {}
+  explicit FSRandomAccessFileWrapper(FSRandomAccessFile* t) : target_(t) {}
+
+  FSRandomAccessFile* target() const { return target_; }
 
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                 Slice* result, char* scratch,
@@ -1263,14 +1309,28 @@ class FSWritableFileWrapper : public FSWritableFile {
  public:
   explicit FSWritableFileWrapper(FSWritableFile* t) : target_(t) {}
 
+  FSWritableFile* target() const { return target_; }
+
   IOStatus Append(const Slice& data, const IOOptions& options,
                   IODebugContext* dbg) override {
     return target_->Append(data, options, dbg);
+  }
+  IOStatus Append(const Slice& data, const IOOptions& options,
+                  const DataVerificationInfo& verification_info,
+                  IODebugContext* dbg) override {
+    return target_->Append(data, options, verification_info, dbg);
   }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
                             IODebugContext* dbg) override {
     return target_->PositionedAppend(data, offset, options, dbg);
+  }
+  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                            const IOOptions& options,
+                            const DataVerificationInfo& verification_info,
+                            IODebugContext* dbg) override {
+    return target_->PositionedAppend(data, offset, options, verification_info,
+                                     dbg);
   }
   IOStatus Truncate(uint64_t size, const IOOptions& options,
                     IODebugContext* dbg) override {
@@ -1346,7 +1406,9 @@ class FSWritableFileWrapper : public FSWritableFile {
 
 class FSRandomRWFileWrapper : public FSRandomRWFile {
  public:
-  explicit FSRandomRWFileWrapper(FSRandomRWFile* target) : target_(target) {}
+  explicit FSRandomRWFileWrapper(FSRandomRWFile* t) : target_(t) {}
+
+  FSRandomRWFile* target() const { return target_; }
 
   bool use_direct_io() const override { return target_->use_direct_io(); }
   size_t GetRequiredBufferAlignment() const override {
@@ -1380,7 +1442,7 @@ class FSRandomRWFileWrapper : public FSRandomRWFile {
 
 class FSDirectoryWrapper : public FSDirectory {
  public:
-  explicit FSDirectoryWrapper(FSDirectory* target) : target_(target) {}
+  explicit FSDirectoryWrapper(FSDirectory* t) : target_(t) {}
 
   IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
     return target_->Fsync(options, dbg);

@@ -21,7 +21,8 @@ static std::string NEW_VALUE = "NewValue";
 
 class DBTestCompactionFilter : public DBTestBase {
  public:
-  DBTestCompactionFilter() : DBTestBase("/db_compaction_filter_test") {}
+  DBTestCompactionFilter()
+      : DBTestBase("/db_compaction_filter_test", /*env_do_fsync=*/true) {}
 };
 
 // Param variant of DBTestBase::ChangeCompactOptions
@@ -124,22 +125,6 @@ class SkipEvenFilter : public CompactionFilter {
   bool IgnoreSnapshots() const override { return true; }
 
   const char* Name() const override { return "DeleteFilter"; }
-};
-
-class DelayFilter : public CompactionFilter {
- public:
-  explicit DelayFilter(DBTestBase* d) : db_test(d) {}
-  bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
-              std::string* /*new_value*/,
-              bool* /*value_changed*/) const override {
-    db_test->env_->addon_time_.fetch_add(1000);
-    return true;
-  }
-
-  const char* Name() const override { return "DelayFilter"; }
-
- private:
-  DBTestBase* db_test;
 };
 
 class ConditionalFilter : public CompactionFilter {
@@ -248,20 +233,6 @@ class SkipEvenFilterFactory : public CompactionFilterFactory {
   const char* Name() const override { return "SkipEvenFilterFactory"; }
 };
 
-class DelayFilterFactory : public CompactionFilterFactory {
- public:
-  explicit DelayFilterFactory(DBTestBase* d) : db_test(d) {}
-  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& /*context*/) override {
-    return std::unique_ptr<CompactionFilter>(new DelayFilter(db_test));
-  }
-
-  const char* Name() const override { return "DelayFilterFactory"; }
-
- private:
-  DBTestBase* db_test;
-};
-
 class ConditionalFilterFactory : public CompactionFilterFactory {
  public:
   explicit ConditionalFilterFactory(const Slice& filtered_value)
@@ -336,13 +307,14 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
     InternalKeyComparator icmp(options.comparator);
     ReadRangeDelAggregator range_del_agg(&icmp,
                                          kMaxSequenceNumber /* upper_bound */);
+    ReadOptions read_options;
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(
-        &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
+        read_options, &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true /* log_err_key */));
       total++;
       if (ikey.sequence != 0) {
         count++;
@@ -426,13 +398,14 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
     InternalKeyComparator icmp(options.comparator);
     ReadRangeDelAggregator range_del_agg(&icmp,
                                          kMaxSequenceNumber /* upper_bound */);
+    ReadOptions read_options;
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(
-        &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
+        read_options, &arena, &range_del_agg, kMaxSequenceNumber, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true /* log_err_key */));
       ASSERT_NE(ikey.sequence, (unsigned)0);
       count++;
       iter->Next();
@@ -644,13 +617,14 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     InternalKeyComparator icmp(options.comparator);
     ReadRangeDelAggregator range_del_agg(&icmp,
                                          kMaxSequenceNumber /* snapshots */);
+    ReadOptions read_options;
     ScopedArenaIterator iter(dbfull()->NewInternalIterator(
-        &arena, &range_del_agg, kMaxSequenceNumber));
+        read_options, &arena, &range_del_agg, kMaxSequenceNumber));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
       ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      ASSERT_OK(ParseInternalKey(iter->key(), &ikey, true /* log_err_key */));
       total++;
       if (ikey.sequence != 0) {
         count++;

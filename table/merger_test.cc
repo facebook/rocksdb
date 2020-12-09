@@ -3,12 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <vector>
 #include <string>
+#include <vector>
 
 #include "table/merging_iterator.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -24,7 +25,7 @@ class MergerTest : public testing::Test {
     std::vector<std::string> ret;
 
     for (size_t i = 0; i < len; ++i) {
-      InternalKey ik(test::RandomHumanReadableString(&rnd_, string_len), 0,
+      InternalKey ik(rnd_.HumanReadableString(string_len), 0,
                      ValueType::kTypeValue);
       ret.push_back(ik.Encode().ToString(false));
     }
@@ -44,8 +45,7 @@ class MergerTest : public testing::Test {
   }
 
   void SeekToRandom() {
-    InternalKey ik(test::RandomHumanReadableString(&rnd_, 5), 0,
-                   ValueType::kTypeValue);
+    InternalKey ik(rnd_.HumanReadableString(5), 0, ValueType::kTypeValue);
     Seek(ik.Encode().ToString(false));
   }
 

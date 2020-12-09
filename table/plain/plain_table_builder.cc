@@ -64,7 +64,8 @@ PlainTableBuilder::PlainTableBuilder(
     EncodingType encoding_type, size_t index_sparseness,
     uint32_t bloom_bits_per_key, const std::string& column_family_name,
     uint32_t num_probes, size_t huge_page_tlb_size, double hash_table_ratio,
-    bool store_index_in_file)
+    bool store_index_in_file, const std::string& db_id,
+    const std::string& db_session_id)
     : ioptions_(ioptions),
       moptions_(moptions),
       bloom_block_(num_probes),
@@ -97,6 +98,12 @@ PlainTableBuilder::PlainTableBuilder(
   properties_.format_version = (encoding_type == kPlain) ? 0 : 1;
   properties_.column_family_id = column_family_id;
   properties_.column_family_name = column_family_name;
+  properties_.db_id = db_id;
+  properties_.db_session_id = db_session_id;
+  properties_.db_host_id = ioptions.db_host_id;
+  if (!ReifyDbHostIdProperty(ioptions_.env, &properties_.db_host_id).ok()) {
+    ROCKS_LOG_INFO(ioptions_.info_log, "db_host_id property will not be set");
+  }
   properties_.prefix_extractor_name = moptions_.prefix_extractor != nullptr
                                           ? moptions_.prefix_extractor->Name()
                                           : "nullptr";
@@ -113,6 +120,10 @@ PlainTableBuilder::PlainTableBuilder(
 }
 
 PlainTableBuilder::~PlainTableBuilder() {
+  // They are supposed to have been passed to users through Finish()
+  // if the file succeeds.
+  status_.PermitUncheckedError();
+  io_status_.PermitUncheckedError();
 }
 
 void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
@@ -121,7 +132,8 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   size_t meta_bytes_buf_size = 0;
 
   ParsedInternalKey internal_key;
-  if (!ParseInternalKey(key, &internal_key)) {
+  if (!ParseInternalKey(key, &internal_key, false /* log_err_key */)
+           .ok()) {  // TODO
     assert(false);
     return;
   }
@@ -202,7 +214,6 @@ Status PlainTableBuilder::Finish() {
 
   if (store_index_in_file_ && (properties_.num_entries > 0)) {
     assert(properties_.num_entries <= std::numeric_limits<uint32_t>::max());
-    Status s;
     BlockHandle bloom_block_handle;
     if (bloom_bits_per_key_ > 0) {
       bloom_block_.SetTotalBits(
@@ -313,7 +324,7 @@ const char* PlainTableBuilder::GetFileChecksumFuncName() const {
   if (file_ != nullptr) {
     return file_->GetFileChecksumFuncName();
   } else {
-    return kUnknownFileChecksumFuncName.c_str();
+    return kUnknownFileChecksumFuncName;
   }
 }
 

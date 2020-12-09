@@ -147,6 +147,27 @@ public class RocksIteratorTest {
         assertThat(iterator.isValid()).isTrue();
         assertThat(iterator.key()).isEqualTo("key2".getBytes());
       }
+
+      try (final RocksIterator iterator = db.newIterator()) {
+        iterator.seekToFirst();
+        assertThat(iterator.isValid()).isTrue();
+
+        byte[] lastKey;
+        do {
+          lastKey = iterator.key();
+          iterator.next();
+        } while (iterator.isValid());
+
+        db.put("key3".getBytes(), "value3".getBytes());
+        assertThat(iterator.isValid()).isFalse();
+        iterator.refresh();
+        iterator.seek(lastKey);
+        assertThat(iterator.isValid()).isTrue();
+
+        iterator.next();
+        assertThat(iterator.isValid()).isTrue();
+        assertThat(iterator.key()).isEqualTo("key3".getBytes());
+      }
     }
   }
 

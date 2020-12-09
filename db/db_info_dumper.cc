@@ -17,7 +17,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 void DumpDBFileSummary(const ImmutableDBOptions& options,
-                       const std::string& dbname) {
+                       const std::string& dbname,
+                       const std::string& session_id) {
   if (options.info_log == nullptr) {
     return;
   }
@@ -32,6 +33,8 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
   std::string file_info, wal_info;
 
   Header(options.info_log, "DB SUMMARY\n");
+  Header(options.info_log, "DB Session ID:  %s\n", session_id.c_str());
+
   // Get files in dbname dir
   if (!env->GetChildren(dbname, &files).ok()) {
     Error(options.info_log,
@@ -50,16 +53,24 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
         Header(options.info_log, "IDENTITY file:  %s\n", file.c_str());
         break;
       case kDescriptorFile:
-        env->GetFileSize(dbname + "/" + file, &file_size);
-        Header(options.info_log, "MANIFEST file:  %s size: %" PRIu64 " Bytes\n",
-               file.c_str(), file_size);
+        if (env->GetFileSize(dbname + "/" + file, &file_size).ok()) {
+          Header(options.info_log,
+                 "MANIFEST file:  %s size: %" PRIu64 " Bytes\n", file.c_str(),
+                 file_size);
+        } else {
+          Error(options.info_log, "Error when reading MANIFEST file: %s/%s\n",
+                dbname.c_str(), file.c_str());
+        }
         break;
-      case kLogFile:
-        env->GetFileSize(dbname + "/" + file, &file_size);
-        char str[16];
-        snprintf(str, sizeof(str), "%" PRIu64, file_size);
-        wal_info.append(file).append(" size: ").
-            append(str).append(" ; ");
+      case kWalFile:
+        if (env->GetFileSize(dbname + "/" + file, &file_size).ok()) {
+          char str[16];
+          snprintf(str, sizeof(str), "%" PRIu64, file_size);
+          wal_info.append(file).append(" size: ").append(str).append(" ; ");
+        } else {
+          Error(options.info_log, "Error when reading LOG file: %s/%s\n",
+                dbname.c_str(), file.c_str());
+        }
         break;
       case kTableFile:
         if (++file_num < 10) {
@@ -107,12 +118,15 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
     wal_info.clear();
     for (const std::string& file : files) {
       if (ParseFileName(file, &number, &type)) {
-        if (type == kLogFile) {
-          env->GetFileSize(options.wal_dir + "/" + file, &file_size);
-          char str[16];
-          snprintf(str, sizeof(str), "%" PRIu64, file_size);
-          wal_info.append(file).append(" size: ").
-              append(str).append(" ; ");
+        if (type == kWalFile) {
+          if (env->GetFileSize(options.wal_dir + "/" + file, &file_size).ok()) {
+            char str[16];
+            snprintf(str, sizeof(str), "%" PRIu64, file_size);
+            wal_info.append(file).append(" size: ").append(str).append(" ; ");
+          } else {
+            Error(options.info_log, "Error when reading LOG file %s/%s\n",
+                  options.wal_dir.c_str(), file.c_str());
+          }
         }
       }
     }

@@ -161,7 +161,7 @@ TEST(Coding, Varint32Truncation) {
   std::string s;
   PutVarint32(&s, large_value);
   uint32_t result;
-  for (unsigned int len = 0; len < s.size() - 1; len++) {
+  for (unsigned int len = 0; len + 1 < s.size(); len++) {
     ASSERT_TRUE(GetVarint32Ptr(s.data(), s.data() + len, &result) == nullptr);
   }
   ASSERT_TRUE(
@@ -181,7 +181,7 @@ TEST(Coding, Varint64Truncation) {
   std::string s;
   PutVarint64(&s, large_value);
   uint64_t result;
-  for (unsigned int len = 0; len < s.size() - 1; len++) {
+  for (unsigned int len = 0; len + 1 < s.size(); len++) {
     ASSERT_TRUE(GetVarint64Ptr(s.data(), s.data() + len, &result) == nullptr);
   }
   ASSERT_TRUE(

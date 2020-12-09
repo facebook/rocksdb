@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "options/options_helper.h"
 #include "port/stack_trace.h"
 #include "rocksdb/perf_context.h"
 #include "table/block_based/filter_policy_internal.h"
@@ -22,7 +23,8 @@ using BFP = BloomFilterPolicy;
 
 class DBBloomFilterTest : public DBTestBase {
  public:
-  DBBloomFilterTest() : DBTestBase("/db_bloom_filter_test") {}
+  DBBloomFilterTest()
+      : DBTestBase("/db_bloom_filter_test", /*env_do_fsync=*/true) {}
 };
 
 class DBBloomFilterTestWithParam : public DBTestBase,
@@ -35,7 +37,8 @@ class DBBloomFilterTestWithParam : public DBTestBase,
   uint32_t format_version_;
 
  public:
-  DBBloomFilterTestWithParam() : DBTestBase("/db_bloom_filter_tests") {}
+  DBBloomFilterTestWithParam()
+      : DBTestBase("/db_bloom_filter_tests", /*env_do_fsync=*/true) {}
 
   ~DBBloomFilterTestWithParam() override {}
 
@@ -80,13 +83,16 @@ TEST_P(DBBloomFilterTestDefFormatVersion, KeyMayExist) {
     options_override.partition_filters = partition_filters_;
     options_override.metadata_block_size = 32;
     Options options = CurrentOptions(options_override);
-    if (partition_filters_ &&
-        static_cast<BlockBasedTableOptions*>(
-            options.table_factory->GetOptions())
-                ->index_type != BlockBasedTableOptions::kTwoLevelIndexSearch) {
-      // In the current implementation partitioned filters depend on partitioned
-      // indexes
-      continue;
+    if (partition_filters_) {
+      auto* table_options =
+          options.table_factory->GetOptions<BlockBasedTableOptions>();
+      if (table_options != nullptr &&
+          table_options->index_type !=
+              BlockBasedTableOptions::kTwoLevelIndexSearch) {
+        // In the current implementation partitioned filters depend on
+        // partitioned indexes
+        continue;
+      }
     }
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -508,24 +514,24 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::Values(
         std::make_tuple(BFP::kDeprecatedBlock, false,
                         test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAuto, true, test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAuto, false, test::kDefaultFormatVersion)));
+        std::make_tuple(BFP::kAutoBloom, true, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, false, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestWithParam,
     ::testing::Values(
         std::make_tuple(BFP::kDeprecatedBlock, false,
                         test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAuto, true, test::kDefaultFormatVersion),
-        std::make_tuple(BFP::kAuto, false, test::kDefaultFormatVersion)));
+        std::make_tuple(BFP::kAutoBloom, true, test::kDefaultFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, false, test::kDefaultFormatVersion)));
 
 INSTANTIATE_TEST_CASE_P(
     FormatLatest, DBBloomFilterTestWithParam,
     ::testing::Values(
         std::make_tuple(BFP::kDeprecatedBlock, false,
                         test::kLatestFormatVersion),
-        std::make_tuple(BFP::kAuto, true, test::kLatestFormatVersion),
-        std::make_tuple(BFP::kAuto, false, test::kLatestFormatVersion)));
+        std::make_tuple(BFP::kAutoBloom, true, test::kLatestFormatVersion),
+        std::make_tuple(BFP::kAutoBloom, false, test::kLatestFormatVersion)));
 #endif  // ROCKSDB_VALGRIND_RUN
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
@@ -1029,6 +1035,215 @@ TEST_F(DBBloomFilterTest, MemtablePrefixBloomOutOfDomain) {
   ASSERT_EQ(kKey, iter->key());
 }
 
+class DBBloomFilterTestVaryPrefixAndFormatVer
+    : public DBTestBase,
+      public testing::WithParamInterface<std::tuple<bool, uint32_t>> {
+ protected:
+  bool use_prefix_;
+  uint32_t format_version_;
+
+ public:
+  DBBloomFilterTestVaryPrefixAndFormatVer()
+      : DBTestBase("/db_bloom_filter_tests", /*env_do_fsync=*/true) {}
+
+  ~DBBloomFilterTestVaryPrefixAndFormatVer() override {}
+
+  void SetUp() override {
+    use_prefix_ = std::get<0>(GetParam());
+    format_version_ = std::get<1>(GetParam());
+  }
+
+  static std::string UKey(uint32_t i) { return Key(static_cast<int>(i)); }
+};
+
+TEST_P(DBBloomFilterTestVaryPrefixAndFormatVer, PartitionedMultiGet) {
+  Options options = CurrentOptions();
+  if (use_prefix_) {
+    // Entire key from UKey()
+    options.prefix_extractor.reset(NewCappedPrefixTransform(9));
+  }
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(20));
+  bbto.partition_filters = true;
+  bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  bbto.whole_key_filtering = !use_prefix_;
+  if (use_prefix_) {  // (not related to prefix, just alternating between)
+    // Make sure code appropriately deals with metadata block size setting
+    // that is "too small" (smaller than minimum size for filter builder)
+    bbto.metadata_block_size = 63;
+  } else {
+    // Make sure the test will work even on platforms with large minimum
+    // filter size, due to large cache line size.
+    // (Largest cache line size + 10+% overhead.)
+    bbto.metadata_block_size = 290;
+  }
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+  ReadOptions ropts;
+
+  constexpr uint32_t N = 12000;
+  // Add N/2 evens
+  for (uint32_t i = 0; i < N; i += 2) {
+    ASSERT_OK(Put(UKey(i), UKey(i)));
+  }
+  ASSERT_OK(Flush());
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ(TotalTableFiles(), 1);
+#endif
+
+  constexpr uint32_t Q = 29;
+  // MultiGet In
+  std::array<std::string, Q> keys;
+  std::array<Slice, Q> key_slices;
+  std::array<ColumnFamilyHandle*, Q> column_families;
+  // MultiGet Out
+  std::array<Status, Q> statuses;
+  std::array<PinnableSlice, Q> values;
+
+  TestGetAndResetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
+  TestGetAndResetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
+  TestGetAndResetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL);
+  TestGetAndResetTickerCount(options, BLOOM_FILTER_USEFUL);
+  TestGetAndResetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED);
+  TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE);
+  TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE);
+
+  // Check that initial clump of keys only loads one partition filter from
+  // block cache.
+  // And that spread out keys load many partition filters.
+  // In both cases, mix present vs. not present keys.
+  for (uint32_t stride : {uint32_t{1}, (N / Q) | 1}) {
+    for (uint32_t i = 0; i < Q; ++i) {
+      keys[i] = UKey(i * stride);
+      key_slices[i] = Slice(keys[i]);
+      column_families[i] = db_->DefaultColumnFamily();
+      statuses[i] = Status();
+      values[i] = PinnableSlice();
+    }
+
+    db_->MultiGet(ropts, Q, &column_families[0], &key_slices[0], &values[0],
+                  /*timestamps=*/nullptr, &statuses[0], true);
+
+    // Confirm correct status results
+    uint32_t number_not_found = 0;
+    for (uint32_t i = 0; i < Q; ++i) {
+      if ((i * stride % 2) == 0) {
+        ASSERT_OK(statuses[i]);
+      } else {
+        ASSERT_TRUE(statuses[i].IsNotFound());
+        ++number_not_found;
+      }
+    }
+
+    // Confirm correct Bloom stats (no FPs)
+    uint64_t filter_useful = TestGetAndResetTickerCount(
+        options,
+        use_prefix_ ? BLOOM_FILTER_PREFIX_USEFUL : BLOOM_FILTER_USEFUL);
+    uint64_t filter_checked =
+        TestGetAndResetTickerCount(options, use_prefix_
+                                                ? BLOOM_FILTER_PREFIX_CHECKED
+                                                : BLOOM_FILTER_FULL_POSITIVE) +
+        (use_prefix_ ? 0 : filter_useful);
+    EXPECT_EQ(filter_useful, number_not_found);
+    EXPECT_EQ(filter_checked, Q);
+    if (!use_prefix_) {
+      EXPECT_EQ(
+          TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE),
+          Q - number_not_found);
+    }
+
+    // Confirm no duplicate loading same filter partition
+    uint64_t filter_accesses =
+        TestGetAndResetTickerCount(options, BLOCK_CACHE_FILTER_HIT) +
+        TestGetAndResetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
+    if (stride == 1) {
+      EXPECT_EQ(filter_accesses, 1);
+    } else {
+      // for large stride
+      EXPECT_GE(filter_accesses, Q / 2 + 1);
+    }
+  }
+
+  // Check that a clump of keys (present and not) works when spanning
+  // two partitions
+  int found_spanning = 0;
+  for (uint32_t start = 0; start < N / 2;) {
+    for (uint32_t i = 0; i < Q; ++i) {
+      keys[i] = UKey(start + i);
+      key_slices[i] = Slice(keys[i]);
+      column_families[i] = db_->DefaultColumnFamily();
+      statuses[i] = Status();
+      values[i] = PinnableSlice();
+    }
+
+    db_->MultiGet(ropts, Q, &column_families[0], &key_slices[0], &values[0],
+                  /*timestamps=*/nullptr, &statuses[0], true);
+
+    // Confirm correct status results
+    uint32_t number_not_found = 0;
+    for (uint32_t i = 0; i < Q; ++i) {
+      if (((start + i) % 2) == 0) {
+        ASSERT_OK(statuses[i]);
+      } else {
+        ASSERT_TRUE(statuses[i].IsNotFound());
+        ++number_not_found;
+      }
+    }
+
+    // Confirm correct Bloom stats (might see some FPs)
+    uint64_t filter_useful = TestGetAndResetTickerCount(
+        options,
+        use_prefix_ ? BLOOM_FILTER_PREFIX_USEFUL : BLOOM_FILTER_USEFUL);
+    uint64_t filter_checked =
+        TestGetAndResetTickerCount(options, use_prefix_
+                                                ? BLOOM_FILTER_PREFIX_CHECKED
+                                                : BLOOM_FILTER_FULL_POSITIVE) +
+        (use_prefix_ ? 0 : filter_useful);
+    EXPECT_GE(filter_useful, number_not_found - 2);  // possible FP
+    EXPECT_EQ(filter_checked, Q);
+    if (!use_prefix_) {
+      EXPECT_EQ(
+          TestGetAndResetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE),
+          Q - number_not_found);
+    }
+
+    // Confirm no duplicate loading of same filter partition
+    uint64_t filter_accesses =
+        TestGetAndResetTickerCount(options, BLOCK_CACHE_FILTER_HIT) +
+        TestGetAndResetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
+    if (filter_accesses == 2) {
+      // Spanned across partitions.
+      ++found_spanning;
+      if (found_spanning >= 2) {
+        break;
+      } else {
+        // Ensure that at least once we have at least one present and
+        // one non-present key on both sides of partition boundary.
+        start += 2;
+      }
+    } else {
+      EXPECT_EQ(filter_accesses, 1);
+      // See explanation at "start += 2"
+      start += Q - 4;
+    }
+  }
+  EXPECT_TRUE(found_spanning >= 2);
+}
+
+INSTANTIATE_TEST_CASE_P(DBBloomFilterTestVaryPrefixAndFormatVer,
+                        DBBloomFilterTestVaryPrefixAndFormatVer,
+                        ::testing::Values(
+                            // (use_prefix, format_version)
+                            std::make_tuple(false, 2),
+                            std::make_tuple(false, 3),
+                            std::make_tuple(false, 4),
+                            std::make_tuple(false, 5),
+                            std::make_tuple(true, 2),
+                            std::make_tuple(true, 3),
+                            std::make_tuple(true, 4),
+                            std::make_tuple(true, 5)));
+
 #ifndef ROCKSDB_LITE
 namespace {
 namespace BFP2 {
@@ -1343,8 +1558,7 @@ TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {
   for (int i = 0; i < numkeys; i += 2) {
     keys.push_back(i);
   }
-  std::random_shuffle(std::begin(keys), std::end(keys));
-
+  RandomShuffle(std::begin(keys), std::end(keys));
   int num_inserted = 0;
   for (int key : keys) {
     ASSERT_OK(Put(1, Key(key), "val"));
@@ -1516,6 +1730,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterUpperBound) {
     int using_full_builder = bfp_impl != BFP::kDeprecatedBlock;
     Options options;
     options.create_if_missing = true;
+    options.env = CurrentOptions().env;
     options.prefix_extractor.reset(NewCappedPrefixTransform(4));
     options.disable_auto_compactions = true;
     options.statistics = CreateDBStatistics();
@@ -1646,6 +1861,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
   for (auto bfp_impl : BFP::kAllFixedImpls) {
     int using_full_builder = bfp_impl != BFP::kDeprecatedBlock;
     Options options;
+    options.env = CurrentOptions().env;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
     options.disable_auto_compactions = true;
@@ -1838,6 +2054,7 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterNewColumnFamily) {
 TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
   for (auto bfp_impl : BFP::kAllFixedImpls) {
     Options options;
+    options.env = CurrentOptions().env;
     options.create_if_missing = true;
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
     options.disable_auto_compactions = true;

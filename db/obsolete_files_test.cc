@@ -10,6 +10,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <stdlib.h>
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
@@ -27,17 +28,14 @@
 #include "test_util/testutil.h"
 #include "util/string_util.h"
 
-using std::cerr;
-using std::cout;
-using std::endl;
-using std::flush;
 
 namespace ROCKSDB_NAMESPACE {
 
 class ObsoleteFilesTest : public DBTestBase {
  public:
   ObsoleteFilesTest()
-      : DBTestBase("/obsolete_files_test"), wal_dir_(dbname_ + "/wal_files") {}
+      : DBTestBase("/obsolete_files_test", /*env_do_fsync=*/true),
+        wal_dir_(dbname_ + "/wal_files") {}
 
   void AddKeys(int numkeys, int startkey) {
     WriteOptions options;
@@ -72,7 +70,7 @@ class ObsoleteFilesTest : public DBTestBase {
       uint64_t number;
       FileType type;
       if (ParseFileName(file, &number, &type)) {
-        log_cnt += (type == kLogFile);
+        log_cnt += (type == kWalFile);
         sst_cnt += (type == kTableFile);
         manifest_cnt += (type == kDescriptorFile);
       }
@@ -191,6 +189,124 @@ TEST_F(ObsoleteFilesTest, DeleteObsoleteOptionsFile) {
     }
   }
   ASSERT_EQ(2, opts_file_count);
+}
+
+TEST_F(ObsoleteFilesTest, BlobFiles) {
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
+  assert(versions->GetColumnFamilySet());
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  const ImmutableCFOptions* const ioptions = cfd->ioptions();
+  assert(ioptions);
+  assert(!ioptions->cf_paths.empty());
+
+  const std::string& path = ioptions->cf_paths.front().path;
+
+  // Add an obsolete blob file.
+  constexpr uint64_t first_blob_file_number = 234;
+  versions->AddObsoleteBlobFile(first_blob_file_number, path);
+
+  // Add a live blob file.
+  Version* const version = cfd->current();
+  assert(version);
+
+  VersionStorageInfo* const storage_info = version->storage_info();
+  assert(storage_info);
+
+  constexpr uint64_t second_blob_file_number = 456;
+  constexpr uint64_t second_total_blob_count = 100;
+  constexpr uint64_t second_total_blob_bytes = 2000000;
+  constexpr char second_checksum_method[] = "CRC32B";
+  constexpr char second_checksum_value[] = "6dbdf23a";
+
+  auto shared_meta = SharedBlobFileMetaData::Create(
+      second_blob_file_number, second_total_blob_count, second_total_blob_bytes,
+      second_checksum_method, second_checksum_value);
+
+  constexpr uint64_t second_garbage_blob_count = 0;
+  constexpr uint64_t second_garbage_blob_bytes = 0;
+
+  auto meta = BlobFileMetaData::Create(
+      std::move(shared_meta), BlobFileMetaData::LinkedSsts(),
+      second_garbage_blob_count, second_garbage_blob_bytes);
+
+  storage_info->AddBlobFile(std::move(meta));
+
+  // Check for obsolete files and make sure the first blob file is picked up
+  // and grabbed for purge. The second blob file should be on the live list.
+  constexpr int job_id = 0;
+  JobContext job_context{job_id};
+
+  dbfull()->TEST_LockMutex();
+  constexpr bool force_full_scan = false;
+  dbfull()->FindObsoleteFiles(&job_context, force_full_scan);
+  dbfull()->TEST_UnlockMutex();
+
+  ASSERT_TRUE(job_context.HaveSomethingToDelete());
+  ASSERT_EQ(job_context.blob_delete_files.size(), 1);
+  ASSERT_EQ(job_context.blob_delete_files[0].GetBlobFileNumber(),
+            first_blob_file_number);
+
+  const auto& files_grabbed_for_purge =
+      dbfull()->TEST_GetFilesGrabbedForPurge();
+  ASSERT_NE(files_grabbed_for_purge.find(first_blob_file_number),
+            files_grabbed_for_purge.end());
+
+  ASSERT_EQ(job_context.blob_live.size(), 1);
+  ASSERT_EQ(job_context.blob_live[0], second_blob_file_number);
+
+  // Hack the job context a bit by adding a few files to the full scan
+  // list and adjusting the pending file number. We add the two files
+  // above as well as two additional ones, where one is old
+  // and should be cleaned up, and the other is still pending.
+  constexpr uint64_t old_blob_file_number = 123;
+  constexpr uint64_t pending_blob_file_number = 567;
+
+  job_context.full_scan_candidate_files.emplace_back(
+      BlobFileName(old_blob_file_number), path);
+  job_context.full_scan_candidate_files.emplace_back(
+      BlobFileName(first_blob_file_number), path);
+  job_context.full_scan_candidate_files.emplace_back(
+      BlobFileName(second_blob_file_number), path);
+  job_context.full_scan_candidate_files.emplace_back(
+      BlobFileName(pending_blob_file_number), path);
+
+  job_context.min_pending_output = pending_blob_file_number;
+
+  // Purge obsolete files and make sure we purge the old file and the first file
+  // (and keep the second file and the pending file).
+  std::vector<std::string> deleted_files;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DeleteObsoleteFileImpl::BeforeDeletion", [&](void* arg) {
+        const std::string* file = static_cast<std::string*>(arg);
+        assert(file);
+
+        constexpr char blob_extension[] = ".blob";
+
+        if (file->find(blob_extension) != std::string::npos) {
+          deleted_files.emplace_back(*file);
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  dbfull()->PurgeObsoleteFiles(job_context);
+  job_context.Clean();
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_EQ(files_grabbed_for_purge.find(first_blob_file_number),
+            files_grabbed_for_purge.end());
+
+  std::sort(deleted_files.begin(), deleted_files.end());
+  const std::vector<std::string> expected_deleted_files{
+      BlobFileName(path, old_blob_file_number),
+      BlobFileName(path, first_blob_file_number)};
+
+  ASSERT_EQ(deleted_files, expected_deleted_files);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

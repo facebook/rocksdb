@@ -30,6 +30,9 @@ typedef std::map<std::string, std::string> UserCollectedProperties;
 
 // table properties' human-readable names in the property block.
 struct TablePropertiesNames {
+  static const std::string kDbId;
+  static const std::string kDbSessionId;
+  static const std::string kDbHostId;
   static const std::string kDataSize;
   static const std::string kIndexSize;
   static const std::string kIndexPartitions;
@@ -136,6 +139,11 @@ class TablePropertiesCollectorFactory {
 
   // The name of the properties collector can be used for debugging purpose.
   virtual const char* Name() const = 0;
+
+  // Can be overridden by sub-classes to return the Name, followed by
+  // configuration info that will // be logged to the info log when the
+  // DB is opened
+  virtual std::string ToString() const { return Name(); }
 };
 
 // TableProperties contains a bunch of read-only properties of its associated
@@ -187,6 +195,23 @@ struct TableProperties {
   uint64_t oldest_key_time = 0;
   // Actual SST file creation time. 0 means unknown.
   uint64_t file_creation_time = 0;
+
+  // DB identity
+  // db_id is an identifier generated the first time the DB is created
+  // If DB identity is unset or unassigned, `db_id` will be an empty string.
+  std::string db_id;
+
+  // DB session identity
+  // db_session_id is an identifier that gets reset every time the DB is opened
+  // If DB session identity is unset or unassigned, `db_session_id` will be an
+  // empty string.
+  std::string db_session_id;
+
+  // Location of the machine hosting the DB instance
+  // db_host_id identifies the location of the host in some form
+  // (hostname by default, but can also be any string of the user's choosing).
+  // It can potentially change whenever the DB is opened
+  std::string db_host_id;
 
   // Name of the column family with which this SST file is associated.
   // If column family is unknown, `column_family_name` will be an empty string.

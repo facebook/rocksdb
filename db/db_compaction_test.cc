@@ -7,6 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <tuple>
+
+#include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -14,9 +17,10 @@
 #include "rocksdb/experimental.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/utilities/convenience.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "util/concurrent_task_limiter_impl.h"
+#include "util/random.h"
+#include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -25,14 +29,41 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBCompactionTest : public DBTestBase {
  public:
-  DBCompactionTest() : DBTestBase("/db_compaction_test") {}
+  DBCompactionTest()
+      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {}
+
+  std::vector<uint64_t> GetBlobFileNumbers() {
+    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+    assert(versions);
+
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    assert(cfd);
+
+    Version* const current = cfd->current();
+    assert(current);
+
+    const VersionStorageInfo* const storage_info = current->storage_info();
+    assert(storage_info);
+
+    const auto& blob_files = storage_info->GetBlobFiles();
+
+    std::vector<uint64_t> result;
+    result.reserve(blob_files.size());
+
+    for (const auto& blob_file : blob_files) {
+      result.emplace_back(blob_file.first);
+    }
+
+    return result;
+  }
 };
 
 class DBCompactionTestWithParam
     : public DBTestBase,
       public testing::WithParamInterface<std::tuple<uint32_t, bool>> {
  public:
-  DBCompactionTestWithParam() : DBTestBase("/db_compaction_test") {
+  DBCompactionTestWithParam()
+      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {
     max_subcompactions_ = std::get<0>(GetParam());
     exclusive_manual_compaction_ = std::get<1>(GetParam());
   }
@@ -45,10 +76,32 @@ class DBCompactionTestWithParam
   bool exclusive_manual_compaction_;
 };
 
+class DBCompactionTestWithBottommostParam
+    : public DBTestBase,
+      public testing::WithParamInterface<BottommostLevelCompaction> {
+ public:
+  DBCompactionTestWithBottommostParam()
+      : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {
+    bottommost_level_compaction_ = GetParam();
+  }
+
+  BottommostLevelCompaction bottommost_level_compaction_;
+};
+
 class DBCompactionDirectIOTest : public DBCompactionTest,
                                  public ::testing::WithParamInterface<bool> {
  public:
   DBCompactionDirectIOTest() : DBCompactionTest() {}
+};
+
+// Param = true : target level is non-empty
+// Param = false: level between target level and source level
+//  is not empty.
+class ChangeLevelConflictsWithAuto
+    : public DBCompactionTest,
+      public ::testing::WithParamInterface<bool> {
+ public:
+  ChangeLevelConflictsWithAuto() : DBCompactionTest() {}
 };
 
 namespace {
@@ -295,7 +348,7 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
     const int kTestSize = kCDTKeysPerBuffer * 1024;
     std::vector<std::string> values;
     for (int k = 0; k < kTestSize; ++k) {
-      values.push_back(RandomString(&rnd, kCDTValueSize));
+      values.push_back(rnd.RandomString(kCDTValueSize));
       ASSERT_OK(Put(Key(k), values[k]));
     }
     dbfull()->TEST_WaitForFlushMemTable();
@@ -343,7 +396,7 @@ TEST_P(DBCompactionTestWithParam, CompactionsPreserveDeletes) {
     const int kTestSize = kCDTKeysPerBuffer;
     std::vector<std::string> values;
     for (int k = 0; k < kTestSize; ++k) {
-      values.push_back(RandomString(&rnd, kCDTValueSize));
+      values.push_back(rnd.RandomString(kCDTValueSize));
       ASSERT_OK(Put(Key(k), values[k]));
     }
 
@@ -408,7 +461,7 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   const int kTestSize = kCDTKeysPerBuffer * 512;
   std::vector<std::string> values;
   for (int k = 0; k < kTestSize; ++k) {
-    values.push_back(RandomString(&rnd, kCDTValueSize));
+    values.push_back(rnd.RandomString(kCDTValueSize));
     ASSERT_OK(Put(Key(k), values[k]));
   }
 
@@ -555,7 +608,7 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTriggerReopen) {
     const int kTestSize = kCDTKeysPerBuffer * 512;
     std::vector<std::string> values;
     for (int k = 0; k < kTestSize; ++k) {
-      values.push_back(RandomString(&rnd, kCDTValueSize));
+      values.push_back(rnd.RandomString(kCDTValueSize));
       ASSERT_OK(Put(Key(k), values[k]));
     }
     dbfull()->TEST_WaitForFlushMemTable();
@@ -673,7 +726,7 @@ TEST_F(DBCompactionTest, DisableStatsUpdateReopen) {
     const int kTestSize = kCDTKeysPerBuffer * 512;
     std::vector<std::string> values;
     for (int k = 0; k < kTestSize; ++k) {
-      values.push_back(RandomString(&rnd, kCDTValueSize));
+      values.push_back(rnd.RandomString(kCDTValueSize));
       ASSERT_OK(Put(Key(k), values[k]));
     }
     dbfull()->TEST_WaitForFlushMemTable();
@@ -736,7 +789,7 @@ TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
     std::vector<std::string> values;
     // Write 100KB (100 values, each 1K)
     for (int i = 0; i < kNumKeysPerFile; i++) {
-      values.push_back(RandomString(&rnd, 990));
+      values.push_back(rnd.RandomString(990));
       ASSERT_OK(Put(1, Key(i), values[i]));
     }
     // put extra key to trigger flush
@@ -748,7 +801,7 @@ TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
   // generate one more file in level-0, and should trigger level-0 compaction
   std::vector<std::string> values;
   for (int i = 0; i < kNumKeysPerFile; i++) {
-    values.push_back(RandomString(&rnd, 990));
+    values.push_back(rnd.RandomString(990));
     ASSERT_OK(Put(1, Key(i), values[i]));
   }
   // put extra key to trigger flush
@@ -867,7 +920,7 @@ TEST_P(DBCompactionTestWithParam, CompactionsGenerateMultipleFiles) {
   ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
   std::vector<std::string> values;
   for (int i = 0; i < 80; i++) {
-    values.push_back(RandomString(&rnd, 100000));
+    values.push_back(rnd.RandomString(100000));
     ASSERT_OK(Put(1, Key(i), values[i]));
   }
 
@@ -974,6 +1027,60 @@ TEST_F(DBCompactionTest, UserKeyCrossFile2) {
   dbfull()->TEST_WaitForCompact();
 
   ASSERT_EQ("NOT_FOUND", Get("3"));
+}
+
+TEST_F(DBCompactionTest, CompactionSstPartitioner) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+  std::shared_ptr<SstPartitionerFactory> factory(
+      NewSstPartitionerFixedPrefixFactory(4));
+  options.sst_partitioner_factory = factory;
+
+  DestroyAndReopen(options);
+
+  // create first file and flush to l0
+  Put("aaaa1", "A");
+  Put("bbbb1", "B");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  Put("aaaa1", "A2");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  // move both files down to l1
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(2, files.size());
+  ASSERT_EQ("A2", Get("aaaa1"));
+  ASSERT_EQ("B", Get("bbbb1"));
+}
+
+TEST_F(DBCompactionTest, CompactionSstPartitionerNonTrivial) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 1;
+  std::shared_ptr<SstPartitionerFactory> factory(
+      NewSstPartitionerFixedPrefixFactory(4));
+  options.sst_partitioner_factory = factory;
+
+  DestroyAndReopen(options);
+
+  // create first file and flush to l0
+  Put("aaaa1", "A");
+  Put("bbbb1", "B");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+  dbfull()->TEST_WaitForCompact(true);
+
+  std::vector<LiveFileMetaData> files;
+  dbfull()->GetLiveFilesMetaData(&files);
+  ASSERT_EQ(2, files.size());
+  ASSERT_EQ("A", Get("aaaa1"));
+  ASSERT_EQ("B", Get("bbbb1"));
 }
 
 TEST_F(DBCompactionTest, ZeroSeqIdCompaction) {
@@ -1105,7 +1212,7 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveOneFile) {
   Random rnd(301);
   std::vector<std::string> values;
   for (int i = 0; i < num_keys; i++) {
-    values.push_back(RandomString(&rnd, value_size));
+    values.push_back(rnd.RandomString(value_size));
     ASSERT_OK(Put(Key(i), values[i]));
   }
 
@@ -1177,7 +1284,7 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
   std::map<int32_t, std::string> values;
   for (size_t i = 0; i < ranges.size(); i++) {
     for (int32_t j = ranges[i].first; j <= ranges[i].second; j++) {
-      values[j] = RandomString(&rnd, value_size);
+      values[j] = rnd.RandomString(value_size);
       ASSERT_OK(Put(Key(j), values[j]));
     }
     ASSERT_OK(Flush());
@@ -1223,7 +1330,7 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
   };
   for (size_t i = 0; i < ranges.size(); i++) {
     for (int32_t j = ranges[i].first; j <= ranges[i].second; j++) {
-      values[j] = RandomString(&rnd, value_size);
+      values[j] = rnd.RandomString(value_size);
       ASSERT_OK(Put(Key(j), values[j]));
     }
     ASSERT_OK(Flush());
@@ -1268,14 +1375,14 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveTargetLevel) {
 
   // file 1 [0 => 300]
   for (int32_t i = 0; i <= 300; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
 
   // file 2 [600 => 700]
   for (int32_t i = 600; i <= 700; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
@@ -1349,14 +1456,14 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
 
   // file 1 [0 => 100]
   for (int32_t i = 0; i < 100; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
 
   // file 2 [100 => 300]
   for (int32_t i = 100; i < 300; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
@@ -1377,7 +1484,7 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
 
   // file 3 [ 0 => 200]
   for (int32_t i = 0; i < 200; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
@@ -1409,21 +1516,21 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
   TEST_SYNC_POINT("DBCompaction::ManualPartial:1");
   // file 4 [300 => 400)
   for (int32_t i = 300; i <= 400; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
 
   // file 5 [400 => 500)
   for (int32_t i = 400; i <= 500; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
 
   // file 6 [500 => 600)
   for (int32_t i = 500; i <= 600; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   // Second non-trivial compaction is triggered
@@ -1491,14 +1598,14 @@ TEST_F(DBCompactionTest, DISABLED_ManualPartialFill) {
 
   // file 1 [0 => 100]
   for (int32_t i = 0; i < 100; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
 
   // file 2 [100 => 300]
   for (int32_t i = 100; i < 300; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
@@ -1517,7 +1624,7 @@ TEST_F(DBCompactionTest, DISABLED_ManualPartialFill) {
 
   // file 3 [ 0 => 200]
   for (int32_t i = 0; i < 200; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
@@ -1549,7 +1656,7 @@ TEST_F(DBCompactionTest, DISABLED_ManualPartialFill) {
         ASSERT_OK(Flush());
         dbfull()->TEST_WaitForFlushMemTable();
       }
-      values[j] = RandomString(&rnd, value_size);
+      values[j] = rnd.RandomString(value_size);
       ASSERT_OK(Put(Key(j), values[j]));
     }
   }
@@ -1620,14 +1727,14 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
 
   // file 1 [0 => 100]
   for (int32_t i = 0; i < 100; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
 
   // file 2 [100 => 300]
   for (int32_t i = 100; i < 300; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
@@ -1643,7 +1750,7 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
 
   // file 3 [ 0 => 200]
   for (int32_t i = 0; i < 200; i++) {
-    values[i] = RandomString(&rnd, value_size);
+    values[i] = rnd.RandomString(value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
@@ -1655,7 +1762,7 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
         ASSERT_OK(Flush());
         dbfull()->TEST_WaitForFlushMemTable();
       }
-      values[j] = RandomString(&rnd, value_size);
+      values[j] = rnd.RandomString(value_size);
       ASSERT_OK(Put(Key(j), values[j]));
     }
   }
@@ -1742,7 +1849,7 @@ TEST_F(DBCompactionTest, DeleteFilesInRanges) {
   for (auto i = 0; i < 10; i++) {
     for (auto j = 0; j < 100; j++) {
       auto k = i * 100 + j;
-      values[k] = RandomString(&rnd, value_size);
+      values[k] = rnd.RandomString(value_size);
       ASSERT_OK(Put(Key(k), values[k]));
     }
     ASSERT_OK(Flush());
@@ -1874,7 +1981,7 @@ TEST_F(DBCompactionTest, DeleteFileRangeFileEndpointsOverlapBug) {
   // would cause `1 -> vals[0]` (an older key) to reappear.
   std::string vals[kNumL0Files];
   for (int i = 0; i < kNumL0Files; ++i) {
-    vals[i] = RandomString(&rnd, kValSize);
+    vals[i] = rnd.RandomString(kValSize);
     Put(Key(i), vals[i]);
     Put(Key(i + 1), vals[i]);
     Flush();
@@ -1916,7 +2023,7 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveToLastLevelWithFiles) {
   std::vector<std::string> values;
   // File with keys [ 0 => 99 ]
   for (int i = 0; i < 100; i++) {
-    values.push_back(RandomString(&rnd, value_size));
+    values.push_back(rnd.RandomString(value_size));
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
@@ -1934,7 +2041,7 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveToLastLevelWithFiles) {
 
   // File with keys [ 100 => 199 ]
   for (int i = 100; i < 200; i++) {
-    values.push_back(RandomString(&rnd, value_size));
+    values.push_back(rnd.RandomString(value_size));
     ASSERT_OK(Put(Key(i), values[i]));
   }
   ASSERT_OK(Flush());
@@ -2329,7 +2436,7 @@ TEST_P(DBCompactionTestWithParam, ConvertCompactionStyle) {
 
   for (int i = 0; i <= max_key_level_insert; i++) {
     // each value is 10K
-    ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
+    ASSERT_OK(Put(1, Key(i), rnd.RandomString(10000)));
   }
   ASSERT_OK(Flush(1));
   dbfull()->TEST_WaitForCompact();
@@ -2387,7 +2494,7 @@ TEST_P(DBCompactionTestWithParam, ConvertCompactionStyle) {
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
   for (int i = max_key_level_insert / 2; i <= max_key_universal_insert; i++) {
-    ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
+    ASSERT_OK(Put(1, Key(i), rnd.RandomString(10000)));
   }
   dbfull()->Flush(FlushOptions());
   ASSERT_OK(Flush(1));
@@ -2682,7 +2789,7 @@ TEST_P(DBCompactionTestWithParam, DISABLED_CompactFilesOnLevelCompaction) {
 
   Random rnd(301);
   for (int key = 64 * kEntriesPerBuffer; key >= 0; --key) {
-    ASSERT_OK(Put(1, ToString(key), RandomString(&rnd, kTestValueSize)));
+    ASSERT_OK(Put(1, ToString(key), rnd.RandomString(kTestValueSize)));
   }
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForCompact();
@@ -2758,8 +2865,8 @@ TEST_P(DBCompactionTestWithParam, PartialCompactionFailure) {
   std::vector<std::string> keys;
   std::vector<std::string> values;
   for (int k = 0; k < kNumInsertedKeys; ++k) {
-    keys.emplace_back(RandomString(&rnd, kKeySize));
-    values.emplace_back(RandomString(&rnd, kKvSize - kKeySize));
+    keys.emplace_back(rnd.RandomString(kKeySize));
+    values.emplace_back(rnd.RandomString(kKvSize - kKeySize));
     ASSERT_OK(Put(Slice(keys[k]), Slice(values[k])));
     dbfull()->TEST_WaitForFlushMemTable();
   }
@@ -2825,7 +2932,7 @@ TEST_P(DBCompactionTestWithParam, DeleteMovedFileAfterCompaction) {
     for (int i = 0; i < 2; ++i) {
       // Create 1MB sst file
       for (int j = 0; j < 100; ++j) {
-        ASSERT_OK(Put(Key(i * 50 + j), RandomString(&rnd, 10 * 1024)));
+        ASSERT_OK(Put(Key(i * 50 + j), rnd.RandomString(10 * 1024)));
       }
       ASSERT_OK(Flush());
     }
@@ -2860,7 +2967,7 @@ TEST_P(DBCompactionTestWithParam, DeleteMovedFileAfterCompaction) {
     for (int i = 0; i < 2; ++i) {
       // Create 1MB sst file
       for (int j = 0; j < 100; ++j) {
-        ASSERT_OK(Put(Key(i * 50 + j + 100), RandomString(&rnd, 10 * 1024)));
+        ASSERT_OK(Put(Key(i * 50 + j + 100), rnd.RandomString(10 * 1024)));
       }
       ASSERT_OK(Flush());
     }
@@ -3118,7 +3225,7 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
   std::vector<std::string> values;
   // File with keys [ 0 => 99 ]
   for (int i = 0; i < 100; i++) {
-    values.push_back(RandomString(&rnd, value_size));
+    values.push_back(rnd.RandomString(value_size));
     ASSERT_OK(Put(ShortKey(i), values[i]));
   }
   ASSERT_OK(Flush());
@@ -3135,7 +3242,7 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
 
   // File with keys [ 100 => 199 ]
   for (int i = 100; i < 200; i++) {
-    values.push_back(RandomString(&rnd, value_size));
+    values.push_back(rnd.RandomString(value_size));
     ASSERT_OK(Put(ShortKey(i), values[i]));
   }
   ASSERT_OK(Flush());
@@ -3153,7 +3260,7 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
 
   // File with keys [ 200 => 299 ]
   for (int i = 200; i < 300; i++) {
-    values.push_back(RandomString(&rnd, value_size));
+    values.push_back(rnd.RandomString(value_size));
     ASSERT_OK(Put(ShortKey(i), values[i]));
   }
   ASSERT_OK(Flush());
@@ -3184,14 +3291,28 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   options.level0_file_num_compaction_trigger = 5;
   options.max_background_compactions = 2;
   options.max_subcompactions = max_subcompactions_;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.write_buffer_size = 2 << 20;  // 2MB
+
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(64 << 20);  // 64MB
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
   DestroyAndReopen(options);
 
   const size_t kValueSize = 1 << 20;
   Random rnd(301);
-  std::string value(RandomString(&rnd, kValueSize));
+  std::string value(rnd.RandomString(kValueSize));
 
+  // The L0->L1 must be picked before we begin flushing files to trigger
+  // intra-L0 compaction, and must not finish until after an intra-L0
+  // compaction has been picked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"LevelCompactionPicker::PickCompactionBySize:0",
+      {{"LevelCompactionPicker::PickCompaction:Return",
+        "DBCompactionTest::IntraL0Compaction:L0ToL1Ready"},
+       {"LevelCompactionPicker::PickCompactionBySize:0",
         "CompactionJob::Run():Start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3209,6 +3330,7 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   for (int i = 0; i < 10; ++i) {
     ASSERT_OK(Put(Key(0), ""));  // prevents trivial move
     if (i == 5) {
+      TEST_SYNC_POINT("DBCompactionTest::IntraL0Compaction:L0ToL1Ready");
       ASSERT_OK(Put(Key(i + 1), value + value));
     } else {
       ASSERT_OK(Put(Key(i + 1), value));
@@ -3228,6 +3350,16 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   for (int i = 0; i < 2; ++i) {
     ASSERT_GE(level_to_files[0][i].fd.file_size, 1 << 21);
   }
+
+  // The index/filter in the file produced by intra-L0 should not be pinned.
+  // That means clearing unref'd entries in block cache and re-accessing the
+  // file produced by intra-L0 should bump the index block miss count.
+  uint64_t prev_index_misses =
+      TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS);
+  table_options.block_cache->EraseUnRefEntries();
+  ASSERT_EQ("", Get(Key(0)));
+  ASSERT_EQ(prev_index_misses + 1,
+            TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
 }
 
 TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {
@@ -3242,10 +3374,16 @@ TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {
 
   const size_t kValueSize = 1 << 20;
   Random rnd(301);
-  std::string value(RandomString(&rnd, kValueSize));
+  std::string value(rnd.RandomString(kValueSize));
 
+  // The L0->L1 must be picked before we begin flushing files to trigger
+  // intra-L0 compaction, and must not finish until after an intra-L0
+  // compaction has been picked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"LevelCompactionPicker::PickCompactionBySize:0",
+      {{"LevelCompactionPicker::PickCompaction:Return",
+        "DBCompactionTest::IntraL0CompactionDoesNotObsoleteDeletions:"
+        "L0ToL1Ready"},
+       {"LevelCompactionPicker::PickCompactionBySize:0",
         "CompactionJob::Run():Start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -3268,6 +3406,11 @@ TEST_P(DBCompactionTestWithParam, IntraL0CompactionDoesNotObsoleteDeletions) {
       ASSERT_OK(Put(Key(0), ""));
     } else {
       ASSERT_OK(Delete(Key(0)));
+    }
+    if (i == 5) {
+      TEST_SYNC_POINT(
+          "DBCompactionTest::IntraL0CompactionDoesNotObsoleteDeletions:"
+          "L0ToL1Ready");
     }
     ASSERT_OK(Put(Key(i + 1), value));
     ASSERT_OK(Flush());
@@ -3461,7 +3604,7 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   for (int i = 0; i < kNumLevelFiles; ++i) {
     for (int j = 0; j < kNumKeysPerFile; ++j) {
       ASSERT_OK(
-          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kValueSize)));
     }
     if (i == kNumLevelFiles - 1) {
       snapshot = db_->GetSnapshot();
@@ -3514,6 +3657,76 @@ TEST_F(DBCompactionTest, CompactBottomLevelFilesWithDeletions) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBCompactionTest, NoCompactBottomLevelFilesWithDeletions) {
+  // bottom-level files may contain deletions due to snapshots protecting the
+  // deleted keys. Once the snapshot is released, we should see files with many
+  // such deletions undergo single-file compactions. But when disabling auto
+  // compactions, it shouldn't be triggered which may causing too many
+  // background jobs.
+  const int kNumKeysPerFile = 1024;
+  const int kNumLevelFiles = 4;
+  const int kValueSize = 128;
+  Options options = CurrentOptions();
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = kNumLevelFiles;
+  // inflate it a bit to account for key/metadata overhead
+  options.target_file_size_base = 120 * kNumKeysPerFile * kValueSize / 100;
+  Reopen(options);
+
+  Random rnd(301);
+  const Snapshot* snapshot = nullptr;
+  for (int i = 0; i < kNumLevelFiles; ++i) {
+    for (int j = 0; j < kNumKeysPerFile; ++j) {
+      ASSERT_OK(
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kValueSize)));
+    }
+    if (i == kNumLevelFiles - 1) {
+      snapshot = db_->GetSnapshot();
+      // delete every other key after grabbing a snapshot, so these deletions
+      // and the keys they cover can't be dropped until after the snapshot is
+      // released.
+      for (int j = 0; j < kNumLevelFiles * kNumKeysPerFile; j += 2) {
+        ASSERT_OK(Delete(Key(j)));
+      }
+    }
+    Flush();
+    if (i < kNumLevelFiles - 1) {
+      ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+    }
+  }
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr);
+  ASSERT_EQ(kNumLevelFiles, NumTableFilesAtLevel(1));
+
+  std::vector<LiveFileMetaData> pre_release_metadata, post_release_metadata;
+  db_->GetLiveFilesMetaData(&pre_release_metadata);
+  // just need to bump seqnum so ReleaseSnapshot knows the newest key in the SST
+  // files does not need to be preserved in case of a future snapshot.
+  ASSERT_OK(Put(Key(0), "val"));
+
+  // release snapshot and no compaction should be triggered.
+  std::atomic<int> num_compactions{0};
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:Start",
+      [&](void* /*arg*/) { num_compactions.fetch_add(1); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+  db_->ReleaseSnapshot(snapshot);
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(0, num_compactions);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  db_->GetLiveFilesMetaData(&post_release_metadata);
+  ASSERT_EQ(pre_release_metadata.size(), post_release_metadata.size());
+  for (size_t i = 0; i < pre_release_metadata.size(); ++i) {
+    const auto& pre_file = pre_release_metadata[i];
+    const auto& post_file = post_release_metadata[i];
+    ASSERT_EQ(1, pre_file.level);
+    ASSERT_EQ(1, post_file.level);
+    // each file is same as before with deletion markers/deleted keys.
+    ASSERT_EQ(post_file.size, pre_file.size);
+  }
+}
+
 TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   const int kNumKeysPerFile = 32;
   const int kNumLevelFiles = 2;
@@ -3523,17 +3736,18 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   options.compression = kNoCompression;
   options.ttl = 24 * 60 * 60;  // 24 hours
   options.max_open_files = -1;
-  env_->time_elapse_only_sleep_ = false;
+  env_->SetMockSleep();
   options.env = env_;
 
-  env_->addon_time_.store(0);
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   DestroyAndReopen(options);
 
   Random rnd(301);
   for (int i = 0; i < kNumLevelFiles; ++i) {
     for (int j = 0; j < kNumKeysPerFile; ++j) {
       ASSERT_OK(
-          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kValueSize)));
     }
     Flush();
   }
@@ -3553,7 +3767,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
   MoveFilesToLevel(1);
   ASSERT_EQ("0,2,0,2", FilesPerLevel());
 
-  env_->addon_time_.fetch_add(36 * 60 * 60);  // 36 hours
+  env_->MockSleepForSeconds(36 * 60 * 60);  // 36 hours
   ASSERT_EQ("0,2,0,2", FilesPerLevel());
 
   // Just do a simple write + flush so that the Ttl expired files get
@@ -3573,13 +3787,14 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
 
   // Test dynamically changing ttl.
 
-  env_->addon_time_.store(0);
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   DestroyAndReopen(options);
 
   for (int i = 0; i < kNumLevelFiles; ++i) {
     for (int j = 0; j < kNumKeysPerFile; ++j) {
       ASSERT_OK(
-          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kValueSize)));
     }
     Flush();
   }
@@ -3601,7 +3816,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
 
   // Move time forward by 12 hours, and make sure that compaction still doesn't
   // trigger as ttl is set to 24 hours.
-  env_->addon_time_.fetch_add(12 * 60 * 60);
+  env_->MockSleepForSeconds(12 * 60 * 60);
   ASSERT_OK(Put("a", "1"));
   Flush();
   dbfull()->TEST_WaitForCompact();
@@ -3624,6 +3839,7 @@ TEST_F(DBCompactionTest, LevelCompactExpiredTtlFiles) {
 }
 
 TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
+  env_->SetMockSleep();
   const int kValueSize = 100;
 
   for (bool if_restart : {false, true}) {
@@ -3654,10 +3870,10 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
             }
           });
 
-      env_->time_elapse_only_sleep_ = false;
       options.env = env_;
 
-      env_->addon_time_.store(0);
+      // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
       DestroyAndReopen(options);
 
       int ttl_compactions = 0;
@@ -3674,7 +3890,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       // Add two L6 files with key ranges: [1 .. 100], [101 .. 200].
       Random rnd(301);
       for (int i = 1; i <= 100; ++i) {
-        ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
+        ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
       }
       Flush();
       // Get the first file's creation time. This will be the oldest file in the
@@ -3685,32 +3901,32 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
                                       &level_to_files);
       uint64_t oldest_time = level_to_files[0][0].oldest_ancester_time;
       // Add 1 hour and do another flush.
-      env_->addon_time_.fetch_add(1 * 60 * 60);
+      env_->MockSleepForSeconds(1 * 60 * 60);
       for (int i = 101; i <= 200; ++i) {
-        ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
+        ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
       }
       Flush();
       MoveFilesToLevel(6);
       ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel());
 
-      env_->addon_time_.fetch_add(1 * 60 * 60);
+      env_->MockSleepForSeconds(1 * 60 * 60);
       // Add two L4 files with key ranges: [1 .. 50], [51 .. 150].
       for (int i = 1; i <= 50; ++i) {
-        ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
+        ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
       }
       Flush();
-      env_->addon_time_.fetch_add(1 * 60 * 60);
+      env_->MockSleepForSeconds(1 * 60 * 60);
       for (int i = 51; i <= 150; ++i) {
-        ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
+        ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
       }
       Flush();
       MoveFilesToLevel(4);
       ASSERT_EQ("0,0,0,0,2,0,2", FilesPerLevel());
 
-      env_->addon_time_.fetch_add(1 * 60 * 60);
+      env_->MockSleepForSeconds(1 * 60 * 60);
       // Add one L1 file with key range: [26, 75].
       for (int i = 26; i <= 75; ++i) {
-        ASSERT_OK(Put(Key(i), RandomString(&rnd, kValueSize)));
+        ASSERT_OK(Put(Key(i), rnd.RandomString(kValueSize)));
       }
       Flush();
       dbfull()->TEST_WaitForCompact();
@@ -3737,7 +3953,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
       // 4. A TTL compaction happens between L5 and L6 files. Ouptut in L6.
 
       // Add 25 hours and do a write
-      env_->addon_time_.fetch_add(25 * 60 * 60);
+      env_->MockSleepForSeconds(25 * 60 * 60);
 
       ASSERT_OK(Put(Key(1), "1"));
       if (if_restart) {
@@ -3753,7 +3969,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
                                       &level_to_files);
       ASSERT_EQ(oldest_time, level_to_files[6][0].oldest_ancester_time);
 
-      env_->addon_time_.fetch_add(25 * 60 * 60);
+      env_->MockSleepForSeconds(25 * 60 * 60);
       ASSERT_OK(Put(Key(2), "1"));
       if (if_restart) {
         Reopen(options);
@@ -3770,6 +3986,7 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
 }
 
 TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
+  env_->SetMockSleep();
   const int kNumKeysPerFile = 32;
   const int kNumLevelFiles = 2;
   const int kValueSize = 100;
@@ -3801,10 +4018,10 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
             }
           });
 
-      env_->time_elapse_only_sleep_ = false;
       options.env = env_;
 
-      env_->addon_time_.store(0);
+      // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
       DestroyAndReopen(options);
 
       int periodic_compactions = 0;
@@ -3821,8 +4038,8 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
       Random rnd(301);
       for (int i = 0; i < kNumLevelFiles; ++i) {
         for (int j = 0; j < kNumKeysPerFile; ++j) {
-          ASSERT_OK(Put(Key(i * kNumKeysPerFile + j),
-                        RandomString(&rnd, kValueSize)));
+          ASSERT_OK(
+              Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kValueSize)));
         }
         Flush();
       }
@@ -3832,7 +4049,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
       ASSERT_EQ(0, periodic_compactions);
 
       // Add 50 hours and do a write
-      env_->addon_time_.fetch_add(50 * 60 * 60);
+      env_->MockSleepForSeconds(50 * 60 * 60);
       ASSERT_OK(Put("a", "1"));
       Flush();
       dbfull()->TEST_WaitForCompact();
@@ -3845,7 +4062,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
       ASSERT_EQ("0,3", FilesPerLevel());
 
       // Add another 50 hours and do another write
-      env_->addon_time_.fetch_add(50 * 60 * 60);
+      env_->MockSleepForSeconds(50 * 60 * 60);
       ASSERT_OK(Put("b", "2"));
       if (if_restart) {
         Reopen(options);
@@ -3859,7 +4076,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
       ASSERT_EQ(5, periodic_compactions);
 
       // Add another 50 hours and do another write
-      env_->addon_time_.fetch_add(50 * 60 * 60);
+      env_->MockSleepForSeconds(50 * 60 * 60);
       ASSERT_OK(Put("c", "3"));
       Flush();
       dbfull()->TEST_WaitForCompact();
@@ -3883,10 +4100,11 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
   const int kValueSize = 100;
 
   Options options = CurrentOptions();
-  env_->time_elapse_only_sleep_ = false;
+  env_->SetMockSleep();
   options.env = env_;
 
-  env_->addon_time_.store(0);
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   DestroyAndReopen(options);
 
   int periodic_compactions = 0;
@@ -3916,7 +4134,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
   for (int i = 0; i < kNumFiles; ++i) {
     for (int j = 0; j < kNumKeysPerFile; ++j) {
       ASSERT_OK(
-          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kValueSize)));
     }
     Flush();
     // Move the first two files to L2.
@@ -3934,7 +4152,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithOldDB) {
 
   set_file_creation_time_to_zero = false;
   // Forward the clock by 2 days.
-  env_->addon_time_.fetch_add(2 * 24 * 60 * 60);
+  env_->MockSleepForSeconds(2 * 24 * 60 * 60);
   options.periodic_compaction_seconds = 1 * 24 * 60 * 60;  // 1 day
 
   Reopen(options);
@@ -3955,10 +4173,11 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   options.ttl = 10 * 60 * 60;  // 10 hours
   options.periodic_compaction_seconds = 48 * 60 * 60;  // 2 days
   options.max_open_files = -1;   // needed for both periodic and ttl compactions
-  env_->time_elapse_only_sleep_ = false;
+  env_->SetMockSleep();
   options.env = env_;
 
-  env_->addon_time_.store(0);
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
+
   DestroyAndReopen(options);
 
   int periodic_compactions = 0;
@@ -3979,7 +4198,7 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   for (int i = 0; i < kNumLevelFiles; ++i) {
     for (int j = 0; j < kNumKeysPerFile; ++j) {
       ASSERT_OK(
-          Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+          Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kValueSize)));
     }
     Flush();
   }
@@ -3992,7 +4211,7 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   ASSERT_EQ(0, ttl_compactions);
 
   // Add some time greater than periodic_compaction_time.
-  env_->addon_time_.fetch_add(50 * 60 * 60);
+  env_->MockSleepForSeconds(50 * 60 * 60);
   ASSERT_OK(Put("a", "1"));
   Flush();
   dbfull()->TEST_WaitForCompact();
@@ -4002,7 +4221,7 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   ASSERT_EQ(0, ttl_compactions);
 
   // Add a little more time than ttl
-  env_->addon_time_.fetch_add(11 * 60 * 60);
+  env_->MockSleepForSeconds(11 * 60 * 60);
   ASSERT_OK(Put("b", "1"));
   Flush();
   dbfull()->TEST_WaitForCompact();
@@ -4014,7 +4233,7 @@ TEST_F(DBCompactionTest, LevelPeriodicAndTtlCompaction) {
   ASSERT_EQ(3, ttl_compactions);
 
   // Add some time greater than periodic_compaction_time.
-  env_->addon_time_.fetch_add(50 * 60 * 60);
+  env_->MockSleepForSeconds(50 * 60 * 60);
   ASSERT_OK(Put("c", "1"));
   Flush();
   dbfull()->TEST_WaitForCompact();
@@ -4047,9 +4266,10 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
 
   Options options = CurrentOptions();
   TestCompactionFilter test_compaction_filter;
-  env_->time_elapse_only_sleep_ = false;
+  env_->SetMockSleep();
   options.env = env_;
-  env_->addon_time_.store(0);
+
+  // NOTE: Presumed unnecessary and removed: resetting mock time in env
 
   enum CompactionFilterType {
     kUseCompactionFilter,
@@ -4090,7 +4310,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
     for (int i = 0; i < kNumLevelFiles; ++i) {
       for (int j = 0; j < kNumKeysPerFile; ++j) {
         ASSERT_OK(
-            Put(Key(i * kNumKeysPerFile + j), RandomString(&rnd, kValueSize)));
+            Put(Key(i * kNumKeysPerFile + j), rnd.RandomString(kValueSize)));
       }
       Flush();
     }
@@ -4100,7 +4320,7 @@ TEST_F(DBCompactionTest, LevelPeriodicCompactionWithCompactionFilters) {
     ASSERT_EQ(0, periodic_compactions);
 
     // Add 31 days and do a write
-    env_->addon_time_.fetch_add(31 * 24 * 60 * 60);
+    env_->MockSleepForSeconds(31 * 24 * 60 * 60);
     ASSERT_OK(Put("a", "1"));
     Flush();
     dbfull()->TEST_WaitForCompact();
@@ -4150,7 +4370,7 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByL0FileCount) {
     Random rnd(301);
     for (int j = 0; j < kNumL0FilesLimit - 1; ++j) {
       for (int k = 0; k < 2; ++k) {
-        ASSERT_OK(Put(Key(k), RandomString(&rnd, 1024)));
+        ASSERT_OK(Put(Key(k), rnd.RandomString(1024)));
       }
       Flush();
     }
@@ -4204,7 +4424,7 @@ TEST_F(DBCompactionTest, CompactRangeDelayedByImmMemTableCount) {
 
     Random rnd(301);
     for (int j = 0; j < kNumImmMemTableLimit - 1; ++j) {
-      ASSERT_OK(Put(Key(0), RandomString(&rnd, 1024)));
+      ASSERT_OK(Put(Key(0), rnd.RandomString(1024)));
       FlushOptions flush_opts;
       flush_opts.wait = false;
       flush_opts.allow_write_stall = true;
@@ -4252,7 +4472,7 @@ TEST_F(DBCompactionTest, CompactRangeShutdownWhileDelayed) {
     Random rnd(301);
     for (int j = 0; j < kNumL0FilesLimit - 1; ++j) {
       for (int k = 0; k < 2; ++k) {
-        ASSERT_OK(Put(1, Key(k), RandomString(&rnd, 1024)));
+        ASSERT_OK(Put(1, Key(k), rnd.RandomString(1024)));
       }
       Flush(1);
     }
@@ -4312,7 +4532,7 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
   flush_opts.allow_write_stall = true;
   for (int i = 0; i < kNumL0FilesLimit - 1; ++i) {
     for (int j = 0; j < 2; ++j) {
-      ASSERT_OK(Put(Key(j), RandomString(&rnd, 1024)));
+      ASSERT_OK(Put(Key(j), rnd.RandomString(1024)));
     }
     dbfull()->Flush(flush_opts);
   }
@@ -4323,9 +4543,9 @@ TEST_F(DBCompactionTest, CompactRangeSkipFlushAfterDelay) {
   });
 
   TEST_SYNC_POINT("DBCompactionTest::CompactRangeSkipFlushAfterDelay:PreFlush");
-  Put(ToString(0), RandomString(&rnd, 1024));
+  Put(ToString(0), rnd.RandomString(1024));
   dbfull()->Flush(flush_opts);
-  Put(ToString(0), RandomString(&rnd, 1024));
+  Put(ToString(0), rnd.RandomString(1024));
   TEST_SYNC_POINT("DBCompactionTest::CompactRangeSkipFlushAfterDelay:PostFlush");
   manual_compaction_thread.join();
 
@@ -4734,7 +4954,8 @@ INSTANTIATE_TEST_CASE_P(DBCompactionDirectIOTest, DBCompactionDirectIOTest,
 class CompactionPriTest : public DBTestBase,
                           public testing::WithParamInterface<uint32_t> {
  public:
-  CompactionPriTest() : DBTestBase("/compaction_pri_test") {
+  CompactionPriTest()
+      : DBTestBase("/compaction_pri_test", /*env_do_fsync=*/true) {
     compaction_pri_ = GetParam();
   }
 
@@ -4762,10 +4983,10 @@ TEST_P(CompactionPriTest, Test) {
   for (int i = 0; i < kNKeys; i++) {
     keys[i] = i;
   }
-  std::random_shuffle(std::begin(keys), std::end(keys));
+  RandomShuffle(std::begin(keys), std::end(keys), rnd.Next());
 
   for (int i = 0; i < kNKeys; i++) {
-    ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 102)));
+    ASSERT_OK(Put(Key(keys[i]), rnd.RandomString(102)));
   }
 
   dbfull()->TEST_WaitForCompact();
@@ -4807,7 +5028,7 @@ TEST_F(DBCompactionTest, PartialManualCompaction) {
   Random rnd(301);
   for (auto i = 0; i < 8; ++i) {
     for (auto j = 0; j < 10; ++j) {
-      Merge("foo", RandomString(&rnd, 1024));
+      Merge("foo", rnd.RandomString(1024));
     }
     Flush();
   }
@@ -4830,7 +5051,7 @@ TEST_F(DBCompactionTest, ManualCompactionFailsInReadOnlyMode) {
   // is in read-only mode. Verify it now at least returns, despite failing.
   const int kNumL0Files = 4;
   std::unique_ptr<FaultInjectionTestEnv> mock_env(
-      new FaultInjectionTestEnv(Env::Default()));
+      new FaultInjectionTestEnv(env_));
   Options opts = CurrentOptions();
   opts.disable_auto_compactions = true;
   opts.env = mock_env.get();
@@ -4839,8 +5060,8 @@ TEST_F(DBCompactionTest, ManualCompactionFailsInReadOnlyMode) {
   Random rnd(301);
   for (int i = 0; i < kNumL0Files; ++i) {
     // Make sure files are overlapping in key-range to prevent trivial move.
-    Put("key1", RandomString(&rnd, 1024));
-    Put("key2", RandomString(&rnd, 1024));
+    Put("key1", rnd.RandomString(1024));
+    Put("key2", rnd.RandomString(1024));
     Flush();
   }
   ASSERT_EQ(kNumL0Files, NumTableFilesAtLevel(0));
@@ -4849,7 +5070,7 @@ TEST_F(DBCompactionTest, ManualCompactionFailsInReadOnlyMode) {
   mock_env->SetFilesystemActive(false);
   // Make sure this is outside `CompactRange`'s range so that it doesn't fail
   // early trying to flush memtable.
-  ASSERT_NOK(Put("key3", RandomString(&rnd, 1024)));
+  ASSERT_NOK(Put("key3", rnd.RandomString(1024)));
 
   // In the bug scenario, the first manual compaction would fail and forget to
   // unregister itself, causing the second one to hang forever due to conflict
@@ -4888,7 +5109,7 @@ TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimized) {
   for (auto i = 0; i < 8; ++i) {
     for (auto j = 0; j < 10; ++j) {
       ASSERT_OK(
-          Put("foo" + std::to_string(i * 10 + j), RandomString(&rnd, 1024)));
+          Put("foo" + std::to_string(i * 10 + j), rnd.RandomString(1024)));
     }
     Flush();
   }
@@ -4898,7 +5119,7 @@ TEST_F(DBCompactionTest, ManualCompactionBottomLevelOptimized) {
   for (auto i = 0; i < 8; ++i) {
     for (auto j = 0; j < 10; ++j) {
       ASSERT_OK(
-          Put("bar" + std::to_string(i * 10 + j), RandomString(&rnd, 1024)));
+          Put("bar" + std::to_string(i * 10 + j), rnd.RandomString(1024)));
     }
     Flush();
   }
@@ -4932,7 +5153,7 @@ TEST_F(DBCompactionTest, CompactionDuringShutdown) {
   for (auto i = 0; i < 2; ++i) {
     for (auto j = 0; j < 10; ++j) {
       ASSERT_OK(
-          Put("foo" + std::to_string(i * 10 + j), RandomString(&rnd, 1024)));
+          Put("foo" + std::to_string(i * 10 + j), rnd.RandomString(1024)));
     }
     Flush();
   }
@@ -4955,7 +5176,7 @@ TEST_P(DBCompactionTestWithParam, FixFileIngestionCompactionDeadlock) {
 
   // Generate an external SST file containing a single key, i.e. 99
   std::string sst_files_dir = dbname_ + "/sst_files/";
-  test::DestroyDir(env_, sst_files_dir);
+  DestroyDir(env_, sst_files_dir);
   ASSERT_OK(env_->CreateDir(sst_files_dir));
   SstFileWriter sst_writer(EnvOptions(), options);
   const std::string sst_file_path = sst_files_dir + "test.sst";
@@ -4982,7 +5203,7 @@ TEST_P(DBCompactionTestWithParam, FixFileIngestionCompactionDeadlock) {
   // Generate level0_stop_writes_trigger L0 files to trigger write stop
   for (int i = 0; i != options.level0_file_num_compaction_trigger; ++i) {
     for (int j = 0; j != kNumKeysPerFile; ++j) {
-      ASSERT_OK(Put(Key(j), RandomString(&rnd, 990)));
+      ASSERT_OK(Put(Key(j), rnd.RandomString(990)));
     }
     if (0 == i) {
       // When we reach here, the memtables have kNumKeysPerFile keys. Note that
@@ -5024,10 +5245,11 @@ TEST_P(DBCompactionTestWithParam, FixFileIngestionCompactionDeadlock) {
 
 TEST_F(DBCompactionTest, ConsistencyFailTest) {
   Options options = CurrentOptions();
+  options.force_consistency_checks = true;
   DestroyAndReopen(options);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "VersionBuilder::CheckConsistency", [&](void* arg) {
+      "VersionBuilder::CheckConsistency0", [&](void* arg) {
         auto p =
             reinterpret_cast<std::pair<FileMetaData**, FileMetaData**>*>(arg);
         // just swap the two FileMetaData so that we hit error
@@ -5046,6 +5268,48 @@ TEST_F(DBCompactionTest, ConsistencyFailTest) {
 
   ASSERT_NOK(Put("foo", "bar"));
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_F(DBCompactionTest, ConsistencyFailTest2) {
+  Options options = CurrentOptions();
+  options.force_consistency_checks = true;
+  options.target_file_size_base = 1000;
+  options.level0_file_num_compaction_trigger = 2;
+  BlockBasedTableOptions bbto;
+  bbto.block_size = 400;  // small block size
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "VersionBuilder::CheckConsistency1", [&](void* arg) {
+        auto p =
+            reinterpret_cast<std::pair<FileMetaData**, FileMetaData**>*>(arg);
+        // just swap the two FileMetaData so that we hit error
+        // in CheckConsistency funcion
+        FileMetaData* temp = *(p->first);
+        *(p->first) = *(p->second);
+        *(p->second) = temp;
+      });
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  std::string value = rnd.RandomString(1000);
+
+  ASSERT_OK(Put("foo1", value));
+  ASSERT_OK(Put("z", ""));
+  Flush();
+  ASSERT_OK(Put("foo2", value));
+  ASSERT_OK(Put("z", ""));
+  Flush();
+
+  // This probably returns non-OK, but we rely on the next Put()
+  // to determine the DB is frozen.
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_NOK(Put("foo", "bar"));
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
 void IngestOneKeyValue(DBImpl* db, const std::string& key,
@@ -5078,10 +5342,16 @@ TEST_P(DBCompactionTestWithParam,
   const size_t kValueSize = 1 << 20;
   Random rnd(301);
   std::atomic<int> pick_intra_l0_count(0);
-  std::string value(RandomString(&rnd, kValueSize));
+  std::string value(rnd.RandomString(kValueSize));
 
+  // The L0->L1 must be picked before we begin ingesting files to trigger
+  // intra-L0 compaction, and must not finish until after an intra-L0
+  // compaction has been picked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBCompactionTestWithParam::FlushAfterIntraL0:1",
+      {{"LevelCompactionPicker::PickCompaction:Return",
+        "DBCompactionTestWithParam::"
+        "FlushAfterIntraL0CompactionCheckConsistencyFail:L0ToL1Ready"},
+       {"LevelCompactionPicker::PickCompactionBySize:0",
         "CompactionJob::Run():Start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "FindIntraL0Compaction",
@@ -5109,18 +5379,19 @@ TEST_P(DBCompactionTestWithParam,
   ASSERT_OK(Put(Key(0), "a"));
 
   ASSERT_EQ(5, NumTableFilesAtLevel(0));
+  TEST_SYNC_POINT(
+      "DBCompactionTestWithParam::"
+      "FlushAfterIntraL0CompactionCheckConsistencyFail:L0ToL1Ready");
 
   // Ingest 5 L0 sst. And this files would trigger PickIntraL0Compaction.
   for (int i = 5; i < 10; i++) {
+    ASSERT_EQ(i, NumTableFilesAtLevel(0));
     IngestOneKeyValue(dbfull(), Key(i), value, options);
-    ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
   }
 
-  TEST_SYNC_POINT("DBCompactionTestWithParam::FlushAfterIntraL0:1");
   // Put one key, to make biggest log sequence number in this memtable is bigger
   // than sst which would be ingested in next step.
   ASSERT_OK(Put(Key(2), "b"));
-  ASSERT_EQ(10, NumTableFilesAtLevel(0));
   dbfull()->TEST_WaitForCompact();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   std::vector<std::vector<FileMetaData>> level_to_files;
@@ -5146,8 +5417,8 @@ TEST_P(DBCompactionTestWithParam,
 
   const size_t kValueSize = 1 << 20;
   Random rnd(301);
-  std::string value(RandomString(&rnd, kValueSize));
-  std::string value2(RandomString(&rnd, kValueSize));
+  std::string value(rnd.RandomString(kValueSize));
+  std::string value2(rnd.RandomString(kValueSize));
   std::string bigvalue = value + value;
 
   // prevents trivial move
@@ -5159,8 +5430,14 @@ TEST_P(DBCompactionTestWithParam,
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
 
   std::atomic<int> pick_intra_l0_count(0);
+  // The L0->L1 must be picked before we begin ingesting files to trigger
+  // intra-L0 compaction, and must not finish until after an intra-L0
+  // compaction has been picked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBCompactionTestWithParam::IntraL0CompactionAfterFlush:1",
+      {{"LevelCompactionPicker::PickCompaction:Return",
+        "DBCompactionTestWithParam::"
+        "IntraL0CompactionAfterFlushCheckConsistencyFail:L0ToL1Ready"},
+       {"LevelCompactionPicker::PickCompactionBySize:0",
         "CompactionJob::Run():Start"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "FindIntraL0Compaction",
@@ -5191,17 +5468,18 @@ TEST_P(DBCompactionTestWithParam,
   }
 
   ASSERT_EQ(6, NumTableFilesAtLevel(0));
+  TEST_SYNC_POINT(
+      "DBCompactionTestWithParam::"
+      "IntraL0CompactionAfterFlushCheckConsistencyFail:L0ToL1Ready");
   // ingest file to trigger IntraL0Compaction
   for (int i = 6; i < 10; ++i) {
     ASSERT_EQ(i, NumTableFilesAtLevel(0));
     IngestOneKeyValue(dbfull(), Key(i), value2, options);
   }
-  ASSERT_EQ(10, NumTableFilesAtLevel(0));
 
   // Wake up flush job
   sleeping_tasks.WakeUp();
   sleeping_tasks.WaitUntilDone();
-  TEST_SYNC_POINT("DBCompactionTestWithParam::IntraL0CompactionAfterFlush:1");
   dbfull()->TEST_WaitForCompact();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 
@@ -5217,7 +5495,788 @@ TEST_P(DBCompactionTestWithParam,
   }
 }
 
-#endif // !defined(ROCKSDB_LITE)
+TEST_P(DBCompactionTestWithBottommostParam, SequenceKeysManualCompaction) {
+  constexpr int kSstNum = 10;
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  // Generate some sst files on level 0 with sequence keys (no overlap)
+  for (int i = 0; i < kSstNum; i++) {
+    for (int j = 1; j < UCHAR_MAX; j++) {
+      auto key = std::string(kSstNum, '\0');
+      key[kSstNum - i] += static_cast<char>(j);
+      Put(key, std::string(i % 1000, 'A'));
+    }
+    ASSERT_OK(Flush());
+  }
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  ASSERT_EQ(ToString(kSstNum), FilesPerLevel(0));
+
+  auto cro = CompactRangeOptions();
+  cro.bottommost_level_compaction = bottommost_level_compaction_;
+  db_->CompactRange(cro, nullptr, nullptr);
+  if (bottommost_level_compaction_ == BottommostLevelCompaction::kForce ||
+      bottommost_level_compaction_ ==
+          BottommostLevelCompaction::kForceOptimized) {
+    // Real compaction to compact all sst files from level 0 to 1 file on level
+    // 1
+    ASSERT_EQ("0,1", FilesPerLevel(0));
+  } else {
+    // Just trivial move from level 0 -> 1
+    ASSERT_EQ("0," + ToString(kSstNum), FilesPerLevel(0));
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(
+    DBCompactionTestWithBottommostParam, DBCompactionTestWithBottommostParam,
+    ::testing::Values(BottommostLevelCompaction::kSkip,
+                      BottommostLevelCompaction::kIfHaveCompactionFilter,
+                      BottommostLevelCompaction::kForce,
+                      BottommostLevelCompaction::kForceOptimized));
+
+TEST_F(DBCompactionTest, UpdateLevelSubCompactionTest) {
+  Options options = CurrentOptions();
+  options.max_subcompactions = 10;
+  options.target_file_size_base = 1 << 10;  // 1KB
+  DestroyAndReopen(options);
+
+  bool has_compaction = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->max_subcompactions() == 10);
+        has_compaction = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_TRUE(dbfull()->GetDBOptions().max_subcompactions == 10);
+  // Trigger compaction
+  for (int i = 0; i < 32; i++) {
+    for (int j = 0; j < 5000; j++) {
+      Put(std::to_string(j), std::string(1, 'A'));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(has_compaction);
+
+  has_compaction = false;
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_subcompactions", "2"}}));
+  ASSERT_TRUE(dbfull()->GetDBOptions().max_subcompactions == 2);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->max_subcompactions() == 2);
+        has_compaction = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction
+  for (int i = 0; i < 32; i++) {
+    for (int j = 0; j < 5000; j++) {
+      Put(std::to_string(j), std::string(1, 'A'));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(has_compaction);
+}
+
+TEST_F(DBCompactionTest, UpdateUniversalSubCompactionTest) {
+  Options options = CurrentOptions();
+  options.max_subcompactions = 10;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.target_file_size_base = 1 << 10;  // 1KB
+  DestroyAndReopen(options);
+
+  bool has_compaction = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->max_subcompactions() == 10);
+        has_compaction = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction
+  for (int i = 0; i < 32; i++) {
+    for (int j = 0; j < 5000; j++) {
+      Put(std::to_string(j), std::string(1, 'A'));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(has_compaction);
+  has_compaction = false;
+
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_subcompactions", "2"}}));
+  ASSERT_TRUE(dbfull()->GetDBOptions().max_subcompactions == 2);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionBuilder::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        ASSERT_TRUE(compaction->max_subcompactions() == 2);
+        has_compaction = true;
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Trigger compaction
+  for (int i = 0; i < 32; i++) {
+    for (int j = 0; j < 5000; j++) {
+      Put(std::to_string(j), std::string(1, 'A'));
+    }
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(has_compaction);
+}
+
+TEST_P(ChangeLevelConflictsWithAuto, TestConflict) {
+  // A `CompactRange()` may race with an automatic compaction, we'll need
+  // to make sure it doesn't corrupte the data.
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  Reopen(options);
+
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Put("bar", "v1"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  }
+  ASSERT_EQ("0,0,1", FilesPerLevel(0));
+
+  // Run a qury to refitting to level 1 while another thread writing to
+  // the same level.
+  SyncPoint::GetInstance()->LoadDependency({
+      // The first two dependencies ensure the foreground creates an L0 file
+      // between the background compaction's L0->L1 and its L1->L2.
+      {
+          "DBImpl::CompactRange:BeforeRefit:1",
+          "AutoCompactionFinished1",
+      },
+      {
+          "AutoCompactionFinished2",
+          "DBImpl::CompactRange:BeforeRefit:2",
+      },
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::thread auto_comp([&] {
+    TEST_SYNC_POINT("AutoCompactionFinished1");
+    ASSERT_OK(Put("bar", "v2"));
+    ASSERT_OK(Put("foo", "v2"));
+    ASSERT_OK(Flush());
+    ASSERT_OK(Put("bar", "v3"));
+    ASSERT_OK(Put("foo", "v3"));
+    ASSERT_OK(Flush());
+    dbfull()->TEST_WaitForCompact();
+    TEST_SYNC_POINT("AutoCompactionFinished2");
+  });
+
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = GetParam() ? 1 : 0;
+    // This should return non-OK, but it's more important for the test to
+    // make sure that the DB is not corrupted.
+    dbfull()->CompactRange(cro, nullptr, nullptr);
+  }
+  auto_comp.join();
+  // Refitting didn't happen.
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  // Write something to DB just make sure that consistency check didn't
+  // fail and make the DB readable.
+}
+
+INSTANTIATE_TEST_CASE_P(ChangeLevelConflictsWithAuto,
+                        ChangeLevelConflictsWithAuto, testing::Bool());
+
+TEST_F(DBCompactionTest, ChangeLevelCompactRangeConflictsWithManual) {
+  // A `CompactRange()` with `change_level == true` needs to execute its final
+  // step, `ReFitLevel()`, in isolation. Previously there was a bug where
+  // refitting could target the same level as an ongoing manual compaction,
+  // leading to overlapping files in that level.
+  //
+  // This test ensures that case is not possible by verifying any manual
+  // compaction issued during the `ReFitLevel()` phase fails with
+  // `Status::Incomplete`.
+  Options options = CurrentOptions();
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 3;
+  Reopen(options);
+
+  // Setup an LSM with three levels populated.
+  Random rnd(301);
+  int key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  }
+  ASSERT_EQ("0,0,2", FilesPerLevel(0));
+
+  GenerateNewFile(&rnd, &key_idx);
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,1,2", FilesPerLevel(0));
+
+  // The background thread will refit L2->L1 while the
+  // foreground thread will try to simultaneously compact L0->L1.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      // The first two dependencies ensure the foreground creates an L0 file
+      // between the background compaction's L0->L1 and its L1->L2.
+      {
+          "DBImpl::RunManualCompaction()::1",
+          "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:"
+          "PutFG",
+      },
+      {
+          "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:"
+          "FlushedFG",
+          "DBImpl::RunManualCompaction()::2",
+      },
+      // The next two dependencies ensure the foreground invokes
+      // `CompactRange()` while the background is refitting. The
+      // foreground's `CompactRange()` is guaranteed to attempt an L0->L1
+      // as we set it up with an empty memtable and a new L0 file.
+      {
+          "DBImpl::CompactRange:PreRefitLevel",
+          "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:"
+          "CompactFG",
+      },
+      {
+          "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:"
+          "CompactedFG",
+          "DBImpl::CompactRange:PostRefitLevel",
+      },
+  });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ROCKSDB_NAMESPACE::port::Thread refit_level_thread([&] {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 1;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  });
+
+  TEST_SYNC_POINT(
+      "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:PutFG");
+  // Make sure we have something new to compact in the foreground.
+  // Note key 1 is carefully chosen as it ensures the file we create here
+  // overlaps with one of the files being refitted L2->L1 in the background.
+  // If we chose key 0, the file created here would not overlap.
+  ASSERT_OK(Put(Key(1), "val"));
+  ASSERT_OK(Flush());
+  TEST_SYNC_POINT(
+      "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:FlushedFG");
+
+  TEST_SYNC_POINT(
+      "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:CompactFG");
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                  .IsIncomplete());
+  TEST_SYNC_POINT(
+      "DBCompactionTest::ChangeLevelCompactRangeConflictsWithManual:"
+      "CompactedFG");
+  refit_level_thread.join();
+}
+
+TEST_F(DBCompactionTest, ChangeLevelErrorPathTest) {
+  // This test is added to ensure that RefitLevel() error paths are clearing
+  // internal flags and to test that subsequent valid RefitLevel() calls
+  // succeeds
+  Options options = CurrentOptions();
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 3;
+  Reopen(options);
+
+  ASSERT_EQ("", FilesPerLevel(0));
+
+  // Setup an LSM with three levels populated.
+  Random rnd(301);
+  int key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1", FilesPerLevel(0));
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 2;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  }
+  ASSERT_EQ("0,0,2", FilesPerLevel(0));
+
+  auto start_idx = key_idx;
+  GenerateNewFile(&rnd, &key_idx);
+  GenerateNewFile(&rnd, &key_idx);
+  auto end_idx = key_idx - 1;
+  ASSERT_EQ("1,1,2", FilesPerLevel(0));
+
+  // Next two CompactRange() calls are used to test exercise error paths within
+  // RefitLevel() before triggering a valid RefitLevel() call
+
+  // Trigger a refit to L1 first
+  {
+    std::string begin_string = Key(start_idx);
+    std::string end_string = Key(end_idx);
+    Slice begin(begin_string);
+    Slice end(end_string);
+
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 1;
+    ASSERT_OK(dbfull()->CompactRange(cro, &begin, &end));
+  }
+  ASSERT_EQ("0,3,2", FilesPerLevel(0));
+
+  // Try a refit from L2->L1 - this should fail and exercise error paths in
+  // RefitLevel()
+  {
+    // Select key range that matches the bottom most level (L2)
+    std::string begin_string = Key(0);
+    std::string end_string = Key(start_idx - 1);
+    Slice begin(begin_string);
+    Slice end(end_string);
+
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 1;
+    ASSERT_NOK(dbfull()->CompactRange(cro, &begin, &end));
+  }
+  ASSERT_EQ("0,3,2", FilesPerLevel(0));
+
+  // Try a valid Refit request to ensure, the path is still working
+  {
+    CompactRangeOptions cro;
+    cro.change_level = true;
+    cro.target_level = 1;
+    ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
+  }
+  ASSERT_EQ("0,5", FilesPerLevel(0));
+}
+
+TEST_F(DBCompactionTest, CompactionWithBlob) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char second_key[] = "second_key";
+  constexpr char first_value[] = "first_value";
+  constexpr char second_value[] = "second_value";
+  constexpr char third_value[] = "third_value";
+
+  ASSERT_OK(Put(first_key, first_value));
+  ASSERT_OK(Put(second_key, first_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(first_key, second_value));
+  ASSERT_OK(Put(second_key, second_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(first_key, third_value));
+  ASSERT_OK(Put(second_key, third_value));
+  ASSERT_OK(Flush());
+
+  options.enable_blob_files = true;
+
+  Reopen(options);
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  ASSERT_EQ(Get(first_key), third_value);
+  ASSERT_EQ(Get(second_key), third_value);
+
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  Version* const current = cfd->current();
+  assert(current);
+
+  const VersionStorageInfo* const storage_info = current->storage_info();
+  assert(storage_info);
+
+  const auto& l1_files = storage_info->LevelFiles(1);
+  ASSERT_EQ(l1_files.size(), 1);
+
+  const FileMetaData* const table_file = l1_files[0];
+  assert(table_file);
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+  ASSERT_EQ(blob_files.size(), 1);
+
+  const auto& blob_file = blob_files.begin()->second;
+  assert(blob_file);
+
+  ASSERT_EQ(table_file->smallest.user_key(), first_key);
+  ASSERT_EQ(table_file->largest.user_key(), second_key);
+  ASSERT_EQ(table_file->oldest_blob_file_number,
+            blob_file->GetBlobFileNumber());
+
+  ASSERT_EQ(blob_file->GetTotalBlobCount(), 2);
+
+  const InternalStats* const internal_stats = cfd->internal_stats();
+  assert(internal_stats);
+
+  const uint64_t expected_bytes =
+      table_file->fd.GetFileSize() + blob_file->GetTotalBlobBytes();
+
+  const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
+  ASSERT_GE(compaction_stats.size(), 2);
+  ASSERT_EQ(compaction_stats[1].bytes_written, expected_bytes);
+  ASSERT_EQ(compaction_stats[1].num_output_files, 2);
+}
+
+class DBCompactionTestBlobError
+    : public DBCompactionTest,
+      public testing::WithParamInterface<std::string> {
+ public:
+  DBCompactionTestBlobError()
+      : fault_injection_env_(env_), sync_point_(GetParam()) {}
+  ~DBCompactionTestBlobError() { Close(); }
+
+  FaultInjectionTestEnv fault_injection_env_;
+  std::string sync_point_;
+};
+
+INSTANTIATE_TEST_CASE_P(DBCompactionTestBlobError, DBCompactionTestBlobError,
+                        ::testing::ValuesIn(std::vector<std::string>{
+                            "BlobFileBuilder::WriteBlobToFile:AddRecord",
+                            "BlobFileBuilder::WriteBlobToFile:AppendFooter"}));
+
+TEST_P(DBCompactionTestBlobError, CompactionError) {
+  Options options;
+  options.disable_auto_compactions = true;
+  options.env = env_;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char second_key[] = "second_key";
+  constexpr char first_value[] = "first_value";
+  constexpr char second_value[] = "second_value";
+  constexpr char third_value[] = "third_value";
+
+  ASSERT_OK(Put(first_key, first_value));
+  ASSERT_OK(Put(second_key, first_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(first_key, second_value));
+  ASSERT_OK(Put(second_key, second_value));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(first_key, third_value));
+  ASSERT_OK(Put(second_key, third_value));
+  ASSERT_OK(Flush());
+
+  options.enable_blob_files = true;
+  options.env = &fault_injection_env_;
+
+  Reopen(options);
+
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_.SetFilesystemActive(false,
+                                             Status::IOError(sync_point_));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), begin, end).IsIOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  Version* const current = cfd->current();
+  assert(current);
+
+  const VersionStorageInfo* const storage_info = current->storage_info();
+  assert(storage_info);
+
+  const auto& l1_files = storage_info->LevelFiles(1);
+  ASSERT_TRUE(l1_files.empty());
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+  ASSERT_TRUE(blob_files.empty());
+
+  const InternalStats* const internal_stats = cfd->internal_stats();
+  assert(internal_stats);
+
+  const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
+  ASSERT_GE(compaction_stats.size(), 2);
+
+  if (sync_point_ == "BlobFileBuilder::WriteBlobToFile:AddRecord") {
+    ASSERT_EQ(compaction_stats[1].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[1].num_output_files, 0);
+  } else {
+    // SST file writing succeeded; blob file writing failed (during Finish)
+    ASSERT_GT(compaction_stats[1].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[1].num_output_files, 1);
+  }
+}
+
+class DBCompactionTestBlobGC
+    : public DBCompactionTest,
+      public testing::WithParamInterface<std::tuple<double, bool>> {
+ public:
+  DBCompactionTestBlobGC()
+      : blob_gc_age_cutoff_(std::get<0>(GetParam())),
+        updated_enable_blob_files_(std::get<1>(GetParam())) {}
+
+  double blob_gc_age_cutoff_;
+  bool updated_enable_blob_files_;
+};
+
+INSTANTIATE_TEST_CASE_P(DBCompactionTestBlobGC, DBCompactionTestBlobGC,
+                        ::testing::Combine(::testing::Values(0.0, 0.5, 1.0),
+                                           ::testing::Bool()));
+
+TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGC) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.blob_file_size = 32;  // one blob per file
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = blob_gc_age_cutoff_;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "first_value";
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "second_value";
+
+  ASSERT_OK(Put(first_key, first_value));
+  ASSERT_OK(Put(second_key, second_value));
+  ASSERT_OK(Flush());
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "third_value";
+  constexpr char fourth_key[] = "fourth_key";
+  constexpr char fourth_value[] = "fourth_value";
+
+  ASSERT_OK(Put(third_key, third_value));
+  ASSERT_OK(Put(fourth_key, fourth_value));
+  ASSERT_OK(Flush());
+
+  const std::vector<uint64_t> original_blob_files = GetBlobFileNumbers();
+
+  ASSERT_EQ(original_blob_files.size(), 4);
+
+  const size_t cutoff_index = static_cast<size_t>(
+      options.blob_garbage_collection_age_cutoff * original_blob_files.size());
+
+  // Note: turning off enable_blob_files before the compaction results in
+  // garbage collected values getting inlined.
+  size_t expected_number_of_files = original_blob_files.size();
+
+  if (!updated_enable_blob_files_) {
+    ASSERT_OK(db_->SetOptions({{"enable_blob_files", "false"}}));
+
+    expected_number_of_files -= cutoff_index;
+  }
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+
+  ASSERT_EQ(Get(first_key), first_value);
+  ASSERT_EQ(Get(second_key), second_value);
+  ASSERT_EQ(Get(third_key), third_value);
+  ASSERT_EQ(Get(fourth_key), fourth_value);
+
+  const std::vector<uint64_t> new_blob_files = GetBlobFileNumbers();
+
+  ASSERT_EQ(new_blob_files.size(), expected_number_of_files);
+
+  // Original blob files below the cutoff should be gone, original blob files at
+  // or above the cutoff should be still there
+  for (size_t i = cutoff_index; i < original_blob_files.size(); ++i) {
+    ASSERT_EQ(new_blob_files[i - cutoff_index], original_blob_files[i]);
+  }
+}
+
+TEST_F(DBCompactionTest, CompactionWithBlobGCError_CorruptIndex) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "first_value";
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "second_value";
+  ASSERT_OK(Put(second_key, second_value));
+
+  ASSERT_OK(Flush());
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "third_value";
+  ASSERT_OK(Put(third_key, third_value));
+
+  constexpr char fourth_key[] = "fourth_key";
+  constexpr char corrupt_blob_index[] = "foobar";
+
+  WriteBatch batch;
+  ASSERT_OK(WriteBatchInternal::PutBlobIndex(&batch, 0, fourth_key,
+                                             corrupt_blob_index));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  ASSERT_OK(Flush());
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_TRUE(
+      db_->CompactRange(CompactRangeOptions(), begin, end).IsCorruption());
+}
+
+TEST_F(DBCompactionTest, CompactionWithBlobGCError_InlinedTTLIndex) {
+  constexpr uint64_t min_blob_size = 10;
+
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = min_blob_size;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "first_value";
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "second_value";
+  ASSERT_OK(Put(second_key, second_value));
+
+  ASSERT_OK(Flush());
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "third_value";
+  ASSERT_OK(Put(third_key, third_value));
+
+  constexpr char fourth_key[] = "fourth_key";
+  constexpr char blob[] = "short";
+  static_assert(sizeof(short) - 1 < min_blob_size,
+                "Blob too long to be inlined");
+
+  // Fake an inlined TTL blob index.
+  std::string blob_index;
+
+  constexpr uint64_t expiration = 1234567890;
+
+  BlobIndex::EncodeInlinedTTL(&blob_index, expiration, blob);
+
+  WriteBatch batch;
+  ASSERT_OK(
+      WriteBatchInternal::PutBlobIndex(&batch, 0, fourth_key, blob_index));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  ASSERT_OK(Flush());
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_TRUE(
+      db_->CompactRange(CompactRangeOptions(), begin, end).IsCorruption());
+}
+
+TEST_F(DBCompactionTest, CompactionWithBlobGCError_IndexWithInvalidFileNumber) {
+  Options options;
+  options.env = env_;
+  options.disable_auto_compactions = true;
+  options.enable_blob_files = true;
+  options.enable_blob_garbage_collection = true;
+  options.blob_garbage_collection_age_cutoff = 1.0;
+
+  Reopen(options);
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "first_value";
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "second_value";
+  ASSERT_OK(Put(second_key, second_value));
+
+  ASSERT_OK(Flush());
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "third_value";
+  ASSERT_OK(Put(third_key, third_value));
+
+  constexpr char fourth_key[] = "fourth_key";
+
+  // Fake a blob index referencing a non-existent blob file.
+  std::string blob_index;
+
+  constexpr uint64_t blob_file_number = 1000;
+  constexpr uint64_t offset = 1234;
+  constexpr uint64_t size = 5678;
+
+  BlobIndex::EncodeBlob(&blob_index, blob_file_number, offset, size,
+                        kNoCompression);
+
+  WriteBatch batch;
+  ASSERT_OK(
+      WriteBatchInternal::PutBlobIndex(&batch, 0, fourth_key, blob_index));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  ASSERT_OK(Flush());
+
+  constexpr Slice* begin = nullptr;
+  constexpr Slice* end = nullptr;
+
+  ASSERT_TRUE(
+      db_->CompactRange(CompactRangeOptions(), begin, end).IsCorruption());
+}
+
+#endif  // !defined(ROCKSDB_LITE)
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

@@ -8,10 +8,11 @@
 #include <memory>
 #include <string>
 #include <utility>
+
+#include "db/blob/blob_log_format.h"
 #include "file/random_access_file_reader.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "utilities/blob_db/blob_log_format.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace blob_db {

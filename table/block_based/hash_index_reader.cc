@@ -13,6 +13,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 Status HashIndexReader::Create(const BlockBasedTable* table,
+                               const ReadOptions& ro,
                                FilePrefetchBuffer* prefetch_buffer,
                                InternalIterator* meta_index_iter,
                                bool use_cache, bool prefetch, bool pin,
@@ -28,7 +29,7 @@ Status HashIndexReader::Create(const BlockBasedTable* table,
   CachableEntry<Block> index_block;
   if (prefetch || !use_cache) {
     const Status s =
-        ReadIndexBlock(table, prefetch_buffer, ReadOptions(), use_cache,
+        ReadIndexBlock(table, prefetch_buffer, ro, use_cache,
                        /*get_context=*/nullptr, lookup_context, &index_block);
     if (!s.ok()) {
       return s;
@@ -132,7 +133,7 @@ InternalIteratorBase<IndexValue>* HashIndexReader::NewIterator(
   // We don't return pinned data from index blocks, so no need
   // to set `block_contents_pinned`.
   auto it = index_block.GetValue()->NewIndexIterator(
-      internal_comparator(), internal_comparator()->user_comparator(),
+      internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), iter, kNullStats,
       total_order_seek, index_has_first_key(), index_key_includes_seq(),
       index_value_is_full(), false /* block_contents_pinned */,

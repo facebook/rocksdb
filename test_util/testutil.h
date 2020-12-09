@@ -22,13 +22,11 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/table.h"
-#include "table/block_based/block_based_table_factory.h"
 #include "table/internal_iterator.h"
-#include "table/plain/plain_table_factory.h"
 #include "util/mutexlock.h"
-#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
+class Random;
 class SequentialFile;
 class SequentialFileReader;
 
@@ -36,12 +34,6 @@ namespace test {
 
 extern const uint32_t kDefaultFormatVersion;
 extern const uint32_t kLatestFormatVersion;
-
-// Store in *dst a random string of length "len" and return a Slice that
-// references the generated data.
-extern Slice RandomString(Random* rnd, int len, std::string* dst);
-
-extern std::string RandomHumanReadableString(Random* rnd, int len);
 
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).
@@ -61,9 +53,10 @@ class ErrorEnv : public EnvWrapper {
   bool writable_file_error_;
   int num_writable_file_errors_;
 
-  ErrorEnv() : EnvWrapper(Env::Default()),
-               writable_file_error_(false),
-               num_writable_file_errors_(0) { }
+  ErrorEnv(Env* _target)
+      : EnvWrapper(_target),
+        writable_file_error_(false),
+        num_writable_file_errors_(0) {}
 
   virtual Status NewWritableFile(const std::string& fname,
                                  std::unique_ptr<WritableFile>* result,
@@ -400,6 +393,10 @@ extern std::string KeyStr(const std::string& user_key,
                           const SequenceNumber& seq, const ValueType& t,
                           bool corrupt = false);
 
+extern std::string KeyStr(uint64_t ts, const std::string& user_key,
+                          const SequenceNumber& seq, const ValueType& t,
+                          bool corrupt = false);
+
 class SleepingBackgroundTask {
  public:
   SleepingBackgroundTask()
@@ -594,14 +591,17 @@ inline std::string EncodeInt(uint64_t x) {
                                 const std::string& content) {
       std::unique_ptr<WritableFile> r;
       auto s = NewWritableFile(file_name, &r, EnvOptions());
-      if (!s.ok()) {
-        return s;
+      if (s.ok()) {
+        s = r->Append(content);
       }
-      r->Append(content);
-      r->Flush();
-      r->Close();
-      assert(files_[file_name] == content);
-      return Status::OK();
+      if (s.ok()) {
+        s = r->Flush();
+      }
+      if (s.ok()) {
+        s = r->Close();
+      }
+      assert(!s.ok() || files_[file_name] == content);
+      return s;
     }
 
     // The following text is boilerplate that forwards all methods to target()
@@ -793,12 +793,19 @@ TableFactory* RandomTableFactory(Random* rnd, int pre_defined = -1);
 
 std::string RandomName(Random* rnd, const size_t len);
 
-Status DestroyDir(Env* env, const std::string& dir);
-
 bool IsDirectIOSupported(Env* env, const std::string& dir);
 
 // Return the number of lines where a given pattern was found in a file.
 size_t GetLinesCount(const std::string& fname, const std::string& pattern);
+
+// TEST_TMPDIR may be set to /dev/shm in Makefile,
+// but /dev/shm does not support direct IO.
+// Tries to set TEST_TMPDIR to a directory supporting direct IO.
+void ResetTmpDirForDirectIO();
+
+Status CorruptFile(Env* env, const std::string& fname, int offset,
+                   int bytes_to_corrupt, bool verify_checksum = true);
+Status TruncateFile(Env* env, const std::string& fname, uint64_t length);
 
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

@@ -10,7 +10,9 @@
 #pragma once
 #include <atomic>
 #include <string>
+
 #include "db/version_edit.h"
+#include "env/file_system_tracer.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
@@ -34,26 +36,91 @@ class Statistics;
 class WritableFileWriter {
  private:
 #ifndef ROCKSDB_LITE
-  void NotifyOnFileWriteFinish(uint64_t offset, size_t length,
-                               const FileOperationInfo::TimePoint& start_ts,
-                               const FileOperationInfo::TimePoint& finish_ts,
-                               const IOStatus& io_status) {
-    FileOperationInfo info(file_name_, start_ts, finish_ts);
+  void NotifyOnFileWriteFinish(
+      uint64_t offset, size_t length,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kWrite, file_name_, start_ts,
+                           finish_ts, io_status);
     info.offset = offset;
     info.length = length;
-    info.status = io_status;
 
     for (auto& listener : listeners_) {
       listener->OnFileWriteFinish(info);
     }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileFlushFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kFlush, file_name_, start_ts,
+                           finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileFlushFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileSyncFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status,
+      FileOperationType type = FileOperationType::kSync) {
+    FileOperationInfo info(type, file_name_, start_ts, finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileSyncFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileRangeSyncFinish(
+      uint64_t offset, size_t length,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kRangeSync, file_name_, start_ts,
+                           finish_ts, io_status);
+    info.offset = offset;
+    info.length = length;
+
+    for (auto& listener : listeners_) {
+      listener->OnFileRangeSyncFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileTruncateFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kTruncate, file_name_, start_ts,
+                           finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileTruncateFinish(info);
+    }
+    info.status.PermitUncheckedError();
+  }
+  void NotifyOnFileCloseFinish(
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const IOStatus& io_status) {
+    FileOperationInfo info(FileOperationType::kClose, file_name_, start_ts,
+                           finish_ts, io_status);
+
+    for (auto& listener : listeners_) {
+      listener->OnFileCloseFinish(info);
+    }
+    info.status.PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
-  void CalculateFileChecksum(const Slice& data);
+  void UpdateFileChecksum(const Slice& data);
 
-  std::unique_ptr<FSWritableFile> writable_file_;
   std::string file_name_;
+  FSWritableFilePtr writable_file_;
   Env* env_;
   AlignedBuffer buf_;
   size_t max_buffer_size_;
@@ -79,11 +146,12 @@ class WritableFileWriter {
   WritableFileWriter(
       std::unique_ptr<FSWritableFile>&& file, const std::string& _file_name,
       const FileOptions& options, Env* env = nullptr,
+      const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr)
-      : writable_file_(std::move(file)),
-        file_name_(_file_name),
+      : file_name_(_file_name),
+        writable_file_(std::move(file), io_tracer),
         env_(env),
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
@@ -126,7 +194,10 @@ class WritableFileWriter {
 
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;
 
-  ~WritableFileWriter() { Close(); }
+  ~WritableFileWriter() {
+    auto s = Close();
+    s.PermitUncheckedError();
+  }
 
   std::string file_name() const { return file_name_; }
 

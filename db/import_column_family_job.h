@@ -24,15 +24,17 @@ class ImportColumnFamilyJob {
                         const ImmutableDBOptions& db_options,
                         const EnvOptions& env_options,
                         const ImportColumnFamilyOptions& import_options,
-                        const std::vector<LiveFileMetaData>& metadata)
+                        const std::vector<LiveFileMetaData>& metadata,
+                        const std::shared_ptr<IOTracer>& io_tracer)
       : env_(env),
         versions_(versions),
         cfd_(cfd),
         db_options_(db_options),
-        fs_(db_options_.fs.get()),
+        fs_(db_options_.fs, io_tracer),
         env_options_(env_options),
         import_options_(import_options),
-        metadata_(metadata) {}
+        metadata_(metadata),
+        io_tracer_(io_tracer) {}
 
   // Prepare the job by copying external files into the DB.
   Status Prepare(uint64_t next_file_number, SuperVersion* sv);
@@ -61,12 +63,13 @@ class ImportColumnFamilyJob {
   VersionSet* versions_;
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;
-  FileSystem* fs_;
+  const FileSystemPtr fs_;
   const EnvOptions& env_options_;
   autovector<IngestedFileInfo> files_to_import_;
   VersionEdit edit_;
   const ImportColumnFamilyOptions& import_options_;
   std::vector<LiveFileMetaData> metadata_;
+  const std::shared_ptr<IOTracer> io_tracer_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

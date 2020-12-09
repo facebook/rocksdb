@@ -80,18 +80,22 @@ TEST_F(WritableFileWriterTest, RangeSync) {
       new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
                              "" /* don't care */, env_options));
   Random r(301);
+  Status s;
   std::unique_ptr<char[]> large_buf(new char[10 * kMb]);
   for (int i = 0; i < 1000; i++) {
     int skew_limit = (i < 700) ? 10 : 15;
     uint32_t num = r.Skewed(skew_limit) * 100 + r.Uniform(100);
-    writer->Append(Slice(large_buf.get(), num));
+    s = writer->Append(Slice(large_buf.get(), num));
+    ASSERT_OK(s);
 
     // Flush in a chance of 1/10.
     if (r.Uniform(10) == 0) {
-      writer->Flush();
+      s = writer->Flush();
+      ASSERT_OK(s);
     }
   }
-  writer->Close();
+  s = writer->Close();
+  ASSERT_OK(s);
 }
 
 TEST_F(WritableFileWriterTest, IncrementalBuffer) {
@@ -166,8 +170,7 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
     std::string target;
     for (int i = 0; i < 20; i++) {
       uint32_t num = r.Skewed(16) * 100 + r.Uniform(100);
-      std::string random_string;
-      test::RandomString(&r, num, &random_string);
+      std::string random_string = r.RandomString(num);
       writer->Append(Slice(random_string.c_str(), num));
       target.append(random_string.c_str(), num);
 
@@ -243,15 +246,18 @@ class ReadaheadRandomAccessFileTest
   ReadaheadRandomAccessFileTest() : control_contents_() {}
   std::string Read(uint64_t offset, size_t n) {
     Slice result;
-    test_read_holder_->Read(offset, n, &result, scratch_.get());
+    Status s = test_read_holder_->Read(offset, n, &result, scratch_.get());
+    EXPECT_TRUE(s.ok() || s.IsInvalidArgument());
     return std::string(result.data(), result.size());
   }
   void ResetSourceStr(const std::string& str = "") {
     auto write_holder =
         std::unique_ptr<WritableFileWriter>(test::GetWritableFileWriter(
             new test::StringSink(&control_contents_), "" /* don't care */));
-    write_holder->Append(Slice(str));
-    write_holder->Flush();
+    Status s = write_holder->Append(Slice(str));
+    EXPECT_OK(s);
+    s = write_holder->Flush();
+    EXPECT_OK(s);
     auto read_holder = std::unique_ptr<RandomAccessFile>(
         new test::StringSource(control_contents_));
     test_read_holder_ =
@@ -288,8 +294,7 @@ TEST_P(ReadaheadRandomAccessFileTest, SourceStrLenGreaterThanReadaheadSize) {
   for (int k = 0; k < 100; ++k) {
     size_t strLen = k * GetReadaheadSize() +
                     rng.Uniform(static_cast<int>(GetReadaheadSize()));
-    std::string str =
-        test::RandomHumanReadableString(&rng, static_cast<int>(strLen));
+    std::string str = rng.HumanReadableString(static_cast<int>(strLen));
     ResetSourceStr(str);
     for (int test = 1; test <= 100; ++test) {
       size_t offset = rng.Uniform(static_cast<int>(strLen));
@@ -304,8 +309,7 @@ TEST_P(ReadaheadRandomAccessFileTest, ReadExceedsReadaheadSize) {
   Random rng(7);
   size_t strLen = 4 * GetReadaheadSize() +
                   rng.Uniform(static_cast<int>(GetReadaheadSize()));
-  std::string str =
-      test::RandomHumanReadableString(&rng, static_cast<int>(strLen));
+  std::string str = rng.HumanReadableString(static_cast<int>(strLen));
   ResetSourceStr(str);
   for (int test = 1; test <= 100; ++test) {
     size_t offset = rng.Uniform(static_cast<int>(strLen));
@@ -343,7 +347,8 @@ class ReadaheadSequentialFileTest : public testing::Test,
   ReadaheadSequentialFileTest() {}
   std::string Read(size_t n) {
     Slice result;
-    test_read_holder_->Read(n, &result, scratch_.get());
+    Status s = test_read_holder_->Read(n, &result, scratch_.get());
+    EXPECT_TRUE(s.ok() || s.IsInvalidArgument());
     return std::string(result.data(), result.size());
   }
   void Skip(size_t n) { test_read_holder_->Skip(n); }
@@ -383,8 +388,7 @@ TEST_P(ReadaheadSequentialFileTest, SourceStrLenGreaterThanReadaheadSize) {
     for (int k = 0; k < 100; ++k) {
       size_t strLen = k * GetReadaheadSize() +
                       rng.Uniform(static_cast<int>(GetReadaheadSize()));
-      std::string str =
-          test::RandomHumanReadableString(&rng, static_cast<int>(strLen));
+      std::string str = rng.HumanReadableString(static_cast<int>(strLen));
       ResetSourceStr(str);
       size_t offset = 0;
       for (int test = 1; test <= 100; ++test) {
@@ -406,8 +410,7 @@ TEST_P(ReadaheadSequentialFileTest, ReadExceedsReadaheadSize) {
     for (int k = 0; k < 100; ++k) {
       size_t strLen = k * GetReadaheadSize() +
                       rng.Uniform(static_cast<int>(GetReadaheadSize()));
-      std::string str =
-          test::RandomHumanReadableString(&rng, static_cast<int>(strLen));
+      std::string str = rng.HumanReadableString(static_cast<int>(strLen));
       ResetSourceStr(str);
       size_t offset = 0;
       for (int test = 1; test <= 100; ++test) {

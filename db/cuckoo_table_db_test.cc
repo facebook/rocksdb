@@ -13,6 +13,7 @@
 #include "table/meta_blocks.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -46,9 +47,7 @@ class CuckooTableDBTest : public testing::Test {
     return options;
   }
 
-  DBImpl* dbfull() {
-    return reinterpret_cast<DBImpl*>(db_);
-  }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
   // The following util methods are copied from plain_table_db_test.
   void Reopen(Options* options = nullptr) {
@@ -62,6 +61,15 @@ class CuckooTableDBTest : public testing::Test {
       opts.create_if_missing = true;
     }
     ASSERT_OK(DB::Open(opts, dbname_, &db_));
+  }
+
+  void DestroyAndReopen(Options* options) {
+    assert(options);
+    ASSERT_OK(db_->Close());
+    delete db_;
+    db_ = nullptr;
+    ASSERT_OK(DestroyDB(dbname_, *options));
+    Reopen(options);
   }
 
   Status Put(const Slice& k, const Slice& v) {
@@ -206,7 +214,7 @@ static std::string Uint64Key(uint64_t i) {
 TEST_F(CuckooTableDBTest, Uint64Comparator) {
   Options options = CurrentOptions();
   options.comparator = test::Uint64Comparator();
-  Reopen(&options);
+  DestroyAndReopen(&options);
 
   ASSERT_OK(Put(Uint64Key(1), "v1"));
   ASSERT_OK(Put(Uint64Key(2), "v2"));

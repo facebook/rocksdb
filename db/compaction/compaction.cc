@@ -7,12 +7,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "db/compaction/compaction.h"
+
 #include <cinttypes>
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/compaction/compaction.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/sst_partitioner.h"
 #include "test_util/sync_point.h"
 #include "util/string_util.h"
 
@@ -205,6 +207,7 @@ bool Compaction::IsFullCompaction(
 Compaction::Compaction(VersionStorageInfo* vstorage,
                        const ImmutableCFOptions& _immutable_cf_options,
                        const MutableCFOptions& _mutable_cf_options,
+                       const MutableDBOptions& _mutable_db_options,
                        std::vector<CompactionInputFiles> _inputs,
                        int _output_level, uint64_t _target_file_size,
                        uint64_t _max_compaction_bytes, uint32_t _output_path_id,
@@ -243,13 +246,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
     compaction_reason_ = CompactionReason::kManualCompaction;
   }
   if (max_subcompactions_ == 0) {
-    max_subcompactions_ = immutable_cf_options_.max_subcompactions;
-  }
-  if (!bottommost_level_) {
-    // Currently we only enable dictionary compression during compaction to the
-    // bottommost level.
-    output_compression_opts_.max_dict_bytes = 0;
-    output_compression_opts_.zstd_max_train_bytes = 0;
+    max_subcompactions_ = _mutable_db_options.max_subcompactions;
   }
 
 #ifndef NDEBUG
@@ -328,6 +325,8 @@ bool Compaction::IsTrivialMove() const {
 
   // assert inputs_.size() == 1
 
+  std::unique_ptr<SstPartitioner> partitioner = CreateSstPartitioner();
+
   for (const auto& file : inputs_.front().files) {
     std::vector<FileMetaData*> file_grand_parents;
     if (output_level_ + 1 >= number_levels_) {
@@ -339,6 +338,13 @@ bool Compaction::IsTrivialMove() const {
         file->fd.GetFileSize() + TotalFileSize(file_grand_parents);
     if (compaction_size > max_compaction_bytes_) {
       return false;
+    }
+
+    if (partitioner.get() != nullptr) {
+      if (!partitioner->CanDoTrivialMove(file->smallest.user_key(),
+                                         file->largest.user_key())) {
+        return false;
+      }
     }
   }
 
@@ -371,7 +377,13 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
         auto* f = files[level_ptrs->at(lvl)];
         if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
           // We've advanced far enough
-          if (user_cmp->Compare(user_key, f->smallest.user_key()) >= 0) {
+          // In the presence of user-defined timestamp, we may need to handle
+          // the case in which f->smallest.user_key() (including ts) has the
+          // same user key, but the ts part is smaller. If so,
+          // Compare(user_key, f->smallest.user_key()) returns -1.
+          // That's why we need CompareWithoutTimestamp().
+          if (user_cmp->CompareWithoutTimestamp(user_key,
+                                                f->smallest.user_key()) >= 0) {
             // Key falls in this file's range, so it may
             // exist beyond output level
             return false;
@@ -522,6 +534,21 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
   context.is_manual_compaction = is_manual_compaction_;
   context.column_family_id = cfd_->GetID();
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
+      context);
+}
+
+std::unique_ptr<SstPartitioner> Compaction::CreateSstPartitioner() const {
+  if (!immutable_cf_options_.sst_partitioner_factory) {
+    return nullptr;
+  }
+
+  SstPartitioner::Context context;
+  context.is_full_compaction = is_full_compaction_;
+  context.is_manual_compaction = is_manual_compaction_;
+  context.output_level = output_level_;
+  context.smallest_user_key = smallest_user_key_;
+  context.largest_user_key = largest_user_key_;
+  return immutable_cf_options_.sst_partitioner_factory->CreatePartitioner(
       context);
 }
 

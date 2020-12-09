@@ -7,12 +7,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "util/hash.h"
+
 #include <cstring>
 #include <vector>
 
 #include "test_util/testharness.h"
 #include "util/coding.h"
-#include "util/hash.h"
+#include "util/math128.h"
 
 using ROCKSDB_NAMESPACE::EncodeFixed32;
 using ROCKSDB_NAMESPACE::GetSliceHash64;
@@ -265,112 +267,326 @@ TEST(HashTest, Hash64LargeValueSchema) {
       "eMFlxCIYUpTCsal2qsmnGOWa8WCcefrohMjDj1fjzSvSaQwlpyR1GZHF2uPOoQagiCpHpm");
 }
 
-TEST(Fastrange32Test, Values) {
-  using ROCKSDB_NAMESPACE::fastrange32;
+TEST(FastRange32Test, Values) {
+  using ROCKSDB_NAMESPACE::FastRange32;
   // Zero range
-  EXPECT_EQ(fastrange32(0, 0), 0U);
-  EXPECT_EQ(fastrange32(123, 0), 0U);
-  EXPECT_EQ(fastrange32(0xffffffff, 0), 0U);
+  EXPECT_EQ(FastRange32(0, 0), 0U);
+  EXPECT_EQ(FastRange32(123, 0), 0U);
+  EXPECT_EQ(FastRange32(0xffffffff, 0), 0U);
 
   // One range
-  EXPECT_EQ(fastrange32(0, 1), 0U);
-  EXPECT_EQ(fastrange32(123, 1), 0U);
-  EXPECT_EQ(fastrange32(0xffffffff, 1), 0U);
+  EXPECT_EQ(FastRange32(0, 1), 0U);
+  EXPECT_EQ(FastRange32(123, 1), 0U);
+  EXPECT_EQ(FastRange32(0xffffffff, 1), 0U);
 
   // Two range
-  EXPECT_EQ(fastrange32(0, 2), 0U);
-  EXPECT_EQ(fastrange32(123, 2), 0U);
-  EXPECT_EQ(fastrange32(0x7fffffff, 2), 0U);
-  EXPECT_EQ(fastrange32(0x80000000, 2), 1U);
-  EXPECT_EQ(fastrange32(0xffffffff, 2), 1U);
+  EXPECT_EQ(FastRange32(0, 2), 0U);
+  EXPECT_EQ(FastRange32(123, 2), 0U);
+  EXPECT_EQ(FastRange32(0x7fffffff, 2), 0U);
+  EXPECT_EQ(FastRange32(0x80000000, 2), 1U);
+  EXPECT_EQ(FastRange32(0xffffffff, 2), 1U);
 
   // Seven range
-  EXPECT_EQ(fastrange32(0, 7), 0U);
-  EXPECT_EQ(fastrange32(123, 7), 0U);
-  EXPECT_EQ(fastrange32(613566756, 7), 0U);
-  EXPECT_EQ(fastrange32(613566757, 7), 1U);
-  EXPECT_EQ(fastrange32(1227133513, 7), 1U);
-  EXPECT_EQ(fastrange32(1227133514, 7), 2U);
+  EXPECT_EQ(FastRange32(0, 7), 0U);
+  EXPECT_EQ(FastRange32(123, 7), 0U);
+  EXPECT_EQ(FastRange32(613566756, 7), 0U);
+  EXPECT_EQ(FastRange32(613566757, 7), 1U);
+  EXPECT_EQ(FastRange32(1227133513, 7), 1U);
+  EXPECT_EQ(FastRange32(1227133514, 7), 2U);
   // etc.
-  EXPECT_EQ(fastrange32(0xffffffff, 7), 6U);
+  EXPECT_EQ(FastRange32(0xffffffff, 7), 6U);
 
   // Big
-  EXPECT_EQ(fastrange32(1, 0x80000000), 0U);
-  EXPECT_EQ(fastrange32(2, 0x80000000), 1U);
-  EXPECT_EQ(fastrange32(4, 0x7fffffff), 1U);
-  EXPECT_EQ(fastrange32(4, 0x80000000), 2U);
-  EXPECT_EQ(fastrange32(0xffffffff, 0x7fffffff), 0x7ffffffeU);
-  EXPECT_EQ(fastrange32(0xffffffff, 0x80000000), 0x7fffffffU);
+  EXPECT_EQ(FastRange32(1, 0x80000000), 0U);
+  EXPECT_EQ(FastRange32(2, 0x80000000), 1U);
+  EXPECT_EQ(FastRange32(4, 0x7fffffff), 1U);
+  EXPECT_EQ(FastRange32(4, 0x80000000), 2U);
+  EXPECT_EQ(FastRange32(0xffffffff, 0x7fffffff), 0x7ffffffeU);
+  EXPECT_EQ(FastRange32(0xffffffff, 0x80000000), 0x7fffffffU);
 }
 
-TEST(Fastrange64Test, Values) {
-  using ROCKSDB_NAMESPACE::fastrange64;
+TEST(FastRange64Test, Values) {
+  using ROCKSDB_NAMESPACE::FastRange64;
   // Zero range
-  EXPECT_EQ(fastrange64(0, 0), 0U);
-  EXPECT_EQ(fastrange64(123, 0), 0U);
-  EXPECT_EQ(fastrange64(0xffffFFFF, 0), 0U);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0), 0U);
+  EXPECT_EQ(FastRange64(0, 0), 0U);
+  EXPECT_EQ(FastRange64(123, 0), 0U);
+  EXPECT_EQ(FastRange64(0xffffFFFF, 0), 0U);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 0), 0U);
 
   // One range
-  EXPECT_EQ(fastrange64(0, 1), 0U);
-  EXPECT_EQ(fastrange64(123, 1), 0U);
-  EXPECT_EQ(fastrange64(0xffffFFFF, 1), 0U);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 1), 0U);
+  EXPECT_EQ(FastRange64(0, 1), 0U);
+  EXPECT_EQ(FastRange64(123, 1), 0U);
+  EXPECT_EQ(FastRange64(0xffffFFFF, 1), 0U);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 1), 0U);
 
   // Two range
-  EXPECT_EQ(fastrange64(0, 2), 0U);
-  EXPECT_EQ(fastrange64(123, 2), 0U);
-  EXPECT_EQ(fastrange64(0xffffFFFF, 2), 0U);
-  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 2), 0U);
-  EXPECT_EQ(fastrange64(0x8000000000000000, 2), 1U);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 2), 1U);
+  EXPECT_EQ(FastRange64(0, 2), 0U);
+  EXPECT_EQ(FastRange64(123, 2), 0U);
+  EXPECT_EQ(FastRange64(0xffffFFFF, 2), 0U);
+  EXPECT_EQ(FastRange64(0x7fffFFFFffffFFFF, 2), 0U);
+  EXPECT_EQ(FastRange64(0x8000000000000000, 2), 1U);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 2), 1U);
 
   // Seven range
-  EXPECT_EQ(fastrange64(0, 7), 0U);
-  EXPECT_EQ(fastrange64(123, 7), 0U);
-  EXPECT_EQ(fastrange64(0xffffFFFF, 7), 0U);
-  EXPECT_EQ(fastrange64(2635249153387078802, 7), 0U);
-  EXPECT_EQ(fastrange64(2635249153387078803, 7), 1U);
-  EXPECT_EQ(fastrange64(5270498306774157604, 7), 1U);
-  EXPECT_EQ(fastrange64(5270498306774157605, 7), 2U);
-  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 7), 3U);
-  EXPECT_EQ(fastrange64(0x8000000000000000, 7), 3U);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 7), 6U);
+  EXPECT_EQ(FastRange64(0, 7), 0U);
+  EXPECT_EQ(FastRange64(123, 7), 0U);
+  EXPECT_EQ(FastRange64(0xffffFFFF, 7), 0U);
+  EXPECT_EQ(FastRange64(2635249153387078802, 7), 0U);
+  EXPECT_EQ(FastRange64(2635249153387078803, 7), 1U);
+  EXPECT_EQ(FastRange64(5270498306774157604, 7), 1U);
+  EXPECT_EQ(FastRange64(5270498306774157605, 7), 2U);
+  EXPECT_EQ(FastRange64(0x7fffFFFFffffFFFF, 7), 3U);
+  EXPECT_EQ(FastRange64(0x8000000000000000, 7), 3U);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 7), 6U);
 
   // Big but 32-bit range
-  EXPECT_EQ(fastrange64(0x100000000, 0x80000000), 0U);
-  EXPECT_EQ(fastrange64(0x200000000, 0x80000000), 1U);
-  EXPECT_EQ(fastrange64(0x400000000, 0x7fffFFFF), 1U);
-  EXPECT_EQ(fastrange64(0x400000000, 0x80000000), 2U);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0x7fffFFFF), 0x7fffFFFEU);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0x80000000), 0x7fffFFFFU);
+  EXPECT_EQ(FastRange64(0x100000000, 0x80000000), 0U);
+  EXPECT_EQ(FastRange64(0x200000000, 0x80000000), 1U);
+  EXPECT_EQ(FastRange64(0x400000000, 0x7fffFFFF), 1U);
+  EXPECT_EQ(FastRange64(0x400000000, 0x80000000), 2U);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 0x7fffFFFF), 0x7fffFFFEU);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 0x80000000), 0x7fffFFFFU);
 
   // Big, > 32-bit range
 #if SIZE_MAX == UINT64_MAX
-  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 0x4200000002), 0x2100000000U);
-  EXPECT_EQ(fastrange64(0x8000000000000000, 0x4200000002), 0x2100000001U);
+  EXPECT_EQ(FastRange64(0x7fffFFFFffffFFFF, 0x4200000002), 0x2100000000U);
+  EXPECT_EQ(FastRange64(0x8000000000000000, 0x4200000002), 0x2100000001U);
 
-  EXPECT_EQ(fastrange64(0x0000000000000000, 420000000002), 0U);
-  EXPECT_EQ(fastrange64(0x7fffFFFFffffFFFF, 420000000002), 210000000000U);
-  EXPECT_EQ(fastrange64(0x8000000000000000, 420000000002), 210000000001U);
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 420000000002), 420000000001U);
+  EXPECT_EQ(FastRange64(0x0000000000000000, 420000000002), 0U);
+  EXPECT_EQ(FastRange64(0x7fffFFFFffffFFFF, 420000000002), 210000000000U);
+  EXPECT_EQ(FastRange64(0x8000000000000000, 420000000002), 210000000001U);
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 420000000002), 420000000001U);
 
-  EXPECT_EQ(fastrange64(0xffffFFFFffffFFFF, 0xffffFFFFffffFFFF),
+  EXPECT_EQ(FastRange64(0xffffFFFFffffFFFF, 0xffffFFFFffffFFFF),
             0xffffFFFFffffFFFEU);
 #endif
 }
 
-// for inspection of disassembly
-uint32_t fastrange32(uint32_t hash, uint32_t range) {
-  return ROCKSDB_NAMESPACE::fastrange32(hash, range);
+TEST(FastRangeGenericTest, Values) {
+  using ROCKSDB_NAMESPACE::FastRangeGeneric;
+  // Generic (including big and small)
+  // Note that FastRangeGeneric is also tested indirectly above via
+  // FastRange32 and FastRange64.
+  EXPECT_EQ(
+      FastRangeGeneric(uint64_t{0x8000000000000000}, uint64_t{420000000002}),
+      uint64_t{210000000001});
+  EXPECT_EQ(FastRangeGeneric(uint64_t{0x8000000000000000}, uint16_t{12468}),
+            uint16_t{6234});
+  EXPECT_EQ(FastRangeGeneric(uint32_t{0x80000000}, uint16_t{12468}),
+            uint16_t{6234});
+  // Not recommended for typical use because for example this could fail on
+  // some platforms and pass on others:
+  //EXPECT_EQ(FastRangeGeneric(static_cast<unsigned long>(0x80000000),
+  //                           uint16_t{12468}),
+  //          uint16_t{6234});
 }
 
 // for inspection of disassembly
-size_t fastrange64(uint64_t hash, size_t range) {
-  return ROCKSDB_NAMESPACE::fastrange64(hash, range);
+uint32_t FastRange32(uint32_t hash, uint32_t range) {
+  return ROCKSDB_NAMESPACE::FastRange32(hash, range);
+}
+
+// for inspection of disassembly
+size_t FastRange64(uint64_t hash, size_t range) {
+  return ROCKSDB_NAMESPACE::FastRange64(hash, range);
+}
+
+// Tests for math.h / math128.h (not worth a separate test binary)
+using ROCKSDB_NAMESPACE::BitParity;
+using ROCKSDB_NAMESPACE::BitsSetToOne;
+using ROCKSDB_NAMESPACE::CountTrailingZeroBits;
+using ROCKSDB_NAMESPACE::DecodeFixed128;
+using ROCKSDB_NAMESPACE::DecodeFixedGeneric;
+using ROCKSDB_NAMESPACE::EncodeFixed128;
+using ROCKSDB_NAMESPACE::EncodeFixedGeneric;
+using ROCKSDB_NAMESPACE::FloorLog2;
+using ROCKSDB_NAMESPACE::Lower64of128;
+using ROCKSDB_NAMESPACE::Multiply64to128;
+using ROCKSDB_NAMESPACE::Unsigned128;
+using ROCKSDB_NAMESPACE::Upper64of128;
+
+template <typename T>
+static void test_BitOps() {
+  // This complex code is to generalize to 128-bit values. Otherwise
+  // we could just use = static_cast<T>(0x5555555555555555ULL);
+  T everyOtherBit = 0;
+  for (unsigned i = 0; i < sizeof(T); ++i) {
+    everyOtherBit = (everyOtherBit << 8) | T{0x55};
+  }
+
+  // This one built using bit operations, as our 128-bit layer
+  // might not implement arithmetic such as subtraction.
+  T vm1 = 0;  // "v minus one"
+
+  for (int i = 0; i < int{8 * sizeof(T)}; ++i) {
+    T v = T{1} << i;
+    // If we could directly use arithmetic:
+    // T vm1 = static_cast<T>(v - 1);
+
+    // FloorLog2
+    if (v > 0) {
+      EXPECT_EQ(FloorLog2(v), i);
+    }
+    if (vm1 > 0) {
+      EXPECT_EQ(FloorLog2(vm1), i - 1);
+      EXPECT_EQ(FloorLog2(everyOtherBit & vm1), (i - 1) & ~1);
+    }
+
+    // CountTrailingZeroBits
+    if (v != 0) {
+      EXPECT_EQ(CountTrailingZeroBits(v), i);
+    }
+    if (vm1 != 0) {
+      EXPECT_EQ(CountTrailingZeroBits(vm1), 0);
+    }
+    if (i < int{8 * sizeof(T)} - 1) {
+      EXPECT_EQ(CountTrailingZeroBits(~vm1 & everyOtherBit), (i + 1) & ~1);
+    }
+
+    // BitsSetToOne
+    EXPECT_EQ(BitsSetToOne(v), 1);
+    EXPECT_EQ(BitsSetToOne(vm1), i);
+    EXPECT_EQ(BitsSetToOne(vm1 & everyOtherBit), (i + 1) / 2);
+
+    // BitParity
+    EXPECT_EQ(BitParity(v), 1);
+    EXPECT_EQ(BitParity(vm1), i & 1);
+    EXPECT_EQ(BitParity(vm1 & everyOtherBit), ((i + 1) / 2) & 1);
+
+    vm1 = (vm1 << 1) | 1;
+  }
+}
+
+TEST(MathTest, BitOps) {
+  test_BitOps<uint32_t>();
+  test_BitOps<uint64_t>();
+  test_BitOps<uint16_t>();
+  test_BitOps<uint8_t>();
+  test_BitOps<unsigned char>();
+  test_BitOps<unsigned short>();
+  test_BitOps<unsigned int>();
+  test_BitOps<unsigned long>();
+  test_BitOps<unsigned long long>();
+  test_BitOps<char>();
+  test_BitOps<size_t>();
+  test_BitOps<int32_t>();
+  test_BitOps<int64_t>();
+  test_BitOps<int16_t>();
+  test_BitOps<int8_t>();
+  test_BitOps<signed char>();
+  test_BitOps<short>();
+  test_BitOps<int>();
+  test_BitOps<long>();
+  test_BitOps<long long>();
+  test_BitOps<ptrdiff_t>();
+}
+
+TEST(MathTest, BitOps128) { test_BitOps<Unsigned128>(); }
+
+TEST(MathTest, Math128) {
+  const Unsigned128 sixteenHexOnes = 0x1111111111111111U;
+  const Unsigned128 thirtyHexOnes = (sixteenHexOnes << 56) | sixteenHexOnes;
+  const Unsigned128 sixteenHexTwos = 0x2222222222222222U;
+  const Unsigned128 thirtyHexTwos = (sixteenHexTwos << 56) | sixteenHexTwos;
+
+  // v will slide from all hex ones to all hex twos
+  Unsigned128 v = thirtyHexOnes;
+  for (int i = 0; i <= 30; ++i) {
+    // Test bitwise operations
+    EXPECT_EQ(BitsSetToOne(v), 30);
+    EXPECT_EQ(BitsSetToOne(~v), 128 - 30);
+    EXPECT_EQ(BitsSetToOne(v & thirtyHexOnes), 30 - i);
+    EXPECT_EQ(BitsSetToOne(v | thirtyHexOnes), 30 + i);
+    EXPECT_EQ(BitsSetToOne(v ^ thirtyHexOnes), 2 * i);
+    EXPECT_EQ(BitsSetToOne(v & thirtyHexTwos), i);
+    EXPECT_EQ(BitsSetToOne(v | thirtyHexTwos), 60 - i);
+    EXPECT_EQ(BitsSetToOne(v ^ thirtyHexTwos), 60 - 2 * i);
+
+    // Test comparisons
+    EXPECT_EQ(v == thirtyHexOnes, i == 0);
+    EXPECT_EQ(v == thirtyHexTwos, i == 30);
+    EXPECT_EQ(v > thirtyHexOnes, i > 0);
+    EXPECT_EQ(v > thirtyHexTwos, false);
+    EXPECT_EQ(v >= thirtyHexOnes, true);
+    EXPECT_EQ(v >= thirtyHexTwos, i == 30);
+    EXPECT_EQ(v < thirtyHexOnes, false);
+    EXPECT_EQ(v < thirtyHexTwos, i < 30);
+    EXPECT_EQ(v <= thirtyHexOnes, i == 0);
+    EXPECT_EQ(v <= thirtyHexTwos, true);
+
+    // Update v, clearing upper-most byte
+    v = ((v << 12) >> 8) | 0x2;
+  }
+
+  for (int i = 0; i < 128; ++i) {
+    // Test shifts
+    Unsigned128 sl = thirtyHexOnes << i;
+    Unsigned128 sr = thirtyHexOnes >> i;
+    EXPECT_EQ(BitsSetToOne(sl), std::min(30, 32 - i / 4));
+    EXPECT_EQ(BitsSetToOne(sr), std::max(0, 30 - (i + 3) / 4));
+    EXPECT_EQ(BitsSetToOne(sl & sr), i % 2 ? 0 : std::max(0, 30 - i / 2));
+  }
+
+  // Test 64x64->128 multiply
+  Unsigned128 product =
+      Multiply64to128(0x1111111111111111U, 0x2222222222222222U);
+  EXPECT_EQ(Lower64of128(product), 2295594818061633090U);
+  EXPECT_EQ(Upper64of128(product), 163971058432973792U);
+}
+
+TEST(MathTest, Coding128) {
+  const char *in = "_1234567890123456";
+  // Note: in + 1 is likely unaligned
+  Unsigned128 decoded = DecodeFixed128(in + 1);
+  EXPECT_EQ(Lower64of128(decoded), 0x3837363534333231U);
+  EXPECT_EQ(Upper64of128(decoded), 0x3635343332313039U);
+  char out[18];
+  out[0] = '_';
+  EncodeFixed128(out + 1, decoded);
+  out[17] = '\0';
+  EXPECT_EQ(std::string(in), std::string(out));
+}
+
+TEST(MathTest, CodingGeneric) {
+  const char *in = "_1234567890123456";
+  // Decode
+  // Note: in + 1 is likely unaligned
+  Unsigned128 decoded128 = DecodeFixedGeneric<Unsigned128>(in + 1);
+  EXPECT_EQ(Lower64of128(decoded128), 0x3837363534333231U);
+  EXPECT_EQ(Upper64of128(decoded128), 0x3635343332313039U);
+
+  uint64_t decoded64 = DecodeFixedGeneric<uint64_t>(in + 1);
+  EXPECT_EQ(decoded64, 0x3837363534333231U);
+
+  uint32_t decoded32 = DecodeFixedGeneric<uint32_t>(in + 1);
+  EXPECT_EQ(decoded32, 0x34333231U);
+
+  uint16_t decoded16 = DecodeFixedGeneric<uint16_t>(in + 1);
+  EXPECT_EQ(decoded16, 0x3231U);
+
+  // Encode
+  char out[18];
+  out[0] = '_';
+  memset(out + 1, '\0', 17);
+  EncodeFixedGeneric(out + 1, decoded128);
+  EXPECT_EQ(std::string(in), std::string(out));
+
+  memset(out + 1, '\0', 9);
+  EncodeFixedGeneric(out + 1, decoded64);
+  EXPECT_EQ(std::string("_12345678"), std::string(out));
+
+  memset(out + 1, '\0', 5);
+  EncodeFixedGeneric(out + 1, decoded32);
+  EXPECT_EQ(std::string("_1234"), std::string(out));
+
+  memset(out + 1, '\0', 3);
+  EncodeFixedGeneric(out + 1, decoded16);
+  EXPECT_EQ(std::string("_12"), std::string(out));
 }
 
 int main(int argc, char** argv) {
+  fprintf(stderr, "NPHash64 id: %x\n",
+          static_cast<int>(ROCKSDB_NAMESPACE::GetSliceNPHash64("RocksDB")));
   ::testing::InitGoogleTest(&argc, argv);
 
   return RUN_ALL_TESTS();

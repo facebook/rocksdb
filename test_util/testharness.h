@@ -15,6 +15,13 @@
 #include <gtest/gtest.h>
 #endif
 
+// If GTEST_SKIP is available, use it. Otherwise, define skip as success
+#ifdef GTEST_SKIP_
+#define ROCKSDB_GTEST_SKIP(m) GTEST_SKIP_(m)
+#else
+#define ROCKSDB_GTEST_SKIP(m) GTEST_SUCCESS_("SKIPPED: " m)
+#endif
+
 #include <string>
 #include "rocksdb/env.h"
 
@@ -42,6 +49,5 @@ int RandomSeed();
 #define EXPECT_OK(s) \
   EXPECT_PRED_FORMAT1(ROCKSDB_NAMESPACE::test::AssertStatus, s)
 #define EXPECT_NOK(s) EXPECT_FALSE((s).ok())
-
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

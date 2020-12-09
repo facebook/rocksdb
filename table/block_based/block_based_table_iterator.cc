@@ -61,10 +61,9 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target) {
   const bool same_block = block_iter_points_to_real_block_ &&
                           v.handle.offset() == prev_block_offset_;
 
-  // TODO(kolmike): Remove the != kBlockCacheTier condition.
   if (!v.first_internal_key.empty() && !same_block &&
       (!target || icomp_.Compare(*target, v.first_internal_key) <= 0) &&
-      read_options_.read_tier != kBlockCacheTier) {
+      allow_unprepared_value_) {
     // Index contains the first key of the block, and it's >= target.
     // We can defer reading the block.
     is_at_first_key_from_index_ = true;
@@ -190,7 +189,8 @@ bool BlockBasedTableIterator::NextAndGetResult(IterateResult* result) {
   bool is_valid = Valid();
   if (is_valid) {
     result->key = key();
-    result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+    result->bound_check_result = UpperBoundCheckResult();
+    result->value_prepared = !is_at_first_key_from_index_;
   }
   return is_valid;
 }
@@ -255,12 +255,16 @@ bool BlockBasedTableIterator::MaterializeCurrentBlock() {
   is_at_first_key_from_index_ = false;
   InitDataBlock();
   assert(block_iter_points_to_real_block_);
+
+  if (!block_iter_.status().ok()) {
+    return false;
+  }
+
   block_iter_.SeekToFirst();
 
   if (!block_iter_.Valid() ||
       icomp_.Compare(block_iter_.key(),
                      index_iter_->value().first_internal_key) != 0) {
-    // Uh oh.
     block_iter_.Invalidate(Status::Corruption(
         "first key in index doesn't match first key in block"));
     return false;
@@ -296,7 +300,8 @@ void BlockBasedTableIterator::FindBlockForward() {
     // Whether next data block is out of upper bound, if there is one.
     const bool next_block_is_out_of_bound =
         read_options_.iterate_upper_bound != nullptr &&
-        block_iter_points_to_real_block_ && !data_block_within_upper_bound_;
+        block_iter_points_to_real_block_ &&
+        block_upper_bound_check_ == BlockUpperBound::kUpperBoundInCurBlock;
     assert(!next_block_is_out_of_bound ||
            user_comparator_.CompareWithoutTimestamp(
                *read_options_.iterate_upper_bound, /*a_has_ts=*/false,
@@ -321,9 +326,7 @@ void BlockBasedTableIterator::FindBlockForward() {
 
     IndexValue v = index_iter_->value();
 
-    // TODO(kolmike): Remove the != kBlockCacheTier condition.
-    if (!v.first_internal_key.empty() &&
-        read_options_.read_tier != kBlockCacheTier) {
+    if (!v.first_internal_key.empty() && allow_unprepared_value_) {
       // Index contains the first key of the block. Defer reading the block.
       is_at_first_key_from_index_ = true;
       return;
@@ -356,7 +359,9 @@ void BlockBasedTableIterator::FindKeyBackward() {
 }
 
 void BlockBasedTableIterator::CheckOutOfBound() {
-  if (read_options_.iterate_upper_bound != nullptr && Valid()) {
+  if (read_options_.iterate_upper_bound != nullptr &&
+      block_upper_bound_check_ != BlockUpperBound::kUpperBoundBeyondCurBlock &&
+      Valid()) {
     is_out_of_bound_ =
         user_comparator_.CompareWithoutTimestamp(
             *read_options_.iterate_upper_bound, /*a_has_ts=*/false, user_key(),
@@ -367,11 +372,12 @@ void BlockBasedTableIterator::CheckOutOfBound() {
 void BlockBasedTableIterator::CheckDataBlockWithinUpperBound() {
   if (read_options_.iterate_upper_bound != nullptr &&
       block_iter_points_to_real_block_) {
-    data_block_within_upper_bound_ =
-        (user_comparator_.CompareWithoutTimestamp(
-             *read_options_.iterate_upper_bound, /*a_has_ts=*/false,
-             index_iter_->user_key(),
-             /*b_has_ts=*/true) > 0);
+    block_upper_bound_check_ = (user_comparator_.CompareWithoutTimestamp(
+                                    *read_options_.iterate_upper_bound,
+                                    /*a_has_ts=*/false, index_iter_->user_key(),
+                                    /*b_has_ts=*/true) > 0)
+                                   ? BlockUpperBound::kUpperBoundBeyondCurBlock
+                                   : BlockUpperBound::kUpperBoundInCurBlock;
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

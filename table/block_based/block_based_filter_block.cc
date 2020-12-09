@@ -80,13 +80,13 @@ void BlockBasedFilterBlockBuilder::StartBlock(uint64_t block_offset) {
   }
 }
 
-void BlockBasedFilterBlockBuilder::Add(const Slice& key) {
-  if (prefix_extractor_ && prefix_extractor_->InDomain(key)) {
-    AddPrefix(key);
+void BlockBasedFilterBlockBuilder::Add(const Slice& key_without_ts) {
+  if (prefix_extractor_ && prefix_extractor_->InDomain(key_without_ts)) {
+    AddPrefix(key_without_ts);
   }
 
   if (whole_key_filtering_) {
-    AddKey(key);
+    AddKey(key_without_ts);
   }
 }
 
@@ -171,19 +171,20 @@ BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
 }
 
 std::unique_ptr<FilterBlockReader> BlockBasedFilterBlockReader::Create(
-    const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
-    bool use_cache, bool prefetch, bool pin,
-    BlockCacheLookupContext* lookup_context) {
+    const BlockBasedTable* table, const ReadOptions& ro,
+    FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
+    bool pin, BlockCacheLookupContext* lookup_context) {
   assert(table);
   assert(table->get_rep());
   assert(!pin || prefetch);
 
   CachableEntry<BlockContents> filter_block;
   if (prefetch || !use_cache) {
-    const Status s = ReadFilterBlock(table, prefetch_buffer, ReadOptions(),
-                                     use_cache, nullptr /* get_context */,
-                                     lookup_context, &filter_block);
+    const Status s = ReadFilterBlock(table, prefetch_buffer, ro, use_cache,
+                                     nullptr /* get_context */, lookup_context,
+                                     &filter_block);
     if (!s.ok()) {
+      IGNORE_STATUS_IF_ERROR(s);
       return std::unique_ptr<FilterBlockReader>();
     }
 

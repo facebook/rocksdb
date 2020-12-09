@@ -160,7 +160,7 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
 
 #ifdef MAP_HUGETLB
   if (huge_page_size > 0 && bytes > 0) {
-    // Allocate from a huge page TBL table.
+    // Allocate from a huge page TLB table.
     assert(logger != nullptr);  // logger need to be passed in.
     size_t reserved_size =
         ((bytes - 1U) / huge_page_size + 1U) * huge_page_size;

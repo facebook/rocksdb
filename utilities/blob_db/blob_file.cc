@@ -61,29 +61,6 @@ std::string BlobFile::PathName() const {
   return BlobFileName(path_to_dir_, file_number_);
 }
 
-std::shared_ptr<Reader> BlobFile::OpenRandomAccessReader(
-    Env* env, const DBOptions& db_options,
-    const EnvOptions& env_options) const {
-  constexpr size_t kReadaheadSize = 2 * 1024 * 1024;
-  std::unique_ptr<RandomAccessFile> sfile;
-  std::string path_name(PathName());
-  Status s = env->NewRandomAccessFile(path_name, &sfile, env_options);
-  if (!s.ok()) {
-    // report something here.
-    return nullptr;
-  }
-  sfile = NewReadaheadRandomAccessFile(std::move(sfile), kReadaheadSize);
-
-  std::unique_ptr<RandomAccessFileReader> sfile_reader;
-  sfile_reader.reset(new RandomAccessFileReader(
-      NewLegacyRandomAccessFileWrapper(sfile), path_name));
-
-  std::shared_ptr<Reader> log_reader = std::make_shared<Reader>(
-      std::move(sfile_reader), db_options.env, db_options.statistics.get());
-
-  return log_reader;
-}
-
 std::string BlobFile::DumpState() const {
   char str[1000];
   snprintf(
@@ -103,12 +80,6 @@ void BlobFile::MarkObsolete(SequenceNumber sequence) {
   obsolete_.store(true);
 }
 
-bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
-  assert(last_fsync_ <= file_size_);
-  return (hard) ? file_size_ > last_fsync_
-                : (file_size_ - last_fsync_) >= bytes_per_sync;
-}
-
 Status BlobFile::WriteFooterAndCloseLocked(SequenceNumber sequence) {
   BlobLogFooter footer;
   footer.blob_count = blob_count_;
@@ -117,7 +88,8 @@ Status BlobFile::WriteFooterAndCloseLocked(SequenceNumber sequence) {
   }
 
   // this will close the file and reset the Writable File Pointer.
-  Status s = log_writer_->AppendFooter(footer);
+  Status s = log_writer_->AppendFooter(footer, /* checksum_method */ nullptr,
+                                       /* checksum_value */ nullptr);
   if (s.ok()) {
     closed_ = true;
     immutable_sequence_ = sequence;
@@ -142,12 +114,12 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
   AlignedBuf aligned_buf;
   Status s;
   if (ra_file_reader_->use_direct_io()) {
-    s = ra_file_reader_->Read(footer_offset, BlobLogFooter::kSize, &result,
-                              nullptr, &aligned_buf);
+    s = ra_file_reader_->Read(IOOptions(), footer_offset, BlobLogFooter::kSize,
+                              &result, nullptr, &aligned_buf);
   } else {
     buf.reserve(BlobLogFooter::kSize + 10);
-    s = ra_file_reader_->Read(footer_offset, BlobLogFooter::kSize, &result,
-                              &buf[0], nullptr);
+    s = ra_file_reader_->Read(IOOptions(), footer_offset, BlobLogFooter::kSize,
+                              &result, &buf[0], nullptr);
   }
   if (!s.ok()) return s;
   if (result.size() != BlobLogFooter::kSize) {
@@ -160,8 +132,6 @@ Status BlobFile::ReadFooter(BlobLogFooter* bf) {
 }
 
 Status BlobFile::SetFromFooterLocked(const BlobLogFooter& footer) {
-  // assume that file has been fully fsync'd
-  last_fsync_.store(file_size_);
   blob_count_ = footer.blob_count;
   expiration_range_ = footer.expiration_range;
   closed_ = true;
@@ -172,7 +142,6 @@ Status BlobFile::Fsync() {
   Status s;
   if (log_writer_.get()) {
     s = log_writer_->Sync();
-    last_fsync_.store(file_size_.load());
   }
   return s;
 }
@@ -266,11 +235,11 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   AlignedBuf aligned_buf;
   Slice header_slice;
   if (file_reader->use_direct_io()) {
-    s = file_reader->Read(0, BlobLogHeader::kSize, &header_slice, nullptr,
-                          &aligned_buf);
+    s = file_reader->Read(IOOptions(), 0, BlobLogHeader::kSize, &header_slice,
+                          nullptr, &aligned_buf);
   } else {
     header_buf.reserve(BlobLogHeader::kSize);
-    s = file_reader->Read(0, BlobLogHeader::kSize, &header_slice,
+    s = file_reader->Read(IOOptions(), 0, BlobLogHeader::kSize, &header_slice,
                           &header_buf[0], nullptr);
   }
   if (!s.ok()) {
@@ -306,12 +275,12 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   std::string footer_buf;
   Slice footer_slice;
   if (file_reader->use_direct_io()) {
-    s = file_reader->Read(file_size - BlobLogFooter::kSize,
+    s = file_reader->Read(IOOptions(), file_size - BlobLogFooter::kSize,
                           BlobLogFooter::kSize, &footer_slice, nullptr,
                           &aligned_buf);
   } else {
     footer_buf.reserve(BlobLogFooter::kSize);
-    s = file_reader->Read(file_size - BlobLogFooter::kSize,
+    s = file_reader->Read(IOOptions(), file_size - BlobLogFooter::kSize,
                           BlobLogFooter::kSize, &footer_slice, &footer_buf[0],
                           nullptr);
   }

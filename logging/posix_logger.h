@@ -68,7 +68,7 @@ class PosixLogger : public Logger {
   virtual ~PosixLogger() {
     if (!closed_) {
       closed_ = true;
-      PosixCloseHelper();
+      PosixCloseHelper().PermitUncheckedError();
     }
   }
   virtual void Flush() override {

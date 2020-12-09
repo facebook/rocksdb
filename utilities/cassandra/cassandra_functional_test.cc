@@ -4,18 +4,19 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <iostream>
+
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "test_util/testharness.h"
+#include "util/cast_util.h"
 #include "util/random.h"
 #include "utilities/cassandra/cassandra_compaction_filter.h"
 #include "utilities/cassandra/merge_operator.h"
 #include "utilities/cassandra/test_utils.h"
 #include "utilities/merge_operators.h"
 
-using namespace ROCKSDB_NAMESPACE;
 
 namespace ROCKSDB_NAMESPACE {
 namespace cassandra {
@@ -89,7 +90,7 @@ class CassandraStore {
   WriteOptions write_option_;
   ReadOptions get_option_;
 
-  DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_.get()); }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_.get()); }
 };
 
 class TestCompactionFilterFactory : public CompactionFilterFactory {
@@ -164,12 +165,17 @@ TEST_F(CassandraFunctionalTest, SimpleMergeTest) {
 
   ASSERT_TRUE(std::get<0>(ret));
   RowValue& merged = std::get<1>(ret);
-  EXPECT_EQ(merged.columns_.size(), 5);
-  VerifyRowValueColumns(merged.columns_, 0, kExpiringColumn, 0, ToMicroSeconds(now + 6));
-  VerifyRowValueColumns(merged.columns_, 1, kColumn, 1, ToMicroSeconds(now + 8));
-  VerifyRowValueColumns(merged.columns_, 2, kTombstone, 2, ToMicroSeconds(now + 7));
-  VerifyRowValueColumns(merged.columns_, 3, kExpiringColumn, 7, ToMicroSeconds(now + 17));
-  VerifyRowValueColumns(merged.columns_, 4, kTombstone, 11, ToMicroSeconds(now + 11));
+  EXPECT_EQ(merged.get_columns().size(), 5);
+  VerifyRowValueColumns(merged.get_columns(), 0, kExpiringColumn, 0,
+                        ToMicroSeconds(now + 6));
+  VerifyRowValueColumns(merged.get_columns(), 1, kColumn, 1,
+                        ToMicroSeconds(now + 8));
+  VerifyRowValueColumns(merged.get_columns(), 2, kTombstone, 2,
+                        ToMicroSeconds(now + 7));
+  VerifyRowValueColumns(merged.get_columns(), 3, kExpiringColumn, 7,
+                        ToMicroSeconds(now + 17));
+  VerifyRowValueColumns(merged.get_columns(), 4, kTombstone, 11,
+                        ToMicroSeconds(now + 11));
 }
 
 TEST_F(CassandraFunctionalTest,
@@ -196,11 +202,15 @@ TEST_F(CassandraFunctionalTest,
   auto ret = store.Get("k1");
   ASSERT_TRUE(std::get<0>(ret));
   RowValue& merged = std::get<1>(ret);
-  EXPECT_EQ(merged.columns_.size(), 4);
-  VerifyRowValueColumns(merged.columns_, 0, kTombstone, 0, ToMicroSeconds(now - 10));
-  VerifyRowValueColumns(merged.columns_, 1, kExpiringColumn, 1, ToMicroSeconds(now - kTtl + 10));
-  VerifyRowValueColumns(merged.columns_, 2, kColumn, 2, ToMicroSeconds(now));
-  VerifyRowValueColumns(merged.columns_, 3, kTombstone, 3, ToMicroSeconds(now));
+  EXPECT_EQ(merged.get_columns().size(), 4);
+  VerifyRowValueColumns(merged.get_columns(), 0, kTombstone, 0,
+                        ToMicroSeconds(now - 10));
+  VerifyRowValueColumns(merged.get_columns(), 1, kExpiringColumn, 1,
+                        ToMicroSeconds(now - kTtl + 10));
+  VerifyRowValueColumns(merged.get_columns(), 2, kColumn, 2,
+                        ToMicroSeconds(now));
+  VerifyRowValueColumns(merged.get_columns(), 3, kTombstone, 3,
+                        ToMicroSeconds(now));
 }
 
 
@@ -229,10 +239,13 @@ TEST_F(CassandraFunctionalTest,
   auto ret = store.Get("k1");
   ASSERT_TRUE(std::get<0>(ret));
   RowValue& merged = std::get<1>(ret);
-  EXPECT_EQ(merged.columns_.size(), 3);
-  VerifyRowValueColumns(merged.columns_, 0, kExpiringColumn, 1, ToMicroSeconds(now));
-  VerifyRowValueColumns(merged.columns_, 1, kColumn, 2, ToMicroSeconds(now));
-  VerifyRowValueColumns(merged.columns_, 2, kTombstone, 3, ToMicroSeconds(now));
+  EXPECT_EQ(merged.get_columns().size(), 3);
+  VerifyRowValueColumns(merged.get_columns(), 0, kExpiringColumn, 1,
+                        ToMicroSeconds(now));
+  VerifyRowValueColumns(merged.get_columns(), 1, kColumn, 2,
+                        ToMicroSeconds(now));
+  VerifyRowValueColumns(merged.get_columns(), 2, kTombstone, 3,
+                        ToMicroSeconds(now));
 }
 
 TEST_F(CassandraFunctionalTest,
@@ -284,8 +297,8 @@ TEST_F(CassandraFunctionalTest,
   auto ret = store.Get("k1");
   ASSERT_TRUE(std::get<0>(ret));
   RowValue& gced = std::get<1>(ret);
-  EXPECT_EQ(gced.columns_.size(), 1);
-  VerifyRowValueColumns(gced.columns_, 0, kColumn, 1, ToMicroSeconds(now));
+  EXPECT_EQ(gced.get_columns().size(), 1);
+  VerifyRowValueColumns(gced.get_columns(), 0, kColumn, 1, ToMicroSeconds(now));
 }
 
 TEST_F(CassandraFunctionalTest, CompactionShouldRemoveTombstoneFromPut) {

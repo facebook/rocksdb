@@ -20,10 +20,10 @@ from util import ColorString
 # User can pass extra dependencies as a JSON object via command line, and this
 # script can include these dependencies in the generate TARGETS file.
 # Usage:
-# $python buckifier/buckify_rocksdb.py
+# $python3 buckifier/buckify_rocksdb.py
 # (This generates a TARGET file without user-specified dependency for unit
 # tests.)
-# $python buckifier/buckify_rocksdb.py \
+# $python3 buckifier/buckify_rocksdb.py \
 #        '{"fake": { \
 #                      "extra_deps": [":test_dep", "//fakes/module:mock1"],  \
 #                      "extra_compiler_flags": ["-DROCKSDB_LITE", "-Os"], \
@@ -48,8 +48,8 @@ def parse_src_mk(repo_path):
         if '=' in line:
             current_src = line.split('=')[0].strip()
             src_files[current_src] = []
-        elif '.cc' in line:
-            src_path = line.split('.cc')[0].strip() + '.cc'
+        elif '.c' in line:
+            src_path = line.split('\\')[0].strip()
             src_files[current_src].append(src_path)
     return src_files
 
@@ -69,27 +69,11 @@ def get_cc_files(repo_path):
     return cc_files
 
 
-# Get tests from Makefile
-def get_tests(repo_path):
+# Get parallel tests from Makefile
+def get_parallel_tests(repo_path):
     Makefile = repo_path + "/Makefile"
 
-    # Dictionary TEST_NAME => IS_PARALLEL
-    tests = {}
-
-    found_tests = False
-    for line in open(Makefile):
-        line = line.strip()
-        if line.startswith("TESTS ="):
-            found_tests = True
-        elif found_tests:
-            if line.endswith("\\"):
-                # remove the trailing \
-                line = line[:-1]
-                line = line.strip()
-                tests[line] = False
-            else:
-                # we consumed all the tests
-                break
+    s = set({})
 
     found_parallel_tests = False
     for line in open(Makefile):
@@ -101,13 +85,12 @@ def get_tests(repo_path):
                 # remove the trailing \
                 line = line[:-1]
                 line = line.strip()
-                tests[line] = True
+                s.add(line)
             else:
                 # we consumed all the parallel tests
                 break
 
-    return tests
-
+    return s
 
 # Parse extra dependencies passed by user from command line
 def get_dependencies():
@@ -140,18 +123,28 @@ def generate_targets(repo_path, deps_map):
     src_mk = parse_src_mk(repo_path)
     # get all .cc files
     cc_files = get_cc_files(repo_path)
-    # get tests from Makefile
-    tests = get_tests(repo_path)
+    # get parallel tests from Makefile
+    parallel_tests = get_parallel_tests(repo_path)
 
-    if src_mk is None or cc_files is None or tests is None:
+    if src_mk is None or cc_files is None or parallel_tests is None:
         return False
 
     TARGETS = TARGETSBuilder("%s/TARGETS" % repo_path)
+
     # rocksdb_lib
     TARGETS.add_library(
         "rocksdb_lib",
         src_mk["LIB_SOURCES"] +
         src_mk["TOOL_LIB_SOURCES"])
+    # rocksdb_whole_archive_lib
+    TARGETS.add_library(
+        "rocksdb_whole_archive_lib",
+        src_mk["LIB_SOURCES"] +
+        src_mk["TOOL_LIB_SOURCES"],
+        deps=None,
+        headers=None,
+        extra_external_deps="",
+        link_whole=True)
     # rocksdb_test_lib
     TARGETS.add_library(
         "rocksdb_test_lib",
@@ -159,7 +152,10 @@ def generate_targets(repo_path, deps_map):
         src_mk.get("TEST_LIB_SOURCES", []) +
         src_mk.get("EXP_LIB_SOURCES", []) +
         src_mk.get("ANALYZER_LIB_SOURCES", []),
-        [":rocksdb_lib"])
+        [":rocksdb_lib"],
+        extra_external_deps=""" + [
+        ("googletest", None, "gtest"),
+    ]""")
     # rocksdb_tools_lib
     TARGETS.add_library(
         "rocksdb_tools_lib",
@@ -168,40 +164,50 @@ def generate_targets(repo_path, deps_map):
         ["test_util/testutil.cc"],
         [":rocksdb_lib"])
     # rocksdb_stress_lib
-    TARGETS.add_library(
+    TARGETS.add_rocksdb_library(
         "rocksdb_stress_lib",
         src_mk.get("ANALYZER_LIB_SOURCES", [])
         + src_mk.get('STRESS_LIB_SOURCES', [])
-        + ["test_util/testutil.cc"],
-        [":rocksdb_lib"])
+        + ["test_util/testutil.cc"])
 
-    print("Extra dependencies:\n{0}".format(str(deps_map)))
-    # test for every test we found in the Makefile
+    print("Extra dependencies:\n{0}".format(json.dumps(deps_map)))
+
+    # Dictionary test executable name -> relative source file path
+    test_source_map = {}
+    print(src_mk)
+
+    # c_test.c is added through TARGETS.add_c_test(). If there
+    # are more than one .c test file, we need to extend
+    # TARGETS.add_c_test() to include other C tests too.
+    for test_src in src_mk.get("TEST_MAIN_SOURCES_C", []):
+        if test_src != 'db/c_test.c':
+            print("Don't know how to deal with " + test_src)
+            return False
+    TARGETS.add_c_test()
+
+    for test_src in src_mk.get("TEST_MAIN_SOURCES", []):
+        test = test_src.split('.c')[0].strip().split('/')[-1].strip()
+        test_source_map[test] = test_src
+        print("" + test + " " + test_src)
+
     for target_alias, deps in deps_map.items():
-        for test in sorted(tests):
-            match_src = [src for src in cc_files if ("/%s.c" % test) in src]
-            if len(match_src) == 0:
-                print(ColorString.warning("Cannot find .cc file for %s" % test))
-                continue
-            elif len(match_src) > 1:
-                print(ColorString.warning("Found more than one .cc for %s" % test))
-                print(match_src)
+        for test, test_src in sorted(test_source_map.items()):
+            if len(test) == 0:
+                print(ColorString.warning("Failed to get test name for %s" % test_src))
                 continue
 
-            assert(len(match_src) == 1)
-            is_parallel = tests[test]
             test_target_name = \
                 test if not target_alias else test + "_" + target_alias
             TARGETS.register_test(
                 test_target_name,
-                match_src[0],
-                is_parallel,
-                deps['extra_deps'],
-                deps['extra_compiler_flags'])
+                test_src,
+                test in parallel_tests,
+                json.dumps(deps['extra_deps']),
+                json.dumps(deps['extra_compiler_flags']))
 
             if test in _EXPORTED_TEST_LIBS:
                 test_library = "%s_lib" % test_target_name
-                TARGETS.add_library(test_library, match_src, [":rocksdb_test_lib"])
+                TARGETS.add_library(test_library, [test_src], [":rocksdb_test_lib"])
     TARGETS.flush_tests()
 
     print(ColorString.info("Generated TARGETS Summary:"))
@@ -219,6 +225,7 @@ def get_rocksdb_path():
         os.path.join(script_dir, "../"))
 
     return rocksdb_path
+
 
 def exit_with_error(msg):
     print(ColorString.error(msg))

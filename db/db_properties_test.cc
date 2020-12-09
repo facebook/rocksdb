@@ -26,7 +26,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBPropertiesTest : public DBTestBase {
  public:
-  DBPropertiesTest() : DBTestBase("/db_properties_test") {}
+  DBPropertiesTest()
+      : DBTestBase("/db_properties_test", /*env_do_fsync=*/false) {}
 };
 
 #ifndef ROCKSDB_LITE
@@ -52,12 +53,12 @@ TEST_F(DBPropertiesTest, Empty) {
 
     // Block sync calls
     env_->delay_sstable_sync_.store(true, std::memory_order_release);
-    Put(1, "k1", std::string(100000, 'x'));  // Fill memtable
+    ASSERT_OK(Put(1, "k1", std::string(100000, 'x')));  // Fill memtable
     ASSERT_TRUE(dbfull()->GetProperty(
         handles_[1], "rocksdb.num-entries-active-mem-table", &num));
     ASSERT_EQ("2", num);
 
-    Put(1, "k2", std::string(100000, 'y'));  // Trigger compaction
+    ASSERT_OK(Put(1, "k2", std::string(100000, 'y')));  // Trigger compaction
     ASSERT_TRUE(dbfull()->GetProperty(
         handles_[1], "rocksdb.num-entries-active-mem-table", &num));
     ASSERT_EQ("1", num);
@@ -97,10 +98,10 @@ TEST_F(DBPropertiesTest, CurrentVersionNumber) {
   uint64_t v1, v2, v3;
   ASSERT_TRUE(
       dbfull()->GetIntProperty("rocksdb.current-super-version-number", &v1));
-  Put("12345678", "");
+  ASSERT_OK(Put("12345678", ""));
   ASSERT_TRUE(
       dbfull()->GetIntProperty("rocksdb.current-super-version-number", &v2));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_TRUE(
       dbfull()->GetIntProperty("rocksdb.current-super-version-number", &v3));
 
@@ -126,8 +127,8 @@ TEST_F(DBPropertiesTest, GetAggregatedIntPropertyTest) {
   Random rnd(301);
   for (auto* handle : handles_) {
     for (int i = 0; i < kKeyNum; ++i) {
-      db_->Put(WriteOptions(), handle, RandomString(&rnd, kKeySize),
-               RandomString(&rnd, kValueSize));
+      ASSERT_OK(db_->Put(WriteOptions(), handle, rnd.RandomString(kKeySize),
+                         rnd.RandomString(kValueSize)));
     }
   }
 
@@ -153,7 +154,7 @@ TEST_F(DBPropertiesTest, GetAggregatedIntPropertyTest) {
         DB::Properties::kEstimateTableReadersMem, &before_flush_trm));
 
     // Issue flush and expect larger memory usage of table readers.
-    db_->Flush(FlushOptions(), handle);
+    ASSERT_OK(db_->Flush(FlushOptions(), handle));
 
     ASSERT_TRUE(db_->GetAggregatedIntProperty(
         DB::Properties::kEstimateTableReadersMem, &after_flush_trm));
@@ -299,9 +300,9 @@ TEST_F(DBPropertiesTest, ValidateSampleNumber) {
     for (int i = 0; i < files; i++) {
       int rows = files / 10;
       for (int j = 0; j < rows; j++) {
-        db_->Put(WriteOptions(), std::to_string(++key), "foo");
+        ASSERT_OK(db_->Put(WriteOptions(), std::to_string(++key), "foo"));
       }
-      db_->Flush(FlushOptions());
+      ASSERT_OK(db_->Flush(FlushOptions()));
     }
   }
   std::string num;
@@ -335,7 +336,7 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
     table_options.filter_policy.reset(
         NewBloomFilterPolicy(kBloomBitsPerKey, false));
     table_options.block_size = 1024;
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     DestroyAndReopen(options);
 
@@ -346,23 +347,24 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
     Random rnd(5632);
     for (int table = 1; table <= kTableCount; ++table) {
       for (int i = 0; i < kPutsPerTable; ++i) {
-        db_->Put(WriteOptions(), RandomString(&rnd, kKeySize),
-                 RandomString(&rnd, kValueSize));
+        ASSERT_OK(db_->Put(WriteOptions(), rnd.RandomString(kKeySize),
+                           rnd.RandomString(kValueSize)));
       }
       for (int i = 0; i < kDeletionsPerTable; i++) {
-        db_->Delete(WriteOptions(), RandomString(&rnd, kKeySize));
+        ASSERT_OK(db_->Delete(WriteOptions(), rnd.RandomString(kKeySize)));
       }
       for (int i = 0; i < kMergeOperandsPerTable; i++) {
-        db_->Merge(WriteOptions(), RandomString(&rnd, kKeySize),
-                   RandomString(&rnd, kValueSize));
+        ASSERT_OK(db_->Merge(WriteOptions(), rnd.RandomString(kKeySize),
+                             rnd.RandomString(kValueSize)));
       }
       for (int i = 0; i < kRangeDeletionsPerTable; i++) {
-        std::string start = RandomString(&rnd, kKeySize);
+        std::string start = rnd.RandomString(kKeySize);
         std::string end = start;
         end.resize(kValueSize);
-        db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end);
+        ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                                   start, end));
       }
-      db_->Flush(FlushOptions());
+      ASSERT_OK(db_->Flush(FlushOptions()));
     }
     std::string property;
     db_->GetProperty(DB::Properties::kAggregatedTableProperties, &property);
@@ -409,11 +411,11 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
   int key_index = 0;
   Random rnd(301);
   for (int num = 0; num < 8; num++) {
-    Put("foo", "bar");
+    ASSERT_OK(Put("foo", "bar"));
     GenerateNewFile(&rnd, &key_index);
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   std::string prop;
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
@@ -429,7 +431,7 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
 
   // Reopen and issue Get(). See thee latency tracked
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   for (int key = 0; key < key_index; key++) {
     Get(Key(key));
   }
@@ -457,6 +459,7 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
     std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
     for (iter->Seek(Key(0)); iter->Valid(); iter->Next()) {
     }
+    ASSERT_OK(iter->status());
   }
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.cf-file-histogram", &prop));
   ASSERT_NE(std::string::npos, prop.find("** Level 0 read latency histogram"));
@@ -470,9 +473,9 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
   ASSERT_EQ(std::string::npos, prop.find("** Level 1 read latency histogram"));
   ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
   // put something and read it back , CF 1 should show histogram.
-  Put(1, "foo", "bar");
-  Flush(1);
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(Put(1, "foo", "bar"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("bar", Get(1, "foo"));
 
   ASSERT_TRUE(
@@ -498,7 +501,7 @@ TEST_F(DBPropertiesTest, ReadLatencyHistogramByLevel) {
   ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
 
   // Clear internal stats
-  dbfull()->ResetStats();
+  ASSERT_OK(dbfull()->ResetStats());
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.cfstats", &prop));
   ASSERT_EQ(std::string::npos, prop.find("** Level 0 read latency histogram"));
   ASSERT_EQ(std::string::npos, prop.find("** Level 1 read latency histogram"));
@@ -533,7 +536,7 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   table_options.filter_policy.reset(
       NewBloomFilterPolicy(kBloomBitsPerKey, false));
   table_options.block_size = 1024;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   DestroyAndReopen(options);
 
@@ -546,24 +549,25 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   TableProperties tp, sum_tp, expected_tp;
   for (int table = 1; table <= kTableCount; ++table) {
     for (int i = 0; i < kPutsPerTable; ++i) {
-      db_->Put(WriteOptions(), RandomString(&rnd, kKeySize),
-               RandomString(&rnd, kValueSize));
+      ASSERT_OK(db_->Put(WriteOptions(), rnd.RandomString(kKeySize),
+                         rnd.RandomString(kValueSize)));
     }
     for (int i = 0; i < kDeletionsPerTable; i++) {
-      db_->Delete(WriteOptions(), RandomString(&rnd, kKeySize));
+      ASSERT_OK(db_->Delete(WriteOptions(), rnd.RandomString(kKeySize)));
     }
     for (int i = 0; i < kMergeOperandsPerTable; i++) {
-      db_->Merge(WriteOptions(), RandomString(&rnd, kKeySize),
-                 RandomString(&rnd, kValueSize));
+      ASSERT_OK(db_->Merge(WriteOptions(), rnd.RandomString(kKeySize),
+                           rnd.RandomString(kValueSize)));
     }
     for (int i = 0; i < kRangeDeletionsPerTable; i++) {
-      std::string start = RandomString(&rnd, kKeySize);
+      std::string start = rnd.RandomString(kKeySize);
       std::string end = start;
       end.resize(kValueSize);
-      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), start, end);
+      ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                                 start, end));
     }
-    db_->Flush(FlushOptions());
-    db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ASSERT_OK(db_->Flush(FlushOptions()));
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     ResetTableProperties(&sum_tp);
     for (int level = 0; level < kMaxLevel; ++level) {
       db_->GetProperty(
@@ -828,7 +832,7 @@ TEST_F(DBPropertiesTest, DISABLED_GetProperty) {
   // Wait for compaction to be done. This is important because otherwise RocksDB
   // might schedule a compaction when reopening the database, failing assertion
   // (A) as a result.
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   options.max_open_files = 10;
   Reopen(options);
   // After reopening, no table reader is loaded, so no memory for table readers
@@ -856,7 +860,7 @@ TEST_F(DBPropertiesTest, DISABLED_GetProperty) {
     std::unique_ptr<Iterator> iter1(dbfull()->NewIterator(ReadOptions()));
 
     ASSERT_OK(dbfull()->Put(writeOpt, "k6", big_value));
-    Flush();
+    ASSERT_OK(Flush());
     ASSERT_TRUE(
         dbfull()->GetIntProperty("rocksdb.num-live-versions", &int_num));
     ASSERT_EQ(int_num, 2U);
@@ -865,7 +869,7 @@ TEST_F(DBPropertiesTest, DISABLED_GetProperty) {
     std::unique_ptr<Iterator> iter2(dbfull()->NewIterator(ReadOptions()));
 
     ASSERT_OK(dbfull()->Put(writeOpt, "k7", big_value));
-    Flush();
+    ASSERT_OK(Flush());
     ASSERT_TRUE(
         dbfull()->GetIntProperty("rocksdb.num-live-versions", &int_num));
     ASSERT_EQ(int_num, 3U);
@@ -920,11 +924,12 @@ TEST_F(DBPropertiesTest, ApproximateMemoryUsage) {
   for (int r = 0; r < kNumRounds; ++r) {
     for (int f = 0; f < kFlushesPerRound; ++f) {
       for (int w = 0; w < kWritesPerFlush; ++w) {
-        Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValueSize));
+        ASSERT_OK(
+            Put(rnd.RandomString(kKeySize), rnd.RandomString(kValueSize)));
       }
     }
     // Make sure that there is no flush between getting the two properties.
-    dbfull()->TEST_WaitForFlushMemTable();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
     dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
     dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
     // in no iterator case, these two number should be the same.
@@ -938,12 +943,13 @@ TEST_F(DBPropertiesTest, ApproximateMemoryUsage) {
     iters.push_back(db_->NewIterator(ReadOptions()));
     for (int f = 0; f < kFlushesPerRound; ++f) {
       for (int w = 0; w < kWritesPerFlush; ++w) {
-        Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValueSize));
+        ASSERT_OK(
+            Put(rnd.RandomString(kKeySize), rnd.RandomString(kValueSize)));
       }
     }
     // Force flush to prevent flush from happening between getting the
     // properties or after getting the properties and before the new round.
-    Flush();
+    ASSERT_OK(Flush());
 
     // In the second round, add iterators.
     dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
@@ -958,6 +964,7 @@ TEST_F(DBPropertiesTest, ApproximateMemoryUsage) {
   // Phase 3. Delete iterators and expect "size-all-mem-tables" shrinks
   // whenever we release an iterator.
   for (auto* iter : iters) {
+    ASSERT_OK(iter->status());
     delete iter;
     dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
     // Expect the size shrinking
@@ -1007,19 +1014,19 @@ TEST_F(DBPropertiesTest, EstimatePendingCompBytes) {
   uint64_t int_num;
 
   ASSERT_OK(dbfull()->Put(writeOpt, "k1", big_value));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_TRUE(dbfull()->GetIntProperty(
       "rocksdb.estimate-pending-compaction-bytes", &int_num));
   ASSERT_EQ(int_num, 0U);
 
   ASSERT_OK(dbfull()->Put(writeOpt, "k2", big_value));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_TRUE(dbfull()->GetIntProperty(
       "rocksdb.estimate-pending-compaction-bytes", &int_num));
   ASSERT_GT(int_num, 0U);
 
   ASSERT_OK(dbfull()->Put(writeOpt, "k3", big_value));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_TRUE(dbfull()->GetIntProperty(
       "rocksdb.estimate-pending-compaction-bytes", &int_num));
   ASSERT_GT(int_num, 0U);
@@ -1027,7 +1034,7 @@ TEST_F(DBPropertiesTest, EstimatePendingCompBytes) {
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
 
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_TRUE(dbfull()->GetIntProperty(
       "rocksdb.estimate-pending-compaction-bytes", &int_num));
   ASSERT_EQ(int_num, 0U);
@@ -1057,7 +1064,7 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
       std::string key = ToString(i) + ToString(j) + "key";
       ASSERT_OK(dbfull()->Put(WriteOptions(), key, kVal));
     }
-    Flush();
+    ASSERT_OK(Flush());
   }
 
   // no compression at L0, so ratio is less than one
@@ -1065,7 +1072,7 @@ TEST_F(DBPropertiesTest, EstimateCompressionRatio) {
   ASSERT_GT(CompressionRatioAtLevel(0), 0.0);
   ASSERT_EQ(CompressionRatioAtLevel(1), -1.0);
 
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
 
   ASSERT_EQ(CompressionRatioAtLevel(0), -1.0);
   // Data at L1 should be highly compressed thanks to Snappy and redundant data
@@ -1180,9 +1187,9 @@ TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
   // Create 4 tables
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      db_->Put(WriteOptions(), ToString(table * 100 + i), "val");
+      ASSERT_OK(db_->Put(WriteOptions(), ToString(table * 100 + i), "val"));
     }
-    db_->Flush(FlushOptions());
+    ASSERT_OK(db_->Flush(FlushOptions()));
   }
 
   TablePropertiesCollection props;
@@ -1204,7 +1211,7 @@ TEST_F(DBPropertiesTest, GetUserDefinedTableProperties) {
 
   ASSERT_GT(collector_factory->num_created_, 0U);
   collector_factory->num_created_ = 0;
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
   ASSERT_GT(collector_factory->num_created_, 0U);
 }
 #endif  // ROCKSDB_LITE
@@ -1220,9 +1227,9 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   // Create 2 files
   for (int table = 0; table < 2; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      Put(1, ToString(table * 100 + i), "val");
+      ASSERT_OK(Put(1, ToString(table * 100 + i), "val"));
     }
-    Flush(1);
+    ASSERT_OK(Flush(1));
   }
   ASSERT_GT(collector_factory->num_created_, 0U);
 
@@ -1230,15 +1237,15 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   // Trigger automatic compactions.
   for (int table = 0; table < 3; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      Put(1, ToString(table * 100 + i), "val");
+      ASSERT_OK(Put(1, ToString(table * 100 + i), "val"));
     }
-    Flush(1);
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(Flush(1));
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
   ASSERT_GT(collector_factory->num_created_, 0U);
 
   collector_factory->num_created_ = 0;
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]));
   ASSERT_GT(collector_factory->num_created_, 0U);
 
   // Come back to write to default column family
@@ -1247,9 +1254,9 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   // Create 4 tables in default column family
   for (int table = 0; table < 2; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      Put(ToString(table * 100 + i), "val");
+      ASSERT_OK(Put(ToString(table * 100 + i), "val"));
     }
-    Flush();
+    ASSERT_OK(Flush());
   }
   ASSERT_GT(collector_factory->num_created_, 0U);
 
@@ -1257,15 +1264,15 @@ TEST_F(DBPropertiesTest, UserDefinedTablePropertiesContext) {
   // Trigger automatic compactions.
   for (int table = 0; table < 3; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      Put(ToString(table * 100 + i), "val");
+      ASSERT_OK(Put(ToString(table * 100 + i), "val"));
     }
-    Flush();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
   ASSERT_GT(collector_factory->num_created_, 0U);
 
   collector_factory->num_created_ = 0;
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_OK(dbfull()->TEST_CompactRange(0, nullptr, nullptr));
   ASSERT_GT(collector_factory->num_created_, 0U);
 }
 
@@ -1296,18 +1303,18 @@ TEST_F(DBPropertiesTest, TablePropertiesNeedCompactTest) {
 
   const int kMaxKey = 1000;
   for (int i = 0; i < kMaxKey; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 102)));
-    ASSERT_OK(Put(Key(kMaxKey + i), RandomString(&rnd, 102)));
+    ASSERT_OK(Put(Key(i), rnd.RandomString(102)));
+    ASSERT_OK(Put(Key(kMaxKey + i), rnd.RandomString(102)));
   }
-  Flush();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   if (NumTableFilesAtLevel(0) == 1) {
     // Clear Level 0 so that when later flush a file with deletions,
     // we don't trigger an organic compaction.
     ASSERT_OK(Put(Key(0), ""));
     ASSERT_OK(Put(Key(kMaxKey * 2), ""));
-    Flush();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(Flush());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 
@@ -1319,17 +1326,18 @@ TEST_F(DBPropertiesTest, TablePropertiesNeedCompactTest) {
       iter->Next();
       ++c;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(c, 200);
   }
 
-  Delete(Key(0));
+  ASSERT_OK(Delete(Key(0)));
   for (int i = kMaxKey - 100; i < kMaxKey + 100; i++) {
-    Delete(Key(i));
+    ASSERT_OK(Delete(Key(i)));
   }
-  Delete(Key(kMaxKey * 2));
+  ASSERT_OK(Delete(Key(kMaxKey * 2)));
 
-  Flush();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   {
     SetPerfLevel(kEnableCount);
@@ -1340,6 +1348,7 @@ TEST_F(DBPropertiesTest, TablePropertiesNeedCompactTest) {
     while (iter->Valid() && iter->key().compare(Key(kMaxKey + 100)) < 0) {
       iter->Next();
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(c, 0);
     ASSERT_LT(get_perf_context()->internal_delete_skipped_count, 30u);
     ASSERT_LT(get_perf_context()->internal_key_skipped_count, 30u);
@@ -1370,14 +1379,14 @@ TEST_F(DBPropertiesTest, NeedCompactHintPersistentTest) {
   for (int i = 0; i < kMaxKey; i++) {
     ASSERT_OK(Put(Key(i), ""));
   }
-  Flush();
-  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
   for (int i = 1; i < kMaxKey - 1; i++) {
-    Delete(Key(i));
+    ASSERT_OK(Delete(Key(i)));
   }
-  Flush();
-  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   ASSERT_EQ(NumTableFilesAtLevel(0), 2);
 
   // Restart the DB. Although number of files didn't reach
@@ -1385,7 +1394,7 @@ TEST_F(DBPropertiesTest, NeedCompactHintPersistentTest) {
   // still be triggered because of the need-compaction hint.
   options.disable_auto_compactions = false;
   Reopen(options);
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   {
     SetPerfLevel(kEnableCount);
@@ -1395,6 +1404,7 @@ TEST_F(DBPropertiesTest, NeedCompactHintPersistentTest) {
     for (iter->Seek(Key(0)); iter->Valid(); iter->Next()) {
       c++;
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(c, 2);
     ASSERT_EQ(get_perf_context()->internal_delete_skipped_count, 0);
     // We iterate every key twice. Is it a bug?
@@ -1404,24 +1414,22 @@ TEST_F(DBPropertiesTest, NeedCompactHintPersistentTest) {
 }
 
 TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
-  Options options;
+  Options options = CurrentOptions();
   Reopen(options);
-  Put("foo", "bar");
-  Delete("foo");
-  Delete("foo");
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Delete("foo"));
+  ASSERT_OK(Delete("foo"));
   uint64_t num_keys = 0;
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.estimate-num-keys", &num_keys));
   ASSERT_EQ(0, num_keys);
 }
 
 TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
-  std::unique_ptr<MockTimeEnv> mock_env(new MockTimeEnv(Env::Default()));
   uint64_t oldest_key_time = 0;
-  Options options;
-  options.env = mock_env.get();
+  Options options = CurrentOptions();
+  SetTimeElapseOnlySleepOnReopen(&options);
 
   // "rocksdb.estimate-oldest-key-time" only available to fifo compaction.
-  mock_env->set_current_time(100);
   for (auto compaction : {kCompactionStyleLevel, kCompactionStyleUniversal,
                           kCompactionStyleNone}) {
     options.compaction_style = compaction;
@@ -1432,60 +1440,60 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
         DB::Properties::kEstimateOldestKeyTime, &oldest_key_time));
   }
 
+  int64_t mock_start_time;
+  ASSERT_OK(env_->GetCurrentTime(&mock_start_time));
+
   options.compaction_style = kCompactionStyleFIFO;
   options.ttl = 300;
   options.compaction_options_fifo.allow_compaction = false;
   DestroyAndReopen(options);
 
-  mock_env->set_current_time(100);
+  env_->MockSleepForSeconds(100);
   ASSERT_OK(Put("k1", "v1"));
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(100, oldest_key_time);
+  ASSERT_EQ(100, oldest_key_time - mock_start_time);
   ASSERT_OK(Flush());
   ASSERT_EQ("1", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(100, oldest_key_time);
+  ASSERT_EQ(100, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(200);
+  env_->MockSleepForSeconds(100);  // -> 200
   ASSERT_OK(Put("k2", "v2"));
   ASSERT_OK(Flush());
   ASSERT_EQ("2", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(100, oldest_key_time);
+  ASSERT_EQ(100, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(300);
+  env_->MockSleepForSeconds(100);  // -> 300
   ASSERT_OK(Put("k3", "v3"));
   ASSERT_OK(Flush());
   ASSERT_EQ("3", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(100, oldest_key_time);
+  ASSERT_EQ(100, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(450);
+  env_->MockSleepForSeconds(150);  // -> 450
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("2", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(200, oldest_key_time);
+  ASSERT_EQ(200, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(550);
+  env_->MockSleepForSeconds(100);  // -> 550
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("1", FilesPerLevel());
   ASSERT_TRUE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                        &oldest_key_time));
-  ASSERT_EQ(300, oldest_key_time);
+  ASSERT_EQ(300, oldest_key_time - mock_start_time);
 
-  mock_env->set_current_time(650);
+  env_->MockSleepForSeconds(100);  // -> 650
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("", FilesPerLevel());
   ASSERT_FALSE(dbfull()->GetIntProperty(DB::Properties::kEstimateOldestKeyTime,
                                         &oldest_key_time));
-
-  // Close before mock_env destructs.
-  Close();
 }
 
 TEST_F(DBPropertiesTest, SstFilesSize) {
@@ -1516,6 +1524,7 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
   std::shared_ptr<TestListener> listener = std::make_shared<TestListener>();
 
   Options options;
+  options.env = CurrentOptions().env;
   options.disable_auto_compactions = true;
   options.listeners.push_back(listener);
   Reopen(options);
@@ -1588,17 +1597,19 @@ TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {
 
   for (int i = 0; i < kNumL0Files; ++i) {
     // Make sure they overlap in keyspace to prevent trivial move
-    Put("key1", "val");
-    Put("key2", "val");
-    Flush();
+    ASSERT_OK(Put("key1", "val"));
+    ASSERT_OK(Put("key2", "val"));
+    ASSERT_OK(Flush());
   }
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_TRUE(listener->Validated());
 }
 
 TEST_F(DBPropertiesTest, BlockCacheProperties) {
   Options options;
   uint64_t value;
+
+  options.env = CurrentOptions().env;
 
   // Block cache properties are not available for tables other than
   // block-based table.
@@ -1650,7 +1661,8 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
 
   // Insert unpinned item to the cache and check size.
   constexpr size_t kSize1 = 50;
-  block_cache->Insert("item1", nullptr /*value*/, kSize1, nullptr /*deleter*/);
+  ASSERT_OK(block_cache->Insert("item1", nullptr /*value*/, kSize1,
+                                nullptr /*deleter*/));
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheUsage, &value));
@@ -1662,8 +1674,8 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
   // Insert pinned item to the cache and check size.
   constexpr size_t kSize2 = 30;
   Cache::Handle* item2 = nullptr;
-  block_cache->Insert("item2", nullptr /*value*/, kSize2, nullptr /*deleter*/,
-                      &item2);
+  ASSERT_OK(block_cache->Insert("item2", nullptr /*value*/, kSize2,
+                                nullptr /*deleter*/, &item2));
   ASSERT_NE(nullptr, item2);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);
@@ -1676,8 +1688,8 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
   // Insert another pinned item to make the cache over-sized.
   constexpr size_t kSize3 = 80;
   Cache::Handle* item3 = nullptr;
-  block_cache->Insert("item3", nullptr /*value*/, kSize3, nullptr /*deleter*/,
-                      &item3);
+  ASSERT_OK(block_cache->Insert("item3", nullptr /*value*/, kSize3,
+                                nullptr /*deleter*/, &item3));
   ASSERT_NE(nullptr, item2);
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kBlockCacheCapacity, &value));
   ASSERT_EQ(kCapacity, value);

@@ -17,33 +17,35 @@
 namespace ROCKSDB_NAMESPACE {
 
 // Utility function to copy a file up to a specified length
-Status CopyFile(FileSystem* fs, const std::string& source,
-                const std::string& destination, uint64_t size, bool use_fsync) {
+IOStatus CopyFile(FileSystem* fs, const std::string& source,
+                  const std::string& destination, uint64_t size, bool use_fsync,
+                  const std::shared_ptr<IOTracer>& io_tracer) {
   const FileOptions soptions;
-  Status s;
+  IOStatus io_s;
   std::unique_ptr<SequentialFileReader> src_reader;
   std::unique_ptr<WritableFileWriter> dest_writer;
 
   {
     std::unique_ptr<FSSequentialFile> srcfile;
-    s = fs->NewSequentialFile(source, soptions, &srcfile, nullptr);
-    if (!s.ok()) {
-      return s;
+    io_s = fs->NewSequentialFile(source, soptions, &srcfile, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
     }
     std::unique_ptr<FSWritableFile> destfile;
-    s = fs->NewWritableFile(destination, soptions, &destfile, nullptr);
-    if (!s.ok()) {
-      return s;
+    io_s = fs->NewWritableFile(destination, soptions, &destfile, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
     }
 
     if (size == 0) {
       // default argument means copy everything
-      s = fs->GetFileSize(source, IOOptions(), &size, nullptr);
-      if (!s.ok()) {
-        return s;
+      io_s = fs->GetFileSize(source, IOOptions(), &size, nullptr);
+      if (!io_s.ok()) {
+        return io_s;
       }
     }
-    src_reader.reset(new SequentialFileReader(std::move(srcfile), source));
+    src_reader.reset(
+        new SequentialFileReader(std::move(srcfile), source, io_tracer));
     dest_writer.reset(
         new WritableFileWriter(std::move(destfile), destination, soptions));
   }
@@ -52,16 +54,16 @@ Status CopyFile(FileSystem* fs, const std::string& source,
   Slice slice;
   while (size > 0) {
     size_t bytes_to_read = std::min(sizeof(buffer), static_cast<size_t>(size));
-    s = src_reader->Read(bytes_to_read, &slice, buffer);
-    if (!s.ok()) {
-      return s;
+    io_s = status_to_io_status(src_reader->Read(bytes_to_read, &slice, buffer));
+    if (!io_s.ok()) {
+      return io_s;
     }
     if (slice.size() == 0) {
-      return Status::Corruption("file too small");
+      return IOStatus::Corruption("file too small");
     }
-    s = dest_writer->Append(slice);
-    if (!s.ok()) {
-      return s;
+    io_s = dest_writer->Append(slice);
+    if (!io_s.ok()) {
+      return io_s;
     }
     size -= slice.size();
   }
@@ -69,22 +71,22 @@ Status CopyFile(FileSystem* fs, const std::string& source,
 }
 
 // Utility function to create a file with the provided contents
-Status CreateFile(FileSystem* fs, const std::string& destination,
-                  const std::string& contents, bool use_fsync) {
+IOStatus CreateFile(FileSystem* fs, const std::string& destination,
+                    const std::string& contents, bool use_fsync) {
   const EnvOptions soptions;
-  Status s;
+  IOStatus io_s;
   std::unique_ptr<WritableFileWriter> dest_writer;
 
   std::unique_ptr<FSWritableFile> destfile;
-  s = fs->NewWritableFile(destination, soptions, &destfile, nullptr);
-  if (!s.ok()) {
-    return s;
+  io_s = fs->NewWritableFile(destination, soptions, &destfile, nullptr);
+  if (!io_s.ok()) {
+    return io_s;
   }
   dest_writer.reset(
       new WritableFileWriter(std::move(destfile), destination, soptions));
-  s = dest_writer->Append(Slice(contents));
-  if (!s.ok()) {
-    return s;
+  io_s = dest_writer->Append(Slice(contents));
+  if (!io_s.ok()) {
+    return io_s;
   }
   return dest_writer->Sync(use_fsync);
 }
@@ -119,6 +121,140 @@ bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
     same = db_options->wal_dir == db_options->db_paths[0].path;
   }
   return same;
+}
+
+// requested_checksum_func_name brings the function name of the checksum
+// generator in checksum_factory. Checksum factories may use or ignore
+// requested_checksum_func_name.
+IOStatus GenerateOneFileChecksum(
+    FileSystem* fs, const std::string& file_path,
+    FileChecksumGenFactory* checksum_factory,
+    const std::string& requested_checksum_func_name, std::string* file_checksum,
+    std::string* file_checksum_func_name,
+    size_t verify_checksums_readahead_size, bool allow_mmap_reads,
+    std::shared_ptr<IOTracer>& io_tracer) {
+  if (checksum_factory == nullptr) {
+    return IOStatus::InvalidArgument("Checksum factory is invalid");
+  }
+  assert(file_checksum != nullptr);
+  assert(file_checksum_func_name != nullptr);
+
+  FileChecksumGenContext gen_context;
+  gen_context.requested_checksum_func_name = requested_checksum_func_name;
+  gen_context.file_name = file_path;
+  std::unique_ptr<FileChecksumGenerator> checksum_generator =
+      checksum_factory->CreateFileChecksumGenerator(gen_context);
+  if (checksum_generator == nullptr) {
+    std::string msg =
+        "Cannot get the file checksum generator based on the requested "
+        "checksum function name: " +
+        requested_checksum_func_name +
+        " from checksum factory: " + checksum_factory->Name();
+    return IOStatus::InvalidArgument(msg);
+  }
+
+  // For backward compatable, requested_checksum_func_name can be empty.
+  // If we give the requested checksum function name, we expect it is the
+  // same name of the checksum generator.
+  assert(!checksum_generator || requested_checksum_func_name.empty() ||
+         requested_checksum_func_name == checksum_generator->Name());
+
+  uint64_t size;
+  IOStatus io_s;
+  std::unique_ptr<RandomAccessFileReader> reader;
+  {
+    std::unique_ptr<FSRandomAccessFile> r_file;
+    io_s = fs->NewRandomAccessFile(file_path, FileOptions(), &r_file, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+    io_s = fs->GetFileSize(file_path, IOOptions(), &size, nullptr);
+    if (!io_s.ok()) {
+      return io_s;
+    }
+    reader.reset(new RandomAccessFileReader(std::move(r_file), file_path,
+                                            nullptr /*Env*/, io_tracer));
+  }
+
+  // Found that 256 KB readahead size provides the best performance, based on
+  // experiments, for auto readahead. Experiment data is in PR #3282.
+  size_t default_max_read_ahead_size = 256 * 1024;
+  size_t readahead_size = (verify_checksums_readahead_size != 0)
+                              ? verify_checksums_readahead_size
+                              : default_max_read_ahead_size;
+
+  FilePrefetchBuffer prefetch_buffer(
+      reader.get(), readahead_size /* readadhead_size */,
+      readahead_size /* max_readahead_size */, !allow_mmap_reads /* enable */);
+
+  Slice slice;
+  uint64_t offset = 0;
+  IOOptions opts;
+  while (size > 0) {
+    size_t bytes_to_read =
+        static_cast<size_t>(std::min(uint64_t{readahead_size}, size));
+    if (!prefetch_buffer.TryReadFromCache(opts, offset, bytes_to_read, &slice,
+                                          false)) {
+      return IOStatus::Corruption("file read failed");
+    }
+    if (slice.size() == 0) {
+      return IOStatus::Corruption("file too small");
+    }
+    checksum_generator->Update(slice.data(), slice.size());
+    size -= slice.size();
+    offset += slice.size();
+  }
+  checksum_generator->Finalize();
+  *file_checksum = checksum_generator->GetChecksum();
+  *file_checksum_func_name = checksum_generator->Name();
+  return IOStatus::OK();
+}
+
+Status DestroyDir(Env* env, const std::string& dir) {
+  Status s;
+  if (env->FileExists(dir).IsNotFound()) {
+    return s;
+  }
+  std::vector<std::string> files_in_dir;
+  s = env->GetChildren(dir, &files_in_dir);
+  if (s.ok()) {
+    for (auto& file_in_dir : files_in_dir) {
+      if (file_in_dir == "." || file_in_dir == "..") {
+        continue;
+      }
+      std::string path = dir + "/" + file_in_dir;
+      bool is_dir = false;
+      s = env->IsDirectory(path, &is_dir);
+      if (s.ok()) {
+        if (is_dir) {
+          s = DestroyDir(env, path);
+        } else {
+          s = env->DeleteFile(path);
+        }
+      } else if (s.IsNotSupported()) {
+        s = Status::OK();
+      }
+      if (!s.ok()) {
+        // IsDirectory, etc. might not report NotFound
+        if (s.IsNotFound() || env->FileExists(path).IsNotFound()) {
+          // Allow files to be deleted externally
+          s = Status::OK();
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
+  if (s.ok()) {
+    s = env->DeleteDir(dir);
+    // DeleteDir might or might not report NotFound
+    if (!s.ok() && (s.IsNotFound() || env->FileExists(dir).IsNotFound())) {
+      // Allow to be deleted externally
+      s = Status::OK();
+    }
+  }
+  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

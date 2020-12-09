@@ -11,7 +11,6 @@
 #include <stdint.h>
 #include <algorithm>
 #include <memory>
-#include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
 

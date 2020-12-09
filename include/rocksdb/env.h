@@ -61,6 +61,13 @@ class FileSystem;
 
 const size_t kDefaultPageSize = 4 * 1024;
 
+enum class CpuPriority {
+  kIdle = 0,
+  kLow = 1,
+  kNormal = 2,
+  kHigh = 3,
+};
+
 // Options while opening a file to read/write
 struct EnvOptions {
   // Construct with default Options
@@ -227,7 +234,7 @@ class Env {
   virtual Status ReopenWritableFile(const std::string& /*fname*/,
                                     std::unique_ptr<WritableFile>* /*result*/,
                                     const EnvOptions& /*options*/) {
-    return Status::NotSupported();
+    return Status::NotSupported("Env::ReopenWritableFile() not supported.");
   }
 
   // Reuse an existing file by renaming it and opening it as writable.
@@ -313,6 +320,8 @@ class Env {
   virtual Status CreateDirIfMissing(const std::string& dirname) = 0;
 
   // Delete the specified directory.
+  // Many implementations of this function will only delete a directory if it is
+  // empty.
   virtual Status DeleteDir(const std::string& dirname) = 0;
 
   // Store the size of fname in *file_size.
@@ -443,8 +452,14 @@ class Env {
   // Sleep/delay the thread for the prescribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
 
-  // Get the current host name.
+  // Get the current host name as a null terminated string iff the string
+  // length is < len. The hostname should otherwise be truncated to len.
   virtual Status GetHostName(char* name, uint64_t len) = 0;
+
+  // Get the current hostname from the given env as a std::string in result.
+  // The result may be truncated if the hostname is too
+  // long
+  virtual Status GetHostNameString(std::string* result);
 
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
   // Only overwrites *unix_time on success.
@@ -461,7 +476,7 @@ class Env {
   virtual int GetBackgroundThreads(Priority pri = LOW) = 0;
 
   virtual Status SetAllowNonOwnerAccess(bool /*allow_non_owner_access*/) {
-    return Status::NotSupported("Not supported.");
+    return Status::NotSupported("Env::SetAllowNonOwnerAccess() not supported.");
   }
 
   // Enlarge number of background worker threads of a specific thread pool
@@ -471,6 +486,13 @@ class Env {
 
   // Lower IO priority for threads from the specified pool.
   virtual void LowerThreadPoolIOPriority(Priority /*pool*/ = LOW) {}
+
+  // Lower CPU priority for threads from the specified pool.
+  virtual Status LowerThreadPoolCPUPriority(Priority /*pool*/,
+                                            CpuPriority /*pri*/) {
+    return Status::NotSupported(
+        "Env::LowerThreadPoolCPUPriority(Priority, CpuPriority) not supported");
+  }
 
   // Lower CPU priority for threads from the specified pool.
   virtual void LowerThreadPoolCPUPriority(Priority /*pool*/ = LOW) {}
@@ -518,7 +540,7 @@ class Env {
 
   // Returns the status of all threads that belong to the current Env.
   virtual Status GetThreadList(std::vector<ThreadStatus>* /*thread_list*/) {
-    return Status::NotSupported("Not supported.");
+    return Status::NotSupported("Env::GetThreadList() not supported.");
   }
 
   // Returns the pointer to ThreadStatusUpdater.  This function will be
@@ -537,7 +559,12 @@ class Env {
   // Get the amount of free disk space
   virtual Status GetFreeSpace(const std::string& /*path*/,
                               uint64_t* /*diskfree*/) {
-    return Status::NotSupported();
+    return Status::NotSupported("Env::GetFreeSpace() not supported.");
+  }
+
+  // Check whether the specified path is a directory
+  virtual Status IsDirectory(const std::string& /*path*/, bool* /*is_dir*/) {
+    return Status::NotSupported("Env::IsDirectory() not supported.");
   }
 
   virtual void SanitizeEnvOptions(EnvOptions* /*env_opts*/) const {}
@@ -555,6 +582,9 @@ class Env {
 
   // Pointer to the underlying FileSystem implementation
   std::shared_ptr<FileSystem> file_system_;
+
+ private:
+  static const size_t kMaxHostNameLen = 256;
 };
 
 // The factory function to construct a ThreadStatusUpdater.  Any Env
@@ -599,14 +629,16 @@ class SequentialFile {
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
   virtual Status InvalidateCache(size_t /*offset*/, size_t /*length*/) {
-    return Status::NotSupported("InvalidateCache not supported.");
+    return Status::NotSupported(
+        "SequentialFile::InvalidateCache not supported.");
   }
 
   // Positioned Read for direct I/O
   // If Direct I/O enabled, offset, n, and scratch should be properly aligned
   virtual Status PositionedRead(uint64_t /*offset*/, size_t /*n*/,
                                 Slice* /*result*/, char* /*scratch*/) {
-    return Status::NotSupported();
+    return Status::NotSupported(
+        "SequentialFile::PositionedRead() not supported.");
   }
 
   // If you're adding methods here, remember to add them to
@@ -709,7 +741,8 @@ class RandomAccessFile {
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
   virtual Status InvalidateCache(size_t /*offset*/, size_t /*length*/) {
-    return Status::NotSupported("InvalidateCache not supported.");
+    return Status::NotSupported(
+        "RandomAccessFile::InvalidateCache not supported.");
   }
 
   // If you're adding methods here, remember to add them to
@@ -767,7 +800,8 @@ class WritableFile {
   // required is queried via GetRequiredBufferAlignment()
   virtual Status PositionedAppend(const Slice& /* data */,
                                   uint64_t /* offset */) {
-    return Status::NotSupported();
+    return Status::NotSupported(
+        "WritableFile::PositionedAppend() not supported.");
   }
 
   // Truncate is necessary to trim the file to the correct size
@@ -842,7 +876,7 @@ class WritableFile {
   // If the system is not caching the file contents, then this is a noop.
   // This call has no effect on dirty pages in the cache.
   virtual Status InvalidateCache(size_t /*offset*/, size_t /*length*/) {
-    return Status::NotSupported("InvalidateCache not supported.");
+    return Status::NotSupported("WritableFile::InvalidateCache not supported.");
   }
 
   // Sync a file range with disk.
@@ -876,8 +910,10 @@ class WritableFile {
     if (new_last_preallocated_block > last_preallocated_block_) {
       size_t num_spanned_blocks =
           new_last_preallocated_block - last_preallocated_block_;
+      // TODO: Don't ignore errors from allocate
       Allocate(block_size * last_preallocated_block_,
-               block_size * num_spanned_blocks);
+               block_size * num_spanned_blocks)
+          .PermitUncheckedError();
       last_preallocated_block_ = new_last_preallocated_block;
     }
   }
@@ -1015,11 +1051,17 @@ class Logger {
   virtual void LogHeader(const char* format, va_list ap) {
     // Default implementation does a simple INFO level log write.
     // Please override as per the logger class requirement.
-    Logv(format, ap);
+    Logv(InfoLogLevel::INFO_LEVEL, format, ap);
   }
 
   // Write an entry to the log file with the specified format.
-  virtual void Logv(const char* format, va_list ap) = 0;
+  //
+  // Users who override the `Logv()` overload taking `InfoLogLevel` do not need
+  // to implement this, unless they explicitly invoke it in
+  // `Logv(InfoLogLevel, ...)`.
+  virtual void Logv(const char* /* format */, va_list /* ap */) {
+    assert(false);
+  }
 
   // Write an entry to the log file with the specified log level
   // and format.  Any log with level under the internal log level
@@ -1279,6 +1321,10 @@ class EnvWrapper : public Env {
 
   Status UnlockFile(FileLock* l) override { return target_->UnlockFile(l); }
 
+  Status IsDirectory(const std::string& path, bool* is_dir) override {
+    return target_->IsDirectory(path, is_dir);
+  }
+
   Status LoadLibrary(const std::string& lib_name,
                      const std::string& search_path,
                      std::shared_ptr<DynamicLibrary>* result) override {
@@ -1340,12 +1386,16 @@ class EnvWrapper : public Env {
     return target_->IncBackgroundThreadsIfNeeded(num, pri);
   }
 
-  void LowerThreadPoolIOPriority(Priority pool = LOW) override {
+  void LowerThreadPoolIOPriority(Priority pool) override {
     target_->LowerThreadPoolIOPriority(pool);
   }
 
-  void LowerThreadPoolCPUPriority(Priority pool = LOW) override {
+  void LowerThreadPoolCPUPriority(Priority pool) override {
     target_->LowerThreadPoolCPUPriority(pool);
+  }
+
+  Status LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
+    return target_->LowerThreadPoolCPUPriority(pool, pri);
   }
 
   std::string TimeToString(uint64_t time) override {

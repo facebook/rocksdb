@@ -11,6 +11,7 @@
 
 #include <stddef.h>
 
+#include "rocksdb/compression_type.h"
 #include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -22,8 +23,6 @@ class FilterPolicy;
 class Logger;
 struct Options;
 class Snapshot;
-
-enum CompressionType : unsigned char;
 
 // Options to control the behavior of a database (passed to
 // DB::Open). A LevelDBOptions object can be initialized as though

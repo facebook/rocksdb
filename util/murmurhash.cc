@@ -10,7 +10,7 @@
   is under the MIT license.
 */
 #include "murmurhash.h"
-#include "util/util.h"
+#include "port/lang.h"
 
 #if defined(__x86_64__)
 

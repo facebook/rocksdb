@@ -10,18 +10,21 @@
 #include "options/db_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
+#include "trace_replay/io_tracer.h"
 
 namespace ROCKSDB_NAMESPACE {
 // use_fsync maps to options.use_fsync, which determines the way that
 // the file is synced after copying.
-extern Status CopyFile(FileSystem* fs, const std::string& source,
-                       const std::string& destination, uint64_t size,
-                       bool use_fsync);
+extern IOStatus CopyFile(FileSystem* fs, const std::string& source,
+                         const std::string& destination, uint64_t size,
+                         bool use_fsync,
+                         const std::shared_ptr<IOTracer>& io_tracer = nullptr);
 
-extern Status CreateFile(FileSystem* fs, const std::string& destination,
-                         const std::string& contents, bool use_fsync);
+extern IOStatus CreateFile(FileSystem* fs, const std::string& destination,
+                           const std::string& contents, bool use_fsync);
 
 extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
                            const std::string& fname,
@@ -30,4 +33,38 @@ extern Status DeleteDBFile(const ImmutableDBOptions* db_options,
 
 extern bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options);
 
+extern IOStatus GenerateOneFileChecksum(
+    FileSystem* fs, const std::string& file_path,
+    FileChecksumGenFactory* checksum_factory,
+    const std::string& requested_checksum_func_name, std::string* file_checksum,
+    std::string* file_checksum_func_name,
+    size_t verify_checksums_readahead_size, bool allow_mmap_reads,
+    std::shared_ptr<IOTracer>& io_tracer);
+
+inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro, Env* env,
+                                         IOOptions& opts) {
+  if (!env) {
+    env = Env::Default();
+  }
+
+  if (ro.deadline.count()) {
+    std::chrono::microseconds now = std::chrono::microseconds(env->NowMicros());
+    // Ensure there is atleast 1us available. We don't want to pass a value of
+    // 0 as that means no timeout
+    if (now >= ro.deadline) {
+      return IOStatus::TimedOut("Deadline exceeded");
+    }
+    opts.timeout = ro.deadline - now;
+  }
+
+  if (ro.io_timeout.count() &&
+      (!opts.timeout.count() || ro.io_timeout < opts.timeout)) {
+    opts.timeout = ro.io_timeout;
+  }
+  return IOStatus::OK();
+}
+
+// Test method to delete the input directory and all of its contents.
+// This method is destructive and is meant for use only in tests!!!
+Status DestroyDir(Env* env, const std::string& dir);
 }  // namespace ROCKSDB_NAMESPACE

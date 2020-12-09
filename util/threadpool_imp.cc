@@ -57,7 +57,7 @@ struct ThreadPoolImpl::Impl {
 
   void LowerIOPriority();
 
-  void LowerCPUPriority();
+  void LowerCPUPriority(CpuPriority pri);
 
   void WakeUpAllThreads() {
     bgsignal_.notify_all();
@@ -102,7 +102,7 @@ private:
  static void BGThreadWrapper(void* arg);
 
  bool low_io_priority_;
- bool low_cpu_priority_;
+ CpuPriority cpu_priority_;
  Env::Priority priority_;
  Env* env_;
 
@@ -126,12 +126,9 @@ private:
   std::vector<port::Thread> bgthreads_;
 };
 
-
-inline
-ThreadPoolImpl::Impl::Impl()
-    :
-      low_io_priority_(false),
-      low_cpu_priority_(false),
+inline ThreadPoolImpl::Impl::Impl()
+    : low_io_priority_(false),
+      cpu_priority_(CpuPriority::kNormal),
       priority_(Env::LOW),
       env_(nullptr),
       total_threads_limit_(0),
@@ -141,8 +138,7 @@ ThreadPoolImpl::Impl::Impl()
       queue_(),
       mu_(),
       bgsignal_(),
-      bgthreads_() {
-}
+      bgthreads_() {}
 
 inline
 ThreadPoolImpl::Impl::~Impl() { assert(bgthreads_.size() == 0U); }
@@ -178,15 +174,14 @@ void ThreadPoolImpl::Impl::LowerIOPriority() {
   low_io_priority_ = true;
 }
 
-inline
-void ThreadPoolImpl::Impl::LowerCPUPriority() {
+inline void ThreadPoolImpl::Impl::LowerCPUPriority(CpuPriority pri) {
   std::lock_guard<std::mutex> lock(mu_);
-  low_cpu_priority_ = true;
+  cpu_priority_ = pri;
 }
 
 void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
   bool low_io_priority = false;
-  bool low_cpu_priority = false;
+  CpuPriority current_cpu_priority = CpuPriority::kNormal;
 
   while (true) {
     // Wait until there is an item that is ready to run
@@ -227,16 +222,20 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
                      std::memory_order_relaxed);
 
     bool decrease_io_priority = (low_io_priority != low_io_priority_);
-    bool decrease_cpu_priority = (low_cpu_priority != low_cpu_priority_);
+    CpuPriority cpu_priority = cpu_priority_;
     lock.unlock();
 
-#ifdef OS_LINUX
-    if (decrease_cpu_priority) {
+    if (cpu_priority < current_cpu_priority) {
+      TEST_SYNC_POINT_CALLBACK("ThreadPoolImpl::BGThread::BeforeSetCpuPriority",
+                               &current_cpu_priority);
       // 0 means current thread.
-      port::SetCpuPriority(0, CpuPriority::kLow);
-      low_cpu_priority = true;
+      port::SetCpuPriority(0, cpu_priority);
+      current_cpu_priority = cpu_priority;
+      TEST_SYNC_POINT_CALLBACK("ThreadPoolImpl::BGThread::AfterSetCpuPriority",
+                               &current_cpu_priority);
     }
 
+#ifdef OS_LINUX
     if (decrease_io_priority) {
 #define IOPRIO_CLASS_SHIFT (13)
 #define IOPRIO_PRIO_VALUE(class, data) (((class) << IOPRIO_CLASS_SHIFT) | data)
@@ -257,7 +256,6 @@ void ThreadPoolImpl::Impl::BGThread(size_t thread_id) {
     }
 #else
     (void)decrease_io_priority;  // avoid 'unused variable' error
-    (void)decrease_cpu_priority;
 #endif
 
     TEST_SYNC_POINT_CALLBACK("ThreadPoolImpl::Impl::BGThread:BeforeRun",
@@ -452,8 +450,8 @@ void ThreadPoolImpl::LowerIOPriority() {
   impl_->LowerIOPriority();
 }
 
-void ThreadPoolImpl::LowerCPUPriority() {
-  impl_->LowerCPUPriority();
+void ThreadPoolImpl::LowerCPUPriority(CpuPriority pri) {
+  impl_->LowerCPUPriority(pri);
 }
 
 void ThreadPoolImpl::IncBackgroundThreadsIfNeeded(int num) {

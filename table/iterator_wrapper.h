@@ -70,10 +70,31 @@ class IteratorWrapperBase {
     assert(iter_);
     return iter_->status();
   }
+  bool PrepareValue() {
+    assert(Valid());
+    if (result_.value_prepared) {
+      return true;
+    }
+    if (iter_->PrepareValue()) {
+      result_.value_prepared = true;
+      return true;
+    }
+
+    assert(!iter_->Valid());
+    valid_ = false;
+    return false;
+  }
   void Next() {
     assert(iter_);
     valid_ = iter_->NextAndGetResult(&result_);
     assert(!valid_ || iter_->status().ok());
+  }
+  bool NextAndGetResult(IterateResult* result) {
+    assert(iter_);
+    valid_ = iter_->NextAndGetResult(&result_);
+    *result = result_;
+    assert(!valid_ || iter_->status().ok());
+    return valid_;
   }
   void Prev() {
     assert(iter_);
@@ -106,9 +127,9 @@ class IteratorWrapperBase {
     return iter_->MayBeOutOfLowerBound();
   }
 
-  bool MayBeOutOfUpperBound() {
+  IterBoundCheck UpperBoundCheckResult() {
     assert(Valid());
-    return result_.may_be_out_of_upper_bound;
+    return result_.bound_check_result;
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {
@@ -124,13 +145,23 @@ class IteratorWrapperBase {
     return iter_->IsValuePinned();
   }
 
+  bool IsValuePrepared() const {
+    return result_.value_prepared;
+  }
+
+  Slice user_key() const {
+    assert(Valid());
+    return iter_->user_key();
+  }
+
  private:
   void Update() {
     valid_ = iter_->Valid();
     if (valid_) {
       assert(iter_->status().ok());
       result_.key = iter_->key();
-      result_.may_be_out_of_upper_bound = true;
+      result_.bound_check_result = IterBoundCheck::kUnknown;
+      result_.value_prepared = false;
     }
   }
 

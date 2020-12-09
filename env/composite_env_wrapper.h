@@ -492,6 +492,12 @@ class CompositeEnvWrapper : public Env {
     return file_system_->NewLogger(fname, io_opts, result, &dbg);
   }
 
+  Status IsDirectory(const std::string& path, bool* is_dir) override {
+    IOOptions io_opts;
+    IODebugContext dbg;
+    return file_system_->IsDirectory(path, io_opts, is_dir, &dbg);
+  }
+
 #if !defined(OS_WIN) && !defined(ROCKSDB_NO_DYNAMIC_EXTENSION)
   Status LoadLibrary(const std::string& lib_name,
                      const std::string& search_path,
@@ -517,7 +523,9 @@ class CompositeEnvWrapper : public Env {
     return env_target_->GetThreadPoolQueueLen(pri);
   }
   Status GetTestDirectory(std::string* path) override {
-    return env_target_->GetTestDirectory(path);
+    IOOptions io_opts;
+    IODebugContext dbg;
+    return file_system_->GetTestDirectory(io_opts, path, &dbg);
   }
   uint64_t NowMicros() override { return env_target_->NowMicros(); }
   uint64_t NowNanos() override { return env_target_->NowNanos(); }
@@ -547,12 +555,16 @@ class CompositeEnvWrapper : public Env {
     return env_target_->IncBackgroundThreadsIfNeeded(num, pri);
   }
 
-  void LowerThreadPoolIOPriority(Priority pool = LOW) override {
+  void LowerThreadPoolIOPriority(Priority pool) override {
     env_target_->LowerThreadPoolIOPriority(pool);
   }
 
-  void LowerThreadPoolCPUPriority(Priority pool = LOW) override {
+  void LowerThreadPoolCPUPriority(Priority pool) override {
     env_target_->LowerThreadPoolCPUPriority(pool);
+  }
+
+  Status LowerThreadPoolCPUPriority(Priority pool, CpuPriority pri) override {
+    return env_target_->LowerThreadPoolCPUPriority(pool, pri);
   }
 
   std::string TimeToString(uint64_t time) override {
@@ -601,6 +613,11 @@ class CompositeEnvWrapper : public Env {
     return file_system_->OptimizeForCompactionTableRead(
         FileOptions(env_options), db_options);
   }
+
+  // This seems to clash with a macro on Windows, so #undef it here
+#ifdef GetFreeSpace
+#undef GetFreeSpace
+#endif
   Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override {
     IOOptions io_opts;
     IODebugContext dbg;
@@ -710,8 +727,19 @@ class LegacyWritableFileWrapper : public FSWritableFile {
                   IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->Append(data));
   }
+  IOStatus Append(const Slice& data, const IOOptions& /*options*/,
+                  const DataVerificationInfo& /*verification_info*/,
+                  IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Append(data));
+  }
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& /*options*/,
+                            IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->PositionedAppend(data, offset));
+  }
+  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                            const IOOptions& /*options*/,
+                            const DataVerificationInfo& /*verification_info*/,
                             IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->PositionedAppend(data, offset));
   }
@@ -1077,9 +1105,18 @@ class LegacyFileSystemWrapper : public FileSystem {
       const ImmutableDBOptions& db_options) const override {
     return target_->OptimizeForCompactionTableRead(file_options, db_options);
   }
+
+// This seems to clash with a macro on Windows, so #undef it here
+#ifdef GetFreeSpace
+#undef GetFreeSpace
+#endif
   IOStatus GetFreeSpace(const std::string& path, const IOOptions& /*options*/,
                         uint64_t* diskfree, IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->GetFreeSpace(path, diskfree));
+  }
+  IOStatus IsDirectory(const std::string& path, const IOOptions& /*options*/,
+                       bool* is_dir, IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->IsDirectory(path, is_dir));
   }
 
  private:

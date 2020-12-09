@@ -38,6 +38,8 @@ public class RocksDB extends RocksObject {
     RocksDB.loadLibrary();
   }
 
+  private List<ColumnFamilyHandle> ownedColumnFamilyHandles = new ArrayList<>();
+
   /**
    * Loads the necessary library files.
    * Calling this method twice will have no effect.
@@ -59,17 +61,20 @@ public class RocksDB extends RocksObject {
           if (compressionType.getLibraryName() != null) {
             System.loadLibrary(compressionType.getLibraryName());
           }
-        } catch (UnsatisfiedLinkError e) {
+        } catch (final UnsatisfiedLinkError e) {
           // since it may be optional, we ignore its loading failure here.
         }
       }
       try {
         NativeLibraryLoader.getInstance().loadLibrary(tmpDir);
-      } catch (IOException e) {
+      } catch (final IOException e) {
         libraryLoaded.set(LibraryState.NOT_LOADED);
         throw new RuntimeException("Unable to load the RocksDB shared library",
             e);
       }
+
+      final int encodedVersion = version();
+      version = Version.fromEncodedVersion(encodedVersion);
 
       libraryLoaded.set(LibraryState.LOADED);
       return;
@@ -107,7 +112,7 @@ public class RocksDB extends RocksObject {
             System.load(path + "/" + Environment.getSharedLibraryFileName(
                 compressionType.getLibraryName()));
             break;
-          } catch (UnsatisfiedLinkError e) {
+          } catch (final UnsatisfiedLinkError e) {
             // since they are optional, we ignore loading fails.
           }
         }
@@ -120,7 +125,7 @@ public class RocksDB extends RocksObject {
               Environment.getJniLibraryFileName("rocksdbjni"));
           success = true;
           break;
-        } catch (UnsatisfiedLinkError e) {
+        } catch (final UnsatisfiedLinkError e) {
           err = e;
         }
       }
@@ -128,6 +133,9 @@ public class RocksDB extends RocksObject {
         libraryLoaded.set(LibraryState.NOT_LOADED);
         throw err;
       }
+
+      final int encodedVersion = version();
+      version = Version.fromEncodedVersion(encodedVersion);
 
       libraryLoaded.set(LibraryState.LOADED);
       return;
@@ -140,6 +148,10 @@ public class RocksDB extends RocksObject {
         //ignore
       }
     }
+  }
+
+  public static Version rocksdbVersion() {
+    return version;
   }
 
   /**
@@ -297,8 +309,11 @@ public class RocksDB extends RocksObject {
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(db, handles[i]));
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]);
+      columnFamilyHandles.add(columnFamilyHandle);
     }
+
+    db.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
 
     return db;
   }
@@ -319,8 +334,59 @@ public class RocksDB extends RocksObject {
       throws RocksDBException {
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
-    Options options = new Options();
+    final Options options = new Options();
     return openReadOnly(options, path);
+  }
+
+  /**
+   * The factory constructor of RocksDB that opens a RocksDB instance in
+   * Read-Only mode given the path to the database using the specified
+   * options and db path.
+   *
+   * Options instance *should* not be disposed before all DBs using this options
+   * instance have been closed. If user doesn't call options dispose explicitly,
+   * then this options instance will be GC'd automatically.
+   *
+   * @param options {@link Options} instance.
+   * @param path the path to the RocksDB.
+   * @return a {@link RocksDB} instance on success, null if the specified
+   *     {@link RocksDB} can not be opened.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public static RocksDB openReadOnly(final Options options, final String path)
+      throws RocksDBException {
+    return openReadOnly(options, path, false);
+  }
+
+  /**
+   * The factory constructor of RocksDB that opens a RocksDB instance in
+   * Read-Only mode given the path to the database using the specified
+   * options and db path.
+   *
+   * Options instance *should* not be disposed before all DBs using this options
+   * instance have been closed. If user doesn't call options dispose explicitly,
+   * then this options instance will be GC'd automatically.
+   *
+   * @param options {@link Options} instance.
+   * @param path the path to the RocksDB.
+   * @param errorIfWalFileExists true to raise an error when opening the db
+   *            if a Write Ahead Log file exists, false otherwise.
+   * @return a {@link RocksDB} instance on success, null if the specified
+   *     {@link RocksDB} can not be opened.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public static RocksDB openReadOnly(final Options options, final String path,
+      final boolean errorIfWalFileExists) throws RocksDBException {
+    // when non-default Options is used, keeping an Options reference
+    // in RocksDB can prevent Java to GC during the life-time of
+    // the currently-created RocksDB.
+    final RocksDB db = new RocksDB(openROnly(options.nativeHandle_, path, errorIfWalFileExists));
+    db.storeOptionsInstance(options);
+    return db;
   }
 
   /**
@@ -345,35 +411,7 @@ public class RocksDB extends RocksObject {
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
     final DBOptions options = new DBOptions();
-    return openReadOnly(options, path, columnFamilyDescriptors,
-        columnFamilyHandles);
-  }
-
-  /**
-   * The factory constructor of RocksDB that opens a RocksDB instance in
-   * Read-Only mode given the path to the database using the specified
-   * options and db path.
-   *
-   * Options instance *should* not be disposed before all DBs using this options
-   * instance have been closed. If user doesn't call options dispose explicitly,
-   * then this options instance will be GC'd automatically.
-   *
-   * @param options {@link Options} instance.
-   * @param path the path to the RocksDB.
-   * @return a {@link RocksDB} instance on success, null if the specified
-   *     {@link RocksDB} can not be opened.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   */
-  public static RocksDB openReadOnly(final Options options, final String path)
-      throws RocksDBException {
-    // when non-default Options is used, keeping an Options reference
-    // in RocksDB can prevent Java to GC during the life-time of
-    // the currently-created RocksDB.
-    final RocksDB db = new RocksDB(openROnly(options.nativeHandle_, path));
-    db.storeOptionsInstance(options);
-    return db;
+    return openReadOnly(options, path, columnFamilyDescriptors, columnFamilyHandles, false);
   }
 
   /**
@@ -400,7 +438,37 @@ public class RocksDB extends RocksObject {
    */
   public static RocksDB openReadOnly(final DBOptions options, final String path,
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      final List<ColumnFamilyHandle> columnFamilyHandles)
+      final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
+    return openReadOnly(options, path, columnFamilyDescriptors, columnFamilyHandles, false);
+  }
+
+  /**
+   * The factory constructor of RocksDB that opens a RocksDB instance in
+   * Read-Only mode given the path to the database using the specified
+   * options and db path.
+   *
+   * <p>This open method allows to open RocksDB using a subset of available
+   * column families</p>
+   * <p>Options instance *should* not be disposed before all DBs using this
+   * options instance have been closed. If user doesn't call options dispose
+   * explicitly,then this options instance will be GC'd automatically.</p>
+   *
+   * @param options {@link DBOptions} instance.
+   * @param path the path to the RocksDB.
+   * @param columnFamilyDescriptors list of column family descriptors
+   * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
+   *     on open.
+   * @param errorIfWalFileExists true to raise an error when opening the db
+   *            if a Write Ahead Log file exists, false otherwise.
+   * @return a {@link RocksDB} instance on success, null if the specified
+   *     {@link RocksDB} can not be opened.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public static RocksDB openReadOnly(final DBOptions options, final String path,
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
+      final List<ColumnFamilyHandle> columnFamilyHandles, final boolean errorIfWalFileExists)
       throws RocksDBException {
     // when non-default Options is used, keeping an Options reference
     // in RocksDB can prevent Java to GC during the life-time of
@@ -415,14 +483,113 @@ public class RocksDB extends RocksObject {
       cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
     }
 
-    final long[] handles = openROnly(options.nativeHandle_, path, cfNames,
-        cfOptionHandles);
+    final long[] handles =
+        openROnly(options.nativeHandle_, path, cfNames, cfOptionHandles, errorIfWalFileExists);
     final RocksDB db = new RocksDB(handles[0]);
     db.storeOptionsInstance(options);
 
     for (int i = 1; i < handles.length; i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(db, handles[i]));
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]);
+      columnFamilyHandles.add(columnFamilyHandle);
     }
+
+    db.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
+
+    return db;
+  }
+
+  /**
+   * Open DB as secondary instance with only the default column family.
+   *
+   * The secondary instance can dynamically tail the MANIFEST of
+   * a primary that must have already been created. User can call
+   * {@link #tryCatchUpWithPrimary()} to make the secondary instance catch up
+   * with primary (WAL tailing is NOT supported now) whenever the user feels
+   * necessary. Column families created by the primary after the secondary
+   * instance starts are currently ignored by the secondary instance.
+   * Column families opened by secondary and dropped by the primary will be
+   * dropped by secondary as well. However the user of the secondary instance
+   * can still access the data of such dropped column family as long as they
+   * do not destroy the corresponding column family handle.
+   * WAL tailing is not supported at present, but will arrive soon.
+   *
+   * @param options the options to open the secondary instance.
+   * @param path the path to the primary RocksDB instance.
+   * @param secondaryPath points to a directory where the secondary instance
+   *    stores its info log
+   *
+   * @return a {@link RocksDB} instance on success, null if the specified
+   *     {@link RocksDB} can not be opened.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public static RocksDB openAsSecondary(final Options options, final String path,
+      final String secondaryPath) throws RocksDBException {
+    // when non-default Options is used, keeping an Options reference
+    // in RocksDB can prevent Java to GC during the life-time of
+    // the currently-created RocksDB.
+    final RocksDB db = new RocksDB(openAsSecondary(options.nativeHandle_, path, secondaryPath));
+    db.storeOptionsInstance(options);
+    return db;
+  }
+
+  /**
+   * Open DB as secondary instance with column families.
+   * You can open a subset of column families in secondary mode.
+   *
+   * The secondary instance can dynamically tail the MANIFEST of
+   * a primary that must have already been created. User can call
+   * {@link #tryCatchUpWithPrimary()} to make the secondary instance catch up
+   * with primary (WAL tailing is NOT supported now) whenever the user feels
+   * necessary. Column families created by the primary after the secondary
+   * instance starts are currently ignored by the secondary instance.
+   * Column families opened by secondary and dropped by the primary will be
+   * dropped by secondary as well. However the user of the secondary instance
+   * can still access the data of such dropped column family as long as they
+   * do not destroy the corresponding column family handle.
+   * WAL tailing is not supported at present, but will arrive soon.
+   *
+   * @param options the options to open the secondary instance.
+   * @param path the path to the primary RocksDB instance.
+   * @param secondaryPath points to a directory where the secondary instance
+   *    stores its info log.
+   * @param columnFamilyDescriptors list of column family descriptors
+   * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
+   *     on open.
+   *
+   * @return a {@link RocksDB} instance on success, null if the specified
+   *     {@link RocksDB} can not be opened.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public static RocksDB openAsSecondary(final DBOptions options, final String path,
+      final String secondaryPath, final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
+      final List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
+    // when non-default Options is used, keeping an Options reference
+    // in RocksDB can prevent Java to GC during the life-time of
+    // the currently-created RocksDB.
+
+    final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
+    final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
+    for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
+      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors.get(i);
+      cfNames[i] = cfDescriptor.getName();
+      cfOptionHandles[i] = cfDescriptor.getOptions().nativeHandle_;
+    }
+
+    final long[] handles =
+        openAsSecondary(options.nativeHandle_, path, secondaryPath, cfNames, cfOptionHandles);
+    final RocksDB db = new RocksDB(handles[0]);
+    db.storeOptionsInstance(options);
+
+    for (int i = 1; i < handles.length; i++) {
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(db, handles[i]);
+      columnFamilyHandles.add(columnFamilyHandle);
+    }
+
+    db.ownedColumnFamilyHandles.addAll(columnFamilyHandles);
 
     return db;
   }
@@ -441,6 +608,11 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException if an error occurs whilst closing.
    */
   public void closeE() throws RocksDBException {
+    for (final ColumnFamilyHandle columnFamilyHandle : ownedColumnFamilyHandles) {
+      columnFamilyHandle.close();
+    }
+    ownedColumnFamilyHandles.clear();
+
     if (owningHandle_.compareAndSet(true, false)) {
       try {
         closeDatabase(nativeHandle_);
@@ -463,6 +635,11 @@ public class RocksDB extends RocksObject {
    */
   @Override
   public void close() {
+    for (final ColumnFamilyHandle columnFamilyHandle : ownedColumnFamilyHandles) {
+      columnFamilyHandle.close();
+    }
+    ownedColumnFamilyHandles.clear();
+
     if (owningHandle_.compareAndSet(true, false)) {
       try {
         closeDatabase(nativeHandle_);
@@ -505,10 +682,12 @@ public class RocksDB extends RocksObject {
   public ColumnFamilyHandle createColumnFamily(
       final ColumnFamilyDescriptor columnFamilyDescriptor)
       throws RocksDBException {
-    return new ColumnFamilyHandle(this, createColumnFamily(nativeHandle_,
-        columnFamilyDescriptor.getName(),
-        columnFamilyDescriptor.getName().length,
-        columnFamilyDescriptor.getOptions().nativeHandle_));
+    final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this,
+        createColumnFamily(nativeHandle_, columnFamilyDescriptor.getName(),
+            columnFamilyDescriptor.getName().length,
+            columnFamilyDescriptor.getOptions().nativeHandle_));
+    ownedColumnFamilyHandles.add(columnFamilyHandle);
+    return columnFamilyHandle;
   }
 
   /**
@@ -532,8 +711,10 @@ public class RocksDB extends RocksObject {
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
     for (int i = 0; i < cfHandles.length; i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(this, cfHandles[i]));
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandles[i]);
+      columnFamilyHandles.add(columnFamilyHandle);
     }
+    ownedColumnFamilyHandles.addAll(columnFamilyHandles);
     return columnFamilyHandles;
   }
 
@@ -563,8 +744,10 @@ public class RocksDB extends RocksObject {
     final List<ColumnFamilyHandle> columnFamilyHandles =
         new ArrayList<>(cfHandles.length);
     for (int i = 0; i < cfHandles.length; i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(this, cfHandles[i]));
+      final ColumnFamilyHandle columnFamilyHandle = new ColumnFamilyHandle(this, cfHandles[i]);
+      columnFamilyHandles.add(columnFamilyHandle);
     }
+    ownedColumnFamilyHandles.addAll(columnFamilyHandles);
     return columnFamilyHandles;
   }
 
@@ -597,7 +780,22 @@ public class RocksDB extends RocksObject {
     dropColumnFamilies(nativeHandle_, cfHandles);
   }
 
-  //TODO(AR) what about DestroyColumnFamilyHandle
+  /**
+   * Deletes native column family handle of given {@link ColumnFamilyHandle} Java object
+   * and removes reference from {@link RocksDB#ownedColumnFamilyHandles}.
+   *
+   * @param columnFamilyHandle column family handle object.
+   */
+  public void destroyColumnFamilyHandle(final ColumnFamilyHandle columnFamilyHandle) {
+    for (int i = 0; i < ownedColumnFamilyHandles.size(); ++i) {
+      final ColumnFamilyHandle ownedHandle = ownedColumnFamilyHandles.get(i);
+      if (ownedHandle.equals(columnFamilyHandle)) {
+        columnFamilyHandle.close();
+        ownedColumnFamilyHandles.remove(i);
+        return;
+      }
+    }
+  }
 
   /**
    * Set the database entry for "key" to "value".
@@ -3925,7 +4123,7 @@ public class RocksDB extends RocksObject {
    *
    * @return the column family metadata
    */
-  public ColumnFamilyMetaData GetColumnFamilyMetaData() {
+  public ColumnFamilyMetaData getColumnFamilyMetaData() {
     return getColumnFamilyMetaData(null);
   }
 
@@ -4157,6 +4355,25 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Make the secondary instance catch up with the primary by tailing and
+   * replaying the MANIFEST and WAL of the primary.
+   * Column families created by the primary after the secondary instance starts
+   * will be ignored unless the secondary instance closes and restarts with the
+   * newly created column families.
+   * Column families that exist before secondary instance starts and dropped by
+   * the primary afterwards will be marked as dropped. However, as long as the
+   * secondary instance does not delete the corresponding column family
+   * handles, the data of the column family is still accessible to the
+   * secondary.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
+   */
+  public void tryCatchUpWithPrimary() throws RocksDBException {
+    tryCatchUpWithPrimary(nativeHandle_);
+  }
+
+  /**
    * Delete files in multiple ranges at once.
    * Delete files in a lot of ranges one at a time can be slow, use this API for
    * better performance in that case.
@@ -4259,8 +4476,8 @@ public class RocksDB extends RocksObject {
       final String path, final byte[][] columnFamilyNames,
       final long[] columnFamilyOptions) throws RocksDBException;
 
-  private native static long openROnly(final long optionsHandle,
-      final String path) throws RocksDBException;
+  private native static long openROnly(final long optionsHandle, final String path,
+      final boolean errorIfWalFileExists) throws RocksDBException;
 
   /**
    * @param optionsHandle Native handle pointing to an Options object
@@ -4274,10 +4491,16 @@ public class RocksDB extends RocksObject {
    *
    * @throws RocksDBException thrown if the database could not be opened
    */
-  private native static long[] openROnly(final long optionsHandle,
-      final String path, final byte[][] columnFamilyNames,
-      final long[] columnFamilyOptions
-  ) throws RocksDBException;
+  private native static long[] openROnly(final long optionsHandle, final String path,
+      final byte[][] columnFamilyNames, final long[] columnFamilyOptions,
+      final boolean errorIfWalFileExists) throws RocksDBException;
+
+  private native static long openAsSecondary(final long optionsHandle, final String path,
+      final String secondaryPath) throws RocksDBException;
+
+  private native static long[] openAsSecondary(final long optionsHandle, final String path,
+      final String secondaryPath, final byte[][] columnFamilyNames,
+      final long[] columnFamilyOptions) throws RocksDBException;
 
   @Override protected native void disposeInternal(final long handle);
 
@@ -4298,7 +4521,6 @@ public class RocksDB extends RocksObject {
       final long handle, final long cfHandle) throws RocksDBException;
   private native void dropColumnFamilies(final long handle,
       final long[] cfHandles) throws RocksDBException;
-  //TODO(AR) best way to express DestroyColumnFamilyHandle? ...maybe in ColumnFamilyHandle?
   private native void put(final long handle, final byte[] key,
       final int keyOffset, final int keyLength, final byte[] value,
       final int valueOffset, int valueLength) throws RocksDBException;
@@ -4525,11 +4747,54 @@ public class RocksDB extends RocksObject {
   private native void startTrace(final long handle, final long maxTraceFileSize,
       final long traceWriterHandle) throws RocksDBException;
   private native void endTrace(final long handle) throws RocksDBException;
+  private native void tryCatchUpWithPrimary(final long handle) throws RocksDBException;
   private native void deleteFilesInRanges(long handle, long cfHandle, final byte[][] ranges,
       boolean include_end) throws RocksDBException;
 
   private native static void destroyDB(final String path,
       final long optionsHandle) throws RocksDBException;
 
+  private native static int version();
+
   protected DBOptionsInterface options_;
+  private static Version version;
+
+  public static class Version {
+    private final byte major;
+    private final byte minor;
+    private final byte patch;
+
+    public Version(final byte major, final byte minor, final byte patch) {
+      this.major = major;
+      this.minor = minor;
+      this.patch = patch;
+    }
+
+    public int getMajor() {
+      return major;
+    }
+
+    public int getMinor() {
+      return minor;
+    }
+
+    public int getPatch() {
+      return patch;
+    }
+
+    @Override
+    public String toString() {
+      return getMajor() + "." + getMinor() + "." + getPatch();
+    }
+
+    private static Version fromEncodedVersion(int encodedVersion) {
+      final byte patch = (byte) (encodedVersion & 0xff);
+      encodedVersion >>= 8;
+      final byte minor = (byte) (encodedVersion & 0xff);
+      encodedVersion >>= 8;
+      final byte major = (byte) (encodedVersion & 0xff);
+
+      return new Version(major, minor, patch);
+    }
+  }
 }

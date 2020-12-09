@@ -33,7 +33,6 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
     files_to_import_.push_back(file_to_import);
   }
 
-  const auto ucmp = cfd_->internal_comparator().user_comparator();
   auto num_files = files_to_import_.size();
   if (num_files == 0) {
     return Status::InvalidArgument("The list of files is empty");
@@ -55,17 +54,18 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
         }
       }
 
-      std::sort(sorted_files.begin(), sorted_files.end(),
-                [&ucmp](const IngestedFileInfo* info1,
-                        const IngestedFileInfo* info2) {
-                  return sstableKeyCompare(ucmp, info1->smallest_internal_key,
-                                           info2->smallest_internal_key) < 0;
-                });
+      std::sort(
+          sorted_files.begin(), sorted_files.end(),
+          [this](const IngestedFileInfo* info1, const IngestedFileInfo* info2) {
+            return cfd_->internal_comparator().Compare(
+                       info1->smallest_internal_key,
+                       info2->smallest_internal_key) < 0;
+          });
 
-      for (size_t i = 0; i < sorted_files.size() - 1; i++) {
-        if (sstableKeyCompare(ucmp, sorted_files[i]->largest_internal_key,
-                              sorted_files[i + 1]->smallest_internal_key) >=
-            0) {
+      for (size_t i = 0; i + 1 < sorted_files.size(); i++) {
+        if (cfd_->internal_comparator().Compare(
+                sorted_files[i]->largest_internal_key,
+                sorted_files[i + 1]->smallest_internal_key) >= 0) {
           return Status::InvalidArgument("Files have overlapping ranges");
         }
       }
@@ -100,8 +100,8 @@ Status ImportColumnFamilyJob::Prepare(uint64_t next_file_number,
       }
     }
     if (!hardlink_files) {
-      status = CopyFile(fs_, path_outside_db, path_inside_db, 0,
-                        db_options_.use_fsync);
+      status = CopyFile(fs_.get(), path_outside_db, path_inside_db, 0,
+                        db_options_.use_fsync, io_tracer_);
     }
     if (!status.ok()) {
       break;
@@ -217,8 +217,8 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
   if (!status.ok()) {
     return status;
   }
-  sst_file_reader.reset(
-      new RandomAccessFileReader(std::move(sst_file), external_file));
+  sst_file_reader.reset(new RandomAccessFileReader(
+      std::move(sst_file), external_file, nullptr /*Env*/, io_tracer_));
 
   status = cfd_->ioptions()->table_factory->NewTableReader(
       TableReaderOptions(*cfd_->ioptions(),
@@ -252,15 +252,21 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
 
   // Get first (smallest) key from file
   iter->SeekToFirst();
-  if (!ParseInternalKey(iter->key(), &key)) {
-    return Status::Corruption("external file have corrupted keys");
+  Status pik_status =
+      ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
+  if (!pik_status.ok()) {
+    return Status::Corruption("Corrupted Key in external file. ",
+                              pik_status.getState());
   }
   file_to_import->smallest_internal_key.SetFrom(key);
 
   // Get last (largest) key from file
   iter->SeekToLast();
-  if (!ParseInternalKey(iter->key(), &key)) {
-    return Status::Corruption("external file have corrupted keys");
+  pik_status =
+      ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
+  if (!pik_status.ok()) {
+    return Status::Corruption("Corrupted Key in external file. ",
+                              pik_status.getState());
   }
   file_to_import->largest_internal_key.SetFrom(key);
 

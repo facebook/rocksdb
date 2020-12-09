@@ -19,6 +19,8 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_log_format.h"
+#include "db/blob/blob_log_writer.h"
 #include "db/db_iter.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
@@ -30,9 +32,6 @@
 #include "util/timer_queue.h"
 #include "utilities/blob_db/blob_db.h"
 #include "utilities/blob_db/blob_file.h"
-#include "utilities/blob_db/blob_log_format.h"
-#include "utilities/blob_db/blob_log_reader.h"
-#include "utilities/blob_db/blob_log_writer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -71,6 +70,7 @@ class BlobDBImpl : public BlobDB {
   friend class BlobDBIterator;
   friend class BlobDBListener;
   friend class BlobDBListenerGC;
+  friend class BlobIndexCompactionFilterBase;
   friend class BlobIndexCompactionFilterGC;
 
  public:
@@ -168,7 +168,7 @@ class BlobDBImpl : public BlobDB {
 
   // Common part of the two GetCompactionContext methods below.
   // REQUIRES: read lock on mutex_
-  void GetCompactionContextCommon(BlobCompactionContext* context) const;
+  void GetCompactionContextCommon(BlobCompactionContext* context);
 
   void GetCompactionContext(BlobCompactionContext* context);
   void GetCompactionContext(BlobCompactionContext* context,
@@ -232,11 +232,16 @@ class BlobDBImpl : public BlobDB {
   Slice GetCompressedSlice(const Slice& raw,
                            std::string* compression_output) const;
 
+  Status DecompressSlice(const Slice& compressed_value,
+                         CompressionType compression_type,
+                         PinnableSlice* value_output) const;
+
   // Close a file by appending a footer, and removes file from open files list.
   // REQUIRES: lock held on write_mutex_, write lock held on both the db mutex_
   // and the blob file's mutex_. If called on a blob file which is visible only
-  // to a single thread (like in the case of new files written during GC), the
-  // locks on write_mutex_ and the blob file's mutex_ can be avoided.
+  // to a single thread (like in the case of new files written during
+  // compaction/GC), the locks on write_mutex_ and the blob file's mutex_ can be
+  // avoided.
   Status CloseBlobFile(std::shared_ptr<BlobFile> bfile);
 
   // Close a file if its size exceeds blob_file_size
@@ -263,7 +268,7 @@ class BlobDBImpl : public BlobDB {
                                  const ExpirationRange& expiration_range,
                                  const std::string& reason,
                                  std::shared_ptr<BlobFile>* blob_file,
-                                 std::shared_ptr<Writer>* writer);
+                                 std::shared_ptr<BlobLogWriter>* writer);
 
   // Get the open non-TTL blob log file, or create a new one if no such file
   // exists.
@@ -368,10 +373,10 @@ class BlobDBImpl : public BlobDB {
   // creates a sequential (append) writer for this blobfile
   Status CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile);
 
-  // returns a Writer object for the file. If writer is not
+  // returns a BlobLogWriter object for the file. If writer is not
   // already present, creates one. Needs Write Mutex to be held
   Status CheckOrCreateWriterLocked(const std::shared_ptr<BlobFile>& blob_file,
-                                   std::shared_ptr<Writer>* writer);
+                                   std::shared_ptr<BlobLogWriter>* writer);
 
   // checks if there is no snapshot which is referencing the
   // blobs

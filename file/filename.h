@@ -35,26 +35,14 @@ const char kFilePathSeparator = '\\';
 const char kFilePathSeparator = '/';
 #endif
 
-enum FileType {
-  kLogFile,
-  kDBLockFile,
-  kTableFile,
-  kDescriptorFile,
-  kCurrentFile,
-  kTempFile,
-  kInfoLogFile,  // Either the current one, or an old one
-  kMetaDatabase,
-  kIdentityFile,
-  kOptionsFile,
-  kBlobFile
-};
-
 // Return the name of the log file with the specified number
 // in the db named by "dbname".  The result will be prefixed with
 // "dbname".
 extern std::string LogFileName(const std::string& dbname, uint64_t number);
 
 extern std::string LogFileName(uint64_t number);
+
+extern std::string BlobFileName(uint64_t number);
 
 extern std::string BlobFileName(const std::string& bdirname, uint64_t number);
 

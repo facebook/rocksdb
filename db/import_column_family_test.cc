@@ -1,20 +1,23 @@
 #ifndef ROCKSDB_LITE
 
 #include <functional>
+
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/testutil.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class ImportColumnFamilyTest : public DBTestBase {
  public:
-  ImportColumnFamilyTest() : DBTestBase("/import_column_family_test") {
+  ImportColumnFamilyTest()
+      : DBTestBase("/import_column_family_test", /*env_do_fsync=*/true) {
     sst_files_dir_ = dbname_ + "/sst_files/";
+    export_files_dir_ = test::PerThreadDBPath(env_, "export");
     DestroyAndRecreateExternalSSTFilesDir();
-    export_files_dir_ = test::TmpDir(env_) + "/export";
     import_cfh_ = nullptr;
     import_cfh2_ = nullptr;
     metadata_ptr_ = nullptr;
@@ -22,27 +25,27 @@ class ImportColumnFamilyTest : public DBTestBase {
 
   ~ImportColumnFamilyTest() {
     if (import_cfh_) {
-      db_->DropColumnFamily(import_cfh_);
-      db_->DestroyColumnFamilyHandle(import_cfh_);
+      EXPECT_OK(db_->DropColumnFamily(import_cfh_));
+      EXPECT_OK(db_->DestroyColumnFamilyHandle(import_cfh_));
       import_cfh_ = nullptr;
     }
     if (import_cfh2_) {
-      db_->DropColumnFamily(import_cfh2_);
-      db_->DestroyColumnFamilyHandle(import_cfh2_);
+      EXPECT_OK(db_->DropColumnFamily(import_cfh2_));
+      EXPECT_OK(db_->DestroyColumnFamilyHandle(import_cfh2_));
       import_cfh2_ = nullptr;
     }
     if (metadata_ptr_) {
       delete metadata_ptr_;
       metadata_ptr_ = nullptr;
     }
-    test::DestroyDir(env_, sst_files_dir_);
-    test::DestroyDir(env_, export_files_dir_);
+    EXPECT_OK(DestroyDir(env_, sst_files_dir_));
+    EXPECT_OK(DestroyDir(env_, export_files_dir_));
   }
 
   void DestroyAndRecreateExternalSSTFilesDir() {
-    test::DestroyDir(env_, sst_files_dir_);
-    env_->CreateDir(sst_files_dir_);
-    test::DestroyDir(env_, export_files_dir_);
+    EXPECT_OK(DestroyDir(env_, sst_files_dir_));
+    EXPECT_OK(env_->CreateDir(sst_files_dir_));
+    EXPECT_OK(DestroyDir(env_, export_files_dir_));
   }
 
   LiveFileMetaData LiveFileMetaDataInit(std::string name, std::string path,
@@ -140,7 +143,7 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithOverlap) {
   const std::string file3_sst = sst_files_dir_ + file3_sst_name;
   ASSERT_OK(sfw_cf1.Open(file3_sst));
   for (int i = 0; i < 100; ++i) {
-    sfw_cf1.Put(Key(i), Key(i) + "_val");
+    ASSERT_OK(sfw_cf1.Put(Key(i), Key(i) + "_val"));
   }
   ASSERT_OK(sfw_cf1.Finish());
 
@@ -149,7 +152,7 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithOverlap) {
   const std::string file2_sst = sst_files_dir_ + file2_sst_name;
   ASSERT_OK(sfw_cf1.Open(file2_sst));
   for (int i = 0; i < 100; i += 2) {
-    sfw_cf1.Put(Key(i), Key(i) + "_overwrite1");
+    ASSERT_OK(sfw_cf1.Put(Key(i), Key(i) + "_overwrite1"));
   }
   ASSERT_OK(sfw_cf1.Finish());
 
@@ -158,7 +161,7 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithOverlap) {
   const std::string file1a_sst = sst_files_dir_ + file1a_sst_name;
   ASSERT_OK(sfw_cf1.Open(file1a_sst));
   for (int i = 0; i < 52; i += 4) {
-    sfw_cf1.Put(Key(i), Key(i) + "_overwrite2");
+    ASSERT_OK(sfw_cf1.Put(Key(i), Key(i) + "_overwrite2"));
   }
   ASSERT_OK(sfw_cf1.Finish());
 
@@ -167,7 +170,7 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithOverlap) {
   const std::string file1b_sst = sst_files_dir_ + file1b_sst_name;
   ASSERT_OK(sfw_cf1.Open(file1b_sst));
   for (int i = 52; i < 100; i += 4) {
-    sfw_cf1.Put(Key(i), Key(i) + "_overwrite2");
+    ASSERT_OK(sfw_cf1.Put(Key(i), Key(i) + "_overwrite2"));
   }
   ASSERT_OK(sfw_cf1.Finish());
 
@@ -176,7 +179,7 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithOverlap) {
   const std::string file0a_sst = sst_files_dir_ + file0a_sst_name;
   ASSERT_OK(sfw_cf1.Open(file0a_sst));
   for (int i = 0; i < 100; i += 16) {
-    sfw_cf1.Put(Key(i), Key(i) + "_overwrite3");
+    ASSERT_OK(sfw_cf1.Put(Key(i), Key(i) + "_overwrite3"));
   }
   ASSERT_OK(sfw_cf1.Finish());
 
@@ -185,7 +188,7 @@ TEST_F(ImportColumnFamilyTest, ImportSSTFileWriterFilesWithOverlap) {
   const std::string file0b_sst = sst_files_dir_ + file0b_sst_name;
   ASSERT_OK(sfw_cf1.Open(file0b_sst));
   for (int i = 0; i < 100; i += 16) {
-    sfw_cf1.Put(Key(i), Key(i) + "_overwrite4");
+    ASSERT_OK(sfw_cf1.Put(Key(i), Key(i) + "_overwrite4"));
   }
   ASSERT_OK(sfw_cf1.Finish());
 
@@ -271,7 +274,7 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherCF) {
   CreateAndReopenWithCF({"koko"}, options);
 
   for (int i = 0; i < 100; ++i) {
-    Put(1, Key(i), Key(i) + "_val");
+    ASSERT_OK(Put(1, Key(i), Key(i) + "_val"));
   }
   ASSERT_OK(Flush(1));
 
@@ -280,13 +283,13 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherCF) {
 
   // Overwrite the value in the same set of keys.
   for (int i = 0; i < 100; ++i) {
-    Put(1, Key(i), Key(i) + "_overwrite");
+    ASSERT_OK(Put(1, Key(i), Key(i) + "_overwrite"));
   }
 
   // Flush to create L0 file.
   ASSERT_OK(Flush(1));
   for (int i = 0; i < 100; ++i) {
-    Put(1, Key(i), Key(i) + "_overwrite2");
+    ASSERT_OK(Put(1, Key(i), Key(i) + "_overwrite2"));
   }
 
   // Flush again to create another L0 file. It should have higher sequencer.
@@ -379,7 +382,7 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherDB) {
   CreateAndReopenWithCF({"koko"}, options);
 
   for (int i = 0; i < 100; ++i) {
-    Put(1, Key(i), Key(i) + "_val");
+    ASSERT_OK(Put(1, Key(i), Key(i) + "_val"));
   }
   ASSERT_OK(Flush(1));
 
@@ -389,14 +392,14 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherDB) {
 
   // Overwrite the value in the same set of keys.
   for (int i = 0; i < 50; ++i) {
-    Put(1, Key(i), Key(i) + "_overwrite");
+    ASSERT_OK(Put(1, Key(i), Key(i) + "_overwrite"));
   }
 
   // Flush to create L0 file.
   ASSERT_OK(Flush(1));
 
   for (int i = 0; i < 25; ++i) {
-    Put(1, Key(i), Key(i) + "_overwrite2");
+    ASSERT_OK(Put(1, Key(i), Key(i) + "_overwrite2"));
   }
 
   // Flush again to create another L0 file. It should have higher sequencer.
@@ -411,7 +414,7 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherDB) {
 
   // Create a new db and import the files.
   DB* db_copy;
-  test::DestroyDir(env_, dbname_ + "/db_copy");
+  ASSERT_OK(DestroyDir(env_, dbname_ + "/db_copy"));
   ASSERT_OK(DB::Open(options, dbname_ + "/db_copy", &db_copy));
   ColumnFamilyHandle* cfh = nullptr;
   ASSERT_OK(db_copy->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
@@ -424,10 +427,72 @@ TEST_F(ImportColumnFamilyTest, ImportExportedSSTFromAnotherDB) {
     db_copy->Get(ReadOptions(), cfh, Key(i), &value);
     ASSERT_EQ(Get(1, Key(i)), value);
   }
-  db_copy->DropColumnFamily(cfh);
-  db_copy->DestroyColumnFamilyHandle(cfh);
+  ASSERT_OK(db_copy->DropColumnFamily(cfh));
+  ASSERT_OK(db_copy->DestroyColumnFamilyHandle(cfh));
   delete db_copy;
-  test::DestroyDir(env_, dbname_ + "/db_copy");
+  ASSERT_OK(DestroyDir(env_, dbname_ + "/db_copy"));
+}
+
+TEST_F(ImportColumnFamilyTest, LevelFilesOverlappingAtEndpoints) {
+  // Imports a column family containing a level where two files overlap at their
+  // endpoints. "Overlap" means the largest user key in one file is the same as
+  // the smallest user key in the second file.
+  const int kFileBytes = 128 << 10;  // 128KB
+  const int kValueBytes = 1 << 10;   // 1KB
+  const int kNumFiles = 4;
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.num_levels = 2;
+  CreateAndReopenWithCF({"koko"}, options);
+
+  Random rnd(301);
+  // Every key is snapshot protected to ensure older versions will not be
+  // dropped during compaction.
+  std::vector<const Snapshot*> snapshots;
+  snapshots.reserve(kFileBytes / kValueBytes * kNumFiles);
+  for (int i = 0; i < kNumFiles; ++i) {
+    for (int j = 0; j < kFileBytes / kValueBytes; ++j) {
+      auto value = rnd.RandomString(kValueBytes);
+      ASSERT_OK(Put(1, "key", value));
+      snapshots.push_back(db_->GetSnapshot());
+    }
+    ASSERT_OK(Flush(1));
+  }
+
+  // Compact to create overlapping L1 files.
+  ASSERT_OK(
+      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr));
+  ASSERT_GT(NumTableFilesAtLevel(1, 1), 1);
+
+  Checkpoint* checkpoint;
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->ExportColumnFamily(handles_[1], export_files_dir_,
+                                           &metadata_ptr_));
+  ASSERT_NE(metadata_ptr_, nullptr);
+  delete checkpoint;
+
+  // Create a new db and import the files.
+  DB* db_copy;
+  ASSERT_OK(DestroyDir(env_, dbname_ + "/db_copy"));
+  ASSERT_OK(DB::Open(options, dbname_ + "/db_copy", &db_copy));
+  ColumnFamilyHandle* cfh = nullptr;
+  ASSERT_OK(db_copy->CreateColumnFamilyWithImport(ColumnFamilyOptions(), "yoyo",
+                                                  ImportColumnFamilyOptions(),
+                                                  *metadata_ptr_, &cfh));
+  ASSERT_NE(cfh, nullptr);
+
+  {
+    std::string value;
+    ASSERT_OK(db_copy->Get(ReadOptions(), cfh, "key", &value));
+  }
+  ASSERT_OK(db_copy->DropColumnFamily(cfh));
+  ASSERT_OK(db_copy->DestroyColumnFamilyHandle(cfh));
+  delete db_copy;
+  ASSERT_OK(DestroyDir(env_, dbname_ + "/db_copy"));
+  for (const Snapshot* snapshot : snapshots) {
+    db_->ReleaseSnapshot(snapshot);
+  }
 }
 
 TEST_F(ImportColumnFamilyTest, ImportColumnFamilyNegativeTest) {

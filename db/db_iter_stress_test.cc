@@ -97,7 +97,8 @@ struct StressTestIterator : public InternalIterator {
 
   bool MaybeFail() {
     if (rnd->Next() >=
-        std::numeric_limits<uint64_t>::max() * error_probability) {
+        static_cast<double>(std::numeric_limits<uint64_t>::max()) *
+            error_probability) {
       return false;
     }
     if (rnd->Next() % 2) {
@@ -114,7 +115,8 @@ struct StressTestIterator : public InternalIterator {
 
   void MaybeMutate() {
     if (rnd->Next() >=
-        std::numeric_limits<uint64_t>::max() * mutation_probability) {
+        static_cast<double>(std::numeric_limits<uint64_t>::max()) *
+            mutation_probability) {
       return;
     }
     do {
@@ -126,8 +128,9 @@ struct StressTestIterator : public InternalIterator {
       if (data->hidden.empty()) {
         hide_probability = 1;
       }
-      bool do_hide =
-          rnd->Next() < std::numeric_limits<uint64_t>::max() * hide_probability;
+      bool do_hide = rnd->Next() <
+                     static_cast<double>(std::numeric_limits<uint64_t>::max()) *
+                         hide_probability;
       if (do_hide) {
         // Hide a random entry.
         size_t idx = rnd->Next() % data->entries.size();
@@ -510,7 +513,7 @@ TEST_F(DBIteratorStressTest, StressTest) {
                   db_iter.reset(NewDBIterator(
                       env_, ropt, ImmutableCFOptions(options),
                       MutableCFOptions(options), BytewiseComparator(),
-                      internal_iter, sequence,
+                      internal_iter, nullptr /* version */, sequence,
                       options.max_sequential_skip_in_iterations,
                       nullptr /*read_callback*/));
                 }

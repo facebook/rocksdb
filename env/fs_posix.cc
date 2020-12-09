@@ -6,6 +6,9 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors
+
+#if !defined(OS_WIN)
+
 #include <dirent.h>
 #ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
 #include <dlfcn.h>
@@ -13,9 +16,6 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#if defined(OS_LINUX)
-#include <linux/fs.h>
-#endif
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -26,7 +26,6 @@
 #include <sys/stat.h>
 #if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
 #include <sys/statfs.h>
-#include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #endif
 #include <sys/statvfs.h>
@@ -49,13 +48,13 @@
 
 #include "env/composite_env_wrapper.h"
 #include "env/io_posix.h"
-#include "logging/logging.h"
 #include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "port/port.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/compression_context_cache.h"
@@ -122,6 +121,8 @@ int cloexec_flags(int flags, const EnvOptions* options) {
   if (options == nullptr || options->set_fd_cloexec) {
     flags |= O_CLOEXEC;
   }
+#else
+  (void)options;
 #endif
   return flags;
 }
@@ -156,6 +157,7 @@ class PosixFileSystem : public FileSystem {
 #endif  // !ROCKSDB_LITE
 #if !defined(OS_MACOSX) && !defined(OS_OPENBSD) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
+      TEST_SYNC_POINT_CALLBACK("NewSequentialFile:O_DIRECT", &flags);
 #endif
     }
 
@@ -199,7 +201,7 @@ class PosixFileSystem : public FileSystem {
                                std::unique_ptr<FSRandomAccessFile>* result,
                                IODebugContext* /*dbg*/) override {
     result->reset();
-    IOStatus s;
+    IOStatus s = IOStatus::OK();
     int fd;
     int flags = cloexec_flags(O_RDONLY, &options);
 
@@ -219,7 +221,8 @@ class PosixFileSystem : public FileSystem {
       fd = open(fname.c_str(), flags, GetDBFileMode(allow_non_owner_access_));
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
-      return IOError("While open a file for random read", fname, errno);
+      s = IOError("While open a file for random read", fname, errno);
+      return s;
     }
     SetFD_CLOEXEC(fd, &options);
 
@@ -239,6 +242,8 @@ class PosixFileSystem : public FileSystem {
           s = IOError("while mmap file for read", fname, errno);
           close(fd);
         }
+      } else {
+        close(fd);
       }
     } else {
       if (options.use_direct_reads && !options.use_mmap_reads) {
@@ -632,50 +637,46 @@ class PosixFileSystem : public FileSystem {
 
   IOStatus CreateDir(const std::string& name, const IOOptions& /*opts*/,
                      IODebugContext* /*dbg*/) override {
-    IOStatus result;
     if (mkdir(name.c_str(), 0755) != 0) {
-      result = IOError("While mkdir", name, errno);
+      return IOError("While mkdir", name, errno);
     }
-    return result;
+    return IOStatus::OK();
   }
 
   IOStatus CreateDirIfMissing(const std::string& name,
                               const IOOptions& /*opts*/,
                               IODebugContext* /*dbg*/) override {
-    IOStatus result;
     if (mkdir(name.c_str(), 0755) != 0) {
       if (errno != EEXIST) {
-        result = IOError("While mkdir if missing", name, errno);
+        return IOError("While mkdir if missing", name, errno);
       } else if (!DirExists(name)) {  // Check that name is actually a
                                       // directory.
         // Message is taken from mkdir
-        result =
-            IOStatus::IOError("`" + name + "' exists but is not a directory");
+        return IOStatus::IOError("`" + name +
+                                 "' exists but is not a directory");
       }
     }
-    return result;
+    return IOStatus::OK();
   }
 
   IOStatus DeleteDir(const std::string& name, const IOOptions& /*opts*/,
                      IODebugContext* /*dbg*/) override {
-    IOStatus result;
     if (rmdir(name.c_str()) != 0) {
-      result = IOError("file rmdir", name, errno);
+      return IOError("file rmdir", name, errno);
     }
-    return result;
+    return IOStatus::OK();
   }
 
   IOStatus GetFileSize(const std::string& fname, const IOOptions& /*opts*/,
                        uint64_t* size, IODebugContext* /*dbg*/) override {
-    IOStatus s;
     struct stat sbuf;
     if (stat(fname.c_str(), &sbuf) != 0) {
       *size = 0;
-      s = IOError("while stat a file for size", fname, errno);
+      return IOError("while stat a file for size", fname, errno);
     } else {
       *size = sbuf.st_size;
     }
-    return s;
+    return IOStatus::OK();
   }
 
   IOStatus GetFileModificationTime(const std::string& fname,
@@ -693,24 +694,22 @@ class PosixFileSystem : public FileSystem {
   IOStatus RenameFile(const std::string& src, const std::string& target,
                       const IOOptions& /*opts*/,
                       IODebugContext* /*dbg*/) override {
-    IOStatus result;
     if (rename(src.c_str(), target.c_str()) != 0) {
-      result = IOError("While renaming a file to " + target, src, errno);
+      return IOError("While renaming a file to " + target, src, errno);
     }
-    return result;
+    return IOStatus::OK();
   }
 
   IOStatus LinkFile(const std::string& src, const std::string& target,
                     const IOOptions& /*opts*/,
                     IODebugContext* /*dbg*/) override {
-    IOStatus result;
     if (link(src.c_str(), target.c_str()) != 0) {
       if (errno == EXDEV) {
         return IOStatus::NotSupported("No cross FS links allowed");
       }
-      result = IOError("while link file to " + target, src, errno);
+      return IOError("while link file to " + target, src, errno);
     }
-    return result;
+    return IOStatus::OK();
   }
 
   IOStatus NumFileLinks(const std::string& fname, const IOOptions& /*opts*/,
@@ -747,12 +746,11 @@ class PosixFileSystem : public FileSystem {
   IOStatus LockFile(const std::string& fname, const IOOptions& /*opts*/,
                     FileLock** lock, IODebugContext* /*dbg*/) override {
     *lock = nullptr;
-    IOStatus result;
 
     LockHoldingInfo lhi;
     int64_t current_time = 0;
     // Ignore status code as the time is only used for error message.
-    Env::Default()->GetCurrentTime(&current_time);
+    Env::Default()->GetCurrentTime(&current_time).PermitUncheckedError();
     lhi.acquire_time = current_time;
     lhi.acquiring_thread = Env::Default()->GetThreadID();
 
@@ -780,6 +778,7 @@ class PosixFileSystem : public FileSystem {
                      fname, errno);
     }
 
+    IOStatus result = IOStatus::OK();
     int fd;
     int flags = cloexec_flags(O_RDWR | O_CREAT, nullptr);
 
@@ -857,7 +856,7 @@ class PosixFileSystem : public FileSystem {
     // Directory may already exist
     {
       IOOptions opts;
-      CreateDir(*result, opts, nullptr);
+      return CreateDirIfMissing(*result, opts, nullptr);
     }
     return IOStatus::OK();
   }
@@ -873,6 +872,30 @@ class PosixFileSystem : public FileSystem {
 
     *free_space = ((uint64_t)sbuf.f_bsize * sbuf.f_bfree);
     return IOStatus::OK();
+  }
+
+  IOStatus IsDirectory(const std::string& path, const IOOptions& /*opts*/,
+                       bool* is_dir, IODebugContext* /*dbg*/) override {
+    // First open
+    int fd = -1;
+    int flags = cloexec_flags(O_RDONLY, nullptr);
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      fd = open(path.c_str(), flags);
+    }
+    if (fd < 0) {
+      return IOError("While open for IsDirectory()", path, errno);
+    }
+    IOStatus io_s;
+    struct stat sbuf;
+    if (fstat(fd, &sbuf) < 0) {
+      io_s = IOError("While doing stat for IsDirectory()", path, errno);
+    }
+    close(fd);
+    if (io_s.ok() && nullptr != is_dir) {
+      *is_dir = S_ISDIR(sbuf.st_mode);
+    }
+    return io_s;
   }
 
   FileOptions OptimizeForLogWrite(const FileOptions& file_options,
@@ -1023,4 +1046,17 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
   return default_fs_ptr;
 }
 
+#ifndef ROCKSDB_LITE
+static FactoryFunc<FileSystem> posix_filesystem_reg =
+    ObjectLibrary::Default()->Register<FileSystem>(
+        "posix://.*",
+        [](const std::string& /* uri */, std::unique_ptr<FileSystem>* f,
+           std::string* /* errmsg */) {
+          f->reset(new PosixFileSystem());
+          return f->get();
+        });
+#endif
+
 }  // namespace ROCKSDB_NAMESPACE
+
+#endif

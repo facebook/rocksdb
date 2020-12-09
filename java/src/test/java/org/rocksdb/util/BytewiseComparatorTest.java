@@ -263,7 +263,7 @@ public class BytewiseComparatorTest {
       for (int i = 0; i < num_iter_ops; i++) {
         // Random walk and make sure iter and result_iter returns the
         // same key and value
-        final int type = rnd.nextInt(7);
+        final int type = rnd.nextInt(8);
         iter.status();
         switch (type) {
           case 0:
@@ -310,8 +310,15 @@ public class BytewiseComparatorTest {
               continue;
             }
             break;
+          case 6:
+            // Refresh
+            iter.refresh();
+            result_iter.refresh();
+            iter.seekToFirst();
+            result_iter.seekToFirst();
+            break;
           default: {
-            assert (type == 6);
+            assert (type == 7);
             final int key_idx = rnd.nextInt(source_strings.size());
             final String key = source_strings.get(key_idx);
             final byte[] result = db.get(readOptions, bytes(key));
@@ -470,6 +477,11 @@ public class BytewiseComparatorTest {
       if(offset >= 0) {
         offset--;
       }
+    }
+
+    @Override
+    public void refresh() throws RocksDBException {
+      offset = -1;
     }
 
     @Override

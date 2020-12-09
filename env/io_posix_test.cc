@@ -67,7 +67,7 @@ TEST_F(LogicalBlockSizeCacheTest, Cache) {
   ASSERT_EQ(3, cache.GetLogicalBlockSize("/db2/sst2", 7));
   ASSERT_EQ(8, ncall);
 
-  cache.RefAndCacheLogicalBlockSize({"/db"});
+  ASSERT_OK(cache.RefAndCacheLogicalBlockSize({"/db"}));
   ASSERT_EQ(4, cache.Size());
   ASSERT_TRUE(cache.Contains("/"));
   ASSERT_TRUE(cache.Contains("/db1"));
@@ -104,7 +104,7 @@ TEST_F(LogicalBlockSizeCacheTest, Ref) {
   ASSERT_EQ(1, cache.GetLogicalBlockSize("/db/sst0", 1));
   ASSERT_EQ(1, ncall);
 
-  cache.RefAndCacheLogicalBlockSize({"/db"});
+  ASSERT_OK(cache.RefAndCacheLogicalBlockSize({"/db"}));
   ASSERT_EQ(2, ncall);
   ASSERT_EQ(1, cache.GetRefCount("/db"));
   // Block size for /db is cached. Ref count = 1.
@@ -112,7 +112,7 @@ TEST_F(LogicalBlockSizeCacheTest, Ref) {
   ASSERT_EQ(2, ncall);
 
   // Ref count = 2, but won't recompute the cached buffer size.
-  cache.RefAndCacheLogicalBlockSize({"/db"});
+  ASSERT_OK(cache.RefAndCacheLogicalBlockSize({"/db"}));
   ASSERT_EQ(2, cache.GetRefCount("/db"));
   ASSERT_EQ(2, ncall);
 

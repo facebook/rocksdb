@@ -2,6 +2,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.AbstractCompactionFilterFactory\
 	org.rocksdb.AbstractComparator\
+	org.rocksdb.AbstractEventListener\
 	org.rocksdb.AbstractSlice\
 	org.rocksdb.AbstractTableFilter\
 	org.rocksdb.AbstractTraceWriter\
@@ -25,6 +26,7 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.CompactRangeOptions\
 	org.rocksdb.ComparatorOptions\
 	org.rocksdb.CompressionOptions\
+	org.rocksdb.ConfigOptions\
 	org.rocksdb.DBOptions\
 	org.rocksdb.DirectSlice\
 	org.rocksdb.Env\
@@ -35,6 +37,8 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.HashLinkedListMemTableConfig\
 	org.rocksdb.HashSkipListMemTableConfig\
 	org.rocksdb.HdfsEnv\
+	org.rocksdb.ConcurrentTaskLimiter\
+	org.rocksdb.ConcurrentTaskLimiterImpl\
 	org.rocksdb.Logger\
 	org.rocksdb.LRUCache\
 	org.rocksdb.MemoryUsageType\
@@ -62,6 +66,8 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.SstFileWriter\
 	org.rocksdb.SstFileReader\
 	org.rocksdb.SstFileReaderIterator\
+	org.rocksdb.SstPartitionerFactory\
+	org.rocksdb.SstPartitionerFixedPrefixFactory\
 	org.rocksdb.Statistics\
 	org.rocksdb.ThreadStatus\
 	org.rocksdb.TimedEnv\
@@ -124,6 +130,7 @@ JAVA_TESTS = \
 	org.rocksdb.DirectSliceTest\
 	org.rocksdb.util.EnvironmentTest\
 	org.rocksdb.EnvOptionsTest\
+	org.rocksdb.EventListenerTest\
 	org.rocksdb.HdfsEnvTest\
 	org.rocksdb.IngestExternalFileOptionsTest\
 	org.rocksdb.util.IntComparatorTest\
@@ -132,6 +139,7 @@ JAVA_TESTS = \
 	org.rocksdb.FlushTest\
 	org.rocksdb.InfoLogLevelTest\
 	org.rocksdb.KeyMayExistTest\
+	org.rocksdb.ConcurrentTaskLimiterTest\
 	org.rocksdb.LoggerTest\
 	org.rocksdb.LRUCacheTest\
 	org.rocksdb.MemoryUtilTest\
@@ -158,11 +166,13 @@ JAVA_TESTS = \
 	org.rocksdb.RocksIteratorTest\
 	org.rocksdb.RocksMemEnvTest\
 	org.rocksdb.util.SizeUnitTest\
+	org.rocksdb.SecondaryDBTest\
 	org.rocksdb.SliceTest\
 	org.rocksdb.SnapshotTest\
 	org.rocksdb.SstFileManagerTest\
 	org.rocksdb.SstFileWriterTest\
 	org.rocksdb.SstFileReaderTest\
+	org.rocksdb.SstPartitionerTest\
 	org.rocksdb.TableFilterTest\
 	org.rocksdb.TimedEnvTest\
 	org.rocksdb.TransactionTest\

@@ -159,6 +159,22 @@ public enum HistogramType {
    */
   BLOB_DB_DECOMPRESSION_MICROS((byte) 0x2E),
 
+  /**
+   * Num of Index and Filter blocks read from file system per level in MultiGet
+   * request
+   */
+  NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL((byte) 0x2F),
+
+  /**
+   * Num of Data blocks read from file system per level in MultiGet request.
+   */
+  NUM_DATA_BLOCKS_READ_PER_LEVEL((byte) 0x30),
+
+  /**
+   * Num of SST files read from file system per level in MultiGet request.
+   */
+  NUM_SST_READ_PER_LEVEL((byte) 0x31),
+
   // 0x1F for backwards compatibility on current minor version.
   HISTOGRAM_ENUM_MAX((byte) 0x1F);
 

@@ -48,12 +48,12 @@ class SharedState {
   // for those calls
 #if defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 #if defined(OS_SOLARIS)
-  static __thread bool filter_read_error;
+  static __thread bool ignore_read_error;
 #else
-  static thread_local bool filter_read_error;
+  static thread_local bool ignore_read_error;
 #endif // OS_SOLARIS
 #else
-  static bool filter_read_error;
+  static bool ignore_read_error;
 #endif // ROCKSDB_SUPPORT_THREAD_LOCAL
 
   SharedState(Env* env, StressTest* stress_test)
@@ -192,8 +192,8 @@ class SharedState {
     }
 #ifndef NDEBUG
     if (FLAGS_read_fault_one_in) {
-      SyncPoint::GetInstance()->SetCallBack("FilterReadError",
-                                            FilterReadErrorCallback);
+      SyncPoint::GetInstance()->SetCallBack("FaultInjectionIgnoreError",
+                                            IgnoreReadErrorCallback);
       SyncPoint::GetInstance()->EnableProcessing();
     }
 #endif // NDEBUG
@@ -362,8 +362,8 @@ class SharedState {
   }
 
  private:
-  static void FilterReadErrorCallback(void*) {
-    filter_read_error = true;
+  static void IgnoreReadErrorCallback(void*) {
+    ignore_read_error = true;
   }
 
   port::Mutex mu_;

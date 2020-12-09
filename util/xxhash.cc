@@ -126,7 +126,7 @@ static void* XXH_memcpy(void* dest, const void* src, size_t size) { return memcp
 #include "xxhash.h"
 
 /* BEGIN RocksDB customizations */
-#include "util/util.h" /* for FALLTHROUGH_INTENDED, inserted as appropriate */
+#include "port/lang.h" /* for FALLTHROUGH_INTENDED, inserted as appropriate */
 /* END RocksDB customizations */
 
 /* *************************************
@@ -218,7 +218,6 @@ static xxh_u32 XXH_read32(const void* memPtr)
 
 
 /* ===   Endianess   === */
-typedef enum { XXH_bigEndian=0, XXH_littleEndian=1 } XXH_endianess;
 
 /* XXH_CPU_LITTLE_ENDIAN can be defined externally, for example on the compiler command line */
 #ifndef XXH_CPU_LITTLE_ENDIAN
@@ -1153,7 +1152,6 @@ XXH_PUBLIC_API XXH64_hash_t XXH64_hashFromCanonical(const XXH64_canonical_t* src
 ************************************************************************ */
 
 #include "xxh3p.h" /* XXH3 preview for RocksDB */
-
 
 #endif  /* XXH_NO_LONG_LONG */
 

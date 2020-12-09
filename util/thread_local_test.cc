@@ -119,6 +119,9 @@ TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
   ThreadLocalPtr tls2;
   p.tls2 = &tls2;
 
+  ASSERT_GT(IDChecker::PeekId(), base_id);
+  base_id = IDChecker::PeekId();
+
   auto func = [](void* ptr) {
     auto& params = *static_cast<Params*>(ptr);
 
@@ -141,7 +144,7 @@ TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
   };
 
   for (int iter = 0; iter < 1024; ++iter) {
-    ASSERT_EQ(IDChecker::PeekId(), base_id + 1u);
+    ASSERT_EQ(IDChecker::PeekId(), base_id);
     // Another new thread, read/write should not see value from previous thread
     env_->StartThread(func, static_cast<void*>(&p));
     mu.Lock();
@@ -149,7 +152,7 @@ TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
       cv.Wait();
     }
     mu.Unlock();
-    ASSERT_EQ(IDChecker::PeekId(), base_id + 1u);
+    ASSERT_EQ(IDChecker::PeekId(), base_id);
   }
 }
 

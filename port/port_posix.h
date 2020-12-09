@@ -124,7 +124,7 @@ class Mutex {
   friend class CondVar;
   pthread_mutex_t mu_;
 #ifndef NDEBUG
-  bool locked_;
+  bool locked_ = false;
 #endif
 };
 

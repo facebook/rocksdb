@@ -141,7 +141,7 @@ class RandomGenerator {
   RandomGenerator() {
     Random rnd(301);
     auto size = (unsigned)std::max(1048576, FLAGS_item_size);
-    test::RandomString(&rnd, size, &data_);
+    data_ = rnd.RandomString(size);
     pos_ = 0;
   }
 
@@ -170,9 +170,8 @@ class KeyGenerator {
       for (uint64_t i = 0; i < num_; ++i) {
         values_[i] = i;
       }
-      std::shuffle(
-          values_.begin(), values_.end(),
-          std::default_random_engine(static_cast<unsigned int>(FLAGS_seed)));
+      RandomShuffle(values_.begin(), values_.end(),
+                    static_cast<uint32_t>(FLAGS_seed));
     }
   }
 
@@ -453,8 +452,8 @@ class Benchmark {
   MemTableRep* table_;
   KeyGenerator* key_gen_;
   uint64_t* sequence_;
-  uint64_t num_write_ops_per_thread_;
-  uint64_t num_read_ops_per_thread_;
+  uint64_t num_write_ops_per_thread_ = 0;
+  uint64_t num_read_ops_per_thread_ = 0;
   const uint32_t num_threads_;
 };
 

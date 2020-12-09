@@ -7,19 +7,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
-// Endian-neutral encoding:
+// Encoding independent of machine byte order:
 // * Fixed-length numbers are encoded with least-significant byte first
+//   (little endian, native order on Intel and others)
 // * In addition we support variable length "varint" encoding
 // * Strings are encoded prefixed by their length in varint format
+//
+// Some related functions are provided in coding_lean.h
 
 #pragma once
 #include <algorithm>
-#include <stdint.h>
-#include <string.h>
 #include <string>
 
-#include "rocksdb/write_batch.h"
 #include "port/port.h"
+#include "rocksdb/slice.h"
+#include "util/coding_lean.h"
 
 // Some processors does not allow unaligned access to memory
 #if defined(__sparc)
@@ -94,58 +96,10 @@ inline const char* GetVarsignedint64Ptr(const char* p, const char* limit,
 extern int VarintLength(uint64_t v);
 
 // Lower-level versions of Put... that write directly into a character buffer
-// REQUIRES: dst has enough space for the value being written
-extern void EncodeFixed16(char* dst, uint16_t value);
-extern void EncodeFixed32(char* dst, uint32_t value);
-extern void EncodeFixed64(char* dst, uint64_t value);
-
-// Lower-level versions of Put... that write directly into a character buffer
 // and return a pointer just past the last byte written.
 // REQUIRES: dst has enough space for the value being written
 extern char* EncodeVarint32(char* dst, uint32_t value);
 extern char* EncodeVarint64(char* dst, uint64_t value);
-
-// Lower-level versions of Get... that read directly from a character buffer
-// without any bounds checking.
-
-inline uint16_t DecodeFixed16(const char* ptr) {
-  if (port::kLittleEndian) {
-    // Load the raw bytes
-    uint16_t result;
-    memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
-    return result;
-  } else {
-    return ((static_cast<uint16_t>(static_cast<unsigned char>(ptr[0]))) |
-            (static_cast<uint16_t>(static_cast<unsigned char>(ptr[1])) << 8));
-  }
-}
-
-inline uint32_t DecodeFixed32(const char* ptr) {
-  if (port::kLittleEndian) {
-    // Load the raw bytes
-    uint32_t result;
-    memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
-    return result;
-  } else {
-    return ((static_cast<uint32_t>(static_cast<unsigned char>(ptr[0])))
-        | (static_cast<uint32_t>(static_cast<unsigned char>(ptr[1])) << 8)
-        | (static_cast<uint32_t>(static_cast<unsigned char>(ptr[2])) << 16)
-        | (static_cast<uint32_t>(static_cast<unsigned char>(ptr[3])) << 24));
-  }
-}
-
-inline uint64_t DecodeFixed64(const char* ptr) {
-  if (port::kLittleEndian) {
-    // Load the raw bytes
-    uint64_t result;
-    memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
-    return result;
-  } else {
-    uint64_t lo = DecodeFixed32(ptr);
-    uint64_t hi = DecodeFixed32(ptr + 4);
-    return (hi << 32) | lo;
-  }
-}
 
 // Internal routine for use by fallback path of GetVarint32Ptr
 extern const char* GetVarint32PtrFallback(const char* p,
@@ -162,42 +116,6 @@ inline const char* GetVarint32Ptr(const char* p,
     }
   }
   return GetVarint32PtrFallback(p, limit, value);
-}
-
-// -- Implementation of the functions declared above
-inline void EncodeFixed16(char* buf, uint16_t value) {
-  if (port::kLittleEndian) {
-    memcpy(buf, &value, sizeof(value));
-  } else {
-    buf[0] = value & 0xff;
-    buf[1] = (value >> 8) & 0xff;
-  }
-}
-
-inline void EncodeFixed32(char* buf, uint32_t value) {
-  if (port::kLittleEndian) {
-    memcpy(buf, &value, sizeof(value));
-  } else {
-    buf[0] = value & 0xff;
-    buf[1] = (value >> 8) & 0xff;
-    buf[2] = (value >> 16) & 0xff;
-    buf[3] = (value >> 24) & 0xff;
-  }
-}
-
-inline void EncodeFixed64(char* buf, uint64_t value) {
-  if (port::kLittleEndian) {
-    memcpy(buf, &value, sizeof(value));
-  } else {
-    buf[0] = value & 0xff;
-    buf[1] = (value >> 8) & 0xff;
-    buf[2] = (value >> 16) & 0xff;
-    buf[3] = (value >> 24) & 0xff;
-    buf[4] = (value >> 32) & 0xff;
-    buf[5] = (value >> 40) & 0xff;
-    buf[6] = (value >> 48) & 0xff;
-    buf[7] = (value >> 56) & 0xff;
-  }
 }
 
 // Pull the last 8 bits and cast it to a character
@@ -402,13 +320,34 @@ inline bool GetVarsignedint64(Slice* input, int64_t* value) {
   }
 }
 
-// Provide an interface for platform independent endianness transformation
-inline uint64_t EndianTransform(uint64_t input, size_t size) {
-  char* pos = reinterpret_cast<char*>(&input);
-  uint64_t ret_val = 0;
-  for (size_t i = 0; i < size; ++i) {
-    ret_val |= (static_cast<uint64_t>(static_cast<unsigned char>(pos[i]))
-                << ((size - i - 1) << 3));
+// Swaps between big and little endian. Can be used to in combination
+// with the little-endian encoding/decoding functions to encode/decode
+// big endian.
+template <typename T>
+inline T EndianSwapValue(T v) {
+  static_assert(std::is_integral<T>::value, "non-integral type");
+
+#ifdef _MSC_VER
+  if (sizeof(T) == 2) {
+    return static_cast<T>(_byteswap_ushort(static_cast<uint16_t>(v)));
+  } else if (sizeof(T) == 4) {
+    return static_cast<T>(_byteswap_ulong(static_cast<uint32_t>(v)));
+  } else if (sizeof(T) == 8) {
+    return static_cast<T>(_byteswap_uint64(static_cast<uint64_t>(v)));
+  }
+#else
+  if (sizeof(T) == 2) {
+    return static_cast<T>(__builtin_bswap16(static_cast<uint16_t>(v)));
+  } else if (sizeof(T) == 4) {
+    return static_cast<T>(__builtin_bswap32(static_cast<uint32_t>(v)));
+  } else if (sizeof(T) == 8) {
+    return static_cast<T>(__builtin_bswap64(static_cast<uint64_t>(v)));
+  }
+#endif
+  // Recognized by clang as bswap, but not by gcc :(
+  T ret_val = 0;
+  for (size_t i = 0; i < sizeof(T); ++i) {
+    ret_val |= ((v >> (8 * i)) & 0xff) << (8 * (sizeof(T) - 1 - i));
   }
   return ret_val;
 }

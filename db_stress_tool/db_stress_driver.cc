@@ -10,13 +10,14 @@
 
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 void ThreadBody(void* v) {
   ThreadState* thread = reinterpret_cast<ThreadState*>(v);
   SharedState* shared = thread->shared;
 
-  if (shared->ShouldVerifyAtBeginning()) {
+  if (!FLAGS_skip_verifydb && shared->ShouldVerifyAtBeginning()) {
     thread->shared->GetStressTest()->VerifyDb(thread);
   }
   {
@@ -42,7 +43,9 @@ void ThreadBody(void* v) {
     }
   }
 
-  thread->shared->GetStressTest()->VerifyDb(thread);
+  if (!FLAGS_skip_verifydb) {
+    thread->shared->GetStressTest()->VerifyDb(thread);
+  }
 
   {
     MutexLock l(shared->GetMutex());
@@ -55,11 +58,14 @@ void ThreadBody(void* v) {
 
 bool RunStressTest(StressTest* stress) {
   stress->InitDb();
-
   SharedState shared(db_stress_env, stress);
-  if (FLAGS_read_only) {
-    stress->InitReadonlyDb(&shared);
+  stress->FinishInitDb(&shared);
+
+#ifndef NDEBUG
+  if (FLAGS_sync_fault_injection) {
+    fault_fs_guard->SetFilesystemDirectWritable(false);
   }
+#endif
 
   uint32_t n = shared.GetNumThreads();
 
@@ -112,6 +118,9 @@ bool RunStressTest(StressTest* stress) {
     if (FLAGS_test_batches_snapshots) {
       fprintf(stdout, "%s Limited verification already done during gets\n",
               db_stress_env->TimeToString((uint64_t)now / 1000000).c_str());
+    } else if (FLAGS_skip_verifydb) {
+      fprintf(stdout, "%s Verification skipped\n",
+              db_stress_env->TimeToString((uint64_t)now / 1000000).c_str());
     } else {
       fprintf(stdout, "%s Starting verification\n",
               db_stress_env->TimeToString((uint64_t)now / 1000000).c_str());
@@ -134,7 +143,8 @@ bool RunStressTest(StressTest* stress) {
     threads[i] = nullptr;
   }
   now = db_stress_env->NowMicros();
-  if (!FLAGS_test_batches_snapshots && !shared.HasVerificationFailedYet()) {
+  if (!FLAGS_skip_verifydb && !FLAGS_test_batches_snapshots &&
+      !shared.HasVerificationFailedYet()) {
     fprintf(stdout, "%s Verification successful\n",
             db_stress_env->TimeToString(now / 1000000).c_str());
   }

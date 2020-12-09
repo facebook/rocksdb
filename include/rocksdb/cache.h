@@ -33,6 +33,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 class Cache;
+struct ConfigOptions;
 
 extern const bool kDefaultToAdaptiveMutex;
 
@@ -141,6 +142,21 @@ class Cache {
   // No copying allowed
   Cache(const Cache&) = delete;
   Cache& operator=(const Cache&) = delete;
+
+  // Creates a new Cache based on the input value string and returns the result.
+  // Currently, this method can be used to create LRUCaches only
+  // @param config_options
+  // @param value  The value might be:
+  //   - an old-style cache ("1M") -- equivalent to NewLRUCache(1024*102(
+  //   - Name-value option pairs -- "capacity=1M; num_shard_bits=4;
+  //     For the LRUCache, the values are defined in LRUCacheOptions.
+  // @param result The new Cache object
+  // @return OK if the cache was sucessfully created
+  // @return NotFound if an invalid name was specified in the value
+  // @return InvalidArgument if either the options were not valid
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& value,
+                                 std::shared_ptr<Cache>* result);
 
   // Destroys all existing entries by calling the "deleter"
   // function that was passed via the Insert() function.
