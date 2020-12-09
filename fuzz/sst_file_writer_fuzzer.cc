@@ -5,6 +5,9 @@
 
 #include <algorithm>
 #include <iostream>
+#include <map>
+#include <memory>
+#include <string>
 
 #include "proto/gen/db_operation.pb.h"
 #include "rocksdb/file_system.h"
@@ -38,9 +41,21 @@ protobuf_mutator::libfuzzer::PostProcessorRegistration<DBOperations> reg = {
     abort();                                     \
   }
 
+#define CHECK_EQ(a, b)                        \
+  if (a != b) {                               \
+    std::cerr << a << "!=" << b << std::endl; \
+    abort();                                  \
+  }
+
+#define CHECK_TRUE(cond)                                      \
+  if (!(cond)) {                                              \
+    std::cout << "\"" << #cond << "\" is false" << std::endl; \
+    abort();                                                  \
+  }
+
 // Fuzzes DB operations as input, let SstFileWriter generate a SST file
 // according to the operations, then let SstFileReader read the generated SST
-// file to check its checksum.
+// file to check its checksum and verify the DB's content.
 DEFINE_PROTO_FUZZER(DBOperations& input) {
   if (input.operations().empty()) {
     return;
@@ -62,27 +77,42 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
   rocksdb::SstFileWriter writer(env_options, options);
   rocksdb::Status s = writer.Open(sstfile);
   CHECK_OK(s);
+  std::map<std::string, std::string> kv;
   for (const DBOperation& op : input.operations()) {
     switch (op.type()) {
-      case OpType::PUT:
+      case OpType::PUT: {
         s = writer.Put(op.key(), op.value());
         CHECK_OK(s);
+        kv[op.key()] = op.value();
         break;
-      case OpType::MERGE:
-        s = writer.Merge(op.key(), op.value());
-        CHECK_OK(s);
-        break;
-      case OpType::DELETE:
+      }
+      case OpType::DELETE: {
         s = writer.Delete(op.key());
         CHECK_OK(s);
+        kv.erase(op.key());
         break;
-      case OpType::DELETE_RANGE:
-        s = writer.DeleteRange(op.key(), op.value());
+      }
+      case OpType::DELETE_RANGE: {
+        auto begin = op.key();
+        auto end = op.value();
+        if (options.comparator->Compare(begin, end) > 0) {
+          std::swap(begin, end);
+        }
+
+        s = writer.DeleteRange(begin, end);
         CHECK_OK(s);
+
+        auto lb = kv.lower_bound(begin);
+        if (lb != kv.end()) {
+          kv.erase(lb, kv.lower_bound(end));
+        }
+
         break;
-      default:
+      }
+      default: {
         std::cerr << "Unsupported operation" << static_cast<int>(op.type());
         return;
+      }
     }
   }
   rocksdb::ExternalSstFileInfo info;
@@ -95,6 +125,16 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
   CHECK_OK(s);
   s = reader.VerifyChecksum();
   CHECK_OK(s);
+
+  // Iterate and verify key-value pairs.
+  auto kv_it = kv.begin();
+  std::unique_ptr<rocksdb::Iterator> it(reader.NewIterator(rocksdb::ReadOptions()));
+  for (it->SeekToFirst(); it->Valid(); it->Next(), kv_it++) {
+    CHECK_TRUE(kv_it != kv.end());
+    CHECK_EQ(it->key().ToString(), kv_it->first);
+    CHECK_EQ(it->value().ToString(), kv_it->second);
+  }
+  CHECK_TRUE(kv_it == kv.end());
 
   // Delete sst file.
   remove(sstfile.c_str());
