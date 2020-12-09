@@ -49,7 +49,7 @@ class PosixHelper {
                                                size_t* size);
 };
 
-#ifdef OS_LINUX
+#if defined(OS_LINUX) || defined(OS_MACOSX)
 // Files under a specific directory have the same logical block size.
 // This class caches the logical block size for the specified directories to
 // save the CPU cost of computing the size.

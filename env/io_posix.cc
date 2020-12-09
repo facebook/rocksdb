@@ -371,7 +371,7 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
 }
 #endif
 
-#ifdef OS_LINUX
+#if defined(OS_LINUX) || defined(OS_MACOSX)
 std::string RemoveTrailingSlash(const std::string& path) {
   std::string p = path;
   if (p.size() > 1 && p.back() == '/') {

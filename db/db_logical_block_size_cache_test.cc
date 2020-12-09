@@ -5,7 +5,7 @@
 
 #include "test_util/testharness.h"
 
-#ifdef OS_LINUX
+#if defined(OS_LINUX) || defined(OS_MACOSX)
 #include "env/io_posix.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
