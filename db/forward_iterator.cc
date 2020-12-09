@@ -46,7 +46,13 @@ class ForwardLevelIterator : public InternalIterator {
         file_iter_(nullptr),
         pinned_iters_mgr_(nullptr),
         prefix_extractor_(prefix_extractor),
-        allow_unprepared_value_(allow_unprepared_value) {}
+        allow_unprepared_value_(allow_unprepared_value) {
+    /*
+    NOTE needed for ASSERT_STATUS_CHECKED
+    in MergeOperatorPinningTest/MergeOperatorPinningTest.TailingIterator
+    */
+    status_.PermitUncheckedError();
+  }
 
   ~ForwardLevelIterator() override {
     // Reset current pointer

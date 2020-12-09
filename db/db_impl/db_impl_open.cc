@@ -1563,6 +1563,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       InstrumentedMutexLock wl(&impl->log_write_mutex_);
       impl->logfile_number_ = new_log_number;
       assert(new_log != nullptr);
+      assert(impl->logs_.empty());
       impl->logs_.emplace_back(new_log_number, new_log);
     }
 

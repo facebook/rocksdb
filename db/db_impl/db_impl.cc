@@ -1324,7 +1324,11 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
     assert(wal.getting_synced);
     if (logs_.size() > 1) {
       if (immutable_db_options_.track_and_verify_wals_in_manifest &&
-          wal.writer->file()->GetFileSize() > 0) {
+          wal.writer->file()->GetFileSize() > 0 &&
+          wal.number >= versions_->GetWalSet().GetMinWalNumberToKeep()) {
+        // wal.number might < min_wal_number_to_keep when
+        // the WAL becomes obsolete after flushing, but not deleted from disk
+        // yet, then SyncWAL is called.
         synced_wals.AddWal(wal.number,
                            WalMetadata(wal.writer->file()->GetFileSize()));
       }
@@ -2804,7 +2808,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
                                     /* allow_unprepared_value */ true);
     result = NewDBIterator(
         env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
-        cfd->user_comparator(), iter, kMaxSequenceNumber,
+        cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
         sv->mutable_cf_options.max_sequential_skip_in_iterations, read_callback,
         this, cfd);
 #endif
@@ -2825,7 +2829,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
                                             ColumnFamilyData* cfd,
                                             SequenceNumber snapshot,
                                             ReadCallback* read_callback,
-                                            bool allow_blob,
+                                            bool expose_blob_index,
                                             bool allow_refresh) {
   SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
 
@@ -2890,9 +2894,9 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
   // likely that any iterator pointer is close to the iterator it points to so
   // that they are likely to be in the same cache line and/or page.
   ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, snapshot,
-      sv->mutable_cf_options.max_sequential_skip_in_iterations,
-      sv->version_number, read_callback, this, cfd, allow_blob,
+      env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, sv->current,
+      snapshot, sv->mutable_cf_options.max_sequential_skip_in_iterations,
+      sv->version_number, read_callback, this, cfd, expose_blob_index,
       read_options.snapshot != nullptr ? false : allow_refresh);
 
   InternalIterator* internal_iter = NewInternalIterator(
@@ -2930,7 +2934,7 @@ Status DBImpl::NewIterators(
                                       /* allow_unprepared_value */ true);
       iterators->push_back(NewDBIterator(
           env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
-          cfd->user_comparator(), iter, kMaxSequenceNumber,
+          cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
           read_callback, this, cfd));
     }
@@ -4607,8 +4611,7 @@ Status DBImpl::IngestExternalFiles(
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       const IOStatus& io_s = versions_->io_status();
       // Should handle return error?
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
     }
 
     // Resume writes to the DB

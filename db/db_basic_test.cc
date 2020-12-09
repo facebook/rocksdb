@@ -2534,6 +2534,64 @@ TEST_F(DBBasicTest, ManifestChecksumMismatch) {
   ASSERT_TRUE(s.IsCorruption());
 }
 
+#ifndef ROCKSDB_LITE
+class DBBasicTestTrackWal : public DBTestBase,
+                            public testing::WithParamInterface<bool> {
+ public:
+  DBBasicTestTrackWal()
+      : DBTestBase("/db_basic_test_track_wal", /*env_do_fsync=*/false) {}
+
+  int CountWalFiles() {
+    VectorLogPtr log_files;
+    dbfull()->GetSortedWalFiles(log_files);
+    return static_cast<int>(log_files.size());
+  };
+};
+
+TEST_P(DBBasicTestTrackWal, DoNotTrackObsoleteWal) {
+  // If a WAL becomes obsolete after flushing, but is not deleted from disk yet,
+  // then if SyncWAL is called afterwards, the obsolete WAL should not be
+  // tracked in MANIFEST.
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.track_and_verify_wals_in_manifest = true;
+  options.atomic_flush = GetParam();
+
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"cf"}, options);
+  ASSERT_EQ(handles_.size(), 2);  // default, cf
+  // Do not delete WALs.
+  ASSERT_OK(db_->DisableFileDeletions());
+  constexpr int n = 10;
+  std::vector<std::unique_ptr<LogFile>> wals(n);
+  for (size_t i = 0; i < n; i++) {
+    // Generate a new WAL for each key-value.
+    const int cf = i % 2;
+    ASSERT_OK(db_->GetCurrentWalFile(&wals[i]));
+    ASSERT_OK(Put(cf, "k" + std::to_string(i), "v" + std::to_string(i)));
+    ASSERT_OK(Flush({0, 1}));
+  }
+  ASSERT_EQ(CountWalFiles(), n);
+  // Since all WALs are obsolete, no WAL should be tracked in MANIFEST.
+  ASSERT_OK(db_->SyncWAL());
+
+  // Manually delete all WALs.
+  Close();
+  for (const auto& wal : wals) {
+    ASSERT_OK(env_->DeleteFile(LogFileName(dbname_, wal->LogNumber())));
+  }
+
+  // If SyncWAL tracks the obsolete WALs in MANIFEST,
+  // reopen will fail because the WALs are missing from disk.
+  ASSERT_OK(TryReopenWithColumnFamilies({"default", "cf"}, options));
+  Destroy(options);
+}
+
+INSTANTIATE_TEST_CASE_P(DBBasicTestTrackWal, DBBasicTestTrackWal,
+                        testing::Bool());
+#endif  // ROCKSDB_LITE
+
 class DBBasicTestMultiGet : public DBTestBase {
  public:
   DBBasicTestMultiGet(std::string test_dir, int num_cfs, bool compressed_cache,

@@ -130,12 +130,10 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
     }
     if (!io_s.ok()) {
       if (total_log_size_ > 0) {
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
       } else {
         // If the WAL is empty, we use different error reason
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
       }
       TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return io_s;
@@ -166,7 +164,7 @@ Status DBImpl::FlushMemTableToOutputFile(
       GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
       &event_logger_, mutable_cf_options.report_bg_io_stats,
       true /* sync_output_directory */, true /* write_manifest */, thread_pri,
-      io_tracer_, db_id_, db_session_id_);
+      io_tracer_, db_id_, db_session_id_, cfd->GetFullHistoryTsLow());
   FileMetaData file_meta;
 
   TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
@@ -192,8 +190,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     s = io_s;
     if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
         !io_s.IsColumnFamilyDropped()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
     }
   } else {
     TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Skip");
@@ -253,31 +250,23 @@ Status DBImpl::FlushMemTableToOutputFile(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
-        // Should handle return error?
         if (total_log_size_ > 0) {
           // If the WAL is empty, we use different error reason
-          error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
-              .PermitUncheckedError();
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWrite);
         } else {
-          error_handler_
-              .SetBGError(io_s, BackgroundErrorReason::kManifestWriteNoWAL)
-              .PermitUncheckedError();
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWriteNoWAL);
         }
       } else if (total_log_size_ > 0) {
-        // Should handle return error?
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
       } else {
         // If the WAL is empty, we use different error reason
-        // Should handle return error?
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
       Status new_bg_error = s;
-      // Should handle return error?
-      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
   } else {
     // If we got here, then we decided not to care about the i_os status (either
@@ -302,9 +291,7 @@ Status DBImpl::FlushMemTableToOutputFile(
         TEST_SYNC_POINT_CALLBACK(
             "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
             &new_bg_error);
-        // Should handle this error?
-        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
       }
     }
 #endif  // ROCKSDB_LITE
@@ -407,7 +394,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         data_dir, GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
         stats_, &event_logger_, mutable_cf_options.report_bg_io_stats,
         false /* sync_output_directory */, false /* write_manifest */,
-        thread_pri, io_tracer_, db_id_, db_session_id_));
+        thread_pri, io_tracer_, db_id_, db_session_id_,
+        cfd->GetFullHistoryTsLow()));
     jobs.back()->PickMemTable();
   }
 
@@ -644,9 +632,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
             error_handler_.GetBGError().ok()) {
           Status new_bg_error =
               Status::SpaceLimit("Max allowed space was reached");
-          // Should Handle this error?
-          error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush)
-              .PermitUncheckedError();
+          error_handler_.SetBGError(new_bg_error,
+                                    BackgroundErrorReason::kFlush);
         }
       }
     }
@@ -663,31 +650,23 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
-        // Should handle return error?
         if (total_log_size_ > 0) {
           // If the WAL is empty, we use different error reason
-          error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
-              .PermitUncheckedError();
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWrite);
         } else {
-          error_handler_
-              .SetBGError(io_s, BackgroundErrorReason::kManifestWriteNoWAL)
-              .PermitUncheckedError();
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWriteNoWAL);
         }
       } else if (total_log_size_ > 0) {
-        // Should Handle this error?
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
       } else {
         // If the WAL is empty, we use different error reason
-        // Should Handle this error?
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
       Status new_bg_error = s;
-      // Should Handle this error?
-      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
   }
 
@@ -1200,7 +1179,8 @@ Status DBImpl::CompactFilesImpl(
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
       &compaction_job_stats, Env::Priority::USER, io_tracer_,
-      &manual_compaction_paused_, db_id_, db_session_id_);
+      &manual_compaction_paused_, db_id_, db_session_id_,
+      c->column_family_data()->GetFullHistoryTsLow());
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -1264,11 +1244,9 @@ Status DBImpl::CompactFilesImpl(
                    job_context->job_id, status.ToString().c_str());
     IOStatus io_s = compaction_job.io_status();
     if (!io_s.ok()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kCompaction)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kCompaction);
     } else {
-      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
     }
   }
 
@@ -1765,12 +1743,16 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
     WaitForPendingWrites();
 
-    if (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load()) {
-      if (flush_reason != FlushReason::kErrorRecoveryRetryFlush) {
-        s = SwitchMemtable(cfd, &context);
-      } else {
-        assert(cfd->imm()->NumNotFlushed() > 0);
-      }
+    if (flush_reason != FlushReason::kErrorRecoveryRetryFlush &&
+        (!cfd->mem()->IsEmpty() || !cached_recoverable_state_empty_.load())) {
+      // Note that, when flush reason is kErrorRecoveryRetryFlush, during the
+      // auto retry resume, we want to avoid creating new small memtables.
+      // Therefore, SwitchMemtable will not be called. Also, since ResumeImpl
+      // will iterate through all the CFs and call FlushMemtable during auto
+      // retry resume, it is possible that in some CFs,
+      // cfd->imm()->NumNotFlushed() = 0. In this case, so no flush request will
+      // be created and scheduled, status::OK() will be returned.
+      s = SwitchMemtable(cfd, &context);
     }
     const uint64_t flush_memtable_id = port::kMaxUint64;
     if (s.ok()) {
@@ -3050,7 +3032,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats, thread_pri, io_tracer_,
         is_manual ? &manual_compaction_paused_ : nullptr, db_id_,
-        db_session_id_);
+        db_session_id_, c->column_family_data()->GetFullHistoryTsLow());
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,
@@ -3115,10 +3097,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       auto err_reason = versions_->io_status().ok()
                             ? BackgroundErrorReason::kCompaction
                             : BackgroundErrorReason::kManifestWrite;
-      error_handler_.SetBGError(io_s, err_reason).PermitUncheckedError();
+      error_handler_.SetBGError(io_s, err_reason);
     } else {
-      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
     }
     if (c != nullptr && !is_manual && !error_handler_.IsBGWorkStopped()) {
       // Put this cfd back in the compaction queue so we can retry after some

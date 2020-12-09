@@ -96,6 +96,7 @@ void VersionEdit::Clear() {
   column_family_name_.clear();
   is_in_atomic_group_ = false;
   remaining_entries_ = 0;
+  full_history_ts_low_.clear();
 }
 
 bool VersionEdit::EncodeTo(std::string* dst) const {
@@ -251,6 +252,11 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   if (is_in_atomic_group_) {
     PutVarint32(dst, kInAtomicGroup);
     PutVarint32(dst, remaining_entries_);
+  }
+
+  if (HasFullHistoryTsLow()) {
+    PutVarint32(dst, kFullHistoryTsLow);
+    PutLengthPrefixedSlice(dst, full_history_ts_low_);
   }
   return true;
 }
@@ -612,6 +618,16 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
+      case kFullHistoryTsLow:
+        if (!GetLengthPrefixedSlice(&input, &str)) {
+          msg = "full_history_ts_low";
+        } else if (str.empty()) {
+          msg = "full_history_ts_low: empty";
+        } else {
+          full_history_ts_low_.assign(str.data(), str.size());
+        }
+        break;
+
       default:
         if (tag & kTagSafeIgnoreMask) {
           // Tag from future which can be safely ignored.
@@ -744,6 +760,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, remaining_entries_);
     r.append(" entries remains");
   }
+  if (HasFullHistoryTsLow()) {
+    r.append("\n FullHistoryTsLow: ");
+    r.append(Slice(full_history_ts_low_).ToString(hex_key));
+  }
   r.append("\n}\n");
   return r;
 }
@@ -871,6 +891,10 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   }
   if (is_in_atomic_group_) {
     jw << "AtomicGroup" << remaining_entries_;
+  }
+
+  if (HasFullHistoryTsLow()) {
+    jw << "FullHistoryTsLow" << Slice(full_history_ts_low_).ToString(hex_key);
   }
 
   jw.EndObject();

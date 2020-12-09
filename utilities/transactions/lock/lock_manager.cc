@@ -11,11 +11,17 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-LockManager* NewLockManager(PessimisticTransactionDB* db,
-                            const TransactionDBOptions& opt) {
+std::shared_ptr<LockManager> NewLockManager(PessimisticTransactionDB* db,
+                                            const TransactionDBOptions& opt) {
   assert(db);
-  // TODO: determine the lock manager implementation based on configuration.
-  return new PointLockManager(db, opt);
+  if (opt.lock_mgr_handle) {
+    // A custom lock manager was provided in options
+    auto mgr = opt.lock_mgr_handle->getLockManager();
+    return std::shared_ptr<LockManager>(opt.lock_mgr_handle, mgr);
+  } else {
+    // Use a point lock manager by default
+    return std::shared_ptr<LockManager>(new PointLockManager(db, opt));
+  }
 }
 
 }  // namespace ROCKSDB_NAMESPACE

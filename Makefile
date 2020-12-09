@@ -595,6 +595,10 @@ ifdef ASSERT_STATUS_CHECKED
 		db_basic_test \
 		db_blob_basic_test \
 		db_flush_test \
+		db_iterator_test \
+		db_memtable_test \
+		db_merge_operand_test \
+		db_merge_operator_test \
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
 		db_options_test \
@@ -677,6 +681,8 @@ ifdef ASSERT_STATUS_CHECKED
 		import_column_family_test \
 		memory_test \
 		table_test \
+		write_batch_test \
+		write_batch_with_index_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
