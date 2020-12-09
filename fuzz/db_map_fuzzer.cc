@@ -87,6 +87,7 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
         break;
       }
       case OpType::DELETE_RANGE: {
+        // [op.key(), op.value()) corresponds to [begin, end).
         CHECK_OK(db->DeleteRange(rocksdb::WriteOptions(),
                                  db->DefaultColumnFamily(), op.key(),
                                  op.value()));
