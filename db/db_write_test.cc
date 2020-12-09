@@ -309,6 +309,11 @@ TEST_P(DBWriteTest, IOErrorOnWALWritePropagateToWriteThreadFollower) {
     threads[i].join();
   }
   ASSERT_EQ(1, leader_count);
+
+  // The Failed PUT operations can cause a BG error to be set.
+  // Mark it as Checked for the ASSERT_STATUS_CHECKED
+  dbfull()->Resume().PermitUncheckedError();
+
   // Close before mock_env destruct.
   Close();
 }
