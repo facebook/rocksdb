@@ -85,7 +85,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB();
     }
-    assert(s.ok());
+    EXPECT_OK(s);
   }
 
   ~TransactionTestBase() {

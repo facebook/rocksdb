@@ -316,10 +316,10 @@ TEST_F(DBBlobIndexTest, Iterate) {
 
     // Next
     iterator = create_iterator();
-    ASSERT_OK(iterator->status());
     ASSERT_OK(iterator->Refresh());
     iterator->Seek(get_key(index - 1));
     ASSERT_TRUE(iterator->Valid());
+    ASSERT_OK(iterator->status());
     iterator->Next();
     check_iterator(iterator, expected_status, forward_value);
     if (extra_check) {
@@ -340,9 +340,9 @@ TEST_F(DBBlobIndexTest, Iterate) {
 
     // Prev
     iterator = create_iterator();
-    ASSERT_OK(iterator->status());
     iterator->Seek(get_key(index + 1));
     ASSERT_TRUE(iterator->Valid());
+    ASSERT_OK(iterator->status());
     iterator->Prev();
     check_iterator(iterator, expected_status, backward_value);
     if (extra_check) {

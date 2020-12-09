@@ -163,7 +163,7 @@ class ExternalSSTFileBasicTest
   }
 
   ~ExternalSSTFileBasicTest() override {
-    EXPECT_OK(DestroyDir(env_, sst_files_dir_));
+    DestroyDir(env_, sst_files_dir_).PermitUncheckedError();
   }
 
  protected:

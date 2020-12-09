@@ -546,5 +546,20 @@ Status TruncateFile(Env* env, const std::string& fname, uint64_t new_length) {
   return s;
 }
 
+// Try and delete a directory if it exists
+Status TryDeleteDir(Env* env, const std::string& dirname) {
+  bool is_dir = false;
+  Status s = env->IsDirectory(dirname, &is_dir);
+  if (s.ok() && is_dir) {
+    s = env->DeleteDir(dirname);
+  }
+  return s;
+}
+
+// Delete a directory if it exists
+void DeleteDir(Env* env, const std::string& dirname) {
+  TryDeleteDir(env, dirname).PermitUncheckedError();
+}
+
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

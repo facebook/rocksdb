@@ -84,7 +84,7 @@ TEST_P(OptimisticTransactionTest, SuccessTest) {
   ASSERT_OK(txn_db->Put(write_options, Slice("foo2"), Slice("bar")));
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
-  ASSERT_TRUE(txn);
+  ASSERT_NE(txn, nullptr);
 
   ASSERT_OK(txn->GetForUpdate(read_options, "foo", &value));
   ASSERT_EQ(value, "bar");
@@ -111,7 +111,7 @@ TEST_P(OptimisticTransactionTest, WriteConflictTest) {
   ASSERT_OK(txn_db->Put(write_options, "foo2", "bar"));
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
-  ASSERT_TRUE(txn);
+  ASSERT_NE(txn, nullptr);
 
   ASSERT_OK(txn->Put("foo", "bar2"));
 
@@ -145,7 +145,7 @@ TEST_P(OptimisticTransactionTest, WriteConflictTest2) {
 
   txn_options.set_snapshot = true;
   Transaction* txn = txn_db->BeginTransaction(write_options, txn_options);
-  ASSERT_TRUE(txn);
+  ASSERT_NE(txn, nullptr);
 
   // This Put outside of a transaction will conflict with a later write
   ASSERT_OK(txn_db->Put(write_options, "foo", "barz"));
@@ -179,7 +179,7 @@ TEST_P(OptimisticTransactionTest, ReadConflictTest) {
 
   txn_options.set_snapshot = true;
   Transaction* txn = txn_db->BeginTransaction(write_options, txn_options);
-  ASSERT_TRUE(txn);
+  ASSERT_NE(txn, nullptr);
 
   txn->SetSnapshot();
   snapshot_read_options.snapshot = txn->GetSnapshot();
@@ -214,7 +214,7 @@ TEST_P(OptimisticTransactionTest, TxnOnlyTest) {
   string value;
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
-  ASSERT_TRUE(txn);
+  ASSERT_NE(txn, nullptr);
 
   ASSERT_OK(txn->Put("x", "y"));
 
@@ -232,7 +232,7 @@ TEST_P(OptimisticTransactionTest, FlushTest) {
   ASSERT_OK(txn_db->Put(write_options, Slice("foo2"), Slice("bar")));
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
-  ASSERT_TRUE(txn);
+  ASSERT_NE(txn, nullptr);
 
   snapshot_read_options.snapshot = txn->GetSnapshot();
 
@@ -269,7 +269,7 @@ TEST_P(OptimisticTransactionTest, FlushTest2) {
   ASSERT_OK(txn_db->Put(write_options, Slice("foo2"), Slice("bar")));
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
-  ASSERT_TRUE(txn);
+  ASSERT_NE(txn, nullptr);
 
   snapshot_read_options.snapshot = txn->GetSnapshot();
 
@@ -432,7 +432,7 @@ TEST_P(OptimisticTransactionTest, NoSnapshotTest) {
   ASSERT_OK(txn_db->Put(write_options, "AAA", "bar"));
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
-  ASSERT_TRUE(txn);
+  ASSERT_NE(txn, nullptr);
 
   // Modify key after transaction start
   ASSERT_OK(txn_db->Put(write_options, "AAA", "bar1"));
@@ -461,7 +461,7 @@ TEST_P(OptimisticTransactionTest, MultipleSnapshotTest) {
   ASSERT_OK(txn_db->Put(write_options, "CCC", "bar"));
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
-  ASSERT_TRUE(txn);
+  ASSERT_NE(txn, nullptr);
 
   ASSERT_OK(txn_db->Put(write_options, "AAA", "bar1"));
 
@@ -581,7 +581,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
   ASSERT_NE(txn_db, nullptr);
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
-  ASSERT_TRUE(txn);
+  ASSERT_NE(txn, nullptr);
 
   txn->SetSnapshot();
   snapshot_read_options.snapshot = txn->GetSnapshot();
@@ -643,7 +643,7 @@ TEST_P(OptimisticTransactionTest, ColumnFamiliesTest) {
   snapshot_read_options.snapshot = txn->GetSnapshot();
 
   txn2 = txn_db->BeginTransaction(write_options, txn_options);
-  ASSERT_TRUE(txn);
+  ASSERT_NE(txn, nullptr);
 
   std::vector<ColumnFamilyHandle*> multiget_cfh = {handles[1], handles[2],
                                                    handles[0], handles[2]};
@@ -1038,12 +1038,11 @@ TEST_P(OptimisticTransactionTest, SavepointTest) {
   ReadOptions read_options, snapshot_read_options;
   OptimisticTransactionOptions txn_options;
   string value;
-  Status s;
 
   Transaction* txn = txn_db->BeginTransaction(write_options);
   ASSERT_NE(txn, nullptr);
 
-  s = txn->RollbackToSavePoint();
+  Status s = txn->RollbackToSavePoint();
   ASSERT_TRUE(s.IsNotFound());
 
   txn->SetSavePoint();  // 1
@@ -1052,106 +1051,68 @@ TEST_P(OptimisticTransactionTest, SavepointTest) {
   s = txn->RollbackToSavePoint();
   ASSERT_TRUE(s.IsNotFound());
 
-  s = txn->Put("B", "b");
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Put("B", "b"));
 
-  s = txn->Commit();
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Commit());
 
-  s = txn_db->Get(read_options, "B", &value);
-  ASSERT_OK(s);
+  ASSERT_OK(txn_db->Get(read_options, "B", &value));
   ASSERT_EQ("b", value);
 
   delete txn;
   txn = txn_db->BeginTransaction(write_options);
-  ASSERT_TRUE(txn);
+  ASSERT_NE(txn, nullptr);
 
-  s = txn->Put("A", "a");
-  ASSERT_OK(s);
-
-  s = txn->Put("B", "bb");
-  ASSERT_OK(s);
-
-  s = txn->Put("C", "c");
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Put("A", "a"));
+  ASSERT_OK(txn->Put("B", "bb"));
+  ASSERT_OK(txn->Put("C", "c"));
 
   txn->SetSavePoint();  // 2
 
-  s = txn->Delete("B");
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Delete("B"));
+  ASSERT_OK(txn->Put("C", "cc"));
+  ASSERT_OK(txn->Put("D", "d"));
 
-  s = txn->Put("C", "cc");
-  ASSERT_OK(s);
+  ASSERT_OK(txn->RollbackToSavePoint());  // Rollback to 2
 
-  s = txn->Put("D", "d");
-  ASSERT_OK(s);
-
-  s = txn->RollbackToSavePoint();  // Rollback to 2
-  ASSERT_OK(s);
-
-  s = txn->Get(read_options, "A", &value);
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Get(read_options, "A", &value));
   ASSERT_EQ("a", value);
-
-  s = txn->Get(read_options, "B", &value);
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Get(read_options, "B", &value));
   ASSERT_EQ("bb", value);
-
-  s = txn->Get(read_options, "C", &value);
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Get(read_options, "C", &value));
   ASSERT_EQ("c", value);
-
   s = txn->Get(read_options, "D", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  s = txn->Put("A", "a");
-  ASSERT_OK(s);
-
-  s = txn->Put("E", "e");
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Put("A", "a"));
+  ASSERT_OK(txn->Put("E", "e"));
 
   // Rollback to beginning of txn
   s = txn->RollbackToSavePoint();
   ASSERT_TRUE(s.IsNotFound());
-  s = txn->Rollback();
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Rollback());
 
   s = txn->Get(read_options, "A", &value);
   ASSERT_TRUE(s.IsNotFound());
-
-  s = txn->Get(read_options, "B", &value);
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Get(read_options, "B", &value));
   ASSERT_EQ("b", value);
-
   s = txn->Get(read_options, "D", &value);
   ASSERT_TRUE(s.IsNotFound());
-
   s = txn->Get(read_options, "D", &value);
   ASSERT_TRUE(s.IsNotFound());
-
   s = txn->Get(read_options, "E", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  s = txn->Put("A", "aa");
-  ASSERT_OK(s);
-
-  s = txn->Put("F", "f");
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Put("A", "aa"));
+  ASSERT_OK(txn->Put("F", "f"));
 
   txn->SetSavePoint();  // 3
   txn->SetSavePoint();  // 4
 
-  s = txn->Put("G", "g");
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Put("G", "g"));
+  ASSERT_OK(txn->Delete("F"));
+  ASSERT_OK(txn->Delete("B"));
 
-  s = txn->Delete("F");
-  ASSERT_OK(s);
-
-  s = txn->Delete("B");
-  ASSERT_OK(s);
-
-  s = txn->Get(read_options, "A", &value);
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Get(read_options, "A", &value));
   ASSERT_EQ("aa", value);
 
   s = txn->Get(read_options, "F", &value);
@@ -1160,32 +1121,26 @@ TEST_P(OptimisticTransactionTest, SavepointTest) {
   s = txn->Get(read_options, "B", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  s = txn->RollbackToSavePoint();  // Rollback to 3
-  ASSERT_OK(s);
+  ASSERT_OK(txn->RollbackToSavePoint());  // Rollback to 3
 
-  s = txn->Get(read_options, "F", &value);
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Get(read_options, "F", &value));
   ASSERT_EQ("f", value);
 
   s = txn->Get(read_options, "G", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  s = txn->Commit();
-  ASSERT_OK(s);
+  ASSERT_OK(txn->Commit());
 
-  s = txn_db->Get(read_options, "F", &value);
-  ASSERT_OK(s);
+  ASSERT_OK(txn_db->Get(read_options, "F", &value));
   ASSERT_EQ("f", value);
 
   s = txn_db->Get(read_options, "G", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  s = txn_db->Get(read_options, "A", &value);
-  ASSERT_OK(s);
+  ASSERT_OK(txn_db->Get(read_options, "A", &value));
   ASSERT_EQ("aa", value);
 
-  s = txn_db->Get(read_options, "B", &value);
-  ASSERT_OK(s);
+  ASSERT_OK(txn_db->Get(read_options, "B", &value));
   ASSERT_EQ("b", value);
 
   s = txn_db->Get(read_options, "C", &value);

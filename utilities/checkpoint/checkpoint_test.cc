@@ -66,9 +66,9 @@ class CheckpointTest : public testing::Test {
     snapshot_name_ = test::PerThreadDBPath(env_, "snapshot");
     std::string snapshot_tmp_name = snapshot_name_ + ".tmp";
     EXPECT_OK(DestroyDB(snapshot_name_, options));
-    env_->DeleteDir(snapshot_name_).PermitUncheckedError();
+    test::DeleteDir(env_, snapshot_name_);
     EXPECT_OK(DestroyDB(snapshot_tmp_name, options));
-    env_->DeleteDir(snapshot_tmp_name).PermitUncheckedError();
+    test::DeleteDir(env_, snapshot_tmp_name);
     Reopen(options);
     export_path_ = test::PerThreadDBPath("/export");
     DestroyDir(env_, export_path_).PermitUncheckedError();
@@ -585,7 +585,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
   Close();
   const std::string dbname = test::PerThreadDBPath("transaction_testdb");
   ASSERT_OK(DestroyDB(dbname, CurrentOptions()));
-  env_->DeleteDir(dbname).PermitUncheckedError();
+  test::DeleteDir(env_, dbname);
 
   Options options = CurrentOptions();
   options.allow_2pc = true;
