@@ -524,7 +524,7 @@ class MemTable {
   SequenceNumber atomic_flush_seqno_;
 
   // keep track of memory usage in table_, arena_, and range_del_table_.
-  // Gets refrshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
+  // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
   std::atomic<uint64_t> approximate_memory_usage_;
 
 #ifndef ROCKSDB_LITE
