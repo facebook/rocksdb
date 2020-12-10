@@ -545,7 +545,6 @@ bool DBIter::MergeValuesNewToOld() {
   TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:PushedFirstOperand");
 
   ParsedInternalKey ikey;
-  Status s;
   for (iter_.Next(); iter_.Valid(); iter_.Next()) {
     TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:SteppedToNextOperand");
     if (!ParseKey(&ikey)) {
@@ -573,7 +572,7 @@ bool DBIter::MergeValuesNewToOld() {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
       const Slice val = iter_.value();
-      s = MergeHelper::TimedFullMerge(
+      Status s = MergeHelper::TimedFullMerge(
           merge_operator_, ikey.user_key, &val, merge_context_.GetOperands(),
           &saved_value_, logger_, statistics_, env_, &pinned_value_, true);
       if (!s.ok()) {
@@ -616,10 +615,10 @@ bool DBIter::MergeValuesNewToOld() {
   // a deletion marker.
   // feed null as the existing value to the merge operator, such that
   // client can differentiate this scenario and do things accordingly.
-  s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetUserKey(),
-                                  nullptr, merge_context_.GetOperands(),
-                                  &saved_value_, logger_, statistics_, env_,
-                                  &pinned_value_, true);
+  Status s = MergeHelper::TimedFullMerge(
+      merge_operator_, saved_key_.GetUserKey(), nullptr,
+      merge_context_.GetOperands(), &saved_value_, logger_, statistics_, env_,
+      &pinned_value_, true);
   if (!s.ok()) {
     valid_ = false;
     status_ = s;

@@ -589,16 +589,21 @@ ifdef ASSERT_STATUS_CHECKED
 		cassandra_row_merge_test \
 		cassandra_serialize_test \
 		cleanable_test \
+		checkpoint_test \
 		coding_test \
 		crc32c_test \
 		dbformat_test \
 		db_basic_test \
 		db_blob_basic_test \
+		db_blob_index_test \
+		db_block_cache_test \
 		db_flush_test \
 		db_iterator_test \
+		db_logical_block_size_cache_test \
 		db_memtable_test \
 		db_merge_operand_test \
 		db_merge_operator_test \
+		db_wal_test \
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
 		db_options_test \
@@ -613,6 +618,7 @@ ifdef ASSERT_STATUS_CHECKED
 		env_logger_test \
 		event_logger_test \
 		error_handler_fs_test \
+		external_sst_file_basic_test \
 		auto_roll_logger_test \
 		file_indexer_test \
 		flush_job_test \
@@ -628,6 +634,7 @@ ifdef ASSERT_STATUS_CHECKED
 		merger_test \
 		mock_env_test \
 		object_registry_test \
+		optimistic_transaction_test \
 		prefix_test \
 		plain_table_db_test \
 		repair_test \
@@ -635,6 +642,7 @@ ifdef ASSERT_STATUS_CHECKED
 		customizable_test \
 		options_settable_test \
 		options_test \
+		point_lock_manager_test \
 		random_test \
 		range_del_aggregator_test \
 		sst_file_reader_test \
@@ -648,6 +656,7 @@ ifdef ASSERT_STATUS_CHECKED
 		stats_history_test \
 		thread_local_test \
 		trace_analyzer_test \
+		transaction_test \
 		env_timed_test \
 		filelock_test \
 		timer_queue_test \
@@ -663,6 +672,8 @@ ifdef ASSERT_STATUS_CHECKED
 		version_edit_test \
 		work_queue_test \
 		write_controller_test \
+		write_prepared_transaction_test \
+		write_unprepared_transaction_test \
 		compaction_iterator_test \
 		compaction_job_test \
 		compaction_job_stats_test \

@@ -666,7 +666,6 @@ Status DBImpl::WriteImplWALOnly(
     const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
     PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
     const PublishLastSeq publish_last_seq, const bool disable_memtable) {
-  Status status;
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         disable_memtable, sub_batch_cnt, pre_release_callback);
@@ -688,6 +687,8 @@ Status DBImpl::WriteImplWALOnly(
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
 
   if (publish_last_seq == kDoPublishLastSeq) {
+    Status status;
+
     // Currently we only use kDoPublishLastSeq in unordered_write
     assert(immutable_db_options_.unordered_write);
     WriteContext write_context;
@@ -764,6 +765,7 @@ Status DBImpl::WriteImplWALOnly(
     }
     seq_inc = total_batch_cnt;
   }
+  Status status;
   IOStatus io_s;
   if (!write_options.disableWAL) {
     io_s = ConcurrentWriteToWAL(write_group, log_used, &last_sequence, seq_inc);
