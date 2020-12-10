@@ -65,7 +65,7 @@ class FilterBitsBuilder {
   virtual int CalculateNumEntry(const uint32_t bytes) {
     // DEBUG: ideally should not rely on this implementation
     assert(false);
-    // RELEASE: something reasonably "safe": 2 bytes per entry
+    // RELEASE: something reasonably conservative: 2 bytes per entry
     return static_cast<int>(bytes / 2);
   }
 };

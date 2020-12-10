@@ -142,8 +142,7 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
   }
 
   size_t CalculateSpace(size_t num_entries) override {
-    // NB: the BuiltinFilterBitsBuilder API presumes len fits in uint32_t.
-    return CalculateAndAllocate(static_cast<size_t>(num_entries),
+    return CalculateAndAllocate(num_entries,
                                 /* buf */ nullptr,
                                 /*update_balance*/ false);
   }
