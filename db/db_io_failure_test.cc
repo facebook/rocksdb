@@ -87,7 +87,8 @@ TEST_F(DBIOFailureTest, DropWritesFlush) {
     ASSERT_TRUE(db_->GetProperty("rocksdb.background-errors", &property_value));
     ASSERT_EQ("0", property_value);
 
-    ASSERT_NOK(dbfull()->TEST_FlushMemTable(true));
+    // ASSERT file is too short
+    ASSERT_TRUE(dbfull()->TEST_FlushMemTable(true).IsCorruption());
 
     ASSERT_TRUE(db_->GetProperty("rocksdb.background-errors", &property_value));
     ASSERT_EQ("1", property_value);
@@ -552,7 +553,7 @@ TEST_F(DBIOFailureTest, CompactionSstSyncError) {
   ASSERT_OK(Flush(1));
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
-  const char* io_error_msg = "close dummy error";
+  const char* io_error_msg = "sync dummy error";
   std::atomic<int> sync_called(0);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "SpecialEnv::SStableFile::Sync", [&](void* arg) {

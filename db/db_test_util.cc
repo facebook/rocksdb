@@ -1128,17 +1128,20 @@ std::string DBTestBase::FilesPerLevel(int cf) {
 #endif  // !ROCKSDB_LITE
 
 size_t DBTestBase::CountFiles() {
+  size_t count = 0;
   std::vector<std::string> files;
-  EXPECT_OK(env_->GetChildren(dbname_, &files));
-
-  std::vector<std::string> logfiles;
-  if (dbname_ != last_options_.wal_dir) {
-    Status s = env_->GetChildren(last_options_.wal_dir, &logfiles);
-    EXPECT_TRUE(s.ok() || s.IsNotFound());
+  if (env_->GetChildren(dbname_, &files).ok()) {
+    count += files.size();
   }
 
-  return files.size() + logfiles.size();
-}
+  if (dbname_ != last_options_.wal_dir) {
+    if (env_->GetChildren(last_options_.wal_dir, &files).ok()) {
+      count += files.size();
+    }
+  }
+
+  return count;
+};
 
 Status DBTestBase::CountFiles(size_t* count) {
   std::vector<std::string> files;

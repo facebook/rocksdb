@@ -383,12 +383,12 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
     std::unique_ptr<Iterator> iter(
         db_->NewIterator(ReadOptions(), handles_[1]));
     iter->SeekToFirst();
-    ASSERT_OK(iter->status());
     count = 0;
     while (iter->Valid()) {
       count++;
       iter->Next();
     }
+    ASSERT_OK(iter->status());
     ASSERT_EQ(count, 0);
   }
 

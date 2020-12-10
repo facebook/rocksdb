@@ -29,9 +29,9 @@ TEST_F(DBTestTailingIterator, TailingIteratorSingle) {
   read_options.tailing = true;
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
-  ASSERT_OK(iter->status());
   iter->SeekToFirst();
   ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
 
   // add a record and check that iter can see it
   ASSERT_OK(db_->Put(WriteOptions(), "mirko", "fodor"));
@@ -482,7 +482,6 @@ TEST_F(DBTestTailingIterator, TailingIteratorGap) {
   db_->GetColumnFamilyMetaData(handles_[1], &meta);
 
   std::unique_ptr<Iterator> it(db_->NewIterator(read_options, handles_[1]));
-  ASSERT_OK(it->status());
   it->Seek("30");
   ASSERT_TRUE(it->Valid());
   ASSERT_EQ("30", it->key().ToString());
@@ -494,6 +493,8 @@ TEST_F(DBTestTailingIterator, TailingIteratorGap) {
   it->Next();
   ASSERT_TRUE(it->Valid());
   ASSERT_EQ("40", it->key().ToString());
+
+  ASSERT_OK(it->status());
 }
 
 TEST_F(DBTestTailingIterator, SeekWithUpperBoundBug) {
