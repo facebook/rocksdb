@@ -10,6 +10,7 @@ syntax = "proto2";
 
 enum OpType {
   PUT = 0;
+  MERGE = 1;
   DELETE = 2;
   DELETE_RANGE = 3;
 }

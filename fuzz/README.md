@@ -56,6 +56,8 @@ protobuf_mutator::libfuzzer::PostProcessorRegistration<DBOperations>
 
 ### Compile and link the fuzzer
 
+In the rocksdb root directory, compile rocksdb library by `make static_lib`.
+
 Go to the `fuzz` directory,
 run `make sst_file_writer_fuzzer` to generate the fuzzer,
 it will compile rocksdb static library, generate protobuf, then compile and link `sst_file_writer_fuzzer`.
