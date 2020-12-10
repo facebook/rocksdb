@@ -2505,6 +2505,42 @@ TEST_F(DBBasicTest, SkipWALIfMissingTableFiles) {
   ASSERT_FALSE(iter->Valid());
   ASSERT_OK(iter->status());
 }
+
+TEST_F(DBBasicTest, DisableTrackWal) {
+  // If WAL tracking was enabled, and then disabled during reopen,
+  // the previously tracked WALs should be removed from MANIFEST.
+
+  Options options = CurrentOptions();
+  options.track_and_verify_wals_in_manifest = true;
+  // extremely small write buffer size,
+  // so that new WALs are created more frequently.
+  options.write_buffer_size = 100;
+  options.env = env_;
+  DestroyAndReopen(options);
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put("foo" + std::to_string(i), "value" + std::to_string(i)));
+  }
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_OK(db_->SyncWAL());
+  // Some WALs are tracked.
+  ASSERT_FALSE(dbfull()->TEST_GetVersionSet()->GetWalSet().GetWals().empty());
+  Close();
+
+  // Disable WAL tracking.
+  options.track_and_verify_wals_in_manifest = false;
+  options.create_if_missing = false;
+  ASSERT_OK(TryReopen(options));
+  // Previously tracked WALs are cleared.
+  ASSERT_TRUE(dbfull()->TEST_GetVersionSet()->GetWalSet().GetWals().empty());
+  Close();
+
+  // Re-enable WAL tracking again.
+  options.track_and_verify_wals_in_manifest = true;
+  options.create_if_missing = false;
+  ASSERT_OK(TryReopen(options));
+  ASSERT_TRUE(dbfull()->TEST_GetVersionSet()->GetWalSet().GetWals().empty());
+  Close();
+}
 #endif  // !ROCKSDB_LITE
 
 TEST_F(DBBasicTest, ManifestChecksumMismatch) {
