@@ -2145,7 +2145,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
           if (iter->is_blob_index) {
             if (iter->value) {
-              *status = GetBlob(read_options, iter->ukey_with_ts, iter->value);
+              *status = GetBlob(read_options, iter->ukey_with_ts, *iter->value,
+                                iter->value);
               if (!status->ok()) {
                 if (status->IsIncomplete()) {
                   get_context.MarkKeyMayExist();
