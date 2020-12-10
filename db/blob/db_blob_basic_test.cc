@@ -256,6 +256,48 @@ TEST_P(DBBlobBasicIOErrorTest, GetBlob_IOError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 
+TEST_P(DBBlobBasicIOErrorTest, MultiGetBlobs_IOError) {
+  Options options = GetDefaultOptions();
+  options.env = fault_injection_env_.get();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  constexpr size_t num_keys = 2;
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "first_value";
+
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "second_value";
+
+  ASSERT_OK(Put(second_key, second_value));
+
+  ASSERT_OK(Flush());
+
+  std::array<Slice, num_keys> keys{{first_key, second_key}};
+  std::array<PinnableSlice, num_keys> values;
+  std::array<Status, num_keys> statuses;
+
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_->SetFilesystemActive(false,
+                                              Status::IOError(sync_point_));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys, &keys[0],
+                &values[0], &statuses[0]);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(statuses[0].IsIOError());
+  ASSERT_TRUE(statuses[1].IsIOError());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
