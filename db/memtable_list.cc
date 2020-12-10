@@ -481,16 +481,20 @@ Status MemTableList::TryInstallMemtableFlushResults(
         // We piggyback the information of  earliest log file to keep in the
         // manifest entry for the last file flushed.
         edit_list.back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
-      } else {
-        min_wal_number_to_keep =
-            PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
       }
 
       std::unique_ptr<VersionEdit> wal_deletion;
       if (vset->db_options()->track_and_verify_wals_in_manifest) {
-        wal_deletion.reset(new VersionEdit);
-        wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
-        edit_list.push_back(wal_deletion.get());
+        if (!vset->db_options()->allow_2pc) {
+          min_wal_number_to_keep =
+              PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
+        }
+        if (min_wal_number_to_keep >
+            vset->GetWalSet().GetMinWalNumberToKeep()) {
+          wal_deletion.reset(new VersionEdit);
+          wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
+          edit_list.push_back(wal_deletion.get());
+        }
       }
 
       const auto manifest_write_cb = [this, cfd, batch_count, log_buffer,
@@ -754,10 +758,12 @@ Status InstallMemtableAtomicFlushResults(
       min_wal_number_to_keep =
           PrecomputeMinLogNumberToKeepNon2PC(vset, cfds, edit_lists);
     }
-    wal_deletion.reset(new VersionEdit);
-    wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
-    edit_lists.back().push_back(wal_deletion.get());
-    ++num_entries;
+    if (min_wal_number_to_keep > vset->GetWalSet().GetMinWalNumberToKeep()) {
+      wal_deletion.reset(new VersionEdit);
+      wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
+      edit_lists.back().push_back(wal_deletion.get());
+      ++num_entries;
+    }
   }
 
   // Mark the version edits as an atomic group if the number of version edits
