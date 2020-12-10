@@ -144,6 +144,22 @@ static void StackTraceHandler(int sig) {
   fprintf(stderr, "Received signal %d (%s)\n", sig, strsignal(sig));
   // skip the top three signal handler related frames
   PrintStack(3);
+
+  // Efforts to fix or suppress TSAN warnings "signal-unsafe call inside of
+  // a signal" have failed, so just warn the user about them.
+#if defined(__clang__) && defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+  fprintf(stderr,
+          "==> NOTE: any above warnings about \"signal-unsafe call\" are\n"
+          "==> ignorable, as they are expected when generating a stack\n"
+          "==> trace because of a signal under TSAN. Consider why the\n"
+          "==> signal was generated to begin with, and the stack trace\n"
+          "==> in the TSAN warning can be useful for that. (The stack\n"
+          "==> trace printed by the signal handler is likely obscured\n"
+          "==> by TSAN output.)\n");
+#endif
+#endif
+
   // re-signal to default handler (so we still get core dump if needed...)
   raise(sig);
 }

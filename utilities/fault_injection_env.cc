@@ -217,7 +217,7 @@ TestRandomRWFile::TestRandomRWFile(const std::string& /*fname*/,
 
 TestRandomRWFile::~TestRandomRWFile() {
   if (file_opened_) {
-    Close();
+    Close().PermitUncheckedError();
   }
 }
 

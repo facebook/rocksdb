@@ -807,5 +807,11 @@ Status CorruptFile(Env* env, const std::string& fname, int offset,
                    int bytes_to_corrupt, bool verify_checksum = true);
 Status TruncateFile(Env* env, const std::string& fname, uint64_t length);
 
+// Try and delete a directory if it exists
+Status TryDeleteDir(Env* env, const std::string& dirname);
+
+// Delete a directory if it exists
+void DeleteDir(Env* env, const std::string& dirname);
+
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE

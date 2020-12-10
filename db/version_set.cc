@@ -1791,9 +1791,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       io_tracer_(io_tracer) {}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                        const Slice& blob_index_slice,
                         PinnableSlice* value) const {
-  assert(value);
-
   if (read_options.read_tier == kBlockCacheTier) {
     return Status::Incomplete("Cannot read blob: no disk I/O allowed");
   }
@@ -1801,7 +1800,7 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   BlobIndex blob_index;
 
   {
-    Status s = blob_index.DecodeFrom(*value);
+    Status s = blob_index.DecodeFrom(blob_index_slice);
     if (!s.ok()) {
       return s;
     }
@@ -1813,6 +1812,8 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
                         const BlobIndex& blob_index,
                         PinnableSlice* value) const {
+  assert(value);
+
   if (blob_index.HasTTL() || blob_index.IsInlined()) {
     return Status::Corruption("Unexpected TTL/inlined blob index");
   }
@@ -1939,7 +1940,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       case GetContext::kFound:
         if (is_blob_index) {
           if (do_merge && value) {
-            *status = GetBlob(read_options, user_key, value);
+            *status = GetBlob(read_options, user_key, *value, value);
             if (!status->ok()) {
               if (status->IsIncomplete()) {
                 get_context.MarkKeyMayExist();
@@ -4043,7 +4044,9 @@ Status VersionSet::ProcessManifestWrites(
     }
     for (const auto* cfd : *column_family_set_) {
       assert(curr_state.find(cfd->GetID()) == curr_state.end());
-      curr_state[cfd->GetID()] = {cfd->GetLogNumber()};
+      curr_state.emplace(std::make_pair(
+          cfd->GetID(),
+          MutableCFState(cfd->GetLogNumber(), cfd->GetFullHistoryTsLow())));
     }
 
     for (const auto& wal : wals_.GetWals()) {
@@ -4226,23 +4229,23 @@ Status VersionSet::ProcessManifestWrites(
       // Each version in versions corresponds to a column family.
       // For each column family, update its log number indicating that logs
       // with number smaller than this should be ignored.
-      for (const auto version : versions) {
-        uint64_t max_log_number_in_batch = 0;
-        uint32_t cf_id = version->cfd_->GetID();
-        for (const auto& e : batch_edits) {
-          if (e->has_log_number_ && e->column_family_ == cf_id) {
-            max_log_number_in_batch =
-                std::max(max_log_number_in_batch, e->log_number_);
+      uint64_t last_min_log_number_to_keep = 0;
+      for (const auto& e : batch_edits) {
+        ColumnFamilyData* cfd = nullptr;
+        if (!e->IsColumnFamilyManipulation()) {
+          cfd = column_family_set_->GetColumnFamily(e->column_family_);
+          // e would not have been added to batch_edits if its corresponding
+          // column family is dropped.
+          assert(cfd);
+        }
+        if (cfd) {
+          if (e->has_log_number_ && e->log_number_ > cfd->GetLogNumber()) {
+            cfd->SetLogNumber(e->log_number_);
+          }
+          if (e->HasFullHistoryTsLow()) {
+            cfd->SetFullHistoryTsLow(e->GetFullHistoryTsLow());
           }
         }
-        if (max_log_number_in_batch != 0) {
-          assert(version->cfd_->GetLogNumber() <= max_log_number_in_batch);
-          version->cfd_->SetLogNumber(max_log_number_in_batch);
-        }
-      }
-
-      uint64_t last_min_log_number_to_keep = 0;
-      for (auto& e : batch_edits) {
         if (e->has_min_log_number_to_keep_) {
           last_min_log_number_to_keep =
               std::max(last_min_log_number_to_keep, e->min_log_number_to_keep_);
@@ -4587,6 +4590,10 @@ Status VersionSet::ExtractInfoFromVersionEdit(
       return Status::InvalidArgument(
           cfd->user_comparator()->Name(),
           "does not match existing comparator " + from_edit.comparator_);
+    }
+    if (from_edit.HasFullHistoryTsLow()) {
+      const std::string& new_ts = from_edit.GetFullHistoryTsLow();
+      cfd->SetFullHistoryTsLow(new_ts);
     }
   }
 
@@ -5278,6 +5285,21 @@ Status VersionSet::WriteCurrentStateToManifest(
       assert(iter != curr_state.end());
       uint64_t log_number = iter->second.log_number;
       edit.SetLogNumber(log_number);
+
+      if (cfd->GetID() == 0) {
+        // min_log_number_to_keep is for the whole db, not for specific column family.
+        // So it does not need to be set for every column family, just need to be set once.
+        // Since default CF can never be dropped, we set the min_log to the default CF here.
+        uint64_t min_log = min_log_number_to_keep_2pc();
+        if (min_log != 0) {
+          edit.SetMinLogNumberToKeep(min_log);
+        }
+      }
+
+      const std::string& full_history_ts_low = iter->second.full_history_ts_low;
+      if (!full_history_ts_low.empty()) {
+        edit.SetFullHistoryTsLow(full_history_ts_low);
+      }
       std::string record;
       if (!edit.EncodeTo(&record)) {
         return Status::Corruption(

@@ -1821,13 +1821,21 @@ void BlockBasedTable::RetrieveMultipleBlocks(
 
     if (s.ok()) {
       // When the blocks share the same underlying buffer (scratch or direct io
-      // buffer), if the block is compressed, the shared buffer will be
-      // uncompressed into heap during uncompressing; otherwise, we need to
-      // manually copy the block into heap before inserting the block to block
-      // cache.
+      // buffer), we may need to manually copy the block into heap if the raw
+      // block has to be inserted into a cache. That falls into th following
+      // cases -
+      // 1. Raw block is not compressed, it needs to be inserted into the
+      //    uncompressed block cache if there is one
+      // 2. If the raw block is compressed, it needs to be inserted into the
+      //    compressed block cache if there is one
+      //
+      // In all other cases, the raw block is either uncompressed into a heap
+      // buffer or there is no cache at all.
       CompressionType compression_type =
           raw_block_contents.get_compression_type();
-      if (use_shared_buffer && compression_type == kNoCompression) {
+      if (use_shared_buffer && (compression_type == kNoCompression ||
+                                (compression_type != kNoCompression &&
+                                 rep_->table_options.block_cache_compressed))) {
         Slice raw = Slice(req.result.data() + req_offset, block_size(handle));
         raw_block_contents = BlockContents(
             CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
@@ -2064,8 +2072,10 @@ bool BlockBasedTable::PrefixMayMatch(
   } else {
     prefix_extractor = rep_->table_prefix_extractor.get();
   }
-  auto user_key = ExtractUserKey(internal_key);
-  if (!prefix_extractor->InDomain(user_key)) {
+  auto ts_sz = rep_->internal_comparator.user_comparator()->timestamp_size();
+  auto user_key_without_ts =
+      ExtractUserKeyAndStripTimestamp(internal_key, ts_sz);
+  if (!prefix_extractor->InDomain(user_key_without_ts)) {
     return true;
   }
 
@@ -2080,15 +2090,16 @@ bool BlockBasedTable::PrefixMayMatch(
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
       may_match = filter->RangeMayExist(
-          read_options.iterate_upper_bound, user_key, prefix_extractor,
-          rep_->internal_comparator.user_comparator(), const_ikey_ptr,
-          &filter_checked, need_upper_bound_check, no_io, lookup_context);
+          read_options.iterate_upper_bound, user_key_without_ts,
+          prefix_extractor, rep_->internal_comparator.user_comparator(),
+          const_ikey_ptr, &filter_checked, need_upper_bound_check, no_io,
+          lookup_context);
     } else {
       // if prefix_extractor changed for block based filter, skip filter
       if (need_upper_bound_check) {
         return true;
       }
-      auto prefix = prefix_extractor->Transform(user_key);
+      auto prefix = prefix_extractor->Transform(user_key_without_ts);
       InternalKey internal_key_prefix(prefix, kMaxSequenceNumber, kTypeValue);
       auto internal_prefix = internal_key_prefix.Encode();
 

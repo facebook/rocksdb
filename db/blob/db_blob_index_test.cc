@@ -98,7 +98,7 @@ class DBBlobIndexTest : public DBTestBase {
   ArenaWrappedDBIter* GetBlobIterator() {
     return dbfull()->NewIteratorImpl(
         ReadOptions(), cfd(), dbfull()->GetLatestSequenceNumber(),
-        nullptr /*read_callback*/, true /*allow_blob*/);
+        nullptr /*read_callback*/, true /*expose_blob_index*/);
   }
 
   Options GetTestOptions() {
@@ -238,8 +238,11 @@ TEST_F(DBBlobIndexTest, Updated) {
   }
 }
 
-// Iterator should get blob value if allow_blob flag is set,
-// otherwise return Status::NotSupported status.
+// Note: the following test case pertains to the StackableDB-based BlobDB
+// implementation. When a blob iterator is used, it should set the
+// expose_blob_index flag for the underlying DBIter, and retrieve/return the
+// corresponding blob value. If a regular DBIter is created (i.e.
+// expose_blob_index is not set), it should return Status::Corruption.
 TEST_F(DBBlobIndexTest, Iterate) {
   const std::vector<std::vector<ValueType>> data = {
       /*00*/ {kTypeValue},
@@ -302,6 +305,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
                     std::function<void(Iterator*)> extra_check = nullptr) {
     // Seek
     auto* iterator = create_iterator();
+    ASSERT_OK(iterator->status());
     ASSERT_OK(iterator->Refresh());
     iterator->Seek(get_key(index));
     check_iterator(iterator, expected_status, forward_value);
@@ -315,6 +319,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
     ASSERT_OK(iterator->Refresh());
     iterator->Seek(get_key(index - 1));
     ASSERT_TRUE(iterator->Valid());
+    ASSERT_OK(iterator->status());
     iterator->Next();
     check_iterator(iterator, expected_status, forward_value);
     if (extra_check) {
@@ -324,6 +329,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
 
     // SeekForPrev
     iterator = create_iterator();
+    ASSERT_OK(iterator->status());
     ASSERT_OK(iterator->Refresh());
     iterator->SeekForPrev(get_key(index));
     check_iterator(iterator, expected_status, backward_value);
@@ -336,6 +342,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
     iterator = create_iterator();
     iterator->Seek(get_key(index + 1));
     ASSERT_TRUE(iterator->Valid());
+    ASSERT_OK(iterator->status());
     iterator->Prev();
     check_iterator(iterator, expected_status, backward_value);
     if (extra_check) {
@@ -373,7 +380,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
             ASSERT_OK(Write(&batch));
             break;
           default:
-            assert(false);
+            FAIL();
         };
       }
       snapshots.push_back(dbfull()->GetSnapshot());
@@ -384,8 +391,8 @@ TEST_F(DBBlobIndexTest, Iterate) {
     MoveDataTo(tier);
 
     // Normal iterator
-    verify(1, Status::kNotSupported, "", "", create_normal_iterator);
-    verify(3, Status::kNotSupported, "", "", create_normal_iterator);
+    verify(1, Status::kCorruption, "", "", create_normal_iterator);
+    verify(3, Status::kCorruption, "", "", create_normal_iterator);
     verify(5, Status::kOk, get_value(5, 0), get_value(5, 0),
            create_normal_iterator);
     verify(7, Status::kOk, get_value(8, 0), get_value(6, 0),

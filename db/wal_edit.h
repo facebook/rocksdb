@@ -141,6 +141,9 @@ class WalSet {
   // Resets the internal state.
   void Reset();
 
+  // WALs with number less than MinWalNumberToKeep should not exist in WalSet.
+  WalNumber GetMinWalNumberToKeep() const { return min_wal_number_to_keep_; }
+
   const std::map<WalNumber, WalMetadata>& GetWals() const { return wals_; }
 
   // Checks whether there are missing or corrupted WALs.
@@ -155,6 +158,9 @@ class WalSet {
 
  private:
   std::map<WalNumber, WalMetadata> wals_;
+  // WAL number < min_wal_number_to_keep_ should not exist in wals_.
+  // It's monotonically increasing, in-memory only, not written to MANIFEST.
+  WalNumber min_wal_number_to_keep_ = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

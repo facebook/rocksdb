@@ -684,15 +684,15 @@ class Version {
   void MultiGet(const ReadOptions&, MultiGetRange* range,
                 ReadCallback* callback = nullptr, bool* is_blob = nullptr);
 
-  // Interprets *value as a blob reference, and (assuming the corresponding
-  // blob file is part of this Version) retrieves the blob and saves it in
-  // *value, replacing the blob reference.
-  // REQUIRES: *value stores an encoded blob reference
+  // Interprets blob_index_slice as a blob reference, and (assuming the
+  // corresponding blob file is part of this Version) retrieves the blob and
+  // saves it in *value.
+  // REQUIRES: blob_index_slice stores an encoded blob reference
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 PinnableSlice* value) const;
+                 const Slice& blob_index_slice, PinnableSlice* value) const;
 
-  // Retrieves a blob using a blob reference and saves it in *value, assuming
-  // the corresponding blob file is part of this Version.
+  // Retrieves a blob using a blob reference and saves it in *value,
+  // assuming the corresponding blob file is part of this Version.
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
                  const BlobIndex& blob_index, PinnableSlice* value) const;
 
@@ -1278,6 +1278,11 @@ class VersionSet {
 
   struct MutableCFState {
     uint64_t log_number;
+    std::string full_history_ts_low;
+
+    explicit MutableCFState() = default;
+    explicit MutableCFState(uint64_t _log_number, std::string ts_low)
+        : log_number(_log_number), full_history_ts_low(std::move(ts_low)) {}
   };
 
   // Save current contents to *log
@@ -1327,7 +1332,7 @@ class VersionSet {
   std::string db_id_;
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
-  // Any log number equal or lower than this should be ignored during recovery,
+  // Any WAL number smaller than this should be ignored during recovery,
   // and is qualified for being deleted in 2PC mode. In non-2PC mode, this
   // number is ignored.
   std::atomic<uint64_t> min_log_number_to_keep_2pc_ = {0};

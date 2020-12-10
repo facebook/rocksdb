@@ -666,7 +666,6 @@ Status DBImpl::WriteImplWALOnly(
     const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
     PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
     const PublishLastSeq publish_last_seq, const bool disable_memtable) {
-  Status status;
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         disable_memtable, sub_batch_cnt, pre_release_callback);
@@ -688,6 +687,8 @@ Status DBImpl::WriteImplWALOnly(
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
 
   if (publish_last_seq == kDoPublishLastSeq) {
+    Status status;
+
     // Currently we only use kDoPublishLastSeq in unordered_write
     assert(immutable_db_options_.unordered_write);
     WriteContext write_context;
@@ -764,6 +765,7 @@ Status DBImpl::WriteImplWALOnly(
     }
     seq_inc = total_batch_cnt;
   }
+  Status status;
   IOStatus io_s;
   if (!write_options.disableWAL) {
     io_s = ConcurrentWriteToWAL(write_group, log_used, &last_sequence, seq_inc);
@@ -850,8 +852,7 @@ void DBImpl::WriteStatusCheckOnLocked(const Status& status) {
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
       !status.IsBusy() && !status.IsIncomplete()) {
     // Maybe change the return status to void?
-    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
   }
 }
 
@@ -863,8 +864,7 @@ void DBImpl::WriteStatusCheck(const Status& status) {
       !status.IsBusy() && !status.IsIncomplete()) {
     mutex_.Lock();
     // Maybe change the return status to void?
-    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
     mutex_.Unlock();
   }
 }
@@ -877,8 +877,7 @@ void DBImpl::IOStatusCheck(const IOStatus& io_status) {
       io_status.IsIOFenced()) {
     mutex_.Lock();
     // Maybe change the return status to void?
-    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback);
     mutex_.Unlock();
   }
 }
@@ -1335,10 +1334,17 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
     }
     for (auto cfd : cfds) {
       cfd->imm()->FlushRequested();
+      if (!immutable_db_options_.atomic_flush) {
+        FlushRequest flush_req;
+        GenerateFlushRequest({cfd}, &flush_req);
+        SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+      }
     }
-    FlushRequest flush_req;
-    GenerateFlushRequest(cfds, &flush_req);
-    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+    if (immutable_db_options_.atomic_flush) {
+      FlushRequest flush_req;
+      GenerateFlushRequest(cfds, &flush_req);
+      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+    }
     MaybeScheduleFlushOrCompaction();
   }
   return status;
@@ -1414,10 +1420,17 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     }
     for (const auto cfd : cfds) {
       cfd->imm()->FlushRequested();
+      if (!immutable_db_options_.atomic_flush) {
+        FlushRequest flush_req;
+        GenerateFlushRequest({cfd}, &flush_req);
+        SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+      }
     }
-    FlushRequest flush_req;
-    GenerateFlushRequest(cfds, &flush_req);
-    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    if (immutable_db_options_.atomic_flush) {
+      FlushRequest flush_req;
+      GenerateFlushRequest(cfds, &flush_req);
+      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    }
     MaybeScheduleFlushOrCompaction();
   }
   return status;
@@ -1641,10 +1654,16 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
   if (status.ok()) {
     if (immutable_db_options_.atomic_flush) {
       AssignAtomicFlushSeq(cfds);
+      FlushRequest flush_req;
+      GenerateFlushRequest(cfds, &flush_req);
+      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    } else {
+      for (auto* cfd : cfds) {
+        FlushRequest flush_req;
+        GenerateFlushRequest({cfd}, &flush_req);
+        SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+      }
     }
-    FlushRequest flush_req;
-    GenerateFlushRequest(cfds, &flush_req);
-    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
     MaybeScheduleFlushOrCompaction();
   }
   return status;
@@ -1790,15 +1809,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     }
     // We may have lost data from the WritableFileBuffer in-memory buffer for
     // the current log, so treat it as a fatal error and set bg_error
-    // Should handle return error?
     if (!io_s.ok()) {
-      // Should handle return error?
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable);
     } else {
-      // Should handle return error?
-      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
     }
     // Read back bg_error in order to get the right severity
     s = error_handler_.GetBGError();
