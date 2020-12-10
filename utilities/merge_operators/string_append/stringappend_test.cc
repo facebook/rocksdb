@@ -120,7 +120,8 @@ class StringAppendOperatorTest : public testing::Test,
                                  public ::testing::WithParamInterface<bool> {
  public:
   StringAppendOperatorTest() {
-    DestroyDB(kDbName, Options());    // Start each test with a fresh DB
+    EXPECT_OK(
+        DestroyDB(kDbName, Options()));  // Start each test with a fresh DB
   }
 
   void SetUp() override {
@@ -486,7 +487,7 @@ TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
 
     // Append, Flush, Get
     slists.Append("c", "asdasd");
-    db->Flush(ROCKSDB_NAMESPACE::FlushOptions());
+    ASSERT_OK(db->Flush(ROCKSDB_NAMESPACE::FlushOptions()));
     success = slists.Get("c", &c);
     ASSERT_TRUE(success);
     ASSERT_EQ(c, "asdasd");
@@ -494,7 +495,7 @@ TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
     // Append, Flush, Append, Get
     slists.Append("a", "x");
     slists.Append("b", "y");
-    db->Flush(ROCKSDB_NAMESPACE::FlushOptions());
+    ASSERT_OK(db->Flush(ROCKSDB_NAMESPACE::FlushOptions()));
     slists.Append("a", "t");
     slists.Append("a", "r");
     slists.Append("b", "2");
@@ -537,7 +538,7 @@ TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
     slists.Append("c", "bbnagnagsx");
     slists.Append("a", "sa");
     slists.Append("b", "df");
-    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     slists.Get("a", &a);
     slists.Get("b", &b);
     slists.Get("c", &c);
@@ -558,15 +559,15 @@ TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
     ASSERT_EQ(c, "asdasd\nasdasd\nbbnagnagsx\nrogosh");
 
     // Compact, Get
-    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     ASSERT_EQ(a, "x\nt\nr\nsa\ngh\njk");
     ASSERT_EQ(b, "y\n2\nmonkey\ndf\nl;");
     ASSERT_EQ(c, "asdasd\nasdasd\nbbnagnagsx\nrogosh");
 
     // Append, Flush, Compact, Get
     slists.Append("b", "afcg");
-    db->Flush(ROCKSDB_NAMESPACE::FlushOptions());
-    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ASSERT_OK(db->Flush(ROCKSDB_NAMESPACE::FlushOptions()));
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     slists.Get("b", &b);
     ASSERT_EQ(b, "y\n2\nmonkey\ndf\nl;\nafcg");
   }

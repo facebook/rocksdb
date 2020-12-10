@@ -190,6 +190,8 @@ else
 endif
 
 ifdef ASSERT_STATUS_CHECKED
+# For ASC, turn off constructor elision
+PLATFORM_CXXFLAGS += -fno-elide-constructors
 ifeq ($(filter -DROCKSDB_ASSERT_STATUS_CHECKED,$(OPT)),)
 	OPT += -DROCKSDB_ASSERT_STATUS_CHECKED
 endif

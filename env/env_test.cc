@@ -2166,7 +2166,7 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
 
     ASSERT_OK(db->Close());
     delete db;
-    DestroyDB(dbname, opts);
+    ASSERT_OK(DestroyDB(dbname, opts));
 
     dbname = dbname2_;
   }

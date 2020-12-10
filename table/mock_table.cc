@@ -235,7 +235,11 @@ Status MockTableFactory::NewTableReader(
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t /*file_size*/,
     std::unique_ptr<TableReader>* table_reader,
     bool /*prefetch_index_and_filter_in_cache*/) const {
-  uint32_t id = GetIDFromFile(file.get());
+  uint32_t id;
+  Status s = GetIDFromFile(file.get(), &id);
+  if (!s.ok()) {
+    return s;
+  }
 
   MutexLock lock_guard(&file_system_.mutex);
 
@@ -252,7 +256,9 @@ Status MockTableFactory::NewTableReader(
 TableBuilder* MockTableFactory::NewTableBuilder(
     const TableBuilderOptions& /*table_builder_options*/,
     uint32_t /*column_family_id*/, WritableFileWriter* file) const {
-  uint32_t id = GetAndWriteNextID(file);
+  uint32_t id;
+  Status s = GetAndWriteNextID(file, &id);
+  assert(s.ok());
 
   return new MockTableBuilder(id, &file_system_, corrupt_mode_);
 }
@@ -268,25 +274,30 @@ Status MockTableFactory::CreateMockTable(Env* env, const std::string& fname,
   WritableFileWriter file_writer(NewLegacyWritableFileWrapper(std::move(file)),
                                  fname, EnvOptions());
 
-  uint32_t id = GetAndWriteNextID(&file_writer);
-  file_system_.files.insert({id, std::move(file_contents)});
-  return Status::OK();
+  uint32_t id;
+  s = GetAndWriteNextID(&file_writer, &id);
+  if (s.ok()) {
+    file_system_.files.insert({id, std::move(file_contents)});
+  }
+  return s;
 }
 
-uint32_t MockTableFactory::GetAndWriteNextID(WritableFileWriter* file) const {
-  uint32_t next_id = next_id_.fetch_add(1);
+Status MockTableFactory::GetAndWriteNextID(WritableFileWriter* file,
+                                           uint32_t* next_id) const {
+  *next_id = next_id_.fetch_add(1);
   char buf[4];
-  EncodeFixed32(buf, next_id);
-  file->Append(Slice(buf, 4));
-  return next_id;
+  EncodeFixed32(buf, *next_id);
+  return file->Append(Slice(buf, 4));
 }
 
-uint32_t MockTableFactory::GetIDFromFile(RandomAccessFileReader* file) const {
+Status MockTableFactory::GetIDFromFile(RandomAccessFileReader* file,
+                                       uint32_t* id) const {
   char buf[4];
   Slice result;
-  file->Read(IOOptions(), 0, 4, &result, buf, nullptr);
+  Status s = file->Read(IOOptions(), 0, 4, &result, buf, nullptr);
   assert(result.size() == 4);
-  return DecodeFixed32(buf);
+  *id = DecodeFixed32(buf);
+  return s;
 }
 
 void MockTableFactory::AssertSingleFile(const KVVector& file_contents) {

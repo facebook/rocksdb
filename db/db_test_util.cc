@@ -236,7 +236,7 @@ bool DBTestBase::ChangeWalOptions() {
     auto options = CurrentOptions();
     Destroy(options);
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kDBLogDir) {
     option_config_ = kWalDirAndMmapReads;
@@ -244,14 +244,14 @@ bool DBTestBase::ChangeWalOptions() {
     auto options = CurrentOptions();
     Destroy(options);
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kWalDirAndMmapReads) {
     option_config_ = kRecycleLogFiles;
     Destroy(last_options_);
     auto options = CurrentOptions();
     Destroy(options);
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else {
     return false;

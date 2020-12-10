@@ -38,7 +38,7 @@ DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db), closed_(false) {}
 
 DBWithTTLImpl::~DBWithTTLImpl() {
   if (!closed_) {
-    Close();
+    Close().PermitUncheckedError();
   }
 }
 
@@ -262,8 +262,11 @@ Status DBWithTTLImpl::Merge(const WriteOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             const Slice& value) {
   WriteBatch batch;
-  batch.Merge(column_family, key, value);
-  return Write(options, &batch);
+  Status st = batch.Merge(column_family, key, value);
+  if (st.ok()) {
+    st = Write(options, &batch);
+  }
+  return st;
 }
 
 Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
@@ -279,10 +282,10 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       if (!st.ok()) {
         batch_rewrite_status = st;
       } else {
-        WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
-                                value_with_ts);
+        st = WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
+                                     value_with_ts);
       }
-      return Status::OK();
+      return st;
     }
     Status MergeCF(uint32_t column_family_id, const Slice& key,
                    const Slice& value) override {
@@ -291,14 +294,13 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       if (!st.ok()) {
         batch_rewrite_status = st;
       } else {
-        WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
-                                  value_with_ts);
+        st = WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
+                                       value_with_ts);
       }
-      return Status::OK();
+      return st;
     }
     Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
-      WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
-      return Status::OK();
+      return WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
     }
     void LogData(const Slice& blob) override { updates_ttl.PutLogData(blob); }
 
@@ -306,8 +308,11 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
     Env* env_;
   };
   Handler handler(GetEnv());
-  updates->Iterate(&handler);
-  if (!handler.batch_rewrite_status.ok()) {
+  Status st = updates->Iterate(&handler);
+  if (!st.ok()) {
+    handler.batch_rewrite_status.PermitUncheckedError();
+    return st;
+  } else if (!handler.batch_rewrite_status.ok()) {
     return handler.batch_rewrite_status;
   } else {
     return db_->Write(opts, &(handler.updates_ttl));
