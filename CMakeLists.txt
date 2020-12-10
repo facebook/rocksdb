@@ -831,6 +831,20 @@ set(SOURCES
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
         $<TARGET_OBJECTS:build_version>)
 
+list(APPEND SOURCE
+  utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/keyrange.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/lock_request.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/locktree.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/manager.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/range_buffer.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/treenode.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/txnid_set.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/wfg.cc
+  utilities/transactions/lock/range/range_tree/lib/standalone_port.cc
+  utilities/transactions/lock/range/range_tree/lib/util/dbt.cc
+  utilities/transactions/lock/range/range_tree/lib/util/memarena.cc)
+
 if(HAVE_SSE42 AND NOT MSVC)
   set_source_files_properties(
     util/crc32c.cc

@@ -106,10 +106,8 @@ std::string WalDeletion::DebugString() const {
 
 Status WalSet::AddWal(const WalAddition& wal) {
   if (wal.GetLogNumber() < min_wal_number_to_keep_) {
-    std::stringstream ss;
-    ss << "min_wal_number_to_keep is " << min_wal_number_to_keep_ << ", so WAL "
-       << wal.GetLogNumber() << " is obsolete";
-    return Status::Corruption("WalSet::AddWal", ss.str());
+    // The WAL has been obsolete, ignore it.
+    return Status::OK();
   }
 
   auto it = wals_.lower_bound(wal.GetLogNumber());
@@ -149,7 +147,10 @@ Status WalSet::AddWals(const WalAdditions& wals) {
 }
 
 Status WalSet::DeleteWalsBefore(WalNumber wal) {
-  wals_.erase(wals_.begin(), wals_.lower_bound(wal));
+  if (wal > min_wal_number_to_keep_) {
+    min_wal_number_to_keep_ = wal;
+    wals_.erase(wals_.begin(), wals_.lower_bound(wal));
+  }
   return Status::OK();
 }
 
