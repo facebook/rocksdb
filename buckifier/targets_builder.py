@@ -90,7 +90,7 @@ cpp_binary(
 ) if not is_opt_mode else None
 
 custom_unittest(
-    "c_test",
+    name = "c_test",
     command = [
         native.package_name() + "/buckifier/rocks_test_runner.sh",
         "$(location :{})".format("c_test_bin"),
