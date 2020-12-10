@@ -335,6 +335,12 @@ Status ExternalSstFileIngestionJob::Run() {
   // with the files we are ingesting
   bool need_flush = false;
   status = NeedsFlush(&need_flush, super_version);
+  if (!status.ok()) {
+    return status;
+  }
+  if (need_flush) {
+    return Status::TryAgain();
+  }
   assert(status.ok() && need_flush == false);
 #endif
 

@@ -826,6 +826,14 @@ class VersionSetTestBase {
               versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
   }
 
+  void ReopenDB() {
+    versions_.reset(
+        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+                       &write_buffer_manager_, &write_controller_,
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+    EXPECT_OK(versions_->Recover(column_families_, false));
+  }
+
   void VerifyManifest(std::string* manifest_path) const {
     assert(manifest_path != nullptr);
     uint64_t manifest_file_number = 0;
@@ -2998,6 +3006,27 @@ TEST_F(VersionSetTestMissingFiles, NoFileMissing) {
     } else {
       ASSERT_TRUE(files.empty());
     }
+  }
+}
+
+TEST_F(VersionSetTestMissingFiles, MinLogNumberToKeep2PC) {
+  NewDB();
+
+  SstInfo sst(100, kDefaultColumnFamilyName, "a");
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles({sst}, &file_metas);
+
+  constexpr WalNumber kMinWalNumberToKeep2PC = 10;
+  VersionEdit edit;
+  edit.AddFile(0, file_metas[0]);
+  edit.SetMinLogNumberToKeep(kMinWalNumberToKeep2PC);
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
+  ASSERT_EQ(versions_->min_log_number_to_keep_2pc(), kMinWalNumberToKeep2PC);
+
+  for (int i = 0; i < 3; i++) {
+    CreateNewManifest();
+    ReopenDB();
+    ASSERT_EQ(versions_->min_log_number_to_keep_2pc(), kMinWalNumberToKeep2PC);
   }
 }
 

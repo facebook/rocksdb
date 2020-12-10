@@ -22,12 +22,13 @@ uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   return default_cf_handle_->cfd()->current()->storage_info()->NumLevelBytes(0);
 }
 
-void DBImpl::TEST_SwitchWAL() {
+Status DBImpl::TEST_SwitchWAL() {
   WriteContext write_context;
   InstrumentedMutexLock l(&mutex_);
   void* writer = TEST_BeginWrite();
-  SwitchWAL(&write_context);
+  auto s = SwitchWAL(&write_context);
   TEST_EndWrite(writer);
+  return s;
 }
 
 bool DBImpl::TEST_WALBufferIsEmpty(bool lock) {

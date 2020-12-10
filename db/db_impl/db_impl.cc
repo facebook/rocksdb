@@ -1324,11 +1324,7 @@ Status DBImpl::MarkLogsSynced(uint64_t up_to, bool synced_dir) {
     assert(wal.getting_synced);
     if (logs_.size() > 1) {
       if (immutable_db_options_.track_and_verify_wals_in_manifest &&
-          wal.writer->file()->GetFileSize() > 0 &&
-          wal.number >= versions_->GetWalSet().GetMinWalNumberToKeep()) {
-        // wal.number might < min_wal_number_to_keep when
-        // the WAL becomes obsolete after flushing, but not deleted from disk
-        // yet, then SyncWAL is called.
+          wal.writer->file()->GetFileSize() > 0) {
         synced_wals.AddWal(wal.number,
                            WalMetadata(wal.writer->file()->GetFileSize()));
       }

@@ -5285,6 +5285,17 @@ Status VersionSet::WriteCurrentStateToManifest(
       assert(iter != curr_state.end());
       uint64_t log_number = iter->second.log_number;
       edit.SetLogNumber(log_number);
+
+      if (cfd->GetID() == 0) {
+        // min_log_number_to_keep is for the whole db, not for specific column family.
+        // So it does not need to be set for every column family, just need to be set once.
+        // Since default CF can never be dropped, we set the min_log to the default CF here.
+        uint64_t min_log = min_log_number_to_keep_2pc();
+        if (min_log != 0) {
+          edit.SetMinLogNumberToKeep(min_log);
+        }
+      }
+
       const std::string& full_history_ts_low = iter->second.full_history_ts_low;
       if (!full_history_ts_low.empty()) {
         edit.SetFullHistoryTsLow(full_history_ts_low);

@@ -488,13 +488,9 @@ Status MemTableList::TryInstallMemtableFlushResults(
 
       std::unique_ptr<VersionEdit> wal_deletion;
       if (vset->db_options()->track_and_verify_wals_in_manifest) {
-        vset->SetMinWalNumberToKeepInWalSet(min_wal_number_to_keep);
-        const auto& wals = vset->GetWalSet().GetWals();
-        if (!wals.empty() && min_wal_number_to_keep > wals.begin()->first) {
-          wal_deletion.reset(new VersionEdit);
-          wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
-          edit_list.push_back(wal_deletion.get());
-        }
+        wal_deletion.reset(new VersionEdit);
+        wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
+        edit_list.push_back(wal_deletion.get());
       }
 
       const auto manifest_write_cb = [this, cfd, batch_count, log_buffer,
@@ -758,14 +754,10 @@ Status InstallMemtableAtomicFlushResults(
       min_wal_number_to_keep =
           PrecomputeMinLogNumberToKeepNon2PC(vset, cfds, edit_lists);
     }
-    vset->SetMinWalNumberToKeepInWalSet(min_wal_number_to_keep);
-    const auto& wals = vset->GetWalSet().GetWals();
-    if (!wals.empty() && min_wal_number_to_keep > wals.begin()->first) {
-      wal_deletion.reset(new VersionEdit);
-      wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
-      edit_lists.back().push_back(wal_deletion.get());
-      ++num_entries;
-    }
+    wal_deletion.reset(new VersionEdit);
+    wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
+    edit_lists.back().push_back(wal_deletion.get());
+    ++num_entries;
   }
 
   // Mark the version edits as an atomic group if the number of version edits

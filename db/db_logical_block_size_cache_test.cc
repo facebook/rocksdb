@@ -401,7 +401,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
   ColumnFamilyOptions cf_options0;
   cf_options0.cf_paths = {{cf_path_0_, 1024}};
   ColumnFamilyHandle* cf0;
-  db0->CreateColumnFamily(cf_options0, "cf", &cf0);
+  ASSERT_OK(db0->CreateColumnFamily(cf_options0, "cf", &cf0));
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
   ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
@@ -421,7 +421,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
   ColumnFamilyOptions cf_options1;
   cf_options1.cf_paths = {{cf_path_1_, 1024}};
   ColumnFamilyHandle* cf1;
-  db1->CreateColumnFamily(cf_options1, "cf", &cf1);
+  ASSERT_OK(db1->CreateColumnFamily(cf_options1, "cf", &cf1));
   ASSERT_EQ(4, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
   ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
@@ -432,7 +432,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
   ASSERT_TRUE(cache_->Contains(cf_path_1_));
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_1_));
 
-  db0->DestroyColumnFamilyHandle(cf0);
+  ASSERT_OK(db0->DestroyColumnFamilyHandle(cf0));
   delete db0;
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_1_));
@@ -441,7 +441,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithDifferentPaths) {
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_1_));
   ASSERT_OK(DestroyDB(data_path_0_, options, {{"cf", cf_options0}}));
 
-  db1->DestroyColumnFamilyHandle(cf1);
+  ASSERT_OK(db1->DestroyColumnFamilyHandle(cf1));
   delete db1;
   ASSERT_EQ(0, cache_->Size());
   ASSERT_OK(DestroyDB(data_path_1_, options, {{"cf", cf_options1}}));
@@ -466,7 +466,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
   ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
 
   ColumnFamilyHandle* cf0;
-  db0->CreateColumnFamily(cf_options, "cf", &cf0);
+  ASSERT_OK(db0->CreateColumnFamily(cf_options, "cf", &cf0));
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
   ASSERT_EQ(1, cache_->GetRefCount(data_path_0_));
@@ -482,14 +482,14 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
 
   ColumnFamilyHandle* cf1;
-  db1->CreateColumnFamily(cf_options, "cf", &cf1);
+  ASSERT_OK(db1->CreateColumnFamily(cf_options, "cf", &cf1));
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
   ASSERT_EQ(2, cache_->GetRefCount(data_path_0_));
   ASSERT_TRUE(cache_->Contains(cf_path_0_));
   ASSERT_EQ(2, cache_->GetRefCount(cf_path_0_));
 
-  db0->DestroyColumnFamilyHandle(cf0);
+  ASSERT_OK(db0->DestroyColumnFamilyHandle(cf0));
   delete db0;
   ASSERT_EQ(2, cache_->Size());
   ASSERT_TRUE(cache_->Contains(data_path_0_));
@@ -498,7 +498,7 @@ TEST_F(DBLogicalBlockSizeCacheTest, MultiDBWithSamePaths) {
   ASSERT_EQ(1, cache_->GetRefCount(cf_path_0_));
   ASSERT_OK(DestroyDB(dbname_ + "/db0", options, {{"cf", cf_options}}));
 
-  db1->DestroyColumnFamilyHandle(cf1);
+  ASSERT_OK(db1->DestroyColumnFamilyHandle(cf1));
   delete db1;
   ASSERT_EQ(0, cache_->Size());
   ASSERT_OK(DestroyDB(dbname_ + "/db1", options, {{"cf", cf_options}}));
