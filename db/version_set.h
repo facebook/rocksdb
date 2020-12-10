@@ -1332,7 +1332,7 @@ class VersionSet {
   std::string db_id_;
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
-  // Any log number equal or lower than this should be ignored during recovery,
+  // Any WAL number smaller than this should be ignored during recovery,
   // and is qualified for being deleted in 2PC mode. In non-2PC mode, this
   // number is ignored.
   std::atomic<uint64_t> min_log_number_to_keep_2pc_ = {0};
