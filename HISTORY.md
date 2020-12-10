@@ -2,6 +2,7 @@
 ## 6.15.1 (12/01/2020)
 ### Bug Fixes
 * Truncated WALs ending in incomplete records can no longer produce gaps in the recovered data when `WALRecoveryMode::kPointInTimeRecovery` is used. Gaps are still possible when WALs are truncated exactly on record boundaries.
+* Fix a bug where compressed blocks read by MultiGet are not inserted into the compressed block cache when use_direct_reads = true.
 
 ## 6.15.0 (11/13/2020)
 ### Bug Fixes
