@@ -55,5 +55,8 @@ gen_proto:
 db_fuzzer: librocksdb db_fuzzer.cc
 	$(CC) $(CCFLAGS) -o db_fuzzer db_fuzzer.cc $(CFLAGS) $(LDFLAGS)
 
+db_map_fuzzer: librocksdb gen_proto db_map_fuzzer.cc proto/gen/db_operation.pb.cc
+	$(CC) $(CCFLAGS) -o db_map_fuzzer db_map_fuzzer.cc proto/gen/db_operation.pb.cc $(CFLAGS) $(LDFLAGS)
+
 sst_file_writer_fuzzer: librocksdb gen_proto sst_file_writer_fuzzer.cc proto/gen/db_operation.pb.cc
 	$(CC) $(CCFLAGS) -o sst_file_writer_fuzzer sst_file_writer_fuzzer.cc proto/gen/db_operation.pb.cc $(CFLAGS) $(LDFLAGS)
