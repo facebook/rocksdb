@@ -1821,13 +1821,21 @@ void BlockBasedTable::RetrieveMultipleBlocks(
 
     if (s.ok()) {
       // When the blocks share the same underlying buffer (scratch or direct io
-      // buffer), if the block is compressed, the shared buffer will be
-      // uncompressed into heap during uncompressing; otherwise, we need to
-      // manually copy the block into heap before inserting the block to block
-      // cache.
+      // buffer), we may need to manually copy the block into heap if the raw
+      // block has to be inserted into a cache. That falls into th following
+      // cases -
+      // 1. Raw block is not compressed, it needs to be inserted into the
+      //    uncompressed block cache if there is one
+      // 2. If the raw block is compressed, it needs to be inserted into the
+      //    compressed block cache if there is one
+      //
+      // In all other cases, the raw block is either uncompressed into a heap
+      // buffer or there is no cache at all.
       CompressionType compression_type =
           raw_block_contents.get_compression_type();
-      if (use_shared_buffer && compression_type == kNoCompression) {
+      if (use_shared_buffer && (compression_type == kNoCompression ||
+                                (compression_type != kNoCompression &&
+                                 rep_->table_options.block_cache_compressed))) {
         Slice raw = Slice(req.result.data() + req_offset, block_size(handle));
         raw_block_contents = BlockContents(
             CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
