@@ -77,7 +77,7 @@ class SstFileManagerImpl : public SstFileManager {
   // the full compaction size).
   bool EnoughRoomForCompaction(ColumnFamilyData* cfd,
                                const std::vector<CompactionInputFiles>& inputs,
-                               Status& bg_error);
+                               const Status& bg_error);
 
   // Bookkeeping so total_file_sizes_ goes back to normal after compaction
   // finishes

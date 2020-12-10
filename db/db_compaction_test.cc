@@ -416,11 +416,11 @@ TEST_P(DBCompactionTestWithParam, CompactionsPreserveDeletes) {
 
     // check that normal user iterator doesn't see anything
     Iterator* db_iter = dbfull()->NewIterator(ReadOptions());
-    ASSERT_OK(db_iter->status());
     int i = 0;
     for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
       i++;
     }
+    ASSERT_OK(db_iter->status());
     ASSERT_EQ(i, 0);
     delete db_iter;
 
@@ -1119,7 +1119,7 @@ TEST_F(DBCompactionTest, ZeroSeqIdCompaction) {
     ASSERT_OK(Put(key, std::string(key_len, 'A')));
     snaps.push_back(dbfull()->GetSnapshot());
   }
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
   // move both files down to l1
@@ -2080,18 +2080,8 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionThirdPath) {
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
   options.max_subcompactions = max_subcompactions_;
-  //  options = CurrentOptions(options);
 
-  std::vector<std::string> filenames;
-  ASSERT_TRUE(
-      env_->GetChildren(options.db_paths[1].path, &filenames).IsNotFound());
-  // Delete archival files.
-  for (size_t i = 0; i < filenames.size(); ++i) {
-    ASSERT_OK(env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]));
-  }
-  Status s = env_->DeleteDir(options.db_paths[1].path);
-  ASSERT_TRUE(s.ok() || s.IsPathNotFound());
-  Reopen(options);
+  DestroyAndReopen(options);
 
   Random rnd(301);
   int key_idx = 0;
@@ -2199,19 +2189,8 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionPathUse) {
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
   options.max_subcompactions = max_subcompactions_;
-  //  options = CurrentOptions(options);
 
-  std::vector<std::string> filenames;
-  ASSERT_TRUE(
-      env_->GetChildren(options.db_paths[1].path, &filenames).IsNotFound());
-  // Delete archival files.
-  for (size_t i = 0; i < filenames.size(); ++i) {
-    Status s = env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]);
-    ASSERT_TRUE(s.ok() || s.IsPathNotFound());
-  }
-  Status s = env_->DeleteDir(options.db_paths[1].path);
-  ASSERT_TRUE(s.ok() || s.IsPathNotFound());
-  Reopen(options);
+  DestroyAndReopen(options);
 
   Random rnd(301);
   int key_idx = 0;
@@ -2961,7 +2940,6 @@ TEST_P(DBCompactionTestWithParam, DeleteMovedFileAfterCompaction) {
     options.max_bytes_for_level_base = 1024 * 1024;  // 1 MB
     Reopen(options);
     std::unique_ptr<Iterator> iterator(db_->NewIterator(ReadOptions()));
-    ASSERT_OK(iterator->status());
     ASSERT_EQ("0,1", FilesPerLevel(0));
     // let compactions go
     sleeping_task.WakeUp();
@@ -2994,6 +2972,7 @@ TEST_P(DBCompactionTestWithParam, DeleteMovedFileAfterCompaction) {
     ASSERT_OK(env_->FileExists(dbname_ + moved_file_name));
 
     listener->SetExpectedFileName(dbname_ + moved_file_name);
+    ASSERT_OK(iterator->status());
     iterator.reset();
 
     // this file should have been compacted away
@@ -5277,8 +5256,13 @@ TEST_F(DBCompactionTest, ConsistencyFailTest) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   for (int k = 0; k < 2; ++k) {
-    Put("foo", "bar").PermitUncheckedError();
-    Flush().PermitUncheckedError();
+    ASSERT_OK(Put("foo", "bar"));
+    Status s = Flush();
+    if (k < 1) {
+      ASSERT_OK(s);
+    } else {
+      ASSERT_TRUE(s.IsCorruption());
+    }
   }
 
   ASSERT_NOK(Put("foo", "bar"));
