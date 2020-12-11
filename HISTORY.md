@@ -16,7 +16,7 @@
 * User defined timestamp feature supports `CompactRange` and `GetApproximateSizes`.
 
 ### Public API Change
-* Deprecated public but rarely-used FilterBitsBuilder::CalculateNumEntry, which is replaced with CalculateNumEntries taking a size_t parameter and returning size_t.
+* Deprecated public but rarely-used FilterBitsBuilder::CalculateNumEntry, which is replaced with ApproximateNumEntries taking a size_t parameter and returning size_t.
 
 ## 6.15.0 (11/13/2020)
 ### Bug Fixes

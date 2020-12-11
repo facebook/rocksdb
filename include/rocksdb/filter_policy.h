@@ -51,18 +51,19 @@ class FilterBitsBuilder {
   // The ownership of actual data is set to buf
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
 
-  // Calculate num of keys that can be added and generate a filter
-  // <= the specified number of bytes, though callers (including RocksDB)
-  // should only rely on that for performance, not correctness.
-  // This default implementation is for old API compatibility.
-  virtual size_t CalculateNumEntries(size_t bytes) {
+  // Approximate the number of keys that can be added and generate a filter
+  // <= the specified number of bytes. Callers (including RocksDB) should
+  // only use this result for optimizing performance and not as a guarantee.
+  // This default implementation is for compatibility with older custom
+  // FilterBitsBuilders only implementing deprecated CalculateNumEntry.
+  virtual size_t ApproximateNumEntries(size_t bytes) {
     bytes = std::min(bytes, size_t{0xffffffff});
     return static_cast<size_t>(CalculateNumEntry(static_cast<uint32_t>(bytes)));
   }
 
-  // Old, DEPRECATED version of CalculateNumEntries. This is not
+  // Old, DEPRECATED version of ApproximateNumEntries. This is not
   // called by RocksDB except as the default implementation of
-  // CalculateNumEntries for API compatibility.
+  // ApproximateNumEntries for API compatibility.
   virtual int CalculateNumEntry(const uint32_t bytes) {
     // DEBUG: ideally should not rely on this implementation
     assert(false);
