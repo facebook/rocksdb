@@ -2292,10 +2292,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   mutex_.Unlock();
   ASSERT_OK(s);
   ASSERT_EQ(1, called);
-  if (cfd_to_drop->Unref()) {
-    delete cfd_to_drop;
-    cfd_to_drop = nullptr;
-  }
+  cfd_to_drop->UnrefAndTryDelete();
 }
 
 INSTANTIATE_TEST_CASE_P(
