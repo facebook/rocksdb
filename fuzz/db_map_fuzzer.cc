@@ -12,28 +12,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/file_system.h"
 #include "src/libfuzzer/libfuzzer_macro.h"
-
-#define CHECK_OK(expression)                       \
-  do {                                             \
-    auto status = (expression);                    \
-    if (!status.ok()) {                            \
-      std::cerr << status.ToString() << std::endl; \
-      abort();                                     \
-    }                                              \
-  } while (0)
-
-#define CHECK_EQ(a, b)                                                      \
-  if (a != b) {                                                             \
-    std::cerr << "(" << #a << "=" << a << ") != (" << #b << "=" << b << ")" \
-              << std::endl;                                                 \
-    abort();                                                                \
-  }
-
-#define CHECK_TRUE(cond)                                      \
-  if (!(cond)) {                                              \
-    std::cerr << "\"" << #cond << "\" is false" << std::endl; \
-    abort();                                                  \
-  }
+#include "util.h"
 
 protobuf_mutator::libfuzzer::PostProcessorRegistration<DBOperations> reg = {
     [](DBOperations* input, unsigned int /* seed */) {
@@ -79,6 +58,9 @@ DEFINE_PROTO_FUZZER(DBOperations& input) {
       case OpType::PUT: {
         CHECK_OK(db->Put(rocksdb::WriteOptions(), op.key(), op.value()));
         kv[op.key()] = op.value();
+        break;
+      }
+      case OpType::MERGE: {
         break;
       }
       case OpType::DELETE: {
