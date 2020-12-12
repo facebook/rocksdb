@@ -21,6 +21,7 @@
 
 #include <stdlib.h>
 
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -50,23 +51,25 @@ class FilterBitsBuilder {
   // The ownership of actual data is set to buf
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
 
-  // Calculate num of keys that can be added and generate a filter
-  // <= the specified number of bytes.
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable : 4702)  // unreachable code
-#endif
-  virtual int CalculateNumEntry(const uint32_t /*bytes*/) {
-#ifndef ROCKSDB_LITE
-    throw std::runtime_error("CalculateNumEntry not Implemented");
-#else
-    abort();
-#endif
-    return 0;
+  // Approximate the number of keys that can be added and generate a filter
+  // <= the specified number of bytes. Callers (including RocksDB) should
+  // only use this result for optimizing performance and not as a guarantee.
+  // This default implementation is for compatibility with older custom
+  // FilterBitsBuilders only implementing deprecated CalculateNumEntry.
+  virtual size_t ApproximateNumEntries(size_t bytes) {
+    bytes = std::min(bytes, size_t{0xffffffff});
+    return static_cast<size_t>(CalculateNumEntry(static_cast<uint32_t>(bytes)));
   }
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
+
+  // Old, DEPRECATED version of ApproximateNumEntries. This is not
+  // called by RocksDB except as the default implementation of
+  // ApproximateNumEntries for API compatibility.
+  virtual int CalculateNumEntry(const uint32_t bytes) {
+    // DEBUG: ideally should not rely on this implementation
+    assert(false);
+    // RELEASE: something reasonably conservative: 2 bytes per entry
+    return static_cast<int>(bytes / 2);
+  }
 };
 
 // A class that checks if a key can be in filter
