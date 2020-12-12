@@ -833,8 +833,8 @@ ifneq ($(DEBUG_LEVEL),0)
   LIBDEBUG=_debug
 endif
 endif
-STATIC_LIBRARY = ${LIBNAME}$(LIBDEBUG).a
-STATIC_TEST_LIBRARY =  ${LIBNAME}_test$(LIBDEBUG).a
+STATIC_LIBRARY ?= ${LIBNAME}$(LIBDEBUG).a
+STATIC_TEST_LIBRARY = ${LIBNAME}_test$(LIBDEBUG).a
 STATIC_TOOLS_LIBRARY = ${LIBNAME}_tools$(LIBDEBUG).a
 STATIC_STRESS_LIBRARY = ${LIBNAME}_stress$(LIBDEBUG).a
 
@@ -918,6 +918,40 @@ all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
 all_but_some_tests: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(ROCKSDBTESTS_SUBSET)
 
 static_lib: $(STATIC_LIBRARY)
+
+ifeq ($(PLATFORM), OS_MACOSX)
+# Cross-compilation requires macOS BigSur (Darwin 20) or newer
+OSX_VER = $(shell uname -r)
+ifneq (,$(findstring 20.,$(OSX_VER)))
+INTEL_STATIC_LIB = $(subst .a,-x86_64.a,$(STATIC_LIBRARY))
+ARM_STATIC_LIB = $(subst .a,-arm64.a,$(STATIC_LIBRARY))
+
+# Universal Binary of static library for macOS
+static_lib_ub:
+	TARGET_ARCHITECTURE=x86_64 STATIC_LIBRARY=$(INTEL_STATIC_LIB) $(MAKE) static_lib
+	ACTUAL_ARCHITECTURE=`lipo -archs $(INTEL_STATIC_LIB)`; \
+	if [ "$$ACTUAL_ARCHITECTURE" != "x86_64" ]; then \
+		echo "Expected $(INTEL_STATIC_LIB) to be x86_64, but was $$ACTUAL_ARCHITECTURE"; \
+		exit 1; \
+	fi
+	mv $(INTEL_STATIC_LIB) $(INTEL_STATIC_LIB).bak.ub
+	$(MAKE) clean
+	TARGET_ARCHITECTURE=arm64 STATIC_LIBRARY=$(ARM_STATIC_LIB) $(MAKE) static_lib
+	ACTUAL_ARCHITECTURE=`lipo -archs $(ARM_STATIC_LIB)`; \
+	if [ "$$ACTUAL_ARCHITECTURE" != "arm64" ]; then \
+		echo "Expected $(ARM_STATIC_LIB) to be arm64, but was $$ACTUAL_ARCHITECTURE"; \
+		exit 1; \
+	fi
+	mv $(INTEL_STATIC_LIB).bak.ub $(INTEL_STATIC_LIB)
+	lipo -create -output $(STATIC_LIBRARY) $(INTEL_STATIC_LIB) $(ARM_STATIC_LIB)
+	ACTUAL_ARCHITECTURE=`lipo -archs $(STATIC_LIBRARY)`; \
+	if [ "$$ACTUAL_ARCHITECTURE" != "x86_64 arm64" ]; then \
+		echo "Expected $(STATIC_LIBRARY) to be x86_64 and arm64, but was $$ACTUAL_ARCHITECTURE"; \
+		exit 1; \
+	fi
+
+endif
+endif
 
 shared_lib: $(SHARED)
 

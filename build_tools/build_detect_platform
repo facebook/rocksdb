@@ -634,6 +634,8 @@ if test "0$PORTABLE" -eq 0; then
     COMMON_FLAGS="$COMMON_FLAGS -mcpu=$POWER -mtune=$POWER "
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
     COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
+  elif [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
+    COMMON_FLAGS="$COMMON_FLAGS -target $TARGET_ARCHITECTURE-apple-macos"
   elif test -n "`echo $TARGET_ARCHITECTURE | grep -e^arm -e^aarch64`"; then
     # TODO: Handle this with approprite options.
     COMMON_FLAGS="$COMMON_FLAGS"
@@ -657,11 +659,11 @@ else
 
   if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
     # For portability compile for macOS 10.12 (2016) or newer
-    COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.12"
-    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.12"
-    PLATFORM_SHARED_LDFLAGS="$PLATFORM_SHARED_LDFLAGS -mmacosx-version-min=10.12"
+    COMMON_FLAGS="$COMMON_FLAGS -target $TARGET_ARCHITECTURE-apple-macos -mmacosx-version-min=10.12"
+    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -target $TARGET_ARCHITECTURE-apple-macos -mmacosx-version-min=10.12"
+    PLATFORM_SHARED_LDFLAGS="$PLATFORM_SHARED_LDFLAGS -target $TARGET_ARCHITECTURE-apple-macos -mmacosx-version-min=10.12"
     PLATFORM_CMAKE_FLAGS="-DCMAKE_OSX_DEPLOYMENT_TARGET=10.12"
-    JAVA_STATIC_DEPS_COMMON_FLAGS="-mmacosx-version-min=10.12"
+    JAVA_STATIC_DEPS_COMMON_FLAGS="-target $TARGET_ARCHITECTURE-apple-macos -mmacosx-version-min=10.12"
     JAVA_STATIC_DEPS_LDFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
     JAVA_STATIC_DEPS_CCFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
     JAVA_STATIC_DEPS_CXXFLAGS="$JAVA_STATIC_DEPS_COMMON_FLAGS"
