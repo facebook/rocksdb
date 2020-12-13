@@ -88,7 +88,9 @@ NATIVE_JAVA_CLASSES = \
 	org.rocksdb.WriteBufferManager\
 	org.rocksdb.WBWIRocksIterator
 
-NATIVE_JAVA_TEST_CLASSES = org.rocksdb.RocksDBExceptionTest\
+NATIVE_JAVA_TEST_CLASSES = \
+    org.rocksdb.RocksDBExceptionTest\
+    org.rocksdb.test.TestableEventListener\
     org.rocksdb.NativeComparatorWrapperTest.NativeStringComparatorWrapper\
     org.rocksdb.WriteBatchTest\
     org.rocksdb.WriteBatchTestInternalHelper
