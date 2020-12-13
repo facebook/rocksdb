@@ -356,38 +356,50 @@ jobs:
     machine:
       image: ubuntu-1604:202007-01
     resource_class: 2xlarge
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
     steps:
       - pre-steps
       - install-gflags
       - run:
-          name: "Build RocksDBJava"
+          name: "Set Java Environment"
           command: |
-            export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk-amd64
-            export PATH=$JAVA_HOME/bin:$PATH
             echo "JAVA_HOME=${JAVA_HOME}"
+            echo "export PATH=$JAVA_HOME/bin:$PATH" >> $BASH_ENV
             which java && java -version
             which javac && javac -version
-            make V=1 J=32 -j32 rocksdbjava jtest | .circleci/cat_ignore_eagain
+      - run:
+          name: "Build RocksDBJava"
+          command: make V=1 J=32 -j32 rocksdbjava | .circleci/cat_ignore_eagain
+      - run:
+          name: "Test RocksDBJava"
+          command: make V=1 J=32 -j32 jtest | .circleci/cat_ignore_eagain
       - post-steps
 
   build-macos-java:
     macos:
       xcode: 9.4.1
     resource_class: 2xlarge
+    environment:
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/jdk1.8.0_172.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
       - install-gflags-on-macos
       - pre-steps
       - run:
-          name: "Build RocksDBJava"
+          name: "Set Java Environment"
           command: |
-            export JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk1.8.0_172.jdk/Contents/Home
-            export PATH=$JAVA_HOME/bin:$PATH
             echo "JAVA_HOME=${JAVA_HOME}"
+            echo "export PATH=$JAVA_HOME/bin:$PATH" >> $BASH_ENV
             which java && java -version
             which javac && javac -version
-            make V=1 J=32 -j32 rocksdbjava jtest | .circleci/cat_ignore_eagain
+      - run:
+          name: "Build RocksDBJava"
+          command: make V=1 J=32 -j32 rocksdbjava | .circleci/cat_ignore_eagain
+      - run:
+          name: "Test RocksDBJava"
+          command: make V=1 J=32 -j32 jtest | .circleci/cat_ignore_eagain
       - post-steps
 
   build-examples:
