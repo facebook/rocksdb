@@ -370,6 +370,26 @@ jobs:
             make V=1 J=32 -j32 rocksdbjava jtest | .circleci/cat_ignore_eagain
       - post-steps
 
+  build-macos-java:
+    macos:
+      xcode: 9.4.1
+    resource_class: 2xlarge
+    steps:
+      - increase-max-open-files-on-macos
+      - install-pyenv-on-macos
+      - install-gflags-on-macos
+      - pre-steps
+      - run:
+          name: "Build RocksDBJava"
+          command: |
+            export JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk1.8.0_172.jdk/Contents/Home
+            export PATH=$JAVA_HOME/bin:$PATH
+            echo "JAVA_HOME=${JAVA_HOME}"
+            which java && java -version
+            which javac && javac -version
+            make V=1 J=32 -j32 rocksdbjava jtest | .circleci/cat_ignore_eagain
+      - post-steps
+
   build-examples:
     machine:
       image: ubuntu-1604:202007-01
@@ -502,6 +522,7 @@ workflows:
   build-java:
     jobs:
       - build-linux-java
+      - build-macos-java
   build-examples:
     jobs:
       - build-examples
