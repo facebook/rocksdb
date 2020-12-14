@@ -5,7 +5,6 @@
 #ifndef OS_WIN
 
 #include "range_tree_lock_tracker.h"
-
 #include "range_tree_lock_manager.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -15,7 +14,7 @@ RangeLockList *RangeTreeLockTracker::getOrCreateList() {
   if ((res = getList())) return res;
 
   // Doesn't exist, create
-  range_list.reset(new RangeLockList());
+  range_list_.reset(new RangeLockList());
   return getList();
 }
 
@@ -25,7 +24,7 @@ void RangeTreeLockTracker::Track(const PointLockRequest &lock_req) {
   serialize_endpoint(Endpoint(lock_req.key, false), &key);
   toku_fill_dbt(&key_dbt, key.data(), key.size());
   RangeLockList *rl = getOrCreateList();
-  rl->append(lock_req.column_family_id, &key_dbt, &key_dbt);
+  rl->Append(lock_req.column_family_id, &key_dbt, &key_dbt);
 }
 
 void RangeTreeLockTracker::Track(const RangeLockRequest &lock_req) {
@@ -39,7 +38,7 @@ void RangeTreeLockTracker::Track(const RangeLockRequest &lock_req) {
   toku_fill_dbt(&end_dbt, end_key.data(), end_key.size());
 
   RangeLockList *rl = getOrCreateList();
-  rl->append(lock_req.column_family_id, &start_dbt, &end_dbt);
+  rl->Append(lock_req.column_family_id, &start_dbt, &end_dbt);
 }
 
 PointLockStatus RangeTreeLockTracker::GetPointLockStatus(
@@ -57,7 +56,7 @@ PointLockStatus RangeTreeLockTracker::GetPointLockStatus(
 
 void RangeTreeLockTracker::Clear() {
   // This will delete the RangeLockList and cause a proper cleanup
-  range_list = nullptr;
+  range_list_ = nullptr;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -18,24 +18,20 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class RangeLockList;
-
-/*
-  Storage for locks that are currently held by a transaction.
-
-  Locks are kept in toku::range_buffer because toku::locktree::release_locks()
-  accepts that as an argument.
-
-  Note: the list of locks may differ slighly from the contents of the lock
-  tree, due to concurrency between lock acquisition, lock release, and lock
-  escalation. See MDEV-18227 and RangeTreeLockManager::UnLock for details.
-  This property is currently harmless.
-*/
-class RangeLockList /*: public PessimisticTransaction::Lock--Storage */ {
+// Storage for locks that are currently held by a transaction.
+//
+// Locks are kept in toku::range_buffer because toku::locktree::release_locks()
+// accepts that as an argument.
+//
+// Note: the list of locks may differ slighly from the contents of the lock
+// tree, due to concurrency between lock acquisition, lock release, and lock
+// escalation. See MDEV-18227 and RangeTreeLockManager::UnLock for details.
+// This property is currently harmless.
+class RangeLockList {
  public:
-  virtual ~RangeLockList() { clear(); }
+  virtual ~RangeLockList() { Clear(); }
 
-  void clear() {
+  void Clear() {
     for (auto it : buffers_) {
       it.second->destroy();
     }
@@ -44,7 +40,7 @@ class RangeLockList /*: public PessimisticTransaction::Lock--Storage */ {
 
   RangeLockList() : releasing_locks_(false) {}
 
-  void append(uint32_t cf_id, const DBT* left_key, const DBT* right_key) {
+  void Append(uint32_t cf_id, const DBT* left_key, const DBT* right_key) {
     MutexLock l(&mutex_);
     // there's only one thread that calls this function.
     // the same thread will do lock release.
@@ -63,16 +59,15 @@ class RangeLockList /*: public PessimisticTransaction::Lock--Storage */ {
 
   std::unordered_map<uint32_t, std::shared_ptr<toku::range_buffer>> buffers_;
 
+// psergey-todo: private?
   // Synchronization. See RangeTreeLockManager::UnLock for details
   port::Mutex mutex_;
   bool releasing_locks_;
 };
 
-// Tracks range locks
-
 class RangeTreeLockTracker : public LockTracker {
  public:
-  RangeTreeLockTracker() : range_list(nullptr) {}
+  RangeTreeLockTracker() : range_list_(nullptr) {}
 
   RangeTreeLockTracker(const RangeTreeLockTracker&) = delete;
   RangeTreeLockTracker& operator=(const RangeTreeLockTracker&) = delete;
@@ -125,11 +120,11 @@ class RangeTreeLockTracker : public LockTracker {
   }
 
   // Non-override (TODO: make private!)
-  RangeLockList* getList() { return range_list.get(); }
+  RangeLockList* getList() { return range_list_.get(); }
   RangeLockList* getOrCreateList();
 
  private:
-  std::shared_ptr<RangeLockList> range_list;
+  std::shared_ptr<RangeLockList> range_list_;
 };
 
 class RangeTreeLockTrackerFactory : public LockTrackerFactory {

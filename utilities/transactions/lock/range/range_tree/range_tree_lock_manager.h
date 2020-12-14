@@ -21,9 +21,7 @@ using namespace toku;
 
 typedef DeadlockInfoBufferTempl<RangeDeadlockPath> RangeDeadlockInfoBuffer;
 
-/*
-  A Range Lock Manager that uses PerconaFT's locktree library
-*/
+// A Range Lock Manager that uses PerconaFT's locktree library
 class RangeTreeLockManager : public RangeLockManagerBase,
                              public RangeLockManagerHandle {
  public:

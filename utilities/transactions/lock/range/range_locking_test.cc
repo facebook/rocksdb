@@ -1,10 +1,6 @@
 #ifndef ROCKSDB_LITE
 #ifndef OS_WIN
 
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif
-
 #include <algorithm>
 #include <functional>
 #include <string>
@@ -39,12 +35,11 @@ class RangeLockingTest : public ::testing::Test {
     dbname = test::PerThreadDBPath("range_locking_testdb");
 
     DestroyDB(dbname, options);
-    Status s;
 
     range_lock_mgr.reset(NewRangeLockManager(nullptr));
     txn_db_options.lock_mgr_handle = range_lock_mgr;
 
-    s = TransactionDB::Open(options, txn_db_options, dbname, &db);
+    auto s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     assert(s.ok());
   }
 
@@ -77,10 +72,7 @@ TEST_F(RangeLockingTest, BasicRangeLocking) {
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
 
   // Get a range lock
-  {
-    auto s = txn0->GetRangeLock(cf, Endpoint("a"), Endpoint("c"));
-    ASSERT_EQ(s, Status::OK());
-  }
+  ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("a"), Endpoint("c")));
 
   // Check that range Lock inhibits an overlapping range lock
   {
@@ -95,12 +87,10 @@ TEST_F(RangeLockingTest, BasicRangeLocking) {
   }
 
   // Get a point lock, check that it inhibits range locks
+  ASSERT_OK(txn0->Put(cf, Slice("n"), Slice("value")));
   {
-    auto s = txn0->Put(cf, Slice("n"), Slice("value"));
-    ASSERT_EQ(s, Status::OK());
-
-    auto s2 = txn1->GetRangeLock(cf, Endpoint("m"), Endpoint("p"));
-    ASSERT_TRUE(s2.IsTimedOut());
+    auto s = txn1->GetRangeLock(cf, Endpoint("m"), Endpoint("p"));
+    ASSERT_TRUE(s.IsTimedOut());
   }
 
   ASSERT_OK(txn0->Commit());
@@ -118,8 +108,7 @@ TEST_F(RangeLockingTest, MyRocksLikeUpdate) {
   Status s;
 
   // Get a range lock for the range we are about to update
-  s = txn0->GetRangeLock(cf, Endpoint("a"), Endpoint("c"));
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("a"), Endpoint("c")));
 
   bool try_range_lock_called = false;
 
@@ -130,12 +119,12 @@ TEST_F(RangeLockingTest, MyRocksLikeUpdate) {
 
   // For performance reasons, the following must NOT call lock_mgr->TryLock():
   // We verify that by checking the value of try_range_lock_called.
-  s = txn0->Put(cf, Slice("b"), Slice("value"), /*assume_tracked=*/true);
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(txn0->Put(cf, Slice("b"), Slice("value"),
+                      /*assume_tracked=*/true));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
-  ASSERT_EQ(try_range_lock_called, false);
+  ASSERT_FALSE(try_range_lock_called);
 
   txn0->Rollback();
 
@@ -155,12 +144,11 @@ TEST_F(RangeLockingTest, SnapshotValidation) {
   auto txn1 = NewTxn();
   txn1->SetSnapshot();
   std::string val1;
-  s = txn1->Get(ReadOptions(), cfh, key_slice, &val1);
-  ASSERT_TRUE(s.ok());
+  ASSERT_OK(txn1->Get(ReadOptions(), cfh, key_slice, &val1));
+  ASSERT_EQ(val1, "initial");
   val1 = val1 + std::string("-txn1");
 
-  s = txn1->Put(cfh, key_slice, Slice(val1));
-  ASSERT_TRUE(s.ok());
+  ASSERT_OK(txn1->Put(cfh, key_slice, Slice(val1)));
 
   // txn2
   auto txn2 = NewTxn();
@@ -168,12 +156,11 @@ TEST_F(RangeLockingTest, SnapshotValidation) {
   std::string val2;
   // This will see the original value as nothing is committed
   // This is also Get, so it is doesn't acquire any locks.
-  s = txn2->Get(ReadOptions(), cfh, key_slice, &val2);
-  ASSERT_TRUE(s.ok());
+  ASSERT_OK(txn2->Get(ReadOptions(), cfh, key_slice, &val2));
+  ASSERT_EQ(val2, "initial");
 
   // txn1
-  s = txn1->Commit();
-  ASSERT_TRUE(s.ok());
+  ASSERT_OK(txn1->Commit());
 
   // txn2
   val2 = val2 + std::string("-txn2");
@@ -181,10 +168,9 @@ TEST_F(RangeLockingTest, SnapshotValidation) {
   s = txn2->Put(cfh, key_slice, Slice(val2));
   ASSERT_TRUE(s.IsBusy());
 
-  s = txn2->Commit();
-  ASSERT_TRUE(s.ok());
+  ASSERT_OK(txn2->Commit());
 
-  /*
+  /* psergey-todo:
     // Not meaningful if s.IsBusy() above is true:
     // Examine the result
     auto txn3= NewTxn();
@@ -201,21 +187,17 @@ TEST_F(RangeLockingTest, MultipleTrxLockStatusData) {
   WriteOptions write_options;
   TransactionOptions txn_options;
   auto cf = db->DefaultColumnFamily();
-  Status s;
 
   Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
 
   // Get a range lock
-  s = txn0->GetRangeLock(cf, Endpoint("z"), Endpoint("z"));
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(txn0->GetRangeLock(cf, Endpoint("z"), Endpoint("z")));
+  ASSERT_OK(txn1->GetRangeLock(cf, Endpoint("b"), Endpoint("e")));
 
-  s = txn1->GetRangeLock(cf, Endpoint("b"), Endpoint("e"));
-  ASSERT_EQ(s, Status::OK());
+  auto s = range_lock_mgr->GetRangeLockStatusData();
 
-  auto s2 = range_lock_mgr->GetRangeLockStatusData();
-
-  ASSERT_EQ(s2.size(), 2);
+  ASSERT_EQ(s.size(), 2);
   delete txn0;
   delete txn1;
 }
@@ -238,8 +220,7 @@ TEST_F(RangeLockingTest, BasicLockEscalation) {
   for (int i = 0; i < 2020; i++) {
     char buf[32];
     snprintf(buf, sizeof(buf) - 1, "%08d", i);
-    auto s = txn0->GetRangeLock(cf, Endpoint(buf), Endpoint(buf));
-    ASSERT_EQ(s, Status::OK());
+    ASSERT_OK(txn0->GetRangeLock(cf, Endpoint(buf), Endpoint(buf)));
   }
   counters = range_lock_mgr->GetStatus();
   ASSERT_GE(counters.escalation_count, 0);

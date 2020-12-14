@@ -109,13 +109,11 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
 
   request.start();
 
-  /*
-    If we are going to wait on the lock, we should set appropriate status in
-    the 'txn' object. This is done by the SetWaitingTxn() call below.
-    The API we are using are MariaDB's wait notification API, so the way this
-    is done is a bit convoluted.
-    In MyRocks, the wait details are visible in I_S.rocksdb_trx.
-  */
+  // If we are going to wait on the lock, we should set appropriate status in
+  // the 'txn' object. This is done by the SetWaitingTxn() call below.
+  // The API we are using are MariaDB's wait notification API, so the way this
+  // is done is a bit convoluted.
+  // In MyRocks, the wait details are visible in I_S.rocksdb_trx.
   std::string key_str(start_key.data(), start_key.size());
   struct st_wait_info {
     PessimisticTransaction* txn;
@@ -154,7 +152,7 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
   request.destroy();
   switch (r) {
     case 0:
-      break; /* fall through */
+      break; // fall through
     case DB_LOCK_NOTGRANTED:
       return Status::TimedOut(Status::SubCode::kLockTimeout);
     case TOKUDB_OUT_OF_LOCKS:
@@ -222,31 +220,29 @@ void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
   if (range_list) {
     {
       MutexLock l(&range_list->mutex_);
-      /*
-        The lt->release_locks() call below will walk range_list->buffer_. We
-        need to prevent lock escalation callback from replacing
-        range_list->buffer_ while we are doing that.
-
-        Additional complication here is internal mutex(es) in the locktree
-        (let's call them latches):
-        - Lock escalation first obtains latches on the lock tree
-        - Then, it calls RangeTreeLockManager::on_escalate to replace
-        transaction's range_list->buffer_. = Access to that buffer must be
-        synchronized, so it will want to acquire the range_list->mutex_.
-
-        While in this function we would want to do the reverse:
-        - Acquire range_list->mutex_ to prevent access to the range_list.
-        - Then, lt->release_locks() call will walk through the range_list
-        - and acquire latches on parts of the lock tree to remove locks from
-          it.
-
-        How do we avoid the deadlock? The idea is that here we set
-        releasing_locks_=true, and release the mutex.
-        All other users of the range_list must:
-        - Acquire the mutex, then check that releasing_locks_=false.
-          (the code in this function doesnt do that as there's only one thread
-           that releases transaction's locks)
-      */
+      // The lt->release_locks() call below will walk range_list->buffer_. We
+      // need to prevent lock escalation callback from replacing
+      // range_list->buffer_ while we are doing that.
+      //
+      // Additional complication here is internal mutex(es) in the locktree
+      // (let's call them latches):
+      // - Lock escalation first obtains latches on the lock tree
+      // - Then, it calls RangeTreeLockManager::on_escalate to replace
+      // transaction's range_list->buffer_. = Access to that buffer must be
+      // synchronized, so it will want to acquire the range_list->mutex_.
+      //
+      // While in this function we would want to do the reverse:
+      // - Acquire range_list->mutex_ to prevent access to the range_list.
+      // - Then, lt->release_locks() call will walk through the range_list
+      // - and acquire latches on parts of the lock tree to remove locks from
+      //   it.
+      //
+      // How do we avoid the deadlock? The idea is that here we set
+      // releasing_locks_=true, and release the mutex.
+      // All other users of the range_list must:
+      // - Acquire the mutex, then check that releasing_locks_=false.
+      //   (the code in this function doesnt do that as there's only one thread
+      //    that releases transaction's locks)
       range_list->releasing_locks_ = true;
     }
 
@@ -265,7 +261,7 @@ void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
         toku::lock_request::retry_all_lock_requests(lt, nullptr);
       }
     }
-    range_list->clear();  // TODO: need this?
+    range_list->Clear();  // TODO: need this?
     range_list->releasing_locks_ = false;
   }
 }
@@ -361,16 +357,13 @@ std::vector<DeadlockPath> RangeTreeLockManager::GetDeadlockInfoBuffer() {
   return res;
 }
 
-/*
-  @brief  Lock Escalation Callback function
-
-  @param txnid   Transaction whose locks got escalated
-  @param lt      Lock Tree where escalation is happening
-  @param buffer  Escalation result: list of locks that this transaction now
-                 owns in this lock tree.
-  @param void*   Callback context
-*/
-
+// @brief  Lock Escalation Callback function
+//
+// @param txnid   Transaction whose locks got escalated
+// @param lt      Lock Tree where escalation is happening
+// @param buffer  Escalation result: list of locks that this transaction now
+//                owns in this lock tree.
+// @param void*   Callback context
 void RangeTreeLockManager::on_escalate(TXNID txnid, const locktree* lt,
                                        const range_buffer& buffer, void*) {
   auto txn = (PessimisticTransaction*)txnid;
@@ -380,11 +373,9 @@ void RangeTreeLockManager::on_escalate(TXNID txnid, const locktree* lt,
 
   MutexLock l(&trx_locks->mutex_);
   if (trx_locks->releasing_locks_) {
-    /*
-      Do nothing. The transaction is releasing its locks, so it will not care
-      about having a correct list of ranges. (In TokuDB,
-      toku_db_txn_escalate_callback() makes use of this property, too)
-    */
+    // Do nothing. The transaction is releasing its locks, so it will not care
+    // about having a correct list of ranges. (In TokuDB,
+    // toku_db_txn_escalate_callback() makes use of this property, too)
     return;
   }
 
