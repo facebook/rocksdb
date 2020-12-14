@@ -145,9 +145,6 @@ inline void UnPackSequenceAndType(uint64_t packed, uint64_t* seq,
                                   ValueType* t) {
   *seq = packed >> 8;
   *t = static_cast<ValueType>(packed & 0xff);
-
-  assert(*seq <= kMaxSequenceNumber);
-  assert(IsExtendedValueType(*t));
 }
 
 EntryType GetEntryType(ValueType value_type);

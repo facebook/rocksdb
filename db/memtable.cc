@@ -517,6 +517,10 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
+#ifndef NDEBUG
+  Slice encoded(buf, encoded_len);
+  TEST_SYNC_POINT_CALLBACK("MemTable::Add:Encoded", &encoded);
+#endif  // NDEBUG
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
   Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz);
 
