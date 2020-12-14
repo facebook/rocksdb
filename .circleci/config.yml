@@ -364,7 +364,7 @@ jobs:
   build-linux-java:
     machine:
       image: ubuntu-1604:202007-01
-    resource_class: 2xlarge
+    resource_class: large
     environment:
       JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
     steps:
@@ -378,17 +378,17 @@ jobs:
             which java && java -version
             which javac && javac -version
       - run:
-          name: "Build RocksDBJava"
-          command: make V=1 J=32 -j32 rocksdbjava | .circleci/cat_ignore_eagain
+          name: "Build RocksDBJava Shared Library"
+          command: make V=1 J=8 -j8 rocksdbjava | .circleci/cat_ignore_eagain
       - run:
           name: "Test RocksDBJava"
-          command: make V=1 J=32 -j32 jtest | .circleci/cat_ignore_eagain
+          command: make V=1 J=8 -j8 jtest | .circleci/cat_ignore_eagain
       - post-steps
 
   build-macos-java:
     macos:
       xcode: 9.4.1
-    resource_class: 2xlarge
+    resource_class: medium
     environment:
       JAVA_HOME: /Library/Java/JavaVirtualMachines/jdk1.8.0_172.jdk/Contents/Home
     steps:
@@ -404,11 +404,11 @@ jobs:
             which java && java -version
             which javac && javac -version
       - run:
-          name: "Build RocksDBJava"
-          command: make V=1 J=32 -j32 rocksdbjava | .circleci/cat_ignore_eagain
+          name: "Build RocksDBJava Shared Library"
+          command: make V=1 J=8 -j8 rocksdbjava | .circleci/cat_ignore_eagain
       - run:
           name: "Test RocksDBJava"
-          command: make V=1 J=32 -j32 jtest | .circleci/cat_ignore_eagain
+          command: make V=1 J=8 -j8 jtest | .circleci/cat_ignore_eagain
       - post-steps
 
   build-examples:
