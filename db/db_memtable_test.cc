@@ -171,8 +171,8 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
     if (!insert_dup) {
       seq++;
     }
-    s = mem->Add(seq, kTypeValue, "foo", "value" + ToString(seq),
-                 nullptr /* kv_prot_info */);
+    Status s = mem->Add(seq, kTypeValue, "foo", "value" + ToString(seq),
+                        nullptr /* kv_prot_info */);
     if (insert_dup) {
       ASSERT_TRUE(s.IsTryAgain());
     } else {

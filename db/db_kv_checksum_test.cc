@@ -34,9 +34,63 @@ class DbKvChecksumTest
     corrupt_byte_addend_ = std::get<1>(GetParam());
   }
 
+  std::pair<WriteBatch, Status> GetWriteBatch(size_t ts_sz,
+                                              ColumnFamilyHandle* cf_handle) {
+    Status s;
+    WriteBatch wb(0 /* reserved_bytes */, 0 /* max_bytes */, ts_sz,
+                  true /* _protected */);
+    switch (op_type_) {
+      case WriteBatchOpType::kPut:
+        s = wb.Put(cf_handle, "key", "val");
+        break;
+      case WriteBatchOpType::kDelete:
+        s = wb.Delete(cf_handle, "key");
+        break;
+      case WriteBatchOpType::kSingleDelete:
+        s = wb.SingleDelete(cf_handle, "key");
+        break;
+      case WriteBatchOpType::kDeleteRange:
+        s = wb.DeleteRange(cf_handle, "begin", "end");
+        break;
+      case WriteBatchOpType::kMerge:
+        s = wb.Merge(cf_handle, "key", "val");
+        break;
+      case WriteBatchOpType::kBlobIndex:
+        // TODO(ajkr): use public API once available.
+        uint32_t cf_id;
+        if (cf_handle == nullptr) {
+          cf_id = 0;
+        } else {
+          cf_id = cf_handle->GetID();
+        }
+        s = WriteBatchInternal::PutBlobIndex(&wb, cf_id, "key", "val");
+        break;
+      case WriteBatchOpType::kNum:
+        assert(false);
+    }
+    return {std::move(wb), std::move(s)};
+  }
+
+  void CorruptNextByteCallBack(void* arg) {
+    Slice encoded = *static_cast<Slice*>(arg);
+    if (entry_len_ == port::kMaxSizet) {
+      // We learn the entry size on the first attempt
+      entry_len_ = encoded.size();
+    }
+    // All entries should be the same size
+    assert(entry_len_ == encoded.size());
+    char* buf = const_cast<char*>(encoded.data());
+    buf[corrupt_byte_offset_] += corrupt_byte_addend_;
+    ++corrupt_byte_offset_;
+  }
+
+  bool MoreBytesToCorrupt() { return corrupt_byte_offset_ < entry_len_; }
+
  protected:
   WriteBatchOpType op_type_;
   char corrupt_byte_addend_;
+  size_t corrupt_byte_offset_ = 0;
+  size_t entry_len_ = port::kMaxSizet;
 };
 
 std::string GetTestNameSuffix(
@@ -78,26 +132,16 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(DbKvChecksumTest, MemTableAddCorrupted) {
   // This test repeatedly attempts to write `WriteBatch`es containing a single
-  // entry of type `op_type_`. Each attempt has one byte corrupted by adding
-  // `corrupt_byte_addend_` to its original value. The test repeats until an
-  // attempt has been made on each byte in the encoded memtable entry. All
-  // attempts are expected to fail with `Status::Corruption`.
-  size_t corrupt_byte_offset = 0;
-  size_t memtable_entry_len = port::kMaxSizet;
+  // entry of type `op_type_`. Each attempt has one byte corrupted in its
+  // memtable entry by adding `corrupt_byte_addend_` to its original value. The
+  // test repeats until an attempt has been made on each byte in the encoded
+  // memtable entry. All attempts are expected to fail with `Status::Corruption`
   SyncPoint::GetInstance()->SetCallBack(
-      "MemTable::Add:Encoded", [&](void* arg) {
-        Slice encoded = *static_cast<Slice*>(arg);
-        if (memtable_entry_len == port::kMaxSizet) {
-          // We learn the entry size on the first attempt
-          memtable_entry_len = encoded.size();
-        }
-        // All entries should be the same size
-        assert(memtable_entry_len == encoded.size());
-        char* buf = const_cast<char*>(encoded.data());
-        buf[corrupt_byte_offset] += corrupt_byte_addend_;
-      });
+      "MemTable::Add:Encoded",
+      std::bind(&DbKvChecksumTest::CorruptNextByteCallBack, this,
+                std::placeholders::_1));
 
-  while (corrupt_byte_offset < memtable_entry_len) {
+  while (MoreBytesToCorrupt()) {
     // Failed memtable insert always leads to read-only mode, so we have to
     // reopen for every attempt.
     Options options = CurrentOptions();
@@ -105,37 +149,45 @@ TEST_P(DbKvChecksumTest, MemTableAddCorrupted) {
       options.merge_operator = MergeOperators::CreateStringAppendOperator();
     }
     Reopen(options);
-    SyncPoint::GetInstance()->EnableProcessing();
 
-    WriteBatch wb(0 /* reserved_bytes */, 0 /* max_bytes */, 0 /* ts_sz */,
-                  true /* _protected */);
-    switch (op_type_) {
-      case WriteBatchOpType::kPut:
-        ASSERT_OK(wb.Put("key", "val"));
-        break;
-      case WriteBatchOpType::kDelete:
-        ASSERT_OK(wb.Delete("key"));
-        break;
-      case WriteBatchOpType::kSingleDelete:
-        ASSERT_OK(wb.SingleDelete("key"));
-        break;
-      case WriteBatchOpType::kDeleteRange:
-        ASSERT_OK(wb.DeleteRange("begin", "end"));
-        break;
-      case WriteBatchOpType::kMerge:
-        ASSERT_OK(wb.Merge("key", "val"));
-        break;
-      case WriteBatchOpType::kBlobIndex:
-        // TODO(ajkr): use public API once available.
-        ASSERT_OK(WriteBatchInternal::PutBlobIndex(
-            &wb, 0 /* column_family_id */, "key", "val"));
-        break;
-      case WriteBatchOpType::kNum:
-        assert(false);
-    }
-    ASSERT_TRUE(db_->Write(WriteOptions(), &wb).IsCorruption());
+    SyncPoint::GetInstance()->EnableProcessing();
+    auto batch_and_status =
+        GetWriteBatch(0 /* ts_sz */, nullptr /* cf_handle */);
+    ASSERT_OK(batch_and_status.second);
+    ASSERT_TRUE(
+        db_->Write(WriteOptions(), &batch_and_status.first).IsCorruption());
     SyncPoint::GetInstance()->DisableProcessing();
-    ++corrupt_byte_offset;
+  }
+}
+
+TEST_P(DbKvChecksumTest, MemTableAddWithColumnFamilyCorrupted) {
+  // This test repeatedly attempts to write `WriteBatch`es containing a single
+  // entry of type `op_type_` to a non-default column family. Each attempt has
+  // one byte corrupted in its memtable entry by adding `corrupt_byte_addend_`
+  // to its original value. The test repeats until an attempt has been made on
+  // each byte in the encoded memtable entry. All attempts are expected to fail
+  // with `Status::Corruption`.
+  Options options = CurrentOptions();
+  if (op_type_ == WriteBatchOpType::kMerge) {
+    options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  }
+  CreateAndReopenWithCF({"pikachu"}, options);
+  SyncPoint::GetInstance()->SetCallBack(
+      "MemTable::Add:Encoded",
+      std::bind(&DbKvChecksumTest::CorruptNextByteCallBack, this,
+                std::placeholders::_1));
+
+  while (MoreBytesToCorrupt()) {
+    // Failed memtable insert always leads to read-only mode, so we have to
+    // reopen for every attempt.
+    ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
+
+    SyncPoint::GetInstance()->EnableProcessing();
+    auto batch_and_status = GetWriteBatch(0 /* ts_sz */, handles_[1]);
+    ASSERT_OK(batch_and_status.second);
+    ASSERT_TRUE(
+        db_->Write(WriteOptions(), &batch_and_status.first).IsCorruption());
+    SyncPoint::GetInstance()->DisableProcessing();
   }
 }
 
