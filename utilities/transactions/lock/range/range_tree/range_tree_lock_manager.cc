@@ -403,7 +403,6 @@ void RangeTreeLockManager::on_escalate(TXNID txnid, const locktree* lt,
 }
 
 RangeTreeLockManager::~RangeTreeLockManager() {
-
   autovector<void*> local_caches;
   ltree_lookup_cache_->Scrape(&local_caches, nullptr);
   for (auto cache : local_caches) {

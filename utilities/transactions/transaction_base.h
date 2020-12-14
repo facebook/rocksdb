@@ -251,6 +251,7 @@ class TransactionBaseImpl : public Transaction {
   WriteBatch* GetCommitTimeWriteBatch() override;
 
   LockTracker& GetTrackedLocks() { return *tracked_locks_; }
+
  protected:
   // Add a key to the list of tracked keys.
   //
