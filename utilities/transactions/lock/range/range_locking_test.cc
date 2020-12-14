@@ -170,14 +170,6 @@ TEST_F(RangeLockingTest, SnapshotValidation) {
 
   ASSERT_OK(txn2->Commit());
 
-  /* psergey-todo:
-    // Not meaningful if s.IsBusy() above is true:
-    // Examine the result
-    auto txn3= NewTxn();
-    std::string val3;
-    Status s3 = txn3->Get(ReadOptions(), cfh, key_slice, &val3);
-    fprintf(stderr, "Final: %s\n", val3.c_str());
-  */
   delete txn0;
   delete txn1;
   delete txn2;
@@ -196,8 +188,25 @@ TEST_F(RangeLockingTest, MultipleTrxLockStatusData) {
   ASSERT_OK(txn1->GetRangeLock(cf, Endpoint("b"), Endpoint("e")));
 
   auto s = range_lock_mgr->GetRangeLockStatusData();
-
   ASSERT_EQ(s.size(), 2);
+  for (auto it = s.begin(); it!= s.end(); ++it) {
+    ASSERT_EQ(it->first, cf->GetID());
+    auto val= it->second;
+    ASSERT_FALSE(val.start.inf_suffix);
+    ASSERT_FALSE(val.end.inf_suffix);
+    ASSERT_TRUE(val.exclusive);
+    ASSERT_EQ(val.ids.size(), 1);
+    if (val.ids[0] == txn0->GetID()) {
+      ASSERT_EQ(val.start.slice, "z");
+      ASSERT_EQ(val.end.slice, "z");
+    } else if (val.ids[0] == txn1->GetID()) {
+      ASSERT_EQ(val.start.slice, "b");
+      ASSERT_EQ(val.end.slice, "e");
+    } else {
+      FAIL(); // Unknown transaction ID.
+    }
+  }
+
   delete txn0;
   delete txn1;
 }
@@ -214,19 +223,19 @@ TEST_F(RangeLockingTest, BasicLockEscalation) {
   ASSERT_EQ(0, range_lock_mgr->SetMaxLockMemory(2000));
 
   // Insert until we see lock escalations
-  auto txn0 = NewTxn();
+  auto txn = NewTxn();
 
   // Get the locks until we hit an escalation
   for (int i = 0; i < 2020; i++) {
     char buf[32];
     snprintf(buf, sizeof(buf) - 1, "%08d", i);
-    ASSERT_OK(txn0->GetRangeLock(cf, Endpoint(buf), Endpoint(buf)));
+    ASSERT_OK(txn->GetRangeLock(cf, Endpoint(buf), Endpoint(buf)));
   }
   counters = range_lock_mgr->GetStatus();
-  ASSERT_GE(counters.escalation_count, 0);
+  ASSERT_GT(counters.escalation_count, 0);
   ASSERT_LE(counters.current_lock_memory, 2000);
 
-  delete txn0;
+  delete txn;
 }
 
 void PointLockManagerTestExternalSetup(PointLockManagerTest* self) {
