@@ -34,6 +34,9 @@ class WriteAmpBasedRateLimiter : public RateLimiter {
   // When auto-tuned is on, this sets rate limit's upper bound instead.
   virtual void SetBytesPerSecond(int64_t bytes_per_second) override;
 
+  // Dynamically change rate limiter's auto_tuned mode.
+  virtual void SetAutoTuned(bool auto_tuned) override;
+
   // Request for token to write bytes. If this request can not be satisfied,
   // the call is blocked. Caller is responsible to make sure
   // bytes <= GetSingleBurstBytes()
@@ -66,6 +69,10 @@ class WriteAmpBasedRateLimiter : public RateLimiter {
 
   virtual int64_t GetBytesPerSecond() const override {
     return rate_bytes_per_sec_;
+  }
+
+  virtual bool GetAutoTuned() const override {
+    return auto_tuned_.load(std::memory_order_acquire);
   }
 
   virtual void PaceUp() override;
@@ -108,7 +115,10 @@ class WriteAmpBasedRateLimiter : public RateLimiter {
   Req* leader_;
   std::deque<Req*> queue_[Env::IO_TOTAL];
 
-  bool auto_tuned_;
+  // only used to synchronize auto_tuned setters
+  port::Mutex auto_tuned_mutex_;
+
+  std::atomic<bool> auto_tuned_;
   std::atomic<int64_t> max_bytes_per_sec_;
   std::chrono::microseconds tuned_time_;
   int64_t duration_highpri_bytes_through_;

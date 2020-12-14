@@ -78,10 +78,30 @@ WriteAmpBasedRateLimiter::~WriteAmpBasedRateLimiter() {
 
 void WriteAmpBasedRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
   assert(bytes_per_second > 0);
-  if (auto_tuned_) {
+  if (auto_tuned_.load(std::memory_order_acquire)) {
     max_bytes_per_sec_.store(bytes_per_second, std::memory_order_relaxed);
   } else {
     SetActualBytesPerSecond(bytes_per_second);
+  }
+}
+
+void WriteAmpBasedRateLimiter::SetAutoTuned(bool auto_tuned) {
+  MutexLock g(&auto_tuned_mutex_);
+  if (auto_tuned_.load(std::memory_order_acquire) != auto_tuned) {
+    if (auto_tuned) {
+      max_bytes_per_sec_.store(rate_bytes_per_sec_, std::memory_order_relaxed);
+      refill_bytes_per_period_.store(
+          CalculateRefillBytesPerPeriod(rate_bytes_per_sec_),
+          std::memory_order_relaxed);
+    } else {
+      // must hold this lock to avoid tuner changing `rate_bytes_per_sec_`
+      MutexLock g2(&request_mutex_);
+      rate_bytes_per_sec_ = max_bytes_per_sec_.load(std::memory_order_relaxed);
+      refill_bytes_per_period_.store(
+          CalculateRefillBytesPerPeriod(rate_bytes_per_sec_),
+          std::memory_order_relaxed);
+    }
+    auto_tuned_.store(auto_tuned, std::memory_order_release);
   }
 }
 
@@ -100,7 +120,7 @@ void WriteAmpBasedRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   TEST_SYNC_POINT("WriteAmpBasedRateLimiter::Request");
   TEST_SYNC_POINT_CALLBACK("WriteAmpBasedRateLimiter::Request:1",
                            &rate_bytes_per_sec_);
-  if (auto_tuned_ && pri == Env::IO_HIGH &&
+  if (auto_tuned_.load(std::memory_order_acquire) && pri == Env::IO_HIGH &&
       duration_highpri_bytes_through_ + duration_bytes_through_ + bytes <=
           max_bytes_per_sec_.load(std::memory_order_relaxed) *
               kSecondsPerTune) {
@@ -112,7 +132,7 @@ void WriteAmpBasedRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
   assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
   MutexLock g(&request_mutex_);
 
-  if (auto_tuned_) {
+  if (auto_tuned_.load(std::memory_order_acquire)) {
     std::chrono::microseconds now(NowMicrosMonotonic(env_));
     if (now - tuned_time_ >= std::chrono::microseconds(kMicrosPerTune)) {
       Tune();
@@ -352,7 +372,7 @@ Status WriteAmpBasedRateLimiter::Tune() {
 }
 
 void WriteAmpBasedRateLimiter::PaceUp() {
-  if (auto_tuned_) {
+  if (auto_tuned_.load(std::memory_order_acquire)) {
     should_pace_up_.store(true, std::memory_order_relaxed);
   }
 }

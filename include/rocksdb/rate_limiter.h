@@ -51,6 +51,9 @@ class RateLimiter : public Customizable {
   // REQUIRED: bytes_per_second > 0
   virtual void SetBytesPerSecond(int64_t bytes_per_second) = 0;
 
+  // Dynamically change rate limiter's auto_tuned mode.
+  virtual void SetAutoTuned(bool /*auto_tuned*/) {}
+
   // Deprecated. New RateLimiter derived classes should override
   // Request(const int64_t, const Env::IOPriority, Statistics*) or
   // Request(const int64_t, const Env::IOPriority, Statistics*, OpType)
@@ -121,6 +124,8 @@ class RateLimiter : public Customizable {
   }
 
   virtual int64_t GetBytesPerSecond() const = 0;
+
+  virtual bool GetAutoTuned() const { return false; }
 
   virtual bool IsRateLimited(OpType op_type) {
     if ((mode_ == RateLimiter::Mode::kWritesOnly &&
