@@ -389,9 +389,6 @@ void RangeTreeLockManager::on_escalate(TXNID txnid, const locktree* lt,
     return;
   }
 
-  // TODO: are we tracking this mem:
-  // lt->get_manager()->note_mem_released(trx_locks->ranges.buffer->total_memory_size());
-
   uint32_t cf_id = (uint32_t)lt->get_dict_id().dictid;
 
   auto it = trx_locks->buffers_.find(cf_id);
@@ -404,8 +401,6 @@ void RangeTreeLockManager::on_escalate(TXNID txnid, const locktree* lt,
     it->second->append(rec.get_left_key(), rec.get_right_key());
     iter.next();
   }
-  // TODO: same as above:
-  // lt->get_manager()->note_mem_used(ranges.buffer->total_memory_size());
 }
 
 RangeTreeLockManager::~RangeTreeLockManager() {

@@ -220,6 +220,34 @@ TEST_F(RangeLockingTest, MultipleTrxLockStatusData) {
   delete txn1;
 }
 
+TEST_F(RangeLockingTest, BasicLockEscalation) {
+  auto cf = db->DefaultColumnFamily();
+
+  auto counters = range_lock_mgr->GetStatus();
+
+  // Initially not using any lock memory
+  ASSERT_EQ(counters.current_lock_memory, 0);
+  ASSERT_EQ(counters.escalation_count, 0);
+
+  ASSERT_EQ(0, range_lock_mgr->SetMaxLockMemory(2000));
+
+  // Insert until we see lock escalations
+  auto txn0= NewTxn();
+
+  // Get the locks until we hit an escalation
+  for (int i=0; i < 2020; i++) {
+    char buf[32];
+    snprintf(buf, sizeof(buf)-1, "%08d", i);
+    auto s = txn0->GetRangeLock(cf, Endpoint(buf), Endpoint(buf));
+    ASSERT_EQ(s, Status::OK());
+  }
+  counters = range_lock_mgr->GetStatus();
+  ASSERT_GE(counters.escalation_count, 0);
+  ASSERT_LE(counters.current_lock_memory, 2000);
+
+  delete txn0;
+}
+
 void PointLockManagerTestExternalSetup(PointLockManagerTest* self) {
   self->env_ = Env::Default();
   self->db_dir_ = test::PerThreadDBPath("point_lock_manager_test");
