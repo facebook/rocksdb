@@ -897,7 +897,7 @@ void MemTable::GetFromTable(const LookupKey& key,
 }
 
 void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                        ReadCallback* callback, bool* is_blob) {
+                        ReadCallback* callback) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -950,9 +950,9 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           range_del_iter->MaxCoveringTombstoneSeqnum(iter->lkey->user_key()));
     }
     GetFromTable(*(iter->lkey), iter->max_covering_tombstone_seq, true,
-                 callback, is_blob, iter->value->GetSelf(), iter->timestamp,
-                 iter->s, &(iter->merge_context), &seq, &found_final_value,
-                 &merge_in_progress);
+                 callback, &iter->is_blob_index, iter->value->GetSelf(),
+                 iter->timestamp, iter->s, &(iter->merge_context), &seq,
+                 &found_final_value, &merge_in_progress);
 
     if (!found_final_value && merge_in_progress) {
       *(iter->s) = Status::MergeInProgress();

@@ -1938,6 +1938,17 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         // TODO: update per-level perfcontext user_key_return_count for kMerge
         break;
       case GetContext::kFound:
+        if (fp.GetHitFileLevel() == 0) {
+          RecordTick(db_statistics_, GET_HIT_L0);
+        } else if (fp.GetHitFileLevel() == 1) {
+          RecordTick(db_statistics_, GET_HIT_L1);
+        } else if (fp.GetHitFileLevel() >= 2) {
+          RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
+        }
+
+        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
+                                  fp.GetHitFileLevel());
+
         if (is_blob_index) {
           if (do_merge && value) {
             *status = GetBlob(read_options, user_key, *value, value);
@@ -1950,15 +1961,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
           }
         }
 
-        if (fp.GetHitFileLevel() == 0) {
-          RecordTick(db_statistics_, GET_HIT_L0);
-        } else if (fp.GetHitFileLevel() == 1) {
-          RecordTick(db_statistics_, GET_HIT_L1);
-        } else if (fp.GetHitFileLevel() >= 2) {
-          RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
-        }
-        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
-                                  fp.GetHitFileLevel());
         return;
       case GetContext::kDeleted:
         // Use empty error message for speed
@@ -2008,7 +2010,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 }
 
 void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                       ReadCallback* callback, bool* is_blob) {
+                       ReadCallback* callback) {
   PinnedIteratorsManager pinned_iters_mgr;
 
   // Pin blocks that we read to hold merge operands
@@ -2033,7 +2035,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         iter->ukey_with_ts, iter->value, iter->timestamp, nullptr,
         &(iter->merge_context), true, &iter->max_covering_tombstone_seq,
         this->env_, nullptr, merge_operator_ ? &pinned_iters_mgr : nullptr,
-        callback, is_blob, tracing_mget_id);
+        callback, &iter->is_blob_index, tracing_mget_id);
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
     // be used for IO errors, and get_context state will be used for any
@@ -2135,10 +2137,27 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           } else if (fp.GetHitFileLevel() >= 2) {
             RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
           }
+
           PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
                                     fp.GetHitFileLevel());
-          file_range.AddValueSize(iter->value->size());
+
           file_range.MarkKeyDone(iter);
+
+          if (iter->is_blob_index) {
+            if (iter->value) {
+              *status = GetBlob(read_options, iter->ukey_with_ts, *iter->value,
+                                iter->value);
+              if (!status->ok()) {
+                if (status->IsIncomplete()) {
+                  get_context.MarkKeyMayExist();
+                }
+
+                continue;
+              }
+            }
+          }
+
+          file_range.AddValueSize(iter->value->size());
           if (file_range.GetValueSize() > read_options.value_size_soft_limit) {
             s = Status::Aborted();
             break;
