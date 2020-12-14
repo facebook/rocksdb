@@ -211,7 +211,7 @@ void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
       static_cast<const RangeTreeLockTracker*>(&tracker);
 
   RangeTreeLockTracker* range_trx_tracker =
-      static_cast<RangeTreeLockTracker*>(txn->tracked_locks_.get());
+      static_cast<RangeTreeLockTracker*>(&txn->GetTrackedLocks());
 
   bool all_keys = (range_trx_tracker == range_tracker);
 
@@ -365,8 +365,7 @@ std::vector<DeadlockPath> RangeTreeLockManager::GetDeadlockInfoBuffer() {
   @brief  Lock Escalation Callback function
 
   @param txnid   Transaction whose locks got escalated
-  @param lt      Lock Tree where escalation is happening (currently there is
-  only one)
+  @param lt      Lock Tree where escalation is happening
   @param buffer  Escalation result: list of locks that this transaction now
                  owns in this lock tree.
   @param void*   Callback context
@@ -377,7 +376,7 @@ void RangeTreeLockManager::on_escalate(TXNID txnid, const locktree* lt,
   auto txn = (PessimisticTransaction*)txnid;
 
   RangeLockList* trx_locks =
-      ((RangeTreeLockTracker*)txn->tracked_locks_.get())->getList();
+      ((RangeTreeLockTracker*)&txn->GetTrackedLocks())->getList();
 
   MutexLock l(&trx_locks->mutex_);
   if (trx_locks->releasing_locks_) {
@@ -404,7 +403,6 @@ void RangeTreeLockManager::on_escalate(TXNID txnid, const locktree* lt,
 }
 
 RangeTreeLockManager::~RangeTreeLockManager() {
-  // TODO: at this point, synchronization is not needed, right?
 
   autovector<void*> local_caches;
   ltree_lookup_cache_->Scrape(&local_caches, nullptr);
@@ -511,7 +509,6 @@ toku::locktree* RangeTreeLockManager::get_locktree_by_cfid(
     return nullptr;
   } else {
     // Found lock map.  Store in thread-local cache and return.
-    // std::shared_ptr<LockMap>& lock_map = lock_map_iter->second;
     ltree_map_cache->insert({column_family_id, it->second});
     return it->second;
   }

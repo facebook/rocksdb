@@ -232,12 +232,12 @@ TEST_F(RangeLockingTest, BasicLockEscalation) {
   ASSERT_EQ(0, range_lock_mgr->SetMaxLockMemory(2000));
 
   // Insert until we see lock escalations
-  auto txn0= NewTxn();
+  auto txn0 = NewTxn();
 
   // Get the locks until we hit an escalation
-  for (int i=0; i < 2020; i++) {
+  for (int i = 0; i < 2020; i++) {
     char buf[32];
-    snprintf(buf, sizeof(buf)-1, "%08d", i);
+    snprintf(buf, sizeof(buf) - 1, "%08d", i);
     auto s = txn0->GetRangeLock(cf, Endpoint(buf), Endpoint(buf));
     ASSERT_EQ(s, Status::OK());
   }
