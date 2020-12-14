@@ -374,7 +374,7 @@ jobs:
           name: "Set Java Environment"
           command: |
             echo "JAVA_HOME=${JAVA_HOME}"
-            echo "export PATH=$JAVA_HOME/bin:$PATH" >> $BASH_ENV
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
             which java && java -version
             which javac && javac -version
       - run:
@@ -398,7 +398,7 @@ jobs:
           name: "Set Java Environment"
           command: |
             echo "JAVA_HOME=${JAVA_HOME}"
-            echo "export PATH=$JAVA_HOME/bin:$PATH" >> $BASH_ENV
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
             which java && java -version
             which javac && javac -version
       - run:
@@ -421,7 +421,7 @@ jobs:
           name: "Set Java Environment"
           command: |
             echo "JAVA_HOME=${JAVA_HOME}"
-            echo "export PATH=$JAVA_HOME/bin:$PATH" >> $BASH_ENV
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
             which java && java -version
             which javac && javac -version
       - run:
@@ -448,7 +448,7 @@ jobs:
           name: "Set Java Environment"
           command: |
             echo "JAVA_HOME=${JAVA_HOME}"
-            echo "export PATH=$JAVA_HOME/bin:$PATH" >> $BASH_ENV
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
             which java && java -version
             which javac && javac -version
       - run:
