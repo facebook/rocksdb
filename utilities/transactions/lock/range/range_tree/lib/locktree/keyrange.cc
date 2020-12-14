@@ -107,13 +107,11 @@ void keyrange::extend(const comparator &cmp, const keyrange &range) {
 // - the size of the left and right keys
 // --- ignore the fact that we may have optimized the point case.
 //     it complicates things for little gain.
-// - the size of the keyrange class itself is NOT counted here. It is counted
-//   in concurrent_tree::get_insertion_memory_overhead, if we count it here
-//   we will count it twice.
+// - the size of the keyrange class itself
 uint64_t keyrange::get_memory_size(void) const {
   const DBT *left_key = get_left_key();
   const DBT *right_key = get_right_key();
-  return left_key->size + right_key->size;
+  return left_key->size + right_key->size + sizeof(keyrange);
 }
 
 // compare ranges.

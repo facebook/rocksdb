@@ -88,9 +88,9 @@ class RangeTreeLockManager : public RangeLockManagerBase,
     return RangeTreeLockTrackerFactory::Get();
   }
 
+  // Get the locktree which stores locks for the Column Family with given cf_id
+  toku::locktree* GetLockTreeForCF(ColumnFamilyId cf_id);
 
-  // Get the lock tree which stores locks for Column Family with given cf_id
-  toku::locktree* get_locktree_by_cfid(ColumnFamilyId cf_id);
  private:
   toku::locktree_manager ltm_;
 
@@ -109,8 +109,7 @@ class RangeTreeLockManager : public RangeLockManagerBase,
 
   RangeDeadlockInfoBuffer dlock_buffer_;
 
-  static int CompareDbtEndpoints(void* arg, const DBT* a_key,
-                                 const DBT* b_key);
+  static int CompareDbtEndpoints(void* arg, const DBT* a_key, const DBT* b_key);
 
   // Callbacks
   static int on_create(locktree*, void*) { return 0; /* no error */ }

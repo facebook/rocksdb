@@ -5,6 +5,7 @@
 #ifndef OS_WIN
 
 #include "range_tree_lock_tracker.h"
+
 #include "range_tree_lock_manager.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -59,8 +60,8 @@ void RangeTreeLockTracker::Clear() {
   range_list_ = nullptr;
 }
 
-void RangeLockList::Append(ColumnFamilyId cf_id, const DBT* left_key,
-                           const DBT* right_key) {
+void RangeLockList::Append(ColumnFamilyId cf_id, const DBT *left_key,
+                           const DBT *right_key) {
   MutexLock l(&mutex_);
   // Only the transaction owner thread calls this function.
   // The same thread does the lock release, so we can be certain nobody is
@@ -69,8 +70,10 @@ void RangeLockList::Append(ColumnFamilyId cf_id, const DBT* left_key,
   auto it = buffers_.find(cf_id);
   if (it == buffers_.end()) {
     // create a new one
-    it = buffers_.emplace(cf_id, std::shared_ptr<toku::range_buffer>(
-                           new toku::range_buffer())).first;
+    it = buffers_
+             .emplace(cf_id, std::shared_ptr<toku::range_buffer>(
+                                 new toku::range_buffer()))
+             .first;
     it->second->create();
   }
   it->second->append(left_key, right_key);
@@ -113,7 +116,7 @@ void RangeLockList::ReleaseLocks(RangeTreeLockManager *mgr,
     //  another transaction, and our attempt to release an empty set of locks
     //  will cause an assertion failure.
     if (it.second->get_num_ranges()) {
-      toku::locktree* lt = mgr->get_locktree_by_cfid(it.first);
+      toku::locktree *lt = mgr->GetLockTreeForCF(it.first);
       lt->release_locks((TXNID)txn, it.second.get(), all_trx_locks);
 
       it.second->destroy();

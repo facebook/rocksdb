@@ -78,7 +78,7 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
   // locktree::kill_waiter call. Do we need this anymore?
   TransactionID wait_txn_id = txn->GetID();
 
-  auto lt = get_locktree_by_cfid(column_family_id);
+  auto lt = GetLockTreeForCF(column_family_id);
 
   request.set(lt, (TXNID)txn, &start_key_dbt, &end_key_dbt,
               exclusive ? toku::lock_request::WRITE : toku::lock_request::READ,
@@ -173,7 +173,7 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
 void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
                                   ColumnFamilyId column_family_id,
                                   const std::string& key, Env*) {
-  auto locktree = get_locktree_by_cfid(column_family_id);
+  auto locktree = GetLockTreeForCF(column_family_id);
   std::string endp_image;
   serialize_endpoint({key.data(), key.size(), false}, &endp_image);
 
@@ -204,8 +204,7 @@ void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
   // acquired any locks.
   RangeLockList* range_list = ((RangeTreeLockTracker*)range_tracker)->getList();
 
-  if (range_list)
-    range_list->ReleaseLocks(this, txn, all_keys);
+  if (range_list) range_list->ReleaseLocks(this, txn, all_keys);
 }
 
 int RangeTreeLockManager::CompareDbtEndpoints(void* arg, const DBT* a_key,
@@ -397,7 +396,7 @@ void RangeTreeLockManager::RemoveColumnFamily(const ColumnFamilyHandle* cfh) {
   ltree_lookup_cache_->Scrape(&local_caches, nullptr);
 }
 
-toku::locktree* RangeTreeLockManager::get_locktree_by_cfid(
+toku::locktree* RangeTreeLockManager::GetLockTreeForCF(
     ColumnFamilyId column_family_id) {
   // First check thread-local cache
   if (ltree_lookup_cache_->Get() == nullptr) {

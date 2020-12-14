@@ -43,14 +43,14 @@ class RangeLockList {
 
   RangeLockList() : releasing_locks_(false) {}
 
-  void Append(ColumnFamilyId cf_id, const DBT* left_key,
-              const DBT* right_key);
-  void ReleaseLocks(RangeTreeLockManager *mgr, PessimisticTransaction *txn,
+  void Append(ColumnFamilyId cf_id, const DBT* left_key, const DBT* right_key);
+  void ReleaseLocks(RangeTreeLockManager* mgr, PessimisticTransaction* txn,
                     bool all_trx_locks);
-  void ReplaceLocks(const toku::locktree *lt,
-                    const toku::range_buffer &buffer);
+  void ReplaceLocks(const toku::locktree* lt, const toku::range_buffer& buffer);
+
  private:
-  std::unordered_map<ColumnFamilyId, std::shared_ptr<toku::range_buffer>> buffers_;
+  std::unordered_map<ColumnFamilyId, std::shared_ptr<toku::range_buffer>>
+      buffers_;
   port::Mutex mutex_;
   bool releasing_locks_;
 };
@@ -109,8 +109,8 @@ class RangeTreeLockTracker : public LockTracker {
     return nullptr;
   }
 
-  // Non-override (TODO: make private!)
   RangeLockList* getList() { return range_list_.get(); }
+
  private:
   RangeLockList* getOrCreateList();
   std::shared_ptr<RangeLockList> range_list_;
