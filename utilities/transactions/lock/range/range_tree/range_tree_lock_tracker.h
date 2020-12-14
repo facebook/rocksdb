@@ -11,12 +11,15 @@
 
 #include "util/mutexlock.h"
 #include "utilities/transactions/lock/lock_tracker.h"
+#include "utilities/transactions/pessimistic_transaction.h"
 
 // Range Locking:
 #include "lib/locktree/lock_request.h"
 #include "lib/locktree/locktree.h"
 
 namespace ROCKSDB_NAMESPACE {
+
+class RangeTreeLockManager;
 
 // Storage for locks that are currently held by a transaction.
 //
@@ -40,27 +43,14 @@ class RangeLockList {
 
   RangeLockList() : releasing_locks_(false) {}
 
-  void Append(uint32_t cf_id, const DBT* left_key, const DBT* right_key) {
-    MutexLock l(&mutex_);
-    // there's only one thread that calls this function.
-    // the same thread will do lock release.
-    assert(!releasing_locks_);
-    auto it = buffers_.find(cf_id);
-    if (it == buffers_.end()) {
-      // create a new one
-      it = buffers_
-               .emplace(cf_id, std::shared_ptr<toku::range_buffer>(
-                                   new toku::range_buffer()))
-               .first;
-      it->second->create();
-    }
-    it->second->append(left_key, right_key);
-  }
-
-  std::unordered_map<uint32_t, std::shared_ptr<toku::range_buffer>> buffers_;
-
-// psergey-todo: private?
-  // Synchronization. See RangeTreeLockManager::UnLock for details
+  void Append(ColumnFamilyId cf_id, const DBT* left_key,
+              const DBT* right_key);
+  void ReleaseLocks(RangeTreeLockManager *mgr, PessimisticTransaction *txn,
+                    bool all_trx_locks);
+  void ReplaceLocks(const toku::locktree *lt,
+                    const toku::range_buffer &buffer);
+ private:
+  std::unordered_map<ColumnFamilyId, std::shared_ptr<toku::range_buffer>> buffers_;
   port::Mutex mutex_;
   bool releasing_locks_;
 };
@@ -121,9 +111,8 @@ class RangeTreeLockTracker : public LockTracker {
 
   // Non-override (TODO: make private!)
   RangeLockList* getList() { return range_list_.get(); }
-  RangeLockList* getOrCreateList();
-
  private:
+  RangeLockList* getOrCreateList();
   std::shared_ptr<RangeLockList> range_list_;
 };
 

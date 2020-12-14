@@ -189,9 +189,9 @@ TEST_F(RangeLockingTest, MultipleTrxLockStatusData) {
 
   auto s = range_lock_mgr->GetRangeLockStatusData();
   ASSERT_EQ(s.size(), 2);
-  for (auto it = s.begin(); it!= s.end(); ++it) {
+  for (auto it = s.begin(); it != s.end(); ++it) {
     ASSERT_EQ(it->first, cf->GetID());
-    auto val= it->second;
+    auto val = it->second;
     ASSERT_FALSE(val.start.inf_suffix);
     ASSERT_FALSE(val.end.inf_suffix);
     ASSERT_TRUE(val.exclusive);
@@ -203,7 +203,7 @@ TEST_F(RangeLockingTest, MultipleTrxLockStatusData) {
       ASSERT_EQ(val.start.slice, "b");
       ASSERT_EQ(val.end.slice, "e");
     } else {
-      FAIL(); // Unknown transaction ID.
+      FAIL();  // Unknown transaction ID.
     }
   }
 

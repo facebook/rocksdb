@@ -88,6 +88,9 @@ class RangeTreeLockManager : public RangeLockManagerBase,
     return RangeTreeLockTrackerFactory::Get();
   }
 
+
+  // Get the lock tree which stores locks for Column Family with given cf_id
+  toku::locktree* get_locktree_by_cfid(ColumnFamilyId cf_id);
  private:
   toku::locktree_manager ltm_;
 
@@ -95,7 +98,7 @@ class RangeTreeLockManager : public RangeLockManagerBase,
 
   // Map from cf_id to locktree*. Can only be accessed while holding the
   // ltree_map_mutex_.
-  using LockTreeMap = std::unordered_map<uint32_t, locktree*>;
+  using LockTreeMap = std::unordered_map<ColumnFamilyId, locktree*>;
   LockTreeMap ltree_map_;
 
   InstrumentedMutex ltree_map_mutex_;
@@ -106,11 +109,8 @@ class RangeTreeLockManager : public RangeLockManagerBase,
 
   RangeDeadlockInfoBuffer dlock_buffer_;
 
-  // Get the lock tree which stores locks for Column Family with given cf_id
-  toku::locktree* get_locktree_by_cfid(uint32_t cf_id);
-
-  static int compare_dbt_endpoints(void* arg, const DBT* a_key,
-                                   const DBT* b_key);
+  static int CompareDbtEndpoints(void* arg, const DBT* a_key,
+                                 const DBT* b_key);
 
   // Callbacks
   static int on_create(locktree*, void*) { return 0; /* no error */ }

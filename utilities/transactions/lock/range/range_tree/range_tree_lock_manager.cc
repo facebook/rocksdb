@@ -20,11 +20,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-/////////////////////////////////////////////////////////////////////////////
-// RangeTreeLockManager -  A Range Lock Manager that uses PerconaFT's
-// locktree library
-/////////////////////////////////////////////////////////////////////////////
-
 RangeLockManagerHandle* NewRangeLockManager(
     std::shared_ptr<TransactionDBMutexFactory> mutex_factory) {
   std::shared_ptr<TransactionDBMutexFactory> use_factory;
@@ -40,11 +35,15 @@ RangeLockManagerHandle* NewRangeLockManager(
 static const char SUFFIX_INFIMUM = 0x0;
 static const char SUFFIX_SUPREMUM = 0x1;
 
+// Convert Endpoint into an internal format used for storing it in locktree
+// (DBT structure is used for passing endpoints to locktree and getting back)
 void serialize_endpoint(const Endpoint& endp, std::string* buf) {
   buf->push_back(endp.inf_suffix ? SUFFIX_SUPREMUM : SUFFIX_INFIMUM);
   buf->append(endp.slice.data(), endp.slice.size());
 }
 
+// Decode the endpoint from the format it is stored in the locktree (DBT) to
+// one used outside (EndpointWithString)
 void deserialize_endpoint(const DBT* dbt, EndpointWithString* endp) {
   assert(dbt->size >= 1);
   const char* dbt_data = (const char*)dbt->data;
@@ -152,7 +151,7 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
   request.destroy();
   switch (r) {
     case 0:
-      break; // fall through
+      break;  // fall through
     case DB_LOCK_NOTGRANTED:
       return Status::TimedOut(Status::SubCode::kLockTimeout);
     case TOKUDB_OUT_OF_LOCKS:
@@ -168,39 +167,27 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
       return Status::Busy(Status::SubCode::kLockLimit);
   }
 
-  // Don't: save the acquired lock in txn->owned_locks.
-  // It is now responsibility of RangeTreeLockManager
-  //  RangeLockList* range_list=
-  //  ((RangeTreeLockTracker*)txn->tracked_locks_.get())->getOrCreateList();
-  //  range_list->append(column_family_id, &start_key_dbt, &end_key_dbt);
-
   return Status::OK();
-}
-
-static void range_lock_mgr_release_lock_int(toku::locktree* lt,
-                                            const PessimisticTransaction* txn,
-                                            uint32_t /*column_family_id*/,
-                                            const std::string& key) {
-  DBT key_dbt;
-  Endpoint endp(key.data(), key.size(), false);
-  std::string endp_image;
-  serialize_endpoint(endp, &endp_image);
-
-  toku_fill_dbt(&key_dbt, endp_image.data(), endp_image.size());
-  toku::range_buffer range_buf;
-  range_buf.create();
-  range_buf.append(&key_dbt, &key_dbt);
-  lt->release_locks((TXNID)txn, &range_buf);
-  range_buf.destroy();
 }
 
 void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
                                   ColumnFamilyId column_family_id,
                                   const std::string& key, Env*) {
-  auto lt = get_locktree_by_cfid(column_family_id);
-  range_lock_mgr_release_lock_int(lt, txn, column_family_id, key);
+  auto locktree = get_locktree_by_cfid(column_family_id);
+  std::string endp_image;
+  serialize_endpoint({key.data(), key.size(), false}, &endp_image);
+
+  DBT key_dbt;
+  toku_fill_dbt(&key_dbt, endp_image.data(), endp_image.size());
+
+  toku::range_buffer range_buf;
+  range_buf.create();
+  range_buf.append(&key_dbt, &key_dbt);
+
+  locktree->release_locks((TXNID)txn, &range_buf);
+  range_buf.destroy();
   toku::lock_request::retry_all_lock_requests(
-      lt, nullptr /* lock_wait_needed_callback */);
+      locktree, nullptr /* lock_wait_needed_callback */);
 }
 
 void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
@@ -217,57 +204,12 @@ void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
   // acquired any locks.
   RangeLockList* range_list = ((RangeTreeLockTracker*)range_tracker)->getList();
 
-  if (range_list) {
-    {
-      MutexLock l(&range_list->mutex_);
-      // The lt->release_locks() call below will walk range_list->buffer_. We
-      // need to prevent lock escalation callback from replacing
-      // range_list->buffer_ while we are doing that.
-      //
-      // Additional complication here is internal mutex(es) in the locktree
-      // (let's call them latches):
-      // - Lock escalation first obtains latches on the lock tree
-      // - Then, it calls RangeTreeLockManager::on_escalate to replace
-      // transaction's range_list->buffer_. = Access to that buffer must be
-      // synchronized, so it will want to acquire the range_list->mutex_.
-      //
-      // While in this function we would want to do the reverse:
-      // - Acquire range_list->mutex_ to prevent access to the range_list.
-      // - Then, lt->release_locks() call will walk through the range_list
-      // - and acquire latches on parts of the lock tree to remove locks from
-      //   it.
-      //
-      // How do we avoid the deadlock? The idea is that here we set
-      // releasing_locks_=true, and release the mutex.
-      // All other users of the range_list must:
-      // - Acquire the mutex, then check that releasing_locks_=false.
-      //   (the code in this function doesnt do that as there's only one thread
-      //    that releases transaction's locks)
-      range_list->releasing_locks_ = true;
-    }
-
-    // Don't try to call release_locks() if the buffer is empty! if we are
-    //  not holding any locks, the lock tree might be in the STO-mode with
-    //  another transaction, and our attempt to release an empty set of locks
-    //  will cause an assertion failure.
-    for (auto it : range_list->buffers_) {
-      if (it.second->get_num_ranges()) {
-        toku::locktree* lt = get_locktree_by_cfid(it.first);
-        lt->release_locks((TXNID)txn, it.second.get(), all_keys);
-
-        it.second->destroy();
-        it.second->create();
-
-        toku::lock_request::retry_all_lock_requests(lt, nullptr);
-      }
-    }
-    range_list->Clear();  // TODO: need this?
-    range_list->releasing_locks_ = false;
-  }
+  if (range_list)
+    range_list->ReleaseLocks(this, txn, all_keys);
 }
 
-int RangeTreeLockManager::compare_dbt_endpoints(void* arg, const DBT* a_key,
-                                                const DBT* b_key) {
+int RangeTreeLockManager::CompareDbtEndpoints(void* arg, const DBT* a_key,
+                                              const DBT* b_key) {
   const char* a = (const char*)a_key->data;
   const char* b = (const char*)b_key->data;
 
@@ -367,30 +309,9 @@ std::vector<DeadlockPath> RangeTreeLockManager::GetDeadlockInfoBuffer() {
 void RangeTreeLockManager::on_escalate(TXNID txnid, const locktree* lt,
                                        const range_buffer& buffer, void*) {
   auto txn = (PessimisticTransaction*)txnid;
-
   RangeLockList* trx_locks =
       ((RangeTreeLockTracker*)&txn->GetTrackedLocks())->getList();
-
-  MutexLock l(&trx_locks->mutex_);
-  if (trx_locks->releasing_locks_) {
-    // Do nothing. The transaction is releasing its locks, so it will not care
-    // about having a correct list of ranges. (In TokuDB,
-    // toku_db_txn_escalate_callback() makes use of this property, too)
-    return;
-  }
-
-  uint32_t cf_id = (uint32_t)lt->get_dict_id().dictid;
-
-  auto it = trx_locks->buffers_.find(cf_id);
-  it->second->destroy();
-  it->second->create();
-
-  toku::range_buffer::iterator iter(&buffer);
-  toku::range_buffer::iterator::record rec;
-  while (iter.current(&rec)) {
-    it->second->append(rec.get_left_key(), rec.get_right_key());
-    iter.next();
-  }
+  trx_locks->ReplaceLocks(lt, buffer);
 }
 
 RangeTreeLockManager::~RangeTreeLockManager() {
@@ -434,7 +355,7 @@ void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
   if (ltree_map_.find(column_family_id) == ltree_map_.end()) {
     DICTIONARY_ID dict_id = {.dictid = column_family_id};
     toku::comparator cmp;
-    cmp.create(compare_dbt_endpoints, (void*)cfh->GetComparator());
+    cmp.create(CompareDbtEndpoints, (void*)cfh->GetComparator());
     toku::locktree* ltree = ltm_.get_lt(dict_id, cmp,
                                         /* on_create_extra*/ nullptr);
     // This is ok to because get_lt has copied the comparator:
@@ -477,7 +398,7 @@ void RangeTreeLockManager::RemoveColumnFamily(const ColumnFamilyHandle* cfh) {
 }
 
 toku::locktree* RangeTreeLockManager::get_locktree_by_cfid(
-    uint32_t column_family_id) {
+    ColumnFamilyId column_family_id) {
   // First check thread-local cache
   if (ltree_lookup_cache_->Get() == nullptr) {
     ltree_lookup_cache_->Reset(new LockTreeMap());
