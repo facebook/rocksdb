@@ -2211,6 +2211,9 @@ CXXFLAGS += $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
 CFLAGS +=  $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
 endif
 rocksdbjavastatic: $(LIB_OBJECTS) $(JAVA_COMPRESSIONS)
+ifeq ($(JAVA_HOME),)
+	$(error JAVA_HOME is not set)
+endif
 	cd java;$(MAKE) javalib;
 	rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
@@ -2298,6 +2301,9 @@ jl/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
 rocksdbjava: $(LIB_OBJECTS)
+ifeq ($(JAVA_HOME),)
+	$(error JAVA_HOME is not set)
+endif
 	$(AM_V_GEN)cd java;$(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIB_OBJECTS) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
