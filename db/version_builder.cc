@@ -334,17 +334,23 @@ class VersionBuilder::Rep {
           TEST_SYNC_POINT_CALLBACK("VersionBuilder::CheckConsistency1", &pair);
 #endif
           if (!level_nonzero_cmp_(f1, f2)) {
-            return Status::Corruption("L" + NumberToString(level) +
-                                      " files are not sorted properly");
+            return Status::Corruption(
+                "L" + NumberToString(level) +
+                " files are not sorted properly: files #" +
+                NumberToString(f1->fd.GetNumber()) + ", #" +
+                NumberToString(f2->fd.GetNumber()));
           }
 
           // Make sure there is no overlap in levels > 0
           if (vstorage->InternalComparator()->Compare(f1->largest,
                                                       f2->smallest) >= 0) {
             return Status::Corruption(
-                "L" + NumberToString(level) + " have overlapping ranges " +
-                (f1->largest).DebugString(true) + " vs. " +
-                (f2->smallest).DebugString(true));
+                "L" + NumberToString(level) +
+                " have overlapping ranges: file #" +
+                NumberToString(f1->fd.GetNumber()) +
+                " largest key: " + (f1->largest).DebugString(true) +
+                " vs. file #" + NumberToString(f2->fd.GetNumber()) +
+                " smallest key: " + (f2->smallest).DebugString(true));
           }
         }
       }

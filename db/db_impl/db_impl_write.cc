@@ -685,6 +685,8 @@ Status DBImpl::WriteImplWALOnly(
 
   Status status;
   if (publish_last_seq == kDoPublishLastSeq) {
+    Status status;
+
     // Currently we only use kDoPublishLastSeq in unordered_write
     assert(immutable_db_options_.unordered_write);
     WriteContext write_context;
@@ -761,6 +763,7 @@ Status DBImpl::WriteImplWALOnly(
     }
     seq_inc = total_batch_cnt;
   }
+  Status status;
   IOStatus io_s;
   io_s.PermitUncheckedError();  // Allow io_s to be uninitialized
   if (!write_options.disableWAL) {
@@ -848,8 +851,7 @@ void DBImpl::WriteStatusCheckOnLocked(const Status& status) {
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
       !status.IsBusy() && !status.IsIncomplete()) {
     // Maybe change the return status to void?
-    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
   }
 }
 
@@ -861,8 +863,7 @@ void DBImpl::WriteStatusCheck(const Status& status) {
       !status.IsBusy() && !status.IsIncomplete()) {
     mutex_.Lock();
     // Maybe change the return status to void?
-    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
     mutex_.Unlock();
   }
 }
@@ -875,8 +876,7 @@ void DBImpl::IOStatusCheck(const IOStatus& io_status) {
       io_status.IsIOFenced()) {
     mutex_.Lock();
     // Maybe change the return status to void?
-    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback);
     mutex_.Unlock();
   }
 }
@@ -1808,15 +1808,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     }
     // We may have lost data from the WritableFileBuffer in-memory buffer for
     // the current log, so treat it as a fatal error and set bg_error
-    // Should handle return error?
     if (!io_s.ok()) {
-      // Should handle return error?
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable);
     } else {
-      // Should handle return error?
-      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
     }
     // Read back bg_error in order to get the right severity
     s = error_handler_.GetBGError();

@@ -1938,6 +1938,17 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         // TODO: update per-level perfcontext user_key_return_count for kMerge
         break;
       case GetContext::kFound:
+        if (fp.GetHitFileLevel() == 0) {
+          RecordTick(db_statistics_, GET_HIT_L0);
+        } else if (fp.GetHitFileLevel() == 1) {
+          RecordTick(db_statistics_, GET_HIT_L1);
+        } else if (fp.GetHitFileLevel() >= 2) {
+          RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
+        }
+
+        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
+                                  fp.GetHitFileLevel());
+
         if (is_blob_index) {
           if (do_merge && value) {
             *status = GetBlob(read_options, user_key, *value, value);
@@ -1950,15 +1961,6 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
           }
         }
 
-        if (fp.GetHitFileLevel() == 0) {
-          RecordTick(db_statistics_, GET_HIT_L0);
-        } else if (fp.GetHitFileLevel() == 1) {
-          RecordTick(db_statistics_, GET_HIT_L1);
-        } else if (fp.GetHitFileLevel() >= 2) {
-          RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
-        }
-        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
-                                  fp.GetHitFileLevel());
         return;
       case GetContext::kDeleted:
         // Use empty error message for speed
@@ -2008,7 +2010,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 }
 
 void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
-                       ReadCallback* callback, bool* is_blob) {
+                       ReadCallback* callback) {
   PinnedIteratorsManager pinned_iters_mgr;
 
   // Pin blocks that we read to hold merge operands
@@ -2033,7 +2035,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         iter->ukey_with_ts, iter->value, iter->timestamp, nullptr,
         &(iter->merge_context), true, &iter->max_covering_tombstone_seq,
         this->env_, nullptr, merge_operator_ ? &pinned_iters_mgr : nullptr,
-        callback, is_blob, tracing_mget_id);
+        callback, &iter->is_blob_index, tracing_mget_id);
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
     // be used for IO errors, and get_context state will be used for any
@@ -2135,10 +2137,27 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           } else if (fp.GetHitFileLevel() >= 2) {
             RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
           }
+
           PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
                                     fp.GetHitFileLevel());
-          file_range.AddValueSize(iter->value->size());
+
           file_range.MarkKeyDone(iter);
+
+          if (iter->is_blob_index) {
+            if (iter->value) {
+              *status = GetBlob(read_options, iter->ukey_with_ts, *iter->value,
+                                iter->value);
+              if (!status->ok()) {
+                if (status->IsIncomplete()) {
+                  get_context.MarkKeyMayExist();
+                }
+
+                continue;
+              }
+            }
+          }
+
+          file_range.AddValueSize(iter->value->size());
           if (file_range.GetValueSize() > read_options.value_size_soft_limit) {
             s = Status::Aborted();
             break;
@@ -4229,31 +4248,23 @@ Status VersionSet::ProcessManifestWrites(
       // Each version in versions corresponds to a column family.
       // For each column family, update its log number indicating that logs
       // with number smaller than this should be ignored.
-      // TODO (yanqin): remove the nested loop if possible.
-      for (const auto version : versions) {
-        uint64_t max_log_number_in_batch = 0;
-        assert(version->cfd_);
-        uint32_t cf_id = version->cfd_->GetID();
-        std::string full_history_ts_low;
-        for (const auto& e : batch_edits) {
-          if (e->column_family_ == cf_id) {
-            if (e->has_log_number_) {
-              max_log_number_in_batch =
-                  std::max(max_log_number_in_batch, e->log_number_);
-            }
-            if (e->HasFullHistoryTsLow()) {
-              version->cfd_->SetFullHistoryTsLow(e->GetFullHistoryTsLow());
-            }
+      uint64_t last_min_log_number_to_keep = 0;
+      for (const auto& e : batch_edits) {
+        ColumnFamilyData* cfd = nullptr;
+        if (!e->IsColumnFamilyManipulation()) {
+          cfd = column_family_set_->GetColumnFamily(e->column_family_);
+          // e would not have been added to batch_edits if its corresponding
+          // column family is dropped.
+          assert(cfd);
+        }
+        if (cfd) {
+          if (e->has_log_number_ && e->log_number_ > cfd->GetLogNumber()) {
+            cfd->SetLogNumber(e->log_number_);
+          }
+          if (e->HasFullHistoryTsLow()) {
+            cfd->SetFullHistoryTsLow(e->GetFullHistoryTsLow());
           }
         }
-        if (max_log_number_in_batch != 0) {
-          assert(version->cfd_->GetLogNumber() <= max_log_number_in_batch);
-          version->cfd_->SetLogNumber(max_log_number_in_batch);
-        }
-      }
-
-      uint64_t last_min_log_number_to_keep = 0;
-      for (auto& e : batch_edits) {
         if (e->has_min_log_number_to_keep_) {
           last_min_log_number_to_keep =
               std::max(last_min_log_number_to_keep, e->min_log_number_to_keep_);
@@ -5293,6 +5304,17 @@ Status VersionSet::WriteCurrentStateToManifest(
       assert(iter != curr_state.end());
       uint64_t log_number = iter->second.log_number;
       edit.SetLogNumber(log_number);
+
+      if (cfd->GetID() == 0) {
+        // min_log_number_to_keep is for the whole db, not for specific column family.
+        // So it does not need to be set for every column family, just need to be set once.
+        // Since default CF can never be dropped, we set the min_log to the default CF here.
+        uint64_t min_log = min_log_number_to_keep_2pc();
+        if (min_log != 0) {
+          edit.SetMinLogNumberToKeep(min_log);
+        }
+      }
+
       const std::string& full_history_ts_low = iter->second.full_history_ts_low;
       if (!full_history_ts_low.empty()) {
         edit.SetFullHistoryTsLow(full_history_ts_low);

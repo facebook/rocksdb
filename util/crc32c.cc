@@ -37,6 +37,10 @@
 #define AT_HWCAP2 26
 #endif
 
+#elif __FreeBSD__
+#include <machine/cpu.h>
+#include <sys/auxv.h>
+#include <sys/elf_common.h>
 #endif /* __linux__ */
 
 #endif
@@ -464,6 +468,18 @@ static int arch_ppc_probe(void) {
 #if defined(__powerpc64__) && defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
   if (getauxval(AT_HWCAP2) & PPC_FEATURE2_VEC_CRYPTO) arch_ppc_crc32 = 1;
 #endif /* __powerpc64__ */
+
+  return arch_ppc_crc32;
+}
+#elif __FreeBSD__
+static int arch_ppc_probe(void) {
+  unsigned long cpufeatures;
+  arch_ppc_crc32 = 0;
+
+#if defined(__powerpc64__)
+  elf_aux_info(AT_HWCAP2, &cpufeatures, sizeof(cpufeatures));
+  if (cpufeatures & PPC_FEATURE2_HAS_VEC_CRYPTO) arch_ppc_crc32 = 1;
+#endif  /* __powerpc64__ */
 
   return arch_ppc_crc32;
 }

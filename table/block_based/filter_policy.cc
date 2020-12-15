@@ -24,8 +24,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-int BuiltinFilterBitsBuilder::CalculateNumEntry(const uint32_t bytes) {
-  int cur = 1;
+size_t BuiltinFilterBitsBuilder::ApproximateNumEntries(size_t bytes) {
+  size_t cur = 1;
   // Find overestimate
   while (CalculateSpace(cur) <= bytes && cur * 2 > cur) {
     cur *= 2;
@@ -33,7 +33,7 @@ int BuiltinFilterBitsBuilder::CalculateNumEntry(const uint32_t bytes) {
   // Change to underestimate less than factor of two from answer
   cur /= 2;
   // Binary search
-  int delta = cur / 2;
+  size_t delta = cur / 2;
   while (delta > 0) {
     if (CalculateSpace(cur + delta) <= bytes) {
       cur += delta;
@@ -100,18 +100,21 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
   ~FastLocalBloomBitsBuilder() override {}
 
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
-    size_t num_entry = hash_entries_.size();
+    size_t num_entries = hash_entries_.size();
     std::unique_ptr<char[]> mutable_buf;
-    uint32_t len_with_metadata =
-        CalculateAndAllocate(num_entry, &mutable_buf, /*update_balance*/ true);
+    size_t len_with_metadata = CalculateAndAllocate(num_entries, &mutable_buf,
+                                                    /*update_balance*/ true);
 
     assert(mutable_buf);
     assert(len_with_metadata >= 5);
 
-    // Compute num_probes after any rounding / adjustments
-    int num_probes = GetNumProbes(num_entry, len_with_metadata);
+    // Max size supported by implementation
+    assert(len_with_metadata <= 0xffffffffU);
 
-    uint32_t len = len_with_metadata - 5;
+    // Compute num_probes after any rounding / adjustments
+    int num_probes = GetNumProbes(num_entries, len_with_metadata);
+
+    uint32_t len = static_cast<uint32_t>(len_with_metadata - 5);
     if (len > 0) {
       AddAllEntries(mutable_buf.get(), len, num_probes);
     }
@@ -132,29 +135,27 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     return rv;
   }
 
-  int CalculateNumEntry(const uint32_t bytes) override {
-    uint32_t bytes_no_meta = bytes >= 5u ? bytes - 5u : 0;
-    return static_cast<int>(uint64_t{8000} * bytes_no_meta /
-                            millibits_per_key_);
+  size_t ApproximateNumEntries(size_t bytes) override {
+    size_t bytes_no_meta = bytes >= 5u ? bytes - 5u : 0;
+    return static_cast<size_t>(uint64_t{8000} * bytes_no_meta /
+                               millibits_per_key_);
   }
 
-  uint32_t CalculateSpace(const int num_entry) override {
-    // NB: the BuiltinFilterBitsBuilder API presumes len fits in uint32_t.
-    return static_cast<uint32_t>(
-        CalculateAndAllocate(static_cast<size_t>(num_entry),
-                             /* buf */ nullptr,
-                             /*update_balance*/ false));
+  size_t CalculateSpace(size_t num_entries) override {
+    return CalculateAndAllocate(num_entries,
+                                /* buf */ nullptr,
+                                /*update_balance*/ false);
   }
 
   // To choose size using malloc_usable_size, we have to actually allocate.
-  uint32_t CalculateAndAllocate(size_t num_entry, std::unique_ptr<char[]>* buf,
-                                bool update_balance) {
+  size_t CalculateAndAllocate(size_t num_entries, std::unique_ptr<char[]>* buf,
+                              bool update_balance) {
     std::unique_ptr<char[]> tmpbuf;
 
     // If not for cache line blocks in the filter, what would the target
     // length in bytes be?
     size_t raw_target_len = static_cast<size_t>(
-        (uint64_t{num_entry} * millibits_per_key_ + 7999) / 8000);
+        (uint64_t{num_entries} * millibits_per_key_ + 7999) / 8000);
 
     if (raw_target_len >= size_t{0xffffffc0}) {
       // Max supported for this data structure implementation
@@ -164,11 +165,10 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     // Round up to nearest multiple of 64 (block size). This adjustment is
     // used for target FP rate only so that we don't receive complaints about
     // lower FP rate vs. historic Bloom filter behavior.
-    uint32_t target_len =
-        static_cast<uint32_t>(raw_target_len + 63) & ~uint32_t{63};
+    size_t target_len = (raw_target_len + 63) & ~size_t{63};
 
     // Return value set to a default; overwritten in some cases
-    uint32_t rv = target_len + /* metadata */ 5;
+    size_t rv = target_len + /* metadata */ 5;
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
     if (aggregate_rounding_balance_ != nullptr) {
       // Do optimize_filters_for_memory, using malloc_usable_size.
@@ -189,7 +189,7 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
       // and relative.
       int64_t balance = aggregate_rounding_balance_->load();
 
-      double target_fp_rate = EstimatedFpRate(num_entry, target_len + 5);
+      double target_fp_rate = EstimatedFpRate(num_entries, target_len + 5);
       double rv_fp_rate = target_fp_rate;
 
       if (balance < 0) {
@@ -203,9 +203,8 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
         for (uint64_t maybe_len64 :
              {uint64_t{3} * target_len / 4, uint64_t{13} * target_len / 16,
               uint64_t{7} * target_len / 8, uint64_t{15} * target_len / 16}) {
-          uint32_t maybe_len =
-              static_cast<uint32_t>(maybe_len64) & ~uint32_t{63};
-          double maybe_fp_rate = EstimatedFpRate(num_entry, maybe_len + 5);
+          size_t maybe_len = maybe_len64 & ~size_t{63};
+          double maybe_fp_rate = EstimatedFpRate(num_entries, maybe_len + 5);
           if (maybe_fp_rate <= for_balance_fp_rate) {
             rv = maybe_len + /* metadata */ 5;
             rv_fp_rate = maybe_fp_rate;
@@ -217,7 +216,7 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
       // Filter blocks are loaded into block cache with their block trailer.
       // We need to make sure that's accounted for in choosing a
       // fragmentation-friendly size.
-      const uint32_t kExtraPadding = kBlockTrailerSize;
+      const size_t kExtraPadding = kBlockTrailerSize;
       size_t requested = rv + kExtraPadding;
 
       // Allocate and get usable size
@@ -241,9 +240,9 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
           usable_len = size_t{0xffffffc0};
         }
 
-        rv = (static_cast<uint32_t>(usable_len) & ~uint32_t{63}) +
+        rv = (usable_len & ~size_t{63}) +
              /* metadata */ 5;
-        rv_fp_rate = EstimatedFpRate(num_entry, rv);
+        rv_fp_rate = EstimatedFpRate(num_entries, rv);
       } else {
         // Too small means bad malloc_usable_size
         assert(usable == requested);
@@ -428,8 +427,7 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
   ~Standard128RibbonBitsBuilder() override {}
 
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
-    // More than 2^30 entries (~1 billion) not supported
-    if (hash_entries_.size() >= (size_t{1} << 30)) {
+    if (hash_entries_.size() > kMaxRibbonEntries) {
       ROCKS_LOG_WARN(info_log_, "Too many keys for Ribbon filter: %llu",
                      static_cast<unsigned long long>(hash_entries_.size()));
       SwapEntriesWith(&bloom_fallback_);
@@ -508,17 +506,20 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
     return rv;
   }
 
-  uint32_t CalculateSpace(const int num_entries) override {
-    // NB: the BuiltinFilterBitsBuilder API presumes len fits in uint32_t.
+  size_t CalculateSpace(size_t num_entries) override {
+    if (num_entries > kMaxRibbonEntries) {
+      // More entries than supported by this Ribbon
+      return bloom_fallback_.CalculateSpace(num_entries);
+    }
     uint32_t num_slots =
         NumEntriesToNumSlots(static_cast<uint32_t>(num_entries));
-    uint32_t ribbon = static_cast<uint32_t>(
+    size_t ribbon =
         SolnType::GetBytesForOneInFpRate(num_slots, desired_one_in_fp_rate_,
                                          /*rounding*/ 0) +
-        /*metadata*/ 5);
+        /*metadata*/ 5;
     // Consider possible Bloom fallback for small filters
     if (num_slots < 1024) {
-      uint32_t bloom = bloom_fallback_.CalculateSpace(num_entries);
+      size_t bloom = bloom_fallback_.CalculateSpace(num_entries);
       return std::min(bloom, ribbon);
     } else {
       return ribbon;
@@ -527,6 +528,10 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
 
   double EstimatedFpRate(size_t num_entries,
                          size_t len_with_metadata) override {
+    if (num_entries > kMaxRibbonEntries) {
+      // More entries than supported by this Ribbon
+      return bloom_fallback_.EstimatedFpRate(num_entries, len_with_metadata);
+    }
     uint32_t num_slots =
         NumEntriesToNumSlots(static_cast<uint32_t>(num_entries));
     SolnType fake_soln(nullptr, len_with_metadata);
@@ -543,6 +548,15 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
     uint32_t num_slots1 = BandingType::GetNumSlotsFor95PctSuccess(num_entries);
     return SolnType::RoundUpNumSlots(num_slots1);
   }
+
+  // Approximate num_entries to ensure number of bytes fits in 32 bits, which
+  // is not an inherent limitation but does ensure somewhat graceful Bloom
+  // fallback for crazy high number of entries, since the Bloom implementation
+  // does not support number of bytes bigger than fits in 32 bits. This is
+  // within an order of magnitude of implementation limit on num_slots
+  // fitting in 32 bits, and even closer for num_blocks fitting in 24 bits
+  // (for filter metadata).
+  static constexpr size_t kMaxRibbonEntries = 950000000;  // ~ 1 billion
 
   // A desired value for 1/fp_rate. For example, 100 -> 1% fp rate.
   double desired_one_in_fp_rate_;
@@ -610,12 +624,10 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
 
   Slice Finish(std::unique_ptr<const char[]>* buf) override;
 
-  int CalculateNumEntry(const uint32_t bytes) override;
-
-  uint32_t CalculateSpace(const int num_entry) override {
+  size_t CalculateSpace(size_t num_entries) override {
     uint32_t dont_care1;
     uint32_t dont_care2;
-    return CalculateSpace(num_entry, &dont_care1, &dont_care2);
+    return CalculateSpace(num_entries, &dont_care1, &dont_care2);
   }
 
   double EstimatedFpRate(size_t keys, size_t bytes) override {
@@ -633,11 +645,11 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   uint32_t GetTotalBitsForLocality(uint32_t total_bits);
 
   // Reserve space for new filter
-  char* ReserveSpace(const int num_entry, uint32_t* total_bits,
+  char* ReserveSpace(size_t num_entries, uint32_t* total_bits,
                      uint32_t* num_lines);
 
   // Implementation-specific variant of public CalculateSpace
-  uint32_t CalculateSpace(const int num_entry, uint32_t* total_bits,
+  uint32_t CalculateSpace(size_t num_entries, uint32_t* total_bits,
                           uint32_t* num_lines);
 
   // Assuming single threaded access to this function.
@@ -720,14 +732,18 @@ uint32_t LegacyBloomBitsBuilder::GetTotalBitsForLocality(uint32_t total_bits) {
   return num_lines * (CACHE_LINE_SIZE * 8);
 }
 
-uint32_t LegacyBloomBitsBuilder::CalculateSpace(const int num_entry,
+uint32_t LegacyBloomBitsBuilder::CalculateSpace(size_t num_entries,
                                                 uint32_t* total_bits,
                                                 uint32_t* num_lines) {
   assert(bits_per_key_);
-  if (num_entry != 0) {
-    uint32_t total_bits_tmp = static_cast<uint32_t>(num_entry * bits_per_key_);
+  if (num_entries != 0) {
+    size_t total_bits_tmp = num_entries * bits_per_key_;
+    // total bits, including temporary computations, cannot exceed 2^32
+    // for compatibility
+    total_bits_tmp = std::min(total_bits_tmp, size_t{0xffff0000});
 
-    *total_bits = GetTotalBitsForLocality(total_bits_tmp);
+    *total_bits =
+        GetTotalBitsForLocality(static_cast<uint32_t>(total_bits_tmp));
     *num_lines = *total_bits / (CACHE_LINE_SIZE * 8);
     assert(*total_bits > 0 && *total_bits % 8 == 0);
   } else {
@@ -742,28 +758,13 @@ uint32_t LegacyBloomBitsBuilder::CalculateSpace(const int num_entry,
   return sz;
 }
 
-char* LegacyBloomBitsBuilder::ReserveSpace(const int num_entry,
+char* LegacyBloomBitsBuilder::ReserveSpace(size_t num_entries,
                                            uint32_t* total_bits,
                                            uint32_t* num_lines) {
-  uint32_t sz = CalculateSpace(num_entry, total_bits, num_lines);
+  uint32_t sz = CalculateSpace(num_entries, total_bits, num_lines);
   char* data = new char[sz];
   memset(data, 0, sz);
   return data;
-}
-
-int LegacyBloomBitsBuilder::CalculateNumEntry(const uint32_t bytes) {
-  assert(bits_per_key_);
-  assert(bytes > 0);
-  int high = static_cast<int>(bytes * 8 / bits_per_key_ + 1);
-  int low = 1;
-  int n = high;
-  for (; n >= low; n--) {
-    if (CalculateSpace(n) <= bytes) {
-      break;
-    }
-  }
-  assert(n < high);  // High should be an overestimation
-  return n;
 }
 
 inline void LegacyBloomBitsBuilder::AddHash(uint32_t h, char* data,

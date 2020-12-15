@@ -129,7 +129,6 @@ class TestPrefixExtractor : public SliceTransform {
 TEST_F(DBMemTableTest, DuplicateSeq) {
   SequenceNumber seq = 123;
   std::string value;
-  Status s;
   MergeContext merge_context;
   Options options;
   InternalKeyComparator ikey_cmp(options.comparator);
@@ -162,7 +161,7 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
     if (!insert_dup) {
       seq++;
     }
-    s = mem->Add(seq, kTypeValue, "foo", "value" + ToString(seq));
+    Status s = mem->Add(seq, kTypeValue, "foo", "value" + ToString(seq));
     if (insert_dup) {
       ASSERT_TRUE(s.IsTryAgain());
     } else {
@@ -200,7 +199,6 @@ TEST_F(DBMemTableTest, DuplicateSeq) {
 TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
   int num_ops = 1000;
   std::string value;
-  Status s;
   MergeContext merge_context;
   Options options;
   // A merge operator that is not sensitive to concurrent writes since in this
@@ -252,6 +250,7 @@ TEST_F(DBMemTableTest, ConcurrentMergeWrite) {
   LookupKey lkey("key", kMaxSequenceNumber);
   bool res = mem->Get(lkey, &value, /*timestamp=*/nullptr, &status,
                       &merge_context, &max_covering_tombstone_seq, roptions);
+  ASSERT_OK(status);
   ASSERT_TRUE(res);
   uint64_t ivalue = DecodeFixed64(Slice(value).data());
   uint64_t sum = 0;

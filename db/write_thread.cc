@@ -208,6 +208,7 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
 }
 
 void WriteThread::SetState(Writer* w, uint8_t new_state) {
+  assert(w);
   auto state = w->state.load(std::memory_order_acquire);
   if (state == STATE_LOCKED_WAITING ||
       !w->state.compare_exchange_strong(state, new_state)) {

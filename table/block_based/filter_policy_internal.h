@@ -25,18 +25,18 @@ class Slice;
 class BuiltinFilterBitsBuilder : public FilterBitsBuilder {
  public:
   // Calculate number of bytes needed for a new filter, including
-  // metadata. Passing the result to CalculateNumEntry should
+  // metadata. Passing the result to ApproximateNumEntries should
   // return >= the num_entry passed in.
-  virtual uint32_t CalculateSpace(const int num_entry) = 0;
+  virtual size_t CalculateSpace(size_t num_entries) = 0;
 
   // A somewhat expensive but workable default implementation
   // using binary search on CalculateSpace
-  int CalculateNumEntry(const uint32_t bytes) override;
+  size_t ApproximateNumEntries(size_t bytes) override;
 
   // Returns an estimate of the FP rate of the returned filter if
-  // `keys` keys are added and the filter returned by Finish is `bytes`
-  // bytes.
-  virtual double EstimatedFpRate(size_t keys, size_t bytes) = 0;
+  // `num_entries` keys are added and the filter returned by Finish
+  // is `bytes` bytes.
+  virtual double EstimatedFpRate(size_t num_entries, size_t bytes) = 0;
 };
 
 // RocksDB built-in filter policy for Bloom or Bloom-like filters.

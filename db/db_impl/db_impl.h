@@ -922,7 +922,7 @@ class DBImpl : public DB {
                            ColumnFamilyHandle* column_family = nullptr,
                            bool disallow_trivial_move = false);
 
-  void TEST_SwitchWAL();
+  Status TEST_SwitchWAL();
 
   bool TEST_UnableToReleaseOldestLog() { return unable_to_release_oldest_log_; }
 
@@ -1866,8 +1866,7 @@ class DBImpl : public DB {
   Status MultiGetImpl(
       const ReadOptions& read_options, size_t start_key, size_t num_keys,
       autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
-      SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback,
-      bool* is_blob_index);
+      SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback);
 
   Status DisableFileDeletionsWithLock();
 

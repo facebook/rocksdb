@@ -1686,35 +1686,30 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
 
   for (auto blob_file_pair : blob_files_) {
     auto blob_file = blob_file_pair.second;
-    char buf[1000];
-    int pos = snprintf(buf, sizeof(buf),
-                       "Blob file %" PRIu64 ", size %" PRIu64
-                       ", blob count %" PRIu64 ", immutable %d",
-                       blob_file->BlobFileNumber(), blob_file->GetFileSize(),
-                       blob_file->BlobCount(), blob_file->Immutable());
+    std::ostringstream buf;
+
+    buf << "Blob file " << blob_file->BlobFileNumber() << ", size "
+        << blob_file->GetFileSize() << ", blob count " << blob_file->BlobCount()
+        << ", immutable " << blob_file->Immutable();
+
     if (blob_file->HasTTL()) {
       ExpirationRange expiration_range;
-
       {
         ReadLock file_lock(&blob_file->mutex_);
         expiration_range = blob_file->GetExpirationRange();
       }
+      buf << ", expiration range (" << expiration_range.first << ", "
+          << expiration_range.second << ")";
 
-      pos += snprintf(buf + pos, sizeof(buf) - pos,
-                      ", expiration range (%" PRIu64 ", %" PRIu64 ")",
-                      expiration_range.first, expiration_range.second);
       if (!blob_file->Obsolete()) {
-        pos += snprintf(buf + pos, sizeof(buf) - pos,
-                        ", expire in %" PRIu64 " seconds",
-                        expiration_range.second - now);
+        buf << ", expire in " << (expiration_range.second - now) << "seconds";
       }
     }
     if (blob_file->Obsolete()) {
-      pos += snprintf(buf + pos, sizeof(buf) - pos, ", obsolete at %" PRIu64,
-                      blob_file->GetObsoleteSequence());
+      buf << ", obsolete at " << blob_file->GetObsoleteSequence();
     }
-    snprintf(buf + pos, sizeof(buf) - pos, ".");
-    ROCKS_LOG_INFO(db_options_.info_log, "%s", buf);
+    buf << ".";
+    ROCKS_LOG_INFO(db_options_.info_log, "%s", buf.str().c_str());
   }
 
   // reschedule

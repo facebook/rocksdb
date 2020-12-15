@@ -66,12 +66,12 @@ class CheckpointTest : public testing::Test {
     snapshot_name_ = test::PerThreadDBPath(env_, "snapshot");
     std::string snapshot_tmp_name = snapshot_name_ + ".tmp";
     EXPECT_OK(DestroyDB(snapshot_name_, options));
-    env_->DeleteDir(snapshot_name_);
+    test::DeleteDir(env_, snapshot_name_);
     EXPECT_OK(DestroyDB(snapshot_tmp_name, options));
-    env_->DeleteDir(snapshot_tmp_name);
+    test::DeleteDir(env_, snapshot_tmp_name);
     Reopen(options);
     export_path_ = test::PerThreadDBPath("/export");
-    DestroyDir(env_, export_path_);
+    DestroyDir(env_, export_path_).PermitUncheckedError();
     cfh_reverse_comp_ = nullptr;
     metadata_ = nullptr;
   }
@@ -96,7 +96,7 @@ class CheckpointTest : public testing::Test {
     options.db_paths.emplace_back(dbname_ + "_4", 0);
     EXPECT_OK(DestroyDB(dbname_, options));
     EXPECT_OK(DestroyDB(snapshot_name_, options));
-    DestroyDir(env_, export_path_);
+    DestroyDir(env_, export_path_).PermitUncheckedError();
   }
 
   // Return the current option configuration.
@@ -274,7 +274,6 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
     ASSERT_OK(DestroyDB(dbname_, options));
 
     // Create a database
-    Status s;
     options.create_if_missing = true;
     ASSERT_OK(DB::Open(options, dbname_, &db_));
     std::string key = std::string("foo");
@@ -316,7 +315,6 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
 
 TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
   // Create a database
-  Status s;
   auto options = CurrentOptions();
   options.create_if_missing = true;
   CreateAndReopenWithCF({}, options);
@@ -326,7 +324,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
                                    int num_files_expected) {
     ASSERT_EQ(metadata.files.size(), num_files_expected);
     std::vector<std::string> subchildren;
-    env_->GetChildren(export_path_, &subchildren);
+    ASSERT_OK(env_->GetChildren(export_path_, &subchildren));
     int num_children = 0;
     for (const auto& child : subchildren) {
       if (child != "." && child != "..") {
@@ -349,7 +347,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
                                              export_path_, &metadata_));
     verify_files_exported(*metadata_, 1);
     ASSERT_EQ(metadata_->db_comparator_name, options.comparator->Name());
-    DestroyDir(env_, export_path_);
+    ASSERT_OK(DestroyDir(env_, export_path_));
     delete metadata_;
     metadata_ = nullptr;
 
@@ -360,7 +358,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
                                              export_path_, &metadata_));
     verify_files_exported(*metadata_, 2);
     ASSERT_EQ(metadata_->db_comparator_name, options.comparator->Name());
-    DestroyDir(env_, export_path_);
+    ASSERT_OK(DestroyDir(env_, export_path_));
     delete metadata_;
     metadata_ = nullptr;
     delete checkpoint;
@@ -390,7 +388,6 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
 
 TEST_F(CheckpointTest, ExportColumnFamilyNegativeTest) {
   // Create a database
-  Status s;
   auto options = CurrentOptions();
   options.create_if_missing = true;
   CreateAndReopenWithCF({}, options);
@@ -402,11 +399,11 @@ TEST_F(CheckpointTest, ExportColumnFamilyNegativeTest) {
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
 
   // Export onto existing directory
-  env_->CreateDirIfMissing(export_path_);
+  ASSERT_OK(env_->CreateDirIfMissing(export_path_));
   ASSERT_EQ(checkpoint->ExportColumnFamily(db_->DefaultColumnFamily(),
                                            export_path_, &metadata_),
             Status::InvalidArgument("Specified export_dir exists"));
-  DestroyDir(env_, export_path_);
+  ASSERT_OK(DestroyDir(env_, export_path_));
 
   // Export with invalid directory specification
   export_path_ = "";
@@ -437,7 +434,6 @@ TEST_F(CheckpointTest, CheckpointCF) {
   std::string result;
   std::vector<ColumnFamilyHandle*> cphandles;
 
-  Status s;
   // Take a snapshot
   ROCKSDB_NAMESPACE::port::Thread t([&]() {
     Checkpoint* checkpoint;
@@ -465,7 +461,7 @@ TEST_F(CheckpointTest, CheckpointCF) {
   // Open snapshot and verify contents while DB is running
   options.create_if_missing = false;
   std::vector<std::string> cfs;
-  cfs=  {kDefaultColumnFamilyName, "one", "two", "three", "four", "five"};
+  cfs = {kDefaultColumnFamilyName, "one", "two", "three", "four", "five"};
   std::vector<ColumnFamilyDescriptor> column_families;
     for (size_t i = 0; i < cfs.size(); ++i) {
       column_families.push_back(ColumnFamilyDescriptor(cfs[i], options));
@@ -493,7 +489,7 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
 
   ASSERT_OK(Put(0, "Default", "Default"));
   ASSERT_OK(Put(1, "one", "one"));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(Put(2, "two", "two"));
 
   DB* snapshotDB;
@@ -501,7 +497,6 @@ TEST_F(CheckpointTest, CheckpointCFNoFlush) {
   std::string result;
   std::vector<ColumnFamilyHandle*> cphandles;
 
-  Status s;
   // Take a snapshot
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCallFlush:start", [&](void* /*arg*/) {
@@ -590,7 +585,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
   Close();
   const std::string dbname = test::PerThreadDBPath("transaction_testdb");
   ASSERT_OK(DestroyDB(dbname, CurrentOptions()));
-  env_->DeleteDir(dbname);
+  test::DeleteDir(env_, dbname);
 
   Options options = CurrentOptions();
   options.allow_2pc = true;
@@ -599,7 +594,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
   TransactionDBOptions txn_db_options;
   TransactionDB* txdb;
   Status s = TransactionDB::Open(options, txn_db_options, dbname, &txdb);
-  assert(s.ok());
+  ASSERT_OK(s);
   ColumnFamilyHandle* cfa;
   ColumnFamilyHandle* cfb;
   ColumnFamilyOptions cf_options;
@@ -620,6 +615,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
   ASSERT_EQ(txdb->GetTransactionByName("xid"), txn);
 
   s = txn->Put(Slice("foo"), Slice("bar"));
+  ASSERT_OK(s);
   s = txn->Put(cfa, Slice("foocfa"), Slice("barcfa"));
   ASSERT_OK(s);
   // Writing prepare into middle of first WAL, then flush WALs many times
@@ -631,7 +627,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
     ASSERT_OK(tx->Prepare());
     ASSERT_OK(tx->Commit());
     if (i % 10000 == 0) {
-      txdb->Flush(FlushOptions());
+      ASSERT_OK(txdb->Flush(FlushOptions()));
     }
     if (i == 88888) {
       ASSERT_OK(txn->Prepare());
@@ -662,7 +658,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
 
   // No more than two logs files should exist.
   std::vector<std::string> files;
-  env_->GetChildren(snapshot_name_, &files);
+  ASSERT_OK(env_->GetChildren(snapshot_name_, &files));
   int num_log_files = 0;
   for (auto& file : files) {
     uint64_t num;
@@ -733,7 +729,7 @@ TEST_F(CheckpointTest, CheckpointWithUnsyncedDataDropped) {
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
   delete checkpoint;
-  env->DropUnsyncedFileData();
+  ASSERT_OK(env->DropUnsyncedFileData());
 
   // make sure it's openable even though whatever data that wasn't synced got
   // dropped.

@@ -43,21 +43,23 @@
 extern bool pmull_runtime_flag;
 
 uint32_t crc32c_runtime_check(void) {
-#ifdef ROCKSDB_AUXV_GETAUXVAL_PRESENT
-  uint64_t auxv = getauxval(AT_HWCAP);
-  return (auxv & HWCAP_CRC32) != 0;
-#else
-  return 0;
+  uint64_t auxv = 0;
+#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
+  auxv = getauxval(AT_HWCAP);
+#elif defined(__FreeBSD__)
+  elf_aux_info(AT_HWCAP, &auxv, sizeof(auxv));
 #endif
+  return (auxv & HWCAP_CRC32) != 0;
 }
 
 bool crc32c_pmull_runtime_check(void) {
-#ifdef ROCKSDB_AUXV_GETAUXVAL_PRESENT
-  uint64_t auxv = getauxval(AT_HWCAP);
-  return (auxv & HWCAP_PMULL) != 0;
-#else
-  return false;
+  uint64_t auxv = 0;
+#if defined(ROCKSDB_AUXV_GETAUXVAL_PRESENT)
+  auxv = getauxval(AT_HWCAP);
+#elif defined(__FreeBSD__)
+  elf_aux_info(AT_HWCAP, &auxv, sizeof(auxv));
 #endif
+  return (auxv & HWCAP_PMULL) != 0;
 }
 
 #ifdef ROCKSDB_UBSAN_RUN
