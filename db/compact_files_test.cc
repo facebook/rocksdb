@@ -139,7 +139,7 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
   DestroyDB(db_name_, options);
   Status s = DB::Open(options, db_name_, &db);
   ASSERT_OK(s);
-  assert(db);
+  ASSERT_NE(db, nullptr);
 
   // create couple files
   for (int i = 1000; i < 2000; ++i) {

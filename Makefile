@@ -609,6 +609,7 @@ ifdef ASSERT_STATUS_CHECKED
 		db_options_test \
 		db_properties_test \
 		db_secondary_test \
+		options_file_test \
 		db_statistics_test \
 		db_table_properties_test \
 		db_tailing_iter_test \

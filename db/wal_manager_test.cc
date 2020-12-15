@@ -168,16 +168,15 @@ namespace {
 uint64_t GetLogDirSize(std::string dir_path, Env* env) {
   uint64_t dir_size = 0;
   std::vector<std::string> files;
-  if (env->GetChildren(dir_path, &files).ok()) {
-    for (auto& f : files) {
-      uint64_t number;
-      FileType type;
-      if (ParseFileName(f, &number, &type) && type == kWalFile) {
-        std::string const file_path = dir_path + "/" + f;
-        uint64_t file_size;
-        EXPECT_OK(env->GetFileSize(file_path, &file_size));
-        dir_size += file_size;
-      }
+  EXPECT_OK(env->GetChildren(dir_path, &files));
+  for (auto& f : files) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(f, &number, &type) && type == kWalFile) {
+      std::string const file_path = dir_path + "/" + f;
+      uint64_t file_size;
+      EXPECT_OK(env->GetFileSize(file_path, &file_size));
+      dir_size += file_size;
     }
   }
   return dir_size;
@@ -188,12 +187,11 @@ std::vector<std::uint64_t> ListSpecificFiles(
   std::vector<uint64_t> file_numbers;
   uint64_t number;
   FileType type;
-  if (env->GetChildren(path, &files).ok()) {
-    for (size_t i = 0; i < files.size(); ++i) {
-      if (ParseFileName(files[i], &number, &type)) {
-        if (type == expected_file_type) {
-          file_numbers.push_back(number);
-        }
+  EXPECT_OK(env->GetChildren(path, &files));
+  for (size_t i = 0; i < files.size(); ++i) {
+    if (ParseFileName(files[i], &number, &type)) {
+      if (type == expected_file_type) {
+        file_numbers.push_back(number);
       }
     }
   }
