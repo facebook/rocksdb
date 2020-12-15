@@ -99,14 +99,14 @@ endif
 
 ifneq ($(findstring rocksdbjava, $(MAKECMDGOALS)),)
 	LIB_MODE=shared
-        ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
+	ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
 		OBJ_DIR=jls
-	        ifneq ($(DEBUG_LEVEL),2)
-	            DEBUG_LEVEL=0
-                endif
-                ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
-	            DEBUG_LEVEL=0
-                endif
+		ifneq ($(DEBUG_LEVEL),2)
+			DEBUG_LEVEL=0
+		endif
+		ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
+			DEBUG_LEVEL=0
+		endif
 	else
 		OBJ_DIR=jl
 	endif
@@ -2123,9 +2123,9 @@ ifeq ($(PLATFORM), OS_AIX)
 	SNAPPY_MAKE_TARGET = libsnappy.la
 endif
 ifeq ($(PLATFORM), OS_OPENBSD)
-        JAVA_INCLUDE = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/openbsd
+	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/openbsd
 	ROCKSDBJNILIB = librocksdbjni-openbsd$(ARCH).so
-        ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-openbsd$(ARCH).jar
+	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-openbsd$(ARCH).jar
 endif
 
 libz.a:
