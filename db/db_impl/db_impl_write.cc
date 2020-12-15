@@ -683,7 +683,6 @@ Status DBImpl::WriteImplWALOnly(
   // else we are the leader of the write batch group
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
 
-  Status status;
   if (publish_last_seq == kDoPublishLastSeq) {
     Status status;
 
