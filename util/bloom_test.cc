@@ -422,12 +422,23 @@ TEST_P(FullBloomTest, FilterSize) {
     EXPECT_EQ((bpk.second + 500) / 1000, bfp->GetWholeBitsPerKey());
 
     auto bits_builder = GetBuiltinFilterBitsBuilder();
-    for (int n = 1; n < 100; n++) {
-      auto space = bits_builder->CalculateSpace(n);
-      auto n2 = bits_builder->CalculateNumEntry(space);
+
+    size_t n = 1;
+    size_t space = 0;
+    for (; n < 100; n++) {
+      // Ensure consistency between CalculateSpace and ApproximateNumEntries
+      space = bits_builder->CalculateSpace(n);
+      size_t n2 = bits_builder->ApproximateNumEntries(space);
       EXPECT_GE(n2, n);
-      auto space2 = bits_builder->CalculateSpace(n2);
+      size_t space2 = bits_builder->CalculateSpace(n2);
       EXPECT_EQ(space, space2);
+    }
+    // Until size_t overflow
+    for (; n < (n + n / 3); n += n / 3) {
+      // Ensure space computation is not overflowing; capped is OK
+      size_t space2 = bits_builder->CalculateSpace(n);
+      EXPECT_GE(space2, space);
+      space = space2;
     }
   }
   // Check that the compiler hasn't optimized our computation into nothing
