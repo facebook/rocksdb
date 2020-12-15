@@ -113,10 +113,10 @@ bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
 }
 
 void MemTableListVersion::MultiGet(const ReadOptions& read_options,
-                                   MultiGetRange* range, ReadCallback* callback,
-                                   bool* is_blob) {
+                                   MultiGetRange* range,
+                                   ReadCallback* callback) {
   for (auto memtable : memlist_) {
-    memtable->MultiGet(read_options, range, callback, is_blob);
+    memtable->MultiGet(read_options, range, callback);
     if (range->empty()) {
       return;
     }
@@ -481,15 +481,16 @@ Status MemTableList::TryInstallMemtableFlushResults(
         // We piggyback the information of  earliest log file to keep in the
         // manifest entry for the last file flushed.
         edit_list.back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
-      } else {
-        min_wal_number_to_keep =
-            PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
       }
 
       std::unique_ptr<VersionEdit> wal_deletion;
       if (vset->db_options()->track_and_verify_wals_in_manifest) {
-        const auto& wals = vset->GetWalSet().GetWals();
-        if (!wals.empty() && min_wal_number_to_keep > wals.begin()->first) {
+        if (!vset->db_options()->allow_2pc) {
+          min_wal_number_to_keep =
+              PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
+        }
+        if (min_wal_number_to_keep >
+            vset->GetWalSet().GetMinWalNumberToKeep()) {
           wal_deletion.reset(new VersionEdit);
           wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
           edit_list.push_back(wal_deletion.get());
@@ -752,13 +753,12 @@ Status InstallMemtableAtomicFlushResults(
   }
 
   std::unique_ptr<VersionEdit> wal_deletion;
-  if (vset->db_options()->track_and_verify_wals_in_manifest &&
-      !vset->GetWalSet().GetWals().empty()) {
+  if (vset->db_options()->track_and_verify_wals_in_manifest) {
     if (!vset->db_options()->allow_2pc) {
       min_wal_number_to_keep =
           PrecomputeMinLogNumberToKeepNon2PC(vset, cfds, edit_lists);
     }
-    if (min_wal_number_to_keep > vset->GetWalSet().GetWals().begin()->first) {
+    if (min_wal_number_to_keep > vset->GetWalSet().GetMinWalNumberToKeep()) {
       wal_deletion.reset(new VersionEdit);
       wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
       edit_lists.back().push_back(wal_deletion.get());

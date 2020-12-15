@@ -84,7 +84,7 @@ commands:
           name: Install gtest-parallel
           command: |
             git clone --single-branch --branch master --depth 1 https://github.com/google/gtest-parallel.git ~/gtest-parallel
-            echo "export PATH=$HOME/gtest-parallel:$PATH" >> $BASH_ENV
+            echo 'export PATH=$HOME/gtest-parallel:$PATH' >> $BASH_ENV
 
 executors:
   windows-2xlarge:
@@ -433,7 +433,7 @@ jobs:
             sed -i 's/[[:space:]]*$//; s/ / \.\//g; s/.*/.\/&/' /tmp/test_list
             cat /tmp/test_list
             export TEST_TMPDIR=/tmp/rocksdb_test_tmp
-            /usr/bin/python ../gtest-parallel/gtest-parallel $(</tmp/test_list) --output_dir=/tmp | cat  # pipe to cat to continuously output status on circleci UI. Otherwise, no status will be printed while the job is running.
+            gtest-parallel $(</tmp/test_list) --output_dir=/tmp | cat  # pipe to cat to continuously output status on circleci UI. Otherwise, no status will be printed while the job is running.
       - post-steps
 
 workflows:

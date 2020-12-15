@@ -34,15 +34,16 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
                                                  use_value_delta_encoding),
       p_index_builder_(p_index_builder),
       keys_added_to_partition_(0) {
-  keys_per_partition_ =
-      filter_bits_builder_->CalculateNumEntry(partition_size);
+  keys_per_partition_ = static_cast<uint32_t>(
+      filter_bits_builder_->ApproximateNumEntries(partition_size));
   if (keys_per_partition_ < 1) {
     // partition_size (minus buffer, ~10%) might be smaller than minimum
     // filter size, sometimes based on cache line size. Try to find that
     // minimum size without CalculateSpace (not necessarily available).
     uint32_t larger = std::max(partition_size + 4, uint32_t{16});
     for (;;) {
-      keys_per_partition_ = filter_bits_builder_->CalculateNumEntry(larger);
+      keys_per_partition_ = static_cast<uint32_t>(
+          filter_bits_builder_->ApproximateNumEntries(larger));
       if (keys_per_partition_ >= 1) {
         break;
       }

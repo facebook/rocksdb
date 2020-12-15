@@ -1368,6 +1368,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                       cfd->GetName().c_str(), meta.fd.GetNumber(),
                       meta.fd.GetFileSize(), s.ToString().c_str());
       mutex_.Lock();
+
+      io_s.PermitUncheckedError();  // TODO(AR) is this correct, or should we
+                                    // return io_s if not ok()?
     }
   }
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
@@ -1563,6 +1566,7 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
       InstrumentedMutexLock wl(&impl->log_write_mutex_);
       impl->logfile_number_ = new_log_number;
       assert(new_log != nullptr);
+      assert(impl->logs_.empty());
       impl->logs_.emplace_back(new_log_number, new_log);
     }
 

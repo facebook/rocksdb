@@ -64,6 +64,7 @@ static std::string PrintContents(WriteBatch* b,
     if (iter == nullptr) {
       continue;
     }
+    EXPECT_OK(iter->status());
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ParsedInternalKey ikey;
       ikey.clear();
@@ -117,6 +118,7 @@ static std::string PrintContents(WriteBatch* b,
       state.append("@");
       state.append(NumberToString(ikey.sequence));
     }
+    EXPECT_OK(iter->status());
   }
   if (s.ok()) {
     EXPECT_EQ(b->HasPut(), put_count > 0);

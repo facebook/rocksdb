@@ -105,12 +105,17 @@ std::string WalDeletion::DebugString() const {
 }
 
 Status WalSet::AddWal(const WalAddition& wal) {
+  if (wal.GetLogNumber() < min_wal_number_to_keep_) {
+    // The WAL has been obsolete, ignore it.
+    return Status::OK();
+  }
+
   auto it = wals_.lower_bound(wal.GetLogNumber());
   bool existing = it != wals_.end() && it->first == wal.GetLogNumber();
   if (existing && !wal.GetMetadata().HasSyncedSize()) {
     std::stringstream ss;
     ss << "WAL " << wal.GetLogNumber() << " is created more than once";
-    return Status::Corruption("WalSet", ss.str());
+    return Status::Corruption("WalSet::AddWal", ss.str());
   }
   // If the WAL has synced size, it must >= the previous size.
   if (wal.GetMetadata().HasSyncedSize() && existing &&
@@ -120,7 +125,7 @@ Status WalSet::AddWal(const WalAddition& wal) {
     std::stringstream ss;
     ss << "WAL " << wal.GetLogNumber()
        << " must not have smaller synced size than previous one";
-    return Status::Corruption("WalSet", ss.str());
+    return Status::Corruption("WalSet::AddWal", ss.str());
   }
   if (existing) {
     it->second.SetSyncedSizeInBytes(wal.GetMetadata().GetSyncedSizeInBytes());
@@ -142,11 +147,17 @@ Status WalSet::AddWals(const WalAdditions& wals) {
 }
 
 Status WalSet::DeleteWalsBefore(WalNumber wal) {
-  wals_.erase(wals_.begin(), wals_.lower_bound(wal));
+  if (wal > min_wal_number_to_keep_) {
+    min_wal_number_to_keep_ = wal;
+    wals_.erase(wals_.begin(), wals_.lower_bound(wal));
+  }
   return Status::OK();
 }
 
-void WalSet::Reset() { wals_.clear(); }
+void WalSet::Reset() {
+  wals_.clear();
+  min_wal_number_to_keep_ = 0;
+}
 
 Status WalSet::CheckWals(
     Env* env,

@@ -130,12 +130,10 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
     }
     if (!io_s.ok()) {
       if (total_log_size_ > 0) {
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
       } else {
         // If the WAL is empty, we use different error reason
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
       }
       TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return io_s;
@@ -192,8 +190,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     s = io_s;
     if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
         !io_s.IsColumnFamilyDropped()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
     }
   } else {
     TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Skip");
@@ -253,31 +250,23 @@ Status DBImpl::FlushMemTableToOutputFile(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
-        // Should handle return error?
         if (total_log_size_ > 0) {
           // If the WAL is empty, we use different error reason
-          error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
-              .PermitUncheckedError();
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWrite);
         } else {
-          error_handler_
-              .SetBGError(io_s, BackgroundErrorReason::kManifestWriteNoWAL)
-              .PermitUncheckedError();
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWriteNoWAL);
         }
       } else if (total_log_size_ > 0) {
-        // Should handle return error?
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
       } else {
         // If the WAL is empty, we use different error reason
-        // Should handle return error?
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
       Status new_bg_error = s;
-      // Should handle return error?
-      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
   } else {
     // If we got here, then we decided not to care about the i_os status (either
@@ -302,9 +291,7 @@ Status DBImpl::FlushMemTableToOutputFile(
         TEST_SYNC_POINT_CALLBACK(
             "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
             &new_bg_error);
-        // Should handle this error?
-        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
       }
     }
 #endif  // ROCKSDB_LITE
@@ -645,9 +632,8 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
             error_handler_.GetBGError().ok()) {
           Status new_bg_error =
               Status::SpaceLimit("Max allowed space was reached");
-          // Should Handle this error?
-          error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush)
-              .PermitUncheckedError();
+          error_handler_.SetBGError(new_bg_error,
+                                    BackgroundErrorReason::kFlush);
         }
       }
     }
@@ -664,31 +650,23 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
-        // Should handle return error?
         if (total_log_size_ > 0) {
           // If the WAL is empty, we use different error reason
-          error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
-              .PermitUncheckedError();
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWrite);
         } else {
-          error_handler_
-              .SetBGError(io_s, BackgroundErrorReason::kManifestWriteNoWAL)
-              .PermitUncheckedError();
+          error_handler_.SetBGError(io_s,
+                                    BackgroundErrorReason::kManifestWriteNoWAL);
         }
       } else if (total_log_size_ > 0) {
-        // Should Handle this error?
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
       } else {
         // If the WAL is empty, we use different error reason
-        // Should Handle this error?
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL)
-            .PermitUncheckedError();
+        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
       Status new_bg_error = s;
-      // Should Handle this error?
-      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
     }
   }
 
@@ -1266,11 +1244,9 @@ Status DBImpl::CompactFilesImpl(
                    job_context->job_id, status.ToString().c_str());
     IOStatus io_s = compaction_job.io_status();
     if (!io_s.ok()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kCompaction)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kCompaction);
     } else {
-      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
     }
   }
 
@@ -3121,10 +3097,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       auto err_reason = versions_->io_status().ok()
                             ? BackgroundErrorReason::kCompaction
                             : BackgroundErrorReason::kManifestWrite;
-      error_handler_.SetBGError(io_s, err_reason).PermitUncheckedError();
+      error_handler_.SetBGError(io_s, err_reason);
     } else {
-      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(status, BackgroundErrorReason::kCompaction);
     }
     if (c != nullptr && !is_manual && !error_handler_.IsBGWorkStopped()) {
       // Put this cfd back in the compaction queue so we can retry after some

@@ -1345,15 +1345,18 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   // While writing the MANIFEST start a thread that will ask for compaction
+  Status bg_compact_status;
   ROCKSDB_NAMESPACE::port::Thread bg_compact([&]() {
-    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    bg_compact_status =
+        db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   });
   TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:2");
 
   // Start a thread that will ingest a new file
+  Status bg_addfile_status;
   ROCKSDB_NAMESPACE::port::Thread bg_addfile([&]() {
     file_keys = {1, 2, 3};
-    ASSERT_OK(GenerateAndAddExternalFile(options, file_keys, 1));
+    bg_addfile_status = GenerateAndAddExternalFile(options, file_keys, 1);
   });
 
   // Wait for AddFile to start picking levels and writing MANIFEST
@@ -1373,6 +1376,9 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
 
   bg_addfile.join();
   bg_compact.join();
+
+  ASSERT_OK(bg_addfile_status);
+  ASSERT_OK(bg_compact_status);
 
   dbfull()->TEST_WaitForCompact();
 

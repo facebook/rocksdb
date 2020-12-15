@@ -31,17 +31,14 @@ class ErrorHandler {
                 InstrumentedMutex* db_mutex)
        : db_(db),
          db_options_(db_options),
-         bg_error_(Status::OK()),
-         recovery_error_(Status::OK()),
-         recovery_io_error_(IOStatus::OK()),
          cv_(db_mutex),
          end_recovery_(false),
          recovery_thread_(nullptr),
          db_mutex_(db_mutex),
          auto_recovery_(false),
          recovery_in_prog_(false),
-         soft_error_no_bg_work_(false) {}
-   ~ErrorHandler() {
+         soft_error_no_bg_work_(false) {
+     // Clear the checked flag for uninitialized errors
      bg_error_.PermitUncheckedError();
      recovery_error_.PermitUncheckedError();
      recovery_io_error_.PermitUncheckedError();
@@ -53,13 +50,14 @@ class ErrorHandler {
                                      Status::Code code,
                                      Status::SubCode subcode);
 
-   Status SetBGError(const Status& bg_err, BackgroundErrorReason reason);
+   const Status& SetBGError(const Status& bg_err, BackgroundErrorReason reason);
 
-   Status SetBGError(const IOStatus& bg_io_err, BackgroundErrorReason reason);
+   const Status& SetBGError(const IOStatus& bg_io_err,
+                            BackgroundErrorReason reason);
 
-   Status GetBGError() { return bg_error_; }
+   Status GetBGError() const { return bg_error_; }
 
-   Status GetRecoveryError() { return recovery_error_; }
+   Status GetRecoveryError() const { return recovery_error_; }
 
    Status ClearBGError();
 
@@ -110,9 +108,9 @@ class ErrorHandler {
     // Used to store the context for recover, such as flush reason.
     DBRecoverContext recover_context_;
 
-    Status OverrideNoSpaceError(Status bg_error, bool* auto_recovery);
+    Status OverrideNoSpaceError(const Status& bg_error, bool* auto_recovery);
     void RecoverFromNoSpace();
-    Status StartRecoverFromRetryableBGIOError(IOStatus io_error);
+    const Status& StartRecoverFromRetryableBGIOError(const IOStatus& io_error);
     void RecoverFromRetryableBGIOError();
 };
 

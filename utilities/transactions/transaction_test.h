@@ -68,7 +68,7 @@ class TransactionTestBase : public ::testing::Test {
     options.two_write_queues = two_write_queue;
     dbname = test::PerThreadDBPath("transaction_testdb");
 
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
     txn_db_options.transaction_lock_timeout = 0;
     txn_db_options.default_lock_timeout = 0;
     txn_db_options.write_policy = write_policy;
@@ -85,7 +85,7 @@ class TransactionTestBase : public ::testing::Test {
     } else {
       s = OpenWithStackableDB();
     }
-    assert(s.ok());
+    EXPECT_OK(s);
   }
 
   ~TransactionTestBase() {
@@ -96,7 +96,7 @@ class TransactionTestBase : public ::testing::Test {
     // unlink-ed files. By using the default fs we simply ignore errors resulted
     // from attempting to delete such files in DestroyDB.
     options.env = Env::Default();
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
     delete env;
   }
 
@@ -391,7 +391,7 @@ class TransactionTestBase : public ::testing::Test {
     if (txn_db_options.write_policy == WRITE_COMMITTED) {
       options.unordered_write = false;
     }
-    ReOpen();
+    ASSERT_OK(ReOpen());
 
     for (int i = 0; i < 1024; i++) {
       auto istr = std::to_string(index);
@@ -410,9 +410,9 @@ class TransactionTestBase : public ::testing::Test {
         case 1: {
           WriteBatch wb;
           committed_kvs[k] = v;
-          wb.Put(k, v);
+          ASSERT_OK(wb.Put(k, v));
           committed_kvs[k] = v2;
-          wb.Put(k, v2);
+          ASSERT_OK(wb.Put(k, v2));
           ASSERT_OK(db->Write(write_options, &wb));
 
         } break;
@@ -432,7 +432,7 @@ class TransactionTestBase : public ::testing::Test {
           delete txn;
           break;
         default:
-          assert(0);
+          FAIL();
       }
 
       index++;
@@ -445,9 +445,9 @@ class TransactionTestBase : public ::testing::Test {
     auto db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     // Before upgrade/downgrade the WAL must be emptied
     if (empty_wal) {
-      db_impl->TEST_FlushMemTable();
+      ASSERT_OK(db_impl->TEST_FlushMemTable());
     } else {
-      db_impl->FlushWAL(true);
+      ASSERT_OK(db_impl->FlushWAL(true));
     }
     auto s = ReOpenNoDelete();
     if (empty_wal) {
@@ -461,7 +461,7 @@ class TransactionTestBase : public ::testing::Test {
     db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     // Check that WAL is empty
     VectorLogPtr log_files;
-    db_impl->GetSortedWalFiles(log_files);
+    ASSERT_OK(db_impl->GetSortedWalFiles(log_files));
     ASSERT_EQ(0, log_files.size());
 
     for (auto& kv : committed_kvs) {

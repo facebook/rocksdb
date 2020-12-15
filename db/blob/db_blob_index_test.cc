@@ -305,6 +305,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
                     std::function<void(Iterator*)> extra_check = nullptr) {
     // Seek
     auto* iterator = create_iterator();
+    ASSERT_OK(iterator->status());
     ASSERT_OK(iterator->Refresh());
     iterator->Seek(get_key(index));
     check_iterator(iterator, expected_status, forward_value);
@@ -318,6 +319,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
     ASSERT_OK(iterator->Refresh());
     iterator->Seek(get_key(index - 1));
     ASSERT_TRUE(iterator->Valid());
+    ASSERT_OK(iterator->status());
     iterator->Next();
     check_iterator(iterator, expected_status, forward_value);
     if (extra_check) {
@@ -327,6 +329,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
 
     // SeekForPrev
     iterator = create_iterator();
+    ASSERT_OK(iterator->status());
     ASSERT_OK(iterator->Refresh());
     iterator->SeekForPrev(get_key(index));
     check_iterator(iterator, expected_status, backward_value);
@@ -339,6 +342,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
     iterator = create_iterator();
     iterator->Seek(get_key(index + 1));
     ASSERT_TRUE(iterator->Valid());
+    ASSERT_OK(iterator->status());
     iterator->Prev();
     check_iterator(iterator, expected_status, backward_value);
     if (extra_check) {
@@ -376,7 +380,7 @@ TEST_F(DBBlobIndexTest, Iterate) {
             ASSERT_OK(Write(&batch));
             break;
           default:
-            assert(false);
+            FAIL();
         };
       }
       snapshots.push_back(dbfull()->GetSnapshot());

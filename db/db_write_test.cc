@@ -320,7 +320,7 @@ TEST_P(DBWriteTest, ManualWalFlushInEffect) {
   ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
   ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty());
   // try the 2nd wal created during SwitchWAL
-  dbfull()->TEST_SwitchWAL();
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
   ASSERT_TRUE(Put("key" + ToString(0), "value").ok());
   ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
   ASSERT_TRUE(dbfull()->FlushWAL(false).ok());
@@ -395,7 +395,7 @@ TEST_P(DBWriteTest, LockWalInEffect) {
   ASSERT_TRUE(dbfull()->TEST_WALBufferIsEmpty(false));
   ASSERT_OK(dbfull()->UnlockWAL());
   // try the 2nd wal created during SwitchWAL
-  dbfull()->TEST_SwitchWAL();
+  ASSERT_OK(dbfull()->TEST_SwitchWAL());
   ASSERT_OK(Put("key" + ToString(0), "value"));
   ASSERT_TRUE(options.manual_wal_flush != dbfull()->TEST_WALBufferIsEmpty());
   ASSERT_OK(dbfull()->LockWAL());

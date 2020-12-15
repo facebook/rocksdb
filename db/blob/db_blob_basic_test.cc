@@ -3,6 +3,8 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include <array>
+
 #include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
@@ -42,6 +44,85 @@ TEST_F(DBBlobBasicTest, GetBlob) {
   PinnableSlice result;
   ASSERT_TRUE(db_->Get(read_options, db_->DefaultColumnFamily(), key, &result)
                   .IsIncomplete());
+}
+
+TEST_F(DBBlobBasicTest, MultiGetBlobs) {
+  constexpr size_t min_blob_size = 6;
+
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = min_blob_size;
+
+  Reopen(options);
+
+  // Put then retrieve three key-values. The first value is below the size limit
+  // and is thus stored inline; the other two are stored separately as blobs.
+  constexpr size_t num_keys = 3;
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "short";
+  static_assert(sizeof(first_value) - 1 < min_blob_size,
+                "first_value too long to be inlined");
+
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "long_value";
+  static_assert(sizeof(second_value) - 1 >= min_blob_size,
+                "second_value too short to be stored as blob");
+
+  ASSERT_OK(Put(second_key, second_value));
+
+  constexpr char third_key[] = "third_key";
+  constexpr char third_value[] = "other_long_value";
+  static_assert(sizeof(third_value) - 1 >= min_blob_size,
+                "third_value too short to be stored as blob");
+
+  ASSERT_OK(Put(third_key, third_value));
+
+  ASSERT_OK(Flush());
+
+  ReadOptions read_options;
+
+  std::array<Slice, num_keys> keys{{first_key, second_key, third_key}};
+
+  {
+    std::array<PinnableSlice, num_keys> values;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(values[0], first_value);
+
+    ASSERT_OK(statuses[1]);
+    ASSERT_EQ(values[1], second_value);
+
+    ASSERT_OK(statuses[2]);
+    ASSERT_EQ(values[2], third_value);
+  }
+
+  // Try again with no I/O allowed. The table and the necessary blocks should
+  // already be in their respective caches. The first (inlined) value should be
+  // successfully read; however, the two blob values could only be read from the
+  // blob file, so for those the read should return Incomplete.
+  read_options.read_tier = kBlockCacheTier;
+
+  {
+    std::array<PinnableSlice, num_keys> values;
+    std::array<Status, num_keys> statuses;
+
+    db_->MultiGet(read_options, db_->DefaultColumnFamily(), num_keys, &keys[0],
+                  &values[0], &statuses[0]);
+
+    ASSERT_OK(statuses[0]);
+    ASSERT_EQ(values[0], first_value);
+
+    ASSERT_TRUE(statuses[1].IsIncomplete());
+
+    ASSERT_TRUE(statuses[2].IsIncomplete());
+  }
 }
 
 TEST_F(DBBlobBasicTest, GetBlob_CorruptIndex) {
@@ -173,6 +254,48 @@ TEST_P(DBBlobBasicIOErrorTest, GetBlob_IOError) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(DBBlobBasicIOErrorTest, MultiGetBlobs_IOError) {
+  Options options = GetDefaultOptions();
+  options.env = fault_injection_env_.get();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  constexpr size_t num_keys = 2;
+
+  constexpr char first_key[] = "first_key";
+  constexpr char first_value[] = "first_value";
+
+  ASSERT_OK(Put(first_key, first_value));
+
+  constexpr char second_key[] = "second_key";
+  constexpr char second_value[] = "second_value";
+
+  ASSERT_OK(Put(second_key, second_value));
+
+  ASSERT_OK(Flush());
+
+  std::array<Slice, num_keys> keys{{first_key, second_key}};
+  std::array<PinnableSlice, num_keys> values;
+  std::array<Status, num_keys> statuses;
+
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_->SetFilesystemActive(false,
+                                              Status::IOError(sync_point_));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  db_->MultiGet(ReadOptions(), db_->DefaultColumnFamily(), num_keys, &keys[0],
+                &values[0], &statuses[0]);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ASSERT_TRUE(statuses[0].IsIOError());
+  ASSERT_TRUE(statuses[1].IsIOError());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

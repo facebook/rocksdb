@@ -31,6 +31,7 @@ struct KeyContext {
   MergeContext merge_context;
   SequenceNumber max_covering_tombstone_seq;
   bool key_exists;
+  bool is_blob_index;
   void* cb_arg;
   PinnableSlice* value;
   std::string* timestamp;
@@ -44,6 +45,7 @@ struct KeyContext {
         s(stat),
         max_covering_tombstone_seq(0),
         key_exists(false),
+        is_blob_index(false),
         cb_arg(nullptr),
         value(val),
         timestamp(ts),
