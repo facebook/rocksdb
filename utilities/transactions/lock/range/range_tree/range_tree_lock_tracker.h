@@ -55,6 +55,7 @@ class RangeLockList {
   bool releasing_locks_;
 };
 
+// A LockTracker-based object that is used together with RangeTreeLockManager.
 class RangeTreeLockTracker : public LockTracker {
  public:
   RangeTreeLockTracker() : range_list_(nullptr) {}

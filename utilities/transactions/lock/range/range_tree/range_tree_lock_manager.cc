@@ -1,3 +1,8 @@
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 #ifndef ROCKSDB_LITE
 #ifndef OS_WIN
 
@@ -89,9 +94,15 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
   uint64_t killed_time_msec = 0;
   uint64_t wait_time_msec = txn->GetLockTimeout();
 
-  // convert microseconds to milliseconds
-  if (wait_time_msec != (uint64_t)-1)
+  if (wait_time_msec == (uint64_t)-1) {
+    // The transaction has no wait timeout. lock_request::wait doesn't support
+    // this, it needs a number of milliseconds to wait. Pass it one year to
+    // be safe.
+    wait_time_msec = uint64_t(1000) * 60 * 60 * 24 * 365;
+  } else {
+    // convert microseconds to milliseconds
     wait_time_msec = (wait_time_msec + 500) / 1000;
+  }
 
   std::vector<RangeDeadlockInfo> di_path;
   request.m_deadlock_cb = [&](TXNID txnid, bool is_exclusive,

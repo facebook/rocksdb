@@ -1,6 +1,8 @@
-//
-// A lock tracker to be used together with RangeTreeLockManager
-//
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
+
 #ifndef ROCKSDB_LITE
 #ifndef OS_WIN
 
@@ -44,10 +46,9 @@ void RangeTreeLockTracker::Track(const RangeLockRequest &lock_req) {
 
 PointLockStatus RangeTreeLockTracker::GetPointLockStatus(
     ColumnFamilyId /*cf_id*/, const std::string & /*key*/) const {
-  // TODO: what to do here if we are holding a range lock that is embedding the
-  // point?
-
-  // "Cheat" and return the status which says the point is not locked.
+  // This function is not expected to be called as RangeTreeLockTracker::
+  // IsPointLockSupported() returns false. Return the status which indicates
+  // the point is not locked.
   PointLockStatus p;
   p.locked = false;
   p.exclusive = true;
