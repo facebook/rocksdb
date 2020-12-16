@@ -151,6 +151,7 @@ class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
       buf->reset(new char[rv]());
     }
 #else
+    (void)num_entries;
     buf->reset(new char[rv]());
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
     return rv;
@@ -546,19 +547,24 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
     return target_len_with_metadata;
   }
 
+  // This is a somewhat ugly but reasonably fast and accurate reversal of
+  // CalculateSpace.
   size_t ApproximateNumEntries(size_t bytes) override {
     size_t len_no_metadata =
         RoundDownUsableSpace(std::max(bytes, size_t{5})) - 5;
 
+    // Account for mix of b and b+1 solution columns being slightly
+    // suboptimal vs. ideal log2(1/fp_rate) bits.
     uint32_t rounded = static_cast<uint32_t>(desired_one_in_fp_rate_);
     int upper_bits_per_key = 1 + FloorLog2(rounded);
     double fp_rate_for_upper = std::pow(2.0, -upper_bits_per_key);
     double portion_lower =
         (1.0 / desired_one_in_fp_rate_ - fp_rate_for_upper) / fp_rate_for_upper;
-
     double min_real_bits_per_key = upper_bits_per_key - portion_lower;
+    // Max of 32 solution columns (result bits)
     min_real_bits_per_key = std::min(min_real_bits_per_key, 32.0);
 
+    // An overestimate, but this should only be O(1) slots away from truth.
     double max_slots = len_no_metadata * 8.0 / min_real_bits_per_key;
 
     // Let's not bother accounting for overflow to Bloom filter
@@ -566,6 +572,7 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
       return kMaxRibbonEntries;
     }
 
+    // Set up for short iteration
     uint32_t slots = static_cast<uint32_t>(max_slots);
     slots = SolnType::RoundUpNumSlots(slots);
 
