@@ -40,22 +40,21 @@ static inline bool HasJemalloc() { return true; }
 
 // definitions for compatibility with older versions of jemalloc
 #if !defined(JEMALLOC_ALLOCATOR)
-  #define JEMALLOC_ALLOCATOR
+#define JEMALLOC_ALLOCATOR
 #endif
 #if !defined(JEMALLOC_RESTRICT_RETURN)
-  #define JEMALLOC_RESTRICT_RETURN
+#define JEMALLOC_RESTRICT_RETURN
 #endif
 #if !defined(JEMALLOC_NOTHROW)
-  #define JEMALLOC_NOTHROW JEMALLOC_ATTR(nothrow)
+#define JEMALLOC_NOTHROW JEMALLOC_ATTR(nothrow)
 #endif
 #if !defined(JEMALLOC_ALLOC_SIZE)
-#  ifdef JEMALLOC_HAVE_ATTR_ALLOC_SIZE
-#    define JEMALLOC_ALLOC_SIZE(s) JEMALLOC_ATTR(alloc_size(s))
-#  else
-#    define JEMALLOC_ALLOC_SIZE(s)
-#  endif
+#ifdef JEMALLOC_HAVE_ATTR_ALLOC_SIZE
+#define JEMALLOC_ALLOC_SIZE(s) JEMALLOC_ATTR(alloc_size(s))
+#else
+#define JEMALLOC_ALLOC_SIZE(s)
 #endif
-
+#endif
 
 // Declare non-standard jemalloc APIs as weak symbols. We can null-check these
 // symbols to detect whether jemalloc is linked with the binary.
