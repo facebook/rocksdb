@@ -676,7 +676,7 @@ struct AdvancedColumnFamilyOptions {
   bool report_bg_io_stats = false;
 
   // Files containing updates older than TTL will go through the compaction
-  // process. This usually happens in an cascading way so that those entries
+  // process. This usually happens in a cascading way so that those entries
   // will be compacted to bottommost level/file.
   // The feature is used to remove stale entries that have been deleted or
   // updated from the file system.
