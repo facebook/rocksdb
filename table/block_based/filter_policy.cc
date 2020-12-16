@@ -547,25 +547,40 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
     return target_len_with_metadata;
   }
 
-  // This is a somewhat ugly but reasonably fast and accurate reversal of
-  // CalculateSpace.
+  // This is a somewhat ugly but reasonably fast and reasonably accurate
+  // reversal of CalculateSpace.
   size_t ApproximateNumEntries(size_t bytes) override {
     size_t len_no_metadata =
         RoundDownUsableSpace(std::max(bytes, size_t{5})) - 5;
 
-    // Account for mix of b and b+1 solution columns being slightly
-    // suboptimal vs. ideal log2(1/fp_rate) bits.
-    uint32_t rounded = static_cast<uint32_t>(desired_one_in_fp_rate_);
-    int upper_bits_per_key = 1 + FloorLog2(rounded);
-    double fp_rate_for_upper = std::pow(2.0, -upper_bits_per_key);
-    double portion_lower =
-        (1.0 / desired_one_in_fp_rate_ - fp_rate_for_upper) / fp_rate_for_upper;
-    double min_real_bits_per_key = upper_bits_per_key - portion_lower;
-    // Max of 32 solution columns (result bits)
-    min_real_bits_per_key = std::min(min_real_bits_per_key, 32.0);
+    if (!(desired_one_in_fp_rate_ > 1.0)) {
+      // Effectively asking for 100% FP rate, or NaN etc.
+      // Note that NaN is neither < 1.0 nor > 1.0
+      return kMaxRibbonEntries;
+    }
+
+    // Find a slight under-estimate for actual average bits per slot
+    double min_real_bits_per_slot;
+    if (desired_one_in_fp_rate_ >=
+        double{std::numeric_limits<uint32_t>::max()}) {
+      // Max of 32 solution columns (result bits)
+      min_real_bits_per_slot = 32.0;
+    } else {
+      // Account for mix of b and b+1 solution columns being slightly
+      // suboptimal vs. ideal log2(1/fp_rate) bits.
+      uint32_t rounded = static_cast<uint32_t>(desired_one_in_fp_rate_);
+      int upper_bits_per_key = 1 + FloorLog2(rounded);
+      double fp_rate_for_upper = std::pow(2.0, -upper_bits_per_key);
+      double portion_lower =
+          (1.0 / desired_one_in_fp_rate_ - fp_rate_for_upper) /
+          fp_rate_for_upper;
+      min_real_bits_per_slot = upper_bits_per_key - portion_lower;
+      assert(min_real_bits_per_slot >= 0.0);
+      assert(min_real_bits_per_slot <= 32.0);
+    }
 
     // An overestimate, but this should only be O(1) slots away from truth.
-    double max_slots = len_no_metadata * 8.0 / min_real_bits_per_key;
+    double max_slots = len_no_metadata * 8.0 / min_real_bits_per_slot;
 
     // Let's not bother accounting for overflow to Bloom filter
     if (max_slots > 1.44 * kMaxRibbonEntries) {
