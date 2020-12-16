@@ -36,7 +36,8 @@ Slice FinishAlwaysFalse(std::unique_ptr<const char[]>* /*buf*/) {
 // also known as Hash64 or GetSliceHash64.
 class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
-  XXH3pFilterBitsBuilder(std::atomic<int64_t>* aggregate_rounding_balance)
+  explicit XXH3pFilterBitsBuilder(
+      std::atomic<int64_t>* aggregate_rounding_balance)
       : aggregate_rounding_balance_(aggregate_rounding_balance) {}
 
   ~XXH3pFilterBitsBuilder() override {}
