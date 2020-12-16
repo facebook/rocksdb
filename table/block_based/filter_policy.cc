@@ -561,8 +561,7 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
 
     // Find a slight under-estimate for actual average bits per slot
     double min_real_bits_per_slot;
-    if (desired_one_in_fp_rate_ >=
-        double{std::numeric_limits<uint32_t>::max()}) {
+    if (desired_one_in_fp_rate_ >= 1.0 + std::numeric_limits<uint32_t>::max()) {
       // Max of 32 solution columns (result bits)
       min_real_bits_per_slot = 32.0;
     } else {
