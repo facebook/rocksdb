@@ -275,7 +275,6 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
    public:
     explicit Handler(Env* env) : env_(env) {}
     WriteBatch updates_ttl;
-    using WriteBatch::Handler::PutCF;
     Status PutCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
       std::string value_with_ts;
@@ -286,7 +285,6 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       return WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
                                      value_with_ts);
     }
-    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t column_family_id, const Slice& key,
                    const Slice& value) override {
       std::string value_with_ts;
@@ -297,7 +295,6 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       return WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
                                        value_with_ts);
     }
-    using WriteBatch::Handler::DeleteCF;
     Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
       return WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
     }

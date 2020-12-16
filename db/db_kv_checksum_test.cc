@@ -38,7 +38,7 @@ class DbKvChecksumTest
                                               ColumnFamilyHandle* cf_handle) {
     Status s;
     WriteBatch wb(0 /* reserved_bytes */, 0 /* max_bytes */, ts_sz,
-                  true /* _protected */);
+                  8 /* protection_bytes_per_entry */);
     switch (op_type_) {
       case WriteBatchOpType::kPut:
         s = wb.Put(cf_handle, "key", "val");

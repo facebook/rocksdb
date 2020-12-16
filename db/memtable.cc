@@ -488,7 +488,8 @@ MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
 
 Status MemTable::Add(SequenceNumber s, ValueType type,
                      const Slice& key, /* user key */
-                     const Slice& value, const KvProtectionInfo* kv_prot_info,
+                     const Slice& value,
+                     const QwordProtectionInfoKVOTS* kv_prot_info,
                      bool allow_concurrent,
                      MemTablePostProcessInfo* post_process_info, void** hint) {
   // Format of an entry is concatenation of:
@@ -525,8 +526,11 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz);
 
   if (kv_prot_info != nullptr) {
+    Slice verify_key, verify_value, verify_timestamp;
+    ValueType verify_value_type = kMaxValue;
+    SequenceNumber verify_seq = kMaxSequenceNumber;
+
     Status verify_status;
-    KvProtectionInfo memtable_kv_prot_info;
     Slice input(buf, encoded_len);
     uint32_t verify_ikey_len = 0;
     if (!GetVarint32(&input, &verify_ikey_len)) {
@@ -541,21 +545,15 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
     uint32_t verify_value_len = 0;
     if (verify_status.ok()) {
       const size_t verify_key_without_ts_len = verify_ikey_len - ts_sz - 8;
-      memtable_kv_prot_info.SetKeyChecksum(
-          GetSliceNPHash64(Slice(input.data(), verify_key_without_ts_len)));
+      verify_key = Slice(input.data(), verify_key_without_ts_len);
       input.remove_prefix(verify_key_without_ts_len);
       if (ts_sz > 0) {
-        memtable_kv_prot_info.SetTimestampChecksum(
-            GetSliceNPHash64(Slice(input.data(), ts_sz)));
+        verify_timestamp = Slice(input.data(), ts_sz);
       }
       input.remove_prefix(ts_sz);
       uint64_t verify_packed = DecodeFixed64(input.data());
       input.remove_prefix(8);
-      uint64_t verify_seq;
-      ValueType verify_value_type;
       UnPackSequenceAndType(verify_packed, &verify_seq, &verify_value_type);
-      memtable_kv_prot_info.SetSequenceNumber(verify_seq);
-      memtable_kv_prot_info.SetValueType(verify_value_type);
       if (!GetVarint32(&input, &verify_value_len)) {
         verify_status = Status::Corruption("Unable to parse value length");
       }
@@ -567,9 +565,15 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
       verify_status = Status::Corruption("Value length too long");
     }
     if (verify_status.ok()) {
-      Slice verify_value = Slice(input.data(), verify_value_len);
-      memtable_kv_prot_info.SetValueChecksum(GetSliceNPHash64(verify_value));
-      verify_status = kv_prot_info->VerifyAgainst(memtable_kv_prot_info);
+      verify_value = Slice(input.data(), verify_value_len);
+    }
+    if (verify_status.ok()) {
+      verify_status =
+          kv_prot_info->StripS(verify_seq)
+              .StripKVOT(GetSliceNPHash64(verify_key),
+                         GetSliceNPHash64(verify_value), verify_value_type,
+                         GetSliceNPHash64(verify_timestamp))
+              .GetStatus();
     }
     if (!verify_status.ok()) {
       return verify_status;
@@ -1039,7 +1043,7 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
 Status MemTable::Update(SequenceNumber seq, const Slice& key,
                         const Slice& value,
-                        const KvProtectionInfo* kv_prot_info) {
+                        const QwordProtectionInfoKVOTS* kv_prot_info) {
   LookupKey lkey(key, seq);
   Slice mem_key = lkey.memtable_key();
 
@@ -1096,7 +1100,7 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
 
 Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
                                 const Slice& delta,
-                                const KvProtectionInfo* kv_prot_info) {
+                                const QwordProtectionInfoKVOTS* kv_prot_info) {
   LookupKey lkey(key, seq);
   Slice memkey = lkey.memtable_key();
 
@@ -1133,19 +1137,13 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
           uint32_t new_prev_size = prev_size;
 
           Status s;
-          if (kv_prot_info != nullptr) {
-            // TODO(ajkr): Push down this checksum verification and the below
-            // `str_value` checksum generation  into `inplace_callback()`.
-            KvProtectionInfo expected_kv_prot_info;
-            expected_kv_prot_info.SetValueChecksum(GetSliceNPHash64(delta));
-            s = kv_prot_info->VerifyAgainst(expected_kv_prot_info);
-          }
           if (s.ok()) {
             std::string str_value;
             WriteLock wl(GetLock(lkey.user_key()));
             auto status = moptions_.inplace_callback(
                 prev_buffer, &new_prev_size, delta, &str_value);
             if (status == UpdateStatus::UPDATED_INPLACE) {
+              // TODO(ajkr): need integrity verification
               // Value already updated by callback.
               assert(new_prev_size <= prev_size);
               if (new_prev_size < prev_size) {
@@ -1161,9 +1159,9 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
               UpdateFlushState();
             } else if (status == UpdateStatus::UPDATED) {
               if (kv_prot_info != nullptr) {
-                KvProtectionInfo merged_kv_prot_info(*kv_prot_info);
-                merged_kv_prot_info.SetValueChecksum(
-                    GetSliceNPHash64(str_value));
+                QwordProtectionInfoKVOTS merged_kv_prot_info(*kv_prot_info);
+                merged_kv_prot_info.UpdateV(GetSliceNPHash64(delta),
+                                            GetSliceNPHash64(str_value));
                 s = Add(seq, kTypeValue, key, Slice(str_value),
                         &merged_kv_prot_info);
               } else {

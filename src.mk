@@ -50,7 +50,6 @@ LIB_SOURCES =                                                   \
   db/forward_iterator.cc                                        \
   db/import_column_family_job.cc                                \
   db/internal_stats.cc                                          \
-  db/kv_checksum.cc                                             \
   db/logs_with_prep_tracker.cc                                  \
   db/log_reader.cc                                              \
   db/log_writer.cc                                              \

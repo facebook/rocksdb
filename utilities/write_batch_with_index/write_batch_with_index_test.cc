@@ -45,7 +45,6 @@ struct Entry {
 
 struct TestHandler : public WriteBatch::Handler {
   std::map<uint32_t, std::vector<Entry>> seen;
-  using WriteBatch::Handler::PutCF;
   Status PutCF(uint32_t column_family_id, const Slice& key,
                const Slice& value) override {
     Entry e;
@@ -55,7 +54,6 @@ struct TestHandler : public WriteBatch::Handler {
     seen[column_family_id].push_back(e);
     return Status::OK();
   }
-  using WriteBatch::Handler::MergeCF;
   Status MergeCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
     Entry e;
@@ -66,7 +64,6 @@ struct TestHandler : public WriteBatch::Handler {
     return Status::OK();
   }
   void LogData(const Slice& /*blob*/) override {}
-  using WriteBatch::Handler::DeleteCF;
   Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
     Entry e;
     e.key = key.ToString();

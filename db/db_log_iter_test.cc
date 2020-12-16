@@ -255,13 +255,11 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
   auto res = OpenTransactionLogIter(0)->GetBatch();
   struct Handler : public WriteBatch::Handler {
     std::string seen;
-    using WriteBatch::Handler::PutCF;
     Status PutCF(uint32_t cf, const Slice& key, const Slice& value) override {
       seen += "Put(" + ToString(cf) + ", " + key.ToString() + ", " +
               ToString(value.size()) + ")";
       return Status::OK();
     }
-    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) override {
       seen += "Merge(" + ToString(cf) + ", " + key.ToString() + ", " +
               ToString(value.size()) + ")";
@@ -270,7 +268,6 @@ TEST_F(DBTestXactLogIterator, TransactionLogIteratorBlobs) {
     void LogData(const Slice& blob) override {
       seen += "LogData(" + blob.ToString() + ")";
     }
-    using WriteBatch::Handler::DeleteCF;
     Status DeleteCF(uint32_t cf, const Slice& key) override {
       seen += "Delete(" + ToString(cf) + ", " + key.ToString() + ")";
       return Status::OK();

@@ -950,7 +950,6 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
 
   WriteBatch* batch() { return &batch_; }
 
-  using WriteBatch::Handler::PutCF;
   Status PutCF(uint32_t column_family_id, const Slice& key,
                const Slice& value) override {
     if (column_family_id != default_cf_id_) {
@@ -962,7 +961,6 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
     return s;
   }
 
-  using WriteBatch::Handler::DeleteCF;
   Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
     if (column_family_id != default_cf_id_) {
       return Status::NotSupported(
@@ -983,13 +981,11 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
     return s;
   }
 
-  using WriteBatch::Handler::SingleDeleteCF;
   Status SingleDeleteCF(uint32_t /*column_family_id*/,
                         const Slice& /*key*/) override {
     return Status::NotSupported("Not supported operation in blob db.");
   }
 
-  using WriteBatch::Handler::MergeCF;
   Status MergeCF(uint32_t /*column_family_id*/, const Slice& /*key*/,
                  const Slice& /*value*/) override {
     return Status::NotSupported("Not supported operation in blob db.");

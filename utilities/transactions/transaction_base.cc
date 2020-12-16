@@ -632,22 +632,18 @@ Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
       assert(dynamic_cast<TransactionBaseImpl*>(txn_) != nullptr);
     }
 
-    using WriteBatch::Handler::PutCF;
     Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
       return txn_->Put(db_->GetColumnFamilyHandle(cf), key, val);
     }
 
-    using WriteBatch::Handler::DeleteCF;
     Status DeleteCF(uint32_t cf, const Slice& key) override {
       return txn_->Delete(db_->GetColumnFamilyHandle(cf), key);
     }
 
-    using WriteBatch::Handler::SingleDeleteCF;
     Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
       return txn_->SingleDelete(db_->GetColumnFamilyHandle(cf), key);
     }
 
-    using WriteBatch::Handler::MergeCF;
     Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
       return txn_->Merge(db_->GetColumnFamilyHandle(cf), key, val);
     }

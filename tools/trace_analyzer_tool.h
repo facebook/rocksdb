@@ -259,28 +259,23 @@ class TraceWriteHandler : public WriteBatch::Handler {
   explicit TraceWriteHandler(TraceAnalyzer* _ta_ptr) { ta_ptr = _ta_ptr; }
   ~TraceWriteHandler() {}
 
-  using WriteBatch::Handler::PutCF;
   virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                        const Slice& value) override {
     return ta_ptr->HandlePut(column_family_id, key, value);
   }
-  using WriteBatch::Handler::DeleteCF;
   virtual Status DeleteCF(uint32_t column_family_id,
                           const Slice& key) override {
     return ta_ptr->HandleDelete(column_family_id, key);
   }
-  using WriteBatch::Handler::SingleDeleteCF;
   virtual Status SingleDeleteCF(uint32_t column_family_id,
                                 const Slice& key) override {
     return ta_ptr->HandleSingleDelete(column_family_id, key);
   }
-  using WriteBatch::Handler::DeleteRangeCF;
   virtual Status DeleteRangeCF(uint32_t column_family_id,
                                const Slice& begin_key,
                                const Slice& end_key) override {
     return ta_ptr->HandleDeleteRange(column_family_id, begin_key, end_key);
   }
-  using WriteBatch::Handler::MergeCF;
   virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
     return ta_ptr->HandleMerge(column_family_id, key, value);
