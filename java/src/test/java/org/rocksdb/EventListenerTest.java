@@ -232,8 +232,8 @@ public class EventListenerTest {
 
   @Test
   public void testAllCallbacksInvocation() {
-    final int TEST_INT_VAL = Integer.MAX_VALUE;
-    final long TEST_LONG_VAL = Long.MAX_VALUE;
+    final int TEST_INT_VAL = -1;
+    final long TEST_LONG_VAL = -1;
     // Expected test data objects
     final Map<String, String> userCollectedPropertiesTestData =
         Collections.singletonMap("key", "value");
@@ -247,18 +247,18 @@ public class EventListenerTest {
         "columnFamilyName".getBytes(), "filterPolicyName", "comparatorName", "mergeOperatorName",
         "prefixExtractorName", "propertyCollectorsNames", "compressionName",
         userCollectedPropertiesTestData, readablePropertiesTestData, propertiesOffsetsTestData);
-    final FlushJobInfo flushJobInfoTestData = new FlushJobInfo(TEST_INT_VAL, "testColumnFamily",
-        "/file/path", TEST_LONG_VAL, TEST_INT_VAL, true, true, TEST_LONG_VAL, TEST_LONG_VAL,
-        tablePropertiesTestData, (byte) 0x0a);
+    final FlushJobInfo flushJobInfoTestData = new FlushJobInfo(Integer.MAX_VALUE,
+        "testColumnFamily", "/file/path", TEST_LONG_VAL, Integer.MAX_VALUE, true, true,
+        TEST_LONG_VAL, TEST_LONG_VAL, tablePropertiesTestData, (byte) 0x0a);
     final Status statusTestData = new Status(Status.Code.Incomplete, Status.SubCode.NoSpace, null);
     final TableFileDeletionInfo tableFileDeletionInfoTestData =
-        new TableFileDeletionInfo("dbName", "/file/path", TEST_INT_VAL, statusTestData);
+        new TableFileDeletionInfo("dbName", "/file/path", Integer.MAX_VALUE, statusTestData);
     final TableFileCreationInfo tableFileCreationInfoTestData =
         new TableFileCreationInfo(TEST_LONG_VAL, tablePropertiesTestData, statusTestData, "dbName",
-            "columnFamilyName", "/file/path", TEST_INT_VAL, (byte) 0x03);
+            "columnFamilyName", "/file/path", Integer.MAX_VALUE, (byte) 0x03);
     final TableFileCreationBriefInfo tableFileCreationBriefInfoTestData =
         new TableFileCreationBriefInfo(
-            "dbName", "columnFamilyName", "/file/path", TEST_INT_VAL, (byte) 0x03);
+            "dbName", "columnFamilyName", "/file/path", Integer.MAX_VALUE, (byte) 0x03);
     final MemTableInfo memTableInfoTestData = new MemTableInfo(
         "columnFamilyName", TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL);
     final FileOperationInfo fileOperationInfoTestData = new FileOperationInfo("/file/path",
@@ -295,9 +295,9 @@ public class EventListenerTest {
             "compactionColumnFamily".getBytes(), compactionJobInfo.columnFamilyName());
         assertEquals(statusTestData, compactionJobInfo.status());
         assertEquals(TEST_LONG_VAL, compactionJobInfo.threadId());
-        assertEquals(TEST_INT_VAL, compactionJobInfo.jobId());
-        assertEquals(TEST_INT_VAL, compactionJobInfo.baseInputLevel());
-        assertEquals(TEST_INT_VAL, compactionJobInfo.outputLevel());
+        assertEquals(Integer.MAX_VALUE, compactionJobInfo.jobId());
+        assertEquals(Integer.MAX_VALUE, compactionJobInfo.baseInputLevel());
+        assertEquals(Integer.MAX_VALUE, compactionJobInfo.outputLevel());
         assertEquals(Collections.singletonList("inputFile.sst"), compactionJobInfo.inputFiles());
         assertEquals(Collections.singletonList("outputFile.sst"), compactionJobInfo.outputFiles());
         assertEquals(Collections.singletonMap("tableProperties", tablePropertiesTestData),
@@ -314,9 +314,9 @@ public class EventListenerTest {
             "compactionColumnFamily".getBytes(), compactionJobInfo.columnFamilyName());
         assertEquals(statusTestData, compactionJobInfo.status());
         assertEquals(TEST_LONG_VAL, compactionJobInfo.threadId());
-        assertEquals(TEST_INT_VAL, compactionJobInfo.jobId());
-        assertEquals(TEST_INT_VAL, compactionJobInfo.baseInputLevel());
-        assertEquals(TEST_INT_VAL, compactionJobInfo.outputLevel());
+        assertEquals(Integer.MAX_VALUE, compactionJobInfo.jobId());
+        assertEquals(Integer.MAX_VALUE, compactionJobInfo.baseInputLevel());
+        assertEquals(Integer.MAX_VALUE, compactionJobInfo.outputLevel());
         assertEquals(Collections.singletonList("inputFile.sst"), compactionJobInfo.inputFiles());
         assertEquals(Collections.singletonList("outputFile.sst"), compactionJobInfo.outputFiles());
         assertEquals(Collections.singletonMap("tableProperties", tablePropertiesTestData),
@@ -442,11 +442,10 @@ public class EventListenerTest {
   @Test
   public void testEnabledCallbacks() {
     final EnabledEventCallback enabledEvents[] = {
-      EnabledEventCallback.ON_MEMTABLE_SEALED,
-      EnabledEventCallback.ON_ERROR_RECOVERY_COMPLETED
-    };
+        EnabledEventCallback.ON_MEMTABLE_SEALED, EnabledEventCallback.ON_ERROR_RECOVERY_COMPLETED};
 
-    final CapturingTestableEventListener listener = new CapturingTestableEventListener(enabledEvents);
+    final CapturingTestableEventListener listener =
+        new CapturingTestableEventListener(enabledEvents);
 
     // test action
     listener.invokeAllCallbacks();
@@ -455,15 +454,20 @@ public class EventListenerTest {
     assertEventsCalled(listener, enabledEvents);
   }
 
-  private static void assertAllEventsCalled(final CapturingTestableEventListener capturingTestableEventListener) {
+  private static void assertAllEventsCalled(
+      final CapturingTestableEventListener capturingTestableEventListener) {
     assertEventsCalled(capturingTestableEventListener, EnumSet.allOf(EnabledEventCallback.class));
   }
 
-  private static void assertEventsCalled(final CapturingTestableEventListener capturingTestableEventListener, final EnabledEventCallback[] expected) {
+  private static void assertEventsCalled(
+      final CapturingTestableEventListener capturingTestableEventListener,
+      final EnabledEventCallback[] expected) {
     assertEventsCalled(capturingTestableEventListener, EnumSet.copyOf(Arrays.asList(expected)));
   }
 
-  private static void assertEventsCalled(final CapturingTestableEventListener capturingTestableEventListener, final EnumSet<EnabledEventCallback> expected) {
+  private static void assertEventsCalled(
+      final CapturingTestableEventListener capturingTestableEventListener,
+      final EnumSet<EnabledEventCallback> expected) {
     final ListenerEvents capturedEvents = capturingTestableEventListener.capturedListenerEvents;
 
     if (expected.contains(EnabledEventCallback.ON_FLUSH_COMPLETED)) {
@@ -471,7 +475,7 @@ public class EventListenerTest {
     } else {
       assertFalse("onFlushCompleted was not called", capturedEvents.flushCompleted);
     }
-    
+
     if (expected.contains(EnabledEventCallback.ON_FLUSH_BEGIN)) {
       assertTrue("onFlushBegin was not called", capturedEvents.flushBegin);
     } else {
@@ -503,7 +507,8 @@ public class EventListenerTest {
     }
 
     if (expected.contains(EnabledEventCallback.ON_TABLE_FILE_CREATION_STARTED)) {
-      assertTrue("onTableFileCreationStarted was not called", capturedEvents.tableFileCreationStarted);
+      assertTrue(
+          "onTableFileCreationStarted was not called", capturedEvents.tableFileCreationStarted);
     } else {
       assertFalse("onTableFileCreationStarted was called", capturedEvents.tableFileCreationStarted);
     }
@@ -515,9 +520,11 @@ public class EventListenerTest {
     }
 
     if (expected.contains(EnabledEventCallback.ON_COLUMN_FAMILY_HANDLE_DELETION_STARTED)) {
-      assertTrue("onColumnFamilyHandleDeletionStarted was not called", capturedEvents.columnFamilyHandleDeletionStarted);
+      assertTrue("onColumnFamilyHandleDeletionStarted was not called",
+          capturedEvents.columnFamilyHandleDeletionStarted);
     } else {
-      assertFalse("onColumnFamilyHandleDeletionStarted was called", capturedEvents.columnFamilyHandleDeletionStarted);
+      assertFalse("onColumnFamilyHandleDeletionStarted was called",
+          capturedEvents.columnFamilyHandleDeletionStarted);
     }
 
     if (expected.contains(EnabledEventCallback.ON_EXTERNAL_FILE_INGESTED)) {
@@ -581,7 +588,8 @@ public class EventListenerTest {
     }
 
     if (expected.contains(EnabledEventCallback.SHOULD_BE_NOTIFIED_ON_FILE_IO)) {
-      assertTrue("shouldBeNotifiedOnFileIO was not called", capturedEvents.shouldBeNotifiedOnFileIO);
+      assertTrue(
+          "shouldBeNotifiedOnFileIO was not called", capturedEvents.shouldBeNotifiedOnFileIO);
     } else {
       assertFalse("shouldBeNotifiedOnFileIO was called", capturedEvents.shouldBeNotifiedOnFileIO);
     }
@@ -631,8 +639,7 @@ public class EventListenerTest {
   private static class CapturingTestableEventListener extends TestableEventListener {
     final ListenerEvents capturedListenerEvents = new ListenerEvents();
 
-    public CapturingTestableEventListener() {
-    }
+    public CapturingTestableEventListener() {}
 
     public CapturingTestableEventListener(final EnabledEventCallback... enabledEventCallbacks) {
       super(enabledEventCallbacks);
@@ -659,8 +666,7 @@ public class EventListenerTest {
     }
 
     @Override
-    public void onCompactionCompleted(
-        final RocksDB db, final CompactionJobInfo compactionJobInfo) {
+    public void onCompactionCompleted(final RocksDB db, final CompactionJobInfo compactionJobInfo) {
       capturedListenerEvents.compactionCompleted = true;
     }
 
