@@ -21,10 +21,10 @@
 
 #pragma once
 
+#include <type_traits>
+
 #include "db/dbformat.h"
 #include "rocksdb/types.h"
-
-#include <type_traits>
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -54,7 +54,7 @@ struct ProtectionInfo {
     // integrity protection array. Given all this, we can use `reinterpret_cast`
     // to safely reinterpret the type of any `ProtectionInfo.*` pointer, or even
     // convert any such pointers to a pointer to the integrity protection array.
-    static_assert(std::is_standard_layout<ProtectionInfo<N>>::value);
+    static_assert(std::is_standard_layout<ProtectionInfo<N>>::value, "");
   }
 
   Status GetStatus() const;
@@ -63,14 +63,14 @@ struct ProtectionInfo {
                                     uint64_t ts_checksum) const;
 
   unsigned char buf_[N] __attribute__((aligned(N))) = {0};
-  static_assert(N > 0 && N <= 8);
-  static_assert((N & (N - 1)) == 0);
+  static_assert(N > 0 && N <= 8, "");
+  static_assert((N & (N - 1)) == 0, "");
 };
 
 template <size_t N>
 struct ProtectionInfoKVOT {
   ProtectionInfoKVOT() {
-    static_assert(std::is_standard_layout<ProtectionInfoKVOT<N>>::value);
+    static_assert(std::is_standard_layout<ProtectionInfoKVOT<N>>::value, "");
   }
 
   ProtectionInfo<N> StripKVOT(uint64_t key_checksum, uint64_t value_checksum,
@@ -90,7 +90,7 @@ struct ProtectionInfoKVOT {
 template <size_t N>
 struct ProtectionInfoKVOTC {
   ProtectionInfoKVOTC() {
-    static_assert(std::is_standard_layout<ProtectionInfoKVOTC<N>>::value);
+    static_assert(std::is_standard_layout<ProtectionInfoKVOTC<N>>::value, "");
   }
 
   ProtectionInfoKVOT<N> StripC(ColumnFamilyId column_family_id) const;
@@ -116,7 +116,7 @@ struct ProtectionInfoKVOTC {
 template <size_t N>
 struct ProtectionInfoKVOTS {
   ProtectionInfoKVOTS() {
-    static_assert(std::is_standard_layout<ProtectionInfoKVOTS<N>>::value);
+    static_assert(std::is_standard_layout<ProtectionInfoKVOTS<N>>::value, "");
   }
 
   ProtectionInfoKVOT<N> StripS(SequenceNumber sequence_number) const;
@@ -146,10 +146,10 @@ struct ProtectionInfoKVOTS {
 // cannot be larger than eight.
 template <size_t N, class T>
 void NPFoldXor(unsigned char* dst, T info) {
-  static_assert(sizeof(T) > 0 && sizeof(T) <= 8);
-  static_assert((sizeof(T) & (sizeof(T) - 1)) == 0);
-  static_assert(N > 0 && N <= 8);
-  static_assert((N & (N - 1)) == 0);
+  static_assert(sizeof(T) > 0 && sizeof(T) <= 8, "");
+  static_assert((sizeof(T) & (sizeof(T) - 1)) == 0, "");
+  static_assert(N > 0 && N <= 8, "");
+  static_assert((N & (N - 1)) == 0, "");
 
   unsigned char* info_bytes = reinterpret_cast<unsigned char*>(&info);
   uint64_t dst_val = 0;
