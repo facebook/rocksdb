@@ -486,6 +486,50 @@ MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
   return {entry_count * (data_size / n), entry_count};
 }
 
+Status MemTable::VerifyEncodedEntry(
+    Slice encoded, const QwordProtectionInfoKVOTS& kv_prot_info) {
+  uint32_t ikey_len = 0;
+  if (!GetVarint32(&encoded, &ikey_len)) {
+    return Status::Corruption("Unable to parse internal key length");
+  }
+  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
+  if (ikey_len < 8 + ts_sz) {
+    return Status::Corruption("Internal key length too short");
+  }
+  if (ikey_len > encoded.size()) {
+    return Status::Corruption("Internal key length too long");
+  }
+  uint32_t value_len = 0;
+  const size_t key_without_ts_len = ikey_len - ts_sz - 8;
+  Slice key(encoded.data(), key_without_ts_len);
+  encoded.remove_prefix(key_without_ts_len);
+
+  Slice timestamp(encoded.data(), ts_sz);
+  encoded.remove_prefix(ts_sz);
+
+  uint64_t packed = DecodeFixed64(encoded.data());
+  ValueType value_type = kMaxValue;
+  SequenceNumber sequence_number = kMaxSequenceNumber;
+  UnPackSequenceAndType(packed, &sequence_number, &value_type);
+  encoded.remove_prefix(8);
+
+  if (!GetVarint32(&encoded, &value_len)) {
+    return Status::Corruption("Unable to parse value length");
+  }
+  if (value_len < encoded.size()) {
+    return Status::Corruption("Value length too short");
+  }
+  if (value_len > encoded.size()) {
+    return Status::Corruption("Value length too long");
+  }
+  Slice value(encoded.data(), value_len);
+
+  return kv_prot_info.StripS(sequence_number)
+      .StripKVOT(GetSliceNPHash64(key), GetSliceNPHash64(value), value_type,
+                 GetSliceNPHash64(timestamp))
+      .GetStatus();
+}
+
 Status MemTable::Add(SequenceNumber s, ValueType type,
                      const Slice& key, /* user key */
                      const Slice& value,
@@ -518,67 +562,17 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
-#ifndef NDEBUG
-  Slice encoded(buf, encoded_len);
-  TEST_SYNC_POINT_CALLBACK("MemTable::Add:Encoded", &encoded);
-#endif  // NDEBUG
-  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
-  Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz);
-
   if (kv_prot_info != nullptr) {
-    Slice verify_key, verify_value, verify_timestamp;
-    ValueType verify_value_type = kMaxValue;
-    SequenceNumber verify_seq = kMaxSequenceNumber;
-
-    Status verify_status;
-    Slice input(buf, encoded_len);
-    uint32_t verify_ikey_len = 0;
-    if (!GetVarint32(&input, &verify_ikey_len)) {
-      verify_status = Status::Corruption("Unable to parse internal key length");
-    }
-    if (verify_status.ok() && verify_ikey_len < 8 + ts_sz) {
-      verify_status = Status::Corruption("Internal key length too short");
-    }
-    if (verify_status.ok() && verify_ikey_len > input.size()) {
-      verify_status = Status::Corruption("Internal key length too long");
-    }
-    uint32_t verify_value_len = 0;
-    if (verify_status.ok()) {
-      const size_t verify_key_without_ts_len = verify_ikey_len - ts_sz - 8;
-      verify_key = Slice(input.data(), verify_key_without_ts_len);
-      input.remove_prefix(verify_key_without_ts_len);
-      if (ts_sz > 0) {
-        verify_timestamp = Slice(input.data(), ts_sz);
-      }
-      input.remove_prefix(ts_sz);
-      uint64_t verify_packed = DecodeFixed64(input.data());
-      input.remove_prefix(8);
-      UnPackSequenceAndType(verify_packed, &verify_seq, &verify_value_type);
-      if (!GetVarint32(&input, &verify_value_len)) {
-        verify_status = Status::Corruption("Unable to parse value length");
-      }
-    }
-    if (verify_status.ok() && verify_value_len < input.size()) {
-      verify_status = Status::Corruption("Value length too short");
-    }
-    if (verify_status.ok() && verify_value_len > input.size()) {
-      verify_status = Status::Corruption("Value length too long");
-    }
-    if (verify_status.ok()) {
-      verify_value = Slice(input.data(), verify_value_len);
-    }
-    if (verify_status.ok()) {
-      verify_status =
-          kv_prot_info->StripS(verify_seq)
-              .StripKVOT(GetSliceNPHash64(verify_key),
-                         GetSliceNPHash64(verify_value), verify_value_type,
-                         GetSliceNPHash64(verify_timestamp))
-              .GetStatus();
-    }
-    if (!verify_status.ok()) {
-      return verify_status;
+    Slice encoded(buf, encoded_len);
+    TEST_SYNC_POINT_CALLBACK("MemTable::Add:Encoded", &encoded);
+    Status status = VerifyEncodedEntry(encoded, *kv_prot_info);
+    if (!status.ok()) {
+      return status;
     }
   }
+
+  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
+  Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz);
 
   if (!allow_concurrent) {
     // Extract prefix for insert with hint.
@@ -1076,10 +1070,8 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
         Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
         uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
         uint32_t new_size = static_cast<uint32_t>(value.size());
-
         // Update value, if new value size  <= previous value size
         if (new_size <= prev_size) {
-          // TODO(ajkr): need integrity verification.
           char* p =
               EncodeVarint32(const_cast<char*>(key_ptr) + key_length, new_size);
           WriteLock wl(GetLock(lkey.user_key()));
@@ -1088,6 +1080,13 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
                  (unsigned)(VarintLength(key_length) + key_length +
                             VarintLength(value.size()) + value.size()));
           RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
+          if (kv_prot_info != nullptr) {
+            QwordProtectionInfoKVOTS mem_kv_prot_info(*kv_prot_info);
+            // `seq` is swallowed and `existing_seq` prevails.
+            mem_kv_prot_info.UpdateS(seq, existing_seq);
+            Slice encoded(entry, p + value.size() - entry);
+            return VerifyEncodedEntry(encoded, mem_kv_prot_info);
+          }
           return Status::OK();
         }
       }
