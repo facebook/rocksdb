@@ -58,8 +58,8 @@ std::pair<std::string, std::string> TestFSGetDirAndName(
 
 // Calculate the checksum of the data with corresponding checksum
 // name. If name does not match, no checksum is returned.
-void CalculateNamedChecksum (const std::string& checksum_name,
-          const char* data, size_t size, std::string* checksum){
+void CalculateNamedChecksum(const std::string& checksum_name, const char* data,
+                            size_t size, std::string* checksum) {
   if (checksum_name == "crc32c") {
     uint32_t v_crc32c = crc32c::Extend(0, data, size);
     PutFixed32(checksum, v_crc32c);
@@ -123,9 +123,9 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions&,
 
 // By setting the IngestDataCorruptionBeforeWrite(), the data corruption is
 // simulated.
-IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions&,
-                          const DataVerificationInfo& verification_info,
-                          IODebugContext*) {
+IOStatus TestFSWritableFile::Append(
+    const Slice& data, const IOOptions&,
+    const DataVerificationInfo& verification_info, IODebugContext*) {
   MutexLock l(&mutex_);
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
@@ -137,7 +137,7 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions&,
   // Calculate the checksum
   std::string checksum;
   CalculateNamedChecksum(fs_->GetChecksumHandoffFuncName(), data.data(),
-                  data.size(), &checksum);
+                         data.size(), &checksum);
   if (fs_->GetChecksumHandoffFuncName() != "" &&
       checksum != verification_info.checksum.ToString()) {
     std::string msg = "Data is corrupted! Origin data checksum: " +

@@ -285,17 +285,20 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   {
     std::unique_ptr<FSWritableFile> file;
     FileOptions file_options = fs_->OptimizeForManifestWrite(file_options_);
+    file_options.handoff_checksum_type = ChecksumType::kCRC32c;
     s = NewWritableFile(fs_.get(), manifest, &file, file_options);
     if (!s.ok()) {
       return s;
     }
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
-  bool should_checksum_handoff = ShouldChecksumHandoff(FileType::kDescriptorFile,
-                                    immutable_db_options_.checksum_handoff_file_types);
+    bool should_checksum_handoff = ShouldChecksumHandoff(
+        FileType::kDescriptorFile,
+        immutable_db_options_.checksum_handoff_file_types);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        std::move(file), manifest, file_options, clock_, io_tracer_,
-        nullptr /* stats */, immutable_db_options_.listeners));
+        std::move(file), manifest, file_options, env_, io_tracer_,
+        nullptr /* stats */, immutable_db_options_.listeners, nullptr,
+        should_checksum_handoff));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
     new_db.EncodeTo(&record);
@@ -1467,6 +1470,7 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   FileOptions opt_file_options =
       fs_->OptimizeForLogWrite(file_options_, db_options);
+  opt_file_options.handoff_checksum_type = ChecksumType::kCRC32c;
   std::string log_fname =
       LogFileName(immutable_db_options_.wal_dir, log_file_num);
 
@@ -1489,8 +1493,8 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
     lfile->SetPreallocationBlockSize(preallocate_block_size);
 
     const auto& listeners = immutable_db_options_.listeners;
-    bool should_checksum_handoff = ShouldChecksumHandoff(FileType::kLogFile,
-                                    immutable_db_options_.checksum_handoff_file_types);
+    bool should_checksum_handoff = ShouldChecksumHandoff(
+        FileType::kWalFile, immutable_db_options_.checksum_handoff_file_types);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
         std::move(lfile), log_fname, opt_file_options, clock_, io_tracer_,
         nullptr /* stats */, listeners));

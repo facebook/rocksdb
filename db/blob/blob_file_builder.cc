@@ -180,12 +180,13 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   file->SetWriteLifeTimeHint(write_hint_);
 
   Statistics* const statistics = immutable_cf_options_->statistics;
-  bool should_checksum_handoff = ShouldChecksumHandoff(FileType::kBlobFile,
-                                    immutable_cf_options_->checksum_handoff_file_types);
+  bool should_checksum_handoff = ShouldChecksumHandoff(
+      FileType::kBlobFile, immutable_cf_options_->checksum_handoff_file_types);
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
       std::move(file), blob_file_paths_->back(), *file_options_, clock_,
       nullptr /*IOTracer*/, statistics, immutable_cf_options_->listeners,
-      immutable_cf_options_->file_checksum_gen_factory, should_checksum_handoff));
+      immutable_cf_options_->file_checksum_gen_factory,
+      should_checksum_handoff));
 
   constexpr bool do_flush = false;
 

@@ -173,8 +173,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
         thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)),
         enable_write_error_injection_(false),
         write_error_rand_(0),
-        ingest_data_corruption_before_write_(false) {
-  }
+        ingest_data_corruption_before_write_(false) {}
   virtual ~FaultInjectionTestFS() { error_.PermitUncheckedError(); }
 
   const char* Name() const override { return "FaultInjectionTestFS"; }

@@ -1671,6 +1671,8 @@ Status CompactionJob::OpenCompactionOutputFile(
 #endif  // !ROCKSDB_LITE
   // Make the output file
   std::unique_ptr<FSWritableFile> writable_file;
+  FileOptions cur_file_opts = file_options_;
+  cur_file_opts.handoff_checksum_type = ChecksumType::kCRC32c;
 #ifndef NDEBUG
   bool syncpoint_arg = file_options_.use_direct_writes;
   TEST_SYNC_POINT_CALLBACK("CompactionJob::OpenCompactionOutputFile",
@@ -1678,7 +1680,7 @@ Status CompactionJob::OpenCompactionOutputFile(
 #endif
   Status s;
   IOStatus io_s =
-      NewWritableFile(fs_.get(), fname, &writable_file, file_options_);
+      NewWritableFile(fs_.get(), fname, &writable_file, cur_file_opts);
   s = io_s;
   if (sub_compact->io_status.ok()) {
     sub_compact->io_status = io_s;
@@ -1739,8 +1741,8 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->OutputFilePreallocationSize()));
   const auto& listeners =
       sub_compact->compaction->immutable_cf_options()->listeners;
-  bool should_checksum_handoff = ShouldChecksumHandoff(FileType::kTableFile,
-                                    db_options_.checksum_handoff_file_types);
+  bool should_checksum_handoff = ShouldChecksumHandoff(
+      FileType::kTableFile, db_options_.checksum_handoff_file_types);
   sub_compact->outfile.reset(new WritableFileWriter(
       std::move(writable_file), fname, file_options_, clock_, io_tracer_,
       db_options_.statistics.get(), listeners,

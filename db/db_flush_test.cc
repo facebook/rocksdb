@@ -555,7 +555,8 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
   ASSERT_OK(Put("key4", "value4"));
   SyncPoint::GetInstance()->EnableProcessing();
   Status s = Flush();
-  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
+  ASSERT_EQ(s.severity(),
+            ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
   SyncPoint::GetInstance()->DisableProcessing();
   Destroy(options);
   Reopen(options);
@@ -572,13 +573,14 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
   // unrecoverable error.
   fault_fs->SetChecksumHandoffFuncName("crc32c");
   SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
-      fault_fs->IngestDataCorruptionBeforeWrite();
+    fault_fs->IngestDataCorruptionBeforeWrite();
   });
   ASSERT_OK(Put("key7", "value7"));
   ASSERT_OK(Put("key8", "value8"));
   SyncPoint::GetInstance()->EnableProcessing();
   s = Flush();
-  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
+  ASSERT_EQ(s.severity(),
+            ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
   SyncPoint::GetInstance()->DisableProcessing();
 
   Destroy(options);
@@ -623,7 +625,7 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoff2) {
   // options is not set, the checksum handoff will not be triggered
   fault_fs->SetChecksumHandoffFuncName("crc32c");
   SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
-      fault_fs->IngestDataCorruptionBeforeWrite();
+    fault_fs->IngestDataCorruptionBeforeWrite();
   });
   ASSERT_OK(Put("key7", "value7"));
   ASSERT_OK(Put("key8", "value8"));
@@ -658,9 +660,8 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest1) {
   // kFatalError error.
   ASSERT_OK(Put("key3", "value3"));
   SyncPoint::GetInstance()->SetCallBack(
-        "VersionSet::LogAndApply:WriteManifest", [&](void*) {
-    fault_fs->SetChecksumHandoffFuncName("xxhash");
-  });
+      "VersionSet::LogAndApply:WriteManifest",
+      [&](void*) { fault_fs->SetChecksumHandoffFuncName("xxhash"); });
   ASSERT_OK(Put("key3", "value3"));
   ASSERT_OK(Put("key4", "value4"));
   SyncPoint::GetInstance()->EnableProcessing();
@@ -694,9 +695,8 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest2) {
   // kFatalError error.
   fault_fs->SetChecksumHandoffFuncName("crc32c");
   SyncPoint::GetInstance()->SetCallBack(
-        "VersionSet::LogAndApply:WriteManifest", [&](void*) {
-      fault_fs->IngestDataCorruptionBeforeWrite();
-  });
+      "VersionSet::LogAndApply:WriteManifest",
+      [&](void*) { fault_fs->IngestDataCorruptionBeforeWrite(); });
   ASSERT_OK(Put("key7", "value7"));
   ASSERT_OK(Put("key8", "value8"));
   SyncPoint::GetInstance()->EnableProcessing();

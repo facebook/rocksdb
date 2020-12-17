@@ -118,8 +118,8 @@ class WritableFileWriter {
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
   void UpdateFileChecksum(const Slice& data);
-  void DataChecksumCalculation(const char* data, size_t size,
-                               std::string* checksum);
+  void Crc32cHandoffChecksumCalculation(const char* data, size_t size,
+                                        char* buf);
 
   std::string file_name_;
   FSWritableFilePtr writable_file_;

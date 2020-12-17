@@ -505,16 +505,16 @@ TEST_F(DBWALTest, RecoverWithBlobMultiSST) {
 }
 
 TEST_F(DBWALTest, WALWithChecksumHandoff) {
+#ifndef ROCKSDB_ASSERT_STATUS_CHECKED
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
   do {
     Options options = CurrentOptions();
 
-    options.checksum_handoff_file_types.push_back(FileType::kLogFile);
+    options.checksum_handoff_file_types.push_back(FileType::kWalFile);
     options.env = fault_fs_env.get();
     fault_fs->SetChecksumHandoffFuncName("crc32c");
-
 
     CreateAndReopenWithCF({"pikachu"}, options);
     WriteOptions writeOpt = WriteOptions();
@@ -535,7 +535,6 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
     // Both value's should be present.
     ASSERT_EQ("v2", Get(1, "bar"));
     ASSERT_EQ("v2", Get(1, "foo"));
-
 
     writeOpt.disableWAL = true;
     // This put, data is persisted by Flush
@@ -579,6 +578,7 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
 
     Destroy(options);
   } while (ChangeWalOptions());
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 }
 
 class DBRecoveryTestBlobError

@@ -4081,6 +4081,7 @@ Status VersionSet::ProcessManifestWrites(
   IOStatus io_s;
   {
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
+    opt_file_opts.handoff_checksum_type = ChecksumType::kCRC32c;
     mu->Unlock();
 
     TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WriteManifest", nullptr);
@@ -4121,11 +4122,13 @@ Status VersionSet::ProcessManifestWrites(
         descriptor_file->SetPreallocationBlockSize(
             db_options_->manifest_preallocation_size);
 
-        bool should_checksum_handoff = ShouldChecksumHandoff(FileType::kDescriptorFile,
-                                    db_options_->checksum_handoff_file_types);
+        bool should_checksum_handoff =
+            ShouldChecksumHandoff(FileType::kDescriptorFile,
+                                  db_options_->checksum_handoff_file_types);
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(descriptor_file), descriptor_fname, opt_file_opts, clock_,
-            io_tracer_, nullptr, db_options_->listeners));
+            std::move(descriptor_file), descriptor_fname, opt_file_opts, env_,
+            io_tracer_, nullptr, db_options_->listeners, nullptr,
+            should_checksum_handoff));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
         s = WriteCurrentStateToManifest(curr_state, wal_additions,

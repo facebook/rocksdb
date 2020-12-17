@@ -137,7 +137,9 @@ Status BuildTable(
       bool use_direct_writes = file_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
-      IOStatus io_s = NewWritableFile(fs, fname, &file, file_options);
+      FileOptions cur_file_opts = file_options;
+      cur_file_opts.handoff_checksum_type = ChecksumType::kCRC32c;
+      IOStatus io_s = NewWritableFile(fs, fname, &file, cur_file_opts);
       assert(s.ok());
       s = io_s;
       if (io_status->ok()) {
@@ -152,8 +154,8 @@ Status BuildTable(
       }
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
-      bool should_checksum_handoff = ShouldChecksumHandoff(FileType::kTableFile,
-                                    ioptions.checksum_handoff_file_types);
+      bool should_checksum_handoff = ShouldChecksumHandoff(
+          FileType::kTableFile, ioptions.checksum_handoff_file_types);
 
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, clock, io_tracer,

@@ -182,9 +182,10 @@ SstFileWriter::~SstFileWriter() {
 Status SstFileWriter::Open(const std::string& file_path) {
   Rep* r = rep_.get();
   Status s;
-  std::unique_ptr<FSWritableFile> sst_file;
-  s = r->ioptions.env->GetFileSystem()->NewWritableFile(
-      file_path, r->env_options, &sst_file, nullptr);
+  std::unique_ptr<WritableFile> sst_file;
+  FileOptions cur_file_opts(r->env_options);
+  cur_file_opts.handoff_checksum_type = ChecksumType::kCRC32c;
+  s = r->ioptions.env->NewWritableFile(file_path, &sst_file, cur_file_opts);
   if (!s.ok()) {
     return s;
   }
@@ -256,9 +257,11 @@ Status SstFileWriter::Open(const std::string& file_path) {
       r->column_family_name, unknown_level, 0 /* creation_time */,
       0 /* oldest_key_time */, 0 /* target_file_size */,
       0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id);
+  bool should_checksum_handoff = ShouldChecksumHandoff(
+      FileType::kTableFile, r->ioptions.checksum_handoff_file_types);
   r->file_writer.reset(new WritableFileWriter(
-      std::move(sst_file), file_path, r->env_options,
-      r->ioptions.env->GetSystemClock(), nullptr /* io_tracer */,
+      NewLegacyWritableFileWrapper(std::move(sst_file)), file_path,
+      cur_file_opts, r->ioptions.env, nullptr /* io_tracer */,
       nullptr /* stats */, r->ioptions.listeners,
       r->ioptions.file_checksum_gen_factory, should_checksum_handoff));
 

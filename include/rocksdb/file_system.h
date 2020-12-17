@@ -17,6 +17,7 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <chrono>
 #include <cstdarg>
 #include <functional>
@@ -25,9 +26,11 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
+#include "rocksdb/table.h"
 #include "rocksdb/thread_status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -46,21 +49,6 @@ class RateLimiter;
 
 using AccessPattern = RandomAccessFile::AccessPattern;
 using FileAttributes = Env::FileAttributes;
-
-// File types in current RocksDB
-enum FileType : unsigned char {
-  kLogFile,
-  kDBLockFile,
-  kTableFile,
-  kDescriptorFile,
-  kCurrentFile,
-  kTempFile,
-  kInfoLogFile,  // Either the current one, or an old one
-  kMetaDatabase,
-  kIdentityFile,
-  kOptionsFile,
-  kBlobFile
-};
 
 // Priority of an IO request. This is a hint and does not guarantee any
 // particular QoS.
@@ -112,6 +100,10 @@ struct FileOptions : EnvOptions {
   // to be issued for the file open/creation
   IOOptions io_options;
 
+  // The checksum type that is used to calculate the checksum value for
+  // handoff during file writes.
+  ChecksumType handoff_checksum_type;
+
   FileOptions() : EnvOptions() {}
 
   FileOptions(const DBOptions& opts)
@@ -121,7 +113,9 @@ struct FileOptions : EnvOptions {
     : EnvOptions(opts) {}
 
   FileOptions(const FileOptions& opts)
-    : EnvOptions(opts), io_options(opts.io_options) {}
+      : EnvOptions(opts),
+        io_options(opts.io_options),
+        handoff_checksum_type(opts.handoff_checksum_type) {}
 
   FileOptions& operator=(const FileOptions& opts) = default;
 };
@@ -759,6 +753,10 @@ class FSWritableFile {
   // Note that this API change is experimental and it might be changed in
   // the future. Currently, RocksDB only generates crc32c based checksum for
   // the file writes when the option is set.
+  // Expected behavior: if the supported checksum verification type in this
+  // FSWritableFile does not match the handoff_checksum_type in FileOptions,
+  // the information in DataVerificationInfo should be ignored (e.g., does
+  // not perform checksum verification).
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           const DataVerificationInfo& /* verification_info */,
                           IODebugContext* dbg) {
@@ -796,6 +794,10 @@ class FSWritableFile {
   // Note that this API change is experimental and it might be changed in
   // the future. Currently, RocksDB only generates crc32c based checksum for
   // the file writes when the option is set.
+  // Expected behavior: if the supported checksum verification type in this
+  // FSWritableFile does not match the handoff_checksum_type in FileOptions,
+  // the information in DataVerificationInfo should be ignored (e.g., does
+  // not perform checksum verification).
   virtual IOStatus PositionedAppend(
       const Slice& /* data */, uint64_t /* offset */,
       const IOOptions& /*options*/,

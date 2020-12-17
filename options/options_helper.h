@@ -38,6 +38,11 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
     const ColumnFamilyOptions& ioptions,
     const MutableCFOptions& mutable_cf_options);
 
+// Check if the current file type should apply checksum handoff during
+// file writes.
+bool ShouldChecksumHandoff(const FileType& cur_type,
+                           const std::vector<FileType>& supported_types);
+
 #ifndef ROCKSDB_LITE
 std::unique_ptr<Configurable> DBOptionsAsConfigurable(
     const MutableDBOptions& opts);
@@ -69,11 +74,6 @@ Status GetMutableDBOptionsFromStrings(
 bool ParseSliceTransform(
     const std::string& value,
     std::shared_ptr<const SliceTransform>* slice_transform);
-
-// Check if the current file type should apply checksum handoff during
-// file writes.
-bool ShouldChecksumHandoff(const FileType& cur_type,
-    const std::vector<FileType>& supported_types);
 
 extern Status StringToMap(
     const std::string& opts_str,

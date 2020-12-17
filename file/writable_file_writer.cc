@@ -397,6 +397,7 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   const char* src = data;
   size_t left = size;
   DataVerificationInfo v_info;
+  char checksum_buf[sizeof(uint32_t)];
 
   while (left > 0) {
     size_t allowed;
@@ -425,9 +426,8 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 
         IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, clock_);
         if (perform_data_verification_) {
-          std::string checksum;
-          DataChecksumCalculation(src, allowed, &checksum);
-          v_info.checksum = Slice(checksum);
+          Crc32cHandoffChecksumCalculation(src, allowed, checksum_buf);
+          v_info.checksum = Slice(checksum_buf, sizeof(uint32_t));
           s = writable_file_->Append(Slice(src, allowed), IOOptions(), v_info,
                                      nullptr);
         } else {
@@ -462,10 +462,11 @@ void WritableFileWriter::UpdateFileChecksum(const Slice& data) {
   }
 }
 
-void WritableFileWriter::DataChecksumCalculation(const char* data, size_t size,
-                                                 std::string* checksum) {
+void WritableFileWriter::Crc32cHandoffChecksumCalculation(const char* data,
+                                                          size_t size,
+                                                          char* buf) {
   uint32_t v_crc32c = crc32c::Extend(0, data, size);
-  PutFixed32(checksum, v_crc32c);
+  EncodeFixed32(buf, v_crc32c);
 }
 
 // This flushes the accumulated data in the buffer. We pad data with zeros if
@@ -499,6 +500,7 @@ IOStatus WritableFileWriter::WriteDirect() {
   uint64_t write_offset = next_write_offset_;
   size_t left = buf_.CurrentSize();
   DataVerificationInfo v_info;
+  char checksum_buf[sizeof(uint32_t)];
 
   while (left > 0) {
     // Check how much is allowed
@@ -520,9 +522,8 @@ IOStatus WritableFileWriter::WriteDirect() {
       }
       // direct writes must be positional
       if (perform_data_verification_) {
-        std::string checksum;
-        DataChecksumCalculation(src, size, &checksum);
-        v_info.checksum = Slice(checksum);
+        Crc32cHandoffChecksumCalculation(src, size, checksum_buf);
+        v_info.checksum = Slice(checksum_buf, sizeof(uint32_t));
         s = writable_file_->PositionedAppend(Slice(src, size), write_offset,
                                              IOOptions(), v_info, nullptr);
       } else {

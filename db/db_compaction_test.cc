@@ -6313,15 +6313,15 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff1) {
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BackgroundCallCompaction:0", [&](void*) {
-        fault_fs->SetChecksumHandoffFuncName("xxhash");
-      });
+      "BackgroundCallCompaction:0",
+      [&](void*) { fault_fs->SetChecksumHandoffFuncName("xxhash"); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(Put(Key(1), "value3"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
   s = dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
+  ASSERT_EQ(s.severity(),
+            ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
   SyncPoint::GetInstance()->DisableProcessing();
   Destroy(options);
   Reopen(options);
@@ -6351,15 +6351,15 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff1) {
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BackgroundCallCompaction:0", [&](void*) {
-        fault_fs->IngestDataCorruptionBeforeWrite();
-      });
+      "BackgroundCallCompaction:0",
+      [&](void*) { fault_fs->IngestDataCorruptionBeforeWrite(); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(Put(Key(1), "value3"));
   s = Flush();
   ASSERT_EQ(s, Status::OK());
   s = dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
+  ASSERT_EQ(s.severity(),
+            ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
   SyncPoint::GetInstance()->DisableProcessing();
 
   Destroy(options);
@@ -6399,9 +6399,8 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff2) {
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BackgroundCallCompaction:0", [&](void*) {
-        fault_fs->SetChecksumHandoffFuncName("xxhash");
-      });
+      "BackgroundCallCompaction:0",
+      [&](void*) { fault_fs->SetChecksumHandoffFuncName("xxhash"); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(Put(Key(1), "value3"));
   s = Flush();
@@ -6435,9 +6434,8 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff2) {
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BackgroundCallCompaction:0", [&](void*) {
-        fault_fs->IngestDataCorruptionBeforeWrite();
-      });
+      "BackgroundCallCompaction:0",
+      [&](void*) { fault_fs->IngestDataCorruptionBeforeWrite(); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(Put(Key(1), "value3"));
   s = Flush();
@@ -6486,9 +6484,8 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest1) {
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BackgroundCallCompaction:0", [&](void*) {
-        fault_fs->SetChecksumHandoffFuncName("xxhash");
-      });
+      "BackgroundCallCompaction:0",
+      [&](void*) { fault_fs->SetChecksumHandoffFuncName("xxhash"); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(Put(Key(1), "value3"));
   s = Flush();
@@ -6498,7 +6495,6 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest1) {
   SyncPoint::GetInstance()->DisableProcessing();
   Destroy(options);
 }
-
 
 TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
@@ -6538,9 +6534,8 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BackgroundCallCompaction:0", [&](void*) {
-        fault_fs->IngestDataCorruptionBeforeWrite();
-      });
+      "BackgroundCallCompaction:0",
+      [&](void*) { fault_fs->IngestDataCorruptionBeforeWrite(); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(Put(Key(1), "value3"));
   s = Flush();
@@ -6551,7 +6546,6 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
 
   Destroy(options);
 }
-
 
 #endif  // !defined(ROCKSDB_LITE)
 

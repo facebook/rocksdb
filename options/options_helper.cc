@@ -317,6 +317,17 @@ std::vector<CompressionType> GetSupportedDictCompressions() {
   return dict_compression_types;
 }
 
+bool ShouldChecksumHandoff(const FileType& cur_type,
+                           const std::vector<FileType>& supported_types) {
+  bool should_handoff = false;
+  for (auto& type : supported_types) {
+    if (type == cur_type) {
+      should_handoff = true;
+    }
+  }
+  return should_handoff;
+}
+
 #ifndef ROCKSDB_LITE
 bool ParseSliceTransformHelper(
     const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
@@ -371,17 +382,6 @@ bool ParseSliceTransform(
   // TODO(yhchiang): we can further support other default
   //                 SliceTransforms here.
   return false;
-}
-
-bool ShouldChecksumHandoff(const FileType& cur_type,
-    const std::vector<FileType>& supported_types) {
-  bool should_handoff = false;
-  for (auto& type : supported_types) {
-    if (type == cur_type) {
-      should_handoff = true;
-    }
-  }
-  return should_handoff;
 }
 
 static bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
