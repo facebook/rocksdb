@@ -378,10 +378,11 @@ const std::unordered_map<std::string, DBPropertyInfo>
          {false, &InternalStats::HandleSsTables, nullptr, nullptr, nullptr}},
         {DB::Properties::kAggregatedTableProperties,
          {false, &InternalStats::HandleAggregatedTableProperties, nullptr,
-          nullptr, nullptr}},
+          &InternalStats::HandleAggregatedTablePropertiesMap, nullptr}},
         {DB::Properties::kAggregatedTablePropertiesAtLevel,
          {false, &InternalStats::HandleAggregatedTablePropertiesAtLevel,
-          nullptr, nullptr, nullptr}},
+          nullptr, &InternalStats::HandleAggregatedTablePropertiesAtLevelMap,
+          nullptr}},
         {DB::Properties::kNumImmutableMemTable,
          {false, nullptr, &InternalStats::HandleNumImmutableMemTable, nullptr,
           nullptr}},
@@ -510,11 +511,12 @@ bool InternalStats::GetStringProperty(const DBPropertyInfo& property_info,
 }
 
 bool InternalStats::GetMapProperty(const DBPropertyInfo& property_info,
-                                   const Slice& /*property*/,
+                                   const Slice& property,
                                    std::map<std::string, std::string>* value) {
   assert(value != nullptr);
   assert(property_info.handle_map != nullptr);
-  return (this->*(property_info.handle_map))(value);
+  Slice arg = GetPropertyNameAndArg(property).second;
+  return (this->*(property_info.handle_map))(value, arg);
 }
 
 bool InternalStats::GetIntProperty(const DBPropertyInfo& property_info,
@@ -590,7 +592,7 @@ bool InternalStats::HandleStats(std::string* value, Slice suffix) {
 }
 
 bool InternalStats::HandleCFMapStats(
-    std::map<std::string, std::string>* cf_stats) {
+    std::map<std::string, std::string>* cf_stats, Slice /*suffix*/) {
   DumpCFMapStats(cf_stats);
   return true;
 }
@@ -634,7 +636,27 @@ bool InternalStats::HandleAggregatedTableProperties(std::string* value,
   return true;
 }
 
-bool InternalStats::HandleAggregatedTablePropertiesAtLevel(std::string* value,
+static std::map<std::string, std::string> MapUint64ValuesToString(
+    const std::map<std::string, uint64_t>& from) {
+  std::map<std::string, std::string> to;
+  for (const auto& e : from) {
+    to[e.first] = ToString(e.second);
+  }
+  return to;
+}
+
+bool InternalStats::HandleAggregatedTablePropertiesMap(
+    std::map<std::string, std::string>* values, Slice /*suffix*/) {
+  std::shared_ptr<const TableProperties> tp;
+  auto s = cfd_->current()->GetAggregatedTableProperties(&tp);
+  if (!s.ok()) {
+    return false;
+  }
+  *values = MapUint64ValuesToString(tp->GetAggregatablePropertiesAsMap());
+  return true;
+}
+
+bool InternalStats::HandleAggregatedTablePropertiesAtLevel(std::string* values,
                                                            Slice suffix) {
   uint64_t level;
   bool ok = ConsumeDecimalNumber(&suffix, &level) && suffix.empty();
@@ -647,7 +669,24 @@ bool InternalStats::HandleAggregatedTablePropertiesAtLevel(std::string* value,
   if (!s.ok()) {
     return false;
   }
-  *value = tp->ToString();
+  *values = tp->ToString();
+  return true;
+}
+
+bool InternalStats::HandleAggregatedTablePropertiesAtLevelMap(
+    std::map<std::string, std::string>* values, Slice suffix) {
+  uint64_t level;
+  bool ok = ConsumeDecimalNumber(&suffix, &level) && suffix.empty();
+  if (!ok || static_cast<int>(level) >= number_levels_) {
+    return false;
+  }
+  std::shared_ptr<const TableProperties> tp;
+  auto s = cfd_->current()->GetAggregatedTableProperties(
+      &tp, static_cast<int>(level));
+  if (!s.ok()) {
+    return false;
+  }
+  *values = MapUint64ValuesToString(tp->GetAggregatablePropertiesAsMap());
   return true;
 }
 
