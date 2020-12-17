@@ -259,7 +259,7 @@ public interface EventListener {
    * @param fileOperationInfo file operation info,
    *     contains data copied from respective native structure.
    */
-  void OnFileFlushFinish(final FileOperationInfo fileOperationInfo);
+  void onFileFlushFinish(final FileOperationInfo fileOperationInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file sync
@@ -268,7 +268,7 @@ public interface EventListener {
    * @param fileOperationInfo file operation info,
    *     contains data copied from respective native structure.
    */
-  void OnFileSyncFinish(final FileOperationInfo fileOperationInfo);
+  void onFileSyncFinish(final FileOperationInfo fileOperationInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file
@@ -277,7 +277,7 @@ public interface EventListener {
    * @param fileOperationInfo file operation info,
    *     contains data copied from respective native structure.
    */
-  void OnFileRangeSyncFinish(final FileOperationInfo fileOperationInfo);
+  void onFileRangeSyncFinish(final FileOperationInfo fileOperationInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file
@@ -286,7 +286,7 @@ public interface EventListener {
    * @param fileOperationInfo file operation info,
    *     contains data copied from respective native structure.
    */
-  void OnFileTruncateFinish(final FileOperationInfo fileOperationInfo);
+  void onFileTruncateFinish(final FileOperationInfo fileOperationInfo);
 
   /**
    * A callback function for RocksDB which will be called whenever a file close
@@ -295,7 +295,7 @@ public interface EventListener {
    * @param fileOperationInfo file operation info,
    *     contains data copied from respective native structure.
    */
-  void OnFileCloseFinish(final FileOperationInfo fileOperationInfo);
+  void onFileCloseFinish(final FileOperationInfo fileOperationInfo);
 
   /**
    * If true, the {@link #onFileReadFinish(FileOperationInfo)}

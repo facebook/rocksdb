@@ -381,32 +381,32 @@ public class EventListenerTest {
       }
 
       @Override
-      public void OnFileFlushFinish(final FileOperationInfo fileOperationInfo) {
-        super.OnFileFlushFinish(fileOperationInfo);
+      public void onFileFlushFinish(final FileOperationInfo fileOperationInfo) {
+        super.onFileFlushFinish(fileOperationInfo);
         assertEquals(fileOperationInfoTestData, fileOperationInfo);
       }
 
       @Override
-      public void OnFileSyncFinish(final FileOperationInfo fileOperationInfo) {
-        super.OnFileSyncFinish(fileOperationInfo);
+      public void onFileSyncFinish(final FileOperationInfo fileOperationInfo) {
+        super.onFileSyncFinish(fileOperationInfo);
         assertEquals(fileOperationInfoTestData, fileOperationInfo);
       }
 
       @Override
-      public void OnFileRangeSyncFinish(final FileOperationInfo fileOperationInfo) {
-        super.OnFileRangeSyncFinish(fileOperationInfo);
+      public void onFileRangeSyncFinish(final FileOperationInfo fileOperationInfo) {
+        super.onFileRangeSyncFinish(fileOperationInfo);
         assertEquals(fileOperationInfoTestData, fileOperationInfo);
       }
 
       @Override
-      public void OnFileTruncateFinish(final FileOperationInfo fileOperationInfo) {
+      public void onFileTruncateFinish(final FileOperationInfo fileOperationInfo) {
         assertEquals(fileOperationInfoTestData, fileOperationInfo);
-        super.OnFileTruncateFinish(fileOperationInfo);
+        super.onFileTruncateFinish(fileOperationInfo);
       }
 
       @Override
-      public void OnFileCloseFinish(final FileOperationInfo fileOperationInfo) {
-        super.OnFileCloseFinish(fileOperationInfo);
+      public void onFileCloseFinish(final FileOperationInfo fileOperationInfo) {
+        super.onFileCloseFinish(fileOperationInfo);
         assertEquals(fileOperationInfoTestData, fileOperationInfo);
       }
 
@@ -719,27 +719,27 @@ public class EventListenerTest {
     }
 
     @Override
-    public void OnFileFlushFinish(final FileOperationInfo fileOperationInfo) {
+    public void onFileFlushFinish(final FileOperationInfo fileOperationInfo) {
       capturedListenerEvents.fileFlushFinish = true;
     }
 
     @Override
-    public void OnFileSyncFinish(final FileOperationInfo fileOperationInfo) {
+    public void onFileSyncFinish(final FileOperationInfo fileOperationInfo) {
       capturedListenerEvents.fileSyncFinish = true;
     }
 
     @Override
-    public void OnFileRangeSyncFinish(final FileOperationInfo fileOperationInfo) {
+    public void onFileRangeSyncFinish(final FileOperationInfo fileOperationInfo) {
       capturedListenerEvents.fileRangeSyncFinish = true;
     }
 
     @Override
-    public void OnFileTruncateFinish(final FileOperationInfo fileOperationInfo) {
+    public void onFileTruncateFinish(final FileOperationInfo fileOperationInfo) {
       capturedListenerEvents.fileTruncateFinish = true;
     }
 
     @Override
-    public void OnFileCloseFinish(final FileOperationInfo fileOperationInfo) {
+    public void onFileCloseFinish(final FileOperationInfo fileOperationInfo) {
       capturedListenerEvents.fileCloseFinish = true;
     }
 
