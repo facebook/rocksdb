@@ -5893,6 +5893,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     std::vector<ColumnFamilyHandle*> handles;
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
 
+    assert(db != nullptr);
     ASSERT_OK(db->Put(write_options, "foo0", "init"));
     ASSERT_OK(db->Put(write_options, "foo1", "init"));
     ASSERT_OK(db->Put(write_options, handles[1], "foo0", "init"));
@@ -6194,6 +6195,7 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
       column_families.push_back(
           ColumnFamilyDescriptor("two", ColumnFamilyOptions()));
       ASSERT_OK(ReOpenNoDelete(column_families, &handles));
+      assert(db != nullptr);
 
       if (write_after_recovery) {
         // Write data to the log right after the corrupted log
