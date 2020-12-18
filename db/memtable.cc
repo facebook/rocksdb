@@ -1070,6 +1070,7 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
         Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
         uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
         uint32_t new_size = static_cast<uint32_t>(value.size());
+
         // Update value, if new value size  <= previous value size
         if (new_size <= prev_size) {
           char* p =
@@ -1081,11 +1082,11 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
                             VarintLength(value.size()) + value.size()));
           RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
           if (kv_prot_info != nullptr) {
-            QwordProtectionInfoKVOTS mem_kv_prot_info(*kv_prot_info);
+            QwordProtectionInfoKVOTS updated_kv_prot_info(*kv_prot_info);
             // `seq` is swallowed and `existing_seq` prevails.
-            mem_kv_prot_info.UpdateS(seq, existing_seq);
+            updated_kv_prot_info.UpdateS(seq, existing_seq);
             Slice encoded(entry, p + value.size() - entry);
-            return VerifyEncodedEntry(encoded, mem_kv_prot_info);
+            return VerifyEncodedEntry(encoded, updated_kv_prot_info);
           }
           return Status::OK();
         }
@@ -1125,8 +1126,8 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       ValueType type;
-      uint64_t unused;
-      UnPackSequenceAndType(tag, &unused, &type);
+      uint64_t existing_seq;
+      UnPackSequenceAndType(tag, &existing_seq, &type);
       switch (type) {
         case kTypeValue: {
           Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
@@ -1135,47 +1136,56 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
           char* prev_buffer = const_cast<char*>(prev_value.data());
           uint32_t new_prev_size = prev_size;
 
-          Status s;
-          if (s.ok()) {
-            std::string str_value;
-            WriteLock wl(GetLock(lkey.user_key()));
-            auto status = moptions_.inplace_callback(
-                prev_buffer, &new_prev_size, delta, &str_value);
-            if (status == UpdateStatus::UPDATED_INPLACE) {
-              // TODO(ajkr): need integrity verification
-              // Value already updated by callback.
-              assert(new_prev_size <= prev_size);
-              if (new_prev_size < prev_size) {
-                // overwrite the new prev_size
-                char* p = EncodeVarint32(
-                    const_cast<char*>(key_ptr) + key_length, new_prev_size);
-                if (VarintLength(new_prev_size) < VarintLength(prev_size)) {
-                  // shift the value buffer as well.
-                  memcpy(p, prev_buffer, new_prev_size);
-                }
+          std::string str_value;
+          WriteLock wl(GetLock(lkey.user_key()));
+          auto status = moptions_.inplace_callback(prev_buffer, &new_prev_size,
+                                                   delta, &str_value);
+          if (status == UpdateStatus::UPDATED_INPLACE) {
+            // Value already updated by callback.
+            assert(new_prev_size <= prev_size);
+            if (new_prev_size < prev_size) {
+              // overwrite the new prev_size
+              char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
+                                       new_prev_size);
+              if (VarintLength(new_prev_size) < VarintLength(prev_size)) {
+                // shift the value buffer as well.
+                memcpy(p, prev_buffer, new_prev_size);
               }
-              RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
-              UpdateFlushState();
-            } else if (status == UpdateStatus::UPDATED) {
-              if (kv_prot_info != nullptr) {
-                QwordProtectionInfoKVOTS merged_kv_prot_info(*kv_prot_info);
-                merged_kv_prot_info.UpdateV(GetSliceNPHash64(delta),
-                                            GetSliceNPHash64(str_value));
-                s = Add(seq, kTypeValue, key, Slice(str_value),
-                        &merged_kv_prot_info);
-              } else {
-                s = Add(seq, kTypeValue, key, Slice(str_value),
-                        nullptr /* kv_prot_info */);
-              }
-              RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
-              UpdateFlushState();
-            } else if (status == UpdateStatus::UPDATE_FAILED) {
-              // `UPDATE_FAILED` is named incorrectly. It indicates no update
-              // happened. It does not indicate a failure happened.
-              UpdateFlushState();
             }
+            RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
+            UpdateFlushState();
+            if (kv_prot_info != nullptr) {
+              QwordProtectionInfoKVOTS updated_kv_prot_info(*kv_prot_info);
+              // `seq` is swallowed and `existing_seq` prevails.
+              updated_kv_prot_info.UpdateS(seq, existing_seq);
+              updated_kv_prot_info.UpdateV(
+                  GetSliceNPHash64(delta),
+                  GetSliceNPHash64(Slice(prev_buffer, new_prev_size)));
+              Slice encoded(entry, prev_buffer + new_prev_size - entry);
+              return VerifyEncodedEntry(encoded, updated_kv_prot_info);
+            }
+            return Status::OK();
+          } else if (status == UpdateStatus::UPDATED) {
+            Status s;
+            if (kv_prot_info != nullptr) {
+              QwordProtectionInfoKVOTS updated_kv_prot_info(*kv_prot_info);
+              updated_kv_prot_info.UpdateV(GetSliceNPHash64(delta),
+                                           GetSliceNPHash64(str_value));
+              s = Add(seq, kTypeValue, key, Slice(str_value),
+                      &updated_kv_prot_info);
+            } else {
+              s = Add(seq, kTypeValue, key, Slice(str_value),
+                      nullptr /* kv_prot_info */);
+            }
+            RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
+            UpdateFlushState();
+            return s;
+          } else if (status == UpdateStatus::UPDATE_FAILED) {
+            // `UPDATE_FAILED` is named incorrectly. It indicates no update
+            // happened. It does not indicate a failure happened.
+            UpdateFlushState();
+            return Status::OK();
           }
-          return s;
         }
         default:
           break;
