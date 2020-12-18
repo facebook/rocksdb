@@ -165,7 +165,6 @@ class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
     (void)num_entries;
     buf->reset(new char[rv]());
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
-    fprintf(stderr, "Filter size: %u\n", (unsigned)rv);
     return rv;
   }
 
