@@ -1819,17 +1819,64 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     return s;
   }
 
-  for (auto loop_cfd : *versions_->GetColumnFamilySet()) {
-    // all this is just optimization to delete logs that
-    // are no longer needed -- if CF is empty, that means it
-    // doesn't need that particular log to stay alive, so we just
-    // advance the log number. no need to persist this in the manifest
-    if (loop_cfd->mem()->GetFirstSequenceNumber() == 0 &&
-        loop_cfd->imm()->NumNotFlushed() == 0) {
-      if (creating_new_log) {
-        loop_cfd->SetLogNumber(logfile_number_);
+  bool empty_cf_updated = false;
+  if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+      !immutable_db_options_.allow_2pc && creating_new_log) {
+    // In non-2pc mode, WALs become obsolete if they do not contain unflushed
+    // data. Updating the empty CF's log number might cause some WALs to become
+    // obsolete. So we should track the WAL obsoletion event before actually
+    // updating the empty CF's log number.
+    uint64_t min_wal_number_to_keep =
+        versions_->PreComputeMinLogNumberWithUnflushedData(logfile_number_);
+    if (min_wal_number_to_keep >
+        versions_->GetWalSet().GetMinWalNumberToKeep()) {
+      // Get a snapshot of the empty column families.
+      // LogAndApply may release and reacquire db
+      // mutex, during that period, column family may become empty (e.g. its
+      // flush succeeds), then it affects the computed min_log_number_to_keep,
+      // so we take a snapshot for consistency of column family data
+      // status. If a column family becomes non-empty afterwards, its active log
+      // should still be the created new log, so the min_log_number_to_keep is
+      // not affected.
+      autovector<ColumnFamilyData*> empty_cfs;
+      for (auto cf : *versions_->GetColumnFamilySet()) {
+        if (cf->IsEmpty()) {
+          empty_cfs.push_back(cf);
+        }
       }
-      loop_cfd->mem()->SetCreationSeq(versions_->LastSequence());
+
+      VersionEdit wal_deletion;
+      wal_deletion.DeleteWalsBefore(min_wal_number_to_keep);
+      s = versions_->LogAndApplyToDefaultColumnFamily(&wal_deletion, &mutex_);
+      if (!s.ok() && versions_->io_status().IsIOError()) {
+        s = error_handler_.SetBGError(versions_->io_status(),
+                                      BackgroundErrorReason::kManifestWrite);
+      }
+      if (!s.ok()) {
+        return s;
+      }
+
+      for (auto cf : empty_cfs) {
+        if (cf->IsEmpty()) {
+          cf->SetLogNumber(logfile_number_);
+          cf->mem()->SetCreationSeq(versions_->LastSequence());
+        }  // cf may become non-empty.
+      }
+      empty_cf_updated = true;
+    }
+  }
+  if (!empty_cf_updated) {
+    for (auto cf : *versions_->GetColumnFamilySet()) {
+      // all this is just optimization to delete logs that
+      // are no longer needed -- if CF is empty, that means it
+      // doesn't need that particular log to stay alive, so we just
+      // advance the log number. no need to persist this in the manifest
+      if (cf->IsEmpty()) {
+        if (creating_new_log) {
+          cf->SetLogNumber(logfile_number_);
+        }
+        cf->mem()->SetCreationSeq(versions_->LastSequence());
+      }
     }
   }
 
