@@ -117,10 +117,9 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
 
   request.start();
 
-  const int r =
-      request.wait(wait_time_msec, killed_time_msec,
-                   nullptr,  // killed_callback
-                   wait_callback_for_locktree, nullptr);
+  const int r = request.wait(wait_time_msec, killed_time_msec,
+                             nullptr,  // killed_callback
+                             wait_callback_for_locktree, nullptr);
 
   // Inform the txn that we are no longer waiting:
   txn->ClearWaitingTxn();
@@ -147,7 +146,6 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
   return Status::OK();
 }
 
-
 // Wait callback that locktree library will call to inform us about
 // the lock waits taht are in progress.
 void wait_callback_for_locktree(void*, lock_wait_infos* infos) {
@@ -156,7 +154,7 @@ void wait_callback_for_locktree(void*, lock_wait_infos* infos) {
     auto cf_id = (ColumnFamilyId)wait_info.ltree->get_dict_id().dictid;
 
     autovector<TransactionID> waitee_ids;
-    for (auto waitee: wait_info.waitees) {
+    for (auto waitee : wait_info.waitees) {
       waitee_ids.push_back(((PessimisticTransaction*)waitee)->GetID());
     }
     txn->SetWaitingTxn(waitee_ids, cf_id, (std::string*)wait_info.m_extra);

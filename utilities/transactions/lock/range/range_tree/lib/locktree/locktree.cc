@@ -186,10 +186,8 @@ static bool determine_conflicting_txnids(
     if (other_txnid != txnid) {
       if (conflicts) {
         if (other_txnid == TXNID_SHARED) {
-          for (TXNID shared_id : *lock.owners)
-            conflicts->add(shared_id);
-        }
-        else
+          for (TXNID shared_id : *lock.owners) conflicts->add(shared_id);
+        } else
           conflicts->add(other_txnid);
       }
       conflicts_exist = true;

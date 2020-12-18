@@ -239,7 +239,7 @@ int lock_request::wait(uint64_t wait_time_ms) {
 
 int lock_request::wait(uint64_t wait_time_ms, uint64_t killed_time_ms,
                        int (*killed_callback)(void),
-                       void (*lock_wait_callback)(void *, lock_wait_infos*),
+                       void (*lock_wait_callback)(void *, lock_wait_infos *),
                        void *callback_arg) {
   uint64_t t_now = toku_current_time_microsec();
   uint64_t t_start = t_now;
@@ -353,7 +353,7 @@ int lock_request::retry(lock_wait_infos *conflicts_collector) {
 }
 
 void lock_request::retry_all_lock_requests(
-    locktree *lt, void (*lock_wait_callback)(void *, lock_wait_infos*),
+    locktree *lt, void (*lock_wait_callback)(void *, lock_wait_infos *),
     void *callback_arg, void (*after_retry_all_test_callback)(void)) {
   lt_lock_request_info *info = lt->get_lock_request_info();
 
@@ -396,8 +396,8 @@ void lock_request::retry_all_lock_requests(
   report_waits(&conflicts_collector, lock_wait_callback, callback_arg);
 }
 
-void lock_request::retry_all_lock_requests_info(
-    lt_lock_request_info *info, lock_wait_infos *collector) {
+void lock_request::retry_all_lock_requests_info(lt_lock_request_info *info,
+                                                lock_wait_infos *collector) {
   toku_external_mutex_lock(&info->mutex);
   // retry all of the pending lock requests.
   for (uint32_t i = 0; i < info->pending_lock_requests.size();) {
@@ -420,8 +420,8 @@ void lock_request::retry_all_lock_requests_info(
   toku_external_mutex_unlock(&info->mutex);
 }
 
-void lock_request::add_conflicts_to_waits(
-    txnid_set *conflicts, lock_wait_infos *wait_conflicts) {
+void lock_request::add_conflicts_to_waits(txnid_set *conflicts,
+                                          lock_wait_infos *wait_conflicts) {
   wait_conflicts->push_back({m_lt, get_txnid(), m_extra});
   uint32_t num_conflicts = conflicts->size();
   for (uint32_t i = 0; i < num_conflicts; i++) {
@@ -430,10 +430,10 @@ void lock_request::add_conflicts_to_waits(
 }
 
 void lock_request::report_waits(lock_wait_infos *wait_conflicts,
-                                void (*lock_wait_callback)(void *, lock_wait_infos *),
+                                void (*lock_wait_callback)(void *,
+                                                           lock_wait_infos *),
                                 void *callback_arg) {
-  if (lock_wait_callback)
-    (*lock_wait_callback)(callback_arg, wait_conflicts);
+  if (lock_wait_callback) (*lock_wait_callback)(callback_arg, wait_conflicts);
 }
 
 void *lock_request::get_extra(void) const { return m_extra; }

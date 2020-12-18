@@ -63,9 +63,9 @@ namespace toku {
 
 // Information about a lock wait
 struct lock_wait_info {
-  locktree    *ltree; // the tree where wait happens
-  TXNID       waiter; // the waiting transaction
-  void        *m_extra; // lock_request's m_extra
+  locktree *ltree;  // the tree where wait happens
+  TXNID waiter;     // the waiting transaction
+  void *m_extra;    // lock_request's m_extra
 
   // The transactions that are waited for.
   std::vector<TXNID> waitees;
@@ -112,7 +112,7 @@ class lock_request {
   int wait(uint64_t wait_time_ms);
   int wait(uint64_t wait_time_ms, uint64_t killed_time_ms,
            int (*killed_callback)(void),
-           void (*lock_wait_callback)(void *, lock_wait_infos*) = nullptr,
+           void (*lock_wait_callback)(void *, lock_wait_infos *) = nullptr,
            void *callback_arg = nullptr);
 
   // return: left end-point of the lock range
@@ -135,7 +135,8 @@ class lock_request {
   //         up.
   //         The rest remain pending.
   static void retry_all_lock_requests(
-      locktree *lt, void (*lock_wait_callback)(void *, lock_wait_infos*) = nullptr,
+      locktree *lt,
+      void (*lock_wait_callback)(void *, lock_wait_infos *) = nullptr,
       void *callback_arg = nullptr,
       void (*after_retry_test_callback)(void) = nullptr);
   static void retry_all_lock_requests_info(lt_lock_request_info *info,
@@ -228,7 +229,8 @@ class lock_request {
 
   // Report list of conflicts to lock wait callback.
   static void report_waits(lock_wait_infos *wait_conflicts,
-                           void (*lock_wait_callback)(void *, lock_wait_infos*),
+                           void (*lock_wait_callback)(void *,
+                                                      lock_wait_infos *),
                            void *callback_arg);
   void add_conflicts_to_waits(txnid_set *conflicts,
                               lock_wait_infos *wait_conflicts);

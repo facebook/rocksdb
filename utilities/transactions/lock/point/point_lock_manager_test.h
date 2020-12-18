@@ -294,12 +294,12 @@ TEST_P(AnyLockManagerTest, GetWaitingTxns_MultipleTxns) {
   // transactions. Check that GetWaitingTxns reports this correctly
   uint32_t wait_cf_id;
   std::string wait_key;
-  auto waiters= txn3->GetWaitingTxns(&wait_cf_id, &wait_key);
+  auto waiters = txn3->GetWaitingTxns(&wait_cf_id, &wait_key);
 
   ASSERT_EQ(wait_cf_id, 1);
   ASSERT_EQ(wait_key, "k");
   ASSERT_EQ(waiters.size(), 2);
-  bool waits_correct=
+  bool waits_correct =
       (waiters[0] == txn1->GetID() && waiters[1] == txn2->GetID()) ||
       (waiters[1] == txn1->GetID() && waiters[0] == txn2->GetID());
   ASSERT_EQ(waits_correct, true);
