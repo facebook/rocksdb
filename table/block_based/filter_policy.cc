@@ -74,9 +74,6 @@ class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
   size_t AllocateMaybeRounding(size_t target_len_with_metadata,
                                size_t num_entries,
                                std::unique_ptr<char[]>* buf) {
-    size_t target_len = target_len_with_metadata - kMetadataLen;
-    assert(target_len < target_len_with_metadata);
-
     // Return value set to a default; overwritten in some cases
     size_t rv = target_len_with_metadata;
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
@@ -111,6 +108,8 @@ class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
         // To simplify, we just try a few modified smaller sizes. This also
         // caps how much we vary filter size vs. target, to avoid outlier
         // behavior from excessive variance.
+        size_t target_len = target_len_with_metadata - kMetadataLen;
+        assert(target_len < target_len_with_metadata);  // check underflow
         for (uint64_t maybe_len_rough :
              {uint64_t{3} * target_len / 4, uint64_t{13} * target_len / 16,
               uint64_t{7} * target_len / 8, uint64_t{15} * target_len / 16}) {
@@ -166,6 +165,7 @@ class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
     (void)num_entries;
     buf->reset(new char[rv]());
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    fprintf(stderr, "Filter size: %u\n", (unsigned)rv);
     return rv;
   }
 
