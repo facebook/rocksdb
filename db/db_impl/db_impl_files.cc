@@ -239,11 +239,12 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
 
   // logs_ is empty when called during recovery, in which case there can't yet
   // be any tracked obsolete logs
-  if (!alive_log_files_.empty() && !logs_.empty()) {
+  if (logs_.size() > 1 && alive_log_files_.size() > 1) {
     uint64_t min_log_number = job_context->log_number;
     size_t num_alive_log_files = alive_log_files_.size();
     // find newly obsoleted log files
-    while (alive_log_files_.begin()->number < min_log_number) {
+    while (!alive_log_files_.empty() &&
+           alive_log_files_.begin()->number < min_log_number) {
       auto& earliest = *alive_log_files_.begin();
       if (immutable_db_options_.recycle_log_file_num >
           log_recycle_files_.size()) {
