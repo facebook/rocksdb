@@ -75,7 +75,7 @@ class WriteAmpBasedRateLimiter : public RateLimiter {
     return auto_tuned_.load(std::memory_order_acquire);
   }
 
-  virtual void PaceUp() override;
+  virtual void PaceUp(bool critical) override;
 
  private:
   void Refill();
@@ -152,18 +152,17 @@ class WriteAmpBasedRateLimiter : public RateLimiter {
     int64_t recent_sum_{0};
   };
 
-  static constexpr size_t kSmoothWindowSize = 120;       // 120 * 1s = 2m
-  static constexpr size_t kRecentSmoothWindowSize = 10;  // 10 * 1s = 10s
-  static constexpr size_t kLongTermWindowSize = 15;      // 15 * 2m = 30m
+  static constexpr size_t kSmoothWindowSize = 300;       // 300 * 1s = 5m
+  static constexpr size_t kRecentSmoothWindowSize = 30;  // 30 * 1s = 30s
+
   WindowSmoother<kSmoothWindowSize, kRecentSmoothWindowSize> bytes_sampler_;
   WindowSmoother<kSmoothWindowSize, kRecentSmoothWindowSize>
       highpri_bytes_sampler_;
-  WindowSmoother<kLongTermWindowSize> long_term_bytes_sampler_;
-  WindowSmoother<kLongTermWindowSize> long_term_highpri_bytes_sampler_;
   WindowSmoother<kRecentSmoothWindowSize, kRecentSmoothWindowSize>
       limit_bytes_sampler_;
-  std::atomic<bool> should_pace_up_;
-  int32_t ratio_delta_;
+  std::atomic<bool> critical_pace_up_;
+  std::atomic<bool> normal_pace_up_;
+  uint32_t percent_delta_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -1005,6 +1005,9 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
         // compaction.
         write_controller_token_ =
             write_controller->GetCompactionPressureToken();
+        if (rate_limiter) {
+          rate_limiter->PaceUp(false /*critical*/);
+        }
         if (mutable_cf_options.soft_pending_compaction_bytes_limit > 0) {
           ROCKS_LOG_INFO(
               ioptions_.logger,
@@ -1037,8 +1040,8 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
           vstorage->l0_delay_trigger_count() >=
               0.8 * mutable_cf_options.level0_slowdown_writes_trigger ||
           vstorage->estimated_compaction_needed_bytes() >=
-              0.6 * mutable_cf_options.soft_pending_compaction_bytes_limit) {
-        rate_limiter->PaceUp();
+              0.5 * mutable_cf_options.soft_pending_compaction_bytes_limit) {
+        rate_limiter->PaceUp(true /*critical*/);
       }
     }
     prev_compaction_needed_bytes_ = compaction_needed_bytes;
