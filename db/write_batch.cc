@@ -270,12 +270,12 @@ WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz)
 }
 
 WriteBatch::WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz,
-                       size_t protection_bytes_per_entry)
+                       size_t protection_bytes_per_key)
     : content_flags_(0), max_bytes_(max_bytes), rep_(), timestamp_size_(ts_sz) {
-  // Currently `protection_bytes_per_entry` can only be enabled at 8 bytes per
+  // Currently `protection_bytes_per_key` can only be enabled at 8 bytes per
   // entry.
-  assert(protection_bytes_per_entry == 0 || protection_bytes_per_entry == 8);
-  if (protection_bytes_per_entry != 0) {
+  assert(protection_bytes_per_key == 0 || protection_bytes_per_key == 8);
+  if (protection_bytes_per_key != 0) {
     prot_info_.reset(new WriteBatch::ProtectionInfo());
   }
   rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader)

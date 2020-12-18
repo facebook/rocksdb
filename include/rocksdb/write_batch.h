@@ -62,11 +62,11 @@ class WriteBatch : public WriteBatchBase {
  public:
   explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
   explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz);
-  // `protection_bytes_per_entry` is the number of bytes used to store
-  // protection information for each data entry. Currently supported values are
-  // zero (disabled) or eight.
+  // `protection_bytes_per_key` is the number of bytes used to store
+  // protection information for each key entry. Currently supported values are
+  // zero (disabled) and eight.
   explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz,
-                      size_t protection_bytes_per_entry);
+                      size_t protection_bytes_per_key);
   ~WriteBatch() override;
 
   using WriteBatchBase::Put;

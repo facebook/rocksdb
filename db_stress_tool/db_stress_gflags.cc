@@ -753,6 +753,11 @@ DEFINE_bool(paranoid_file_checks, true,
             "After writing every SST file, reopen it and read all the keys "
             "and validate checksums");
 
+DEFINE_uint64(batch_protection_bytes_per_key, 0,
+              "If nonzero, enables integrity protection in `WriteBatch` at the "
+              "specified number of bytes per key. Currently the only supported "
+              "nonzero value is eight.");
+
 DEFINE_string(file_checksum_impl, "none",
               "Name of an implementation for file_checksum_gen_factory, or "
               "\"none\" for null.");
