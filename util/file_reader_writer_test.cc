@@ -246,19 +246,21 @@ class ReadaheadRandomAccessFileTest
   ReadaheadRandomAccessFileTest() : control_contents_() {}
   std::string Read(uint64_t offset, size_t n) {
     Slice result;
-    Status s = test_read_holder_->Read(offset, n, &result, scratch_.get());
+    Status s = test_read_holder_->Read(offset, n, IOOptions(), &result,
+                                       scratch_.get(), nullptr);
     EXPECT_TRUE(s.ok() || s.IsInvalidArgument());
     return std::string(result.data(), result.size());
   }
   void ResetSourceStr(const std::string& str = "") {
-    auto write_holder =
-        std::unique_ptr<WritableFileWriter>(test::GetWritableFileWriter(
-            new test::StringSink(&control_contents_), "" /* don't care */));
+    std::unique_ptr<FSWritableFile> sink(
+        new test::StringSink(&control_contents_));
+    std::unique_ptr<WritableFileWriter> write_holder(new WritableFileWriter(
+        std::move(sink), "" /* don't care */, FileOptions()));
     Status s = write_holder->Append(Slice(str));
     EXPECT_OK(s);
     s = write_holder->Flush();
     EXPECT_OK(s);
-    auto read_holder = std::unique_ptr<RandomAccessFile>(
+    std::unique_ptr<FSRandomAccessFile> read_holder(
         new test::StringSource(control_contents_));
     test_read_holder_ =
         NewReadaheadRandomAccessFile(std::move(read_holder), readahead_size_);
@@ -268,7 +270,7 @@ class ReadaheadRandomAccessFileTest
  private:
   size_t readahead_size_;
   Slice control_contents_;
-  std::unique_ptr<RandomAccessFile> test_read_holder_;
+  std::unique_ptr<FSRandomAccessFile> test_read_holder_;
   std::unique_ptr<char[]> scratch_;
 };
 
@@ -353,10 +355,10 @@ class ReadaheadSequentialFileTest : public testing::Test,
   }
   void Skip(size_t n) { test_read_holder_->Skip(n); }
   void ResetSourceStr(const std::string& str = "") {
-    auto read_holder = std::unique_ptr<SequentialFile>(
+    auto read_holder = std::unique_ptr<FSSequentialFile>(
         new test::SeqStringSource(str, &seq_read_count_));
-    test_read_holder_.reset(new SequentialFileReader(
-        NewLegacySequentialFileWrapper(read_holder), "test", readahead_size_));
+    test_read_holder_.reset(new SequentialFileReader(std::move(read_holder),
+                                                     "test", readahead_size_));
   }
   size_t GetReadaheadSize() const { return readahead_size_; }
 
