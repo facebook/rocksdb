@@ -10,7 +10,7 @@ $process = Start-Process "${PWD}\vs_installer.exe" -ArgumentList $VS_INSTALL_ARG
 Remove-Item -Path vs_installer.exe -Force
 $exitCode = $process.ExitCode
 if (($exitCode -ne 0) -and ($exitCode -ne 3010)) {
-    echo "VS 2017 installer exited with code $exitCode, which should be one of [0, 3010]."
+    echo "VS 2015 installer exited with code $exitCode, which should be one of [0, 3010]."
     curl.exe --retry 3 -kL $COLLECT_DOWNLOAD_LINK --output Collect.exe
     if ($LASTEXITCODE -ne 0) {
         echo "Download of the VS Collect tool failed."

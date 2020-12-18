@@ -99,14 +99,14 @@ endif
 
 ifneq ($(findstring rocksdbjava, $(MAKECMDGOALS)),)
 	LIB_MODE=shared
-        ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
+	ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
 		OBJ_DIR=jls
-	        ifneq ($(DEBUG_LEVEL),2)
-	            DEBUG_LEVEL=0
-                endif
-                ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
-	            DEBUG_LEVEL=0
-                endif
+		ifneq ($(DEBUG_LEVEL),2)
+			DEBUG_LEVEL=0
+		endif
+		ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
+			DEBUG_LEVEL=0
+		endif
 	else
 		OBJ_DIR=jl
 	endif
@@ -2123,78 +2123,78 @@ ifeq ($(PLATFORM), OS_AIX)
 	SNAPPY_MAKE_TARGET = libsnappy.la
 endif
 ifeq ($(PLATFORM), OS_OPENBSD)
-        JAVA_INCLUDE = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/openbsd
+	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/openbsd
 	ROCKSDBJNILIB = librocksdbjni-openbsd$(ARCH).so
-        ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-openbsd$(ARCH).jar
+	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-openbsd$(ARCH).jar
 endif
 
-libz.a:
-	-rm -rf zlib-$(ZLIB_VER)
-ifeq (,$(wildcard ./zlib-$(ZLIB_VER).tar.gz))
+zlib-$(ZLIB_VER).tar.gz:
 	curl --fail --output zlib-$(ZLIB_VER).tar.gz --location ${ZLIB_DOWNLOAD_BASE}/zlib-$(ZLIB_VER).tar.gz
-endif
 	ZLIB_SHA256_ACTUAL=`$(SHA256_CMD) zlib-$(ZLIB_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(ZLIB_SHA256)" != "$$ZLIB_SHA256_ACTUAL" ]; then \
 		echo zlib-$(ZLIB_VER).tar.gz checksum mismatch, expected=\"$(ZLIB_SHA256)\" actual=\"$$ZLIB_SHA256_ACTUAL\"; \
 		exit 1; \
 	fi
+
+libz.a: zlib-$(ZLIB_VER).tar.gz
+	-rm -rf zlib-$(ZLIB_VER)
 	tar xvzf zlib-$(ZLIB_VER).tar.gz
 	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' ./configure --static && $(MAKE)
 	cp zlib-$(ZLIB_VER)/libz.a .
 
-libbz2.a:
-	-rm -rf bzip2-$(BZIP2_VER)
-ifeq (,$(wildcard ./bzip2-$(BZIP2_VER).tar.gz))
+bzip2-$(BZIP2_VER).tar.gz:
 	curl --fail --output bzip2-$(BZIP2_VER).tar.gz --location ${CURL_SSL_OPTS} ${BZIP2_DOWNLOAD_BASE}/bzip2-$(BZIP2_VER).tar.gz
-endif
 	BZIP2_SHA256_ACTUAL=`$(SHA256_CMD) bzip2-$(BZIP2_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(BZIP2_SHA256)" != "$$BZIP2_SHA256_ACTUAL" ]; then \
 		echo bzip2-$(BZIP2_VER).tar.gz checksum mismatch, expected=\"$(BZIP2_SHA256)\" actual=\"$$BZIP2_SHA256_ACTUAL\"; \
 		exit 1; \
 	fi
+
+libbz2.a: bzip2-$(BZIP2_VER).tar.gz
+	-rm -rf bzip2-$(BZIP2_VER)
 	tar xvzf bzip2-$(BZIP2_VER).tar.gz
 	cd bzip2-$(BZIP2_VER) && $(MAKE) CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
 	cp bzip2-$(BZIP2_VER)/libbz2.a .
 
-libsnappy.a:
-	-rm -rf snappy-$(SNAPPY_VER)
-ifeq (,$(wildcard ./snappy-$(SNAPPY_VER).tar.gz))
+snappy-$(SNAPPY_VER).tar.gz:
 	curl --fail --output snappy-$(SNAPPY_VER).tar.gz --location ${CURL_SSL_OPTS} ${SNAPPY_DOWNLOAD_BASE}/$(SNAPPY_VER).tar.gz
-endif
 	SNAPPY_SHA256_ACTUAL=`$(SHA256_CMD) snappy-$(SNAPPY_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(SNAPPY_SHA256)" != "$$SNAPPY_SHA256_ACTUAL" ]; then \
 		echo snappy-$(SNAPPY_VER).tar.gz checksum mismatch, expected=\"$(SNAPPY_SHA256)\" actual=\"$$SNAPPY_SHA256_ACTUAL\"; \
 		exit 1; \
 	fi
+
+libsnappy.a: snappy-$(SNAPPY_VER).tar.gz
+	-rm -rf snappy-$(SNAPPY_VER)
 	tar xvzf snappy-$(SNAPPY_VER).tar.gz
 	mkdir snappy-$(SNAPPY_VER)/build
 	cd snappy-$(SNAPPY_VER)/build && CFLAGS='${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' CXXFLAGS='${JAVA_STATIC_DEPS_CXXFLAGS} ${EXTRA_CXXFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON ${PLATFORM_CMAKE_FLAGS} .. && $(MAKE) ${SNAPPY_MAKE_TARGET}
 	cp snappy-$(SNAPPY_VER)/build/libsnappy.a .
 
-liblz4.a:
-	-rm -rf lz4-$(LZ4_VER)
-ifeq (,$(wildcard ./lz4-$(LZ4_VER).tar.gz))
+lz4-$(LZ4_VER).tar.gz:
 	curl --fail --output lz4-$(LZ4_VER).tar.gz --location ${CURL_SSL_OPTS} ${LZ4_DOWNLOAD_BASE}/v$(LZ4_VER).tar.gz
-endif
 	LZ4_SHA256_ACTUAL=`$(SHA256_CMD) lz4-$(LZ4_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(LZ4_SHA256)" != "$$LZ4_SHA256_ACTUAL" ]; then \
 		echo lz4-$(LZ4_VER).tar.gz checksum mismatch, expected=\"$(LZ4_SHA256)\" actual=\"$$LZ4_SHA256_ACTUAL\"; \
 		exit 1; \
 	fi
+
+liblz4.a: lz4-$(LZ4_VER).tar.gz
+	-rm -rf lz4-$(LZ4_VER)
 	tar xvzf lz4-$(LZ4_VER).tar.gz
 	cd lz4-$(LZ4_VER)/lib && $(MAKE) CFLAGS='-fPIC -O2 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' all
 	cp lz4-$(LZ4_VER)/lib/liblz4.a .
 
-libzstd.a:
-	-rm -rf zstd-$(ZSTD_VER)
-ifeq (,$(wildcard ./zstd-$(ZSTD_VER).tar.gz))
+zstd-$(ZSTD_VER).tar.gz:
 	curl --fail --output zstd-$(ZSTD_VER).tar.gz --location ${CURL_SSL_OPTS} ${ZSTD_DOWNLOAD_BASE}/v$(ZSTD_VER).tar.gz
-endif
 	ZSTD_SHA256_ACTUAL=`$(SHA256_CMD) zstd-$(ZSTD_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(ZSTD_SHA256)" != "$$ZSTD_SHA256_ACTUAL" ]; then \
 		echo zstd-$(ZSTD_VER).tar.gz checksum mismatch, expected=\"$(ZSTD_SHA256)\" actual=\"$$ZSTD_SHA256_ACTUAL\"; \
 		exit 1; \
 	fi
+
+libzstd.a: zstd-$(ZSTD_VER).tar.gz
+	-rm -rf zstd-$(ZSTD_VER)
 	tar xvzf zstd-$(ZSTD_VER).tar.gz
 	cd zstd-$(ZSTD_VER)/lib && DESTDIR=. PREFIX= $(MAKE) CFLAGS='-fPIC -O2 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' libzstd.a
 	cp zstd-$(ZSTD_VER)/lib/libzstd.a .
@@ -2205,12 +2205,17 @@ JAVA_COMPRESSIONS = libz.a libbz2.a libsnappy.a liblz4.a libzstd.a
 endif
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4 -DZSTD
-JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib/include
+JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./snappy-$(SNAPPY_VER)/build -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib -I./zstd-$(ZSTD_VER)/lib/dictBuilder
 ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
 CXXFLAGS += $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
 CFLAGS +=  $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
 endif
-rocksdbjavastatic: $(LIB_OBJECTS) $(JAVA_COMPRESSIONS)
+rocksdbjavastatic:
+ifeq ($(JAVA_HOME),)
+	$(error JAVA_HOME is not set)
+endif
+	$(MAKE) rocksdbjavastatic_deps
+	$(MAKE) rocksdbjavastatic_libobjects
 	cd java;$(MAKE) javalib;
 	rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
@@ -2228,6 +2233,10 @@ rocksdbjavastatic: $(LIB_OBJECTS) $(JAVA_COMPRESSIONS)
 	openssl sha1 java/target/$(ROCKSDB_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAR).sha1
 	openssl sha1 java/target/$(ROCKSDB_JAVADOCS_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAVADOCS_JAR).sha1
 	openssl sha1 java/target/$(ROCKSDB_SOURCES_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_SOURCES_JAR).sha1
+
+rocksdbjavastatic_deps: $(JAVA_COMPRESSIONS)
+
+rocksdbjavastatic_libobjects: $(LIB_OBJECTS)
 
 rocksdbjavastaticrelease: rocksdbjavastatic
 	cd java/crossbuild && (vagrant destroy -f || true) && vagrant up linux32 && vagrant halt linux32 && vagrant up linux64 && vagrant halt linux64 && vagrant up linux64-musl && vagrant halt linux64-musl
@@ -2298,6 +2307,9 @@ jl/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
 rocksdbjava: $(LIB_OBJECTS)
+ifeq ($(JAVA_HOME),)
+	$(error JAVA_HOME is not set)
+endif
 	$(AM_V_GEN)cd java;$(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIB_OBJECTS) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
