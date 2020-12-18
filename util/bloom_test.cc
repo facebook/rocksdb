@@ -425,13 +425,19 @@ TEST_P(FullBloomTest, FilterSize) {
 
     size_t n = 1;
     size_t space = 0;
-    for (; n < 100; n++) {
+    for (; n < 1000000; n += 1 + n / 1000) {
       // Ensure consistency between CalculateSpace and ApproximateNumEntries
       space = bits_builder->CalculateSpace(n);
       size_t n2 = bits_builder->ApproximateNumEntries(space);
       EXPECT_GE(n2, n);
       size_t space2 = bits_builder->CalculateSpace(n2);
-      EXPECT_EQ(space, space2);
+      if (n > 6000 && GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
+        // TODO(peterd): better approximation?
+        EXPECT_GE(space2, space);
+        EXPECT_LE(space2 * 0.98 - 16.0, space * 1.0);
+      } else {
+        EXPECT_EQ(space2, space);
+      }
     }
     // Until size_t overflow
     for (; n < (n + n / 3); n += n / 3) {
@@ -504,10 +510,6 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
 }
 
 TEST_P(FullBloomTest, OptimizeForMemory) {
-  if (GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
-    // TODO Not yet implemented
-    return;
-  }
   char buffer[sizeof(int)];
   for (bool offm : {true, false}) {
     table_options_.optimize_filters_for_memory = offm;
@@ -540,6 +542,10 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
     EXPECT_GE(total_fp_rate / double{nfilters}, 0.008);
 
     int64_t ex_min_total_size = int64_t{FLAGS_bits_per_key} * total_keys / 8;
+    if (GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
+      // ~ 30% savings vs. Bloom filter
+      ex_min_total_size = 7 * ex_min_total_size / 10;
+    }
     EXPECT_GE(static_cast<int64_t>(total_size), ex_min_total_size);
 
     int64_t blocked_bloom_overhead = nfilters * (CACHE_LINE_SIZE + 5);

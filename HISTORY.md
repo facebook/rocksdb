@@ -15,6 +15,7 @@
 
 ### New Features
 * User defined timestamp feature supports `CompactRange` and `GetApproximateSizes`.
+* Experimental option BlockBasedTableOptions::optimize_filters_for_memory now works with experimental Ribbon filter (as well as Bloom filter).
 
 ### Public API Change
 * Deprecated public but rarely-used FilterBitsBuilder::CalculateNumEntry, which is replaced with ApproximateNumEntries taking a size_t parameter and returning size_t.
