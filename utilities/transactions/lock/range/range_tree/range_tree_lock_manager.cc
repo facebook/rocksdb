@@ -192,14 +192,11 @@ void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
 
   RangeTreeLockTracker* range_trx_tracker =
       static_cast<RangeTreeLockTracker*>(&txn->GetTrackedLocks());
-
   bool all_keys = (range_trx_tracker == range_tracker);
 
   // tracked_locks_->range_list may hold nullptr if the transaction has never
   // acquired any locks.
-  RangeLockList* range_list = ((RangeTreeLockTracker*)range_tracker)->getList();
-
-  if (range_list) range_list->ReleaseLocks(this, txn, all_keys);
+  ((RangeTreeLockTracker*)range_tracker)->ReleaseLocks(this, txn, all_keys);
 }
 
 int RangeTreeLockManager::CompareDbtEndpoints(void* arg, const DBT* a_key,
@@ -303,9 +300,7 @@ std::vector<DeadlockPath> RangeTreeLockManager::GetDeadlockInfoBuffer() {
 void RangeTreeLockManager::on_escalate(TXNID txnid, const locktree* lt,
                                        const range_buffer& buffer, void*) {
   auto txn = (PessimisticTransaction*)txnid;
-  RangeLockList* trx_locks =
-      ((RangeTreeLockTracker*)&txn->GetTrackedLocks())->getList();
-  trx_locks->ReplaceLocks(lt, buffer);
+  ((RangeTreeLockTracker*)&txn->GetTrackedLocks())->ReplaceLocks(lt, buffer);
 }
 
 RangeTreeLockManager::~RangeTreeLockManager() {
@@ -355,9 +350,6 @@ void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
     // This is ok to because get_lt has copied the comparator:
     cmp.destroy();
     ltree_map_.emplace(column_family_id, ltree);
-  } else {
-    // column_family already exists in lock map
-    // assert(false);
   }
 }
 
@@ -417,8 +409,6 @@ toku::locktree* RangeTreeLockManager::GetLockTreeForCF(
     ltree_map_cache->insert({column_family_id, it->second});
     return it->second;
   }
-
-  return nullptr;
 }
 
 struct LOCK_PRINT_CONTEXT {

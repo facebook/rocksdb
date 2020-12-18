@@ -32,14 +32,7 @@ class RangeTreeLockManager;
 // This property is currently harmless.
 class RangeLockList {
  public:
-  virtual ~RangeLockList() { Clear(); }
-
-  void Clear() {
-    for (auto it : buffers_) {
-      it.second->destroy();
-    }
-    buffers_.clear();
-  }
+  ~RangeLockList() { Clear(); }
 
   RangeLockList() : releasing_locks_(false) {}
 
@@ -49,6 +42,13 @@ class RangeLockList {
   void ReplaceLocks(const toku::locktree* lt, const toku::range_buffer& buffer);
 
  private:
+  void Clear() {
+    for (auto it : buffers_) {
+      it.second->destroy();
+    }
+    buffers_.clear();
+  }
+
   std::unordered_map<ColumnFamilyId, std::shared_ptr<toku::range_buffer>>
       buffers_;
   port::Mutex mutex_;
@@ -110,7 +110,17 @@ class RangeTreeLockTracker : public LockTracker {
     return nullptr;
   }
 
-  RangeLockList* getList() { return range_list_.get(); }
+  void ReleaseLocks(RangeTreeLockManager* mgr, PessimisticTransaction* txn,
+                    bool all_trx_locks) {
+    if (range_list_)
+      range_list_->ReleaseLocks(mgr, txn, all_trx_locks);
+  }
+
+  void ReplaceLocks(const toku::locktree* lt,
+                    const toku::range_buffer& buffer) {
+    // range_list_ cannot be NULL here (
+    range_list_->ReplaceLocks(lt, buffer);
+  }
 
  private:
   RangeLockList* getOrCreateList();

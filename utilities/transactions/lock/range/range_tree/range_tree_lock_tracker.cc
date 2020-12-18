@@ -13,12 +13,12 @@
 namespace ROCKSDB_NAMESPACE {
 
 RangeLockList *RangeTreeLockTracker::getOrCreateList() {
-  RangeLockList *res;
-  if ((res = getList())) return res;
+  if (range_list_)
+    return range_list_.get();
 
   // Doesn't exist, create
   range_list_.reset(new RangeLockList());
-  return getList();
+  return range_list_.get();
 }
 
 void RangeTreeLockTracker::Track(const PointLockRequest &lock_req) {

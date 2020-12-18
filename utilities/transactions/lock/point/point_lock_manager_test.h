@@ -296,7 +296,7 @@ TEST_P(AnyLockManagerTest, GetWaitingTxns_MultipleTxns) {
   std::string wait_key;
   auto waiters = txn3->GetWaitingTxns(&wait_cf_id, &wait_key);
 
-  ASSERT_EQ(wait_cf_id, 1);
+  ASSERT_EQ(wait_cf_id, 1u);
   ASSERT_EQ(wait_key, "k");
   ASSERT_EQ(waiters.size(), 2);
   bool waits_correct =
