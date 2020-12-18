@@ -1678,13 +1678,14 @@ class MemTableInserter : public WriteBatch::Handler {
           if (update_status == UpdateStatus::UPDATED_INPLACE) {
             assert(get_status.ok());
             if (kv_prot_info != nullptr) {
-              auto merged_kv_prot_info = *kv_prot_info;
-              merged_kv_prot_info.UpdateV(GetSliceNPHash64(value),
-                                          GetSliceNPHash64(merged_value));
+              QwordProtectionInfoKVOTS updated_kv_prot_info(*kv_prot_info);
+              updated_kv_prot_info.UpdateV(
+                  GetSliceNPHash64(value),
+                  GetSliceNPHash64(Slice(prev_buffer, prev_size)));
               // prev_value is updated in-place with final value.
-              ret_status =
-                  mem->Add(sequence_, value_type, key,
-                           Slice(prev_buffer, prev_size), &merged_kv_prot_info);
+              ret_status = mem->Add(sequence_, value_type, key,
+                                    Slice(prev_buffer, prev_size),
+                                    &updated_kv_prot_info);
             } else {
               ret_status = mem->Add(sequence_, value_type, key,
                                     Slice(prev_buffer, prev_size),
@@ -1695,12 +1696,12 @@ class MemTableInserter : public WriteBatch::Handler {
             }
           } else if (update_status == UpdateStatus::UPDATED) {
             if (kv_prot_info != nullptr) {
-              auto merged_kv_prot_info = *kv_prot_info;
-              merged_kv_prot_info.UpdateV(GetSliceNPHash64(value),
-                                          GetSliceNPHash64(merged_value));
+              QwordProtectionInfoKVOTS updated_kv_prot_info(*kv_prot_info);
+              updated_kv_prot_info.UpdateV(GetSliceNPHash64(value),
+                                           GetSliceNPHash64(merged_value));
               // merged_value contains the final value.
               ret_status = mem->Add(sequence_, value_type, key,
-                                    Slice(merged_value), &merged_kv_prot_info);
+                                    Slice(merged_value), &updated_kv_prot_info);
             } else {
               // merged_value contains the final value.
               ret_status =
@@ -2052,31 +2053,29 @@ class MemTableInserter : public WriteBatch::Handler {
         auto merge_operator = moptions->merge_operator;
         assert(merge_operator);
 
-        if (ret_status.ok()) {
-          std::string new_value;
-          Status merge_status = MergeHelper::TimedFullMerge(
-              merge_operator, key, &get_value_slice, {value}, &new_value,
-              moptions->info_log, moptions->statistics, SystemClock::Default());
+        std::string new_value;
+        Status merge_status = MergeHelper::TimedFullMerge(
+            merge_operator, key, &get_value_slice, {value}, &new_value,
+            moptions->info_log, moptions->statistics, SystemClock::Default());
 
-          if (!merge_status.ok()) {
-            // Failed to merge!
-            // Store the delta in memtable
-            perform_merge = false;
+        if (!merge_status.ok()) {
+          // Failed to merge!
+          // Store the delta in memtable
+          perform_merge = false;
+        } else {
+          // 3) Add value to memtable
+          assert(!concurrent_memtable_writes_);
+          if (kv_prot_info != nullptr) {
+            auto merged_kv_prot_info =
+                kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
+            merged_kv_prot_info.UpdateV(GetSliceNPHash64(value),
+                                        GetSliceNPHash64(new_value));
+            merged_kv_prot_info.UpdateO(kTypeMerge, kTypeValue);
+            ret_status = mem->Add(sequence_, kTypeValue, key, new_value,
+                                  &merged_kv_prot_info);
           } else {
-            // 3) Add value to memtable
-            assert(!concurrent_memtable_writes_);
-            if (kv_prot_info != nullptr) {
-              auto merged_kv_prot_info =
-                  kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
-              merged_kv_prot_info.UpdateV(GetSliceNPHash64(value),
-                                          GetSliceNPHash64(new_value));
-              merged_kv_prot_info.UpdateO(kTypeMerge, kTypeValue);
-              ret_status = mem->Add(sequence_, kTypeValue, key, new_value,
-                                    &merged_kv_prot_info);
-            } else {
-              ret_status = mem->Add(sequence_, kTypeValue, key, new_value,
-                                    nullptr /* kv_prot_info */);
-            }
+            ret_status = mem->Add(sequence_, kTypeValue, key, new_value,
+                                  nullptr /* kv_prot_info */);
           }
         }
       }
