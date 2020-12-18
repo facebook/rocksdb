@@ -78,9 +78,6 @@ class TestKeyManager : public encryption::KeyManager {
   Status LinkFile(const std::string&, const std::string&) override {
     return Status::OK();
   }
-  Status RenameFile(const std::string&, const std::string&) override {
-    return Status::OK();
-  }
 };
 #endif
 

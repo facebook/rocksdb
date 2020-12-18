@@ -55,8 +55,6 @@ class KeyManager {
   virtual Status DeleteFile(const std::string& fname) = 0;
   virtual Status LinkFile(const std::string& src_fname,
                           const std::string& dst_fname) = 0;
-  virtual Status RenameFile(const std::string& src_fname,
-                            const std::string& dst_fname) = 0;
 };
 
 // An Env with underlying files being encrypted. It holds a reference to an
