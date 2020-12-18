@@ -1132,12 +1132,13 @@ class VersionSet {
       const ColumnFamilyData* cfd_to_skip) const {
     uint64_t min_log_num = std::numeric_limits<uint64_t>::max();
     for (auto cfd : *column_family_set_) {
-      if (cfd == cfd_to_skip) {
+      // 1. Empty column family does not to keep any WAL alive.
+      // 2. It's safe to ignore dropped column families here:
+      // cfd->IsDropped() becomes true after the drop is persisted in MANIFEST.
+      if (cfd == cfd_to_skip || cfd->IsEmpty() || cfd->IsDropped()) {
         continue;
       }
-      // It's safe to ignore dropped column families here:
-      // cfd->IsDropped() becomes true after the drop is persisted in MANIFEST.
-      if (min_log_num > cfd->GetLogNumber() && !cfd->IsDropped()) {
+      if (min_log_num > cfd->GetLogNumber()) {
         min_log_num = cfd->GetLogNumber();
       }
     }
@@ -1149,12 +1150,13 @@ class VersionSet {
       const std::unordered_set<const ColumnFamilyData*>& cfds_to_skip) const {
     uint64_t min_log_num = port::kMaxUint64;
     for (auto cfd : *column_family_set_) {
-      if (cfds_to_skip.count(cfd)) {
+      // 1. Empty column family does not to keep any WAL alive.
+      // 2. It's safe to ignore dropped column families here:
+      // cfd->IsDropped() becomes true after the drop is persisted in MANIFEST.
+      if (cfds_to_skip.count(cfd) || cfd->IsEmpty() || cfd->IsDropped()) {
         continue;
       }
-      // It's safe to ignore dropped column families here:
-      // cfd->IsDropped() becomes true after the drop is persisted in MANIFEST.
-      if (min_log_num > cfd->GetLogNumber() && !cfd->IsDropped()) {
+      if (min_log_num > cfd->GetLogNumber()) {
         min_log_num = cfd->GetLogNumber();
       }
     }

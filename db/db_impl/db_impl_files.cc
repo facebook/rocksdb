@@ -662,7 +662,8 @@ uint64_t FindMinPrepLogReferencedByMemTable(
   std::unordered_set<MemTable*> memtables_to_flush_set(
       memtables_to_flush.begin(), memtables_to_flush.end());
   for (auto loop_cfd : *vset->GetColumnFamilySet()) {
-    if (loop_cfd->IsDropped() || loop_cfd == cfd_to_flush) {
+    if (loop_cfd->IsDropped() || loop_cfd->IsEmpty() ||
+        loop_cfd == cfd_to_flush) {
       continue;
     }
 
@@ -695,7 +696,8 @@ uint64_t FindMinPrepLogReferencedByMemTable(
     memtables_to_flush_set.insert(memtables->begin(), memtables->end());
   }
   for (auto loop_cfd : *vset->GetColumnFamilySet()) {
-    if (loop_cfd->IsDropped() || cfds_to_flush_set.count(loop_cfd)) {
+    if (loop_cfd->IsDropped() || loop_cfd->IsEmpty() ||
+        cfds_to_flush_set.count(loop_cfd)) {
       continue;
     }
 
