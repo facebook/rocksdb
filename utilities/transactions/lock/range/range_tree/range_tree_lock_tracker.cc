@@ -123,7 +123,7 @@ void RangeLockList::ReleaseLocks(RangeTreeLockManager *mgr,
       it.second->destroy();
       it.second->create();
 
-      toku::lock_request::retry_all_lock_requests(lt, nullptr);
+      toku::lock_request::retry_all_lock_requests(lt, wait_callback_for_locktree);
     }
   }
 

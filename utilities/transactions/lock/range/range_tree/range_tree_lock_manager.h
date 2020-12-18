@@ -121,6 +121,7 @@ class RangeTreeLockManager : public RangeLockManagerBase,
 };
 
 void serialize_endpoint(const Endpoint& endp, std::string* buf);
+void wait_callback_for_locktree(void* cdata, lock_wait_infos* infos);
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // OS_WIN

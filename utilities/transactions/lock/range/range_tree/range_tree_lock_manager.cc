@@ -77,17 +77,15 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
   toku_fill_dbt(&start_key_dbt, start_key.data(), start_key.size());
   toku_fill_dbt(&end_key_dbt, end_key.data(), end_key.size());
 
-  // Use the txnid as "extra" in the lock_request. Then, KillLockWait()
-  // will be able to use kill_waiter(txn_id) to kill the wait if needed
-  // TODO: KillLockWait is gone and we are no longer using
-  // locktree::kill_waiter call. Do we need this anymore?
-  TransactionID wait_txn_id = txn->GetID();
-
   auto lt = GetLockTreeForCF(column_family_id);
+
+  // Put the key waited on into request's m_extra. See
+  // wait_callback_for_locktree for details.
+  std::string wait_key(start_endp.slice.data(), start_endp.slice.size());
 
   request.set(lt, (TXNID)txn, &start_key_dbt, &end_key_dbt,
               exclusive ? toku::lock_request::WRITE : toku::lock_request::READ,
-              false /* not a big txn */, (void*)wait_txn_id);
+              false /* not a big txn */, &wait_key);
 
   // This is for "periodically wake up and check if the wait is killed" feature
   // which we are not using.
@@ -119,42 +117,10 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
 
   request.start();
 
-  // If we are going to wait on the lock, we should set appropriate status in
-  // the 'txn' object. This is done by the SetWaitingTxn() call below.
-  // The API we are using are MariaDB's wait notification API, so the way this
-  // is done is a bit convoluted.
-  // In MyRocks, the wait details are visible in I_S.rocksdb_trx.
-  std::string key_str(start_key.data(), start_key.size());
-  struct st_wait_info {
-    PessimisticTransaction* txn;
-    uint32_t column_family_id;
-    std::string* key_ptr;
-    autovector<TransactionID> wait_ids;
-    bool done = false;
-
-    static void lock_wait_callback(void* cdata, TXNID /*waiter*/,
-                                   TXNID waitee) {
-      TEST_SYNC_POINT("RangeTreeLockManager::TryRangeLock:WaitingTxn");
-      auto self = (struct st_wait_info*)cdata;
-      // we know that the waiter is self->txn->GetID() (TODO: assert?)
-      if (!self->done) {
-        self->wait_ids.push_back(waitee);
-        self->txn->SetWaitingTxn(self->wait_ids, self->column_family_id,
-                                 self->key_ptr);
-        self->done = true;
-      }
-    }
-  } wait_info;
-
-  wait_info.txn = txn;
-  wait_info.column_family_id = column_family_id;
-  wait_info.key_ptr = &key_str;
-  wait_info.done = false;
-
   const int r =
       request.wait(wait_time_msec, killed_time_msec,
                    nullptr,  // killed_callback
-                   st_wait_info::lock_wait_callback, (void*)&wait_info);
+                   wait_callback_for_locktree, nullptr);
 
   // Inform the txn that we are no longer waiting:
   txn->ClearWaitingTxn();
@@ -181,6 +147,25 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
   return Status::OK();
 }
 
+
+// Wait callback that locktree library will call to inform us about
+// the lock waits taht are in progress.
+void wait_callback_for_locktree(void*, lock_wait_infos* infos) {
+  for (auto wait_info : *infos) {
+    auto txn = (PessimisticTransaction*)wait_info.waiter;
+    auto cf_id = (ColumnFamilyId)wait_info.ltree->get_dict_id().dictid;
+
+    autovector<TransactionID> waitee_ids;
+    for (auto waitee: wait_info.waitees) {
+      waitee_ids.push_back(((PessimisticTransaction*)waitee)->GetID());
+    }
+    txn->SetWaitingTxn(waitee_ids, cf_id, (std::string*)wait_info.m_extra);
+  }
+
+  // Here we can assume that the locktree code will now wait for some lock
+  TEST_SYNC_POINT("RangeTreeLockManager::TryRangeLock:WaitingTxn");
+}
+
 void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
                                   ColumnFamilyId column_family_id,
                                   const std::string& key, Env*) {
@@ -197,8 +182,9 @@ void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
 
   locktree->release_locks((TXNID)txn, &range_buf);
   range_buf.destroy();
+
   toku::lock_request::retry_all_lock_requests(
-      locktree, nullptr /* lock_wait_needed_callback */);
+      locktree, wait_callback_for_locktree, nullptr);
 }
 
 void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
