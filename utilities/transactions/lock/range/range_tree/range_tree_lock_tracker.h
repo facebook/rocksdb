@@ -112,8 +112,7 @@ class RangeTreeLockTracker : public LockTracker {
 
   void ReleaseLocks(RangeTreeLockManager* mgr, PessimisticTransaction* txn,
                     bool all_trx_locks) {
-    if (range_list_)
-      range_list_->ReleaseLocks(mgr, txn, all_trx_locks);
+    if (range_list_) range_list_->ReleaseLocks(mgr, txn, all_trx_locks);
   }
 
   void ReplaceLocks(const toku::locktree* lt,
