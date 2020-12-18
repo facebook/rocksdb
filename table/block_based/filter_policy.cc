@@ -27,6 +27,15 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace {
 
+// Metadata trailer size for built-in filters. (This is separate from
+// block-based table block trailer.)
+//
+// Originally this was 1 byte for num_probes and 4 bytes for number of
+// cache lines in the Bloom filter, but now the first trailer byte is
+// usually an implementation marker and remaining 4 bytes have various
+// meanings.
+static constexpr uint32_t kMetadataLen = 5;
+
 Slice FinishAlwaysFalse(std::unique_ptr<const char[]>* /*buf*/) {
   // Missing metadata, treated as zero entries
   return Slice(nullptr, 0);
@@ -65,7 +74,7 @@ class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
   size_t AllocateMaybeRounding(size_t target_len_with_metadata,
                                size_t num_entries,
                                std::unique_ptr<char[]>* buf) {
-    size_t target_len = target_len_with_metadata - 5;
+    size_t target_len = target_len_with_metadata - kMetadataLen;
     assert(target_len < target_len_with_metadata);
 
     // Return value set to a default; overwritten in some cases
@@ -105,10 +114,12 @@ class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
         for (uint64_t maybe_len_rough :
              {uint64_t{3} * target_len / 4, uint64_t{13} * target_len / 16,
               uint64_t{7} * target_len / 8, uint64_t{15} * target_len / 16}) {
-          size_t maybe_len = RoundDownUsableSpace(maybe_len_rough);
-          double maybe_fp_rate = EstimatedFpRate(num_entries, maybe_len + 5);
+          size_t maybe_len_with_metadata =
+              RoundDownUsableSpace(maybe_len_rough + kMetadataLen);
+          double maybe_fp_rate =
+              EstimatedFpRate(num_entries, maybe_len_with_metadata);
           if (maybe_fp_rate <= for_balance_fp_rate) {
-            rv = maybe_len + /* metadata */ 5;
+            rv = maybe_len_with_metadata;
             rv_fp_rate = maybe_fp_rate;
             break;
           }
@@ -197,7 +208,7 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
         AllocateMaybeRounding(len_with_metadata, num_entries, &mutable_buf);
 
     assert(mutable_buf);
-    assert(len_with_metadata >= 5);
+    assert(len_with_metadata >= kMetadataLen);
 
     // Max size supported by implementation
     assert(len_with_metadata <= 0xffffffffU);
@@ -205,7 +216,7 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     // Compute num_probes after any rounding / adjustments
     int num_probes = GetNumProbes(num_entries, len_with_metadata);
 
-    uint32_t len = static_cast<uint32_t>(len_with_metadata - 5);
+    uint32_t len = static_cast<uint32_t>(len_with_metadata - kMetadataLen);
     if (len > 0) {
       AddAllEntries(mutable_buf.get(), len, num_probes);
     }
@@ -227,7 +238,8 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
   }
 
   size_t ApproximateNumEntries(size_t bytes) override {
-    size_t bytes_no_meta = bytes >= 5u ? RoundDownUsableSpace(bytes) - 5u : 0;
+    size_t bytes_no_meta =
+        bytes >= kMetadataLen ? RoundDownUsableSpace(bytes) - kMetadataLen : 0;
     return static_cast<size_t>(uint64_t{8000} * bytes_no_meta /
                                millibits_per_key_);
   }
@@ -246,18 +258,18 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     // Round up to nearest multiple of 64 (block size). This adjustment is
     // used for target FP rate only so that we don't receive complaints about
     // lower FP rate vs. historic Bloom filter behavior.
-    return ((raw_target_len + 63) & ~size_t{63}) + /*metadata*/ 5;
+    return ((raw_target_len + 63) & ~size_t{63}) + kMetadataLen;
   }
 
   double EstimatedFpRate(size_t keys, size_t len_with_metadata) override {
     int num_probes = GetNumProbes(keys, len_with_metadata);
     return FastLocalBloomImpl::EstimatedFpRate(
-        keys, len_with_metadata - /*metadata*/ 5, num_probes, /*hash bits*/ 64);
+        keys, len_with_metadata - kMetadataLen, num_probes, /*hash bits*/ 64);
   }
 
  protected:
   size_t RoundDownUsableSpace(size_t available_size) override {
-    size_t rv = available_size - 5;  // metadata
+    size_t rv = available_size - kMetadataLen;
 
     if (rv >= size_t{0xffffffc0}) {
       // Max supported for this data structure implementation
@@ -267,13 +279,13 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     // round down to multiple of 64 (block size)
     rv &= ~size_t{63};
 
-    return rv + 5;  // metadata
+    return rv + kMetadataLen;
   }
 
  private:
   // Compute num_probes after any rounding / adjustments
   int GetNumProbes(size_t keys, size_t len_with_metadata) {
-    uint64_t millibits = uint64_t{len_with_metadata - 5} * 8000;
+    uint64_t millibits = uint64_t{len_with_metadata - kMetadataLen} * 8000;
     int actual_millibits_per_key =
         static_cast<int>(millibits / std::max(keys, size_t{1}));
     // BEGIN XXX/TODO(peterd): preserving old/default behavior for now to
@@ -523,7 +535,7 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
     *target_len_with_metadata =
         SolnType::GetBytesForOneInFpRate(*num_slots, desired_one_in_fp_rate_,
                                          /*rounding*/ entropy) +
-        /*metadata*/ 5;
+        kMetadataLen;
 
     // Consider possible Bloom fallback for small filters
     if (*num_slots < 1024) {
@@ -552,7 +564,8 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
   // reversal of CalculateSpace.
   size_t ApproximateNumEntries(size_t bytes) override {
     size_t len_no_metadata =
-        RoundDownUsableSpace(std::max(bytes, size_t{5})) - 5;
+        RoundDownUsableSpace(std::max(bytes, size_t{kMetadataLen})) -
+        kMetadataLen;
 
     if (!(desired_one_in_fp_rate_ > 1.0)) {
       // Effectively asking for 100% FP rate, or NaN etc.
@@ -575,7 +588,7 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
           (1.0 / desired_one_in_fp_rate_ - fp_rate_for_upper) /
           fp_rate_for_upper;
       min_real_bits_per_slot = upper_bits_per_key - portion_lower;
-      assert(min_real_bits_per_slot >= 0.0);
+      assert(min_real_bits_per_slot > 0.0);
       assert(min_real_bits_per_slot <= 32.0);
     }
 
@@ -583,7 +596,9 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
     double max_slots = len_no_metadata * 8.0 / min_real_bits_per_slot;
 
     // Let's not bother accounting for overflow to Bloom filter
-    if (max_slots > 1.44 * kMaxRibbonEntries) {
+    // (Includes NaN case)
+    if (!(max_slots <
+          BandingType::GetNumSlotsFor95PctSuccess(kMaxRibbonEntries))) {
       return kMaxRibbonEntries;
     }
 
@@ -597,13 +612,17 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
                /*rounding*/ 0) > len_no_metadata);
 
     // Iterate up to a few times to rather precisely account for small effects
-    for (int i = 0; slots > 0 && i < 10; ++i) {
+    for (int i = 0; slots > 0; ++i) {
       size_t reqd_bytes =
           SolnType::GetBytesForOneInFpRate(slots, desired_one_in_fp_rate_,
                                            /*rounding*/ 0);
       if (reqd_bytes <= len_no_metadata) {
-        assert(i <= 2);
         break;  // done
+      }
+      if (i >= 2) {
+        // should have been enough iterations
+        assert(false);
+        break;
       }
       slots = SolnType::RoundDownNumSlots(slots - 1);
     }
@@ -624,7 +643,7 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
         return num_entries;
       }
     } else {
-      return std::min(size_t{num_entries}, kMaxRibbonEntries + 0);
+      return std::min(num_entries, kMaxRibbonEntries);
     }
   }
 
@@ -643,12 +662,12 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
 
  protected:
   size_t RoundDownUsableSpace(size_t available_size) override {
-    size_t rv = available_size - 5;  // metadata
+    size_t rv = available_size - kMetadataLen;
 
     // round down to multiple of 16 (segment size)
     rv &= ~size_t{15};
 
-    return rv + 5;  // metadata
+    return rv + kMetadataLen;
   }
 
  private:
@@ -668,7 +687,7 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
   // within an order of magnitude of implementation limit on num_slots
   // fitting in 32 bits, and even closer for num_blocks fitting in 24 bits
   // (for filter metadata).
-  static constexpr size_t kMaxRibbonEntries = 950000000;  // ~ 1 billion
+  static constexpr uint32_t kMaxRibbonEntries = 950000000;  // ~ 1 billion
 
   // A desired value for 1/fp_rate. For example, 100 -> 1% fp rate.
   double desired_one_in_fp_rate_;
@@ -680,6 +699,9 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
   // very small filter cases
   FastLocalBloomBitsBuilder bloom_fallback_;
 };
+
+// for the linker, at least with DEBUG_LEVEL=2
+constexpr uint32_t Standard128RibbonBitsBuilder::kMaxRibbonEntries;
 
 class Standard128RibbonBitsReader : public FilterBitsReader {
  public:
@@ -743,7 +765,7 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   }
 
   double EstimatedFpRate(size_t keys, size_t bytes) override {
-    return LegacyBloomImpl::EstimatedFpRate(keys, bytes - /*metadata*/ 5,
+    return LegacyBloomImpl::EstimatedFpRate(keys, bytes - kMetadataLen,
                                             num_probes_);
   }
 
@@ -831,7 +853,7 @@ Slice LegacyBloomBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
   buf->reset(const_data);
   hash_entries_.clear();
 
-  return Slice(data, total_bits / 8 + 5);
+  return Slice(data, total_bits / 8 + kMetadataLen);
 }
 
 size_t LegacyBloomBitsBuilder::ApproximateNumEntries(size_t bytes) {
@@ -890,7 +912,7 @@ uint32_t LegacyBloomBitsBuilder::CalculateSpace(size_t num_entries,
 
   // Reserve space for Filter
   uint32_t sz = *total_bits / 8;
-  sz += 5;  // 4 bytes for num_lines, 1 byte for num_probes
+  sz += kMetadataLen;  // 4 bytes for num_lines, 1 byte for num_probes
   return sz;
 }
 
@@ -1158,7 +1180,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderFromContext(
 FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
     const Slice& contents) const {
   uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
-  if (len_with_meta <= 5) {
+  if (len_with_meta <= kMetadataLen) {
     // filter is empty or broken. Treat like zero keys added.
     return new AlwaysFalseFilter();
   }
@@ -1176,7 +1198,7 @@ FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
   // len_with_meta +-----------------------------------+
 
   int8_t raw_num_probes =
-      static_cast<int8_t>(contents.data()[len_with_meta - 5]);
+      static_cast<int8_t>(contents.data()[len_with_meta - kMetadataLen]);
   // NB: *num_probes > 30 and < 128 probably have not been used, because of
   // BloomFilterPolicy::initialize, unless directly calling
   // LegacyBloomBitsBuilder as an API, but we are leaving those cases in
@@ -1206,7 +1228,7 @@ FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
   assert(num_probes >= 1);
   assert(num_probes <= 127);
 
-  uint32_t len = len_with_meta - 5;
+  uint32_t len = len_with_meta - kMetadataLen;
   assert(len > 0);
 
   uint32_t num_lines = DecodeFixed32(contents.data() + len_with_meta - 4);
@@ -1239,7 +1261,7 @@ FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
 FilterBitsReader* BloomFilterPolicy::GetRibbonBitsReader(
     const Slice& contents) const {
   uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
-  uint32_t len = len_with_meta - 5;
+  uint32_t len = len_with_meta - kMetadataLen;
 
   assert(len > 0);  // precondition
 
@@ -1263,7 +1285,7 @@ FilterBitsReader* BloomFilterPolicy::GetRibbonBitsReader(
 FilterBitsReader* BloomFilterPolicy::GetBloomBitsReader(
     const Slice& contents) const {
   uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
-  uint32_t len = len_with_meta - 5;
+  uint32_t len = len_with_meta - kMetadataLen;
 
   assert(len > 0);  // precondition
 
