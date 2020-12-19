@@ -15,6 +15,7 @@
 
 ### New Features
 * User defined timestamp feature supports `CompactRange` and `GetApproximateSizes`.
+* Support getting aggregated table properties (kAggregatedTableProperties and kAggregatedTablePropertiesAtLevel) with DB::GetMapProperty, for easier access to the data in a structured format.
 * Experimental option BlockBasedTableOptions::optimize_filters_for_memory now works with experimental Ribbon filter (as well as Bloom filter).
 
 ### Public API Change

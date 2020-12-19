@@ -227,6 +227,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new FileChecksumDumpCommand(parsed_params.cmd_params,
                                        parsed_params.option_map,
                                        parsed_params.flags);
+  } else if (parsed_params.cmd == GetPropertyCommand::Name()) {
+    return new GetPropertyCommand(parsed_params.cmd_params,
+                                  parsed_params.option_map,
+                                  parsed_params.flags);
   } else if (parsed_params.cmd == ListColumnFamiliesCommand::Name()) {
     return new ListColumnFamiliesCommand(parsed_params.cmd_params,
                                          parsed_params.option_map,
@@ -1254,6 +1258,58 @@ void FileChecksumDumpCommand::DoCommand() {
       }
     }
     fprintf(stdout, "Print SST file checksum information finished \n");
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+void GetPropertyCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(GetPropertyCommand::Name());
+  ret.append(" <property_name>");
+  ret.append("\n");
+}
+
+GetPropertyCommand::GetPropertyCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, true, BuildCmdLineOptions({})) {
+  if (params.size() != 1) {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("property name must be specified");
+  } else {
+    property_ = params[0];
+  }
+}
+
+void GetPropertyCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+
+  std::map<std::string, std::string> value_map;
+  std::string value;
+
+  // Rather than having different ldb command for map properties vs. string
+  // properties, we simply try Map property first. (This order only chosen
+  // because I prefer the map-style output for
+  // "rocksdb.aggregated-table-properties".)
+  if (db_->GetMapProperty(GetCfHandle(), property_, &value_map)) {
+    if (value_map.empty()) {
+      fprintf(stdout, "%s: <empty map>\n", property_.c_str());
+    } else {
+      for (auto& e : value_map) {
+        fprintf(stdout, "%s.%s: %s\n", property_.c_str(), e.first.c_str(),
+                e.second.c_str());
+      }
+    }
+  } else if (db_->GetProperty(GetCfHandle(), property_, &value)) {
+    fprintf(stdout, "%s: %s\n", property_.c_str(), value.c_str());
+  } else {
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("failed to get property: " + property_);
   }
 }
 
