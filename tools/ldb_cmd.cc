@@ -1274,7 +1274,7 @@ GetPropertyCommand::GetPropertyCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, true, {ARG_DB}) {
+    : LDBCommand(options, flags, true, BuildCmdLineOptions({})) {
   if (params.size() != 1) {
     exec_state_ =
         LDBCommandExecuteResult::Failed("property name must be specified");
@@ -1291,6 +1291,11 @@ void GetPropertyCommand::DoCommand() {
 
   std::map<std::string, std::string> value_map;
   std::string value;
+
+  // Rather than having different ldb command for map properties vs. string
+  // properties, we simply try Map property first. (This order only chosen
+  // because I prefer the map-style output for
+  // "rocksdb.aggregated-table-properties".)
   if (db_->GetMapProperty(GetCfHandle(), property_, &value_map)) {
     if (value_map.empty()) {
       fprintf(stdout, "%s: <empty map>\n", property_.c_str());
