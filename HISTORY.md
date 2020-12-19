@@ -15,6 +15,7 @@
 
 ### New Features
 * User defined timestamp feature supports `CompactRange` and `GetApproximateSizes`.
+* Support getting aggregated table properties (kAggregatedTableProperties and kAggregatedTablePropertiesAtLevel) with DB::GetMapProperty, for easier access to the data in a structured format.
 
 ### Public API Change
 * Deprecated public but rarely-used FilterBitsBuilder::CalculateNumEntry, which is replaced with ApproximateNumEntries taking a size_t parameter and returning size_t.
