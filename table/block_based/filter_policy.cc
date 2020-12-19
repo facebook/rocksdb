@@ -11,6 +11,7 @@
 
 #include <array>
 #include <deque>
+#include <limits>
 
 #include "rocksdb/slice.h"
 #include "table/block_based/block_based_filter_block.h"
@@ -24,26 +25,16 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-size_t BuiltinFilterBitsBuilder::ApproximateNumEntries(size_t bytes) {
-  size_t cur = 1;
-  // Find overestimate
-  while (CalculateSpace(cur) <= bytes && cur * 2 > cur) {
-    cur *= 2;
-  }
-  // Change to underestimate less than factor of two from answer
-  cur /= 2;
-  // Binary search
-  size_t delta = cur / 2;
-  while (delta > 0) {
-    if (CalculateSpace(cur + delta) <= bytes) {
-      cur += delta;
-    }
-    delta /= 2;
-  }
-  return cur;
-}
-
 namespace {
+
+// Metadata trailer size for built-in filters. (This is separate from
+// block-based table block trailer.)
+//
+// Originally this was 1 byte for num_probes and 4 bytes for number of
+// cache lines in the Bloom filter, but now the first trailer byte is
+// usually an implementation marker and remaining 4 bytes have various
+// meanings.
+static constexpr uint32_t kMetadataLen = 5;
 
 Slice FinishAlwaysFalse(std::unique_ptr<const char[]>* /*buf*/) {
   // Missing metadata, treated as zero entries
@@ -54,6 +45,10 @@ Slice FinishAlwaysFalse(std::unique_ptr<const char[]>* /*buf*/) {
 // also known as Hash64 or GetSliceHash64.
 class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
  public:
+  explicit XXH3pFilterBitsBuilder(
+      std::atomic<int64_t>* aggregate_rounding_balance)
+      : aggregate_rounding_balance_(aggregate_rounding_balance) {}
+
   ~XXH3pFilterBitsBuilder() override {}
 
   virtual void AddKey(const Slice& key) override {
@@ -73,9 +68,113 @@ class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
     std::swap(hash_entries_, other->hash_entries_);
   }
 
+  virtual size_t RoundDownUsableSpace(size_t available_size) = 0;
+
+  // To choose size using malloc_usable_size, we have to actually allocate.
+  size_t AllocateMaybeRounding(size_t target_len_with_metadata,
+                               size_t num_entries,
+                               std::unique_ptr<char[]>* buf) {
+    // Return value set to a default; overwritten in some cases
+    size_t rv = target_len_with_metadata;
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    if (aggregate_rounding_balance_ != nullptr) {
+      // Do optimize_filters_for_memory, using malloc_usable_size.
+      // Approach: try to keep FP rate balance better than or on
+      // target (negative aggregate_rounding_balance_). We can then select a
+      // lower bound filter size (within reasonable limits) that gets us as
+      // close to on target as possible. We request allocation for that filter
+      // size and use malloc_usable_size to "round up" to the actual
+      // allocation size.
+
+      // Although it can be considered bad practice to use malloc_usable_size
+      // to access an object beyond its original size, this approach should be
+      // quite general: working for all allocators that properly support
+      // malloc_usable_size.
+
+      // Race condition on balance is OK because it can only cause temporary
+      // skew in rounding up vs. rounding down, as long as updates are atomic
+      // and relative.
+      int64_t balance = aggregate_rounding_balance_->load();
+
+      double target_fp_rate =
+          EstimatedFpRate(num_entries, target_len_with_metadata);
+      double rv_fp_rate = target_fp_rate;
+
+      if (balance < 0) {
+        // See formula for BloomFilterPolicy::aggregate_rounding_balance_
+        double for_balance_fp_rate =
+            -balance / double{0x100000000} + target_fp_rate;
+
+        // To simplify, we just try a few modified smaller sizes. This also
+        // caps how much we vary filter size vs. target, to avoid outlier
+        // behavior from excessive variance.
+        size_t target_len = target_len_with_metadata - kMetadataLen;
+        assert(target_len < target_len_with_metadata);  // check underflow
+        for (uint64_t maybe_len_rough :
+             {uint64_t{3} * target_len / 4, uint64_t{13} * target_len / 16,
+              uint64_t{7} * target_len / 8, uint64_t{15} * target_len / 16}) {
+          size_t maybe_len_with_metadata =
+              RoundDownUsableSpace(maybe_len_rough + kMetadataLen);
+          double maybe_fp_rate =
+              EstimatedFpRate(num_entries, maybe_len_with_metadata);
+          if (maybe_fp_rate <= for_balance_fp_rate) {
+            rv = maybe_len_with_metadata;
+            rv_fp_rate = maybe_fp_rate;
+            break;
+          }
+        }
+      }
+
+      // Filter blocks are loaded into block cache with their block trailer.
+      // We need to make sure that's accounted for in choosing a
+      // fragmentation-friendly size.
+      const size_t kExtraPadding = kBlockTrailerSize;
+      size_t requested = rv + kExtraPadding;
+
+      // Allocate and get usable size
+      buf->reset(new char[requested]);
+      size_t usable = malloc_usable_size(buf->get());
+
+      if (usable - usable / 4 > requested) {
+        // Ratio greater than 4/3 is too much for utilizing, if it's
+        // not a buggy or mislinked malloc_usable_size implementation.
+        // Non-linearity of FP rates with bits/key means rapidly
+        // diminishing returns in overall accuracy for additional
+        // storage on disk.
+        // Nothing to do, except assert that the result is accurate about
+        // the usable size. (Assignment never used.)
+        assert(((*buf)[usable - 1] = 'x'));
+      } else if (usable > requested) {
+        rv = RoundDownUsableSpace(usable - kExtraPadding);
+        assert(rv <= usable - kExtraPadding);
+        rv_fp_rate = EstimatedFpRate(num_entries, rv);
+      } else {
+        // Too small means bad malloc_usable_size
+        assert(usable == requested);
+      }
+      memset(buf->get(), 0, rv);
+
+      // Update balance
+      int64_t diff = static_cast<int64_t>((rv_fp_rate - target_fp_rate) *
+                                          double{0x100000000});
+      *aggregate_rounding_balance_ += diff;
+    } else {
+      buf->reset(new char[rv]());
+    }
+#else
+    (void)num_entries;
+    buf->reset(new char[rv]());
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    return rv;
+  }
+
   // A deque avoids unnecessary copying of already-saved values
   // and has near-minimal peak memory use.
   std::deque<uint64_t> hash_entries_;
+
+  // See BloomFilterPolicy::aggregate_rounding_balance_. If nullptr,
+  // always "round up" like historic behavior.
+  std::atomic<int64_t>* aggregate_rounding_balance_;
 };
 
 // #################### FastLocalBloom implementation ################## //
@@ -88,8 +187,8 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
   explicit FastLocalBloomBitsBuilder(
       const int millibits_per_key,
       std::atomic<int64_t>* aggregate_rounding_balance)
-      : millibits_per_key_(millibits_per_key),
-        aggregate_rounding_balance_(aggregate_rounding_balance) {
+      : XXH3pFilterBitsBuilder(aggregate_rounding_balance),
+        millibits_per_key_(millibits_per_key) {
     assert(millibits_per_key >= 1000);
   }
 
@@ -101,12 +200,14 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
 
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
     size_t num_entries = hash_entries_.size();
+    size_t len_with_metadata = CalculateSpace(num_entries);
+
     std::unique_ptr<char[]> mutable_buf;
-    size_t len_with_metadata = CalculateAndAllocate(num_entries, &mutable_buf,
-                                                    /*update_balance*/ true);
+    len_with_metadata =
+        AllocateMaybeRounding(len_with_metadata, num_entries, &mutable_buf);
 
     assert(mutable_buf);
-    assert(len_with_metadata >= 5);
+    assert(len_with_metadata >= kMetadataLen);
 
     // Max size supported by implementation
     assert(len_with_metadata <= 0xffffffffU);
@@ -114,7 +215,7 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     // Compute num_probes after any rounding / adjustments
     int num_probes = GetNumProbes(num_entries, len_with_metadata);
 
-    uint32_t len = static_cast<uint32_t>(len_with_metadata - 5);
+    uint32_t len = static_cast<uint32_t>(len_with_metadata - kMetadataLen);
     if (len > 0) {
       AddAllEntries(mutable_buf.get(), len, num_probes);
     }
@@ -136,22 +237,13 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
   }
 
   size_t ApproximateNumEntries(size_t bytes) override {
-    size_t bytes_no_meta = bytes >= 5u ? bytes - 5u : 0;
+    size_t bytes_no_meta =
+        bytes >= kMetadataLen ? RoundDownUsableSpace(bytes) - kMetadataLen : 0;
     return static_cast<size_t>(uint64_t{8000} * bytes_no_meta /
                                millibits_per_key_);
   }
 
   size_t CalculateSpace(size_t num_entries) override {
-    return CalculateAndAllocate(num_entries,
-                                /* buf */ nullptr,
-                                /*update_balance*/ false);
-  }
-
-  // To choose size using malloc_usable_size, we have to actually allocate.
-  size_t CalculateAndAllocate(size_t num_entries, std::unique_ptr<char[]>* buf,
-                              bool update_balance) {
-    std::unique_ptr<char[]> tmpbuf;
-
     // If not for cache line blocks in the filter, what would the target
     // length in bytes be?
     size_t raw_target_len = static_cast<size_t>(
@@ -165,119 +257,34 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
     // Round up to nearest multiple of 64 (block size). This adjustment is
     // used for target FP rate only so that we don't receive complaints about
     // lower FP rate vs. historic Bloom filter behavior.
-    size_t target_len = (raw_target_len + 63) & ~size_t{63};
-
-    // Return value set to a default; overwritten in some cases
-    size_t rv = target_len + /* metadata */ 5;
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-    if (aggregate_rounding_balance_ != nullptr) {
-      // Do optimize_filters_for_memory, using malloc_usable_size.
-      // Approach: try to keep FP rate balance better than or on
-      // target (negative aggregate_rounding_balance_). We can then select a
-      // lower bound filter size (within reasonable limits) that gets us as
-      // close to on target as possible. We request allocation for that filter
-      // size and use malloc_usable_size to "round up" to the actual
-      // allocation size.
-
-      // Although it can be considered bad practice to use malloc_usable_size
-      // to access an object beyond its original size, this approach should
-      // quite general: working for all allocators that properly support
-      // malloc_usable_size.
-
-      // Race condition on balance is OK because it can only cause temporary
-      // skew in rounding up vs. rounding down, as long as updates are atomic
-      // and relative.
-      int64_t balance = aggregate_rounding_balance_->load();
-
-      double target_fp_rate = EstimatedFpRate(num_entries, target_len + 5);
-      double rv_fp_rate = target_fp_rate;
-
-      if (balance < 0) {
-        // See formula for BloomFilterPolicy::aggregate_rounding_balance_
-        double for_balance_fp_rate =
-            -balance / double{0x100000000} + target_fp_rate;
-
-        // To simplify, we just try a few modified smaller sizes. This also
-        // caps how much we vary filter size vs. target, to avoid outlier
-        // behavior from excessive variance.
-        for (uint64_t maybe_len64 :
-             {uint64_t{3} * target_len / 4, uint64_t{13} * target_len / 16,
-              uint64_t{7} * target_len / 8, uint64_t{15} * target_len / 16}) {
-          size_t maybe_len = maybe_len64 & ~size_t{63};
-          double maybe_fp_rate = EstimatedFpRate(num_entries, maybe_len + 5);
-          if (maybe_fp_rate <= for_balance_fp_rate) {
-            rv = maybe_len + /* metadata */ 5;
-            rv_fp_rate = maybe_fp_rate;
-            break;
-          }
-        }
-      }
-
-      // Filter blocks are loaded into block cache with their block trailer.
-      // We need to make sure that's accounted for in choosing a
-      // fragmentation-friendly size.
-      const size_t kExtraPadding = kBlockTrailerSize;
-      size_t requested = rv + kExtraPadding;
-
-      // Allocate and get usable size
-      tmpbuf.reset(new char[requested]);
-      size_t usable = malloc_usable_size(tmpbuf.get());
-
-      if (usable - usable / 4 > requested) {
-        // Ratio greater than 4/3 is too much for utilizing, if it's
-        // not a buggy or mislinked malloc_usable_size implementation.
-        // Non-linearity of FP rates with bits/key means rapidly
-        // diminishing returns in overall accuracy for additional
-        // storage on disk.
-        // Nothing to do, except assert that the result is accurate about
-        // the usable size. (Assignment never used.)
-        assert((tmpbuf[usable - 1] = 'x'));
-      } else if (usable > requested) {
-        // Adjust for reasonably larger usable size
-        size_t usable_len = (usable - kExtraPadding - /* metadata */ 5);
-        if (usable_len >= size_t{0xffffffc0}) {
-          // Max supported for this data structure implementation
-          usable_len = size_t{0xffffffc0};
-        }
-
-        rv = (usable_len & ~size_t{63}) +
-             /* metadata */ 5;
-        rv_fp_rate = EstimatedFpRate(num_entries, rv);
-      } else {
-        // Too small means bad malloc_usable_size
-        assert(usable == requested);
-      }
-      memset(tmpbuf.get(), 0, rv);
-
-      if (update_balance) {
-        int64_t diff = static_cast<int64_t>((rv_fp_rate - target_fp_rate) *
-                                            double{0x100000000});
-        *aggregate_rounding_balance_ += diff;
-      }
-    }
-#else
-    (void)update_balance;
-#endif  // ROCKSDB_MALLOC_USABLE_SIZE
-    if (buf) {
-      if (tmpbuf) {
-        *buf = std::move(tmpbuf);
-      } else {
-        buf->reset(new char[rv]());
-      }
-    }
-    return rv;
+    return ((raw_target_len + 63) & ~size_t{63}) + kMetadataLen;
   }
 
   double EstimatedFpRate(size_t keys, size_t len_with_metadata) override {
     int num_probes = GetNumProbes(keys, len_with_metadata);
     return FastLocalBloomImpl::EstimatedFpRate(
-        keys, len_with_metadata - /*metadata*/ 5, num_probes, /*hash bits*/ 64);
+        keys, len_with_metadata - kMetadataLen, num_probes, /*hash bits*/ 64);
+  }
+
+ protected:
+  size_t RoundDownUsableSpace(size_t available_size) override {
+    size_t rv = available_size - kMetadataLen;
+
+    if (rv >= size_t{0xffffffc0}) {
+      // Max supported for this data structure implementation
+      rv = size_t{0xffffffc0};
+    }
+
+    // round down to multiple of 64 (block size)
+    rv &= ~size_t{63};
+
+    return rv + kMetadataLen;
   }
 
  private:
   // Compute num_probes after any rounding / adjustments
   int GetNumProbes(size_t keys, size_t len_with_metadata) {
-    uint64_t millibits = uint64_t{len_with_metadata - 5} * 8000;
+    uint64_t millibits = uint64_t{len_with_metadata - kMetadataLen} * 8000;
     int actual_millibits_per_key =
         static_cast<int>(millibits / std::max(keys, size_t{1}));
     // BEGIN XXX/TODO(peterd): preserving old/default behavior for now to
@@ -339,9 +346,6 @@ class FastLocalBloomBitsBuilder : public XXH3pFilterBitsBuilder {
 
   // Target allocation per added key, in thousandths of a bit.
   int millibits_per_key_;
-  // See BloomFilterPolicy::aggregate_rounding_balance_. If nullptr,
-  // always "round up" like historic behavior.
-  std::atomic<int64_t>* aggregate_rounding_balance_;
 };
 
 // See description in FastLocalBloomImpl
@@ -411,12 +415,13 @@ using Standard128RibbonTypesAndSettings =
 
 class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
  public:
-  explicit Standard128RibbonBitsBuilder(double desired_one_in_fp_rate,
-                                        int bloom_millibits_per_key,
-                                        Logger* info_log)
-      : desired_one_in_fp_rate_(desired_one_in_fp_rate),
+  explicit Standard128RibbonBitsBuilder(
+      double desired_one_in_fp_rate, int bloom_millibits_per_key,
+      std::atomic<int64_t>* aggregate_rounding_balance, Logger* info_log)
+      : XXH3pFilterBitsBuilder(aggregate_rounding_balance),
+        desired_one_in_fp_rate_(desired_one_in_fp_rate),
         info_log_(info_log),
-        bloom_fallback_(bloom_millibits_per_key, nullptr) {
+        bloom_fallback_(bloom_millibits_per_key, aggregate_rounding_balance) {
     assert(desired_one_in_fp_rate >= 1.0);
   }
 
@@ -440,23 +445,21 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
       return FinishAlwaysFalse(buf);
     }
     uint32_t num_entries = static_cast<uint32_t>(hash_entries_.size());
-    uint32_t num_slots = BandingType::GetNumSlotsFor95PctSuccess(num_entries);
-    num_slots = SolnType::RoundUpNumSlots(num_slots);
+    uint32_t num_slots;
+    size_t len_with_metadata;
 
-    uint32_t entropy = 0;
-    if (num_entries > 0) {
-      entropy = Lower32of64(hash_entries_.front());
-    }
-    size_t len = SolnType::GetBytesForOneInFpRate(
-        num_slots, desired_one_in_fp_rate_, /*rounding*/ entropy);
-    size_t len_with_metadata = len + 5;
+    CalculateSpaceAndSlots(num_entries, &len_with_metadata, &num_slots);
 
-    // Use Bloom filter when it's better for small filters
-    if (num_slots < 1024 && bloom_fallback_.CalculateSpace(static_cast<int>(
-                                num_entries)) < len_with_metadata) {
+    // Bloom fall-back indicator
+    if (num_slots == 0) {
       SwapEntriesWith(&bloom_fallback_);
       assert(hash_entries_.empty());
       return bloom_fallback_.Finish(buf);
+    }
+
+    uint32_t entropy = 0;
+    if (!hash_entries_.empty()) {
+      entropy = Lower32of64(hash_entries_.front());
     }
 
     BandingType banding;
@@ -477,7 +480,9 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
     uint32_t seed = banding.GetOrdinalSeed();
     assert(seed < 256);
 
-    std::unique_ptr<char[]> mutable_buf(new char[len_with_metadata]);
+    std::unique_ptr<char[]> mutable_buf;
+    len_with_metadata =
+        AllocateMaybeRounding(len_with_metadata, num_entries, &mutable_buf);
 
     SolnType soln(mutable_buf.get(), len_with_metadata);
     soln.BackSubstFrom(banding);
@@ -492,37 +497,152 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
 
     // See BloomFilterPolicy::GetBloomBitsReader re: metadata
     // -2 = Marker for Standard128 Ribbon
-    mutable_buf[len] = static_cast<char>(-2);
+    mutable_buf[len_with_metadata - 5] = static_cast<char>(-2);
     // Hash seed
-    mutable_buf[len + 1] = static_cast<char>(seed);
+    mutable_buf[len_with_metadata - 4] = static_cast<char>(seed);
     // Number of blocks, in 24 bits
     // (Along with bytes, we can derive other settings)
-    mutable_buf[len + 2] = static_cast<char>(num_blocks & 255);
-    mutable_buf[len + 3] = static_cast<char>((num_blocks >> 8) & 255);
-    mutable_buf[len + 4] = static_cast<char>((num_blocks >> 16) & 255);
+    mutable_buf[len_with_metadata - 3] = static_cast<char>(num_blocks & 255);
+    mutable_buf[len_with_metadata - 2] =
+        static_cast<char>((num_blocks >> 8) & 255);
+    mutable_buf[len_with_metadata - 1] =
+        static_cast<char>((num_blocks >> 16) & 255);
 
     Slice rv(mutable_buf.get(), len_with_metadata);
     *buf = std::move(mutable_buf);
     return rv;
   }
 
-  size_t CalculateSpace(size_t num_entries) override {
+  // Setting num_slots to 0 means "fall back on Bloom filter."
+  // And note this implementation does not support num_entries or num_slots
+  // beyond uint32_t; see kMaxRibbonEntries.
+  void CalculateSpaceAndSlots(size_t num_entries,
+                              size_t* target_len_with_metadata,
+                              uint32_t* num_slots) {
     if (num_entries > kMaxRibbonEntries) {
       // More entries than supported by this Ribbon
-      return bloom_fallback_.CalculateSpace(num_entries);
+      *num_slots = 0;  // use Bloom
+      *target_len_with_metadata = bloom_fallback_.CalculateSpace(num_entries);
+      return;
     }
-    uint32_t num_slots =
-        NumEntriesToNumSlots(static_cast<uint32_t>(num_entries));
-    size_t ribbon =
-        SolnType::GetBytesForOneInFpRate(num_slots, desired_one_in_fp_rate_,
-                                         /*rounding*/ 0) +
-        /*metadata*/ 5;
+    uint32_t entropy = 0;
+    if (!hash_entries_.empty()) {
+      entropy = Upper32of64(hash_entries_.front());
+    }
+
+    *num_slots = NumEntriesToNumSlots(static_cast<uint32_t>(num_entries));
+    *target_len_with_metadata =
+        SolnType::GetBytesForOneInFpRate(*num_slots, desired_one_in_fp_rate_,
+                                         /*rounding*/ entropy) +
+        kMetadataLen;
+
     // Consider possible Bloom fallback for small filters
-    if (num_slots < 1024) {
+    if (*num_slots < 1024) {
       size_t bloom = bloom_fallback_.CalculateSpace(num_entries);
-      return std::min(bloom, ribbon);
+      if (bloom < *target_len_with_metadata) {
+        *num_slots = 0;  // use Bloom
+        *target_len_with_metadata = bloom;
+        return;
+      }
+    }
+  }
+
+  size_t CalculateSpace(size_t num_entries) override {
+    if (num_entries == 0) {
+      // See FinishAlwaysFalse
+      return 0;
+    }
+    size_t target_len_with_metadata;
+    uint32_t num_slots;
+    CalculateSpaceAndSlots(num_entries, &target_len_with_metadata, &num_slots);
+    (void)num_slots;
+    return target_len_with_metadata;
+  }
+
+  // This is a somewhat ugly but reasonably fast and reasonably accurate
+  // reversal of CalculateSpace.
+  size_t ApproximateNumEntries(size_t bytes) override {
+    size_t len_no_metadata =
+        RoundDownUsableSpace(std::max(bytes, size_t{kMetadataLen})) -
+        kMetadataLen;
+
+    if (!(desired_one_in_fp_rate_ > 1.0)) {
+      // Effectively asking for 100% FP rate, or NaN etc.
+      // Note that NaN is neither < 1.0 nor > 1.0
+      return kMaxRibbonEntries;
+    }
+
+    // Find a slight under-estimate for actual average bits per slot
+    double min_real_bits_per_slot;
+    if (desired_one_in_fp_rate_ >= 1.0 + std::numeric_limits<uint32_t>::max()) {
+      // Max of 32 solution columns (result bits)
+      min_real_bits_per_slot = 32.0;
     } else {
-      return ribbon;
+      // Account for mix of b and b+1 solution columns being slightly
+      // suboptimal vs. ideal log2(1/fp_rate) bits.
+      uint32_t rounded = static_cast<uint32_t>(desired_one_in_fp_rate_);
+      int upper_bits_per_key = 1 + FloorLog2(rounded);
+      double fp_rate_for_upper = std::pow(2.0, -upper_bits_per_key);
+      double portion_lower =
+          (1.0 / desired_one_in_fp_rate_ - fp_rate_for_upper) /
+          fp_rate_for_upper;
+      min_real_bits_per_slot = upper_bits_per_key - portion_lower;
+      assert(min_real_bits_per_slot > 0.0);
+      assert(min_real_bits_per_slot <= 32.0);
+    }
+
+    // An overestimate, but this should only be O(1) slots away from truth.
+    double max_slots = len_no_metadata * 8.0 / min_real_bits_per_slot;
+
+    // Let's not bother accounting for overflow to Bloom filter
+    // (Includes NaN case)
+    if (!(max_slots <
+          BandingType::GetNumSlotsFor95PctSuccess(kMaxRibbonEntries))) {
+      return kMaxRibbonEntries;
+    }
+
+    // Set up for short iteration
+    uint32_t slots = static_cast<uint32_t>(max_slots);
+    slots = SolnType::RoundUpNumSlots(slots);
+
+    // Assert that we have a valid upper bound on slots
+    assert(SolnType::GetBytesForOneInFpRate(
+               SolnType::RoundUpNumSlots(slots + 1), desired_one_in_fp_rate_,
+               /*rounding*/ 0) > len_no_metadata);
+
+    // Iterate up to a few times to rather precisely account for small effects
+    for (int i = 0; slots > 0; ++i) {
+      size_t reqd_bytes =
+          SolnType::GetBytesForOneInFpRate(slots, desired_one_in_fp_rate_,
+                                           /*rounding*/ 0);
+      if (reqd_bytes <= len_no_metadata) {
+        break;  // done
+      }
+      if (i >= 2) {
+        // should have been enough iterations
+        assert(false);
+        break;
+      }
+      slots = SolnType::RoundDownNumSlots(slots - 1);
+    }
+
+    // Using slots instead of entries to get overhead factor estimate
+    double f = BandingType::GetFactorFor95PctSuccess(slots);
+    uint32_t num_entries = static_cast<uint32_t>(slots / f);
+    // Improve precision with another round
+    f = BandingType::GetFactorFor95PctSuccess(num_entries);
+    num_entries = static_cast<uint32_t>(slots / f + 0.999999999);
+
+    // Consider possible Bloom fallback for small filters
+    if (slots < 1024) {
+      size_t bloom = bloom_fallback_.ApproximateNumEntries(bytes);
+      if (bloom > num_entries) {
+        return bloom;
+      } else {
+        return num_entries;
+      }
+    } else {
+      return std::min(num_entries, kMaxRibbonEntries);
     }
   }
 
@@ -537,6 +657,16 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
     SolnType fake_soln(nullptr, len_with_metadata);
     fake_soln.ConfigureForNumSlots(num_slots);
     return fake_soln.ExpectedFpRate();
+  }
+
+ protected:
+  size_t RoundDownUsableSpace(size_t available_size) override {
+    size_t rv = available_size - kMetadataLen;
+
+    // round down to multiple of 16 (segment size)
+    rv &= ~size_t{15};
+
+    return rv + kMetadataLen;
   }
 
  private:
@@ -556,7 +686,7 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
   // within an order of magnitude of implementation limit on num_slots
   // fitting in 32 bits, and even closer for num_blocks fitting in 24 bits
   // (for filter metadata).
-  static constexpr size_t kMaxRibbonEntries = 950000000;  // ~ 1 billion
+  static constexpr uint32_t kMaxRibbonEntries = 950000000;  // ~ 1 billion
 
   // A desired value for 1/fp_rate. For example, 100 -> 1% fp rate.
   double desired_one_in_fp_rate_;
@@ -568,6 +698,9 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
   // very small filter cases
   FastLocalBloomBitsBuilder bloom_fallback_;
 };
+
+// for the linker, at least with DEBUG_LEVEL=2
+constexpr uint32_t Standard128RibbonBitsBuilder::kMaxRibbonEntries;
 
 class Standard128RibbonBitsReader : public FilterBitsReader {
  public:
@@ -631,9 +764,11 @@ class LegacyBloomBitsBuilder : public BuiltinFilterBitsBuilder {
   }
 
   double EstimatedFpRate(size_t keys, size_t bytes) override {
-    return LegacyBloomImpl::EstimatedFpRate(keys, bytes - /*metadata*/ 5,
+    return LegacyBloomImpl::EstimatedFpRate(keys, bytes - kMetadataLen,
                                             num_probes_);
   }
+
+  size_t ApproximateNumEntries(size_t bytes) override;
 
  private:
   int bits_per_key_;
@@ -717,7 +852,29 @@ Slice LegacyBloomBitsBuilder::Finish(std::unique_ptr<const char[]>* buf) {
   buf->reset(const_data);
   hash_entries_.clear();
 
-  return Slice(data, total_bits / 8 + 5);
+  return Slice(data, total_bits / 8 + kMetadataLen);
+}
+
+size_t LegacyBloomBitsBuilder::ApproximateNumEntries(size_t bytes) {
+  assert(bits_per_key_);
+  assert(bytes > 0);
+
+  uint64_t total_bits_tmp = bytes * 8;
+  // total bits, including temporary computations, cannot exceed 2^32
+  // for compatibility
+  total_bits_tmp = std::min(total_bits_tmp, uint64_t{0xffff0000});
+
+  uint32_t high = static_cast<uint32_t>(total_bits_tmp) /
+                      static_cast<uint32_t>(bits_per_key_) +
+                  1;
+  uint32_t low = 1;
+  uint32_t n = high;
+  for (; n >= low; n--) {
+    if (CalculateSpace(n) <= bytes) {
+      break;
+    }
+  }
+  return n;
 }
 
 uint32_t LegacyBloomBitsBuilder::GetTotalBitsForLocality(uint32_t total_bits) {
@@ -754,7 +911,7 @@ uint32_t LegacyBloomBitsBuilder::CalculateSpace(size_t num_entries,
 
   // Reserve space for Filter
   uint32_t sz = *total_bits / 8;
-  sz += 5;  // 4 bytes for num_lines, 1 byte for num_probes
+  sz += kMetadataLen;  // 4 bytes for num_lines, 1 byte for num_probes
   return sz;
 }
 
@@ -1000,7 +1157,8 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
                                           context.info_log);
       case kStandard128Ribbon:
         return new Standard128RibbonBitsBuilder(
-            desired_one_in_fp_rate_, millibits_per_key_, context.info_log);
+            desired_one_in_fp_rate_, millibits_per_key_,
+            offm ? &aggregate_rounding_balance_ : nullptr, context.info_log);
     }
   }
   assert(false);
@@ -1021,7 +1179,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderFromContext(
 FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
     const Slice& contents) const {
   uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
-  if (len_with_meta <= 5) {
+  if (len_with_meta <= kMetadataLen) {
     // filter is empty or broken. Treat like zero keys added.
     return new AlwaysFalseFilter();
   }
@@ -1039,7 +1197,7 @@ FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
   // len_with_meta +-----------------------------------+
 
   int8_t raw_num_probes =
-      static_cast<int8_t>(contents.data()[len_with_meta - 5]);
+      static_cast<int8_t>(contents.data()[len_with_meta - kMetadataLen]);
   // NB: *num_probes > 30 and < 128 probably have not been used, because of
   // BloomFilterPolicy::initialize, unless directly calling
   // LegacyBloomBitsBuilder as an API, but we are leaving those cases in
@@ -1069,7 +1227,7 @@ FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
   assert(num_probes >= 1);
   assert(num_probes <= 127);
 
-  uint32_t len = len_with_meta - 5;
+  uint32_t len = len_with_meta - kMetadataLen;
   assert(len > 0);
 
   uint32_t num_lines = DecodeFixed32(contents.data() + len_with_meta - 4);
@@ -1102,7 +1260,7 @@ FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
 FilterBitsReader* BloomFilterPolicy::GetRibbonBitsReader(
     const Slice& contents) const {
   uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
-  uint32_t len = len_with_meta - 5;
+  uint32_t len = len_with_meta - kMetadataLen;
 
   assert(len > 0);  // precondition
 
@@ -1126,7 +1284,7 @@ FilterBitsReader* BloomFilterPolicy::GetRibbonBitsReader(
 FilterBitsReader* BloomFilterPolicy::GetBloomBitsReader(
     const Slice& contents) const {
   uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
-  uint32_t len = len_with_meta - 5;
+  uint32_t len = len_with_meta - kMetadataLen;
 
   assert(len > 0);  // precondition
 
