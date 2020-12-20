@@ -218,6 +218,8 @@ class StringSink : public FSWritableFile {
   IOStatus Sync(const IOOptions& /*opts*/, IODebugContext* /*dbg*/) override {
     return IOStatus::OK();
   }
+
+  using FSWritableFile::Append;
   IOStatus Append(const Slice& slice, const IOOptions& /*opts*/,
                   IODebugContext* /*dbg*/) override {
     contents_.append(slice.data(), slice.size());
@@ -316,6 +318,8 @@ class OverwritingStringSink : public FSWritableFile {
   IOStatus Sync(const IOOptions& /*opts*/, IODebugContext* /*dbg*/) override {
     return IOStatus::OK();
   }
+
+  using FSWritableFile::Append;
   IOStatus Append(const Slice& slice, const IOOptions& /*opts*/,
                   IODebugContext* /*dbg*/) override {
     contents_.append(slice.data(), slice.size());
@@ -602,6 +606,8 @@ class StringFS : public FileSystemWrapper {
     IOStatus Sync(const IOOptions& /*opts*/, IODebugContext* /*dbg*/) override {
       return IOStatus::OK();
     }
+
+    using FSWritableFile::Append;
     IOStatus Append(const Slice& slice, const IOOptions& /*opts*/,
                     IODebugContext* /*dbg*/) override {
       contents_->append(slice.data(), slice.size());
