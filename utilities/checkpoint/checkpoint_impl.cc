@@ -115,6 +115,10 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
     s = db_->DisableFileDeletions();
     const bool disabled_file_deletions = s.ok();
 
+    if (s.ok()) {
+      s = db_->FlushWAL(/*sync=*/true);
+    }
+
     if (s.ok() || s.IsNotSupported()) {
       s = CreateCustomCheckpoint(
           db_options,
