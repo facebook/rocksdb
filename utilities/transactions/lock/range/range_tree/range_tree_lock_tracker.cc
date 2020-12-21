@@ -55,9 +55,7 @@ PointLockStatus RangeTreeLockTracker::GetPointLockStatus(
   return p;
 }
 
-void RangeTreeLockTracker::Clear() {
-  range_list_.reset();
-}
+void RangeTreeLockTracker::Clear() { range_list_.reset(); }
 
 void RangeLockList::Append(ColumnFamilyId cf_id, const DBT *left_key,
                            const DBT *right_key) {
