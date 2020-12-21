@@ -423,6 +423,23 @@ struct CompactionJobInfo {
   std::vector<BlobFileGarbageInfo> blob_file_garbage_infos;
 };
 
+struct SubcompactionJobInfo {
+  SubcompactionJobInfo() = default;
+
+  // the id of the column family where the compaction happened.
+  uint32_t cf_id;
+  // the name of the column family where the compaction happened.
+  std::string cf_name;
+  // the status indicating whether the compaction was successful or not.
+  Status status;
+  // the id of the thread that completed this compaction job.
+  uint64_t thread_id;
+  // the smallest input level of the compaction.
+  int base_input_level;
+  // the output level of the compaction.
+  int output_level;
+};
+
 struct MemTableInfo {
   // the name of the column family to which memtable belongs
   std::string cf_name;
@@ -578,6 +595,16 @@ class EventListener : public Customizable {
   //  outside of this function.
   virtual void OnCompactionCompleted(DB* /*db*/,
                                      const CompactionJobInfo& /*ci*/) {}
+
+  // A callback function for RocksDB which will be called each time when
+  // a registered RocksDB uses multiple subcompactions to compact a file. The
+  // callback is called by each subcompaction and in the same thread.
+  virtual void OnSubcompactionBegin(const SubcompactionJobInfo& /*si*/) {}
+
+  // A callback function for RocksDB which will be called each time when
+  // a registered RocksDB uses multiple subcompactions to compact a file. The
+  // callback is called by each subcompaction and in the same thread.
+  virtual void OnSubcompactionCompleted(const SubcompactionJobInfo& /*si*/) {}
 
   // A callback function for RocksDB which will be called whenever
   // a SST file is created.  Different from OnCompactionCompleted and

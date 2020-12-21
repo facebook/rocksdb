@@ -203,6 +203,59 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   }
 }
 
+class TestSubcompactionListener : public EventListener {
+ public:
+  TestSubcompactionListener() : compacted_(0) {}
+  void OnSubcompactionCompleted(const SubcompactionJobInfo& /*si*/) override {
+    compacted_.fetch_add(1);
+  }
+
+  std::atomic<int> compacted_;
+};
+
+TEST_F(EventListenerTest, OnSingleDBSubcompactionTest) {
+  const int kNumL0Files = 8;
+
+  Options options;
+  options.env = CurrentOptions().env;
+  options.create_if_missing = true;
+  options.max_subcompactions = 2;
+  options.compaction_style = kCompactionStyleLevel;
+  options.write_buffer_size = k110KB * 2;
+  options.target_file_size_base = options.write_buffer_size;
+  options.compression = kNoCompression;
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.table_properties_collector_factories.push_back(
+      std::make_shared<TestPropertiesCollectorFactory>());
+
+  TestSubcompactionListener* listener = new TestSubcompactionListener();
+  options.listeners.emplace_back(listener);
+  Reopen(options);
+  ASSERT_OK(Put("k1", std::string(90000, 'k')));
+  ASSERT_OK(Put("k4", std::string(90000, 'k')));
+  ASSERT_OK(dbfull()->CompactRange(
+      CompactRangeOptions(), db_->DefaultColumnFamily(), nullptr, nullptr));
+  // Three large files overlapped with L1 will trigger at least two
+  // subcompactions.
+  ASSERT_OK(Put("k1", std::string(90000, 'k')));
+  ASSERT_OK(Put("k2", std::string(90000, 'k')));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("k2", std::string(90000, 'k')));
+  ASSERT_OK(Put("k3", std::string(90000, 'k')));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("k3", std::string(90000, 'k')));
+  ASSERT_OK(Put("k4", std::string(90000, 'k')));
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->RunManualCompaction(
+      reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
+          ->cfd(),
+      0 /* input_level */, 1 /* output_level */, CompactRangeOptions(),
+      nullptr /* begin */, nullptr /* end */, true /* exclusive */,
+      true /* disallow_trivial_move */,
+      port::kMaxUint64 /* max_file_num_to_ignore */));
+  ASSERT_EQ(listener->compacted_.load(), 2);
+}
+
 // This simple Listener can only handle one flush at a time.
 class TestFlushListener : public EventListener {
  public:
