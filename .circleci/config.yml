@@ -300,7 +300,7 @@ jobs:
       - run: CC=gcc-4.8 CXX=g++-4.8 V=1 SKIP_LINK=1 make -j8 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
       - post-steps
 
-  build-linux-gcc-10-c++20:
+  build-linux-gcc-10-cxx20:
     machine:
       image: ubuntu-1604:202007-01
     resource_class: large
@@ -621,6 +621,9 @@ workflows:
   build-linux-gcc-4-8:
     jobs:
       - build-linux-gcc-4-8
+  build-linux-gcc-10-cxx20:
+    jobs:
+      - build-linux-gcc-10-cxx20
   build-macos:
     jobs:
       - build-macos
