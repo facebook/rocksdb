@@ -216,11 +216,10 @@ TEST_F(RangeLockingTest, MultipleTrxLockStatusData) {
   delete txn1;
 }
 
-
 #if defined(__has_feature)
-#  if __has_feature(thread_sanitizer)
+#if __has_feature(thread_sanitizer)
 #define SKIP_LOCK_ESCALATION_TEST 1
-#  endif
+#endif
 #endif
 
 #ifndef SKIP_LOCK_ESCALATION_TEST
