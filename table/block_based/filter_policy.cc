@@ -63,6 +63,8 @@ class XXH3pFilterBitsBuilder : public BuiltinFilterBitsBuilder {
   }
 
  protected:
+  static constexpr uint32_t kMetadataLen = 5;
+
   // For delegating between XXH3pFilterBitsBuilders
   void SwapEntriesWith(XXH3pFilterBitsBuilder* other) {
     std::swap(hash_entries_, other->hash_entries_);
