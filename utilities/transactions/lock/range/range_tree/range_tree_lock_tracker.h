@@ -30,6 +30,10 @@ class RangeTreeLockManager;
 // tree, due to concurrency between lock acquisition, lock release, and lock
 // escalation. See MDEV-18227 and RangeTreeLockManager::UnLock for details.
 // This property is currently harmless.
+//
+// Append() and ReleaseLocks() are not thread-safe, as they are expected to be
+// called only by the owner transaction. ReplaceLocks() is safe to call from
+// other threads.
 class RangeLockList {
  public:
   ~RangeLockList() { Clear(); }
