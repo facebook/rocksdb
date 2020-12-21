@@ -216,6 +216,14 @@ TEST_F(RangeLockingTest, MultipleTrxLockStatusData) {
   delete txn1;
 }
 
+
+#if defined(__has_feature)
+#  if __has_feature(thread_sanitizer)
+#define SKIP_LOCK_ESCALATION_TEST 1
+#  endif
+#endif
+
+#ifndef SKIP_LOCK_ESCALATION_TEST
 TEST_F(RangeLockingTest, BasicLockEscalation) {
   auto cf = db->DefaultColumnFamily();
 
@@ -242,6 +250,7 @@ TEST_F(RangeLockingTest, BasicLockEscalation) {
 
   delete txn;
 }
+#endif
 
 void PointLockManagerTestExternalSetup(PointLockManagerTest* self) {
   self->env_ = Env::Default();
