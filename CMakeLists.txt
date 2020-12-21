@@ -722,6 +722,7 @@ set(SOURCES
         env/env_chroot.cc
         env/env_encryption.cc
         env/env_hdfs.cc
+        env/env_inspected.cc
         env/file_system.cc
         env/file_system_tracer.cc
         env/fs_remap.cc

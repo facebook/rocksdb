@@ -14,6 +14,7 @@
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/env_encryption.h"
+#include "rocksdb/env_inspected.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -81,6 +82,41 @@ static Env* GetTestFS() {
   EXPECT_NE(fs_env, nullptr);
   return fs_env;
 }
+
+class DummyFileSystemInspector : public FileSystemInspector {
+ public:
+  DummyFileSystemInspector(size_t refill_bytes = 0)
+      : refill_bytes_(refill_bytes) {}
+
+  Status Read(size_t len, size_t* allowed) override {
+    assert(allowed);
+    if (refill_bytes_ == 0) {
+      *allowed = len;
+    } else {
+      *allowed = std::min(refill_bytes_, len);
+    }
+    return Status::OK();
+  }
+
+  Status Write(size_t len, size_t* allowed) override {
+    assert(allowed);
+    if (refill_bytes_ == 0) {
+      *allowed = len;
+    } else {
+      *allowed = std::min(refill_bytes_, len);
+    }
+    return Status::OK();
+  }
+
+ private:
+  size_t refill_bytes_;
+};
+
+static Env* GetInspectedEnv() {
+  static std::unique_ptr<Env> inspected_env(NewFileSystemInspectedEnv(
+      Env::Default(), std::make_shared<DummyFileSystemInspector>(1)));
+  return inspected_env.get();
+}
 #endif  // ROCKSDB_LITE
 
 }  // namespace
@@ -120,6 +156,9 @@ INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvMoreTestWithParam,
 
 INSTANTIATE_TEST_CASE_P(MemEnv, EnvBasicTestWithParam,
                         ::testing::Values(&GetMemoryEnv));
+
+INSTANTIATE_TEST_CASE_P(InspectedEnv, EnvBasicTestWithParam,
+                        ::testing::Values(&GetInspectedEnv));
 
 namespace {
 
