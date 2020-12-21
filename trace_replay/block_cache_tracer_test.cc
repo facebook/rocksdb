@@ -52,6 +52,7 @@ class BlockCacheTracerTest : public testing::Test {
         return TableReaderCaller::kUserIterator;
     }
     assert(false);
+    return TableReaderCaller::kMaxBlockCacheLookupCaller;
   }
 
   void WriteBlockAccess(BlockCacheTraceWriter* writer, uint32_t from_key_id,
