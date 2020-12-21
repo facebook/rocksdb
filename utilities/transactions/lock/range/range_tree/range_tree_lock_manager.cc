@@ -246,8 +246,8 @@ int RangeTreeLockManager::CompareDbtEndpoints(void* arg, const DBT* a_key,
 namespace {
 void UnrefLockTreeMapsCache(void* ptr) {
   // Called when a thread exits or a ThreadLocalPtr gets destroyed.
-  auto lock_tree_map_cache =
-      static_cast<std::unordered_map<ColumnFamilyId, std::shared_ptr<locktree>>*>(ptr);
+  auto lock_tree_map_cache = static_cast<
+      std::unordered_map<ColumnFamilyId, std::shared_ptr<locktree>>*>(ptr);
   delete lock_tree_map_cache;
 }
 }  // anonymous namespace
@@ -309,7 +309,7 @@ RangeTreeLockManager::~RangeTreeLockManager() {
   for (auto cache : local_caches) {
     delete static_cast<LockTreeMap*>(cache);
   }
-  ltree_map_.clear(); // this will call release_lt() for all locktrees
+  ltree_map_.clear();  // this will call release_lt() for all locktrees
   ltm_.destroy();
 }
 
@@ -334,12 +334,10 @@ RangeLockManagerHandle::Counters RangeTreeLockManager::GetStatus() {
   return res;
 }
 
-std::shared_ptr<locktree> RangeTreeLockManager::MakeLockTreePtr(locktree *lt) {
-  locktree_manager *ltm = &ltm_;
+std::shared_ptr<locktree> RangeTreeLockManager::MakeLockTreePtr(locktree* lt) {
+  locktree_manager* ltm = &ltm_;
   return std::shared_ptr<locktree>(lt,
-                                   [ltm](locktree *p) {
-                                         ltm->release_lt(p);
-                                      });
+                                   [ltm](locktree* p) { ltm->release_lt(p); });
 }
 
 void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {

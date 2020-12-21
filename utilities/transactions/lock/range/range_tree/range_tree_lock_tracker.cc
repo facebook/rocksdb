@@ -117,7 +117,7 @@ void RangeLockList::ReleaseLocks(RangeTreeLockManager *mgr,
     //  will cause an assertion failure.
     if (it.second->get_num_ranges()) {
       auto lt_ptr = mgr->GetLockTreeForCF(it.first);
-      toku::locktree *lt= lt_ptr.get();
+      toku::locktree *lt = lt_ptr.get();
 
       lt->release_locks((TXNID)txn, it.second.get(), all_trx_locks);
 

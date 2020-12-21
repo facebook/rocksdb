@@ -100,8 +100,8 @@ class RangeTreeLockManager : public RangeLockManagerBase,
 
   // Map from cf_id to locktree*. Can only be accessed while holding the
   // ltree_map_mutex_. Must use a custom deleter that calls ltm_.release_lt
-  using LockTreeMap = std::unordered_map<ColumnFamilyId,
-                                         std::shared_ptr<locktree>>;
+  using LockTreeMap =
+      std::unordered_map<ColumnFamilyId, std::shared_ptr<locktree>>;
   LockTreeMap ltree_map_;
 
   InstrumentedMutex ltree_map_mutex_;
@@ -112,7 +112,7 @@ class RangeTreeLockManager : public RangeLockManagerBase,
 
   RangeDeadlockInfoBuffer dlock_buffer_;
 
-  std::shared_ptr<locktree> MakeLockTreePtr(locktree *lt);
+  std::shared_ptr<locktree> MakeLockTreePtr(locktree* lt);
   static int CompareDbtEndpoints(void* arg, const DBT* a_key, const DBT* b_key);
 
   // Callbacks
