@@ -56,8 +56,7 @@ PointLockStatus RangeTreeLockTracker::GetPointLockStatus(
 }
 
 void RangeTreeLockTracker::Clear() {
-  // This will delete the RangeLockList and cause a proper cleanup
-  range_list_ = nullptr;
+  range_list_.reset();
 }
 
 void RangeLockList::Append(ColumnFamilyId cf_id, const DBT *left_key,
@@ -66,7 +65,7 @@ void RangeLockList::Append(ColumnFamilyId cf_id, const DBT *left_key,
   // Only the transaction owner thread calls this function.
   // The same thread does the lock release, so we can be certain nobody is
   // releasing the locks concurrently.
-  assert(!releasing_locks_);
+  assert(!releasing_locks_.load());
   auto it = buffers_.find(cf_id);
   if (it == buffers_.end()) {
     // create a new one
@@ -107,7 +106,7 @@ void RangeLockList::ReleaseLocks(RangeTreeLockManager *mgr,
     // - Acquire the mutex, then check that releasing_locks_=false.
     //   (the code in this function doesnt do that as there's only one thread
     //    that releases transaction's locks)
-    releasing_locks_ = true;
+    releasing_locks_.store(true);
   }
 
   for (auto it : buffers_) {
@@ -129,14 +128,14 @@ void RangeLockList::ReleaseLocks(RangeTreeLockManager *mgr,
     }
   }
 
-  Clear();  // TODO: need this?
-  releasing_locks_ = false;
+  Clear();
+  releasing_locks_.store(false);
 }
 
 void RangeLockList::ReplaceLocks(const toku::locktree *lt,
                                  const toku::range_buffer &buffer) {
   MutexLock l(&mutex_);
-  if (releasing_locks_) {
+  if (releasing_locks_.load()) {
     // Do nothing. The transaction is releasing its locks, so it will not care
     // about having a correct list of ranges. (In TokuDB,
     // toku_db_txn_escalate_callback() makes use of this property, too)

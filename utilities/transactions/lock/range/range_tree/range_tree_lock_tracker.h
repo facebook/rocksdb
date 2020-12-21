@@ -52,7 +52,7 @@ class RangeLockList {
   std::unordered_map<ColumnFamilyId, std::shared_ptr<toku::range_buffer>>
       buffers_;
   port::Mutex mutex_;
-  bool releasing_locks_;
+  std::atomic<bool> releasing_locks_;
 };
 
 // A LockTracker-based object that is used together with RangeTreeLockManager.
@@ -117,13 +117,13 @@ class RangeTreeLockTracker : public LockTracker {
 
   void ReplaceLocks(const toku::locktree* lt,
                     const toku::range_buffer& buffer) {
-    // range_list_ cannot be NULL here (
+    // range_list_ cannot be NULL here
     range_list_->ReplaceLocks(lt, buffer);
   }
 
  private:
   RangeLockList* getOrCreateList();
-  std::shared_ptr<RangeLockList> range_list_;
+  std::unique_ptr<RangeLockList> range_list_;
 };
 
 class RangeTreeLockTrackerFactory : public LockTrackerFactory {
