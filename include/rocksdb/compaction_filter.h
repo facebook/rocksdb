@@ -83,7 +83,7 @@ class CompactionFilter {
   //
   // Note that RocksDB snapshots (i.e. call GetSnapshot() API on a
   // DB* object) will not guarantee to preserve the state of the DB with
-  // CompactionFilter. Data seen from a snapshot might disppear after a
+  // CompactionFilter. Data seen from a snapshot might disappear after a
   // compaction finishes. If you use snapshots, think twice about whether you
   // want to use compaction filter and whether you are using it in a safe way.
   //
@@ -188,7 +188,7 @@ class CompactionFilter {
 
   // This function is deprecated. Snapshots will always be ignored for
   // compaction filters, because we realized that not ignoring snapshots doesn't
-  // provide the gurantee we initially thought it would provide. Repeatable
+  // provide the guarantee we initially thought it would provide. Repeatable
   // reads will not be guaranteed anyway. If you override the function and
   // returns false, we will fail the compaction.
   virtual bool IgnoreSnapshots() const { return true; }
