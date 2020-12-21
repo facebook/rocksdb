@@ -70,6 +70,8 @@ option(WITH_WINDOWS_UTF8_FILENAMES "use UTF8 as characterset for opening files, 
 if (WITH_WINDOWS_UTF8_FILENAMES)
   add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
 endif()
+option(WITH_OPENSSL_DYNAMIC "build with runtime OpenSSL encryption" OFF)
+
 # third-party/folly is only validated to work on Linux and Windows for now.
 # So only turn it on there by default.
 if(CMAKE_SYSTEM_NAME MATCHES "Linux|Windows")
@@ -391,6 +393,12 @@ if(NOT WITH_DYNAMIC_EXTENSION)
   add_definitions(-DROCKSDB_NO_DYNAMIC_EXTENSION)
 endif()
 
+if (WITH_OPENSSL_DYNAMIC)
+  find_package(OpenSSL REQUIRED)
+  add_definitions(-DROCKSDB_OPENSSL_AES_CTR)
+  include_directories(${OPENSSL_INCLUDE_DIR})
+endif()
+
 option(ASSERT_STATUS_CHECKED "build with assert status checked" OFF)
 if (ASSERT_STATUS_CHECKED)
   message(STATUS "Build with assert status checked")
@@ -646,6 +654,7 @@ set(SOURCES
         env/env_chroot.cc
         env/env_encryption.cc
         env/env_hdfs.cc
+        env/env_openssl.cc
         env/file_system.cc
         env/file_system_tracer.cc
         env/mock_env.cc
@@ -1124,6 +1133,7 @@ if(WITH_TESTS)
         db/write_callback_test.cc
         db/write_controller_test.cc
         env/env_test.cc
+        env/env_openssl_test.cc
         env/io_posix_test.cc
         env/mock_env_test.cc
         file/delete_scheduler_test.cc
