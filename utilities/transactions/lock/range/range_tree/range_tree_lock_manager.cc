@@ -83,7 +83,7 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
   // wait_callback_for_locktree for details.
   std::string wait_key(start_endp.slice.data(), start_endp.slice.size());
 
-  request.set(lt, (TXNID)txn, &start_key_dbt, &end_key_dbt,
+  request.set(lt.get(), (TXNID)txn, &start_key_dbt, &end_key_dbt,
               exclusive ? toku::lock_request::WRITE : toku::lock_request::READ,
               false /* not a big txn */, &wait_key);
 
@@ -182,7 +182,7 @@ void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
   range_buf.destroy();
 
   toku::lock_request::retry_all_lock_requests(
-      locktree, wait_callback_for_locktree, nullptr);
+      locktree.get(), wait_callback_for_locktree, nullptr);
 }
 
 void RangeTreeLockManager::UnLock(PessimisticTransaction* txn,
@@ -247,7 +247,7 @@ namespace {
 void UnrefLockTreeMapsCache(void* ptr) {
   // Called when a thread exits or a ThreadLocalPtr gets destroyed.
   auto lock_tree_map_cache =
-      static_cast<std::unordered_map<uint32_t, locktree*>*>(ptr);
+      static_cast<std::unordered_map<ColumnFamilyId, std::shared_ptr<locktree>>*>(ptr);
   delete lock_tree_map_cache;
 }
 }  // anonymous namespace
@@ -309,10 +309,7 @@ RangeTreeLockManager::~RangeTreeLockManager() {
   for (auto cache : local_caches) {
     delete static_cast<LockTreeMap*>(cache);
   }
-
-  for (auto it : ltree_map_) {
-    ltm_.release_lt(it.second);
-  }
+  ltree_map_.clear(); // this will call release_lt() for all locktrees
   ltm_.destroy();
 }
 
@@ -337,6 +334,14 @@ RangeLockManagerHandle::Counters RangeTreeLockManager::GetStatus() {
   return res;
 }
 
+std::shared_ptr<locktree> RangeTreeLockManager::MakeLockTreePtr(locktree *lt) {
+  locktree_manager *ltm = &ltm_;
+  return std::shared_ptr<locktree>(lt,
+                                   [ltm](locktree *p) {
+                                         ltm->release_lt(p);
+                                      });
+}
+
 void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
   uint32_t column_family_id = cfh->GetID();
 
@@ -349,7 +354,8 @@ void RangeTreeLockManager::AddColumnFamily(const ColumnFamilyHandle* cfh) {
                                         /* on_create_extra*/ nullptr);
     // This is ok to because get_lt has copied the comparator:
     cmp.destroy();
-    ltree_map_.emplace(column_family_id, ltree);
+
+    ltree_map_.insert({column_family_id, MakeLockTreePtr(ltree)});
   }
 }
 
@@ -359,31 +365,36 @@ void RangeTreeLockManager::RemoveColumnFamily(const ColumnFamilyHandle* cfh) {
   // as a shared ptr, concurrent transactions can still keep using it
   // until they release their references to it.
 
-  // TODO^ if one can drop a column family while a transaction is holding a
-  // lock in it, is column family's comparator guaranteed to survive until
-  // all locks are released? (we depend on this).
+  // TODO what if one drops a column family while transaction(s) still have
+  // locks in it?
+  // locktree uses column family'c Comparator* as the criteria to do tree
+  // ordering. If the comparator is gone, we won't even be able to remove the
+  // elements from the locktree.
+  // A possible solution might be to remove everything right now:
+  //  - wait until everyone traversing the locktree are gone
+  //  - remove everything from the locktree.
+  //  - some transactions may have acquired locks in their LockTracker objects.
+  //    Arrange something so we don't blow up when they try to release them.
+  //  - ...
+  // This use case (drop column family while somebody is using it) doesn't seem
+  // the priority, though.
+
   {
     InstrumentedMutexLock l(&ltree_map_mutex_);
 
     auto lock_maps_iter = ltree_map_.find(column_family_id);
     assert(lock_maps_iter != ltree_map_.end());
-
-    ltm_.release_lt(lock_maps_iter->second);
-
     ltree_map_.erase(lock_maps_iter);
   }  // lock_map_mutex_
 
-  // TODO: why do we delete first and clear the caches second? Shouldn't this be
-  // done in the reverse order? (if we do it in the reverse order, how will we
-  // prevent somebody from re-populating the cache?)
-
-  // Clear all thread-local caches. We collect a vector of caches but we dont
-  // really need them.
   autovector<void*> local_caches;
   ltree_lookup_cache_->Scrape(&local_caches, nullptr);
+  for (auto cache : local_caches) {
+    delete static_cast<LockTreeMap*>(cache);
+  }
 }
 
-toku::locktree* RangeTreeLockManager::GetLockTreeForCF(
+std::shared_ptr<locktree> RangeTreeLockManager::GetLockTreeForCF(
     ColumnFamilyId column_family_id) {
   // First check thread-local cache
   if (ltree_lookup_cache_->Get() == nullptr) {

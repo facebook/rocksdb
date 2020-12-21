@@ -116,7 +116,9 @@ void RangeLockList::ReleaseLocks(RangeTreeLockManager *mgr,
     //  another transaction, and our attempt to release an empty set of locks
     //  will cause an assertion failure.
     if (it.second->get_num_ranges()) {
-      toku::locktree *lt = mgr->GetLockTreeForCF(it.first);
+      auto lt_ptr = mgr->GetLockTreeForCF(it.first);
+      toku::locktree *lt= lt_ptr.get();
+
       lt->release_locks((TXNID)txn, it.second.get(), all_trx_locks);
 
       it.second->destroy();
