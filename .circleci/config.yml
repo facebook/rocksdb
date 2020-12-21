@@ -634,7 +634,7 @@ workflows:
           end_test: ""
   build-linux-compilers-no_test_run:
     jobs:
-      - build-linux-clang-no-test_run
+      - build-linux-clang-no_test_run
       - build-linux-cmake-no_test_run
       - build-linux-gcc-4_8-no_test_run
       - build-linux-gcc-8-no_test_run
