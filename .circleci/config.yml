@@ -297,7 +297,17 @@ jobs:
     steps:
       - pre-steps
       - run: sudo apt-get update -y && sudo apt-get install gcc-4.8 g++-4.8 libgflags-dev
-      - run: CC=gcc-4.8 CXX=g++-4.8 V=1 SKIP_LINK=1 make -j4 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: CC=gcc-4.8 CXX=g++-4.8 V=1 SKIP_LINK=1 make -j8 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - post-steps
+
+  build-linux-gcc-10-c++20:
+    machine:
+      image: ubuntu-1604:202007-01
+    resource_class: large
+    steps:
+      - pre-steps
+      - run: sudo apt-get update -y && sudo apt-get install gcc-10 g++-10 libgflags-dev
+      - run: CC=gcc-10 CXX=g++-10 V=1 SKIP_LINK=1 ROCKSDB_CXX_STANDARD=c++20 make -j8 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
       - post-steps
 
   build-windows:
