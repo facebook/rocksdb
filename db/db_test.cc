@@ -1308,6 +1308,10 @@ TEST_F(DBTest, DISABLED_RepeatedWritesToSameKey) {
 TEST_F(DBTest, SparseMerge) {
   do {
     Options options = CurrentOptions();
+    if (options.compaction_style == kCompactionStyleUniversal) {
+      // Tested behavior is not expected of universal compaction
+      continue;
+    }
     options.compression = kNoCompression;
     CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -1341,10 +1345,10 @@ TEST_F(DBTest, SparseMerge) {
     // a file overlaps too much data at the next level.
     ASSERT_LE(dbfull()->TEST_MaxNextLevelOverlappingBytes(handles_[1]),
               20 * 1048576);
-    dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
     ASSERT_LE(dbfull()->TEST_MaxNextLevelOverlappingBytes(handles_[1]),
               20 * 1048576);
-    dbfull()->TEST_CompactRange(1, nullptr, nullptr);
+    dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
     ASSERT_LE(dbfull()->TEST_MaxNextLevelOverlappingBytes(handles_[1]),
               20 * 1048576);
   } while (ChangeCompactOptions());
