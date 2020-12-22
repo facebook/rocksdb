@@ -190,7 +190,10 @@ else
 endif
 
 ifdef ASSERT_STATUS_CHECKED
-# For ASC, turn off constructor elision
+# For ASC, turn off constructor elision, preventing the case where a constructor returned
+# by a method may pass the ASC check if the status is checked in the inner method.  Forcing
+# the copy constructor to be invoked disables the optimization and will cause the calling method
+# to check the status in order to prevent an error from being raised.
 PLATFORM_CXXFLAGS += -fno-elide-constructors
 ifeq ($(filter -DROCKSDB_ASSERT_STATUS_CHECKED,$(OPT)),)
 	OPT += -DROCKSDB_ASSERT_STATUS_CHECKED
