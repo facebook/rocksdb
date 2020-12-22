@@ -17,6 +17,13 @@ commands:
           command: |
             HOMEBREW_NO_AUTO_UPDATE=1 brew install pyenv
 
+  install-cmake-on-macos:
+    steps:
+      - run:
+          name: Install cmake on macos
+          command: |
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake
+
   increase-max-open-files-on-macos:
     steps:
       - run:

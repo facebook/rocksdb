@@ -1,4 +1,10 @@
 # Rocksdb Change Log
+## 6.15.2 (12/22/2020)
+### Bug Fixes
+* Fix failing RocksJava test compilation and add CI jobs
+* Fix jemalloc compilation issue on macOS
+* Fix build issues - compatibility with older gcc, older jemalloc libraries, docker warning when building i686 binaries
+
 ## 6.15.1 (12/01/2020)
 ### Bug Fixes
 * Truncated WALs ending in incomplete records can no longer produce gaps in the recovered data when `WALRecoveryMode::kPointInTimeRecovery` is used. Gaps are still possible when WALs are truncated exactly on record boundaries.
