@@ -422,7 +422,7 @@ void lock_request::retry_all_lock_requests_info(lt_lock_request_info *info,
 
 void lock_request::add_conflicts_to_waits(txnid_set *conflicts,
                                           lock_wait_infos *wait_conflicts) {
-  wait_conflicts->push_back({m_lt, get_txnid(), m_extra});
+  wait_conflicts->push_back({m_lt, get_txnid(), m_extra, {}});
   uint32_t num_conflicts = conflicts->size();
   for (uint32_t i = 0; i < num_conflicts; i++) {
     wait_conflicts->back().waitees.push_back(conflicts->get(i));

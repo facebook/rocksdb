@@ -13,7 +13,7 @@
 #include <mutex>
 
 #include "monitoring/perf_context_imp.h"
-#include "range_tree_lock_tracker.h"
+#include "utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/utilities/transaction_db_mutex.h"
 #include "test_util/sync_point.h"
@@ -29,11 +29,11 @@ RangeLockManagerHandle* NewRangeLockManager(
     std::shared_ptr<TransactionDBMutexFactory> mutex_factory) {
   std::shared_ptr<TransactionDBMutexFactory> use_factory;
 
-  if (mutex_factory)
+  if (mutex_factory) {
     use_factory = mutex_factory;
-  else
+  } else {
     use_factory.reset(new TransactionDBMutexFactoryImpl());
-
+  }
   return new RangeTreeLockManager(use_factory);
 }
 
@@ -92,7 +92,7 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
   uint64_t killed_time_msec = 0;
   uint64_t wait_time_msec = txn->GetLockTimeout();
 
-  if (wait_time_msec == (uint64_t)-1) {
+  if (wait_time_msec == static_cast<uint64_t>(-1)) {
     // The transaction has no wait timeout. lock_request::wait doesn't support
     // this, it needs a number of milliseconds to wait. Pass it one year to
     // be safe.
@@ -147,7 +147,7 @@ Status RangeTreeLockManager::TryLock(PessimisticTransaction* txn,
 }
 
 // Wait callback that locktree library will call to inform us about
-// the lock waits taht are in progress.
+// the lock waits that are in progress.
 void wait_callback_for_locktree(void*, lock_wait_infos* infos) {
   for (auto wait_info : *infos) {
     auto txn = (PessimisticTransaction*)wait_info.waiter;
@@ -216,31 +216,33 @@ int RangeTreeLockManager::CompareDbtEndpoints(void* arg, const DBT* a_key,
   if (!res) {
     if (b_len > min_len) {
       // a is shorter;
-      if (a[0] == SUFFIX_INFIMUM)
+      if (a[0] == SUFFIX_INFIMUM) {
         return -1;  //"a is smaller"
-      else {
+      } else {
         // a is considered padded with 0xFF:FF:FF:FF...
         return 1;  // "a" is bigger
       }
     } else if (a_len > min_len) {
       // the opposite of the above: b is shorter.
-      if (b[0] == SUFFIX_INFIMUM)
+      if (b[0] == SUFFIX_INFIMUM) {
         return 1;  //"b is smaller"
-      else {
+      } else {
         // b is considered padded with 0xFF:FF:FF:FF...
         return -1;  // "b" is bigger
       }
     } else {
       // the lengths are equal (and the key values, too)
-      if (a[0] < b[0])
+      if (a[0] < b[0]) {
         return -1;
-      else if (a[0] > b[0])
+      } else if (a[0] > b[0]) {
         return 1;
-      else
+      } else {
         return 0;
+      }
     }
-  } else
+  } else {
     return res;
+  }
 }
 
 namespace {
@@ -257,7 +259,7 @@ RangeTreeLockManager::RangeTreeLockManager(
     : mutex_factory_(mutex_factory),
       ltree_lookup_cache_(new ThreadLocalPtr(&UnrefLockTreeMapsCache)),
       dlock_buffer_(10) {
-  ltm_.create(on_create, on_destroy, on_escalate, NULL, mutex_factory_);
+  ltm_.create(on_create, on_destroy, on_escalate, nullptr, mutex_factory_);
 }
 
 void RangeTreeLockManager::SetRangeDeadlockInfoBufferSize(

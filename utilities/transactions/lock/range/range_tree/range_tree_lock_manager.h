@@ -13,9 +13,9 @@
 #include "utilities/transactions/lock/range/range_lock_manager.h"
 
 // Lock Tree library:
-#include "lib/locktree/lock_request.h"
-#include "lib/locktree/locktree.h"
-#include "range_tree_lock_tracker.h"
+#include "utilities/transactions/lock/range/range_tree/lib/locktree/lock_request.h"
+#include "utilities/transactions/lock/range/range_tree/lib/locktree/locktree.h"
+#include "utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -53,12 +53,12 @@ class RangeTreeLockManager : public RangeLockManagerBase,
   void UnLock(PessimisticTransaction*, ColumnFamilyId, const Endpoint&,
               const Endpoint&, Env*) override{
       // TODO: range unlock does nothing...
-  };
+  }
 
-  RangeTreeLockManager(
+  explicit RangeTreeLockManager(
       std::shared_ptr<TransactionDBMutexFactory> mutex_factory);
 
-  ~RangeTreeLockManager();
+  ~RangeTreeLockManager() override;
 
   int SetMaxLockMemory(size_t max_lock_memory) override {
     return ltm_.set_max_lock_memory(max_lock_memory);

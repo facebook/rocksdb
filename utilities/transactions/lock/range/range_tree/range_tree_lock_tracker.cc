@@ -6,9 +6,9 @@
 #ifndef ROCKSDB_LITE
 #ifndef OS_WIN
 
-#include "range_tree_lock_tracker.h"
+#include "utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.h"
 
-#include "range_tree_lock_manager.h"
+#include "utilities/transactions/lock/range/range_tree/range_tree_lock_manager.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -68,8 +68,7 @@ void RangeLockList::Append(ColumnFamilyId cf_id, const DBT *left_key,
   if (it == buffers_.end()) {
     // create a new one
     it = buffers_
-             .emplace(cf_id, std::shared_ptr<toku::range_buffer>(
-                                 new toku::range_buffer()))
+             .emplace(cf_id, std::make_shared<toku::range_buffer>())
              .first;
     it->second->create();
   }
