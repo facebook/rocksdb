@@ -244,6 +244,12 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
   if (sv_) {
     RebuildIterators(false);
   }
+
+  // immutable_status_ is a local aggregation of the
+  // status of the immutable Iterators.
+  // We have to PermitUncheckedError in case it is never
+  // used, otherwise it will fail ASSERT_STATUS_CHECKED.
+  immutable_status_.PermitUncheckedError();
 }
 
 ForwardIterator::~ForwardIterator() {

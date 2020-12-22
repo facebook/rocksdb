@@ -566,7 +566,12 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);
   }
 
+  // NOTE: the memtable_write_group is declared before the following
+  // `if` statement because its lifetime needs to be longer
+  // that the inner context  of the `if` as a reference to it
+  // may be used further below within the outer _write_thread
   WriteThread::WriteGroup memtable_write_group;
+
   if (w.state == WriteThread::STATE_MEMTABLE_WRITER_LEADER) {
     PERF_TIMER_GUARD(write_memtable_time);
     assert(w.ShouldWriteToMemtable());
@@ -583,6 +588,10 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       versions_->SetLastSequence(memtable_write_group.last_sequence);
       write_thread_.ExitAsMemTableWriter(&w, memtable_write_group);
     }
+  } else {
+    // NOTE: the memtable_write_group is never really used,
+    // so we need to set its status to pass ASSERT_STATUS_CHECKED
+    memtable_write_group.status.PermitUncheckedError();
   }
 
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
