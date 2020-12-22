@@ -147,15 +147,14 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     // DeleteScheduler::CleanupDirectory on the same dir later, it will be
     // safe
     std::vector<std::string> filenames;
-    if (result.env->GetChildren(result.wal_dir, &filenames).ok()) {
-      for (std::string& filename : filenames) {
-        if (filename.find(
-                ".log.trash",
-                filename.length() - std::string(".log.trash").length()) !=
-            std::string::npos) {
-          std::string trash_file = result.wal_dir + "/" + filename;
-          result.env->DeleteFile(trash_file).PermitUncheckedError();
-        }
+    Status s = result.env->GetChildren(result.wal_dir, &filenames);
+    s.PermitUncheckedError();  //**TODO: What to do on error?
+    for (std::string& filename : filenames) {
+      if (filename.find(".log.trash", filename.length() -
+                                          std::string(".log.trash").length()) !=
+          std::string::npos) {
+        std::string trash_file = result.wal_dir + "/" + filename;
+        result.env->DeleteFile(trash_file).PermitUncheckedError();
       }
     }
   }
@@ -1741,24 +1740,23 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
     for (auto& path : paths) {
       std::vector<std::string> existing_files;
-      if (impl->immutable_db_options_.env->GetChildren(path, &existing_files)
-              .ok()) {
-        for (auto& file_name : existing_files) {
-          uint64_t file_number;
-          FileType file_type;
-          std::string file_path = path + "/" + file_name;
-          if (ParseFileName(file_name, &file_number, &file_type) &&
-              file_type == kTableFile) {
-            // TODO: Check for errors from OnAddFile?
-            if (known_file_sizes.count(file_name)) {
-              // We're assuming that each sst file name exists in at most one of
-              // the paths.
-              sfm->OnAddFile(file_path, known_file_sizes.at(file_name),
-                             /* compaction */ false)
-                  .PermitUncheckedError();
-            } else {
-              sfm->OnAddFile(file_path).PermitUncheckedError();
-            }
+      impl->immutable_db_options_.env->GetChildren(path, &existing_files)
+          .PermitUncheckedError();  //**TODO: What do to on error?
+      for (auto& file_name : existing_files) {
+        uint64_t file_number;
+        FileType file_type;
+        std::string file_path = path + "/" + file_name;
+        if (ParseFileName(file_name, &file_number, &file_type) &&
+            file_type == kTableFile) {
+          // TODO: Check for errors from OnAddFile?
+          if (known_file_sizes.count(file_name)) {
+            // We're assuming that each sst file name exists in at most one of
+            // the paths.
+            sfm->OnAddFile(file_path, known_file_sizes.at(file_name),
+                           /* compaction */ false)
+                .PermitUncheckedError();
+          } else {
+            sfm->OnAddFile(file_path).PermitUncheckedError();
           }
         }
       }
