@@ -193,6 +193,24 @@ void TableProperties::Add(const TableProperties& tp) {
   num_range_deletions += tp.num_range_deletions;
 }
 
+std::map<std::string, uint64_t>
+TableProperties::GetAggregatablePropertiesAsMap() const {
+  std::map<std::string, uint64_t> rv;
+  rv["data_size"] = data_size;
+  rv["index_size"] = index_size;
+  rv["index_partitions"] = index_partitions;
+  rv["top_level_index_size"] = top_level_index_size;
+  rv["filter_size"] = filter_size;
+  rv["raw_key_size"] = raw_key_size;
+  rv["raw_value_size"] = raw_value_size;
+  rv["num_data_blocks"] = num_data_blocks;
+  rv["num_entries"] = num_entries;
+  rv["num_deletions"] = num_deletions;
+  rv["num_merge_operands"] = num_merge_operands;
+  rv["num_range_deletions"] = num_range_deletions;
+  return rv;
+}
+
 const std::string TablePropertiesNames::kDbId = "rocksdb.creating.db.identity";
 const std::string TablePropertiesNames::kDbSessionId =
     "rocksdb.creating.session.identity";

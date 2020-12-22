@@ -258,6 +258,11 @@ struct TableProperties {
   // Aggregate the numerical member variables of the specified
   // TableProperties.
   void Add(const TableProperties& tp);
+
+  // Subset of properties that make sense when added together
+  // between tables. Keys match field names in this class instead
+  // of using full property names.
+  std::map<std::string, uint64_t> GetAggregatablePropertiesAsMap() const;
 };
 
 // Extra properties

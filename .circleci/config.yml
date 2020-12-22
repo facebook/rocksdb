@@ -34,10 +34,14 @@ commands:
             sudo launchctl limit maxfiles 1048576
 
   pre-steps:
+    parameters:
+      python-version:
+        default: "3.5.9"
+        type: string
     steps:
       - checkout
-      - run: pyenv install --skip-existing 3.5.9
-      - run: pyenv global 3.5.9
+      - run: pyenv install --skip-existing <<parameters.python-version>>
+      - run: pyenv global <<parameters.python-version>>
       - run:
           name: Setup Environment Variables
           command: |
@@ -45,6 +49,11 @@ commands:
             echo "export GTEST_OUTPUT=\"xml:/tmp/test-results/\"" >> $BASH_ENV
             echo "export SKIP_FORMAT_BUCK_CHECKS=1" >> $BASH_ENV
             echo "export PRINT_PARALLEL_OUTPUTS=1" >> $BASH_ENV
+
+  pre-steps-macos:
+      steps:
+        - pre-steps:
+            python-version: "3.6.0"
 
   post-steps:
     steps:
@@ -96,24 +105,24 @@ executors:
 jobs:
   build-macos:
     macos:
-      xcode: 11.3.0
+      xcode: 9.4.1
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
       - install-gflags-on-macos
-      - pre-steps
+      - pre-steps-macos
       - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
       - post-steps
 
   build-macos-cmake:
     macos:
-      xcode: 11.3.0
+      xcode: 9.4.1
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
       - install-cmake-on-macos
       - install-gflags-on-macos
-      - pre-steps
+      - pre-steps-macos
       - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=0 .. && make V=1 -j32) | .circleci/cat_ignore_eagain
       - post-steps
 
@@ -355,19 +364,96 @@ jobs:
   build-linux-java:
     machine:
       image: ubuntu-1604:202007-01
-    resource_class: 2xlarge
+    resource_class: large
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
     steps:
       - pre-steps
       - install-gflags
       - run:
-          name: "Build RocksDBJava"
+          name: "Set Java Environment"
           command: |
-            export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk-amd64
-            export PATH=$JAVA_HOME/bin:$PATH
             echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
             which java && java -version
             which javac && javac -version
-            make V=1 J=32 -j32 rocksdbjava jtest | .circleci/cat_ignore_eagain
+      - run:
+          name: "Build RocksDBJava Shared Library"
+          command: make V=1 J=8 -j8 rocksdbjava | .circleci/cat_ignore_eagain
+      - run:
+          name: "Test RocksDBJava"
+          command: make V=1 J=8 -j8 jtest | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-linux-java-static:
+    machine:
+      image: ubuntu-1604:202007-01
+    resource_class: large
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
+    steps:
+      - pre-steps
+      - install-gflags
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - run:
+          name: "Build RocksDBJava Static Library"
+          command: make V=1 J=8 -j8 rocksdbjavastatic | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-macos-java:
+    macos:
+      xcode: 9.4.1
+    resource_class: medium
+    environment:
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/jdk1.8.0_172.jdk/Contents/Home
+    steps:
+      - increase-max-open-files-on-macos
+      - install-pyenv-on-macos
+      - install-gflags-on-macos
+      - pre-steps-macos
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - run:
+          name: "Build RocksDBJava Shared Library"
+          command: make V=1 J=8 -j8 rocksdbjava | .circleci/cat_ignore_eagain
+      - run:
+          name: "Test RocksDBJava"
+          command: make V=1 J=8 -j8 jtest | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-macos-java-static:
+    macos:
+      xcode: 9.4.1
+    resource_class: medium
+    environment:
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/jdk1.8.0_172.jdk/Contents/Home
+    steps:
+      - increase-max-open-files-on-macos
+      - install-pyenv-on-macos
+      - install-gflags-on-macos
+      - install-cmake-on-macos
+      - pre-steps-macos
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - run:
+          name: "Build RocksDBJava Static Library"
+          command: make V=1 J=8 -j8 rocksdbjavastatic | .circleci/cat_ignore_eagain
       - post-steps
 
   build-examples:
@@ -502,6 +588,9 @@ workflows:
   build-java:
     jobs:
       - build-linux-java
+      - build-linux-java-static
+      - build-macos-java
+      - build-macos-java-static
   build-examples:
     jobs:
       - build-examples

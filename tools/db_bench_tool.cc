@@ -573,6 +573,9 @@ DEFINE_int32(writable_file_max_buffer_size, 1024 * 1024,
 
 DEFINE_int32(bloom_bits, -1, "Bloom filter bits per key. Negative means"
              " use default settings.");
+
+DEFINE_bool(use_ribbon_filter, false, "Use Ribbon instead of Bloom filter");
+
 DEFINE_double(memtable_bloom_size_ratio, 0,
               "Ratio of memtable size used for bloom filter. 0 means no bloom "
               "filter.");
@@ -2688,10 +2691,13 @@ class Benchmark {
   Benchmark()
       : cache_(NewCache(FLAGS_cache_size)),
         compressed_cache_(NewCache(FLAGS_compressed_cache_size)),
-        filter_policy_(FLAGS_bloom_bits >= 0
-                           ? NewBloomFilterPolicy(FLAGS_bloom_bits,
-                                                  FLAGS_use_block_based_filter)
-                           : nullptr),
+        filter_policy_(
+            FLAGS_use_ribbon_filter
+                ? NewExperimentalRibbonFilterPolicy(FLAGS_bloom_bits)
+                : FLAGS_bloom_bits >= 0
+                      ? NewBloomFilterPolicy(FLAGS_bloom_bits,
+                                             FLAGS_use_block_based_filter)
+                      : nullptr),
         prefix_extractor_(NewFixedPrefixTransform(FLAGS_prefix_size)),
         num_(FLAGS_num),
         key_size_(FLAGS_key_size),
@@ -4055,8 +4061,11 @@ class Benchmark {
         table_options->block_cache = cache_;
       }
       if (FLAGS_bloom_bits >= 0) {
-        table_options->filter_policy.reset(NewBloomFilterPolicy(
-            FLAGS_bloom_bits, FLAGS_use_block_based_filter));
+        table_options->filter_policy.reset(
+            FLAGS_use_ribbon_filter
+                ? NewExperimentalRibbonFilterPolicy(FLAGS_bloom_bits)
+                : NewBloomFilterPolicy(FLAGS_bloom_bits,
+                                       FLAGS_use_block_based_filter));
       }
     }
     if (FLAGS_row_cache_size) {
