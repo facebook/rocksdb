@@ -67,9 +67,7 @@ void RangeLockList::Append(ColumnFamilyId cf_id, const DBT *left_key,
   auto it = buffers_.find(cf_id);
   if (it == buffers_.end()) {
     // create a new one
-    it = buffers_
-             .emplace(cf_id, std::make_shared<toku::range_buffer>())
-             .first;
+    it = buffers_.emplace(cf_id, std::make_shared<toku::range_buffer>()).first;
     it->second->create();
   }
   it->second->append(left_key, right_key);
