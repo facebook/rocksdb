@@ -4,6 +4,7 @@
 * Fix failing RocksJava test compilation and add CI jobs
 * Fix jemalloc compilation issue on macOS
 * Fix build issues - compatibility with older gcc, older jemalloc libraries, docker warning when building i686 binaries
+* Dummy change to trigger a test PR (will not be pushed)
 
 ## 6.15.1 (12/01/2020)
 ### Bug Fixes
