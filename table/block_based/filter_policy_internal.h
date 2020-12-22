@@ -26,12 +26,11 @@ class BuiltinFilterBitsBuilder : public FilterBitsBuilder {
  public:
   // Calculate number of bytes needed for a new filter, including
   // metadata. Passing the result to ApproximateNumEntries should
-  // return >= the num_entry passed in.
+  // (ideally, usually) return >= the num_entry passed in.
+  // When optimize_filters_for_memory is enabled, this function
+  // is not authoritative but represents a target size that should
+  // be close to the average size.
   virtual size_t CalculateSpace(size_t num_entries) = 0;
-
-  // A somewhat expensive but workable default implementation
-  // using binary search on CalculateSpace
-  size_t ApproximateNumEntries(size_t bytes) override;
 
   // Returns an estimate of the FP rate of the returned filter if
   // `num_entries` keys are added and the filter returned by Finish

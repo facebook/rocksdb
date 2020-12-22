@@ -44,7 +44,9 @@ struct DBPropertyInfo {
                                     Version* version);
 
   // @param props Map of general properties to populate
-  bool (InternalStats::*handle_map)(std::map<std::string, std::string>* props);
+  // @param suffix Argument portion of the property. (see handle_string)
+  bool (InternalStats::*handle_map)(std::map<std::string, std::string>* props,
+                                    Slice suffix);
 
   // handle the string type properties rely on DBImpl methods
   // @param value Value-result argument for storing the property's string value
@@ -525,7 +527,8 @@ class InternalStats {
   bool HandleCompressionRatioAtLevelPrefix(std::string* value, Slice suffix);
   bool HandleLevelStats(std::string* value, Slice suffix);
   bool HandleStats(std::string* value, Slice suffix);
-  bool HandleCFMapStats(std::map<std::string, std::string>* compaction_stats);
+  bool HandleCFMapStats(std::map<std::string, std::string>* compaction_stats,
+                        Slice suffix);
   bool HandleCFStats(std::string* value, Slice suffix);
   bool HandleCFStatsNoFileHistogram(std::string* value, Slice suffix);
   bool HandleCFFileHistogram(std::string* value, Slice suffix);
@@ -533,6 +536,10 @@ class InternalStats {
   bool HandleSsTables(std::string* value, Slice suffix);
   bool HandleAggregatedTableProperties(std::string* value, Slice suffix);
   bool HandleAggregatedTablePropertiesAtLevel(std::string* value, Slice suffix);
+  bool HandleAggregatedTablePropertiesMap(
+      std::map<std::string, std::string>* values, Slice suffix);
+  bool HandleAggregatedTablePropertiesAtLevelMap(
+      std::map<std::string, std::string>* values, Slice suffix);
   bool HandleNumImmutableMemTable(uint64_t* value, DBImpl* db,
                                   Version* version);
   bool HandleNumImmutableMemTableFlushed(uint64_t* value, DBImpl* db,

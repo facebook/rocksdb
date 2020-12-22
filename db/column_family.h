@@ -350,6 +350,11 @@ class ColumnFamilyData {
 
   MemTableList* imm() { return &imm_; }
   MemTable* mem() { return mem_; }
+
+  bool IsEmpty() {
+    return mem()->GetFirstSequenceNumber() == 0 && imm()->NumNotFlushed() == 0;
+  }
+
   Version* current() { return current_; }
   Version* dummy_versions() { return dummy_versions_; }
   void SetCurrent(Version* _current);
