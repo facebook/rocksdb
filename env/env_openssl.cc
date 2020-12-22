@@ -26,6 +26,10 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+#ifdef ROCKSDB_NO_DYNAMIC_EXTENSION
+  #error "OpenSSL AES feature depends upon dynamic library loading."
+#endif
+
 EncryptMarker kEncryptMarker = "Encrypt";
 
 static port::OnceType crypto_loaded;
