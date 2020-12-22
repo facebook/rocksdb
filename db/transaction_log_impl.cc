@@ -226,7 +226,7 @@ bool TransactionLogIteratorImpl::IsBatchExpected(
 void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   std::unique_ptr<WriteBatch> batch(new WriteBatch());
   Status s = WriteBatchInternal::SetContents(batch.get(), record);
-  assert(s.ok());  // TODO: What should we do with this error?
+  s.PermitUncheckedError();  // TODO: What should we do with this error?
 
   SequenceNumber expected_seq = current_last_seq_ + 1;
   // If the iterator has started, then confirm that we get continuous batches

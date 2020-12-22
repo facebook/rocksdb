@@ -112,7 +112,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
     if (now - tuned_time_ >=
         kRefillsPerTune * std::chrono::microseconds(refill_period_us_)) {
       Status s = Tune();
-      assert(s.ok());  //**TODO: What to do on error?
+      s.PermitUncheckedError();  //**TODO: What to do on error?
     }
   }
 

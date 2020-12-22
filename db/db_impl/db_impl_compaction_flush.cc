@@ -1389,6 +1389,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     return Status::InvalidArgument("Target level exceeds number of levels");
   }
 
+  SuperVersionContext sv_context(/* create_superversion */ true);
+
   InstrumentedMutexLock guard_lock(&mutex_);
 
   // only allow one thread refitting
@@ -1452,7 +1454,6 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
                     edit.DebugString().data());
 
-    SuperVersionContext sv_context(/* create_superversion */ true);
     Status status = versions_->LogAndApply(cfd, mutable_cf_options, &edit,
                                            &mutex_, directories_.GetDbDir());
 
