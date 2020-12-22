@@ -677,7 +677,9 @@ ifdef ASSERT_STATUS_CHECKED
 		compaction_iterator_test \
 		compaction_job_test \
 		compaction_job_stats_test \
-	        io_tracer_test \
+		io_tracer_test \
+		io_tracer_parser_test \
+		prefetch_test \
 		merge_helper_test \
 		memtable_list_test \
 		flush_job_test \

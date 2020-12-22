@@ -86,19 +86,11 @@ matrix:
     env: JOB_NAME=make-gcc4.8
   - os: linux
     compiler: clang
-  # Exclude all but most unique cmake variants for pull requests, but build all in branches
+  # With migration to CircleCI, exclude Linux/amd64 for pull requests
+  # (but build in branches for now)
   - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: amd64
-    env: JOB_NAME=cmake
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os : linux
-    arch: amd64
-    env: JOB_NAME=cmake-gcc8
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os : linux
-    arch: amd64
-    env: JOB_NAME=cmake-gcc9
   # Exclude most osx, arm64 and ppc64le tests for pull requests, but build in branches
   # Temporarily disable ppc64le cmake test while snapd is broken
   - if: type = pull_request AND commit_message !~ /FULL_CI/

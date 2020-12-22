@@ -215,14 +215,15 @@ void IOTracer::EndIOTrace() {
   tracing_enabled = false;
 }
 
-Status IOTracer::WriteIOOp(const IOTraceRecord& record) {
+// TODO: Return status and handle that in file_system_tracer.h
+void IOTracer::WriteIOOp(const IOTraceRecord& record) {
   if (!writer_.load()) {
-    return Status::OK();
+    return;
   }
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   if (!writer_.load()) {
-    return Status::OK();
+    return;
   }
-  return writer_.load()->WriteIOOp(record);
+  writer_.load()->WriteIOOp(record).PermitUncheckedError();
 }
 }  // namespace ROCKSDB_NAMESPACE
