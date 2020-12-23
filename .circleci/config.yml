@@ -62,6 +62,14 @@ commands:
           path: /tmp/test-results
       - store_artifacts: # store LOG for debugging if there's any
           path: LOG
+      - run: # on fail, compress Test Logs for diagnosing the issue
+         name: Compress Test Logs
+         command: tar -cvzf t.tar.gz t
+         when: on_fail
+      - store_artifacts: # on fail, store Test Logs for diagnosing the issue
+          path: t.tar.gz
+          destination: test_logs
+          when: on_fail
 
   install-clang-10:
     steps:
