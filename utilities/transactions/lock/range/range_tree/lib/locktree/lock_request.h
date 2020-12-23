@@ -1,5 +1,5 @@
 /* -*- mode: C++; c-basic-offset: 4; indent-tabs-mode: nil -*- */
-// vim: ft=cpp:expandtab:ts=8:sw=4:softtabstop=4:
+// vim: ft=cpp:expandtab:ts=8:sw=2:softtabstop=2:
 #ident "$Id$"
 /*======
 This file is part of PerconaFT.
@@ -62,6 +62,18 @@ Copyright (c) 2006, 2015, Percona and/or its affiliates. All rights reserved.
 
 namespace toku {
 
+// Information about a lock wait
+struct lock_wait_info {
+  locktree *ltree;  // the tree where wait happens
+  TXNID waiter;     // the waiting transaction
+  void *m_extra;    // lock_request's m_extra
+
+  // The transactions that are waited for.
+  std::vector<TXNID> waitees;
+};
+
+typedef std::vector<lock_wait_info> lock_wait_infos;
+
 // A lock request contains the db, the key range, the lock type, and
 // the transaction id that describes a potential row range lock.
 //
@@ -101,7 +113,7 @@ class lock_request {
   int wait(uint64_t wait_time_ms);
   int wait(uint64_t wait_time_ms, uint64_t killed_time_ms,
            int (*killed_callback)(void),
-           void (*lock_wait_callback)(void *, TXNID, TXNID) = nullptr,
+           void (*lock_wait_callback)(void *, lock_wait_infos *) = nullptr,
            void *callback_arg = nullptr);
 
   // return: left end-point of the lock range
@@ -124,11 +136,12 @@ class lock_request {
   //         up.
   //         The rest remain pending.
   static void retry_all_lock_requests(
-      locktree *lt, void (*lock_wait_callback)(void *, TXNID, TXNID) = nullptr,
+      locktree *lt,
+      void (*lock_wait_callback)(void *, lock_wait_infos *) = nullptr,
       void *callback_arg = nullptr,
       void (*after_retry_test_callback)(void) = nullptr);
   static void retry_all_lock_requests_info(lt_lock_request_info *info,
-                                           GrowableArray<TXNID> *collector);
+                                           lock_wait_infos *collector);
 
   void set_start_test_callback(void (*f)(void));
   void set_start_before_pending_test_callback(void (*f)(void));
@@ -181,7 +194,7 @@ class lock_request {
 
   // effect: tries again to acquire the lock described by this lock request
   // returns: 0 if retrying the request succeeded and is now complete
-  int retry(GrowableArray<TXNID> *conflict_collector);
+  int retry(lock_wait_infos *collector);
 
   void complete(int complete_r);
 
@@ -216,11 +229,12 @@ class lock_request {
   static int find_by_txnid(lock_request *const &request, const TXNID &txnid);
 
   // Report list of conflicts to lock wait callback.
-  static void report_waits(GrowableArray<TXNID> *wait_conflicts,
-                           void (*lock_wait_callback)(void *, TXNID, TXNID),
+  static void report_waits(lock_wait_infos *wait_conflicts,
+                           void (*lock_wait_callback)(void *,
+                                                      lock_wait_infos *),
                            void *callback_arg);
   void add_conflicts_to_waits(txnid_set *conflicts,
-                              GrowableArray<TXNID> *wait_conflicts);
+                              lock_wait_infos *wait_conflicts);
 
   void (*m_start_test_callback)(void);
   void (*m_start_before_pending_test_callback)(void);

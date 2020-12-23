@@ -1,5 +1,5 @@
 /* -*- mode: C++; c-basic-offset: 4; indent-tabs-mode: nil -*- */
-// vim: ft=cpp:expandtab:ts=8:sw=4:softtabstop=4:
+// vim: ft=cpp:expandtab:ts=8:sw=2:softtabstop=2:
 #ifndef ROCKSDB_LITE
 #ifndef OS_WIN
 #ident "$Id$"
@@ -240,7 +240,7 @@ int lock_request::wait(uint64_t wait_time_ms) {
 
 int lock_request::wait(uint64_t wait_time_ms, uint64_t killed_time_ms,
                        int (*killed_callback)(void),
-                       void (*lock_wait_callback)(void *, TXNID, TXNID),
+                       void (*lock_wait_callback)(void *, lock_wait_infos *),
                        void *callback_arg) {
   uint64_t t_now = toku_current_time_microsec();
   uint64_t t_start = t_now;
@@ -250,13 +250,11 @@ int lock_request::wait(uint64_t wait_time_ms, uint64_t killed_time_ms,
 
   // check again, this time locking out other retry calls
   if (m_state == state::PENDING) {
-    GrowableArray<TXNID> conflicts_collector;
-    conflicts_collector.init();
+    lock_wait_infos conflicts_collector;
     retry(&conflicts_collector);
     if (m_state == state::PENDING) {
       report_waits(&conflicts_collector, lock_wait_callback, callback_arg);
     }
-    conflicts_collector.deinit();
   }
 
   while (m_state == state::PENDING) {
@@ -325,7 +323,7 @@ TXNID lock_request::get_conflicting_txnid(void) const {
   return m_conflicting_txnid;
 }
 
-int lock_request::retry(GrowableArray<TXNID> *conflicts_collector) {
+int lock_request::retry(lock_wait_infos *conflicts_collector) {
   invariant(m_state == state::PENDING);
   int r;
   txnid_set conflicts;
@@ -356,7 +354,7 @@ int lock_request::retry(GrowableArray<TXNID> *conflicts_collector) {
 }
 
 void lock_request::retry_all_lock_requests(
-    locktree *lt, void (*lock_wait_callback)(void *, TXNID, TXNID),
+    locktree *lt, void (*lock_wait_callback)(void *, lock_wait_infos *),
     void *callback_arg, void (*after_retry_all_test_callback)(void)) {
   lt_lock_request_info *info = lt->get_lock_request_info();
 
@@ -370,8 +368,7 @@ void lock_request::retry_all_lock_requests(
 
   toku_mutex_lock(&info->retry_mutex);
 
-  GrowableArray<TXNID> conflicts_collector;
-  conflicts_collector.init();
+  lock_wait_infos conflicts_collector;
 
   // here is the group retry algorithm.
   // get the latest retry_want count and use it as the generation number of
@@ -398,11 +395,10 @@ void lock_request::retry_all_lock_requests(
   toku_mutex_unlock(&info->retry_mutex);
 
   report_waits(&conflicts_collector, lock_wait_callback, callback_arg);
-  conflicts_collector.deinit();
 }
 
-void lock_request::retry_all_lock_requests_info(
-    lt_lock_request_info *info, GrowableArray<TXNID> *collector) {
+void lock_request::retry_all_lock_requests_info(lt_lock_request_info *info,
+                                                lock_wait_infos *collector) {
   toku_external_mutex_lock(&info->mutex);
   // retry all of the pending lock requests.
   for (uint32_t i = 0; i < info->pending_lock_requests.size();) {
@@ -425,26 +421,20 @@ void lock_request::retry_all_lock_requests_info(
   toku_external_mutex_unlock(&info->mutex);
 }
 
-void lock_request::add_conflicts_to_waits(
-    txnid_set *conflicts, GrowableArray<TXNID> *wait_conflicts) {
+void lock_request::add_conflicts_to_waits(txnid_set *conflicts,
+                                          lock_wait_infos *wait_conflicts) {
+  wait_conflicts->push_back({m_lt, get_txnid(), m_extra, {}});
   uint32_t num_conflicts = conflicts->size();
   for (uint32_t i = 0; i < num_conflicts; i++) {
-    wait_conflicts->push(m_txnid);
-    wait_conflicts->push(conflicts->get(i));
+    wait_conflicts->back().waitees.push_back(conflicts->get(i));
   }
 }
 
-void lock_request::report_waits(GrowableArray<TXNID> *wait_conflicts,
-                                void (*lock_wait_callback)(void *, TXNID,
-                                                           TXNID),
+void lock_request::report_waits(lock_wait_infos *wait_conflicts,
+                                void (*lock_wait_callback)(void *,
+                                                           lock_wait_infos *),
                                 void *callback_arg) {
-  if (!lock_wait_callback) return;
-  size_t num_conflicts = wait_conflicts->get_size();
-  for (size_t i = 0; i < num_conflicts; i += 2) {
-    TXNID blocked_txnid = wait_conflicts->fetch_unchecked(i);
-    TXNID blocking_txnid = wait_conflicts->fetch_unchecked(i + 1);
-    (*lock_wait_callback)(callback_arg, blocked_txnid, blocking_txnid);
-  }
+  if (lock_wait_callback) (*lock_wait_callback)(callback_arg, wait_conflicts);
 }
 
 void *lock_request::get_extra(void) const { return m_extra; }

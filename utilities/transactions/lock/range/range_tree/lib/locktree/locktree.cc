@@ -1,5 +1,5 @@
 /* -*- mode: C++; c-basic-offset: 4; indent-tabs-mode: nil -*- */
-// vim: ft=cpp:expandtab:ts=8:sw=4:softtabstop=4:
+// vim: ft=cpp:expandtab:ts=8:sw=2:softtabstop=2:
 #ifndef ROCKSDB_LITE
 #ifndef OS_WIN
 #ident "$Id$"
@@ -186,7 +186,13 @@ static bool determine_conflicting_txnids(
     const TXNID other_txnid = lock.txnid;
     if (other_txnid != txnid) {
       if (conflicts) {
-        conflicts->add(other_txnid);
+        if (other_txnid == TXNID_SHARED) {
+          for (TXNID shared_id : *lock.owners) {
+            conflicts->add(shared_id);
+          }
+        } else {
+          conflicts->add(other_txnid);
+        }
       }
       conflicts_exist = true;
     }

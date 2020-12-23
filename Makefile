@@ -558,6 +558,7 @@ PARALLEL_TEST = \
 	table_test \
 	transaction_test \
 	point_lock_manager_test \
+	range_locking_test \
 	write_prepared_transaction_test \
 	write_unprepared_transaction_test \
 
@@ -1934,6 +1935,9 @@ blob_db_test: $(OBJ_DIR)/utilities/blob_db/blob_db_test.o $(TEST_LIBRARY) $(LIBR
 	$(AM_LINK)
 
 repeatable_thread_test: $(OBJ_DIR)/util/repeatable_thread_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+range_locking_test: utilities/transactions/lock/range/range_locking_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 range_tombstone_fragmenter_test: $(OBJ_DIR)/db/range_tombstone_fragmenter_test.o $(TEST_LIBRARY) $(LIBRARY)
