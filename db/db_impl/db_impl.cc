@@ -707,8 +707,9 @@ void DBImpl::StartPeriodicWorkScheduler() {
 #ifndef NDEBUG
   // It only used by test to disable scheduler
   bool disable_scheduler = false;
-  TEST_SYNC_POINT_CALLBACK("DBImpl::StartPeriodicWorkScheduler:DisableScheduler",
-                           &disable_scheduler);
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImpl::StartPeriodicWorkScheduler:DisableScheduler",
+      &disable_scheduler);
   if (disable_scheduler) {
     return;
   }
