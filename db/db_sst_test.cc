@@ -544,6 +544,11 @@ TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
 
   // Create 4 files in L0
   for (char v = 'a'; v <= 'd'; v++) {
+    if (v == 'd') {
+      // Maximize the change that the last log file will be preserved in trash
+      // before restarting the DB.
+      options.sst_file_manager->SetDeleteRateBytesPerSecond(1);
+    }
     ASSERT_OK(Put("Key2", DummyString(1024, v)));
     ASSERT_OK(Put("Key3", DummyString(1024, v)));
     ASSERT_OK(Put("Key4", DummyString(1024, v)));

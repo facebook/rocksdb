@@ -615,9 +615,13 @@ ifdef ASSERT_STATUS_CHECKED
 		db_wal_test \
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
+		db_write_test \
 		db_options_test \
 		db_properties_test \
+		db_range_del_test \
 		db_secondary_test \
+		deletefile_test \
+		external_sst_file_test \
 		options_file_test \
 		db_statistics_test \
 		db_table_properties_test \
@@ -653,6 +657,7 @@ ifdef ASSERT_STATUS_CHECKED
 		iostats_context_test \
 		ldb_cmd_test \
 		memkind_kmem_allocator_test \
+		merge_test \
 		merger_test \
 		mock_env_test \
 		object_registry_test \
@@ -665,6 +670,7 @@ ifdef ASSERT_STATUS_CHECKED
 		options_settable_test \
 		options_test \
 		point_lock_manager_test \
+		random_access_file_reader_test \
 		random_test \
 		range_del_aggregator_test \
 		sst_file_reader_test \
@@ -677,6 +683,7 @@ ifdef ASSERT_STATUS_CHECKED
 		sst_dump_test \
 		statistics_test \
 		stats_history_test \
+		stringappend_test \
 		thread_local_test \
 		trace_analyzer_test \
 		transaction_test \
@@ -694,6 +701,7 @@ ifdef ASSERT_STATUS_CHECKED
 		version_builder_test \
 		version_edit_test \
 		work_queue_test \
+		write_buffer_manager_test \
 		write_controller_test \
 		write_prepared_transaction_test \
 		write_unprepared_transaction_test \
