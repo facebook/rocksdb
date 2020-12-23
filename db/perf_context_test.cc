@@ -76,12 +76,12 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     std::string key = "k" + ToString(i);
     std::string value = "v" + ToString(i);
 
-    db->Put(write_options, key, value);
+    ASSERT_OK(db->Put(write_options, key, value));
   }
 
   for (int i = 0; i < FLAGS_total_keys -1 ; ++i) {
     std::string key = "k" + ToString(i);
-    db->Delete(write_options, key);
+    ASSERT_OK(db->Delete(write_options, key));
   }
 
   HistogramImpl hist_get;
@@ -116,10 +116,9 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     auto elapsed_nanos = timer.ElapsedNanos();
 
     if (FLAGS_verbose) {
-      std::cout << "SeekToFirst uesr key comparison: \n"
-                << hist_seek_to_first.ToString()
-                << "ikey skipped: " << get_perf_context()->internal_key_skipped_count
-                << "\n"
+      std::cout << "SeekToFirst user key comparison: \n"
+                << hist_seek_to_first.ToString() << "ikey skipped: "
+                << get_perf_context()->internal_key_skipped_count << "\n"
                 << "idelete skipped: "
                 << get_perf_context()->internal_delete_skipped_count << "\n"
                 << "elapsed: " << elapsed_nanos << "\n";
@@ -156,7 +155,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
   }
 
   if (FLAGS_verbose) {
-    std::cout << "Seek uesr key comparison: \n" << hist_seek.ToString();
+    std::cout << "Seek user key comparison: \n" << hist_seek.ToString();
   }
 }
 
@@ -270,7 +269,7 @@ void ProfileQueries(bool enabled_time = false) {
     std::vector<std::string> values;
 
     get_perf_context()->Reset();
-    db->Put(write_options, key, value);
+    ASSERT_OK(db->Put(write_options, key, value));
     if (++num_mutex_waited > 3) {
 #ifndef NDEBUG
       ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0U);
@@ -314,7 +313,10 @@ void ProfileQueries(bool enabled_time = false) {
     hist_get.Add(get_perf_context()->user_key_comparison_count);
 
     get_perf_context()->Reset();
-    db->MultiGet(read_options, multiget_keys, &values);
+    auto statuses = db->MultiGet(read_options, multiget_keys, &values);
+    for (const auto& s : statuses) {
+      ASSERT_OK(s);
+    }
     hist_mget_snapshot.Add(get_perf_context()->get_snapshot_time);
     hist_mget_memtable.Add(get_perf_context()->get_from_memtable_time);
     hist_mget_files.Add(get_perf_context()->get_from_output_files_time);
@@ -324,9 +326,10 @@ void ProfileQueries(bool enabled_time = false) {
   }
 
   if (FLAGS_verbose) {
-    std::cout << "Put uesr key comparison: \n" << hist_put.ToString()
-              << "Get uesr key comparison: \n" << hist_get.ToString()
-              << "MultiGet uesr key comparison: \n" << hist_get.ToString();
+    std::cout << "Put user key comparison: \n"
+              << hist_put.ToString() << "Get user key comparison: \n"
+              << hist_get.ToString() << "MultiGet user key comparison: \n"
+              << hist_get.ToString();
     std::cout << "Put(): Pre and Post Process Time: \n"
               << hist_write_pre_post.ToString() << " Writing WAL time: \n"
               << hist_write_wal_time.ToString() << "\n"
@@ -428,7 +431,10 @@ void ProfileQueries(bool enabled_time = false) {
     hist_get.Add(get_perf_context()->user_key_comparison_count);
 
     get_perf_context()->Reset();
-    db->MultiGet(read_options, multiget_keys, &values);
+    auto statuses = db->MultiGet(read_options, multiget_keys, &values);
+    for (const auto& s : statuses) {
+      ASSERT_OK(s);
+    }
     hist_mget_snapshot.Add(get_perf_context()->get_snapshot_time);
     hist_mget_memtable.Add(get_perf_context()->get_from_memtable_time);
     hist_mget_files.Add(get_perf_context()->get_from_output_files_time);
@@ -438,8 +444,9 @@ void ProfileQueries(bool enabled_time = false) {
   }
 
   if (FLAGS_verbose) {
-    std::cout << "ReadOnly Get uesr key comparison: \n" << hist_get.ToString()
-              << "ReadOnly MultiGet uesr key comparison: \n"
+    std::cout << "ReadOnly Get user key comparison: \n"
+              << hist_get.ToString()
+              << "ReadOnly MultiGet user key comparison: \n"
               << hist_mget.ToString();
 
     std::cout << "ReadOnly Get(): Time to get snapshot: \n"
@@ -539,7 +546,7 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
 
     get_perf_context()->Reset();
     timer.Start();
-    db->Put(write_options, key, value);
+    ASSERT_OK(db->Put(write_options, key, value));
     auto put_time = timer.ElapsedNanos();
     hist_put_time.Add(put_time);
     hist_wal_time.Add(get_perf_context()->write_wal_time);
@@ -573,7 +580,7 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
     iter->Next();
     hist_next.Add(get_perf_context()->user_key_comparison_count);
   }
-
+  ASSERT_OK(iter->status());
   if (FLAGS_verbose) {
     std::cout << "Seek:\n" << hist_seek.ToString() << "Next:\n"
               << hist_next.ToString();
@@ -835,7 +842,7 @@ TEST_F(PerfContextTest, CPUTimer) {
     std::string value = "v" + i_str;
     max_str = max_str > i_str ? max_str : i_str;
 
-    db->Put(write_options, key, value);
+    ASSERT_OK(db->Put(write_options, key, value));
   }
   std::string last_key = "k" + max_str;
   std::string last_value = "v" + max_str;

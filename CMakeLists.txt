@@ -814,6 +814,8 @@ set(SOURCES
         utilities/transactions/lock/lock_manager.cc
         utilities/transactions/lock/point/point_lock_tracker.cc
         utilities/transactions/lock/point/point_lock_manager.cc
+        utilities/transactions/lock/range/range_tree/range_tree_lock_manager.cc
+        utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
         utilities/transactions/optimistic_transaction.cc
         utilities/transactions/pessimistic_transaction.cc
@@ -831,7 +833,7 @@ set(SOURCES
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
         $<TARGET_OBJECTS:build_version>)
 
-list(APPEND SOURCE
+list(APPEND SOURCES
   utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc
   utilities/transactions/lock/range/range_tree/lib/locktree/keyrange.cc
   utilities/transactions/lock/range/range_tree/lib/locktree/lock_request.cc
@@ -1225,6 +1227,7 @@ if(WITH_TESTS)
         utilities/transactions/lock/point/point_lock_manager_test.cc
         utilities/transactions/write_prepared_transaction_test.cc
         utilities/transactions/write_unprepared_transaction_test.cc
+        utilities/transactions/lock/range/range_locking_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
     )

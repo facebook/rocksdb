@@ -109,21 +109,21 @@ TEST_P(PrefetchTest, Basic) {
   // create first key range
   WriteBatch batch;
   for (int i = 0; i < kNumKeys; i++) {
-    batch.Put(BuildKey(i), "value for range 1 key");
+    ASSERT_OK(batch.Put(BuildKey(i), "value for range 1 key"));
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
   // create second key range
   batch.Clear();
   for (int i = 0; i < kNumKeys; i++) {
-    batch.Put(BuildKey(i, "key2"), "value for range 2 key");
+    ASSERT_OK(batch.Put(BuildKey(i, "key2"), "value for range 2 key"));
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
   // delete second key range
   batch.Clear();
   for (int i = 0; i < kNumKeys; i++) {
-    batch.Delete(BuildKey(i, "key2"));
+    ASSERT_OK(batch.Delete(BuildKey(i, "key2")));
   }
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
 
@@ -134,7 +134,7 @@ TEST_P(PrefetchTest, Basic) {
   Slice greatest(end_key.data(), end_key.size());
 
   // commenting out the line below causes the example to work correctly
-  db_->CompactRange(CompactRangeOptions(), &least, &greatest);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
 
   if (support_prefetch && !use_direct_io) {
     // If underline file system supports prefetch, and directIO is not enabled

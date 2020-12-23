@@ -192,7 +192,7 @@ class FaultInjectionTest
     for (int i = start_idx; i < start_idx + num_vals; i++) {
       Slice key = Key(i, &key_space);
       batch.Clear();
-      batch.Put(key, Value(i, &value_space));
+      ASSERT_OK(batch.Put(key, Value(i, &value_space)));
       ASSERT_OK(db_->Write(write_options, &batch));
     }
   }
@@ -272,12 +272,12 @@ class FaultInjectionTest
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_OK(db_->Delete(WriteOptions(), iter->key()));
     }
-
+    ASSERT_OK(iter->status());
     delete iter;
 
     FlushOptions flush_options;
     flush_options.wait = true;
-    db_->Flush(flush_options);
+    ASSERT_OK(db_->Flush(flush_options));
   }
 
   // rnd cannot be null for kResetDropRandomUnsyncedData
@@ -310,7 +310,7 @@ class FaultInjectionTest
 
     Build(write_options, 0, num_pre_sync);
     if (sync_use_compact_) {
-      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     }
     write_options.sync = false;
     Build(write_options, num_pre_sync, num_post_sync);
@@ -342,7 +342,7 @@ class FaultInjectionTest
   }
 
   void WaitCompactionFinish() {
-    static_cast<DBImpl*>(db_->GetRootDB())->TEST_WaitForCompact();
+    ASSERT_OK(static_cast<DBImpl*>(db_->GetRootDB())->TEST_WaitForCompact());
     ASSERT_OK(db_->Put(WriteOptions(), "", ""));
   }
 };
@@ -409,7 +409,7 @@ TEST_P(FaultInjectionTest, WriteOptionSyncTest) {
   write_options.sync = true;
   ASSERT_OK(
       db_->Put(write_options, Key(2, &key_space), Value(2, &value_space)));
-  db_->FlushWAL(false);
+  ASSERT_OK(db_->FlushWAL(false));
 
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
@@ -450,7 +450,7 @@ TEST_P(FaultInjectionTest, UninstalledCompaction) {
   Build(WriteOptions(), 0, kNumKeys);
   FlushOptions flush_options;
   flush_options.wait = true;
-  db_->Flush(flush_options);
+  ASSERT_OK(db_->Flush(flush_options));
   ASSERT_OK(db_->Put(WriteOptions(), "", ""));
   TEST_SYNC_POINT("FaultInjectionTest::FaultTest:0");
   TEST_SYNC_POINT("FaultInjectionTest::FaultTest:1");
@@ -521,9 +521,9 @@ TEST_P(FaultInjectionTest, WriteBatchWalTerminationTest) {
   wo.sync = true;
   wo.disableWAL = false;
   WriteBatch batch;
-  batch.Put("cats", "dogs");
+  ASSERT_OK(batch.Put("cats", "dogs"));
   batch.MarkWalTerminationPoint();
-  batch.Put("boys", "girls");
+  ASSERT_OK(batch.Put("boys", "girls"));
   ASSERT_OK(db_->Write(wo, &batch));
 
   env_->SetFilesystemActive(false);
