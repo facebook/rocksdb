@@ -64,10 +64,10 @@ commands:
           path: LOG
       - run: # on fail, compress Test Logs for diagnosing the issue
          name: Compress Test Logs
-         command: tar -cvzf t.tar t
+         command: tar -cvzf t.tar.gz t
          when: on_fail
       - store_artifacts: # on fail, store Test Logs for diagnosing the issue
-          path: t.tar
+          path: t.tar.gz
           destination: test_logs
           when: on_fail
 
