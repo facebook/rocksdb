@@ -273,4 +273,47 @@ TEST_P(AnyLockManagerTest, Deadlock) {
   delete txn1;
 }
 
+TEST_P(AnyLockManagerTest, GetWaitingTxns_MultipleTxns) {
+  MockColumnFamilyHandle cf(1);
+  locker_->AddColumnFamily(&cf);
+
+  auto txn1 = NewTxn();
+  ASSERT_OK(locker_->TryLock(txn1, 1, "k", env_, false));
+
+  auto txn2 = NewTxn();
+  ASSERT_OK(locker_->TryLock(txn2, 1, "k", env_, false));
+
+  auto txn3 = NewTxn();
+  txn3->SetLockTimeout(10000);
+  port::Thread t1 = BlockUntilWaitingTxn(wait_sync_point_name_, [&]() {
+    ASSERT_OK(locker_->TryLock(txn3, 1, "k", env_, true));
+    locker_->UnLock(txn3, 1, "k", env_);
+  });
+
+  // Ok, now txn3 is waiting for lock on "k", which is owned by two
+  // transactions. Check that GetWaitingTxns reports this correctly
+  uint32_t wait_cf_id;
+  std::string wait_key;
+  auto waiters = txn3->GetWaitingTxns(&wait_cf_id, &wait_key);
+
+  ASSERT_EQ(wait_cf_id, 1u);
+  ASSERT_EQ(wait_key, "k");
+  ASSERT_EQ(waiters.size(), 2);
+  bool waits_correct =
+      (waiters[0] == txn1->GetID() && waiters[1] == txn2->GetID()) ||
+      (waiters[1] == txn1->GetID() && waiters[0] == txn2->GetID());
+  ASSERT_EQ(waits_correct, true);
+
+  // Release locks so txn3 can proceed with execution
+  locker_->UnLock(txn1, 1, "k", env_);
+  locker_->UnLock(txn2, 1, "k", env_);
+
+  // Wait until txn3 finishes
+  t1.join();
+
+  delete txn1;
+  delete txn2;
+  delete txn3;
+}
+
 }  // namespace ROCKSDB_NAMESPACE

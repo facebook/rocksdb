@@ -34,10 +34,14 @@ commands:
             sudo launchctl limit maxfiles 1048576
 
   pre-steps:
+    parameters:
+      python-version:
+        default: "3.5.9"
+        type: string
     steps:
       - checkout
-      - run: pyenv install --skip-existing 3.5.9
-      - run: pyenv global 3.5.9
+      - run: pyenv install --skip-existing <<parameters.python-version>>
+      - run: pyenv global <<parameters.python-version>>
       - run:
           name: Setup Environment Variables
           command: |
@@ -45,6 +49,11 @@ commands:
             echo "export GTEST_OUTPUT=\"xml:/tmp/test-results/\"" >> $BASH_ENV
             echo "export SKIP_FORMAT_BUCK_CHECKS=1" >> $BASH_ENV
             echo "export PRINT_PARALLEL_OUTPUTS=1" >> $BASH_ENV
+
+  pre-steps-macos:
+      steps:
+        - pre-steps:
+            python-version: "3.6.0"
 
   post-steps:
     steps:
@@ -96,24 +105,24 @@ executors:
 jobs:
   build-macos:
     macos:
-      xcode: 11.3.0
+      xcode: 9.4.1
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
       - install-gflags-on-macos
-      - pre-steps
+      - pre-steps-macos
       - run: ulimit -S -n 1048576 && OPT=-DCIRCLECI make V=1 J=32 -j32 check | .circleci/cat_ignore_eagain
       - post-steps
 
   build-macos-cmake:
     macos:
-      xcode: 11.3.0
+      xcode: 9.4.1
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
       - install-cmake-on-macos
       - install-gflags-on-macos
-      - pre-steps
+      - pre-steps-macos
       - run: ulimit -S -n 1048576 && (mkdir build && cd build && cmake -DWITH_GFLAGS=0 .. && make V=1 -j32) | .circleci/cat_ignore_eagain
       - post-steps
 
@@ -160,13 +169,13 @@ jobs:
   build-linux-release:
     machine:
       image: ubuntu-1604:202007-01
-    resource_class: 2xlarge
+    resource_class: large
     steps:
       - checkout # check out the code in the project directory
-      - run: make V=1 -j32 release | .circleci/cat_ignore_eagain
+      - run: make V=1 -j8 release | .circleci/cat_ignore_eagain
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - install-gflags
-      - run: make V=1 -j32 release | .circleci/cat_ignore_eagain
+      - run: make V=1 -j8 release | .circleci/cat_ignore_eagain
       - run: ./db_stress --version # ensure with gflags
       - post-steps
 
@@ -177,11 +186,11 @@ jobs:
     steps:
       - checkout # check out the code in the project directory
       - run: make clean
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench | .circleci/cat_ignore_eagain
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench | .circleci/cat_ignore_eagain
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - run: sudo apt-get update -y && sudo apt-get install -y libgflags-dev
       - run: make clean
-      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j16 static_lib tools db_bench | .circleci/cat_ignore_eagain
+      - run: USE_RTTI=1 DEBUG_LEVEL=0 make V=1 -j8 static_lib tools db_bench | .circleci/cat_ignore_eagain
       - run: ./db_stress --version # ensure with gflags
 
   build-linux-lite:
@@ -200,21 +209,21 @@ jobs:
     resource_class: large
     steps:
       - checkout # check out the code in the project directory
-      - run: LITE=1 make V=1 -j32 release | .circleci/cat_ignore_eagain
+      - run: LITE=1 make V=1 -j8 release | .circleci/cat_ignore_eagain
       - run: if ./db_stress --version; then false; else true; fi # ensure without gflags
       - install-gflags
-      - run: LITE=1 make V=1 -j32 release | .circleci/cat_ignore_eagain
+      - run: LITE=1 make V=1 -j8 release | .circleci/cat_ignore_eagain
       - run: ./db_stress --version # ensure with gflags
       - post-steps
 
-  build-linux-clang-no-test:
+  build-linux-clang-no_test_run:
     machine:
       image: ubuntu-1604:202007-01
-    resource_class: 2xlarge
+    resource_class: xlarge
     steps:
       - checkout # check out the code in the project directory
       - run: sudo apt-get update -y && sudo apt-get install -y clang libgflags-dev
-      - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j32 all | .circleci/cat_ignore_eagain
+      - run: CC=clang CXX=clang++ USE_CLANG=1 PORTABLE=1 make V=1 -j16 all | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-clang10-asan:
@@ -262,33 +271,63 @@ jobs:
       - run: CC=clang-10 CXX=clang++-10 ROCKSDB_DISABLE_ALIGNED_NEW=1 CLANG_ANALYZER="/usr/bin/clang++-10" CLANG_SCAN_BUILD=scan-build-10 USE_CLANG=1 make V=1 -j32 analyze | .circleci/cat_ignore_eagain # aligned new doesn't work for reason we haven't figured out. For unknown, reason passing "clang++-10" as CLANG_ANALYZER doesn't work, and we need a full path.
       - post-steps
 
-  build-linux-cmake:
+  build-linux-cmake-no_test_run:
     machine:
       image: ubuntu-1604:202007-01
-    resource_class: 2xlarge
+    resource_class: large
     steps:
       - checkout # check out the code in the project directory
-      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=0 .. && make V=1 -j32) | .circleci/cat_ignore_eagain
+      - run: (mkdir build && cd build && cmake -DWITH_GFLAGS=0 .. && make V=1 -j8) | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-unity:
     docker: # executor type
       - image: gcc:latest
-    resource_class: xlarge
+    resource_class: large
     steps:
       - checkout # check out the code in the project directory
       - run: apt-get update -y && apt-get install -y libgflags-dev
-      - run: TEST_TMPDIR=/dev/shm && make V=1 -j16 unity_test | .circleci/cat_ignore_eagain
+      - run: TEST_TMPDIR=/dev/shm && make V=1 -j8 unity_test | .circleci/cat_ignore_eagain
       - post-steps
 
-  build-linux-gcc-4-8:
+  build-linux-gcc-4_8-no_test_run:
     machine:
       image: ubuntu-1604:202007-01
     resource_class: large
     steps:
       - pre-steps
       - run: sudo apt-get update -y && sudo apt-get install gcc-4.8 g++-4.8 libgflags-dev
-      - run: CC=gcc-4.8 CXX=g++-4.8 V=1 SKIP_LINK=1 make -j4 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - run: CC=gcc-4.8 CXX=g++-4.8 V=1 SKIP_LINK=1 make -j8 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - post-steps
+
+  build-linux-gcc-8-no_test_run:
+    machine:
+      image: ubuntu-2004:202010-01
+    resource_class: large
+    steps:
+      - pre-steps
+      - run: sudo apt-get update -y && sudo apt-get install gcc-8 g++-8 libgflags-dev
+      - run: CC=gcc-8 CXX=g++-8 V=1 SKIP_LINK=1 make -j8 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - post-steps
+
+  build-linux-gcc-9-no_test_run:
+    machine:
+      image: ubuntu-2004:202010-01
+    resource_class: large
+    steps:
+      - pre-steps
+      - run: sudo apt-get update -y && sudo apt-get install gcc-9 g++-9 libgflags-dev
+      - run: CC=gcc-9 CXX=g++-9 V=1 SKIP_LINK=1 make -j8 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
+      - post-steps
+
+  build-linux-gcc-10-cxx20-no_test_run:
+    machine:
+      image: ubuntu-2004:202010-01
+    resource_class: xlarge
+    steps:
+      - pre-steps
+      - run: sudo apt-get update -y && sudo apt-get install gcc-10 g++-10 libgflags-dev
+      - run: CC=gcc-10 CXX=g++-10 V=1 SKIP_LINK=1 ROCKSDB_CXX_STANDARD=c++20 make -j16 all | .circleci/cat_ignore_eagain # Linking broken because libgflags compiled with newer ABI
       - post-steps
 
   build-windows:
@@ -355,19 +394,96 @@ jobs:
   build-linux-java:
     machine:
       image: ubuntu-1604:202007-01
-    resource_class: 2xlarge
+    resource_class: large
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
     steps:
       - pre-steps
       - install-gflags
       - run:
-          name: "Build RocksDBJava"
+          name: "Set Java Environment"
           command: |
-            export JAVA_HOME=/usr/lib/jvm/java-1.8.0-openjdk-amd64
-            export PATH=$JAVA_HOME/bin:$PATH
             echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
             which java && java -version
             which javac && javac -version
-            make V=1 J=32 -j32 rocksdbjava jtest | .circleci/cat_ignore_eagain
+      - run:
+          name: "Build RocksDBJava Shared Library"
+          command: make V=1 J=8 -j8 rocksdbjava | .circleci/cat_ignore_eagain
+      - run:
+          name: "Test RocksDBJava"
+          command: make V=1 J=8 -j8 jtest | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-linux-java-static:
+    machine:
+      image: ubuntu-1604:202007-01
+    resource_class: large
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-1.8.0-openjdk-amd64
+    steps:
+      - pre-steps
+      - install-gflags
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - run:
+          name: "Build RocksDBJava Static Library"
+          command: make V=1 J=8 -j8 rocksdbjavastatic | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-macos-java:
+    macos:
+      xcode: 9.4.1
+    resource_class: medium
+    environment:
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/jdk1.8.0_172.jdk/Contents/Home
+    steps:
+      - increase-max-open-files-on-macos
+      - install-pyenv-on-macos
+      - install-gflags-on-macos
+      - pre-steps-macos
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - run:
+          name: "Build RocksDBJava Shared Library"
+          command: make V=1 J=8 -j8 rocksdbjava | .circleci/cat_ignore_eagain
+      - run:
+          name: "Test RocksDBJava"
+          command: make V=1 J=8 -j8 jtest | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-macos-java-static:
+    macos:
+      xcode: 9.4.1
+    resource_class: medium
+    environment:
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/jdk1.8.0_172.jdk/Contents/Home
+    steps:
+      - increase-max-open-files-on-macos
+      - install-pyenv-on-macos
+      - install-gflags-on-macos
+      - install-cmake-on-macos
+      - pre-steps-macos
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - run:
+          name: "Build RocksDBJava Static Library"
+          command: make V=1 J=8 -j8 rocksdbjavastatic | .circleci/cat_ignore_eagain
       - post-steps
 
   build-examples:
@@ -461,9 +577,6 @@ workflows:
   build-linux-lite-release:
     jobs:
       - build-linux-lite-release
-  build-linux-clang-no-test:
-    jobs:
-      - build-linux-clang-no-test
   build-linux-clang10-asan:
     jobs:
       - build-linux-clang10-asan
@@ -476,9 +589,6 @@ workflows:
   build-linux-clang10-clang-analyze:
     jobs:
       - build-linux-clang10-clang-analyze
-  build-linux-cmake:
-    jobs:
-      - build-linux-cmake
   build-linux-unity:
     jobs:
       - build-linux-unity
@@ -502,6 +612,9 @@ workflows:
   build-java:
     jobs:
       - build-linux-java
+      - build-linux-java-static
+      - build-macos-java
+      - build-macos-java-static
   build-examples:
     jobs:
       - build-examples
@@ -519,9 +632,14 @@ workflows:
       - build-linux-non-shm:
           start_test: "statistics_test" # make sure unique in src.mk
           end_test: ""
-  build-linux-gcc-4-8:
+  build-linux-compilers-no_test_run:
     jobs:
-      - build-linux-gcc-4-8
+      - build-linux-clang-no_test_run
+      - build-linux-cmake-no_test_run
+      - build-linux-gcc-4_8-no_test_run
+      - build-linux-gcc-8-no_test_run
+      - build-linux-gcc-9-no_test_run
+      - build-linux-gcc-10-cxx20-no_test_run
   build-macos:
     jobs:
       - build-macos

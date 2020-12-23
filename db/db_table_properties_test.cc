@@ -65,9 +65,9 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfAllTablesTest) {
   // Create 4 tables
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      db_->Put(WriteOptions(), ToString(table * 100 + i), "val");
+      ASSERT_OK(db_->Put(WriteOptions(), ToString(table * 100 + i), "val"));
     }
-    db_->Flush(FlushOptions());
+    ASSERT_OK(db_->Flush(FlushOptions()));
   }
 
   // 1. Read table properties directly from file
@@ -161,14 +161,14 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
   for (int i = 0; i < 10000; i++) {
     ASSERT_OK(Put(test::RandomKey(&rnd, 5), rnd.RandomString(102)));
   }
-  Flush();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(Flush());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   if (NumTableFilesAtLevel(0) == 0) {
     ASSERT_OK(Put(test::RandomKey(&rnd, 5), rnd.RandomString(102)));
-    Flush();
+    ASSERT_OK(Flush());
   }
 
-  db_->PauseBackgroundWork();
+  ASSERT_OK(db_->PauseBackgroundWork());
 
   // Ensure that we have at least L0, L1 and L2
   ASSERT_GT(NumTableFilesAtLevel(0), 0);
@@ -236,8 +236,8 @@ TEST_F(DBTablePropertiesTest, GetColumnFamilyNameProperty) {
   // Create one table per CF, then verify it was created with the column family
   // name property.
   for (uint32_t cf = 0; cf < 2; ++cf) {
-    Put(cf, "key", "val");
-    Flush(cf);
+    ASSERT_OK(Put(cf, "key", "val"));
+    ASSERT_OK(Flush(cf));
 
     TablePropertiesCollection fname_to_props;
     ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[cf], &fname_to_props));
@@ -260,17 +260,17 @@ TEST_F(DBTablePropertiesTest, GetDbIdentifiersProperty) {
   CreateAndReopenWithCF({"goku"}, CurrentOptions());
 
   for (uint32_t cf = 0; cf < 2; ++cf) {
-    Put(cf, "key", "val");
-    Put(cf, "foo", "bar");
-    Flush(cf);
+    ASSERT_OK(Put(cf, "key", "val"));
+    ASSERT_OK(Put(cf, "foo", "bar"));
+    ASSERT_OK(Flush(cf));
 
     TablePropertiesCollection fname_to_props;
     ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[cf], &fname_to_props));
     ASSERT_EQ(1U, fname_to_props.size());
 
     std::string id, sid;
-    db_->GetDbIdentity(id);
-    db_->GetDbSessionId(sid);
+    ASSERT_OK(db_->GetDbIdentity(id));
+    ASSERT_OK(db_->GetDbSessionId(sid));
     ASSERT_EQ(id, fname_to_props.begin()->second->db_id);
     ASSERT_EQ(sid, fname_to_props.begin()->second->db_session_id);
   }
@@ -298,9 +298,9 @@ TEST_P(DBTableHostnamePropertyTest, DbHostLocationProperty) {
   CreateAndReopenWithCF({"goku"}, opts);
 
   for (uint32_t cf = 0; cf < 2; ++cf) {
-    Put(cf, "key", "val");
-    Put(cf, "foo", "bar");
-    Flush(cf);
+    ASSERT_OK(Put(cf, "key", "val"));
+    ASSERT_OK(Put(cf, "foo", "bar"));
+    ASSERT_OK(Flush(cf));
 
     TablePropertiesCollection fname_to_props;
     ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[cf], &fname_to_props));
@@ -356,8 +356,8 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
 
   // add an L1 file to prevent tombstones from dropping due to obsolescence
   // during flush
-  Put(Key(0), "val");
-  Flush();
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_OK(Flush());
   MoveFilesToLevel(1);
 
   DeletionTriggeredCompactionTestListener *listener =
@@ -368,14 +368,14 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   for (int i = 0; i < kNumKeys; ++i) {
     if (i >= kNumKeys - kWindowSize &&
         i < kNumKeys - kWindowSize + kNumDelsTrigger) {
-      Delete(Key(i));
+      ASSERT_OK(Delete(Key(i)));
     } else {
-      Put(Key(i), "val");
+      ASSERT_OK(Put(Key(i), "val"));
     }
   }
-  Flush();
+  ASSERT_OK(Flush());
 
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
 
   // Change the window size and deletion trigger and ensure new values take
@@ -389,14 +389,14 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   for (int i = 0; i < kNumKeys; ++i) {
     if (i >= kNumKeys - kWindowSize &&
         i < kNumKeys - kWindowSize + kNumDelsTrigger) {
-      Delete(Key(i));
+      ASSERT_OK(Delete(Key(i)));
     } else {
-      Put(Key(i), "val");
+      ASSERT_OK(Put(Key(i), "val"));
     }
   }
-  Flush();
+  ASSERT_OK(Flush());
 
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(0, NumTableFilesAtLevel(0));
 
   // Change the window size to disable delete triggered compaction
@@ -408,14 +408,14 @@ TEST_P(DBTablePropertiesTest, DeletionTriggeredCompactionMarking) {
   for (int i = 0; i < kNumKeys; ++i) {
     if (i >= kNumKeys - kWindowSize &&
         i < kNumKeys - kWindowSize + kNumDelsTrigger) {
-      Delete(Key(i));
+      ASSERT_OK(Delete(Key(i)));
     } else {
-      Put(Key(i), "val");
+      ASSERT_OK(Put(Key(i), "val"));
     }
   }
-  Flush();
+  ASSERT_OK(Flush());
 
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
   ASSERT_LT(0, opts.statistics->getTickerCount(COMPACT_WRITE_BYTES_MARKED));
   ASSERT_LT(0, opts.statistics->getTickerCount(COMPACT_READ_BYTES_MARKED));
@@ -438,8 +438,8 @@ TEST_P(DBTablePropertiesTest, RatioBasedDeletionTriggeredCompactionMarking) {
 
   // Add an L2 file to prevent tombstones from dropping due to obsolescence
   // during flush
-  Put(Key(0), "val");
-  Flush();
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_OK(Flush());
   MoveFilesToLevel(2);
 
   auto* listener = new DeletionTriggeredCompactionTestListener();

@@ -2205,7 +2205,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   for (; cf_iter != multiget_cf_data.end(); ++cf_iter) {
     s = MultiGetImpl(read_options, cf_iter->start, cf_iter->num_keys,
                      &sorted_keys, cf_iter->super_version, consistent_seqnum,
-                     read_callback, nullptr);
+                     read_callback);
     if (!s.ok()) {
       break;
     }
@@ -2377,7 +2377,7 @@ void DBImpl::MultiGetWithCallback(
 
   Status s = MultiGetImpl(read_options, 0, num_keys, sorted_keys,
                           multiget_cf_data[0].super_version, consistent_seqnum,
-                          read_callback, nullptr);
+                          read_callback);
   assert(s.ok() || s.IsTimedOut() || s.IsAborted());
   ReturnAndCleanupSuperVersion(multiget_cf_data[0].cfd,
                                multiget_cf_data[0].super_version);
@@ -2396,7 +2396,7 @@ Status DBImpl::MultiGetImpl(
     const ReadOptions& read_options, size_t start_key, size_t num_keys,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
     SuperVersion* super_version, SequenceNumber snapshot,
-    ReadCallback* callback, bool* is_blob_index) {
+    ReadCallback* callback) {
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_MULTIGET);
 
@@ -2435,11 +2435,9 @@ Status DBImpl::MultiGetImpl(
         (read_options.read_tier == kPersistedTier &&
          has_unpersisted_data_.load(std::memory_order_relaxed));
     if (!skip_memtable) {
-      super_version->mem->MultiGet(read_options, &range, callback,
-                                   is_blob_index);
+      super_version->mem->MultiGet(read_options, &range, callback);
       if (!range.empty()) {
-        super_version->imm->MultiGet(read_options, &range, callback,
-                                     is_blob_index);
+        super_version->imm->MultiGet(read_options, &range, callback);
       }
       if (!range.empty()) {
         lookup_current = true;
@@ -2449,8 +2447,7 @@ Status DBImpl::MultiGetImpl(
     }
     if (lookup_current) {
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->MultiGet(read_options, &range, callback,
-                                       is_blob_index);
+      super_version->current->MultiGet(read_options, &range, callback);
     }
     curr_value_size = range.GetValueSize();
     if (curr_value_size > read_options.value_size_soft_limit) {
@@ -3486,7 +3483,6 @@ Status DBImpl::DeleteFile(std::string name) {
     return Status::InvalidArgument("Invalid file name");
   }
 
-  Status status;
   if (type == kWalFile) {
     // Only allow deleting archived log files
     if (log_type != kArchivedLogFile) {
@@ -3495,7 +3491,7 @@ Status DBImpl::DeleteFile(std::string name) {
                       name.c_str());
       return Status::NotSupported("Delete only supported for archived logs");
     }
-    status = wal_manager_.DeleteFile(name, number);
+    Status status = wal_manager_.DeleteFile(name, number);
     if (!status.ok()) {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                       "DeleteFile %s failed -- %s.\n", name.c_str(),
@@ -3504,6 +3500,7 @@ Status DBImpl::DeleteFile(std::string name) {
     return status;
   }
 
+  Status status;
   int level;
   FileMetaData* metadata;
   ColumnFamilyData* cfd;
@@ -4357,7 +4354,7 @@ Status DBImpl::IngestExternalFiles(
     }
   }
   // Ingest multiple external SST files atomically.
-  size_t num_cfs = args.size();
+  const size_t num_cfs = args.size();
   for (size_t i = 0; i != num_cfs; ++i) {
     if (args[i].external_files.empty()) {
       char err_msg[128] = {0};
@@ -4398,10 +4395,7 @@ Status DBImpl::IngestExternalFiles(
         env_, versions_.get(), cfd, immutable_db_options_, file_options_,
         &snapshots_, arg.options, &directories_, &event_logger_, io_tracer_);
   }
-  std::vector<std::pair<bool, Status>> exec_results;
-  for (size_t i = 0; i != num_cfs; ++i) {
-    exec_results.emplace_back(false, Status::OK());
-  }
+
   // TODO(yanqin) maybe make jobs run in parallel
   uint64_t start_file_number = next_file_number;
   for (size_t i = 1; i != num_cfs; ++i) {
@@ -4409,10 +4403,13 @@ Status DBImpl::IngestExternalFiles(
     auto* cfd =
         static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
-    exec_results[i].second = ingestion_jobs[i].Prepare(
+    Status es = ingestion_jobs[i].Prepare(
         args[i].external_files, args[i].files_checksums,
         args[i].files_checksum_func_names, start_file_number, super_version);
-    exec_results[i].first = true;
+    // capture first error only
+    if (!es.ok() && status.ok()) {
+      status = es;
+    }
     CleanupSuperVersion(super_version);
   }
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeLastJobPrepare:0");
@@ -4421,23 +4418,17 @@ Status DBImpl::IngestExternalFiles(
     auto* cfd =
         static_cast<ColumnFamilyHandleImpl*>(args[0].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
-    exec_results[0].second = ingestion_jobs[0].Prepare(
+    Status es = ingestion_jobs[0].Prepare(
         args[0].external_files, args[0].files_checksums,
         args[0].files_checksum_func_names, next_file_number, super_version);
-    exec_results[0].first = true;
-    CleanupSuperVersion(super_version);
-  }
-  for (const auto& exec_result : exec_results) {
-    if (!exec_result.second.ok()) {
-      status = exec_result.second;
-      break;
+    if (!es.ok()) {
+      status = es;
     }
+    CleanupSuperVersion(super_version);
   }
   if (!status.ok()) {
     for (size_t i = 0; i != num_cfs; ++i) {
-      if (exec_results[i].first) {
-        ingestion_jobs[i].Cleanup(status);
-      }
+      ingestion_jobs[i].Cleanup(status);
     }
     InstrumentedMutexLock l(&mutex_);
     ReleaseFileNumberFromPendingOutputs(pending_output_elem);

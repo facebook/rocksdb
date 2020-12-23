@@ -191,7 +191,7 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   Slice* get_reader_contents() { return &reader_contents_; }
 
   void Write(const std::string& msg) {
-    writer_.AddRecord(Slice(msg));
+    ASSERT_OK(writer_.AddRecord(Slice(msg)));
   }
 
   size_t WrittenBytes() const {
@@ -689,8 +689,8 @@ TEST_P(LogTest, Recycle) {
       new test::OverwritingStringSink(get_reader_contents()),
       "" /* don't care */));
   Writer recycle_writer(std::move(dest_holder), 123, true);
-  recycle_writer.AddRecord(Slice("foooo"));
-  recycle_writer.AddRecord(Slice("bar"));
+  ASSERT_OK(recycle_writer.AddRecord(Slice("foooo")));
+  ASSERT_OK(recycle_writer.AddRecord(Slice("bar")));
   ASSERT_GE(get_reader_contents()->size(), log::kBlockSize * 2);
   ASSERT_EQ("foooo", Read());
   ASSERT_EQ("bar", Read());
@@ -782,11 +782,13 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
     return file->contents_;
   }
 
-  void Encode(const std::string& msg) { log_writer_->AddRecord(Slice(msg)); }
+  void Encode(const std::string& msg) {
+    ASSERT_OK(log_writer_->AddRecord(Slice(msg)));
+  }
 
   void Write(const Slice& data) {
-    writer_->Append(data);
-    writer_->Sync(true);
+    ASSERT_OK(writer_->Append(data));
+    ASSERT_OK(writer_->Sync(true));
   }
 
   bool TryRead(std::string* result) {

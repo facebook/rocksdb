@@ -675,7 +675,11 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool report_bg_io_stats = false;
 
-  // Files older than TTL will go through the compaction process.
+  // Files containing updates older than TTL will go through the compaction
+  // process. This usually happens in a cascading way so that those entries
+  // will be compacted to bottommost level/file.
+  // The feature is used to remove stale entries that have been deleted or
+  // updated from the file system.
   // Pre-req: This needs max_open_files to be set to -1.
   // In Level: Non-bottom-level files older than TTL will go through the
   //           compation process.
@@ -695,6 +699,9 @@ struct AdvancedColumnFamilyOptions {
 
   // Files older than this value will be picked up for compaction, and
   // re-written to the same level as they were before.
+  // One main use of the feature is to make sure a file goes through compaction
+  // filters periodically. Users can also use the feature to clear up SST
+  // files using old format.
   //
   // A file's age is computed by looking at file_creation_time or creation_time
   // table properties in order, if they have valid non-zero values; if not, the

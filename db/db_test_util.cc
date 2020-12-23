@@ -1129,11 +1129,12 @@ std::string DBTestBase::FilesPerLevel(int cf) {
 
 size_t DBTestBase::CountFiles() {
   std::vector<std::string> files;
-  env_->GetChildren(dbname_, &files);
+  EXPECT_OK(env_->GetChildren(dbname_, &files));
 
   std::vector<std::string> logfiles;
   if (dbname_ != last_options_.wal_dir) {
-    env_->GetChildren(last_options_.wal_dir, &logfiles);
+    Status s = env_->GetChildren(last_options_.wal_dir, &logfiles);
+    EXPECT_TRUE(s.ok() || s.IsNotFound());
   }
 
   return files.size() + logfiles.size();
@@ -1266,8 +1267,8 @@ void DBTestBase::GenerateNewRandomFile(Random* rnd, bool nowait) {
   }
   ASSERT_OK(Put("key" + rnd->RandomString(7), rnd->RandomString(200)));
   if (!nowait) {
-    dbfull()->TEST_WaitForFlushMemTable();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 }
 

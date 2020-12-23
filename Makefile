@@ -99,14 +99,14 @@ endif
 
 ifneq ($(findstring rocksdbjava, $(MAKECMDGOALS)),)
 	LIB_MODE=shared
-        ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
+	ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
 		OBJ_DIR=jls
-	        ifneq ($(DEBUG_LEVEL),2)
-	            DEBUG_LEVEL=0
-                endif
-                ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
-	            DEBUG_LEVEL=0
-                endif
+		ifneq ($(DEBUG_LEVEL),2)
+			DEBUG_LEVEL=0
+		endif
+		ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
+			DEBUG_LEVEL=0
+		endif
 	else
 		OBJ_DIR=jl
 	endif
@@ -558,6 +558,7 @@ PARALLEL_TEST = \
 	table_test \
 	transaction_test \
 	point_lock_manager_test \
+	range_locking_test \
 	write_prepared_transaction_test \
 	write_unprepared_transaction_test \
 
@@ -586,6 +587,7 @@ ifdef ASSERT_STATUS_CHECKED
 		blob_file_reader_test \
 		bloom_test \
 		cassandra_format_test \
+		cassandra_functional_test \
 		cassandra_row_merge_test \
 		cassandra_serialize_test \
 		cleanable_test \
@@ -594,6 +596,14 @@ ifdef ASSERT_STATUS_CHECKED
 		crc32c_test \
 		dbformat_test \
 		db_basic_test \
+		compact_files_test \
+		compaction_picker_test \
+		comparator_db_test \
+		db_encryption_test \
+		db_iter_test \
+		db_iter_stress_test \
+		db_log_iter_test \
+		db_bloom_filter_test \
 		db_blob_basic_test \
 		db_blob_index_test \
 		db_block_cache_test \
@@ -606,10 +616,27 @@ ifdef ASSERT_STATUS_CHECKED
 		db_wal_test \
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
+		db_write_test \
 		db_options_test \
 		db_properties_test \
+		db_range_del_test \
 		db_secondary_test \
+		deletefile_test \
+		external_sst_file_test \
 		options_file_test \
+		db_statistics_test \
+		db_table_properties_test \
+		db_tailing_iter_test \
+		fault_injection_test \
+		listener_test \
+		log_test \
+		manual_compaction_test \
+		obsolete_files_test \
+		perf_context_test \
+		periodic_work_scheduler_test \
+		perf_context_test \
+		version_set_test \
+		wal_manager_test \
 		defer_test \
 		filename_test \
 		dynamic_bloom_test \
@@ -631,6 +658,7 @@ ifdef ASSERT_STATUS_CHECKED
 		iostats_context_test \
 		ldb_cmd_test \
 		memkind_kmem_allocator_test \
+		merge_test \
 		merger_test \
 		mock_env_test \
 		object_registry_test \
@@ -643,6 +671,7 @@ ifdef ASSERT_STATUS_CHECKED
 		options_settable_test \
 		options_test \
 		point_lock_manager_test \
+		random_access_file_reader_test \
 		random_test \
 		range_del_aggregator_test \
 		sst_file_reader_test \
@@ -651,9 +680,11 @@ ifdef ASSERT_STATUS_CHECKED
 		ribbon_test \
 		skiplist_test \
 		slice_test \
+		slice_transform_test \
 		sst_dump_test \
 		statistics_test \
 		stats_history_test \
+		stringappend_test \
 		thread_local_test \
 		trace_analyzer_test \
 		transaction_test \
@@ -671,25 +702,38 @@ ifdef ASSERT_STATUS_CHECKED
 		version_builder_test \
 		version_edit_test \
 		work_queue_test \
+		write_buffer_manager_test \
 		write_controller_test \
 		write_prepared_transaction_test \
 		write_unprepared_transaction_test \
 		compaction_iterator_test \
 		compaction_job_test \
 		compaction_job_stats_test \
-	        io_tracer_test \
+		io_tracer_test \
+		io_tracer_parser_test \
+		prefetch_test \
 		merge_helper_test \
 		memtable_list_test \
 		flush_job_test \
 		block_based_filter_block_test \
 		block_fetcher_test \
+		block_test \
+		data_block_hash_index_test \
 		full_filter_block_test \
 		partitioned_filter_block_test \
 		column_family_test \
 		file_reader_writer_test \
+		rate_limiter_test \
 		corruption_test \
+		reduce_levels_test \
+		thread_list_test \
+		compact_on_deletion_collector_test \
 		db_universal_compaction_test \
 		import_column_family_test \
+		option_change_migration_test \
+		cuckoo_table_builder_test \
+		cuckoo_table_db_test \
+		cuckoo_table_reader_test \
 		memory_test \
 		table_test \
 		write_batch_test \
@@ -1926,6 +1970,9 @@ blob_db_test: $(OBJ_DIR)/utilities/blob_db/blob_db_test.o $(TEST_LIBRARY) $(LIBR
 repeatable_thread_test: $(OBJ_DIR)/util/repeatable_thread_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+range_locking_test: utilities/transactions/lock/range/range_locking_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 range_tombstone_fragmenter_test: $(OBJ_DIR)/db/range_tombstone_fragmenter_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -2123,78 +2170,78 @@ ifeq ($(PLATFORM), OS_AIX)
 	SNAPPY_MAKE_TARGET = libsnappy.la
 endif
 ifeq ($(PLATFORM), OS_OPENBSD)
-        JAVA_INCLUDE = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/openbsd
+	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/openbsd
 	ROCKSDBJNILIB = librocksdbjni-openbsd$(ARCH).so
-        ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-openbsd$(ARCH).jar
+	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_JAVA_VERSION)-openbsd$(ARCH).jar
 endif
 
-libz.a:
-	-rm -rf zlib-$(ZLIB_VER)
-ifeq (,$(wildcard ./zlib-$(ZLIB_VER).tar.gz))
+zlib-$(ZLIB_VER).tar.gz:
 	curl --fail --output zlib-$(ZLIB_VER).tar.gz --location ${ZLIB_DOWNLOAD_BASE}/zlib-$(ZLIB_VER).tar.gz
-endif
 	ZLIB_SHA256_ACTUAL=`$(SHA256_CMD) zlib-$(ZLIB_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(ZLIB_SHA256)" != "$$ZLIB_SHA256_ACTUAL" ]; then \
 		echo zlib-$(ZLIB_VER).tar.gz checksum mismatch, expected=\"$(ZLIB_SHA256)\" actual=\"$$ZLIB_SHA256_ACTUAL\"; \
 		exit 1; \
 	fi
+
+libz.a: zlib-$(ZLIB_VER).tar.gz
+	-rm -rf zlib-$(ZLIB_VER)
 	tar xvzf zlib-$(ZLIB_VER).tar.gz
 	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' ./configure --static && $(MAKE)
 	cp zlib-$(ZLIB_VER)/libz.a .
 
-libbz2.a:
-	-rm -rf bzip2-$(BZIP2_VER)
-ifeq (,$(wildcard ./bzip2-$(BZIP2_VER).tar.gz))
+bzip2-$(BZIP2_VER).tar.gz:
 	curl --fail --output bzip2-$(BZIP2_VER).tar.gz --location ${CURL_SSL_OPTS} ${BZIP2_DOWNLOAD_BASE}/bzip2-$(BZIP2_VER).tar.gz
-endif
 	BZIP2_SHA256_ACTUAL=`$(SHA256_CMD) bzip2-$(BZIP2_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(BZIP2_SHA256)" != "$$BZIP2_SHA256_ACTUAL" ]; then \
 		echo bzip2-$(BZIP2_VER).tar.gz checksum mismatch, expected=\"$(BZIP2_SHA256)\" actual=\"$$BZIP2_SHA256_ACTUAL\"; \
 		exit 1; \
 	fi
+
+libbz2.a: bzip2-$(BZIP2_VER).tar.gz
+	-rm -rf bzip2-$(BZIP2_VER)
 	tar xvzf bzip2-$(BZIP2_VER).tar.gz
 	cd bzip2-$(BZIP2_VER) && $(MAKE) CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
 	cp bzip2-$(BZIP2_VER)/libbz2.a .
 
-libsnappy.a:
-	-rm -rf snappy-$(SNAPPY_VER)
-ifeq (,$(wildcard ./snappy-$(SNAPPY_VER).tar.gz))
+snappy-$(SNAPPY_VER).tar.gz:
 	curl --fail --output snappy-$(SNAPPY_VER).tar.gz --location ${CURL_SSL_OPTS} ${SNAPPY_DOWNLOAD_BASE}/$(SNAPPY_VER).tar.gz
-endif
 	SNAPPY_SHA256_ACTUAL=`$(SHA256_CMD) snappy-$(SNAPPY_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(SNAPPY_SHA256)" != "$$SNAPPY_SHA256_ACTUAL" ]; then \
 		echo snappy-$(SNAPPY_VER).tar.gz checksum mismatch, expected=\"$(SNAPPY_SHA256)\" actual=\"$$SNAPPY_SHA256_ACTUAL\"; \
 		exit 1; \
 	fi
+
+libsnappy.a: snappy-$(SNAPPY_VER).tar.gz
+	-rm -rf snappy-$(SNAPPY_VER)
 	tar xvzf snappy-$(SNAPPY_VER).tar.gz
 	mkdir snappy-$(SNAPPY_VER)/build
 	cd snappy-$(SNAPPY_VER)/build && CFLAGS='${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' CXXFLAGS='${JAVA_STATIC_DEPS_CXXFLAGS} ${EXTRA_CXXFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON ${PLATFORM_CMAKE_FLAGS} .. && $(MAKE) ${SNAPPY_MAKE_TARGET}
 	cp snappy-$(SNAPPY_VER)/build/libsnappy.a .
 
-liblz4.a:
-	-rm -rf lz4-$(LZ4_VER)
-ifeq (,$(wildcard ./lz4-$(LZ4_VER).tar.gz))
+lz4-$(LZ4_VER).tar.gz:
 	curl --fail --output lz4-$(LZ4_VER).tar.gz --location ${CURL_SSL_OPTS} ${LZ4_DOWNLOAD_BASE}/v$(LZ4_VER).tar.gz
-endif
 	LZ4_SHA256_ACTUAL=`$(SHA256_CMD) lz4-$(LZ4_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(LZ4_SHA256)" != "$$LZ4_SHA256_ACTUAL" ]; then \
 		echo lz4-$(LZ4_VER).tar.gz checksum mismatch, expected=\"$(LZ4_SHA256)\" actual=\"$$LZ4_SHA256_ACTUAL\"; \
 		exit 1; \
 	fi
+
+liblz4.a: lz4-$(LZ4_VER).tar.gz
+	-rm -rf lz4-$(LZ4_VER)
 	tar xvzf lz4-$(LZ4_VER).tar.gz
 	cd lz4-$(LZ4_VER)/lib && $(MAKE) CFLAGS='-fPIC -O2 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' all
 	cp lz4-$(LZ4_VER)/lib/liblz4.a .
 
-libzstd.a:
-	-rm -rf zstd-$(ZSTD_VER)
-ifeq (,$(wildcard ./zstd-$(ZSTD_VER).tar.gz))
+zstd-$(ZSTD_VER).tar.gz:
 	curl --fail --output zstd-$(ZSTD_VER).tar.gz --location ${CURL_SSL_OPTS} ${ZSTD_DOWNLOAD_BASE}/v$(ZSTD_VER).tar.gz
-endif
 	ZSTD_SHA256_ACTUAL=`$(SHA256_CMD) zstd-$(ZSTD_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(ZSTD_SHA256)" != "$$ZSTD_SHA256_ACTUAL" ]; then \
 		echo zstd-$(ZSTD_VER).tar.gz checksum mismatch, expected=\"$(ZSTD_SHA256)\" actual=\"$$ZSTD_SHA256_ACTUAL\"; \
 		exit 1; \
 	fi
+
+libzstd.a: zstd-$(ZSTD_VER).tar.gz
+	-rm -rf zstd-$(ZSTD_VER)
 	tar xvzf zstd-$(ZSTD_VER).tar.gz
 	cd zstd-$(ZSTD_VER)/lib && DESTDIR=. PREFIX= $(MAKE) CFLAGS='-fPIC -O2 ${JAVA_STATIC_DEPS_CCFLAGS} ${EXTRA_CFLAGS}' LDFLAGS='${JAVA_STATIC_DEPS_LDFLAGS} ${EXTRA_LDFLAGS}' libzstd.a
 	cp zstd-$(ZSTD_VER)/lib/libzstd.a .
@@ -2205,12 +2252,17 @@ JAVA_COMPRESSIONS = libz.a libbz2.a libsnappy.a liblz4.a libzstd.a
 endif
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4 -DZSTD
-JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib/include
+JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./snappy-$(SNAPPY_VER)/build -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib -I./zstd-$(ZSTD_VER)/lib/dictBuilder
 ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
 CXXFLAGS += $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
 CFLAGS +=  $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
 endif
-rocksdbjavastatic: $(LIB_OBJECTS) $(JAVA_COMPRESSIONS)
+rocksdbjavastatic:
+ifeq ($(JAVA_HOME),)
+	$(error JAVA_HOME is not set)
+endif
+	$(MAKE) rocksdbjavastatic_deps
+	$(MAKE) rocksdbjavastatic_libobjects
 	cd java;$(MAKE) javalib;
 	rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
@@ -2229,6 +2281,10 @@ rocksdbjavastatic: $(LIB_OBJECTS) $(JAVA_COMPRESSIONS)
 	openssl sha1 java/target/$(ROCKSDB_JAVADOCS_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_JAVADOCS_JAR).sha1
 	openssl sha1 java/target/$(ROCKSDB_SOURCES_JAR) | sed 's/.*= \([0-9a-f]*\)/\1/' > java/target/$(ROCKSDB_SOURCES_JAR).sha1
 
+rocksdbjavastatic_deps: $(JAVA_COMPRESSIONS)
+
+rocksdbjavastatic_libobjects: $(LIB_OBJECTS)
+
 rocksdbjavastaticrelease: rocksdbjavastatic
 	cd java/crossbuild && (vagrant destroy -f || true) && vagrant up linux32 && vagrant halt linux32 && vagrant up linux64 && vagrant halt linux64 && vagrant up linux64-musl && vagrant halt linux64-musl
 	cd java;jar -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
@@ -2244,7 +2300,7 @@ rocksdbjavastaticreleasedocker: rocksdbjavastatic rocksdbjavastaticdockerx86 roc
 
 rocksdbjavastaticdockerx86:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_x86-be --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:centos6_x86-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
+	docker run --rm --name rocksdb_linux_x86-be --platform linux/386 --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:centos6_x86-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
 
 rocksdbjavastaticdockerx86_64:
 	mkdir -p java/target
@@ -2260,7 +2316,7 @@ rocksdbjavastaticdockerarm64v8:
 
 rocksdbjavastaticdockerx86musl:
 	mkdir -p java/target
-	docker run --rm --name rocksdb_linux_x86-musl-be --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:alpine3_x86-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
+	docker run --rm --name rocksdb_linux_x86-musl-be --platform linux/386 --attach stdin --attach stdout --attach stderr --volume $(HOME)/.m2:/root/.m2:ro --volume `pwd`:/rocksdb-host:ro --volume /rocksdb-local-build --volume `pwd`/java/target:/rocksdb-java-target --env DEBUG_LEVEL=$(DEBUG_LEVEL) evolvedbinary/rocksjava:alpine3_x86-be /rocksdb-host/java/crossbuild/docker-build-linux-centos.sh
 
 rocksdbjavastaticdockerx86_64musl:
 	mkdir -p java/target
@@ -2298,6 +2354,9 @@ jl/%.o: %.cc
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
 rocksdbjava: $(LIB_OBJECTS)
+ifeq ($(JAVA_HOME),)
+	$(error JAVA_HOME is not set)
+endif
 	$(AM_V_GEN)cd java;$(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIB_OBJECTS) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
