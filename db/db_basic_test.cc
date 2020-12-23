@@ -1961,7 +1961,7 @@ TEST_F(DBBasicTest, MultiGetStats) {
   ASSERT_GT(hist_sst.max, 0);
 
   // Minimun number of blocks read in a level.
-  ASSERT_EQ(hist_data_blocks.min, 0);
+  ASSERT_EQ(hist_data_blocks.min, 3);
   ASSERT_GT(hist_index_and_filter_blocks.min, 0);
   // Minimun number of sst files read in a level.
   ASSERT_GT(hist_sst.max, 0);
