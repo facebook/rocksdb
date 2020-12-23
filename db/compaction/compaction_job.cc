@@ -1449,9 +1449,8 @@ Status CompactionJob::FinishCompactionOutputFile(
   } else {
     sub_compact->builder->Abandon();
   }
-  IOStatus io_s = sub_compact->builder->io_status();
   if (s.ok()) {
-    s = io_s;
+    s = sub_compact->builder->io_status();
   }
   const uint64_t current_bytes = sub_compact->builder->FileSize();
   if (s.ok()) {
@@ -1462,6 +1461,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   sub_compact->total_bytes += current_bytes;
 
   // Finish and check for file errors
+  IOStatus io_s;
   if (s.ok()) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
     io_s = sub_compact->outfile->Sync(db_options_.use_fsync);
@@ -1500,7 +1500,18 @@ Status CompactionJob::FinishCompactionOutputFile(
     std::string fname =
         TableFileName(sub_compact->compaction->immutable_cf_options()->cf_paths,
                       meta->fd.GetNumber(), meta->fd.GetPathId());
-    env_->DeleteFile(fname);
+
+    // TODO(AR) it is not clear if there are any larger implications if
+    // DeleteFile fails here
+    Status ds = env_->DeleteFile(fname);
+    if (!ds.ok()) {
+      ROCKS_LOG_WARN(
+          db_options_.info_log,
+          "[%s] [JOB %d] Unable to remove SST file for table #%" PRIu64
+          " at bottom level%s",
+          cfd->GetName().c_str(), job_id_, output_number,
+          meta->marked_for_compaction ? " (need compaction)" : "");
+    }
 
     // Also need to remove the file from outputs, or it will be added to the
     // VersionEdit.

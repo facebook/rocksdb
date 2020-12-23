@@ -52,6 +52,7 @@ class BlockCacheTracerTest : public testing::Test {
         return TableReaderCaller::kUserIterator;
     }
     assert(false);
+    return TableReaderCaller::kMaxBlockCacheLookupCaller;
   }
 
   void WriteBlockAccess(BlockCacheTraceWriter* writer, uint32_t from_key_id,
@@ -200,8 +201,8 @@ TEST_F(BlockCacheTracerTest, AtomicWrite) {
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;
     ASSERT_OK(reader.ReadHeader(&header));
-    ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
-    ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
+    ASSERT_EQ(kMajorVersion, static_cast<int>(header.rocksdb_major_version));
+    ASSERT_EQ(kMinorVersion, static_cast<int>(header.rocksdb_minor_version));
     VerifyAccess(&reader, 0, TraceType::kBlockTraceDataBlock, 1);
     ASSERT_NOK(reader.ReadAccess(&record));
   }
@@ -244,8 +245,8 @@ TEST_F(BlockCacheTracerTest, AtomicNoWriteAfterEndTrace) {
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;
     ASSERT_OK(reader.ReadHeader(&header));
-    ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
-    ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
+    ASSERT_EQ(kMajorVersion, static_cast<int>(header.rocksdb_major_version));
+    ASSERT_EQ(kMinorVersion, static_cast<int>(header.rocksdb_minor_version));
     VerifyAccess(&reader, 0, TraceType::kBlockTraceDataBlock, 1);
     ASSERT_NOK(reader.ReadAccess(&record));
   }
@@ -307,8 +308,8 @@ TEST_F(BlockCacheTracerTest, MixedBlocks) {
     BlockCacheTraceReader reader(std::move(trace_reader));
     BlockCacheTraceHeader header;
     ASSERT_OK(reader.ReadHeader(&header));
-    ASSERT_EQ(kMajorVersion, header.rocksdb_major_version);
-    ASSERT_EQ(kMinorVersion, header.rocksdb_minor_version);
+    ASSERT_EQ(kMajorVersion, static_cast<int>(header.rocksdb_major_version));
+    ASSERT_EQ(kMinorVersion, static_cast<int>(header.rocksdb_minor_version));
     // Read blocks.
     VerifyAccess(&reader, 0, TraceType::kBlockTraceUncompressionDictBlock, 10);
     VerifyAccess(&reader, 10, TraceType::kBlockTraceDataBlock, 10);

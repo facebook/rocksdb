@@ -47,11 +47,7 @@ class ForwardLevelIterator : public InternalIterator {
         pinned_iters_mgr_(nullptr),
         prefix_extractor_(prefix_extractor),
         allow_unprepared_value_(allow_unprepared_value) {
-    /*
-    NOTE needed for ASSERT_STATUS_CHECKED
-    in MergeOperatorPinningTest/MergeOperatorPinningTest.TailingIterator
-    */
-    status_.PermitUncheckedError();
+    status_.PermitUncheckedError();  // Allow uninitialized status through
   }
 
   ~ForwardLevelIterator() override {
@@ -244,6 +240,12 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
   if (sv_) {
     RebuildIterators(false);
   }
+
+  // immutable_status_ is a local aggregation of the
+  // status of the immutable Iterators.
+  // We have to PermitUncheckedError in case it is never
+  // used, otherwise it will fail ASSERT_STATUS_CHECKED.
+  immutable_status_.PermitUncheckedError();
 }
 
 ForwardIterator::~ForwardIterator() {

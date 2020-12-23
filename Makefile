@@ -558,6 +558,7 @@ PARALLEL_TEST = \
 	table_test \
 	transaction_test \
 	point_lock_manager_test \
+	range_locking_test \
 	write_prepared_transaction_test \
 	write_unprepared_transaction_test \
 
@@ -586,6 +587,7 @@ ifdef ASSERT_STATUS_CHECKED
 		blob_file_reader_test \
 		bloom_test \
 		cassandra_format_test \
+		cassandra_functional_test \
 		cassandra_row_merge_test \
 		cassandra_serialize_test \
 		cleanable_test \
@@ -594,6 +596,14 @@ ifdef ASSERT_STATUS_CHECKED
 		crc32c_test \
 		dbformat_test \
 		db_basic_test \
+		compact_files_test \
+		compaction_picker_test \
+		comparator_db_test \
+		db_encryption_test \
+		db_iter_test \
+		db_iter_stress_test \
+		db_log_iter_test \
+		db_bloom_filter_test \
 		db_blob_basic_test \
 		db_blob_index_test \
 		db_block_cache_test \
@@ -606,10 +616,27 @@ ifdef ASSERT_STATUS_CHECKED
 		db_wal_test \
 		db_with_timestamp_basic_test \
 		db_with_timestamp_compaction_test \
+		db_write_test \
 		db_options_test \
 		db_properties_test \
+		db_range_del_test \
 		db_secondary_test \
+		deletefile_test \
+		external_sst_file_test \
 		options_file_test \
+		db_statistics_test \
+		db_table_properties_test \
+		db_tailing_iter_test \
+		fault_injection_test \
+		listener_test \
+		log_test \
+		manual_compaction_test \
+		obsolete_files_test \
+		perf_context_test \
+		periodic_work_scheduler_test \
+		perf_context_test \
+		version_set_test \
+		wal_manager_test \
 		defer_test \
 		filename_test \
 		dynamic_bloom_test \
@@ -631,6 +658,7 @@ ifdef ASSERT_STATUS_CHECKED
 		iostats_context_test \
 		ldb_cmd_test \
 		memkind_kmem_allocator_test \
+		merge_test \
 		merger_test \
 		mock_env_test \
 		object_registry_test \
@@ -643,6 +671,7 @@ ifdef ASSERT_STATUS_CHECKED
 		options_settable_test \
 		options_test \
 		point_lock_manager_test \
+		random_access_file_reader_test \
 		random_test \
 		range_del_aggregator_test \
 		sst_file_reader_test \
@@ -651,9 +680,11 @@ ifdef ASSERT_STATUS_CHECKED
 		ribbon_test \
 		skiplist_test \
 		slice_test \
+		slice_transform_test \
 		sst_dump_test \
 		statistics_test \
 		stats_history_test \
+		stringappend_test \
 		thread_local_test \
 		trace_analyzer_test \
 		transaction_test \
@@ -671,25 +702,38 @@ ifdef ASSERT_STATUS_CHECKED
 		version_builder_test \
 		version_edit_test \
 		work_queue_test \
+		write_buffer_manager_test \
 		write_controller_test \
 		write_prepared_transaction_test \
 		write_unprepared_transaction_test \
 		compaction_iterator_test \
 		compaction_job_test \
 		compaction_job_stats_test \
-	        io_tracer_test \
+		io_tracer_test \
+		io_tracer_parser_test \
+		prefetch_test \
 		merge_helper_test \
 		memtable_list_test \
 		flush_job_test \
 		block_based_filter_block_test \
 		block_fetcher_test \
+		block_test \
+		data_block_hash_index_test \
 		full_filter_block_test \
 		partitioned_filter_block_test \
 		column_family_test \
 		file_reader_writer_test \
+		rate_limiter_test \
 		corruption_test \
+		reduce_levels_test \
+		thread_list_test \
+		compact_on_deletion_collector_test \
 		db_universal_compaction_test \
 		import_column_family_test \
+		option_change_migration_test \
+		cuckoo_table_builder_test \
+		cuckoo_table_db_test \
+		cuckoo_table_reader_test \
 		memory_test \
 		table_test \
 		write_batch_test \
@@ -1924,6 +1968,9 @@ blob_db_test: $(OBJ_DIR)/utilities/blob_db/blob_db_test.o $(TEST_LIBRARY) $(LIBR
 	$(AM_LINK)
 
 repeatable_thread_test: $(OBJ_DIR)/util/repeatable_thread_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+range_locking_test: utilities/transactions/lock/range/range_locking_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 range_tombstone_fragmenter_test: $(OBJ_DIR)/db/range_tombstone_fragmenter_test.o $(TEST_LIBRARY) $(LIBRARY)
