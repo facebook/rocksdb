@@ -208,10 +208,10 @@ Status DBWithTTLImpl::Put(const WriteOptions& options,
                           const Slice& val) {
   WriteBatch batch;
   Status st = batch.Put(column_family, key, val);
-  if (!st.ok()) {
-    return st;
+  if (st.ok()) {
+    st = Write(options, &batch);
   }
-  return Write(options, &batch);
+  return st;
 }
 
 Status DBWithTTLImpl::Get(const ReadOptions& options,
@@ -264,10 +264,10 @@ Status DBWithTTLImpl::Merge(const WriteOptions& options,
                             const Slice& value) {
   WriteBatch batch;
   Status st = batch.Merge(column_family, key, value);
-  if (!st.ok()) {
-    return st;
+  if (st.ok()) {
+    st = Write(options, &batch);
   }
-  return Write(options, &batch);
+  return st;
 }
 
 Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {

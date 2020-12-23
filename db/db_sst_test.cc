@@ -170,7 +170,7 @@ TEST_F(DBSSTTest, DontDeleteMovedFile) {
     ASSERT_OK(Flush());
   }
   // this should execute both L0->L1 and L1->(move)->L2 compactions
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,1", FilesPerLevel(0));
 
   // If the moved file is actually deleted (the move-safeguard in
@@ -218,7 +218,7 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
     ASSERT_OK(Flush());
   }
   // this should execute both L0->L1 and L1->(move)->L2 compactions
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,1", FilesPerLevel(0));
 
   test::SleepingBackgroundTask blocking_thread;
@@ -264,9 +264,9 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
   // finish the flush!
   blocking_thread.WakeUp();
   blocking_thread.WaitUntilDone();
-  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
   // File just flushed is too big for L0 and L1 so gets moved to L2.
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ("0,0,1,0,1", FilesPerLevel(0));
 
   metadata.clear();
@@ -302,8 +302,8 @@ TEST_F(DBSSTTest, DBWithSstFileManager) {
   for (int i = 0; i < 25; i++) {
     GenerateNewRandomFile(&rnd);
     ASSERT_OK(Flush());
-    dbfull()->TEST_WaitForFlushMemTable();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     // Verify that we are tracking all sst files in dbname_
     std::unordered_map<std::string, uint64_t> files_in_db;
     ASSERT_OK(GetAllSSTFiles(&files_in_db));
@@ -608,7 +608,7 @@ TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
   Destroy(last_options_);
 
   // Add some trash files to the db directory so the DB can clean them up
-  env_->CreateDirIfMissing(dbname_);
+  ASSERT_OK(env_->CreateDirIfMissing(dbname_));
   ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "001.sst.trash"));
   ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "002.sst.trash"));
   ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "003.sst.trash"));
@@ -733,7 +733,7 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   int num_sst_files = 0;
   int num_wal_files = 0;
   std::vector<std::string> db_files;
-  env_->GetChildren(dbname_, &db_files);
+  ASSERT_OK(env_->GetChildren(dbname_, &db_files));
   for (std::string f : db_files) {
     if (f.substr(f.find_last_of(".") + 1) == "sst") {
       num_sst_files++;
@@ -822,7 +822,7 @@ TEST_F(DBSSTTest, CancellingCompactionsWorks) {
     ASSERT_OK(Put(Key(i), rnd.RandomString(50)));
   }
   ASSERT_OK(Flush());
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   // Because we set a callback in CancelledCompaction, we actually
   // let the compaction run

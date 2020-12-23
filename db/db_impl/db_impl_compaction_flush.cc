@@ -1391,8 +1391,6 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
 
   SuperVersionContext sv_context(/* create_superversion */ true);
 
-  Status status;
-
   InstrumentedMutexLock guard_lock(&mutex_);
 
   // only allow one thread refitting
@@ -1456,8 +1454,9 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
                     edit.DebugString().data());
 
-    status = versions_->LogAndApply(cfd, mutable_cf_options, &edit, &mutex_,
-                                    directories_.GetDbDir());
+    Status status = versions_->LogAndApply(cfd, mutable_cf_options, &edit,
+                                           &mutex_, directories_.GetDbDir());
+
     InstallSuperVersionAndScheduleWork(cfd, &sv_context, mutable_cf_options);
 
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] LogAndApply: %s\n",
@@ -1468,12 +1467,14 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
                       "[%s] After refitting:\n%s", cfd->GetName().c_str(),
                       cfd->current()->DebugString().data());
     }
+    sv_context.Clean();
+    refitting_level_ = false;
+
+    return status;
   }
 
-  sv_context.Clean();
   refitting_level_ = false;
-
-  return status;
+  return Status::OK();
 }
 
 int DBImpl::NumberLevels(ColumnFamilyHandle* column_family) {

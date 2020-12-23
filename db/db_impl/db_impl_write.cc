@@ -163,7 +163,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
-  Status status;
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
     // we are a non-leader in a parallel group
 
@@ -193,8 +192,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
     assert(w.state == WriteThread::STATE_COMPLETED);
     // STATE_COMPLETED conditional below handles exit
-
-    status = w.FinalStatus();
   }
   if (w.state == WriteThread::STATE_COMPLETED) {
     if (log_used != nullptr) {
@@ -204,13 +201,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       *seq_used = w.sequence;
     }
     // write is complete and leader has updated sequence
-    // Should we handle it?
-    status.PermitUncheckedError();
     return w.FinalStatus();
   }
   // else we are the leader of the write batch group
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
-
+  Status status;
   // Once reaches this point, the current writer "w" will try to do its write
   // job.  It may also pick up some of the remaining writers in the "writers_"
   // when it finds suitable, and finish them in the same write batch.
@@ -531,6 +526,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
     IOStatus io_s;
+    io_s.PermitUncheckedError();  // Allow io_s to be uninitialized
+
     if (w.status.ok() && !write_options.disableWAL) {
       PERF_TIMER_GUARD(write_wal_time);
       stats->AddDBStats(InternalStats::kIntStatsWriteDoneBySelf, 1);
@@ -776,6 +773,7 @@ Status DBImpl::WriteImplWALOnly(
   }
   Status status;
   IOStatus io_s;
+  io_s.PermitUncheckedError();  // Allow io_s to be uninitialized
   if (!write_options.disableWAL) {
     io_s = ConcurrentWriteToWAL(write_group, log_used, &last_sequence, seq_inc);
     status = io_s;

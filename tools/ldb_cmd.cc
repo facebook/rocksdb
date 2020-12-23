@@ -2016,12 +2016,16 @@ void ReduceDBLevelsCommand::DoCommand() {
   assert(db_ != nullptr);
   // Compact the whole DB to put all files to the highest level.
   fprintf(stdout, "Compacting the db...\n");
-  db_->CompactRange(CompactRangeOptions(), GetCfHandle(), nullptr, nullptr);
+  st =
+      db_->CompactRange(CompactRangeOptions(), GetCfHandle(), nullptr, nullptr);
+
   CloseDB();
 
-  EnvOptions soptions;
-  st = VersionSet::ReduceNumberOfLevels(db_path_, &options_, soptions,
-                                        new_levels_);
+  if (st.ok()) {
+    EnvOptions soptions;
+    st = VersionSet::ReduceNumberOfLevels(db_path_, &options_, soptions,
+                                          new_levels_);
+  }
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
     return;
