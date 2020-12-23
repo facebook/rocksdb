@@ -120,7 +120,8 @@ class StringAppendOperatorTest : public testing::Test,
                                  public ::testing::WithParamInterface<bool> {
  public:
   StringAppendOperatorTest() {
-    DestroyDB(kDbName, Options());    // Start each test with a fresh DB
+    DestroyDB(kDbName, Options())
+        .PermitUncheckedError();  // Start each test with a fresh DB
   }
 
   void SetUp() override {
@@ -253,9 +254,7 @@ TEST_P(StringAppendOperatorTest, SimpleTest) {
   slists.Append("k1", "v3");
 
   std::string res;
-  bool status = slists.Get("k1", &res);
-
-  ASSERT_TRUE(status);
+  ASSERT_TRUE(slists.Get("k1", &res));
   ASSERT_EQ(res, "v1,v2,v3");
 }
 
@@ -268,7 +267,7 @@ TEST_P(StringAppendOperatorTest, SimpleDelimiterTest) {
   slists.Append("k1", "v3");
 
   std::string res;
-  slists.Get("k1", &res);
+  ASSERT_TRUE(slists.Get("k1", &res));
   ASSERT_EQ(res, "v1|v2|v3");
 }
 
@@ -279,7 +278,7 @@ TEST_P(StringAppendOperatorTest, OneValueNoDelimiterTest) {
   slists.Append("random_key", "single_val");
 
   std::string res;
-  slists.Get("random_key", &res);
+  ASSERT_TRUE(slists.Get("random_key", &res));
   ASSERT_EQ(res, "single_val");
 }
 
@@ -424,9 +423,9 @@ TEST_P(StringAppendOperatorTest, PersistentVariousKeys) {
     slists.Append("c", "asdasd");
 
     std::string a, b, c;
-    slists.Get("a", &a);
-    slists.Get("b", &b);
-    slists.Get("c", &c);
+    ASSERT_TRUE(slists.Get("a", &a));
+    ASSERT_TRUE(slists.Get("b", &b));
+    ASSERT_TRUE(slists.Get("c", &c));
 
     ASSERT_EQ(a, "x\nt\nr");
     ASSERT_EQ(b, "y\n2");
@@ -450,9 +449,9 @@ TEST_P(StringAppendOperatorTest, PersistentVariousKeys) {
     // The most recent changes should be in memory (MemTable)
     // Hence, this will test both Get() paths.
     std::string a, b, c;
-    slists.Get("a", &a);
-    slists.Get("b", &b);
-    slists.Get("c", &c);
+    ASSERT_TRUE(slists.Get("a", &a));
+    ASSERT_TRUE(slists.Get("b", &b));
+    ASSERT_TRUE(slists.Get("c", &c));
 
     ASSERT_EQ(a, "x\nt\nr\nsa\ngh\njk");
     ASSERT_EQ(b, "y\n2\ndf\nl;");
@@ -466,9 +465,9 @@ TEST_P(StringAppendOperatorTest, PersistentVariousKeys) {
 
     // All changes should be on disk. This will test VersionSet Get()
     std::string a, b, c;
-    slists.Get("a", &a);
-    slists.Get("b", &b);
-    slists.Get("c", &c);
+    ASSERT_TRUE(slists.Get("a", &a));
+    ASSERT_TRUE(slists.Get("b", &b));
+    ASSERT_TRUE(slists.Get("c", &c));
 
     ASSERT_EQ(a, "x\nt\nr\nsa\ngh\njk");
     ASSERT_EQ(b, "y\n2\ndf\nl;");
@@ -482,41 +481,34 @@ TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
     auto db = OpenDb('\n');
     StringLists slists(db);
     std::string a, b, c;
-    bool success;
 
     // Append, Flush, Get
     slists.Append("c", "asdasd");
-    db->Flush(ROCKSDB_NAMESPACE::FlushOptions());
-    success = slists.Get("c", &c);
-    ASSERT_TRUE(success);
+    ASSERT_OK(db->Flush(ROCKSDB_NAMESPACE::FlushOptions()));
+    ASSERT_TRUE(slists.Get("c", &c));
     ASSERT_EQ(c, "asdasd");
 
     // Append, Flush, Append, Get
     slists.Append("a", "x");
     slists.Append("b", "y");
-    db->Flush(ROCKSDB_NAMESPACE::FlushOptions());
+    ASSERT_OK(db->Flush(ROCKSDB_NAMESPACE::FlushOptions()));
     slists.Append("a", "t");
     slists.Append("a", "r");
     slists.Append("b", "2");
 
-    success = slists.Get("a", &a);
-    assert(success == true);
+    ASSERT_TRUE(slists.Get("a", &a));
     ASSERT_EQ(a, "x\nt\nr");
 
-    success = slists.Get("b", &b);
-    assert(success == true);
+    ASSERT_TRUE(slists.Get("b", &b));
     ASSERT_EQ(b, "y\n2");
 
     // Append, Get
-    success = slists.Append("c", "asdasd");
-    assert(success);
-    success = slists.Append("b", "monkey");
-    assert(success);
+    ASSERT_TRUE(slists.Append("c", "asdasd"));
+    ASSERT_TRUE(slists.Append("b", "monkey"));
 
-    // I omit the "assert(success)" checks here.
-    slists.Get("a", &a);
-    slists.Get("b", &b);
-    slists.Get("c", &c);
+    ASSERT_TRUE(slists.Get("a", &a));
+    ASSERT_TRUE(slists.Get("b", &b));
+    ASSERT_TRUE(slists.Get("c", &c));
 
     ASSERT_EQ(a, "x\nt\nr");
     ASSERT_EQ(b, "y\n2\nmonkey");
@@ -530,17 +522,17 @@ TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
     std::string a, b, c;
 
     // Get (Quick check for persistence of previous database)
-    slists.Get("a", &a);
+    ASSERT_TRUE(slists.Get("a", &a));
     ASSERT_EQ(a, "x\nt\nr");
 
     //Append, Compact, Get
     slists.Append("c", "bbnagnagsx");
     slists.Append("a", "sa");
     slists.Append("b", "df");
-    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-    slists.Get("a", &a);
-    slists.Get("b", &b);
-    slists.Get("c", &c);
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    ASSERT_TRUE(slists.Get("a", &a));
+    ASSERT_TRUE(slists.Get("b", &b));
+    ASSERT_TRUE(slists.Get("c", &c));
     ASSERT_EQ(a, "x\nt\nr\nsa");
     ASSERT_EQ(b, "y\n2\nmonkey\ndf");
     ASSERT_EQ(c, "asdasd\nasdasd\nbbnagnagsx");
@@ -550,24 +542,24 @@ TEST_P(StringAppendOperatorTest, PersistentFlushAndCompaction) {
     slists.Append("a", "jk");
     slists.Append("b", "l;");
     slists.Append("c", "rogosh");
-    slists.Get("a", &a);
-    slists.Get("b", &b);
-    slists.Get("c", &c);
+    ASSERT_TRUE(slists.Get("a", &a));
+    ASSERT_TRUE(slists.Get("b", &b));
+    ASSERT_TRUE(slists.Get("c", &c));
     ASSERT_EQ(a, "x\nt\nr\nsa\ngh\njk");
     ASSERT_EQ(b, "y\n2\nmonkey\ndf\nl;");
     ASSERT_EQ(c, "asdasd\nasdasd\nbbnagnagsx\nrogosh");
 
     // Compact, Get
-    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     ASSERT_EQ(a, "x\nt\nr\nsa\ngh\njk");
     ASSERT_EQ(b, "y\n2\nmonkey\ndf\nl;");
     ASSERT_EQ(c, "asdasd\nasdasd\nbbnagnagsx\nrogosh");
 
     // Append, Flush, Compact, Get
     slists.Append("b", "afcg");
-    db->Flush(ROCKSDB_NAMESPACE::FlushOptions());
-    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-    slists.Get("b", &b);
+    ASSERT_OK(db->Flush(ROCKSDB_NAMESPACE::FlushOptions()));
+    ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    ASSERT_TRUE(slists.Get("b", &b));
     ASSERT_EQ(b, "y\n2\nmonkey\ndf\nl;\nafcg");
   }
 }
@@ -581,17 +573,16 @@ TEST_P(StringAppendOperatorTest, SimpleTestNullDelimiter) {
   slists.Append("k1", "v3");
 
   std::string res;
-  bool status = slists.Get("k1", &res);
-  ASSERT_TRUE(status);
+  ASSERT_TRUE(slists.Get("k1", &res));
 
   // Construct the desired string. Default constructor doesn't like '\0' chars.
   std::string checker("v1,v2,v3");    // Verify that the string is right size.
   checker[2] = '\0';                  // Use null delimiter instead of comma.
   checker[5] = '\0';
-  assert(checker.size() == 8);        // Verify it is still the correct size
+  ASSERT_EQ(checker.size(), 8);  // Verify it is still the correct size
 
   // Check that the rocksdb result string matches the desired string
-  assert(res.size() == checker.size());
+  ASSERT_EQ(res.size(), checker.size());
   ASSERT_EQ(res, checker);
 }
 

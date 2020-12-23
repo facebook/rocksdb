@@ -38,7 +38,7 @@ DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db), closed_(false) {}
 
 DBWithTTLImpl::~DBWithTTLImpl() {
   if (!closed_) {
-    Close();
+    Close().PermitUncheckedError();
   }
 }
 
@@ -185,31 +185,32 @@ bool DBWithTTLImpl::IsStale(const Slice& value, int32_t ttl, Env* env) {
 
 // Strips the TS from the end of the slice
 Status DBWithTTLImpl::StripTS(PinnableSlice* pinnable_val) {
-  Status st;
   if (pinnable_val->size() < kTSLength) {
     return Status::Corruption("Bad timestamp in key-value");
   }
   // Erasing characters which hold the TS
   pinnable_val->remove_suffix(kTSLength);
-  return st;
+  return Status::OK();
 }
 
 // Strips the TS from the end of the string
 Status DBWithTTLImpl::StripTS(std::string* str) {
-  Status st;
   if (str->length() < kTSLength) {
     return Status::Corruption("Bad timestamp in key-value");
   }
   // Erasing characters which hold the TS
   str->erase(str->length() - kTSLength, kTSLength);
-  return st;
+  return Status::OK();
 }
 
 Status DBWithTTLImpl::Put(const WriteOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
                           const Slice& val) {
   WriteBatch batch;
-  batch.Put(column_family, key, val);
+  Status st = batch.Put(column_family, key, val);
+  if (!st.ok()) {
+    return st;
+  }
   return Write(options, &batch);
 }
 
@@ -262,7 +263,10 @@ Status DBWithTTLImpl::Merge(const WriteOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             const Slice& value) {
   WriteBatch batch;
-  batch.Merge(column_family, key, value);
+  Status st = batch.Merge(column_family, key, value);
+  if (!st.ok()) {
+    return st;
+  }
   return Write(options, &batch);
 }
 
@@ -271,34 +275,28 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
    public:
     explicit Handler(Env* env) : env_(env) {}
     WriteBatch updates_ttl;
-    Status batch_rewrite_status;
     Status PutCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
       std::string value_with_ts;
       Status st = AppendTS(value, &value_with_ts, env_);
       if (!st.ok()) {
-        batch_rewrite_status = st;
-      } else {
-        WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
-                                value_with_ts);
+        return st;
       }
-      return Status::OK();
+      return WriteBatchInternal::Put(&updates_ttl, column_family_id, key,
+                                     value_with_ts);
     }
     Status MergeCF(uint32_t column_family_id, const Slice& key,
                    const Slice& value) override {
       std::string value_with_ts;
       Status st = AppendTS(value, &value_with_ts, env_);
       if (!st.ok()) {
-        batch_rewrite_status = st;
-      } else {
-        WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
-                                  value_with_ts);
+        return st;
       }
-      return Status::OK();
+      return WriteBatchInternal::Merge(&updates_ttl, column_family_id, key,
+                                       value_with_ts);
     }
     Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
-      WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
-      return Status::OK();
+      return WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
     }
     void LogData(const Slice& blob) override { updates_ttl.PutLogData(blob); }
 
@@ -306,9 +304,9 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
     Env* env_;
   };
   Handler handler(GetEnv());
-  updates->Iterate(&handler);
-  if (!handler.batch_rewrite_status.ok()) {
-    return handler.batch_rewrite_status;
+  Status st = updates->Iterate(&handler);
+  if (!st.ok()) {
+    return st;
   } else {
     return db_->Write(opts, &(handler.updates_ttl));
   }
