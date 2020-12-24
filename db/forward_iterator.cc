@@ -1013,7 +1013,6 @@ void ForwardIterator::DeleteIterator(InternalIterator* iter, bool is_arena) {
     if (is_arena) {
       iter->~InternalIterator();
     } else {
-      iter->status().PermitUncheckedError();
       delete iter;
     }
   }
