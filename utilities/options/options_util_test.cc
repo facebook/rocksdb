@@ -85,7 +85,7 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
         exact, cf_opts[i], loaded_cf_descs[i].options));
   }
 
-  DestroyDB(dbname_, Options(db_opt, cf_opts[0]));
+  ASSERT_OK(DestroyDB(dbname_, Options(db_opt, cf_opts[0])));
   for (size_t i = 0; i < kCFCount; ++i) {
     if (cf_opts[i].compaction_filter) {
       delete cf_opts[i].compaction_filter;
@@ -155,7 +155,7 @@ TEST_F(OptionsUtilTest, SaveAndLoadWithCacheCheck) {
       ASSERT_EQ(loaded_bbt_opt->block_cache.get(), cache.get());
     }
   }
-  DestroyDB(dbname_, Options(loaded_db_opt, cf_opts[0]));
+  ASSERT_OK(DestroyDB(dbname_, Options(loaded_db_opt, cf_opts[0])));
 }
 
 namespace {
@@ -252,7 +252,7 @@ TEST_F(OptionsUtilTest, SanityCheck) {
   db_opt.create_missing_column_families = true;
   db_opt.create_if_missing = true;
 
-  DestroyDB(dbname_, Options(db_opt, cf_descs[0].options));
+  ASSERT_OK(DestroyDB(dbname_, Options(db_opt, cf_descs[0].options)));
   DB* db;
   std::vector<ColumnFamilyHandle*> handles;
   // open and persist the options
@@ -361,7 +361,7 @@ TEST_F(OptionsUtilTest, SanityCheck) {
     ASSERT_OK(
         CheckOptionsCompatibility(config_options, dbname_, db_opt, cf_descs));
   }
-  DestroyDB(dbname_, Options(db_opt, cf_descs[0].options));
+  ASSERT_OK(DestroyDB(dbname_, Options(db_opt, cf_descs[0].options)));
 }
 
 TEST_F(OptionsUtilTest, LatestOptionsNotFound) {
@@ -379,7 +379,7 @@ TEST_F(OptionsUtilTest, LatestOptionsNotFound) {
   std::vector<std::string> children;
 
   std::string options_file_name;
-  DestroyDB(dbname_, options);
+  ASSERT_OK(DestroyDB(dbname_, options));
   // First, test where the db directory does not exist
   ASSERT_NOK(options.env->GetChildren(dbname_, &children));
 
@@ -436,7 +436,7 @@ TEST_F(OptionsUtilTest, LoadLatestOptions) {
   DB* db;
   options.create_if_missing = true;
 
-  DestroyDB(dbname_, options);
+  ASSERT_OK(DestroyDB(dbname_, options));
 
   cf_descs.emplace_back();
   cf_descs.back().name = kDefaultColumnFamilyName;
@@ -494,7 +494,7 @@ TEST_F(OptionsUtilTest, LoadLatestOptions) {
     delete handle;
   }
   delete db;
-  DestroyDB(dbname_, options, cf_descs);
+  ASSERT_OK(DestroyDB(dbname_, options, cf_descs));
 }
 
 static void WriteOptionsFile(Env* env, const std::string& path,

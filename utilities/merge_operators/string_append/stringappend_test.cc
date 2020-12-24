@@ -120,8 +120,8 @@ class StringAppendOperatorTest : public testing::Test,
                                  public ::testing::WithParamInterface<bool> {
  public:
   StringAppendOperatorTest() {
-    DestroyDB(kDbName, Options())
-        .PermitUncheckedError();  // Start each test with a fresh DB
+    EXPECT_OK(
+        DestroyDB(kDbName, Options()));  // Start each test with a fresh DB
   }
 
   void SetUp() override {

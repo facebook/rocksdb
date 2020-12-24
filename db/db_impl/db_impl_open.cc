@@ -164,7 +164,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   // was not used)
   auto sfm = static_cast<SstFileManagerImpl*>(result.sst_file_manager.get());
   for (size_t i = 0; i < result.db_paths.size(); i++) {
-    DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path);
+    DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path)
+        .PermitUncheckedError();
   }
 
   // Create a default SstFileManager for purposes of tracking compaction size

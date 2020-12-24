@@ -177,8 +177,10 @@ Status SstFileDumper::VerifyChecksum() {
 Status SstFileDumper::DumpTable(const std::string& out_filename) {
   std::unique_ptr<WritableFile> out_file;
   Env* env = options_.env;
-  env->NewWritableFile(out_filename, &out_file, soptions_);
-  Status s = table_reader_->DumpTable(out_file.get());
+  Status s = env->NewWritableFile(out_filename, &out_file, soptions_);
+  if (s.ok()) {
+    s = table_reader_->DumpTable(out_file.get());
+  }
   if (!s.ok()) {
     // close the file before return error, ignore the close error if there's any
     out_file->Close().PermitUncheckedError();

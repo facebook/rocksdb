@@ -377,10 +377,10 @@ class TableConstructor : public Constructor {
       } else {
         builder->Add(kv.first, kv.second);
       }
-      EXPECT_TRUE(builder->status().ok());
+      EXPECT_OK(builder->status());
     }
     Status s = builder->Finish();
-    file_writer_->Flush();
+    EXPECT_OK(file_writer_->Flush());
     EXPECT_TRUE(s.ok()) << s.ToString();
 
     EXPECT_EQ(TEST_GetSink()->contents().size(), builder->FileSize());
@@ -1270,15 +1270,15 @@ class FileChecksumTestHelper {
       EXPECT_TRUE(table_builder_->status().ok());
     }
     Status s = table_builder_->Finish();
-    file_writer_->Flush();
-    EXPECT_TRUE(s.ok());
+    EXPECT_OK(file_writer_->Flush());
+    EXPECT_OK(s);
 
     EXPECT_EQ(sink_->contents().size(), table_builder_->FileSize());
     return s;
   }
 
   std::string GetFileChecksum() {
-    file_writer_->Close();
+    EXPECT_OK(file_writer_->Close());
     return table_builder_->GetFileChecksum();
   }
 
@@ -3323,7 +3323,7 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
-  f.WriteKVAndFlushTable();
+  ASSERT_OK(f.WriteKVAndFlushTable());
   ASSERT_STREQ(f.GetFileChecksumFuncName(), kUnknownFileChecksumFuncName);
   ASSERT_STREQ(f.GetFileChecksum().c_str(), kUnknownFileChecksum);
 }
@@ -3362,7 +3362,7 @@ TEST_P(BlockBasedTableTest, Crc32cFileChecksum) {
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
-  f.WriteKVAndFlushTable();
+  ASSERT_OK(f.WriteKVAndFlushTable());
   ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
 
   std::unique_ptr<FileChecksumGenerator> checksum_crc32c_gen2 =
@@ -3418,7 +3418,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
     builder->Add(key, value);
   }
   ASSERT_OK(builder->Finish());
-  file_writer->Flush();
+  ASSERT_OK(file_writer->Flush());
 
   test::StringSink* ss =
       ROCKSDB_NAMESPACE::test::GetStringSinkFromLegacyWriter(file_writer.get());
@@ -3468,7 +3468,7 @@ TEST_F(PlainTableTest, NoFileChecksum) {
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
-  f.WriteKVAndFlushTable();
+  ASSERT_OK(f.WriteKVAndFlushTable());
   ASSERT_STREQ(f.GetFileChecksumFuncName(), kUnknownFileChecksumFuncName);
   EXPECT_EQ(f.GetFileChecksum(), kUnknownFileChecksum);
 }
@@ -3510,7 +3510,7 @@ TEST_F(PlainTableTest, Crc32cFileChecksum) {
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
-  f.WriteKVAndFlushTable();
+  ASSERT_OK(f.WriteKVAndFlushTable());
   ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
 
   std::unique_ptr<FileChecksumGenerator> checksum_crc32c_gen2 =
@@ -4022,7 +4022,7 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
 
   const std::string kDBPath = test::PerThreadDBPath("table_prefix_test");
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  DestroyDB(kDBPath, options);
+  ASSERT_OK(DestroyDB(kDBPath, options));
   ROCKSDB_NAMESPACE::DB* db;
   ASSERT_OK(ROCKSDB_NAMESPACE::DB::Open(options, kDBPath, &db));
 
@@ -4081,7 +4081,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
     builder->Add(ik.Encode(), value);
   }
   ASSERT_OK(builder->Finish());
-  file_writer->Flush();
+  ASSERT_OK(file_writer->Flush());
 
   test::RandomRWStringSink ss_rw(sink);
   uint32_t version;
@@ -4265,7 +4265,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
     builder->Add(ik.Encode(), value);
   }
   ASSERT_OK(builder->Finish());
-  file_writer->Flush();
+  ASSERT_OK(file_writer->Flush());
 
   test::RandomRWStringSink ss_rw(sink);
   std::unique_ptr<RandomAccessFileReader> file_reader(
@@ -4360,7 +4360,7 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     builder->Add(ik.Encode(), value);
   }
   ASSERT_OK(builder->Finish());
-  file_writer->Flush();
+  ASSERT_OK(file_writer->Flush());
 
   test::RandomRWStringSink ss_rw(sink);
   std::unique_ptr<RandomAccessFileReader> file_reader(
@@ -4511,7 +4511,7 @@ TEST_P(BlockBasedTableTest, BadOptions) {
   const std::string kDBPath =
       test::PerThreadDBPath("block_based_table_bad_options_test");
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  DestroyDB(kDBPath, options);
+  ASSERT_OK(DestroyDB(kDBPath, options));
   ROCKSDB_NAMESPACE::DB* db;
   ASSERT_NOK(ROCKSDB_NAMESPACE::DB::Open(options, kDBPath, &db));
 
