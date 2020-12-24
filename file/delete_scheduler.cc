@@ -182,7 +182,6 @@ Status DeleteScheduler::MarkAsTrash(const std::string& file_path,
   *trash_file = file_path + kTrashExtension;
   // TODO(tec) : Implement Env::RenameFileIfNotExist and remove
   //             file_move_mu mutex.
-  Status s;
   int cnt = 0;
   Status s;
   InstrumentedMutexLock l(&file_move_mu_);
