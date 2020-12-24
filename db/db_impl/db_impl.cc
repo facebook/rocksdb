@@ -4872,7 +4872,7 @@ Status DBImpl::VerifySstFileChecksum(const FileMetaData& fmeta,
       fs_.get(), fname, immutable_db_options_.file_checksum_gen_factory.get(),
       fmeta.file_checksum_func_name, &file_checksum, &func_name,
       read_options.readahead_size, immutable_db_options_.allow_mmap_reads,
-      io_tracer_);
+      io_tracer_, immutable_db_options_.rate_limiter.get());
   if (s.ok()) {
     assert(fmeta.file_checksum_func_name == func_name);
     if (file_checksum != fmeta.file_checksum) {
