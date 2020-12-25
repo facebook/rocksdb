@@ -1505,11 +1505,11 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       }
     }
   }
+  delete checkpoint;
+  checkpoint = nullptr;
   std::vector<ColumnFamilyHandle*> cf_handles;
   DB* checkpoint_db = nullptr;
   if (s.ok()) {
-    delete checkpoint;
-    checkpoint = nullptr;
     Options options(options_);
     options.listeners.clear();
     std::vector<ColumnFamilyDescriptor> cf_descs;
