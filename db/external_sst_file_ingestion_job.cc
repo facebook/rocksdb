@@ -201,7 +201,8 @@ Status ExternalSstFileIngestionJob::Prepare(
             requested_checksum_func_name, &generated_checksum,
             &generated_checksum_func_name,
             ingestion_options_.verify_checksums_readahead_size,
-            db_options_.allow_mmap_reads, io_tracer_);
+            db_options_.allow_mmap_reads, io_tracer_,
+            db_options_.rate_limiter.get());
         if (!io_s.ok()) {
           status = io_s;
           ROCKS_LOG_WARN(db_options_.info_log,
@@ -856,7 +857,7 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
       db_options_.file_checksum_gen_factory.get(), requested_checksum_func_name,
       &file_checksum, &file_checksum_func_name,
       ingestion_options_.verify_checksums_readahead_size,
-      db_options_.allow_mmap_reads, io_tracer_);
+      db_options_.allow_mmap_reads, io_tracer_, db_options_.rate_limiter.get());
   if (!io_s.ok()) {
     return io_s;
   }
