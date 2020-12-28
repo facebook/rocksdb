@@ -729,7 +729,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
     for (int j = 0; j < 10; j++) {
       ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
-    Flush();
+    ASSERT_OK(Flush());
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);

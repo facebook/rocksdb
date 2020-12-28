@@ -145,7 +145,7 @@ TEST_F(ThreadListTest, SimpleColumnFamilyInfoTest) {
   std::vector<ThreadStatus> thread_list;
 
   // Verify the number of running threads in each pool.
-  env->GetThreadList(&thread_list);
+  ASSERT_OK(env->GetThreadList(&thread_list));
   int running_count[ThreadStatus::NUM_THREAD_TYPES] = {0};
   for (auto thread_status : thread_list) {
     if (thread_status.cf_name == "pikachu" &&
@@ -166,7 +166,7 @@ TEST_F(ThreadListTest, SimpleColumnFamilyInfoTest) {
   running_task.WaitUntilDone();
 
   // Verify none of the threads are running
-  env->GetThreadList(&thread_list);
+  ASSERT_OK(env->GetThreadList(&thread_list));
 
   for (int i = 0; i < ThreadStatus::NUM_THREAD_TYPES; ++i) {
     running_count[i] = 0;
@@ -281,7 +281,7 @@ TEST_F(ThreadListTest, SimpleEventTest) {
   int state_counts[ThreadStatus::NUM_STATE_TYPES] = {0};
 
   std::vector<ThreadStatus> thread_list;
-  env->GetThreadList(&thread_list);
+  ASSERT_OK(env->GetThreadList(&thread_list));
   UpdateStatusCounts(thread_list, operation_counts, state_counts);
   VerifyAndResetCounts(correct_operation_counts, operation_counts,
                        ThreadStatus::NUM_OP_TYPES);
@@ -293,7 +293,7 @@ TEST_F(ThreadListTest, SimpleEventTest) {
   UpdateCount(correct_operation_counts, ThreadStatus::OP_COMPACTION,
               ThreadStatus::OP_UNKNOWN, kCompactionWaitTasks);
 
-  env->GetThreadList(&thread_list);
+  ASSERT_OK(env->GetThreadList(&thread_list));
   UpdateStatusCounts(thread_list, operation_counts, state_counts);
   VerifyAndResetCounts(correct_operation_counts, operation_counts,
                        ThreadStatus::NUM_OP_TYPES);
@@ -305,7 +305,7 @@ TEST_F(ThreadListTest, SimpleEventTest) {
   UpdateCount(correct_operation_counts, ThreadStatus::OP_FLUSH,
               ThreadStatus::OP_UNKNOWN, kFlushWriteTasks);
 
-  env->GetThreadList(&thread_list);
+  ASSERT_OK(env->GetThreadList(&thread_list));
   UpdateStatusCounts(thread_list, operation_counts, state_counts);
   VerifyAndResetCounts(correct_operation_counts, operation_counts,
                        ThreadStatus::NUM_OP_TYPES);
@@ -317,7 +317,7 @@ TEST_F(ThreadListTest, SimpleEventTest) {
   UpdateCount(correct_operation_counts, ThreadStatus::OP_COMPACTION,
               ThreadStatus::OP_UNKNOWN, kCompactionWriteTasks);
 
-  env->GetThreadList(&thread_list);
+  ASSERT_OK(env->GetThreadList(&thread_list));
   UpdateStatusCounts(thread_list, operation_counts, state_counts);
   VerifyAndResetCounts(correct_operation_counts, operation_counts,
                        ThreadStatus::NUM_OP_TYPES);
@@ -329,7 +329,7 @@ TEST_F(ThreadListTest, SimpleEventTest) {
   UpdateCount(correct_operation_counts, ThreadStatus::OP_COMPACTION,
               ThreadStatus::OP_UNKNOWN, kCompactionReadTasks);
 
-  env->GetThreadList(&thread_list);
+  ASSERT_OK(env->GetThreadList(&thread_list));
   UpdateStatusCounts(thread_list, operation_counts, state_counts);
   VerifyAndResetCounts(correct_operation_counts, operation_counts,
                        ThreadStatus::NUM_OP_TYPES);
