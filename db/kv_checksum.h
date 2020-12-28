@@ -85,7 +85,7 @@ class ProtectionInfo {
   static const uint64_t kSeedC = kSeedS + kSeedInc;
 
   ProtectionInfo<T>(T val) : val_(val) {
-    static_assert(sizeof(ProtectionInfo<T>) == sizeof(T));
+    static_assert(sizeof(ProtectionInfo<T>) == sizeof(T), "");
   }
 
   T GetVal() const { return val_; }
@@ -120,7 +120,7 @@ class ProtectionInfoKVOT {
   friend class ProtectionInfoKVOTC<T>;
 
   ProtectionInfoKVOT<T>(T val) : info_(val) {
-    static_assert(sizeof(ProtectionInfoKVOT<T>) == sizeof(T));
+    static_assert(sizeof(ProtectionInfoKVOT<T>) == sizeof(T), "");
   }
 
   T GetVal() const { return info_.GetVal(); }
@@ -161,7 +161,7 @@ class ProtectionInfoKVOTC {
   friend class ProtectionInfoKVOT<T>;
 
   ProtectionInfoKVOTC<T>(T val) : kvot_(val) {
-    static_assert(sizeof(ProtectionInfoKVOTC<T>) == sizeof(T));
+    static_assert(sizeof(ProtectionInfoKVOTC<T>) == sizeof(T), "");
   }
 
   T GetVal() const { return kvot_.GetVal(); }
@@ -202,7 +202,7 @@ class ProtectionInfoKVOTS {
   friend class ProtectionInfoKVOT<T>;
 
   ProtectionInfoKVOTS<T>(T val) : kvot_(val) {
-    static_assert(sizeof(ProtectionInfoKVOTS<T>) == sizeof(T));
+    static_assert(sizeof(ProtectionInfoKVOTS<T>) == sizeof(T), "");
   }
 
   T GetVal() const { return kvot_.GetVal(); }
