@@ -171,16 +171,16 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
     for (int i = 0; i < 20; i++) {
       uint32_t num = r.Skewed(16) * 100 + r.Uniform(100);
       std::string random_string = r.RandomString(num);
-      writer->Append(Slice(random_string.c_str(), num));
+      ASSERT_OK(writer->Append(Slice(random_string.c_str(), num)));
       target.append(random_string.c_str(), num);
 
       // In some attempts, flush in a chance of 1/10.
       if (!no_flush && r.Uniform(10) == 0) {
-        writer->Flush();
+        ASSERT_OK(writer->Flush());
       }
     }
-    writer->Flush();
-    writer->Close();
+    ASSERT_OK(writer->Flush());
+    ASSERT_OK(writer->Close());
     ASSERT_EQ(target.size(), actual.size());
     ASSERT_EQ(target, actual);
   }

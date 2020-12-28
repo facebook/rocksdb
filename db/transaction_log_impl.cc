@@ -34,7 +34,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       io_tracer_(io_tracer) {
   assert(files_ != nullptr);
   assert(versions_ != nullptr);
-
+  current_status_.PermitUncheckedError();  // Clear on start
   reporter_.env = options_->env;
   reporter_.info_log = options_->info_log.get();
   SeekToStartSequence(); // Seek till starting sequence
@@ -225,7 +225,8 @@ bool TransactionLogIteratorImpl::IsBatchExpected(
 
 void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   std::unique_ptr<WriteBatch> batch(new WriteBatch());
-  WriteBatchInternal::SetContents(batch.get(), record);
+  Status s = WriteBatchInternal::SetContents(batch.get(), record);
+  s.PermitUncheckedError();  // TODO: What should we do with this error?
 
   SequenceNumber expected_seq = current_last_seq_ + 1;
   // If the iterator has started, then confirm that we get continuous batches

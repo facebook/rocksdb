@@ -580,7 +580,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   file_reader.reset(new RandomAccessFileReader(std::move(file), "test"));
   const bool kSkipFilters = true;
   const bool kImmortal = true;
-  ioptions.table_factory->NewTableReader(
+  ASSERT_OK(ioptions.table_factory->NewTableReader(
       TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                          internal_comparator, !kSkipFilters, !kImmortal,
                          level_),

@@ -87,6 +87,7 @@ void LDBCommandRunner::PrintHelp(const LDBOptions& ldb_options,
   DBLoaderCommand::Help(ret);
   ManifestDumpCommand::Help(ret);
   FileChecksumDumpCommand::Help(ret);
+  GetPropertyCommand::Help(ret);
   ListColumnFamiliesCommand::Help(ret);
   CreateColumnFamilyCommand::Help(ret);
   DropColumnFamilyCommand::Help(ret);

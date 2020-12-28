@@ -145,6 +145,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     // Reads the first page internally.
     ASSERT_EQ(aligned_reqs.size(), 1);
     const FSReadRequest& aligned_r = aligned_reqs[0];
+    ASSERT_OK(aligned_r.status);
     ASSERT_EQ(aligned_r.offset, 0);
     ASSERT_EQ(aligned_r.len, page_size);
   }
@@ -189,6 +190,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     // Reads the first two pages in one request internally.
     ASSERT_EQ(aligned_reqs.size(), 1);
     const FSReadRequest& aligned_r = aligned_reqs[0];
+    ASSERT_OK(aligned_r.status);
     ASSERT_EQ(aligned_r.offset, 0);
     ASSERT_EQ(aligned_r.len, 2 * page_size);
   }
@@ -233,6 +235,7 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     // Reads the first 3 pages in one request internally.
     ASSERT_EQ(aligned_reqs.size(), 1);
     const FSReadRequest& aligned_r = aligned_reqs[0];
+    ASSERT_OK(aligned_r.status);
     ASSERT_EQ(aligned_r.offset, 0);
     ASSERT_EQ(aligned_r.len, 3 * page_size);
   }
@@ -270,8 +273,10 @@ TEST_F(RandomAccessFileReaderTest, MultiReadDirectIO) {
     ASSERT_EQ(aligned_reqs.size(), 2);
     const FSReadRequest& aligned_r0 = aligned_reqs[0];
     const FSReadRequest& aligned_r1 = aligned_reqs[1];
+    ASSERT_OK(aligned_r0.status);
     ASSERT_EQ(aligned_r0.offset, 0);
     ASSERT_EQ(aligned_r0.len, page_size);
+    ASSERT_OK(aligned_r1.status);
     ASSERT_EQ(aligned_r1.offset, 2 * page_size);
     ASSERT_EQ(aligned_r1.len, page_size);
   }
@@ -287,8 +292,11 @@ TEST(FSReadRequest, Align) {
   r.offset = 2000;
   r.len = 2000;
   r.scratch = nullptr;
+  ASSERT_OK(r.status);
 
   FSReadRequest aligned_r = Align(r, 1024);
+  ASSERT_OK(r.status);
+  ASSERT_OK(aligned_r.status);
   ASSERT_EQ(aligned_r.offset, 1024);
   ASSERT_EQ(aligned_r.len, 3072);
 }
@@ -303,14 +311,20 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 15;
       src.len = 10;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_FALSE(TryMerge(&dest, src));
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
@@ -320,16 +334,22 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 10;
       src.len = 10;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 20);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
@@ -339,16 +359,22 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 5;
       src.len = 10;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 15);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
@@ -358,16 +384,22 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 5;
       src.len = 5;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
-      if (reverse) std::swap(dest, src);
+      if (reverse) {
+        std::swap(dest, src);
+      }
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
@@ -377,16 +409,20 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 5;
       src.len = 1;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
       if (reverse) std::swap(dest, src);
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
@@ -396,16 +432,20 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 0;
       src.len = 10;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
       if (reverse) std::swap(dest, src);
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
 
     {
@@ -415,16 +455,20 @@ TEST(FSReadRequest, TryMerge) {
       dest.offset = 0;
       dest.len = 10;
       dest.scratch = nullptr;
+      ASSERT_OK(dest.status);
 
       FSReadRequest src;
       src.offset = 0;
       src.len = 5;
       src.scratch = nullptr;
+      ASSERT_OK(src.status);
 
       if (reverse) std::swap(dest, src);
       ASSERT_TRUE(TryMerge(&dest, src));
       ASSERT_EQ(dest.offset, 0);
       ASSERT_EQ(dest.len, 10);
+      ASSERT_OK(dest.status);
+      ASSERT_OK(src.status);
     }
   }
 }

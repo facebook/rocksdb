@@ -58,7 +58,7 @@ class IOTracerTest : public testing::Test {
       record.file_name = kDummyFile + std::to_string(i);
       record.len = i;
       record.offset = i + 20;
-      ASSERT_OK(writer->WriteIOOp(record));
+      EXPECT_OK(writer->WriteIOOp(record));
     }
   }
 
@@ -91,7 +91,7 @@ TEST_F(IOTracerTest, AtomicWrite) {
                                  &trace_writer));
     IOTracer writer;
     ASSERT_OK(writer.StartIOTrace(env_, trace_opt, std::move(trace_writer)));
-    ASSERT_OK(writer.WriteIOOp(record));
+    writer.WriteIOOp(record);
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
   {
@@ -124,7 +124,7 @@ TEST_F(IOTracerTest, AtomicWriteBeforeStartTrace) {
     IOTracer writer;
     // The record should not be written to the trace_file since StartIOTrace is
     // not called.
-    ASSERT_OK(writer.WriteIOOp(record));
+    writer.WriteIOOp(record);
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
   {
@@ -149,11 +149,11 @@ TEST_F(IOTracerTest, AtomicNoWriteAfterEndTrace) {
                                  &trace_writer));
     IOTracer writer;
     ASSERT_OK(writer.StartIOTrace(env_, trace_opt, std::move(trace_writer)));
-    ASSERT_OK(writer.WriteIOOp(record));
+    writer.WriteIOOp(record);
     writer.EndIOTrace();
     // Write the record again. This time the record should not be written since
     // EndIOTrace is called.
-    ASSERT_OK(writer.WriteIOOp(record));
+    writer.WriteIOOp(record);
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
   {

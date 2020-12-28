@@ -172,8 +172,9 @@ class FaultInjectionTestFS : public FileSystemWrapper {
       : FileSystemWrapper(base),
         filesystem_active_(true),
         filesystem_writable_(false),
-        thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)) {
-  }
+        thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)),
+        enable_write_error_injection_(false),
+        write_error_rand_(0) {}
   virtual ~FaultInjectionTestFS() { error_.PermitUncheckedError(); }
 
   const char* Name() const override { return "FaultInjectionTestFS"; }
@@ -316,6 +317,27 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     delete ctx;
   }
 
+  // This is to set the parameters for the write error injection.
+  // seed is the seed for the random number generator, and one_in determines
+  // the probability of injecting error (i.e an error is injected with
+  // 1/one_in probability). For write error, we can specify the error we
+  // want to inject. Types decides the file types we want to inject the
+  // error (e.g., Wal files, SST files), which is empty by default.
+  void SetRandomWriteError(uint32_t seed, int one_in, IOStatus error,
+                           const std::vector<FileType>& types) {
+    MutexLock l(&mutex_);
+    Random tmp_rand(seed);
+    error.PermitUncheckedError();
+    error_ = error;
+    write_error_rand_ = tmp_rand;
+    write_error_one_in_ = one_in;
+    write_error_allowed_types_ = types;
+  }
+
+  // Inject an write error with randomlized parameter and the predefined
+  // error type. Only the allowed file types will inject the write error
+  IOStatus InjectWriteError(const std::string& file_name);
+
   // Inject an error. For a READ operation, a status of IOError(), a
   // corruption in the contents of scratch, or truncation of slice
   // are the types of error with equal probability. For OPEN,
@@ -341,6 +363,16 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     if (ctx) {
       ctx->enable_error_injection = true;
     }
+  }
+
+  void EnableWriteErrorInjection() {
+    MutexLock l(&mutex_);
+    enable_write_error_injection_ = true;
+  }
+
+  void DisableWriteErrorInjection() {
+    MutexLock l(&mutex_);
+    enable_write_error_injection_ = false;
   }
 
   void DisableErrorInjection() {
@@ -396,6 +428,10 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   };
 
   std::unique_ptr<ThreadLocalPtr> thread_local_error_;
+  bool enable_write_error_injection_;
+  Random write_error_rand_;
+  int write_error_one_in_;
+  std::vector<FileType> write_error_allowed_types_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

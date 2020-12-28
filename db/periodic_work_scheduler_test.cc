@@ -185,7 +185,7 @@ TEST_F(PeriodicWorkSchedulerTest, MultiInstances) {
   ASSERT_EQ(expected_run, pst_st_counter);
 
   for (int i = half; i < kInstanceNum; i++) {
-    dbs[i]->Close();
+    ASSERT_OK(dbs[i]->Close());
     delete dbs[i];
   }
 }
@@ -217,7 +217,7 @@ TEST_F(PeriodicWorkSchedulerTest, MultiEnv) {
   ASSERT_EQ(dbi->TEST_GetPeriodicWorkScheduler(),
             dbfull()->TEST_GetPeriodicWorkScheduler());
 
-  db->Close();
+  ASSERT_OK(db->Close());
   delete db;
   Close();
 }

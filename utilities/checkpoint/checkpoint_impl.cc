@@ -232,14 +232,11 @@ Status CheckpointImpl::CreateCustomCheckpoint(
   // this will return live_files prefixed with "/"
   s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
 
+  if (!db_->GetIntProperty(DB::Properties::kMinLogNumberToKeep, &min_log_num)) {
+    return Status::InvalidArgument("cannot get the min log number to keep.");
+  }
+
   if (s.ok() && db_options.allow_2pc) {
-    // If 2PC is enabled, we need to get minimum log number after the flush.
-    // Need to refetch the live files to recapture the snapshot.
-    if (!db_->GetIntProperty(DB::Properties::kMinLogNumberToKeep,
-                             &min_log_num)) {
-      return Status::InvalidArgument(
-          "2PC enabled but cannot fine the min log number to keep.");
-    }
     // We need to refetch live files with flush to handle this case:
     // A previous 000001.log contains the prepare record of transaction tnx1.
     // The current log file is 000002.log, and sequence_number points to this
@@ -385,7 +382,6 @@ Status CheckpointImpl::CreateCustomCheckpoint(
   for (size_t i = 0; s.ok() && i < wal_size; ++i) {
     if ((live_wal_files[i]->Type() == kAliveLogFile) &&
         (!flush_memtable ||
-         live_wal_files[i]->StartSequence() >= *sequence_number ||
          live_wal_files[i]->LogNumber() >= min_log_num)) {
       if (i + 1 == wal_size) {
         s = copy_file_cb(db_options.wal_dir, live_wal_files[i]->PathName(),

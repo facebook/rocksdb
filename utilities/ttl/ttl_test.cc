@@ -27,7 +27,7 @@ enum BatchOperation { OP_PUT = 0, OP_DELETE = 1 };
 class SpecialTimeEnv : public EnvWrapper {
  public:
   explicit SpecialTimeEnv(Env* base) : EnvWrapper(base) {
-    base->GetCurrentTime(&current_time_);
+    EXPECT_OK(base->GetCurrentTime(&current_time_));
   }
 
   void Sleep(int64_t sleep_time) { current_time_ += sleep_time; }

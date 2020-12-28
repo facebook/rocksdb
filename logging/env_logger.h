@@ -39,7 +39,7 @@ class EnvLogger : public Logger {
   ~EnvLogger() {
     if (!closed_) {
       closed_ = true;
-      CloseHelper();
+      CloseHelper().PermitUncheckedError();
     }
   }
 
@@ -48,7 +48,7 @@ class EnvLogger : public Logger {
     mutex_.AssertHeld();
     if (flush_pending_) {
       flush_pending_ = false;
-      file_.Flush();
+      file_.Flush().PermitUncheckedError();
     }
     last_flush_micros_ = env_->NowMicros();
   }
@@ -134,7 +134,7 @@ class EnvLogger : public Logger {
       assert(p <= limit);
       mutex_.Lock();
       // We will ignore any error returned by Append().
-      file_.Append(Slice(base, p - base));
+      file_.Append(Slice(base, p - base)).PermitUncheckedError();
       flush_pending_ = true;
       const uint64_t now_micros = env_->NowMicros();
       if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {

@@ -85,7 +85,7 @@ class TraceAnalyzerTest : public testing::Test {
     delete single_iter;
     std::this_thread::sleep_for (std::chrono::seconds(1));
 
-    db_->Get(ro, "g", &value);
+    db_->Get(ro, "g", &value).PermitUncheckedError();
 
     ASSERT_OK(db_->EndTrace());
 

@@ -86,7 +86,11 @@ struct RangeDeadlockPath {
 // RocksDB
 class RangeLockManagerHandle : public LockManagerHandle {
  public:
-  // Total amount of lock memory to use (per column family)
+  // Set total amount of lock memory to use.
+  //
+  //  @return 0 Ok
+  //  @return EDOM Failed to set because currently using more memory than
+  //        specified
   virtual int SetMaxLockMemory(size_t max_lock_memory) = 0;
   virtual size_t GetMaxLockMemory() = 0;
 
