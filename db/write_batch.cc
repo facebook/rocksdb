@@ -228,8 +228,7 @@ class TimestampAssigner : public WriteBatch::Handler {
     char* ptr = const_cast<char*>(key.data() + key.size() - ts_sz);
     if (prot_info_ != nullptr) {
       Slice old_ts(ptr, ts_sz), new_ts(ts.data(), ts_sz);
-      prot_info_->entries_[idx_].UpdateT(GetSliceNPHash64(old_ts),
-                                         GetSliceNPHash64(new_ts));
+      prot_info_->entries_[idx_].UpdateT(old_ts, new_ts);
     }
     memcpy(ptr, ts.data(), ts_sz);
   }
@@ -835,8 +834,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     // inserted into memtable.
     b->prot_info_->entries_.emplace_back(
         QwordProtectionInfo()
-            .ProtectKVOT(GetSliceNPHash64(key), GetSliceNPHash64(value),
-                         kTypeValue, GetSliceNPHash64(timestamp))
+            .ProtectKVOT(key, value, kTypeValue, timestamp)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -900,9 +898,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         QwordProtectionInfo()
-            .ProtectKVOT(GetSlicePartsNPHash64(key),
-                         GetSlicePartsNPHash64(value), kTypeValue,
-                         GetSliceNPHash64(timestamp))
+            .ProtectKVOT(key, value, kTypeValue, timestamp)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -998,8 +994,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         QwordProtectionInfo()
-            .ProtectKVOT(GetSliceNPHash64(key), GetSliceNPHash64(""),
-                         kTypeDeletion, GetSliceNPHash64(timestamp))
+            .ProtectKVOT(key, "" /* value */, kTypeDeletion, timestamp)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1036,8 +1031,9 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         QwordProtectionInfo()
-            .ProtectKVOT(GetSlicePartsNPHash64(key), GetSliceNPHash64(""),
-                         kTypeDeletion, GetSliceNPHash64(timestamp))
+            .ProtectKVOT(key,
+                         SliceParts(nullptr /* _parts */, 0 /* _num_parts */),
+                         kTypeDeletion, timestamp)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1067,11 +1063,11 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
   if (b->prot_info_ != nullptr) {
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
-    b->prot_info_->entries_.emplace_back(
-        QwordProtectionInfo()
-            .ProtectKVOT(GetSliceNPHash64(key), GetSliceNPHash64(""),
-                         kTypeSingleDeletion, GetSliceNPHash64(""))
-            .ProtectC(column_family_id));
+    b->prot_info_->entries_.emplace_back(QwordProtectionInfo()
+                                             .ProtectKVOT(key, "" /* value */,
+                                                          kTypeSingleDeletion,
+                                                          "" /* timestamp */)
+                                             .ProtectC(column_family_id));
   }
   return save.commit();
 }
@@ -1102,8 +1098,10 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         QwordProtectionInfo()
-            .ProtectKVOT(GetSlicePartsNPHash64(key), GetSliceNPHash64(""),
-                         kTypeSingleDeletion, GetSliceNPHash64(""))
+            .ProtectKVOT(key,
+                         SliceParts(nullptr /* _parts */,
+                                    0 /* _num_parts */) /* value */,
+                         kTypeSingleDeletion, "" /* timestamp */)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1135,11 +1133,11 @@ Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     // In `DeleteRange()`, the end key is treated as the value.
-    b->prot_info_->entries_.emplace_back(
-        QwordProtectionInfo()
-            .ProtectKVOT(GetSliceNPHash64(begin_key), GetSliceNPHash64(end_key),
-                         kTypeRangeDeletion, GetSliceNPHash64(""))
-            .ProtectC(column_family_id));
+    b->prot_info_->entries_.emplace_back(QwordProtectionInfo()
+                                             .ProtectKVOT(begin_key, end_key,
+                                                          kTypeRangeDeletion,
+                                                          "" /* timestamp */)
+                                             .ProtectC(column_family_id));
   }
   return save.commit();
 }
@@ -1170,12 +1168,11 @@ Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     // In `DeleteRange()`, the end key is treated as the value.
-    b->prot_info_->entries_.emplace_back(
-        QwordProtectionInfo()
-            .ProtectKVOT(GetSlicePartsNPHash64(begin_key),
-                         GetSlicePartsNPHash64(end_key), kTypeRangeDeletion,
-                         GetSliceNPHash64(""))
-            .ProtectC(column_family_id));
+    b->prot_info_->entries_.emplace_back(QwordProtectionInfo()
+                                             .ProtectKVOT(begin_key, end_key,
+                                                          kTypeRangeDeletion,
+                                                          "" /* timestamp */)
+                                             .ProtectC(column_family_id));
   }
   return save.commit();
 }
@@ -1214,8 +1211,7 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         QwordProtectionInfo()
-            .ProtectKVOT(GetSliceNPHash64(key), GetSliceNPHash64(value),
-                         kTypeMerge, GetSliceNPHash64(""))
+            .ProtectKVOT(key, value, kTypeMerge, "" /* timestamp */)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1253,9 +1249,7 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         QwordProtectionInfo()
-            .ProtectKVOT(GetSlicePartsNPHash64(key),
-                         GetSlicePartsNPHash64(value), kTypeMerge,
-                         GetSliceNPHash64(""))
+            .ProtectKVOT(key, value, kTypeMerge, "" /* timestamp */)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1288,8 +1282,7 @@ Status WriteBatchInternal::PutBlobIndex(WriteBatch* b,
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
         QwordProtectionInfo()
-            .ProtectKVOT(GetSliceNPHash64(key), GetSliceNPHash64(value),
-                         kTypeBlobIndex, GetSliceNPHash64(""))
+            .ProtectKVOT(key, value, kTypeBlobIndex, "" /* timestamp */)
             .ProtectC(column_family_id));
   }
   return save.commit();
@@ -1679,9 +1672,8 @@ class MemTableInserter : public WriteBatch::Handler {
             assert(get_status.ok());
             if (kv_prot_info != nullptr) {
               QwordProtectionInfoKVOTS updated_kv_prot_info(*kv_prot_info);
-              updated_kv_prot_info.UpdateV(
-                  GetSliceNPHash64(value),
-                  GetSliceNPHash64(Slice(prev_buffer, prev_size)));
+              updated_kv_prot_info.UpdateV(value,
+                                           Slice(prev_buffer, prev_size));
               // prev_value is updated in-place with final value.
               ret_status = mem->Add(sequence_, value_type, key,
                                     Slice(prev_buffer, prev_size),
@@ -1697,8 +1689,7 @@ class MemTableInserter : public WriteBatch::Handler {
           } else if (update_status == UpdateStatus::UPDATED) {
             if (kv_prot_info != nullptr) {
               QwordProtectionInfoKVOTS updated_kv_prot_info(*kv_prot_info);
-              updated_kv_prot_info.UpdateV(GetSliceNPHash64(value),
-                                           GetSliceNPHash64(merged_value));
+              updated_kv_prot_info.UpdateV(value, merged_value);
               // merged_value contains the final value.
               ret_status = mem->Add(sequence_, value_type, key,
                                     Slice(merged_value), &updated_kv_prot_info);
@@ -2068,8 +2059,7 @@ class MemTableInserter : public WriteBatch::Handler {
           if (kv_prot_info != nullptr) {
             auto merged_kv_prot_info =
                 kv_prot_info->StripC(column_family_id).ProtectS(sequence_);
-            merged_kv_prot_info.UpdateV(GetSliceNPHash64(value),
-                                        GetSliceNPHash64(new_value));
+            merged_kv_prot_info.UpdateV(value, new_value);
             merged_kv_prot_info.UpdateO(kTypeMerge, kTypeValue);
             ret_status = mem->Add(sequence_, kTypeValue, key, new_value,
                                   &merged_kv_prot_info);

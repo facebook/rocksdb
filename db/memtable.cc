@@ -525,8 +525,7 @@ Status MemTable::VerifyEncodedEntry(
   Slice value(encoded.data(), value_len);
 
   return kv_prot_info.StripS(sequence_number)
-      .StripKVOT(GetSliceNPHash64(key), GetSliceNPHash64(value), value_type,
-                 GetSliceNPHash64(timestamp))
+      .StripKVOT(key, value, value_type, timestamp)
       .GetStatus();
 }
 
@@ -1158,9 +1157,8 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
               QwordProtectionInfoKVOTS updated_kv_prot_info(*kv_prot_info);
               // `seq` is swallowed and `existing_seq` prevails.
               updated_kv_prot_info.UpdateS(seq, existing_seq);
-              updated_kv_prot_info.UpdateV(
-                  GetSliceNPHash64(delta),
-                  GetSliceNPHash64(Slice(prev_buffer, new_prev_size)));
+              updated_kv_prot_info.UpdateV(delta,
+                                           Slice(prev_buffer, new_prev_size));
               Slice encoded(entry, prev_buffer + new_prev_size - entry);
               return VerifyEncodedEntry(encoded, updated_kv_prot_info);
             }
@@ -1169,8 +1167,7 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
             Status s;
             if (kv_prot_info != nullptr) {
               QwordProtectionInfoKVOTS updated_kv_prot_info(*kv_prot_info);
-              updated_kv_prot_info.UpdateV(GetSliceNPHash64(delta),
-                                           GetSliceNPHash64(str_value));
+              updated_kv_prot_info.UpdateV(delta, str_value);
               s = Add(seq, kTypeValue, key, Slice(str_value),
                       &updated_kv_prot_info);
             } else {
