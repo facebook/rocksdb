@@ -18,6 +18,10 @@
 // Then, for example, a class that protects an entry consisting of key, value,
 // optype, timestamp, and CF ID (i.e., a `WriteBatch` entry) would be named
 // `ProtectionInfoKVOTC`.
+//
+// The `ProtectionInfo.*` classes are templated on the integer type used to hold
+// the XOR of hashes for each field. When the integer type is narrower than the
+// hash values, we lop off the most significant bits to make it fit.
 
 #pragma once
 
@@ -43,7 +47,6 @@ typedef ProtectionInfoKVOT<uint64_t> QwordProtectionInfoKVOT;
 typedef ProtectionInfoKVOTC<uint64_t> QwordProtectionInfoKVOTC;
 typedef ProtectionInfoKVOTS<uint64_t> QwordProtectionInfoKVOTS;
 
-// T is the type of the unsigned integer where protection info will be stored.
 template <typename T>
 class ProtectionInfo {
  public:
