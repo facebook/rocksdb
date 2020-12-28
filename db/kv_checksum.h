@@ -38,13 +38,13 @@
 namespace ROCKSDB_NAMESPACE {
 
 template <typename T>
-struct ProtectionInfo;
+class ProtectionInfo;
 template <typename T>
-struct ProtectionInfoKVOT;
+class ProtectionInfoKVOT;
 template <typename T>
-struct ProtectionInfoKVOTC;
+class ProtectionInfoKVOTC;
 template <typename T>
-struct ProtectionInfoKVOTS;
+class ProtectionInfoKVOTS;
 
 // Aliases for eight-byte ("quadword") protection infos.
 typedef ProtectionInfo<uint64_t> QwordProtectionInfo;
