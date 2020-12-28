@@ -88,12 +88,8 @@ class ProtectionInfo {
     static_assert(sizeof(ProtectionInfo<T>) == sizeof(T));
   }
 
-  T GetVal() const {
-    return val_;
-  }
-  void SetVal(T val) {
-    val_ = val;
-  }
+  T GetVal() const { return val_; }
+  void SetVal(T val) { val_ = val; }
 
   T val_ = 0;
 };
@@ -127,12 +123,8 @@ class ProtectionInfoKVOT {
     static_assert(sizeof(ProtectionInfoKVOT<T>) == sizeof(T));
   }
 
-  T GetVal() const {
-    return info_.GetVal();
-  }
-  void SetVal(T val) {
-    info_.SetVal(val);
-  }
+  T GetVal() const { return info_.GetVal(); }
+  void SetVal(T val) { info_.SetVal(val); }
 
   ProtectionInfo<T> info_;
 };
@@ -172,12 +164,8 @@ class ProtectionInfoKVOTC {
     static_assert(sizeof(ProtectionInfoKVOTC<T>) == sizeof(T));
   }
 
-  T GetVal() const {
-    return kvot_.GetVal();
-  }
-  void SetVal(T val) {
-    kvot_.SetVal(val);
-  }
+  T GetVal() const { return kvot_.GetVal(); }
+  void SetVal(T val) { kvot_.SetVal(val); }
 
   ProtectionInfoKVOT<T> kvot_;
 };
@@ -217,12 +205,8 @@ class ProtectionInfoKVOTS {
     static_assert(sizeof(ProtectionInfoKVOTS<T>) == sizeof(T));
   }
 
-  T GetVal() const {
-    return kvot_.GetVal();
-  }
-  void SetVal(T val) {
-    kvot_.SetVal(val);
-  }
+  T GetVal() const { return kvot_.GetVal(); }
+  void SetVal(T val) { kvot_.SetVal(val); }
 
   ProtectionInfoKVOT<T> kvot_;
 };
