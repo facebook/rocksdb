@@ -28,24 +28,23 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-template <size_t N>
+template <typename T>
 struct ProtectionInfo;
-template <size_t N>
+template <typename T>
 struct ProtectionInfoKVOT;
-template <size_t N>
+template <typename T>
 struct ProtectionInfoKVOTC;
-template <size_t N>
+template <typename T>
 struct ProtectionInfoKVOTS;
 
 // Aliases for eight-byte ("quadword") protection infos.
-typedef ProtectionInfo<8> QwordProtectionInfo;
-typedef ProtectionInfoKVOT<8> QwordProtectionInfoKVOT;
-typedef ProtectionInfoKVOTC<8> QwordProtectionInfoKVOTC;
-typedef ProtectionInfoKVOTS<8> QwordProtectionInfoKVOTS;
+typedef ProtectionInfo<uint64_t> QwordProtectionInfo;
+typedef ProtectionInfoKVOT<uint64_t> QwordProtectionInfoKVOT;
+typedef ProtectionInfoKVOTC<uint64_t> QwordProtectionInfoKVOTC;
+typedef ProtectionInfoKVOTS<uint64_t> QwordProtectionInfoKVOTS;
 
-// N is the number of bytes into which protection info is folded.
-// Currently supported values are 1, 2, 4, and 8.
-template <size_t N>
+// T is the type of the unsigned integer where protection info will be stored.
+template <typename T>
 struct ProtectionInfo {
   ProtectionInfo() {
     // Standard-layout of the `ProtectionInfo.*` classes guarantees pointer-
@@ -54,46 +53,44 @@ struct ProtectionInfo {
     // integrity protection array. Given all this, we can use `reinterpret_cast`
     // to safely reinterpret the type of any `ProtectionInfo.*` pointer, or even
     // convert any such pointers to a pointer to the integrity protection array.
-    static_assert(std::is_standard_layout<ProtectionInfo<N>>::value, "");
+    static_assert(std::is_standard_layout<ProtectionInfo<T>>::value, "");
   }
 
   Status GetStatus() const;
-  ProtectionInfoKVOT<N> ProtectKVOT(uint64_t key_checksum,
+  ProtectionInfoKVOT<T> ProtectKVOT(uint64_t key_checksum,
                                     uint64_t value_checksum, ValueType op_type,
                                     uint64_t ts_checksum) const;
 
-  unsigned char buf_[N] __attribute__((aligned(N))) = {0};
-  static_assert(N > 0 && N <= 8, "");
-  static_assert((N & (N - 1)) == 0, "");
+  T val_ = 0;
 };
 
-template <size_t N>
+template <typename T>
 struct ProtectionInfoKVOT {
   ProtectionInfoKVOT() {
-    static_assert(std::is_standard_layout<ProtectionInfoKVOT<N>>::value, "");
+    static_assert(std::is_standard_layout<ProtectionInfoKVOT<T>>::value, "");
   }
 
-  ProtectionInfo<N> StripKVOT(uint64_t key_checksum, uint64_t value_checksum,
+  ProtectionInfo<T> StripKVOT(uint64_t key_checksum, uint64_t value_checksum,
                               ValueType op_type, uint64_t ts_checksum) const;
 
-  ProtectionInfoKVOTC<N> ProtectC(ColumnFamilyId column_family_id) const;
-  ProtectionInfoKVOTS<N> ProtectS(SequenceNumber sequence_number) const;
+  ProtectionInfoKVOTC<T> ProtectC(ColumnFamilyId column_family_id) const;
+  ProtectionInfoKVOTS<T> ProtectS(SequenceNumber sequence_number) const;
 
   void UpdateK(uint64_t old_key_checksum, uint64_t new_key_checksum);
   void UpdateV(uint64_t old_value_checksum, uint64_t new_value_checksum);
   void UpdateO(ValueType old_op_type, ValueType new_op_type);
   void UpdateT(uint64_t old_ts_checksum, uint64_t new_ts_checksum);
 
-  ProtectionInfo<N> info_;
+  ProtectionInfo<T> info_;
 };
 
-template <size_t N>
+template <typename T>
 struct ProtectionInfoKVOTC {
   ProtectionInfoKVOTC() {
-    static_assert(std::is_standard_layout<ProtectionInfoKVOTC<N>>::value, "");
+    static_assert(std::is_standard_layout<ProtectionInfoKVOTC<T>>::value, "");
   }
 
-  ProtectionInfoKVOT<N> StripC(ColumnFamilyId column_family_id) const;
+  ProtectionInfoKVOT<T> StripC(ColumnFamilyId column_family_id) const;
 
   void UpdateK(uint64_t old_key_checksum, uint64_t new_key_checksum) {
     kvot_.UpdateK(old_key_checksum, new_key_checksum);
@@ -110,16 +107,16 @@ struct ProtectionInfoKVOTC {
   void UpdateC(ColumnFamilyId old_column_family_id,
                ColumnFamilyId new_column_family_id);
 
-  ProtectionInfoKVOT<N> kvot_;
+  ProtectionInfoKVOT<T> kvot_;
 };
 
-template <size_t N>
+template <typename T>
 struct ProtectionInfoKVOTS {
   ProtectionInfoKVOTS() {
-    static_assert(std::is_standard_layout<ProtectionInfoKVOTS<N>>::value, "");
+    static_assert(std::is_standard_layout<ProtectionInfoKVOTS<T>>::value, "");
   }
 
-  ProtectionInfoKVOT<N> StripS(SequenceNumber sequence_number) const;
+  ProtectionInfoKVOT<T> StripS(SequenceNumber sequence_number) const;
 
   void UpdateK(uint64_t old_key_checksum, uint64_t new_key_checksum) {
     kvot_.UpdateK(old_key_checksum, new_key_checksum);
@@ -136,172 +133,131 @@ struct ProtectionInfoKVOTS {
   void UpdateS(SequenceNumber old_sequence_number,
                SequenceNumber new_sequence_number);
 
-  ProtectionInfoKVOT<N> kvot_;
+  ProtectionInfoKVOT<T> kvot_;
 };
 
-// Non-persistent: this XOR-folding function produces different outcomes for
-// different endiannesses so its output must not be persisted.
-//
-// Only supported for `N` and `sizeof(T)` that are powers of two and that
-// cannot be larger than eight.
-template <size_t N, class T>
-void NPFoldXor(unsigned char* dst, T info) {
-  static_assert(sizeof(T) > 0 && sizeof(T) <= 8, "");
-  static_assert((sizeof(T) & (sizeof(T) - 1)) == 0, "");
-  static_assert(N > 0 && N <= 8, "");
-  static_assert((N & (N - 1)) == 0, "");
-
-  unsigned char* info_bytes = reinterpret_cast<unsigned char*>(&info);
-  uint64_t dst_val = 0;
-  memcpy(&dst_val, dst, N);
-  // In C++17 the below can be a static-if.
-  if (N < sizeof(T)) {
-    assert(sizeof(T) % N == 0);
-    for (size_t i = 0; i < sizeof(T); i += N) {
-      uint64_t info_val = 0;
-      memcpy(&info_val, info_bytes, N);
-      dst_val = dst_val ^ info_val;
-      info_bytes += N;
-    }
-  } else {
-    // TODO(ajkr): For calling `NPFoldXor()` multiple times with `info`s smaller
-    // than `dst`'s width, it'd be better to "spray" those `info`s over `dst`.
-    // Currently they always start at the low byte address. It could be done by
-    // mapping each type `T` to a starting byte offsets to ensure the same start
-    // offset is used for both protecting and stripping.
-    uint64_t info_val = 0;
-    memcpy(&info_val, info_bytes, sizeof(T));
-    dst_val = dst_val ^ info_val;
-  }
-  memcpy(dst, &dst_val, N);
-}
-
-template <size_t N>
-Status ProtectionInfo<N>::GetStatus() const {
-  unsigned char expected[N] = {0};
-  if (memcmp(buf_, expected, N) != 0) {
+template <typename T>
+Status ProtectionInfo<T>::GetStatus() const {
+  if (val_ != 0) {
     return Status::Corruption("ProtectionInfo mismatch");
   }
   return Status::OK();
 }
 
-template <size_t N>
-ProtectionInfoKVOT<N> ProtectionInfo<N>::ProtectKVOT(
+template <typename T>
+ProtectionInfoKVOT<T> ProtectionInfo<T>::ProtectKVOT(
     uint64_t key_checksum, uint64_t value_checksum, ValueType op_type,
     uint64_t ts_checksum) const {
-  ProtectionInfoKVOT<N> res(
-      *reinterpret_cast<const ProtectionInfoKVOT<N>*>(this));
-  // There is no pointer-interconvertibility between a pointer to an array and a
-  // pointer to the array's first element, so we need to take that step
-  // explicitly.
-  auto res_buf_ptr = reinterpret_cast<unsigned char(*)[N]>(&res);
-  NPFoldXor<N>(&(*res_buf_ptr)[0], key_checksum);
-  NPFoldXor<N>(&(*res_buf_ptr)[0], value_checksum);
-  NPFoldXor<N>(&(*res_buf_ptr)[0], op_type);
-  NPFoldXor<N>(&(*res_buf_ptr)[0], ts_checksum);
+  ProtectionInfoKVOT<T> res(
+      *reinterpret_cast<const ProtectionInfoKVOT<T>*>(this));
+  T* val_ptr = reinterpret_cast<T*>(&res);
+  *val_ptr = *val_ptr ^ static_cast<T>(key_checksum);
+  *val_ptr = *val_ptr ^ static_cast<T>(value_checksum);
+  *val_ptr = *val_ptr ^ static_cast<T>(op_type);
+  *val_ptr = *val_ptr ^ static_cast<T>(ts_checksum);
   return res;
 }
 
-template <size_t N>
-void ProtectionInfoKVOT<N>::UpdateK(uint64_t old_key_checksum,
+template <typename T>
+void ProtectionInfoKVOT<T>::UpdateK(uint64_t old_key_checksum,
                                     uint64_t new_key_checksum) {
-  auto buf_ptr = reinterpret_cast<unsigned char(*)[N]>(this);
-  NPFoldXor<N>(&(*buf_ptr)[0], old_key_checksum);
-  NPFoldXor<N>(&(*buf_ptr)[0], new_key_checksum);
+  T* val_ptr = reinterpret_cast<T*>(this);
+  *val_ptr = *val_ptr ^ static_cast<T>(old_key_checksum);
+  *val_ptr = *val_ptr ^ static_cast<T>(new_key_checksum);
 }
 
-template <size_t N>
-void ProtectionInfoKVOT<N>::UpdateV(uint64_t old_value_checksum,
+template <typename T>
+void ProtectionInfoKVOT<T>::UpdateV(uint64_t old_value_checksum,
                                     uint64_t new_value_checksum) {
-  auto buf_ptr = reinterpret_cast<unsigned char(*)[N]>(this);
-  NPFoldXor<N>(&(*buf_ptr)[0], old_value_checksum);
-  NPFoldXor<N>(&(*buf_ptr)[0], new_value_checksum);
+  T* val_ptr = reinterpret_cast<T*>(this);
+  *val_ptr = *val_ptr ^ static_cast<T>(old_value_checksum);
+  *val_ptr = *val_ptr ^ static_cast<T>(new_value_checksum);
 }
 
-template <size_t N>
-void ProtectionInfoKVOT<N>::UpdateO(ValueType old_op_type,
+template <typename T>
+void ProtectionInfoKVOT<T>::UpdateO(ValueType old_op_type,
                                     ValueType new_op_type) {
-  auto buf_ptr = reinterpret_cast<unsigned char(*)[N]>(this);
-  NPFoldXor<N>(&(*buf_ptr)[0], old_op_type);
-  NPFoldXor<N>(&(*buf_ptr)[0], new_op_type);
+  T* val_ptr = reinterpret_cast<T*>(this);
+  *val_ptr = *val_ptr ^ static_cast<T>(old_op_type);
+  *val_ptr = *val_ptr ^ static_cast<T>(new_op_type);
 }
 
-template <size_t N>
-void ProtectionInfoKVOT<N>::UpdateT(uint64_t old_ts_checksum,
+template <typename T>
+void ProtectionInfoKVOT<T>::UpdateT(uint64_t old_ts_checksum,
                                     uint64_t new_ts_checksum) {
-  auto buf_ptr = reinterpret_cast<unsigned char(*)[N]>(this);
-  NPFoldXor<N>(&(*buf_ptr)[0], old_ts_checksum);
-  NPFoldXor<N>(&(*buf_ptr)[0], new_ts_checksum);
+  T* val_ptr = reinterpret_cast<T*>(this);
+  *val_ptr = *val_ptr ^ static_cast<T>(old_ts_checksum);
+  *val_ptr = *val_ptr ^ static_cast<T>(new_ts_checksum);
 }
 
-template <size_t N>
-ProtectionInfo<N> ProtectionInfoKVOT<N>::StripKVOT(uint64_t key_checksum,
+template <typename T>
+ProtectionInfo<T> ProtectionInfoKVOT<T>::StripKVOT(uint64_t key_checksum,
                                                    uint64_t value_checksum,
                                                    ValueType op_type,
                                                    uint64_t ts_checksum) const {
-  ProtectionInfo<N> res(*reinterpret_cast<const ProtectionInfo<N>*>(this));
-  auto res_buf_ptr = reinterpret_cast<unsigned char(*)[N]>(&res);
-  NPFoldXor<N>(&(*res_buf_ptr)[0], key_checksum);
-  NPFoldXor<N>(&(*res_buf_ptr)[0], value_checksum);
-  NPFoldXor<N>(&(*res_buf_ptr)[0], op_type);
-  NPFoldXor<N>(&(*res_buf_ptr)[0], ts_checksum);
+  ProtectionInfo<T> res(*reinterpret_cast<const ProtectionInfo<T>*>(this));
+  T* val_ptr = reinterpret_cast<T*>(&res);
+  *val_ptr = *val_ptr ^ static_cast<T>(key_checksum);
+  *val_ptr = *val_ptr ^ static_cast<T>(value_checksum);
+  *val_ptr = *val_ptr ^ static_cast<T>(op_type);
+  *val_ptr = *val_ptr ^ static_cast<T>(ts_checksum);
   return res;
 }
 
-template <size_t N>
-ProtectionInfoKVOTC<N> ProtectionInfoKVOT<N>::ProtectC(
+template <typename T>
+ProtectionInfoKVOTC<T> ProtectionInfoKVOT<T>::ProtectC(
     ColumnFamilyId column_family_id) const {
-  ProtectionInfoKVOTC<N> res(
-      *reinterpret_cast<const ProtectionInfoKVOTC<N>*>(this));
-  auto res_buf_ptr = reinterpret_cast<unsigned char(*)[N]>(&res);
-  NPFoldXor<N>(&(*res_buf_ptr)[0], column_family_id);
+  ProtectionInfoKVOTC<T> res(
+      *reinterpret_cast<const ProtectionInfoKVOTC<T>*>(this));
+  T* val_ptr = reinterpret_cast<T*>(&res);
+  *val_ptr = *val_ptr ^ static_cast<T>(column_family_id);
   return res;
 }
 
-template <size_t N>
-ProtectionInfoKVOT<N> ProtectionInfoKVOTC<N>::StripC(
+template <typename T>
+ProtectionInfoKVOT<T> ProtectionInfoKVOTC<T>::StripC(
     ColumnFamilyId column_family_id) const {
-  ProtectionInfoKVOT<N> res(
-      *reinterpret_cast<const ProtectionInfoKVOT<N>*>(this));
-  auto res_buf_ptr = reinterpret_cast<unsigned char(*)[N]>(&res);
-  NPFoldXor<N>(&(*res_buf_ptr)[0], column_family_id);
+  ProtectionInfoKVOT<T> res(
+      *reinterpret_cast<const ProtectionInfoKVOT<T>*>(this));
+  T* val_ptr = reinterpret_cast<T*>(&res);
+  *val_ptr = *val_ptr ^ static_cast<T>(column_family_id);
   return res;
 }
 
-template <size_t N>
-void ProtectionInfoKVOTC<N>::UpdateC(ColumnFamilyId old_column_family_id,
+template <typename T>
+void ProtectionInfoKVOTC<T>::UpdateC(ColumnFamilyId old_column_family_id,
                                      ColumnFamilyId new_column_family_id) {
-  auto buf_ptr = reinterpret_cast<unsigned char(*)[N]>(this);
-  NPFoldXor<N>(&(*buf_ptr)[0], old_column_family_id);
-  NPFoldXor<N>(&(*buf_ptr)[0], new_column_family_id);
+  T* val_ptr = reinterpret_cast<T*>(this);
+  *val_ptr = *val_ptr ^ static_cast<T>(old_column_family_id);
+  *val_ptr = *val_ptr ^ static_cast<T>(new_column_family_id);
 }
 
-template <size_t N>
-ProtectionInfoKVOTS<N> ProtectionInfoKVOT<N>::ProtectS(
+template <typename T>
+ProtectionInfoKVOTS<T> ProtectionInfoKVOT<T>::ProtectS(
     SequenceNumber sequence_number) const {
-  ProtectionInfoKVOTS<N> res(
-      *reinterpret_cast<const ProtectionInfoKVOTS<N>*>(this));
-  auto res_buf_ptr = reinterpret_cast<unsigned char(*)[N]>(&res);
-  NPFoldXor<N>(&(*res_buf_ptr)[0], sequence_number);
+  ProtectionInfoKVOTS<T> res(
+      *reinterpret_cast<const ProtectionInfoKVOTS<T>*>(this));
+  T* val_ptr = reinterpret_cast<T*>(&res);
+  *val_ptr = *val_ptr ^ static_cast<T>(sequence_number);
   return res;
 }
 
-template <size_t N>
-ProtectionInfoKVOT<N> ProtectionInfoKVOTS<N>::StripS(
+template <typename T>
+ProtectionInfoKVOT<T> ProtectionInfoKVOTS<T>::StripS(
     SequenceNumber sequence_number) const {
-  ProtectionInfoKVOT<N> res(
-      *reinterpret_cast<const ProtectionInfoKVOT<N>*>(this));
-  auto res_buf_ptr = reinterpret_cast<unsigned char(*)[N]>(&res);
-  NPFoldXor<N>(&(*res_buf_ptr)[0], sequence_number);
+  ProtectionInfoKVOT<T> res(
+      *reinterpret_cast<const ProtectionInfoKVOT<T>*>(this));
+  T* val_ptr = reinterpret_cast<T*>(&res);
+  *val_ptr = *val_ptr ^ static_cast<T>(sequence_number);
   return res;
 }
 
-template <size_t N>
-void ProtectionInfoKVOTS<N>::UpdateS(SequenceNumber old_sequence_number,
+template <typename T>
+void ProtectionInfoKVOTS<T>::UpdateS(SequenceNumber old_sequence_number,
                                      SequenceNumber new_sequence_number) {
-  auto buf_ptr = reinterpret_cast<unsigned char(*)[N]>(this);
-  NPFoldXor<N>(&(*buf_ptr)[0], old_sequence_number);
-  NPFoldXor<N>(&(*buf_ptr)[0], new_sequence_number);
+  T* val_ptr = reinterpret_cast<T*>(this);
+  *val_ptr = *val_ptr ^ static_cast<T>(old_sequence_number);
+  *val_ptr = *val_ptr ^ static_cast<T>(new_sequence_number);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
