@@ -82,6 +82,8 @@ CuckooTableBuilder::CuckooTableBuilder(
   properties_.column_family_name = column_family_name;
   properties_.db_id = db_id;
   properties_.db_session_id = db_session_id;
+  status_.PermitUncheckedError();
+  io_status_.PermitUncheckedError();
 }
 
 void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
@@ -250,7 +252,6 @@ Status CuckooTableBuilder::Finish() {
   assert(!closed_);
   closed_ = true;
   std::vector<CuckooBucket> buckets;
-  Status s;
   std::string unused_bucket;
   if (num_entries_ > 0) {
     // Calculate the real hash size if module hash is enabled.

@@ -147,7 +147,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     // DeleteScheduler::CleanupDirectory on the same dir later, it will be
     // safe
     std::vector<std::string> filenames;
-    result.env->GetChildren(result.wal_dir, &filenames).PermitUncheckedError();
+    Status s = result.env->GetChildren(result.wal_dir, &filenames);
+    s.PermitUncheckedError();  //**TODO: What to do on error?
     for (std::string& filename : filenames) {
       if (filename.find(".log.trash", filename.length() -
                                           std::string(".log.trash").length()) !=
@@ -163,7 +164,8 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   // was not used)
   auto sfm = static_cast<SstFileManagerImpl*>(result.sst_file_manager.get());
   for (size_t i = 0; i < result.db_paths.size(); i++) {
-    DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path);
+    DeleteScheduler::CleanupDirectory(result.env, sfm, result.db_paths[i].path)
+        .PermitUncheckedError();
   }
 
   // Create a default SstFileManager for purposes of tracking compaction size
@@ -1739,9 +1741,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
     paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
     for (auto& path : paths) {
       std::vector<std::string> existing_files;
-      // TODO: Check for errors here?
       impl->immutable_db_options_.env->GetChildren(path, &existing_files)
-          .PermitUncheckedError();
+          .PermitUncheckedError();  //**TODO: What do to on error?
       for (auto& file_name : existing_files) {
         uint64_t file_number;
         FileType file_type;

@@ -56,14 +56,13 @@ DeleteScheduler::~DeleteScheduler() {
 Status DeleteScheduler::DeleteFile(const std::string& file_path,
                                    const std::string& dir_to_sync,
                                    const bool force_bg) {
-  Status s;
   if (rate_bytes_per_sec_.load() <= 0 || (!force_bg &&
       total_trash_size_.load() >
           sst_file_manager_->GetTotalSize() * max_trash_db_ratio_.load())) {
     // Rate limiting is disabled or trash size makes up more than
     // max_trash_db_ratio_ (default 25%) of the total DB size
     TEST_SYNC_POINT("DeleteScheduler::DeleteFile");
-    s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
+    Status s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
     if (s.ok()) {
       s = sst_file_manager_->OnDeleteFile(file_path);
       ROCKS_LOG_INFO(info_log_,
@@ -79,7 +78,7 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
 
   // Move file to trash
   std::string trash_file;
-  s = MarkAsTrash(file_path, &trash_file);
+  Status s = MarkAsTrash(file_path, &trash_file);
   ROCKS_LOG_INFO(info_log_, "Mark file: %s as trash -- %s", trash_file.c_str(),
                  s.ToString().c_str());
 
@@ -99,7 +98,10 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
 
   // Update the total trash size
   uint64_t trash_file_size = 0;
-  fs_->GetFileSize(trash_file, IOOptions(), &trash_file_size, nullptr);
+  Status ignored =
+      fs_->GetFileSize(trash_file, IOOptions(), &trash_file_size, nullptr);
+  ignored.PermitUncheckedError();  //**TODO: What should we do if we failed to
+                                   // get the file size?
   total_trash_size_.fetch_add(trash_file_size);
 
   // Add file to delete queue
@@ -169,17 +171,17 @@ Status DeleteScheduler::MarkAsTrash(const std::string& file_path,
     return Status::InvalidArgument("file_path is corrupted");
   }
 
-  Status s;
   if (DeleteScheduler::IsTrashFile(file_path)) {
     // This is already a trash file
     *trash_file = file_path;
-    return s;
+    return Status::OK();
   }
 
   *trash_file = file_path + kTrashExtension;
   // TODO(tec) : Implement Env::RenameFileIfNotExist and remove
   //             file_move_mu mutex.
   int cnt = 0;
+  Status s;
   InstrumentedMutexLock l(&file_move_mu_);
   while (true) {
     s = fs_->FileExists(*trash_file, IOOptions(), nullptr);
@@ -197,7 +199,9 @@ Status DeleteScheduler::MarkAsTrash(const std::string& file_path,
     cnt++;
   }
   if (s.ok()) {
-    sst_file_manager_->OnMoveFile(file_path, *trash_file);
+    //**TODO: What should we do if this returns an error?
+    sst_file_manager_->OnMoveFile(file_path, *trash_file)
+        .PermitUncheckedError();
   }
   return s;
 }

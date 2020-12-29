@@ -392,6 +392,7 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
 
     db_iter->SeekToLast();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
   // Test case to check SeekToLast with iterate_upper_bound set
   // (same key put may times - SeekToLast should start with the
@@ -489,6 +490,7 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
 
     db_iter->SeekToLast();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
   // Test to check the SeekToLast() with the iterate_upper_bound set
   // (Deletion cases)
@@ -596,6 +598,7 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
 
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -689,6 +692,7 @@ TEST_F(DBIteratorTest, DBIteratorEmpty) {
         nullptr /* read_callback */));
     db_iter->SeekToLast();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -702,6 +706,7 @@ TEST_F(DBIteratorTest, DBIteratorEmpty) {
         nullptr /* read_callback */));
     db_iter->SeekToFirst();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 }
 
@@ -744,6 +749,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkipCountSkips) {
 
   db_iter->Prev();
   ASSERT_TRUE(!db_iter->Valid());
+  ASSERT_OK(db_iter->status());
   ASSERT_EQ(TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION), 3u);
 }
 
@@ -788,6 +794,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       db_iter->Prev();
 
       ASSERT_TRUE(!db_iter->Valid());
+      ASSERT_OK(db_iter->status());
     }
   }
 
@@ -820,6 +827,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       db_iter->Prev();
 
       ASSERT_TRUE(!db_iter->Valid());
+      ASSERT_OK(db_iter->status());
     }
 
     {
@@ -855,6 +863,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       db_iter->Prev();
 
       ASSERT_TRUE(!db_iter->Valid());
+      ASSERT_OK(db_iter->status());
     }
   }
 
@@ -873,9 +882,11 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
           nullptr /* read_callback */));
       db_iter->SeekToLast();
       ASSERT_TRUE(!db_iter->Valid());
+      ASSERT_OK(db_iter->status());
 
       db_iter->SeekToFirst();
       ASSERT_TRUE(!db_iter->Valid());
+      ASSERT_OK(db_iter->status());
     }
 
     TestIterator* internal_iter = new TestIterator(BytewiseComparator());
@@ -896,6 +907,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
 
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
 
     db_iter->SeekToFirst();
     ASSERT_TRUE(db_iter->Valid());
@@ -904,6 +916,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
 
     db_iter->Next();
     ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_OK(db_iter->status());
   }
 
   {
@@ -943,6 +956,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
       db_iter->Prev();
 
       ASSERT_TRUE(!db_iter->Valid());
+      ASSERT_OK(db_iter->status());
     }
   }
 
@@ -983,6 +997,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
 
       db_iter->Prev();
       ASSERT_TRUE(!db_iter->Valid());
+      ASSERT_OK(db_iter->status());
     }
   }
 }
@@ -1039,7 +1054,7 @@ TEST_F(DBIteratorTest, DBIteratorSkipInternalKeys) {
 
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
-    ASSERT_TRUE(db_iter->status().ok());
+    ASSERT_OK(db_iter->status());
   }
 
   // Test to make sure that the request will *not* fail as incomplete if
@@ -3136,6 +3151,7 @@ TEST_F(DBIteratorTest, SeekToFirstLowerBound) {
     if (i == kNumKeys + 1) {
       // lower bound was beyond the last key
       ASSERT_FALSE(db_iter->Valid());
+      ASSERT_OK(db_iter->status());
     } else {
       ASSERT_TRUE(db_iter->Valid());
       int expected;

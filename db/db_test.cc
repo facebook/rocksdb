@@ -1305,51 +1305,6 @@ TEST_F(DBTest, DISABLED_RepeatedWritesToSameKey) {
 }
 #endif  // ROCKSDB_LITE
 
-TEST_F(DBTest, SparseMerge) {
-  do {
-    Options options = CurrentOptions();
-    options.compression = kNoCompression;
-    CreateAndReopenWithCF({"pikachu"}, options);
-
-    FillLevels("A", "Z", 1);
-
-    // Suppose there is:
-    //    small amount of data with prefix A
-    //    large amount of data with prefix B
-    //    small amount of data with prefix C
-    // and that recent updates have made small changes to all three prefixes.
-    // Check that we do not do a compaction that merges all of B in one shot.
-    const std::string value(1000, 'x');
-    Put(1, "A", "va");
-    // Write approximately 100MB of "B" values
-    for (int i = 0; i < 100000; i++) {
-      char key[100];
-      snprintf(key, sizeof(key), "B%010d", i);
-      Put(1, key, value);
-    }
-    Put(1, "C", "vc");
-    ASSERT_OK(Flush(1));
-    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
-
-    // Make sparse update
-    Put(1, "A", "va2");
-    Put(1, "B100", "bvalue2");
-    Put(1, "C", "vc2");
-    ASSERT_OK(Flush(1));
-
-    // Compactions should not cause us to create a situation where
-    // a file overlaps too much data at the next level.
-    ASSERT_LE(dbfull()->TEST_MaxNextLevelOverlappingBytes(handles_[1]),
-              20 * 1048576);
-    dbfull()->TEST_CompactRange(0, nullptr, nullptr);
-    ASSERT_LE(dbfull()->TEST_MaxNextLevelOverlappingBytes(handles_[1]),
-              20 * 1048576);
-    dbfull()->TEST_CompactRange(1, nullptr, nullptr);
-    ASSERT_LE(dbfull()->TEST_MaxNextLevelOverlappingBytes(handles_[1]),
-              20 * 1048576);
-  } while (ChangeCompactOptions());
-}
-
 #ifndef ROCKSDB_LITE
 static bool Between(uint64_t val, uint64_t low, uint64_t high) {
   bool result = (val >= low) && (val <= high);

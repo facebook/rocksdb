@@ -553,7 +553,7 @@ TEST_F(StatsHistoryTest, PersistentStatsReadOnly) {
 
   // Reopen and flush memtable.
   ASSERT_OK(TryReopen(options));
-  Flush();
+  ASSERT_OK(Flush());
   Close();
   // Now check keys in read only mode.
   ASSERT_OK(ReadOnlyReopen(options));
