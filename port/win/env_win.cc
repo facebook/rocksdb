@@ -882,7 +882,7 @@ IOStatus WinFileSystem::AreFilesSame(const std::string& first,
                                      IODebugContext* /*dbg*/) {
 // For MinGW builds
 #if (_WIN32_WINNT == _WIN32_WINNT_VISTA)
-  IOaStatus s = IOStatus::NotSupported();
+  IOStatus s = IOStatus::NotSupported();
 #else
   assert(res != nullptr);
   IOStatus s;
