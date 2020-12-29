@@ -621,6 +621,12 @@ class PosixFileSystem : public FileSystem {
     const int cur_errno = errno;
     struct dirent* entry;
     while ((entry = readdir(d)) != nullptr) {
+      // filter out '.' and '..' directory entries
+      // which appear only on some platforms
+      if (entry->d_type == DT_DIR && (strcmp(entry->d_name, ".") == 0 ||
+                                      strcmp(entry->d_name, "..") == 0)) {
+        continue;
+      }
       result->push_back(entry->d_name);
     }
     if (errno != cur_errno) {

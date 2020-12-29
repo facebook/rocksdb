@@ -685,8 +685,16 @@ IOStatus WinFileSystem::GetChildren(const std::string& dir,
   data.cFileName[MAX_PATH - 1] = 0;
 
   while (true) {
-    auto x = RX_FILESTRING(data.cFileName, RX_FNLEN(data.cFileName));
-    output.emplace_back(FN_TO_RX(x));
+    // filter out '.' and '..' directory entries
+    // which appear only on some platforms
+    const bool ignore =
+        data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY &&
+        (strcmp(data.cFileName, ".") == 0 || strcmp(data.cFileName, "..") == 0);
+    if (!ignore) {
+      auto x = RX_FILESTRING(data.cFileName, RX_FNLEN(data.cFileName));
+      output.emplace_back(FN_TO_RX(x));
+    }
+
     BOOL ret = -RX_FindNextFile(handle, &data);
     // If the function fails the return value is zero
     // and non-zero otherwise. Not TRUE or FALSE.
