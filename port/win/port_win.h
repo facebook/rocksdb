@@ -388,7 +388,7 @@ extern void SetCpuPriority(ThreadId id, CpuPriority priority);
 #define RX_FindFirstFileEx FindFirstFileExA
 #define RX_CreateDirectory CreateDirectoryA
 #define RX_FindNextFile FindNextFileA
-#define RX_WIN32_FIND_DATA WIN32_FIND_DATA
+#define RX_WIN32_FIND_DATA WIN32_FIND_DATAA
 #define RX_CreateDirectory CreateDirectoryA
 #define RX_RemoveDirectory RemoveDirectoryA
 #define RX_GetFileAttributesEx GetFileAttributesExA
