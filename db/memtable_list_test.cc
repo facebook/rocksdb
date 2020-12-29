@@ -30,14 +30,14 @@ class MemTableListTest : public testing::Test {
   MemTableListTest() : db(nullptr), file_number(1) {
     dbname = test::PerThreadDBPath("memtable_list_test");
     options.create_if_missing = true;
-    DestroyDB(dbname, options);
+    EXPECT_OK(DestroyDB(dbname, options));
   }
 
   // Create a test db if not yet created
   void CreateDB() {
     if (db == nullptr) {
       options.create_if_missing = true;
-      DestroyDB(dbname, options);
+      EXPECT_OK(DestroyDB(dbname, options));
       // Open DB only with default column family
       ColumnFamilyOptions cf_options;
       std::vector<ColumnFamilyDescriptor> cf_descs;
@@ -78,7 +78,7 @@ class MemTableListTest : public testing::Test {
       handles.clear();
       delete db;
       db = nullptr;
-      DestroyDB(dbname, options, cf_descs);
+      EXPECT_OK(DestroyDB(dbname, options, cf_descs));
     }
   }
 

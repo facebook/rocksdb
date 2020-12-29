@@ -252,7 +252,7 @@ const int kRandomValueMaxFactor = 3;
 const int kValueMaxLen = 100;
 
 // wrapped posix or hdfs environment
-extern ROCKSDB_NAMESPACE::DbStressEnvWrapper* db_stress_env;
+extern ROCKSDB_NAMESPACE::Env* db_stress_env;
 #ifndef NDEBUG
 namespace ROCKSDB_NAMESPACE {
 class FaultInjectionTestFS;

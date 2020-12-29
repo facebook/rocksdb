@@ -579,7 +579,7 @@ TEST_F(CorruptionTest, FileSystemStateCorrupted) {
 
     if (iter == 0) {  // corrupt file size
       std::unique_ptr<WritableFile> file;
-      env_->NewWritableFile(filename, &file, EnvOptions());
+      ASSERT_OK(env_->NewWritableFile(filename, &file, EnvOptions()));
       ASSERT_OK(file->Append(Slice("corrupted sst")));
       file.reset();
       Status x = TryReopen(&options);
@@ -616,7 +616,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnFlush) {
     options.table_factory = mock;
     mock->SetCorruptionMode(mode);
     ASSERT_OK(DB::Open(options, dbname_, &db_));
-    assert(db_ != nullptr);
+    assert(db_ != nullptr);  // suppress false clang-analyze report
     Build(10);
     s = db_->Flush(FlushOptions());
     if (mode == mock::MockTableFactory::kCorruptNone) {
@@ -642,7 +642,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksOnCompact) {
         std::make_shared<mock::MockTableFactory>();
     options.table_factory = mock;
     ASSERT_OK(DB::Open(options, dbname_, &db_));
-    assert(db_ != nullptr);
+    assert(db_ != nullptr);  // suppress false clang-analyze report
     Build(100, 2);
     // ASSERT_OK(db_->Flush(FlushOptions()));
     DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
@@ -669,7 +669,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeFirst) {
     ASSERT_OK(DestroyDB(dbname_, options));
     ASSERT_OK(DB::Open(options, dbname_, &db_));
     std::string start, end;
-    assert(db_ != nullptr);
+    assert(db_ != nullptr);  // suppress false clang-analyze report
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
                                Key(3, &start), Key(7, &end)));
     auto snap = db_->GetSnapshot();
@@ -701,7 +701,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRange) {
     db_ = nullptr;
     ASSERT_OK(DestroyDB(dbname_, options));
     ASSERT_OK(DB::Open(options, dbname_, &db_));
-    assert(db_ != nullptr);
+    assert(db_ != nullptr);  // suppress false clang-analyze report
     Build(10, 0, 0);
     std::string start, end;
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
@@ -737,7 +737,7 @@ TEST_F(CorruptionTest, ParanoidFileChecksWithDeleteRangeLast) {
     db_ = nullptr;
     ASSERT_OK(DestroyDB(dbname_, options));
     ASSERT_OK(DB::Open(options, dbname_, &db_));
-    assert(db_ != nullptr);
+    assert(db_ != nullptr);  // suppress false clang-analyze report
     std::string start, end;
     Build(10);
     ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
@@ -775,7 +775,7 @@ TEST_F(CorruptionTest, LogCorruptionErrorsInCompactionIterator) {
   options.table_factory = mock;
 
   ASSERT_OK(DB::Open(options, dbname_, &db_));
-  assert(db_ != nullptr);
+  assert(db_ != nullptr);  // suppress false clang-analyze report
   Build(100, 2);
 
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
@@ -798,7 +798,7 @@ TEST_F(CorruptionTest, CompactionKeyOrderCheck) {
       std::make_shared<mock::MockTableFactory>();
   options.table_factory = mock;
   ASSERT_OK(DB::Open(options, dbname_, &db_));
-  assert(db_ != nullptr);
+  assert(db_ != nullptr);  // suppress false clang-analyze report
   mock->SetCorruptionMode(mock::MockTableFactory::kCorruptReorderKey);
   Build(100, 2);
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
@@ -884,7 +884,7 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::VerifySstFileChecksum:mismatch", [&](void* arg) {
         auto* s = reinterpret_cast<Status*>(arg);
-        assert(s);
+        ASSERT_NE(s, nullptr);
         ++count;
         ASSERT_NOK(*s);
       });

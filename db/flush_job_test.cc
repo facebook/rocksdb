@@ -52,7 +52,7 @@ class FlushJobTestBase : public testing::Test {
   }
 
   void NewDB() {
-    SetIdentityFile(env_, dbname_);
+    ASSERT_OK(SetIdentityFile(env_, dbname_));
     VersionEdit new_db;
 
     new_db.SetLogNumber(0);
@@ -85,6 +85,7 @@ class FlushJobTestBase : public testing::Test {
       std::string record;
       new_db.EncodeTo(&record);
       s = log.AddRecord(record);
+      ASSERT_OK(s);
 
       for (const auto& e : new_cfs) {
         record.clear();

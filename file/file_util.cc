@@ -132,7 +132,7 @@ IOStatus GenerateOneFileChecksum(
     const std::string& requested_checksum_func_name, std::string* file_checksum,
     std::string* file_checksum_func_name,
     size_t verify_checksums_readahead_size, bool allow_mmap_reads,
-    std::shared_ptr<IOTracer>& io_tracer) {
+    std::shared_ptr<IOTracer>& io_tracer, RateLimiter* rate_limiter) {
   if (checksum_factory == nullptr) {
     return IOStatus::InvalidArgument("Checksum factory is invalid");
   }
@@ -173,7 +173,8 @@ IOStatus GenerateOneFileChecksum(
       return io_s;
     }
     reader.reset(new RandomAccessFileReader(std::move(r_file), file_path,
-                                            nullptr /*Env*/, io_tracer));
+                                            nullptr /*Env*/, io_tracer, nullptr,
+                                            0, nullptr, rate_limiter));
   }
 
   // Found that 256 KB readahead size provides the best performance, based on

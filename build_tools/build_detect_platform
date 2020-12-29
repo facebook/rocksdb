@@ -45,8 +45,13 @@ if test -z "$OUTPUT"; then
   exit 1
 fi
 
-# we depend on C++11
-PLATFORM_CXXFLAGS="-std=c++11"
+# we depend on C++11, but should be compatible with newer standards
+if [ "$ROCKSDB_CXX_STANDARD" ]; then
+  PLATFORM_CXXFLAGS="-std=$ROCKSDB_CXX_STANDARD"
+else
+  PLATFORM_CXXFLAGS="-std=c++11"
+fi
+
 # we currently depend on POSIX platform
 COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX"
 

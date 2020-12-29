@@ -284,7 +284,7 @@ Status DBImpl::FlushMemTableToOutputFile(
       // Notify sst_file_manager that a new file was added
       std::string file_path = MakeTableFileName(
           cfd->ioptions()->cf_paths[0].path, file_meta.fd.GetNumber());
-      sfm->OnAddFile(file_path);
+      s = sfm->OnAddFile(file_path);
       if (sfm->IsMaxAllowedSpaceReached()) {
         Status new_bg_error =
             Status::SpaceLimit("Max allowed space was reached");
@@ -618,7 +618,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     assert(all_mutable_cf_options.size() == static_cast<size_t>(num_cfs));
-    for (int i = 0; i != num_cfs; ++i) {
+    for (int i = 0; s.ok() && i != num_cfs; ++i) {
       if (cfds[i]->IsDropped()) {
         continue;
       }
@@ -627,7 +627,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (sfm) {
         std::string file_path = MakeTableFileName(
             cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
-        sfm->OnAddFile(file_path);
+        s = sfm->OnAddFile(file_path);
         if (sfm->IsMaxAllowedSpaceReached() &&
             error_handler_.GetBGError().ok()) {
           Status new_bg_error =
@@ -809,20 +809,20 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
   }
 
   bool flush_needed = true;
+  Status s;
   if (begin != nullptr && end != nullptr) {
     // TODO(ajkr): We could also optimize away the flush in certain cases where
     // one/both sides of the interval are unbounded. But it requires more
     // changes to RangesOverlapWithMemtables.
     Range range(*begin, *end);
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
-    cfd->RangesOverlapWithMemtables({range}, super_version,
-                                    immutable_db_options_.allow_data_in_errors,
-                                    &flush_needed);
+    s = cfd->RangesOverlapWithMemtables(
+        {range}, super_version, immutable_db_options_.allow_data_in_errors,
+        &flush_needed);
     CleanupSuperVersion(super_version);
   }
 
-  Status s;
-  if (flush_needed) {
+  if (s.ok() && flush_needed) {
     FlushOptions fo;
     fo.allow_write_stall = options.allow_write_stall;
     if (immutable_db_options_.atomic_flush) {
@@ -1194,7 +1194,8 @@ Status DBImpl::CompactFilesImpl(
   mutex_.Unlock();
   TEST_SYNC_POINT("CompactFilesImpl:0");
   TEST_SYNC_POINT("CompactFilesImpl:1");
-  compaction_job.Run();
+  // Ignore the status here, as it will be checked in the Install down below...
+  compaction_job.Run().PermitUncheckedError();
   TEST_SYNC_POINT("CompactFilesImpl:2");
   TEST_SYNC_POINT("CompactFilesImpl:3");
   mutex_.Lock();
@@ -1391,8 +1392,6 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
 
   SuperVersionContext sv_context(/* create_superversion */ true);
 
-  Status status;
-
   InstrumentedMutexLock guard_lock(&mutex_);
 
   // only allow one thread refitting
@@ -1456,8 +1455,9 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
                     "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
                     edit.DebugString().data());
 
-    status = versions_->LogAndApply(cfd, mutable_cf_options, &edit, &mutex_,
-                                    directories_.GetDbDir());
+    Status status = versions_->LogAndApply(cfd, mutable_cf_options, &edit,
+                                           &mutex_, directories_.GetDbDir());
+
     InstallSuperVersionAndScheduleWork(cfd, &sv_context, mutable_cf_options);
 
     ROCKS_LOG_DEBUG(immutable_db_options_.info_log, "[%s] LogAndApply: %s\n",
@@ -1468,12 +1468,14 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
                       "[%s] After refitting:\n%s", cfd->GetName().c_str(),
                       cfd->current()->DebugString().data());
     }
+    sv_context.Clean();
+    refitting_level_ = false;
+
+    return status;
   }
 
-  sv_context.Clean();
   refitting_level_ = false;
-
-  return status;
+  return Status::OK();
 }
 
 int DBImpl::NumberLevels(ColumnFamilyHandle* column_family) {
@@ -2626,7 +2628,8 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     // failure). Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress() &&
                                         !s.IsManualCompactionPaused() &&
-                                        !s.IsColumnFamilyDropped());
+                                        !s.IsColumnFamilyDropped() &&
+                                        !s.IsBusy());
     TEST_SYNC_POINT("DBImpl::BackgroundCallCompaction:FoundObsoleteFiles");
 
     // delete unnecessary files if any, this is done outside the mutex

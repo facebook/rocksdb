@@ -579,13 +579,13 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
       0 /*uniq_id*/, ioptions.allow_mmap_reads)));
   const bool kSkipFilters = true;
   const bool kImmortal = true;
-  ioptions.table_factory->NewTableReader(
+  ASSERT_OK(ioptions.table_factory->NewTableReader(
       TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                          internal_comparator, !kSkipFilters, !kImmortal,
                          level_),
       std::move(file_reader),
       test::GetStringSinkFromLegacyWriter(file_writer.get())->contents().size(),
-      &table_reader);
+      &table_reader));
   // Search using Get()
   ReadOptions ro;
 

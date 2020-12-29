@@ -173,7 +173,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
@@ -271,7 +271,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_EQ("val2", Get(Key(2)));
   ASSERT_OK(Put(Key(3), "val3", wo));
@@ -314,7 +314,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError2) {
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_EQ("val2", Get(Key(2)));
   ASSERT_OK(Put(Key(3), "val3", wo));
@@ -357,7 +357,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError3) {
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_EQ("val2", Get(Key(2)));
   ASSERT_OK(Put(Key(3), "val3", wo));
@@ -399,7 +399,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteError) {
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
@@ -442,7 +442,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableError) {
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
@@ -487,7 +487,7 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteNoWALRetryableError) {
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
@@ -535,7 +535,7 @@ TEST_F(DBErrorHandlingFSTest, DoubleManifestWriteError) {
 
   // A successful Resume() will create a new manifest file
   s = dbfull()->Resume();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
@@ -568,7 +568,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
   ASSERT_OK(Put(Key(0), "val"));
   ASSERT_OK(Put(Key(2), "val"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       // Wait for flush of 2nd L0 file before starting compaction
@@ -598,7 +598,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
   // This Flush will trigger a compaction, which will fail when appending to
   // the manifest
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   TEST_SYNC_POINT("CompactionManifestWriteError:0");
   // Clear all errors so when the compaction is retried, it will succeed
@@ -609,7 +609,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteError) {
 
   s = dbfull()->TEST_WaitForCompact();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
@@ -642,7 +642,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
   ASSERT_OK(Put(Key(0), "val"));
   ASSERT_OK(Put(Key(2), "val"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   listener->OverrideBGError(Status(error_msg, Status::Severity::kHardError));
   listener->EnableAutoRecovery(false);
@@ -668,7 +668,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
 
   ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   TEST_SYNC_POINT("CompactionManifestWriteError:0");
   TEST_SYNC_POINT("CompactionManifestWriteError:1");
@@ -680,7 +680,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionManifestWriteRetryableError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
   s = dbfull()->Resume();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   new_manifest = GetManifestNameFromLiveFiles();
   ASSERT_NE(new_manifest, old_manifest);
@@ -706,7 +706,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
   ASSERT_OK(Put(Key(0), "va;"));
   ASSERT_OK(Put(Key(2), "va;"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   listener->OverrideBGError(
       Status(Status::NoSpace(), Status::Severity::kHardError));
@@ -723,14 +723,14 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
 
   ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   s = dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
 
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
   Destroy(options);
 }
 
@@ -752,7 +752,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableError) {
   ASSERT_OK(Put(Key(0), "va;"));
   ASSERT_OK(Put(Key(2), "va;"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   listener->OverrideBGError(Status(error_msg, Status::Severity::kHardError));
   listener->EnableAutoRecovery(false);
@@ -766,7 +766,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableError) {
 
   ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   s = dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
@@ -775,7 +775,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableError) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
   s = dbfull()->Resume();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
   Destroy(options);
 }
 
@@ -790,7 +790,7 @@ TEST_F(DBErrorHandlingFSTest, CorruptionError) {
   ASSERT_OK(Put(Key(0), "va;"));
   ASSERT_OK(Put(Key(2), "va;"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
@@ -804,7 +804,7 @@ TEST_F(DBErrorHandlingFSTest, CorruptionError) {
 
   ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   s = dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(s.severity(),
@@ -812,7 +812,7 @@ TEST_F(DBErrorHandlingFSTest, CorruptionError) {
 
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
-  ASSERT_NE(s, Status::OK());
+  ASSERT_NOK(s);
   Destroy(options);
 }
 
@@ -844,7 +844,7 @@ TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
   ASSERT_EQ(listener->WaitForRecovery(5000000), true);
 
   s = Put(Key(1), "val");
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
@@ -874,7 +874,7 @@ TEST_F(DBErrorHandlingFSTest, FailRecoverFlushError) {
   // We should be able to shutdown the database while auto recovery is going
   // on in the background
   Close();
-  DestroyDB(dbname_, options);
+  DestroyDB(dbname_, options).PermitUncheckedError();
 }
 
 TEST_F(DBErrorHandlingFSTest, WALWriteError) {
@@ -904,7 +904,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteError) {
 
     WriteOptions wopts;
     wopts.sync = true;
-    ASSERT_EQ(dbfull()->Write(wopts, &batch), Status::OK());
+    ASSERT_OK(dbfull()->Write(wopts, &batch));
   };
 
   {
@@ -960,7 +960,6 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
   options.listeners.emplace_back(listener);
   options.paranoid_checks = true;
   options.max_bgerror_resume_count = 0;
-  Status s;
   Random rnd(301);
 
   DestroyAndReopen(options);
@@ -978,7 +977,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
 
     WriteOptions wopts;
     wopts.sync = true;
-    ASSERT_EQ(dbfull()->Write(wopts, &batch), Status::OK());
+    ASSERT_OK(dbfull()->Write(wopts, &batch));
   };
 
   // For the second batch, the first 2 file Append are successful, then the
@@ -1001,8 +1000,8 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
     SyncPoint::GetInstance()->EnableProcessing();
     WriteOptions wopts;
     wopts.sync = true;
-    s = dbfull()->Write(wopts, &batch);
-    ASSERT_EQ(true, s.IsIOError());
+    Status s = dbfull()->Write(wopts, &batch);
+    ASSERT_TRUE(s.IsIOError());
   }
   fault_fs_->SetFilesystemActive(true);
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1018,8 +1017,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
   }
 
   // Resume and write a new batch, should be in the WAL
-  s = dbfull()->Resume();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(dbfull()->Resume());
   {
     WriteBatch batch;
 
@@ -1029,7 +1027,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableError) {
 
     WriteOptions wopts;
     wopts.sync = true;
-    ASSERT_EQ(dbfull()->Write(wopts, &batch), Status::OK());
+    ASSERT_OK(dbfull()->Write(wopts, &batch));
   };
 
   Reopen(options);
@@ -1055,7 +1053,6 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
   options.create_if_missing = true;
   options.writable_file_max_buffer_size = 32768;
   options.listeners.emplace_back(listener);
-  Status s;
   Random rnd(301);
 
   listener->EnableAutoRecovery();
@@ -1072,7 +1069,7 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
 
     WriteOptions wopts;
     wopts.sync = true;
-    ASSERT_EQ(dbfull()->Write(wopts, &batch), Status::OK());
+    ASSERT_OK(dbfull()->Write(wopts, &batch));
   };
 
   {
@@ -1095,8 +1092,8 @@ TEST_F(DBErrorHandlingFSTest, MultiCFWALWriteError) {
     SyncPoint::GetInstance()->EnableProcessing();
     WriteOptions wopts;
     wopts.sync = true;
-    s = dbfull()->Write(wopts, &batch);
-    ASSERT_EQ(s, s.NoSpace());
+    Status s = dbfull()->Write(wopts, &batch);
+    ASSERT_TRUE(s.IsNoSpace());
   }
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
@@ -1164,9 +1161,8 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     listener[i]->InjectFileCreationError(fault_fs[i], 3,
                                          IOStatus::NoSpace("Out of space"));
     snprintf(buf, sizeof(buf), "_%d", i);
-    DestroyDB(dbname_ + std::string(buf), options[i]);
-    ASSERT_EQ(DB::Open(options[i], dbname_ + std::string(buf), &dbptr),
-              Status::OK());
+    ASSERT_OK(DestroyDB(dbname_ + std::string(buf), options[i]));
+    ASSERT_OK(DB::Open(options[i], dbname_ + std::string(buf), &dbptr));
     db.emplace_back(dbptr);
   }
 
@@ -1179,8 +1175,8 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
 
     WriteOptions wopts;
     wopts.sync = true;
-    ASSERT_EQ(db[i]->Write(wopts, &batch), Status::OK());
-    ASSERT_EQ(db[i]->Flush(FlushOptions()), Status::OK());
+    ASSERT_OK(db[i]->Write(wopts, &batch));
+    ASSERT_OK(db[i]->Flush(FlushOptions()));
   }
 
   def_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
@@ -1194,8 +1190,8 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
 
     WriteOptions wopts;
     wopts.sync = true;
-    ASSERT_EQ(db[i]->Write(wopts, &batch), Status::OK());
-    ASSERT_EQ(db[i]->Flush(FlushOptions()), Status::OK());
+    ASSERT_OK(db[i]->Write(wopts, &batch));
+    ASSERT_OK(db[i]->Flush(FlushOptions()));
   }
 
   for (auto i = 0; i < kNumDbInstances; ++i) {
@@ -1208,8 +1204,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
   for (auto i = 0; i < kNumDbInstances; ++i) {
     std::string prop;
     ASSERT_EQ(listener[i]->WaitForRecovery(5000000), true);
-    ASSERT_EQ(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true),
-              Status::OK());
+    ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true));
     EXPECT_TRUE(db[i]->GetProperty(
         "rocksdb.num-files-at-level" + NumberToString(0), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 0);
@@ -1226,7 +1221,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     if (getenv("KEEP_DB")) {
       printf("DB is still at %s%s\n", dbname_.c_str(), buf);
     } else {
-      Status s = DestroyDB(dbname_ + std::string(buf), options[i]);
+      ASSERT_OK(DestroyDB(dbname_ + std::string(buf), options[i]));
     }
   }
   options.clear();
@@ -1281,9 +1276,8 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
         break;
     }
     snprintf(buf, sizeof(buf), "_%d", i);
-    DestroyDB(dbname_ + std::string(buf), options[i]);
-    ASSERT_EQ(DB::Open(options[i], dbname_ + std::string(buf), &dbptr),
-              Status::OK());
+    ASSERT_OK(DestroyDB(dbname_ + std::string(buf), options[i]));
+    ASSERT_OK(DB::Open(options[i], dbname_ + std::string(buf), &dbptr));
     db.emplace_back(dbptr);
   }
 
@@ -1296,8 +1290,8 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
 
     WriteOptions wopts;
     wopts.sync = true;
-    ASSERT_EQ(db[i]->Write(wopts, &batch), Status::OK());
-    ASSERT_EQ(db[i]->Flush(FlushOptions()), Status::OK());
+    ASSERT_OK(db[i]->Write(wopts, &batch));
+    ASSERT_OK(db[i]->Flush(FlushOptions()));
   }
 
   def_env->SetFilesystemActive(false, Status::NoSpace("Out of space"));
@@ -1311,11 +1305,11 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
 
     WriteOptions wopts;
     wopts.sync = true;
-    ASSERT_EQ(db[i]->Write(wopts, &batch), Status::OK());
+    ASSERT_OK(db[i]->Write(wopts, &batch));
     if (i != 1) {
-      ASSERT_EQ(db[i]->Flush(FlushOptions()), Status::OK());
+      ASSERT_OK(db[i]->Flush(FlushOptions()));
     } else {
-      ASSERT_EQ(db[i]->Flush(FlushOptions()), Status::NoSpace());
+      ASSERT_TRUE(db[i]->Flush(FlushOptions()).IsNoSpace());
     }
   }
 
@@ -1329,7 +1323,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
         ASSERT_EQ(s.severity(), Status::Severity::kHardError);
         break;
       case 2:
-        ASSERT_EQ(s, Status::OK());
+        ASSERT_OK(s);
         break;
     }
     fault_fs[i]->SetFilesystemActive(true);
@@ -1342,8 +1336,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
       ASSERT_EQ(listener[i]->WaitForRecovery(5000000), true);
     }
     if (i == 1) {
-      ASSERT_EQ(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true),
-                Status::OK());
+      ASSERT_OK(static_cast<DBImpl*>(db[i])->TEST_WaitForCompact(true));
     }
     EXPECT_TRUE(db[i]->GetProperty(
         "rocksdb.num-files-at-level" + NumberToString(0), &prop));
@@ -1361,7 +1354,7 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
     if (getenv("KEEP_DB")) {
       printf("DB is still at %s%s\n", dbname_.c_str(), buf);
     } else {
-      DestroyDB(dbname_ + std::string(buf), options[i]);
+      EXPECT_OK(DestroyDB(dbname_ + std::string(buf), options[i]));
     }
   }
   options.clear();
@@ -1418,12 +1411,10 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableeErrorAutoRecover1) {
   ASSERT_EQ("val2", Get(Key(2)));
 
   // call auto resume
-  s = dbfull()->Resume();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(dbfull()->Resume());
   ASSERT_OK(Put(Key(3), "val3", wo));
-  s = Flush();
   // After resume is successful, the flush should be ok.
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(Flush());
   ASSERT_EQ("val3", Get(Key(3)));
   Destroy(options);
 }
@@ -1513,8 +1504,7 @@ TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover1) {
   Reopen(options);
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_OK(Put(Key(2), "val2"));
-  s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(Flush());
   ASSERT_EQ("val2", Get(Key(2)));
 
   Destroy(options);
@@ -1554,8 +1544,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover2) {
   Reopen(options);
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_OK(Put(Key(2), "val2"));
-  s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(Flush());
   ASSERT_EQ("val2", Get(Key(2)));
 
   Destroy(options);
@@ -1602,10 +1591,9 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover3) {
   // resume manually here.
   s = dbfull()->Resume();
   ASSERT_EQ("val1", Get(Key(1)));
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
   ASSERT_OK(Put(Key(2), "val2"));
-  s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(Flush());
   ASSERT_EQ("val2", Get(Key(2)));
 
   Destroy(options);
@@ -1656,19 +1644,16 @@ TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover4) {
   // Even the FS is recoverd, due to the Fatal Error in bg_error_ the resume
   // and flush will all fail.
   ASSERT_EQ("val1", Get(Key(1)));
-  s = dbfull()->Resume();
-  ASSERT_NE(s, Status::OK());
+  ASSERT_NOK(dbfull()->Resume());
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_OK(Put(Key(2), "val2"));
-  s = Flush();
-  ASSERT_NE(s, Status::OK());
+  ASSERT_NOK(Flush());
   ASSERT_EQ("NOT_FOUND", Get(Key(2)));
 
   Reopen(options);
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_OK(Put(Key(2), "val2"));
-  s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(Flush());
   ASSERT_EQ("val2", Get(Key(2)));
 
   Destroy(options);
@@ -1708,7 +1693,7 @@ TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover5) {
   // The first resume will cause recovery_error and its severity is the
   // Fatal error
   s = dbfull()->Close();
-  ASSERT_NE(s, Status::OK());
+  ASSERT_NOK(s);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
@@ -1717,7 +1702,7 @@ TEST_F(DBErrorHandlingFSTest, DISABLED_FLushWritRetryableeErrorAutoRecover5) {
   ASSERT_NE("val1", Get(Key(1)));
   ASSERT_OK(Put(Key(2), "val2"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
   ASSERT_EQ("val2", Get(Key(2)));
 
   Destroy(options);
@@ -1768,14 +1753,14 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableeErrorAutoRecover6) {
   // The first resume will cause recovery_error and its severity is the
   // Fatal error
   s = dbfull()->Close();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
   SyncPoint::GetInstance()->DisableProcessing();
 
   Reopen(options);
   ASSERT_EQ("val1", Get(Key(1)));
   ASSERT_OK(Put(Key(2), "val2"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
   ASSERT_EQ("val2", Get(Key(2)));
 
   Destroy(options);
@@ -1912,8 +1897,7 @@ TEST_F(DBErrorHandlingFSTest,
 
   ASSERT_OK(Put(Key(0), "val"));
   ASSERT_OK(Put(Key(2), "val"));
-  s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(Flush());
 
   listener->OverrideBGError(Status(error_msg, Status::Severity::kHardError));
   listener->EnableAutoRecovery(false);
@@ -1950,7 +1934,7 @@ TEST_F(DBErrorHandlingFSTest,
 
   ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   TEST_SYNC_POINT("CompactionManifestWriteErrorAR:0");
   TEST_SYNC_POINT("CompactionManifestWriteErrorAR:1");
@@ -2000,7 +1984,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableErrorAutoRecover) {
   ASSERT_OK(Put(Key(0), "va;"));
   ASSERT_OK(Put(Key(2), "va;"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   listener->OverrideBGError(Status(error_msg, Status::Severity::kHardError));
   listener->EnableAutoRecovery(false);
@@ -2025,7 +2009,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableErrorAutoRecover) {
 
   ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   s = dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
@@ -2065,7 +2049,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
 
     WriteOptions wopts;
     wopts.sync = true;
-    ASSERT_EQ(dbfull()->Write(wopts, &batch), Status::OK());
+    ASSERT_OK(dbfull()->Write(wopts, &batch));
   };
 
   // For the second batch, the first 2 file Append are successful, then the
@@ -2122,7 +2106,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
 
     WriteOptions wopts;
     wopts.sync = true;
-    ASSERT_EQ(dbfull()->Write(wopts, &batch), Status::OK());
+    ASSERT_OK(dbfull()->Write(wopts, &batch));
   };
 
   Reopen(options);
@@ -2166,7 +2150,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
 
     WriteOptions wopts;
     wopts.sync = true;
-    ASSERT_EQ(dbfull()->Write(wopts, &batch), Status::OK());
+    ASSERT_OK(dbfull()->Write(wopts, &batch));
   };
 
   // For the second batch, the first 2 file Append are successful, then the
@@ -2223,7 +2207,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover2) {
 
     WriteOptions wopts;
     wopts.sync = true;
-    ASSERT_EQ(dbfull()->Write(wopts, &batch), Status::OK());
+    ASSERT_OK(dbfull()->Write(wopts, &batch));
   };
 
   Reopen(options);
@@ -2285,7 +2269,7 @@ TEST_P(DBErrorHandlingFencingTest, ManifestWriteFenced) {
   old_manifest = GetManifestNameFromLiveFiles();
 
   ASSERT_OK(Put(Key(0), "val"));
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(Put(Key(1), "val"));
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:WriteManifest", [&](void*) {
@@ -2318,7 +2302,7 @@ TEST_P(DBErrorHandlingFencingTest, CompactionWriteFenced) {
   ASSERT_OK(Put(Key(0), "va;"));
   ASSERT_OK(Put(Key(2), "va;"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   listener->EnableAutoRecovery(true);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
@@ -2332,7 +2316,7 @@ TEST_P(DBErrorHandlingFencingTest, CompactionWriteFenced) {
 
   ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
-  ASSERT_EQ(s, Status::OK());
+  ASSERT_OK(s);
 
   s = dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
@@ -2368,7 +2352,7 @@ TEST_P(DBErrorHandlingFencingTest, WALWriteFenced) {
 
     WriteOptions wopts;
     wopts.sync = true;
-    ASSERT_EQ(dbfull()->Write(wopts, &batch), Status::OK());
+    ASSERT_OK(dbfull()->Write(wopts, &batch));
   };
 
   {

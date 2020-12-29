@@ -72,8 +72,8 @@ TEST_P(DBOptionChangeMigrationTests, Migrate1) {
   for (int num = 0; num < 20; num++) {
     GenerateNewFile(&rnd, &key_idx);
   }
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Will make sure exactly those keys are in the DB after migration.
   std::set<std::string> keys;
@@ -100,8 +100,8 @@ TEST_P(DBOptionChangeMigrationTests, Migrate1) {
   Reopen(new_options);
 
   // Wait for compaction to finish and make sure it can reopen
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   Reopen(new_options);
 
   {
@@ -140,8 +140,8 @@ TEST_P(DBOptionChangeMigrationTests, Migrate2) {
   for (int num = 0; num < 20; num++) {
     GenerateNewFile(&rnd, &key_idx);
   }
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Will make sure exactly those keys are in the DB after migration.
   std::set<std::string> keys;
@@ -168,8 +168,8 @@ TEST_P(DBOptionChangeMigrationTests, Migrate2) {
   ASSERT_OK(OptionChangeMigration(dbname_, old_options, new_options));
   Reopen(new_options);
   // Wait for compaction to finish and make sure it can reopen
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   Reopen(new_options);
 
   {
@@ -207,16 +207,16 @@ TEST_P(DBOptionChangeMigrationTests, Migrate3) {
       ASSERT_OK(Put(Key(num * 100 + i), rnd.RandomString(900)));
     }
     Flush();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     if (num == 9) {
       // Issue a full compaction to generate some zero-out files
       CompactRangeOptions cro;
       cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-      dbfull()->CompactRange(cro, nullptr, nullptr);
+      ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
     }
   }
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Will make sure exactly those keys are in the DB after migration.
   std::set<std::string> keys;
@@ -243,8 +243,8 @@ TEST_P(DBOptionChangeMigrationTests, Migrate3) {
   Reopen(new_options);
 
   // Wait for compaction to finish and make sure it can reopen
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   Reopen(new_options);
 
   {
@@ -281,16 +281,16 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
       ASSERT_OK(Put(Key(num * 100 + i), rnd.RandomString(900)));
     }
     Flush();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     if (num == 9) {
       // Issue a full compaction to generate some zero-out files
       CompactRangeOptions cro;
       cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-      dbfull()->CompactRange(cro, nullptr, nullptr);
+      ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
     }
   }
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   // Will make sure exactly those keys are in the DB after migration.
   std::set<std::string> keys;
@@ -317,8 +317,8 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
   ASSERT_OK(OptionChangeMigration(dbname_, old_options, new_options));
   Reopen(new_options);
   // Wait for compaction to finish and make sure it can reopen
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   Reopen(new_options);
 
   {
@@ -381,7 +381,7 @@ TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
   Flush();
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
-  dbfull()->CompactRange(cro, nullptr, nullptr);
+  ASSERT_OK(dbfull()->CompactRange(cro, nullptr, nullptr));
 
   // Will make sure exactly those keys are in the DB after migration.
   std::set<std::string> keys;
@@ -404,8 +404,8 @@ TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
   ASSERT_OK(OptionChangeMigration(dbname_, old_options, new_options));
   Reopen(new_options);
   // Wait for compaction to finish and make sure it can reopen
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   Reopen(new_options);
 
   {
@@ -417,6 +417,7 @@ TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
       it->Next();
     }
     ASSERT_TRUE(!it->Valid());
+    ASSERT_OK(it->status());
   }
 }
 
