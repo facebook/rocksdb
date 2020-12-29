@@ -1439,6 +1439,9 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
   return port::WinFileSystem::Default();
 }
 
+std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {
+  return std::unique_ptr<Env>(new CompositeEnvWrapper(Env::Default(), fs));
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif
