@@ -41,9 +41,7 @@ TEST_F(DBTest2, OpenForReadOnly) {
   std::vector<std::string> files;
   ASSERT_OK(env_->GetChildren(dbname, &files));
   for (auto& f : files) {
-    if (f != "." && f != "..") {
-      ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
-    }
+    ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
   }
   // <dbname> should be empty now and we should be able to delete it
   ASSERT_OK(env_->DeleteDir(dbname));
@@ -75,9 +73,7 @@ TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
   std::vector<std::string> files;
   ASSERT_OK(env_->GetChildren(dbname, &files));
   for (auto& f : files) {
-    if (f != "." && f != "..") {
-      ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
-    }
+    ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
   }
   // <dbname> should be empty now and we should be able to delete it
   ASSERT_OK(env_->DeleteDir(dbname));

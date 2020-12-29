@@ -57,7 +57,7 @@ class DeleteSchedulerTest : public testing::Test {
 
     int normal_cnt = 0;
     for (auto& f : files_in_dir) {
-      if (!DeleteScheduler::IsTrashFile(f) && f != "." && f != "..") {
+      if (!DeleteScheduler::IsTrashFile(f)) {
         normal_cnt++;
       }
     }

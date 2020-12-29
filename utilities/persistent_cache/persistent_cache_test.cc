@@ -48,9 +48,6 @@ static void RemoveDirectory(const std::string& folder) {
 
   // cleanup files with the patter :digi:.rc
   for (auto file : files) {
-    if (file == "." || file == "..") {
-      continue;
-    }
     status = Env::Default()->DeleteFile(folder + "/" + file);
     assert(status.ok());
   }
