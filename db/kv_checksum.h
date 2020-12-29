@@ -20,8 +20,10 @@
 // `ProtectionInfoKVOTC`.
 //
 // The `ProtectionInfo.*` classes are templated on the integer type used to hold
-// the XOR of hashes for each field. When the integer type is narrower than the
-// hash values, we lop off the most significant bits to make it fit.
+// the XOR of hashes for each field. Only unsigned integer types are supported,
+// and the maximum supported integer width is 64 bits. When the integer type is
+// narrower than the hash values, we lop off the most significant bits to make
+// them fit.
 //
 // The `ProtectionInfo.*` classes are all intended to be non-persistent. We do
 // not currently make the byte order consistent for integer fields before
@@ -73,16 +75,16 @@ class ProtectionInfo {
   // Each field is hashed with an independent value so we can catch fields being
   // swapped. Per the `NPHash64()` docs, using consecutive seeds is a pitfall,
   // and we should instead vary our seeds by a large odd number. This value by
-  // which we increment was taken from `head -c8 /dev/urandom | hexdump`, run
-  // repeatedly until it yielded an odd number.
-  static const uint64_t kSeedInc = 0xD28AAD72F49BD50B;
-  static const uint64_t kSeedStart = 0;
-  static const uint64_t kSeedK = kSeedStart;
-  static const uint64_t kSeedV = kSeedK + kSeedInc;
-  static const uint64_t kSeedO = kSeedV + kSeedInc;
-  static const uint64_t kSeedT = kSeedO + kSeedInc;
-  static const uint64_t kSeedS = kSeedT + kSeedInc;
-  static const uint64_t kSeedC = kSeedS + kSeedInc;
+  // which we increment (0xD28AAD72F49BD50B) was taken from
+  // `head -c8 /dev/urandom | hexdump`, run repeatedly until it yielded an odd
+  // number. The values are computed manually since the Windows C++ compiler
+  // complains about the overflow when adding constants.
+  static const uint64_t kSeedK = 0;
+  static const uint64_t kSeedV = 0xD28AAD72F49BD50B;
+  static const uint64_t kSeedO = 0xA5155AE5E937AA16;
+  static const uint64_t kSeedT = 0x77A00858DDD37F21;
+  static const uint64_t kSeedS = 0x4A2AB5CBD26F542C;
+  static const uint64_t kSeedC = 0x1CB5633EC70B2937;
 
   ProtectionInfo<T>(T val) : val_(val) {
     static_assert(sizeof(ProtectionInfo<T>) == sizeof(T), "");

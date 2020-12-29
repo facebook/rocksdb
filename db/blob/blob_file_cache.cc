@@ -24,7 +24,7 @@ BlobFileCache::BlobFileCache(Cache* cache,
                              HistogramImpl* blob_file_read_hist)
     : cache_(cache),
       mutex_(kNumberOfMutexStripes,
-             static_cast<uint64_t (*)(const Slice&)>((&GetSliceNPHash64))),
+             static_cast<uint64_t (*)(const Slice&)>(&GetSliceNPHash64)),
       immutable_cf_options_(immutable_cf_options),
       file_options_(file_options),
       column_family_id_(column_family_id),

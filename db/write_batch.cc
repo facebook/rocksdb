@@ -1728,7 +1728,6 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
-  using WriteBatch::Handler::PutCF;
   Status PutCF(uint32_t column_family_id, const Slice& key,
                const Slice& value) override {
     const auto* kv_prot_info = NextProtectionInfo();
@@ -1763,7 +1762,6 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
-  using WriteBatch::Handler::DeleteCF;
   Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
     const auto* kv_prot_info = NextProtectionInfo();
     // optimize for non-recovery mode
@@ -1822,7 +1820,6 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
-  using WriteBatch::Handler::SingleDeleteCF;
   Status SingleDeleteCF(uint32_t column_family_id, const Slice& key) override {
     const auto* kv_prot_info = NextProtectionInfo();
     // optimize for non-recovery mode
@@ -1875,7 +1872,6 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
-  using WriteBatch::Handler::DeleteRangeCF;
   Status DeleteRangeCF(uint32_t column_family_id, const Slice& begin_key,
                        const Slice& end_key) override {
     const auto* kv_prot_info = NextProtectionInfo();
@@ -1959,7 +1955,6 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
-  using WriteBatch::Handler::MergeCF;
   Status MergeCF(uint32_t column_family_id, const Slice& key,
                  const Slice& value) override {
     const auto* kv_prot_info = NextProtectionInfo();
@@ -2109,7 +2104,6 @@ class MemTableInserter : public WriteBatch::Handler {
     return ret_status;
   }
 
-  using WriteBatch::Handler::PutBlobIndexCF;
   Status PutBlobIndexCF(uint32_t column_family_id, const Slice& key,
                         const Slice& value) override {
     const auto* kv_prot_info = NextProtectionInfo();
