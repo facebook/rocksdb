@@ -202,7 +202,7 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
                                              std::string* result,
                                              Slice* result_operand) {
   if (column_family_ != nullptr) {
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family_);
+    auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family_);
     const auto merge_operator = cfh->cfd()->ioptions()->merge_operator;
     if (merge_operator == nullptr) {
       return Status::InvalidArgument(
