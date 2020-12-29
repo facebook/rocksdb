@@ -584,7 +584,7 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
       TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                          internal_comparator, !kSkipFilters, !kImmortal,
                          level_),
-      std::move(file_reader), sink->contents().size(), &table_reader);
+      std::move(file_reader), sink->contents().size(), &table_reader));
   // Search using Get()
   ReadOptions ro;
 

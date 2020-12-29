@@ -176,7 +176,7 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   Slice* get_reader_contents() { return &reader_contents_; }
 
   void Write(const std::string& msg) {
-    ASSERT_OK(writer_.AddRecord(Slice(msg)));
+    ASSERT_OK(writer_->AddRecord(Slice(msg)));
   }
 
   size_t WrittenBytes() const {
