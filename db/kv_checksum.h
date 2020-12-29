@@ -48,11 +48,11 @@ class ProtectionInfoKVOTC;
 template <typename T>
 class ProtectionInfoKVOTS;
 
-// Aliases for eight-byte ("quadword") protection infos.
-typedef ProtectionInfo<uint64_t> QwordProtectionInfo;
-typedef ProtectionInfoKVOT<uint64_t> QwordProtectionInfoKVOT;
-typedef ProtectionInfoKVOTC<uint64_t> QwordProtectionInfoKVOTC;
-typedef ProtectionInfoKVOTS<uint64_t> QwordProtectionInfoKVOTS;
+// Aliases for 64-bit protection infos.
+typedef ProtectionInfo<uint64_t> ProtectionInfo64;
+typedef ProtectionInfoKVOT<uint64_t> ProtectionInfoKVOT64;
+typedef ProtectionInfoKVOTC<uint64_t> ProtectionInfoKVOTC64;
+typedef ProtectionInfoKVOTS<uint64_t> ProtectionInfoKVOTS64;
 
 template <typename T>
 class ProtectionInfo {

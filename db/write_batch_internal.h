@@ -66,7 +66,7 @@ class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
 struct WriteBatch::ProtectionInfo {
   // `WriteBatch` usually doesn't contain a huge number of keys so protecting
   // with a fixed, non-configurable eight bytes per key may work well enough.
-  autovector<QwordProtectionInfoKVOTC> entries_;
+  autovector<ProtectionInfoKVOTC64> entries_;
 };
 
 // WriteBatchInternal provides static methods for manipulating a

@@ -833,7 +833,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     // convenient to consolidate on `kTypeValue` here as that is what will be
     // inserted into memtable.
     b->prot_info_->entries_.emplace_back(
-        QwordProtectionInfo()
+        ProtectionInfo64()
             .ProtectKVOT(key, value, kTypeValue, timestamp)
             .ProtectC(column_family_id));
   }
@@ -897,7 +897,7 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
-        QwordProtectionInfo()
+        ProtectionInfo64()
             .ProtectKVOT(key, value, kTypeValue, timestamp)
             .ProtectC(column_family_id));
   }
@@ -993,7 +993,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
-        QwordProtectionInfo()
+        ProtectionInfo64()
             .ProtectKVOT(key, "" /* value */, kTypeDeletion, timestamp)
             .ProtectC(column_family_id));
   }
@@ -1030,7 +1030,7 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
-        QwordProtectionInfo()
+        ProtectionInfo64()
             .ProtectKVOT(key,
                          SliceParts(nullptr /* _parts */, 0 /* _num_parts */),
                          kTypeDeletion, timestamp)
@@ -1063,7 +1063,7 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
   if (b->prot_info_ != nullptr) {
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
-    b->prot_info_->entries_.emplace_back(QwordProtectionInfo()
+    b->prot_info_->entries_.emplace_back(ProtectionInfo64()
                                              .ProtectKVOT(key, "" /* value */,
                                                           kTypeSingleDeletion,
                                                           "" /* timestamp */)
@@ -1097,7 +1097,7 @@ Status WriteBatchInternal::SingleDelete(WriteBatch* b,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
-        QwordProtectionInfo()
+        ProtectionInfo64()
             .ProtectKVOT(key,
                          SliceParts(nullptr /* _parts */,
                                     0 /* _num_parts */) /* value */,
@@ -1133,7 +1133,7 @@ Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     // In `DeleteRange()`, the end key is treated as the value.
-    b->prot_info_->entries_.emplace_back(QwordProtectionInfo()
+    b->prot_info_->entries_.emplace_back(ProtectionInfo64()
                                              .ProtectKVOT(begin_key, end_key,
                                                           kTypeRangeDeletion,
                                                           "" /* timestamp */)
@@ -1168,7 +1168,7 @@ Status WriteBatchInternal::DeleteRange(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     // In `DeleteRange()`, the end key is treated as the value.
-    b->prot_info_->entries_.emplace_back(QwordProtectionInfo()
+    b->prot_info_->entries_.emplace_back(ProtectionInfo64()
                                              .ProtectKVOT(begin_key, end_key,
                                                           kTypeRangeDeletion,
                                                           "" /* timestamp */)
@@ -1210,7 +1210,7 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
-        QwordProtectionInfo()
+        ProtectionInfo64()
             .ProtectKVOT(key, value, kTypeMerge, "" /* timestamp */)
             .ProtectC(column_family_id));
   }
@@ -1248,7 +1248,7 @@ Status WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
-        QwordProtectionInfo()
+        ProtectionInfo64()
             .ProtectKVOT(key, value, kTypeMerge, "" /* timestamp */)
             .ProtectC(column_family_id));
   }
@@ -1281,7 +1281,7 @@ Status WriteBatchInternal::PutBlobIndex(WriteBatch* b,
     // See comment in first `WriteBatchInternal::Put()` overload concerning the
     // `ValueType` argument passed to `ProtectKVOT()`.
     b->prot_info_->entries_.emplace_back(
-        QwordProtectionInfo()
+        ProtectionInfo64()
             .ProtectKVOT(key, value, kTypeBlobIndex, "" /* timestamp */)
             .ProtectC(column_family_id));
   }
@@ -1431,8 +1431,8 @@ class MemTableInserter : public WriteBatch::Handler {
       (&duplicate_detector_)->IsDuplicateKeySeq(column_family_id, key, sequence_);
   }
 
-  const QwordProtectionInfoKVOTC* NextProtectionInfo() {
-    const QwordProtectionInfoKVOTC* res = nullptr;
+  const ProtectionInfoKVOTC64* NextProtectionInfo() {
+    const ProtectionInfoKVOTC64* res = nullptr;
     if (prot_info_ != nullptr) {
       assert(prot_info_idx_ < prot_info_->entries_.size());
       res = &prot_info_->entries_[prot_info_idx_];
@@ -1585,10 +1585,10 @@ class MemTableInserter : public WriteBatch::Handler {
 
   Status PutCFImpl(uint32_t column_family_id, const Slice& key,
                    const Slice& value, ValueType value_type,
-                   const QwordProtectionInfoKVOTS* kv_prot_info) {
+                   const ProtectionInfoKVOTS64* kv_prot_info) {
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
-      // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+      // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
       return WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key,
                                      value);
       // else insert the values to the memtable right away
@@ -1600,7 +1600,7 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
-        // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+        // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
         ret_status = WriteBatchInternal::Put(rebuilding_trx_, column_family_id,
                                              key, value);
         if (ret_status.ok()) {
@@ -1671,7 +1671,7 @@ class MemTableInserter : public WriteBatch::Handler {
           if (update_status == UpdateStatus::UPDATED_INPLACE) {
             assert(get_status.ok());
             if (kv_prot_info != nullptr) {
-              QwordProtectionInfoKVOTS updated_kv_prot_info(*kv_prot_info);
+              ProtectionInfoKVOTS64 updated_kv_prot_info(*kv_prot_info);
               updated_kv_prot_info.UpdateV(value,
                                            Slice(prev_buffer, prev_size));
               // prev_value is updated in-place with final value.
@@ -1688,7 +1688,7 @@ class MemTableInserter : public WriteBatch::Handler {
             }
           } else if (update_status == UpdateStatus::UPDATED) {
             if (kv_prot_info != nullptr) {
-              QwordProtectionInfoKVOTS updated_kv_prot_info(*kv_prot_info);
+              ProtectionInfoKVOTS64 updated_kv_prot_info(*kv_prot_info);
               updated_kv_prot_info.UpdateV(value, merged_value);
               // merged_value contains the final value.
               ret_status = mem->Add(sequence_, value_type, key,
@@ -1721,7 +1721,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
-      // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+      // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
       ret_status = WriteBatchInternal::Put(rebuilding_trx_, column_family_id,
                                            key, value);
     }
@@ -1744,7 +1744,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
   Status DeleteImpl(uint32_t /*column_family_id*/, const Slice& key,
                     const Slice& value, ValueType delete_type,
-                    const QwordProtectionInfoKVOTS* kv_prot_info) {
+                    const ProtectionInfoKVOTS64* kv_prot_info) {
     Status ret_status;
     MemTable* mem = cf_mems_->GetMemTable();
     ret_status =
@@ -1766,7 +1766,7 @@ class MemTableInserter : public WriteBatch::Handler {
     const auto* kv_prot_info = NextProtectionInfo();
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
-      // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+      // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
       return WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
       // else insert the values to the memtable right away
     }
@@ -1777,7 +1777,7 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
-        // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+        // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
         ret_status =
             WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
         if (ret_status.ok()) {
@@ -1813,7 +1813,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
-      // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+      // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
       ret_status =
           WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
     }
@@ -1824,7 +1824,7 @@ class MemTableInserter : public WriteBatch::Handler {
     const auto* kv_prot_info = NextProtectionInfo();
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
-      // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+      // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
       return WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id,
                                               key);
       // else insert the values to the memtable right away
@@ -1836,7 +1836,7 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
-        // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+        // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
         ret_status = WriteBatchInternal::SingleDelete(rebuilding_trx_,
                                                       column_family_id, key);
         if (ret_status.ok()) {
@@ -1865,7 +1865,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
-      // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+      // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
       ret_status = WriteBatchInternal::SingleDelete(rebuilding_trx_,
                                                     column_family_id, key);
     }
@@ -1877,7 +1877,7 @@ class MemTableInserter : public WriteBatch::Handler {
     const auto* kv_prot_info = NextProtectionInfo();
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
-      // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+      // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
       return WriteBatchInternal::DeleteRange(rebuilding_trx_, column_family_id,
                                              begin_key, end_key);
       // else insert the values to the memtable right away
@@ -1889,7 +1889,7 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
-        // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+        // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
         ret_status = WriteBatchInternal::DeleteRange(
             rebuilding_trx_, column_family_id, begin_key, end_key);
         if (ret_status.ok()) {
@@ -1948,7 +1948,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(!ret_status.IsTryAgain() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
-      // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+      // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
       ret_status = WriteBatchInternal::DeleteRange(
           rebuilding_trx_, column_family_id, begin_key, end_key);
     }
@@ -1960,7 +1960,7 @@ class MemTableInserter : public WriteBatch::Handler {
     const auto* kv_prot_info = NextProtectionInfo();
     // optimize for non-recovery mode
     if (UNLIKELY(write_after_commit_ && rebuilding_trx_ != nullptr)) {
-      // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+      // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
       return WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key,
                                        value);
       // else insert the values to the memtable right away
@@ -1972,7 +1972,7 @@ class MemTableInserter : public WriteBatch::Handler {
         assert(!write_after_commit_);
         // The CF is probably flushed and hence no need for insert but we still
         // need to keep track of the keys for upcoming rollback/commit.
-        // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+        // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
         ret_status = WriteBatchInternal::Merge(rebuilding_trx_,
                                                column_family_id, key, value);
         if (ret_status.ok()) {
@@ -2097,7 +2097,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // away. So we only need to add to it when `ret_status.ok()`.
     if (UNLIKELY(ret_status.ok() && rebuilding_trx_ != nullptr)) {
       assert(!write_after_commit_);
-      // TODO(ajkr): propagate `QwordProtectionInfoKVOTS`.
+      // TODO(ajkr): propagate `ProtectionInfoKVOTS64`.
       ret_status = WriteBatchInternal::Merge(rebuilding_trx_, column_family_id,
                                              key, value);
     }
