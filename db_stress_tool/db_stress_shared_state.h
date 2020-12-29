@@ -29,6 +29,7 @@ DECLARE_bool(test_batches_snapshots);
 DECLARE_int32(compaction_thread_pool_adjust_interval);
 DECLARE_int32(continuous_verification_interval);
 DECLARE_int32(read_fault_one_in);
+DECLARE_int32(write_fault_one_in);
 
 namespace ROCKSDB_NAMESPACE {
 class StressTest;

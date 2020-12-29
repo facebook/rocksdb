@@ -269,7 +269,7 @@ class CompactionJobTestBase : public testing::Test {
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
     compaction_job_stats_.Reset();
-    SetIdentityFile(env_, dbname_);
+    ASSERT_OK(SetIdentityFile(env_, dbname_));
 
     VersionEdit new_db;
     new_db.SetLogNumber(0);

@@ -61,7 +61,7 @@ class ObsoleteFilesTest : public DBTestBase {
   void CheckFileTypeCounts(const std::string& dir, int required_log,
                            int required_sst, int required_manifest) {
     std::vector<std::string> filenames;
-    env_->GetChildren(dir, &filenames);
+    ASSERT_OK(env_->GetChildren(dir, &filenames));
 
     int log_cnt = 0;
     int sst_cnt = 0;
