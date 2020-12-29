@@ -243,7 +243,8 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
   Result result = kNotFound;
 
   std::unique_ptr<WBWIIteratorImpl> iter(
-      static_cast<WBWIIteratorImpl*>(batch->NewIterator(column_family_)));
+      static_cast_with_check<WBWIIteratorImpl>(
+          batch->NewIterator(column_family_)));
 
   // We want to iterate in the reverse order that the writes were added to the
   // batch.  Since we don't have a reverse iterator, we must seek past the end.

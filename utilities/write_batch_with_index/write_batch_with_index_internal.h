@@ -527,10 +527,10 @@ class WBWIIteratorImpl : public WBWIIterator {
 
 class WriteBatchWithIndexInternal {
  public:
-  explicit WriteBatchWithIndexInternal(
-      DB* db, ColumnFamilyHandle* column_family = nullptr);
-  explicit WriteBatchWithIndexInternal(
-      const DBOptions* db_options, ColumnFamilyHandle* column_family = nullptr);
+  explicit WriteBatchWithIndexInternal(DB* db,
+                                       ColumnFamilyHandle* column_family);
+  explicit WriteBatchWithIndexInternal(const DBOptions* db_options,
+                                       ColumnFamilyHandle* column_family);
   explicit WriteBatchWithIndexInternal(
       ColumnFamilyHandle* column_family = nullptr);
 
@@ -559,7 +559,7 @@ class WriteBatchWithIndexInternal {
                   std::string* result, Slice* result_operand = nullptr);
 
  private:
-  DB* db_;  // Not owned
+  DB* db_;
   const DBOptions* db_options_;
   ColumnFamilyHandle* column_family_;
   MergeContext merge_context_;
