@@ -618,12 +618,21 @@ class PosixFileSystem : public FileSystem {
           return IOError("While opendir", dir, errno);
       }
     }
+    const int cur_errno = errno;
     struct dirent* entry;
     while ((entry = readdir(d)) != nullptr) {
       result->push_back(entry->d_name);
     }
-    closedir(d);
-    return IOStatus::OK();
+    if (errno != cur_errno) {
+      // error occured during readdir
+      closedir(d);  // ignore any return value from closedir
+      return IOError("While readdir", dir, errno);
+    }
+    if (closedir(d) == 0) {
+      return IOStatus::OK();
+    } else {
+      return IOError("While closedir", dir, errno);
+    }
   }
 
   IOStatus DeleteFile(const std::string& fname, const IOOptions& /*opts*/,
