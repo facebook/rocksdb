@@ -645,7 +645,6 @@ IOStatus WinFileSystem::GetChildren(const std::string& dir,
                                     IODebugContext* /*dbg*/) {
   IOStatus status;
   result->clear();
-  std::vector<std::string> output;
 
   RX_WIN32_FIND_DATA data;
   memset(&data, 0, sizeof(data));
@@ -677,10 +676,6 @@ IOStatus WinFileSystem::GetChildren(const std::string& dir,
 
   UniqueFindClosePtr fc(handle, FindCloseFunc);
 
-  if (result->capacity() > 0) {
-    output.reserve(result->capacity());
-  }
-
   // For safety
   data.cFileName[MAX_PATH - 1] = 0;
 
@@ -692,7 +687,7 @@ IOStatus WinFileSystem::GetChildren(const std::string& dir,
         (strcmp(data.cFileName, ".") == 0 || strcmp(data.cFileName, "..") == 0);
     if (!ignore) {
       auto x = RX_FILESTRING(data.cFileName, RX_FNLEN(data.cFileName));
-      output.emplace_back(FN_TO_RX(x));
+      result->push_back(FN_TO_RX(x));
     }
 
     BOOL ret = -RX_FindNextFile(handle, &data);
@@ -704,7 +699,6 @@ IOStatus WinFileSystem::GetChildren(const std::string& dir,
     }
     data.cFileName[MAX_PATH - 1] = 0;
   }
-  output.swap(*result);
   return status;
 }
 
