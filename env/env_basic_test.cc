@@ -327,6 +327,32 @@ TEST_P(EnvMoreTestWithParam, GetChildren) {
   ASSERT_EQ(0U, children.size());
 }
 
+TEST_P(EnvMoreTestWithParam, GetChildrenIgnoresDotAndDotDot) {
+  auto* env = Env::Default();
+  ASSERT_OK(env->CreateDirIfMissing(test_dir_));
+
+  // Create a single file
+  std::string path = test_dir_;
+  const EnvOptions soptions;
+#ifdef OS_WIN
+  path.append("\\test_file");
+#else
+  path.append("/test_file");
+#endif
+  std::string data("test data");
+  std::unique_ptr<WritableFile> file;
+  ASSERT_OK(env->NewWritableFile(path, &file, soptions));
+  ASSERT_OK(file->Append("test data"));
+
+  // get the children
+  std::vector<std::string> result;
+  ASSERT_OK(env->GetChildren(test_dir_, &result));
+
+  // expect only one file named `test_data`, i.e. no `.` or `..` names
+  ASSERT_EQ(result.size(), 1);
+  ASSERT_EQ(result.at(0), "test_file");
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

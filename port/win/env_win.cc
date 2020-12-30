@@ -683,7 +683,7 @@ IOStatus WinFileSystem::GetChildren(const std::string& dir,
     // filter out '.' and '..' directory entries
     // which appear only on some platforms
     const bool ignore =
-        data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY &&
+        ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) &&
         (strcmp(data.cFileName, ".") == 0 || strcmp(data.cFileName, "..") == 0);
     if (!ignore) {
       auto x = RX_FILESTRING(data.cFileName, RX_FNLEN(data.cFileName));

@@ -607,6 +607,7 @@ class PosixFileSystem : public FileSystem {
                        std::vector<std::string>* result,
                        IODebugContext* /*dbg*/) override {
     result->clear();
+
     DIR* d = opendir(dir.c_str());
     if (d == nullptr) {
       switch (errno) {
@@ -618,27 +619,35 @@ class PosixFileSystem : public FileSystem {
           return IOError("While opendir", dir, errno);
       }
     }
-    const int cur_errno = errno;
+
+    const auto pre_read_errno = errno;  // errno may be modified by readdir
     struct dirent* entry;
-    while ((entry = readdir(d)) != nullptr) {
+    while ((entry = readdir(d)) != nullptr && errno == pre_read_errno) {
       // filter out '.' and '..' directory entries
       // which appear only on some platforms
-      if (entry->d_type == DT_DIR && (strcmp(entry->d_name, ".") == 0 ||
-                                      strcmp(entry->d_name, "..") == 0)) {
-        continue;
+      const bool ignore =
+          entry->d_type == DT_DIR &&
+          (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0);
+      if (!ignore) {
+        result->push_back(entry->d_name);
       }
-      result->push_back(entry->d_name);
     }
-    if (errno != cur_errno) {
+
+    // always attempt to close the dir
+    const auto pre_close_errno = errno;  // errno may be modified by closedir
+    const int close_result = closedir(d);
+
+    if (pre_close_errno != pre_read_errno) {
       // error occured during readdir
-      closedir(d);  // ignore any return value from closedir
-      return IOError("While readdir", dir, errno);
+      return IOError("While readdir", dir, pre_close_errno);
     }
-    if (closedir(d) == 0) {
-      return IOStatus::OK();
-    } else {
+
+    if (close_result != 0) {
+      // error occured during closedir
       return IOError("While closedir", dir, errno);
     }
+
+    return IOStatus::OK();
   }
 
   IOStatus DeleteFile(const std::string& fname, const IOOptions& /*opts*/,
