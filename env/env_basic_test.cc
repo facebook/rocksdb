@@ -28,17 +28,12 @@ class EnvBasicTestWithParam : public testing::Test,
     test_dir_ = test::PerThreadDBPath(env_, "env_basic_test");
   }
 
-  void SetUp() override {
-    env_->CreateDirIfMissing(test_dir_).PermitUncheckedError();
-  }
+  void SetUp() override { ASSERT_OK(env_->CreateDirIfMissing(test_dir_)); }
 
   void TearDown() override {
     std::vector<std::string> files;
-    env_->GetChildren(test_dir_, &files).PermitUncheckedError();
+    ASSERT_OK(env_->GetChildren(test_dir_, &files));
     for (const auto& file : files) {
-      // don't know whether it's file or directory, try both. The tests must
-      // only create files or empty directories, so one must succeed, else the
-      // directory's corrupted.
       Status s = env_->DeleteFile(test_dir_ + "/" + file);
       if (!s.ok()) {
         ASSERT_OK(env_->DeleteDir(test_dir_ + "/" + file));
