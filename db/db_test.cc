@@ -2085,7 +2085,7 @@ TEST_F(DBTest, DBOpen_Options) {
   DB* db = nullptr;
   options.create_if_missing = false;
   Status s = DB::Open(options, dbname, &db);
-  ASSERT_TRUE(strstr(s.ToString().c_str(), "does not exist") != nullptr);
+  ASSERT_NE(strstr(s.ToString().c_str(), "does not exist"), nullptr);
   ASSERT_EQ(db, nullptr);
 
   // Does not exist, and create_if_missing == true: OK
@@ -2109,7 +2109,7 @@ TEST_F(DBTest, DBOpen_Options) {
   options.error_if_exists = false;
   s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
-  ASSERT_TRUE(db != nullptr);
+  ASSERT_NE(db, nullptr);
 
   delete db;
   db = nullptr;
@@ -2131,7 +2131,7 @@ TEST_F(DBTest, DBOpen_Change_NumLevels) {
   options.create_if_missing = false;
   options.num_levels = 2;
   Status s = TryReopenWithColumnFamilies({"default", "pikachu"}, options);
-  ASSERT_TRUE(strstr(s.ToString().c_str(), "Invalid argument") != nullptr);
+  ASSERT_NE(strstr(s.ToString().c_str(), "Invalid argument"), nullptr);
   ASSERT_TRUE(db_ == nullptr);
 }
 
@@ -4186,7 +4186,7 @@ TEST_F(DBTest, GetThreadStatus) {
   TryReopen(options);
 
   std::vector<ThreadStatus> thread_list;
-  Status s = env_->GetThreadList(&thread_list);
+  ASSERT_OK(env_->GetThreadList(&thread_list));
 
   for (int i = 0; i < 2; ++i) {
     // repeat the test with differet number of high / low priority threads
@@ -4207,8 +4207,7 @@ TEST_F(DBTest, GetThreadStatus) {
       for (int num_try = 0; num_try < 60000; num_try++) {
         env_->SleepForMicroseconds(1000);
         thread_list.clear();
-        s = env_->GetThreadList(&thread_list);
-        ASSERT_OK(s);
+        ASSERT_OK(env_->GetThreadList(&thread_list));
         memset(thread_type_counts, 0, sizeof(thread_type_counts));
         for (auto thread : thread_list) {
           ASSERT_LT(thread.thread_type, ThreadStatus::NUM_THREAD_TYPES);
@@ -4490,11 +4489,9 @@ TEST_P(DBTestWithParam, PreShutdownMultipleCompaction) {
       ASSERT_OK(Put(ToString(key++), rnd.RandomString(kTestValueSize)));
     }
 
-    Status s = env_->GetThreadList(&thread_list);
-    if (s.ok()) {
-      for (auto thread : thread_list) {
-        operation_count[thread.operation_type]++;
-      }
+    ASSERT_OK(env_->GetThreadList(&thread_list));
+    for (auto thread : thread_list) {
+      operation_count[thread.operation_type]++;
     }
 
     // Speed up the test
@@ -5205,8 +5202,6 @@ TEST_F(DBTest, FileCreationRandomFailure) {
       // But everything before we simulate the failure-test should succeed.
       if (j < kRandomFailureTest) {
         ASSERT_OK(s);
-      } else {
-        s.PermitUncheckedError();
       }
     }
   }
@@ -6016,8 +6011,9 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-    std::vector<port::Thread> threads;
-    threads.emplace_back([&]() { Compact("a", "z"); });
+    port::Thread thread([&]() {
+      Compact("a", "z");
+    });
 
     TEST_SYNC_POINT("DBTest::FlushesInParallelWithCompactRange:1");
 
@@ -6030,9 +6026,8 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
 
     TEST_SYNC_POINT("DBTest::FlushesInParallelWithCompactRange:2");
 
-    for (auto& t : threads) {
-      t.join();
-    }
+    thread.join();
+
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
@@ -6525,10 +6520,9 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   options.write_buffer_size = 100000;  // Small write buffer
   Reopen(options);
 
-  std::vector<port::Thread> threads;
   std::atomic<bool> done(false);
   ASSERT_OK(db_->PauseBackgroundWork());
-  threads.emplace_back([&]() {
+  port::Thread thread([&]() {
     Random rnd(301);
     for (int i = 0; i < 10000; ++i) {
       ASSERT_OK(Put(rnd.RandomString(10), rnd.RandomString(10)));
@@ -6539,9 +6533,8 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   // make sure the thread is not done
   ASSERT_FALSE(done.load());
   ASSERT_OK(db_->ContinueBackgroundWork());
-  for (auto& t : threads) {
-    t.join();
-  }
+  thread.join();
+
   // now it's done
   ASSERT_TRUE(done.load());
 }

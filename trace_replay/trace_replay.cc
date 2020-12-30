@@ -210,7 +210,6 @@ Status Replayer::Replay() {
   WriteOptions woptions;
   ReadOptions roptions;
   Trace trace;
-  // uint64_t ops = 0;
   while (s.ok()) {
     trace.reset();
     s = ReadTrace(&trace);

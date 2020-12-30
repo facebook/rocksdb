@@ -218,10 +218,9 @@ TEST_P(PrefixFullBloomWithReverseComparator,
   }
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
-  ASSERT_OK(iter->status());
   iter->Seek("bar345");
-  ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
   ASSERT_EQ("bar234", iter->key().ToString());
   ASSERT_EQ("foo2", iter->value().ToString());
   iter->Next();
@@ -1830,7 +1829,6 @@ TEST_F(DBTest2, CompressionOptions) {
 
       // Make sure database content is the same as key_value_written
       std::unique_ptr<Iterator> db_iter(db_->NewIterator(ReadOptions()));
-      ASSERT_OK(db_iter->status());
       for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
         std::string key = db_iter->key().ToString();
         std::string value = db_iter->value().ToString();
@@ -1838,6 +1836,7 @@ TEST_F(DBTest2, CompressionOptions) {
         ASSERT_EQ(key_value_written[key], value);
         key_value_written.erase(key);
       }
+      ASSERT_OK(db_iter->status());
       ASSERT_EQ(0, key_value_written.size());
     }
   }
@@ -2405,7 +2404,6 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   // CPU timing is not enabled with kEnableTimeExceptForMutex
   SetPerfLevel(PerfLevel::kEnableTimeExceptForMutex);
   Iterator* iter = db_->NewIterator(ReadOptions());
-  ASSERT_OK(iter->status());
   iter->Seek("k0");
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v0", iter->value().ToString());
@@ -2424,6 +2422,7 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   ASSERT_EQ(0, get_perf_context()->iter_next_cpu_nanos);
   iter->Prev();
   ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
   ASSERT_EQ("v0", iter->value().ToString());
   ASSERT_EQ(0, get_perf_context()->iter_prev_cpu_nanos);
   ASSERT_EQ(0, env_->now_cpu_count_.load());
@@ -2440,7 +2439,6 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
 
   SetPerfLevel(PerfLevel::kEnableTimeAndCPUTimeExceptForMutex);
   iter = db_->NewIterator(ReadOptions());
-  ASSERT_OK(iter->status());
   iter->Seek("k0");
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("v0", iter->value().ToString());
@@ -2461,6 +2459,7 @@ TEST_F(DBTest2, TestPerfContextIterCpuTime) {
   ASSERT_LT(get_perf_context()->iter_next_cpu_nanos, kDummyAddonNanos);
   iter->Prev();
   ASSERT_TRUE(iter->Valid());
+  ASSERT_OK(iter->status());
   ASSERT_EQ("v0", iter->value().ToString());
   ASSERT_GT(get_perf_context()->iter_prev_cpu_nanos, 0);
   ASSERT_LT(get_perf_context()->iter_prev_cpu_nanos, kDummyAddonNanos);
@@ -2655,10 +2654,10 @@ TEST_F(DBTest2, ReadAmpBitmap) {
 
     // Make sure we read every thing in the DB (which is smaller than our cache)
     Iterator* iter = db_->NewIterator(ReadOptions());
-    ASSERT_OK(iter->status());
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ASSERT_EQ(iter->value().ToString(), Get(iter->key().ToString()));
     }
+    ASSERT_OK(iter->status());
     delete iter;
 
     // Read amp is on average 100% since we read all what we loaded in memory
@@ -3226,9 +3225,9 @@ TEST_F(DBTest2, IterRaceFlush1) {
   // "v1" or "v2".
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
-    ASSERT_OK(it->status());
     it->Seek("foo");
     ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
   }
 
@@ -3386,7 +3385,6 @@ TEST_F(DBTest2, MemtableOnlyIterator) {
 
   // Memtable-only iterator (read_tier=kMemtableTier); data not flushed yet.
   it = db_->NewIterator(ropt, handles_[1]);
-  ASSERT_OK(it->status());
   int count = 0;
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     ASSERT_TRUE(it->Valid());
@@ -4297,7 +4295,6 @@ TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
   // at each time.
   {
     std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
-    ASSERT_OK(iter->status());
     iter->SeekToFirst();
 
     for (int i = 0; i < 4; i++) {
@@ -4317,6 +4314,8 @@ TEST_F(DBTest2, DISABLED_IteratorPinnedMemory) {
 
     iter->Seek("3");
     ASSERT_TRUE(iter->Valid());
+
+    ASSERT_OK(iter->status());
 
     ASSERT_GT(bbto.block_cache->GetPinnedUsage(), 0);
     ASSERT_LT(bbto.block_cache->GetPinnedUsage(), 800);
