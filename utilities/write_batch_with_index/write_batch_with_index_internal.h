@@ -527,12 +527,12 @@ class WBWIIteratorImpl : public WBWIIterator {
 
 class WriteBatchWithIndexInternal {
  public:
+  // For GetFromBatchAndDB or similar
   explicit WriteBatchWithIndexInternal(DB* db,
                                        ColumnFamilyHandle* column_family);
+  // For GetFromBatch or similar
   explicit WriteBatchWithIndexInternal(const DBOptions* db_options,
                                        ColumnFamilyHandle* column_family);
-  explicit WriteBatchWithIndexInternal(
-      ColumnFamilyHandle* column_family = nullptr);
 
   enum Result { kFound, kDeleted, kNotFound, kMergeInProgress, kError };
 

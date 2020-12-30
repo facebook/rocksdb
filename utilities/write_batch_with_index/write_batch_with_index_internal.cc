@@ -192,10 +192,6 @@ WriteBatchWithIndexInternal::WriteBatchWithIndexInternal(
     const DBOptions* db_options, ColumnFamilyHandle* column_family)
     : db_(nullptr), db_options_(db_options), column_family_(column_family) {}
 
-WriteBatchWithIndexInternal::WriteBatchWithIndexInternal(
-    ColumnFamilyHandle* column_family)
-    : db_(nullptr), db_options_(nullptr), column_family_(column_family) {}
-
 Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
                                              const Slice* value,
                                              MergeContext& merge_context,
