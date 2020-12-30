@@ -195,7 +195,7 @@ IOStatus GenerateOneFileChecksum(
     size_t bytes_to_read =
         static_cast<size_t>(std::min(uint64_t{readahead_size}, size));
     if (!prefetch_buffer.TryReadFromCache(opts, offset, bytes_to_read, &slice,
-                                          false)) {
+                                          nullptr, false)) {
       return IOStatus::Corruption("file read failed");
     }
     if (slice.size() == 0) {
