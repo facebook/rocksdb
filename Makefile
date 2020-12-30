@@ -2189,9 +2189,10 @@ endif
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4 -DZSTD
 JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./snappy-$(SNAPPY_VER)/build -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib -I./zstd-$(ZSTD_VER)/lib/dictBuilder
-ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
+
+ifneq ($(findstring rocksdbjavastatic, $(filter-out rocksdbjavastatic_deps, $(MAKECMDGOALS))),)
 CXXFLAGS += $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
-CFLAGS +=  $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
+CFLAGS += $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
 endif
 rocksdbjavastatic:
 ifeq ($(JAVA_HOME),)
@@ -2199,8 +2200,11 @@ ifeq ($(JAVA_HOME),)
 endif
 	$(MAKE) rocksdbjavastatic_deps
 	$(MAKE) rocksdbjavastatic_libobjects
-	cd java;$(MAKE) javalib;
-	rm -f ./java/target/$(ROCKSDBJNILIB)
+	$(MAKE) rocksdbjavastatic_javalib
+
+rocksdbjavastatic_javalib:
+	cd java;$(MAKE) javalib
+	rm -f java/target/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
 	  $(LIB_OBJECTS) $(COVERAGEFLAGS) \
@@ -2423,9 +2427,13 @@ ifneq ($(MAKECMDGOALS),clean)
 ifneq ($(MAKECMDGOALS),format)
 ifneq ($(MAKECMDGOALS),jclean)
 ifneq ($(MAKECMDGOALS),jtest)
+ifneq ($(MAKECMDGOALS),rocksdbjavastatic)
+ifneq ($(MAKECMDGOALS),rocksdbjavastatic_deps)
 ifneq ($(MAKECMDGOALS),package)
 ifneq ($(MAKECMDGOALS),analyze)
 -include $(DEPFILES)
+endif
+endif
 endif
 endif
 endif
