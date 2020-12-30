@@ -1221,7 +1221,8 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false, BuildCmdLineOptions({ARG_PATH, ARG_HEX})),
+    : LDBCommand(options, flags, false,
+                 BuildCmdLineOptions({ARG_PATH, ARG_HEX})),
       path_("") {
   std::map<std::string, std::string>::const_iterator itr =
       options.find(ARG_PATH);
