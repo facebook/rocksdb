@@ -2891,16 +2891,21 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
   // Trivial move 2 files to L1
   ASSERT_EQ("0,2", FilesPerLevel());
 
-  std::function<void()> bg_manual_compact = [&]() {
-    std::string k1 = Key(6);
-    std::string k2 = Key(9);
-    Slice k1s(k1);
-    Slice k2s(k2);
-    CompactRangeOptions cro;
-    cro.exclusive_manual_compaction = false;
-    ASSERT_OK(db_->CompactRange(cro, &k1s, &k2s));
-  };
-  ROCKSDB_NAMESPACE::port::Thread bg_thread;
+  std::function<std::function<void()>(std::vector<Status>*)>
+      bg_manual_compact_factory = [this](std::vector<Status>* status) {
+        return [status, this]() {
+          std::string k1 = Key(6);
+          std::string k2 = Key(9);
+          Slice k1s(k1);
+          Slice k2s(k2);
+          CompactRangeOptions cro;
+          cro.exclusive_manual_compaction = false;
+          Status s = db_->CompactRange(cro, &k1s, &k2s);
+          status->push_back(s);
+        };
+      };
+
+  ROCKSDB_NAMESPACE::test::ThreadWithStatus bg_thread;
 
   // While the compaction is running, we will create 2 new files that
   // can fit in L1, these 2 files will be moved to L1 and overlap with
@@ -2921,7 +2926,10 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
         ASSERT_OK(Flush());
 
         // Start a non-exclusive manual compaction in a bg thread
-        bg_thread = port::Thread(bg_manual_compact);
+        auto* status = new std::vector<Status>();
+        bg_thread = test::ThreadWithStatus{
+            std::unique_ptr<std::vector<Status>>(status),
+            port::Thread(bg_manual_compact_factory(status))};
         // This manual compaction conflict with the other manual compaction
         // so it should wait until the first compaction finish
         env_->SleepForMicroseconds(1000000);
@@ -2934,7 +2942,11 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
   cro.exclusive_manual_compaction = false;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
-  bg_thread.join();
+
+  bg_thread.thread.join();
+  for (auto& s : *bg_thread.status) {
+    ASSERT_OK(s);
+  }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -3214,10 +3226,12 @@ TEST_F(DBTest2, IterRaceFlush1) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+  Status t1_put_status;
+  Status t1_flush_status;
   ROCKSDB_NAMESPACE::port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::IterRaceFlush:1");
-    ASSERT_OK(Put("foo", "v2"));
-    ASSERT_OK(Flush());
+    t1_put_status = Put("foo", "v2");
+    t1_flush_status = Flush();
     TEST_SYNC_POINT("DBTest2::IterRaceFlush:2");
   });
 
@@ -3232,6 +3246,9 @@ TEST_F(DBTest2, IterRaceFlush1) {
   }
 
   t1.join();
+  ASSERT_OK(t1_put_status);
+  ASSERT_OK(t1_flush_status);
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -3244,10 +3261,12 @@ TEST_F(DBTest2, IterRaceFlush2) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+  Status t1_put_status;
+  Status t1_flush_status;
   ROCKSDB_NAMESPACE::port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::IterRaceFlush2:1");
-    ASSERT_OK(Put("foo", "v2"));
-    ASSERT_OK(Flush());
+    t1_put_status = Put("foo", "v2");
+    t1_flush_status = Flush();
     TEST_SYNC_POINT("DBTest2::IterRaceFlush2:2");
   });
 
@@ -3262,6 +3281,9 @@ TEST_F(DBTest2, IterRaceFlush2) {
   }
 
   t1.join();
+  ASSERT_OK(t1_put_status);
+  ASSERT_OK(t1_flush_status);
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -3274,10 +3296,12 @@ TEST_F(DBTest2, IterRefreshRaceFlush) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+  Status t1_put_status;
+  Status t1_flush_status;
   ROCKSDB_NAMESPACE::port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::IterRefreshRaceFlush:1");
-    ASSERT_OK(Put("foo", "v2"));
-    ASSERT_OK(Flush());
+    t1_put_status = Put("foo", "v2");
+    t1_flush_status = Flush();
     TEST_SYNC_POINT("DBTest2::IterRefreshRaceFlush:2");
   });
 
@@ -3285,14 +3309,17 @@ TEST_F(DBTest2, IterRefreshRaceFlush) {
   // "v1" or "v2".
   {
     std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
-    ASSERT_OK(it->status());
     ASSERT_OK(it->Refresh());
     it->Seek("foo");
     ASSERT_TRUE(it->Valid());
+    ASSERT_OK(it->status());
     ASSERT_EQ("foo", it->key().ToString());
   }
 
   t1.join();
+  ASSERT_OK(t1_put_status);
+  ASSERT_OK(t1_flush_status);
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -3305,17 +3332,23 @@ TEST_F(DBTest2, GetRaceFlush1) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+  Status t1_put_status;
+  Status t1_flush_status;
   ROCKSDB_NAMESPACE::port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::GetRaceFlush:1");
-    ASSERT_OK(Put("foo", "v2"));
-    ASSERT_OK(Flush());
+    t1_put_status = Put("foo", "v2");
+    t1_flush_status = Flush();
     TEST_SYNC_POINT("DBTest2::GetRaceFlush:2");
   });
 
   // Get() is issued after the first Put(), so it should see either
   // "v1" or "v2".
   ASSERT_NE("NOT_FOUND", Get("foo"));
+
   t1.join();
+  ASSERT_OK(t1_put_status);
+  ASSERT_OK(t1_flush_status);
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -3328,17 +3361,23 @@ TEST_F(DBTest2, GetRaceFlush2) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+  Status t1_put_status;
+  Status t1_flush_status;
   port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::GetRaceFlush:1");
-    ASSERT_OK(Put("foo", "v2"));
-    ASSERT_OK(Flush());
+    t1_put_status = Put("foo", "v2");
+    t1_flush_status = Flush();
     TEST_SYNC_POINT("DBTest2::GetRaceFlush:2");
   });
 
   // Get() is issued after the first Put(), so it should see either
   // "v1" or "v2".
   ASSERT_NE("NOT_FOUND", Get("foo"));
+
   t1.join();
+  ASSERT_OK(t1_put_status);
+  ASSERT_OK(t1_flush_status);
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -4469,24 +4508,37 @@ TEST_F(DBTest2, TestGetColumnFamilyHandleUnlocked) {
   ASSERT_EQ(handles_.size(), 2);
 
   DBImpl* dbi = static_cast_with_check<DBImpl>(db_);
+
+  std::vector<std::tuple<uint32_t, uint32_t>> user_thread1_ids;
   port::Thread user_thread1([&]() {
     auto cfh = dbi->GetColumnFamilyHandleUnlocked(handles_[0]->GetID());
-    ASSERT_EQ(cfh->GetID(), handles_[0]->GetID());
+    user_thread1_ids.push_back(
+        std::tuple<uint32_t, uint32_t>{cfh->GetID(), handles_[0]->GetID()});
     TEST_SYNC_POINT("TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked1");
     TEST_SYNC_POINT("TestGetColumnFamilyHandleUnlocked::ReadColumnFamilyHandle1");
-    ASSERT_EQ(cfh->GetID(), handles_[0]->GetID());
+    user_thread1_ids.push_back(
+        std::tuple<uint32_t, uint32_t>{cfh->GetID(), handles_[0]->GetID()});
   });
 
+  std::vector<std::tuple<uint32_t, uint32_t>> user_thread2_ids;
   port::Thread user_thread2([&]() {
     TEST_SYNC_POINT("TestGetColumnFamilyHandleUnlocked::PreGetColumnFamilyHandleUnlocked2");
     auto cfh = dbi->GetColumnFamilyHandleUnlocked(handles_[1]->GetID());
-    ASSERT_EQ(cfh->GetID(), handles_[1]->GetID());
+    user_thread2_ids.push_back(
+        std::tuple<uint32_t, uint32_t>{cfh->GetID(), handles_[1]->GetID()});
     TEST_SYNC_POINT("TestGetColumnFamilyHandleUnlocked::GetColumnFamilyHandleUnlocked2");
-    ASSERT_EQ(cfh->GetID(), handles_[1]->GetID());
+    user_thread2_ids.push_back(
+        std::tuple<uint32_t, uint32_t>{cfh->GetID(), handles_[1]->GetID()});
   });
 
   user_thread1.join();
   user_thread2.join();
+  for (auto& t : user_thread1_ids) {
+    ASSERT_EQ(std::get<0>(t), std::get<1>(t));
+  }
+  for (auto& t : user_thread2_ids) {
+    ASSERT_EQ(std::get<0>(t), std::get<1>(t));
+  }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -4538,18 +4590,23 @@ TEST_F(DBTest2, TestCompactFiles) {
   GetSstFiles(env_, dbname_, &files);
   ASSERT_EQ(files.size(), 2);
 
+  Status user_thread1_status;
   port::Thread user_thread1([&]() {
-    ASSERT_OK(db_->CompactFiles(CompactionOptions(), handle, files, 1));
+    user_thread1_status =
+        db_->CompactFiles(CompactionOptions(), handle, files, 1);
   });
 
+  Status user_thread2_status;
   port::Thread user_thread2([&]() {
-    ASSERT_OK(db_->IngestExternalFile(handle, {external_file2},
-                                      IngestExternalFileOptions()));
+    user_thread2_status = db_->IngestExternalFile(handle, {external_file2},
+                                                  IngestExternalFileOptions());
     TEST_SYNC_POINT("TestCompactFiles::IngestExternalFile1");
   });
 
   user_thread1.join();
   user_thread2.join();
+  ASSERT_OK(user_thread1_status);
+  ASSERT_OK(user_thread2_status);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -4945,9 +5002,11 @@ TEST_F(DBTest2, SwitchMemtableRaceWithNewManifest) {
     ASSERT_OK(Flush(/*cf=*/1));
   }
 
-  port::Thread thread([&]() { ASSERT_OK(Flush()); });
+  Status thread_status;
+  port::Thread thread([&]() { thread_status = Flush(); });
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   thread.join();
+  ASSERT_OK(thread_status);
 }
 
 TEST_F(DBTest2, SameSmallestInSameLevel) {

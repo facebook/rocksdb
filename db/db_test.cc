@@ -272,23 +272,35 @@ TEST_F(DBTest, MixedSlowdownOptions) {
   options.env = env_;
   options.write_buffer_size = 100000;
   CreateAndReopenWithCF({"pikachu"}, options);
-  std::vector<port::Thread> threads;
+  std::vector<test::ThreadWithExpectedStatus> threads;
   std::atomic<int> thread_num(0);
 
-  std::function<void()> write_slowdown_func = [&]() {
-    int a = thread_num.fetch_add(1);
-    std::string key = "foo" + std::to_string(a);
-    WriteOptions wo;
-    wo.no_slowdown = false;
-    ASSERT_OK(dbfull()->Put(wo, key, "bar"));
-  };
-  std::function<void()> write_no_slowdown_func = [&]() {
-    int a = thread_num.fetch_add(1);
-    std::string key = "foo" + std::to_string(a);
-    WriteOptions wo;
-    wo.no_slowdown = true;
-    ASSERT_NOK(dbfull()->Put(wo, key, "bar"));
-  };
+  std::function<std::function<void()>(std::vector<Status>*)>
+      write_slowdown_func_factory =
+          [&thread_num, this](std::vector<Status>* status) {
+            return [status, &thread_num, this]() {
+              const int a = thread_num.fetch_add(1);
+              std::string key = "foo" + std::to_string(a);
+              WriteOptions wo;
+              wo.no_slowdown = false;
+              Status s = dbfull()->Put(wo, key, "bar");
+              status->push_back(s);
+            };
+          };
+
+  std::function<std::function<void()>(std::vector<Status>*)>
+      write_no_slowdown_func_factory =
+          [&thread_num, this](std::vector<Status>* status) {
+            return [status, &thread_num, this]() {
+              const int a = thread_num.fetch_add(1);
+              std::string key = "foo" + std::to_string(a);
+              WriteOptions wo;
+              wo.no_slowdown = true;
+              Status s = dbfull()->Put(wo, key, "bar");
+              status->push_back(s);
+            };
+          };
+
   // Use a small number to ensure a large delay that is still effective
   // when we do Put
   // TODO(myabandeh): this is time dependent and could potentially make
@@ -300,10 +312,18 @@ TEST_F(DBTest, MixedSlowdownOptions) {
         sleep_count.fetch_add(1);
         if (threads.empty()) {
           for (int i = 0; i < 2; ++i) {
-            threads.emplace_back(write_slowdown_func);
+            auto* status = new std::vector<Status>();
+            threads.emplace_back(test::ThreadWithExpectedStatus{
+                std::unique_ptr<std::vector<Status>>(status),
+                port::Thread(write_slowdown_func_factory(status)),
+                Status::OK()});
           }
           for (int i = 0; i < 2; ++i) {
-            threads.emplace_back(write_no_slowdown_func);
+            auto* status = new std::vector<Status>();
+            threads.emplace_back(test::ThreadWithExpectedStatus{
+                std::unique_ptr<std::vector<Status>>(status),
+                port::Thread(write_no_slowdown_func_factory(status)),
+                Status::Incomplete()});
           }
         }
       });
@@ -319,9 +339,14 @@ TEST_F(DBTest, MixedSlowdownOptions) {
   ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
           token.reset();
 
-  for (auto& t : threads) {
-    t.join();
-  }
+          for (auto& ts : threads) {
+            ts.thread.join();
+
+            for (auto& s : *ts.status) {
+              ASSERT_EQ(s, ts.expected_status);
+            }
+          }
+
   ASSERT_GE(sleep_count.load(), 1);
 
   wo.no_slowdown = true;
@@ -333,16 +358,21 @@ TEST_F(DBTest, MixedSlowdownOptionsInQueue) {
   options.env = env_;
   options.write_buffer_size = 100000;
   CreateAndReopenWithCF({"pikachu"}, options);
-  std::vector<port::Thread> threads;
+  std::vector<test::ThreadWithStatus> threads;
   std::atomic<int> thread_num(0);
 
-  std::function<void()> write_no_slowdown_func = [&]() {
-    int a = thread_num.fetch_add(1);
-    std::string key = "foo" + std::to_string(a);
-    WriteOptions wo;
-    wo.no_slowdown = true;
-    ASSERT_NOK(dbfull()->Put(wo, key, "bar"));
-  };
+  std::function<std::function<void()>(std::vector<Status>*)>
+      write_no_slowdown_func_factory =
+          [&thread_num, this](std::vector<Status>* status) {
+            return [status, &thread_num, this]() {
+              const int a = thread_num.fetch_add(1);
+              std::string key = "foo" + std::to_string(a);
+              WriteOptions wo;
+              wo.no_slowdown = true;
+              Status s = dbfull()->Put(wo, key, "bar");
+              status->push_back(s);
+            };
+          };
   // Use a small number to ensure a large delay that is still effective
   // when we do Put
   // TODO(myabandeh): this is time dependent and could potentially make
@@ -354,7 +384,10 @@ TEST_F(DBTest, MixedSlowdownOptionsInQueue) {
         sleep_count.fetch_add(1);
         if (threads.empty()) {
           for (int i = 0; i < 2; ++i) {
-            threads.emplace_back(write_no_slowdown_func);
+            auto* status = new std::vector<Status>();
+            threads.emplace_back(test::ThreadWithStatus{
+                std::unique_ptr<std::vector<Status>>(status),
+                port::Thread(write_no_slowdown_func_factory(status))});
           }
           // Sleep for 2s to allow the threads to insert themselves into the
           // write queue
@@ -377,9 +410,14 @@ TEST_F(DBTest, MixedSlowdownOptionsInQueue) {
   ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
           token.reset();
 
-  for (auto& t : threads) {
-    t.join();
-  }
+          for (auto& ts : threads) {
+            ts.thread.join();
+
+            for (auto& s : *ts.status) {
+              ASSERT_EQ(s, Status::Incomplete());
+            }
+          }
+
   ASSERT_EQ(sleep_count.load(), 1);
   ASSERT_GE(wait_count.load(), 0);
 }
@@ -389,28 +427,45 @@ TEST_F(DBTest, MixedSlowdownOptionsStop) {
   options.env = env_;
   options.write_buffer_size = 100000;
   CreateAndReopenWithCF({"pikachu"}, options);
-  std::vector<port::Thread> threads;
+  std::vector<test::ThreadWithExpectedStatus> threads;
   std::atomic<int> thread_num(0);
 
-  std::function<void()> write_slowdown_func = [&]() {
-    int a = thread_num.fetch_add(1);
-    std::string key = "foo" + std::to_string(a);
-    WriteOptions wo;
-    wo.no_slowdown = false;
-    ASSERT_OK(dbfull()->Put(wo, key, "bar"));
-  };
-  std::function<void()> write_no_slowdown_func = [&]() {
-    int a = thread_num.fetch_add(1);
-    std::string key = "foo" + std::to_string(a);
-    WriteOptions wo;
-    wo.no_slowdown = true;
-    ASSERT_NOK(dbfull()->Put(wo, key, "bar"));
-  };
-  std::function<void()> wakeup_writer = [&]() {
-    dbfull()->mutex_.Lock();
-    dbfull()->bg_cv_.SignalAll();
-    dbfull()->mutex_.Unlock();
-  };
+  std::function<std::function<void()>(std::vector<Status>*)>
+      write_slowdown_func_factory =
+          [&thread_num, this](std::vector<Status>* status) {
+            return [status, &thread_num, this]() {
+              const int a = thread_num.fetch_add(1);
+              std::string key = "foo" + std::to_string(a);
+              WriteOptions wo;
+              wo.no_slowdown = false;
+              Status s = dbfull()->Put(wo, key, "bar");
+              status->push_back(s);
+            };
+          };
+
+  std::function<std::function<void()>(std::vector<Status>*)>
+      write_no_slowdown_func_factory =
+          [&thread_num, this](std::vector<Status>* status) {
+            return [status, &thread_num, this]() {
+              const int a = thread_num.fetch_add(1);
+              std::string key = "foo" + std::to_string(a);
+              WriteOptions wo;
+              wo.no_slowdown = true;
+              Status s = dbfull()->Put(wo, key, "bar");
+              status->push_back(s);
+            };
+          };
+
+  std::function<std::function<void()>(std::vector<Status>*)>
+      wakeup_writer_func_factory = [this](std::vector<Status>* status) {
+        return [status, this]() {
+          dbfull()->mutex_.Lock();
+          dbfull()->bg_cv_.SignalAll();
+          dbfull()->mutex_.Unlock();
+          status->push_back(Status::OK());
+        };
+      };
+
   // Use a small number to ensure a large delay that is still effective
   // when we do Put
   // TODO(myabandeh): this is time dependent and could potentially make
@@ -422,17 +477,29 @@ TEST_F(DBTest, MixedSlowdownOptionsStop) {
         wait_count.fetch_add(1);
         if (threads.empty()) {
           for (int i = 0; i < 2; ++i) {
-            threads.emplace_back(write_slowdown_func);
+            auto* status = new std::vector<Status>();
+            threads.emplace_back(test::ThreadWithExpectedStatus{
+                std::unique_ptr<std::vector<Status>>(status),
+                port::Thread(write_slowdown_func_factory(status)),
+                Status::OK()});
           }
           for (int i = 0; i < 2; ++i) {
-            threads.emplace_back(write_no_slowdown_func);
+            auto* status = new std::vector<Status>();
+            threads.emplace_back(test::ThreadWithExpectedStatus{
+                std::unique_ptr<std::vector<Status>>(status),
+                port::Thread(write_no_slowdown_func_factory(status)),
+                Status::Incomplete()});
           }
           // Sleep for 2s to allow the threads to insert themselves into the
           // write queue
           env_->SleepForMicroseconds(3000000ULL);
         }
         token.reset();
-        threads.emplace_back(wakeup_writer);
+
+        auto* status = new std::vector<Status>();
+        threads.emplace_back(test::ThreadWithExpectedStatus{
+            std::unique_ptr<std::vector<Status>>(status),
+            port::Thread(wakeup_writer_func_factory(status)), Status::OK()});
       });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -446,9 +513,14 @@ TEST_F(DBTest, MixedSlowdownOptionsStop) {
   ASSERT_OK(dbfull()->Put(wo, "foo2", "bar2"));
           token.reset();
 
-  for (auto& t : threads) {
-    t.join();
-  }
+          for (auto& ts : threads) {
+            ts.thread.join();
+
+            for (auto& s : *ts.status) {
+              ASSERT_EQ(s, ts.expected_status);
+            }
+          }
+
   ASSERT_GE(wait_count.load(), 1);
 
   wo.no_slowdown = true;
@@ -908,27 +980,40 @@ TEST_F(DBTest, FlushSchedule) {
   options.max_write_buffer_number = 2;
   options.write_buffer_size = 120 * 1024;
   CreateAndReopenWithCF({"pikachu"}, options);
-  std::vector<port::Thread> threads;
+  std::vector<test::ThreadWithStatus> threads;
 
   std::atomic<int> thread_num(0);
   // each column family will have 5 thread, each thread generating 2 memtables.
   // each column family should end up with 10 table files
-  std::function<void()> fill_memtable_func = [&]() {
-    int a = thread_num.fetch_add(1);
-    Random rnd(a);
-    WriteOptions wo;
-    // this should fill up 2 memtables
-    for (int k = 0; k < 5000; ++k) {
-      ASSERT_OK(db_->Put(wo, handles_[a & 1], rnd.RandomString(13), ""));
-    }
-  };
+
+  std::function<std::function<void()>(std::vector<Status>*)>
+      fill_memtable_func_factory = [&thread_num,
+                                    this](std::vector<Status>* status) {
+        return [status, &thread_num, this]() {
+          const int a = thread_num.fetch_add(1);
+          Random rnd(a);
+          WriteOptions wo;
+          // this should fill up 2 memtables
+          for (int k = 0; k < 5000; ++k) {
+            Status s = db_->Put(wo, handles_[a & 1], rnd.RandomString(13), "");
+            status->push_back(s);
+          }
+        };
+      };
 
   for (int i = 0; i < 10; ++i) {
-    threads.emplace_back(fill_memtable_func);
+    auto* status = new std::vector<Status>();
+    threads.emplace_back(test::ThreadWithStatus{
+        std::unique_ptr<std::vector<Status>>(status),
+        port::Thread(fill_memtable_func_factory(status))});
   }
 
-  for (auto& t : threads) {
-    t.join();
+  for (auto& ts : threads) {
+    ts.thread.join();
+
+    for (auto& s : *ts.status) {
+      ASSERT_OK(s);
+    }
   }
 
   auto default_tables = GetNumberOfSstFilesForColumnFamily(db_, "default");
@@ -3940,9 +4025,11 @@ TEST_F(DBTest, WriteSingleThreadEntry) {
   std::vector<port::Thread> threads;
   dbfull()->TEST_LockMutex();
   auto w = dbfull()->TEST_BeginWrite();
-  threads.emplace_back([&] { ASSERT_OK(Put("a", "b")); });
+  Status put_status;
+  threads.emplace_back([&] { put_status = Put("a", "b"); });
   env_->SleepForMicroseconds(10000);
-  threads.emplace_back([&] { ASSERT_OK(Flush()); });
+  Status flush_status;
+  threads.emplace_back([&] { flush_status = Flush(); });
   env_->SleepForMicroseconds(10000);
   dbfull()->TEST_UnlockMutex();
   dbfull()->TEST_LockMutex();
@@ -3952,6 +4039,9 @@ TEST_F(DBTest, WriteSingleThreadEntry) {
   for (auto& t : threads) {
     t.join();
   }
+
+  ASSERT_OK(put_status);
+  ASSERT_OK(flush_status);
 }
 
 TEST_F(DBTest, ConcurrentFlushWAL) {
@@ -3960,39 +4050,78 @@ TEST_F(DBTest, ConcurrentFlushWAL) {
   options.env = env_;
   WriteOptions wopt;
   ReadOptions ropt;
+
+  std::function<std::function<void()>(std::vector<Status>*)> put_func_factory =
+      [&wopt, this](std::vector<Status>* status) {
+        return [status, &wopt, this]() {
+          for (size_t i = 0; i < cnt; i++) {
+            auto istr = ToString(i);
+            Status s = db_->Put(wopt, db_->DefaultColumnFamily(), "a" + istr,
+                                "b" + istr);
+            status->push_back(s);
+          }
+        };
+      };
+
+  std::function<std::function<void()>(std::vector<Status>*)>
+      put_write_func_factory = [&wopt, this](std::vector<Status>* status) {
+        return [status, &wopt, this]() {
+          for (size_t i = cnt; i < 2 * cnt; i++) {
+            auto istr = ToString(i);
+            WriteBatch batch;
+            Status s = batch.Put("a" + istr, "b" + istr);
+            status->push_back(s);
+            s = dbfull()->WriteImpl(wopt, &batch, nullptr, nullptr, 0, true);
+            status->push_back(s);
+          }
+        };
+      };
+
+  std::function<std::function<void()>(std::vector<Status>*)>
+      flush_func_factory = [this](std::vector<Status>* status) {
+        return [status, this]() {
+          for (size_t i = 0; i < cnt * 100;
+               i++) {  // FlushWAL is faster than Put
+            Status s = db_->FlushWAL(false);
+            status->push_back(s);
+          }
+        };
+      };
+
   for (bool two_write_queues : {false, true}) {
     for (bool manual_wal_flush : {false, true}) {
       options.two_write_queues = two_write_queues;
       options.manual_wal_flush = manual_wal_flush;
       options.create_if_missing = true;
       DestroyAndReopen(options);
-      std::vector<port::Thread> threads;
-      threads.emplace_back([&] {
-        for (size_t i = 0; i < cnt; i++) {
-          auto istr = ToString(i);
-          ASSERT_OK(db_->Put(wopt, db_->DefaultColumnFamily(), "a" + istr,
-                             "b" + istr));
-        }
-      });
+
+      std::vector<test::ThreadWithStatus> threads;
+
+      auto* status = new std::vector<Status>();
+      threads.emplace_back(
+          test::ThreadWithStatus{std::unique_ptr<std::vector<Status>>(status),
+                                 port::Thread(put_func_factory(status))});
+
       if (two_write_queues) {
-        threads.emplace_back([&] {
-          for (size_t i = cnt; i < 2 * cnt; i++) {
-            auto istr = ToString(i);
-            WriteBatch batch;
-            ASSERT_OK(batch.Put("a" + istr, "b" + istr));
-            ASSERT_OK(
-                dbfull()->WriteImpl(wopt, &batch, nullptr, nullptr, 0, true));
-          }
-        });
+        status = new std::vector<Status>();
+        threads.emplace_back(test::ThreadWithStatus{
+            std::unique_ptr<std::vector<Status>>(status),
+            port::Thread(put_write_func_factory(status))});
       }
-      threads.emplace_back([&] {
-        for (size_t i = 0; i < cnt * 100; i++) {  // FlushWAL is faster than Put
-          ASSERT_OK(db_->FlushWAL(false));
+
+      status = new std::vector<Status>();
+      threads.emplace_back(
+          test::ThreadWithStatus{std::unique_ptr<std::vector<Status>>(status),
+                                 port::Thread(flush_func_factory(status))});
+
+      for (auto& ts : threads) {
+        ts.thread.join();
+
+        for (auto& s : *ts.status) {
+          ASSERT_OK(s);
         }
-      });
-      for (auto& t : threads) {
-        t.join();
       }
+
       options.create_if_missing = false;
       // Recover from the wal and make sure that it is not corrupted
       Reopen(options);
@@ -5849,10 +5978,11 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
     }
     ASSERT_OK(Flush());
   }
-  port::Thread manual_compaction_thread([this]() {
+  Status manual_compaction_status;
+  port::Thread manual_compaction_thread([&]() {
     CompactRangeOptions croptions;
     croptions.exclusive_manual_compaction = true;
-    ASSERT_OK(db_->CompactRange(croptions, nullptr, nullptr));
+    manual_compaction_status = db_->CompactRange(croptions, nullptr, nullptr);
   });
 
   TEST_SYNC_POINT("DBTest::AutomaticConflictsWithManualCompaction:PrePuts");
@@ -5871,6 +6001,7 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
   }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
   manual_compaction_thread.join();
+  ASSERT_OK(manual_compaction_status);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 }
 
@@ -5908,9 +6039,10 @@ TEST_F(DBTest, CompactFilesShouldTriggerAutoCompaction) {
 
   SyncPoint::GetInstance()->EnableProcessing();
 
+  Status manual_compaction_status;
   port::Thread manual_compaction_thread([&]() {
-    ASSERT_OK(db_->CompactFiles(CompactionOptions(), db_->DefaultColumnFamily(),
-                                input_files, 0));
+    manual_compaction_status = db_->CompactFiles(
+        CompactionOptions(), db_->DefaultColumnFamily(), input_files, 0);
   });
 
   TEST_SYNC_POINT(
@@ -5929,6 +6061,7 @@ TEST_F(DBTest, CompactFilesShouldTriggerAutoCompaction) {
           "DBTest::CompactFilesShouldTriggerAutoCompaction:End");
 
   manual_compaction_thread.join();
+  ASSERT_OK(manual_compaction_status);
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
 
   db_->GetColumnFamilyMetaData(db_->DefaultColumnFamily(), &cf_meta_data);
@@ -6011,9 +6144,7 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-    port::Thread thread([&]() {
-      Compact("a", "z");
-    });
+    port::Thread thread([&]() { Compact("a", "z"); });
 
     TEST_SYNC_POINT("DBTest::FlushesInParallelWithCompactRange:1");
 
@@ -6549,37 +6680,57 @@ TEST_F(DBTest, ThreadLocalPtrDeadlock) {
     return flushes_done.load() > 10;
   };
 
+  std::vector<Status> flushing_thread_status;
   port::Thread flushing_thread([&] {
     for (int i = 0; !done(); ++i) {
-      ASSERT_OK(db_->Put(WriteOptions(), Slice("hi"),
-                         Slice(std::to_string(i).c_str())));
-      ASSERT_OK(db_->Flush(FlushOptions()));
+      Status s = db_->Put(WriteOptions(), Slice("hi"),
+                          Slice(std::to_string(i).c_str()));
+      flushing_thread_status.push_back(s);
+      s = db_->Flush(FlushOptions());
+      flushing_thread_status.push_back(s);
       int cnt = ++flushes_done;
       fprintf(stderr, "Flushed %d times\n", cnt);
     }
   });
 
-  std::vector<port::Thread> thread_spawning_threads(10);
-  for (auto& t: thread_spawning_threads) {
-    t = port::Thread([&] {
+  const size_t MAX_THREAD_SPAWNING_THREADS = 10;
+  test::ThreadWithStatus thread_spawning_threads[MAX_THREAD_SPAWNING_THREADS];
+  for (size_t i = 0; i < MAX_THREAD_SPAWNING_THREADS; i++) {
+    auto* spawning_thread_status = new std::vector<Status>();
+    port::Thread spawning_thread([&]() {
       while (!done()) {
         {
+          Status it_status;
           port::Thread tmp_thread([&] {
             auto it = db_->NewIterator(ReadOptions());
-            ASSERT_OK(it->status());
+            it_status = it->status();
             delete it;
           });
           tmp_thread.join();
+          spawning_thread_status->push_back(it_status);
         }
         ++threads_destroyed;
       }
     });
+
+    thread_spawning_threads[i] = test::ThreadWithStatus{
+        std::unique_ptr<std::vector<Status>>(spawning_thread_status),
+        std::move(spawning_thread)};
   }
 
-  for (auto& t: thread_spawning_threads) {
-    t.join();
+  for (auto& ts : thread_spawning_threads) {
+    ts.thread.join();
+
+    for (auto& s : *ts.status) {
+      ASSERT_OK(s);
+    }
   }
+
   flushing_thread.join();
+  for (auto& s : flushing_thread_status) {
+    ASSERT_OK(s);
+  }
+
   fprintf(stderr, "Done. Flushed %d times, destroyed %d threads\n",
           flushes_done.load(), threads_destroyed.load());
 }

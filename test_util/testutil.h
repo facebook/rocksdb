@@ -883,5 +883,16 @@ Status TryDeleteDir(Env* env, const std::string& dirname);
 // Delete a directory if it exists
 void DeleteDir(Env* env, const std::string& dirname);
 
+struct ThreadWithStatus {
+  std::unique_ptr<std::vector<Status>> status;
+  port::Thread thread;
+};
+
+struct ThreadWithExpectedStatus {
+  std::unique_ptr<std::vector<Status>> status;
+  port::Thread thread;
+  Status expected_status;
+};
+
 }  // namespace test
 }  // namespace ROCKSDB_NAMESPACE
