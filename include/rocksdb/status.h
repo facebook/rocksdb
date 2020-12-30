@@ -21,6 +21,7 @@
 #include <stdlib.h>
 #endif
 
+#include <ostream>
 #include <string>
 
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
@@ -501,6 +502,10 @@ class Status {
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   std::string ToString() const;
+
+  friend std::ostream& operator<<(std::ostream& os, const Status& status) {
+    return os << status.ToString();
+  }
 
  protected:
   // A nullptr state_ (which is always the case for OK) means the message
