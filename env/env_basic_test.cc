@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "db/db_test_util.h"
 #include "env/mock_env.h"
 #include "file/file_util.h"
 #include "rocksdb/convenience.h"
@@ -117,6 +118,17 @@ static Env* GetInspectedEnv() {
       Env::Default(), std::make_shared<DummyFileSystemInspector>(1)));
   return inspected_env.get();
 }
+
+#ifdef OPENSSL
+static Env* GetKeyManagedEncryptedEnv() {
+  static std::shared_ptr<encryption::KeyManager> key_manager(
+      new test::TestKeyManager);
+  static std::unique_ptr<Env> key_managed_encrypted_env(
+      NewKeyManagedEncryptedEnv(Env::Default(), key_manager));
+  return key_managed_encrypted_env.get();
+}
+#endif  // OPENSSL
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace
@@ -160,8 +172,12 @@ INSTANTIATE_TEST_CASE_P(MemEnv, EnvBasicTestWithParam,
 INSTANTIATE_TEST_CASE_P(InspectedEnv, EnvBasicTestWithParam,
                         ::testing::Values(&GetInspectedEnv));
 
-namespace {
+#ifdef OPENSSL
+INSTANTIATE_TEST_CASE_P(KeyManagedEncryptedEnv, EnvBasicTestWithParam,
+                        ::testing::Values(&GetKeyManagedEncryptedEnv));
+#endif  // OPENSSL
 
+namespace {
 // Returns a vector of 0 or 1 Env*, depending whether an Env is registered for
 // TEST_ENV_URI.
 //
@@ -344,7 +360,7 @@ TEST_P(EnvBasicTestWithParam, LargeWrite) {
     read += result.size();
   }
   ASSERT_TRUE(write_data == read_data);
-  delete [] scratch;
+  delete[] scratch;
 }
 
 TEST_P(EnvMoreTestWithParam, GetModTime) {

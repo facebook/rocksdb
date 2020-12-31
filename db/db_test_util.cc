@@ -28,14 +28,6 @@ int64_t MaybeCurrentTime(Env* env) {
 }
 }  // namespace
 
-#ifdef OPENSSL
-const std::string TestKeyManager::default_key =
-    "\x12\x34\x56\x78\x12\x34\x56\x78\x12\x34\x56\x78\x12\x34\x56\x78\x12\x34"
-    "\x56\x78\x12\x34\x56\x78";
-const std::string TestKeyManager::default_iv =
-    "\xaa\xbb\xcc\xdd\xaa\xbb\xcc\xdd\xaa\xbb\xcc\xdd\xaa\xbb\xcc\xdd";
-#endif
-
 // Special Env used to delay background operations
 
 SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
@@ -78,7 +70,8 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
 #ifdef OPENSSL
-    std::shared_ptr<encryption::KeyManager> key_manager(new TestKeyManager);
+    std::shared_ptr<encryption::KeyManager> key_manager(
+        new test::TestKeyManager);
     encrypted_env_ = NewKeyManagedEncryptedEnv(Env::Default(), key_manager);
 #else
     fprintf(stderr, "EncryptedEnv is not available without OpenSSL.");

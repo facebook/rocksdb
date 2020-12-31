@@ -37,6 +37,16 @@ void RegisterCustomObjects(int /*argc*/, char** /*argv*/) {}
 namespace ROCKSDB_NAMESPACE {
 namespace test {
 
+#ifdef OPENSSL
+#ifndef ROCKSDB_LITE
+const std::string TestKeyManager::default_key =
+    "\x12\x34\x56\x78\x12\x34\x56\x78\x12\x34\x56\x78\x12\x34\x56\x78\x12\x34"
+    "\x56\x78\x12\x34\x56\x78";
+const std::string TestKeyManager::default_iv =
+    "\xaa\xbb\xcc\xdd\xaa\xbb\xcc\xdd\xaa\xbb\xcc\xdd\xaa\xbb\xcc\xdd";
+#endif
+#endif
+
 const uint32_t kDefaultFormatVersion = BlockBasedTableOptions().format_version;
 const std::set<uint32_t> kFooterFormatVersionsToTest{
     5U,

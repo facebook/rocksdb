@@ -28,6 +28,25 @@ static const std::string kRocksDbTFileExt = "sst";
 static const std::string kLevelDbTFileExt = "ldb";
 static const std::string kRocksDBBlobFileExt = "blob";
 static const std::string kArchivalDirName = "archive";
+static const std::string kUnencryptedTempFileNameSuffix = "dbtmp.plain";
+
+bool ShouldSkipEncryption(const std::string& fname) {
+  // skip CURRENT file.
+  size_t current_length = strlen("CURRENT");
+  if (fname.length() >= current_length &&
+      !fname.compare(fname.length() - current_length, current_length,
+                     "CURRENT")) {
+    return true;
+  }
+  // skip temporary file for CURRENT file.
+  size_t temp_length = kUnencryptedTempFileNameSuffix.length();
+  if (fname.length() >= temp_length &&
+      !fname.compare(fname.length() - temp_length, temp_length,
+                     kUnencryptedTempFileNameSuffix)) {
+    return true;
+  }
+  return false;
+}
 
 // Given a path, flatten the path name by replacing all chars not in
 // {[0-9,a-z,A-Z,-,_,.]} with _. And append '_LOG\0' at the end.
@@ -182,6 +201,10 @@ std::string LockFileName(const std::string& dbname) {
 
 std::string TempFileName(const std::string& dbname, uint64_t number) {
   return MakeFileName(dbname, number, kTempFileNameSuffix.c_str());
+}
+
+std::string TempPlainFileName(const std::string& dbname, uint64_t number) {
+  return MakeFileName(dbname, number, kUnencryptedTempFileNameSuffix.c_str());
 }
 
 InfoLogPrefix::InfoLogPrefix(bool has_log_dir,
@@ -394,7 +417,7 @@ IOStatus SetCurrentFile(FileSystem* fs, const std::string& dbname,
   Slice contents = manifest;
   assert(contents.starts_with(dbname + "/"));
   contents.remove_prefix(dbname.size() + 1);
-  std::string tmp = TempFileName(dbname, descriptor_number);
+  std::string tmp = TempPlainFileName(dbname, descriptor_number);
   IOStatus s = WriteStringToFile(fs, contents.ToString() + "\n", tmp, true);
   TEST_SYNC_POINT_CALLBACK("SetCurrentFile:BeforeRename", &s);
   if (s.ok()) {
