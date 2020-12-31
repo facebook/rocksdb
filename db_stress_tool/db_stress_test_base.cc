@@ -472,7 +472,7 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   }
   static std::atomic<uint64_t> txn_id = {0};
   TransactionOptions txn_options;
-  txn_options.lock_timeout = 120000;  // 2min
+  txn_options.lock_timeout = 3600000;  // 1 hour
   txn_options.deadlock_detect = true;
   *txn = txn_db_->BeginTransaction(write_opts, txn_options);
   auto istr = std::to_string(txn_id.fetch_add(1));
