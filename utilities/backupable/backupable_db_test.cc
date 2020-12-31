@@ -70,6 +70,16 @@ class DummyDB : public StackableDB {
 
   DBOptions GetDBOptions() const override { return DBOptions(options_); }
 
+  using StackableDB::GetIntProperty;
+  bool GetIntProperty(ColumnFamilyHandle*, const Slice& property,
+                      uint64_t* value) override {
+    if (property == DB::Properties::kMinLogNumberToKeep) {
+      *value = 1;
+      return true;
+    }
+    return false;
+  }
+
   Status EnableFileDeletions(bool /*force*/) override {
     EXPECT_TRUE(!deletions_enabled_);
     deletions_enabled_ = true;

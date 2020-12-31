@@ -63,13 +63,16 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
     Status s = PrepareIOFromReadOptions(read_options_, file_->env(), opts);
     if (s.ok() && prefetch_buffer_->TryReadFromCache(
                       opts, handle_.offset(), block_size_with_trailer_, &slice_,
-                      for_compaction_)) {
+                      &s, for_compaction_)) {
       CheckBlockChecksum();
       if (!status_.ok()) {
         return true;
       }
       got_from_prefetch_buffer_ = true;
       used_buf_ = const_cast<char*>(slice_.data());
+    } else if (!s.ok()) {
+      status_ = s;
+      return true;
     }
   }
   return got_from_prefetch_buffer_;
