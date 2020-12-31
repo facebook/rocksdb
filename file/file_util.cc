@@ -151,13 +151,20 @@ IOStatus GenerateOneFileChecksum(
         requested_checksum_func_name +
         " from checksum factory: " + checksum_factory->Name();
     return IOStatus::InvalidArgument(msg);
+  } else {
+    // For backward compatibility, requested_checksum_func_name can be empty.
+    // If we give the requested checksum function name, we expect it is the
+    // same name of the checksum generator.
+    if (!requested_checksum_func_name.empty() &&
+        checksum_generator->Name() != requested_checksum_func_name) {
+      std::string msg = "Expected file checksum generator named '" +
+                        requested_checksum_func_name +
+                        "', while the factory created one "
+                        "named '" +
+                        checksum_generator->Name() + "'";
+      return IOStatus::InvalidArgument(msg);
+    }
   }
-
-  // For backward compatable, requested_checksum_func_name can be empty.
-  // If we give the requested checksum function name, we expect it is the
-  // same name of the checksum generator.
-  assert(!checksum_generator || requested_checksum_func_name.empty() ||
-         requested_checksum_func_name == checksum_generator->Name());
 
   uint64_t size;
   IOStatus io_s;
