@@ -196,15 +196,15 @@ struct rocksdb_compactionfiltercontext_t {
 
 struct rocksdb_compactionfilter_t : public CompactionFilter {
   void* state_;
-  void (*destructor_)(void*);
+  void (*destructor_)(void* state);
   unsigned char (*filter_)(
-      void*,
+      void* state,
       int level,
       const char* key, size_t key_length,
       const char* existing_value, size_t value_length,
       char** new_value, size_t *new_value_length,
       unsigned char* value_changed);
-  const char* (*name_)(void*);
+  const char* (*name_)(void* state);
   unsigned char ignore_snapshots_;
 
   ~rocksdb_compactionfilter_t() override { (*destructor_)(state_); }
@@ -234,10 +234,10 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
 
 struct rocksdb_compactionfilterfactory_t : public CompactionFilterFactory {
   void* state_;
-  void (*destructor_)(void*);
+  void (*destructor_)(void* state);
   rocksdb_compactionfilter_t* (*create_compaction_filter_)(
-      void*, rocksdb_compactionfiltercontext_t* context);
-  const char* (*name_)(void*);
+      void* state, rocksdb_compactionfiltercontext_t* context);
+  const char* (*name_)(void* state);
 
   ~rocksdb_compactionfilterfactory_t() override { (*destructor_)(state_); }
 
@@ -254,12 +254,12 @@ struct rocksdb_compactionfilterfactory_t : public CompactionFilterFactory {
 
 struct rocksdb_comparator_t : public Comparator {
   void* state_;
-  void (*destructor_)(void*);
+  void (*destructor_)(void* state);
   int (*compare_)(
-      void*,
+      void* state,
       const char* a, size_t alen,
       const char* b, size_t blen);
-  const char* (*name_)(void*);
+  const char* (*name_)(void* state);
 
   ~rocksdb_comparator_t() override { (*destructor_)(state_); }
 
@@ -276,19 +276,19 @@ struct rocksdb_comparator_t : public Comparator {
 
 struct rocksdb_filterpolicy_t : public FilterPolicy {
   void* state_;
-  void (*destructor_)(void*);
-  const char* (*name_)(void*);
+  void (*destructor_)(void* state);
+  const char* (*name_)(void* state);
   char* (*create_)(
-      void*,
+      void* state,
       const char* const* key_array, const size_t* key_length_array,
       int num_keys,
       size_t* filter_length);
   unsigned char (*key_match_)(
-      void*,
+      void* state,
       const char* key, size_t length,
       const char* filter, size_t filter_length);
   void (*delete_filter_)(
-      void*,
+      void* state,
       const char* filter, size_t filter_length);
 
   ~rocksdb_filterpolicy_t() override { (*destructor_)(state_); }
@@ -321,21 +321,21 @@ struct rocksdb_filterpolicy_t : public FilterPolicy {
 
 struct rocksdb_mergeoperator_t : public MergeOperator {
   void* state_;
-  void (*destructor_)(void*);
-  const char* (*name_)(void*);
+  void (*destructor_)(void* state);
+  const char* (*name_)(void* state);
   char* (*full_merge_)(
-      void*,
+      void* state,
       const char* key, size_t key_length,
       const char* existing_value, size_t existing_value_length,
       const char* const* operands_list, const size_t* operands_list_length,
       int num_operands,
       unsigned char* success, size_t* new_value_length);
-  char* (*partial_merge_)(void*, const char* key, size_t key_length,
+  char* (*partial_merge_)(void* state, const char* key, size_t key_length,
                           const char* const* operands_list,
                           const size_t* operands_list_length, int num_operands,
                           unsigned char* success, size_t* new_value_length);
   void (*delete_value_)(
-      void*,
+      void* state,
       const char* value, size_t value_length);
 
   ~rocksdb_mergeoperator_t() override { (*destructor_)(state_); }
@@ -418,17 +418,17 @@ struct rocksdb_env_t {
 
 struct rocksdb_slicetransform_t : public SliceTransform {
   void* state_;
-  void (*destructor_)(void*);
-  const char* (*name_)(void*);
+  void (*destructor_)(void* state);
+  const char* (*name_)(void* state);
   char* (*transform_)(
-      void*,
+      void* state,
       const char* key, size_t length,
       size_t* dst_length);
   unsigned char (*in_domain_)(
-      void*,
+      void* state,
       const char* key, size_t length);
   unsigned char (*in_range_)(
-      void*,
+      void* state,
       const char* key, size_t length);
 
   ~rocksdb_slicetransform_t() override { (*destructor_)(state_); }
@@ -1803,8 +1803,8 @@ void rocksdb_writebatch_put_log_data(
 class H : public WriteBatch::Handler {
  public:
   void* state_;
-  void (*put_)(void*, const char* k, size_t klen, const char* v, size_t vlen);
-  void (*deleted_)(void*, const char* k, size_t klen);
+  void (*put_)(void* state, const char* k, size_t klen, const char* v, size_t vlen);
+  void (*deleted_)(void* state, const char* k, size_t klen);
   void Put(const Slice& key, const Slice& value) override {
     (*put_)(state_, key.data(), key.size(), value.data(), value.size());
   }
@@ -1816,8 +1816,8 @@ class H : public WriteBatch::Handler {
 void rocksdb_writebatch_iterate(
     rocksdb_writebatch_t* b,
     void* state,
-    void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
-    void (*deleted)(void*, const char* k, size_t klen)) {
+    void (*put)(void* state, const char* k, size_t klen, const char* v, size_t vlen),
+    void (*deleted)(void* state, const char* k, size_t klen)) {
   H handler;
   handler.state_ = state;
   handler.put_ = put;
@@ -2071,8 +2071,8 @@ void rocksdb_writebatch_wi_put_log_data(
 void rocksdb_writebatch_wi_iterate(
     rocksdb_writebatch_wi_t* b,
     void* state,
-    void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
-    void (*deleted)(void*, const char* k, size_t klen)) {
+    void (*put)(void* state, const char* k, size_t klen, const char* v, size_t vlen),
+    void (*deleted)(void* state, const char* k, size_t klen)) {
   H handler;
   handler.state_ = state;
   handler.put_ = put;
@@ -3602,15 +3602,15 @@ table_properties_collectors
 
 rocksdb_compactionfilter_t* rocksdb_compactionfilter_create(
     void* state,
-    void (*destructor)(void*),
+    void (*destructor)(void* state),
     unsigned char (*filter)(
-        void*,
+        void* state,
         int level,
         const char* key, size_t key_length,
         const char* existing_value, size_t value_length,
         char** new_value, size_t *new_value_length,
         unsigned char* value_changed),
-    const char* (*name)(void*)) {
+    const char* (*name)(void* state)) {
   rocksdb_compactionfilter_t* result = new rocksdb_compactionfilter_t;
   result->state_ = state;
   result->destructor_ = destructor;
@@ -3641,10 +3641,10 @@ unsigned char rocksdb_compactionfiltercontext_is_manual_compaction(
 }
 
 rocksdb_compactionfilterfactory_t* rocksdb_compactionfilterfactory_create(
-    void* state, void (*destructor)(void*),
+    void* state, void (*destructor)(void* state),
     rocksdb_compactionfilter_t* (*create_compaction_filter)(
-        void*, rocksdb_compactionfiltercontext_t* context),
-    const char* (*name)(void*)) {
+        void* state, rocksdb_compactionfiltercontext_t* context),
+    const char* (*name)(void* state)) {
   rocksdb_compactionfilterfactory_t* result =
       new rocksdb_compactionfilterfactory_t;
   result->state_ = state;
@@ -3661,12 +3661,12 @@ void rocksdb_compactionfilterfactory_destroy(
 
 rocksdb_comparator_t* rocksdb_comparator_create(
     void* state,
-    void (*destructor)(void*),
+    void (*destructor)(void* state),
     int (*compare)(
-        void*,
+        void* state,
         const char* a, size_t alen,
         const char* b, size_t blen),
-    const char* (*name)(void*)) {
+    const char* (*name)(void* state)) {
   rocksdb_comparator_t* result = new rocksdb_comparator_t;
   result->state_ = state;
   result->destructor_ = destructor;
@@ -3681,20 +3681,20 @@ void rocksdb_comparator_destroy(rocksdb_comparator_t* cmp) {
 
 rocksdb_filterpolicy_t* rocksdb_filterpolicy_create(
     void* state,
-    void (*destructor)(void*),
+    void (*destructor)(void* state),
     char* (*create_filter)(
-        void*,
+        void* state,
         const char* const* key_array, const size_t* key_length_array,
         int num_keys,
         size_t* filter_length),
     unsigned char (*key_may_match)(
-        void*,
+        void* state,
         const char* key, size_t length,
         const char* filter, size_t filter_length),
     void (*delete_filter)(
-        void*,
+        void* state,
         const char* filter, size_t filter_length),
-    const char* (*name)(void*)) {
+    const char* (*name)(void* state)) {
   rocksdb_filterpolicy_t* result = new rocksdb_filterpolicy_t;
   result->state_ = state;
   result->destructor_ = destructor;
@@ -3753,19 +3753,19 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
 }
 
 rocksdb_mergeoperator_t* rocksdb_mergeoperator_create(
-    void* state, void (*destructor)(void*),
-    char* (*full_merge)(void*, const char* key, size_t key_length,
+    void* state, void (*destructor)(void* state),
+    char* (*full_merge)(void* state, const char* key, size_t key_length,
                         const char* existing_value,
                         size_t existing_value_length,
                         const char* const* operands_list,
                         const size_t* operands_list_length, int num_operands,
                         unsigned char* success, size_t* new_value_length),
-    char* (*partial_merge)(void*, const char* key, size_t key_length,
+    char* (*partial_merge)(void* state, const char* key, size_t key_length,
                            const char* const* operands_list,
                            const size_t* operands_list_length, int num_operands,
                            unsigned char* success, size_t* new_value_length),
-    void (*delete_value)(void*, const char* value, size_t value_length),
-    const char* (*name)(void*)) {
+    void (*delete_value)(void* state, const char* value, size_t value_length),
+    const char* (*name)(void* state)) {
   rocksdb_mergeoperator_t* result = new rocksdb_mergeoperator_t;
   result->state_ = state;
   result->destructor_ = destructor;
@@ -4308,18 +4308,18 @@ void rocksdb_try_catch_up_with_primary(rocksdb_t* db, char** errptr) {
 
 rocksdb_slicetransform_t* rocksdb_slicetransform_create(
     void* state,
-    void (*destructor)(void*),
+    void (*destructor)(void* state),
     char* (*transform)(
-        void*,
+        void* state,
         const char* key, size_t length,
         size_t* dst_length),
     unsigned char (*in_domain)(
-        void*,
+        void* state,
         const char* key, size_t length),
     unsigned char (*in_range)(
-        void*,
+        void* state,
         const char* key, size_t length),
-    const char* (*name)(void*)) {
+    const char* (*name)(void* state)) {
   rocksdb_slicetransform_t* result = new rocksdb_slicetransform_t;
   result->state_ = state;
   result->destructor_ = destructor;
@@ -4345,7 +4345,7 @@ struct Wrapper : public rocksdb_slicetransform_t {
     return rep_->InDomain(src);
   }
   bool InRange(const Slice& src) const override { return rep_->InRange(src); }
-  static void DoNothing(void*) { }
+  static void DoNothing(void*) {}
 };
 
 rocksdb_slicetransform_t* rocksdb_slicetransform_create_fixed_prefix(size_t prefixLen) {
