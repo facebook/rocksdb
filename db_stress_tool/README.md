@@ -36,12 +36,5 @@ then coordiates the threads to concurrently do operations on the DB and verify t
 Statistics (such as the number of operations) about the test are defined as `Stats` in `db_stress_stat.h`.
 They are collected during running the tests. After finishing the test, they are reported to stdout.
 
-## Fault Injection
-The stress test is also called the crash test. It crashes the testing threads/process randomly.
-There are 2 kinds of crash: blackbox and whitebox.
-Blackbox crash means `kill -9` the testing process randomly.
-Whitebox crash means crash at predefined points in certain code path.
-For example, `utilities/fault_injection_fs.h` declares a set of classes related to filesystem to simulate crash when calling certain filesystem operations.
-
 ## Utilities
 Utility functions and classes can be found in `db_stress_common.h`, `db_stress_compaction_filter.h`, `db_stress_listener.h`, `db_stress_table_properties_collector.h`, etc.
