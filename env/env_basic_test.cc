@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "env/mock_env.h"
+#include "file/file_util.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/env_encryption.h"
@@ -31,14 +32,7 @@ class EnvBasicTestWithParam : public testing::Test,
   void SetUp() override { ASSERT_OK(env_->CreateDirIfMissing(test_dir_)); }
 
   void TearDown() override {
-    std::vector<std::string> files;
-    ASSERT_OK(env_->GetChildren(test_dir_, &files));
-    for (const auto& file : files) {
-      Status s = env_->DeleteFile(test_dir_ + "/" + file);
-      if (!s.ok()) {
-        ASSERT_OK(env_->DeleteDir(test_dir_ + "/" + file));
-      }
-    }
+    ASSERT_OK(DestroyDir(env_, test_dir_));
   }
 };
 
