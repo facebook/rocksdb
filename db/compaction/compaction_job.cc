@@ -1559,14 +1559,12 @@ Status CompactionJob::FinishCompactionOutputFile(
       s = add_s;
     }
     if (sfm->IsMaxAllowedSpaceReached()) {
-      // TODO(ajkr): should we return OK() if max space was reached by the final
-      // compaction output file (similarly to how flush works when full)?
-      s = Status::SpaceLimit("Max allowed space was reached");
-      TEST_SYNC_POINT(
+      Status new_bg_error = Status::SpaceLimit("Max allowed space was reached");
+      TEST_SYNC_POINT_CALLBACK(
           "CompactionJob::FinishCompactionOutputFile:"
-          "MaxAllowedSpaceReached");
+          "MaxAllowedSpaceReached", &new_bg_error);
       InstrumentedMutexLock l(db_mutex_);
-      db_error_handler_->SetBGError(s, BackgroundErrorReason::kCompaction);
+      db_error_handler_->SetBGError(new_bg_error, BackgroundErrorReason::kCompaction);
     }
   }
 #endif

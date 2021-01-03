@@ -927,6 +927,7 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
       "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
       [&](void* arg) {
         Status* bg_error = static_cast<Status*>(arg);
+        EXPECT_TRUE(bg_error->IsIOError());
         bg_error_set = true;
         reached_max_space_on_flush++;
         // clear error to ensure compaction callback is called
@@ -941,9 +942,12 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::FinishCompactionOutputFile:MaxAllowedSpaceReached",
-      [&](void* /*arg*/) {
+      [&](void* arg) {
+        Status* bg_error = static_cast<Status*>(arg);
+        EXPECT_TRUE(bg_error->IsIOError());
         bg_error_set = true;
         reached_max_space_on_compaction++;
+        // do not clear bg_error, it is used for while loop termination below!
       });
 
   for (auto limit_mb : max_space_limits_mbs) {
