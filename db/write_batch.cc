@@ -817,16 +817,14 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
     PutVarint32(&b->rep_, column_family_id);
   }
-  Slice timestamp;
+  std::string timestamp(b->timestamp_size_, '\0');
   if (0 == b->timestamp_size_) {
     PutLengthPrefixedSlice(&b->rep_, key);
   } else {
     PutVarint32(&b->rep_,
                 static_cast<uint32_t>(key.size() + b->timestamp_size_));
     b->rep_.append(key.data(), key.size());
-    b->rep_.append(b->timestamp_size_, '\0');
-    timestamp = Slice(b->rep_.data() + b->rep_.size() - b->timestamp_size_,
-                      b->timestamp_size_);
+    b->rep_.append(timestamp);
   }
   PutLengthPrefixedSlice(&b->rep_, value);
   b->content_flags_.store(
@@ -888,13 +886,11 @@ Status WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyValue));
     PutVarint32(&b->rep_, column_family_id);
   }
-  Slice timestamp;
+  std::string timestamp(b->timestamp_size_, '\0');
   if (0 == b->timestamp_size_) {
     PutLengthPrefixedSliceParts(&b->rep_, key);
   } else {
     PutLengthPrefixedSlicePartsWithPadding(&b->rep_, key, b->timestamp_size_);
-    timestamp = Slice(b->rep_.data() + b->rep_.size() - b->timestamp_size_,
-                      b->timestamp_size_);
   }
   PutLengthPrefixedSliceParts(&b->rep_, value);
   b->content_flags_.store(
@@ -982,16 +978,14 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
-  Slice timestamp;
+  std::string timestamp(b->timestamp_size_, '\0');
   if (0 == b->timestamp_size_) {
     PutLengthPrefixedSlice(&b->rep_, key);
   } else {
     PutVarint32(&b->rep_,
                 static_cast<uint32_t>(key.size() + b->timestamp_size_));
     b->rep_.append(key.data(), key.size());
-    b->rep_.append(b->timestamp_size_, '\0');
-    timestamp = Slice(b->rep_.data() + b->rep_.size() - b->timestamp_size_,
-                      b->timestamp_size_);
+    b->rep_.append(timestamp);
   }
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_DELETE,
@@ -1022,13 +1016,11 @@ Status WriteBatchInternal::Delete(WriteBatch* b, uint32_t column_family_id,
     b->rep_.push_back(static_cast<char>(kTypeColumnFamilyDeletion));
     PutVarint32(&b->rep_, column_family_id);
   }
-  Slice timestamp;
+  std::string timestamp(b->timestamp_size_, '\0');
   if (0 == b->timestamp_size_) {
     PutLengthPrefixedSliceParts(&b->rep_, key);
   } else {
     PutLengthPrefixedSlicePartsWithPadding(&b->rep_, key, b->timestamp_size_);
-    timestamp = Slice(b->rep_.data() + b->rep_.size() - b->timestamp_size_,
-                      b->timestamp_size_);
   }
   b->content_flags_.store(b->content_flags_.load(std::memory_order_relaxed) |
                               ContentFlags::HAS_DELETE,
