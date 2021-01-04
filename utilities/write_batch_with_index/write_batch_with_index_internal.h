@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include "db/merge_context.h"
+#include "memtable/skiplist.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
@@ -440,8 +442,98 @@ class WriteBatchEntryComparator {
   const ReadableWriteBatch* write_batch_;
 };
 
+typedef SkipList<WriteBatchIndexEntry*, const WriteBatchEntryComparator&>
+    WriteBatchEntrySkipList;
+
+class WBWIIteratorImpl : public WBWIIterator {
+ public:
+  WBWIIteratorImpl(uint32_t column_family_id,
+                   WriteBatchEntrySkipList* skip_list,
+                   const ReadableWriteBatch* write_batch,
+                   WriteBatchEntryComparator* comparator)
+      : column_family_id_(column_family_id),
+        skip_list_iter_(skip_list),
+        write_batch_(write_batch),
+        comparator_(comparator) {}
+
+  ~WBWIIteratorImpl() override {}
+
+  bool Valid() const override {
+    if (!skip_list_iter_.Valid()) {
+      return false;
+    }
+    const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
+    return (iter_entry != nullptr &&
+            iter_entry->column_family == column_family_id_);
+  }
+
+  void SeekToFirst() override {
+    WriteBatchIndexEntry search_entry(
+        nullptr /* search_key */, column_family_id_,
+        true /* is_forward_direction */, true /* is_seek_to_first */);
+    skip_list_iter_.Seek(&search_entry);
+  }
+
+  void SeekToLast() override {
+    WriteBatchIndexEntry search_entry(
+        nullptr /* search_key */, column_family_id_ + 1,
+        true /* is_forward_direction */, true /* is_seek_to_first */);
+    skip_list_iter_.Seek(&search_entry);
+    if (!skip_list_iter_.Valid()) {
+      skip_list_iter_.SeekToLast();
+    } else {
+      skip_list_iter_.Prev();
+    }
+  }
+
+  void Seek(const Slice& key) override {
+    WriteBatchIndexEntry search_entry(&key, column_family_id_,
+                                      true /* is_forward_direction */,
+                                      false /* is_seek_to_first */);
+    skip_list_iter_.Seek(&search_entry);
+  }
+
+  void SeekForPrev(const Slice& key) override {
+    WriteBatchIndexEntry search_entry(&key, column_family_id_,
+                                      false /* is_forward_direction */,
+                                      false /* is_seek_to_first */);
+    skip_list_iter_.SeekForPrev(&search_entry);
+  }
+
+  void Next() override { skip_list_iter_.Next(); }
+
+  void Prev() override { skip_list_iter_.Prev(); }
+
+  WriteEntry Entry() const override;
+
+  Status status() const override {
+    // this is in-memory data structure, so the only way status can be non-ok is
+    // through memory corruption
+    return Status::OK();
+  }
+
+  const WriteBatchIndexEntry* GetRawEntry() const {
+    return skip_list_iter_.key();
+  }
+
+  bool MatchesKey(uint32_t cf_id, const Slice& key);
+
+ private:
+  uint32_t column_family_id_;
+  WriteBatchEntrySkipList::Iterator skip_list_iter_;
+  const ReadableWriteBatch* write_batch_;
+  WriteBatchEntryComparator* comparator_;
+};
+
 class WriteBatchWithIndexInternal {
  public:
+  // For GetFromBatchAndDB or similar
+  explicit WriteBatchWithIndexInternal(DB* db,
+                                       ColumnFamilyHandle* column_family);
+  // For GetFromBatch or similar
+  explicit WriteBatchWithIndexInternal(const DBOptions* db_options,
+                                       ColumnFamilyHandle* column_family);
+
   enum Result { kFound, kDeleted, kNotFound, kMergeInProgress, kError };
 
   // If batch contains a value for key, store it in *value and return kFound.
@@ -452,11 +544,25 @@ class WriteBatchWithIndexInternal {
   //   and return kMergeInProgress
   // If batch does not contain this key, return kNotFound
   // Else, return kError on error with error Status stored in *s.
-  static WriteBatchWithIndexInternal::Result GetFromBatch(
-      const ImmutableDBOptions& ioptions, WriteBatchWithIndex* batch,
-      ColumnFamilyHandle* column_family, const Slice& key,
-      MergeContext* merge_context, WriteBatchEntryComparator* cmp,
-      std::string* value, bool overwrite_key, Status* s);
+  Result GetFromBatch(WriteBatchWithIndex* batch, const Slice& key,
+                      std::string* value, bool overwrite_key, Status* s) {
+    return GetFromBatch(batch, key, &merge_context_, value, overwrite_key, s);
+  }
+  Result GetFromBatch(WriteBatchWithIndex* batch, const Slice& key,
+                      MergeContext* merge_context, std::string* value,
+                      bool overwrite_key, Status* s);
+  Status MergeKey(const Slice& key, const Slice* value, std::string* result,
+                  Slice* result_operand = nullptr) {
+    return MergeKey(key, value, merge_context_, result, result_operand);
+  }
+  Status MergeKey(const Slice& key, const Slice* value, MergeContext& context,
+                  std::string* result, Slice* result_operand = nullptr);
+
+ private:
+  DB* db_;
+  const DBOptions* db_options_;
+  ColumnFamilyHandle* column_family_;
+  MergeContext merge_context_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
