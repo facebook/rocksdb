@@ -344,6 +344,7 @@ class WriteBatch : public WriteBatchBase {
   void SetMaxBytes(size_t max_bytes) override { max_bytes_ = max_bytes; }
 
   struct ProtectionInfo;
+  size_t GetProtectionBytesPerKey() const;
 
  private:
   friend class WriteBatchInternal;

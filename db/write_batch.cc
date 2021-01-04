@@ -392,6 +392,13 @@ void WriteBatch::MarkWalTerminationPoint() {
   wal_term_point_.content_flags = content_flags_;
 }
 
+size_t WriteBatch::GetProtectionBytesPerKey() const {
+  if (prot_info_ != nullptr) {
+    return prot_info_->GetBytesPerKey();
+  }
+  return 0;
+}
+
 bool WriteBatch::HasPut() const {
   return (ComputeContentFlags() & ContentFlags::HAS_PUT) != 0;
 }
@@ -2409,7 +2416,8 @@ Status WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
 
 Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
                                   const bool wal_only) {
-  assert((dst->prot_info_ == nullptr) == (src->prot_info_ == nullptr));
+  assert(dst->Count() == 0 ||
+         (dst->prot_info_ == nullptr) == (src->prot_info_ == nullptr));
   size_t src_len;
   int src_count;
   uint32_t src_flags;
@@ -2430,6 +2438,8 @@ Status WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
     std::copy(src->prot_info_->entries_.begin(),
               src->prot_info_->entries_.begin() + src_count,
               std::back_inserter(dst->prot_info_->entries_));
+  } else if (src->prot_info_ != nullptr) {
+    dst->prot_info_.reset(new WriteBatch::ProtectionInfo(*src->prot_info_));
   }
   SetCount(dst, Count(dst) + src_count);
   assert(src->rep_.size() >= WriteBatchInternal::kHeader);

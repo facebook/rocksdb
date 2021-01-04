@@ -67,6 +67,8 @@ struct WriteBatch::ProtectionInfo {
   // `WriteBatch` usually doesn't contain a huge number of keys so protecting
   // with a fixed, non-configurable eight bytes per key may work well enough.
   autovector<ProtectionInfoKVOTC64> entries_;
+
+  size_t GetBytesPerKey() const { return 8; }
 };
 
 // WriteBatchInternal provides static methods for manipulating a
