@@ -124,8 +124,10 @@ bool IsWalDirSameAsDBPath(const ImmutableDBOptions* db_options) {
 }
 
 // requested_checksum_func_name brings the function name of the checksum
-// generator in checksum_factory. Checksum factories may use or ignore
-// requested_checksum_func_name.
+// generator in checksum_factory. Empty string is permitted, in which case the
+// name of the generator created by the factory is unchecked. When
+// `requested_checksum_func_name` is non-empty, however, the created generator's
+// name must match it, otherwise an `InvalidArgument` error is returned.
 IOStatus GenerateOneFileChecksum(
     FileSystem* fs, const std::string& file_path,
     FileChecksumGenFactory* checksum_factory,
@@ -152,9 +154,10 @@ IOStatus GenerateOneFileChecksum(
         " from checksum factory: " + checksum_factory->Name();
     return IOStatus::InvalidArgument(msg);
   } else {
-    // For backward compatibility, requested_checksum_func_name can be empty.
-    // If we give the requested checksum function name, we expect it is the
-    // same name of the checksum generator.
+    // For backward compatibility and use in file ingestion clients where there
+    // is no stored checksum function name, `requested_checksum_func_name` can
+    // be empty. If we give the requested checksum function name, we expect it
+    // is the same name of the checksum generator.
     if (!requested_checksum_func_name.empty() &&
         checksum_generator->Name() != requested_checksum_func_name) {
       std::string msg = "Expected file checksum generator named '" +
