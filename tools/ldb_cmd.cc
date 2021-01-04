@@ -1221,7 +1221,8 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
     const std::vector<std::string>& /*params*/,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false, BuildCmdLineOptions({ARG_PATH})),
+    : LDBCommand(options, flags, false,
+                 BuildCmdLineOptions({ARG_PATH, ARG_HEX})),
       path_("") {
   std::map<std::string, std::string>::const_iterator itr =
       options.find(ARG_PATH);
@@ -1231,6 +1232,7 @@ FileChecksumDumpCommand::FileChecksumDumpCommand(
       exec_state_ = LDBCommandExecuteResult::Failed("--path: missing pathname");
     }
   }
+  is_checksum_hex_ = IsFlagPresent(flags, ARG_HEX);
 }
 
 void FileChecksumDumpCommand::DoCommand() {
@@ -1253,8 +1255,14 @@ void FileChecksumDumpCommand::DoCommand() {
         assert(i < file_numbers.size());
         assert(i < checksums.size());
         assert(i < checksum_func_names.size());
+        std::string checksum;
+        if (is_checksum_hex_) {
+          checksum = StringToHex(checksums[i]);
+        } else {
+          checksum = std::move(checksums[i]);
+        }
         fprintf(stdout, "%" PRId64 ", %s, %s\n", file_numbers[i],
-                checksum_func_names[i].c_str(), checksums[i].c_str());
+                checksum_func_names[i].c_str(), checksum.c_str());
       }
     }
     fprintf(stdout, "Print SST file checksum information finished \n");
