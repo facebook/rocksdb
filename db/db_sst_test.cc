@@ -919,6 +919,13 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
 }
 
 TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+  // FIXME: see https://github.com/facebook/rocksdb/pull/7715
+  if (true) {
+    ROCKSDB_GTEST_SKIP("Race condition needs fixing");
+    return;
+  }
+#endif
   // This test will set a maximum allowed space for the DB, then it will
   // keep filling the DB until the limit is reached and bg_error_ is set.
   // When bg_error_ is set we will verify that the DB size is greater
