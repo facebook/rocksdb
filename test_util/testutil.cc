@@ -171,25 +171,6 @@ const Comparator* ComparatorWithU64Ts() {
   return &comp_with_u64_ts;
 }
 
-WritableFileWriter* GetWritableFileWriter(WritableFile* wf,
-                                          const std::string& fname) {
-  std::unique_ptr<WritableFile> file(wf);
-  return new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
-                                fname, EnvOptions());
-}
-
-RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
-  std::unique_ptr<RandomAccessFile> file(raf);
-  return new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
-                                    "[test RandomAccessFileReader]");
-}
-
-SequentialFileReader* GetSequentialFileReader(SequentialFile* se,
-                                              const std::string& fname) {
-  std::unique_ptr<SequentialFile> file(se);
-  return new SequentialFileReader(NewLegacySequentialFileWrapper(file), fname);
-}
-
 void CorruptKeyType(InternalKey* ikey) {
   std::string keystr = ikey->Encode().ToString();
   keystr[keystr.size() - 8] = kTypeLogData;

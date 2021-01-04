@@ -9,7 +9,6 @@
 
 #include "db/log_reader.h"
 #include "db/log_writer.h"
-#include "env/composite_env_wrapper.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/env.h"
@@ -50,7 +49,7 @@ static std::string RandomSkewedString(int i, Random* rnd) {
 // get<1>(tuple): true if allow retry after read EOF, false otherwise
 class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
  private:
-  class StringSource : public SequentialFile {
+  class StringSource : public FSSequentialFile {
    public:
     Slice& contents_;
     bool force_error_;
@@ -68,7 +67,8 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
           returned_partial_(false),
           fail_after_read_partial_(fail_after_read_partial) {}
 
-    Status Read(size_t n, Slice* result, char* scratch) override {
+    IOStatus Read(size_t n, const IOOptions& /*opts*/, Slice* result,
+                  char* scratch, IODebugContext* /*dbg*/) override {
       if (fail_after_read_partial_) {
         EXPECT_TRUE(!returned_partial_) << "must not Read() after eof/error";
       }
@@ -81,7 +81,7 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
           contents_.remove_prefix(force_error_position_);
           force_error_ = false;
           returned_partial_ = true;
-          return Status::Corruption("read error");
+          return IOStatus::Corruption("read error");
         }
       }
 
@@ -106,27 +106,20 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
       *result = Slice(scratch, n);
 
       contents_.remove_prefix(n);
-      return Status::OK();
+      return IOStatus::OK();
     }
 
-    Status Skip(uint64_t n) override {
+    IOStatus Skip(uint64_t n) override {
       if (n > contents_.size()) {
         contents_.clear();
-        return Status::NotFound("in-memory file skipepd past end");
+        return IOStatus::NotFound("in-memory file skipepd past end");
       }
 
       contents_.remove_prefix(n);
 
-      return Status::OK();
+      return IOStatus::OK();
     }
   };
-
-  inline StringSource* GetStringSourceFromLegacyReader(
-      SequentialFileReader* reader) {
-    LegacySequentialFileWrapper* file =
-        static_cast<LegacySequentialFileWrapper*>(reader->file());
-    return static_cast<StringSource*>(file->target());
-  }
 
   class ReportCollector : public Reader::Reporter {
    public:
@@ -140,29 +133,17 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
     }
   };
 
-  std::string& dest_contents() {
-    auto dest = test::GetStringSinkFromLegacyWriter(writer_.file());
-    assert(dest);
-    return dest->contents_;
-  }
+  std::string& dest_contents() { return sink_->contents_; }
 
-  const std::string& dest_contents() const {
-    auto dest = test::GetStringSinkFromLegacyWriter(writer_.file());
-    assert(dest);
-    return dest->contents_;
-  }
+  const std::string& dest_contents() const { return sink_->contents_; }
 
-  void reset_source_contents() {
-    auto src = GetStringSourceFromLegacyReader(reader_->file());
-    assert(src);
-    src->contents_ = dest_contents();
-  }
+  void reset_source_contents() { source_->contents_ = dest_contents(); }
 
   Slice reader_contents_;
-  std::unique_ptr<WritableFileWriter> dest_holder_;
-  std::unique_ptr<SequentialFileReader> source_holder_;
+  test::StringSink* sink_;
+  StringSource* source_;
   ReportCollector report_;
-  Writer writer_;
+  std::unique_ptr<Writer> writer_;
   std::unique_ptr<Reader> reader_;
 
  protected:
@@ -171,19 +152,23 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
  public:
   LogTest()
       : reader_contents_(),
-        dest_holder_(test::GetWritableFileWriter(
-            new test::StringSink(&reader_contents_), "" /* don't care */)),
-        source_holder_(test::GetSequentialFileReader(
-            new StringSource(reader_contents_, !std::get<1>(GetParam())),
-            "" /* file name */)),
-        writer_(std::move(dest_holder_), 123, std::get<0>(GetParam())),
+        sink_(new test::StringSink(&reader_contents_)),
+        source_(new StringSource(reader_contents_, !std::get<1>(GetParam()))),
         allow_retry_read_(std::get<1>(GetParam())) {
+    std::unique_ptr<FSWritableFile> sink_holder(sink_);
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        std::move(sink_holder), "" /* don't care */, FileOptions()));
+    writer_.reset(
+        new Writer(std::move(file_writer), 123, std::get<0>(GetParam())));
+    std::unique_ptr<FSSequentialFile> source_holder(source_);
+    std::unique_ptr<SequentialFileReader> file_reader(
+        new SequentialFileReader(std::move(source_holder), "" /* file name */));
     if (allow_retry_read_) {
-      reader_.reset(new FragmentBufferedReader(
-          nullptr, std::move(source_holder_), &report_, true /* checksum */,
-          123 /* log_number */));
+      reader_.reset(new FragmentBufferedReader(nullptr, std::move(file_reader),
+                                               &report_, true /* checksum */,
+                                               123 /* log_number */));
     } else {
-      reader_.reset(new Reader(nullptr, std::move(source_holder_), &report_,
+      reader_.reset(new Reader(nullptr, std::move(file_reader), &report_,
                                true /* checksum */, 123 /* log_number */));
     }
   }
@@ -191,7 +176,7 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   Slice* get_reader_contents() { return &reader_contents_; }
 
   void Write(const std::string& msg) {
-    ASSERT_OK(writer_.AddRecord(Slice(msg)));
+    ASSERT_OK(writer_->AddRecord(Slice(msg)));
   }
 
   size_t WrittenBytes() const {
@@ -219,11 +204,7 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
     dest_contents()[offset] = new_byte;
   }
 
-  void ShrinkSize(int bytes) {
-    auto dest = test::GetStringSinkFromLegacyWriter(writer_.file());
-    assert(dest);
-    dest->Drop(bytes);
-  }
+  void ShrinkSize(int bytes) { sink_->Drop(bytes); }
 
   void FixChecksum(int header_offset, int len, bool recyclable) {
     // Compute crc of type/len/data
@@ -235,9 +216,8 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   }
 
   void ForceError(size_t position = 0) {
-    auto src = GetStringSourceFromLegacyReader(reader_->file());
-    src->force_error_ = true;
-    src->force_error_position_ = position;
+    source_->force_error_ = true;
+    source_->force_error_position_ = position;
   }
 
   size_t DroppedBytes() const {
@@ -249,14 +229,12 @@ class LogTest : public ::testing::TestWithParam<std::tuple<int, bool>> {
   }
 
   void ForceEOF(size_t position = 0) {
-    auto src = GetStringSourceFromLegacyReader(reader_->file());
-    src->force_eof_ = true;
-    src->force_eof_position_ = position;
+    source_->force_eof_ = true;
+    source_->force_eof_position_ = position;
   }
 
   void UnmarkEOF() {
-    auto src = GetStringSourceFromLegacyReader(reader_->file());
-    src->returned_partial_ = false;
+    source_->returned_partial_ = false;
     reader_->UnmarkEOF();
   }
 
@@ -685,9 +663,10 @@ TEST_P(LogTest, Recycle) {
   while (get_reader_contents()->size() < log::kBlockSize * 2) {
     Write("xxxxxxxxxxxxxxxx");
   }
-  std::unique_ptr<WritableFileWriter> dest_holder(test::GetWritableFileWriter(
-      new test::OverwritingStringSink(get_reader_contents()),
-      "" /* don't care */));
+  std::unique_ptr<FSWritableFile> sink(
+      new test::OverwritingStringSink(get_reader_contents()));
+  std::unique_ptr<WritableFileWriter> dest_holder(new WritableFileWriter(
+      std::move(sink), "" /* don't care */, FileOptions()));
   Writer recycle_writer(std::move(dest_holder), 123, true);
   ASSERT_OK(recycle_writer.AddRecord(Slice("foooo")));
   ASSERT_OK(recycle_writer.AddRecord(Slice("bar")));
@@ -718,10 +697,9 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
   };
 
   Slice contents_;
-  std::unique_ptr<WritableFileWriter> dest_holder_;
+  test::StringSink* sink_;
   std::unique_ptr<Writer> log_writer_;
   Env* env_;
-  EnvOptions env_options_;
   const std::string test_dir_;
   const std::string log_file_;
   std::unique_ptr<WritableFileWriter> writer_;
@@ -732,55 +710,50 @@ class RetriableLogTest : public ::testing::TestWithParam<int> {
  public:
   RetriableLogTest()
       : contents_(),
-        dest_holder_(nullptr),
+        sink_(new test::StringSink(&contents_)),
         log_writer_(nullptr),
         env_(Env::Default()),
         test_dir_(test::PerThreadDBPath("retriable_log_test")),
         log_file_(test_dir_ + "/log"),
         writer_(nullptr),
         reader_(nullptr),
-        log_reader_(nullptr) {}
+        log_reader_(nullptr) {
+    std::unique_ptr<FSWritableFile> sink_holder(sink_);
+    std::unique_ptr<WritableFileWriter> wfw(new WritableFileWriter(
+        std::move(sink_holder), "" /* file name */, FileOptions()));
+    log_writer_.reset(new Writer(std::move(wfw), 123, GetParam()));
+  }
 
   Status SetupTestEnv() {
-    dest_holder_.reset(test::GetWritableFileWriter(
-        new test::StringSink(&contents_), "" /* file name */));
-    assert(dest_holder_ != nullptr);
-    log_writer_.reset(new Writer(std::move(dest_holder_), 123, GetParam()));
-    assert(log_writer_ != nullptr);
-
     Status s;
-    s = env_->CreateDirIfMissing(test_dir_);
-    std::unique_ptr<WritableFile> writable_file;
+    FileOptions fopts;
+    auto fs = env_->GetFileSystem();
+    s = fs->CreateDirIfMissing(test_dir_, IOOptions(), nullptr);
+    std::unique_ptr<FSWritableFile> writable_file;
     if (s.ok()) {
-      s = env_->NewWritableFile(log_file_, &writable_file, env_options_);
+      s = fs->NewWritableFile(log_file_, fopts, &writable_file, nullptr);
     }
     if (s.ok()) {
-      writer_.reset(new WritableFileWriter(
-          NewLegacyWritableFileWrapper(std::move(writable_file)), log_file_,
-          env_options_));
-      assert(writer_ != nullptr);
+      writer_.reset(
+          new WritableFileWriter(std::move(writable_file), log_file_, fopts));
+      EXPECT_NE(writer_, nullptr);
     }
-    std::unique_ptr<SequentialFile> seq_file;
+    std::unique_ptr<FSSequentialFile> seq_file;
     if (s.ok()) {
-      s = env_->NewSequentialFile(log_file_, &seq_file, env_options_);
+      s = fs->NewSequentialFile(log_file_, fopts, &seq_file, nullptr);
     }
     if (s.ok()) {
-      reader_.reset(new SequentialFileReader(
-          NewLegacySequentialFileWrapper(seq_file), log_file_));
-      assert(reader_ != nullptr);
+      reader_.reset(new SequentialFileReader(std::move(seq_file), log_file_));
+      EXPECT_NE(reader_, nullptr);
       log_reader_.reset(new FragmentBufferedReader(
           nullptr, std::move(reader_), &report_, true /* checksum */,
           123 /* log_number */));
-      assert(log_reader_ != nullptr);
+      EXPECT_NE(log_reader_, nullptr);
     }
     return s;
   }
 
-  std::string contents() {
-    auto file = test::GetStringSinkFromLegacyWriter(log_writer_->file());
-    assert(file != nullptr);
-    return file->contents_;
-  }
+  std::string contents() { return sink_->contents_; }
 
   void Encode(const std::string& msg) {
     ASSERT_OK(log_writer_->AddRecord(Slice(msg)));

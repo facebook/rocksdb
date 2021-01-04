@@ -13,7 +13,6 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
-#include "env/composite_env_wrapper.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
@@ -49,10 +48,9 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
                      int_tbl_prop_collector_factories,
                  std::unique_ptr<WritableFileWriter>* writable,
                  std::unique_ptr<TableBuilder>* builder) {
-  std::unique_ptr<WritableFile> wf(new test::StringSink);
+  std::unique_ptr<FSWritableFile> wf(new test::StringSink);
   writable->reset(
-      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
-                             "" /* don't care */, EnvOptions()));
+      new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
   int unknown_level = -1;
   builder->reset(NewTableBuilder(
       ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
@@ -286,12 +284,13 @@ void TestCustomizedTablePropertiesCollector(
   writer->Flush();
 
   // -- Step 2: Read properties
-  LegacyWritableFileWrapper* file =
-      static_cast<LegacyWritableFileWrapper*>(writer->writable_file());
-  test::StringSink* fwf = static_cast<test::StringSink*>(file->target());
+  test::StringSink* fwf =
+      static_cast<test::StringSink*>(writer->writable_file());
+  std::unique_ptr<FSRandomAccessFile> source(
+      new test::StringSource(fwf->contents()));
   std::unique_ptr<RandomAccessFileReader> fake_file_reader(
-      test::GetRandomAccessFileReader(
-          new test::StringSource(fwf->contents())));
+      new RandomAccessFileReader(std::move(source), "test"));
+
   TableProperties* props;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
                                  magic_number, ioptions, &props,
@@ -427,12 +426,13 @@ void TestInternalKeyPropertiesCollector(
     ASSERT_OK(builder->Finish());
     writable->Flush();
 
-    LegacyWritableFileWrapper* file =
-        static_cast<LegacyWritableFileWrapper*>(writable->writable_file());
-    test::StringSink* fwf = static_cast<test::StringSink*>(file->target());
+    test::StringSink* fwf =
+        static_cast<test::StringSink*>(writable->writable_file());
+    std::unique_ptr<FSRandomAccessFile> source(
+        new test::StringSource(fwf->contents()));
     std::unique_ptr<RandomAccessFileReader> reader(
-        test::GetRandomAccessFileReader(
-            new test::StringSource(fwf->contents())));
+        new RandomAccessFileReader(std::move(source), "test"));
+
     TableProperties* props;
     Status s =
         ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
