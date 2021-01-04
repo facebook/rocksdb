@@ -36,6 +36,7 @@
 #include <sys/uio.h>
 #endif
 #include <time.h>
+
 #include <algorithm>
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD)
@@ -77,15 +78,17 @@
 #endif
 
 namespace ROCKSDB_NAMESPACE {
+#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
 #if defined(OS_WIN)
-static const std::string kSharedLibExt = ".dll";
+static const char* kSharedLibExt = ".dll";
 static const char kPathSeparator = ';';
 #else
 static const char kPathSeparator = ':';
 #if defined(OS_MACOSX)
-static const std::string kSharedLibExt = ".dylib";
+static const char* kSharedLibExt = ".dylib";
 #else
-static const std::string kSharedLibExt = ".so";
+static const char* kSharedLibExt = ".so";
+#endif
 #endif
 #endif
 
@@ -163,6 +166,7 @@ class PosixEnv : public CompositeEnvWrapper {
   // provided by the search path
   Status LoadLibrary(const std::string& name, const std::string& path,
                      std::shared_ptr<DynamicLibrary>* result) override {
+    std::string library_name = name;
     assert(result != nullptr);
     if (name.empty()) {
       void* hndl = dlopen(NULL, RTLD_NOW);
@@ -171,7 +175,6 @@ class PosixEnv : public CompositeEnvWrapper {
         return Status::OK();
       }
     } else {
-      std::string library_name = name;
       if (library_name.find(kSharedLibExt) == std::string::npos) {
         library_name = library_name + kSharedLibExt;
       }
@@ -203,7 +206,7 @@ class PosixEnv : public CompositeEnvWrapper {
       }
     }
     return Status::IOError(
-        IOErrorMsg("Failed to open shared library: xs", name), dlerror());
+        IOErrorMsg("Failed to open shared library: ", library_name), dlerror());
   }
 #endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 
@@ -260,7 +263,8 @@ class PosixEnv : public CompositeEnvWrapper {
     return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
 #else
     return std::chrono::duration_cast<std::chrono::nanoseconds>(
-       std::chrono::steady_clock::now().time_since_epoch()).count();
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
 #endif
   }
 
@@ -290,10 +294,10 @@ class PosixEnv : public CompositeEnvWrapper {
 
   Status GetCurrentTime(int64_t* unix_time) override {
     time_t ret = time(nullptr);
-    if (ret == (time_t) -1) {
+    if (ret == (time_t)-1) {
       return IOError("GetCurrentTime", "", errno);
     }
-    *unix_time = (int64_t) ret;
+    *unix_time = (int64_t)ret;
     return Status::OK();
   }
 
@@ -354,14 +358,8 @@ class PosixEnv : public CompositeEnvWrapper {
     dummy.resize(maxsize);
     char* p = &dummy[0];
     localtime_r(&seconds, &t);
-    snprintf(p, maxsize,
-             "%04d/%02d/%02d-%02d:%02d:%02d ",
-             t.tm_year + 1900,
-             t.tm_mon + 1,
-             t.tm_mday,
-             t.tm_hour,
-             t.tm_min,
-             t.tm_sec);
+    snprintf(p, maxsize, "%04d/%02d/%02d-%02d:%02d:%02d ", t.tm_year + 1900,
+             t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
     return dummy;
   }
 
@@ -405,11 +403,11 @@ PosixEnv::PosixEnv()
 }
 
 PosixEnv::PosixEnv(const PosixEnv* default_env, std::shared_ptr<FileSystem> fs)
-  : CompositeEnvWrapper(this, fs),
-    thread_pools_(default_env->thread_pools_),
-    mu_(default_env->mu_),
-    threads_to_join_(default_env->threads_to_join_),
-    allow_non_owner_access_(default_env->allow_non_owner_access_) {
+    : CompositeEnvWrapper(this, fs),
+      thread_pools_(default_env->thread_pools_),
+      mu_(default_env->mu_),
+      threads_to_join_(default_env->threads_to_join_),
+      allow_non_owner_access_(default_env->allow_non_owner_access_) {
   thread_status_updater_ = default_env->thread_status_updater_;
 }
 
@@ -476,13 +474,10 @@ std::string Env::GenerateUniqueId() {
   // Could not read uuid_file - generate uuid using "nanos-random"
   Random64 r(time(nullptr));
   uint64_t random_uuid_portion =
-    r.Uniform(std::numeric_limits<uint64_t>::max());
+      r.Uniform(std::numeric_limits<uint64_t>::max());
   uint64_t nanos_uuid_portion = NowNanos();
   char uuid2[200];
-  snprintf(uuid2,
-           200,
-           "%lx-%lx",
-           (unsigned long)nanos_uuid_portion,
+  snprintf(uuid2, 200, "%lx-%lx", (unsigned long)nanos_uuid_portion,
            (unsigned long)random_uuid_portion);
   return uuid2;
 }

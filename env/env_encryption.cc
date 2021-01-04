@@ -13,6 +13,7 @@
 #include <iostream>
 
 #include "env/env_encryption_ctr.h"
+#include "env/env_openssl.h"
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/convenience.h"
 #include "util/aligned_buffer.h"
@@ -60,6 +61,10 @@ Status EncryptionProvider::CreateFromString(
   }
   if (id == kCTRProviderName) {
     result->reset(new CTREncryptionProvider());
+#ifdef ROCKSDB_OPENSSL_AES_CTR
+  } else if (id == OpenSSLEncryptionProvider::kName()) {
+    status = NewOpenSSLEncryptionProvider(result);
+#endif
   } else if (is_test) {
     result->reset(new CTREncryptionProvider());
   } else {
@@ -76,14 +81,14 @@ std::shared_ptr<EncryptionProvider> EncryptionProvider::NewCTRProvider(
   return std::make_shared<CTREncryptionProvider>(cipher);
 }
 
-  // Read up to "n" bytes from the file.  "scratch[0..n-1]" may be
-  // written by this routine.  Sets "*result" to the data that was
-  // read (including if fewer than "n" bytes were successfully read).
-  // May set "*result" to point at data in "scratch[0..n-1]", so
-  // "scratch[0..n-1]" must be live when "*result" is used.
-  // If an error was encountered, returns a non-OK status.
-  //
-  // REQUIRES: External synchronization
+// Read up to "n" bytes from the file.  "scratch[0..n-1]" may be
+// written by this routine.  Sets "*result" to the data that was
+// read (including if fewer than "n" bytes were successfully read).
+// May set "*result" to point at data in "scratch[0..n-1]", so
+// "scratch[0..n-1]" must be live when "*result" is used.
+// If an error was encountered, returns a non-OK status.
+//
+// REQUIRES: External synchronization
 Status EncryptedSequentialFile::Read(size_t n, Slice* result, char* scratch) {
   assert(scratch);
   Status status = file_->Read(n, result, scratch);
@@ -127,15 +132,15 @@ size_t EncryptedSequentialFile::GetRequiredBufferAlignment() const {
   return file_->GetRequiredBufferAlignment();
 }
 
-  // Remove any kind of caching of data from the offset to offset+length
-  // of this file. If the length is 0, then it refers to the end of file.
-  // If the system is not caching the file contents, then this is a noop.
+// Remove any kind of caching of data from the offset to offset+length
+// of this file. If the length is 0, then it refers to the end of file.
+// If the system is not caching the file contents, then this is a noop.
 Status EncryptedSequentialFile::InvalidateCache(size_t offset, size_t length) {
   return file_->InvalidateCache(offset + prefixLength_, length);
 }
 
-  // Positioned Read for direct I/O
-  // If Direct I/O enabled, offset, n, and scratch should be properly aligned
+// Positioned Read for direct I/O
+// If Direct I/O enabled, offset, n, and scratch should be properly aligned
 Status EncryptedSequentialFile::PositionedRead(uint64_t offset, size_t n,
                                                Slice* result, char* scratch) {
   assert(scratch);
@@ -152,16 +157,16 @@ Status EncryptedSequentialFile::PositionedRead(uint64_t offset, size_t n,
   return status;
 }
 
-  // Read up to "n" bytes from the file starting at "offset".
-  // "scratch[0..n-1]" may be written by this routine.  Sets "*result"
-  // to the data that was read (including if fewer than "n" bytes were
-  // successfully read).  May set "*result" to point at data in
-  // "scratch[0..n-1]", so "scratch[0..n-1]" must be live when
-  // "*result" is used.  If an error was encountered, returns a non-OK
-  // status.
-  //
-  // Safe for concurrent use by multiple threads.
-  // If Direct I/O enabled, offset, n, and scratch should be aligned properly.
+// Read up to "n" bytes from the file starting at "offset".
+// "scratch[0..n-1]" may be written by this routine.  Sets "*result"
+// to the data that was read (including if fewer than "n" bytes were
+// successfully read).  May set "*result" to point at data in
+// "scratch[0..n-1]", so "scratch[0..n-1]" must be live when
+// "*result" is used.  If an error was encountered, returns a non-OK
+// status.
+//
+// Safe for concurrent use by multiple threads.
+// If Direct I/O enabled, offset, n, and scratch should be aligned properly.
 Status EncryptedRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
                                        char* scratch) const {
   assert(scratch);
@@ -177,27 +182,27 @@ Status EncryptedRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   return status;
 }
 
-  // Readahead the file starting from offset by n bytes for caching.
+// Readahead the file starting from offset by n bytes for caching.
 Status EncryptedRandomAccessFile::Prefetch(uint64_t offset, size_t n) {
   // return Status::OK();
   return file_->Prefetch(offset + prefixLength_, n);
 }
 
-  // Tries to get an unique ID for this file that will be the same each time
-  // the file is opened (and will stay the same while the file is open).
-  // Furthermore, it tries to make this ID at most "max_size" bytes. If such an
-  // ID can be created this function returns the length of the ID and places it
-  // in "id"; otherwise, this function returns 0, in which case "id"
-  // may not have been modified.
-  //
-  // This function guarantees, for IDs from a given environment, two unique ids
-  // cannot be made equal to each other by adding arbitrary bytes to one of
-  // them. That is, no unique ID is the prefix of another.
-  //
-  // This function guarantees that the returned ID will not be interpretable as
-  // a single varint.
-  //
-  // Note: these IDs are only valid for the duration of the process.
+// Tries to get an unique ID for this file that will be the same each time
+// the file is opened (and will stay the same while the file is open).
+// Furthermore, it tries to make this ID at most "max_size" bytes. If such an
+// ID can be created this function returns the length of the ID and places it
+// in "id"; otherwise, this function returns 0, in which case "id"
+// may not have been modified.
+//
+// This function guarantees, for IDs from a given environment, two unique ids
+// cannot be made equal to each other by adding arbitrary bytes to one of
+// them. That is, no unique ID is the prefix of another.
+//
+// This function guarantees that the returned ID will not be interpretable as
+// a single varint.
+//
+// Note: these IDs are only valid for the duration of the process.
 size_t EncryptedRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
   return file_->GetUniqueId(id, max_size);
 };
@@ -206,21 +211,21 @@ void EncryptedRandomAccessFile::Hint(AccessPattern pattern) {
   file_->Hint(pattern);
 }
 
-  // Indicates the upper layers if the current RandomAccessFile implementation
-  // uses direct IO.
+// Indicates the upper layers if the current RandomAccessFile implementation
+// uses direct IO.
 bool EncryptedRandomAccessFile::use_direct_io() const {
   return file_->use_direct_io();
 }
 
-  // Use the returned alignment value to allocate
-  // aligned buffer for Direct I/O
+// Use the returned alignment value to allocate
+// aligned buffer for Direct I/O
 size_t EncryptedRandomAccessFile::GetRequiredBufferAlignment() const {
   return file_->GetRequiredBufferAlignment();
 }
 
-  // Remove any kind of caching of data from the offset to offset+length
-  // of this file. If the length is 0, then it refers to the end of file.
-  // If the system is not caching the file contents, then this is a noop.
+// Remove any kind of caching of data from the offset to offset+length
+// of this file. If the length is 0, then it refers to the end of file.
+// If the system is not caching the file contents, then this is a noop.
 Status EncryptedRandomAccessFile::InvalidateCache(size_t offset,
                                                   size_t length) {
   return file_->InvalidateCache(offset + prefixLength_, length);
@@ -286,14 +291,14 @@ Status EncryptedWritableFile::PositionedAppend(const Slice& data,
   return status;
 }
 
-  // Indicates the upper layers if the current WritableFile implementation
-  // uses direct IO.
+// Indicates the upper layers if the current WritableFile implementation
+// uses direct IO.
 bool EncryptedWritableFile::use_direct_io() const {
   return file_->use_direct_io();
 }
 
-  // Use the returned alignment value to allocate
-  // aligned buffer for Direct I/O
+// Use the returned alignment value to allocate
+// aligned buffer for Direct I/O
 size_t EncryptedWritableFile::GetRequiredBufferAlignment() const {
   return file_->GetRequiredBufferAlignment();
 }
@@ -305,42 +310,42 @@ uint64_t EncryptedWritableFile::GetFileSize() {
   return file_->GetFileSize() - prefixLength_;
 }
 
-  // Truncate is necessary to trim the file to the correct size
-  // before closing. It is not always possible to keep track of the file
-  // size due to whole pages writes. The behavior is undefined if called
-  // with other writes to follow.
+// Truncate is necessary to trim the file to the correct size
+// before closing. It is not always possible to keep track of the file
+// size due to whole pages writes. The behavior is undefined if called
+// with other writes to follow.
 Status EncryptedWritableFile::Truncate(uint64_t size) {
   return file_->Truncate(size + prefixLength_);
 }
 
-    // Remove any kind of caching of data from the offset to offset+length
-  // of this file. If the length is 0, then it refers to the end of file.
-  // If the system is not caching the file contents, then this is a noop.
-  // This call has no effect on dirty pages in the cache.
+// Remove any kind of caching of data from the offset to offset+length
+// of this file. If the length is 0, then it refers to the end of file.
+// If the system is not caching the file contents, then this is a noop.
+// This call has no effect on dirty pages in the cache.
 Status EncryptedWritableFile::InvalidateCache(size_t offset, size_t length) {
   return file_->InvalidateCache(offset + prefixLength_, length);
 }
 
-  // Sync a file range with disk.
-  // offset is the starting byte of the file range to be synchronized.
-  // nbytes specifies the length of the range to be synchronized.
-  // This asks the OS to initiate flushing the cached data to disk,
-  // without waiting for completion.
-  // Default implementation does nothing.
+// Sync a file range with disk.
+// offset is the starting byte of the file range to be synchronized.
+// nbytes specifies the length of the range to be synchronized.
+// This asks the OS to initiate flushing the cached data to disk,
+// without waiting for completion.
+// Default implementation does nothing.
 Status EncryptedWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
   return file_->RangeSync(offset + prefixLength_, nbytes);
 }
 
-  // PrepareWrite performs any necessary preparation for a write
-  // before the write actually occurs.  This allows for pre-allocation
-  // of space on devices where it can result in less file
-  // fragmentation and/or less waste from over-zealous filesystem
-  // pre-allocation.
+// PrepareWrite performs any necessary preparation for a write
+// before the write actually occurs.  This allows for pre-allocation
+// of space on devices where it can result in less file
+// fragmentation and/or less waste from over-zealous filesystem
+// pre-allocation.
 void EncryptedWritableFile::PrepareWrite(size_t offset, size_t len) {
   file_->PrepareWrite(offset + prefixLength_, len);
 }
 
-  // Pre-allocates space for a file.
+// Pre-allocates space for a file.
 Status EncryptedWritableFile::Allocate(uint64_t offset, uint64_t len) {
   return file_->Allocate(offset + prefixLength_, len);
 }
@@ -353,14 +358,14 @@ bool EncryptedRandomRWFile::use_direct_io() const {
   return file_->use_direct_io();
 }
 
-  // Use the returned alignment value to allocate
-  // aligned buffer for Direct I/O
+// Use the returned alignment value to allocate
+// aligned buffer for Direct I/O
 size_t EncryptedRandomRWFile::GetRequiredBufferAlignment() const {
   return file_->GetRequiredBufferAlignment();
 }
 
-  // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
-  // Pass aligned buffer when use_direct_io() returns true.
+// Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
+// Pass aligned buffer when use_direct_io() returns true.
 Status EncryptedRandomRWFile::Write(uint64_t offset, const Slice& data) {
   AlignedBuffer buf;
   Status status;
@@ -385,9 +390,9 @@ Status EncryptedRandomRWFile::Write(uint64_t offset, const Slice& data) {
   return status;
 }
 
-  // Read up to `n` bytes starting from offset `offset` and store them in
-  // result, provided `scratch` size should be at least `n`.
-  // Returns Status::OK() on success.
+// Read up to `n` bytes starting from offset `offset` and store them in
+// result, provided `scratch` size should be at least `n`.
+// Returns Status::OK() on success.
 Status EncryptedRandomRWFile::Read(uint64_t offset, size_t n, Slice* result,
                                    char* scratch) const {
   assert(scratch);
@@ -856,7 +861,8 @@ Env* NewEncryptedEnv(Env* base_env,
 
 // Encrypt one or more (partial) blocks of data at the file offset.
 // Length of data is given in dataSize.
-Status BlockAccessCipherStream::Encrypt(uint64_t fileOffset, char *data, size_t dataSize) {
+Status BlockAccessCipherStream::Encrypt(uint64_t fileOffset, char* data,
+                                        size_t dataSize) {
   // Calculate block index
   auto blockSize = BlockSize();
   uint64_t blockIndex = fileOffset / blockSize;
@@ -868,7 +874,7 @@ Status BlockAccessCipherStream::Encrypt(uint64_t fileOffset, char *data, size_t 
 
   // Encrypt individual blocks.
   while (1) {
-    char *block = data;
+    char* block = data;
     size_t n = std::min(dataSize, blockSize - blockOffset);
     if (n != blockSize) {
       // We're not encrypting a full block.
@@ -901,7 +907,8 @@ Status BlockAccessCipherStream::Encrypt(uint64_t fileOffset, char *data, size_t 
 
 // Decrypt one or more (partial) blocks of data at the file offset.
 // Length of data is given in dataSize.
-Status BlockAccessCipherStream::Decrypt(uint64_t fileOffset, char *data, size_t dataSize) {
+Status BlockAccessCipherStream::Decrypt(uint64_t fileOffset, char* data,
+                                        size_t dataSize) {
   // Calculate block index
   auto blockSize = BlockSize();
   uint64_t blockIndex = fileOffset / blockSize;
@@ -913,7 +920,7 @@ Status BlockAccessCipherStream::Decrypt(uint64_t fileOffset, char *data, size_t 
 
   // Decrypt individual blocks.
   while (1) {
-    char *block = data;
+    char* block = data;
     size_t n = std::min(dataSize, blockSize - blockOffset);
     if (n != blockSize) {
       // We're not decrypting a full block.
@@ -1143,6 +1150,6 @@ Status CTREncryptionProvider::CreateCipherStreamFromPrefix(
   return Status::OK();
 }
 
-#endif // ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE

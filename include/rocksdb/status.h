@@ -114,6 +114,7 @@ class Status {
     kOverwritten = 12,
     kTxnNotPrepared = 13,
     kIOFenced = 14,
+    kEncryptionUnknown = 15,
     kMaxSubCode
   };
 
@@ -258,6 +259,15 @@ class Status {
   static Status ColumnFamilyDropped(const Slice& msg,
                                     const Slice& msg2 = Slice()) {
     return Status(kColumnFamilyDropped, msg, msg2);
+  }
+
+  static Status EncryptionUnknown() {
+    return Status(kIOError, kEncryptionUnknown);
+  }
+
+  static Status EncryptionUnknown(const Slice& msg,
+                                  const Slice& msg2 = Slice()) {
+    return Status(kIOError, kEncryptionUnknown, msg, msg2);
   }
 
   static Status NoSpace() { return Status(kIOError, kNoSpace); }
@@ -437,6 +447,14 @@ class Status {
     checked_ = true;
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
     return code() == kColumnFamilyDropped;
+  }
+
+  // Returns true iff the status indicates Encryption Unknown
+  bool IsEncryptionUnknown() const {
+#ifdef ROCKSDB_ASSERT_STATUS_CHECKED
+    checked_ = true;
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
+    return (code() == kIOError) && (subcode() == kEncryptionUnknown);
   }
 
   // Returns true iff the status indicates a NoSpace error

@@ -48,6 +48,10 @@ if(@WITH_TBB@)
   find_dependency(TBB)
 endif()
 
+if(@WITH_OPENSSL_DYNAMIC@)
+  find_dependency(OpenSSL)
+endif()
+
 find_dependency(Threads)
 
 include("${CMAKE_CURRENT_LIST_DIR}/RocksDBTargets.cmake")

@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "cache/sharded_cache.h"
-
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "file/file_prefetch_buffer.h"
@@ -24,6 +23,7 @@
 #include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"
+#include "port/lang.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -54,9 +54,6 @@
 #include "table/persistent_cache_helper.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/two_level_iterator.h"
-
-#include "monitoring/perf_context_imp.h"
-#include "port/lang.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -74,9 +71,7 @@ extern const std::string kHashIndexPrefixesMetadataBlock;
 // experiments, for auto readahead. Experiment data is in PR #3282.
 const size_t BlockBasedTable::kMaxAutoReadaheadSize = 256 * 1024;
 
-BlockBasedTable::~BlockBasedTable() {
-  delete rep_;
-}
+BlockBasedTable::~BlockBasedTable() { delete rep_; }
 
 std::atomic<uint64_t> BlockBasedTable::next_cache_key_id_(0);
 
@@ -502,8 +497,9 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
       // This is not an external sst file, global_seqno is not supported.
       snprintf(
           msg_buf.data(), msg_buf.max_size(),
-          "A non-external sst file have global seqno property with value %s",
-          seqno_pos->second.c_str());
+          "A non-external sst file have global seqno property with value %llu",
+          static_cast<unsigned long long>(
+              DecodeFixed64(seqno_pos->second.c_str())));
       return Status::Corruption(msg_buf.data());
     }
     return Status::OK();
@@ -515,9 +511,11 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
       std::array<char, 200> msg_buf;
       // This is a v1 external sst file, global_seqno is not supported.
       snprintf(msg_buf.data(), msg_buf.max_size(),
-               "An external sst file with version %u have global seqno "
-               "property with value %s",
-               version, seqno_pos->second.c_str());
+               "An external sst file with version %u has global seqno "
+               "property with value %llu",
+               version,
+               static_cast<unsigned long long>(
+                   DecodeFixed64(seqno_pos->second.c_str())));
       return Status::Corruption(msg_buf.data());
     }
     return Status::OK();
@@ -538,12 +536,11 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
     }
     if (global_seqno != largest_seqno) {
       std::array<char, 200> msg_buf;
-      snprintf(
-          msg_buf.data(), msg_buf.max_size(),
-          "An external sst file with version %u have global seqno property "
-          "with value %s, while largest seqno in the file is %llu",
-          version, seqno_pos->second.c_str(),
-          static_cast<unsigned long long>(largest_seqno));
+      snprintf(msg_buf.data(), msg_buf.max_size(),
+               "An external sst file with version %u has global seqno property "
+               "with value %llu, while largest seqno in the file is %llu",
+               version, static_cast<unsigned long long>(global_seqno),
+               static_cast<unsigned long long>(largest_seqno));
       return Status::Corruption(msg_buf.data());
     }
   }
@@ -552,7 +549,7 @@ Status GetGlobalSequenceNumber(const TableProperties& table_properties,
   if (global_seqno > kMaxSequenceNumber) {
     std::array<char, 200> msg_buf;
     snprintf(msg_buf.data(), msg_buf.max_size(),
-             "An external sst file with version %u have global seqno property "
+             "An external sst file with version %u has global seqno property "
              "with value %llu, which is greater than kMaxSequenceNumber",
              version, static_cast<unsigned long long>(global_seqno));
     return Status::Corruption(msg_buf.data());
@@ -2165,7 +2162,6 @@ bool BlockBasedTable::PrefixMayMatch(
 
   return may_match;
 }
-
 
 InternalIterator* BlockBasedTable::NewIterator(
     const ReadOptions& read_options, const SliceTransform* prefix_extractor,
