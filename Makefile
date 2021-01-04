@@ -754,13 +754,13 @@ ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
 endif
 
-	# Enable building all unit tests, but use check_some to run only tests
-	# known to pass ASC (ASSERT_STATUS_CHECKED)
-	ROCKSDBTESTS_SUBSET ?= $(TESTS_PASSING_ASC)
-	# Alternate: only build unit tests known to pass ASC, and run them
+	# Only build unit tests known to pass ASC, and run them
 	# with make check
-	#TESTS := $(filter $(TESTS_PASSING_ASC),$(TESTS))
-	#PARALLEL_TEST := $(filter $(TESTS_PASSING_ASC),$(PARALLEL_TEST))
+	TESTS := $(filter $(TESTS_PASSING_ASC),$(TESTS))
+	PARALLEL_TEST := $(filter $(TESTS_PASSING_ASC),$(PARALLEL_TEST))
+	# Alternate: Enable building all unit tests, but use check_some to run only
+	# tests known to pass ASC (ASSERT_STATUS_CHECKED)
+	#ROCKSDBTESTS_SUBSET ?= $(TESTS_PASSING_ASC)
 else
 	ROCKSDBTESTS_SUBSET ?= $(TESTS)
 endif
