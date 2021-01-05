@@ -546,8 +546,10 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   EnvOptions soptions;
 
   soptions.use_mmap_reads = ioptions.allow_mmap_reads;
+  test::StringSink* sink = new test::StringSink();
+  std::unique_ptr<FSWritableFile> f(sink);
   file_writer.reset(
-      test::GetWritableFileWriter(new test::StringSink(), "" /* don't care */));
+      new WritableFileWriter(std::move(f), "" /* don't care */, FileOptions()));
   std::unique_ptr<TableBuilder> builder;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
@@ -569,23 +571,20 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
   file_writer->Flush();
   EXPECT_TRUE(s.ok()) << s.ToString();
 
-  EXPECT_EQ(
-      test::GetStringSinkFromLegacyWriter(file_writer.get())->contents().size(),
-      builder->FileSize());
+  EXPECT_EQ(sink->contents().size(), builder->FileSize());
 
   // Open the table
-  file_reader.reset(test::GetRandomAccessFileReader(new test::StringSource(
-      test::GetStringSinkFromLegacyWriter(file_writer.get())->contents(),
-      0 /*uniq_id*/, ioptions.allow_mmap_reads)));
+  test::StringSource* source = new test::StringSource(
+      sink->contents(), 0 /*uniq_id*/, ioptions.allow_mmap_reads);
+  std::unique_ptr<FSRandomAccessFile> file(source);
+  file_reader.reset(new RandomAccessFileReader(std::move(file), "test"));
   const bool kSkipFilters = true;
   const bool kImmortal = true;
   ASSERT_OK(ioptions.table_factory->NewTableReader(
       TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                          internal_comparator, !kSkipFilters, !kImmortal,
                          level_),
-      std::move(file_reader),
-      test::GetStringSinkFromLegacyWriter(file_writer.get())->contents().size(),
-      &table_reader));
+      std::move(file_reader), sink->contents().size(), &table_reader));
   // Search using Get()
   ReadOptions ro;
 

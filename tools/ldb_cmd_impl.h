@@ -186,6 +186,7 @@ class FileChecksumDumpCommand : public LDBCommand {
 
  private:
   std::string path_;
+  bool is_checksum_hex_;
 
   static const std::string ARG_PATH;
 };

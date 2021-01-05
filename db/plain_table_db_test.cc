@@ -49,9 +49,9 @@ TEST_F(PlainTableKeyDecoderTest, ReadNonMmap) {
   Slice contents(tmp);
   test::StringSource* string_source =
       new test::StringSource(contents, 0, false);
-
+  std::unique_ptr<FSRandomAccessFile> holder(string_source);
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      test::GetRandomAccessFileReader(string_source));
+      new RandomAccessFileReader(std::move(holder), "test"));
   std::unique_ptr<PlainTableReaderFileInfo> file_info(
       new PlainTableReaderFileInfo(std::move(file_reader), EnvOptions(),
                                    kLength));

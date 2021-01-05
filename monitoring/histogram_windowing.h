@@ -44,7 +44,11 @@ public:
   virtual double StandardDeviation() const override;
   virtual void Data(HistogramData* const data) const override;
 
-private:
+#ifndef NDEBUG
+  void TEST_UpdateEnv(Env* env) { env_ = env; }
+#endif  // NDEBUG
+
+ private:
   void TimerTick();
   void SwapHistoryBucket();
   inline uint64_t current_window() const {

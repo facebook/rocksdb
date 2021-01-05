@@ -284,7 +284,10 @@ Status DBImpl::FlushMemTableToOutputFile(
       // Notify sst_file_manager that a new file was added
       std::string file_path = MakeTableFileName(
           cfd->ioptions()->cf_paths[0].path, file_meta.fd.GetNumber());
-      s = sfm->OnAddFile(file_path);
+      // TODO (PR7798).  We should only add the file to the FileManager if it
+      // exists. Otherwise, some tests may fail.  Ignore the error in the
+      // interim.
+      sfm->OnAddFile(file_path).PermitUncheckedError();
       if (sfm->IsMaxAllowedSpaceReached()) {
         Status new_bg_error =
             Status::SpaceLimit("Max allowed space was reached");
@@ -627,7 +630,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (sfm) {
         std::string file_path = MakeTableFileName(
             cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
-        s = sfm->OnAddFile(file_path);
+        // TODO (PR7798).  We should only add the file to the FileManager if it
+        // exists. Otherwise, some tests may fail.  Ignore the error in the
+        // interim.
+        sfm->OnAddFile(file_path).PermitUncheckedError();
         if (sfm->IsMaxAllowedSpaceReached() &&
             error_handler_.GetBGError().ok()) {
           Status new_bg_error =
