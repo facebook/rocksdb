@@ -304,6 +304,7 @@ class LegacyFileSystemWrapper : public FileSystem {
 };
 }  // end anonymous namespace
 
+namespace ROCKSDB_NAMESPACE {
 Env::Env() : thread_status_updater_(nullptr) {
   file_system_ = std::make_shared<LegacyFileSystemWrapper>(this);
   system_clock_ = std::make_shared<LegacySystemClock>(this);
