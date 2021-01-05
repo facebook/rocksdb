@@ -19,7 +19,7 @@
 #include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
 
-namespace ROCKSDB_NAMESPACE {
+namespace {
 class LegacyFileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
@@ -260,7 +260,9 @@ class LegacyFileSystemWrapper : public FileSystem {
  private:
   Env* target_;
 };
+}  // end anonymous namespace
 
+namespace ROCKSDB_NAMESPACE {
 Env::Env() : thread_status_updater_(nullptr) {
   file_system_ = std::make_shared<LegacyFileSystemWrapper>(this);
 }

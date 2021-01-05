@@ -283,7 +283,6 @@ class CompositeEnv : public Env {
   // Initialize a CompositeEnvWrapper that delegates all thread/time related
   // calls to env, and all file operations to fs
   explicit CompositeEnv(const std::shared_ptr<FileSystem>& fs) : Env(fs) {}
-  ~CompositeEnv() {}
 
   Status RegisterDbPaths(const std::vector<std::string>& paths) override {
     return file_system_->RegisterDbPaths(paths);
@@ -557,7 +556,6 @@ class CompositeEnvWrapper : public CompositeEnv {
   // calls to env, and all file operations to fs
   explicit CompositeEnvWrapper(Env* env, const std::shared_ptr<FileSystem>& fs)
       : CompositeEnv(fs), env_target_(env) {}
-  ~CompositeEnvWrapper() {}
 
   // Return the target to which this Env forwards all calls
   Env* env_target() const { return env_target_; }
