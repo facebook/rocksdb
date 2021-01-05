@@ -43,6 +43,9 @@ class WriteBufferManager {
   size_t mutable_memtable_memory_usage() const {
     return memory_active_.load(std::memory_order_relaxed);
   }
+  size_t dummy_entries_in_cache_usage() const {
+    return dummy_size_.load(std::memory_order_relaxed);
+  }
   size_t buffer_size() const { return buffer_size_; }
 
   // Should only be called from write thread
@@ -93,6 +96,7 @@ class WriteBufferManager {
   std::atomic<size_t> memory_used_;
   // Memory that hasn't been scheduled to free.
   std::atomic<size_t> memory_active_;
+  std::atomic<size_t> dummy_size_;
   struct CacheRep;
   std::unique_ptr<CacheRep> cache_rep_;
 
