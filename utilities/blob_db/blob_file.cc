@@ -158,8 +158,9 @@ Status BlobFile::GetReader(Env* env, const EnvOptions& env_options,
   assert(fresh_open != nullptr);
   *fresh_open = false;
   int64_t current_time = 0;
-  env->GetCurrentTime(&current_time);
-  last_access_.store(current_time);
+  if (env->GetCurrentTime(&current_time).ok()) {
+    last_access_.store(current_time);
+  }
   Status s;
 
   {

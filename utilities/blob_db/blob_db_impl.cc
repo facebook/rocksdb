@@ -2055,7 +2055,7 @@ Status DestroyBlobDB(const std::string& dbname, const Options& options,
                                         : bdb_options.blob_dir;
 
   std::vector<std::string> filenames;
-  env->GetChildren(blobdir, &filenames);
+  env->GetChildren(blobdir, &filenames).PermitUncheckedError();
 
   for (const auto& f : filenames) {
     uint64_t number;
@@ -2068,7 +2068,7 @@ Status DestroyBlobDB(const std::string& dbname, const Options& options,
       }
     }
   }
-  env->DeleteDir(blobdir);
+  env->DeleteDir(blobdir).PermitUncheckedError();
 
   Status destroy = DestroyDB(dbname, options);
   if (status.ok() && !destroy.ok()) {
