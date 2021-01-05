@@ -426,7 +426,7 @@ TEST_F(DeleteSchedulerTest, BackgroundError) {
   delete_scheduler_->WaitForEmptyTrash();
   auto bg_errors = delete_scheduler_->GetBackgroundErrors();
   ASSERT_EQ(bg_errors.size(), 10);
-  for (const auto it : bg_errors) {
+  for (const auto& it : bg_errors) {
     ASSERT_TRUE(it.second.IsPathNotFound());
   }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
