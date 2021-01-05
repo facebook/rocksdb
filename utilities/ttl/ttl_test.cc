@@ -544,6 +544,8 @@ TEST_F(TtlTest, ReadOnlyPresentForever) {
   CloseTtl();
 
   OpenReadOnlyTtl(1);
+  ASSERT_TRUE(db_ttl_);
+
   env_->Sleep(2);
   Status s = ManualCompact();  // T=2:Set1 should still be there
   ASSERT_TRUE(s.IsNotSupported());
