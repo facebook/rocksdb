@@ -2493,14 +2493,12 @@ void ApproxSizeCommand::DoCommand() {
   Range ranges[1];
   ranges[0] = Range(start_key_, end_key_);
   uint64_t sizes[1];
-  db_->GetApproximateSizes(GetCfHandle(), ranges, 1, sizes);
-  fprintf(stdout, "%lu\n", (unsigned long)sizes[0]);
-  /* Weird that GetApproximateSizes() returns void, although documentation
-   * says that it returns a Status object.
-  if (!st.ok()) {
-    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+  Status s = db_->GetApproximateSizes(GetCfHandle(), ranges, 1, sizes);
+  if (!s.ok()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
+  } else {
+    fprintf(stdout, "%lu\n", (unsigned long)sizes[0]);
   }
-  */
 }
 
 // ----------------------------------------------------------------------------

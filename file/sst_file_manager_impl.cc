@@ -158,7 +158,7 @@ bool SstFileManagerImpl::IsMaxAllowedSpaceReachedIncludingCompactions() {
 
 bool SstFileManagerImpl::EnoughRoomForCompaction(
     ColumnFamilyData* cfd, const std::vector<CompactionInputFiles>& inputs,
-    Status bg_error) {
+    const Status& bg_error) {
   MutexLock l(&mu_);
   uint64_t size_added_by_compaction = 0;
   // First check if we even have the space to do the compaction
@@ -183,7 +183,7 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
   // seen a NoSpace() error. This is tin order to contain a single potentially
   // misbehaving DB instance and prevent it from slowing down compactions of
   // other DB instances
-  if (bg_error == Status::NoSpace() && CheckFreeSpace()) {
+  if (bg_error.IsNoSpace() && CheckFreeSpace()) {
     auto fn =
         TableFileName(cfd->ioptions()->cf_paths, inputs[0][0]->fd.GetNumber(),
                       inputs[0][0]->fd.GetPathId());

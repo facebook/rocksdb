@@ -98,7 +98,7 @@ TEST_F(DBSSTTest, SSTsWithLdbSuffixHandling) {
   for (int i = 0; i < 10; ++i) {
     GenerateNewFile(&rnd, &key_id, false);
   }
-  Flush();
+  ASSERT_OK(Flush());
   Close();
   int const num_files = GetSstFileCount(dbname_);
   ASSERT_GT(num_files, 0);
@@ -393,7 +393,7 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
 
   WriteOptions wo;
   wo.disableWAL = true;
-  ASSERT_OK(TryReopen(options));
+  Reopen(options);
   // Create 4 files in L0
   for (char v = 'a'; v <= 'd'; v++) {
     ASSERT_OK(Put("Key2", DummyString(1024, v), wo));
@@ -540,7 +540,7 @@ TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
   sfm->delete_scheduler()->SetMaxTrashDBRatio(3.1);
 
-  ASSERT_OK(TryReopen(options));
+  Reopen(options);
 
   // Create 4 files in L0
   for (char v = 'a'; v <= 'd'; v++) {
@@ -567,11 +567,11 @@ TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
   if (!wal_dir_same_as_dbname_) {
     // Forcibly create some trash log files
     std::unique_ptr<WritableFile> result;
-    env->NewWritableFile(options.wal_dir + "/1000.log.trash", &result,
-                         EnvOptions());
+    ASSERT_OK(env->NewWritableFile(options.wal_dir + "/1000.log.trash", &result,
+                                   EnvOptions()));
     result.reset();
   }
-  env->GetChildren(options.wal_dir, &filenames);
+  ASSERT_OK(env->GetChildren(options.wal_dir, &filenames));
   for (const std::string& fname : filenames) {
     if (fname.find(".log.trash") != std::string::npos) {
       trash_log_count++;
@@ -580,11 +580,11 @@ TEST_P(DBWALTestWithParam, WALTrashCleanupOnOpen) {
   ASSERT_GE(trash_log_count, 1);
 
   env->set_fake_log_delete(false);
-  ASSERT_OK(TryReopen(options));
+  Reopen(options);
 
   filenames.clear();
   trash_log_count = 0;
-  env->GetChildren(options.wal_dir, &filenames);
+  ASSERT_OK(env->GetChildren(options.wal_dir, &filenames));
   for (const std::string& fname : filenames) {
     if (fname.find(".log.trash") != std::string::npos) {
       trash_log_count++;
@@ -614,7 +614,7 @@ TEST_F(DBSSTTest, OpenDBWithExistingTrash) {
   ASSERT_OK(WriteStringToFile(env_, "abc", dbname_ + "/" + "003.sst.trash"));
 
   // Reopen the DB and verify that it deletes existing trash files
-  ASSERT_OK(TryReopen(options));
+  Reopen(options);
   sfm->WaitForEmptyTrash();
   ASSERT_NOK(env_->FileExists(dbname_ + "/" + "001.sst.trash"));
   ASSERT_NOK(env_->FileExists(dbname_ + "/" + "002.sst.trash"));
@@ -872,10 +872,12 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
   ASSERT_OK(Flush());
 
   // OK, now trigger a manual compaction
-  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_TRUE(dbfull()
+                  ->CompactRange(CompactRangeOptions(), nullptr, nullptr)
+                  .IsCompactionTooLarge());
 
   // Wait for manual compaction to get scheduled and finish
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   // Make sure the stat is bumped
@@ -885,10 +887,13 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
 
   // Now make sure CompactFiles also gets cancelled
   auto l0_files = collector->GetFlushedFiles();
-  dbfull()->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(), l0_files, 0);
+  ASSERT_TRUE(
+      dbfull()
+          ->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(), l0_files, 0)
+          .IsCompactionTooLarge());
 
   // Wait for manual compaction to get scheduled and finish
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   ASSERT_EQ(dbfull()->immutable_db_options().statistics.get()->getTickerCount(
                 COMPACTION_CANCELLED),
@@ -903,8 +908,9 @@ TEST_F(DBSSTTest, CancellingManualCompactionsWorks) {
       "CompactFilesImpl:End", [&](void* /*arg*/) { completed_compactions++; });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
-  dbfull()->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(), l0_files, 0);
-  dbfull()->TEST_WaitForCompact(true);
+  ASSERT_OK(dbfull()->CompactFiles(ROCKSDB_NAMESPACE::CompactionOptions(),
+                                   l0_files, 0));
+  ASSERT_OK(dbfull()->TEST_WaitForCompact(true));
 
   ASSERT_EQ(sfm->GetCompactionsReservedSize(), 0);
   ASSERT_GT(completed_compactions, 0);
@@ -1008,7 +1014,7 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFiles) {
     CompactRangeOptions compact_options;
     compact_options.change_level = true;
     compact_options.target_level = 2;
-    db_->CompactRange(compact_options, nullptr, nullptr);
+    ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
 
     // Create 12 Files in L0
     for (int i = 0; i < 12; i++) {
@@ -1060,7 +1066,7 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
       std::string val = "val_file_" + ToString(i);
       ASSERT_OK(Put(Key(j), val));
     }
-    Flush();
+    ASSERT_OK(Flush());
   }
   ASSERT_EQ("5", FilesPerLevel(0));
 
@@ -1084,6 +1090,7 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
 
   // hold current version
   std::unique_ptr<Iterator> iter1(dbfull()->NewIterator(ReadOptions()));
+  ASSERT_OK(iter1->status());
 
   // Compact 5 files into 1 file in L0
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -1107,12 +1114,13 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
 
   // hold current version
   std::unique_ptr<Iterator> iter2(dbfull()->NewIterator(ReadOptions()));
+  ASSERT_OK(iter2->status());
 
   // Delete all keys and compact, this will delete all live files
   for (int i = 0; i < 10; i++) {
     ASSERT_OK(Delete(Key(i)));
   }
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("", FilesPerLevel(0));
 
@@ -1126,6 +1134,7 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   // Total SST files = 6 (5 original files + compacted file)
   ASSERT_EQ(total_sst_files_size, 6 * single_file_size);
 
+  ASSERT_OK(iter1->status());
   iter1.reset();
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
                                        &total_sst_files_size));
@@ -1133,6 +1142,7 @@ TEST_F(DBSSTTest, GetTotalSstFilesSize) {
   // Total SST files = 1 (compacted file)
   ASSERT_EQ(total_sst_files_size, 1 * single_file_size);
 
+  ASSERT_OK(iter2->status());
   iter2.reset();
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
                                        &total_sst_files_size));
@@ -1151,7 +1161,7 @@ TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {
   // Generate 5 files in L0
   for (int i = 0; i < 5; i++) {
     ASSERT_OK(Put(Key(i), "val"));
-    Flush();
+    ASSERT_OK(Flush());
   }
   ASSERT_EQ("5", FilesPerLevel(0));
 
@@ -1176,6 +1186,7 @@ TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {
 
   // hold current version
   std::unique_ptr<Iterator> iter1(dbfull()->NewIterator(ReadOptions()));
+  ASSERT_OK(iter1->status());
 
   // Compaction will do trivial move from L0 to L1
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -1199,12 +1210,13 @@ TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {
 
   // hold current version
   std::unique_ptr<Iterator> iter2(dbfull()->NewIterator(ReadOptions()));
+  ASSERT_OK(iter2->status());
 
   // Delete all keys and compact, this will delete all live files
   for (int i = 0; i < 5; i++) {
     ASSERT_OK(Delete(Key(i)));
   }
-  Flush();
+  ASSERT_OK(Flush());
   ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("", FilesPerLevel(0));
 
@@ -1218,7 +1230,9 @@ TEST_F(DBSSTTest, GetTotalSstFilesSizeVersionsFilesShared) {
   // Total SST files = 5 (used in 2 version)
   ASSERT_EQ(total_sst_files_size, 5 * single_file_size);
 
+  ASSERT_OK(iter1->status());
   iter1.reset();
+  ASSERT_OK(iter2->status());
   iter2.reset();
 
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",

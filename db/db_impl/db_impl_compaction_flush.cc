@@ -35,8 +35,10 @@ bool DBImpl::EnoughRoomForCompaction(
     // Pass the current bg_error_ to SFM so it can decide what checks to
     // perform. If this DB instance hasn't seen any error yet, the SFM can be
     // optimistic and not do disk space checks
-    enough_room =
-        sfm->EnoughRoomForCompaction(cfd, inputs, error_handler_.GetBGError());
+    Status bg_error = error_handler_.GetBGError();
+    enough_room = sfm->EnoughRoomForCompaction(cfd, inputs, bg_error);
+    bg_error.PermitUncheckedError();  // bg_error is just a copy of the Status
+                                      // from the error_handler_
     if (enough_room) {
       *sfm_reserved_compact_space = true;
     }

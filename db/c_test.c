@@ -988,7 +988,9 @@ int main(int argc, char** argv) {
                   &err);
       CheckNoError(err);
     }
-    rocksdb_approximate_sizes(db, 2, start, start_len, limit, limit_len, sizes);
+    rocksdb_approximate_sizes(db, 2, start, start_len, limit, limit_len, sizes,
+                              &err);
+    CheckNoError(err);
     CheckCondition(sizes[0] > 0);
     CheckCondition(sizes[1] > 0);
   }

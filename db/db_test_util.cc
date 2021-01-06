@@ -1128,27 +1128,48 @@ std::string DBTestBase::FilesPerLevel(int cf) {
 #endif  // !ROCKSDB_LITE
 
 size_t DBTestBase::CountFiles() {
+  size_t count = 0;
   std::vector<std::string> files;
-  EXPECT_OK(env_->GetChildren(dbname_, &files));
-
-  std::vector<std::string> logfiles;
-  if (dbname_ != last_options_.wal_dir) {
-    Status s = env_->GetChildren(last_options_.wal_dir, &logfiles);
-    EXPECT_TRUE(s.ok() || s.IsNotFound());
+  if (env_->GetChildren(dbname_, &files).ok()) {
+    count += files.size();
   }
 
-  return files.size() + logfiles.size();
+  if (dbname_ != last_options_.wal_dir) {
+    if (env_->GetChildren(last_options_.wal_dir, &files).ok()) {
+      count += files.size();
+    }
+  }
+
+  return count;
+};
+
+Status DBTestBase::CountFiles(size_t* count) {
+  std::vector<std::string> files;
+  Status s = env_->GetChildren(dbname_, &files);
+  if (!s.ok()) {
+    return s;
+  }
+  size_t files_count = files.size();
+
+  if (dbname_ != last_options_.wal_dir) {
+    s = env_->GetChildren(last_options_.wal_dir, &files);
+    if (!s.ok()) {
+      return s;
+    }
+    *count = files_count + files.size();
+  }
+
+  return Status::OK();
 }
 
-uint64_t DBTestBase::Size(const Slice& start, const Slice& limit, int cf) {
+Status DBTestBase::Size(const Slice& start, const Slice& limit, int cf,
+                        uint64_t* size) {
   Range r(start, limit);
-  uint64_t size;
   if (cf == 0) {
-    db_->GetApproximateSizes(&r, 1, &size);
+    return db_->GetApproximateSizes(&r, 1, size);
   } else {
-    db_->GetApproximateSizes(handles_[1], &r, 1, &size);
+    return db_->GetApproximateSizes(handles_[1], &r, 1, size);
   }
-  return size;
 }
 
 void DBTestBase::Compact(int cf, const Slice& start, const Slice& limit,
