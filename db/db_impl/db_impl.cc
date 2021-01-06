@@ -396,6 +396,11 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   FindObsoleteFiles(&job_context, true);
   if (s.ok()) {
     s = error_handler_.ClearBGError();
+  } else {
+    // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
+    // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
+    // See https://github.com/facebook/rocksdb/pull/7715#issuecomment-754947952
+    error_handler_.GetRecoveryError().PermitUncheckedError();
   }
   mutex_.Unlock();
 
