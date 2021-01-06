@@ -235,26 +235,18 @@ Status CheckpointImpl::CreateCustomCheckpoint(
   if (!db_->GetIntProperty(DB::Properties::kMinLogNumberToKeep, &min_log_num)) {
     return Status::InvalidArgument("cannot get the min log number to keep.");
   }
-
-  if (s.ok() && db_options.allow_2pc) {
-    // We need to refetch live files with flush to handle this case:
-    // A previous 000001.log contains the prepare record of transaction tnx1.
-    // The current log file is 000002.log, and sequence_number points to this
-    // file.
-    // After calling GetLiveFiles(), 000003.log is created.
-    // Then tnx1 is committed. The commit record is written to 000003.log.
-    // Now we fetch min_log_num, which will be 3.
-    // Then only 000002.log and 000003.log will be copied, and 000001.log will
-    // be skipped. 000003.log contains commit message of tnx1, but we don't
-    // have respective prepare record for it.
-    // In order to avoid this situation, we need to force flush to make sure
-    // all transactions committed before getting min_log_num will be flushed
-    // to SST files.
-    // We cannot get min_log_num before calling the GetLiveFiles() for the
-    // first time, because if we do that, all the logs files will be included,
-    // far more than needed.
-    s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
-  }
+  // Between GetLiveFiles and getting min_log_num, flush might happen
+  // concurrently, so new WAL deletions might be tracked in MANIFEST. If we do
+  // not get the new MANIFEST size, the deleted WALs might not be reflected in
+  // the checkpoint's MANIFEST.
+  //
+  // If we get min_log_num before the above GetLiveFiles, then there might
+  // be too many unnecessary WALs to be included in the checkpoint.
+  //
+  // Ideally, min_log_num should be got together with manifest_file_size in
+  // GetLiveFiles atomically. But that needs changes to GetLiveFiles' signature
+  // which is a public API.
+  s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
 
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
