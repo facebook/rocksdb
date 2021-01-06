@@ -53,7 +53,6 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
-#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -3099,8 +3098,8 @@ const std::string& DBImpl::GetName() const { return dbname_; }
 Env* DBImpl::GetEnv() const { return env_; }
 
 FileSystem* DB::GetFileSystem() const {
-  static LegacyFileSystemWrapper fs_wrap(GetEnv());
-  return &fs_wrap;
+  const auto& fs = GetEnv()->GetFileSystem();
+  return fs.get();
 }
 
 FileSystem* DBImpl::GetFileSystem() const {

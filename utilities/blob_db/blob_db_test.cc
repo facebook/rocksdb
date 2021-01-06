@@ -824,10 +824,10 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
   Close();
 
   // Create 3 dummy trash files under the blob_dir
-  LegacyFileSystemWrapper fs(db_options.env);
-  CreateFile(&fs, blob_dir + "/000666.blob.trash", "", false);
-  CreateFile(&fs, blob_dir + "/000888.blob.trash", "", true);
-  CreateFile(&fs, blob_dir + "/something_not_match.trash", "", false);
+  const auto &fs = db_options.env->GetFileSystem();
+  CreateFile(fs, blob_dir + "/000666.blob.trash", "", false);
+  CreateFile(fs, blob_dir + "/000888.blob.trash", "", true);
+  CreateFile(fs, blob_dir + "/something_not_match.trash", "", false);
 
   // Make sure that reopening the DB rescan the existing trash files
   Open(bdb_options, db_options);

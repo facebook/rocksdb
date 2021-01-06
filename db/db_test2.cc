@@ -3685,20 +3685,26 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
 
 TEST_F(DBTest2, TestNumPread) {
   Options options = CurrentOptions();
+  bool prefetch_supported =
+      test::IsPrefetchSupported(env_->GetFileSystem(), dbname_);
   // disable block cache
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   env_->count_random_reads_ = true;
-
   env_->random_file_open_counter_.store(0);
   ASSERT_OK(Put("bar", "foo"));
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Flush());
-  // After flush, we'll open the file and read footer, meta block,
-  // property block and index block.
-  ASSERT_EQ(4, env_->random_read_counter_.Read());
+  if (prefetch_supported) {
+    // After flush, we'll open the file and read footer, meta block,
+    // property block and index block.
+    ASSERT_EQ(4, env_->random_read_counter_.Read());
+  } else {
+    // With prefetch not supported, we will do a single read into a buffer
+    ASSERT_EQ(1, env_->random_read_counter_.Read());
+  }
   ASSERT_EQ(1, env_->random_file_open_counter_.load());
 
   // One pread per a normal data block read
@@ -3714,19 +3720,30 @@ TEST_F(DBTest2, TestNumPread) {
   ASSERT_OK(Put("bar2", "foo2"));
   ASSERT_OK(Put("foo2", "bar2"));
   ASSERT_OK(Flush());
-  // After flush, we'll open the file and read footer, meta block,
-  // property block and index block.
-  ASSERT_EQ(4, env_->random_read_counter_.Read());
+  if (prefetch_supported) {
+    // After flush, we'll open the file and read footer, meta block,
+    // property block and index block.
+    ASSERT_EQ(4, env_->random_read_counter_.Read());
+  } else {
+    // With prefetch not supported, we will do a single read into a buffer
+    ASSERT_EQ(1, env_->random_read_counter_.Read());
+  }
   ASSERT_EQ(1, env_->random_file_open_counter_.load());
 
-  // Compaction needs two input blocks, which requires 2 preads, and
-  // generate a new SST file which needs 4 preads (footer, meta block,
-  // property block and index block). In total 6.
   env_->random_file_open_counter_.store(0);
   env_->random_read_counter_.Reset();
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_EQ(6, env_->random_read_counter_.Read());
-  // All compactin input files should have already been opened.
+  if (prefetch_supported) {
+    // Compaction needs two input blocks, which requires 2 preads, and
+    // generate a new SST file which needs 4 preads (footer, meta block,
+    // property block and index block). In total 6.
+    ASSERT_EQ(6, env_->random_read_counter_.Read());
+  } else {
+    // With prefetch off, compaction needs two input blocks,
+    // followed by a single buffered read.  In total 3.
+    ASSERT_EQ(3, env_->random_read_counter_.Read());
+  }
+  // All compaction input files should have already been opened.
   ASSERT_EQ(1, env_->random_file_open_counter_.load());
 
   // One pread per a normal data block read

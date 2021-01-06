@@ -3274,7 +3274,9 @@ class DeadlineFS : public FileSystemWrapper {
 
   // Increment the IO counter and return a delay in microseconds
   IOStatus ShouldDelay(const IOOptions& opts) {
-    if (!deadline_.count() && !io_timeout_.count()) {
+    if (timedout_) {
+      return IOStatus::TimedOut();
+    } else if (!deadline_.count() && !io_timeout_.count()) {
       return IOStatus::OK();
     }
     if (!ignore_deadline_ && delay_trigger_ == io_count_++) {

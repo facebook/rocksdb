@@ -366,6 +366,10 @@ class FileSystem {
     return IOStatus::OK();
   }
 
+// This seems to clash with a macro on Windows, so #undef it here
+#ifdef DeleteFile
+#undef DeleteFile
+#endif
   // Delete the named file.
   virtual IOStatus DeleteFile(const std::string& fname,
                               const IOOptions& options,
@@ -1048,7 +1052,8 @@ class FSDirectory {
 class FileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit FileSystemWrapper(std::shared_ptr<FileSystem> t) : target_(t) {}
+  explicit FileSystemWrapper(const std::shared_ptr<FileSystem>& t)
+      : target_(t) {}
   ~FileSystemWrapper() override {}
 
   const char* Name() const override { return target_->Name(); }

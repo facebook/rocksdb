@@ -9,51 +9,51 @@
 #pragma once
 
 #include <stdint.h>
+#include <windows.h>
+
 #include <mutex>
 #include <string>
 
+#include "rocksdb/file_system.h"
 #include "rocksdb/status.h"
-#include "rocksdb/env.h"
 #include "util/aligned_buffer.h"
-
-#include <windows.h>
 
 namespace ROCKSDB_NAMESPACE {
 namespace port {
 
 std::string GetWindowsErrSz(DWORD err);
 
-inline Status IOErrorFromWindowsError(const std::string& context, DWORD err) {
+inline IOStatus IOErrorFromWindowsError(const std::string& context, DWORD err) {
   return ((err == ERROR_HANDLE_DISK_FULL) || (err == ERROR_DISK_FULL))
-             ? Status::NoSpace(context, GetWindowsErrSz(err))
+             ? IOStatus::NoSpace(context, GetWindowsErrSz(err))
              : ((err == ERROR_FILE_NOT_FOUND) || (err == ERROR_PATH_NOT_FOUND))
-                   ? Status::PathNotFound(context, GetWindowsErrSz(err))
-                   : Status::IOError(context, GetWindowsErrSz(err));
+                   ? IOStatus::PathNotFound(context, GetWindowsErrSz(err))
+                   : IOStatus::IOError(context, GetWindowsErrSz(err));
 }
 
-inline Status IOErrorFromLastWindowsError(const std::string& context) {
+inline IOStatus IOErrorFromLastWindowsError(const std::string& context) {
   return IOErrorFromWindowsError(context, GetLastError());
 }
 
-inline Status IOError(const std::string& context, int err_number) {
+inline IOStatus IOError(const std::string& context, int err_number) {
   return (err_number == ENOSPC)
-             ? Status::NoSpace(context, strerror(err_number))
+             ? IOStatus::NoSpace(context, strerror(err_number))
              : (err_number == ENOENT)
-                   ? Status::PathNotFound(context, strerror(err_number))
-                   : Status::IOError(context, strerror(err_number));
+                   ? IOStatus::PathNotFound(context, strerror(err_number))
+                   : IOStatus::IOError(context, strerror(err_number));
 }
 
 class WinFileData;
 
-Status pwrite(const WinFileData* file_data, const Slice& data,
-  uint64_t offset, size_t& bytes_written);
+IOStatus pwrite(const WinFileData* file_data, const Slice& data,
+                uint64_t offset, size_t& bytes_written);
 
-Status pread(const WinFileData* file_data, char* src, size_t num_bytes,
-  uint64_t offset, size_t& bytes_read);
+IOStatus pread(const WinFileData* file_data, char* src, size_t num_bytes,
+               uint64_t offset, size_t& bytes_read);
 
-Status fallocate(const std::string& filename, HANDLE hFile, uint64_t to_size);
+IOStatus fallocate(const std::string& filename, HANDLE hFile, uint64_t to_size);
 
-Status ftruncate(const std::string& filename, HANDLE hFile, uint64_t toSize);
+IOStatus ftruncate(const std::string& filename, HANDLE hFile, uint64_t toSize);
 
 size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size);
 
@@ -95,34 +95,38 @@ class WinFileData {
   WinFileData& operator=(const WinFileData&) = delete;
 };
 
-class WinSequentialFile : protected WinFileData, public SequentialFile {
-
+class WinSequentialFile : protected WinFileData, public FSSequentialFile {
   // Override for behavior change when creating a custom env
-  virtual Status PositionedReadInternal(char* src, size_t numBytes,
-    uint64_t offset, size_t& bytes_read) const;
+  virtual IOStatus PositionedReadInternal(char* src, size_t numBytes,
+                                          uint64_t offset,
+                                          size_t& bytes_read) const;
 
-public:
+ public:
   WinSequentialFile(const std::string& fname, HANDLE f,
-    const EnvOptions& options);
+                    const FileOptions& options);
 
   ~WinSequentialFile();
 
   WinSequentialFile(const WinSequentialFile&) = delete;
   WinSequentialFile& operator=(const WinSequentialFile&) = delete;
 
-  virtual Status Read(size_t n, Slice* result, char* scratch) override;
-  virtual Status PositionedRead(uint64_t offset, size_t n, Slice* result,
-    char* scratch) override;
+  IOStatus Read(size_t n, const IOOptions& options, Slice* result,
+                char* scratch, IODebugContext* dbg) override;
+  IOStatus PositionedRead(uint64_t offset, size_t n, const IOOptions& options,
+                          Slice* result, char* scratch,
+                          IODebugContext* dbg) override;
 
-  virtual Status Skip(uint64_t n) override;
+  IOStatus Skip(uint64_t n) override;
 
-  virtual Status InvalidateCache(size_t offset, size_t length) override;
+  IOStatus InvalidateCache(size_t offset, size_t length) override;
 
-  virtual bool use_direct_io() const override { return WinFileData::use_direct_io(); }
+  virtual bool use_direct_io() const override {
+    return WinFileData::use_direct_io();
+  }
 };
 
 // mmap() based random-access
-class WinMmapReadableFile : private WinFileData, public RandomAccessFile {
+class WinMmapReadableFile : private WinFileData, public FSRandomAccessFile {
   HANDLE hMap_;
 
   const void* mapped_region_;
@@ -138,10 +142,11 @@ class WinMmapReadableFile : private WinFileData, public RandomAccessFile {
   WinMmapReadableFile(const WinMmapReadableFile&) = delete;
   WinMmapReadableFile& operator=(const WinMmapReadableFile&) = delete;
 
-  virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const override;
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override;
 
-  virtual Status InvalidateCache(size_t offset, size_t length) override;
+  virtual IOStatus InvalidateCache(size_t offset, size_t length) override;
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 };
@@ -150,7 +155,7 @@ class WinMmapReadableFile : private WinFileData, public RandomAccessFile {
 // data to the file.  This is safe since we either properly close the
 // file before reading from it, or for log files, the reading code
 // knows enough to skip zero suffixes.
-class WinMmapFile : private WinFileData, public WritableFile {
+class WinMmapFile : private WinFileData, public FSWritableFile {
  private:
   HANDLE hMap_;
 
@@ -179,51 +184,59 @@ class WinMmapFile : private WinFileData, public WritableFile {
 
   // Can only truncate or reserve to a sector size aligned if
   // used on files that are opened with Unbuffered I/O
-  Status TruncateFile(uint64_t toSize);
+  IOStatus TruncateFile(uint64_t toSize);
 
-  Status UnmapCurrentRegion();
+  IOStatus UnmapCurrentRegion();
 
-  Status MapNewRegion();
+  IOStatus MapNewRegion(const IOOptions& options, IODebugContext* dbg);
 
-  virtual Status PreallocateInternal(uint64_t spaceToReserve);
+  virtual IOStatus PreallocateInternal(uint64_t spaceToReserve);
 
  public:
   WinMmapFile(const std::string& fname, HANDLE hFile, size_t page_size,
-              size_t allocation_granularity, const EnvOptions& options);
+              size_t allocation_granularity, const FileOptions& options);
 
   ~WinMmapFile();
 
   WinMmapFile(const WinMmapFile&) = delete;
   WinMmapFile& operator=(const WinMmapFile&) = delete;
 
-  virtual Status Append(const Slice& data) override;
+  IOStatus Append(const Slice& data, const IOOptions& options,
+                  IODebugContext* dbg) override;
+  IOStatus Append(const Slice& data, const IOOptions& opts,
+                  const DataVerificationInfo& /* verification_info */,
+                  IODebugContext* dbg) override {
+    return Append(data, opts, dbg);
+  }
 
   // Means Close() will properly take care of truncate
   // and it does not need any additional information
-  virtual Status Truncate(uint64_t size) override;
+  IOStatus Truncate(uint64_t size, const IOOptions& options,
+                    IODebugContext* dbg) override;
 
-  virtual Status Close() override;
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override;
 
-  virtual Status Flush() override;
+  IOStatus Flush(const IOOptions& options, IODebugContext* dbg) override;
 
   // Flush only data
-  virtual Status Sync() override;
+  IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override;
 
   /**
-  * Flush data as well as metadata to stable storage.
-  */
-  virtual Status Fsync() override;
+   * Flush data as well as metadata to stable storage.
+   */
+  IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override;
 
   /**
-  * Get the size of valid data in the file. This will not match the
-  * size that is returned from the filesystem because we use mmap
-  * to extend file by map_size every time.
-  */
-  virtual uint64_t GetFileSize() override;
+   * Get the size of valid data in the file. This will not match the
+   * size that is returned from the filesystem because we use mmap
+   * to extend file by map_size every time.
+   */
+  uint64_t GetFileSize(const IOOptions& options, IODebugContext* dbg) override;
 
-  virtual Status InvalidateCache(size_t offset, size_t length) override;
+  IOStatus InvalidateCache(size_t offset, size_t length) override;
 
-  virtual Status Allocate(uint64_t offset, uint64_t len) override;
+  IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& options,
+                    IODebugContext* dbg) override;
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 };
@@ -231,24 +244,24 @@ class WinMmapFile : private WinFileData, public WritableFile {
 class WinRandomAccessImpl {
  protected:
   WinFileData* file_base_;
-  size_t       alignment_;
+  size_t alignment_;
 
   // Override for behavior change when creating a custom env
-  virtual Status PositionedReadInternal(char* src, size_t numBytes,
-                                        uint64_t offset, size_t& bytes_read) const;
+  virtual IOStatus PositionedReadInternal(char* src, size_t numBytes,
+                                          uint64_t offset,
+                                          size_t& bytes_read) const;
 
   WinRandomAccessImpl(WinFileData* file_base, size_t alignment,
-                      const EnvOptions& options);
+                      const FileOptions& options);
 
   virtual ~WinRandomAccessImpl() {}
 
-  Status ReadImpl(uint64_t offset, size_t n, Slice* result,
-                  char* scratch) const;
+  IOStatus ReadImpl(uint64_t offset, size_t n, Slice* result,
+                    char* scratch) const;
 
   size_t GetAlignment() const { return alignment_; }
 
  public:
-
   WinRandomAccessImpl(const WinRandomAccessImpl&) = delete;
   WinRandomAccessImpl& operator=(const WinRandomAccessImpl&) = delete;
 };
@@ -258,21 +271,24 @@ class WinRandomAccessFile
     : private WinFileData,
       protected WinRandomAccessImpl,  // Want to be able to override
                                       // PositionedReadInternal
-      public RandomAccessFile {
+      public FSRandomAccessFile {
  public:
   WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
-                      const EnvOptions& options);
+                      const FileOptions& options);
 
   ~WinRandomAccessFile();
 
-  virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const override;
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override;
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 
-  virtual bool use_direct_io() const override { return WinFileData::use_direct_io(); }
+  virtual bool use_direct_io() const override {
+    return WinFileData::use_direct_io();
+  }
 
-  virtual Status InvalidateCache(size_t offset, size_t length) override;
+  IOStatus InvalidateCache(size_t offset, size_t length) override;
 
   virtual size_t GetRequiredBufferAlignment() const override;
 };
@@ -293,10 +309,11 @@ class WinWritableImpl {
  protected:
   WinFileData* file_data_;
   const uint64_t alignment_;
-  uint64_t next_write_offset_; // Needed because Windows does not support O_APPEND
+  uint64_t
+      next_write_offset_;  // Needed because Windows does not support O_APPEND
   uint64_t reservedsize_;  // how far we have reserved space
 
-  virtual Status PreallocateInternal(uint64_t spaceToReserve);
+  virtual IOStatus PreallocateInternal(uint64_t spaceToReserve);
 
   WinWritableImpl(WinFileData* file_data, size_t alignment);
 
@@ -304,17 +321,17 @@ class WinWritableImpl {
 
   uint64_t GetAlignement() const { return alignment_; }
 
-  Status AppendImpl(const Slice& data);
+  IOStatus AppendImpl(const Slice& data);
 
   // Requires that the data is aligned as specified by
   // GetRequiredBufferAlignment()
-  Status PositionedAppendImpl(const Slice& data, uint64_t offset);
+  IOStatus PositionedAppendImpl(const Slice& data, uint64_t offset);
 
-  Status TruncateImpl(uint64_t size);
+  IOStatus TruncateImpl(uint64_t size);
 
-  Status CloseImpl();
+  IOStatus CloseImpl();
 
-  Status SyncImpl();
+  IOStatus SyncImpl(const IOOptions& options, IODebugContext* dbg);
 
   uint64_t GetFileNextWriteOffset() {
     // Double accounting now here with WritableFileWriter
@@ -326,7 +343,7 @@ class WinWritableImpl {
     return next_write_offset_;
   }
 
-  Status AllocateImpl(uint64_t offset, uint64_t len);
+  IOStatus AllocateImpl(uint64_t offset, uint64_t len);
 
  public:
   WinWritableImpl(const WinWritableImpl&) = delete;
@@ -335,32 +352,47 @@ class WinWritableImpl {
 
 class WinWritableFile : private WinFileData,
                         protected WinWritableImpl,
-                        public WritableFile {
+                        public FSWritableFile {
  public:
   WinWritableFile(const std::string& fname, HANDLE hFile, size_t alignment,
-                  size_t capacity, const EnvOptions& options);
+                  size_t capacity, const FileOptions& options);
 
   ~WinWritableFile();
 
-  virtual Status Append(const Slice& data) override;
+  IOStatus Append(const Slice& data, const IOOptions& options,
+                  IODebugContext* dbg) override;
+  IOStatus Append(const Slice& data, const IOOptions& opts,
+                  const DataVerificationInfo& /* verification_info */,
+                  IODebugContext* dbg) override {
+    return Append(data, opts, dbg);
+  }
 
   // Requires that the data is aligned as specified by
   // GetRequiredBufferAlignment()
-  virtual Status PositionedAppend(const Slice& data, uint64_t offset) override;
+  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                            const IOOptions& options,
+                            IODebugContext* dbg) override;
+  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                            const IOOptions& opts,
+                            const DataVerificationInfo& /* verification_info */,
+                            IODebugContext* dbg) override {
+    return PositionedAppend(data, offset, opts, dbg);
+  }
 
   // Need to implement this so the file is truncated correctly
   // when buffered and unbuffered mode
-  virtual Status Truncate(uint64_t size) override;
+  IOStatus Truncate(uint64_t size, const IOOptions& options,
+                    IODebugContext* dbg) override;
 
-  virtual Status Close() override;
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override;
 
   // write out the cached data to the OS cache
   // This is now taken care of the WritableFileWriter
-  virtual Status Flush() override;
+  IOStatus Flush(const IOOptions& options, IODebugContext* dbg) override;
 
-  virtual Status Sync() override;
+  IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override;
 
-  virtual Status Fsync() override;
+  IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override;
 
   virtual bool IsSyncThreadSafe() const override;
 
@@ -370,9 +402,10 @@ class WinWritableFile : private WinFileData,
 
   virtual size_t GetRequiredBufferAlignment() const override;
 
-  virtual uint64_t GetFileSize() override;
+  uint64_t GetFileSize(const IOOptions& options, IODebugContext* dbg) override;
 
-  virtual Status Allocate(uint64_t offset, uint64_t len) override;
+  IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& options,
+                    IODebugContext* dbg) override;
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 };
@@ -380,10 +413,10 @@ class WinWritableFile : private WinFileData,
 class WinRandomRWFile : private WinFileData,
                         protected WinRandomAccessImpl,
                         protected WinWritableImpl,
-                        public RandomRWFile {
+                        public FSRandomRWFile {
  public:
   WinRandomRWFile(const std::string& fname, HANDLE hFile, size_t alignment,
-                  const EnvOptions& options);
+                  const FileOptions& options);
 
   ~WinRandomRWFile() {}
 
@@ -397,45 +430,50 @@ class WinRandomRWFile : private WinFileData,
 
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
   // Pass aligned buffer when use_direct_io() returns true.
-  virtual Status Write(uint64_t offset, const Slice& data) override;
+  IOStatus Write(uint64_t offset, const Slice& data, const IOOptions& options,
+                 IODebugContext* dbg) override;
 
   // Read up to `n` bytes starting from offset `offset` and store them in
   // result, provided `scratch` size should be at least `n`.
   // Returns Status::OK() on success.
-  virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const override;
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
+                Slice* result, char* scratch,
+                IODebugContext* dbg) const override;
 
-  virtual Status Flush() override;
+  IOStatus Flush(const IOOptions& options, IODebugContext* dbg) override;
 
-  virtual Status Sync() override;
+  IOStatus Sync(const IOOptions& options, IODebugContext* dbg) override;
 
-  virtual Status Fsync() override { return Sync(); }
+  IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override {
+    return Sync(options, dbg);
+  }
 
-  virtual Status Close() override;
+  IOStatus Close(const IOOptions& options, IODebugContext* dbg) override;
 };
 
 class WinMemoryMappedBuffer : public MemoryMappedFileBuffer {
-private:
-  HANDLE  file_handle_;
-  HANDLE  map_handle_;
-public:
-  WinMemoryMappedBuffer(HANDLE file_handle, HANDLE map_handle, void* base, size_t size) :
-    MemoryMappedFileBuffer(base, size),
-    file_handle_(file_handle),
-    map_handle_(map_handle) {}
+ private:
+  HANDLE file_handle_;
+  HANDLE map_handle_;
+
+ public:
+  WinMemoryMappedBuffer(HANDLE file_handle, HANDLE map_handle, void* base,
+                        size_t size)
+      : MemoryMappedFileBuffer(base, size),
+        file_handle_(file_handle),
+        map_handle_(map_handle) {}
   ~WinMemoryMappedBuffer() override;
 };
 
-class WinDirectory : public Directory {
+class WinDirectory : public FSDirectory {
   HANDLE handle_;
+
  public:
   explicit WinDirectory(HANDLE h) noexcept : handle_(h) {
     assert(handle_ != INVALID_HANDLE_VALUE);
   }
-  ~WinDirectory() {
-    ::CloseHandle(handle_);
-  }
-  virtual Status Fsync() override;
+  ~WinDirectory() { ::CloseHandle(handle_); }
+  IOStatus Fsync(const IOOptions& options, IODebugContext* dbg) override;
 
   size_t GetUniqueId(char* id, size_t max_size) const override;
 };
@@ -452,5 +490,5 @@ class WinFileLock : public FileLock {
  private:
   HANDLE hFile_;
 };
-}
+}  // namespace port
 }  // namespace ROCKSDB_NAMESPACE

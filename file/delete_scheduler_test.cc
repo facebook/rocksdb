@@ -10,7 +10,6 @@
 #include <thread>
 #include <vector>
 
-#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "rocksdb/env.h"
@@ -96,11 +95,9 @@ class DeleteSchedulerTest : public testing::Test {
     // Tests in this file are for DeleteScheduler component and don't create any
     // DBs, so we need to set max_trash_db_ratio to 100% (instead of default
     // 25%)
-    std::shared_ptr<FileSystem>
-                fs(std::make_shared<LegacyFileSystemWrapper>(env_));
-    sst_file_mgr_.reset(
-        new SstFileManagerImpl(env_, fs, nullptr, rate_bytes_per_sec_,
-                               /* max_trash_db_ratio= */ 1.1, 128 * 1024));
+    sst_file_mgr_.reset(new SstFileManagerImpl(
+        env_, env_->GetFileSystem(), nullptr, rate_bytes_per_sec_,
+        /* max_trash_db_ratio= */ 1.1, 128 * 1024));
     delete_scheduler_ = sst_file_mgr_->delete_scheduler();
     sst_file_mgr_->SetStatisticsPtr(stats_);
   }
