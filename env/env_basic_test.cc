@@ -31,9 +31,7 @@ class EnvBasicTestWithParam : public testing::Test,
 
   void SetUp() override { ASSERT_OK(env_->CreateDirIfMissing(test_dir_)); }
 
-  void TearDown() override {
-    ASSERT_OK(DestroyDir(env_, test_dir_));
-  }
+  void TearDown() override { ASSERT_OK(DestroyDir(env_, test_dir_)); }
 };
 
 class EnvMoreTestWithParam : public EnvBasicTestWithParam {};
