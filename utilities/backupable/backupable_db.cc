@@ -215,9 +215,7 @@ class BackupEngineImpl : public BackupEngine {
 
     ~BackupMeta() {}
 
-    void RecordTimestamp() {
-      env_->GetCurrentTime(&timestamp_).PermitUncheckedError();
-    }
+    Status RecordTimestamp() { return env_->GetCurrentTime(&timestamp_); }
     int64_t GetTimestamp() const {
       return timestamp_;
     }
@@ -402,7 +400,16 @@ class BackupEngineImpl : public BackupEngine {
                              std::string* db_session_id);
 
   struct CopyOrCreateResult {
-    ~CopyOrCreateResult() { status.PermitUncheckedError(); }
+    ~CopyOrCreateResult() {
+      // The Status needs to be ignored here for two reasons.
+      // First, if the BackupEngineImpl shuts down with jobs outstanding, then
+      // it is possible that the Status in the future/promise is never read,
+      // resulting in an unchecked Status. Second, if there are items in the
+      // channel when the BackupEngineImpl is shutdown, these will also have
+      // Status that have not been checked.  This
+      // TODO: Fix those issues so that the Status
+      status.PermitUncheckedError();
+    }
     uint64_t size;
     std::string checksum_hex;
     std::string db_id;
@@ -787,11 +794,9 @@ Status BackupEngineImpl::Initialize() {
     for (const auto& rel_dir :
          {GetSharedFileRel(), GetSharedFileWithChecksumRel()}) {
       const auto abs_dir = GetAbsolutePath(rel_dir);
-      auto s =
-          InsertPathnameToSizeBytes(abs_dir, backup_env_, &abs_path_to_size);
-      if (!s.ok()) {
-        return s;
-      }
+      // TODO: What do do on error?
+      InsertPathnameToSizeBytes(abs_dir, backup_env_, &abs_path_to_size)
+          .PermitUncheckedError();
     }
     // load the backups if any, until valid_backups_to_open of the latest
     // non-corrupted backups have been successfully opened.
@@ -971,7 +976,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
                          &backuped_file_infos_, backup_env_))));
   assert(ret.second == true);
   auto& new_backup = ret.first->second;
-  new_backup->RecordTimestamp();
+  // TODO: What should we do on error here?
+  new_backup->RecordTimestamp().PermitUncheckedError();
   new_backup->SetAppMetadata(app_metadata);
 
   auto start_backup = backup_env_->NowMicros();
@@ -996,7 +1002,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   std::vector<BackupAfterCopyOrCreateWorkItem> backup_items_to_finish;
   // Add a CopyOrCreateWorkItem to the channel for each live file
-  db->DisableFileDeletions().PermitUncheckedError();
+  Status disabled = db->DisableFileDeletions();
   if (s.ok()) {
     CheckpointImpl checkpoint(db);
     uint64_t sequence_number = 0;
@@ -1101,8 +1107,9 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   }
 
   // we copied all the files, enable file deletions
-  db->EnableFileDeletions(false).PermitUncheckedError();
-
+  if (disabled.ok()) {  // If we successfully disabled file deletions
+    db->EnableFileDeletions(false).PermitUncheckedError();
+  }
   auto backup_time = backup_env_->NowMicros() - start_backup;
 
   if (s.ok()) {
@@ -1452,6 +1459,7 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
   for (const auto& rel_dir : {GetPrivateFileRel(backup_id), GetSharedFileRel(),
                               GetSharedFileWithChecksumRel()}) {
     const auto abs_dir = GetAbsolutePath(rel_dir);
+    // TODO: What to do on error?
     InsertPathnameToSizeBytes(abs_dir, backup_env_, &curr_abs_path_to_size)
         .PermitUncheckedError();
   }

@@ -408,8 +408,10 @@ class FileManager : public EnvWrapper {
   Status GetRandomFileInDir(const std::string& dir, std::string* fname,
                             uint64_t* fsize) {
     std::vector<FileAttributes> children;
-    GetChildrenFileAttributes(dir, &children).PermitUncheckedError();
-    if (children.size() <= 2) {  // . and ..
+    auto s = GetChildrenFileAttributes(dir, &children);
+    if (!s.ok()) {
+      return s;
+    } else if (children.size() <= 2) {  // . and ..
       return Status::NotFound("Empty directory: " + dir);
     }
     assert(fname != nullptr);
@@ -428,8 +430,10 @@ class FileManager : public EnvWrapper {
 
   Status DeleteRandomFileInDir(const std::string& dir) {
     std::vector<std::string> children;
-    GetChildren(dir, &children).PermitUncheckedError();
-    if (children.size() <= 2) { // . and ..
+    Status s = GetChildren(dir, &children);
+    if (!s.ok()) {
+      return s;
+    } else if (children.size() <= 2) {  // . and ..
       return Status::NotFound("");
     }
     while (true) {
@@ -446,8 +450,10 @@ class FileManager : public EnvWrapper {
   Status AppendToRandomFileInDir(const std::string& dir,
                                  const std::string& data) {
     std::vector<std::string> children;
-    GetChildren(dir, &children).PermitUncheckedError();
-    if (children.size() <= 2) {
+    Status s = GetChildren(dir, &children);
+    if (!s.ok()) {
+      return s;
+    } else if (children.size() <= 2) {
       return Status::NotFound("");
     }
     while (true) {
@@ -640,6 +646,8 @@ class BackupableDBTest : public testing::Test {
     // Create logger
     DBOptions logger_options;
     logger_options.env = db_chroot_env_.get();
+    // TODO: This should really be an EXPECT_OK, but this CreateLogger fails
+    // regularly in some environments with "no such directory"
     CreateLoggerFromOptions(dbname_, logger_options, &logger_)
         .PermitUncheckedError();
 
@@ -749,13 +757,13 @@ class BackupableDBTest : public testing::Test {
 
   void DeleteLogFiles() {
     std::vector<std::string> delete_logs;
-    db_chroot_env_->GetChildren(dbname_, &delete_logs).PermitUncheckedError();
+    ASSERT_OK(db_chroot_env_->GetChildren(dbname_, &delete_logs));
     for (auto f : delete_logs) {
       uint64_t number;
       FileType type;
       bool ok = ParseFileName(f, &number, &type);
       if (ok && type == kWalFile) {
-        db_chroot_env_->DeleteFile(dbname_ + "/" + f).PermitUncheckedError();
+        ASSERT_OK(db_chroot_env_->DeleteFile(dbname_ + "/" + f));
       }
     }
   }
@@ -1282,7 +1290,6 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
             file_manager_->FileExists(backupdir_ + "/meta/2"));
   ASSERT_EQ(Status::NotFound(),
             file_manager_->FileExists(backupdir_ + "/private/2"));
-
   CloseBackupEngine();
   AssertBackupConsistency(0, 0, keys_iteration * 1, keys_iteration * 5);
 
