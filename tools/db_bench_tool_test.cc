@@ -32,7 +32,6 @@ class DBBenchTest : public testing::Test {
     Env::Default()->CreateDir(test_path_);
     db_path_ = test_path_ + "/db";
     wal_path_ = test_path_ + "/wal";
-    fs_.reset(new LegacyFileSystemWrapper(Env::Default()));
   }
 
   ~DBBenchTest() {
@@ -114,7 +113,6 @@ class DBBenchTest : public testing::Test {
   std::string db_path_;
   std::string test_path_;
   std::string wal_path_;
-  std::unique_ptr<LegacyFileSystemWrapper> fs_;
 
   char arg_buffer_[kArgBufferSize];
   char* argv_[kMaxArgCount];
@@ -130,7 +128,7 @@ TEST_F(DBBenchTest, OptionsFile) {
   Options opt = GetDefaultOptions();
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
                                   {ColumnFamilyOptions()}, kOptionsFileName,
-                                  fs_.get()));
+                                  opt.env->GetFileSystem().get()));
 
   // override the following options as db_bench will not take these
   // options from the options file
@@ -149,7 +147,7 @@ TEST_F(DBBenchTest, OptionsFileUniversal) {
 
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
                                   {ColumnFamilyOptions(opt)}, kOptionsFileName,
-                                  fs_.get()));
+                                  opt.env->GetFileSystem().get()));
 
   // override the following options as db_bench will not take these
   // options from the options file

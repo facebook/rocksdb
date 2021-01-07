@@ -612,7 +612,12 @@ ifdef ASSERT_STATUS_CHECKED
 		db_blob_basic_test \
 		db_blob_index_test \
 		db_block_cache_test \
+		db_compaction_test \
+		db_compaction_filter_test \
+		db_dynamic_level_test \
 		db_flush_test \
+		db_inplace_update_test \
+		db_io_failure_test \
 		db_iterator_test \
 		db_logical_block_size_cache_test \
 		db_memtable_test \
@@ -629,6 +634,7 @@ ifdef ASSERT_STATUS_CHECKED
 		deletefile_test \
 		external_sst_file_test \
 		options_file_test \
+		db_sst_test \
 		db_statistics_test \
 		db_table_properties_test \
 		db_tailing_iter_test \

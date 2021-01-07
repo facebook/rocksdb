@@ -1449,8 +1449,9 @@ Status CompactionJob::FinishCompactionOutputFile(
   } else {
     sub_compact->builder->Abandon();
   }
+  IOStatus io_s = sub_compact->builder->io_status();
   if (s.ok()) {
-    s = sub_compact->builder->io_status();
+    s = io_s;
   }
   const uint64_t current_bytes = sub_compact->builder->FileSize();
   if (s.ok()) {
@@ -1461,7 +1462,6 @@ Status CompactionJob::FinishCompactionOutputFile(
   sub_compact->total_bytes += current_bytes;
 
   // Finish and check for file errors
-  IOStatus io_s;
   if (s.ok()) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
     io_s = sub_compact->outfile->Sync(db_options_.use_fsync);

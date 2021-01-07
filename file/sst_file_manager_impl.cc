@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "db/db_impl/db_impl.h"
-#include "env/composite_env_wrapper.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/sst_file_manager.h"
@@ -159,7 +158,7 @@ bool SstFileManagerImpl::IsMaxAllowedSpaceReachedIncludingCompactions() {
 
 bool SstFileManagerImpl::EnoughRoomForCompaction(
     ColumnFamilyData* cfd, const std::vector<CompactionInputFiles>& inputs,
-    Status bg_error) {
+    const Status& bg_error) {
   MutexLock l(&mu_);
   uint64_t size_added_by_compaction = 0;
   // First check if we even have the space to do the compaction
@@ -184,7 +183,7 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
   // seen a NoSpace() error. This is tin order to contain a single potentially
   // misbehaving DB instance and prevent it from slowing down compactions of
   // other DB instances
-  if (bg_error == Status::NoSpace() && CheckFreeSpace()) {
+  if (bg_error.IsNoSpace() && CheckFreeSpace()) {
     auto fn =
         TableFileName(cfd->ioptions()->cf_paths, inputs[0][0]->fd.GetNumber(),
                       inputs[0][0]->fd.GetPathId());
@@ -485,13 +484,7 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   bool delete_existing_trash, Status* status,
                                   double max_trash_db_ratio,
                                   uint64_t bytes_max_delete_chunk) {
-  std::shared_ptr<FileSystem> fs;
-
-  if (env == Env::Default()) {
-    fs = FileSystem::Default();
-  } else {
-    fs.reset(new LegacyFileSystemWrapper(env));
-  }
+  const auto& fs = env->GetFileSystem();
 
   return NewSstFileManager(env, fs, info_log, trash_dir, rate_bytes_per_sec,
                            delete_existing_trash, status, max_trash_db_ratio,

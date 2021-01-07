@@ -213,17 +213,16 @@ void EventHelpers::NotifyOnErrorRecoveryCompleted(
     const std::vector<std::shared_ptr<EventListener>>& listeners,
     Status old_bg_error, InstrumentedMutex* db_mutex) {
 #ifndef ROCKSDB_LITE
-  if (listeners.size() == 0U) {
-    return;
-  }
-  db_mutex->AssertHeld();
-  // release lock while notifying events
-  db_mutex->Unlock();
-  for (auto& listener : listeners) {
-    listener->OnErrorRecoveryCompleted(old_bg_error);
+  if (listeners.size() > 0) {
+    db_mutex->AssertHeld();
+    // release lock while notifying events
+    db_mutex->Unlock();
+    for (auto& listener : listeners) {
+      listener->OnErrorRecoveryCompleted(old_bg_error);
+    }
+    db_mutex->Lock();
   }
   old_bg_error.PermitUncheckedError();
-  db_mutex->Lock();
 #else
   (void)listeners;
   (void)old_bg_error;

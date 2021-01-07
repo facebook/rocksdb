@@ -31,6 +31,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorSingle) {
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
   iter->SeekToFirst();
   ASSERT_TRUE(!iter->Valid());
+  ASSERT_OK(iter->status());
 
   // add a record and check that iter can see it
   ASSERT_OK(db_->Put(WriteOptions(), "mirko", "fodor"));
@@ -48,6 +49,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorKeepAdding) {
   read_options.tailing = true;
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+  ASSERT_OK(iter->status());
   std::string value(1024, 'a');
 
   const int num_records = 10000;
@@ -70,7 +72,9 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToNext) {
   read_options.tailing = true;
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+  ASSERT_OK(iter->status());
   std::unique_ptr<Iterator> itern(db_->NewIterator(read_options, handles_[1]));
+  ASSERT_OK(itern->status());
   std::string value(1024, 'a');
 
   const int num_records = 1000;
@@ -138,8 +142,11 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   Slice keyu(bufe, 20);
   read_options.iterate_upper_bound = &keyu;
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+  ASSERT_OK(iter->status());
   std::unique_ptr<Iterator> itern(db_->NewIterator(read_options, handles_[1]));
+  ASSERT_OK(itern->status());
   std::unique_ptr<Iterator> iterh(db_->NewIterator(read_options, handles_[1]));
+  ASSERT_OK(iterh->status());
   std::string value(1024, 'a');
   bool file_iters_deleted = false;
   bool file_iters_renewed_null = false;
@@ -225,6 +232,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   read_options.read_tier = kBlockCacheTier;
   std::unique_ptr<Iterator> iteri(db_->NewIterator(read_options, handles_[1]));
+  ASSERT_OK(iteri->status());
   char buf5[32];
   snprintf(buf5, sizeof(buf5), "00a0%016d", (num_records / 2) * 5 - 2);
   Slice target1(buf5, 20);
@@ -236,6 +244,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   options.table_factory.reset(NewBlockBasedTableFactory());
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   iter.reset(db_->NewIterator(read_options, handles_[1]));
+  ASSERT_OK(iter->status());
   for (int i = 2 * num_records; i > 0; --i) {
     char buf1[32];
     char buf2[32];
@@ -262,6 +271,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorDeletes) {
   read_options.tailing = true;
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+  ASSERT_OK(iter->status());
 
   // write a single record, read it using the iterator, then delete it
   ASSERT_OK(Put(1, "0test", "test"));
@@ -309,6 +319,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorPrefixSeek) {
   CreateAndReopenWithCF({"pikachu"}, options);
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+  ASSERT_OK(iter->status());
   ASSERT_OK(Put(1, "0101", "test"));
 
   ASSERT_OK(Flush(1));
@@ -339,6 +350,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorIncomplete) {
   ASSERT_OK(db_->Put(WriteOptions(), key, value));
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  ASSERT_OK(iter->status());
   iter->SeekToFirst();
   // we either see the entry or it's not in cache
   ASSERT_TRUE(iter->Valid() || iter->status().IsIncomplete());
@@ -369,6 +381,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToSame) {
   }
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  ASSERT_OK(iter->status());
   // Seek to 00001.  We expect to find 00002.
   std::string start_key = "00001";
   iter->Seek(start_key);
@@ -404,6 +417,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorUpperBound) {
   ASSERT_OK(Put(1, "21", "21"));
 
   std::unique_ptr<Iterator> it(db_->NewIterator(read_options, handles_[1]));
+  ASSERT_OK(it->status());
   it->Seek("12");
   ASSERT_TRUE(it->Valid());
   ASSERT_EQ("12", it->key().ToString());
@@ -479,6 +493,8 @@ TEST_F(DBTestTailingIterator, TailingIteratorGap) {
   it->Next();
   ASSERT_TRUE(it->Valid());
   ASSERT_EQ("40", it->key().ToString());
+
+  ASSERT_OK(it->status());
 }
 
 TEST_F(DBTestTailingIterator, SeekWithUpperBoundBug) {
@@ -497,6 +513,7 @@ TEST_F(DBTestTailingIterator, SeekWithUpperBoundBug) {
   ASSERT_OK(Flush());
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  ASSERT_OK(iter->status());
 
   iter->Seek("aa");
   ASSERT_TRUE(iter->Valid());
@@ -519,6 +536,7 @@ TEST_F(DBTestTailingIterator, SeekToFirstWithUpperBoundBug) {
   ASSERT_OK(Flush());
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  ASSERT_OK(iter->status());
 
   iter->SeekToFirst();
   ASSERT_TRUE(iter->Valid());

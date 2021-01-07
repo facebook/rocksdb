@@ -9,7 +9,7 @@
 
 // This test uses a custom FileSystem to keep track of the state of a file
 // system the last "Sync". The data being written is cached in a "buffer".
-// Only when "Sync" is called, the data will be persistent. It can similate
+// Only when "Sync" is called, the data will be persistent. It can simulate
 // file data loss (or entire files) not protected by a "Sync". For any of the
 // FileSystem related operations, by specify the "IOStatus Error", a specific
 // error can be returned when file system is not activated.
