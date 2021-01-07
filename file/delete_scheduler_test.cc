@@ -423,7 +423,9 @@ TEST_F(DeleteSchedulerTest, BackgroundError) {
   delete_scheduler_->WaitForEmptyTrash();
   auto bg_errors = delete_scheduler_->GetBackgroundErrors();
   ASSERT_EQ(bg_errors.size(), 10);
-
+  for (const auto& it : bg_errors) {
+    ASSERT_TRUE(it.second.IsPathNotFound());
+  }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -667,7 +669,7 @@ TEST_F(DeleteSchedulerTest, ImmediateDeleteOn25PercDBSize) {
   }
 
   for (std::string& file_name : generated_files) {
-    delete_scheduler_->DeleteFile(file_name, "");
+    ASSERT_OK(delete_scheduler_->DeleteFile(file_name, ""));
   }
 
   // When we end up with 26 files in trash we will start

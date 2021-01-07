@@ -215,9 +215,7 @@ class BackupEngineImpl : public BackupEngine {
 
     ~BackupMeta() {}
 
-    void RecordTimestamp() {
-      env_->GetCurrentTime(&timestamp_);
-    }
+    Status RecordTimestamp() { return env_->GetCurrentTime(&timestamp_); }
     int64_t GetTimestamp() const {
       return timestamp_;
     }
@@ -402,6 +400,16 @@ class BackupEngineImpl : public BackupEngine {
                              std::string* db_session_id);
 
   struct CopyOrCreateResult {
+    ~CopyOrCreateResult() {
+      // The Status needs to be ignored here for two reasons.
+      // First, if the BackupEngineImpl shuts down with jobs outstanding, then
+      // it is possible that the Status in the future/promise is never read,
+      // resulting in an unchecked Status. Second, if there are items in the
+      // channel when the BackupEngineImpl is shutdown, these will also have
+      // Status that have not been checked.  This
+      // TODO: Fix those issues so that the Status
+      status.PermitUncheckedError();
+    }
     uint64_t size;
     std::string checksum_hex;
     std::string db_id;
@@ -670,6 +678,9 @@ BackupEngineImpl::~BackupEngineImpl() {
     t.join();
   }
   LogFlush(options_.info_log);
+  for (const auto& it : corrupt_backups_) {
+    it.second.first.PermitUncheckedError();
+  }
 }
 
 Status BackupEngineImpl::Initialize() {
@@ -783,7 +794,9 @@ Status BackupEngineImpl::Initialize() {
     for (const auto& rel_dir :
          {GetSharedFileRel(), GetSharedFileWithChecksumRel()}) {
       const auto abs_dir = GetAbsolutePath(rel_dir);
-      InsertPathnameToSizeBytes(abs_dir, backup_env_, &abs_path_to_size);
+      // TODO: What do do on error?
+      InsertPathnameToSizeBytes(abs_dir, backup_env_, &abs_path_to_size)
+          .PermitUncheckedError();
     }
     // load the backups if any, until valid_backups_to_open of the latest
     // non-corrupted backups have been successfully opened.
@@ -801,11 +814,13 @@ Status BackupEngineImpl::Initialize() {
 
       // Insert files and their sizes in backup sub-directories
       // (private/backup_id) to abs_path_to_size
-      InsertPathnameToSizeBytes(
+      Status s = InsertPathnameToSizeBytes(
           GetAbsolutePath(GetPrivateFileRel(backup_iter->first)), backup_env_,
           &abs_path_to_size);
-      Status s = backup_iter->second->LoadFromFile(options_.backup_dir,
-                                                   abs_path_to_size);
+      if (s.ok()) {
+        s = backup_iter->second->LoadFromFile(options_.backup_dir,
+                                              abs_path_to_size);
+      }
       if (s.IsCorruption()) {
         ROCKS_LOG_INFO(options_.info_log, "Backup %u corrupted -- %s",
                        backup_iter->first, s.ToString().c_str());
@@ -961,7 +976,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
                          &backuped_file_infos_, backup_env_))));
   assert(ret.second == true);
   auto& new_backup = ret.first->second;
-  new_backup->RecordTimestamp();
+  // TODO: What should we do on error here?
+  new_backup->RecordTimestamp().PermitUncheckedError();
   new_backup->SetAppMetadata(app_metadata);
 
   auto start_backup = backup_env_->NowMicros();
@@ -986,7 +1002,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
 
   std::vector<BackupAfterCopyOrCreateWorkItem> backup_items_to_finish;
   // Add a CopyOrCreateWorkItem to the channel for each live file
-  db->DisableFileDeletions();
+  Status disabled = db->DisableFileDeletions();
   if (s.ok()) {
     CheckpointImpl checkpoint(db);
     uint64_t sequence_number = 0;
@@ -1091,8 +1107,9 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   }
 
   // we copied all the files, enable file deletions
-  db->EnableFileDeletions(false);
-
+  if (disabled.ok()) {  // If we successfully disabled file deletions
+    db->EnableFileDeletions(false).PermitUncheckedError();
+  }
   auto backup_time = backup_env_->NowMicros() - start_backup;
 
   if (s.ok()) {
@@ -1133,7 +1150,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
                    backup_statistics_.ToString().c_str());
     // delete files that we might have already written
     might_need_garbage_collect_ = true;
-    DeleteBackup(new_backup_id);
+    DeleteBackup(new_backup_id).PermitUncheckedError();
     return s;
   }
 
@@ -1201,6 +1218,7 @@ Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
   }
 
   if (!s1.ok()) {
+    s2.PermitUncheckedError();  // What to do?
     return s1;
   } else {
     return s2;
@@ -1229,6 +1247,7 @@ Status BackupEngineImpl::DeleteBackupInternal(BackupID backup_id) {
     if (!s.ok()) {
       return s;
     }
+    corrupt->second.first.PermitUncheckedError();
     corrupt_backups_.erase(corrupt);
   }
 
@@ -1310,8 +1329,8 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
                  static_cast<int>(options.keep_log_files));
 
   // just in case. Ignore errors
-  db_env_->CreateDirIfMissing(db_dir);
-  db_env_->CreateDirIfMissing(wal_dir);
+  db_env_->CreateDirIfMissing(db_dir).PermitUncheckedError();
+  db_env_->CreateDirIfMissing(wal_dir).PermitUncheckedError();
 
   if (options.keep_log_files) {
     // delete files in db_dir, but keep all the log files
@@ -1319,7 +1338,8 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
     // move all the files from archive dir to wal_dir
     std::string archive_dir = ArchivalDirectory(wal_dir);
     std::vector<std::string> archive_files;
-    db_env_->GetChildren(archive_dir, &archive_files);  // ignore errors
+    db_env_->GetChildren(archive_dir, &archive_files)
+        .PermitUncheckedError();  // ignore errors
     for (const auto& f : archive_files) {
       uint64_t number;
       FileType type;
@@ -1439,7 +1459,9 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
   for (const auto& rel_dir : {GetPrivateFileRel(backup_id), GetSharedFileRel(),
                               GetSharedFileWithChecksumRel()}) {
     const auto abs_dir = GetAbsolutePath(rel_dir);
-    InsertPathnameToSizeBytes(abs_dir, backup_env_, &curr_abs_path_to_size);
+    // TODO: What to do on error?
+    InsertPathnameToSizeBytes(abs_dir, backup_env_, &curr_abs_path_to_size)
+        .PermitUncheckedError();
   }
 
   // For all files registered in backup
@@ -1463,9 +1485,11 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id,
       std::string checksum_hex;
       ROCKS_LOG_INFO(options_.info_log, "Verifying %s checksum...\n",
                      abs_path.c_str());
-      ReadFileAndComputeChecksum(abs_path, backup_env_, EnvOptions(),
-                                 0 /* size_limit */, &checksum_hex);
-      if (file_info->checksum_hex != checksum_hex) {
+      Status s = ReadFileAndComputeChecksum(abs_path, backup_env_, EnvOptions(),
+                                            0 /* size_limit */, &checksum_hex);
+      if (!s.ok()) {
+        return s;
+      } else if (file_info->checksum_hex != checksum_hex) {
         std::string checksum_info(
             "Expected checksum is " + file_info->checksum_hex +
             " while computed checksum is " + checksum_hex);
@@ -1589,7 +1613,6 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
 
   std::string dst_relative = fname.substr(1);
   std::string dst_relative_tmp;
-  Status s;
   std::string checksum_hex;
   std::string db_id;
   std::string db_session_id;
@@ -1622,15 +1645,16 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
       // Ignore the returned status
       // In the failed cases, db_id and db_session_id will be empty
       GetFileDbIdentities(db_env_, src_env_options, src_dir + fname, &db_id,
-                          &db_session_id);
+                          &db_session_id)
+          .PermitUncheckedError();
     }
     // Calculate checksum if checksum and db session id are not available.
     // If db session id is available, we will not calculate the checksum
     // since the session id should suffice to avoid file name collision in
     // the shared_checksum directory.
     if (!has_checksum && db_session_id.empty()) {
-      s = ReadFileAndComputeChecksum(src_dir + fname, db_env_, src_env_options,
-                                     size_limit, &checksum_hex);
+      Status s = ReadFileAndComputeChecksum(
+          src_dir + fname, db_env_, src_env_options, size_limit, &checksum_hex);
       if (!s.ok()) {
         return s;
       }
@@ -1692,7 +1716,6 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     } else if (exist.IsNotFound()) {
       file_exists = false;
     } else {
-      assert(s.IsIOError());
       return exist;
     }
   }
@@ -1710,7 +1733,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
           "overwrite the file.",
           fname.c_str());
       need_to_copy = true;
-      backup_env_->DeleteFile(final_dest_path);
+      //**TODO: What to do on error?
+      backup_env_->DeleteFile(final_dest_path).PermitUncheckedError();
     } else {
       // file exists and referenced
       if (!has_checksum) {
@@ -1739,9 +1763,9 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
           // same_path should not happen for a standard DB, so OK to
           // read file contents to check for checksum mismatch between
           // two files from same DB getting same name.
-          s = ReadFileAndComputeChecksum(src_dir + fname, db_env_,
-                                         src_env_options, size_limit,
-                                         &checksum_hex);
+          Status s = ReadFileAndComputeChecksum(src_dir + fname, db_env_,
+                                                src_env_options, size_limit,
+                                                &checksum_hex);
           if (!s.ok()) {
             return s;
           }
@@ -1783,14 +1807,14 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
         temp_dest_path, final_dest_path, dst_relative);
     backup_items_to_finish.push_back(std::move(after_copy_or_create_work_item));
     CopyOrCreateResult result;
-    result.status = s;
+    result.status = Status::OK();
     result.size = size_bytes;
     result.checksum_hex = std::move(checksum_hex);
     result.db_id = std::move(db_id);
     result.db_session_id = std::move(db_session_id);
     promise_result.set_value(std::move(result));
   }
-  return s;
+  return Status::OK();
 }
 
 Status BackupEngineImpl::ReadFileAndComputeChecksum(
@@ -1893,7 +1917,7 @@ Status BackupEngineImpl::GetFileDbIdentities(Env* src_env,
 void BackupEngineImpl::DeleteChildren(const std::string& dir,
                                       uint32_t file_type_filter) {
   std::vector<std::string> children;
-  db_env_->GetChildren(dir, &children);  // ignore errors
+  db_env_->GetChildren(dir, &children).PermitUncheckedError();  // ignore errors
 
   for (const auto& f : children) {
     uint64_t number;
@@ -1903,7 +1927,7 @@ void BackupEngineImpl::DeleteChildren(const std::string& dir,
       // don't delete this file
       continue;
     }
-    db_env_->DeleteFile(dir + "/" + f);  // ignore errors
+    db_env_->DeleteFile(dir + "/" + f).PermitUncheckedError();  // ignore errors
   }
 }
 
@@ -2016,18 +2040,19 @@ Status BackupEngineImpl::GarbageCollect() {
     std::string full_private_path =
         GetAbsolutePath(GetPrivateFileRel(backup_id));
     std::vector<std::string> subchildren;
-    backup_env_->GetChildren(full_private_path, &subchildren);
-    for (auto& subchild : subchildren) {
-      if (subchild == "." || subchild == "..") {
-        continue;
-      }
-      Status s = backup_env_->DeleteFile(full_private_path + subchild);
-      ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
-                     (full_private_path + subchild).c_str(),
-                     s.ToString().c_str());
-      if (!s.ok()) {
-        // Trying again later might work
-        might_need_garbage_collect_ = true;
+    if (backup_env_->GetChildren(full_private_path, &subchildren).ok()) {
+      for (auto& subchild : subchildren) {
+        if (subchild == "." || subchild == "..") {
+          continue;
+        }
+        Status s = backup_env_->DeleteFile(full_private_path + subchild);
+        ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
+                       (full_private_path + subchild).c_str(),
+                       s.ToString().c_str());
+        if (!s.ok()) {
+          // Trying again later might work
+          might_need_garbage_collect_ = true;
+        }
       }
     }
     // finally delete the private dir
