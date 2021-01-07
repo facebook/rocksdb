@@ -2,6 +2,7 @@
 ## 6.15.3 (01/07/2021)
 ### Bug Fixes
 * For Java builds, fix errors due to missing compression library includes.
+* dummy change for test PR (to get CI test coverage)
 
 ## 6.15.2 (12/22/2020)
 ### Bug Fixes
