@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.15.3 (01/07/2021)
+### Bug Fixes
+* For Java builds, fix errors due to missing compression library includes.
+
 ## 6.15.2 (12/22/2020)
 ### Bug Fixes
 * Fix failing RocksJava test compilation and add CI jobs
