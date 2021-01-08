@@ -754,6 +754,7 @@ class PosixFileSystem : public FileSystem {
     lhi.acquire_time = current_time;
     lhi.acquiring_thread = Env::Default()->GetThreadID();
 
+    IOStatus result = IOStatus::OK();
     mutex_locked_files.Lock();
     // If it already exists in the locked_files set, then it is already locked,
     // and fail this lock attempt. Otherwise, insert it into locked_files.
@@ -767,18 +768,18 @@ class PosixFileSystem : public FileSystem {
     const auto it_success = locked_files.insert({fname, lhi});
     if (it_success.second == false) {
       LockHoldingInfo& prev_info = it_success.first->second;
-      mutex_locked_files.Unlock();
       errno = ENOLCK;
       // Note that the thread ID printed is the same one as the one in
       // posix logger, but posix logger prints it hex format.
-      return IOError("lock hold by current process, acquire time " +
+      result = IOError("lock hold by current process, acquire time " +
                          ToString(prev_info.acquire_time) +
                          " acquiring thread " +
                          ToString(prev_info.acquiring_thread),
                      fname, errno);
+      mutex_locked_files.Unlock();
+      return result;
     }
 
-    IOStatus result = IOStatus::OK();
     int fd;
     int flags = cloexec_flags(O_RDWR | O_CREAT, nullptr);
 
