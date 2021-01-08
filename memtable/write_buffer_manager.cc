@@ -54,6 +54,7 @@ WriteBufferManager::WriteBufferManager(size_t _buffer_size,
       mutable_limit_(buffer_size_ * 7 / 8),
       memory_used_(0),
       memory_active_(0),
+      dummy_size_(0),
       cache_rep_(nullptr) {
 #ifndef ROCKSDB_LITE
   if (cache) {
@@ -104,6 +105,7 @@ void WriteBufferManager::ReserveMemWithCache(size_t mem) {
     // it in the future.
     cache_rep_->dummy_handles_.push_back(handle);
     cache_rep_->cache_allocated_size_ += kSizeDummyEntry;
+    dummy_size_.fetch_add(kSizeDummyEntry, std::memory_order_relaxed);
   }
 #else
   (void)mem;
@@ -137,6 +139,7 @@ void WriteBufferManager::FreeMemWithCache(size_t mem) {
     }
     cache_rep_->dummy_handles_.pop_back();
     cache_rep_->cache_allocated_size_ -= kSizeDummyEntry;
+    dummy_size_.fetch_sub(kSizeDummyEntry, std::memory_order_relaxed);
   }
 #else
   (void)mem;
