@@ -190,10 +190,11 @@ TEST_F(DBOptionsTest, SetWalBytesPerSync) {
   options.env = env_;
   Reopen(options);
   ASSERT_EQ(512, dbfull()->GetDBOptions().wal_bytes_per_sync);
-  int counter = 0;
+  std::atomic_int counter{0};
   int low_bytes_per_sync = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "WritableFileWriter::RangeSync:0", [&](void* /*arg*/) { counter++; });
+      "WritableFileWriter::RangeSync:0",
+      [&](void* /*arg*/) { counter.fetch_add(1); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   const std::string kValue(kValueSize, 'v');
   int i = 0;
