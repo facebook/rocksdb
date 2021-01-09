@@ -241,6 +241,90 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableError) {
   Destroy(options);
 }
 
+TEST_F(DBErrorHandlingFSTest, FLushWritFileScopeError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
+  Status s;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+
+  IOStatus error_msg = IOStatus::IOError("File Scope Data Loss Error");
+  error_msg.SetDataLoss(true);
+  error_msg.SetScope(
+      ROCKSDB_NAMESPACE::IOStatus::IOErrorScope::kIOErrorScopeFile);
+  error_msg.SetRetryable(false);
+
+  ASSERT_OK(Put(Key(1), "val1"));
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeFinishBuildTable",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_OK(s);
+  Reopen(options);
+  ASSERT_EQ("val1", Get(Key(1)));
+
+  ASSERT_OK(Put(Key(2), "val2"));
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeSyncTable",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_OK(s);
+  Reopen(options);
+  ASSERT_EQ("val2", Get(Key(2)));
+
+  ASSERT_OK(Put(Key(3), "val3"));
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeCloseTableFile",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_OK(s);
+  Reopen(options);
+  ASSERT_EQ("val3", Get(Key(3)));
+
+  // not file scope, but retyrable set
+  error_msg.SetDataLoss(false);
+  error_msg.SetScope(
+      ROCKSDB_NAMESPACE::IOStatus::IOErrorScope::kIOErrorScopeFileSystem);
+  error_msg.SetRetryable(true);
+
+  ASSERT_OK(Put(Key(3), "val3"));
+  SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable:BeforeCloseTableFile",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_OK(s);
+  Reopen(options);
+  ASSERT_EQ("val3", Get(Key(3)));
+
+  Destroy(options);
+}
+
 TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -428,6 +512,52 @@ TEST_F(DBErrorHandlingFSTest, ManifestWriteRetryableError) {
 
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
+
+  ASSERT_OK(Put(Key(0), "val"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(1), "val"));
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+  s = dbfull()->Resume();
+  ASSERT_OK(s);
+
+  new_manifest = GetManifestNameFromLiveFiles();
+  ASSERT_NE(new_manifest, old_manifest);
+
+  Reopen(options);
+  ASSERT_EQ("val", Get(Key(0)));
+  ASSERT_EQ("val", Get(Key(1)));
+  Close();
+}
+
+TEST_F(DBErrorHandlingFSTest, ManifestWriteFileScopeError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
+  Status s;
+  std::string old_manifest;
+  std::string new_manifest;
+
+  listener->EnableAutoRecovery(false);
+  DestroyAndReopen(options);
+  old_manifest = GetManifestNameFromLiveFiles();
+
+  IOStatus error_msg = IOStatus::IOError("File Scope Data Loss Error");
+  error_msg.SetDataLoss(true);
+  error_msg.SetScope(
+      ROCKSDB_NAMESPACE::IOStatus::IOErrorScope::kIOErrorScopeFile);
+  error_msg.SetRetryable(false);
 
   ASSERT_OK(Put(Key(0), "val"));
   ASSERT_OK(Flush());
@@ -748,6 +878,54 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableError) {
 
   IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
   error_msg.SetRetryable(true);
+
+  ASSERT_OK(Put(Key(0), "va;"));
+  ASSERT_OK(Put(Key(2), "va;"));
+  s = Flush();
+  ASSERT_OK(s);
+
+  listener->OverrideBGError(Status(error_msg, Status::Severity::kHardError));
+  listener->EnableAutoRecovery(false);
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::FlushMemTable:FlushMemTableFinished",
+        "BackgroundCallCompaction:0"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::OpenCompactionOutputFile",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put(Key(1), "val"));
+  s = Flush();
+  ASSERT_OK(s);
+
+  s = dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+
+  fault_fs_->SetFilesystemActive(true);
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  s = dbfull()->Resume();
+  ASSERT_OK(s);
+  Destroy(options);
+}
+
+TEST_F(DBErrorHandlingFSTest, CompactionWriteFileScopeError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
+  Status s;
+  DestroyAndReopen(options);
+
+  IOStatus error_msg = IOStatus::IOError("File Scope Data Loss Error");
+  error_msg.SetDataLoss(true);
+  error_msg.SetScope(
+      ROCKSDB_NAMESPACE::IOStatus::IOErrorScope::kIOErrorScopeFile);
+  error_msg.SetRetryable(false);
 
   ASSERT_OK(Put(Key(0), "va;"));
   ASSERT_OK(Put(Key(2), "va;"));

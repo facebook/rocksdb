@@ -51,6 +51,9 @@ DeleteScheduler::~DeleteScheduler() {
   if (bg_thread_) {
     bg_thread_->join();
   }
+  for (const auto& it : bg_errors_) {
+    it.second.PermitUncheckedError();
+  }
 }
 
 Status DeleteScheduler::DeleteFile(const std::string& file_path,

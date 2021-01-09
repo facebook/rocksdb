@@ -659,6 +659,7 @@ ifdef ASSERT_STATUS_CHECKED
 		external_sst_file_basic_test \
 		auto_roll_logger_test \
 		file_indexer_test \
+		delete_scheduler_test \
 		flush_job_test \
 		hash_table_test \
 		hash_test \
@@ -747,6 +748,9 @@ ifdef ASSERT_STATUS_CHECKED
 		cuckoo_table_reader_test \
 		memory_test \
 		table_test \
+		backupable_db_test \
+		blob_db_test \
+		ttl_test \
 		write_batch_test \
 		write_batch_with_index_test \
 
