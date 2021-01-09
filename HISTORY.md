@@ -23,6 +23,7 @@
 * Fixed prefix extractor with timestamp issues.
 * Fixed a bug in atomic flush: in two-phase commit mode, the minimum WAL log number to keep is incorrect.
 * Fixed a bug related to checkpoint in PR7789: if there are multiple column families, and the checkpoint is not opened as read only, then in rare cases, data loss may happen in the checkpoint. Since backup engine relies on checkpoint, it may also be affected.
+* When ldb --try_load_options is used with the --column_family option, the ColumnFamilyOptions for the specified column family was not loaded from the OPTIONS file. Fix it so its loaded from OPTIONS and then overridden with command line overrides.
 
 ### New Features
 * User defined timestamp feature supports `CompactRange` and `GetApproximateSizes`.
