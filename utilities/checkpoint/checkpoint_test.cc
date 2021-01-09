@@ -543,7 +543,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
       {// Get past the flush in the checkpoint thread before adding any keys to
        // the db so the checkpoint thread won't hit the WriteManifest
        // syncpoints.
-       {"DBImpl::GetLiveFiles:1",
+       {"CheckpointImpl::CreateCheckpoint:FlushDone",
         "CheckpointTest::CurrentFileModifiedWhileCheckpointing:PrePut"},
        // Roll the manifest during checkpointing right after live files are
        // snapshotted.

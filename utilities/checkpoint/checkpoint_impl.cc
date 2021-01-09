@@ -247,6 +247,7 @@ Status CheckpointImpl::CreateCustomCheckpoint(
   // GetLiveFiles atomically. But that needs changes to GetLiveFiles' signature
   // which is a public API.
   s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
+  TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:FlushDone");
 
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
   TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
