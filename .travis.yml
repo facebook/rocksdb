@@ -91,12 +91,6 @@ matrix:
   - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: amd64
-  # Exclude most osx, arm64 and ppc64le tests for pull requests, but build in branches
-  # Temporarily disable ppc64le cmake test while snapd is broken
-  - if: type = pull_request AND commit_message !~ /FULL_CI/
-    os: linux
-    arch: ppc64le
-    env: JOB_NAME=cmake
   # Exclude all osx since it should be covered by CircleCI
   - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: osx
