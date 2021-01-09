@@ -506,9 +506,7 @@ TEST_F(DBWALTest, IgnoreRecoveredLog) {
     std::vector<std::string> old_files;
     ASSERT_OK(env_->GetChildren(backup_logs, &old_files));
     for (auto& file : old_files) {
-      if (file != "." && file != "..") {
-        ASSERT_OK(env_->DeleteFile(backup_logs + "/" + file));
-      }
+      ASSERT_OK(env_->DeleteFile(backup_logs + "/" + file));
     }
     Options options = CurrentOptions();
     options.create_if_missing = true;
@@ -528,9 +526,7 @@ TEST_F(DBWALTest, IgnoreRecoveredLog) {
     std::vector<std::string> logs;
     ASSERT_OK(env_->GetChildren(options.wal_dir, &logs));
     for (auto& log : logs) {
-      if (log != ".." && log != ".") {
-        CopyFile(options.wal_dir + "/" + log, backup_logs + "/" + log);
-      }
+      CopyFile(options.wal_dir + "/" + log, backup_logs + "/" + log);
     }
 
     // recover the DB
@@ -541,9 +537,7 @@ TEST_F(DBWALTest, IgnoreRecoveredLog) {
 
     // copy the logs from backup back to wal dir
     for (auto& log : logs) {
-      if (log != ".." && log != ".") {
-        CopyFile(backup_logs + "/" + log, options.wal_dir + "/" + log);
-      }
+      CopyFile(backup_logs + "/" + log, options.wal_dir + "/" + log);
     }
     // this should ignore the log files, recovery should not happen again
     // if the recovery happens, the same merge operator would be called twice,
@@ -559,9 +553,7 @@ TEST_F(DBWALTest, IgnoreRecoveredLog) {
     // copy the logs from backup back to wal dir
     ASSERT_OK(env_->CreateDirIfMissing(options.wal_dir));
     for (auto& log : logs) {
-      if (log != ".." && log != ".") {
-        CopyFile(backup_logs + "/" + log, options.wal_dir + "/" + log);
-      }
+      CopyFile(backup_logs + "/" + log, options.wal_dir + "/" + log);
     }
     // assert that we successfully recovered only from logs, even though we
     // destroyed the DB
@@ -574,11 +566,9 @@ TEST_F(DBWALTest, IgnoreRecoveredLog) {
     // copy the logs from backup back to wal dir
     ASSERT_OK(env_->CreateDirIfMissing(options.wal_dir));
     for (auto& log : logs) {
-      if (log != ".." && log != ".") {
-        CopyFile(backup_logs + "/" + log, options.wal_dir + "/" + log);
-        // we won't be needing this file no more
-        ASSERT_OK(env_->DeleteFile(backup_logs + "/" + log));
-      }
+      CopyFile(backup_logs + "/" + log, options.wal_dir + "/" + log);
+      // we won't be needing this file no more
+      ASSERT_OK(env_->DeleteFile(backup_logs + "/" + log));
     }
     Status s = TryReopen(options);
     ASSERT_NOK(s);

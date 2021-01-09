@@ -417,11 +417,9 @@ class FileManager : public EnvWrapper {
     assert(fname != nullptr);
     while (true) {
       int i = rnd_.Next() % children.size();
-      if (children[i].name != "." && children[i].name != "..") {
-        fname->assign(dir + "/" + children[i].name);
-        *fsize = children[i].size_bytes;
-        return Status::OK();
-      }
+      fname->assign(dir + "/" + children[i].name);
+      *fsize = children[i].size_bytes;
+      return Status::OK();
     }
     // should never get here
     assert(false);
@@ -433,14 +431,10 @@ class FileManager : public EnvWrapper {
     Status s = GetChildren(dir, &children);
     if (!s.ok()) {
       return s;
-    } else if (children.size() <= 2) {  // . and ..
-      return Status::NotFound("");
     }
     while (true) {
       int i = rnd_.Next() % children.size();
-      if (children[i] != "." && children[i] != "..") {
-        return DeleteFile(dir + "/" + children[i]);
-      }
+      return DeleteFile(dir + "/" + children[i]);
     }
     // should never get here
     assert(false);
@@ -453,14 +447,10 @@ class FileManager : public EnvWrapper {
     Status s = GetChildren(dir, &children);
     if (!s.ok()) {
       return s;
-    } else if (children.size() <= 2) {
-      return Status::NotFound("");
     }
     while (true) {
       int i = rnd_.Next() % children.size();
-      if (children[i] != "." && children[i] != "..") {
-        return WriteToFile(dir + "/" + children[i], data);
-      }
+      return WriteToFile(dir + "/" + children[i], data);
     }
     // should never get here
     assert(false);
@@ -828,9 +818,6 @@ class BackupableDBTest : public testing::Test {
     ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
     int found_count = 0;
     for (const auto& child : children) {
-      if (child.name == "." || child.name == "..") {
-        continue;
-      }
       const std::string match("match");
       ASSERT_EQ(match, std::regex_replace(child.name, pattern, match));
       ++found_count;
@@ -844,9 +831,6 @@ class BackupableDBTest : public testing::Test {
     ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
     int found_count = 0;
     for (const auto& child : children) {
-      if (child.name == "." || child.name == "..") {
-        continue;
-      }
       auto last_underscore = child.name.find_last_of('_');
       auto last_dot = child.name.find_last_of('.');
       ASSERT_NE(child.name, child.name.substr(0, last_underscore));
@@ -1351,7 +1335,7 @@ TEST_F(BackupableDBTest, CorruptFileMaintainSize) {
   const std::string dir = backupdir_ + "/shared_checksum";
   ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
   for (const auto& child : children) {
-    if (child.name == "." || child.name == ".." || child.size_bytes == 0) {
+    if (child.size_bytes == 0) {
       continue;
     }
     // corrupt the file by replacing its content by file_size random bytes
@@ -1575,7 +1559,7 @@ TEST_F(BackupableDBTest, FlushCompactDuringBackupCheckpoint) {
       const std::string dir = backupdir_ + "/shared_checksum";
       ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
       for (const auto& child : children) {
-        if (child.name == "." || child.name == ".." || child.size_bytes == 0) {
+        if (child.size_bytes == 0) {
           continue;
         }
         const std::string match("match");
@@ -2061,7 +2045,7 @@ TEST_F(BackupableDBTest, FileSizeForIncremental) {
 
     // Corrupt backup SST
     ASSERT_OK(file_manager_->GetChildrenFileAttributes(shared_dir, &children));
-    ASSERT_EQ(children.size(), 3U);  // ".", "..", one sst
+    ASSERT_EQ(children.size(), 1U);  // one sst
     for (const auto& child : children) {
       if (child.name.size() > 4 && child.size_bytes > 0) {
         ASSERT_OK(
@@ -2121,7 +2105,7 @@ TEST_F(BackupableDBTest, FileSizeForIncremental) {
     // Count backup SSTs
     children.clear();
     ASSERT_OK(file_manager_->GetChildrenFileAttributes(shared_dir, &children));
-    ASSERT_EQ(children.size(), 4U);  // ".", "..", two sst
+    ASSERT_EQ(children.size(), 2U);  // two sst
 
     // Try create backup 3
     s = backup_engine_->CreateNewBackup(db_.get(), true /*flush*/);
@@ -2134,18 +2118,18 @@ TEST_F(BackupableDBTest, FileSizeForIncremental) {
       // Acceptable to call it corruption if size is not in name and
       // db session id collision is practically impossible.
       EXPECT_TRUE(s.IsCorruption());
-      EXPECT_EQ(children.size(), 4U);  // no SST added
+      EXPECT_EQ(children.size(), 2U);  // no SST added
     } else if (option == share_no_checksum) {
       // Good to call it corruption if both backups cannot be
       // accommodated.
       EXPECT_TRUE(s.IsCorruption());
-      EXPECT_EQ(children.size(), 4U);  // no SST added
+      EXPECT_EQ(children.size(), 2U);  // no SST added
     } else {
       // Since opening a DB seems sufficient for detecting size corruption
       // on the DB side, this should be a good thing, ...
       EXPECT_OK(s);
       // ... as long as we did actually treat it as a distinct SST file.
-      EXPECT_EQ(children.size(), 5U);  // Another SST added
+      EXPECT_EQ(children.size(), 3U);  // Another SST added
     }
     CloseDBAndBackupEngine();
     ASSERT_OK(DestroyDB(dbname_, options_));

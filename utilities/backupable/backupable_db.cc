@@ -743,9 +743,6 @@ Status BackupEngineImpl::Initialize() {
   }
   // create backups_ structure
   for (auto& file : backup_meta_files) {
-    if (file == "." || file == "..") {
-      continue;
-    }
     ROCKS_LOG_INFO(options_.info_log, "Detected backup %s", file.c_str());
     BackupID backup_id = 0;
     sscanf(file.c_str(), "%u", &backup_id);
@@ -1985,9 +1982,6 @@ Status BackupEngineImpl::GarbageCollect() {
       }
     }
     for (auto& child : shared_children) {
-      if (child == "." || child == "..") {
-        continue;
-      }
       std::string rel_fname;
       if (with_checksum) {
         rel_fname = GetSharedFileWithChecksumRel(child);
@@ -2024,10 +2018,6 @@ Status BackupEngineImpl::GarbageCollect() {
     }
   }
   for (auto& child : private_children) {
-    if (child == "." || child == "..") {
-      continue;
-    }
-
     BackupID backup_id = 0;
     bool tmp_dir = child.find(".tmp") != std::string::npos;
     sscanf(child.c_str(), "%u", &backup_id);
@@ -2042,9 +2032,6 @@ Status BackupEngineImpl::GarbageCollect() {
     std::vector<std::string> subchildren;
     if (backup_env_->GetChildren(full_private_path, &subchildren).ok()) {
       for (auto& subchild : subchildren) {
-        if (subchild == "." || subchild == "..") {
-          continue;
-        }
         Status s = backup_env_->DeleteFile(full_private_path + subchild);
         ROCKS_LOG_INFO(options_.info_log, "Deleting %s -- %s",
                        (full_private_path + subchild).c_str(),

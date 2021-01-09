@@ -44,7 +44,7 @@ TEST_F(DBEncryptionTest, CheckEncrypted) {
   Env* target = GetTargetEnv();
   int hits = 0;
   for (auto it = fileNames.begin() ; it != fileNames.end(); ++it) {
-    if ((*it == "..") || (*it == ".") || (*it == "LOCK")) {
+    if (*it == "LOCK") {
       continue;
     }
     auto filePath = dbname_ + "/" + *it;

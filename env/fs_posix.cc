@@ -607,6 +607,7 @@ class PosixFileSystem : public FileSystem {
                        std::vector<std::string>* result,
                        IODebugContext* /*dbg*/) override {
     result->clear();
+
     DIR* d = opendir(dir.c_str());
     if (d == nullptr) {
       switch (errno) {
@@ -618,11 +619,34 @@ class PosixFileSystem : public FileSystem {
           return IOError("While opendir", dir, errno);
       }
     }
+
+    const auto pre_read_errno = errno;  // errno may be modified by readdir
     struct dirent* entry;
-    while ((entry = readdir(d)) != nullptr) {
-      result->push_back(entry->d_name);
+    while ((entry = readdir(d)) != nullptr && errno == pre_read_errno) {
+      // filter out '.' and '..' directory entries
+      // which appear only on some platforms
+      const bool ignore =
+          entry->d_type == DT_DIR &&
+          (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0);
+      if (!ignore) {
+        result->push_back(entry->d_name);
+      }
     }
-    closedir(d);
+
+    // always attempt to close the dir
+    const auto pre_close_errno = errno;  // errno may be modified by closedir
+    const int close_result = closedir(d);
+
+    if (pre_close_errno != pre_read_errno) {
+      // error occured during readdir
+      return IOError("While readdir", dir, pre_close_errno);
+    }
+
+    if (close_result != 0) {
+      // error occured during closedir
+      return IOError("While closedir", dir, errno);
+    }
+
     return IOStatus::OK();
   }
 

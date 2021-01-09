@@ -30,6 +30,7 @@
 
 ### Public API Change
 * Deprecated public but rarely-used FilterBitsBuilder::CalculateNumEntry, which is replaced with ApproximateNumEntries taking a size_t parameter and returning size_t.
+* To improve portability the functions `Env::GetChildren` and `Env::GetChildrenFileAttributes` will no longer return entries for the special directories `.` or `..`.
 
 ## 6.15.0 (11/13/2020)
 ### Bug Fixes
