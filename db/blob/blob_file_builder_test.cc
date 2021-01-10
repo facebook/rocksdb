@@ -59,7 +59,7 @@ class BlobFileBuilderTest : public testing::Test {
 
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(file), blob_file_path,
-                                   &mock_env_));
+                                   mock_env_.GetSystemClock()));
 
     constexpr Statistics* statistics = nullptr;
     BlobLogSequentialReader blob_log_reader(std::move(file_reader), &mock_env_,

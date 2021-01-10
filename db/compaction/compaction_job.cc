@@ -1739,8 +1739,8 @@ Status CompactionJob::OpenCompactionOutputFile(
   const auto& listeners =
       sub_compact->compaction->immutable_cf_options()->listeners;
   sub_compact->outfile.reset(new WritableFileWriter(
-      std::move(writable_file), fname, file_options_, env_, io_tracer_,
-      db_options_.statistics.get(), listeners,
+      std::move(writable_file), fname, file_options_, env_->GetSystemClock(),
+      io_tracer_, db_options_.statistics.get(), listeners,
       db_options_.file_checksum_gen_factory.get()));
 
   // If the Column family flag is to only optimize filters for hits,

@@ -1642,7 +1642,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   }
 #endif  // NDEBUG
 
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, clock_);
   StopWatch sw(clock_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -1831,7 +1831,7 @@ std::vector<Status> DBImpl::MultiGet(
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values,
     std::vector<std::string>* timestamps) {
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, clock_);
   StopWatch sw(clock_, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -2411,7 +2411,7 @@ Status DBImpl::MultiGetImpl(
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
     SuperVersion* super_version, SequenceNumber snapshot,
     ReadCallback* callback) {
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, clock_);
   StopWatch sw(clock_, stats_, DB_MULTIGET);
 
   // For each of the given keys, apply the entire "get" process as follows:

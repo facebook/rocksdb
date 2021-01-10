@@ -292,7 +292,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        std::move(file), manifest, file_options, env_, io_tracer_,
+        std::move(file), manifest, file_options, clock_, io_tracer_,
         nullptr /* stats */, immutable_db_options_.listeners));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
@@ -1486,7 +1486,7 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
 
     const auto& listeners = immutable_db_options_.listeners;
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        std::move(lfile), log_fname, opt_file_options, env_, io_tracer_,
+        std::move(lfile), log_fname, opt_file_options, clock_, io_tracer_,
         nullptr /* stats */, listeners));
     *new_log = new log::Writer(std::move(file_writer), log_file_num,
                                immutable_db_options_.recycle_log_file_num > 0,

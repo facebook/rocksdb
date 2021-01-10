@@ -42,7 +42,7 @@ void WriteBlobFile(uint32_t column_family_id,
 
   std::unique_ptr<WritableFileWriter> file_writer(
       new WritableFileWriter(std::move(file), blob_file_path, FileOptions(),
-                             immutable_cf_options.env));
+                             immutable_cf_options.env->GetSystemClock()));
 
   constexpr Statistics* statistics = nullptr;
   constexpr bool use_fsync = false;
