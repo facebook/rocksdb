@@ -166,9 +166,14 @@ install:
       sudo apt-get install -y g++-4.8 || exit $?;
       CC=gcc-4.8 && CXX=g++-4.8;
     fi
-  - if [[ "${JOB_NAME}" == cmake* ]]; then
-      sudo apt-get install snapd && sudo snap install cmake --beta --classic || exit $?;
-      export PATH=/snap/bin:$PATH;
+  - |
+    if [[ "${JOB_NAME}" == cmake* ]]; then
+      sudo apt-get remove -y cmake cmake-data
+      export CMAKE_DEB="cmake-3.14.5-Linux-$(uname -m).deb"
+      export CMAKE_DEB_URL="https://rocksdb-deps.s3-us-west-2.amazonaws.com/cmake/${CMAKE_DEB}"
+      curl --silent --fail --show-error --location --output "${CMAKE_DEB}" "${CMAKE_DEB_URL}" || exit $?
+      sudo dpkg -i "${CMAKE_DEB}" || exit $?
+      which cmake && cmake --version
     fi
   - |
     if [[ "${JOB_NAME}" == java_test || "${JOB_NAME}" == cmake* ]]; then
