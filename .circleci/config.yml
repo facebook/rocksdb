@@ -364,9 +364,13 @@ jobs:
       - run:
           name: "Setup VS"
           command: |
-            if [[ "${VS_YEAR}" == "2017" ]]; then
+            if [[ "${VS_YEAR}" == "2019" ]]; then
+              echo "VS2019 already present."
+            elif [[ "${VS_YEAR}" == "2017" ]]; then
+              echo "Installing VS2017..."
               powershell .circleci/vs2017_install.ps1
             elif [[ "${VS_YEAR}" == "2015" ]]; then
+              echo "Installing VS2015..."
               powershell .circleci/vs2015_install.ps1
             fi
       - run:
@@ -392,6 +396,7 @@ jobs:
             cd build
             ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 << parameters.extra_cmake_opt >> ..
             cd ..
+            msbuild.exe /version
             msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
       - run:
           name: "Test RocksDB"
