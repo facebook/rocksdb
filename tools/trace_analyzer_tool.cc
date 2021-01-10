@@ -1047,18 +1047,17 @@ Status TraceAnalyzer::ReProcessing() {
       std::vector<std::string> prefix(kTaTypeNum);
       std::istringstream iss;
       bool has_data = true;
-      std::unique_ptr<SequentialFile> wkey_input_f;
+      std::unique_ptr<FSSequentialFile> file;
 
-      s = env_->NewSequentialFile(whole_key_path, &wkey_input_f, env_options_);
+      s = env_->GetFileSystem()->NewSequentialFile(
+          whole_key_path, FileOptions(env_options_), &file, nullptr);
       if (!s.ok()) {
         fprintf(stderr, "Cannot open the whole key space file of CF: %u\n",
                 cf_id);
-        wkey_input_f.reset();
+        file.reset();
       }
 
-      if (wkey_input_f) {
-        std::unique_ptr<FSSequentialFile> file;
-        file = NewLegacySequentialFileWrapper(wkey_input_f);
+      if (file) {
         size_t kTraceFileReadaheadSize = 2 * 1024 * 1024;
         SequentialFileReader sf_reader(
             std::move(file), whole_key_path,
