@@ -95,7 +95,7 @@ class SystemClockWrapper : public SystemClock {
     return target_->TimeToString(time);
   }
 
- private:
+ protected:
   std::shared_ptr<SystemClock> target_;
 };
 

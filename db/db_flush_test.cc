@@ -11,6 +11,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "env/mock_env.h"
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
