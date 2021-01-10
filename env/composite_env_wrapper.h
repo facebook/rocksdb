@@ -250,7 +250,14 @@ class CompositeEnvWrapper : public CompositeEnv {
   // Initialize a CompositeEnvWrapper that delegates all thread/time related
   // calls to env, and all file operations to fs
   explicit CompositeEnvWrapper(Env* env, const std::shared_ptr<FileSystem>& fs)
-      : CompositeEnv(fs, env->GetSystemClock()), env_target_(env) {}
+      : CompositeEnvWrapper(env, fs, env->GetSystemClock()) {}
+
+  explicit CompositeEnvWrapper(Env* env, const std::shared_ptr<SystemClock>& sc)
+      : CompositeEnvWrapper(env, env->GetFileSystem(), sc) {}
+
+  explicit CompositeEnvWrapper(Env* env, const std::shared_ptr<FileSystem>& fs,
+                               const std::shared_ptr<SystemClock>& sc)
+      : CompositeEnv(fs, sc), env_target_(env) {}
 
   // Return the target to which this Env forwards all calls
   Env* env_target() const { return env_target_; }

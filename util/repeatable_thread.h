@@ -8,6 +8,7 @@
 #include <functional>
 #include <string>
 
+#include "monitoring/instrumented_mutex.h"
 #include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "util/mutexlock.h"
