@@ -69,7 +69,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
         }
 
         {
-          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
           // Only user reads are expected to specify a timeout. And user reads
           // are not subjected to rate_limiter and should go through only
           // one iteration of this loop, so we don't need to check and adjust
@@ -129,7 +129,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
 #endif
 
         {
-          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
           // Only user reads are expected to specify a timeout. And user reads
           // are not subjected to rate_limiter and should go through only
           // one iteration of this loop, so we don't need to check and adjust
@@ -268,7 +268,7 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
 #endif  // ROCKSDB_LITE
 
     {
-      IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+      IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
       s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
     }
 
@@ -315,6 +315,10 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
 
 IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
                                                   IOOptions& opts) {
-  return PrepareIOFromReadOptions(ro, clock_, opts);
+  if (clock_.get() != nullptr) {
+    return PrepareIOFromReadOptions(ro, clock_, opts);
+  } else {
+    return PrepareIOFromReadOptions(ro, SystemClock::Default(), opts);
+  }
 }
 }  // namespace ROCKSDB_NAMESPACE

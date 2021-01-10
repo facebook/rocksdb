@@ -151,8 +151,8 @@ Status BuildTable(
       file->SetWriteLifeTimeHint(write_hint);
 
       file_writer.reset(new WritableFileWriter(
-          std::move(file), fname, file_options, env, io_tracer,
-          ioptions.statistics, ioptions.listeners,
+          std::move(file), fname, file_options, env->GetSystemClock(),
+          io_tracer, ioptions.statistics, ioptions.listeners,
           ioptions.file_checksum_gen_factory));
 
       builder = NewTableBuilder(

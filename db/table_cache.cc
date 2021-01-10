@@ -129,7 +129,7 @@ Status TableCache::GetTableReader(
     StopWatch sw(clock, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(
-            std::move(file), fname, ioptions_.env, io_tracer_,
+            std::move(file), fname, clock, io_tracer_,
             record_read_stats ? ioptions_.statistics : nullptr, SST_READ_MICROS,
             file_read_hist, ioptions_.rate_limiter, ioptions_.listeners));
     s = ioptions_.table_factory->NewTableReader(
@@ -162,7 +162,8 @@ Status TableCache::FindTable(const ReadOptions& ro,
                              HistogramImpl* file_read_hist, bool skip_filters,
                              int level, bool prefetch_index_and_filter_in_cache,
                              size_t max_file_size_for_l0_meta_pin) {
-  PERF_TIMER_GUARD_WITH_ENV(find_table_nanos, ioptions_.env);
+  PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos,
+                              ioptions_.env->GetSystemClock());
   uint64_t number = fd.GetNumber();
   Slice key = GetSliceForFileNumber(&number);
   *handle = cache_->Lookup(key);

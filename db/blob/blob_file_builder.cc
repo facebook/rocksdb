@@ -181,7 +181,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   Statistics* const statistics = immutable_cf_options_->statistics;
 
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-      std::move(file), blob_file_paths_->back(), *file_options_, env_,
+      std::move(file), blob_file_paths_->back(), *file_options_, clock_,
       nullptr /*IOTracer*/, statistics, immutable_cf_options_->listeners,
       immutable_cf_options_->file_checksum_gen_factory));
 
