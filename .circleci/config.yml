@@ -605,23 +605,27 @@ workflows:
   build-linux-unity:
     jobs:
       - build-linux-unity
-  build-windows:
+  build-windows-vs2019:
     jobs:
-      - build-windows
+      - build-windows:
+          name: "build-windows-vs2019"
+  build-windows-vs2019-cxx20:
+    jobs:
+      - build-windows:
+          name: "build-windows-vs2019-cxx20"
+          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
   build-windows-vs2017:
     jobs:
       - build-windows:
+          name: "build-windows-vs2017"
           vs_year: "2017"
           cmake_generator: "Visual Studio 15 Win64"
   build-windows-vs2015:
     jobs:
       - build-windows:
+          name: "build-windows-vs2015"
           vs_year: "2015"
           cmake_generator: "Visual Studio 14 Win64"
-  build-windows-cxx20:
-    jobs:
-      - build-windows:
-          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
   build-java:
     jobs:
       - build-linux-java
