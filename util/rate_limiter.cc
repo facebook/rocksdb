@@ -8,9 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/rate_limiter.h"
+
 #include "monitoring/statistics.h"
 #include "port/port.h"
-#include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/aligned_buffer.h"
 
@@ -43,22 +44,22 @@ struct GenericRateLimiter::Req {
   bool granted;
 };
 
-GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
-                                       int64_t refill_period_us,
-                                       int32_t fairness, RateLimiter::Mode mode,
-                                       Env* env, bool auto_tuned)
+GenericRateLimiter::GenericRateLimiter(
+    int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness,
+    RateLimiter::Mode mode, const std::shared_ptr<SystemClock>& clock,
+    bool auto_tuned)
     : RateLimiter(mode),
       refill_period_us_(refill_period_us),
       rate_bytes_per_sec_(auto_tuned ? rate_bytes_per_sec / 2
                                      : rate_bytes_per_sec),
       refill_bytes_per_period_(
           CalculateRefillBytesPerPeriod(rate_bytes_per_sec_)),
-      env_(env),
+      clock_(clock),
       stop_(false),
       exit_cv_(&request_mutex_),
       requests_to_wait_(0),
       available_bytes_(0),
-      next_refill_us_(NowMicrosMonotonic(env_)),
+      next_refill_us_(NowMicrosMonotonic(clock_)),
       fairness_(fairness > 100 ? 100 : fairness),
       rnd_((uint32_t)time(nullptr)),
       leader_(nullptr),
@@ -66,7 +67,7 @@ GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
       num_drains_(0),
       prev_num_drains_(0),
       max_bytes_per_sec_(rate_bytes_per_sec),
-      tuned_time_(NowMicrosMonotonic(env_)) {
+      tuned_time_(NowMicrosMonotonic(clock_)) {
   total_requests_[0] = 0;
   total_requests_[1] = 0;
   total_bytes_through_[0] = 0;
@@ -108,7 +109,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
   if (auto_tuned_) {
     static const int kRefillsPerTune = 100;
-    std::chrono::microseconds now(NowMicrosMonotonic(env_));
+    std::chrono::microseconds now(NowMicrosMonotonic(clock_));
     if (now - tuned_time_ >=
         kRefillsPerTune * std::chrono::microseconds(refill_period_us_)) {
       Status s = Tune();
@@ -149,12 +150,12 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
          (!queue_[Env::IO_LOW].empty() &&
             &r == queue_[Env::IO_LOW].front()))) {
       leader_ = &r;
-      int64_t delta = next_refill_us_ - NowMicrosMonotonic(env_);
+      int64_t delta = next_refill_us_ - NowMicrosMonotonic(clock_);
       delta = delta > 0 ? delta : 0;
       if (delta == 0) {
         timedout = true;
       } else {
-        int64_t wait_until = env_->NowMicros() + delta;
+        int64_t wait_until = clock_->NowMicros() + delta;
         RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
         ++num_drains_;
         timedout = r.cv.TimedWait(wait_until);
@@ -229,7 +230,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
 void GenericRateLimiter::Refill() {
   TEST_SYNC_POINT("GenericRateLimiter::Refill");
-  next_refill_us_ = NowMicrosMonotonic(env_) + refill_period_us_;
+  next_refill_us_ = NowMicrosMonotonic(clock_) + refill_period_us_;
   // Carry over the left over quota from the last period
   auto refill_bytes_per_period =
       refill_bytes_per_period_.load(std::memory_order_relaxed);
@@ -284,7 +285,7 @@ Status GenericRateLimiter::Tune() {
   const int kAllowedRangeFactor = 20;
 
   std::chrono::microseconds prev_tuned_time = tuned_time_;
-  tuned_time_ = std::chrono::microseconds(NowMicrosMonotonic(env_));
+  tuned_time_ = std::chrono::microseconds(NowMicrosMonotonic(clock_));
 
   int64_t elapsed_intervals = (tuned_time_ - prev_tuned_time +
                                std::chrono::microseconds(refill_period_us_) -
@@ -334,7 +335,7 @@ RateLimiter* NewGenericRateLimiter(
   assert(refill_period_us > 0);
   assert(fairness > 0);
   return new GenericRateLimiter(rate_bytes_per_sec, refill_period_us, fairness,
-                                mode, Env::Default(), auto_tuned);
+                                mode, SystemClock::Default(), auto_tuned);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

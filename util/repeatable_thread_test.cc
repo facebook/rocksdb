@@ -24,23 +24,23 @@ class RepeatableThreadTest : public testing::Test {
 TEST_F(RepeatableThreadTest, TimedTest) {
   constexpr uint64_t kSecond = 1000000;  // 1s = 1000000us
   constexpr int kIteration = 3;
-  ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
+  const auto& clock = ROCKSDB_NAMESPACE::SystemClock::Default();
   ROCKSDB_NAMESPACE::port::Mutex mutex;
   ROCKSDB_NAMESPACE::port::CondVar test_cv(&mutex);
   int count = 0;
-  uint64_t prev_time = env->NowMicros();
+  uint64_t prev_time = clock->NowMicros();
   ROCKSDB_NAMESPACE::RepeatableThread thread(
       [&] {
         ROCKSDB_NAMESPACE::MutexLock l(&mutex);
         count++;
-        uint64_t now = env->NowMicros();
+        uint64_t now = clock->NowMicros();
         assert(count == 1 || prev_time + 1 * kSecond <= now);
         prev_time = now;
         if (count >= kIteration) {
           test_cv.SignalAll();
         }
       },
-      "rt_test", env, 1 * kSecond);
+      "rt_test", clock, 1 * kSecond);
   // Wait for execution finish.
   {
     ROCKSDB_NAMESPACE::MutexLock l(&mutex);
@@ -87,8 +87,9 @@ TEST_F(RepeatableThreadTest, MockEnvTest) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 #endif  // OS_MACOSX && !NDEBUG
 
-  ROCKSDB_NAMESPACE::RepeatableThread thread(
-      [&] { count++; }, "rt_test", mock_env_.get(), 1 * kSecond, 1 * kSecond);
+  ROCKSDB_NAMESPACE::RepeatableThread thread([&] { count++; }, "rt_test",
+                                             mock_env_->GetSystemClock(),
+                                             1 * kSecond, 1 * kSecond);
   for (int i = 1; i <= kIteration; i++) {
     // Bump current time
     thread.TEST_WaitForRun([&] { mock_env_->set_current_time(i); });

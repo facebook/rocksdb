@@ -37,7 +37,7 @@ class Timer {
  public:
   explicit Timer(const std::shared_ptr<SystemClock>& clock)
       : clock_(clock),
-        mutex_(nullptr, clock, 0),
+        mutex_(clock),
         cond_var_(&mutex_),
         running_(false),
         executing_task_(false) {}

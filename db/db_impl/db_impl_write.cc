@@ -1458,7 +1458,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
   bool delayed = false;
   {
     StopWatch sw(clock_, stats_, WRITE_STALL, &time_delayed);
-    uint64_t delay = write_controller_.GetDelay(env_, num_bytes);
+    uint64_t delay = write_controller_.GetDelay(clock_, num_bytes);
     if (delay > 0) {
       if (write_options.no_slowdown) {
         return Status::Incomplete("Write stall");
