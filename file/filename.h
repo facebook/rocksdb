@@ -27,6 +27,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class Env;
 class Directory;
+class SystemClock;
 class WritableFileWriter;
 
 #ifdef OS_WIN
@@ -166,7 +167,8 @@ extern Status SetIdentityFile(Env* env, const std::string& dbname,
                               const std::string& db_id = {});
 
 // Sync manifest file `file`.
-extern IOStatus SyncManifest(Env* env, const ImmutableDBOptions* db_options,
+extern IOStatus SyncManifest(const std::shared_ptr<SystemClock>& clock,
+                             const ImmutableDBOptions* db_options,
                              WritableFileWriter* file);
 
 // Return list of file names of info logs in `file_names`.

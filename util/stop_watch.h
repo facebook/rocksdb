@@ -5,7 +5,7 @@
 //
 #pragma once
 #include "monitoring/statistics.h"
-#include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Auto-scoped.
@@ -14,10 +14,10 @@ namespace ROCKSDB_NAMESPACE {
 // and overwrite is true, it will be added to *elapsed if overwrite is false.
 class StopWatch {
  public:
-  StopWatch(Env* const env, Statistics* statistics, const uint32_t hist_type,
-            uint64_t* elapsed = nullptr, bool overwrite = true,
-            bool delay_enabled = false)
-      : env_(env),
+  StopWatch(const std::shared_ptr<SystemClock>& clock, Statistics* statistics,
+            const uint32_t hist_type, uint64_t* elapsed = nullptr,
+            bool overwrite = true, bool delay_enabled = false)
+      : clock_(clock),
         statistics_(statistics),
         hist_type_(hist_type),
         elapsed_(elapsed),
@@ -29,15 +29,15 @@ class StopWatch {
         delay_enabled_(delay_enabled),
         total_delay_(0),
         delay_start_time_(0),
-        start_time_((stats_enabled_ || elapsed != nullptr) ? env->NowMicros()
+        start_time_((stats_enabled_ || elapsed != nullptr) ? clock->NowMicros()
                                                            : 0) {}
 
   ~StopWatch() {
     if (elapsed_) {
       if (overwrite_) {
-        *elapsed_ = env_->NowMicros() - start_time_;
+        *elapsed_ = clock_->NowMicros() - start_time_;
       } else {
-        *elapsed_ += env_->NowMicros() - start_time_;
+        *elapsed_ += clock_->NowMicros() - start_time_;
       }
     }
     if (elapsed_ && delay_enabled_) {
@@ -47,7 +47,7 @@ class StopWatch {
       statistics_->reportTimeToHistogram(
           hist_type_, (elapsed_ != nullptr)
                           ? *elapsed_
-                          : (env_->NowMicros() - start_time_));
+                          : (clock_->NowMicros() - start_time_));
     }
   }
 
@@ -55,13 +55,13 @@ class StopWatch {
     // if delay_start_time_ is not 0, it means we are already tracking delay,
     // so delay_start_time_ should not be overwritten
     if (elapsed_ && delay_enabled_ && delay_start_time_ == 0) {
-      delay_start_time_ = env_->NowMicros();
+      delay_start_time_ = clock_->NowMicros();
     }
   }
 
   void DelayStop() {
     if (elapsed_ && delay_enabled_ && delay_start_time_ != 0) {
-      total_delay_ += env_->NowMicros() - delay_start_time_;
+      total_delay_ += clock_->NowMicros() - delay_start_time_;
     }
     // reset to 0 means currently no delay is being tracked, so two consecutive
     // calls to DelayStop will not increase total_delay_
@@ -73,7 +73,7 @@ class StopWatch {
   uint64_t start_time() const { return start_time_; }
 
  private:
-  Env* const env_;
+  const std::shared_ptr<SystemClock> clock_;
   Statistics* statistics_;
   const uint32_t hist_type_;
   uint64_t* elapsed_;
@@ -88,17 +88,18 @@ class StopWatch {
 // a nano second precision stopwatch
 class StopWatchNano {
  public:
-  explicit StopWatchNano(Env* const env, bool auto_start = false)
-      : env_(env), start_(0) {
+  explicit StopWatchNano(const std::shared_ptr<SystemClock>& clock,
+                         bool auto_start = false)
+      : clock_(clock), start_(0) {
     if (auto_start) {
       Start();
     }
   }
 
-  void Start() { start_ = env_->NowNanos(); }
+  void Start() { start_ = clock_->NowNanos(); }
 
   uint64_t ElapsedNanos(bool reset = false) {
-    auto now = env_->NowNanos();
+    auto now = clock_->NowNanos();
     auto elapsed = now - start_;
     if (reset) {
       start_ = now;
@@ -107,11 +108,11 @@ class StopWatchNano {
   }
 
   uint64_t ElapsedNanosSafe(bool reset = false) {
-    return (env_ != nullptr) ? ElapsedNanos(reset) : 0U;
+    return (clock_ != nullptr) ? ElapsedNanos(reset) : 0U;
   }
 
  private:
-  Env* const env_;
+  const std::shared_ptr<SystemClock> clock_;
   uint64_t start_;
 };
 

@@ -1879,7 +1879,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
       do_merge ? value : nullptr, do_merge ? timestamp : nullptr, value_found,
-      merge_context, do_merge, max_covering_tombstone_seq, this->env_, seq,
+      merge_context, do_merge, max_covering_tombstone_seq,
+      this->env_->GetSystemClock(), seq,
       merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob_to_use,
       tracing_get_id);
 
@@ -1907,7 +1908,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     bool timer_enabled =
         GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
         get_perf_context()->per_level_perf_context_enabled;
-    StopWatchNano timer(env_, timer_enabled /* auto_start */);
+    StopWatchNano timer(env_->GetSystemClock(), timer_enabled /* auto_start */);
     *status = table_cache_->Get(
         read_options, *internal_comparator(), *f->file_metadata, ikey,
         &get_context, mutable_cf_options_.prefix_extractor.get(),
@@ -1996,7 +1997,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     std::string* str_value = value != nullptr ? value->GetSelf() : nullptr;
     *status = MergeHelper::TimedFullMerge(
         merge_operator_, user_key, nullptr, merge_context->GetOperands(),
-        str_value, info_log_, db_statistics_, env_,
+        str_value, info_log_, db_statistics_, env_->GetSystemClock(),
         nullptr /* result_operand */, true);
     if (LIKELY(value != nullptr)) {
       value->PinSelf();
@@ -2034,8 +2035,9 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge,
         iter->ukey_with_ts, iter->value, iter->timestamp, nullptr,
         &(iter->merge_context), true, &iter->max_covering_tombstone_seq,
-        this->env_, nullptr, merge_operator_ ? &pinned_iters_mgr : nullptr,
-        callback, &iter->is_blob_index, tracing_mget_id);
+        this->env_->GetSystemClock(), nullptr,
+        merge_operator_ ? &pinned_iters_mgr : nullptr, callback,
+        &iter->is_blob_index, tracing_mget_id);
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
     // be used for IO errors, and get_context state will be used for any
@@ -2065,7 +2067,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     bool timer_enabled =
         GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
         get_perf_context()->per_level_perf_context_enabled;
-    StopWatchNano timer(env_, timer_enabled /* auto_start */);
+    StopWatchNano timer(env_->GetSystemClock(), timer_enabled /* auto_start */);
     s = table_cache_->MultiGet(
         read_options, *internal_comparator(), *f->file_metadata, &file_range,
         mutable_cf_options_.prefix_extractor.get(),
@@ -2228,7 +2230,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           iter->value != nullptr ? iter->value->GetSelf() : nullptr;
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
-          str_value, info_log_, db_statistics_, env_,
+          str_value, info_log_, db_statistics_, env_->GetSystemClock(),
           nullptr /* result_operand */, true);
       if (LIKELY(iter->value != nullptr)) {
         iter->value->PinSelf();
@@ -4167,7 +4169,8 @@ Status VersionSet::ProcessManifestWrites(
         }
       }
       if (s.ok()) {
-        io_s = SyncManifest(env_, db_options_, descriptor_log_->file());
+        io_s = SyncManifest(env_->GetSystemClock(), db_options_,
+                            descriptor_log_->file());
         TEST_SYNC_POINT_CALLBACK(
             "VersionSet::ProcessManifestWrites:AfterSyncManifest", &io_s);
       }
@@ -6302,7 +6305,7 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
             "ReactiveVersionSet::MaybeSwitchManifest:"
             "AfterGetCurrentManifestPath:1");
         s = fs_->NewSequentialFile(manifest_path,
-                                   env_->OptimizeForManifestRead(file_options_),
+                                   fs_->OptimizeForManifestRead(file_options_),
                                    &manifest_file, nullptr);
       } else {
         // No need to switch manifest.

@@ -48,8 +48,8 @@ void WriteBlobFile(uint32_t column_family_id,
   constexpr bool use_fsync = false;
 
   BlobLogWriter blob_log_writer(std::move(file_writer),
-                                immutable_cf_options.env, statistics,
-                                blob_file_number, use_fsync);
+                                immutable_cf_options.env->GetSystemClock(),
+                                statistics, blob_file_number, use_fsync);
 
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;

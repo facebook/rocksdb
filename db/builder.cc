@@ -254,7 +254,8 @@ Status BuildTable(
     // Finish and check for file errors
     TEST_SYNC_POINT("BuildTable:BeforeSyncTable");
     if (s.ok() && !empty) {
-      StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
+      StopWatch sw(env->GetSystemClock(), ioptions.statistics,
+                   TABLE_SYNC_MICROS);
       *io_status = file_writer->Sync(ioptions.use_fsync);
     }
     TEST_SYNC_POINT("BuildTable:BeforeCloseTableFile");

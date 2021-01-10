@@ -38,6 +38,8 @@ namespace ROCKSDB_NAMESPACE {
 class DBImpl;
 class ColumnFamilyHandle;
 class ColumnFamilyData;
+class SystemClock;
+
 struct FlushJobInfo;
 
 namespace blob_db {
@@ -385,7 +387,7 @@ class BlobDBImpl : public BlobDB {
 
   void CopyBlobFiles(std::vector<std::shared_ptr<BlobFile>>* bfiles_copy);
 
-  uint64_t EpochNow() { return env_->NowMicros() / 1000000; }
+  uint64_t EpochNow() { return clock_->NowMicros() / 1000000; }
 
   // Check if inserting a new blob will make DB grow out of space.
   // If is_fifo = true, FIFO eviction will be triggered to make room for the
@@ -400,7 +402,7 @@ class BlobDBImpl : public BlobDB {
   // the base DB
   DBImpl* db_impl_;
   Env* env_;
-
+  std::shared_ptr<SystemClock> clock_;
   // the options that govern the behavior of Blob Storage
   BlobDBOptions bdb_options_;
   DBOptions db_options_;

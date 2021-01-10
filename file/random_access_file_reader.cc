@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <mutex>
 
+#include "file/file_util.h"
 #include "monitoring/histogram.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
@@ -32,7 +33,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
   Status s;
   uint64_t elapsed = 0;
   {
-    StopWatch sw(env_, stats_, hist_type_,
+    StopWatch sw(clock_, stats_, hist_type_,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
@@ -205,7 +206,7 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
   Status s;
   uint64_t elapsed = 0;
   {
-    StopWatch sw(env_, stats_, hist_type_,
+    StopWatch sw(clock_, stats_, hist_type_,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
@@ -312,4 +313,8 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
   return s;
 }
 
+IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
+                                                  IOOptions& opts) {
+  return PrepareIOFromReadOptions(ro, clock_, opts);
+}
 }  // namespace ROCKSDB_NAMESPACE

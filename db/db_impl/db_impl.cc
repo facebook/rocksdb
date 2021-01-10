@@ -151,6 +151,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options)),
       env_(initial_db_options_.env),
+      clock_(initial_db_options_.env->GetSystemClock()),
       io_tracer_(std::make_shared<IOTracer>()),
       immutable_db_options_(initial_db_options_),
       fs_(immutable_db_options_.fs, io_tracer_),
@@ -1654,7 +1655,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
 #endif  // NDEBUG
 
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
-  StopWatch sw(env_, stats_, DB_GET);
+  StopWatch sw(clock_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
@@ -1843,7 +1844,7 @@ std::vector<Status> DBImpl::MultiGet(
     const std::vector<Slice>& keys, std::vector<std::string>* values,
     std::vector<std::string>* timestamps) {
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
-  StopWatch sw(env_, stats_, DB_MULTIGET);
+  StopWatch sw(clock_, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
 #ifndef NDEBUG
@@ -2423,7 +2424,7 @@ Status DBImpl::MultiGetImpl(
     SuperVersion* super_version, SequenceNumber snapshot,
     ReadCallback* callback) {
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
-  StopWatch sw(env_, stats_, DB_MULTIGET);
+  StopWatch sw(clock_, stats_, DB_MULTIGET);
 
   // For each of the given keys, apply the entire "get" process as follows:
   // First look in the memtable, then in the immutable memtable (if any).

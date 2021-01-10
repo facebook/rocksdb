@@ -419,10 +419,11 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
   return s;
 }
 
-IOStatus SyncManifest(Env* env, const ImmutableDBOptions* db_options,
+IOStatus SyncManifest(const std::shared_ptr<SystemClock>& clock,
+                      const ImmutableDBOptions* db_options,
                       WritableFileWriter* file) {
   TEST_KILL_RANDOM("SyncManifest:0", rocksdb_kill_odds * REDUCE_ODDS2);
-  StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
+  StopWatch sw(clock, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
   return file->Sync(db_options->use_fsync);
 }
 

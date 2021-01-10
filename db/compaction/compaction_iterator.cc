@@ -219,7 +219,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     // to get sequence number.
     Slice& filter_key = ikey_.type == kTypeValue ? ikey_.user_key : key_;
     {
-      StopWatchNano timer(env_, report_detailed_time_);
+      StopWatchNano timer(env_->GetSystemClock(), report_detailed_time_);
       filter = compaction_filter_->FilterV2(
           compaction_->level(), filter_key, value_type, value_,
           &compaction_filter_value_, compaction_filter_skip_until_.rep());

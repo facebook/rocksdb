@@ -419,7 +419,7 @@ void CompactionJob::Prepare() {
 
   if (c->ShouldFormSubcompactions()) {
     {
-      StopWatch sw(env_, stats_, SUBCOMPACTION_SETUP_TIME);
+      StopWatch sw(env_->GetSystemClock(), stats_, SUBCOMPACTION_SETUP_TIME);
       GenSubcompactionBoundaries();
     }
     assert(sizes_.size() == boundaries_.size() + 1);
@@ -1463,7 +1463,8 @@ Status CompactionJob::FinishCompactionOutputFile(
 
   // Finish and check for file errors
   if (s.ok()) {
-    StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
+    StopWatch sw(env_->GetSystemClock(), stats_,
+                 COMPACTION_OUTFILE_SYNC_MICROS);
     io_s = sub_compact->outfile->Sync(db_options_.use_fsync);
   }
   if (s.ok() && io_s.ok()) {
