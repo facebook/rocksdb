@@ -594,25 +594,25 @@ TEST_F(PerfContextTest, DBMutexLockCounter) {
   for (PerfLevel perf_level_test :
        {PerfLevel::kEnableTimeExceptForMutex, PerfLevel::kEnableTime}) {
     for (int c = 0; c < 2; ++c) {
-    InstrumentedMutex mutex(nullptr, Env::Default(), stats_code[c]);
-    mutex.Lock();
-    ROCKSDB_NAMESPACE::port::Thread child_thread([&] {
-      SetPerfLevel(perf_level_test);
-      get_perf_context()->Reset();
-      ASSERT_EQ(get_perf_context()->db_mutex_lock_nanos, 0);
+      InstrumentedMutex mutex(nullptr, SystemClock::Default(), stats_code[c]);
       mutex.Lock();
-      mutex.Unlock();
-      if (perf_level_test == PerfLevel::kEnableTimeExceptForMutex ||
-          stats_code[c] != DB_MUTEX_WAIT_MICROS) {
+      ROCKSDB_NAMESPACE::port::Thread child_thread([&] {
+        SetPerfLevel(perf_level_test);
+        get_perf_context()->Reset();
         ASSERT_EQ(get_perf_context()->db_mutex_lock_nanos, 0);
-      } else {
-        // increment the counter only when it's a DB Mutex
-        ASSERT_GT(get_perf_context()->db_mutex_lock_nanos, 0);
-      }
-    });
-    SystemClock::Default()->SleepForMicroseconds(100);
-    mutex.Unlock();
-    child_thread.join();
+        mutex.Lock();
+        mutex.Unlock();
+        if (perf_level_test == PerfLevel::kEnableTimeExceptForMutex ||
+            stats_code[c] != DB_MUTEX_WAIT_MICROS) {
+          ASSERT_EQ(get_perf_context()->db_mutex_lock_nanos, 0);
+        } else {
+          // increment the counter only when it's a DB Mutex
+          ASSERT_GT(get_perf_context()->db_mutex_lock_nanos, 0);
+        }
+      });
+      SystemClock::Default()->SleepForMicroseconds(100);
+      mutex.Unlock();
+      child_thread.join();
   }
   }
 }
@@ -621,7 +621,7 @@ TEST_F(PerfContextTest, FalseDBMutexWait) {
   SetPerfLevel(kEnableTime);
   int stats_code[] = {0, static_cast<int>(DB_MUTEX_WAIT_MICROS)};
   for (int c = 0; c < 2; ++c) {
-    InstrumentedMutex mutex(nullptr, Env::Default(), stats_code[c]);
+    InstrumentedMutex mutex(nullptr, SystemClock::Default(), stats_code[c]);
     InstrumentedCondVar lock(&mutex);
     get_perf_context()->Reset();
     mutex.Lock();
