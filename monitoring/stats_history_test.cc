@@ -46,7 +46,7 @@ class StatsHistoryTest : public DBTestBase {
           auto* periodic_work_scheduler_ptr =
               reinterpret_cast<PeriodicWorkScheduler**>(arg);
           *periodic_work_scheduler_ptr =
-              PeriodicWorkTestScheduler::Default(mock_env_.get());
+              PeriodicWorkTestScheduler::Default(mock_env_->GetSystemClock());
         });
   }
 };
