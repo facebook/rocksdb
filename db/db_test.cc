@@ -4052,8 +4052,13 @@ TEST_F(DBTest, ConcurrentFlushWAL) {
   ReadOptions ropt;
 
   std::function<std::function<void()>(std::vector<Status>*)> put_func_factory =
+#if defined(_MSC_VER)
+      [&wopt, &cnt, this](std::vector<Status>* status) {
+        return [status, &wopt, &cnt, this]() {
+#else
       [&wopt, this](std::vector<Status>* status) {
         return [status, &wopt, this]() {
+#endif
           for (size_t i = 0; i < cnt; i++) {
             auto istr = ToString(i);
             Status s = db_->Put(wopt, db_->DefaultColumnFamily(), "a" + istr,
@@ -4064,8 +4069,14 @@ TEST_F(DBTest, ConcurrentFlushWAL) {
       };
 
   std::function<std::function<void()>(std::vector<Status>*)>
+#if defined(_MSC_VER)
+      put_write_func_factory = [&wopt, &cnt,
+                                this](std::vector<Status>* status) {
+        return [status, &wopt, &cnt, this]() {
+#else
       put_write_func_factory = [&wopt, this](std::vector<Status>* status) {
         return [status, &wopt, this]() {
+#endif
           for (size_t i = cnt; i < 2 * cnt; i++) {
             auto istr = ToString(i);
             WriteBatch batch;
@@ -4078,8 +4089,13 @@ TEST_F(DBTest, ConcurrentFlushWAL) {
       };
 
   std::function<std::function<void()>(std::vector<Status>*)>
+#if defined(_MSC_VER)
+      flush_func_factory = [&cnt, this](std::vector<Status>* status) {
+        return [status, &cnt, this]() {
+#else
       flush_func_factory = [this](std::vector<Status>* status) {
         return [status, this]() {
+#endif
           for (size_t i = 0; i < cnt * 100;
                i++) {  // FlushWAL is faster than Put
             Status s = db_->FlushWAL(false);
