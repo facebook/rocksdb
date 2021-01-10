@@ -6,6 +6,7 @@
 #pragma once
 
 #include "rocksdb/file_system.h"
+#include "rocksdb/system_clock.h"
 #include "trace_replay/io_tracer.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -18,9 +19,11 @@ namespace ROCKSDB_NAMESPACE {
 // overridden.
 class FileSystemTracingWrapper : public FileSystemWrapper {
  public:
-  FileSystemTracingWrapper(std::shared_ptr<FileSystem> t,
-                           std::shared_ptr<IOTracer> io_tracer)
-      : FileSystemWrapper(t), io_tracer_(io_tracer), env_(Env::Default()) {}
+  FileSystemTracingWrapper(const std::shared_ptr<FileSystem>& t,
+                           const std::shared_ptr<IOTracer>& io_tracer)
+      : FileSystemWrapper(t),
+        io_tracer_(io_tracer),
+        clock_(SystemClock::Default()) {}
 
   ~FileSystemTracingWrapper() override {}
 
@@ -83,7 +86,7 @@ class FileSystemTracingWrapper : public FileSystemWrapper {
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
 };
 
 // The FileSystemPtr is a wrapper class that takes pointer to storage systems
@@ -134,7 +137,7 @@ class FSSequentialFileTracingWrapper : public FSSequentialFileWrapper {
                                  std::shared_ptr<IOTracer> io_tracer)
       : FSSequentialFileWrapper(t),
         io_tracer_(io_tracer),
-        env_(Env::Default()) {}
+        clock_(SystemClock::Default()) {}
 
   ~FSSequentialFileTracingWrapper() override {}
 
@@ -149,7 +152,7 @@ class FSSequentialFileTracingWrapper : public FSSequentialFileWrapper {
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
 };
 
 // The FSSequentialFilePtr is a wrapper class that takes pointer to storage
@@ -200,7 +203,7 @@ class FSRandomAccessFileTracingWrapper : public FSRandomAccessFileWrapper {
                                    std::shared_ptr<IOTracer> io_tracer)
       : FSRandomAccessFileWrapper(t),
         io_tracer_(io_tracer),
-        env_(Env::Default()) {}
+        clock_(SystemClock::Default()) {}
 
   ~FSRandomAccessFileTracingWrapper() override {}
 
@@ -218,7 +221,7 @@ class FSRandomAccessFileTracingWrapper : public FSRandomAccessFileWrapper {
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
 };
 
 // The FSRandomAccessFilePtr is a wrapper class that takes pointer to storage
@@ -266,7 +269,9 @@ class FSWritableFileTracingWrapper : public FSWritableFileWrapper {
  public:
   FSWritableFileTracingWrapper(FSWritableFile* t,
                                std::shared_ptr<IOTracer> io_tracer)
-      : FSWritableFileWrapper(t), io_tracer_(io_tracer), env_(Env::Default()) {}
+      : FSWritableFileWrapper(t),
+        io_tracer_(io_tracer),
+        clock_(SystemClock::Default()) {}
 
   ~FSWritableFileTracingWrapper() override {}
 
@@ -299,7 +304,7 @@ class FSWritableFileTracingWrapper : public FSWritableFileWrapper {
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
 };
 
 // The FSWritableFilePtr is a wrapper class that takes pointer to storage
@@ -353,7 +358,9 @@ class FSRandomRWFileTracingWrapper : public FSRandomRWFileWrapper {
  public:
   FSRandomRWFileTracingWrapper(FSRandomRWFile* t,
                                std::shared_ptr<IOTracer> io_tracer)
-      : FSRandomRWFileWrapper(t), io_tracer_(io_tracer), env_(Env::Default()) {}
+      : FSRandomRWFileWrapper(t),
+        io_tracer_(io_tracer),
+        clock_(SystemClock::Default()) {}
 
   ~FSRandomRWFileTracingWrapper() override {}
 
@@ -374,7 +381,7 @@ class FSRandomRWFileTracingWrapper : public FSRandomRWFileWrapper {
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
 };
 
 // The FSRandomRWFilePtr is a wrapper class that takes pointer to storage

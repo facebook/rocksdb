@@ -299,7 +299,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     new_db.EncodeTo(&record);
     s = log.AddRecord(record);
     if (s.ok()) {
-      s = SyncManifest(env_, &immutable_db_options_, log.file());
+      s = SyncManifest(clock_, &immutable_db_options_, log.file());
     }
   }
   if (s.ok()) {

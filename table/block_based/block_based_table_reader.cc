@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "cache/sharded_cache.h"
-
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "file/file_prefetch_buffer.h"
@@ -24,6 +23,7 @@
 #include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"
+#include "port/lang.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -32,6 +32,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based/binary_search_index_reader.h"
@@ -54,9 +55,6 @@
 #include "table/persistent_cache_helper.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/two_level_iterator.h"
-
-#include "monitoring/perf_context_imp.h"
-#include "port/lang.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -629,7 +627,7 @@ Status BlockBasedTable::Open(
   //    6. [meta block: index]
   //    7. [meta block: filter]
   IOOptions opts;
-  s = PrepareIOFromReadOptions(ro, file->env(), opts);
+  s = file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
     s = ReadFooterFromFile(opts, file.get(), prefetch_buffer.get(), file_size,
                            &footer, kBlockBasedTableMagicNumber);
@@ -762,7 +760,7 @@ Status BlockBasedTable::PrefetchTail(
   // Use `FilePrefetchBuffer`
   prefetch_buffer->reset(new FilePrefetchBuffer(nullptr, 0, 0, true, true));
   IOOptions opts;
-  Status s = PrepareIOFromReadOptions(ro, file->env(), opts);
+  Status s = file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
     s = (*prefetch_buffer)->Prefetch(opts, file, prefetch_off, prefetch_len);
   }
@@ -1508,7 +1506,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       CompressionType raw_block_comp_type;
       BlockContents raw_block_contents;
       if (!contents) {
-        StopWatch sw(rep_->ioptions.env, statistics, READ_BLOCK_GET_MICROS);
+        StopWatch sw(rep_->clock, statistics, READ_BLOCK_GET_MICROS);
         BlockFetcher block_fetcher(
             rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle,
             &raw_block_contents, rep_->ioptions, do_uncompress,
@@ -1597,7 +1595,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       // Avoid making copy of block_key and cf_name when constructing the access
       // record.
       BlockCacheTraceRecord access_record(
-          rep_->ioptions.env->NowMicros(),
+          rep_->clock->NowMicros(),
           /*block_key=*/"", trace_block_type,
           /*block_size=*/usage, rep_->cf_id_for_tracing(),
           /*cf_name=*/"", rep_->level_for_tracing(),
@@ -1740,7 +1738,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
   AlignedBuf direct_io_buf;
   {
     IOOptions opts;
-    IOStatus s = PrepareIOFromReadOptions(options, file->env(), opts);
+    IOStatus s = file->PrepareIOOptions(options, opts);
     if (s.IsTimedOut()) {
       for (FSReadRequest& req : read_reqs) {
         req.status = s;
@@ -1942,8 +1940,7 @@ Status BlockBasedTable::RetrieveBlock(
   std::unique_ptr<TBlocklike> block;
 
   {
-    StopWatch sw(rep_->ioptions.env, rep_->ioptions.statistics,
-                 READ_BLOCK_GET_MICROS);
+    StopWatch sw(rep_->clock, rep_->ioptions.statistics, READ_BLOCK_GET_MICROS);
     s = ReadBlockFromFile(
         rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
         rep_->ioptions, do_uncompress, maybe_compressed, block_type,
@@ -2435,7 +2432,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           referenced_key = key;
         }
         BlockCacheTraceRecord access_record(
-            rep_->ioptions.env->NowMicros(),
+            rep_->clock->NowMicros(),
             /*block_key=*/"", lookup_data_block_context.block_type,
             lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
             /*cf_name=*/"", rep_->level_for_tracing(),
@@ -2771,7 +2768,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
             referenced_key = key;
           }
           BlockCacheTraceRecord access_record(
-              rep_->ioptions.env->NowMicros(),
+              rep_->clock->NowMicros(),
               /*block_key=*/"", lookup_data_block_context.block_type,
               lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
               /*cf_name=*/"", rep_->level_for_tracing(),

@@ -24,6 +24,7 @@
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
 class HistogramImpl;
+class SystemClock;
 
 using AlignedBuf = std::unique_ptr<char[]>;
 
@@ -68,6 +69,7 @@ class RandomAccessFileReader {
   FSRandomAccessFilePtr file_;
   std::string file_name_;
   Env* env_;
+  std::shared_ptr<SystemClock> clock_;
   Statistics* stats_;
   uint32_t hist_type_;
   HistogramImpl* file_read_hist_;
@@ -90,6 +92,11 @@ class RandomAccessFileReader {
         file_read_hist_(file_read_hist),
         rate_limiter_(rate_limiter),
         listeners_() {
+    if (env_ != nullptr) {
+      clock_ = env_->GetSystemClock();
+    } else {
+      clock_ = SystemClock::Default();
+    }
 #ifndef ROCKSDB_LITE
     std::for_each(listeners.begin(), listeners.end(),
                   [this](const std::shared_ptr<EventListener>& e) {
@@ -137,6 +144,6 @@ class RandomAccessFileReader {
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 
-  Env* env() const { return env_; }
+  IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts);
 };
 }  // namespace ROCKSDB_NAMESPACE

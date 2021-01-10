@@ -56,8 +56,8 @@ void WriteBlobFile(const ImmutableCFOptions& immutable_cf_options,
   constexpr bool use_fsync = false;
 
   BlobLogWriter blob_log_writer(std::move(file_writer),
-                                immutable_cf_options.env, statistics,
-                                blob_file_number, use_fsync);
+                                immutable_cf_options.env->GetSystemClock(),
+                                statistics, blob_file_number, use_fsync);
 
   BlobLogHeader header(column_family_id, compression_type, has_ttl,
                        expiration_range_header);
@@ -265,8 +265,8 @@ TEST_F(BlobFileReaderTest, Malformed) {
     constexpr bool use_fsync = false;
 
     BlobLogWriter blob_log_writer(std::move(file_writer),
-                                  immutable_cf_options.env, statistics,
-                                  blob_file_number, use_fsync);
+                                  immutable_cf_options.env->GetSystemClock(),
+                                  statistics, blob_file_number, use_fsync);
 
     BlobLogHeader header(column_family_id, kNoCompression, has_ttl,
                          expiration_range);

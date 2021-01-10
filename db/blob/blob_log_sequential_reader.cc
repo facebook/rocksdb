@@ -27,7 +27,8 @@ Status BlobLogSequentialReader::ReadSlice(uint64_t size, Slice* slice,
   assert(slice);
   assert(file_);
 
-  StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
+  StopWatch read_sw(env_->GetSystemClock(), statistics_,
+                    BLOB_DB_BLOB_FILE_READ_MICROS);
   Status s = file_->Read(IOOptions(), next_byte_, static_cast<size_t>(size),
                          slice, buf, nullptr);
   next_byte_ += size;

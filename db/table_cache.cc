@@ -106,14 +106,15 @@ Status TableCache::GetTableReader(
       TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
   std::unique_ptr<FSRandomAccessFile> file;
   FileOptions fopts = file_options;
-  Status s = PrepareIOFromReadOptions(ro, ioptions_.env, fopts.io_options);
+  const auto& clock = ioptions_.env->GetSystemClock();
+  Status s = PrepareIOFromReadOptions(ro, clock, fopts.io_options);
   if (s.ok()) {
     s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
   }
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.IsPathNotFound()) {
     fname = Rocks2LevelTableFileName(fname);
-    s = PrepareIOFromReadOptions(ro, ioptions_.env, fopts.io_options);
+    s = PrepareIOFromReadOptions(ro, clock, fopts.io_options);
     if (s.ok()) {
       s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
                                             nullptr);
@@ -125,7 +126,7 @@ Status TableCache::GetTableReader(
     if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(FSRandomAccessFile::kRandom);
     }
-    StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
+    StopWatch sw(clock, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(
             std::move(file), fname, ioptions_.env, io_tracer_,

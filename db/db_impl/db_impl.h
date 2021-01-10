@@ -1053,6 +1053,7 @@ class DBImpl : public DB {
   bool own_info_log_;
   const DBOptions initial_db_options_;
   Env* const env_;
+  std::shared_ptr<SystemClock> clock_;
   std::shared_ptr<IOTracer> io_tracer_;
   const ImmutableDBOptions immutable_db_options_;
   FileSystemPtr fs_;
