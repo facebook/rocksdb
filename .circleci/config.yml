@@ -396,7 +396,7 @@ jobs:
             cd build
             ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 << parameters.extra_cmake_opt >> ..
             cd ..
-            msbuild.exe /version
+            echo "Building with VS version: ${CMAKE_GENERATOR}"
             msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
       - run:
           name: "Test RocksDB"
