@@ -22,6 +22,7 @@
 * Fixed the logic of populating native data structure for `read_amp_bytes_per_bit` during OPTIONS file parsing on big-endian architecture. Without this fix, original code introduced in PR7659, when running on big-endian machine, can mistakenly store read_amp_bytes_per_bit (an uint32) in little endian format. Future access to `read_amp_bytes_per_bit` will give wrong values. Little endian architecture is not affected.
 * Fixed prefix extractor with timestamp issues.
 * Fixed a bug in atomic flush: in two-phase commit mode, the minimum WAL log number to keep is incorrect.
+* Fixed a bug related to checkpoint in PR7789: if there are multiple column families, and the checkpoint is not opened as read only, then in rare cases, data loss may happen in the checkpoint. Since backup engine relies on checkpoint, it may also be affected.
 
 ### New Features
 * User defined timestamp feature supports `CompactRange` and `GetApproximateSizes`.
