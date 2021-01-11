@@ -1953,6 +1953,7 @@ void ReduceDBLevelsCommand::Help(std::string& ret) {
 
 void ReduceDBLevelsCommand::OverrideBaseCFOptions(
     ColumnFamilyOptions* cf_opts) {
+  LDBCommand::OverrideBaseCFOptions(cf_opts);
   cf_opts->num_levels = old_levels_;
   cf_opts->max_bytes_for_level_multiplier_additional.resize(cf_opts->num_levels,
                                                             1);
@@ -2106,6 +2107,7 @@ void ChangeCompactionStyleCommand::Help(std::string& ret) {
 
 void ChangeCompactionStyleCommand::OverrideBaseCFOptions(
     ColumnFamilyOptions* cf_opts) {
+  LDBCommand::OverrideBaseCFOptions(cf_opts);
   if (old_compaction_style_ == kCompactionStyleLevel &&
       new_compaction_style_ == kCompactionStyleUniversal) {
     // In order to convert from level compaction to universal compaction, we
