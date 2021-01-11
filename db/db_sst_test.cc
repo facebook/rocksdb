@@ -374,6 +374,14 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
         *abs_time_us = Env::Default()->NowMicros();
       });
 
+  // Disable PeriodicWorkScheduler as it also has TimedWait, which could update
+  // the simulated sleep time
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::StartPeriodicWorkScheduler:DisableScheduler", [&](void* arg) {
+        bool* disable_scheduler = static_cast<bool*>(arg);
+        *disable_scheduler = true;
+      });
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
