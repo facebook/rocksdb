@@ -364,9 +364,13 @@ jobs:
       - run:
           name: "Setup VS"
           command: |
-            if [[ "${VS_YEAR}" == "2017" ]]; then
+            if [[ "${VS_YEAR}" == "2019" ]]; then
+              echo "VS2019 already present."
+            elif [[ "${VS_YEAR}" == "2017" ]]; then
+              echo "Installing VS2017..."
               powershell .circleci/vs2017_install.ps1
             elif [[ "${VS_YEAR}" == "2015" ]]; then
+              echo "Installing VS2015..."
               powershell .circleci/vs2015_install.ps1
             fi
       - run:
@@ -392,6 +396,7 @@ jobs:
             cd build
             ${CMAKE_BIN} -G "${CMAKE_GENERATOR}" -DCMAKE_BUILD_TYPE=Debug -DOPTDBG=1 -DPORTABLE=1 -DSNAPPY=1 -DJNI=1 << parameters.extra_cmake_opt >> ..
             cd ..
+            echo "Building with VS version: ${CMAKE_GENERATOR}"
             msbuild.exe build/rocksdb.sln -maxCpuCount -property:Configuration=Debug -property:Platform=x64
       - run:
           name: "Test RocksDB"
@@ -600,23 +605,27 @@ workflows:
   build-linux-unity:
     jobs:
       - build-linux-unity
-  build-windows:
+  build-windows-vs2019:
     jobs:
-      - build-windows
+      - build-windows:
+          name: "build-windows-vs2019"
+  build-windows-vs2019-cxx20:
+    jobs:
+      - build-windows:
+          name: "build-windows-vs2019-cxx20"
+          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
   build-windows-vs2017:
     jobs:
       - build-windows:
+          name: "build-windows-vs2017"
           vs_year: "2017"
           cmake_generator: "Visual Studio 15 Win64"
   build-windows-vs2015:
     jobs:
       - build-windows:
+          name: "build-windows-vs2015"
           vs_year: "2015"
           cmake_generator: "Visual Studio 14 Win64"
-  build-windows-cxx20:
-    jobs:
-      - build-windows:
-          extra_cmake_opt: -DCMAKE_CXX_STANDARD=20
   build-java:
     jobs:
       - build-linux-java
