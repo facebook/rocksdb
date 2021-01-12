@@ -7,10 +7,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <memory.h>
 #include <rocksdb/rocksdb_namespace.h>
 #include <rocksdb/status.h>
 #include <stdint.h>
+
+#include <memory>
 
 #ifdef _WIN32
 // Windows API macro interference

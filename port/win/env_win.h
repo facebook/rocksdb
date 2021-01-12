@@ -105,7 +105,7 @@ class WinClock : public SystemClock {
 class WinFileSystem : public FileSystem {
  public:
   static const std::shared_ptr<WinFileSystem>& Default();
-  WinFileSystem(const std::shared_ptr<WinClock>& clock);
+  WinFileSystem(const std::shared_ptr<SystemClock>& clock);
   ~WinFileSystem() {}
   const char* Name() const { return "WinFS"; }
   static size_t GetSectorSize(const std::string& fname);
@@ -230,6 +230,7 @@ class WinFileSystem : public FileSystem {
                                     bool reopen);
 
  private:
+  std::shared_ptr<SystemClock> clock_;
   size_t page_size_;
   size_t allocation_granularity_;
 };
@@ -278,7 +279,6 @@ class WinEnv : public CompositeEnv {
   void IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) override;
 
  private:
-  std::shared_ptr<WinClock> clock_;
   WinEnvIO winenv_io_;
   WinEnvThreads winenv_threads_;
 };
