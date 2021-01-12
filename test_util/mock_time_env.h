@@ -6,6 +6,7 @@
 #pragma once
 
 #include <atomic>
+#include <limits>
 
 #include "rocksdb/system_clock.h"
 

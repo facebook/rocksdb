@@ -1424,7 +1424,7 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
 }
 
 std::shared_ptr<SystemClock> SystemClock::Default() {
-  return port::WinSystemClock::Default();
+  return port::WinClock::Default();
 }
 
 std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {
