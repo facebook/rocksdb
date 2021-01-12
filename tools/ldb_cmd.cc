@@ -553,6 +553,26 @@ bool LDBCommand::ParseStringOption(
 void LDBCommand::OverrideBaseOptions() {
   options_.create_if_missing = false;
 
+  int db_write_buffer_size;
+  if (ParseIntOption(option_map_, ARG_DB_WRITE_BUFFER_SIZE,
+                     db_write_buffer_size, exec_state_)) {
+    if (db_write_buffer_size >= 0) {
+      options_.db_write_buffer_size = db_write_buffer_size;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::Failed(ARG_DB_WRITE_BUFFER_SIZE +
+                                                    " must be >= 0.");
+    }
+  }
+
+  if (options_.db_paths.size() == 0) {
+    options_.db_paths.emplace_back(db_path_,
+                                   std::numeric_limits<uint64_t>::max());
+  }
+
+  OverrideBaseCFOptions(static_cast<ColumnFamilyOptions*>(&options_));
+}
+
+void LDBCommand::OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) {
   BlockBasedTableOptions table_options;
   bool use_table_options = false;
   int bits;
@@ -577,35 +597,35 @@ void LDBCommand::OverrideBaseOptions() {
     }
   }
 
-  options_.force_consistency_checks = force_consistency_checks_;
+  cf_opts->force_consistency_checks = force_consistency_checks_;
   if (use_table_options) {
-    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    cf_opts->table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
 
   auto itr = option_map_.find(ARG_AUTO_COMPACTION);
   if (itr != option_map_.end()) {
-    options_.disable_auto_compactions = !StringToBool(itr->second);
+    cf_opts->disable_auto_compactions = !StringToBool(itr->second);
   }
 
   itr = option_map_.find(ARG_COMPRESSION_TYPE);
   if (itr != option_map_.end()) {
     std::string comp = itr->second;
     if (comp == "no") {
-      options_.compression = kNoCompression;
+      cf_opts->compression = kNoCompression;
     } else if (comp == "snappy") {
-      options_.compression = kSnappyCompression;
+      cf_opts->compression = kSnappyCompression;
     } else if (comp == "zlib") {
-      options_.compression = kZlibCompression;
+      cf_opts->compression = kZlibCompression;
     } else if (comp == "bzip2") {
-      options_.compression = kBZip2Compression;
+      cf_opts->compression = kBZip2Compression;
     } else if (comp == "lz4") {
-      options_.compression = kLZ4Compression;
+      cf_opts->compression = kLZ4Compression;
     } else if (comp == "lz4hc") {
-      options_.compression = kLZ4HCCompression;
+      cf_opts->compression = kLZ4HCCompression;
     } else if (comp == "xpress") {
-      options_.compression = kXpressCompression;
+      cf_opts->compression = kXpressCompression;
     } else if (comp == "zstd") {
-      options_.compression = kZSTD;
+      cf_opts->compression = kZSTD;
     } else {
       // Unknown compression.
       exec_state_ =
@@ -617,21 +637,10 @@ void LDBCommand::OverrideBaseOptions() {
   if (ParseIntOption(option_map_, ARG_COMPRESSION_MAX_DICT_BYTES,
                      compression_max_dict_bytes, exec_state_)) {
     if (compression_max_dict_bytes >= 0) {
-      options_.compression_opts.max_dict_bytes = compression_max_dict_bytes;
+      cf_opts->compression_opts.max_dict_bytes = compression_max_dict_bytes;
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(
           ARG_COMPRESSION_MAX_DICT_BYTES + " must be >= 0.");
-    }
-  }
-
-  int db_write_buffer_size;
-  if (ParseIntOption(option_map_, ARG_DB_WRITE_BUFFER_SIZE,
-        db_write_buffer_size, exec_state_)) {
-    if (db_write_buffer_size >= 0) {
-      options_.db_write_buffer_size = db_write_buffer_size;
-    } else {
-      exec_state_ = LDBCommandExecuteResult::Failed(ARG_DB_WRITE_BUFFER_SIZE +
-                                                    " must be >= 0.");
     }
   }
 
@@ -639,7 +648,7 @@ void LDBCommand::OverrideBaseOptions() {
   if (ParseIntOption(option_map_, ARG_WRITE_BUFFER_SIZE, write_buffer_size,
         exec_state_)) {
     if (write_buffer_size > 0) {
-      options_.write_buffer_size = write_buffer_size;
+      cf_opts->write_buffer_size = write_buffer_size;
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(ARG_WRITE_BUFFER_SIZE +
                                                     " must be > 0.");
@@ -649,23 +658,18 @@ void LDBCommand::OverrideBaseOptions() {
   int file_size;
   if (ParseIntOption(option_map_, ARG_FILE_SIZE, file_size, exec_state_)) {
     if (file_size > 0) {
-      options_.target_file_size_base = file_size;
+      cf_opts->target_file_size_base = file_size;
     } else {
       exec_state_ =
           LDBCommandExecuteResult::Failed(ARG_FILE_SIZE + " must be > 0.");
     }
   }
 
-  if (options_.db_paths.size() == 0) {
-    options_.db_paths.emplace_back(db_path_,
-                                   std::numeric_limits<uint64_t>::max());
-  }
-
   int fix_prefix_len;
   if (ParseIntOption(option_map_, ARG_FIX_PREFIX_LEN, fix_prefix_len,
                      exec_state_)) {
     if (fix_prefix_len > 0) {
-      options_.prefix_extractor.reset(
+      cf_opts->prefix_extractor.reset(
           NewFixedPrefixTransform(static_cast<size_t>(fix_prefix_len)));
     } else {
       exec_state_ =
@@ -740,7 +744,7 @@ void LDBCommand::PrepareOptions() {
           "Non-existing column family " + column_family_name_);
       return;
     }
-    column_families_iter->options = options_;
+    OverrideBaseCFOptions(&column_families_iter->options);
   }
 }
 
@@ -1947,14 +1951,15 @@ void ReduceDBLevelsCommand::Help(std::string& ret) {
   ret.append("\n");
 }
 
-void ReduceDBLevelsCommand::OverrideBaseOptions() {
-  LDBCommand::OverrideBaseOptions();
-  options_.num_levels = old_levels_;
-  options_.max_bytes_for_level_multiplier_additional.resize(options_.num_levels,
+void ReduceDBLevelsCommand::OverrideBaseCFOptions(
+    ColumnFamilyOptions* cf_opts) {
+  LDBCommand::OverrideBaseCFOptions(cf_opts);
+  cf_opts->num_levels = old_levels_;
+  cf_opts->max_bytes_for_level_multiplier_additional.resize(cf_opts->num_levels,
                                                             1);
   // Disable size compaction
-  options_.max_bytes_for_level_base = 1ULL << 50;
-  options_.max_bytes_for_level_multiplier = 1;
+  cf_opts->max_bytes_for_level_base = 1ULL << 50;
+  cf_opts->max_bytes_for_level_multiplier = 1;
 }
 
 Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
@@ -2100,18 +2105,18 @@ void ChangeCompactionStyleCommand::Help(std::string& ret) {
   ret.append("\n");
 }
 
-void ChangeCompactionStyleCommand::OverrideBaseOptions() {
-  LDBCommand::OverrideBaseOptions();
-
+void ChangeCompactionStyleCommand::OverrideBaseCFOptions(
+    ColumnFamilyOptions* cf_opts) {
+  LDBCommand::OverrideBaseCFOptions(cf_opts);
   if (old_compaction_style_ == kCompactionStyleLevel &&
       new_compaction_style_ == kCompactionStyleUniversal) {
     // In order to convert from level compaction to universal compaction, we
     // need to compact all data into a single file and move it to level 0.
-    options_.disable_auto_compactions = true;
-    options_.target_file_size_base = INT_MAX;
-    options_.target_file_size_multiplier = 1;
-    options_.max_bytes_for_level_base = INT_MAX;
-    options_.max_bytes_for_level_multiplier = 1;
+    cf_opts->disable_auto_compactions = true;
+    cf_opts->target_file_size_base = INT_MAX;
+    cf_opts->target_file_size_multiplier = 1;
+    cf_opts->max_bytes_for_level_base = INT_MAX;
+    cf_opts->max_bytes_for_level_multiplier = 1;
   }
 }
 

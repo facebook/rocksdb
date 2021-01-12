@@ -262,7 +262,7 @@ class ReduceDBLevelsCommand : public LDBCommand {
                         const std::map<std::string, std::string>& options,
                         const std::vector<std::string>& flags);
 
-  virtual void OverrideBaseOptions() override;
+  virtual void OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) override;
 
   virtual void DoCommand() override;
 
@@ -294,7 +294,7 @@ class ChangeCompactionStyleCommand : public LDBCommand {
       const std::map<std::string, std::string>& options,
       const std::vector<std::string>& flags);
 
-  virtual void OverrideBaseOptions() override;
+  virtual void OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) override;
 
   virtual void DoCommand() override;
 
