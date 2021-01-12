@@ -582,7 +582,7 @@ Status CompactionJob::Run() {
   // Launch a thread for each of subcompactions 1...num_threads-1
   std::vector<port::Thread> thread_pool;
   thread_pool.reserve(num_threads - 1);
-  for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
+  for (size_t i = 1; i < num_threads; i++) {
     thread_pool.emplace_back(&CompactionJob::ProcessKeyValueCompaction, this,
                              &compact_->sub_compact_states[i]);
   }
@@ -598,9 +598,8 @@ Status CompactionJob::Run() {
 
   compaction_stats_.micros = env_->NowMicros() - start_micros;
   compaction_stats_.cpu_micros = 0;
-  for (size_t i = 0; i < compact_->sub_compact_states.size(); i++) {
-    compaction_stats_.cpu_micros +=
-        compact_->sub_compact_states[i].compaction_job_stats.cpu_micros;
+  for (const auto& state : compact_->sub_compact_states) {
+    compaction_stats_.cpu_micros += state.compaction_job_stats.cpu_micros;
   }
 
   RecordTimeToHistogram(stats_, COMPACTION_TIME, compaction_stats_.micros);
@@ -660,6 +659,7 @@ Status CompactionJob::Run() {
         compact_->compaction->mutable_cf_options()->prefix_extractor.get();
     std::atomic<size_t> next_file_idx(0);
     auto verify_table = [&](Status& output_status) {
+      int output_level = compact_->compaction->output_level();
       while (true) {
         size_t file_idx = next_file_idx.fetch_add(1);
         if (file_idx >= files_output.size()) {
@@ -677,10 +677,9 @@ Status CompactionJob::Run() {
             files_output[file_idx]->meta, /*range_del_agg=*/nullptr,
             prefix_extractor,
             /*table_reader_ptr=*/nullptr,
-            cfd->internal_stats()->GetFileReadHist(
-                compact_->compaction->output_level()),
+            cfd->internal_stats()->GetFileReadHist(output_level),
             TableReaderCaller::kCompactionRefill, /*arena=*/nullptr,
-            /*skip_filters=*/false, compact_->compaction->output_level(),
+            /*skip_filters=*/false, output_level,
             MaxFileSizeForL0MetaPin(
                 *compact_->compaction->mutable_cf_options()),
             /*smallest_compaction_key=*/nullptr,
@@ -715,7 +714,7 @@ Status CompactionJob::Run() {
         }
       }
     };
-    for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
+    for (size_t i = 1; i < num_threads; i++) {
       thread_pool.emplace_back(verify_table,
                                std::ref(compact_->sub_compact_states[i].status));
     }

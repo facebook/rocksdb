@@ -525,7 +525,8 @@ uint64_t Compaction::OutputFilePreallocationSize() const {
 }
 
 std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
-  if (!cfd_->ioptions()->compaction_filter_factory) {
+  auto factory = immutable_cf_options_.compaction_filter_factory;
+  if (!factory) {
     return nullptr;
   }
 
@@ -533,12 +534,12 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
   context.is_full_compaction = is_full_compaction_;
   context.is_manual_compaction = is_manual_compaction_;
   context.column_family_id = cfd_->GetID();
-  return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
-      context);
+  return factory->CreateCompactionFilter(context);
 }
 
 std::unique_ptr<SstPartitioner> Compaction::CreateSstPartitioner() const {
-  if (!immutable_cf_options_.sst_partitioner_factory) {
+  auto factory = immutable_cf_options_.sst_partitioner_factory;
+  if (!factory) {
     return nullptr;
   }
 
@@ -548,8 +549,7 @@ std::unique_ptr<SstPartitioner> Compaction::CreateSstPartitioner() const {
   context.output_level = output_level_;
   context.smallest_user_key = smallest_user_key_;
   context.largest_user_key = largest_user_key_;
-  return immutable_cf_options_.sst_partitioner_factory->CreatePartitioner(
-      context);
+  return factory->CreatePartitioner(context);
 }
 
 bool Compaction::IsOutputLevelEmpty() const {
@@ -582,10 +582,6 @@ uint64_t Compaction::MinInputFileOldestAncesterTime() const {
     }
   }
   return min_oldest_ancester_time;
-}
-
-int Compaction::GetInputBaseLevel() const {
-  return input_vstorage_->base_level();
 }
 
 }  // namespace ROCKSDB_NAMESPACE
