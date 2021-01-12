@@ -26,6 +26,7 @@
 #include "port/win/win_thread.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/system_clock.h"
 #include "util/threadpool_imp.h"
 
 #undef GetCurrentTime
@@ -73,19 +74,21 @@ class WinEnvThreads {
   std::vector<WindowsThread> threads_to_join_;
 };
 
-class WinClock {
+class WinClock : public SystemClock {
  public:
   static const std::shared_ptr<WinClock>& Default();
   WinClock();
   virtual ~WinClock() {}
 
-  virtual uint64_t NowMicros();
+  uint64_t NowMicros() override;
 
-  virtual uint64_t NowNanos();
+  uint64_t NowNanos() override;
 
-  virtual void SleepForMicroseconds(int micros);
+  // 0 indicates not supported
+  uint64_t NowCPUNanos() override { return 0; }
+  void SleepForMicroseconds(int micros) override;
 
-  virtual Status GetCurrentTime(int64_t* unix_time);
+  Status GetCurrentTime(int64_t* unix_time) override;
   // Converts seconds-since-Jan-01-1970 to a printable string
   virtual std::string TimeToString(uint64_t time);
 
@@ -227,7 +230,6 @@ class WinFileSystem : public FileSystem {
                                     bool reopen);
 
  private:
-  std::shared_ptr<WinClock> clock_;
   size_t page_size_;
   size_t allocation_granularity_;
 };
@@ -251,15 +253,8 @@ class WinEnv : public CompositeEnv {
   WinEnv();
 
   ~WinEnv();
-  Status GetCurrentTime(int64_t* unix_time) override;
-
-  uint64_t NowMicros() override;
-
-  uint64_t NowNanos() override;
 
   Status GetHostName(char* name, uint64_t len) override;
-
-  std::string TimeToString(uint64_t secondsSince1970) override;
 
   Status GetThreadList(std::vector<ThreadStatus>* thread_list) override;
 
@@ -275,8 +270,6 @@ class WinEnv : public CompositeEnv {
   unsigned int GetThreadPoolQueueLen(Env::Priority pri) const override;
 
   uint64_t GetThreadID() const override;
-
-  void SleepForMicroseconds(int micros) override;
 
   // Allow increasing the number of worker threads.
   void SetBackgroundThreads(int num, Env::Priority pri) override;
