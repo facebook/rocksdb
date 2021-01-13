@@ -1420,7 +1420,7 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
 }
 
 const std::shared_ptr<SystemClock>& SystemClock::Default() {
-  static std::shared_ptr<SystemClock> clock = std::make_shared<WinClock>();
+  static std::shared_ptr<SystemClock> clock = std::make_shared<port::WinClock>();
   return clock;
 }
 
