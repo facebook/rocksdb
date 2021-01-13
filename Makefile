@@ -2282,7 +2282,7 @@ endif
 	$(MAKE) rocksdbjavastatic_javalib
 
 rocksdbjavastatic_javalib:
-	cd java;$(MAKE) javalib
+	cd java; SHA256_CMD='$(SHA256_CMD)' $(MAKE) javalib
 	rm -f java/target/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
@@ -2376,7 +2376,7 @@ rocksdbjava: $(LIB_OBJECTS)
 ifeq ($(JAVA_HOME),)
 	$(error JAVA_HOME is not set)
 endif
-	$(AM_V_GEN)cd java;$(MAKE) javalib;
+	$(AM_V_GEN)cd java; SHA256_CMD='$(SHA256_CMD)' $(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIB_OBJECTS) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
 	$(AM_V_at)cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
@@ -2388,13 +2388,13 @@ jclean:
 	cd java;$(MAKE) clean;
 
 jtest_compile: rocksdbjava
-	cd java;$(MAKE) java_test
+	cd java; SHA256_CMD='$(SHA256_CMD)' $(MAKE) java_test
 
 jtest_run:
 	cd java;$(MAKE) run_test
 
 jtest: rocksdbjava
-	cd java;$(MAKE) sample;$(MAKE) test;
+	cd java;$(MAKE) sample; SHA256_CMD='$(SHA256_CMD)' $(MAKE) test;
 	$(PYTHON) tools/check_all_python.py # TODO peterd: find a better place for this check in CI targets
 
 jdb_bench:

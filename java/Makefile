@@ -101,10 +101,7 @@ ROCKSDB_PATCH = $(shell egrep "ROCKSDB_PATCH.[0-9]" ../include/rocksdb/version.h
 
 NATIVE_INCLUDE = ./include
 ARCH := $(shell getconf LONG_BIT)
-ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
-ifeq ($(PLATFORM), OS_MACOSX)
-ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
-endif
+SHA256_CMD ?= sha256sum
 
 JAVA_TESTS = \
 	org.rocksdb.BackupableDBOptionsTest\
@@ -209,19 +206,24 @@ SAMPLES_OUTPUT = samples/target
 SAMPLES_MAIN_CLASSES = $(SAMPLES_OUTPUT)/classes
 
 JAVA_TEST_LIBDIR = test-libs
-JAVA_JUNIT_VER = 4.12
+JAVA_JUNIT_VER = 4.13.1
+JAVA_JUNIT_SHA256 = c30719db974d6452793fe191b3638a5777005485bae145924044530ffa5f6122
 JAVA_JUNIT_JAR = junit-$(JAVA_JUNIT_VER).jar
 JAVA_JUNIT_JAR_PATH = $(JAVA_TEST_LIBDIR)/$(JAVA_JUNIT_JAR)
-JAVA_HAMCREST_VER = 1.3
-JAVA_HAMCREST_JAR = hamcrest-core-$(JAVA_HAMCREST_VER).jar
+JAVA_HAMCREST_VER = 2.2
+JAVA_HAMCREST_SHA256 = 5e62846a89f05cd78cd9c1a553f340d002458380c320455dd1f8fc5497a8a1c1
+JAVA_HAMCREST_JAR = hamcrest-$(JAVA_HAMCREST_VER).jar
 JAVA_HAMCREST_JAR_PATH = $(JAVA_TEST_LIBDIR)/$(JAVA_HAMCREST_JAR)
 JAVA_MOCKITO_VER = 1.10.19
+JAVA_MOCKITO_SHA256 = d1a7a7ef14b3db5c0fc3e0a63a81b374b510afe85add9f7984b97911f4c70605
 JAVA_MOCKITO_JAR = mockito-all-$(JAVA_MOCKITO_VER).jar
 JAVA_MOCKITO_JAR_PATH = $(JAVA_TEST_LIBDIR)/$(JAVA_MOCKITO_JAR)
-JAVA_CGLIB_VER = 2.2.2
+JAVA_CGLIB_VER = 3.3.0
+JAVA_CGLIB_SHA256 = 9fe0c26d7464140ccdfe019ac687be1fb906122b508ab54beb810db0f09a9212
 JAVA_CGLIB_JAR = cglib-$(JAVA_CGLIB_VER).jar
 JAVA_CGLIB_JAR_PATH = $(JAVA_TEST_LIBDIR)/$(JAVA_CGLIB_JAR)
-JAVA_ASSERTJ_VER = 1.7.1
+JAVA_ASSERTJ_VER = 2.9.0
+JAVA_ASSERTJ_SHA256 = 5e88ea3ecbe3c48aa1346fec76c84979fa9c8d22499f11479011691230e8babf
 JAVA_ASSERTJ_JAR = assertj-core-$(JAVA_ASSERTJ_VER).jar
 JAVA_ASSERTJ_JAR_PATH = $(JAVA_TEST_LIBDIR)/$(JAVA_ASSERTJ_JAR)
 JAVA_TESTCLASSPATH = $(JAVA_JUNIT_JAR_PATH):$(JAVA_HAMCREST_JAR_PATH):$(JAVA_MOCKITO_JAR_PATH):$(JAVA_CGLIB_JAR_PATH):$(JAVA_ASSERTJ_JAR_PATH)
@@ -316,13 +318,23 @@ ifneq (,$(wildcard $(MVN_LOCAL)/junit/junit/$(JAVA_JUNIT_VER)/$(JAVA_JUNIT_JAR))
 	cp -v $(MVN_LOCAL)/junit/junit/$(JAVA_JUNIT_VER)/$(JAVA_JUNIT_JAR) $(JAVA_TEST_LIBDIR)
 else
 	curl --fail --insecure --output $(JAVA_JUNIT_JAR_PATH) --location $(DEPS_URL)/$(JAVA_JUNIT_JAR)
+	JAVA_JUNIT_SHA256_ACTUAL=`$(SHA256_CMD) $(JAVA_JUNIT_JAR_PATH) | cut -d ' ' -f 1`; \
+	if [ "$(JAVA_JUNIT_SHA256)" != "$$JAVA_JUNIT_SHA256_ACTUAL" ]; then \
+		echo $(JAVA_JUNIT_JAR_PATH) checksum mismatch, expected=\"$(JAVA_JUNIT_SHA256)\" actual=\"$$JAVA_JUNIT_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
 endif
 
 $(JAVA_HAMCREST_JAR_PATH): $(JAVA_TEST_LIBDIR)
-ifneq (,$(wildcard $(MVN_LOCAL)/org/hamcrest/hamcrest-core/$(JAVA_HAMCREST_VER)/$(JAVA_HAMCREST_JAR)))
-	cp -v $(MVN_LOCAL)/org/hamcrest/hamcrest-core/$(JAVA_HAMCREST_VER)/$(JAVA_HAMCREST_JAR) $(JAVA_TEST_LIBDIR)
+ifneq (,$(wildcard $(MVN_LOCAL)/org/hamcrest/hamcrest/$(JAVA_HAMCREST_VER)/$(JAVA_HAMCREST_JAR)))
+	cp -v $(MVN_LOCAL)/org/hamcrest/hamcrest/$(JAVA_HAMCREST_VER)/$(JAVA_HAMCREST_JAR) $(JAVA_TEST_LIBDIR)
 else
 	curl --fail --insecure --output $(JAVA_HAMCREST_JAR_PATH) --location $(DEPS_URL)/$(JAVA_HAMCREST_JAR)
+	JAVA_HAMCREST_SHA256_ACTUAL=`$(SHA256_CMD) $(JAVA_HAMCREST_JAR_PATH) | cut -d ' ' -f 1`; \
+	if [ "$(JAVA_HAMCREST_SHA256)" != "$$JAVA_HAMCREST_SHA256_ACTUAL" ]; then \
+		echo $(JAVA_HAMCREST_JAR_PATH) checksum mismatch, expected=\"$(JAVA_HAMCREST_SHA256)\" actual=\"$$JAVA_HAMCREST_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
 endif
 
 $(JAVA_MOCKITO_JAR_PATH): $(JAVA_TEST_LIBDIR)
@@ -330,6 +342,11 @@ ifneq (,$(wildcard $(MVN_LOCAL)/org/mockito/mockito-all/$(JAVA_MOCKITO_VER)/$(JA
 	cp -v $(MVN_LOCAL)/org/mockito/mockito-all/$(JAVA_MOCKITO_VER)/$(JAVA_MOCKITO_JAR) $(JAVA_TEST_LIBDIR)
 else
 	curl --fail --insecure --output "$(JAVA_MOCKITO_JAR_PATH)" --location $(DEPS_URL)/$(JAVA_MOCKITO_JAR)
+	JAVA_MOCKITO_SHA256_ACTUAL=`$(SHA256_CMD) $(JAVA_MOCKITO_JAR_PATH) | cut -d ' ' -f 1`; \
+	if [ "$(JAVA_MOCKITO_SHA256)" != "$$JAVA_MOCKITO_SHA256_ACTUAL" ]; then \
+		echo $(JAVA_MOCKITO_JAR_PATH) checksum mismatch, expected=\"$(JAVA_MOCKITO_SHA256)\" actual=\"$$JAVA_MOCKITO_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
 endif
 
 $(JAVA_CGLIB_JAR_PATH): $(JAVA_TEST_LIBDIR)
@@ -337,6 +354,11 @@ ifneq (,$(wildcard $(MVN_LOCAL)/cglib/cglib/$(JAVA_CGLIB_VER)/$(JAVA_CGLIB_JAR))
 	cp -v $(MVN_LOCAL)/cglib/cglib/$(JAVA_CGLIB_VER)/$(JAVA_CGLIB_JAR) $(JAVA_TEST_LIBDIR)
 else
 	curl --fail --insecure --output "$(JAVA_CGLIB_JAR_PATH)" --location $(DEPS_URL)/$(JAVA_CGLIB_JAR)
+	JAVA_CGLIB_SHA256_ACTUAL=`$(SHA256_CMD) $(JAVA_CGLIB_JAR_PATH) | cut -d ' ' -f 1`; \
+	if [ "$(JAVA_CGLIB_SHA256)" != "$$JAVA_CGLIB_SHA256_ACTUAL" ]; then \
+		echo $(JAVA_CGLIB_JAR_PATH) checksum mismatch, expected=\"$(JAVA_CGLIB_SHA256)\" actual=\"$$JAVA_CGLIB_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
 endif
 
 $(JAVA_ASSERTJ_JAR_PATH): $(JAVA_TEST_LIBDIR)
@@ -344,6 +366,11 @@ ifneq (,$(wildcard $(MVN_LOCAL)/org/assertj/assertj-core/$(JAVA_ASSERTJ_VER)/$(J
 	cp -v $(MVN_LOCAL)/org/assertj/assertj-core/$(JAVA_ASSERTJ_VER)/$(JAVA_ASSERTJ_JAR) $(JAVA_TEST_LIBDIR)
 else
 	curl --fail --insecure --output "$(JAVA_ASSERTJ_JAR_PATH)" --location $(DEPS_URL)/$(JAVA_ASSERTJ_JAR)
+	JAVA_ASSERTJ_SHA256_ACTUAL=`$(SHA256_CMD) $(JAVA_ASSERTJ_JAR_PATH) | cut -d ' ' -f 1`; \
+	if [ "$(JAVA_ASSERTJ_SHA256)" != "$$JAVA_ASSERTJ_SHA256_ACTUAL" ]; then \
+		echo $(JAVA_ASSERTJ_JAR_PATH) checksum mismatch, expected=\"$(JAVA_ASSERTJ_SHA256)\" actual=\"$$JAVA_ASSERTJ_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
 endif
 
 resolve_test_deps: $(JAVA_JUNIT_JAR_PATH) $(JAVA_HAMCREST_JAR_PATH) $(JAVA_MOCKITO_JAR_PATH) $(JAVA_CGLIB_JAR_PATH) $(JAVA_ASSERTJ_JAR_PATH)
