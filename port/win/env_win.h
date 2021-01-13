@@ -76,10 +76,10 @@ class WinEnvThreads {
 
 class WinClock : public SystemClock {
  public:
-  static const std::shared_ptr<WinClock>& Default();
   WinClock();
   virtual ~WinClock() {}
 
+  const char* Name() const override { return "WindowsClock"; }
   uint64_t NowMicros() override;
 
   uint64_t NowNanos() override;

@@ -93,10 +93,6 @@ WinClock::WinClock()
   }
 }
 
-const std::shared_ptr<WinClock>& WinClock::Default() {
-  static std::shared_ptr<WinClock> clock = std::make_shared<WinClock>();
-  return clock;
-}
 void WinClock::SleepForMicroseconds(int micros) {
   std::this_thread::sleep_for(std::chrono::microseconds(micros));
 }
@@ -186,7 +182,7 @@ Status WinClock::GetCurrentTime(int64_t* unix_time) {
   return Status::OK();
 }
 
-WinFileSystem::WinFileSystem(const std::shared_ptr<WinClock>& clock)
+WinFileSystem::WinFileSystem(const std::shared_ptr<SystemClock>& clock)
     : clock_(clock), page_size_(4 * 1024), allocation_granularity_(page_size_) {
   SYSTEM_INFO sinfo;
   GetSystemInfo(&sinfo);
@@ -1423,8 +1419,9 @@ std::shared_ptr<FileSystem> FileSystem::Default() {
   return port::WinFileSystem::Default();
 }
 
-std::shared_ptr<SystemClock> SystemClock::Default() {
-  return port::WinClock::Default();
+const std::shared_ptr<SystemClock>& SystemClock::Default() {
+  static std::shared_ptr<SystemClock> clock = std::make_shared<WinClock>();
+  return clock;
 }
 
 std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {
