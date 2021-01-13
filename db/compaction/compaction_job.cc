@@ -145,7 +145,7 @@ struct CompactionJob::SubcompactionState {
   std::unique_ptr<TableBuilder> builder;
 
   Output* current_output() {
-    assert(!outputs.empty()); // outputs is never empty when goes here
+    assert(!outputs.empty());  // outputs is never empty when goes here
     return &outputs.back();
   }
 
@@ -1650,8 +1650,8 @@ Status CompactionJob::OpenCompactionOutputFile(
   uint64_t file_number = versions_->NewFileNumber();
   const Compaction* compaction = sub_compact->compaction;
   std::string fname =
-      TableFileName(compaction->immutable_cf_options()->cf_paths,
-                    file_number, compaction->output_path_id());
+      TableFileName(compaction->immutable_cf_options()->cf_paths, file_number,
+                    compaction->output_path_id());
   // Fire events.
   ColumnFamilyData* cfd = compaction->column_family_data();
 #ifndef ROCKSDB_LITE
@@ -1681,8 +1681,8 @@ Status CompactionJob::OpenCompactionOutputFile(
         db_options_.info_log,
         "[%s] [JOB %d] OpenCompactionOutputFiles for table #%" PRIu64
         " fails at NewWritableFile with status %s",
-        compaction->column_family_data()->GetName().c_str(),
-        job_id_, file_number, s.ToString().c_str());
+        compaction->column_family_data()->GetName().c_str(), job_id_,
+        file_number, s.ToString().c_str());
     LogFlush(db_options_.info_log);
     EventHelpers::LogAndNotifyTableFileCreationFinished(
         event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(),
@@ -1722,8 +1722,8 @@ Status CompactionJob::OpenCompactionOutputFile(
 
   writable_file->SetIOPriority(Env::IOPriority::IO_LOW);
   writable_file->SetWriteLifeTimeHint(write_hint_);
-  writable_file->SetPreallocationBlockSize(static_cast<size_t>(
-      compaction->OutputFilePreallocationSize()));
+  writable_file->SetPreallocationBlockSize(
+      static_cast<size_t>(compaction->OutputFilePreallocationSize()));
   const auto& listeners = compaction->immutable_cf_options()->listeners;
   sub_compact->outfile.reset(new WritableFileWriter(
       std::move(writable_file), fname, file_options_, env_, io_tracer_,
@@ -1741,9 +1741,8 @@ Status CompactionJob::OpenCompactionOutputFile(
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
       cfd->GetID(), cfd->GetName(), sub_compact->outfile.get(),
       compaction->output_compression(), 0 /*sample_for_compression */,
-      compaction->output_compression_opts(),
-      compaction->output_level(), skip_filters,
-      oldest_ancester_time, 0 /* oldest_key_time */,
+      compaction->output_compression_opts(), compaction->output_level(),
+      skip_filters, oldest_ancester_time, 0 /* oldest_key_time */,
       compaction->max_output_file_size(), current_time, db_id_,
       db_session_id_));
   LogFlush(db_options_.info_log);

@@ -380,14 +380,13 @@ class BackupEngineImpl : public BackupEngine {
   //
   // @param src If non-empty, the file is copied from this pathname.
   // @param contents If non-empty, the file will be created with these contents.
-  Status CopyOrCreateFile(const std::string& src, const std::string& dst,
-                          const std::string& contents, Env* src_env,
-                          Env* dst_env, const EnvOptions& src_env_options,
-                          bool sync, RateLimiter* rate_limiter,
-                          uint64_t* size = nullptr,
-                          std::string* checksum_hex = nullptr,
-                          uint64_t size_limit = 0,
-                          std::function<void()> progress_callback = []() {});
+  Status CopyOrCreateFile(
+      const std::string& src, const std::string& dst,
+      const std::string& contents, Env* src_env, Env* dst_env,
+      const EnvOptions& src_env_options, bool sync, RateLimiter* rate_limiter,
+      uint64_t* size = nullptr, std::string* checksum_hex = nullptr,
+      uint64_t size_limit = 0,
+      std::function<void()> progress_callback = []() {});
 
   Status ReadFileAndComputeChecksum(const std::string& src, Env* src_env,
                                     const EnvOptions& src_env_options,
