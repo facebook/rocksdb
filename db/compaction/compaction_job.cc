@@ -658,7 +658,8 @@ Status CompactionJob::Run() {
     auto prefix_extractor =
         compact_->compaction->mutable_cf_options()->prefix_extractor.get();
     std::atomic<size_t> next_file_idx(0);
-    auto verify_table = [&](Status& output_status) {
+    auto verify_table = [&](size_t thread_idx) {
+      Status& output_status = compact_->sub_compact_states[thread_idx].status;
       int output_level = compact_->compaction->output_level();
       while (true) {
         size_t file_idx = next_file_idx.fetch_add(1);
@@ -715,10 +716,9 @@ Status CompactionJob::Run() {
       }
     };
     for (size_t i = 1; i < num_threads; i++) {
-      thread_pool.emplace_back(verify_table,
-                               std::ref(compact_->sub_compact_states[i].status));
+      thread_pool.emplace_back(verify_table, i);
     }
-    verify_table(compact_->sub_compact_states[0].status);
+    verify_table(0);
     for (auto& thread : thread_pool) {
       thread.join();
     }
