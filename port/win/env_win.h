@@ -80,6 +80,7 @@ class WinClock : public SystemClock {
   virtual ~WinClock() {}
 
   const char* Name() const override { return "WindowsClock"; }
+
   uint64_t NowMicros() override;
 
   uint64_t NowNanos() override;
