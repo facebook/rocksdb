@@ -936,22 +936,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         }
         if (stop_replay_for_corruption) {
           logFileDropped();
-          // Skip over any subsequent empty wal files and update corrupted wal
-          // number. This avoids false corruption error due to some column
-          // families pointing to empty wal file next to the corrupted wal
-          // file.
-          ++ii;
-          for (; ii < wal_numbers.size(); ++ii) {
-            wal_number = wal_numbers[ii];
-            std::string wal_file_name =
-                LogFileName(immutable_db_options_.wal_dir, wal_number);
-            uint64_t bytes;
-            const auto& s = env_->GetFileSize(wal_file_name, &bytes);
-            if (!s.ok() || bytes != 0) {
-              break;
-            }
-            corrupted_wal_number = wal_number;
-          }
           break;
         }
       }
@@ -1114,6 +1098,24 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
                        "Point in time recovered to log #%" PRIu64
                        " seq #%" PRIu64,
                        wal_number, *next_sequence);
+        // Skip over any subsequent empty wal files and update corrupted wal
+        // number. This avoids false corruption error due to some column
+        // families pointing to empty wal file next to the corrupted wal
+        // file.
+        ++ii;
+        for (; ii < wal_numbers.size(); ++ii) {
+          wal_number = wal_numbers[ii];
+          std::string wal_file_name =
+              LogFileName(immutable_db_options_.wal_dir, wal_number);
+          uint64_t bytes;
+          const auto& s = env_->GetFileSize(wal_file_name, &bytes);
+          if (!s.ok() || bytes != 0) {
+            // Don't skip and break if its not an empty wal file.
+            --ii;
+            break;
+          }
+          corrupted_wal_number = wal_number;
+        }
       } else {
         assert(immutable_db_options_.wal_recovery_mode ==
                    WALRecoveryMode::kTolerateCorruptedTailRecords ||
