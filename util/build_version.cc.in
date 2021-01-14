@@ -1,5 +1,61 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-#include "build_version.h"
-const char* rocksdb_build_git_sha = "rocksdb_build_git_sha:@@GIT_SHA@@";
-const char* rocksdb_build_git_date = "rocksdb_build_git_date:@@GIT_DATE_TIME@@";
-const char* rocksdb_build_compile_date = __DATE__;
+
+#include "rocksdb/version.h"
+#include "util/string_util.h"
+
+// The build script may replace these values with real values based
+// on whether or not GIT is available and the platform settings
+static const std::string rocksdb_build_git_sha  = "rocksdb_build_git_sha:@@GIT_SHA@@";
+static const std::string rocksdb_build_git_tag = "rocksdb_build_git_tag:@@GIT_TAG@@";
+static const std::string rocksdb_build_date = "rocksdb_build_date:@@BUILD_DATE@@";
+
+namespace ROCKSDB_NAMESPACE {
+static void AddProperty(std::unordered_map<std::string, std::string> *props, const std::string& name) {
+  // If we found an "@@", then this property was a build-time substitution that failed.  Skip it
+  if (name.find("@@") == std::string::npos) {
+    size_t colon = name.find(":");
+    // If we found a colon, everything before the colon is the name, after is the value
+    if (colon != std::string::npos) {
+      (*props)[name.substr(0, colon)] = name.substr(colon + 1);
+    }
+  }
+  
+}
+  
+static std::unordered_map<std::string, std::string>* LoadPropertiesSet() {
+  auto * properties = new std::unordered_map<std::string, std::string>();
+  AddProperty(properties, rocksdb_build_git_sha);
+  AddProperty(properties, rocksdb_build_git_tag);
+  AddProperty(properties, rocksdb_build_date);
+  return properties;
+}
+
+const std::unordered_map<std::string, std::string>& GetRocksBuildProperties() {
+  static std::unique_ptr<std::unordered_map<std::string, std::string>> props(LoadPropertiesSet());
+  return *props;
+}
+
+std::string GetRocksVersionAsString(bool with_patch) {
+  std::string version = ToString(ROCKSDB_MAJOR) + "." + ToString(ROCKSDB_MINOR);
+  if (with_patch) {
+    return version + "." + ToString(ROCKSDB_PATCH);
+  } else {
+    return version;
+  }
+}
+  
+std::string GetRocksBuildPropertiesAsString(const std::string& indent, bool verbose) {
+  std::string info = indent + "Version: " + GetRocksVersionAsString(true) + "\n";
+  if (verbose) {
+    for (const auto& it : GetRocksBuildProperties()) {
+      info.append(indent);
+      info.append(it.first);
+      info.append(": ");
+      info.append(it.second);
+      info.append("\n");
+    }
+  }
+  return info;
+}
+} // namespace ROCKSDB_NAMESPACE
+
