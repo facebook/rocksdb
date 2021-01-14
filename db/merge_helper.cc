@@ -183,7 +183,6 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
 
     assert(IsValueType(ikey.type));
     if (ikey.type != kTypeMerge) {
-
       // hit a put/delete/single delete
       //   => merge the put value or a nullptr with operands_
       //   => store result in operands_.back() (and update keys_.back())

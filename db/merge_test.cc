@@ -49,12 +49,8 @@ class CountMergeOperator : public AssociativeMergeOperator {
       return true;
     }
 
-    return mergeOperator_->PartialMerge(
-        key,
-        *existing_value,
-        value,
-        new_value,
-        logger);
+    return mergeOperator_->PartialMerge(key, *existing_value, value, new_value,
+                                        logger);
   }
 
   bool PartialMergeMulti(const Slice& key,
@@ -78,16 +74,22 @@ class EnvMergeTest : public EnvWrapper {
   EnvMergeTest() : EnvWrapper(Env::Default()) {}
   //  ~EnvMergeTest() override {}
 
-  uint64_t NowNanos() override { ++now_nanos_count_; return target()->NowNanos(); }
+  uint64_t NowNanos() override {
+    ++now_nanos_count_;
+    return target()->NowNanos();
+  }
 
   static uint64_t now_nanos_count_;
 
   static std::unique_ptr<EnvMergeTest> singleton_;
 
-  static EnvMergeTest * GetInstance() {if (nullptr == singleton_) singleton_.reset(new EnvMergeTest); return singleton_.get();}
+  static EnvMergeTest* GetInstance() {
+    if (nullptr == singleton_) singleton_.reset(new EnvMergeTest);
+    return singleton_.get();
+  }
 };
 
-uint64_t EnvMergeTest::now_nanos_count_ {0};
+uint64_t EnvMergeTest::now_nanos_count_{0};
 std::unique_ptr<EnvMergeTest> EnvMergeTest::singleton_;
 
 std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
@@ -124,7 +126,6 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
 // set, add, get and remove
 // This is a quick implementation without a Merge operation.
 class Counters {
-
  protected:
   std::shared_ptr<DB> db_;
 
@@ -208,7 +209,6 @@ class Counters {
     return get(key, &base) && set(key, base + value);
   }
 
-
   // convenience functions for testing
   void assert_set(const std::string& key, uint64_t value) {
     assert(set(key, value));
@@ -220,27 +220,25 @@ class Counters {
     uint64_t value = default_;
     int result = get(key, &value);
     assert(result);
-    if (result == 0) exit(1); // Disable unused variable warning.
+    if (result == 0) exit(1);  // Disable unused variable warning.
     return value;
   }
 
   void assert_add(const std::string& key, uint64_t value) {
     int result = add(key, value);
     assert(result);
-    if (result == 0) exit(1); // Disable unused variable warning.
+    if (result == 0) exit(1);  // Disable unused variable warning.
   }
 };
 
 // Implement 'add' directly with the new Merge operation
 class MergeBasedCounters : public Counters {
  private:
-  WriteOptions merge_option_; // for merge
+  WriteOptions merge_option_;  // for merge
 
  public:
   explicit MergeBasedCounters(std::shared_ptr<DB> db, uint64_t defaultCount = 0)
-      : Counters(db, defaultCount),
-        merge_option_() {
-  }
+      : Counters(db, defaultCount), merge_option_() {}
 
   // mapped to a rocksdb Merge operation
   bool add(const std::string& key, uint64_t value) override {
@@ -261,14 +259,13 @@ class MergeBasedCounters : public Counters {
 void dumpDb(DB* db) {
   auto it = std::unique_ptr<Iterator>(db->NewIterator(ReadOptions()));
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
-    //uint64_t value = DecodeFixed64(it->value().data());
-    //std::cout << it->key().ToString() << ": " << value << std::endl;
+    // uint64_t value = DecodeFixed64(it->value().data());
+    // std::cout << it->key().ToString() << ": " << value << std::endl;
   }
   assert(it->status().ok());  // Check for any errors found during the scan
 }
 
 void testCounters(Counters& counters, DB* db, bool test_compaction) {
-
   FlushOptions o;
   o.wait = true;
 
@@ -410,7 +407,6 @@ void testCountersWithFlushAndCompaction(Counters& counters, DB* db) {
 
 void testSuccessiveMerge(Counters& counters, size_t max_num_merges,
                          size_t num_merges) {
-
   counters.assert_remove("z");
   uint64_t sum = 0;
 
@@ -505,7 +501,6 @@ void testSingleBatchSuccessiveMerge(DB* db, size_t max_num_merges,
 }
 
 void runTest(const std::string& dbname, const bool use_ttl = false) {
-
   {
     auto db = OpenDb(dbname, use_ttl);
 
