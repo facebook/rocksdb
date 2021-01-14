@@ -73,6 +73,23 @@ class CountMergeOperator : public AssociativeMergeOperator {
   std::shared_ptr<MergeOperator> mergeOperator_;
 };
 
+class EnvMergeTest : public EnvWrapper {
+ public:
+  EnvMergeTest() : EnvWrapper(Env::Default()) {}
+  //  ~EnvMergeTest() override {}
+
+  uint64_t NowNanos() override { ++now_nanos_count_; return target()->NowNanos(); }
+
+  static uint64_t now_nanos_count_;
+
+  static std::unique_ptr<EnvMergeTest> singleton_;
+
+  static EnvMergeTest * GetInstance() {if (nullptr == singleton_) singleton_.reset(new EnvMergeTest); return singleton_.get();}
+};
+
+uint64_t EnvMergeTest::now_nanos_count_ {0};
+std::unique_ptr<EnvMergeTest> EnvMergeTest::singleton_;
+
 std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
                            const size_t max_successive_merges = 0) {
   DB* db;
@@ -80,6 +97,7 @@ std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
   options.create_if_missing = true;
   options.merge_operator = std::make_shared<CountMergeOperator>();
   options.max_successive_merges = max_successive_merges;
+  options.env = EnvMergeTest::GetInstance();
   EXPECT_OK(DestroyDB(dbname, Options()));
   Status s;
 // DBWithTTL is not supported in ROCKSDB_LITE
@@ -449,6 +467,7 @@ void testPartialMerge(Counters* counters, DB* db, size_t max_merge,
   ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(tmp_sum, counters->assert_get("c"));
   ASSERT_EQ(num_partial_merge_calls, 0U);
+  ASSERT_EQ(EnvMergeTest::now_nanos_count_, 0U);
 }
 
 void testSingleBatchSuccessiveMerge(DB* db, size_t max_num_merges,

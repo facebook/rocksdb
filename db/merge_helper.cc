@@ -414,7 +414,9 @@ CompactionFilter::Decision MergeHelper::FilterMerge(const Slice& user_key,
                                                        kValueTypeForSeek);
     }
   }
-  total_filter_time_ += filter_timer_.ElapsedNanosSafe();
+  if (ShouldReportDetailedTime(env_, stats_)) {
+    total_filter_time_ += filter_timer_.ElapsedNanosSafe();
+  }
   return ret;
 }
 
