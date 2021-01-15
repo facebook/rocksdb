@@ -852,7 +852,7 @@ else
 	  git_date := $(shell git log -1 --date=format:"%Y-%m-%d %T" --format="%ad" 2>/dev/null)
 	endif
 endif
-gen_build_version = sed -e s/@@GIT_SHA@@/$(git_sha)/ -e s/@@GIT_TAG@@/"$(git_tag)"/ -e s/@@BUILD_DATE@@/"$(git_date)"/ util/build_version.cc.in
+gen_build_version = sed -e s/@@GIT_SHA@@/$(git_sha)/ -e s:@@GIT_TAG@@:"$(git_tag)": -e s/@@BUILD_DATE@@/"$(git_date)"/ util/build_version.cc.in
 
 # Record the version of the source that we are compiling.
 # We keep a record of the git revision in this file.  It is then built
