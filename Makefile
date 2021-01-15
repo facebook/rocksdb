@@ -841,14 +841,19 @@ ROCKSDB_PATCH = $(shell egrep "ROCKSDB_PATCH.[0-9]" include/rocksdb/version.h | 
 # If NO_UPDATE_BUILD_VERSION is set we don't update util/build_version.cc, but
 # the file needs to already exist or else the build will fail
 ifndef NO_UPDATE_BUILD_VERSION
+
+# By default, use the current date-time as the date.  If there are no changes,
+# we will use the last commit date instead.
 git_date := $(shell date "+%Y-%m-%d %T")
+
 ifdef FORCE_GIT_SHA
 	git_sha := $(FORCE_GIT_SHA)
 else
 	git_sha := $(shell git rev-parse HEAD 2>/dev/null)
 	git_tag  := $(shell git symbolic-ref -q --short HEAD || git describe --tags --exact-match 2>/dev/null)
-	git_mod  := $(shell git status --short | grep -v "??" | wc -l 2>/dev/null)
-	ifeq ("$(git_mod)","           0")
+	git_mod  := $(shell git diff-index HEAD --quiet 2>/dev/null; echo $$?)
+	ifeq ("$(git_mod)","0")
+# If there are no changed files, use the date-time of the last commit
 	  git_date := $(shell git log -1 --date=format:"%Y-%m-%d %T" --format="%ad" 2>/dev/null)
 	endif
 endif
@@ -859,7 +864,7 @@ gen_build_version = sed -e s/@@GIT_SHA@@/$(git_sha)/ -e s:@@GIT_TAG@@:"$(git_tag
 # as a regular source file as part of the compilation process.
 # One can run "strings executable_filename | grep _build_" to find
 # the version of the source that we used to build the executable file.
-util/build_version.cc: $(filter-out $(OBJ_DIR)/util/build_version.o, $(LIB_OBJECTS)) util/build_version.cc.in 
+util/build_version.cc: $(filter-out $(OBJ_DIR)/util/build_version.o, $(LIB_OBJECTS)) util/build_version.cc.in
 	$(AM_V_GEN)rm -f $@-t
 	$(AM_V_at)$(gen_build_version) > $@
 endif

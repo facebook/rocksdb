@@ -31,11 +31,12 @@ const std::unordered_map<std::string, std::string>& GetRocksBuildProperties();
 // Otherwise, only major and minor version is included (6.16)
 std::string GetRocksVersionAsString(bool with_patch = true);
 
-// Prints the set of build properties (@see GetRocksBuildProperties) into a
-// string. Properties are returned one-per-line, indendent by indent
-// ("<ident>name: value\n") If verbose is true, the full set of properties is
+// Gets the set of build properties (@see GetRocksBuildProperties) into a
+// string. Properties are returned one-per-line, with the first line being:
+// "<program> from RocksDB <version>.
+// If verbose is true, the full set of properties is
 // printed. If verbose is false, only the version information (@see
 // GetRocksVersionString) is printed.
-std::string GetRocksBuildPropertiesAsString(const std::string& indent = "   ",
-                                            bool verbose = true);
+std::string PrintBuildVersionInfo(const std::string& program,
+                                  bool verbose = false);
 }  // namespace ROCKSDB_NAMESPACE

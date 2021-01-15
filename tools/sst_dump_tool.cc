@@ -280,7 +280,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       print_help(/*to_stderr*/ false);
       return 0;
     } else if (strcmp(argv[i], "--version") == 0) {
-      printf("sst_dump:\n%s\n", GetRocksBuildPropertiesAsString().c_str());
+      printf("%s\n", PrintBuildVersionInfo("sst_dump").c_str());
       return 0;
     } else {
       fprintf(stderr, "Unrecognized argument '%s'\n\n", argv[i]);
