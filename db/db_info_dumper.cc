@@ -64,7 +64,7 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
         break;
       case kWalFile:
         if (env->GetFileSize(dbname + "/" + file, &file_size).ok()) {
-          char str[16];
+          char str[21];
           snprintf(str, sizeof(str), "%" PRIu64, file_size);
           wal_info.append(file).append(" size: ").append(str).append(" ; ");
         } else {
@@ -120,7 +120,7 @@ void DumpDBFileSummary(const ImmutableDBOptions& options,
       if (ParseFileName(file, &number, &type)) {
         if (type == kWalFile) {
           if (env->GetFileSize(options.wal_dir + "/" + file, &file_size).ok()) {
-            char str[16];
+            char str[21];
             snprintf(str, sizeof(str), "%" PRIu64, file_size);
             wal_info.append(file).append(" size: ").append(str).append(" ; ");
           } else {
