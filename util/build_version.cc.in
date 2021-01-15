@@ -1,5 +1,7 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
+#include <memory>
+
 #include "rocksdb/version.h"
 #include "util/string_util.h"
 
