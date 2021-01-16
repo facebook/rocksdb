@@ -844,20 +844,19 @@ ifndef NO_UPDATE_BUILD_VERSION
 
 # By default, use the current date-time as the date.  If there are no changes,
 # we will use the last commit date instead.
-git_date := $(shell date "+%Y-%m-%d %T")
+build_date := $(shell date "+%Y-%m-%d %T")
 
 ifdef FORCE_GIT_SHA
 	git_sha := $(FORCE_GIT_SHA)
+	git_mod := 1
+	git_date := $(build_date)
 else
 	git_sha := $(shell git rev-parse HEAD 2>/dev/null)
 	git_tag  := $(shell git symbolic-ref -q --short HEAD || git describe --tags --exact-match 2>/dev/null)
 	git_mod  := $(shell git diff-index HEAD --quiet 2>/dev/null; echo $$?)
-	ifeq ("$(git_mod)","0")
-# If there are no changed files, use the date-time of the last commit
-	  git_date := $(shell git log -1 --date=format:"%Y-%m-%d %T" --format="%ad" 2>/dev/null)
-	endif
+	git_date := $(shell git log -1 --date=format:"%Y-%m-%d %T" --format="%ad" 2>/dev/null)
 endif
-gen_build_version = sed -e s/@@GIT_SHA@@/$(git_sha)/ -e s:@@GIT_TAG@@:"$(git_tag)": -e s/@@BUILD_DATE@@/"$(git_date)"/ util/build_version.cc.in
+gen_build_version = sed -e s/@GIT_SHA@/$(git_sha)/ -e s:@GIT_TAG@:"$(git_tag)": -e s/@GIT_MOD@/"$(git_mod)"/ -e s/@BUILD_DATE@/"$(build_date)"/ -e s/@GIT_DATE@/"$(git_date)"/ util/build_version.cc.in
 
 # Record the version of the source that we are compiling.
 # We keep a record of the git revision in this file.  It is then built
