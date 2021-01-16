@@ -139,8 +139,7 @@ std::string Status::ToString() const {
     // member of the `Code` enum. The above switch-statement should have had a
     // case assigning `type` to a corresponding string.
     assert(false);
-    snprintf(tmp, sizeof(tmp), "Unknown code(%d): ",
-             static_cast<int>(code()));
+    snprintf(tmp, sizeof(tmp), "Unknown code(%d): ", static_cast<int>(code()));
     type = tmp;
   }
   std::string result(type);
