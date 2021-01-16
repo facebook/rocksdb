@@ -80,8 +80,7 @@ std::string Status::ToString() const {
 #ifdef ROCKSDB_ASSERT_STATUS_CHECKED
   checked_ = true;
 #endif  // ROCKSDB_ASSERT_STATUS_CHECKED
-  char tmp[30];
-  const char* type;
+  const char* type = nullptr;
   switch (code_) {
     case kOk:
       return "OK";
@@ -124,14 +123,24 @@ std::string Status::ToString() const {
     case kTryAgain:
       type = "Operation failed. Try again.: ";
       break;
+    case kCompactionTooLarge:
+      type = "Compaction too large: ";
+      break;
     case kColumnFamilyDropped:
       type = "Column family dropped: ";
       break;
-    default:
-      snprintf(tmp, sizeof(tmp), "Unknown code(%d): ",
-               static_cast<int>(code()));
-      type = tmp;
+    case kMaxCode:
+      assert(false);
       break;
+  }
+  char tmp[30];
+  if (type == nullptr) {
+    // This should not happen since `code_` should be a valid non-`kMaxCode`
+    // member of the `Code` enum. The above switch-statement should have had a
+    // case assigning `type` to a corresponding string.
+    assert(false);
+    snprintf(tmp, sizeof(tmp), "Unknown code(%d): ", static_cast<int>(code()));
+    type = tmp;
   }
   std::string result(type);
   if (subcode_ != kNone) {
