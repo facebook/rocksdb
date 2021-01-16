@@ -559,15 +559,9 @@ TEST_F(VersionEditTest, IgnorableTags) {
   edit.SetLogNumber(kLogNumber);
   // Add more ignorable entries.
   edit.DeleteWalsBefore(100);
-  for (int i = 0; i < 2; i++) {
-    edit.AddBlobFile(i + 1, i + 2, i + 3, "checksum_method", "checksum_value");
-  }
   // Add unignorable entry.
   edit.SetNextFile(kNextFileNumber);
   // Add more ignorable entries.
-  for (int i = 0; i < 2; i++) {
-    edit.AddBlobFileGarbage(i + 1, i + 2, i + 3);
-  }
   edit.SetFullHistoryTsLow("ts");
   // Add unignorable entry.
   edit.SetColumnFamily(kColumnFamilyId);
@@ -581,8 +575,6 @@ TEST_F(VersionEditTest, IgnorableTags) {
   // Check that all ignorable entries are ignored.
   ASSERT_FALSE(decoded.HasDbId());
   ASSERT_FALSE(decoded.HasFullHistoryTsLow());
-  ASSERT_TRUE(decoded.GetBlobFileAdditions().empty());
-  ASSERT_TRUE(decoded.GetBlobFileGarbages().empty());
   ASSERT_FALSE(decoded.IsWalAddition());
   ASSERT_FALSE(decoded.IsWalDeletion());
   ASSERT_TRUE(decoded.GetWalAdditions().empty());

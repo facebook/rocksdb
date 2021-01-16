@@ -217,16 +217,12 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
 
   for (const auto& blob_file_addition : blob_file_additions_) {
     PutVarint32(dst, kBlobFileAddition);
-    std::string encoded;
-    blob_file_addition.EncodeTo(&encoded);
-    PutLengthPrefixedSlice(dst, encoded);
+    blob_file_addition.EncodeTo(dst);
   }
 
   for (const auto& blob_file_garbage : blob_file_garbages_) {
     PutVarint32(dst, kBlobFileGarbage);
-    std::string encoded;
-    blob_file_garbage.EncodeTo(&encoded);
-    PutLengthPrefixedSlice(dst, encoded);
+    blob_file_garbage.EncodeTo(dst);
   }
 
   for (const auto& wal_addition : wal_additions_) {
@@ -562,13 +558,8 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
       }
 
       case kBlobFileAddition: {
-        Slice encoded;
-        if (!GetLengthPrefixedSlice(&input, &encoded)) {
-          msg = "BlobFileAddition not prefixed by length";
-          break;
-        }
         BlobFileAddition blob_file_addition;
-        const Status s = blob_file_addition.DecodeFrom(&encoded);
+        const Status s = blob_file_addition.DecodeFrom(&input);
         if (!s.ok()) {
           return s;
         }
@@ -578,13 +569,8 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
       }
 
       case kBlobFileGarbage: {
-        Slice encoded;
-        if (!GetLengthPrefixedSlice(&input, &encoded)) {
-          msg = "BlobFileGarbage not prefixed by length";
-          break;
-        }
         BlobFileGarbage blob_file_garbage;
-        const Status s = blob_file_garbage.DecodeFrom(&encoded);
+        const Status s = blob_file_garbage.DecodeFrom(&input);
         if (!s.ok()) {
           return s;
         }
