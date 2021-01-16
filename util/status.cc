@@ -124,10 +124,14 @@ std::string Status::ToString() const {
     case kTryAgain:
       type = "Operation failed. Try again.: ";
       break;
+    case kCompactionTooLarge:
+      type = "Compaction too large: ";
+      break;
     case kColumnFamilyDropped:
       type = "Column family dropped: ";
       break;
-    default:
+    case kMaxCode:
+      assert(false);
       snprintf(tmp, sizeof(tmp), "Unknown code(%d): ",
                static_cast<int>(code()));
       type = tmp;
