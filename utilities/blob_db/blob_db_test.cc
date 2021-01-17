@@ -828,8 +828,7 @@ TEST_F(BlobDBTest, SstFileManagerRestart) {
   const auto &fs = db_options.env->GetFileSystem();
   ASSERT_OK(CreateFile(fs, blob_dir + "/000666.blob.trash", "", false));
   ASSERT_OK(CreateFile(fs, blob_dir + "/000888.blob.trash", "", true));
-  ASSERT_OK(
-      CreateFile(fs, blob_dir + "/something_not_match.trash", "", false));
+  ASSERT_OK(CreateFile(fs, blob_dir + "/something_not_match.trash", "", false));
 
   // Make sure that reopening the DB rescan the existing trash files
   Open(bdb_options, db_options);
