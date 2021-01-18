@@ -65,6 +65,7 @@ struct BandingConfigHelperData {
   // log base 2), implements GetNumToAdd for such limited case, returning
   // double for better interpolation in GetNumToAdd and GetNumSlots.
   static inline double GetNumToAddForPow2(uint32_t log2_num_slots) {
+    assert(log2_num_slots <= 32);  // help clang-analyze
     if (log2_num_slots < kKnownSize) {
       return kKnownToAddByPow2[log2_num_slots];
     } else {
@@ -408,10 +409,11 @@ uint32_t BandingConfigHelper1MaybeSupported<
   }
   double log2_num_to_add = std::log(num_to_add) * 1.4426950409;
   uint32_t approx_log2_slots = static_cast<uint32_t>(log2_num_to_add + 0.5);
+  assert(approx_log2_slots <= 32);  // help clang-analyze
 
   double lower_num_to_add = Data::GetNumToAddForPow2(approx_log2_slots);
   double upper_num_to_add;
-  if (lower_num_to_add == 0 /* unsupported */) {
+  if (approx_log2_slots == 0 || lower_num_to_add == /* unsupported */ 0) {
     // Return minimum non-zero slots in standard implementation
     return kUseSmash ? kCoeffBits : 2 * kCoeffBits;
   } else if (num_to_add < lower_num_to_add) {

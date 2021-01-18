@@ -23,6 +23,12 @@ namespace ribbon {
 // additions for tolerable construction failure probabilities. This is
 // separate from ribbon_impl.h because it might not be needed for
 // some applications.
+//
+// This API assumes uint32_t for number of slots, as a single Ribbon
+// linear system should not normally overflow that without big penalties.
+//
+// Template parameter kCoeffBits uses uint64_t for convenience in case it
+// comes from size_t.
 
 // Represents a chosen chance of successful Ribbon construction for a single
 // seed. Allowing higher chance of failed construction can reduce space
@@ -52,12 +58,14 @@ struct BandingConfigHelper1MaybeSupported {
   static uint32_t GetNumToAdd(uint32_t num_slots) {
     // Unsupported
     assert(num_slots == 0);
+    (void)num_slots;
     return 0;
   }
 
   static uint32_t GetNumSlots(uint32_t num_to_add) {
     // Unsupported
     assert(num_to_add == 0);
+    (void)num_to_add;
     return 0;
   }
 };
