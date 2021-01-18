@@ -207,6 +207,7 @@ LIB_SOURCES =                                                   \
   util/murmurhash.cc                                            \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
+  util/ribbon_config.cc                                         \
   util/slice.cc                                                 \
   util/file_checksum_helper.cc                                  \
   util/status.cc                                                \

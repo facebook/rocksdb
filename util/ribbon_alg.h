@@ -8,6 +8,7 @@
 #include <array>
 #include <memory>
 
+#include "rocksdb/rocksdb_namespace.h"
 #include "util/math128.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -501,12 +502,13 @@ namespace ribbon {
 //   // slot index i.
 //   void Prefetch(Index i) const;
 //
-//   // Returns a pointer to CoeffRow for slot index i.
-//   CoeffRow* CoeffRowPtr(Index i);
-//
-//   // Returns a pointer to ResultRow for slot index i. (Gaussian row
-//   // operations involve both side of the equation.)
-//   ResultRow* ResultRowPtr(Index i);
+//   // Load or store CoeffRow and ResultRow for slot index i.
+//   // (Gaussian row operations involve both sides of the equation.)
+//   // Bool `for_back_subst` indicates that customizing values for
+//   // unconstrained solution rows (cr == 0) is allowed.
+//   void LoadRow(Index i, CoeffRow *cr, ResultRow *rr, bool for_back_subst)
+//        const;
+//   void StoreRow(Index i, CoeffRow cr, ResultRow rr);
 //
 //   // Returns the number of columns that can start an r-sequence of
 //   // coefficients, which is the number of slots minus r (kCoeffBits)
@@ -548,6 +550,7 @@ bool BandingAdd(BandingStorage *bs, typename BandingStorage::Index start,
                 typename BandingStorage::CoeffRow cr, BacktrackStorage *bts,
                 typename BandingStorage::Index *backtrack_pos) {
   using CoeffRow = typename BandingStorage::CoeffRow;
+  using ResultRow = typename BandingStorage::ResultRow;
   using Index = typename BandingStorage::Index;
 
   Index i = start;
@@ -561,18 +564,19 @@ bool BandingAdd(BandingStorage *bs, typename BandingStorage::Index start,
 
   for (;;) {
     assert((cr & 1) == 1);
-    CoeffRow other = *(bs->CoeffRowPtr(i));
-    if (other == 0) {
-      *(bs->CoeffRowPtr(i)) = cr;
-      *(bs->ResultRowPtr(i)) = rr;
+    CoeffRow cr_at_i;
+    ResultRow rr_at_i;
+    bs->LoadRow(i, &cr_at_i, &rr_at_i, /* for_back_subst */ false);
+    if (cr_at_i == 0) {
+      bs->StoreRow(i, cr, rr);
       bts->BacktrackPut(*backtrack_pos, i);
       ++*backtrack_pos;
       return true;
     }
-    assert((other & 1) == 1);
+    assert((cr_at_i & 1) == 1);
     // Gaussian row reduction
-    cr ^= other;
-    rr ^= *(bs->ResultRowPtr(i));
+    cr ^= cr_at_i;
+    rr ^= rr_at_i;
     if (cr == 0) {
       // Inconsistency or (less likely) redundancy
       break;
@@ -678,12 +682,11 @@ bool BandingAddRange(BandingStorage *bs, BacktrackStorage *bts,
     while (backtrack_pos > 0) {
       --backtrack_pos;
       Index i = bts->BacktrackGet(backtrack_pos);
-      *(bs->CoeffRowPtr(i)) = 0;
-      // Not strictly required, but is required for good FP rate on
-      // inputs that might have been backtracked out. (We don't want
-      // anything we've backtracked on to leak into final result, as
-      // that might not be "harmless".)
-      *(bs->ResultRowPtr(i)) = 0;
+      // Clearing the ResultRow is not strictly required, but is required
+      // for good FP rate on inputs that might have been backtracked out.
+      // (We don't want anything we've backtracked on to leak into final
+      // result, as that might not be "harmless".)
+      bs->StoreRow(i, 0, 0);
     }
   }
   return false;
@@ -780,8 +783,9 @@ void SimpleBackSubst(SimpleSolutionStorage *sss, const BandingStorage &bs) {
 
   for (Index i = num_slots; i > 0;) {
     --i;
-    CoeffRow cr = *const_cast<BandingStorage &>(bs).CoeffRowPtr(i);
-    ResultRow rr = *const_cast<BandingStorage &>(bs).ResultRowPtr(i);
+    CoeffRow cr;
+    ResultRow rr;
+    bs.LoadRow(i, &cr, &rr, /* for_back_subst */ true);
     // solution row
     ResultRow sr = 0;
     for (Index j = 0; j < kResultBits; ++j) {
@@ -976,8 +980,9 @@ inline void BackSubstBlock(typename BandingStorage::CoeffRow *state,
 
   for (Index i = start_slot + kCoeffBits; i > start_slot;) {
     --i;
-    CoeffRow cr = *const_cast<BandingStorage &>(bs).CoeffRowPtr(i);
-    ResultRow rr = *const_cast<BandingStorage &>(bs).ResultRowPtr(i);
+    CoeffRow cr;
+    ResultRow rr;
+    bs.LoadRow(i, &cr, &rr, /* for_back_subst */ true);
     for (Index j = 0; j < num_columns; ++j) {
       // Compute next solution bit at row i, column j (see derivation below)
       CoeffRow tmp = state[j] << 1;
