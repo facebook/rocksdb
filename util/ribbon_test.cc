@@ -3,8 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#include <cmath>
-
 #include "test_util/testharness.h"
 #include "util/bloom_impl.h"
 #include "util/coding.h"
@@ -20,12 +18,18 @@ uint32_t FLAGS_log2_max_add = 0;
 uint32_t FLAGS_min_check = 4000;
 uint32_t FLAGS_max_check = 100000;
 bool FLAGS_verbose = false;
+
 bool FLAGS_find_occ = false;
 bool FLAGS_find_slot_occ = false;
 double FLAGS_find_next_factor = 1.618;
 uint32_t FLAGS_find_iters = 10000;
 uint32_t FLAGS_find_min_slots = 128;
 uint32_t FLAGS_find_max_slots = 1000000;
+
+bool FLAGS_optimize_homog = false;
+uint32 FLAGS_optimize_homog_slots = 30000000;
+uint32 FLAGS_optimize_homog_check = 200000;
+double FLAGS_optimize_homog_granularity = 0.002;
 #else
 #include "util/gflags_compat.h"
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
@@ -51,6 +55,18 @@ DEFINE_double(find_next_factor, 1.618,
 DEFINE_uint32(find_iters, 10000, "number of samples for FindOccupancy");
 DEFINE_uint32(find_min_slots, 128, "number of slots for FindOccupancy");
 DEFINE_uint32(find_max_slots, 1000000, "number of slots for FindOccupancy");
+
+// Options for OptimizeHomogAtScale, which is more of a tool than a test.
+DEFINE_bool(optimize_homog, false,
+            "whether to run the OptimizeHomogAtScale tool");
+DEFINE_uint32(optimize_homog_slots, 30000000,
+              "number of slots for OptimizeHomogAtScale");
+DEFINE_uint32(optimize_homog_check, 200000,
+              "number of queries for checking FP rate in OptimizeHomogAtScale");
+DEFINE_double(
+    optimize_homog_granularity, 0.002,
+    "overhead change between FP rate checking in OptimizeHomogAtScale");
+
 #endif  // GFLAGS
 
 template <typename TypesAndSettings>
@@ -1205,8 +1221,68 @@ TYPED_TEST(RibbonTypeParamTest, FindOccupancy) {
   }
 }
 
-// TODO: unit tests for configuration APIs
-// TODO: unit tests for small filter FP rates
+// Not a real test, but a tool used to build APIs in ribbon_config.h
+TYPED_TEST(RibbonTypeParamTest, OptimizeHomogAtScale) {
+  IMPORT_RIBBON_TYPES_AND_SETTINGS(TypeParam);
+  IMPORT_RIBBON_IMPL_TYPES(TypeParam);
+  using KeyGen = typename TypeParam::KeyGen;
+
+  if (!FLAGS_optimize_homog) {
+    fprintf(stderr, "Tool disabled during unit test runs\n");
+    return;
+  }
+
+  if (!TypeParam::kHomogeneous) {
+    fprintf(stderr, "Only for Homogeneous Ribbon\n");
+    return;
+  }
+
+  KeyGen cur(ROCKSDB_NAMESPACE::ToString(
+                 testing::UnitTest::GetInstance()->random_seed()),
+             0);
+
+  Banding banding;
+  Index num_slots = SimpleSoln::RoundUpNumSlots(FLAGS_optimize_homog_slots);
+  banding.Reset(num_slots);
+
+  double target_overhead = 1.20;
+  uint32_t num_added = 0;
+
+  do {
+    while (1.0 * num_slots / num_added > target_overhead) {
+      (void)banding.Add(*cur);
+      ++cur;
+      ++num_added;
+    }
+    SimpleSoln soln;
+    soln.BackSubstFrom(banding);
+
+    std::array<uint32_t, 8U * sizeof(ResultRow)> fp_counts_by_cols;
+    fp_counts_by_cols.fill(0U);
+    for (uint32_t i = 0; i < FLAGS_optimize_homog_check; ++i) {
+      ResultRow r = soln.PhsfQuery(*cur, banding);
+      ++cur;
+      for (size_t j = 0; j < fp_counts_by_cols.size(); ++j) {
+        if ((r & 1) == 1) {
+          break;
+        }
+        fp_counts_by_cols[j]++;
+        r /= 2;
+      }
+    }
+    fprintf(stderr, "band_ovr: %g ", 1.0 * num_slots / num_added);
+    for (unsigned j = 0; j < fp_counts_by_cols.size(); ++j) {
+      double inv_fp_rate =
+          1.0 * FLAGS_optimize_homog_check / fp_counts_by_cols[j];
+      double equiv_cols = std::log(inv_fp_rate) * 1.4426950409;
+      double actual_overhead =
+          1.0 * (j + 1) * num_slots / (equiv_cols * num_added);
+      fprintf(stderr, "ovr_%u: %g ", j + 1, actual_overhead);
+    }
+    fprintf(stderr, "\n");
+    target_overhead -= FLAGS_optimize_homog_granularity;
+  } while (target_overhead > 1.0);
+}
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

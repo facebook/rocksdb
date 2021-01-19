@@ -9,6 +9,7 @@
 
 #include "port/lang.h"  // for FALLTHROUGH_INTENDED
 #include "port/port.h"  // for PREFETCH
+#include "util/fastrange.h"
 #include "util/ribbon_alg.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -731,8 +732,8 @@ class InMemSimpleSolution {
   }
 
   template <typename PhsfQueryHasher>
-  ResultRow PhsfQuery(const Key& input, const PhsfQueryHasher& hasher) {
-    assert(!TypesAndSettings::kIsFilter);
+  ResultRow PhsfQuery(const Key& input, const PhsfQueryHasher& hasher) const {
+    // assert(!TypesAndSettings::kIsFilter);  Can be useful in testing
     if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
       // Unusual
       return 0;
@@ -743,7 +744,7 @@ class InMemSimpleSolution {
   }
 
   template <typename FilterQueryHasher>
-  bool FilterQuery(const Key& input, const FilterQueryHasher& hasher) {
+  bool FilterQuery(const Key& input, const FilterQueryHasher& hasher) const {
     assert(TypesAndSettings::kIsFilter);
     if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
       // Unusual. Zero starts presumes no keys added -> always false
@@ -755,7 +756,7 @@ class InMemSimpleSolution {
     }
   }
 
-  double ExpectedFpRate() {
+  double ExpectedFpRate() const {
     assert(TypesAndSettings::kIsFilter);
     if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
       // Unusual, but we don't have FPs if we always return false.
@@ -868,8 +869,8 @@ class SerializableInterleavedSolution {
   }
 
   template <typename PhsfQueryHasher>
-  ResultRow PhsfQuery(const Key& input, const PhsfQueryHasher& hasher) {
-    assert(!TypesAndSettings::kIsFilter);
+  ResultRow PhsfQuery(const Key& input, const PhsfQueryHasher& hasher) const {
+    // assert(!TypesAndSettings::kIsFilter);  Can be useful in testing
     if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
       // Unusual
       return 0;
@@ -880,7 +881,7 @@ class SerializableInterleavedSolution {
   }
 
   template <typename FilterQueryHasher>
-  bool FilterQuery(const Key& input, const FilterQueryHasher& hasher) {
+  bool FilterQuery(const Key& input, const FilterQueryHasher& hasher) const {
     assert(TypesAndSettings::kIsFilter);
     if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
       // Unusual. Zero starts presumes no keys added -> always false
@@ -892,7 +893,7 @@ class SerializableInterleavedSolution {
     }
   }
 
-  double ExpectedFpRate() {
+  double ExpectedFpRate() const {
     assert(TypesAndSettings::kIsFilter);
     if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
       // Unusual. Zero starts presumes no keys added -> always false
