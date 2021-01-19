@@ -27,8 +27,8 @@ uint32_t FLAGS_find_min_slots = 128;
 uint32_t FLAGS_find_max_slots = 1000000;
 
 bool FLAGS_optimize_homog = false;
-uint32 FLAGS_optimize_homog_slots = 30000000;
-uint32 FLAGS_optimize_homog_check = 200000;
+uint32_t FLAGS_optimize_homog_slots = 30000000;
+uint32_t FLAGS_optimize_homog_check = 200000;
 double FLAGS_optimize_homog_granularity = 0.002;
 #else
 #include "util/gflags_compat.h"
