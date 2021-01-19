@@ -65,11 +65,7 @@ class WinEnvThreads {
 
   void IncBackgroundThreadsIfNeeded(int num, Env::Priority pri);
 
-#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
-#undef LoadLibrary
-  Status LoadLibrary(const std::string& name, const std::string& path,
-                     std::shared_ptr<DynamicLibrary>* result) override;
-#endif  // ROCKSDB_NO_DYNAMIC_EXTENSION
+
  private:
   Env* hosted_env_;
   mutable std::mutex mu_;
@@ -288,6 +284,11 @@ class WinEnv : public CompositeEnv {
 
   void IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) override;
 
+#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
+#undef LoadLibrary
+  Status LoadLibrary(const std::string& name, const std::string& path,
+                     std::shared_ptr<DynamicLibrary>* result) override;
+#endif  // ROCKSDB_NO_DYNAMIC_EXTENSION
  private:
   std::shared_ptr<WinClock> clock_;
   WinEnvIO winenv_io_;
