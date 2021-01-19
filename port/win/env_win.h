@@ -65,7 +65,6 @@ class WinEnvThreads {
 
   void IncBackgroundThreadsIfNeeded(int num, Env::Priority pri);
 
-
  private:
   Env* hosted_env_;
   mutable std::mutex mu_;
