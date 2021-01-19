@@ -226,14 +226,14 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   }
 
   for (const auto& wal_addition : wal_additions_) {
-    PutVarint32(dst, kWalAddition);
+    PutVarint32(dst, kNewWalAddition);
     std::string encoded;
     wal_addition.EncodeTo(&encoded);
     PutLengthPrefixedSlice(dst, encoded);
   }
 
   if (!wal_deletion_.IsEmpty()) {
-    PutVarint32(dst, kWalDeletion);
+    PutVarint32(dst, kNewWalDeletion);
     std::string encoded;
     wal_deletion_.EncodeTo(&encoded);
     PutLengthPrefixedSlice(dst, encoded);
@@ -580,6 +580,17 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
       }
 
       case kWalAddition: {
+        WalAddition wal_addition;
+        const Status s = wal_addition.DecodeFrom(&input);
+        if (!s.ok()) {
+          return s;
+        }
+
+        wal_additions_.emplace_back(std::move(wal_addition));
+        break;
+      }
+
+      case kNewWalAddition: {
         Slice encoded;
         if (!GetLengthPrefixedSlice(&input, &encoded)) {
           msg = "WalAddition not prefixed by length";
@@ -597,6 +608,17 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
       }
 
       case kWalDeletion: {
+        WalDeletion wal_deletion;
+        const Status s = wal_deletion.DecodeFrom(&input);
+        if (!s.ok()) {
+          return s;
+        }
+
+        wal_deletion_ = std::move(wal_deletion);
+        break;
+      }
+
+      case kNewWalDeletion: {
         Slice encoded;
         if (!GetLengthPrefixedSlice(&input, &encoded)) {
           msg = "WalDeletion not prefixed by length";
