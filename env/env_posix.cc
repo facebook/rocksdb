@@ -158,8 +158,15 @@ class PosixEnv : public CompositeEnv {
     if (name.empty()) {
       void* hndl = dlopen(NULL, RTLD_NOW);
       if (hndl != nullptr) {
-        result->reset(new PosixDynamicLibrary(name, hndl));
-        return Status::OK();
+        // On some Posix systems, we cannot get symbols out of the executable
+        // Test if we can, before we return success
+        void* func = dlsym(hndl, "main");
+        if (func != nullptr) {
+          result->reset(new PosixDynamicLibrary(name, hndl));
+          return Status::OK();
+        } else {
+          dlclose(hndl);
+        }
       }
     } else {
       std::string library_name = name;

@@ -343,20 +343,15 @@ TEST_F(EnvPosixTest, LoadSystemLibrary) {
 #endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 }
 
-extern "C" {
-int TestCube(int a) { return a * a * a; }
-}  // extern "C"
-
 TEST_F(EnvPosixTest, LoadLibraryFromExe) {
-  ASSERT_EQ(1, TestCube(1));  // To guarantee the symbol is there...
   std::shared_ptr<DynamicLibrary> library;
-  std::function<void*(void*, const char*)> function;
+  std::function<int(int, const char**)> function;
   Status status = env_->LoadLibrary("", "", &library);
 #ifdef ROCKSDB_NO_DYNAMIC_EXTENSION
   ASSERT_TRUE(status.IsNotSupported());
 #endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
   if (status.ok()) {
-    ASSERT_OK(library->LoadFunction("TestCube", &function));
+    ASSERT_OK(library->LoadFunction("main", &function));
   }
 }
 
