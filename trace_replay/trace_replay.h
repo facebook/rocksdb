@@ -46,12 +46,8 @@ enum TraceType : char {
   kBlockTraceDataBlock = 9,
   kBlockTraceUncompressionDictBlock = 10,
   kBlockTraceRangeDeletionBlock = 11,
-  // IO Trace related types based on options that will be added in trace file.
-  kIOGeneral = 12,
-  kIOFileName = 13,
-  kIOFileNameAndFileSize = 14,
-  kIOLen = 15,
-  kIOLenAndOffset = 16,
+  // For IOTracing.
+  kIOTracer = 12,
   // All trace types should be added before kTraceMax
   kTraceMax,
 };

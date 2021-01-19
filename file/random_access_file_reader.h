@@ -82,7 +82,7 @@ class RandomAccessFileReader {
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {})
-      : file_(std::move(raf), io_tracer),
+      : file_(std::move(raf), io_tracer, _file_name),
         file_name_(std::move(_file_name)),
         env_(_env),
         stats_(stats),

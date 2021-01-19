@@ -42,28 +42,29 @@ void IOTraceRecordParser::PrintHumanReadableIOTraceRecord(
      << record.access_timestamp << ", File Operation: " << std::setw(18)
      << std::left << record.file_operation.c_str()
      << ", Latency: " << std::setw(9) << std::left << record.latency
-     << ", IO Status: " << record.io_status.c_str();
+     << ", IO Status: " << record.io_status.c_str()
+     << ", File Name: " << record.file_name.c_str();
 
-  switch (record.trace_type) {
-    case TraceType::kIOGeneral:
-      break;
-    case TraceType::kIOFileNameAndFileSize:
-      ss << ", File Size: " << record.file_size;
-      FALLTHROUGH_INTENDED;
-    case TraceType::kIOFileName: {
-      if (!record.file_name.empty()) {
-        ss << ", File Name: " << record.file_name.c_str();
-      }
-      break;
+  /* Read remaining options based on io_op_data set by file operation */
+  uint64_t io_op_data = record.io_op_data;
+  while (io_op_data) {
+    // Find the rightmost set bit.
+    int set_pos = log2(io_op_data & -io_op_data);
+    switch (set_pos) {
+      case IOTraceOp::kIOFileSize:
+        ss << ", File Size: " << record.file_size;
+        break;
+      case IOTraceOp::kIOLen:
+        ss << ", Length: " << record.len;
+        break;
+      case IOTraceOp::kIOOffset:
+        ss << ", Offset: " << record.offset;
+        break;
+      default:
+        assert(false);
     }
-    case TraceType::kIOLenAndOffset:
-      ss << ", Offset: " << record.offset;
-      FALLTHROUGH_INTENDED;
-    case TraceType::kIOLen:
-      ss << ", Length: " << record.len;
-      break;
-    default:
-      assert(false);
+    // unset the rightmost bit.
+    io_op_data &= (io_op_data - 1);
   }
   ss << "\n";
   fprintf(stdout, "%s", ss.str().c_str());

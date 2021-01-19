@@ -810,7 +810,8 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
         fs_->NewRandomRWFile(file_to_ingest->internal_file_path, env_options_,
                              &rwfile, nullptr);
     if (status.ok()) {
-      FSRandomRWFilePtr fsptr(std::move(rwfile), io_tracer_);
+      FSRandomRWFilePtr fsptr(std::move(rwfile), io_tracer_,
+                              file_to_ingest->internal_file_path);
       std::string seqno_val;
       PutFixed64(&seqno_val, seqno);
       status = fsptr->Write(file_to_ingest->global_seqno_offset, seqno_val,
