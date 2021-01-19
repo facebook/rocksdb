@@ -31,6 +31,7 @@
 #endif
 
 #include "env/env_chroot.h"
+#include "file/filename.h"
 #include "logging/log_buffer.h"
 #include "port/malloc.h"
 #include "port/port.h"
@@ -318,14 +319,49 @@ TEST_F(EnvPosixTest, MemoryMappedFileBuffer) {
   ASSERT_EQ(expected_data, actual_data);
 }
 
-#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
-TEST_F(EnvPosixTest, LoadRocksDBLibrary) {
+TEST_F(EnvPosixTest, LoadSystemLibrary) {
   std::shared_ptr<DynamicLibrary> library;
   std::function<void*(void*, const char*)> function;
   Status status = env_->LoadLibrary("no-such-library", "", &library);
-  ASSERT_NOK(status);
-  ASSERT_EQ(nullptr, library.get());
-  status = env_->LoadLibrary("rocksdb", "", &library);
+#ifndef OS_WIN
+  status = env_->LoadLibrary("dl", "", &library);
+#else
+#endif  // OS_WIN
+#ifdef ROCKSDB_NO_DYNAMIC_EXTENSION
+  // If we are compiled without dynamic library support, LoadLibrary returns
+  // NotSupported
+  ASSERT_TRUE(status.IsNotSupported());
+#else
+  ASSERT_OK(status);
+#ifndef OS_WIN
+  ASSERT_OK(library->LoadFunction("dlopen", &function));  // from C definition
+#else
+#endif  // OS_WIN
+#endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
+}
+
+TEST_F(EnvPosixTest, LoadRocksDBLibrary) {
+#if defined(OS_WIN)
+  std::string full_name = ".\\librocksdb.dll";
+#elif defined(OS_MACOSX)
+  std::string full_name = "./librocksdb.dylib";
+#else
+  std::string full_name = "./librocksdb.so";
+#endif  // OS_WIN
+  std::shared_ptr<DynamicLibrary> library;
+  std::function<void*(void*, const char*)> function;
+  Status status = env_->LoadLibrary("rocksdb", "", &library);
+#ifdef ROCKSDB_NO_DYNAMIC_EXTENSION
+  // If we are compiled without dynamic library support, LoadLibrary returns
+  // NotSupported
+  ASSERT_TRUE(status.IsNotSupported());
+#else
+#ifdef ROCKSDB_DLL
+  // If we are compiling in DLL mode, then we should find the RocksDB shared
+  // library
+  ASSERT_OK(status);
+#endif                // ROCKSDB_DLL
+#endif                // !ROCKSDB_NO_DYNAMIC_EXTENSION
   if (status.ok()) {  // If we have can find a rocksdb shared library
     ASSERT_NE(nullptr, library.get());
     ASSERT_OK(library->LoadFunction("rocksdb_create_default_env",
@@ -337,32 +373,57 @@ TEST_F(EnvPosixTest, LoadRocksDBLibrary) {
   } else {
     ASSERT_EQ(nullptr, library.get());
   }
+#if !defined(ROCKSDB_NO_DYNAMIC_EXTENSION) && defined(ROCKSDB_DLL)
+  ASSERT_OK(env_->LoadLibrary(full_name, "", &library));
+  ASSERT_EQ(library->Name(), full_name);
+#endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION && ROCKSDB_DLL
 }
-#endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 
-#if !defined(OS_WIN) && !defined(ROCKSDB_NO_DYNAMIC_EXTENSION)
-TEST_F(EnvPosixTest, LoadRocksDBLibraryWithSearchPath) {
+TEST_F(EnvPosixTest, LoadRocksDBLibraryFromPath) {
   std::shared_ptr<DynamicLibrary> library;
+#ifdef OS_WIN
+  std::string tmp_dir = "C:\\tmp";
+  std::string dir_sep = ";";
+#else
+  std::string tmp_dir = "/tmp";
+  std::string dir_sep = ":";
+#endif
   std::function<void*(void*, const char*)> function;
-  ASSERT_NOK(env_->LoadLibrary("no-such-library", "/tmp", &library));
+  ASSERT_NOK(env_->LoadLibrary("no-such-library", tmp_dir, &library));
   ASSERT_EQ(nullptr, library.get());
-  ASSERT_NOK(env_->LoadLibrary("dl", "/tmp", &library));
+  ASSERT_NOK(env_->LoadLibrary("dl", tmp_dir, &library));
   ASSERT_EQ(nullptr, library.get());
-  Status status = env_->LoadLibrary("rocksdb", "/tmp:./", &library);
+  Status status = env_->LoadLibrary(
+      "rocksdb", tmp_dir + dir_sep + "." + kFilePathSeparator, &library);
+#ifdef ROCKSDB_NO_DYNAMIC_EXTENSION
+  // If we are compiled without dynamic library support, LoadLibrary returns
+  // NotSupported
+  ASSERT_TRUE(status.IsNotSupported());
+#else
+#ifdef ROCKSDB_DLL
+  // If we are compiling in DLL mode, then we should find the RocksDB shared
+  // library
+  ASSERT_OK(status);
+#endif  // ROCKSDB_DLL
   if (status.ok()) {
     ASSERT_NE(nullptr, library.get());
     ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
   }
+#ifdef ROCKSDB_DLL
   char buff[1024];
   std::string cwd = getcwd(buff, sizeof(buff));
 
-  status = env_->LoadLibrary("rocksdb", "/tmp:" + cwd, &library);
+  status = env_->LoadLibrary("rocksdb", tmp_dir + dir_sep + cwd, &library);
+  // If we are compiling in DLL mode, then we should find the RocksDB shared
+  // library
+  ASSERT_OK(status);
   if (status.ok()) {
     ASSERT_NE(nullptr, library.get());
     ASSERT_OK(env_->LoadLibrary(library->Name(), "", &library));
   }
+#endif  // ROCKSDB_DLL
+#endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 }
-#endif  // !OS_WIN && !ROCKSDB_NO_DYNAMIC_EXTENSION
 
 TEST_P(EnvPosixTestWithParam, UnSchedule) {
   std::atomic<bool> called(false);
