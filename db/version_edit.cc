@@ -396,7 +396,6 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
   while (msg == nullptr && GetVarint32(&input, &tag)) {
 #ifndef NDEBUG
     if (ignore_ignorable_tags && tag > kTagSafeIgnoreMask) {
-      printf("tag = %d\n", tag);
       tag = kTagSafeIgnoreMask;
     }
 #endif
