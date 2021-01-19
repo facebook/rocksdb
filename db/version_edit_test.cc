@@ -327,7 +327,7 @@ TEST_F(VersionEditTest, AddWalEncodeDecode) {
 static std::string PrefixEncodedWalAdditionWithLength(
     const std::string& encoded) {
   std::string ret;
-  PutVarint32(&ret, Tag::kNewWalAddition);
+  PutVarint32(&ret, Tag::kWalAddition2);
   PutLengthPrefixedSlice(&ret, encoded);
   return ret;
 }
