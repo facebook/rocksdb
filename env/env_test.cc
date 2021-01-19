@@ -344,8 +344,13 @@ TEST_F(EnvPosixTest, LoadSystemLibrary) {
 }
 
 extern "C" {
+#ifdef OS_WIN
+#define TEST_API __declspec(dllexport)
+#else
+#define TEST_API
+#endif  // OS_WIN
 // An arbitrary function we can dynamically load.
-int TestCube(int a) { return a * a * a; }
+TEST_API int TestCube(int a) { return a * a * a; }
 }  // extern "C"
 
 TEST_F(EnvPosixTest, LoadLibraryFromExe) {
