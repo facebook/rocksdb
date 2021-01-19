@@ -24,6 +24,7 @@
 #include <ctime>
 #include <thread>
 
+#include "file/filename.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
 #include "monitoring/thread_status_util.h"
@@ -48,6 +49,14 @@ ThreadStatusUpdater* CreateThreadStatusUpdater() {
 }
 
 namespace {
+std::string NormalizeWindowsPath(const std::string& path) {
+  std::string win_path = NormalizePath(path);
+  for (auto pos = win_path.find("/"); pos != std::string::npos;
+       pos = win_path.find("/", pos)) {
+    win_path.replace(pos, 1, "\\");
+  }
+  return win_path;
+}
 
 // Sector size used when physical sector size cannot be obtained from device.
 static const size_t kSectorSize = 512;
@@ -1416,6 +1425,78 @@ void WinEnv::IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) {
   return winenv_threads_.IncBackgroundThreadsIfNeeded(num, pri);
 }
 
+#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
+class WinDynamicLibrary : public DynamicLibrary {
+ public:
+  WinDynamicLibrary(const std::string& name, HMODULE handle)
+      : name_(name), handle_(handle) {}
+
+  ~WinDynamicLibrary() override { FreeLibrary(handle_); }
+
+  Status LoadSymbol(const std::string& sym_name, void** func) override {
+    assert(nullptr != func);
+    *func = GetProcAddress(handle_, sym_name.c_str());
+    if (*func != nullptr) {
+      return Status::OK();
+    } else {
+      return Status::NotFound("Error finding symbol: " + sym_name,
+                              GetWindowsErrSz(GetLastError()));
+    }
+  }
+
+  const char* Name() const override { return name_.c_str(); }
+
+ private:
+  std::string name_;
+  HMODULE handle_;
+};
+
+Status WinEnv::LoadLibrary(const std::string& name, const std::string& path,
+                           std::shared_ptr<DynamicLibrary>* result) {
+  assert(result != nullptr);
+  if (name.empty()) {
+    auto handle = GetModuleHandle(NULL);
+    if (handle != NULL) {
+      result->reset(new WinDynamicLibrary(name, handle));
+      return Status::OK();
+    }
+  } else {
+    std::string library_name = NormalizeWindowsPath(name);
+    auto slash = library_name.find("\\");
+    if ((slash == std::string::npos &&
+         library_name.find(".") == std::string::npos) ||
+        (slash != std::string::npos &&
+         library_name.find(".", slash) == std::string::npos)) {
+      library_name = library_name + ".dll";
+    }
+    if (slash != std::string::npos || path.empty()) {
+      auto handle = LoadLibraryEx(TEXT(library_name.c_str()), NULL, 0);
+      if (handle != NULL) {
+        result->reset(new WinDynamicLibrary(library_name, handle));
+        return Status::OK();
+      }
+    } else {
+      static const char kPathSep = ';';
+      std::string local_path;
+      std::stringstream ss(path);
+      while (getline(ss, local_path, kPathSep)) {
+        if (!local_path.empty()) {
+          std::string full_name =
+              NormalizeWindowsPath(local_path + kFilePathSeparator) +
+              library_name;
+          auto handle = LoadLibraryEx(TEXT(full_name.c_str()), NULL, 0);
+          if (handle != NULL) {
+            result->reset(new WinDynamicLibrary(full_name, handle));
+            return Status::OK();
+          }
+        }
+      }
+    }
+  }
+  return Status::IOError(std::string("Failed to open shared library: ") + name,
+                         GetWindowsErrSz(GetLastError()));
+}
+#endif  // ROCKSDB_NO_DYNAMIC_EXTENSION
 }  // namespace port
 
 std::string Env::GenerateUniqueId() {

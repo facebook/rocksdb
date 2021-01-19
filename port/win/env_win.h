@@ -30,7 +30,6 @@
 
 #undef GetCurrentTime
 #undef DeleteFile
-#undef LoadLibrary
 
 namespace ROCKSDB_NAMESPACE {
 namespace port {
@@ -66,6 +65,11 @@ class WinEnvThreads {
 
   void IncBackgroundThreadsIfNeeded(int num, Env::Priority pri);
 
+#ifndef ROCKSDB_NO_DYNAMIC_EXTENSION
+#undef LoadLibrary
+  Status LoadLibrary(const std::string& name, const std::string& path,
+                     std::shared_ptr<DynamicLibrary>* result) override;
+#endif  // ROCKSDB_NO_DYNAMIC_EXTENSION
  private:
   Env* hosted_env_;
   mutable std::mutex mu_;
