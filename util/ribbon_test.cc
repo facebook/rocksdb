@@ -1249,11 +1249,12 @@ TYPED_TEST(RibbonTypeParamTest, OptimizeHomogAtScale) {
   uint32_t num_added = 0;
 
   do {
-    while (1.0 * num_slots / num_added > target_overhead) {
+    do {
       (void)banding.Add(*cur);
       ++cur;
       ++num_added;
-    }
+    } while (1.0 * num_slots / num_added > target_overhead);
+
     SimpleSoln soln;
     soln.BackSubstFrom(banding);
 
