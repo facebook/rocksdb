@@ -1871,6 +1871,8 @@ class DBImpl : public DB {
 
   Status DisableFileDeletionsWithLock();
 
+  Status IncreaseFullHistoryTsLow(ColumnFamilyData* cfd, std::string ts_low);
+
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
 
