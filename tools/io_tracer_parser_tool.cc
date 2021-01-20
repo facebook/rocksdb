@@ -46,10 +46,10 @@ void IOTraceRecordParser::PrintHumanReadableIOTraceRecord(
      << ", File Name: " << record.file_name.c_str();
 
   /* Read remaining options based on io_op_data set by file operation */
-  uint64_t io_op_data = record.io_op_data;
+  int64_t io_op_data = static_cast<int64_t>(record.io_op_data);
   while (io_op_data) {
     // Find the rightmost set bit.
-    int set_pos = log2(io_op_data & -io_op_data);
+    uint32_t set_pos = static_cast<uint32_t>(log2(io_op_data & -io_op_data));
     switch (set_pos) {
       case IOTraceOp::kIOFileSize:
         ss << ", File Size: " << record.file_size;

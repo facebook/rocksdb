@@ -41,10 +41,10 @@ Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record) {
   PutLengthPrefixedSlice(&trace.payload, file_name);
 
   /* Write remaining options based on io_op_data set by file operation */
-  uint64_t io_op_data = record.io_op_data;
+  int64_t io_op_data = static_cast<int64_t>(record.io_op_data);
   while (io_op_data) {
     // Find the rightmost set bit.
-    int set_pos = log2(io_op_data & -io_op_data);
+    uint32_t set_pos = static_cast<uint32_t>(log2(io_op_data & -io_op_data));
     switch (set_pos) {
       case IOTraceOp::kIOFileSize:
         PutFixed64(&trace.payload, record.file_size);
@@ -168,10 +168,11 @@ Status IOTraceReader::ReadIOOp(IOTraceRecord* record) {
   record->file_name = file_name.ToString();
 
   /* Read remaining options based on io_op_data set by file operation */
-  uint64_t io_op_data = record->io_op_data;
+  // Assuming 63 bits will be used at max.
+  int64_t io_op_data = static_cast<int64_t>(record->io_op_data);
   while (io_op_data) {
     // Find the rightmost set bit.
-    int set_pos = log2(io_op_data & -io_op_data);
+    uint32_t set_pos = static_cast<uint32_t>(log2(io_op_data & -io_op_data));
     switch (set_pos) {
       case IOTraceOp::kIOFileSize:
         if (!GetFixed64(&enc_slice, &record->file_size)) {
