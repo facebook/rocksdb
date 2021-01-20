@@ -224,7 +224,6 @@ TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
 }
 
 TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
-  const int kNumTestData = 100;
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;

@@ -1581,8 +1581,8 @@ struct CompactRangeOptions {
   // If > 0, it will replace the option in the DBOptions for this compaction.
   uint32_t max_subcompactions = 0;
   // Set user-defined timestamp low bound, the data with older timestamp than
-  // low bound maybe GCed by compaction Default: nullptr
-  Slice* full_history_ts_low;
+  // low bound maybe GCed by compaction. Default: nullptr
+  Slice* full_history_ts_low = nullptr;
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()
