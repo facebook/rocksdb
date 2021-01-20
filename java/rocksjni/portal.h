@@ -7955,7 +7955,7 @@ class AbstractEventListenerJni
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileFlushFinish
+   * Get the Java Method: AbstractEventListener#onFileFlushFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -7965,13 +7965,13 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileFlushFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileFlushFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileSyncFinish
+   * Get the Java Method: AbstractEventListener#onFileSyncFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -7981,13 +7981,13 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileRangeSyncFinish
+   * Get the Java Method: AbstractEventListener#onFileRangeSyncFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -7997,13 +7997,13 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileRangeSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileRangeSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileTruncateFinish
+   * Get the Java Method: AbstractEventListener#onFileTruncateFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -8013,13 +8013,13 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileTruncateFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileTruncateFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileCloseFinish
+   * Get the Java Method: AbstractEventListener#onFileCloseFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -8029,7 +8029,7 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileCloseFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileCloseFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }

@@ -97,19 +97,41 @@ int db_stress_tool(int argc, char** argv) {
   }
 
 #ifndef NDEBUG
-  if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection) {
+  if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection ||
+      FLAGS_write_fault_one_in) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
-    fault_fs_guard->SetFilesystemDirectWritable(true);
+    if (FLAGS_write_fault_one_in) {
+      fault_fs_guard->SetFilesystemDirectWritable(false);
+    } else {
+      fault_fs_guard->SetFilesystemDirectWritable(true);
+    }
     fault_env_guard =
         std::make_shared<CompositeEnvWrapper>(raw_env, fault_fs_guard);
     raw_env = fault_env_guard.get();
+  }
+  if (FLAGS_write_fault_one_in) {
+    SyncPoint::GetInstance()->SetCallBack(
+        "BuildTable:BeforeFinishBuildTable",
+        [&](void*) { fault_fs_guard->EnableWriteErrorInjection(); });
+    SyncPoint::GetInstance()->EnableProcessing();
   }
 #endif
 
   env_wrapper_guard = std::make_shared<DbStressEnvWrapper>(raw_env);
   db_stress_env = env_wrapper_guard.get();
+
+#ifndef NDEBUG
+  if (FLAGS_write_fault_one_in) {
+    // In the write injection case, we need to use the FS interface and returns
+    // the IOStatus with different error and flags. Therefore,
+    // DbStressEnvWrapper cannot be used which will swallow the FS
+    // implementations. We should directly use the raw_env which is the
+    // CompositeEnvWrapper of env and fault_fs.
+    db_stress_env = raw_env;
+  }
+#endif
 
   FLAGS_rep_factory = StringToRepFactory(FLAGS_memtablerep.c_str());
 

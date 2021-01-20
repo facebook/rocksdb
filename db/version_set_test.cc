@@ -826,6 +826,14 @@ class VersionSetTestBase {
               versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
   }
 
+  void ReopenDB() {
+    versions_.reset(
+        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+                       &write_buffer_manager_, &write_controller_,
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+    EXPECT_OK(versions_->Recover(column_families_, false));
+  }
+
   void VerifyManifest(std::string* manifest_path) const {
     assert(manifest_path != nullptr);
     uint64_t manifest_file_number = 0;
@@ -867,6 +875,28 @@ class VersionSetTestBase {
         versions_->GetColumnFamilySet()->GetDefault(), mutable_cf_options_,
         &dummy, &mutex_, db_directory, new_descriptor_log));
     mutex_.Unlock();
+  }
+
+  ColumnFamilyData* CreateColumnFamily(const std::string& cf_name,
+                                       const ColumnFamilyOptions& cf_options) {
+    VersionEdit new_cf;
+    new_cf.AddColumnFamily(cf_name);
+    uint32_t new_id = versions_->GetColumnFamilySet()->GetNextColumnFamilyID();
+    new_cf.SetColumnFamily(new_id);
+    new_cf.SetLogNumber(0);
+    new_cf.SetComparatorName(cf_options.comparator->Name());
+    Status s;
+    mutex_.Lock();
+    s = versions_->LogAndApply(/*column_family_data=*/nullptr,
+                               MutableCFOptions(cf_options), &new_cf, &mutex_,
+                               /*db_directory=*/nullptr,
+                               /*new_descriptor_log=*/false, &cf_options);
+    mutex_.Unlock();
+    EXPECT_OK(s);
+    ColumnFamilyData* cfd =
+        versions_->GetColumnFamilySet()->GetColumnFamily(cf_name);
+    EXPECT_NE(nullptr, cfd);
+    return cfd;
   }
 
   Env* mem_env_;
@@ -1201,7 +1231,7 @@ TEST_F(VersionSetTest, WalEditsNotAppliedToVersion) {
       [&](void* arg) { versions.push_back(reinterpret_cast<Version*>(arg)); });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  LogAndApplyToDefaultCF(edits);
+  ASSERT_OK(LogAndApplyToDefaultCF(edits));
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1237,7 +1267,7 @@ TEST_F(VersionSetTest, NonWalEditsAppliedToVersion) {
       [&](void* arg) { versions.push_back(reinterpret_cast<Version*>(arg)); });
   SyncPoint::GetInstance()->EnableProcessing();
 
-  LogAndApplyToDefaultCF(edits);
+  ASSERT_OK(LogAndApplyToDefaultCF(edits));
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1644,7 +1674,7 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
   edits.back()->MarkAtomicGroup(--remaining);
   ASSERT_EQ(remaining, 0);
 
-  Status s = LogAndApplyToDefaultCF(edits);
+  ASSERT_OK(LogAndApplyToDefaultCF(edits));
 
   // Recover a new VersionSet, the min log number and the last WAL should be
   // kept.
@@ -1665,6 +1695,104 @@ TEST_F(VersionSetTest, AtomicGroupWithWalEdits) {
     ASSERT_TRUE(wals.at(kNumWals).HasSyncedSize());
     ASSERT_EQ(wals.at(kNumWals).GetSyncedSizeInBytes(), kNumWals);
   }
+}
+
+class VersionSetWithTimestampTest : public VersionSetTest {
+ public:
+  static const std::string kNewCfName;
+
+  explicit VersionSetWithTimestampTest() : VersionSetTest() {}
+
+  void SetUp() override {
+    NewDB();
+    Options options;
+    options.comparator = test::ComparatorWithU64Ts();
+    cfd_ = CreateColumnFamily(kNewCfName, options);
+    EXPECT_NE(nullptr, cfd_);
+    EXPECT_NE(nullptr, cfd_->GetLatestMutableCFOptions());
+    column_families_.emplace_back(kNewCfName, options);
+  }
+
+  void TearDown() override {
+    for (auto* e : edits_) {
+      delete e;
+    }
+    edits_.clear();
+  }
+
+  void GenVersionEditsToSetFullHistoryTsLow(
+      const std::vector<uint64_t>& ts_lbs) {
+    for (const auto ts_lb : ts_lbs) {
+      VersionEdit* edit = new VersionEdit;
+      edit->SetColumnFamily(cfd_->GetID());
+      std::string ts_str = test::EncodeInt(ts_lb);
+      edit->SetFullHistoryTsLow(ts_str);
+      edits_.emplace_back(edit);
+    }
+  }
+
+  void VerifyFullHistoryTsLow(uint64_t expected_ts_low) {
+    std::unique_ptr<VersionSet> vset(
+        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+                       &write_buffer_manager_, &write_controller_,
+                       /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
+    ASSERT_OK(vset->Recover(column_families_, /*read_only=*/false,
+                            /*db_id=*/nullptr));
+    for (auto* cfd : *(vset->GetColumnFamilySet())) {
+      ASSERT_NE(nullptr, cfd);
+      if (cfd->GetName() == kNewCfName) {
+        ASSERT_EQ(test::EncodeInt(expected_ts_low), cfd->GetFullHistoryTsLow());
+      } else {
+        ASSERT_TRUE(cfd->GetFullHistoryTsLow().empty());
+      }
+    }
+  }
+
+  void DoTest(const std::vector<uint64_t>& ts_lbs) {
+    if (ts_lbs.empty()) {
+      return;
+    }
+
+    GenVersionEditsToSetFullHistoryTsLow(ts_lbs);
+
+    Status s;
+    mutex_.Lock();
+    s = versions_->LogAndApply(cfd_, *(cfd_->GetLatestMutableCFOptions()),
+                               edits_, &mutex_);
+    mutex_.Unlock();
+    ASSERT_OK(s);
+    VerifyFullHistoryTsLow(*std::max_element(ts_lbs.begin(), ts_lbs.end()));
+  }
+
+ protected:
+  ColumnFamilyData* cfd_{nullptr};
+  // edits_ must contain and own pointers to heap-alloc VersionEdit objects.
+  autovector<VersionEdit*> edits_;
+};
+
+const std::string VersionSetWithTimestampTest::kNewCfName("new_cf");
+
+TEST_F(VersionSetWithTimestampTest, SetFullHistoryTsLbOnce) {
+  constexpr uint64_t kTsLow = 100;
+  DoTest({kTsLow});
+}
+
+// Simulate the application increasing full_history_ts_low.
+TEST_F(VersionSetWithTimestampTest, IncreaseFullHistoryTsLb) {
+  const std::vector<uint64_t> ts_lbs = {100, 101, 102, 103};
+  DoTest(ts_lbs);
+}
+
+// Simulate the application trying to decrease full_history_ts_low
+// unsuccessfully. If the application calls public API sequentially to
+// decrease the lower bound ts, RocksDB will return an InvalidArgument
+// status before involving VersionSet. Only when multiple threads trying
+// to decrease the lower bound concurrently will this case ever happen. Even
+// so, the lower bound cannot be decreased. The application will be notified
+// via return value of the API.
+TEST_F(VersionSetWithTimestampTest, TryDecreaseFullHistoryTsLb) {
+  const std::vector<uint64_t> ts_lbs = {103, 102, 101, 100};
+  DoTest(ts_lbs);
 }
 
 class VersionSetAtomicGroupTest : public VersionSetTestBase,
@@ -2164,10 +2292,7 @@ TEST_P(VersionSetTestDropOneCF, HandleDroppedColumnFamilyInAtomicGroup) {
   mutex_.Unlock();
   ASSERT_OK(s);
   ASSERT_EQ(1, called);
-  if (cfd_to_drop->Unref()) {
-    delete cfd_to_drop;
-    cfd_to_drop = nullptr;
-  }
+  cfd_to_drop->UnrefAndTryDelete();
 }
 
 INSTANTIATE_TEST_CASE_P(
@@ -2878,6 +3003,27 @@ TEST_F(VersionSetTestMissingFiles, NoFileMissing) {
     } else {
       ASSERT_TRUE(files.empty());
     }
+  }
+}
+
+TEST_F(VersionSetTestMissingFiles, MinLogNumberToKeep2PC) {
+  NewDB();
+
+  SstInfo sst(100, kDefaultColumnFamilyName, "a");
+  std::vector<FileMetaData> file_metas;
+  CreateDummyTableFiles({sst}, &file_metas);
+
+  constexpr WalNumber kMinWalNumberToKeep2PC = 10;
+  VersionEdit edit;
+  edit.AddFile(0, file_metas[0]);
+  edit.SetMinLogNumberToKeep(kMinWalNumberToKeep2PC);
+  ASSERT_OK(LogAndApplyToDefaultCF(edit));
+  ASSERT_EQ(versions_->min_log_number_to_keep_2pc(), kMinWalNumberToKeep2PC);
+
+  for (int i = 0; i < 3; i++) {
+    CreateNewManifest();
+    ReopenDB();
+    ASSERT_EQ(versions_->min_log_number_to_keep_2pc(), kMinWalNumberToKeep2PC);
   }
 }
 

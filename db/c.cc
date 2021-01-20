@@ -1388,34 +1388,39 @@ char* rocksdb_property_value_cf(
   }
 }
 
-void rocksdb_approximate_sizes(
-    rocksdb_t* db,
-    int num_ranges,
-    const char* const* range_start_key, const size_t* range_start_key_len,
-    const char* const* range_limit_key, const size_t* range_limit_key_len,
-    uint64_t* sizes) {
+void rocksdb_approximate_sizes(rocksdb_t* db, int num_ranges,
+                               const char* const* range_start_key,
+                               const size_t* range_start_key_len,
+                               const char* const* range_limit_key,
+                               const size_t* range_limit_key_len,
+                               uint64_t* sizes, char** errptr) {
   Range* ranges = new Range[num_ranges];
   for (int i = 0; i < num_ranges; i++) {
     ranges[i].start = Slice(range_start_key[i], range_start_key_len[i]);
     ranges[i].limit = Slice(range_limit_key[i], range_limit_key_len[i]);
   }
-  db->rep->GetApproximateSizes(ranges, num_ranges, sizes);
+  Status s = db->rep->GetApproximateSizes(ranges, num_ranges, sizes);
+  if (!s.ok()) {
+    SaveError(errptr, s);
+  }
   delete[] ranges;
 }
 
 void rocksdb_approximate_sizes_cf(
-    rocksdb_t* db,
-    rocksdb_column_family_handle_t* column_family,
-    int num_ranges,
-    const char* const* range_start_key, const size_t* range_start_key_len,
-    const char* const* range_limit_key, const size_t* range_limit_key_len,
-    uint64_t* sizes) {
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    int num_ranges, const char* const* range_start_key,
+    const size_t* range_start_key_len, const char* const* range_limit_key,
+    const size_t* range_limit_key_len, uint64_t* sizes, char** errptr) {
   Range* ranges = new Range[num_ranges];
   for (int i = 0; i < num_ranges; i++) {
     ranges[i].start = Slice(range_start_key[i], range_start_key_len[i]);
     ranges[i].limit = Slice(range_limit_key[i], range_limit_key_len[i]);
   }
-  db->rep->GetApproximateSizes(column_family->rep, ranges, num_ranges, sizes);
+  Status s = db->rep->GetApproximateSizes(column_family->rep, ranges,
+                                          num_ranges, sizes);
+  if (!s.ok()) {
+    SaveError(errptr, s);
+  }
   delete[] ranges;
 }
 

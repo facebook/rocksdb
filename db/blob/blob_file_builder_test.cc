@@ -15,7 +15,6 @@
 #include "db/blob/blob_index.h"
 #include "db/blob/blob_log_format.h"
 #include "db/blob/blob_log_sequential_reader.h"
-#include "env/composite_env_wrapper.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -40,7 +39,9 @@ class TestFileNumberGenerator {
 
 class BlobFileBuilderTest : public testing::Test {
  protected:
-  BlobFileBuilderTest() : mock_env_(Env::Default()), fs_(&mock_env_) {}
+  BlobFileBuilderTest() : mock_env_(Env::Default()) {
+    fs_ = mock_env_.GetFileSystem();
+  }
 
   void VerifyBlobFile(uint64_t blob_file_number,
                       const std::string& blob_file_path,
@@ -54,7 +55,7 @@ class BlobFileBuilderTest : public testing::Test {
     std::unique_ptr<FSRandomAccessFile> file;
     constexpr IODebugContext* dbg = nullptr;
     ASSERT_OK(
-        fs_.NewRandomAccessFile(blob_file_path, file_options_, &file, dbg));
+        fs_->NewRandomAccessFile(blob_file_path, file_options_, &file, dbg));
 
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(file), blob_file_path,
@@ -108,7 +109,7 @@ class BlobFileBuilderTest : public testing::Test {
   }
 
   MockEnv mock_env_;
-  LegacyFileSystemWrapper fs_;
+  std::shared_ptr<FileSystem> fs_;
   FileOptions file_options_;
 };
 
@@ -138,7 +139,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
   std::vector<std::string> blob_file_paths;
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, fs_.get(),
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, job_id, column_family_id,
                           column_family_name, io_priority, write_hint,
@@ -221,7 +222,7 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
   std::vector<std::string> blob_file_paths;
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, fs_.get(),
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, job_id, column_family_id,
                           column_family_name, io_priority, write_hint,
@@ -306,7 +307,7 @@ TEST_F(BlobFileBuilderTest, InlinedValues) {
   std::vector<std::string> blob_file_paths;
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, fs_.get(),
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, job_id, column_family_id,
                           column_family_name, io_priority, write_hint,
@@ -358,7 +359,7 @@ TEST_F(BlobFileBuilderTest, Compression) {
   std::vector<std::string> blob_file_paths;
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, fs_.get(),
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, job_id, column_family_id,
                           column_family_name, io_priority, write_hint,
@@ -440,7 +441,7 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
   std::vector<std::string> blob_file_paths;
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, fs_.get(),
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, job_id, column_family_id,
                           column_family_name, io_priority, write_hint,
@@ -517,7 +518,7 @@ TEST_F(BlobFileBuilderTest, Checksum) {
   std::vector<std::string> blob_file_paths;
   std::vector<BlobFileAddition> blob_file_additions;
 
-  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, &fs_,
+  BlobFileBuilder builder(TestFileNumberGenerator(), &mock_env_, fs_.get(),
                           &immutable_cf_options, &mutable_cf_options,
                           &file_options_, job_id, column_family_id,
                           column_family_name, io_priority, write_hint,
@@ -571,12 +572,12 @@ class BlobFileBuilderIOErrorTest
   BlobFileBuilderIOErrorTest()
       : mock_env_(Env::Default()),
         fault_injection_env_(&mock_env_),
-        fs_(&fault_injection_env_),
+        fs_(fault_injection_env_.GetFileSystem()),
         sync_point_(GetParam()) {}
 
   MockEnv mock_env_;
   FaultInjectionTestEnv fault_injection_env_;
-  LegacyFileSystemWrapper fs_;
+  std::shared_ptr<FileSystem> fs_;
   FileOptions file_options_;
   std::string sync_point_;
 };
@@ -616,7 +617,7 @@ TEST_P(BlobFileBuilderIOErrorTest, IOError) {
   std::vector<BlobFileAddition> blob_file_additions;
 
   BlobFileBuilder builder(TestFileNumberGenerator(), &fault_injection_env_,
-                          &fs_, &immutable_cf_options, &mutable_cf_options,
+                          fs_.get(), &immutable_cf_options, &mutable_cf_options,
                           &file_options_, job_id, column_family_id,
                           column_family_name, io_priority, write_hint,
                           &blob_file_paths, &blob_file_additions);

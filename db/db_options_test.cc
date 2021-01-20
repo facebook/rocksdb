@@ -190,10 +190,11 @@ TEST_F(DBOptionsTest, SetWalBytesPerSync) {
   options.env = env_;
   Reopen(options);
   ASSERT_EQ(512, dbfull()->GetDBOptions().wal_bytes_per_sync);
-  int counter = 0;
+  std::atomic_int counter{0};
   int low_bytes_per_sync = 0;
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "WritableFileWriter::RangeSync:0", [&](void* /*arg*/) { counter++; });
+      "WritableFileWriter::RangeSync:0",
+      [&](void* /*arg*/) { counter.fetch_add(1); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   const std::string kValue(kValueSize, 'v');
   int i = 0;
@@ -729,7 +730,7 @@ TEST_F(DBOptionsTest, SetFIFOCompactionOptions) {
     for (int j = 0; j < 10; j++) {
       ASSERT_OK(Put(ToString(i * 20 + j), rnd.RandomString(980)));
     }
-    Flush();
+    ASSERT_OK(Flush());
   }
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(NumTableFilesAtLevel(0), 10);

@@ -562,15 +562,25 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
     // 100% of queries to 1 filter
     num_primary_filters = 1;
   } else if (mode == kFiftyOneFilter) {
+    if (num_infos < 50) {
+      return 0.0;  // skip
+    }
     // 50% of queries
     primary_filter_threshold /= 2;
     // to 1% of filters
     num_primary_filters = (num_primary_filters + 99) / 100;
   } else if (mode == kEightyTwentyFilter) {
+    if (num_infos < 5) {
+      return 0.0;  // skip
+    }
     // 80% of queries
     primary_filter_threshold = primary_filter_threshold / 5 * 4;
     // to 20% of filters
     num_primary_filters = (num_primary_filters + 4) / 5;
+  } else if (mode == kRandomFilter) {
+    if (num_infos == 1) {
+      return 0.0;  // skip
+    }
   }
   uint32_t batch_size = 1;
   std::unique_ptr<Slice[]> batch_slices;

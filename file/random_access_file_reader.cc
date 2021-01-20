@@ -221,11 +221,19 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
       aligned_reqs.reserve(num_reqs);
       // Align and merge the read requests.
       size_t alignment = file_->GetRequiredBufferAlignment();
-      aligned_reqs.push_back(Align(read_reqs[0], alignment));
-      for (size_t i = 1; i < num_reqs; i++) {
+      for (size_t i = 0; i < num_reqs; i++) {
         const auto& r = Align(read_reqs[i], alignment);
-        if (!TryMerge(&aligned_reqs.back(), r)) {
+        if (i == 0) {
+          // head
           aligned_reqs.push_back(r);
+
+        } else if (!TryMerge(&aligned_reqs.back(), r)) {
+          // head + n
+          aligned_reqs.push_back(r);
+
+        } else {
+          // unused
+          r.status.PermitUncheckedError();
         }
       }
       TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::MultiRead:AlignedReqs",

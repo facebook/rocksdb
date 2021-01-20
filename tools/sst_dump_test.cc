@@ -126,7 +126,7 @@ class SSTDumpToolTest : public testing::Test {
       tb->Add(MakeKey(i), MakeValue(i));
     }
     ASSERT_OK(tb->Finish());
-    file_writer->Close();
+    ASSERT_OK(file_writer->Close());
   }
 
  protected:

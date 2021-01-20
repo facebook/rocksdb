@@ -255,6 +255,20 @@ LIB_SOURCES =                                                   \
   utilities/transactions/lock/lock_manager.cc                   \
   utilities/transactions/lock/point/point_lock_tracker.cc       \
   utilities/transactions/lock/point/point_lock_manager.cc       \
+  utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc \
+  utilities/transactions/lock/range/range_tree/lib/locktree/keyrange.cc        \
+  utilities/transactions/lock/range/range_tree/lib/locktree/lock_request.cc    \
+  utilities/transactions/lock/range/range_tree/lib/locktree/locktree.cc        \
+  utilities/transactions/lock/range/range_tree/lib/locktree/manager.cc         \
+  utilities/transactions/lock/range/range_tree/lib/locktree/range_buffer.cc    \
+  utilities/transactions/lock/range/range_tree/lib/locktree/treenode.cc        \
+  utilities/transactions/lock/range/range_tree/lib/locktree/txnid_set.cc       \
+  utilities/transactions/lock/range/range_tree/lib/locktree/wfg.cc             \
+  utilities/transactions/lock/range/range_tree/lib/standalone_port.cc          \
+  utilities/transactions/lock/range/range_tree/lib/util/dbt.cc                 \
+  utilities/transactions/lock/range/range_tree/lib/util/memarena.cc            \
+  utilities/transactions/lock/range/range_tree/range_tree_lock_manager.cc      \
+  utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc      \
   utilities/transactions/optimistic_transaction.cc              \
   utilities/transactions/optimistic_transaction_db_impl.cc      \
   utilities/transactions/pessimistic_transaction.cc             \
@@ -524,6 +538,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/simulator_cache/sim_cache_test.cc                           \
   utilities/table_properties_collectors/compact_on_deletion_collector_test.cc  \
   utilities/transactions/optimistic_transaction_test.cc                 \
+  utilities/transactions/lock/range/range_locking_test.cc               \
   utilities/transactions/transaction_test.cc                            \
   utilities/transactions/lock/point/point_lock_manager_test.cc          \
   utilities/transactions/write_prepared_transaction_test.cc             \

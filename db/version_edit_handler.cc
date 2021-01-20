@@ -98,12 +98,18 @@ Status ListColumnFamiliesHandler::ApplyVersionEdit(
 Status FileChecksumRetriever::ApplyVersionEdit(VersionEdit& edit,
                                                ColumnFamilyData** /*unused*/) {
   for (const auto& deleted_file : edit.GetDeletedFiles()) {
-    file_checksum_list_.RemoveOneFileChecksum(deleted_file.second);
+    Status s = file_checksum_list_.RemoveOneFileChecksum(deleted_file.second);
+    if (!s.ok()) {
+      return s;
+    }
   }
   for (const auto& new_file : edit.GetNewFiles()) {
-    file_checksum_list_.InsertOneFileChecksum(
+    Status s = file_checksum_list_.InsertOneFileChecksum(
         new_file.second.fd.GetNumber(), new_file.second.file_checksum,
         new_file.second.file_checksum_func_name);
+    if (!s.ok()) {
+      return s;
+    }
   }
   return Status::OK();
 }
@@ -519,6 +525,10 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
       s = Status::InvalidArgument(
           cfd->user_comparator()->Name(),
           "does not match existing comparator " + edit.comparator_);
+    }
+    if (edit.HasFullHistoryTsLow()) {
+      const std::string& new_ts = edit.GetFullHistoryTsLow();
+      cfd->SetFullHistoryTsLow(new_ts);
     }
   }
 

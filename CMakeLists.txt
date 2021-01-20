@@ -243,14 +243,14 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
   endif(HAS_ALTIVEC)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|AARCH64")
         CHECK_C_COMPILER_FLAG("-march=armv8-a+crc+crypto" HAS_ARMV8_CRC)
   if(HAS_ARMV8_CRC)
     message(STATUS " HAS_ARMV8_CRC yes")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")
   endif(HAS_ARMV8_CRC)
-endif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
+endif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|AARCH64")
 
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
@@ -814,6 +814,8 @@ set(SOURCES
         utilities/transactions/lock/lock_manager.cc
         utilities/transactions/lock/point/point_lock_tracker.cc
         utilities/transactions/lock/point/point_lock_manager.cc
+        utilities/transactions/lock/range/range_tree/range_tree_lock_manager.cc
+        utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
         utilities/transactions/optimistic_transaction.cc
         utilities/transactions/pessimistic_transaction.cc
@@ -830,6 +832,20 @@ set(SOURCES
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
         $<TARGET_OBJECTS:build_version>)
+
+list(APPEND SOURCES
+  utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/keyrange.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/lock_request.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/locktree.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/manager.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/range_buffer.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/treenode.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/txnid_set.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/wfg.cc
+  utilities/transactions/lock/range/range_tree/lib/standalone_port.cc
+  utilities/transactions/lock/range/range_tree/lib/util/dbt.cc
+  utilities/transactions/lock/range/range_tree/lib/util/memarena.cc)
 
 if(HAVE_SSE42 AND NOT MSVC)
   set_source_files_properties(
@@ -1160,6 +1176,7 @@ if(WITH_TESTS)
         table/table_test.cc
         table/block_fetcher_test.cc
         test_util/testutil_test.cc
+        trace_replay/block_cache_tracer_test.cc
         trace_replay/io_tracer_test.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc
         tools/io_tracer_parser_test.cc
@@ -1210,6 +1227,7 @@ if(WITH_TESTS)
         utilities/transactions/lock/point/point_lock_manager_test.cc
         utilities/transactions/write_prepared_transaction_test.cc
         utilities/transactions/write_unprepared_transaction_test.cc
+        utilities/transactions/lock/range/range_locking_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
     )

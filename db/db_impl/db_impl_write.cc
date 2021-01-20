@@ -163,7 +163,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
-  Status status;
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
     // we are a non-leader in a parallel group
 
@@ -193,8 +192,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
     assert(w.state == WriteThread::STATE_COMPLETED);
     // STATE_COMPLETED conditional below handles exit
-
-    status = w.FinalStatus();
   }
   if (w.state == WriteThread::STATE_COMPLETED) {
     if (log_used != nullptr) {
@@ -204,13 +201,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       *seq_used = w.sequence;
     }
     // write is complete and leader has updated sequence
-    // Should we handle it?
-    status.PermitUncheckedError();
     return w.FinalStatus();
   }
   // else we are the leader of the write batch group
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
-
+  Status status;
   // Once reaches this point, the current writer "w" will try to do its write
   // job.  It may also pick up some of the remaining writers in the "writers_"
   // when it finds suitable, and finish them in the same write batch.
@@ -531,6 +526,8 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
     IOStatus io_s;
+    io_s.PermitUncheckedError();  // Allow io_s to be uninitialized
+
     if (w.status.ok() && !write_options.disableWAL) {
       PERF_TIMER_GUARD(write_wal_time);
       stats->AddDBStats(InternalStats::kIntStatsWriteDoneBySelf, 1);
@@ -566,7 +563,12 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
     write_thread_.ExitAsBatchGroupLeader(wal_write_group, w.status);
   }
 
+  // NOTE: the memtable_write_group is declared before the following
+  // `if` statement because its lifetime needs to be longer
+  // that the inner context  of the `if` as a reference to it
+  // may be used further below within the outer _write_thread
   WriteThread::WriteGroup memtable_write_group;
+
   if (w.state == WriteThread::STATE_MEMTABLE_WRITER_LEADER) {
     PERF_TIMER_GUARD(write_memtable_time);
     assert(w.ShouldWriteToMemtable());
@@ -583,6 +585,10 @@ Status DBImpl::PipelinedWriteImpl(const WriteOptions& write_options,
       versions_->SetLastSequence(memtable_write_group.last_sequence);
       write_thread_.ExitAsMemTableWriter(&w, memtable_write_group);
     }
+  } else {
+    // NOTE: the memtable_write_group is never really used,
+    // so we need to set its status to pass ASSERT_STATUS_CHECKED
+    memtable_write_group.status.PermitUncheckedError();
   }
 
   if (w.state == WriteThread::STATE_PARALLEL_MEMTABLE_WRITER) {
@@ -666,7 +672,6 @@ Status DBImpl::WriteImplWALOnly(
     const uint64_t log_ref, uint64_t* seq_used, const size_t sub_batch_cnt,
     PreReleaseCallback* pre_release_callback, const AssignOrder assign_order,
     const PublishLastSeq publish_last_seq, const bool disable_memtable) {
-  Status status;
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(write_options, my_batch, callback, log_ref,
                         disable_memtable, sub_batch_cnt, pre_release_callback);
@@ -688,6 +693,8 @@ Status DBImpl::WriteImplWALOnly(
   assert(w.state == WriteThread::STATE_GROUP_LEADER);
 
   if (publish_last_seq == kDoPublishLastSeq) {
+    Status status;
+
     // Currently we only use kDoPublishLastSeq in unordered_write
     assert(immutable_db_options_.unordered_write);
     WriteContext write_context;
@@ -764,7 +771,9 @@ Status DBImpl::WriteImplWALOnly(
     }
     seq_inc = total_batch_cnt;
   }
+  Status status;
   IOStatus io_s;
+  io_s.PermitUncheckedError();  // Allow io_s to be uninitialized
   if (!write_options.disableWAL) {
     io_s = ConcurrentWriteToWAL(write_group, log_used, &last_sequence, seq_inc);
     status = io_s;
@@ -850,8 +859,7 @@ void DBImpl::WriteStatusCheckOnLocked(const Status& status) {
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
       !status.IsBusy() && !status.IsIncomplete()) {
     // Maybe change the return status to void?
-    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
   }
 }
 
@@ -863,8 +871,7 @@ void DBImpl::WriteStatusCheck(const Status& status) {
       !status.IsBusy() && !status.IsIncomplete()) {
     mutex_.Lock();
     // Maybe change the return status to void?
-    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(status, BackgroundErrorReason::kWriteCallback);
     mutex_.Unlock();
   }
 }
@@ -877,8 +884,7 @@ void DBImpl::IOStatusCheck(const IOStatus& io_status) {
       io_status.IsIOFenced()) {
     mutex_.Lock();
     // Maybe change the return status to void?
-    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback)
-        .PermitUncheckedError();
+    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback);
     mutex_.Unlock();
   }
 }
@@ -1335,10 +1341,17 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
     }
     for (auto cfd : cfds) {
       cfd->imm()->FlushRequested();
+      if (!immutable_db_options_.atomic_flush) {
+        FlushRequest flush_req;
+        GenerateFlushRequest({cfd}, &flush_req);
+        SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+      }
     }
-    FlushRequest flush_req;
-    GenerateFlushRequest(cfds, &flush_req);
-    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+    if (immutable_db_options_.atomic_flush) {
+      FlushRequest flush_req;
+      GenerateFlushRequest(cfds, &flush_req);
+      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+    }
     MaybeScheduleFlushOrCompaction();
   }
   return status;
@@ -1414,10 +1427,17 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
     }
     for (const auto cfd : cfds) {
       cfd->imm()->FlushRequested();
+      if (!immutable_db_options_.atomic_flush) {
+        FlushRequest flush_req;
+        GenerateFlushRequest({cfd}, &flush_req);
+        SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+      }
     }
-    FlushRequest flush_req;
-    GenerateFlushRequest(cfds, &flush_req);
-    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    if (immutable_db_options_.atomic_flush) {
+      FlushRequest flush_req;
+      GenerateFlushRequest(cfds, &flush_req);
+      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    }
     MaybeScheduleFlushOrCompaction();
   }
   return status;
@@ -1641,10 +1661,16 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
   if (status.ok()) {
     if (immutable_db_options_.atomic_flush) {
       AssignAtomicFlushSeq(cfds);
+      FlushRequest flush_req;
+      GenerateFlushRequest(cfds, &flush_req);
+      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+    } else {
+      for (auto* cfd : cfds) {
+        FlushRequest flush_req;
+        GenerateFlushRequest({cfd}, &flush_req);
+        SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+      }
     }
-    FlushRequest flush_req;
-    GenerateFlushRequest(cfds, &flush_req);
-    SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
     MaybeScheduleFlushOrCompaction();
   }
   return status;
@@ -1790,32 +1816,74 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     }
     // We may have lost data from the WritableFileBuffer in-memory buffer for
     // the current log, so treat it as a fatal error and set bg_error
-    // Should handle return error?
     if (!io_s.ok()) {
-      // Should handle return error?
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kMemTable);
     } else {
-      // Should handle return error?
-      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(s, BackgroundErrorReason::kMemTable);
     }
     // Read back bg_error in order to get the right severity
     s = error_handler_.GetBGError();
     return s;
   }
 
-  for (auto loop_cfd : *versions_->GetColumnFamilySet()) {
-    // all this is just optimization to delete logs that
-    // are no longer needed -- if CF is empty, that means it
-    // doesn't need that particular log to stay alive, so we just
-    // advance the log number. no need to persist this in the manifest
-    if (loop_cfd->mem()->GetFirstSequenceNumber() == 0 &&
-        loop_cfd->imm()->NumNotFlushed() == 0) {
-      if (creating_new_log) {
-        loop_cfd->SetLogNumber(logfile_number_);
+  bool empty_cf_updated = false;
+  if (immutable_db_options_.track_and_verify_wals_in_manifest &&
+      !immutable_db_options_.allow_2pc && creating_new_log) {
+    // In non-2pc mode, WALs become obsolete if they do not contain unflushed
+    // data. Updating the empty CF's log number might cause some WALs to become
+    // obsolete. So we should track the WAL obsoletion event before actually
+    // updating the empty CF's log number.
+    uint64_t min_wal_number_to_keep =
+        versions_->PreComputeMinLogNumberWithUnflushedData(logfile_number_);
+    if (min_wal_number_to_keep >
+        versions_->GetWalSet().GetMinWalNumberToKeep()) {
+      // Get a snapshot of the empty column families.
+      // LogAndApply may release and reacquire db
+      // mutex, during that period, column family may become empty (e.g. its
+      // flush succeeds), then it affects the computed min_log_number_to_keep,
+      // so we take a snapshot for consistency of column family data
+      // status. If a column family becomes non-empty afterwards, its active log
+      // should still be the created new log, so the min_log_number_to_keep is
+      // not affected.
+      autovector<ColumnFamilyData*> empty_cfs;
+      for (auto cf : *versions_->GetColumnFamilySet()) {
+        if (cf->IsEmpty()) {
+          empty_cfs.push_back(cf);
+        }
       }
-      loop_cfd->mem()->SetCreationSeq(versions_->LastSequence());
+
+      VersionEdit wal_deletion;
+      wal_deletion.DeleteWalsBefore(min_wal_number_to_keep);
+      s = versions_->LogAndApplyToDefaultColumnFamily(&wal_deletion, &mutex_);
+      if (!s.ok() && versions_->io_status().IsIOError()) {
+        s = error_handler_.SetBGError(versions_->io_status(),
+                                      BackgroundErrorReason::kManifestWrite);
+      }
+      if (!s.ok()) {
+        return s;
+      }
+
+      for (auto cf : empty_cfs) {
+        if (cf->IsEmpty()) {
+          cf->SetLogNumber(logfile_number_);
+          cf->mem()->SetCreationSeq(versions_->LastSequence());
+        }  // cf may become non-empty.
+      }
+      empty_cf_updated = true;
+    }
+  }
+  if (!empty_cf_updated) {
+    for (auto cf : *versions_->GetColumnFamilySet()) {
+      // all this is just optimization to delete logs that
+      // are no longer needed -- if CF is empty, that means it
+      // doesn't need that particular log to stay alive, so we just
+      // advance the log number. no need to persist this in the manifest
+      if (cf->IsEmpty()) {
+        if (creating_new_log) {
+          cf->SetLogNumber(logfile_number_);
+        }
+        cf->mem()->SetCreationSeq(versions_->LastSequence());
+      }
     }
   }
 

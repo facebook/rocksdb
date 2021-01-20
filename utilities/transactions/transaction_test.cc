@@ -102,7 +102,7 @@ TEST_P(TransactionTest, DoubleEmptyWrite) {
   // Also test that it works during recovery
   txn0 = db->BeginTransaction(write_options, txn_options);
   ASSERT_OK(txn0->SetName("xid2"));
-  txn0->Put(Slice("foo0"), Slice("bar0a"));
+  ASSERT_OK(txn0->Put(Slice("foo0"), Slice("bar0a")));
   ASSERT_OK(txn0->Prepare());
   delete txn0;
   reinterpret_cast<PessimisticTransactionDB*>(db)->TEST_Crash();
@@ -1936,7 +1936,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
 
   // request a flush for all column families such that the earliest
   // alive log file can be killed
-  db_impl->TEST_SwitchWAL();
+  ASSERT_OK(db_impl->TEST_SwitchWAL());
   // log cannot be flushed because txn2 has not been commited
   ASSERT_TRUE(!db_impl->TEST_IsLogGettingFlushed());
   ASSERT_TRUE(db_impl->TEST_UnableToReleaseOldestLog());
@@ -1962,7 +1962,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   s = txn2->Commit();
   ASSERT_OK(s);
 
-  db_impl->TEST_SwitchWAL();
+  ASSERT_OK(db_impl->TEST_SwitchWAL());
   ASSERT_TRUE(!db_impl->TEST_UnableToReleaseOldestLog());
 
   // we should see that cfb now has a flush requested
@@ -5893,6 +5893,7 @@ TEST_P(TransactionTest, DuplicateKeys) {
     std::vector<ColumnFamilyHandle*> handles;
     ASSERT_OK(ReOpenNoDelete(cfds, &handles));
 
+    assert(db != nullptr);
     ASSERT_OK(db->Put(write_options, "foo0", "init"));
     ASSERT_OK(db->Put(write_options, "foo1", "init"));
     ASSERT_OK(db->Put(write_options, handles[1], "foo0", "init"));
@@ -6194,6 +6195,7 @@ TEST_P(TransactionTest, DoubleCrashInRecovery) {
       column_families.push_back(
           ColumnFamilyDescriptor("two", ColumnFamilyOptions()));
       ASSERT_OK(ReOpenNoDelete(column_families, &handles));
+      assert(db != nullptr);
 
       if (write_after_recovery) {
         // Write data to the log right after the corrupted log

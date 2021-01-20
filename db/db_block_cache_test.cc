@@ -677,7 +677,7 @@ TEST_F(DBBlockCacheTest, ParanoidFileChecks) {
   // Create a new SST file. This will further trigger a compaction
   // and generate another file.
   ASSERT_OK(Flush(1));
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(3, /* Totally 3 files created up to now */
             TestGetTickerCount(options, BLOCK_CACHE_ADD));
 
@@ -692,7 +692,7 @@ TEST_F(DBBlockCacheTest, ParanoidFileChecks) {
   ASSERT_OK(Put(1, "1_key4", "val4"));
   ASSERT_OK(Put(1, "9_key4", "val4"));
   ASSERT_OK(Flush(1));
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(3, /* Totally 3 files created up to now */
             TestGetTickerCount(options, BLOCK_CACHE_ADD));
 }
@@ -860,7 +860,7 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
       }
       ASSERT_OK(Flush());
     }
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_EQ(0, NumTableFilesAtLevel(0));
     ASSERT_EQ(kNumFiles, NumTableFilesAtLevel(1));
 

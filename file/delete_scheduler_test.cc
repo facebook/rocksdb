@@ -10,7 +10,6 @@
 #include <thread>
 #include <vector>
 
-#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "rocksdb/env.h"
@@ -58,7 +57,7 @@ class DeleteSchedulerTest : public testing::Test {
 
     int normal_cnt = 0;
     for (auto& f : files_in_dir) {
-      if (!DeleteScheduler::IsTrashFile(f) && f != "." && f != "..") {
+      if (!DeleteScheduler::IsTrashFile(f)) {
         normal_cnt++;
       }
     }
@@ -96,11 +95,9 @@ class DeleteSchedulerTest : public testing::Test {
     // Tests in this file are for DeleteScheduler component and don't create any
     // DBs, so we need to set max_trash_db_ratio to 100% (instead of default
     // 25%)
-    std::shared_ptr<FileSystem>
-                fs(std::make_shared<LegacyFileSystemWrapper>(env_));
-    sst_file_mgr_.reset(
-        new SstFileManagerImpl(env_, fs, nullptr, rate_bytes_per_sec_,
-                               /* max_trash_db_ratio= */ 1.1, 128 * 1024));
+    sst_file_mgr_.reset(new SstFileManagerImpl(
+        env_, env_->GetFileSystem(), nullptr, rate_bytes_per_sec_,
+        /* max_trash_db_ratio= */ 1.1, 128 * 1024));
     delete_scheduler_ = sst_file_mgr_->delete_scheduler();
     sst_file_mgr_->SetStatisticsPtr(stats_);
   }
@@ -426,7 +423,9 @@ TEST_F(DeleteSchedulerTest, BackgroundError) {
   delete_scheduler_->WaitForEmptyTrash();
   auto bg_errors = delete_scheduler_->GetBackgroundErrors();
   ASSERT_EQ(bg_errors.size(), 10);
-
+  for (const auto& it : bg_errors) {
+    ASSERT_TRUE(it.second.IsPathNotFound());
+  }
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -670,7 +669,7 @@ TEST_F(DeleteSchedulerTest, ImmediateDeleteOn25PercDBSize) {
   }
 
   for (std::string& file_name : generated_files) {
-    delete_scheduler_->DeleteFile(file_name, "");
+    ASSERT_OK(delete_scheduler_->DeleteFile(file_name, ""));
   }
 
   // When we end up with 26 files in trash we will start

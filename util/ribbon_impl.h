@@ -900,6 +900,22 @@ class SerializableInterleavedSolution {
     return corrected;
   }
 
+  // Round down to a number of slots supported by this structure. Note that
+  // this needs to be must be taken into account for the banding if this
+  // solution layout/storage is to be used.
+  static Index RoundDownNumSlots(Index num_slots) {
+    // Must be multiple of kCoeffBits
+    Index corrected = num_slots / kCoeffBits * kCoeffBits;
+
+    // Do not use num_starts==1 unless kUseSmash, because the hashing
+    // might not be equipped for stacking up so many entries on a
+    // single start location.
+    if (!TypesAndSettings::kUseSmash && corrected == kCoeffBits) {
+      corrected = 0;
+    }
+    return corrected;
+  }
+
   // Compute the number of bytes for a given number of slots and desired
   // FP rate. Since desired FP rate might not be exactly achievable,
   // rounding_bias32==0 means to always round toward lower FP rate
@@ -927,9 +943,13 @@ class SerializableInterleavedSolution {
                                           double desired_one_in_fp_rate,
                                           uint32_t rounding_bias32) {
     assert(TypesAndSettings::kIsFilter);
-    if (TypesAndSettings::kAllowZeroStarts && num_slots == 0) {
-      // Unusual. Zero starts presumes no keys added -> always false (no FPs)
-      return 0U;
+    if (TypesAndSettings::kAllowZeroStarts) {
+      if (num_slots == 0) {
+        // Unusual. Zero starts presumes no keys added -> always false (no FPs)
+        return 0U;
+      }
+    } else {
+      assert(num_slots > 0);
     }
     // Must be rounded up already.
     assert(RoundUpNumSlots(num_slots) == num_slots);

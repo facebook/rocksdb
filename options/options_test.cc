@@ -2414,14 +2414,10 @@ TEST_F(OptionsOldApiTest, ColumnFamilyOptionsSerialization) {
 #ifndef ROCKSDB_LITE
 class OptionsParserTest : public testing::Test {
  public:
-  OptionsParserTest() {
-    env_.reset(new test::StringEnv(Env::Default()));
-    fs_.reset(new LegacyFileSystemWrapper(env_.get()));
-  }
+  OptionsParserTest() { fs_.reset(new test::StringFS(FileSystem::Default())); }
 
  protected:
-  std::unique_ptr<test::StringEnv> env_;
-  std::unique_ptr<LegacyFileSystemWrapper> fs_;
+  std::shared_ptr<test::StringFS> fs_;
 };
 
 TEST_F(OptionsParserTest, Comment) {
@@ -2450,7 +2446,7 @@ TEST_F(OptionsParserTest, Comment) {
       "  # if a section is blank, we will use the default\n";
 
   const std::string kTestFileName = "test-rocksdb-options.ini";
-  ASSERT_OK(env_->WriteToNewFile(kTestFileName, options_file_content));
+  ASSERT_OK(fs_->WriteToNewFile(kTestFileName, options_file_content));
   RocksDBOptionsParser parser;
   ASSERT_OK(
       parser.Parse(kTestFileName, fs_.get(), false, 4096 /* readahead_size */));
@@ -2481,7 +2477,7 @@ TEST_F(OptionsParserTest, ExtraSpace) {
       "  # if a section is blank, we will use the default\n";
 
   const std::string kTestFileName = "test-rocksdb-options.ini";
-  ASSERT_OK(env_->WriteToNewFile(kTestFileName, options_file_content));
+  ASSERT_OK(fs_->WriteToNewFile(kTestFileName, options_file_content));
   RocksDBOptionsParser parser;
   ASSERT_OK(
       parser.Parse(kTestFileName, fs_.get(), false, 4096 /* readahead_size */));
@@ -2499,7 +2495,7 @@ TEST_F(OptionsParserTest, MissingDBOptions) {
       "  # if a section is blank, we will use the default\n";
 
   const std::string kTestFileName = "test-rocksdb-options.ini";
-  ASSERT_OK(env_->WriteToNewFile(kTestFileName, options_file_content));
+  ASSERT_OK(fs_->WriteToNewFile(kTestFileName, options_file_content));
   RocksDBOptionsParser parser;
   ASSERT_NOK(
       parser.Parse(kTestFileName, fs_.get(), false, 4096 /* readahead_size */));
@@ -2529,7 +2525,7 @@ TEST_F(OptionsParserTest, DoubleDBOptions) {
       "  # if a section is blank, we will use the default\n";
 
   const std::string kTestFileName = "test-rocksdb-options.ini";
-  ASSERT_OK(env_->WriteToNewFile(kTestFileName, options_file_content));
+  ASSERT_OK(fs_->WriteToNewFile(kTestFileName, options_file_content));
   RocksDBOptionsParser parser;
   ASSERT_NOK(
       parser.Parse(kTestFileName, fs_.get(), false, 4096 /* readahead_size */));
@@ -2557,7 +2553,7 @@ TEST_F(OptionsParserTest, NoDefaultCFOptions) {
       "  # if a section is blank, we will use the default\n";
 
   const std::string kTestFileName = "test-rocksdb-options.ini";
-  ASSERT_OK(env_->WriteToNewFile(kTestFileName, options_file_content));
+  ASSERT_OK(fs_->WriteToNewFile(kTestFileName, options_file_content));
   RocksDBOptionsParser parser;
   ASSERT_NOK(
       parser.Parse(kTestFileName, fs_.get(), false, 4096 /* readahead_size */));
@@ -2587,7 +2583,7 @@ TEST_F(OptionsParserTest, DefaultCFOptionsMustBeTheFirst) {
       "  # if a section is blank, we will use the default\n";
 
   const std::string kTestFileName = "test-rocksdb-options.ini";
-  ASSERT_OK(env_->WriteToNewFile(kTestFileName, options_file_content));
+  ASSERT_OK(fs_->WriteToNewFile(kTestFileName, options_file_content));
   RocksDBOptionsParser parser;
   ASSERT_NOK(
       parser.Parse(kTestFileName, fs_.get(), false, 4096 /* readahead_size */));
@@ -2616,7 +2612,7 @@ TEST_F(OptionsParserTest, DuplicateCFOptions) {
       "[CFOptions \"something_else\"]\n";
 
   const std::string kTestFileName = "test-rocksdb-options.ini";
-  ASSERT_OK(env_->WriteToNewFile(kTestFileName, options_file_content));
+  ASSERT_OK(fs_->WriteToNewFile(kTestFileName, options_file_content));
   RocksDBOptionsParser parser;
   ASSERT_NOK(
       parser.Parse(kTestFileName, fs_.get(), false, 4096 /* readahead_size */));
@@ -2684,12 +2680,12 @@ TEST_F(OptionsParserTest, IgnoreUnknownOptions) {
         "  # if a section is blank, we will use the default\n";
 
     const std::string kTestFileName = "test-rocksdb-options.ini";
-    auto s = env_->FileExists(kTestFileName);
+    auto s = fs_->FileExists(kTestFileName, IOOptions(), nullptr);
     ASSERT_TRUE(s.ok() || s.IsNotFound());
     if (s.ok()) {
-      ASSERT_OK(env_->DeleteFile(kTestFileName));
+      ASSERT_OK(fs_->DeleteFile(kTestFileName, IOOptions(), nullptr));
     }
-    ASSERT_OK(env_->WriteToNewFile(kTestFileName, options_file_content));
+    ASSERT_OK(fs_->WriteToNewFile(kTestFileName, options_file_content));
     RocksDBOptionsParser parser;
     ASSERT_NOK(parser.Parse(kTestFileName, fs_.get(), false,
                             4096 /* readahead_size */));
@@ -2737,7 +2733,7 @@ TEST_F(OptionsParserTest, ParseVersion) {
     snprintf(buffer, kLength - 1, file_template.c_str(), iv.c_str());
 
     parser.Reset();
-    ASSERT_OK(env_->WriteToNewFile(iv, buffer));
+    ASSERT_OK(fs_->WriteToNewFile(iv, buffer));
     ASSERT_NOK(parser.Parse(iv, fs_.get(), false, 0 /* readahead_size */));
   }
 
@@ -2746,7 +2742,7 @@ TEST_F(OptionsParserTest, ParseVersion) {
   for (auto vv : valid_versions) {
     snprintf(buffer, kLength - 1, file_template.c_str(), vv.c_str());
     parser.Reset();
-    ASSERT_OK(env_->WriteToNewFile(vv, buffer));
+    ASSERT_OK(fs_->WriteToNewFile(vv, buffer));
     ASSERT_OK(parser.Parse(vv, fs_.get(), false, 0 /* readahead_size */));
   }
 }
@@ -2855,37 +2851,37 @@ TEST_F(OptionsParserTest, Readahead) {
                                   kOptionsFileName, fs_.get()));
 
   uint64_t file_size = 0;
-  ASSERT_OK(env_->GetFileSize(kOptionsFileName, &file_size));
+  ASSERT_OK(
+      fs_->GetFileSize(kOptionsFileName, IOOptions(), &file_size, nullptr));
   assert(file_size > 0);
 
   RocksDBOptionsParser parser;
 
-  env_->num_seq_file_read_ = 0;
+  fs_->num_seq_file_read_ = 0;
   size_t readahead_size = 128 * 1024;
 
   ASSERT_OK(parser.Parse(kOptionsFileName, fs_.get(), false, readahead_size));
-  ASSERT_EQ(env_->num_seq_file_read_.load(),
+  ASSERT_EQ(fs_->num_seq_file_read_.load(),
             (file_size - 1) / readahead_size + 1);
 
-  env_->num_seq_file_read_.store(0);
+  fs_->num_seq_file_read_.store(0);
   readahead_size = 1024 * 1024;
   ASSERT_OK(parser.Parse(kOptionsFileName, fs_.get(), false, readahead_size));
-  ASSERT_EQ(env_->num_seq_file_read_.load(),
+  ASSERT_EQ(fs_->num_seq_file_read_.load(),
             (file_size - 1) / readahead_size + 1);
 
   // Tiny readahead. 8 KB is read each time.
-  env_->num_seq_file_read_.store(0);
+  fs_->num_seq_file_read_.store(0);
   ASSERT_OK(
       parser.Parse(kOptionsFileName, fs_.get(), false, 1 /* readahead_size */));
-  ASSERT_GE(env_->num_seq_file_read_.load(), file_size / (8 * 1024));
-  ASSERT_LT(env_->num_seq_file_read_.load(), file_size / (8 * 1024) * 2);
+  ASSERT_GE(fs_->num_seq_file_read_.load(), file_size / (8 * 1024));
+  ASSERT_LT(fs_->num_seq_file_read_.load(), file_size / (8 * 1024) * 2);
 
   // Disable readahead means 512KB readahead.
-  env_->num_seq_file_read_.store(0);
+  fs_->num_seq_file_read_.store(0);
   ASSERT_OK(
       parser.Parse(kOptionsFileName, fs_.get(), false, 0 /* readahead_size */));
-  ASSERT_GE(env_->num_seq_file_read_.load(),
-            (file_size - 1) / (512 * 1024) + 1);
+  ASSERT_GE(fs_->num_seq_file_read_.load(), (file_size - 1) / (512 * 1024) + 1);
 }
 
 TEST_F(OptionsParserTest, DumpAndParse) {
@@ -3083,7 +3079,7 @@ class OptionsSanityCheckTest : public OptionsParserTest {
   }
 
   Status PersistCFOptions(const ColumnFamilyOptions& cf_opts) {
-    Status s = env_->DeleteFile(kOptionsFileName);
+    Status s = fs_->DeleteFile(kOptionsFileName, IOOptions(), nullptr);
     if (!s.ok()) {
       return s;
     }

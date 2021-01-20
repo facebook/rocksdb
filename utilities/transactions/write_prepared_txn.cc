@@ -70,16 +70,21 @@ Status WritePreparedTxn::Get(const ReadOptions& options,
       wpt_db_->AssignMinMaxSeqs(options.snapshot, &min_uncommitted, &snap_seq);
   WritePreparedTxnReadCallback callback(wpt_db_, snap_seq, min_uncommitted,
                                         backed_by_snapshot);
-  auto res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
-                                            pinnable_val, &callback);
-  if (LIKELY(callback.valid() &&
-             wpt_db_->ValidateSnapshot(callback.max_visible_seq(),
-                                       backed_by_snapshot))) {
-    return res;
-  } else {
-    wpt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
-    return Status::TryAgain();
+  Status res = write_batch_.GetFromBatchAndDB(db_, options, column_family, key,
+                                              pinnable_val, &callback);
+  const bool callback_valid =
+      callback.valid();  // NOTE: validity of callback must always be checked
+                         // before it is destructed
+  if (res.ok()) {
+    if (!LIKELY(callback_valid &&
+                wpt_db_->ValidateSnapshot(callback.max_visible_seq(),
+                                          backed_by_snapshot))) {
+      wpt_db_->WPRecordTick(TXN_GET_TRY_AGAIN);
+      res = Status::TryAgain();
+    }
   }
+
+  return res;
 }
 
 Iterator* WritePreparedTxn::GetIterator(const ReadOptions& options) {

@@ -122,14 +122,9 @@ class PosixDynamicLibrary : public DynamicLibrary {
 };
 #endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
 
-class PosixEnv : public CompositeEnvWrapper {
+class PosixEnv : public CompositeEnv {
  public:
-  // This constructor is for constructing non-default Envs, mainly by
-  // NewCompositeEnv(). It allows new instances to share the same
-  // threadpool and other resources as the default Env, while allowing
-  // a non-default FileSystem implementation
-  PosixEnv(const PosixEnv* default_env, std::shared_ptr<FileSystem> fs);
-
+  PosixEnv(const PosixEnv* default_env, const std::shared_ptr<FileSystem>& fs);
   ~PosixEnv() override {
     if (this == Env::Default()) {
       for (const auto tid : threads_to_join_) {
@@ -387,7 +382,7 @@ class PosixEnv : public CompositeEnvWrapper {
 };
 
 PosixEnv::PosixEnv()
-    : CompositeEnvWrapper(this, FileSystem::Default()),
+    : CompositeEnv(FileSystem::Default()),
       thread_pools_storage_(Priority::TOTAL),
       allow_non_owner_access_storage_(true),
       thread_pools_(thread_pools_storage_),
@@ -404,12 +399,13 @@ PosixEnv::PosixEnv()
   thread_status_updater_ = CreateThreadStatusUpdater();
 }
 
-PosixEnv::PosixEnv(const PosixEnv* default_env, std::shared_ptr<FileSystem> fs)
-  : CompositeEnvWrapper(this, fs),
-    thread_pools_(default_env->thread_pools_),
-    mu_(default_env->mu_),
-    threads_to_join_(default_env->threads_to_join_),
-    allow_non_owner_access_(default_env->allow_non_owner_access_) {
+PosixEnv::PosixEnv(const PosixEnv* default_env,
+                   const std::shared_ptr<FileSystem>& fs)
+    : CompositeEnv(fs),
+      thread_pools_(default_env->thread_pools_),
+      mu_(default_env->mu_),
+      threads_to_join_(default_env->threads_to_join_),
+      allow_non_owner_access_(default_env->allow_non_owner_access_) {
   thread_status_updater_ = default_env->thread_status_updater_;
 }
 
@@ -508,7 +504,7 @@ Env* Env::Default() {
   return &default_env;
 }
 
-std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs) {
+std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {
   PosixEnv* default_env = static_cast<PosixEnv*>(Env::Default());
   return std::unique_ptr<Env>(new PosixEnv(default_env, fs));
 }

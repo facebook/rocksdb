@@ -53,7 +53,6 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
-#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -307,18 +306,21 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   mutex_.AssertHeld();
   WaitForBackgroundWork();
 
-  Status bg_error = error_handler_.GetBGError();
   Status s;
   if (shutdown_initiated_) {
     // Returning shutdown status to SFM during auto recovery will cause it
     // to abort the recovery and allow the shutdown to progress
     s = Status::ShutdownInProgress();
   }
-  if (s.ok() && bg_error.severity() > Status::Severity::kHardError) {
-    ROCKS_LOG_INFO(
-        immutable_db_options_.info_log,
-        "DB resume requested but failed due to Fatal/Unrecoverable error");
-    s = bg_error;
+
+  if (s.ok()) {
+    Status bg_error = error_handler_.GetBGError();
+    if (bg_error.severity() > Status::Severity::kHardError) {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "DB resume requested but failed due to Fatal/Unrecoverable error");
+      s = bg_error;
+    }
   }
 
   // Make sure the IO Status stored in version set is set to OK.
@@ -393,6 +395,11 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   FindObsoleteFiles(&job_context, true);
   if (s.ok()) {
     s = error_handler_.ClearBGError();
+  } else {
+    // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
+    // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
+    // See https://github.com/facebook/rocksdb/pull/7715#issuecomment-754947952
+    error_handler_.GetRecoveryError().PermitUncheckedError();
   }
   mutex_.Unlock();
 
@@ -409,6 +416,12 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     if (file_deletion_disabled) {
       // Always return ok
       s = EnableFileDeletions(/*force=*/true);
+      if (!s.ok()) {
+        ROCKS_LOG_INFO(
+            immutable_db_options_.info_log,
+            "DB resume requested but could not enable file deletions [%s]",
+            s.ToString().c_str());
+      }
     }
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   }
@@ -690,6 +703,18 @@ void DBImpl::PrintStatistics() {
 
 void DBImpl::StartPeriodicWorkScheduler() {
 #ifndef ROCKSDB_LITE
+
+#ifndef NDEBUG
+  // It only used by test to disable scheduler
+  bool disable_scheduler = false;
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImpl::StartPeriodicWorkScheduler:DisableScheduler",
+      &disable_scheduler);
+  if (disable_scheduler) {
+    return;
+  }
+#endif  // !NDEBUG
+
   {
     InstrumentedMutexLock l(&mutex_);
     periodic_work_scheduler_ = PeriodicWorkScheduler::Default();
@@ -2205,7 +2230,7 @@ void DBImpl::MultiGet(const ReadOptions& read_options, const size_t num_keys,
   for (; cf_iter != multiget_cf_data.end(); ++cf_iter) {
     s = MultiGetImpl(read_options, cf_iter->start, cf_iter->num_keys,
                      &sorted_keys, cf_iter->super_version, consistent_seqnum,
-                     read_callback, nullptr);
+                     read_callback);
     if (!s.ok()) {
       break;
     }
@@ -2377,7 +2402,7 @@ void DBImpl::MultiGetWithCallback(
 
   Status s = MultiGetImpl(read_options, 0, num_keys, sorted_keys,
                           multiget_cf_data[0].super_version, consistent_seqnum,
-                          read_callback, nullptr);
+                          read_callback);
   assert(s.ok() || s.IsTimedOut() || s.IsAborted());
   ReturnAndCleanupSuperVersion(multiget_cf_data[0].cfd,
                                multiget_cf_data[0].super_version);
@@ -2396,7 +2421,7 @@ Status DBImpl::MultiGetImpl(
     const ReadOptions& read_options, size_t start_key, size_t num_keys,
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
     SuperVersion* super_version, SequenceNumber snapshot,
-    ReadCallback* callback, bool* is_blob_index) {
+    ReadCallback* callback) {
   PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
   StopWatch sw(env_, stats_, DB_MULTIGET);
 
@@ -2435,11 +2460,9 @@ Status DBImpl::MultiGetImpl(
         (read_options.read_tier == kPersistedTier &&
          has_unpersisted_data_.load(std::memory_order_relaxed));
     if (!skip_memtable) {
-      super_version->mem->MultiGet(read_options, &range, callback,
-                                   is_blob_index);
+      super_version->mem->MultiGet(read_options, &range, callback);
       if (!range.empty()) {
-        super_version->imm->MultiGet(read_options, &range, callback,
-                                     is_blob_index);
+        super_version->imm->MultiGet(read_options, &range, callback);
       }
       if (!range.empty()) {
         lookup_current = true;
@@ -2449,8 +2472,7 @@ Status DBImpl::MultiGetImpl(
     }
     if (lookup_current) {
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->MultiGet(read_options, &range, callback,
-                                       is_blob_index);
+      super_version->current->MultiGet(read_options, &range, callback);
     }
     curr_value_size = range.GetValueSize();
     if (curr_value_size > read_options.value_size_soft_limit) {
@@ -2804,7 +2826,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
                                     /* allow_unprepared_value */ true);
     result = NewDBIterator(
         env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
-        cfd->user_comparator(), iter, kMaxSequenceNumber,
+        cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
         sv->mutable_cf_options.max_sequential_skip_in_iterations, read_callback,
         this, cfd);
 #endif
@@ -2825,7 +2847,7 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
                                             ColumnFamilyData* cfd,
                                             SequenceNumber snapshot,
                                             ReadCallback* read_callback,
-                                            bool allow_blob,
+                                            bool expose_blob_index,
                                             bool allow_refresh) {
   SuperVersion* sv = cfd->GetReferencedSuperVersion(this);
 
@@ -2890,9 +2912,9 @@ ArenaWrappedDBIter* DBImpl::NewIteratorImpl(const ReadOptions& read_options,
   // likely that any iterator pointer is close to the iterator it points to so
   // that they are likely to be in the same cache line and/or page.
   ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-      env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, snapshot,
-      sv->mutable_cf_options.max_sequential_skip_in_iterations,
-      sv->version_number, read_callback, this, cfd, allow_blob,
+      env_, read_options, *cfd->ioptions(), sv->mutable_cf_options, sv->current,
+      snapshot, sv->mutable_cf_options.max_sequential_skip_in_iterations,
+      sv->version_number, read_callback, this, cfd, expose_blob_index,
       read_options.snapshot != nullptr ? false : allow_refresh);
 
   InternalIterator* internal_iter = NewInternalIterator(
@@ -2930,7 +2952,7 @@ Status DBImpl::NewIterators(
                                       /* allow_unprepared_value */ true);
       iterators->push_back(NewDBIterator(
           env_, read_options, *cfd->ioptions(), sv->mutable_cf_options,
-          cfd->user_comparator(), iter, kMaxSequenceNumber,
+          cfd->user_comparator(), iter, sv->current, kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
           read_callback, this, cfd));
     }
@@ -3102,8 +3124,8 @@ const std::string& DBImpl::GetName() const { return dbname_; }
 Env* DBImpl::GetEnv() const { return env_; }
 
 FileSystem* DB::GetFileSystem() const {
-  static LegacyFileSystemWrapper fs_wrap(GetEnv());
-  return &fs_wrap;
+  const auto& fs = GetEnv()->GetFileSystem();
+  return fs.get();
 }
 
 FileSystem* DBImpl::GetFileSystem() const {
@@ -3401,6 +3423,10 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
     return Status::InvalidArgument("Invalid options");
   }
 
+  const Comparator* const ucmp = column_family->GetComparator();
+  assert(ucmp);
+  size_t ts_sz = ucmp->timestamp_size();
+
   Version* v;
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
@@ -3408,9 +3434,23 @@ Status DBImpl::GetApproximateSizes(const SizeApproximationOptions& options,
   v = sv->current;
 
   for (int i = 0; i < n; i++) {
+    Slice start = range[i].start;
+    Slice limit = range[i].limit;
+
+    // Add timestamp if needed
+    std::string start_with_ts, limit_with_ts;
+    if (ts_sz > 0) {
+      // Maximum timestamp means including all key with any timestamp
+      AppendKeyWithMaxTimestamp(&start_with_ts, start, ts_sz);
+      // Append a maximum timestamp as the range limit is exclusive:
+      // [start, limit)
+      AppendKeyWithMaxTimestamp(&limit_with_ts, limit, ts_sz);
+      start = start_with_ts;
+      limit = limit_with_ts;
+    }
     // Convert user_key into a corresponding internal key.
-    InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
-    InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey k1(start, kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey k2(limit, kMaxSequenceNumber, kValueTypeForSeek);
     sizes[i] = 0;
     if (options.include_files) {
       sizes[i] += versions_->ApproximateSize(
@@ -3468,7 +3508,6 @@ Status DBImpl::DeleteFile(std::string name) {
     return Status::InvalidArgument("Invalid file name");
   }
 
-  Status status;
   if (type == kWalFile) {
     // Only allow deleting archived log files
     if (log_type != kArchivedLogFile) {
@@ -3477,7 +3516,7 @@ Status DBImpl::DeleteFile(std::string name) {
                       name.c_str());
       return Status::NotSupported("Delete only supported for archived logs");
     }
-    status = wal_manager_.DeleteFile(name, number);
+    Status status = wal_manager_.DeleteFile(name, number);
     if (!status.ok()) {
       ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                       "DeleteFile %s failed -- %s.\n", name.c_str(),
@@ -3486,6 +3525,7 @@ Status DBImpl::DeleteFile(std::string name) {
     return status;
   }
 
+  Status status;
   int level;
   FileMetaData* metadata;
   ColumnFamilyData* cfd;
@@ -3559,7 +3599,7 @@ Status DBImpl::DeleteFile(std::string name) {
 Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
                                    const RangePtr* ranges, size_t n,
                                    bool include_end) {
-  Status status;
+  Status status = Status::OK();
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   VersionEdit edit;
@@ -3618,7 +3658,7 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     }
     if (edit.GetDeletedFiles().empty()) {
       job_context.Clean();
-      return Status::OK();
+      return status;
     }
     input_version->Ref();
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
@@ -4339,7 +4379,7 @@ Status DBImpl::IngestExternalFiles(
     }
   }
   // Ingest multiple external SST files atomically.
-  size_t num_cfs = args.size();
+  const size_t num_cfs = args.size();
   for (size_t i = 0; i != num_cfs; ++i) {
     if (args[i].external_files.empty()) {
       char err_msg[128] = {0};
@@ -4380,10 +4420,7 @@ Status DBImpl::IngestExternalFiles(
         env_, versions_.get(), cfd, immutable_db_options_, file_options_,
         &snapshots_, arg.options, &directories_, &event_logger_, io_tracer_);
   }
-  std::vector<std::pair<bool, Status>> exec_results;
-  for (size_t i = 0; i != num_cfs; ++i) {
-    exec_results.emplace_back(false, Status::OK());
-  }
+
   // TODO(yanqin) maybe make jobs run in parallel
   uint64_t start_file_number = next_file_number;
   for (size_t i = 1; i != num_cfs; ++i) {
@@ -4391,10 +4428,13 @@ Status DBImpl::IngestExternalFiles(
     auto* cfd =
         static_cast<ColumnFamilyHandleImpl*>(args[i].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
-    exec_results[i].second = ingestion_jobs[i].Prepare(
+    Status es = ingestion_jobs[i].Prepare(
         args[i].external_files, args[i].files_checksums,
         args[i].files_checksum_func_names, start_file_number, super_version);
-    exec_results[i].first = true;
+    // capture first error only
+    if (!es.ok() && status.ok()) {
+      status = es;
+    }
     CleanupSuperVersion(super_version);
   }
   TEST_SYNC_POINT("DBImpl::IngestExternalFiles:BeforeLastJobPrepare:0");
@@ -4403,23 +4443,17 @@ Status DBImpl::IngestExternalFiles(
     auto* cfd =
         static_cast<ColumnFamilyHandleImpl*>(args[0].column_family)->cfd();
     SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
-    exec_results[0].second = ingestion_jobs[0].Prepare(
+    Status es = ingestion_jobs[0].Prepare(
         args[0].external_files, args[0].files_checksums,
         args[0].files_checksum_func_names, next_file_number, super_version);
-    exec_results[0].first = true;
-    CleanupSuperVersion(super_version);
-  }
-  for (const auto& exec_result : exec_results) {
-    if (!exec_result.second.ok()) {
-      status = exec_result.second;
-      break;
+    if (!es.ok()) {
+      status = es;
     }
+    CleanupSuperVersion(super_version);
   }
   if (!status.ok()) {
     for (size_t i = 0; i != num_cfs; ++i) {
-      if (exec_results[i].first) {
-        ingestion_jobs[i].Cleanup(status);
-      }
+      ingestion_jobs[i].Cleanup(status);
     }
     InstrumentedMutexLock l(&mutex_);
     ReleaseFileNumberFromPendingOutputs(pending_output_elem);
@@ -4589,8 +4623,7 @@ Status DBImpl::IngestExternalFiles(
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       const IOStatus& io_s = versions_->io_status();
       // Should handle return error?
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite)
-          .PermitUncheckedError();
+      error_handler_.SetBGError(io_s, BackgroundErrorReason::kManifestWrite);
     }
 
     // Resume writes to the DB
@@ -4864,7 +4897,7 @@ Status DBImpl::VerifySstFileChecksum(const FileMetaData& fmeta,
       fs_.get(), fname, immutable_db_options_.file_checksum_gen_factory.get(),
       fmeta.file_checksum_func_name, &file_checksum, &func_name,
       read_options.readahead_size, immutable_db_options_.allow_mmap_reads,
-      io_tracer_);
+      io_tracer_, immutable_db_options_.rate_limiter.get());
   if (s.ok()) {
     assert(fmeta.file_checksum_func_name == func_name);
     if (file_checksum != fmeta.file_checksum) {

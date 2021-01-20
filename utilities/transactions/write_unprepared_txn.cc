@@ -9,6 +9,7 @@
 #include "db/db_impl/db_impl.h"
 #include "util/cast_util.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
+#include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -819,7 +820,11 @@ void WriteUnpreparedTxn::Clear() {
   unflushed_save_points_.reset(nullptr);
   recovered_txn_ = false;
   largest_validated_seq_ = 0;
-  assert(active_iterators_.empty());
+  for (auto& it : active_iterators_) {
+    auto bdit = static_cast<BaseDeltaIterator*>(it);
+    bdit->Invalidate(Status::InvalidArgument(
+        "Cannot use iterator after transaction has finished"));
+  }
   active_iterators_.clear();
   untracked_keys_.clear();
   TransactionBaseImpl::Clear();

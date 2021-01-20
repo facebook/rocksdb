@@ -72,7 +72,7 @@ class CompactionJobTestBase : public testing::Test {
   CompactionJobTestBase(std::string dbname, const Comparator* ucmp,
                         std::function<std::string(uint64_t)> encode_u64_ts)
       : env_(Env::Default()),
-        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
+        fs_(env_->GetFileSystem()),
         dbname_(std::move(dbname)),
         ucmp_(ucmp),
         db_options_(),
@@ -269,7 +269,7 @@ class CompactionJobTestBase : public testing::Test {
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
     compaction_job_stats_.Reset();
-    SetIdentityFile(env_, dbname_);
+    ASSERT_OK(SetIdentityFile(env_, dbname_));
 
     VersionEdit new_db;
     new_db.SetLogNumber(0);

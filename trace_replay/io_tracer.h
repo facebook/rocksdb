@@ -158,7 +158,7 @@ class IOTracer {
 
   TSAN_SUPPRESSION bool is_tracing_enabled() const { return tracing_enabled; }
 
-  Status WriteIOOp(const IOTraceRecord& record);
+  void WriteIOOp(const IOTraceRecord& record);
 
  private:
   TraceOptions trace_options_;

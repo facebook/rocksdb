@@ -77,8 +77,9 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
     if (table_opt.partition_filters) {
       assert(p_index_builder != nullptr);
       // Since after partition cut request from filter builder it takes time
-      // until index builder actully cuts the partition, we take the lower bound
-      // as partition size.
+      // until index builder actully cuts the partition, until the end of a
+      // data block potentially with many keys, we take the lower bound as
+      // partition size.
       assert(table_opt.block_size_deviation <= 100);
       auto partition_size =
           static_cast<uint32_t>(((table_opt.metadata_block_size *
@@ -1451,20 +1452,23 @@ void BlockBasedTableBuilder::WriteIndexBlock(
     }
   }
   // If there are more index partitions, finish them and write them out
-  Status s = index_builder_status;
-  while (ok() && s.IsIncomplete()) {
-    s = rep_->index_builder->Finish(&index_blocks, *index_block_handle);
-    if (!s.ok() && !s.IsIncomplete()) {
-      rep_->SetStatus(s);
-      return;
+  if (index_builder_status.IsIncomplete()) {
+    Status s = Status::Incomplete();
+    while (ok() && s.IsIncomplete()) {
+      s = rep_->index_builder->Finish(&index_blocks, *index_block_handle);
+      if (!s.ok() && !s.IsIncomplete()) {
+        rep_->SetStatus(s);
+        return;
+      }
+      if (rep_->table_options.enable_index_compression) {
+        WriteBlock(index_blocks.index_block_contents, index_block_handle,
+                   false);
+      } else {
+        WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
+                      index_block_handle);
+      }
+      // The last index_block_handle will be for the partition index block
     }
-    if (rep_->table_options.enable_index_compression) {
-      WriteBlock(index_blocks.index_block_contents, index_block_handle, false);
-    } else {
-      WriteRawBlock(index_blocks.index_block_contents, kNoCompression,
-                    index_block_handle);
-    }
-    // The last index_block_handle will be for the partition index block
   }
 }
 

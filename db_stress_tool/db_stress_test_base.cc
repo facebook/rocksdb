@@ -15,6 +15,7 @@
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/types.h"
 #include "util/cast_util.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -471,7 +472,7 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   }
   static std::atomic<uint64_t> txn_id = {0};
   TransactionOptions txn_options;
-  txn_options.lock_timeout = 60000;  // 1min
+  txn_options.lock_timeout = 600000;  // 10 min
   txn_options.deadlock_detect = true;
   *txn = txn_db_->BeginTransaction(write_opts, txn_options);
   auto istr = std::to_string(txn_id.fetch_add(1));
@@ -524,6 +525,16 @@ void StressTest::OperateDb(ThreadState* thread) {
   if (FLAGS_read_fault_one_in) {
     fault_fs_guard->SetThreadLocalReadErrorContext(thread->shared->GetSeed(),
                                             FLAGS_read_fault_one_in);
+  }
+  if (FLAGS_write_fault_one_in) {
+    IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+    error_msg.SetRetryable(true);
+    std::vector<FileType> types;
+    types.push_back(FileType::kTableFile);
+    types.push_back(FileType::kDescriptorFile);
+    types.push_back(FileType::kCurrentFile);
+    fault_fs_guard->SetRandomWriteError(
+        thread->shared->GetSeed(), FLAGS_write_fault_one_in, error_msg, types);
   }
 #endif // NDEBUG
   thread->stats.Start();
@@ -618,7 +629,8 @@ void StressTest::OperateDb(ThreadState* thread) {
 
 #ifndef ROCKSDB_LITE
       // Verify GetLiveFiles with a 1 in N chance.
-      if (thread->rand.OneInOpt(FLAGS_get_live_files_one_in)) {
+      if (thread->rand.OneInOpt(FLAGS_get_live_files_one_in) &&
+          !FLAGS_write_fault_one_in) {
         Status status = VerifyGetLiveFiles();
         if (!status.ok()) {
           VerificationAbort(shared, "VerifyGetLiveFiles status not OK", status);
@@ -1460,7 +1472,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       FLAGS_db + "/.checkpoint" + ToString(thread->tid);
   Options tmp_opts(options_);
   tmp_opts.listeners.clear();
-  tmp_opts.env = db_stress_env->target();
+  tmp_opts.env = db_stress_env;
 
   DestroyDB(checkpoint_dir, tmp_opts);
 
@@ -1493,11 +1505,11 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       }
     }
   }
+  delete checkpoint;
+  checkpoint = nullptr;
   std::vector<ColumnFamilyHandle*> cf_handles;
   DB* checkpoint_db = nullptr;
   if (s.ok()) {
-    delete checkpoint;
-    checkpoint = nullptr;
     Options options(options_);
     options.listeners.clear();
     std::vector<ColumnFamilyDescriptor> cf_descs;
@@ -1952,6 +1964,7 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Use dynamic level         : %d\n",
           static_cast<int>(FLAGS_level_compaction_dynamic_level_bytes));
   fprintf(stdout, "Read fault one in         : %d\n", FLAGS_read_fault_one_in);
+  fprintf(stdout, "Write fault one in        : %d\n", FLAGS_write_fault_one_in);
   fprintf(stdout, "Sync fault injection      : %d\n", FLAGS_sync_fault_injection);
   fprintf(stdout, "Best efforts recovery     : %d\n",
           static_cast<int>(FLAGS_best_efforts_recovery));

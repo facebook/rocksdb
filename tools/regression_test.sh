@@ -142,6 +142,7 @@ function main {
       run_db_bench "deleterandom" $((NUM_KEYS / 10 / $NUM_THREADS))
       run_db_bench "seekrandom"
       run_db_bench "seekrandomwhilewriting"
+      run_db_bench "multireadrandom" 
   fi
 
   cleanup_test_directory $TEST_ROOT_DIR
@@ -192,6 +193,8 @@ function init_arguments {
   DELETE_TEST_PATH=${DELETE_TEST_PATH:-0}
   SEEK_NEXTS=${SEEK_NEXTS:-10}
   SEED=${SEED:-$( date +%s )}
+  MULTIREAD_BATCH_SIZE=${MULTIREAD_BATCH_SIZE:-128}
+  MULTIREAD_STRIDE=${MULTIREAD_STRIDE:-12}
 }
 
 # $1 --- benchmark name
@@ -240,7 +243,10 @@ function run_db_bench {
       --max_background_compactions=$MAX_BACKGROUND_COMPACTIONS \
       --num_high_pri_threads=$NUM_HIGH_PRI_THREADS \
       --num_low_pri_threads=$NUM_LOW_PRI_THREADS \
-      --seed=$SEED) 2>&1"
+      --seed=$SEED \
+      --multiread_batched=true \
+      --batch_size=$MULTIREAD_BATCH_SIZE \
+      --multiread_stride=$MULTIREAD_STRIDE) 2>&1"
   ps_cmd="ps aux"
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
     echo "Running benchmark remotely on $REMOTE_USER_AT_HOST"
@@ -288,14 +294,14 @@ function build_checkpoint {
             db_index=$(basename $dir)
             echo "Building checkpoints: $ORIGIN_PATH/$db_index -> $DB_PATH/$db_index ..."
             $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH/$db_index \
-                        --db=$ORIGIN_PATH/$db_index 2>&1
+                        --db=$ORIGIN_PATH/$db_index --try_load_options 2>&1
         done
     else
         # checkpoint cannot build in directory already exists
         $cmd_prefix rm -rf $DB_PATH
         echo "Building checkpoint: $ORIGIN_PATH -> $DB_PATH ..."
         $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH \
-                    --db=$ORIGIN_PATH 2>&1
+                    --db=$ORIGIN_PATH --try_load_options 2>&1
     fi
 }
 
@@ -377,7 +383,7 @@ function build_db_bench_and_ldb {
   make clean
   exit_on_error $?
 
-  DEBUG_LEVEL=0 PORTABLE=1 make db_bench ldb -j32
+  DEBUG_LEVEL=0 make db_bench ldb -j32
   exit_on_error $?
 }
 

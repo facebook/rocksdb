@@ -30,6 +30,7 @@
 // Windows API macro interference
 #undef DeleteFile
 #undef GetCurrentTime
+#undef LoadLibrary
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -282,7 +283,8 @@ class Env {
   virtual Status FileExists(const std::string& fname) = 0;
 
   // Store in *result the names of the children of the specified directory.
-  // The names are relative to "dir".
+  // The names are relative to "dir", and shall never include the
+  // names `.` or `..`.
   // Original contents of *results are dropped.
   // Returns OK if "dir" exists and "*result" contains its children.
   //         NotFound if "dir" does not exist, the calling process does not have
@@ -295,7 +297,8 @@ class Env {
   // In case the implementation lists the directory prior to iterating the files
   // and files are concurrently deleted, the deleted files will be omitted from
   // result.
-  // The name attributes are relative to "dir".
+  // The name attributes are relative to "dir", and shall never include the
+  // names `.` or `..`.
   // Original contents of *results are dropped.
   // Returns OK if "dir" exists and "*result" contains its children.
   //         NotFound if "dir" does not exist, the calling process does not have
@@ -1663,6 +1666,6 @@ Env* NewTimedEnv(Env* base_env);
 Status NewEnvLogger(const std::string& fname, Env* env,
                     std::shared_ptr<Logger>* result);
 
-std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs);
+std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs);
 
 }  // namespace ROCKSDB_NAMESPACE
