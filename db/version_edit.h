@@ -52,13 +52,16 @@ enum Tag : uint32_t {
 
   kInAtomicGroup = 300,
 
+  kBlobFileAddition = 400,
+  kBlobFileGarbage,
+
   // Mask for an unidentified tag from the future which can be safely ignored.
   kTagSafeIgnoreMask = 1 << 13,
 
   // Forward compatible (aka ignorable) records
   kDbId,
-  kBlobFileAddition,
-  kBlobFileGarbage,
+  kBlobFileAddition_DEPRECATED,
+  kBlobFileGarbage_DEPRECATED,
   kWalAddition,
   kWalDeletion,
   kFullHistoryTsLow,
