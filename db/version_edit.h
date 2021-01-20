@@ -62,6 +62,8 @@ enum Tag : uint32_t {
   kWalAddition,
   kWalDeletion,
   kFullHistoryTsLow,
+  kWalAddition2,
+  kWalDeletion2,
 };
 
 enum NewFileCustomTag : uint32_t {
