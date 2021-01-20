@@ -836,7 +836,6 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
   }
 
   bool flush_needed = true;
-  Status s;
 
   // Update full_history_ts_low if it's set
   if (options.full_history_ts_low != nullptr) {
@@ -846,7 +845,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
         return Status::InvalidArgument(
             "Cannot specify compaction range with full_history_ts_low");
       }
-      s = IncreaseFullHistoryTsLow(cfd, ts_low);
+      Status s = IncreaseFullHistoryTsLow(cfd, ts_low);
       if (!s.ok()) {
         LogFlush(immutable_db_options_.info_log);
         return s;
@@ -854,6 +853,7 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
     }
   }
 
+  Status s;
   if (begin != nullptr && end != nullptr) {
     // TODO(ajkr): We could also optimize away the flush in certain cases where
     // one/both sides of the interval are unbounded. But it requires more
