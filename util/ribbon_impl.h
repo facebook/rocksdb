@@ -25,6 +25,8 @@ namespace ribbon {
 // and core design details.
 //
 // TODO: more details on trade-offs and practical issues.
+//
+// APIs for configuring Ribbon are in ribbon_config.h
 
 // Ribbon implementations in this file take these parameters, which must be
 // provided in a class/struct type with members expressed in this concept:
@@ -51,18 +53,22 @@ namespace ribbon {
 //   // construction.
 //   static constexpr bool kIsFilter;
 //
-//   // When true, enables a special "homogeneous" filter implementation which
+//   // When true, enables a special "homogeneous" filter implementation that
 //   // is slightly faster to construct, and never fails to construct though
 //   // FP rate can quickly explode in cases where corresponding
 //   // non-homogeneous filter would fail (or nearly fail?) to construct.
-//   // Thus, we recommend ConstructionFailureChance smaller than desired FP
-//   // rate.
+//   // For smaller filters, you can configure with ConstructionFailureChance
+//   // smaller than desired FP rate to largely counteract this effect.
+//   // TODO: configuring Homogeneous Ribbon for arbitrarily large filters
+//   // based on data from OptimizeHomogAtScale
 //   static constexpr bool kHomogeneous;
 //
 //   // When true, adds a tiny bit more hashing logic on queries and
 //   // construction to improve utilization at the beginning and end of
 //   // the structure.  Recommended when CoeffRow is only 64 bits (or
-//   // less), so typical num_starts < 10k.
+//   // less), so typical num_starts < 10k. Although this is compatible
+//   // with kHomogeneous, the competing space vs. time priorities might
+//   // not be useful.
 //   static constexpr bool kUseSmash;
 //
 //   // When true, allows number of "starts" to be zero, for best support

@@ -1221,7 +1221,8 @@ TYPED_TEST(RibbonTypeParamTest, FindOccupancy) {
   }
 }
 
-// Not a real test, but a tool used to build APIs in ribbon_config.h
+// Not a real test, but a tool to understand Homogeneous Ribbon
+// behavior (TODO: configuration APIs & tests)
 TYPED_TEST(RibbonTypeParamTest, OptimizeHomogAtScale) {
   IMPORT_RIBBON_TYPES_AND_SETTINGS(TypeParam);
   IMPORT_RIBBON_IMPL_TYPES(TypeParam);
@@ -1245,6 +1246,8 @@ TYPED_TEST(RibbonTypeParamTest, OptimizeHomogAtScale) {
   Index num_slots = SimpleSoln::RoundUpNumSlots(FLAGS_optimize_homog_slots);
   banding.Reset(num_slots);
 
+  // This and "band_ovr" is the "allocated overhead", or slots over added.
+  // It does not take into account FP rates.
   double target_overhead = 1.20;
   uint32_t num_added = 0;
 
@@ -1276,6 +1279,8 @@ TYPED_TEST(RibbonTypeParamTest, OptimizeHomogAtScale) {
       double inv_fp_rate =
           1.0 * FLAGS_optimize_homog_check / fp_counts_by_cols[j];
       double equiv_cols = std::log(inv_fp_rate) * 1.4426950409;
+      // Overhead vs. information-theoretic minimum based on observed
+      // FP rate (subject to sampling error, especially for low FP rates)
       double actual_overhead =
           1.0 * (j + 1) * num_slots / (equiv_cols * num_added);
       fprintf(stderr, "ovr_%u: %g ", j + 1, actual_overhead);
