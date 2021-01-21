@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## Unreleased
+* Fix a race condition between DB startups and shutdowns in managing the periodic background worker threads. One effect of this race condition could be the process being terminated.
+
 ## 6.17.0 (01/15/2021)
 ### Behavior Changes
 * When verifying full file checksum with `DB::VerifyFileChecksums()`, we now fail with `Status::InvalidArgument` if the name of the checksum generator used for verification does not match the name of the checksum generator used for protecting the file when it was created.
