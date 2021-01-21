@@ -153,7 +153,12 @@ typedef struct toku_mutex_aligned {
   { .pmutex = PTHREAD_MUTEX_INITIALIZER, .psi_mutex = nullptr }
 #endif  // defined(TOKU_PTHREAD_DEBUG)
 #else   // __FreeBSD__, __linux__, at least
+#if defined(__GLIBC__)
 #define TOKU_MUTEX_ADAPTIVE PTHREAD_MUTEX_ADAPTIVE_NP
+#else
+// not all libc (e.g. musl) implement NP (Non-POSIX) attributes
+#define TOKU_MUTEX_ADAPTIVE PTHREAD_MUTEX_DEFAULT
+#endif
 #if defined(TOKU_PTHREAD_DEBUG)
 #define TOKU_ADAPTIVE_MUTEX_INITIALIZER                                    \
   {                                                                        \
