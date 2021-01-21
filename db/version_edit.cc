@@ -556,7 +556,8 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
-      case kBlobFileAddition: {
+      case kBlobFileAddition:
+      case kBlobFileAddition_DEPRECATED: {
         BlobFileAddition blob_file_addition;
         const Status s = blob_file_addition.DecodeFrom(&input);
         if (!s.ok()) {
@@ -567,7 +568,8 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
-      case kBlobFileGarbage: {
+      case kBlobFileGarbage:
+      case kBlobFileGarbage_DEPRECATED: {
         BlobFileGarbage blob_file_garbage;
         const Status s = blob_file_garbage.DecodeFrom(&input);
         if (!s.ok()) {
