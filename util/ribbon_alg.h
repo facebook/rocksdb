@@ -1141,14 +1141,15 @@ inline typename InterleavedSolutionStorage::ResultRow InterleavedPhsfQuery(
   const CoeffRow cr = hasher.GetCoeffRow(hash);
 
   ResultRow sr = 0;
-  const CoeffRow cr_left = cr << start_bit;
+  const CoeffRow cr_left = cr << static_cast<unsigned>(start_bit);
   for (Index i = 0; i < num_columns; ++i) {
     sr ^= BitParity(iss.LoadSegment(segment_num + i) & cr_left) << i;
   }
 
   if (start_bit > 0) {
     segment_num += num_columns;
-    const CoeffRow cr_right = cr >> (kCoeffBits - start_bit);
+    const CoeffRow cr_right =
+        cr >> static_cast<unsigned>(kCoeffBits - start_bit);
     for (Index i = 0; i < num_columns; ++i) {
       sr ^= BitParity(iss.LoadSegment(segment_num + i) & cr_right) << i;
     }
@@ -1193,8 +1194,9 @@ inline bool InterleavedFilterQuery(
       }
     }
   } else {
-    const CoeffRow cr_left = cr << start_bit;
-    const CoeffRow cr_right = cr >> (kCoeffBits - start_bit);
+    const CoeffRow cr_left = cr << static_cast<unsigned>(start_bit);
+    const CoeffRow cr_right =
+        cr >> static_cast<unsigned>(kCoeffBits - start_bit);
 
     for (Index i = 0; i < num_columns; ++i) {
       CoeffRow soln_data =
