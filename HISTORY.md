@@ -1,6 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
 * Fix a race condition between DB startups and shutdowns in managing the periodic background worker threads. One effect of this race condition could be the process being terminated.
+* Added memory pre-fetching for experimental Ribbon filter, which especially optimizes performance with batched MultiGet.
 
 ## 6.17.0 (01/15/2021)
 ### Behavior Changes
