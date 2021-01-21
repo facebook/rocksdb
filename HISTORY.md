@@ -1,4 +1,7 @@
 # Rocksdb Change Log
+## Unreleased
+### Bug Fixes
+* Fix a race condition between DB startups and shutdowns in managing the periodic background worker threads. One effect of this race condition could be the process being terminated.
 
 ## 6.16.1 (1/20/2021)
 ### Bug Fixes
