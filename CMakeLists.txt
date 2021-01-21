@@ -945,7 +945,7 @@ if(ROCKSDB_BUILD_SHARED)
                           LINKER_LANGUAGE CXX
                           VERSION ${rocksdb_VERSION}
                           SOVERSION ${rocksdb_VERSION_MAJOR}
-                          OUTPUT_NAME "rocksdb")
+                          OUTPUT_NAME "rocksdb${ARTIFACT_SUFFIX}")
   endif()
 endif()
 
