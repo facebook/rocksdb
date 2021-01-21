@@ -1,6 +1,4 @@
 # Rocksdb Change Log
-## Unreleased
-
 ## 6.17.0 (01/15/2021)
 ### Behavior Changes
 * When verifying full file checksum with `DB::VerifyFileChecksums()`, we now fail with `Status::InvalidArgument` if the name of the checksum generator used for verification does not match the name of the checksum generator used for protecting the file when it was created.
