@@ -14,6 +14,7 @@
 #include <sstream>
 
 #include "port/lang.h"
+#include "rocksdb/trace_reader_writer.h"
 #include "trace_replay/io_tracer.h"
 #include "util/gflags_compat.h"
 

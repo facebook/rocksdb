@@ -86,7 +86,7 @@ class WinClock : public SystemClock {
   uint64_t NowNanos() override;
 
   // 0 indicates not supported
-  uint64_t NowCPUNanos() override { return 0; }
+  uint64_t CPUMicros() override { return 0; }
   void SleepForMicroseconds(int micros) override;
 
   Status GetCurrentTime(int64_t* unix_time) override;

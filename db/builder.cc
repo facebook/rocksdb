@@ -124,6 +124,8 @@ Status BuildTable(
   assert(env);
   FileSystem* fs = db_options.fs.get();
   assert(fs);
+  const auto& clock = env->GetSystemClock();
+
   TableProperties tp;
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
@@ -151,8 +153,8 @@ Status BuildTable(
       file->SetWriteLifeTimeHint(write_hint);
 
       file_writer.reset(new WritableFileWriter(
-          std::move(file), fname, file_options, env->GetSystemClock(),
-          io_tracer, ioptions.statistics, ioptions.listeners,
+          std::move(file), fname, file_options, clock, io_tracer,
+          ioptions.statistics, ioptions.listeners,
           ioptions.file_checksum_gen_factory));
 
       builder = NewTableBuilder(
@@ -254,8 +256,7 @@ Status BuildTable(
     // Finish and check for file errors
     TEST_SYNC_POINT("BuildTable:BeforeSyncTable");
     if (s.ok() && !empty) {
-      StopWatch sw(env->GetSystemClock(), ioptions.statistics,
-                   TABLE_SYNC_MICROS);
+      StopWatch sw(clock, ioptions.statistics, TABLE_SYNC_MICROS);
       *io_status = file_writer->Sync(ioptions.use_fsync);
     }
     TEST_SYNC_POINT("BuildTable:BeforeCloseTableFile");

@@ -1295,7 +1295,7 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
 Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                                            MemTable* mem, VersionEdit* edit) {
   mutex_.AssertHeld();
-  const uint64_t start_micros = env_->NowMicros();
+  const uint64_t start_micros = clock_->NowMicros();
 
   FileMetaData meta;
   std::vector<BlobFileAddition> blob_file_additions;
@@ -1395,7 +1395,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   }
 
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
-  stats.micros = env_->NowMicros() - start_micros;
+  stats.micros = clock_->NowMicros() - start_micros;
 
   if (has_output) {
     stats.bytes_written = meta.fd.GetFileSize();

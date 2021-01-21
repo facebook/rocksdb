@@ -7,6 +7,7 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
+#include "rocksdb/trace_reader_writer.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 
@@ -90,7 +91,8 @@ TEST_F(IOTracerTest, AtomicWrite) {
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
     IOTracer writer;
-    ASSERT_OK(writer.StartIOTrace(env_, trace_opt, std::move(trace_writer)));
+    ASSERT_OK(writer.StartIOTrace(env_->GetSystemClock(), trace_opt,
+                                  std::move(trace_writer)));
     writer.WriteIOOp(record);
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
@@ -148,7 +150,8 @@ TEST_F(IOTracerTest, AtomicNoWriteAfterEndTrace) {
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
     IOTracer writer;
-    ASSERT_OK(writer.StartIOTrace(env_, trace_opt, std::move(trace_writer)));
+    ASSERT_OK(writer.StartIOTrace(env_->GetSystemClock(), trace_opt,
+                                  std::move(trace_writer)));
     writer.WriteIOOp(record);
     writer.EndIOTrace();
     // Write the record again. This time the record should not be written since
@@ -183,7 +186,8 @@ TEST_F(IOTracerTest, AtomicMultipleWrites) {
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
-    IOTraceWriter writer(env_, trace_opt, std::move(trace_writer));
+    IOTraceWriter writer(env_->GetSystemClock(), trace_opt,
+                         std::move(trace_writer));
     ASSERT_OK(writer.WriteHeader());
     // Write 10 records
     WriteIOOp(&writer, 10);

@@ -64,7 +64,7 @@ class PerfStepTimer {
     if (!use_cpu_time_) {
       return clock_->NowNanos();
     } else {
-      return clock_->NowCPUNanos();
+      return clock_->CPUNanos();
     }
   }
 

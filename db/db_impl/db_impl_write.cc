@@ -1475,14 +1475,14 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
       const uint64_t kDelayInterval = 1000;
       uint64_t stall_end = sw.start_time() + delay;
       while (write_controller_.NeedsDelay()) {
-        if (env_->NowMicros() >= stall_end) {
+        if (clock_->NowMicros() >= stall_end) {
           // We already delayed this write `delay` microseconds
           break;
         }
 
         delayed = true;
         // Sleep for 0.001 seconds
-        env_->SleepForMicroseconds(kDelayInterval);
+        clock_->SleepForMicroseconds(kDelayInterval);
       }
       mutex_.Lock();
       write_thread_.EndWriteStall();

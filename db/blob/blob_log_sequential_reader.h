@@ -16,6 +16,7 @@ class RandomAccessFileReader;
 class Env;
 class Statistics;
 class Status;
+class SystemClock;
 
 /**
  * BlobLogSequentialReader is a general purpose log stream reader
@@ -35,7 +36,8 @@ class BlobLogSequentialReader {
 
   // Create a reader that will return log records from "*file_reader".
   BlobLogSequentialReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
-                          Env* env, Statistics* statistics);
+                          const std::shared_ptr<SystemClock>& clock,
+                          Statistics* statistics);
 
   // No copying allowed
   BlobLogSequentialReader(const BlobLogSequentialReader&) = delete;
@@ -63,7 +65,8 @@ class BlobLogSequentialReader {
   Status ReadSlice(uint64_t size, Slice* slice, char* buf);
 
   const std::unique_ptr<RandomAccessFileReader> file_;
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
+
   Statistics* statistics_;
 
   Slice buffer_;

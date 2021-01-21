@@ -232,7 +232,8 @@ class CompositeEnv : public Env {
   uint64_t NowMicros() override { return system_clock_->NowMicros(); }
   uint64_t NowNanos() override { return system_clock_->NowNanos(); }
 
-  uint64_t NowCPUNanos() override { return system_clock_->NowCPUNanos(); }
+  uint64_t NowCPUNanos() override { return system_clock_->CPUNanos(); }
+
   void SleepForMicroseconds(int micros) override {
     system_clock_->SleepForMicroseconds(micros);
   }

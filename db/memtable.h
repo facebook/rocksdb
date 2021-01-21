@@ -24,7 +24,6 @@
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "table/multiget_context.h"
 #include "util/dynamic_bloom.h"
@@ -36,6 +35,7 @@ struct FlushJobInfo;
 class Mutex;
 class MemTableIterator;
 class MergeContext;
+class SystemClock;
 
 struct ImmutableMemTableOptions {
   explicit ImmutableMemTableOptions(const ImmutableCFOptions& ioptions,
@@ -504,7 +504,7 @@ class MemTable {
 
   std::atomic<FlushStateEnum> flush_state_;
 
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
 
   // Extract sequential insert prefixes.
   const SliceTransform* insert_with_hint_prefix_extractor_;

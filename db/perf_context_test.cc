@@ -826,8 +826,8 @@ TEST_F(PerfContextTest, PerfContextByLevelGetSet) {
 }
 
 TEST_F(PerfContextTest, CPUTimer) {
-  if (SystemClock::Default()->NowCPUNanos() == 0) {
-    ROCKSDB_GTEST_SKIP("Target without NowCPUNanos support");
+  if (SystemClock::Default()->CPUNanos() == 0) {
+    ROCKSDB_GTEST_SKIP("Target without CPUNanos support");
     return;
   }
 

@@ -154,7 +154,17 @@ class PosixClock : public SystemClock {
 #endif
   }
 
-  uint64_t NowCPUNanos() override {
+  uint64_t CPUMicros() override {
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD) || \
+    defined(OS_AIX) || (defined(__MACH__) && defined(__MAC_10_12))
+    struct timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000000;
+#endif
+    return 0;
+  }
+
+  uint64_t CPUNanos() override {
 #if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD) || \
     defined(OS_AIX) || (defined(__MACH__) && defined(__MAC_10_12))
     struct timespec ts;

@@ -427,8 +427,9 @@ IOStatus SyncManifest(const std::shared_ptr<SystemClock>& clock,
   return file->Sync(db_options->use_fsync);
 }
 
-Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
-                       const std::string& dbname, std::string* parent_dir,
+Status GetInfoLogFiles(const std::shared_ptr<FileSystem>& fs,
+                       const std::string& db_log_dir, const std::string& dbname,
+                       std::string* parent_dir,
                        std::vector<std::string>* info_log_list) {
   assert(parent_dir != nullptr);
   assert(info_log_list != nullptr);
@@ -444,7 +445,7 @@ Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
   InfoLogPrefix info_log_prefix(!db_log_dir.empty(), dbname);
 
   std::vector<std::string> file_names;
-  Status s = env->GetChildren(*parent_dir, &file_names);
+  Status s = fs->GetChildren(*parent_dir, IOOptions(), &file_names, nullptr);
 
   if (!s.ok()) {
     return s;

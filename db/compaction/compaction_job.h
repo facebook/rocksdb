@@ -50,6 +50,7 @@ class Arena;
 class ErrorHandler;
 class MemTable;
 class SnapshotChecker;
+class SystemClock;
 class TableCache;
 class Version;
 class VersionEdit;
@@ -159,6 +160,7 @@ class CompactionJob {
   const FileOptions file_options_;
 
   Env* env_;
+  std::shared_ptr<SystemClock> clock_;
   std::shared_ptr<IOTracer> io_tracer_;
   FileSystemPtr fs_;
   // env_option optimized for compaction table reads

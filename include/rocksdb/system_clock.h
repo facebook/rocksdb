@@ -29,11 +29,6 @@ class SystemClock {
 
   static const char* Type() { return "SystemClock"; }
 
-  // Creates and configures a new SystemClock from the input options and id.
-  // MJR static Status CreateFromString(const ConfigOptions& config_options,
-  // MJR                               const std::string& id,
-  // MJR                               std::shared_ptr<SystemClock>* clock);
-
   // The name of this system clock
   virtual const char* Name() const = 0;
 
@@ -53,8 +48,14 @@ class SystemClock {
   // that are MONOTONIC.
   virtual uint64_t NowNanos() { return NowMicros() * 1000; }
 
+  // Returns the number of micro-seconds of CPU time used by the current thread.
   // 0 indicates not supported.
-  virtual uint64_t NowCPUNanos() { return 0; }
+  virtual uint64_t CPUMicros() { return 0; }
+
+  // Returns the number of nano-seconds of CPU time used by the current thread.
+  // Default implementation simply relies on CPUMicros.
+  // 0 indicates not supported.
+  virtual uint64_t CPUNanos() { return CPUMicros() * 1000; }
 
   // Sleep/delay the thread for the prescribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
@@ -77,21 +78,18 @@ class SystemClockWrapper : public SystemClock {
 
   uint64_t NowNanos() override { return target_->NowNanos(); }
 
-  // 0 indicates not supported.
-  uint64_t NowCPUNanos() override { return target_->NowCPUNanos(); }
+  uint64_t CPUMicros() override { return target_->CPUMicros(); }
 
-  // Sleep/delay the thread for the prescribed number of micro-seconds.
+  uint64_t CPUNanos() override { return target_->CPUNanos(); }
+
   virtual void SleepForMicroseconds(int micros) override {
     return target_->SleepForMicroseconds(micros);
   }
 
-  // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
-  // Only overwrites *unix_time on success.
   Status GetCurrentTime(int64_t* unix_time) override {
     return target_->GetCurrentTime(unix_time);
   }
 
-  // Converts seconds-since-Jan-01-1970 to a printable string
   std::string TimeToString(uint64_t time) override {
     return target_->TimeToString(time);
   }

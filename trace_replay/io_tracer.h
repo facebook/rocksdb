@@ -9,12 +9,13 @@
 #include <fstream>
 
 #include "monitoring/instrumented_mutex.h"
-#include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "rocksdb/trace_reader_writer.h"
 #include "trace_replay/trace_replay.h"
 
 namespace ROCKSDB_NAMESPACE {
+class SystemClock;
+class TraceReader;
+class TraceWriter;
 
 struct IOTraceRecord {
   // Required fields for all accesses.
@@ -76,7 +77,8 @@ struct IOTraceHeader {
 // timestamp and type, followed by the trace payload.
 class IOTraceWriter {
  public:
-  IOTraceWriter(Env* env, const TraceOptions& trace_options,
+  IOTraceWriter(const std::shared_ptr<SystemClock>& clock,
+                const TraceOptions& trace_options,
                 std::unique_ptr<TraceWriter>&& trace_writer);
   ~IOTraceWriter() = default;
   // No copy and move.
@@ -92,7 +94,7 @@ class IOTraceWriter {
   Status WriteHeader();
 
  private:
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
 };
@@ -150,7 +152,8 @@ class IOTracer {
 
   // Start writing IO operations to the trace_writer.
   TSAN_SUPPRESSION Status
-  StartIOTrace(Env* env, const TraceOptions& trace_options,
+  StartIOTrace(const std::shared_ptr<SystemClock>& clock,
+               const TraceOptions& trace_options,
                std::unique_ptr<TraceWriter>&& trace_writer);
 
   // Stop writing IO operations to the trace_writer.

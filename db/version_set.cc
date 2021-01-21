@@ -1761,6 +1761,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
                  const std::shared_ptr<IOTracer>& io_tracer,
                  uint64_t version_number)
     : env_(vset->env_),
+      clock_(env_->GetSystemClock()),
       cfd_(column_family_data),
       info_log_((cfd_ == nullptr) ? nullptr : cfd_->ioptions()->info_log),
       db_statistics_((cfd_ == nullptr) ? nullptr
@@ -1879,8 +1880,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
       do_merge ? value : nullptr, do_merge ? timestamp : nullptr, value_found,
-      merge_context, do_merge, max_covering_tombstone_seq,
-      this->env_->GetSystemClock(), seq,
+      merge_context, do_merge, max_covering_tombstone_seq, clock_, seq,
       merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob_to_use,
       tracing_get_id);
 
@@ -1908,7 +1908,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     bool timer_enabled =
         GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
         get_perf_context()->per_level_perf_context_enabled;
-    StopWatchNano timer(env_->GetSystemClock(), timer_enabled /* auto_start */);
+    StopWatchNano timer(clock_, timer_enabled /* auto_start */);
     *status = table_cache_->Get(
         read_options, *internal_comparator(), *f->file_metadata, ikey,
         &get_context, mutable_cf_options_.prefix_extractor.get(),
@@ -1997,7 +1997,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     std::string* str_value = value != nullptr ? value->GetSelf() : nullptr;
     *status = MergeHelper::TimedFullMerge(
         merge_operator_, user_key, nullptr, merge_context->GetOperands(),
-        str_value, info_log_, db_statistics_, env_->GetSystemClock(),
+        str_value, info_log_, db_statistics_, clock_,
         nullptr /* result_operand */, true);
     if (LIKELY(value != nullptr)) {
       value->PinSelf();
@@ -2034,9 +2034,8 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         user_comparator(), merge_operator_, info_log_, db_statistics_,
         iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge,
         iter->ukey_with_ts, iter->value, iter->timestamp, nullptr,
-        &(iter->merge_context), true, &iter->max_covering_tombstone_seq,
-        this->env_->GetSystemClock(), nullptr,
-        merge_operator_ ? &pinned_iters_mgr : nullptr, callback,
+        &(iter->merge_context), true, &iter->max_covering_tombstone_seq, clock_,
+        nullptr, merge_operator_ ? &pinned_iters_mgr : nullptr, callback,
         &iter->is_blob_index, tracing_mget_id);
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
@@ -2067,7 +2066,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     bool timer_enabled =
         GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
         get_perf_context()->per_level_perf_context_enabled;
-    StopWatchNano timer(env_->GetSystemClock(), timer_enabled /* auto_start */);
+    StopWatchNano timer(clock_, timer_enabled /* auto_start */);
     s = table_cache_->MultiGet(
         read_options, *internal_comparator(), *f->file_metadata, &file_range,
         mutable_cf_options_.prefix_extractor.get(),
@@ -2230,7 +2229,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           iter->value != nullptr ? iter->value->GetSelf() : nullptr;
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
-          str_value, info_log_, db_statistics_, env_->GetSystemClock(),
+          str_value, info_log_, db_statistics_, clock_,
           nullptr /* result_operand */, true);
       if (LIKELY(iter->value != nullptr)) {
         iter->value->PinSelf();
@@ -3784,6 +3783,7 @@ VersionSet::VersionSet(const std::string& dbname,
       table_cache_(table_cache),
       env_(_db_options->env),
       fs_(_db_options->fs, io_tracer),
+      clock_(env_->GetSystemClock()),
       dbname_(dbname),
       db_options_(_db_options),
       next_file_number_(2),
@@ -4121,9 +4121,8 @@ Status VersionSet::ProcessManifestWrites(
             db_options_->manifest_preallocation_size);
 
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(descriptor_file), descriptor_fname, opt_file_opts,
-            env_->GetSystemClock(), io_tracer_, nullptr,
-            db_options_->listeners));
+            std::move(descriptor_file), descriptor_fname, opt_file_opts, clock_,
+            io_tracer_, nullptr, db_options_->listeners));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
         s = WriteCurrentStateToManifest(curr_state, wal_additions,
@@ -4170,8 +4169,7 @@ Status VersionSet::ProcessManifestWrites(
         }
       }
       if (s.ok()) {
-        io_s = SyncManifest(env_->GetSystemClock(), db_options_,
-                            descriptor_log_->file());
+        io_s = SyncManifest(clock_, db_options_, descriptor_log_->file());
         TEST_SYNC_POINT_CALLBACK(
             "VersionSet::ProcessManifestWrites:AfterSyncManifest", &io_s);
       }

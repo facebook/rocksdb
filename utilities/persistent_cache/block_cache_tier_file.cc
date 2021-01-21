@@ -16,6 +16,7 @@
 #include "env/composite_env_wrapper.h"
 #include "logging/logging.h"
 #include "port/port.h"
+#include "rocksdb/system_clock.h"
 #include "util/crc32c.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -579,7 +580,7 @@ void ThreadedWriter::ThreadMain() {
       // We can fail to reserve space if every file in the system
       // is being currently accessed
       /* sleep override */
-      Env::Default()->SleepForMicroseconds(1000000);
+      SystemClock::Default()->SleepForMicroseconds(1000000);
     }
 
     DispatchIO(io);

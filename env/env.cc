@@ -25,40 +25,40 @@ namespace ROCKSDB_NAMESPACE {
 namespace {
 class LegacySystemClock : public SystemClock {
  private:
-  Env* target_;
+  Env* env_;
 
  public:
-  explicit LegacySystemClock(Env* t) : target_(t) {}
+  explicit LegacySystemClock(Env* env) : env_(env) {}
   const char* Name() const override { return "Legacy System Clock"; }
 
   // Returns the number of micro-seconds since some fixed point in time.
   // It is often used as system time such as in GenericRateLimiter
   // and other places so a port needs to return system time in order to work.
-  uint64_t NowMicros() override { return target_->NowMicros(); }
+  uint64_t NowMicros() override { return env_->NowMicros(); }
 
   // Returns the number of nano-seconds since some fixed point in time. Only
   // useful for computing deltas of time in one run.
   // Default implementation simply relies on NowMicros.
   // In platform-specific implementations, NowNanos() should return time points
   // that are MONOTONIC.
-  uint64_t NowNanos() override { return target_->NowNanos(); }
+  uint64_t NowNanos() override { return env_->NowNanos(); }
 
-  // 0 indicates not supported.
-  uint64_t NowCPUNanos() override { return target_->NowCPUNanos(); }
+  uint64_t CPUMicros() override { return CPUNanos() / 1000; }
+  uint64_t CPUNanos() override { return env_->NowCPUNanos(); }
 
   // Sleep/delay the thread for the prescribed number of micro-seconds.
   void SleepForMicroseconds(int micros) override {
-    target_->SleepForMicroseconds(micros);
+    env_->SleepForMicroseconds(micros);
   }
 
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
   // Only overwrites *unix_time on success.
   Status GetCurrentTime(int64_t* unix_time) override {
-    return target_->GetCurrentTime(unix_time);
+    return env_->GetCurrentTime(unix_time);
   }
   // Converts seconds-since-Jan-01-1970 to a printable string
   std::string TimeToString(uint64_t time) override {
-    return target_->TimeToString(time);
+    return env_->TimeToString(time);
   }
 };
 
