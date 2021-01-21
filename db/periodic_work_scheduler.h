@@ -42,6 +42,12 @@ class PeriodicWorkScheduler {
 
  protected:
   std::unique_ptr<Timer> timer;
+  // `timer_mu_` serves two purposes currently:
+  // (1) to ensure calls to `Start()` and `Shutdown()` are serialized, as
+  //     they are currently not implemented in a thread-safe way; and
+  // (2) to ensure the `Timer::Add()`s and `Timer::Start()` run atomically, and
+  //     the `Timer::Cancel()`s and `Timer::Shutdown()` run atomically.
+  port::Mutex timer_mu_;
 
   explicit PeriodicWorkScheduler(Env* env);
 
