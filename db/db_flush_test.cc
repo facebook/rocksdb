@@ -528,11 +528,8 @@ TEST_F(DBFlushTest, FlushWithBlob) {
 class DBFlushTestBlobError : public DBFlushTest,
                              public testing::WithParamInterface<std::string> {
  public:
-  DBFlushTestBlobError()
-      : fault_injection_env_(env_), sync_point_(GetParam()) {}
-  ~DBFlushTestBlobError() { Close(); }
+  DBFlushTestBlobError() : sync_point_(GetParam()) {}
 
-  FaultInjectionTestEnv fault_injection_env_;
   std::string sync_point_;
 };
 
@@ -545,20 +542,17 @@ TEST_P(DBFlushTestBlobError, FlushError) {
   Options options;
   options.enable_blob_files = true;
   options.disable_auto_compactions = true;
-  options.env = &fault_injection_env_;
 
   Reopen(options);
 
   ASSERT_OK(Put("key", "blob"));
 
-  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
-    fault_injection_env_.SetFilesystemActive(false,
-                                             Status::IOError(sync_point_));
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* arg) {
+    Status* const s = static_cast<Status*>(arg);
+    assert(s);
+
+    (*s) = Status::IOError(sync_point_);
   });
-  SyncPoint::GetInstance()->SetCallBack(
-      "BuildTable:BeforeDeleteFile", [this](void* /* arg */) {
-        fault_injection_env_.SetFilesystemActive(true);
-      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_NOK(Flush());

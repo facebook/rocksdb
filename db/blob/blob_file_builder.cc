@@ -157,11 +157,12 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   std::unique_ptr<FSWritableFile> file;
 
   {
-    TEST_SYNC_POINT("BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile");
-
     assert(file_options_);
-    const Status s =
-        NewWritableFile(fs_, blob_file_path, &file, *file_options_);
+    Status s = NewWritableFile(fs_, blob_file_path, &file, *file_options_);
+
+    TEST_SYNC_POINT_CALLBACK(
+        "BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile", &s);
+
     if (!s.ok()) {
       return s;
     }
@@ -197,9 +198,11 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
                        expiration_range);
 
   {
-    TEST_SYNC_POINT("BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader");
+    Status s = blob_log_writer->WriteHeader(header);
 
-    const Status s = blob_log_writer->WriteHeader(header);
+    TEST_SYNC_POINT_CALLBACK(
+        "BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader", &s);
+
     if (!s.ok()) {
       return s;
     }
@@ -249,9 +252,10 @@ Status BlobFileBuilder::WriteBlobToFile(const Slice& key, const Slice& blob,
 
   uint64_t key_offset = 0;
 
-  TEST_SYNC_POINT("BlobFileBuilder::WriteBlobToFile:AddRecord");
+  Status s = writer_->AddRecord(key, blob, &key_offset, blob_offset);
 
-  const Status s = writer_->AddRecord(key, blob, &key_offset, blob_offset);
+  TEST_SYNC_POINT_CALLBACK("BlobFileBuilder::WriteBlobToFile:AddRecord", &s);
+
   if (!s.ok()) {
     return s;
   }
@@ -273,10 +277,10 @@ Status BlobFileBuilder::CloseBlobFile() {
   std::string checksum_method;
   std::string checksum_value;
 
-  TEST_SYNC_POINT("BlobFileBuilder::WriteBlobToFile:AppendFooter");
+  Status s = writer_->AppendFooter(footer, &checksum_method, &checksum_value);
 
-  const Status s =
-      writer_->AppendFooter(footer, &checksum_method, &checksum_value);
+  TEST_SYNC_POINT_CALLBACK("BlobFileBuilder::WriteBlobToFile:AppendFooter", &s);
+
   if (!s.ok()) {
     return s;
   }
