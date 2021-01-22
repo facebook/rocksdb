@@ -72,7 +72,8 @@ class SystemClock {
 // of the SystemClock interface to the target/wrapped class.
 class SystemClockWrapper : public SystemClock {
  public:
-  SystemClockWrapper(const std::shared_ptr<SystemClock>& t) : target_(t) {}
+  explicit SystemClockWrapper(const std::shared_ptr<SystemClock>& t)
+      : target_(t) {}
 
   uint64_t NowMicros() override { return target_->NowMicros(); }
 

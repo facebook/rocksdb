@@ -22,8 +22,8 @@ class InstrumentedMutex {
   explicit InstrumentedMutex(bool adaptive = false)
       : mutex_(adaptive), stats_(nullptr), clock_(nullptr), stats_code_(0) {}
 
-  InstrumentedMutex(const std::shared_ptr<SystemClock>& clock,
-                    bool adaptive = false)
+  explicit InstrumentedMutex(const std::shared_ptr<SystemClock>& clock,
+                             bool adaptive = false)
       : mutex_(adaptive), stats_(nullptr), clock_(clock), stats_code_(0) {}
 
   InstrumentedMutex(Statistics* stats,

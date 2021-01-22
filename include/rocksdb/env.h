@@ -153,7 +153,7 @@ class Env {
   Env();
   // Construct an Env with a separate FileSystem and/or SystemClock
   // implementation
-  Env(const std::shared_ptr<FileSystem>& fs);
+  explicit Env(const std::shared_ptr<FileSystem>& fs);
   Env(const std::shared_ptr<FileSystem>& fs,
       const std::shared_ptr<SystemClock>& clock);
   // No copying allowed
