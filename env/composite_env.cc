@@ -86,7 +86,7 @@ class CompositeRandomAccessFileWrapper : public RandomAccessFile {
   }
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
-  };
+  }
   void Hint(AccessPattern pattern) override {
     target_->Hint((FSRandomAccessFile::AccessPattern)pattern);
   }
