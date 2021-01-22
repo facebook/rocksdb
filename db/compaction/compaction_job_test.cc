@@ -72,7 +72,7 @@ class CompactionJobTestBase : public testing::Test {
   CompactionJobTestBase(std::string dbname, const Comparator* ucmp,
                         std::function<std::string(uint64_t)> encode_u64_ts)
       : env_(Env::Default()),
-        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
+        fs_(env_->GetFileSystem()),
         dbname_(std::move(dbname)),
         ucmp_(ucmp),
         db_options_(),

@@ -240,7 +240,7 @@ class Configurable {
   // @param config_options Controls how the object is prepared.  Also contains
   //      a Logger and Env that can be used to initialize this object.
   // @return OK If the object was successfully initialized.
-  // @return InvalidArgument If this object could not be successfull
+  // @return InvalidArgument If this object could not be successfully
   // initialized.
   virtual Status PrepareOptions(const ConfigOptions& config_options);
 

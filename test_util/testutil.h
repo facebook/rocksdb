@@ -26,6 +26,7 @@
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
+class FileSystem;
 class Random;
 class SequentialFile;
 class SequentialFileReader;
@@ -860,6 +861,9 @@ TableFactory* RandomTableFactory(Random* rnd, int pre_defined = -1);
 std::string RandomName(Random* rnd, const size_t len);
 
 bool IsDirectIOSupported(Env* env, const std::string& dir);
+
+bool IsPrefetchSupported(const std::shared_ptr<FileSystem>& fs,
+                         const std::string& dir);
 
 // Return the number of lines where a given pattern was found in a file.
 size_t GetLinesCount(const std::string& fname, const std::string& pattern);

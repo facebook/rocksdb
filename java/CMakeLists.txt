@@ -65,6 +65,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/table.cc
         rocksjni/table_filter.cc
         rocksjni/table_filter_jnicallback.cc
+        rocksjni/testable_event_listener.cc
         rocksjni/thread_status.cc
         rocksjni/trace_writer.cc
         rocksjni/trace_writer_jnicallback.cc
@@ -283,6 +284,7 @@ set(JAVA_TEST_CLASSES
   src/test/java/org/rocksdb/WriteBatchTest.java
   src/test/java/org/rocksdb/util/CapturingWriteBatchHandler.java
   src/test/java/org/rocksdb/util/WriteBatchGetter.java
+  src/test/java/org/rocksdb/test/TestableEventListener.java
 )
 
 include(FindJava)
@@ -434,6 +436,8 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.CompactRangeOptions
           org.rocksdb.ComparatorOptions
           org.rocksdb.CompressionOptions
+          org.rocksdb.ConcurrentTaskLimiterImpl
+          org.rocksdb.ConfigOptions
           org.rocksdb.DBOptions
           org.rocksdb.DirectSlice
           org.rocksdb.Env
@@ -502,6 +506,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.WriteBatchTest
           org.rocksdb.WriteBatchTestInternalHelper
           org.rocksdb.WriteBufferManager
+          org.rocksdb.test.TestableEventListener
   )
 
   create_javah(

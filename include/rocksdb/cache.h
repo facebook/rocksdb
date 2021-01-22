@@ -59,10 +59,10 @@ struct LRUCacheOptions {
 
   // Percentage of cache reserved for high priority entries.
   // If greater than zero, the LRU list will be split into a high-pri
-  // list and a low-pri list. High-pri entries will be insert to the
+  // list and a low-pri list. High-pri entries will be inserted to the
   // tail of high-pri list, while low-pri entries will be first inserted to
-  // the low-pri list (the midpoint). This is refered to as
-  // midpoint insertion strategy to make entries never get hit in cache
+  // the low-pri list (the midpoint). This is referred to as
+  // midpoint insertion strategy to make entries that never get hit in cache
   // age out faster.
   //
   // See also

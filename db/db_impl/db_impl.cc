@@ -53,7 +53,6 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
-#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -307,18 +306,21 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   mutex_.AssertHeld();
   WaitForBackgroundWork();
 
-  Status bg_error = error_handler_.GetBGError();
   Status s;
   if (shutdown_initiated_) {
     // Returning shutdown status to SFM during auto recovery will cause it
     // to abort the recovery and allow the shutdown to progress
     s = Status::ShutdownInProgress();
   }
-  if (s.ok() && bg_error.severity() > Status::Severity::kHardError) {
-    ROCKS_LOG_INFO(
-        immutable_db_options_.info_log,
-        "DB resume requested but failed due to Fatal/Unrecoverable error");
-    s = bg_error;
+
+  if (s.ok()) {
+    Status bg_error = error_handler_.GetBGError();
+    if (bg_error.severity() > Status::Severity::kHardError) {
+      ROCKS_LOG_INFO(
+          immutable_db_options_.info_log,
+          "DB resume requested but failed due to Fatal/Unrecoverable error");
+      s = bg_error;
+    }
   }
 
   // Make sure the IO Status stored in version set is set to OK.
@@ -393,6 +395,11 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   FindObsoleteFiles(&job_context, true);
   if (s.ok()) {
     s = error_handler_.ClearBGError();
+  } else {
+    // NOTE: this is needed to pass ASSERT_STATUS_CHECKED
+    // in the DBSSTTest.DBWithMaxSpaceAllowedRandomized test.
+    // See https://github.com/facebook/rocksdb/pull/7715#issuecomment-754947952
+    error_handler_.GetRecoveryError().PermitUncheckedError();
   }
   mutex_.Unlock();
 
@@ -409,6 +416,12 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
     if (file_deletion_disabled) {
       // Always return ok
       s = EnableFileDeletions(/*force=*/true);
+      if (!s.ok()) {
+        ROCKS_LOG_INFO(
+            immutable_db_options_.info_log,
+            "DB resume requested but could not enable file deletions [%s]",
+            s.ToString().c_str());
+      }
     }
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Successfully resumed DB");
   }
@@ -690,6 +703,18 @@ void DBImpl::PrintStatistics() {
 
 void DBImpl::StartPeriodicWorkScheduler() {
 #ifndef ROCKSDB_LITE
+
+#ifndef NDEBUG
+  // It only used by test to disable scheduler
+  bool disable_scheduler = false;
+  TEST_SYNC_POINT_CALLBACK(
+      "DBImpl::StartPeriodicWorkScheduler:DisableScheduler",
+      &disable_scheduler);
+  if (disable_scheduler) {
+    return;
+  }
+#endif  // !NDEBUG
+
   {
     InstrumentedMutexLock l(&mutex_);
     periodic_work_scheduler_ = PeriodicWorkScheduler::Default();
@@ -3099,8 +3124,8 @@ const std::string& DBImpl::GetName() const { return dbname_; }
 Env* DBImpl::GetEnv() const { return env_; }
 
 FileSystem* DB::GetFileSystem() const {
-  static LegacyFileSystemWrapper fs_wrap(GetEnv());
-  return &fs_wrap;
+  const auto& fs = GetEnv()->GetFileSystem();
+  return fs.get();
 }
 
 FileSystem* DBImpl::GetFileSystem() const {
@@ -3574,7 +3599,7 @@ Status DBImpl::DeleteFile(std::string name) {
 Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
                                    const RangePtr* ranges, size_t n,
                                    bool include_end) {
-  Status status;
+  Status status = Status::OK();
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   VersionEdit edit;
@@ -3633,7 +3658,7 @@ Status DBImpl::DeleteFilesInRanges(ColumnFamilyHandle* column_family,
     }
     if (edit.GetDeletedFiles().empty()) {
       job_context.Clean();
-      return Status::OK();
+      return status;
     }
     input_version->Ref();
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),

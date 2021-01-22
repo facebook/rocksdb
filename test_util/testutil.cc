@@ -452,6 +452,26 @@ bool IsDirectIOSupported(Env* env, const std::string& dir) {
   return s.ok();
 }
 
+bool IsPrefetchSupported(const std::shared_ptr<FileSystem>& fs,
+                         const std::string& dir) {
+  bool supported = false;
+  std::string tmp = TempFileName(dir, 999);
+  Random rnd(301);
+  std::string test_string = rnd.RandomString(4096);
+  Slice data(test_string);
+  Status s = WriteStringToFile(fs.get(), data, tmp, true);
+  if (s.ok()) {
+    std::unique_ptr<FSRandomAccessFile> file;
+    auto io_s = fs->NewRandomAccessFile(tmp, FileOptions(), &file, nullptr);
+    if (io_s.ok()) {
+      supported = !(file->Prefetch(0, data.size(), IOOptions(), nullptr)
+                        .IsNotSupported());
+    }
+    s = fs->DeleteFile(tmp, IOOptions(), nullptr);
+  }
+  return s.ok() && supported;
+}
+
 size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
   std::stringstream ssbuf;
   std::string line;

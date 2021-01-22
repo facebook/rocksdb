@@ -21,3 +21,4 @@ if (($exitCode -ne 0) -and ($exitCode -ne 3010)) {
     Copy-Item -Path "C:\Users\circleci\AppData\Local\Temp\vslogs.zip" -Destination "C:\w\build-results\"
     exit 1
 }
+echo "VS 2015 installed."

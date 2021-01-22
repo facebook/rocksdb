@@ -38,6 +38,7 @@ class SimulatedBackgroundTask {
   void Run() {
     std::unique_lock<std::mutex> l(mutex_);
     running_count_++;
+    bg_cv_.notify_all();
     Env::Default()->GetThreadStatusUpdater()->SetColumnFamilyInfoKey(cf_key_);
     Env::Default()->GetThreadStatusUpdater()->SetThreadOperation(
         operation_type_);
@@ -58,9 +59,10 @@ class SimulatedBackgroundTask {
     bg_cv_.notify_all();
   }
 
-  void WaitUntilScheduled(int job_count, Env* env) {
+  void WaitUntilScheduled(int job_count) {
+    std::unique_lock<std::mutex> l(mutex_);
     while (running_count_ < job_count) {
-      env->SleepForMicroseconds(1000);
+      bg_cv_.wait(l);
     }
   }
 
@@ -139,8 +141,8 @@ TEST_F(ThreadListTest, SimpleColumnFamilyInfoTest) {
     env->Schedule(&SimulatedBackgroundTask::DoSimulatedTask,
         &running_task, Env::Priority::LOW);
   }
-  running_task.WaitUntilScheduled(
-      kSimulatedHighPriThreads + kSimulatedLowPriThreads, env);
+  running_task.WaitUntilScheduled(kSimulatedHighPriThreads +
+                                  kSimulatedLowPriThreads);
 
   std::vector<ThreadStatus> thread_list;
 
@@ -256,25 +258,25 @@ TEST_F(ThreadListTest, SimpleEventTest) {
     env->Schedule(&SimulatedBackgroundTask::DoSimulatedTask,
         &flush_write_task, Env::Priority::HIGH);
   }
-  flush_write_task.WaitUntilScheduled(kFlushWriteTasks, env);
+  flush_write_task.WaitUntilScheduled(kFlushWriteTasks);
 
   for (int t = 0; t < kCompactionWriteTasks; ++t) {
     env->Schedule(&SimulatedBackgroundTask::DoSimulatedTask,
         &compaction_write_task, Env::Priority::LOW);
   }
-  compaction_write_task.WaitUntilScheduled(kCompactionWriteTasks, env);
+  compaction_write_task.WaitUntilScheduled(kCompactionWriteTasks);
 
   for (int t = 0; t < kCompactionReadTasks; ++t) {
     env->Schedule(&SimulatedBackgroundTask::DoSimulatedTask,
         &compaction_read_task, Env::Priority::LOW);
   }
-  compaction_read_task.WaitUntilScheduled(kCompactionReadTasks, env);
+  compaction_read_task.WaitUntilScheduled(kCompactionReadTasks);
 
   for (int t = 0; t < kCompactionWaitTasks; ++t) {
     env->Schedule(&SimulatedBackgroundTask::DoSimulatedTask,
         &compaction_wait_task, Env::Priority::LOW);
   }
-  compaction_wait_task.WaitUntilScheduled(kCompactionWaitTasks, env);
+  compaction_wait_task.WaitUntilScheduled(kCompactionWaitTasks);
 
   // verify the thread-status
   int operation_counts[ThreadStatus::NUM_OP_TYPES] = {0};

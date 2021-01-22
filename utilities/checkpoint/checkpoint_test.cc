@@ -325,13 +325,7 @@ TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
     ASSERT_EQ(metadata.files.size(), num_files_expected);
     std::vector<std::string> subchildren;
     ASSERT_OK(env_->GetChildren(export_path_, &subchildren));
-    int num_children = 0;
-    for (const auto& child : subchildren) {
-      if (child != "." && child != "..") {
-        ++num_children;
-      }
-    }
-    ASSERT_EQ(num_children, num_files_expected);
+    ASSERT_EQ(subchildren.size(), num_files_expected);
   };
 
   // Test DefaultColumnFamily
@@ -549,7 +543,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
       {// Get past the flush in the checkpoint thread before adding any keys to
        // the db so the checkpoint thread won't hit the WriteManifest
        // syncpoints.
-       {"DBImpl::GetLiveFiles:1",
+       {"CheckpointImpl::CreateCheckpoint:FlushDone",
         "CheckpointTest::CurrentFileModifiedWhileCheckpointing:PrePut"},
        // Roll the manifest during checkpointing right after live files are
        // snapshotted.

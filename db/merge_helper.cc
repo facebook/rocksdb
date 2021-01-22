@@ -183,7 +183,6 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
 
     assert(IsValueType(ikey.type));
     if (ikey.type != kTypeMerge) {
-
       // hit a put/delete/single delete
       //   => merge the put value or a nullptr with operands_
       //   => store result in operands_.back() (and update keys_.back())
@@ -414,7 +413,9 @@ CompactionFilter::Decision MergeHelper::FilterMerge(const Slice& user_key,
                                                        kValueTypeForSeek);
     }
   }
-  total_filter_time_ += filter_timer_.ElapsedNanosSafe();
+  if (stats_ != nullptr && ShouldReportDetailedTime(env_, stats_)) {
+    total_filter_time_ += filter_timer_.ElapsedNanosSafe();
+  }
   return ret;
 }
 

@@ -10,52 +10,13 @@
 #include <vector>
 
 #include "env/mock_env.h"
+#include "file/file_util.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/env_encryption.h"
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-// Normalizes trivial differences across Envs such that these test cases can
-// run on all Envs.
-class NormalizingEnvWrapper : public EnvWrapper {
- private:
-  std::unique_ptr<Env> base_;
-
- public:
-  explicit NormalizingEnvWrapper(std::unique_ptr<Env>&& base)
-      : EnvWrapper(base.get()), base_(std::move(base)) {}
-  explicit NormalizingEnvWrapper(Env* base) : EnvWrapper(base) {}
-
-  // Removes . and .. from directory listing
-  Status GetChildren(const std::string& dir,
-                     std::vector<std::string>* result) override {
-    Status status = EnvWrapper::GetChildren(dir, result);
-    if (status.ok()) {
-      result->erase(std::remove_if(result->begin(), result->end(),
-                                   [](const std::string& s) {
-                                     return s == "." || s == "..";
-                                   }),
-                    result->end());
-    }
-    return status;
-  }
-
-  // Removes . and .. from directory listing
-  Status GetChildrenFileAttributes(
-      const std::string& dir, std::vector<FileAttributes>* result) override {
-    Status status = EnvWrapper::GetChildrenFileAttributes(dir, result);
-    if (status.ok()) {
-      result->erase(std::remove_if(result->begin(), result->end(),
-                                   [](const FileAttributes& fa) {
-                                     return fa.name == "." || fa.name == "..";
-                                   }),
-                    result->end());
-    }
-    return status;
-  }
-};
 
 class EnvBasicTestWithParam : public testing::Test,
                               public ::testing::WithParamInterface<Env*> {
@@ -68,32 +29,17 @@ class EnvBasicTestWithParam : public testing::Test,
     test_dir_ = test::PerThreadDBPath(env_, "env_basic_test");
   }
 
-  void SetUp() override {
-    env_->CreateDirIfMissing(test_dir_).PermitUncheckedError();
-  }
+  void SetUp() override { ASSERT_OK(env_->CreateDirIfMissing(test_dir_)); }
 
-  void TearDown() override {
-    std::vector<std::string> files;
-    env_->GetChildren(test_dir_, &files).PermitUncheckedError();
-    for (const auto& file : files) {
-      // don't know whether it's file or directory, try both. The tests must
-      // only create files or empty directories, so one must succeed, else the
-      // directory's corrupted.
-      Status s = env_->DeleteFile(test_dir_ + "/" + file);
-      if (!s.ok()) {
-        ASSERT_OK(env_->DeleteDir(test_dir_ + "/" + file));
-      }
-    }
-  }
+  void TearDown() override { ASSERT_OK(DestroyDir(env_, test_dir_)); }
 };
 
 class EnvMoreTestWithParam : public EnvBasicTestWithParam {};
 
-static std::unique_ptr<Env> def_env(new NormalizingEnvWrapper(Env::Default()));
 INSTANTIATE_TEST_CASE_P(EnvDefault, EnvBasicTestWithParam,
-                        ::testing::Values(def_env.get()));
+                        ::testing::Values(Env::Default()));
 INSTANTIATE_TEST_CASE_P(EnvDefault, EnvMoreTestWithParam,
-                        ::testing::Values(def_env.get()));
+                        ::testing::Values(Env::Default()));
 
 static std::unique_ptr<Env> mock_env(new MockEnv(Env::Default()));
 INSTANTIATE_TEST_CASE_P(MockEnv, EnvBasicTestWithParam,
@@ -104,8 +50,7 @@ static Env* NewTestEncryptedEnv(Env* base, const std::string& provider_id) {
   std::shared_ptr<EncryptionProvider> provider;
   EXPECT_OK(EncryptionProvider::CreateFromString(ConfigOptions(), provider_id,
                                                  &provider));
-  std::unique_ptr<Env> encrypted(NewEncryptedEnv(base, provider));
-  return new NormalizingEnvWrapper(std::move(encrypted));
+  return NewEncryptedEnv(base, provider);
 }
 
 // next statements run env test against default encryption code.
@@ -372,6 +317,32 @@ TEST_P(EnvMoreTestWithParam, GetChildren) {
   writable_file.reset();
   ASSERT_NOK(env_->GetChildren(test_dir_ + "/file", &children));
   ASSERT_EQ(0U, children.size());
+}
+
+TEST_P(EnvMoreTestWithParam, GetChildrenIgnoresDotAndDotDot) {
+  auto* env = Env::Default();
+  ASSERT_OK(env->CreateDirIfMissing(test_dir_));
+
+  // Create a single file
+  std::string path = test_dir_;
+  const EnvOptions soptions;
+#ifdef OS_WIN
+  path.append("\\test_file");
+#else
+  path.append("/test_file");
+#endif
+  std::string data("test data");
+  std::unique_ptr<WritableFile> file;
+  ASSERT_OK(env->NewWritableFile(path, &file, soptions));
+  ASSERT_OK(file->Append("test data"));
+
+  // get the children
+  std::vector<std::string> result;
+  ASSERT_OK(env->GetChildren(test_dir_, &result));
+
+  // expect only one file named `test_data`, i.e. no `.` or `..` names
+  ASSERT_EQ(result.size(), 1);
+  ASSERT_EQ(result.at(0), "test_file");
 }
 
 }  // namespace ROCKSDB_NAMESPACE

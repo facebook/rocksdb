@@ -612,7 +612,12 @@ ifdef ASSERT_STATUS_CHECKED
 		db_blob_basic_test \
 		db_blob_index_test \
 		db_block_cache_test \
+		db_compaction_test \
+		db_compaction_filter_test \
+		db_dynamic_level_test \
 		db_flush_test \
+		db_inplace_update_test \
+		db_io_failure_test \
 		db_iterator_test \
 		db_logical_block_size_cache_test \
 		db_memtable_test \
@@ -629,6 +634,7 @@ ifdef ASSERT_STATUS_CHECKED
 		deletefile_test \
 		external_sst_file_test \
 		options_file_test \
+		db_sst_test \
 		db_statistics_test \
 		db_table_properties_test \
 		db_tailing_iter_test \
@@ -653,6 +659,7 @@ ifdef ASSERT_STATUS_CHECKED
 		external_sst_file_basic_test \
 		auto_roll_logger_test \
 		file_indexer_test \
+		delete_scheduler_test \
 		flush_job_test \
 		hash_table_test \
 		hash_test \
@@ -741,6 +748,9 @@ ifdef ASSERT_STATUS_CHECKED
 		cuckoo_table_reader_test \
 		memory_test \
 		table_test \
+		backupable_db_test \
+		blob_db_test \
+		ttl_test \
 		write_batch_test \
 		write_batch_with_index_test \
 
@@ -2139,11 +2149,11 @@ BZIP2_DOWNLOAD_BASE ?= https://sourceware.org/pub/bzip2
 SNAPPY_VER ?= 1.1.8
 SNAPPY_SHA256 ?= 16b677f07832a612b0836178db7f374e414f94657c138e6993cbfc5dcc58651f
 SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/archive
-LZ4_VER ?= 1.9.2
-LZ4_SHA256 ?= 658ba6191fa44c92280d4aa2c271b0f4fbc0e34d249578dd05e50e76d0e5efcc
+LZ4_VER ?= 1.9.3
+LZ4_SHA256 ?= 030644df4611007ff7dc962d981f390361e6c97a34e5cbc393ddfbe019ffe2c1
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
-ZSTD_VER ?= 1.4.5
-ZSTD_SHA256 ?= 734d1f565c42f691f8420c8d06783ad818060fc390dee43ae0a89f86d0a4f8c2
+ZSTD_VER ?= 1.4.7
+ZSTD_SHA256 ?= 085500c8d0b9c83afbc1dc0d8b4889336ad019eba930c5d6a9c6c86c20c769c8
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 CURL_SSL_OPTS ?= --tlsv1
 
@@ -2258,9 +2268,10 @@ endif
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4 -DZSTD
 JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./snappy-$(SNAPPY_VER)/build -I./lz4-$(LZ4_VER)/lib -I./zstd-$(ZSTD_VER)/lib -I./zstd-$(ZSTD_VER)/lib/dictBuilder
-ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
+
+ifneq ($(findstring rocksdbjavastatic, $(filter-out rocksdbjavastatic_deps, $(MAKECMDGOALS))),)
 CXXFLAGS += $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
-CFLAGS +=  $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
+CFLAGS += $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES)
 endif
 rocksdbjavastatic:
 ifeq ($(JAVA_HOME),)
@@ -2268,8 +2279,11 @@ ifeq ($(JAVA_HOME),)
 endif
 	$(MAKE) rocksdbjavastatic_deps
 	$(MAKE) rocksdbjavastatic_libobjects
-	cd java;$(MAKE) javalib;
-	rm -f ./java/target/$(ROCKSDBJNILIB)
+	$(MAKE) rocksdbjavastatic_javalib
+
+rocksdbjavastatic_javalib:
+	cd java; SHA256_CMD='$(SHA256_CMD)' $(MAKE) javalib
+	rm -f java/target/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
 	  $(LIB_OBJECTS) $(COVERAGEFLAGS) \
@@ -2362,7 +2376,7 @@ rocksdbjava: $(LIB_OBJECTS)
 ifeq ($(JAVA_HOME),)
 	$(error JAVA_HOME is not set)
 endif
-	$(AM_V_GEN)cd java;$(MAKE) javalib;
+	$(AM_V_GEN)cd java; SHA256_CMD='$(SHA256_CMD)' $(MAKE) javalib;
 	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIB_OBJECTS) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
 	$(AM_V_at)cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
@@ -2374,13 +2388,13 @@ jclean:
 	cd java;$(MAKE) clean;
 
 jtest_compile: rocksdbjava
-	cd java;$(MAKE) java_test
+	cd java; SHA256_CMD='$(SHA256_CMD)' $(MAKE) java_test
 
 jtest_run:
 	cd java;$(MAKE) run_test
 
 jtest: rocksdbjava
-	cd java;$(MAKE) sample;$(MAKE) test;
+	cd java;$(MAKE) sample; SHA256_CMD='$(SHA256_CMD)' $(MAKE) test;
 	$(PYTHON) tools/check_all_python.py # TODO peterd: find a better place for this check in CI targets
 
 jdb_bench:
@@ -2492,9 +2506,13 @@ ifneq ($(MAKECMDGOALS),clean)
 ifneq ($(MAKECMDGOALS),format)
 ifneq ($(MAKECMDGOALS),jclean)
 ifneq ($(MAKECMDGOALS),jtest)
+ifneq ($(MAKECMDGOALS),rocksdbjavastatic)
+ifneq ($(MAKECMDGOALS),rocksdbjavastatic_deps)
 ifneq ($(MAKECMDGOALS),package)
 ifneq ($(MAKECMDGOALS),analyze)
 -include $(DEPFILES)
+endif
+endif
 endif
 endif
 endif

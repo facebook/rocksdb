@@ -270,7 +270,7 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   ASSERT_EQ(range_sizes[1], size);
 
   // Zero if not including mem table
-  db_->GetApproximateSizes(&r, 1, &size);
+  ASSERT_OK(db_->GetApproximateSizes(&r, 1, &size));
   ASSERT_EQ(size, 0);
 
   start = Key(500);

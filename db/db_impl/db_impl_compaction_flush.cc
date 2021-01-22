@@ -35,8 +35,10 @@ bool DBImpl::EnoughRoomForCompaction(
     // Pass the current bg_error_ to SFM so it can decide what checks to
     // perform. If this DB instance hasn't seen any error yet, the SFM can be
     // optimistic and not do disk space checks
-    enough_room =
-        sfm->EnoughRoomForCompaction(cfd, inputs, error_handler_.GetBGError());
+    Status bg_error = error_handler_.GetBGError();
+    enough_room = sfm->EnoughRoomForCompaction(cfd, inputs, bg_error);
+    bg_error.PermitUncheckedError();  // bg_error is just a copy of the Status
+                                      // from the error_handler_
     if (enough_room) {
       *sfm_reserved_compact_space = true;
     }
@@ -284,7 +286,10 @@ Status DBImpl::FlushMemTableToOutputFile(
       // Notify sst_file_manager that a new file was added
       std::string file_path = MakeTableFileName(
           cfd->ioptions()->cf_paths[0].path, file_meta.fd.GetNumber());
-      s = sfm->OnAddFile(file_path);
+      // TODO (PR7798).  We should only add the file to the FileManager if it
+      // exists. Otherwise, some tests may fail.  Ignore the error in the
+      // interim.
+      sfm->OnAddFile(file_path).PermitUncheckedError();
       if (sfm->IsMaxAllowedSpaceReached()) {
         Status new_bg_error =
             Status::SpaceLimit("Max allowed space was reached");
@@ -627,7 +632,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       if (sfm) {
         std::string file_path = MakeTableFileName(
             cfds[i]->ioptions()->cf_paths[0].path, file_meta[i].fd.GetNumber());
-        s = sfm->OnAddFile(file_path);
+        // TODO (PR7798).  We should only add the file to the FileManager if it
+        // exists. Otherwise, some tests may fail.  Ignore the error in the
+        // interim.
+        sfm->OnAddFile(file_path).PermitUncheckedError();
         if (sfm->IsMaxAllowedSpaceReached() &&
             error_handler_.GetBGError().ok()) {
           Status new_bg_error =

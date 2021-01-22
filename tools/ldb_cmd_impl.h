@@ -186,6 +186,7 @@ class FileChecksumDumpCommand : public LDBCommand {
 
  private:
   std::string path_;
+  bool is_checksum_hex_;
 
   static const std::string ARG_PATH;
 };
@@ -261,7 +262,7 @@ class ReduceDBLevelsCommand : public LDBCommand {
                         const std::map<std::string, std::string>& options,
                         const std::vector<std::string>& flags);
 
-  virtual void OverrideBaseOptions() override;
+  virtual void OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) override;
 
   virtual void DoCommand() override;
 
@@ -293,7 +294,7 @@ class ChangeCompactionStyleCommand : public LDBCommand {
       const std::map<std::string, std::string>& options,
       const std::vector<std::string>& flags);
 
-  virtual void OverrideBaseOptions() override;
+  virtual void OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts) override;
 
   virtual void DoCommand() override;
 

@@ -47,8 +47,7 @@ class WalManagerTest : public testing::Test {
                                       std::numeric_limits<uint64_t>::max());
     db_options_.wal_dir = dbname_;
     db_options_.env = env_.get();
-    fs_.reset(new LegacyFileSystemWrapper(env_.get()));
-    db_options_.fs = fs_;
+    db_options_.fs = env_->GetFileSystem();
 
     versions_.reset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
@@ -116,7 +115,6 @@ class WalManagerTest : public testing::Test {
   WriteBufferManager write_buffer_manager_;
   std::unique_ptr<VersionSet> versions_;
   std::unique_ptr<WalManager> wal_manager_;
-  std::shared_ptr<LegacyFileSystemWrapper> fs_;
 
   std::unique_ptr<log::Writer> current_log_writer_;
   uint64_t current_log_number_;

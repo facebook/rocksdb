@@ -75,7 +75,7 @@ class FilePrefetchBuffer {
   // result : output buffer to put the data into.
   // for_compaction : if cache read is done for compaction read.
   bool TryReadFromCache(const IOOptions& opts, uint64_t offset, size_t n,
-                        Slice* result, bool for_compaction = false);
+                        Slice* result, Status* s, bool for_compaction = false);
 
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.

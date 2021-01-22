@@ -22,7 +22,7 @@ namespace ROCKSDB_NAMESPACE {
 class Env;
 class Logger;
 
-// SstFileManager is used to track SST files in the DB and control there
+// SstFileManager is used to track SST files in the DB and control their
 // deletion rate.
 // All SstFileManager public functions are thread-safe.
 class SstFileManagerImpl : public SstFileManager {
@@ -77,7 +77,7 @@ class SstFileManagerImpl : public SstFileManager {
   // the full compaction size).
   bool EnoughRoomForCompaction(ColumnFamilyData* cfd,
                                const std::vector<CompactionInputFiles>& inputs,
-                               Status bg_error);
+                               const Status& bg_error);
 
   // Bookkeeping so total_file_sizes_ goes back to normal after compaction
   // finishes

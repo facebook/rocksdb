@@ -129,13 +129,4 @@ IOStatus ReadFileToString(FileSystem* fs, const std::string& fname,
   return s;
 }
 
-#ifdef OS_WIN
-std::shared_ptr<FileSystem> FileSystem::Default() {
-  static LegacyFileSystemWrapper default_fs(Env::Default());
-  static std::shared_ptr<LegacyFileSystemWrapper> default_fs_ptr(
-      &default_fs, [](LegacyFileSystemWrapper*) {});
-  return default_fs_ptr;
-}
-#endif
-
 }  // namespace ROCKSDB_NAMESPACE

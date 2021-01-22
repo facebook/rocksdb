@@ -187,8 +187,8 @@ class ColumnFamilyTestBase : public testing::Test {
     std::vector<ColumnFamilyDescriptor> column_families;
     names_.clear();
     for (size_t i = 0; i < cf.size(); ++i) {
-      column_families.push_back(ColumnFamilyDescriptor(
-          cf[i], options.size() == 0 ? column_family_options_ : options[i]));
+      column_families.emplace_back(
+          cf[i], options.size() == 0 ? column_family_options_ : options[i]);
       names_.push_back(cf[i]);
     }
     return DB::Open(db_options_, dbname_, column_families, &handles_, &db_);
@@ -199,8 +199,8 @@ class ColumnFamilyTestBase : public testing::Test {
     std::vector<ColumnFamilyDescriptor> column_families;
     names_.clear();
     for (size_t i = 0; i < cf.size(); ++i) {
-      column_families.push_back(ColumnFamilyDescriptor(
-          cf[i], options.size() == 0 ? column_family_options_ : options[i]));
+      column_families.emplace_back(
+          cf[i], options.size() == 0 ? column_family_options_ : options[i]);
       names_.push_back(cf[i]);
     }
     return DB::OpenForReadOnly(db_options_, dbname_, column_families, &handles_,
@@ -898,9 +898,7 @@ TEST_P(ColumnFamilyTest, IgnoreRecoveredLog) {
   std::vector<std::string> old_files;
   ASSERT_OK(env_->GetChildren(backup_logs, &old_files));
   for (auto& file : old_files) {
-    if (file != "." && file != "..") {
-      ASSERT_OK(env_->DeleteFile(backup_logs + "/" + file));
-    }
+    ASSERT_OK(env_->DeleteFile(backup_logs + "/" + file));
   }
 
   column_family_options_.merge_operator =
@@ -929,9 +927,7 @@ TEST_P(ColumnFamilyTest, IgnoreRecoveredLog) {
   std::vector<std::string> logs;
   ASSERT_OK(env_->GetChildren(db_options_.wal_dir, &logs));
   for (auto& log : logs) {
-    if (log != ".." && log != ".") {
-      CopyFile(db_options_.wal_dir + "/" + log, backup_logs + "/" + log);
-    }
+    CopyFile(db_options_.wal_dir + "/" + log, backup_logs + "/" + log);
   }
 
   // recover the DB
@@ -956,9 +952,7 @@ TEST_P(ColumnFamilyTest, IgnoreRecoveredLog) {
     if (iter == 0) {
       // copy the logs from backup back to wal dir
       for (auto& log : logs) {
-        if (log != ".." && log != ".") {
-          CopyFile(backup_logs + "/" + log, db_options_.wal_dir + "/" + log);
-        }
+        CopyFile(backup_logs + "/" + log, db_options_.wal_dir + "/" + log);
       }
     }
   }

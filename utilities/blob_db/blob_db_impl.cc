@@ -2055,21 +2055,21 @@ Status DestroyBlobDB(const std::string& dbname, const Options& options,
                                         : bdb_options.blob_dir;
 
   std::vector<std::string> filenames;
-  env->GetChildren(blobdir, &filenames);
-
-  for (const auto& f : filenames) {
-    uint64_t number;
-    FileType type;
-    if (ParseFileName(f, &number, &type) && type == kBlobFile) {
-      Status del = DeleteDBFile(&soptions, blobdir + "/" + f, blobdir, true,
-                                /*force_fg=*/false);
-      if (status.ok() && !del.ok()) {
-        status = del;
+  if (env->GetChildren(blobdir, &filenames).ok()) {
+    for (const auto& f : filenames) {
+      uint64_t number;
+      FileType type;
+      if (ParseFileName(f, &number, &type) && type == kBlobFile) {
+        Status del = DeleteDBFile(&soptions, blobdir + "/" + f, blobdir, true,
+                                  /*force_fg=*/false);
+        if (status.ok() && !del.ok()) {
+          status = del;
+        }
       }
     }
+    // TODO: What to do if we cannot delete the directory?
+    env->DeleteDir(blobdir).PermitUncheckedError();
   }
-  env->DeleteDir(blobdir);
-
   Status destroy = DestroyDB(dbname, options);
   if (status.ok() && !destroy.ok()) {
     status = destroy;

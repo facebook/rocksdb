@@ -226,13 +226,17 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   }
 
   for (const auto& wal_addition : wal_additions_) {
-    PutVarint32(dst, kWalAddition);
-    wal_addition.EncodeTo(dst);
+    PutVarint32(dst, kWalAddition2);
+    std::string encoded;
+    wal_addition.EncodeTo(&encoded);
+    PutLengthPrefixedSlice(dst, encoded);
   }
 
   if (!wal_deletion_.IsEmpty()) {
-    PutVarint32(dst, kWalDeletion);
-    wal_deletion_.EncodeTo(dst);
+    PutVarint32(dst, kWalDeletion2);
+    std::string encoded;
+    wal_deletion_.EncodeTo(&encoded);
+    PutLengthPrefixedSlice(dst, encoded);
   }
 
   // 0 is default and does not need to be explicitly written
@@ -375,6 +379,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
 
 Status VersionEdit::DecodeFrom(const Slice& src) {
   Clear();
+#ifndef NDEBUG
+  bool ignore_ignorable_tags = false;
+  TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:IgnoreIgnorableTags",
+                           &ignore_ignorable_tags);
+#endif
   Slice input = src;
   const char* msg = nullptr;
   uint32_t tag = 0;
@@ -385,6 +394,11 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
   Slice str;
   InternalKey key;
   while (msg == nullptr && GetVarint32(&input, &tag)) {
+#ifndef NDEBUG
+    if (ignore_ignorable_tags && tag > kTagSafeIgnoreMask) {
+      tag = kTagSafeIgnoreMask;
+    }
+#endif
     switch (tag) {
       case kDbId:
         if (GetLengthPrefixedSlice(&input, &str)) {
@@ -542,7 +556,8 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
-      case kBlobFileAddition: {
+      case kBlobFileAddition:
+      case kBlobFileAddition_DEPRECATED: {
         BlobFileAddition blob_file_addition;
         const Status s = blob_file_addition.DecodeFrom(&input);
         if (!s.ok()) {
@@ -553,7 +568,8 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
-      case kBlobFileGarbage: {
+      case kBlobFileGarbage:
+      case kBlobFileGarbage_DEPRECATED: {
         BlobFileGarbage blob_file_garbage;
         const Status s = blob_file_garbage.DecodeFrom(&input);
         if (!s.ok()) {
@@ -575,9 +591,43 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         break;
       }
 
+      case kWalAddition2: {
+        Slice encoded;
+        if (!GetLengthPrefixedSlice(&input, &encoded)) {
+          msg = "WalAddition not prefixed by length";
+          break;
+        }
+
+        WalAddition wal_addition;
+        const Status s = wal_addition.DecodeFrom(&encoded);
+        if (!s.ok()) {
+          return s;
+        }
+
+        wal_additions_.emplace_back(std::move(wal_addition));
+        break;
+      }
+
       case kWalDeletion: {
         WalDeletion wal_deletion;
         const Status s = wal_deletion.DecodeFrom(&input);
+        if (!s.ok()) {
+          return s;
+        }
+
+        wal_deletion_ = std::move(wal_deletion);
+        break;
+      }
+
+      case kWalDeletion2: {
+        Slice encoded;
+        if (!GetLengthPrefixedSlice(&input, &encoded)) {
+          msg = "WalDeletion not prefixed by length";
+          break;
+        }
+
+        WalDeletion wal_deletion;
+        const Status s = wal_deletion.DecodeFrom(&encoded);
         if (!s.ok()) {
           return s;
         }

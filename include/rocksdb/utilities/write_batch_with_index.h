@@ -40,12 +40,13 @@ enum WriteType {
   kDeleteRangeRecord,
   kLogDataRecord,
   kXIDRecord,
+  kUnknownRecord,
 };
 
 // an entry for Put, Merge, Delete, or SingleDelete entry for write batches.
 // Used in WBWIIterator.
 struct WriteEntry {
-  WriteType type;
+  WriteType type = kUnknownRecord;
   Slice key;
   Slice value;
 };
