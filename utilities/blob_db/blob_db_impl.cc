@@ -754,9 +754,11 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
     return Status::Corruption("Invalid blob file size");
   }
 
+  constexpr bool do_flush = true;
+
   bfile->log_writer_ = std::make_shared<BlobLogWriter>(
       std::move(fwriter), env_, statistics_, bfile->file_number_,
-      db_options_.use_fsync, boffset);
+      db_options_.use_fsync, do_flush, boffset);
   bfile->log_writer_->last_elem_type_ = et;
 
   return s;

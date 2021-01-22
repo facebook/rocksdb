@@ -184,9 +184,11 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
       nullptr /*IOTracer*/, statistics, immutable_cf_options_->listeners,
       immutable_cf_options_->file_checksum_gen_factory));
 
-  std::unique_ptr<BlobLogWriter> blob_log_writer(
-      new BlobLogWriter(std::move(file_writer), env_, statistics,
-                        blob_file_number, immutable_cf_options_->use_fsync));
+  constexpr bool do_flush = false;
+
+  std::unique_ptr<BlobLogWriter> blob_log_writer(new BlobLogWriter(
+      std::move(file_writer), env_, statistics, blob_file_number,
+      immutable_cf_options_->use_fsync, do_flush));
 
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;

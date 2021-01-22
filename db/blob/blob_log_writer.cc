@@ -20,13 +20,15 @@ namespace ROCKSDB_NAMESPACE {
 
 BlobLogWriter::BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest,
                              Env* env, Statistics* statistics,
-                             uint64_t log_number, bool use_fs, uint64_t boffset)
+                             uint64_t log_number, bool use_fs, bool do_flush,
+                             uint64_t boffset)
     : dest_(std::move(dest)),
       env_(env),
       statistics_(statistics),
       log_number_(log_number),
       block_offset_(boffset),
       use_fsync_(use_fs),
+      do_flush_(do_flush),
       last_elem_type_(kEtNone) {}
 
 BlobLogWriter::~BlobLogWriter() = default;
@@ -49,7 +51,9 @@ Status BlobLogWriter::WriteHeader(BlobLogHeader& header) {
   Status s = dest_->Append(Slice(str));
   if (s.ok()) {
     block_offset_ += str.size();
-    s = dest_->Flush();
+    if (do_flush_) {
+      s = dest_->Flush();
+    }
   }
   last_elem_type_ = kEtFileHdr;
   RecordTick(statistics_, BLOB_DB_BLOB_FILE_BYTES_WRITTEN,
@@ -152,7 +156,7 @@ Status BlobLogWriter::EmitPhysicalRecord(const std::string& headerbuf,
   if (s.ok()) {
     s = dest_->Append(val);
   }
-  if (s.ok()) {
+  if (do_flush_ && s.ok()) {
     s = dest_->Flush();
   }
 
