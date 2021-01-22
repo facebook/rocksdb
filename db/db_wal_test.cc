@@ -469,6 +469,7 @@ TEST_P(DBRecoveryTestBlobError, RecoverWithBlobError) {
   options.enable_blob_files = true;
   options.avoid_flush_during_recovery = false;
   options.disable_auto_compactions = true;
+  options.env = env_;
 
   ASSERT_NOK(TryReopen(options));
 
