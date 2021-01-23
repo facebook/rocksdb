@@ -536,7 +536,7 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
   options.min_write_buffer_number_to_merge = 3;
   options.disable_auto_compactions = true;
   options.env = fault_fs_env.get();
-  options.checksum_handoff_file_types.push_back(FileType::kTableFile);
+  options.checksum_handoff_file_types.Add(FileType::kTableFile);
   Reopen(options);
 
   fault_fs->SetChecksumHandoffFuncName("crc32c");
@@ -646,7 +646,7 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest1) {
   options.min_write_buffer_number_to_merge = 3;
   options.disable_auto_compactions = true;
   options.env = fault_fs_env.get();
-  options.checksum_handoff_file_types.push_back(FileType::kDescriptorFile);
+  options.checksum_handoff_file_types.Add(FileType::kDescriptorFile);
   Reopen(options);
 
   fault_fs->SetChecksumHandoffFuncName("crc32c");
@@ -681,7 +681,7 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest2) {
   options.min_write_buffer_number_to_merge = 3;
   options.disable_auto_compactions = true;
   options.env = fault_fs_env.get();
-  options.checksum_handoff_file_types.push_back(FileType::kDescriptorFile);
+  options.checksum_handoff_file_types.Add(FileType::kDescriptorFile);
   Reopen(options);
   // The file system does not support checksum handoff. The check
   // will be ignored.

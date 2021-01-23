@@ -528,6 +528,7 @@ TEST_MAIN_SOURCES =                                                     \
   utilities/cassandra/cassandra_row_merge_test.cc                       \
   utilities/cassandra/cassandra_serialize_test.cc                       \
   utilities/checkpoint/checkpoint_test.cc                               \
+  utilities/data_structure_test.cc                                      \
   utilities/env_timed_test.cc                                           \
   utilities/memory/memory_test.cc                                       \
   utilities/merge_operators/string_append/stringappend_test.cc          \

@@ -228,7 +228,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<FileChecksumGenFactory>)},
       {offsetof(struct DBOptions, db_host_id), sizeof(std::string)},
       {offsetof(struct DBOptions, checksum_handoff_file_types),
-       sizeof(std::vector<FileType>)},
+       sizeof(FileTypeSet)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];

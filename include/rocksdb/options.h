@@ -26,6 +26,8 @@
 #include "rocksdb/sst_partitioner.h"
 #include "rocksdb/types.h"
 #include "rocksdb/universal_compaction.h"
+#include "rocksdb/utilities/data_structure.h"
+#include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
 
 #ifdef max
@@ -56,6 +58,8 @@ class FileSystem;
 
 struct Options;
 struct DbPath;
+
+using FileTypeSet = SmallEnumSet<FileType, FileType::kBlobFile>;
 
 struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // The function recovers options to a previous version. Only 4.6 or later
@@ -1198,9 +1202,9 @@ struct DBOptions {
   // Currently supported file tyes: kWALFile, kTableFile, kDescriptorFile.
   // NOTE: currently RocksDB only generates crc32c based checksum for the
   // handoff. If the storage layer has different checksum support, user
-  // should enble this vector is empty. Otherwise,it may cause unexpected
+  // should enble this set as empty. Otherwise,it may cause unexpected
   // write failures.
-  std::vector<FileType> checksum_handoff_file_types;
+  FileTypeSet checksum_handoff_file_types;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

@@ -127,7 +127,7 @@ struct ImmutableCFOptions {
 
   std::string db_host_id;
 
-  std::vector<FileType> checksum_handoff_file_types;
+  FileTypeSet checksum_handoff_file_types;
 };
 
 struct MutableCFOptions {

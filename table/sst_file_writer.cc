@@ -257,13 +257,13 @@ Status SstFileWriter::Open(const std::string& file_path) {
       r->column_family_name, unknown_level, 0 /* creation_time */,
       0 /* oldest_key_time */, 0 /* target_file_size */,
       0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id);
-  bool should_checksum_handoff = ShouldChecksumHandoff(
-      FileType::kTableFile, r->ioptions.checksum_handoff_file_types);
+  FileTypeSet tmp_set = r->ioptions.checksum_handoff_file_types;
   r->file_writer.reset(new WritableFileWriter(
       NewLegacyWritableFileWrapper(std::move(sst_file)), file_path,
       cur_file_opts, r->ioptions.env, nullptr /* io_tracer */,
       nullptr /* stats */, r->ioptions.listeners,
-      r->ioptions.file_checksum_gen_factory, should_checksum_handoff));
+      r->ioptions.file_checksum_gen_factory,
+      tmp_set.Contains(FileType::kTableFile)));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.

@@ -6284,7 +6284,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff1) {
   options.num_levels = 3;
   options.env = fault_fs_env.get();
   options.create_if_missing = true;
-  options.checksum_handoff_file_types.push_back(FileType::kTableFile);
+  options.checksum_handoff_file_types.Add(FileType::kTableFile);
   Status s;
   Reopen(options);
 
@@ -6455,7 +6455,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest1) {
   options.num_levels = 3;
   options.env = fault_fs_env.get();
   options.create_if_missing = true;
-  options.checksum_handoff_file_types.push_back(FileType::kDescriptorFile);
+  options.checksum_handoff_file_types.Add(FileType::kDescriptorFile);
   Status s;
   Reopen(options);
 
@@ -6505,7 +6505,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
   options.num_levels = 3;
   options.env = fault_fs_env.get();
   options.create_if_missing = true;
-  options.checksum_handoff_file_types.push_back(FileType::kDescriptorFile);
+  options.checksum_handoff_file_types.Add(FileType::kDescriptorFile);
   Status s;
   Reopen(options);
 

@@ -4121,14 +4121,11 @@ Status VersionSet::ProcessManifestWrites(
       if (io_s.ok()) {
         descriptor_file->SetPreallocationBlockSize(
             db_options_->manifest_preallocation_size);
-
-        bool should_checksum_handoff =
-            ShouldChecksumHandoff(FileType::kDescriptorFile,
-                                  db_options_->checksum_handoff_file_types);
+        FileTypeSet tmp_set = db_options_->checksum_handoff_file_types;
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
             std::move(descriptor_file), descriptor_fname, opt_file_opts, env_,
             io_tracer_, nullptr, db_options_->listeners, nullptr,
-            should_checksum_handoff));
+            tmp_set.Contains(FileType::kDescriptorFile)));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
         s = WriteCurrentStateToManifest(curr_state, wal_additions,

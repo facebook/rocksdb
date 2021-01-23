@@ -581,6 +581,7 @@ ifdef ASSERT_STATUS_CHECKED
 		checkpoint_test \
 		coding_test \
 		crc32c_test \
+		data_structure_test	\
 		dbformat_test \
 		db_basic_test \
 		compact_files_test \
@@ -1473,6 +1474,9 @@ db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRA
 	$(AM_LINK)
 
 write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
+	$(AM_LINK)
+
+data_structure_test: $(OBJ_DIR)/utilities/data_structure_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_sanity_test: $(OBJ_DIR)/tools/db_sanity_test.o $(LIBRARY)

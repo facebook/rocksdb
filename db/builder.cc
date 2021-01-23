@@ -152,15 +152,14 @@ Status BuildTable(
             file_checksum, file_checksum_func_name);
         return s;
       }
+      FileTypeSet tmp_set = ioptions.checksum_handoff_file_types;
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
-      bool should_checksum_handoff = ShouldChecksumHandoff(
-          FileType::kTableFile, ioptions.checksum_handoff_file_types);
-
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, clock, io_tracer,
           ioptions.statistics, ioptions.listeners,
-          ioptions.file_checksum_gen_factory, should_checksum_handoff));
+          ioptions.file_checksum_gen_factory,
+          tmp_set.Contains(FileType::kTableFile)));
 
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,

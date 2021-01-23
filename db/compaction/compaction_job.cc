@@ -1737,16 +1737,16 @@ Status CompactionJob::OpenCompactionOutputFile(
 
   writable_file->SetIOPriority(Env::IOPriority::IO_LOW);
   writable_file->SetWriteLifeTimeHint(write_hint_);
+  FileTypeSet tmp_set = db_options_.checksum_handoff_file_types;
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
   const auto& listeners =
       sub_compact->compaction->immutable_cf_options()->listeners;
-  bool should_checksum_handoff = ShouldChecksumHandoff(
-      FileType::kTableFile, db_options_.checksum_handoff_file_types);
   sub_compact->outfile.reset(new WritableFileWriter(
       std::move(writable_file), fname, file_options_, clock_, io_tracer_,
       db_options_.statistics.get(), listeners,
-      db_options_.file_checksum_gen_factory.get(), should_checksum_handoff));
+      db_options_.file_checksum_gen_factory.get(),
+      tmp_set.Contains(FileType::kTableFile)));
 
   // If the Column family flag is to only optimize filters for hits,
   // we can skip creating filters if this is the bottommost_level where

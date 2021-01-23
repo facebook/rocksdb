@@ -136,7 +136,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           std::shared_ptr<Statistics> statistics;
           std::vector<DbPath> db_paths;
           std::vector<std::shared_ptr<EventListener>> listeners;
-          std::vector<FileType> checksum_handoff_file_types;
+          FileTypeSet checksum_handoff_file_types;
          */
         {"advise_random_on_open",
          {offsetof(struct ImmutableDBOptions, advise_random_on_open),

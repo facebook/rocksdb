@@ -512,7 +512,7 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
   do {
     Options options = CurrentOptions();
 
-    options.checksum_handoff_file_types.push_back(FileType::kWalFile);
+    options.checksum_handoff_file_types.Add(FileType::kWalFile);
     options.env = fault_fs_env.get();
     fault_fs->SetChecksumHandoffFuncName("crc32c");
 

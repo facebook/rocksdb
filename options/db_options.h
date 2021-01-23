@@ -93,7 +93,7 @@ struct ImmutableDBOptions {
   uint64_t bgerror_resume_retry_interval;
   bool allow_data_in_errors;
   std::string db_host_id;
-  std::vector<FileType> checksum_handoff_file_types;
+  FileTypeSet checksum_handoff_file_types;
 };
 
 struct MutableDBOptions {
