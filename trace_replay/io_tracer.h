@@ -35,6 +35,7 @@ struct IOTraceRecord {
   std::string file_operation;
   uint64_t latency = 0;
   std::string io_status;
+  // Stores file name instead of full path.
   std::string file_name;
   // Fields added to record based on IO operation.
   uint64_t len = 0;

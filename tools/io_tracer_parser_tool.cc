@@ -38,12 +38,12 @@ void IOTraceRecordParser::PrintHumanReadableHeader(
 void IOTraceRecordParser::PrintHumanReadableIOTraceRecord(
     const IOTraceRecord& record) {
   std::stringstream ss;
-  ss << "Access Time : " << std::setw(17) << std::left
-     << record.access_timestamp << ", File Operation: " << std::setw(18)
+  ss << "Access Time : " << std::setw(20) << std::left
+     << record.access_timestamp << ", File Name: " << std::setw(20) << std::left
+     << record.file_name.c_str() << ", File Operation: " << std::setw(18)
      << std::left << record.file_operation.c_str()
-     << ", Latency: " << std::setw(9) << std::left << record.latency
-     << ", IO Status: " << record.io_status.c_str()
-     << ", File Name: " << record.file_name.c_str();
+     << ", Latency: " << std::setw(10) << std::left << record.latency
+     << ", IO Status: " << record.io_status.c_str();
 
   /* Read remaining options based on io_op_data set by file operation */
   int64_t io_op_data = static_cast<int64_t>(record.io_op_data);

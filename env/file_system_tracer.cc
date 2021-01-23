@@ -18,7 +18,7 @@ IOStatus FileSystemTracingWrapper::NewSequentialFile(
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
-                          fname);
+                          fname.substr(fname.find_last_of("/\\") + 1));
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -32,7 +32,7 @@ IOStatus FileSystemTracingWrapper::NewRandomAccessFile(
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
-                          fname);
+                          fname.substr(fname.find_last_of("/\\") + 1));
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -46,7 +46,7 @@ IOStatus FileSystemTracingWrapper::NewWritableFile(
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
-                          fname);
+                          fname.substr(fname.find_last_of("/\\") + 1));
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -60,7 +60,7 @@ IOStatus FileSystemTracingWrapper::ReopenWritableFile(
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
-                          fname);
+                          fname.substr(fname.find_last_of("/\\") + 1));
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -76,7 +76,7 @@ IOStatus FileSystemTracingWrapper::ReuseWritableFile(
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
-                          fname);
+                          fname.substr(fname.find_last_of("/\\") + 1));
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -90,7 +90,7 @@ IOStatus FileSystemTracingWrapper::NewRandomRWFile(
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
-                          fname);
+                          fname.substr(fname.find_last_of("/\\") + 1));
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -104,7 +104,7 @@ IOStatus FileSystemTracingWrapper::NewDirectory(
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
-                          name);
+                          name.substr(name.find_last_of("/\\") + 1));
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -119,7 +119,7 @@ IOStatus FileSystemTracingWrapper::GetChildren(const std::string& dir,
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
-                          dir);
+                          dir.substr(dir.find_last_of("/\\") + 1));
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -133,7 +133,7 @@ IOStatus FileSystemTracingWrapper::DeleteFile(const std::string& fname,
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
-                          fname);
+                          fname.substr(fname.find_last_of("/\\") + 1));
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -147,7 +147,7 @@ IOStatus FileSystemTracingWrapper::CreateDir(const std::string& dirname,
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
-                          dirname);
+                          dirname.substr(dirname.find_last_of("/\\") + 1));
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -160,7 +160,7 @@ IOStatus FileSystemTracingWrapper::CreateDirIfMissing(
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
-                          dirname);
+                          dirname.substr(dirname.find_last_of("/\\") + 1));
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -174,7 +174,7 @@ IOStatus FileSystemTracingWrapper::DeleteDir(const std::string& dirname,
   uint64_t elapsed = timer.ElapsedNanos();
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer,
                           0 /*io_op_data*/, __func__, elapsed, s.ToString(),
-                          dirname);
+                          dirname.substr(dirname.find_last_of("/\\") + 1));
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -189,8 +189,9 @@ IOStatus FileSystemTracingWrapper::GetFileSize(const std::string& fname,
   uint64_t elapsed = timer.ElapsedNanos();
   uint64_t io_op_data = 0;
   io_op_data |= (1 << IOTraceOp::kIOFileSize);
-  IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer, io_op_data,
-                          __func__, elapsed, s.ToString(), fname, *file_size);
+  IOTraceRecord io_record(
+      env_->NowNanos(), TraceType::kIOTracer, io_op_data, __func__, elapsed,
+      s.ToString(), fname.substr(fname.find_last_of("/\\") + 1), *file_size);
   io_tracer_->WriteIOOp(io_record);
   return s;
 }
@@ -206,7 +207,8 @@ IOStatus FileSystemTracingWrapper::Truncate(const std::string& fname,
   uint64_t io_op_data = 0;
   io_op_data |= (1 << IOTraceOp::kIOFileSize);
   IOTraceRecord io_record(env_->NowNanos(), TraceType::kIOTracer, io_op_data,
-                          __func__, elapsed, s.ToString(), fname, size);
+                          __func__, elapsed, s.ToString(),
+                          fname.substr(fname.find_last_of("/\\") + 1), size);
   io_tracer_->WriteIOOp(io_record);
   return s;
 }

@@ -168,7 +168,9 @@ class FSSequentialFilePtr {
                       const std::string& file_name)
       : fs_(std::move(fs)),
         io_tracer_(io_tracer),
-        fs_tracer_(fs_.get(), io_tracer_, file_name) {}
+        fs_tracer_(fs_.get(), io_tracer_,
+                   file_name.substr(file_name.find_last_of("/\\") +
+                                    1) /* pass file name */) {}
 
   FSSequentialFile* operator->() const {
     if (io_tracer_ && io_tracer_->is_tracing_enabled()) {
@@ -225,6 +227,7 @@ class FSRandomAccessFileTracingWrapper : public FSRandomAccessFileWrapper {
  private:
   std::shared_ptr<IOTracer> io_tracer_;
   Env* env_;
+  // Stores file name instead of full path.
   std::string file_name_;
 };
 
@@ -240,7 +243,9 @@ class FSRandomAccessFilePtr {
                         const std::string& file_name)
       : fs_(std::move(fs)),
         io_tracer_(io_tracer),
-        fs_tracer_(fs_.get(), io_tracer_, file_name) {}
+        fs_tracer_(fs_.get(), io_tracer_,
+                   file_name.substr(file_name.find_last_of("/\\") +
+                                    1) /* pass file name */) {}
 
   FSRandomAccessFile* operator->() const {
     if (io_tracer_ && io_tracer_->is_tracing_enabled()) {
@@ -312,6 +317,7 @@ class FSWritableFileTracingWrapper : public FSWritableFileWrapper {
  private:
   std::shared_ptr<IOTracer> io_tracer_;
   Env* env_;
+  // Stores file name instead of full path.
   std::string file_name_;
 };
 
@@ -326,8 +332,10 @@ class FSWritableFilePtr {
                     const std::shared_ptr<IOTracer>& io_tracer,
                     const std::string& file_name)
       : fs_(std::move(fs)), io_tracer_(io_tracer) {
-    fs_tracer_.reset(
-        new FSWritableFileTracingWrapper(fs_.get(), io_tracer_, file_name));
+    fs_tracer_.reset(new FSWritableFileTracingWrapper(
+        fs_.get(), io_tracer_,
+        file_name.substr(file_name.find_last_of("/\\") +
+                         1) /* pass file name */));
   }
 
   FSWritableFile* operator->() const {
@@ -394,6 +402,7 @@ class FSRandomRWFileTracingWrapper : public FSRandomRWFileWrapper {
  private:
   std::shared_ptr<IOTracer> io_tracer_;
   Env* env_;
+  // Stores file name instead of full path.
   std::string file_name_;
 };
 
@@ -409,7 +418,9 @@ class FSRandomRWFilePtr {
                     const std::string& file_name)
       : fs_(std::move(fs)),
         io_tracer_(io_tracer),
-        fs_tracer_(fs_.get(), io_tracer_, file_name) {}
+        fs_tracer_(fs_.get(), io_tracer_,
+                   file_name.substr(file_name.find_last_of("/\\") +
+                                    1) /* pass file name */) {}
 
   FSRandomRWFile* operator->() const {
     if (io_tracer_ && io_tracer_->is_tracing_enabled()) {
