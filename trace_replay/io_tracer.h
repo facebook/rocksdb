@@ -16,6 +16,15 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+/* In order to log new data in trace record for specified operations, do
+   following:
+   1. Add new data in IOTraceOP (say kIONewData= 3)
+   2. Log it in IOTraceWriter::WriteIOOp, and read that in
+   IOTraceReader::ReadIOOp and
+   IOTraceRecordParser::PrintHumanReadableIOTraceRecord in the switch case.
+   3. In the FileSystemTracer APIs where this data will be logged with, update
+   io_op_data |= (1 << IOTraceOp::kIONewData).
+*/
 enum IOTraceOp : char {
   // The value of each enum represents the bitwise position for
   // IOTraceRecord.io_op_data.

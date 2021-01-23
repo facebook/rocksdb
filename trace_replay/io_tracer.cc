@@ -40,6 +40,12 @@ Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record) {
   Slice file_name(record.file_name);
   PutLengthPrefixedSlice(&trace.payload, file_name);
 
+  // Each bit in io_op_data stores which corresponding info from IOTraceOp will
+  // be added in the trace. Foreg, if bit at position 1 is set then
+  // IOTraceOp::kIOLen (length) will be logged in the record (Since
+  // IOTraceOp::kIOLen = 1 in the enum). So find all the set positions in
+  // io_op_data one by one and, update corresponsing info in the trace record,
+  // unset that bit to find other set bits until io_op_data = 0.
   /* Write remaining options based on io_op_data set by file operation */
   int64_t io_op_data = static_cast<int64_t>(record.io_op_data);
   while (io_op_data) {
@@ -167,6 +173,12 @@ Status IOTraceReader::ReadIOOp(IOTraceRecord* record) {
   }
   record->file_name = file_name.ToString();
 
+  // Each bit in io_op_data stores which corresponding info from IOTraceOp will
+  // be added in the trace. Foreg, if bit at position 1 is set then
+  // IOTraceOp::kIOLen (length) will be logged in the record (Since
+  // IOTraceOp::kIOLen = 1 in the enum). So find all the set positions in
+  // io_op_data one by one and, update corresponsing info in the trace record,
+  // unset that bit to find other set bits until io_op_data = 0.
   /* Read remaining options based on io_op_data set by file operation */
   // Assuming 63 bits will be used at max.
   int64_t io_op_data = static_cast<int64_t>(record->io_op_data);
