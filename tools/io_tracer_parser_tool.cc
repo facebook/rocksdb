@@ -38,32 +38,39 @@ void IOTraceRecordParser::PrintHumanReadableHeader(
 void IOTraceRecordParser::PrintHumanReadableIOTraceRecord(
     const IOTraceRecord& record) {
   std::stringstream ss;
-  ss << "Access Time : " << std::setw(17) << std::left
-     << record.access_timestamp << ", File Operation: " << std::setw(18)
+  ss << "Access Time : " << std::setw(20) << std::left
+     << record.access_timestamp << ", File Name: " << std::setw(20) << std::left
+     << record.file_name.c_str() << ", File Operation: " << std::setw(18)
      << std::left << record.file_operation.c_str()
-     << ", Latency: " << std::setw(9) << std::left << record.latency
+     << ", Latency: " << std::setw(10) << std::left << record.latency
      << ", IO Status: " << record.io_status.c_str();
 
-  switch (record.trace_type) {
-    case TraceType::kIOGeneral:
-      break;
-    case TraceType::kIOFileNameAndFileSize:
-      ss << ", File Size: " << record.file_size;
-      FALLTHROUGH_INTENDED;
-    case TraceType::kIOFileName: {
-      if (!record.file_name.empty()) {
-        ss << ", File Name: " << record.file_name.c_str();
-      }
-      break;
+  // Each bit in io_op_data stores which corresponding info from IOTraceOp will
+  // be added in the trace. Foreg, if bit at position 1 is set then
+  // IOTraceOp::kIOLen (length) will be logged in the record (Since
+  // IOTraceOp::kIOLen = 1 in the enum). So find all the set positions in
+  // io_op_data one by one and, update corresponsing info in the trace record,
+  // unset that bit to find other set bits until io_op_data = 0.
+  /* Read remaining options based on io_op_data set by file operation */
+  int64_t io_op_data = static_cast<int64_t>(record.io_op_data);
+  while (io_op_data) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(io_op_data & -io_op_data));
+    switch (set_pos) {
+      case IOTraceOp::kIOFileSize:
+        ss << ", File Size: " << record.file_size;
+        break;
+      case IOTraceOp::kIOLen:
+        ss << ", Length: " << record.len;
+        break;
+      case IOTraceOp::kIOOffset:
+        ss << ", Offset: " << record.offset;
+        break;
+      default:
+        assert(false);
     }
-    case TraceType::kIOLenAndOffset:
-      ss << ", Offset: " << record.offset;
-      FALLTHROUGH_INTENDED;
-    case TraceType::kIOLen:
-      ss << ", Length: " << record.len;
-      break;
-    default:
-      assert(false);
+    // unset the rightmost bit.
+    io_op_data &= (io_op_data - 1);
   }
   ss << "\n";
   fprintf(stdout, "%s", ss.str().c_str());

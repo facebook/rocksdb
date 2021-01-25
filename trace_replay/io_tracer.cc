@@ -31,32 +31,43 @@ Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record) {
   Trace trace;
   trace.ts = record.access_timestamp;
   trace.type = record.trace_type;
+  PutFixed64(&trace.payload, record.io_op_data);
   Slice file_operation(record.file_operation);
   PutLengthPrefixedSlice(&trace.payload, file_operation);
   PutFixed64(&trace.payload, record.latency);
   Slice io_status(record.io_status);
   PutLengthPrefixedSlice(&trace.payload, io_status);
-  /* Write remaining options based on trace_type set by file operation */
-  switch (record.trace_type) {
-    case TraceType::kIOGeneral:
-      break;
-    case TraceType::kIOFileNameAndFileSize:
-      PutFixed64(&trace.payload, record.file_size);
-      FALLTHROUGH_INTENDED;
-    case TraceType::kIOFileName: {
-      Slice file_name(record.file_name);
-      PutLengthPrefixedSlice(&trace.payload, file_name);
-      break;
+  Slice file_name(record.file_name);
+  PutLengthPrefixedSlice(&trace.payload, file_name);
+
+  // Each bit in io_op_data stores which corresponding info from IOTraceOp will
+  // be added in the trace. Foreg, if bit at position 1 is set then
+  // IOTraceOp::kIOLen (length) will be logged in the record (Since
+  // IOTraceOp::kIOLen = 1 in the enum). So find all the set positions in
+  // io_op_data one by one and, update corresponsing info in the trace record,
+  // unset that bit to find other set bits until io_op_data = 0.
+  /* Write remaining options based on io_op_data set by file operation */
+  int64_t io_op_data = static_cast<int64_t>(record.io_op_data);
+  while (io_op_data) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(io_op_data & -io_op_data));
+    switch (set_pos) {
+      case IOTraceOp::kIOFileSize:
+        PutFixed64(&trace.payload, record.file_size);
+        break;
+      case IOTraceOp::kIOLen:
+        PutFixed64(&trace.payload, record.len);
+        break;
+      case IOTraceOp::kIOOffset:
+        PutFixed64(&trace.payload, record.offset);
+        break;
+      default:
+        assert(false);
     }
-    case TraceType::kIOLenAndOffset:
-      PutFixed64(&trace.payload, record.offset);
-      FALLTHROUGH_INTENDED;
-    case TraceType::kIOLen:
-      PutFixed64(&trace.payload, record.len);
-      break;
-    default:
-      assert(false);
+    // unset the rightmost bit.
+    io_op_data &= (io_op_data - 1);
   }
+
   std::string encoded_trace;
   TracerHelper::EncodeTrace(trace, &encoded_trace);
   return trace_writer_->Write(encoded_trace);
@@ -135,6 +146,10 @@ Status IOTraceReader::ReadIOOp(IOTraceRecord* record) {
   record->trace_type = trace.type;
   Slice enc_slice = Slice(trace.payload);
 
+  if (!GetFixed64(&enc_slice, &record->io_op_data)) {
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read trace data.");
+  }
   Slice file_operation;
   if (!GetLengthPrefixedSlice(&enc_slice, &file_operation)) {
     return Status::Incomplete(
@@ -151,40 +166,49 @@ Status IOTraceReader::ReadIOOp(IOTraceRecord* record) {
         "Incomplete access record: Failed to read IO status.");
   }
   record->io_status = io_status.ToString();
-  /* Read remaining options based on trace_type set by file operation */
-  switch (record->trace_type) {
-    case TraceType::kIOGeneral:
-      break;
-    case TraceType::kIOFileNameAndFileSize:
-      if (!GetFixed64(&enc_slice, &record->file_size)) {
-        return Status::Incomplete(
-            "Incomplete access record: Failed to read file size.");
-      }
-      FALLTHROUGH_INTENDED;
-    case TraceType::kIOFileName: {
-      Slice file_name;
-      if (!GetLengthPrefixedSlice(&enc_slice, &file_name)) {
-        return Status::Incomplete(
-            "Incomplete access record: Failed to read file name.");
-      }
-      record->file_name = file_name.ToString();
-      break;
+  Slice file_name;
+  if (!GetLengthPrefixedSlice(&enc_slice, &file_name)) {
+    return Status::Incomplete(
+        "Incomplete access record: Failed to read file name.");
+  }
+  record->file_name = file_name.ToString();
+
+  // Each bit in io_op_data stores which corresponding info from IOTraceOp will
+  // be added in the trace. Foreg, if bit at position 1 is set then
+  // IOTraceOp::kIOLen (length) will be logged in the record (Since
+  // IOTraceOp::kIOLen = 1 in the enum). So find all the set positions in
+  // io_op_data one by one and, update corresponsing info in the trace record,
+  // unset that bit to find other set bits until io_op_data = 0.
+  /* Read remaining options based on io_op_data set by file operation */
+  // Assuming 63 bits will be used at max.
+  int64_t io_op_data = static_cast<int64_t>(record->io_op_data);
+  while (io_op_data) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(io_op_data & -io_op_data));
+    switch (set_pos) {
+      case IOTraceOp::kIOFileSize:
+        if (!GetFixed64(&enc_slice, &record->file_size)) {
+          return Status::Incomplete(
+              "Incomplete access record: Failed to read file size.");
+        }
+        break;
+      case IOTraceOp::kIOLen:
+        if (!GetFixed64(&enc_slice, &record->len)) {
+          return Status::Incomplete(
+              "Incomplete access record: Failed to read length.");
+        }
+        break;
+      case IOTraceOp::kIOOffset:
+        if (!GetFixed64(&enc_slice, &record->offset)) {
+          return Status::Incomplete(
+              "Incomplete access record: Failed to read offset.");
+        }
+        break;
+      default:
+        assert(false);
     }
-    case TraceType::kIOLenAndOffset:
-      if (!GetFixed64(&enc_slice, &record->offset)) {
-        return Status::Incomplete(
-            "Incomplete access record: Failed to read offset.");
-      }
-      FALLTHROUGH_INTENDED;
-    case TraceType::kIOLen: {
-      if (!GetFixed64(&enc_slice, &record->len)) {
-        return Status::Incomplete(
-            "Incomplete access record: Failed to read length.");
-      }
-      break;
-    }
-    default:
-      assert(false);
+    // unset the rightmost bit.
+    io_op_data &= (io_op_data - 1);
   }
   return Status::OK();
 }

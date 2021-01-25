@@ -31,7 +31,8 @@ class SequentialFileReader {
   explicit SequentialFileReader(
       std::unique_ptr<FSSequentialFile>&& _file, const std::string& _file_name,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr)
-      : file_name_(_file_name), file_(std::move(_file), io_tracer) {}
+      : file_name_(_file_name),
+        file_(std::move(_file), io_tracer, _file_name) {}
 
   explicit SequentialFileReader(
       std::unique_ptr<FSSequentialFile>&& _file, const std::string& _file_name,
@@ -39,7 +40,7 @@ class SequentialFileReader {
       const std::shared_ptr<IOTracer>& io_tracer = nullptr)
       : file_name_(_file_name),
         file_(NewReadaheadSequentialFile(std::move(_file), _readahead_size),
-              io_tracer) {}
+              io_tracer, _file_name) {}
 
   SequentialFileReader(const SequentialFileReader&) = delete;
   SequentialFileReader& operator=(const SequentialFileReader&) = delete;

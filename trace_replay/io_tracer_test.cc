@@ -52,7 +52,10 @@ class IOTracerTest : public testing::Test {
     assert(writer);
     for (uint64_t i = 0; i < nrecords; i++) {
       IOTraceRecord record;
-      record.trace_type = TraceType::kIOLenAndOffset;
+      record.io_op_data = 0;
+      record.trace_type = TraceType::kIOTracer;
+      record.io_op_data |= (1 << IOTraceOp::kIOLen);
+      record.io_op_data |= (1 << IOTraceOp::kIOOffset);
       record.file_operation = GetFileOperation(i);
       record.io_status = IOStatus::OK().ToString();
       record.file_name = kDummyFile + std::to_string(i);
@@ -80,10 +83,117 @@ class IOTracerTest : public testing::Test {
   std::string test_path_;
 };
 
+TEST_F(IOTracerTest, MultipleRecordsWithDifferentIOOpOptions) {
+  std::string file_name = kDummyFile + std::to_string(5);
+  {
+    TraceOptions trace_opt;
+    std::unique_ptr<TraceWriter> trace_writer;
+    ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
+                                 &trace_writer));
+    IOTracer writer;
+    ASSERT_OK(writer.StartIOTrace(env_, trace_opt, std::move(trace_writer)));
+
+    // Write general record.
+    IOTraceRecord record0(0, TraceType::kIOTracer, 0 /*io_op_data*/,
+                          GetFileOperation(0), 155 /*latency*/,
+                          IOStatus::OK().ToString(), file_name);
+    writer.WriteIOOp(record0);
+
+    // Write record with FileSize.
+    uint64_t io_op_data = 0;
+    io_op_data |= (1 << IOTraceOp::kIOFileSize);
+    IOTraceRecord record1(0, TraceType::kIOTracer, io_op_data,
+                          GetFileOperation(1), 10 /*latency*/,
+                          IOStatus::OK().ToString(), file_name,
+                          256 /*file_size*/);
+    writer.WriteIOOp(record1);
+
+    // Write record with Length.
+    io_op_data = 0;
+    io_op_data |= (1 << IOTraceOp::kIOLen);
+    IOTraceRecord record2(0, TraceType::kIOTracer, io_op_data,
+                          GetFileOperation(2), 10 /*latency*/,
+                          IOStatus::OK().ToString(), file_name, 100 /*length*/,
+                          200 /*offset*/);
+    writer.WriteIOOp(record2);
+
+    // Write record with Length and offset.
+    io_op_data = 0;
+    io_op_data |= (1 << IOTraceOp::kIOLen);
+    io_op_data |= (1 << IOTraceOp::kIOOffset);
+    IOTraceRecord record3(0, TraceType::kIOTracer, io_op_data,
+                          GetFileOperation(3), 10 /*latency*/,
+                          IOStatus::OK().ToString(), file_name, 120 /*length*/,
+                          17 /*offset*/);
+    writer.WriteIOOp(record3);
+
+    // Write record with offset.
+    io_op_data = 0;
+    io_op_data |= (1 << IOTraceOp::kIOOffset);
+    IOTraceRecord record4(0, TraceType::kIOTracer, io_op_data,
+                          GetFileOperation(4), 10 /*latency*/,
+                          IOStatus::OK().ToString(), file_name, 13 /*length*/,
+                          50 /*offset*/);
+    writer.WriteIOOp(record4);
+    ASSERT_OK(env_->FileExists(trace_file_path_));
+  }
+  {
+    // Verify trace file is generated correctly.
+    std::unique_ptr<TraceReader> trace_reader;
+    ASSERT_OK(NewFileTraceReader(env_, env_options_, trace_file_path_,
+                                 &trace_reader));
+    IOTraceReader reader(std::move(trace_reader));
+    IOTraceHeader header;
+    ASSERT_OK(reader.ReadHeader(&header));
+    ASSERT_EQ(kMajorVersion, static_cast<int>(header.rocksdb_major_version));
+    ASSERT_EQ(kMinorVersion, static_cast<int>(header.rocksdb_minor_version));
+
+    // Read general record.
+    IOTraceRecord record0;
+    ASSERT_OK(reader.ReadIOOp(&record0));
+    ASSERT_EQ(record0.file_operation, GetFileOperation(0));
+    ASSERT_EQ(record0.latency, 155);
+    ASSERT_EQ(record0.file_name, file_name);
+
+    // Read record with FileSize.
+    IOTraceRecord record1;
+    ASSERT_OK(reader.ReadIOOp(&record1));
+    ASSERT_EQ(record1.file_size, 256);
+    ASSERT_EQ(record1.len, 0);
+    ASSERT_EQ(record1.offset, 0);
+
+    // Read record with Length.
+    IOTraceRecord record2;
+    ASSERT_OK(reader.ReadIOOp(&record2));
+    ASSERT_EQ(record2.len, 100);
+    ASSERT_EQ(record2.file_size, 0);
+    ASSERT_EQ(record2.offset, 0);
+
+    // Read record with Length and offset.
+    IOTraceRecord record3;
+    ASSERT_OK(reader.ReadIOOp(&record3));
+    ASSERT_EQ(record3.len, 120);
+    ASSERT_EQ(record3.file_size, 0);
+    ASSERT_EQ(record3.offset, 17);
+
+    // Read record with offset.
+    IOTraceRecord record4;
+    ASSERT_OK(reader.ReadIOOp(&record4));
+    ASSERT_EQ(record4.len, 0);
+    ASSERT_EQ(record4.file_size, 0);
+    ASSERT_EQ(record4.offset, 50);
+
+    // Read one more record and it should report error.
+    IOTraceRecord record5;
+    ASSERT_NOK(reader.ReadIOOp(&record5));
+  }
+}
+
 TEST_F(IOTracerTest, AtomicWrite) {
   std::string file_name = kDummyFile + std::to_string(0);
   {
-    IOTraceRecord record(0, TraceType::kIOFileName, GetFileOperation(0), 0,
+    IOTraceRecord record(0, TraceType::kIOTracer, 0 /*io_op_data*/,
+                         GetFileOperation(0), 10 /*latency*/,
                          IOStatus::OK().ToString(), file_name);
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
@@ -115,9 +225,11 @@ TEST_F(IOTracerTest, AtomicWrite) {
 }
 
 TEST_F(IOTracerTest, AtomicWriteBeforeStartTrace) {
+  std::string file_name = kDummyFile + std::to_string(0);
   {
-    IOTraceRecord record(0, TraceType::kIOGeneral, GetFileOperation(0), 0,
-                         IOStatus::OK().ToString());
+    IOTraceRecord record(0, TraceType::kIOTracer, 0 /*io_op_data*/,
+                         GetFileOperation(0), 0, IOStatus::OK().ToString(),
+                         file_name);
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
@@ -139,10 +251,13 @@ TEST_F(IOTracerTest, AtomicWriteBeforeStartTrace) {
 }
 
 TEST_F(IOTracerTest, AtomicNoWriteAfterEndTrace) {
+  std::string file_name = kDummyFile + std::to_string(0);
   {
-    IOTraceRecord record(0, TraceType::kIOFileNameAndFileSize,
-                         GetFileOperation(2), 0 /*latency*/,
-                         IOStatus::OK().ToString(), "", 10 /*file_size*/);
+    uint64_t io_op_data = 0;
+    io_op_data |= (1 << IOTraceOp::kIOFileSize);
+    IOTraceRecord record(
+        0, TraceType::kIOTracer, io_op_data, GetFileOperation(2), 0 /*latency*/,
+        IOStatus::OK().ToString(), file_name, 10 /*file_size*/);
     TraceOptions trace_opt;
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,

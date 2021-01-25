@@ -151,7 +151,7 @@ class WritableFileWriter {
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr)
       : file_name_(_file_name),
-        writable_file_(std::move(file), io_tracer),
+        writable_file_(std::move(file), io_tracer, _file_name),
         env_(env),
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
