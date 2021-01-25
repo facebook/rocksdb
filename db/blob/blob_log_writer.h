@@ -34,7 +34,7 @@ class BlobLogWriter {
   // "*dest" must remain live while this BlobLogWriter is in use.
   BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest, Env* env,
                 Statistics* statistics, uint64_t log_number, bool use_fsync,
-                uint64_t boffset = 0);
+                bool do_flush, uint64_t boffset = 0);
   // No copying allowed
   BlobLogWriter(const BlobLogWriter&) = delete;
   BlobLogWriter& operator=(const BlobLogWriter&) = delete;
@@ -74,6 +74,7 @@ class BlobLogWriter {
   uint64_t log_number_;
   uint64_t block_offset_;  // Current offset in block
   bool use_fsync_;
+  bool do_flush_;
 
  public:
   enum ElemType { kEtNone, kEtFileHdr, kEtRecord, kEtFileFooter };
