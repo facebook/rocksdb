@@ -1136,13 +1136,6 @@ ROCKS_TESTS = [
         [],
     ],
     [
-        "data_structure_test",
-        "utilities/data_structure_test.cc",
-        "serial",
-        [],
-        [],
-    ],
-    [
         "db_basic_test",
         "db/db_basic_test.cc",
         "serial",

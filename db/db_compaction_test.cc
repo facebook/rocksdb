@@ -6276,6 +6276,10 @@ TEST_F(DBCompactionTest, CompactionWithBlobGCError_IndexWithInvalidFileNumber) {
 }
 
 TEST_F(DBCompactionTest, CompactionWithChecksumHandoff1) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
@@ -6366,6 +6370,10 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff1) {
 }
 
 TEST_F(DBCompactionTest, CompactionWithChecksumHandoff2) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
@@ -6447,6 +6455,10 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff2) {
 }
 
 TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest1) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
@@ -6497,6 +6509,10 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest1) {
 }
 
 TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));

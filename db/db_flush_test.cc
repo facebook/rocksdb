@@ -527,6 +527,10 @@ TEST_F(DBFlushTest, FlushWithBlob) {
 }
 
 TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
@@ -587,6 +591,10 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
 }
 
 TEST_F(DBFlushTest, FlushWithChecksumHandoff2) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
@@ -637,6 +645,10 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoff2) {
 }
 
 TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest1) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
@@ -672,6 +684,10 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest1) {
 }
 
 TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest2) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));

@@ -506,6 +506,10 @@ TEST_F(DBWALTest, RecoverWithBlobMultiSST) {
 
 TEST_F(DBWALTest, WALWithChecksumHandoff) {
 #ifndef ROCKSDB_ASSERT_STATUS_CHECKED
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
   std::shared_ptr<FaultInjectionTestFS> fault_fs(
       new FaultInjectionTestFS(FileSystem::Default()));
   std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));

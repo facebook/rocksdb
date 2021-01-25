@@ -4123,7 +4123,7 @@ Status VersionSet::ProcessManifestWrites(
             db_options_->manifest_preallocation_size);
         FileTypeSet tmp_set = db_options_->checksum_handoff_file_types;
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(descriptor_file), descriptor_fname, opt_file_opts, env_,
+            std::move(descriptor_file), descriptor_fname, opt_file_opts, clock_,
             io_tracer_, nullptr, db_options_->listeners, nullptr,
             tmp_set.Contains(FileType::kDescriptorFile)));
         descriptor_log_.reset(

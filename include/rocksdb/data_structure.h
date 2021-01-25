@@ -1,9 +1,11 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  Copyright (c) Facebook, Inc. and its affiliates. All rights reserved.
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-//
+
 #pragma once
+
+#include <assert.h>
 
 #include <cstdint>
 
@@ -21,20 +23,21 @@ class SmallEnumSet {
 
   ~SmallEnumSet() {}
 
+  // Return true if the input enum is included in the "Set" (i.e., changes the
+  // internal scalar state successfully), otherwise, it will return false.
   bool Add(const ENUM_TYPE value) {
-    if (value > MAX_VALUE) {
-      return false;
-    }
+    static_assert(MAX_VALUE <= 63, "Size currently limited to 64");
+    assert(value >= 0 && value <= MAX_VALUE);
     uint64_t old_state = state_;
     uint64_t tmp = 1;
     state_ |= (tmp << value);
     return old_state != state_;
   }
 
+  // Return true if the input enum is contained in the "Set".
   bool Contains(const ENUM_TYPE value) {
-    if (value > MAX_VALUE) {
-      return false;
-    }
+    static_assert(MAX_VALUE <= 63, "Size currently limited to 64");
+    assert(value >= 0 && value <= MAX_VALUE);
     uint64_t tmp = 1;
     return state_ & (tmp << value);
   }
