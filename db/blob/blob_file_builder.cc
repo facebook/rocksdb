@@ -49,7 +49,6 @@ BlobFileBuilder::BlobFileBuilder(
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : file_number_generator_(std::move(file_number_generator)),
-      env_(env),
       fs_(fs),
       immutable_cf_options_(immutable_cf_options),
       min_blob_size_(mutable_cf_options->min_blob_size),
@@ -66,7 +65,7 @@ BlobFileBuilder::BlobFileBuilder(
       blob_count_(0),
       blob_bytes_(0) {
   assert(file_number_generator_);
-  assert(env_);
+  assert(env);
   assert(fs_);
   assert(immutable_cf_options_);
   assert(file_options_);
@@ -74,7 +73,7 @@ BlobFileBuilder::BlobFileBuilder(
   assert(blob_file_paths_->empty());
   assert(blob_file_additions_);
   assert(blob_file_additions_->empty());
-  clock_ = env_->GetSystemClock();
+  clock_ = env->GetSystemClock();
 }
 
 BlobFileBuilder::~BlobFileBuilder() = default;

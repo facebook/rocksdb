@@ -40,7 +40,7 @@ class TestFileNumberGenerator {
 class BlobFileBuilderTest : public testing::Test {
  protected:
   BlobFileBuilderTest() : mock_env_(Env::Default()) {
-    fs_ = mock_env_.GetFileSystem();
+    fs_ = mock_env_.GetFileSystem().get();
     clock_ = mock_env_.GetSystemClock();
   }
 
@@ -109,7 +109,7 @@ class BlobFileBuilderTest : public testing::Test {
   }
 
   MockEnv mock_env_;
-  std::shared_ptr<FileSystem> fs_;
+  FileSystem* fs_;
   std::shared_ptr<SystemClock> clock_;
   FileOptions file_options_;
 };

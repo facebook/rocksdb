@@ -70,7 +70,6 @@ class BlobFileBuilder {
   Status CloseBlobFileIfNeeded();
 
   std::function<uint64_t()> file_number_generator_;
-  Env* env_;
   FileSystem* fs_;
   std::shared_ptr<SystemClock> clock_;
   const ImmutableCFOptions* immutable_cf_options_;
