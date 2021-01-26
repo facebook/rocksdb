@@ -1869,7 +1869,7 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "TransactionDB             : %s\n",
           FLAGS_use_txn ? "true" : "false");
 #ifndef ROCKSDB_LITE
-  fprintf(stdout, "BlobDB                    : %s\n",
+  fprintf(stdout, "Stacked BlobDB            : %s\n",
           FLAGS_use_blob_db ? "true" : "false");
 #endif  // !ROCKSDB_LITE
   fprintf(stdout, "Read only mode            : %s\n",
@@ -1968,6 +1968,20 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Sync fault injection      : %d\n", FLAGS_sync_fault_injection);
   fprintf(stdout, "Best efforts recovery     : %d\n",
           static_cast<int>(FLAGS_best_efforts_recovery));
+
+  fprintf(stdout, "-------------- Integrated BlobDB ---------------\n");
+  fprintf(stdout, "Enable blob files         : %d\n",
+          static_cast<int>(FLAGS_enable_blob_files));
+  fprintf(stdout, "Min blob size             : %" PRIu64 "\n",
+          FLAGS_min_blob_size);
+  fprintf(stdout, "Blob file size            : %" PRIu64 "\n",
+          FLAGS_blob_file_size);
+  fprintf(stdout, "Blob compression type     : %s\n",
+          CompressionTypeToString(blob_compression_type_e).c_str());
+  fprintf(stdout, "Enable blob GC            : %d\n",
+          static_cast<int>(FLAGS_enable_blob_garbage_collection));
+  fprintf(stdout, "Blob GC age cutoff        : %f\n",
+          FLAGS_blob_garbage_collection_age_cutoff);
 
   fprintf(stdout, "------------------------------------------------\n");
 }
