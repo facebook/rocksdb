@@ -14,7 +14,7 @@
 
 #ifndef GFLAGS
 uint32_t FLAGS_thoroughness = 5;
-uint32_t FLAGS_log2_max_add = 0;
+uint32_t FLAGS_max_add = 0;
 uint32_t FLAGS_min_check = 4000;
 uint32_t FLAGS_max_check = 100000;
 bool FLAGS_verbose = false;
@@ -36,8 +36,8 @@ using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 // Using 500 is a good test when you have time to be thorough.
 // Default is for general RocksDB regression test runs.
 DEFINE_uint32(thoroughness, 5, "iterations per configuration");
-DEFINE_uint32(log2_max_add, 0,
-              "Add up to 2^log2_max_add entries to a single filter in "
+DEFINE_uint32(max_add, 0,
+              "Add up to this number of entries to a single filter in "
               "CompactnessAndBacktrackAndFpRate; 0 == reasonable default");
 DEFINE_uint32(min_check, 4000,
               "Minimum number of novel entries for testing FP rate");
@@ -418,15 +418,22 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
   const auto log2_thoroughness =
       static_cast<uint32_t>(ROCKSDB_NAMESPACE::FloorLog2(FLAGS_thoroughness));
 
-  const uint32_t log2_max_add =
-      FLAGS_log2_max_add > 0 ? FLAGS_log2_max_add
-                             : 6U + static_cast<uint32_t>(kCoeffBits / 16) +
-                                   std::max(log2_thoroughness, uint32_t{5});
+  // We are going to choose num_to_add using an exponential distribution,
+  // so that we have good representation of small-to-medium filters.
+  // Here we just pick some reasonable, practical upper bound based on
+  // kCoeffBits or option.
+  const double log_max_add = std::log(
+      FLAGS_max_add > 0 ? FLAGS_max_add
+                        : static_cast<uint32_t>(kCoeffBits * kCoeffBits) *
+                              std::max(FLAGS_thoroughness, uint32_t{32}));
 
-  const uint32_t log2_min_add =
-      static_cast<uint32_t>(ROCKSDB_NAMESPACE::FloorLog2(
-          static_cast<uint32_t>(0.85 * SimpleSoln::RoundUpNumSlots(1))));
-  ASSERT_GT(log2_max_add, log2_min_add);
+  // This needs to be enough below the minimum number of slots to get a
+  // reasonable number of samples with the minimum number of slots.
+  const double log_min_add = std::log(0.66 * SimpleSoln::RoundUpNumSlots(1));
+
+  ASSERT_GT(log_max_add, log_min_add);
+
+  const double diff_log_add = log_max_add - log_min_add;
 
   for (ConstructionFailureChance cs : TypeParam::FailureChanceToTest()) {
     double expected_reseeds;
@@ -469,14 +476,15 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     ROCKSDB_NAMESPACE::Random32 rnd(FLAGS_thoroughness);
 
     for (uint32_t i = 0; i < FLAGS_thoroughness; ++i) {
-      // pick a power of two scale uniformly, with a minimum so
-      // that minimum size is not over-tested due to rounding up
-      uint32_t log2_add =
-          static_cast<uint32_t>(3.14159 * i) % (log2_max_add - log2_min_add) +
-          log2_min_add;
-      uint32_t add_lower_bound = uint32_t{1} << log2_add;
-      uint32_t num_to_add =
-          add_lower_bound + (rnd.Next() & (add_lower_bound - 1));
+      // We are going to choose num_to_add using an exponential distribution
+      // as noted above, but instead of randomly choosing them, we generate
+      // samples linearly using the golden ratio, which ensures a nice spread
+      // even for a small number of samples, and starting with the minimum
+      // number of slots to ensure it is tested.
+      double log_add =
+          std::fmod(0.6180339887498948482 * diff_log_add * i, diff_log_add) +
+          log_min_add;
+      uint32_t num_to_add = static_cast<uint32_t>(std::exp(log_add));
 
       // Most of the time, test the Interleaved solution storage, but when
       // we do we have to make num_slots a multiple of kCoeffBits. So

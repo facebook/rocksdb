@@ -7,7 +7,6 @@
 
 #include <cmath>
 
-#include "port/lang.h"  // for FALLTHROUGH_INTENDED
 #include "port/port.h"  // for PREFETCH
 #include "util/fastrange.h"
 #include "util/ribbon_alg.h"
