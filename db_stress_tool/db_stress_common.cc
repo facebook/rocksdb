@@ -26,6 +26,8 @@ enum ROCKSDB_NAMESPACE::CompressionType compression_type_e =
     ROCKSDB_NAMESPACE::kSnappyCompression;
 enum ROCKSDB_NAMESPACE::CompressionType bottommost_compression_type_e =
     ROCKSDB_NAMESPACE::kSnappyCompression;
+enum ROCKSDB_NAMESPACE::CompressionType blob_compression_type_e =
+    ROCKSDB_NAMESPACE::kNoCompression;
 enum ROCKSDB_NAMESPACE::ChecksumType checksum_type_e =
     ROCKSDB_NAMESPACE::kCRC32c;
 enum RepFactory FLAGS_rep_factory = kSkipList;

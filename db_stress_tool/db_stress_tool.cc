@@ -64,6 +64,8 @@ int db_stress_tool(int argc, char** argv) {
   compression_type_e = StringToCompressionType(FLAGS_compression_type.c_str());
   bottommost_compression_type_e =
       StringToCompressionType(FLAGS_bottommost_compression_type.c_str());
+  blob_compression_type_e =
+      StringToCompressionType(FLAGS_blob_compression_type.c_str());
   checksum_type_e = StringToChecksumType(FLAGS_checksum_type.c_str());
 
   Env* raw_env;
