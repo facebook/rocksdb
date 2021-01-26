@@ -9,9 +9,9 @@
 #ifndef ROCKSDB_LITE
 
 #include "db/db_test_util.h"
+#include "file/sst_file_manager_impl.h"
 #include "port/stack_trace.h"
 #include "rocksdb/io_status.h"
-#include "rocksdb/perf_context.h"
 #include "rocksdb/sst_file_manager.h"
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
@@ -1391,6 +1391,10 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     EXPECT_EQ(atoi(prop.c_str()), 1);
   }
 
+  SstFileManagerImpl* sfmImpl =
+      static_cast_with_check<SstFileManagerImpl>(sfm.get());
+  sfmImpl->Close();
+
   for (auto i = 0; i < kNumDbInstances; ++i) {
     char buf[16];
     snprintf(buf, sizeof(buf), "_%d", i);
@@ -1523,6 +1527,10 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
         "rocksdb.num-files-at-level" + NumberToString(1), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 1);
   }
+
+  SstFileManagerImpl* sfmImpl =
+      static_cast_with_check<SstFileManagerImpl>(sfm.get());
+  sfmImpl->Close();
 
   for (auto i = 0; i < kNumDbInstances; ++i) {
     char buf[16];
