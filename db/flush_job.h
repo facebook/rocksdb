@@ -162,6 +162,7 @@ class FlushJob {
   IOStatus io_status_;
 
   const std::shared_ptr<IOTracer> io_tracer_;
+  const std::shared_ptr<SystemClock> clock_;
 
   const std::string full_history_ts_low_;
 };

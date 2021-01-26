@@ -990,7 +990,7 @@ bool InternalStats::HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* /*db*/,
 void InternalStats::DumpDBStats(std::string* value) {
   char buf[1000];
   // DB-level stats, only available from default column family
-  double seconds_up = (env_->NowMicros() - started_at_ + 1) / kMicrosInSec;
+  double seconds_up = (clock_->NowMicros() - started_at_ + 1) / kMicrosInSec;
   double interval_seconds_up = seconds_up - db_stats_snapshot_.seconds_up;
   snprintf(buf, sizeof(buf),
            "\n** DB Stats **\nUptime(secs): %.1f total, %.1f interval\n",
@@ -1313,7 +1313,7 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
     }
   }
 
-  double seconds_up = (env_->NowMicros() - started_at_ + 1) / kMicrosInSec;
+  double seconds_up = (clock_->NowMicros() - started_at_ + 1) / kMicrosInSec;
   double interval_seconds_up = seconds_up - cf_stats_snapshot_.seconds_up;
   snprintf(buf, sizeof(buf), "Uptime(secs): %.1f total, %.1f interval\n",
            seconds_up, interval_seconds_up);

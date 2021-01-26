@@ -13,7 +13,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-class Env;
+class SystemClock;
 class WriteControllerToken;
 
 // WriteController is controlling write stalls in our write code-path. Write
@@ -57,7 +57,8 @@ class WriteController {
   // return how many microseconds the caller needs to sleep after the call
   // num_bytes: how many number of bytes to put into the DB.
   // Prerequisite: DB mutex held.
-  uint64_t GetDelay(Env* env, uint64_t num_bytes);
+  uint64_t GetDelay(const std::shared_ptr<SystemClock>& clock,
+                    uint64_t num_bytes);
   void set_delayed_write_rate(uint64_t write_rate) {
     // avoid divide 0
     if (write_rate == 0) {
@@ -85,7 +86,7 @@ class WriteController {
   RateLimiter* low_pri_rate_limiter() { return low_pri_rate_limiter_.get(); }
 
  private:
-  uint64_t NowMicrosMonotonic(Env* env);
+  uint64_t NowMicrosMonotonic(const std::shared_ptr<SystemClock>& clock);
 
   friend class WriteControllerToken;
   friend class StopWriteToken;

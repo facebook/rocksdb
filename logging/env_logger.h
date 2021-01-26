@@ -31,7 +31,7 @@ class EnvLogger : public Logger {
             const std::string& fname, const EnvOptions& options, Env* env,
             InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL)
       : Logger(log_level),
-        file_(std::move(writable_file), fname, options, env),
+        file_(std::move(writable_file), fname, options, env->GetSystemClock()),
         last_flush_micros_(0),
         env_(env),
         flush_pending_(false) {}

@@ -93,10 +93,6 @@ WinClock::WinClock()
   }
 }
 
-const std::shared_ptr<WinClock>& WinClock::Default() {
-  static std::shared_ptr<WinClock> clock = std::make_shared<WinClock>();
-  return clock;
-}
 void WinClock::SleepForMicroseconds(int micros) {
   std::this_thread::sleep_for(std::chrono::microseconds(micros));
 }
@@ -186,7 +182,7 @@ Status WinClock::GetCurrentTime(int64_t* unix_time) {
   return Status::OK();
 }
 
-WinFileSystem::WinFileSystem(const std::shared_ptr<WinClock>& clock)
+WinFileSystem::WinFileSystem(const std::shared_ptr<SystemClock>& clock)
     : clock_(clock), page_size_(4 * 1024), allocation_granularity_(page_size_) {
   SYSTEM_INFO sinfo;
   GetSystemInfo(&sinfo);
@@ -1343,11 +1339,10 @@ void WinEnvThreads::IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) {
 // WinEnv
 
 WinEnv::WinEnv()
-    : CompositeEnv(WinFileSystem::Default()),
+    : CompositeEnv(WinFileSystem::Default(), WinClock::Default()),
       winenv_io_(this),
       winenv_threads_(this) {
   // Protected member of the base class
-  clock_ = WinClock::Default();
   thread_status_updater_ = CreateThreadStatusUpdater();
 }
 
@@ -1362,22 +1357,9 @@ Status WinEnv::GetThreadList(std::vector<ThreadStatus>* thread_list) {
   return thread_status_updater_->GetThreadList(thread_list);
 }
 
-Status WinEnv::GetCurrentTime(int64_t* unix_time) {
-  return clock_->GetCurrentTime(unix_time);
-}
-
-uint64_t WinEnv::NowMicros() { return clock_->NowMicros(); }
-
-uint64_t WinEnv::NowNanos() { return clock_->NowNanos(); }
-
 Status WinEnv::GetHostName(char* name, uint64_t len) {
   return winenv_io_.GetHostName(name, len);
 }
-
-std::string WinEnv::TimeToString(uint64_t secondsSince1970) {
-  return clock_->TimeToString(secondsSince1970);
-}
-
 void WinEnv::Schedule(void (*function)(void*), void* arg, Env::Priority pri,
                       void* tag, void (*unschedFunction)(void* arg)) {
   return winenv_threads_.Schedule(function, arg, pri, tag, unschedFunction);
@@ -1398,10 +1380,6 @@ unsigned int WinEnv::GetThreadPoolQueueLen(Env::Priority pri) const {
 }
 
 uint64_t WinEnv::GetThreadID() const { return winenv_threads_.GetThreadID(); }
-
-void WinEnv::SleepForMicroseconds(int micros) {
-  return clock_->SleepForMicroseconds(micros);
-}
 
 // Allow increasing the number of worker threads.
 void WinEnv::SetBackgroundThreads(int num, Env::Priority pri) {
@@ -1439,6 +1417,12 @@ std::string Env::GenerateUniqueId() {
 
 std::shared_ptr<FileSystem> FileSystem::Default() {
   return port::WinFileSystem::Default();
+}
+
+const std::shared_ptr<SystemClock>& SystemClock::Default() {
+  static std::shared_ptr<SystemClock> clock =
+      std::make_shared<port::WinClock>();
+  return clock;
 }
 
 std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs) {

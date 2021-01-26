@@ -213,18 +213,18 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
 
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, merge_context.GetOperands(), result,
-          logger, statistics, env, result_operand);
+          logger, statistics, env->GetSystemClock(), result_operand);
     } else if (db_options_ != nullptr) {
       Statistics* statistics = db_options_->statistics.get();
       Env* env = db_options_->env;
       Logger* logger = db_options_->info_log.get();
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, merge_context.GetOperands(), result,
-          logger, statistics, env, result_operand);
+          logger, statistics, env->GetSystemClock(), result_operand);
     } else {
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, merge_context.GetOperands(), result,
-          nullptr, nullptr, Env::Default(), result_operand);
+          nullptr, nullptr, SystemClock::Default(), result_operand);
     }
   } else {
     return Status::InvalidArgument("Must provide a column_family");
