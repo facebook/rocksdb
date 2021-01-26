@@ -2083,6 +2083,16 @@ void StressTest::Open() {
     options_.file_checksum_gen_factory =
         GetFileChecksumImpl(FLAGS_file_checksum_impl);
     options_.track_and_verify_wals_in_manifest = true;
+
+    // Integrated BlobDB
+    options_.enable_blob_files = FLAGS_enable_blob_files;
+    options_.min_blob_size = FLAGS_min_blob_size;
+    options_.blob_file_size = FLAGS_blob_file_size;
+    options_.blob_compression_type = blob_compression_type_e;
+    options_.enable_blob_garbage_collection =
+        FLAGS_enable_blob_garbage_collection;
+    options_.blob_garbage_collection_age_cutoff =
+        FLAGS_blob_garbage_collection_age_cutoff;
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");
@@ -2229,6 +2239,7 @@ void StressTest::Open() {
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
 #ifndef ROCKSDB_LITE
+      // StackableDB-based BlobDB
       if (FLAGS_use_blob_db) {
         blob_db::BlobDBOptions blob_db_options;
         blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;
