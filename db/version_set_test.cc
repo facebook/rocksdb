@@ -2786,8 +2786,8 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       std::unique_ptr<FSWritableFile> file;
       Status s = fs_->NewWritableFile(fname, FileOptions(), &file, nullptr);
       ASSERT_OK(s);
-      std::unique_ptr<WritableFileWriter> fwriter(
-          new WritableFileWriter(std::move(file), fname, FileOptions(), env_));
+      std::unique_ptr<WritableFileWriter> fwriter(new WritableFileWriter(
+          std::move(file), fname, FileOptions(), env_->GetSystemClock()));
       std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
           int_tbl_prop_collector_factories;
 

@@ -92,6 +92,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       fifo_eviction_seq_(0),
       evict_expiration_up_to_(0),
       debug_level_(0) {
+  clock_ = env_->GetSystemClock();
   blob_dir_ = (bdb_options_.path_relative)
                   ? dbname + "/" + bdb_options_.blob_dir
                   : bdb_options_.blob_dir;
@@ -757,7 +758,7 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
   constexpr bool do_flush = true;
 
   bfile->log_writer_ = std::make_shared<BlobLogWriter>(
-      std::move(fwriter), env_, statistics_, bfile->file_number_,
+      std::move(fwriter), clock_, statistics_, bfile->file_number_,
       db_options_.use_fsync, do_flush, boffset);
   bfile->log_writer_->last_elem_type_ = et;
 
@@ -994,7 +995,7 @@ class BlobDBImpl::BlobInserter : public WriteBatch::Handler {
 };
 
 Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
-  StopWatch write_sw(env_, statistics_, BLOB_DB_WRITE_MICROS);
+  StopWatch write_sw(clock_, statistics_, BLOB_DB_WRITE_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_WRITE);
   uint32_t default_cf_id =
       static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
@@ -1029,7 +1030,7 @@ Status BlobDBImpl::PutWithTTL(const WriteOptions& options,
 
 Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
                             const Slice& value, uint64_t expiration) {
-  StopWatch write_sw(env_, statistics_, BLOB_DB_WRITE_MICROS);
+  StopWatch write_sw(clock_, statistics_, BLOB_DB_WRITE_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_PUT);
   Status s;
   WriteBatch batch;
@@ -1136,7 +1137,7 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   if (bdb_options_.compression == kNoCompression) {
     return raw;
   }
-  StopWatch compression_sw(env_, statistics_, BLOB_DB_COMPRESSION_MICROS);
+  StopWatch compression_sw(clock_, statistics_, BLOB_DB_COMPRESSION_MICROS);
   CompressionType type = bdb_options_.compression;
   CompressionOptions opts;
   CompressionContext context(type);
@@ -1156,7 +1157,8 @@ Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
   auto cfh = static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
 
   {
-    StopWatch decompression_sw(env_, statistics_, BLOB_DB_DECOMPRESSION_MICROS);
+    StopWatch decompression_sw(clock_, statistics_,
+                               BLOB_DB_DECOMPRESSION_MICROS);
     UncompressionContext context(compression_type);
     UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
                            compression_type);
@@ -1383,7 +1385,7 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
 std::vector<Status> BlobDBImpl::MultiGet(
     const ReadOptions& read_options,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  StopWatch multiget_sw(env_, statistics_, BLOB_DB_MULTIGET_MICROS);
+  StopWatch multiget_sw(clock_, statistics_, BLOB_DB_MULTIGET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_MULTIGET);
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
@@ -1535,7 +1537,7 @@ Status BlobDBImpl::GetRawBlobFromFile(const Slice& key, uint64_t file_number,
   Slice blob_record;
 
   {
-    StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
+    StopWatch read_sw(clock_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
     if (reader->use_direct_io()) {
       s = reader->Read(IOOptions(), record_offset,
                        static_cast<size_t>(record_size), &blob_record, nullptr,
@@ -1614,7 +1616,7 @@ Status BlobDBImpl::Get(const ReadOptions& read_options,
 Status BlobDBImpl::Get(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        PinnableSlice* value, uint64_t* expiration) {
-  StopWatch get_sw(env_, statistics_, BLOB_DB_GET_MICROS);
+  StopWatch get_sw(clock_, statistics_, BLOB_DB_GET_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_GET);
   return GetImpl(read_options, column_family, key, value, expiration);
 }
@@ -2043,7 +2045,7 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
   auto* iter = db_impl_->NewIteratorImpl(
       read_options, cfd, snapshot->GetSequenceNumber(),
       nullptr /*read_callback*/, true /*expose_blob_index*/);
-  return new BlobDBIterator(own_snapshot, iter, this, env_, statistics_);
+  return new BlobDBIterator(own_snapshot, iter, this, clock_, statistics_);
 }
 
 Status DestroyBlobDB(const std::string& dbname, const Options& options,

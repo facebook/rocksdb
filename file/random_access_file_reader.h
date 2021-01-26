@@ -14,7 +14,6 @@
 
 #include "env/file_system_tracer.h"
 #include "port/port.h"
-#include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
@@ -24,6 +23,7 @@
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
 class HistogramImpl;
+class SystemClock;
 
 using AlignedBuf = std::unique_ptr<char[]>;
 
@@ -67,7 +67,7 @@ class RandomAccessFileReader {
 
   FSRandomAccessFilePtr file_;
   std::string file_name_;
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
   Statistics* stats_;
   uint32_t hist_type_;
   HistogramImpl* file_read_hist_;
@@ -77,14 +77,15 @@ class RandomAccessFileReader {
  public:
   explicit RandomAccessFileReader(
       std::unique_ptr<FSRandomAccessFile>&& raf, const std::string& _file_name,
-      Env* _env = nullptr, const std::shared_ptr<IOTracer>& io_tracer = nullptr,
+      const std::shared_ptr<SystemClock>& clock = nullptr,
+      const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {})
       : file_(std::move(raf), io_tracer, _file_name),
         file_name_(std::move(_file_name)),
-        env_(_env),
+        clock_(clock),
         stats_(stats),
         hist_type_(hist_type),
         file_read_hist_(file_read_hist),
@@ -137,6 +138,6 @@ class RandomAccessFileReader {
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 
-  Env* env() const { return env_; }
+  IOStatus PrepareIOOptions(const ReadOptions& ro, IOOptions& opts);
 };
 }  // namespace ROCKSDB_NAMESPACE

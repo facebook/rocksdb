@@ -293,12 +293,13 @@ Status ExternalSstFileIngestionJob::Prepare(
 
   // TODO: The following is duplicated with Cleanup().
   if (!status.ok()) {
+    IOOptions io_opts;
     // We failed, remove all files that we copied into the db
     for (IngestedFileInfo& f : files_to_ingest_) {
       if (f.internal_file_path.empty()) {
         continue;
       }
-      Status s = env_->DeleteFile(f.internal_file_path);
+      Status s = fs_->DeleteFile(f.internal_file_path, io_opts, nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "AddFile() clean up for file %s failed : %s",
@@ -392,7 +393,7 @@ Status ExternalSstFileIngestionJob::Run() {
     int64_t temp_current_time = 0;
     uint64_t current_time = kUnknownFileCreationTime;
     uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
-    if (env_->GetCurrentTime(&temp_current_time).ok()) {
+    if (clock_->GetCurrentTime(&temp_current_time).ok()) {
       current_time = oldest_ancester_time =
           static_cast<uint64_t>(temp_current_time);
     }
@@ -410,7 +411,7 @@ void ExternalSstFileIngestionJob::UpdateStats() {
   // Update internal stats for new ingested files
   uint64_t total_keys = 0;
   uint64_t total_l0_files = 0;
-  uint64_t total_time = env_->NowMicros() - job_start_time_;
+  uint64_t total_time = clock_->NowMicros() - job_start_time_;
 
   EventLoggerStream stream = event_logger_->Log();
   stream << "event"
@@ -466,6 +467,7 @@ void ExternalSstFileIngestionJob::UpdateStats() {
 }
 
 void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
+  IOOptions io_opts;
   if (!status.ok()) {
     // We failed to add the files to the database
     // remove all the files we copied
@@ -473,7 +475,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
       if (f.internal_file_path.empty()) {
         continue;
       }
-      Status s = env_->DeleteFile(f.internal_file_path);
+      Status s = fs_->DeleteFile(f.internal_file_path, io_opts, nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "AddFile() clean up for file %s failed : %s",
@@ -485,7 +487,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
   } else if (status.ok() && ingestion_options_.move_files) {
     // The files were moved and added successfully, remove original file links
     for (IngestedFileInfo& f : files_to_ingest_) {
-      Status s = env_->DeleteFile(f.external_file_path);
+      Status s = fs_->DeleteFile(f.external_file_path, io_opts, nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(
             db_options_.info_log,

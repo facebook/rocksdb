@@ -6,12 +6,14 @@
 #include "db/periodic_work_scheduler.h"
 
 #include "db/db_impl/db_impl.h"
+#include "rocksdb/system_clock.h"
 
 #ifndef ROCKSDB_LITE
 namespace ROCKSDB_NAMESPACE {
 
-PeriodicWorkScheduler::PeriodicWorkScheduler(Env* env) : timer_mu_(env) {
-  timer = std::unique_ptr<Timer>(new Timer(env));
+PeriodicWorkScheduler::PeriodicWorkScheduler(
+    const std::shared_ptr<SystemClock>& clock) {
+  timer = std::unique_ptr<Timer>(new Timer(clock));
 }
 
 void PeriodicWorkScheduler::Register(DBImpl* dbi,
@@ -52,10 +54,10 @@ void PeriodicWorkScheduler::Unregister(DBImpl* dbi) {
 }
 
 PeriodicWorkScheduler* PeriodicWorkScheduler::Default() {
-  // Always use the default Env for the scheduler, as we only use the NowMicros
-  // which is the same for all env.
-  // The Env could only be overridden in test.
-  static PeriodicWorkScheduler scheduler(Env::Default());
+  // Always use the default SystemClock for the scheduler, as we only use the
+  // NowMicros which is the same for all clocks. The Env could only be
+  // overridden in test.
+  static PeriodicWorkScheduler scheduler(SystemClock::Default());
   return &scheduler;
 }
 
@@ -69,12 +71,13 @@ std::string PeriodicWorkScheduler::GetTaskName(DBImpl* dbi,
 
 #ifndef NDEBUG
 
-// Get the static scheduler. For a new env, it needs to re-create the internal
-// timer, so only re-create it when there's no running task. Otherwise, return
-// the existing scheduler. Which means if the unittest needs to update MockEnv,
-// Close all db instances and then re-open them.
-PeriodicWorkTestScheduler* PeriodicWorkTestScheduler::Default(Env* env) {
-  static PeriodicWorkTestScheduler scheduler(env);
+// Get the static scheduler. For a new SystemClock, it needs to re-create the
+// internal timer, so only re-create it when there's no running task. Otherwise,
+// return the existing scheduler. Which means if the unittest needs to update
+// MockClock, Close all db instances and then re-open them.
+PeriodicWorkTestScheduler* PeriodicWorkTestScheduler::Default(
+    const std::shared_ptr<SystemClock>& clock) {
+  static PeriodicWorkTestScheduler scheduler(clock);
   static port::Mutex mutex;
   {
     MutexLock l(&mutex);
@@ -84,7 +87,7 @@ PeriodicWorkTestScheduler* PeriodicWorkTestScheduler::Default(Env* env) {
         MutexLock timer_mu_guard(&scheduler.timer_mu_);
         scheduler.timer->Shutdown();
       }
-      scheduler.timer.reset(new Timer(env));
+      scheduler.timer.reset(new Timer(clock));
     }
   }
   return &scheduler;
@@ -104,8 +107,9 @@ size_t PeriodicWorkTestScheduler::TEST_GetValidTaskNum() const {
   return 0;
 }
 
-PeriodicWorkTestScheduler::PeriodicWorkTestScheduler(Env* env)
-    : PeriodicWorkScheduler(env) {}
+PeriodicWorkTestScheduler::PeriodicWorkTestScheduler(
+    const std::shared_ptr<SystemClock>& clock)
+    : PeriodicWorkScheduler(clock) {}
 
 #endif  // !NDEBUG
 }  // namespace ROCKSDB_NAMESPACE

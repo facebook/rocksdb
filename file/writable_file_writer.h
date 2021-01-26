@@ -14,7 +14,6 @@
 #include "db/version_edit.h"
 #include "env/file_system_tracer.h"
 #include "port/port.h"
-#include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/io_status.h"
@@ -25,6 +24,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
+class SystemClock;
 
 // WritableFileWriter is a wrapper on top of Env::WritableFile. It provides
 // facilities to:
@@ -121,7 +121,7 @@ class WritableFileWriter {
 
   std::string file_name_;
   FSWritableFilePtr writable_file_;
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
   AlignedBuffer buf_;
   size_t max_buffer_size_;
   // Actually written data size can be used for truncate
@@ -145,14 +145,15 @@ class WritableFileWriter {
  public:
   WritableFileWriter(
       std::unique_ptr<FSWritableFile>&& file, const std::string& _file_name,
-      const FileOptions& options, Env* env = nullptr,
+      const FileOptions& options,
+      const std::shared_ptr<SystemClock>& clock = nullptr,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
       FileChecksumGenFactory* file_checksum_gen_factory = nullptr)
       : file_name_(_file_name),
         writable_file_(std::move(file), io_tracer, _file_name),
-        env_(env),
+        clock_(clock),
         buf_(),
         max_buffer_size_(options.writable_file_max_buffer_size),
         filesize_(0),

@@ -320,6 +320,7 @@ CompactionJob::CompactionJob(
       db_options_(db_options),
       file_options_(file_options),
       env_(db_options.env),
+      clock_(env_->GetSystemClock()),
       io_tracer_(io_tracer),
       fs_(db_options.fs, io_tracer),
       file_options_for_read_(
@@ -419,7 +420,7 @@ void CompactionJob::Prepare() {
 
   if (c->ShouldFormSubcompactions()) {
     {
-      StopWatch sw(env_, stats_, SUBCOMPACTION_SETUP_TIME);
+      StopWatch sw(clock_, stats_, SUBCOMPACTION_SETUP_TIME);
       GenSubcompactionBoundaries();
     }
     assert(sizes_.size() == boundaries_.size() + 1);
@@ -585,7 +586,7 @@ Status CompactionJob::Run() {
 
   const size_t num_threads = compact_->sub_compact_states.size();
   assert(num_threads > 0);
-  const uint64_t start_micros = env_->NowMicros();
+  const uint64_t start_micros = clock_->NowMicros();
 
   // Launch a thread for each of subcompactions 1...num_threads-1
   std::vector<port::Thread> thread_pool;
@@ -604,7 +605,7 @@ Status CompactionJob::Run() {
     thread.join();
   }
 
-  compaction_stats_.micros = env_->NowMicros() - start_micros;
+  compaction_stats_.micros = clock_->NowMicros() - start_micros;
   compaction_stats_.cpu_micros = 0;
   for (size_t i = 0; i < compact_->sub_compact_states.size(); i++) {
     compaction_stats_.cpu_micros +=
@@ -894,7 +895,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact);
   assert(sub_compact->compaction);
 
-  uint64_t prev_cpu_micros = env_->NowCPUNanos() / 1000;
+  uint64_t prev_cpu_micros = clock_->CPUNanos() / 1000;
 
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
 
@@ -1184,7 +1185,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   sub_compact->compaction_job_stats.cpu_micros =
-      env_->NowCPUNanos() / 1000 - prev_cpu_micros;
+      clock_->CPUNanos() / 1000 - prev_cpu_micros;
 
   if (measure_io_stats_) {
     sub_compact->compaction_job_stats.file_write_nanos +=
@@ -1463,7 +1464,7 @@ Status CompactionJob::FinishCompactionOutputFile(
 
   // Finish and check for file errors
   if (s.ok()) {
-    StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
+    StopWatch sw(clock_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
     io_s = sub_compact->outfile->Sync(db_options_.use_fsync);
   }
   if (s.ok() && io_s.ok()) {
@@ -1738,7 +1739,7 @@ Status CompactionJob::OpenCompactionOutputFile(
   const auto& listeners =
       sub_compact->compaction->immutable_cf_options()->listeners;
   sub_compact->outfile.reset(new WritableFileWriter(
-      std::move(writable_file), fname, file_options_, env_, io_tracer_,
+      std::move(writable_file), fname, file_options_, clock_, io_tracer_,
       db_options_.statistics.get(), listeners,
       db_options_.file_checksum_gen_factory.get()));
 

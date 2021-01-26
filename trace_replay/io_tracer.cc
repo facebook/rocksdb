@@ -12,14 +12,17 @@
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/system_clock.h"
+#include "rocksdb/trace_reader_writer.h"
 #include "util/coding.h"
 #include "util/hash.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-IOTraceWriter::IOTraceWriter(Env* env, const TraceOptions& trace_options,
+IOTraceWriter::IOTraceWriter(const std::shared_ptr<SystemClock>& clock,
+                             const TraceOptions& trace_options,
                              std::unique_ptr<TraceWriter>&& trace_writer)
-    : env_(env),
+    : clock_(clock),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)) {}
 
@@ -75,7 +78,7 @@ Status IOTraceWriter::WriteIOOp(const IOTraceRecord& record) {
 
 Status IOTraceWriter::WriteHeader() {
   Trace trace;
-  trace.ts = env_->NowMicros();
+  trace.ts = clock_->NowMicros();
   trace.type = TraceType::kTraceBegin;
   PutLengthPrefixedSlice(&trace.payload, kTraceMagic);
   PutFixed32(&trace.payload, kMajorVersion);
@@ -217,14 +220,16 @@ IOTracer::IOTracer() : tracing_enabled(false) { writer_.store(nullptr); }
 
 IOTracer::~IOTracer() { EndIOTrace(); }
 
-Status IOTracer::StartIOTrace(Env* env, const TraceOptions& trace_options,
+Status IOTracer::StartIOTrace(const std::shared_ptr<SystemClock>& clock,
+                              const TraceOptions& trace_options,
                               std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);
   if (writer_.load()) {
     return Status::Busy();
   }
   trace_options_ = trace_options;
-  writer_.store(new IOTraceWriter(env, trace_options, std::move(trace_writer)));
+  writer_.store(
+      new IOTraceWriter(clock, trace_options, std::move(trace_writer)));
   tracing_enabled = true;
   return writer_.load()->WriteHeader();
 }

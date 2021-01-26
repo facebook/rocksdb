@@ -151,12 +151,13 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options)),
       env_(initial_db_options_.env),
+      clock_(initial_db_options_.env->GetSystemClock()),
       io_tracer_(std::make_shared<IOTracer>()),
       immutable_db_options_(initial_db_options_),
       fs_(immutable_db_options_.fs, io_tracer_),
       mutable_db_options_(initial_db_options_),
       stats_(immutable_db_options_.statistics.get()),
-      mutex_(stats_, env_, DB_MUTEX_WAIT_MICROS,
+      mutex_(stats_, clock_, DB_MUTEX_WAIT_MICROS,
              immutable_db_options_.use_adaptive_mutex),
       default_cf_handle_(nullptr),
       max_total_in_memory_state_(0),
@@ -191,7 +192,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       bg_purge_scheduled_(0),
       disable_delete_obsolete_files_(0),
       pending_purge_obsolete_files_(0),
-      delete_obsolete_files_last_run_(env_->NowMicros()),
+      delete_obsolete_files_last_run_(clock_->NowMicros()),
       last_stats_dump_time_microsec_(0),
       next_job_id_(1),
       has_unpersisted_data_(false),
@@ -752,7 +753,7 @@ void DBImpl::PersistStats() {
     return;
   }
   TEST_SYNC_POINT("DBImpl::PersistStats:StartRunning");
-  uint64_t now_seconds = env_->NowMicros() / kMicrosInSecond;
+  uint64_t now_seconds = clock_->NowMicros() / kMicrosInSecond;
 
   Statistics* statistics = immutable_db_options_.statistics.get();
   if (!statistics) {
@@ -1653,8 +1654,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   }
 #endif  // NDEBUG
 
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
-  StopWatch sw(env_, stats_, DB_GET);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, clock_);
+  StopWatch sw(clock_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
@@ -1842,8 +1843,8 @@ std::vector<Status> DBImpl::MultiGet(
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values,
     std::vector<std::string>* timestamps) {
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
-  StopWatch sw(env_, stats_, DB_MULTIGET);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, clock_);
+  StopWatch sw(clock_, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
 #ifndef NDEBUG
@@ -1974,7 +1975,7 @@ std::vector<Status> DBImpl::MultiGet(
     }
 
     if (read_options.deadline.count() &&
-        env_->NowMicros() >
+        clock_->NowMicros() >
             static_cast<uint64_t>(read_options.deadline.count())) {
       break;
     }
@@ -1983,8 +1984,8 @@ std::vector<Status> DBImpl::MultiGet(
   if (keys_read < num_keys) {
     // The only reason to break out of the loop is when the deadline is
     // exceeded
-    assert(env_->NowMicros() >
-        static_cast<uint64_t>(read_options.deadline.count()));
+    assert(clock_->NowMicros() >
+           static_cast<uint64_t>(read_options.deadline.count()));
     for (++keys_read; keys_read < num_keys; ++keys_read) {
       stat_list[keys_read] = Status::TimedOut();
     }
@@ -2422,8 +2423,8 @@ Status DBImpl::MultiGetImpl(
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
     SuperVersion* super_version, SequenceNumber snapshot,
     ReadCallback* callback) {
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
-  StopWatch sw(env_, stats_, DB_MULTIGET);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, clock_);
+  StopWatch sw(clock_, stats_, DB_MULTIGET);
 
   // For each of the given keys, apply the entire "get" process as follows:
   // First look in the memtable, then in the immutable memtable (if any).
@@ -2434,7 +2435,7 @@ Status DBImpl::MultiGetImpl(
   uint64_t curr_value_size = 0;
   while (keys_left) {
     if (read_options.deadline.count() &&
-        env_->NowMicros() >
+        clock_->NowMicros() >
             static_cast<uint64_t>(read_options.deadline.count())) {
       s = Status::TimedOut();
       break;
@@ -3137,7 +3138,8 @@ FileSystem* DBImpl::GetFileSystem() const {
 Status DBImpl::StartIOTrace(Env* env, const TraceOptions& trace_options,
                             std::unique_ptr<TraceWriter>&& trace_writer) {
   assert(trace_writer != nullptr);
-  return io_tracer_->StartIOTrace(env, trace_options, std::move(trace_writer));
+  return io_tracer_->StartIOTrace(env->GetSystemClock(), trace_options,
+                                  std::move(trace_writer));
 }
 
 Status DBImpl::EndIOTrace() {
@@ -4417,7 +4419,7 @@ Status DBImpl::IngestExternalFiles(
   for (const auto& arg : args) {
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
     ingestion_jobs.emplace_back(
-        env_, versions_.get(), cfd, immutable_db_options_, file_options_,
+        clock_, versions_.get(), cfd, immutable_db_options_, file_options_,
         &snapshots_, arg.options, &directories_, &event_logger_, io_tracer_);
   }
 
@@ -4685,7 +4687,7 @@ Status DBImpl::CreateColumnFamilyWithImport(
   // Import sst files from metadata.
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(*handle);
   auto cfd = cfh->cfd();
-  ImportColumnFamilyJob import_job(env_, versions_.get(), cfd,
+  ImportColumnFamilyJob import_job(clock_, versions_.get(), cfd,
                                    immutable_db_options_, file_options_,
                                    import_options, metadata.files, io_tracer_);
 
@@ -4941,7 +4943,7 @@ void DBImpl::WaitForIngestFile() {
 Status DBImpl::StartTrace(const TraceOptions& trace_options,
                           std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock(&trace_mutex_);
-  tracer_.reset(new Tracer(env_, trace_options, std::move(trace_writer)));
+  tracer_.reset(new Tracer(clock_, trace_options, std::move(trace_writer)));
   return Status::OK();
 }
 

@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "monitoring/instrumented_mutex.h"
-#include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
@@ -38,9 +38,9 @@ namespace ROCKSDB_NAMESPACE {
 // A map from a function name to the function keeps track of all the functions.
 class Timer {
  public:
-  explicit Timer(Env* env)
-      : env_(env),
-        mutex_(env),
+  explicit Timer(const std::shared_ptr<SystemClock>& clock)
+      : clock_(clock),
+        mutex_(clock),
         cond_var_(&mutex_),
         running_(false),
         executing_task_(false) {}
@@ -60,9 +60,9 @@ class Timer {
            const std::string& fn_name,
            uint64_t start_after_us,
            uint64_t repeat_every_us) {
-    std::unique_ptr<FunctionInfo> fn_info(
-        new FunctionInfo(std::move(fn), fn_name,
-                         env_->NowMicros() + start_after_us, repeat_every_us));
+    std::unique_ptr<FunctionInfo> fn_info(new FunctionInfo(
+        std::move(fn), fn_name, clock_->NowMicros() + start_after_us,
+        repeat_every_us));
     {
       InstrumentedMutexLock l(&mutex_);
       auto it = map_.find(fn_name);
@@ -73,7 +73,7 @@ class Timer {
         // If it already exists, overriding it.
         it->second->fn = std::move(fn_info->fn);
         it->second->valid = true;
-        it->second->next_run_time_us = env_->NowMicros() + start_after_us;
+        it->second->next_run_time_us = clock_->NowMicros() + start_after_us;
         it->second->repeat_every_us = repeat_every_us;
       }
     }
@@ -151,7 +151,7 @@ class Timer {
 #ifndef NDEBUG
   // Wait until Timer starting waiting, call the optional callback, then wait
   // for Timer waiting again.
-  // Tests can provide a custom env object to mock time, and use the callback
+  // Tests can provide a custom Clock object to mock time, and use the callback
   // here to bump current time and trigger Timer. See timer_test for example.
   //
   // Note: only support one caller of this method.
@@ -160,18 +160,18 @@ class Timer {
     // It act as a spin lock
     while (executing_task_ ||
            (!heap_.empty() &&
-            heap_.top()->next_run_time_us <= env_->NowMicros())) {
-      cond_var_.TimedWait(env_->NowMicros() + 1000);
+            heap_.top()->next_run_time_us <= clock_->NowMicros())) {
+      cond_var_.TimedWait(clock_->NowMicros() + 1000);
     }
     if (callback != nullptr) {
       callback();
     }
     cond_var_.SignalAll();
     do {
-      cond_var_.TimedWait(env_->NowMicros() + 1000);
-    } while (
-        executing_task_ ||
-        (!heap_.empty() && heap_.top()->next_run_time_us <= env_->NowMicros()));
+      cond_var_.TimedWait(clock_->NowMicros() + 1000);
+    } while (executing_task_ ||
+             (!heap_.empty() &&
+              heap_.top()->next_run_time_us <= clock_->NowMicros()));
   }
 
   size_t TEST_GetPendingTaskNum() const {
@@ -208,7 +208,7 @@ class Timer {
         continue;
       }
 
-      if (current_fn->next_run_time_us <= env_->NowMicros()) {
+      if (current_fn->next_run_time_us <= clock_->NowMicros()) {
         // make a copy of the function so it won't be changed after
         // mutex_.unlock.
         std::function<void()> fn = current_fn->fn;
@@ -229,8 +229,8 @@ class Timer {
         // current_fn may be cancelled already.
         if (current_fn->IsValid() && current_fn->repeat_every_us > 0) {
           assert(running_);
-          current_fn->next_run_time_us = env_->NowMicros() +
-              current_fn->repeat_every_us;
+          current_fn->next_run_time_us =
+              clock_->NowMicros() + current_fn->repeat_every_us;
 
           // Schedule new work into the heap with new time.
           heap_.push(current_fn);
@@ -310,7 +310,7 @@ class Timer {
     }
   };
 
-  Env* const env_;
+  const std::shared_ptr<SystemClock> clock_;
   // This mutex controls both the heap_ and the map_. It needs to be held for
   // making any changes in them.
   mutable InstrumentedMutex mutex_;
