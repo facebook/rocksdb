@@ -55,7 +55,7 @@ std::string GetRocksVersionAsString(bool with_patch) {
   }
 }
   
-std::string PrintBuildVersionInfo(const std::string& program, bool verbose) {
+std::string GetRocksBuildInfoAsString(const std::string& program, bool verbose) {
   std::string info = program + " (RocksDB) " + GetRocksVersionAsString(true);
   if (verbose) {
     for (const auto& it : GetRocksBuildProperties()) {

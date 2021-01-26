@@ -8,7 +8,6 @@
 #include <unordered_map>
 
 #include "rocksdb/rocksdb_namespace.h"
-#include "rocksdb/status.h"
 
 #define ROCKSDB_MAJOR 6
 #define ROCKSDB_MINOR 17
@@ -37,6 +36,6 @@ std::string GetRocksVersionAsString(bool with_patch = true);
 // If verbose is true, the full set of properties is
 // printed. If verbose is false, only the version information (@see
 // GetRocksVersionString) is printed.
-std::string PrintBuildVersionInfo(const std::string& program,
-                                  bool verbose = false);
+std::string GetRocksBuildInfoAsString(const std::string& program,
+                                      bool verbose = false);
 }  // namespace ROCKSDB_NAMESPACE
