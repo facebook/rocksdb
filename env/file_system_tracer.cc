@@ -296,9 +296,9 @@ IOStatus FSRandomAccessFileTracingWrapper::MultiRead(FSReadRequest* reqs,
   io_op_data |= (1 << IOTraceOp::kIOLen);
   io_op_data |= (1 << IOTraceOp::kIOOffset);
   for (size_t i = 0; i < num_reqs; i++) {
-    IOTraceRecord io_record(clock_->NowNanos(), TraceType::kIOTracer, io_op_data,
-                            __func__, latency, reqs[i].status.ToString(),
-                            file_name_, reqs[i].len, reqs[i].offset);
+    IOTraceRecord io_record(
+        clock_->NowNanos(), TraceType::kIOTracer, io_op_data, __func__, latency,
+        reqs[i].status.ToString(), file_name_, reqs[i].len, reqs[i].offset);
     io_tracer_->WriteIOOp(io_record);
   }
   return s;

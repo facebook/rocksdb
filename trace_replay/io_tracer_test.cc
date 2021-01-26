@@ -92,7 +92,8 @@ TEST_F(IOTracerTest, MultipleRecordsWithDifferentIOOpOptions) {
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
     IOTracer writer;
-    ASSERT_OK(writer.StartIOTrace(env_, trace_opt, std::move(trace_writer)));
+    ASSERT_OK(writer.StartIOTrace(env_->GetSystemClock(), trace_opt,
+                                  std::move(trace_writer)));
 
     // Write general record.
     IOTraceRecord record0(0, TraceType::kIOTracer, 0 /*io_op_data*/,
