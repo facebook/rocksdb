@@ -18,6 +18,7 @@ int main() {
 #include "monitoring/histogram.h"
 #include "rocksdb/db.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/get_context.h"
@@ -50,8 +51,9 @@ static std::string MakeKey(int i, int j, bool through_db) {
   return key.Encode().ToString();
 }
 
-uint64_t Now(Env* env, bool measured_by_nanosecond) {
-  return measured_by_nanosecond ? env->NowNanos() : env->NowMicros();
+uint64_t Now(const std::shared_ptr<SystemClock>& clock,
+             bool measured_by_nanosecond) {
+  return measured_by_nanosecond ? clock->NowNanos() : clock->NowMicros();
 }
 }  // namespace
 
@@ -81,6 +83,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   std::string dbname = test::PerThreadDBPath("rocksdb_table_reader_bench_db");
   WriteOptions wo;
   Env* env = Env::Default();
+  const auto& clock = env->GetSystemClock();
   TableBuilder* tb = nullptr;
   DB* db = nullptr;
   Status s;
@@ -168,7 +171,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
         if (!for_iterator) {
           // Query one existing key;
           std::string key = MakeKey(r1, r2, through_db);
-          uint64_t start_time = Now(env, measured_by_nanosecond);
+          uint64_t start_time = Now(clock, measured_by_nanosecond);
           if (!through_db) {
             PinnableSlice value;
             MergeContext merge_context;
@@ -177,12 +180,12 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
                                    ioptions.merge_operator, ioptions.info_log,
                                    ioptions.statistics, GetContext::kNotFound,
                                    Slice(key), &value, nullptr, &merge_context,
-                                   true, &max_covering_tombstone_seq, env);
+                                   true, &max_covering_tombstone_seq, clock);
             s = table_reader->Get(read_options, key, &get_context, nullptr);
           } else {
             s = db->Get(read_options, key, &result);
           }
-          hist.Add(Now(env, measured_by_nanosecond) - start_time);
+          hist.Add(Now(clock, measured_by_nanosecond) - start_time);
         } else {
           int r2_len;
           if (if_query_empty_keys) {
@@ -196,7 +199,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           std::string start_key = MakeKey(r1, r2, through_db);
           std::string end_key = MakeKey(r1, r2 + r2_len, through_db);
           uint64_t total_time = 0;
-          uint64_t start_time = Now(env, measured_by_nanosecond);
+          uint64_t start_time = Now(clock, measured_by_nanosecond);
           Iterator* iter = nullptr;
           InternalIterator* iiter = nullptr;
           if (!through_db) {
@@ -214,10 +217,10 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
               break;
             }
             // verify key;
-            total_time += Now(env, measured_by_nanosecond) - start_time;
+            total_time += Now(clock, measured_by_nanosecond) - start_time;
             assert(Slice(MakeKey(r1, r2 + count, through_db)) ==
                    (through_db ? iter->key() : iiter->key()));
-            start_time = Now(env, measured_by_nanosecond);
+            start_time = Now(clock, measured_by_nanosecond);
             if (++count >= r2_len) {
               break;
             }
@@ -229,7 +232,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             assert(false);
           }
           delete iter;
-          total_time += Now(env, measured_by_nanosecond) - start_time;
+          total_time += Now(clock, measured_by_nanosecond) - start_time;
           hist.Add(total_time);
         }
       }

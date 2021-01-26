@@ -26,6 +26,7 @@
 #include "port/win/win_thread.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
+#include "rocksdb/system_clock.h"
 #include "util/threadpool_imp.h"
 
 #undef GetCurrentTime
@@ -73,19 +74,22 @@ class WinEnvThreads {
   std::vector<WindowsThread> threads_to_join_;
 };
 
-class WinClock {
+class WinClock : public SystemClock {
  public:
-  static const std::shared_ptr<WinClock>& Default();
   WinClock();
   virtual ~WinClock() {}
 
-  virtual uint64_t NowMicros();
+  const char* Name() const override { return "WindowsClock"; }
 
-  virtual uint64_t NowNanos();
+  uint64_t NowMicros() override;
 
-  virtual void SleepForMicroseconds(int micros);
+  uint64_t NowNanos() override;
 
-  virtual Status GetCurrentTime(int64_t* unix_time);
+  // 0 indicates not supported
+  uint64_t CPUMicros() override { return 0; }
+  void SleepForMicroseconds(int micros) override;
+
+  Status GetCurrentTime(int64_t* unix_time) override;
   // Converts seconds-since-Jan-01-1970 to a printable string
   virtual std::string TimeToString(uint64_t time);
 
@@ -102,7 +106,7 @@ class WinClock {
 class WinFileSystem : public FileSystem {
  public:
   static const std::shared_ptr<WinFileSystem>& Default();
-  WinFileSystem(const std::shared_ptr<WinClock>& clock);
+  WinFileSystem(const std::shared_ptr<SystemClock>& clock);
   ~WinFileSystem() {}
   const char* Name() const { return "WinFS"; }
   static size_t GetSectorSize(const std::string& fname);
@@ -227,7 +231,7 @@ class WinFileSystem : public FileSystem {
                                     bool reopen);
 
  private:
-  std::shared_ptr<WinClock> clock_;
+  std::shared_ptr<SystemClock> clock_;
   size_t page_size_;
   size_t allocation_granularity_;
 };
@@ -251,15 +255,8 @@ class WinEnv : public CompositeEnv {
   WinEnv();
 
   ~WinEnv();
-  Status GetCurrentTime(int64_t* unix_time) override;
-
-  uint64_t NowMicros() override;
-
-  uint64_t NowNanos() override;
 
   Status GetHostName(char* name, uint64_t len) override;
-
-  std::string TimeToString(uint64_t secondsSince1970) override;
 
   Status GetThreadList(std::vector<ThreadStatus>* thread_list) override;
 
@@ -276,8 +273,6 @@ class WinEnv : public CompositeEnv {
 
   uint64_t GetThreadID() const override;
 
-  void SleepForMicroseconds(int micros) override;
-
   // Allow increasing the number of worker threads.
   void SetBackgroundThreads(int num, Env::Priority pri) override;
   int GetBackgroundThreads(Env::Priority pri) override;
@@ -285,7 +280,6 @@ class WinEnv : public CompositeEnv {
   void IncBackgroundThreadsIfNeeded(int num, Env::Priority pri) override;
 
  private:
-  std::shared_ptr<WinClock> clock_;
   WinEnvIO winenv_io_;
   WinEnvThreads winenv_threads_;
 };

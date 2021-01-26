@@ -13,10 +13,10 @@
 namespace ROCKSDB_NAMESPACE {
 
 BlobLogSequentialReader::BlobLogSequentialReader(
-    std::unique_ptr<RandomAccessFileReader>&& file_reader, Env* env,
-    Statistics* statistics)
+    std::unique_ptr<RandomAccessFileReader>&& file_reader,
+    const std::shared_ptr<SystemClock>& clock, Statistics* statistics)
     : file_(std::move(file_reader)),
-      env_(env),
+      clock_(clock),
       statistics_(statistics),
       next_byte_(0) {}
 
@@ -27,7 +27,7 @@ Status BlobLogSequentialReader::ReadSlice(uint64_t size, Slice* slice,
   assert(slice);
   assert(file_);
 
-  StopWatch read_sw(env_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
+  StopWatch read_sw(clock_, statistics_, BLOB_DB_BLOB_FILE_READ_MICROS);
   Status s = file_->Read(IOOptions(), next_byte_, static_cast<size_t>(size),
                          slice, buf, nullptr);
   next_byte_ += size;

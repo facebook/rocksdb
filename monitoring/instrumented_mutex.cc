@@ -4,15 +4,18 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "monitoring/instrumented_mutex.h"
+
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
 #ifndef NPERF_CONTEXT
-Statistics* stats_for_report(Env* env, Statistics* stats) {
-  if (env != nullptr && stats != nullptr &&
+Statistics* stats_for_report(const std::shared_ptr<SystemClock>& clock,
+                             Statistics* stats) {
+  if (clock.get() != nullptr && stats != nullptr &&
       stats->get_stats_level() > kExceptTimeForMutex) {
     return stats;
   } else {
@@ -25,7 +28,7 @@ Statistics* stats_for_report(Env* env, Statistics* stats) {
 void InstrumentedMutex::Lock() {
   PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(
       db_mutex_lock_nanos, stats_code_ == DB_MUTEX_WAIT_MICROS,
-      stats_for_report(env_, stats_), stats_code_);
+      stats_for_report(clock_, stats_), stats_code_);
   LockInternal();
 }
 
@@ -39,7 +42,7 @@ void InstrumentedMutex::LockInternal() {
 void InstrumentedCondVar::Wait() {
   PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(
       db_condition_wait_nanos, stats_code_ == DB_MUTEX_WAIT_MICROS,
-      stats_for_report(env_, stats_), stats_code_);
+      stats_for_report(clock_, stats_), stats_code_);
   WaitInternal();
 }
 
@@ -53,7 +56,7 @@ void InstrumentedCondVar::WaitInternal() {
 bool InstrumentedCondVar::TimedWait(uint64_t abs_time_us) {
   PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(
       db_condition_wait_nanos, stats_code_ == DB_MUTEX_WAIT_MICROS,
-      stats_for_report(env_, stats_), stats_code_);
+      stats_for_report(clock_, stats_), stats_code_);
   return TimedWaitInternal(abs_time_us);
 }
 

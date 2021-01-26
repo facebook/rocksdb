@@ -9,9 +9,9 @@
 #include <unordered_map>
 #include <utility>
 
-#include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "rocksdb/trace_reader_writer.h"
+#include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -22,8 +22,16 @@ class ColumnFamilyHandle;
 class ColumnFamilyData;
 class DB;
 class DBImpl;
+class Env;
 class Slice;
+class SystemClock;
+class TraceReader;
+class TraceWriter;
 class WriteBatch;
+
+struct ReadOptions;
+struct TraceOptions;
+struct WriteOptions;
 
 extern const std::string kTraceMagic;
 const unsigned int kTraceTimestampSize = 8;
@@ -46,12 +54,8 @@ enum TraceType : char {
   kBlockTraceDataBlock = 9,
   kBlockTraceUncompressionDictBlock = 10,
   kBlockTraceRangeDeletionBlock = 11,
-  // IO Trace related types based on options that will be added in trace file.
-  kIOGeneral = 12,
-  kIOFileName = 13,
-  kIOFileNameAndFileSize = 14,
-  kIOLen = 15,
-  kIOLenAndOffset = 16,
+  // For IOTracing.
+  kIOTracer = 12,
   // All trace types should be added before kTraceMax
   kTraceMax,
 };
@@ -86,7 +90,8 @@ class TracerHelper {
 // timestamp and type, followed by the trace payload.
 class Tracer {
  public:
-  Tracer(Env* env, const TraceOptions& trace_options,
+  Tracer(const std::shared_ptr<SystemClock>& clock,
+         const TraceOptions& trace_options,
          std::unique_ptr<TraceWriter>&& trace_writer);
   ~Tracer();
 
@@ -124,7 +129,7 @@ class Tracer {
   // Returns true if a trace should be skipped, false otherwise.
   bool ShouldSkipTrace(const TraceType& type);
 
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
   uint64_t trace_request_count_;
