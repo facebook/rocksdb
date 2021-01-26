@@ -1361,10 +1361,6 @@ Status WinEnv::GetHostName(char* name, uint64_t len) {
   return winenv_io_.GetHostName(name, len);
 }
 
-Status WinEnv::GetHostName(char* name, uint64_t len) {
-  return winenv_io_.GetHostName(name, len);
-}
-
 void WinEnv::Schedule(void (*function)(void*), void* arg, Env::Priority pri,
                       void* tag, void (*unschedFunction)(void* arg)) {
   return winenv_threads_.Schedule(function, arg, pri, tag, unschedFunction);
