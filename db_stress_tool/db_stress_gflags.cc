@@ -366,9 +366,7 @@ DEFINE_uint64(min_blob_size, ROCKSDB_NAMESPACE::Options().min_blob_size,
 DEFINE_uint64(blob_file_size, ROCKSDB_NAMESPACE::Options().blob_file_size,
               "[Integrated BlobDB] The size limit for blob files.");
 
-DEFINE_string(blob_compression_type,
-              ROCKSDB_NAMESPACE::CompressionTypeToString(
-                  ROCKSDB_NAMESPACE::Options().blob_compression_type),
+DEFINE_string(blob_compression_type, "none",
               "[Integrated BlobDB] The compression algorithm to use for large "
               "values stored in blob files.");
 
