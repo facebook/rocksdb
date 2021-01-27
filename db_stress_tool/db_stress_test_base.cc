@@ -113,6 +113,23 @@ bool StressTest::BuildOptionsTable() {
     return true;
   }
 
+  const std::vector<CompressionType> compressions = GetSupportedCompressions();
+
+  std::vector<std::string> compression_names;
+  compression_names.reserve(compressions.size());
+
+  for (CompressionType compression : compressions) {
+    std::string compression_name;
+
+    const Status s =
+        GetStringFromCompressionType(&compression_name, compression);
+    if (!s.ok()) {
+      continue;
+    }
+
+    compression_names.emplace_back(std::move(compression_name));
+  }
+
   std::unordered_map<std::string, std::vector<std::string>> options_tbl = {
       {"write_buffer_size",
        {ToString(options_.write_buffer_size),
@@ -184,6 +201,13 @@ bool StressTest::BuildOptionsTable() {
            "2",
        }},
       {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
+      {"enable_blob_files", {"false", "true"}},
+      {"min_blob_size", {"0", "16", "256"}},
+      {"blob_file_size", {"1M", "16M", "256M", "1G"}},
+      {"blob_compression_type", std::move(compression_names)},
+      {"enable_blob_garbage_collection", {"false", "true"}},
+      {"blob_garbage_collection_age_cutoff",
+       {"0.0", "0.25", "0.5", "0.75", "1.0"}},
   };
 
   options_table_ = std::move(options_tbl);
