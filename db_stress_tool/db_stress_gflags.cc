@@ -356,14 +356,17 @@ DEFINE_double(
 
 // Options for integrated BlobDB
 DEFINE_bool(
-    enable_blob_files, ROCKSDB_NAMESPACE::Options().enable_blob_files,
+    enable_blob_files,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().enable_blob_files,
     "[Integrated BlobDB] Enable writing large values to separate blob files.");
 
-DEFINE_uint64(min_blob_size, ROCKSDB_NAMESPACE::Options().min_blob_size,
+DEFINE_uint64(min_blob_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().min_blob_size,
               "[Integrated BlobDB] The size of the smallest value to be stored "
               "separately in a blob file.");
 
-DEFINE_uint64(blob_file_size, ROCKSDB_NAMESPACE::Options().blob_file_size,
+DEFINE_uint64(blob_file_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_size,
               "[Integrated BlobDB] The size limit for blob files.");
 
 DEFINE_string(blob_compression_type, "none",
@@ -371,11 +374,13 @@ DEFINE_string(blob_compression_type, "none",
               "values stored in blob files.");
 
 DEFINE_bool(enable_blob_garbage_collection,
-            ROCKSDB_NAMESPACE::Options().enable_blob_garbage_collection,
+            ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                .enable_blob_garbage_collection,
             "[Integrated BlobDB] Enable blob garbage collection.");
 
 DEFINE_double(blob_garbage_collection_age_cutoff,
-              ROCKSDB_NAMESPACE::Options().blob_garbage_collection_age_cutoff,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_garbage_collection_age_cutoff,
               "[Integrated BlobDB] The cutoff in terms of blob file age for "
               "garbage collection.");
 
