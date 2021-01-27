@@ -1989,16 +1989,16 @@ void StressTest::PrintEnv() const {
           static_cast<int>(FLAGS_best_efforts_recovery));
 
   fprintf(stdout, "-------------- Integrated BlobDB ---------------\n");
-  fprintf(stdout, "Enable blob files         : %d\n",
-          static_cast<int>(FLAGS_enable_blob_files));
+  fprintf(stdout, "Enable blob files         : %s\n",
+          FLAGS_enable_blob_files ? "true" : "false");
   fprintf(stdout, "Min blob size             : %" PRIu64 "\n",
           FLAGS_min_blob_size);
   fprintf(stdout, "Blob file size            : %" PRIu64 "\n",
           FLAGS_blob_file_size);
   fprintf(stdout, "Blob compression type     : %s\n",
           CompressionTypeToString(blob_compression_type_e).c_str());
-  fprintf(stdout, "Enable blob GC            : %d\n",
-          static_cast<int>(FLAGS_enable_blob_garbage_collection));
+  fprintf(stdout, "Enable blob GC            : %s\n",
+          FLAGS_enable_blob_garbage_collection ? "true" : "false");
   fprintf(stdout, "Blob GC age cutoff        : %f\n",
           FLAGS_blob_garbage_collection_age_cutoff);
 
