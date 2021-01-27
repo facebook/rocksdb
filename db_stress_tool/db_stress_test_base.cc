@@ -113,27 +113,17 @@ bool StressTest::BuildOptionsTable() {
     return true;
   }
 
-  std::vector<std::string> compression_names;
+  std::vector<std::string> compression_names{"kNoCompression"};
 
-#ifndef ROCKSDB_LITE
-  const std::vector<CompressionType> compressions = GetSupportedCompressions();
-
-  compression_names.reserve(compressions.size());
-
-  for (CompressionType compression : compressions) {
-    std::string compression_name;
-
-    const Status s =
-        GetStringFromCompressionType(&compression_name, compression);
-    if (!s.ok()) {
-      continue;
-    }
-
-    compression_names.emplace_back(std::move(compression_name));
+  if (Snappy_Supported()) {
+    compression_names.emplace_back("kSnappyCompression");
   }
-#else
-  compression_names.emplace_back("kNoCompression");
-#endif  // ROCKSDB_LITE
+  if (LZ4_Supported()) {
+    compression_names.emplace_back("kLZ4Compression");
+  }
+  if (ZSTD_Supported()) {
+    compression_names.emplace_back("kZSTD");
+  }
 
   std::unordered_map<std::string, std::vector<std::string>> options_tbl = {
       {"write_buffer_size",
