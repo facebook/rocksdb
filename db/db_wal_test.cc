@@ -445,7 +445,7 @@ TEST_F(DBWALTest, RecoverWithBlobMultiSST) {
   constexpr int num_keys = 64;
 
   for (int i = 0; i < num_keys; ++i) {
-    Put(Key(i), large_value);
+    ASSERT_OK(Put(Key(i), large_value));
   }
 
   // There should be no files just yet since we haven't flushed.
