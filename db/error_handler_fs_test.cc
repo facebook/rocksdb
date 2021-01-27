@@ -2248,7 +2248,8 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
       ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-        {{"RecoverFromRetryableBGIOError:BeforeResume0", "WALWriteError1:0"},
+        {{"WALWriteErrorDone", "RecoverFromRetryableBGIOError:BeforeStart"},
+         {"RecoverFromRetryableBGIOError:BeforeResume0", "WALWriteError1:0"},
          {"WALWriteError1:1", "RecoverFromRetryableBGIOError:BeforeResume1"},
          {"RecoverFromRetryableBGIOError:RecoverSuccess", "WALWriteError1:2"}});
 
@@ -2264,6 +2265,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
     wopts.sync = true;
     s = dbfull()->Write(wopts, &batch);
     ASSERT_EQ(true, s.IsIOError());
+    TEST_SYNC_POINT("WALWriteErrorDone");
 
     TEST_SYNC_POINT("WALWriteError1:0");
     fault_fs_->SetFilesystemActive(true);
