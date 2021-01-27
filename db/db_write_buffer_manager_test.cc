@@ -313,6 +313,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
   for (int i = 0; i < num_dbs; i++) {
     ASSERT_OK(dbs[i]->Close());
     ASSERT_OK(DestroyDB(dbnames[i], options));
+    delete dbs[i];
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -469,6 +470,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
   for (int i = 0; i < num_dbs; i++) {
     ASSERT_OK(dbs[i]->Close());
     ASSERT_OK(DestroyDB(dbnames[i], options));
+    delete dbs[i];
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -816,6 +818,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   for (int i = 0; i < num_dbs; i++) {
     ASSERT_OK(dbs[i]->Close());
     ASSERT_OK(DestroyDB(dbnames[i], options));
+    delete dbs[i];
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();

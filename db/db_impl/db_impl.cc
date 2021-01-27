@@ -236,6 +236,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
                      &error_handler_),
       wbm_stall_(new WBMStallInterface()) {
+      wbm_stall_(nullptr) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -271,6 +272,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
   // is called by client and this seqnum is advanced.
   preserve_deletes_seqnum_.store(0);
+
+  if (write_buffer_manager_) {
+    wbm_stall_ = new WBMStallInterface();
+  }
 }
 
 Status DBImpl::Resume() {
@@ -659,6 +664,11 @@ Status DBImpl::CloseHelper() {
     if (!s.ok() && !s.IsNotSupported() && ret.ok()) {
       ret = s;
     }
+  }
+
+  if (wbm_stall_) {
+    delete wbm_stall_;
+    wbm_stall_ = nullptr;
   }
 
   if (ret.IsAborted()) {
