@@ -2040,7 +2040,7 @@ Status BlockBasedTable::RetrieveMultipleBlocksAsync(
 
   {
     IOOptions opts;
-    IOStatus io_s = PrepareIOFromReadOptions(options, file->env(), opts);
+    IOStatus io_s = file->PrepareIOOptions(options, opts);
     if (io_s.IsTimedOut()) {
       for (FSReadRequest& req : read_reqs) {
         req.status = io_s;

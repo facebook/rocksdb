@@ -335,7 +335,7 @@ Status RandomAccessFileReader::MultiReadAsync(
   uint64_t elapsed = 0;
 
   {
-    StopWatch sw(env_, stats_, hist_type_,
+    StopWatch sw(clock_, stats_, hist_type_,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     MultiReadContextPool* ctx_pool =
@@ -406,7 +406,7 @@ Status RandomAccessFileReader::MultiReadAsync(
 #endif  // ROCKSDB_LITE
 
     {
-      IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+      IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
       s = file_->MultiReadAsync(
           opts, &RandomAccessFileReader::MultiReadCallback, this, ctx,
           num_fs_reqs, fs_reqs, &ctx->handle, nullptr);
