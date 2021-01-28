@@ -3063,7 +3063,6 @@ TEST_F(OptionsParserTest, DifferentDefault) {
     ASSERT_FALSE(old_default_opts.memtable_whole_key_filtering);
   }
 
-  
   Options small_opts;
   small_opts.OptimizeForSmallDb();
   ASSERT_EQ(2 << 20, small_opts.write_buffer_size);
