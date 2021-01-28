@@ -309,7 +309,7 @@ struct AdvancedColumnFamilyOptions {
   // if memtable_prefix_bloom_size_ratio is not 0. Enabling whole key filtering
   // can potentially reduce CPU usage for point-look-ups.
   //
-  // Default: true (disable)
+  // Default: true (enable)
   //
   // Dynamically changeable through SetOptions() API
   bool memtable_whole_key_filtering = true;

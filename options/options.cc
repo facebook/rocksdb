@@ -484,8 +484,8 @@ DBOptions* DBOptions::OldDefaults(int rocksdb_major_version,
 
 ColumnFamilyOptions* ColumnFamilyOptions::OldDefaults(
     int rocksdb_major_version, int rocksdb_minor_version) {
-  if (rocksdb_major_version < 6 || (rocksdb_major_version == 6 &&
-                                    rocksdb_minor_version < 9)) {
+  if (rocksdb_major_version < 6 ||
+      (rocksdb_major_version == 6 && rocksdb_minor_version < 18)) {
     memtable_prefix_bloom_size_ratio = 0;
     memtable_whole_key_filtering = false;
   }

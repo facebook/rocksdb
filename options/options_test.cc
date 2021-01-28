@@ -3058,7 +3058,7 @@ TEST_F(OptionsParserTest, DifferentDefault) {
 
   {
     Options old_default_opts;
-    old_default_opts.OldDefaults(6, 8);
+    old_default_opts.OldDefaults(6, 17);
     ASSERT_EQ(0, old_default_opts.memtable_prefix_bloom_size_ratio);
     ASSERT_FALSE(old_default_opts.memtable_whole_key_filtering);
   }
