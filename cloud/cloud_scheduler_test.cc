@@ -2,7 +2,14 @@
 
 #include "cloud/cloud_scheduler.h"
 
+#include <gtest/gtest.h>
+
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <iostream>
+#include <mutex>
+#include <thread>
 #include <unordered_set>
 
 #include "test_util/testharness.h"
@@ -17,29 +24,20 @@ class CloudSchedulerTest : public testing::Test {
   std::shared_ptr<CloudScheduler> scheduler_;
 };
 
+// This test tests basic scheduling function. There are 2 jobs, job2 is
+// scheduled before job1. We check that job2 is actually run before job1.
 TEST_F(CloudSchedulerTest, TestSchedule) {
-  static int job1 = 1;
-  static int job2 = 1;
-  auto doJob = [](void *arg) { (*(reinterpret_cast<int *>(arg)))++; };
+  std::chrono::steady_clock::time_point p1;
+  std::chrono::steady_clock::time_point p2;
 
-  scheduler_->ScheduleJob(std::chrono::microseconds(100), doJob, &job1);
-  scheduler_->ScheduleJob(std::chrono::microseconds(300), doJob, &job2);
+  auto job1 = [&p1](void *) { p1 = std::chrono::steady_clock::now(); };
+  auto job2 = [&p2](void *) { p2 = std::chrono::steady_clock::now(); };
 
-  usleep(200);
-  ASSERT_EQ(job2, 1);
-  ASSERT_EQ(job1, 2);
-  usleep(200);
-  ASSERT_EQ(job2, 2);
-  ASSERT_EQ(job1, 2);
+  scheduler_->ScheduleJob(std::chrono::milliseconds(300), job1, nullptr);
+  scheduler_->ScheduleJob(std::chrono::milliseconds(100), job2, nullptr);
 
-  scheduler_->ScheduleJob(std::chrono::microseconds(300), doJob, &job1);
-  scheduler_->ScheduleJob(std::chrono::microseconds(100), doJob, &job2);
-  usleep(200);
-  ASSERT_EQ(job1, 2);
-  ASSERT_EQ(job2, 3);
-  usleep(200);
-  ASSERT_EQ(job1, 3);
-  ASSERT_EQ(job2, 3);
+  std::this_thread::sleep_for(std::chrono::milliseconds(400));
+  ASSERT_LT(p2, p1);
 }
 
 TEST_F(CloudSchedulerTest, TestCancel) {
@@ -114,6 +112,45 @@ TEST_F(CloudSchedulerTest, TestMultipleSchedulers) {
   usleep(200);
   ASSERT_EQ(job2, old2);
   ASSERT_GT(job1, old1);
+}
+
+// This test tests the scenario where a job is started before we attempt to
+// cancel it. It should wait for the job to finish.
+TEST_F(CloudSchedulerTest, TestLongRunningJobCancel) {
+  enum class JobStatus {
+    NOT_STARTED = 0,
+    STARTED = 1,
+    FINISHED = 2,
+  };
+
+  std::mutex statusLock;
+  std::atomic<JobStatus> status{JobStatus::NOT_STARTED};
+  std::condition_variable statusVar;
+
+  auto doJob = [&](void *) {
+    {
+      std::unique_lock<std::mutex> lk(statusLock);
+      status.store(JobStatus::STARTED);
+      statusVar.notify_all();
+    }
+
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    {
+      std::unique_lock<std::mutex> lk(statusLock);
+      status.store(JobStatus::FINISHED);
+    }
+  };
+
+  auto handle =
+      scheduler_->ScheduleJob(std::chrono::microseconds(0), doJob, nullptr);
+
+  {
+    std::unique_lock<std::mutex> lg(statusLock);
+    statusVar.wait(lg, [&]() { return status == JobStatus::STARTED; });
+  }
+
+  scheduler_->CancelJob(handle);
+  ASSERT_EQ(status.load(), JobStatus::FINISHED);
 }
 
 }  //  namespace ROCKSDB_NAMESPACE
