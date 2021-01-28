@@ -45,7 +45,7 @@ public class RocksDBSample {
             .setStatistics(stats)
             .setWriteBufferSize(8 * SizeUnit.KB)
             .setMaxWriteBufferNumber(3)
-            .setMaxBackgroundCompactions(10)
+            .setMaxBackgroundJobs(10)
             .setCompressionType(CompressionType.SNAPPY_COMPRESSION)
             .setCompactionStyle(CompactionStyle.UNIVERSAL);
       } catch (final IllegalArgumentException e) {
@@ -55,7 +55,7 @@ public class RocksDBSample {
       assert (options.createIfMissing() == true);
       assert (options.writeBufferSize() == 8 * SizeUnit.KB);
       assert (options.maxWriteBufferNumber() == 3);
-      assert (options.maxBackgroundCompactions() == 10);
+      assert (options.maxBackgroundJobs() == 10);
       assert (options.compressionType() == CompressionType.SNAPPY_COMPRESSION);
       assert (options.compactionStyle() == CompactionStyle.UNIVERSAL);
 
@@ -87,24 +87,17 @@ public class RocksDBSample {
       options.setRateLimiter(rateLimiter);
 
       final BlockBasedTableConfig table_options = new BlockBasedTableConfig();
-      table_options.setBlockCacheSize(64 * SizeUnit.KB)
-          .setFilter(bloomFilter)
-          .setCacheNumShardBits(6)
+      Cache cache = new LRUCache(64 * 1024, 6);
+      table_options.setBlockCache(cache)
+          .setFilterPolicy(bloomFilter)
           .setBlockSizeDeviation(5)
           .setBlockRestartInterval(10)
           .setCacheIndexAndFilterBlocks(true)
-          .setHashIndexAllowCollision(false)
-          .setBlockCacheCompressedSize(64 * SizeUnit.KB)
-          .setBlockCacheCompressedNumShardBits(10);
+          .setBlockCacheCompressed(new LRUCache(64 * 1000, 10));
 
-      assert (table_options.blockCacheSize() == 64 * SizeUnit.KB);
-      assert (table_options.cacheNumShardBits() == 6);
       assert (table_options.blockSizeDeviation() == 5);
       assert (table_options.blockRestartInterval() == 10);
       assert (table_options.cacheIndexAndFilterBlocks() == true);
-      assert (table_options.hashIndexAllowCollision() == false);
-      assert (table_options.blockCacheCompressedSize() == 64 * SizeUnit.KB);
-      assert (table_options.blockCacheCompressedNumShardBits() == 10);
 
       options.setTableFormatConfig(table_options);
       assert (options.tableFactoryName().equals("BlockBasedTable"));
@@ -203,7 +196,7 @@ public class RocksDBSample {
         len = db.get(readOptions, testKey, enoughArray);
         assert (len == testValue.length);
 
-        db.remove(testKey);
+        db.delete(testKey);
         len = db.get(testKey, enoughArray);
         assert (len == RocksDB.NOT_FOUND);
 
@@ -284,15 +277,15 @@ public class RocksDBSample {
           }
         }
 
-        Map<byte[], byte[]> values = db.multiGet(keys);
+        List<byte[]> values = db.multiGetAsList(keys);
         assert (values.size() == keys.size());
-        for (final byte[] value1 : values.values()) {
+        for (final byte[] value1 : values) {
           assert (value1 != null);
         }
 
-        values = db.multiGet(new ReadOptions(), keys);
+        values = db.multiGetAsList(new ReadOptions(), keys);
         assert (values.size() == keys.size());
-        for (final byte[] value1 : values.values()) {
+        for (final byte[] value1 : values) {
           assert (value1 != null);
         }
       } catch (final RocksDBException e) {
