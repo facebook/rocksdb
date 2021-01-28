@@ -55,6 +55,7 @@ block_cache_trace_analyzer
 .DS_Store
 .vs
 .vscode
+.cache
 
 java/out
 java/target
