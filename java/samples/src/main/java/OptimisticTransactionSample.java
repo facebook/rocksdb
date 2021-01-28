@@ -111,7 +111,7 @@ public class OptimisticTransactionSample {
       // Read a key using the snapshot.
       readOptions.setSnapshot(snapshot);
       final byte[] value = txn.getForUpdate(readOptions, key1, true);
-      assert(value == null);
+      assert (value == null);
 
       try {
         // Attempt to commit transaction
