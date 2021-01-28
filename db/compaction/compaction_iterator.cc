@@ -423,8 +423,8 @@ void CompactionIterator::NextFromInput() {
       // In the previous iteration we encountered a single delete that we could
       // not compact out.  We will keep this Put, but can drop it's data.
       // (See Optimization 3, below.)
-      assert(ikey_.type == kTypeValue);
-      if (ikey_.type != kTypeValue) {
+      assert(ikey_.type == kTypeValue || ikey_.type == kTypeBlobIndex);
+      if (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex) {
         ROCKS_LOG_FATAL(info_log_,
                         "Unexpected key type %d for compaction output",
                         ikey_.type);
@@ -435,6 +435,11 @@ void CompactionIterator::NextFromInput() {
                         "current_user_key_snapshot_ (%" PRIu64
                         ") != last_snapshot (%" PRIu64 ")",
                         current_user_key_snapshot_, last_snapshot);
+      }
+
+      if (ikey_.type == kTypeBlobIndex) {
+        ikey_.type = kTypeValue;
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       }
 
       value_.clear();
