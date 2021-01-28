@@ -74,8 +74,7 @@ TableCache::TableCache(const ImmutableCFOptions& ioptions,
       cache_(cache),
       immortal_tables_(false),
       block_cache_tracer_(block_cache_tracer),
-      loader_mutex_(kLoadConcurency,
-                    static_cast<uint64_t (*)(const Slice&)>(GetSliceNPHash64)),
+      loader_mutex_(kLoadConcurency, kGetSliceNPHash64UnseededFnPtr),
       io_tracer_(io_tracer) {
   if (ioptions_.row_cache) {
     // If the same cache is shared by multiple instances, we need to

@@ -15,6 +15,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+uint64_t (*kGetSliceNPHash64UnseededFnPtr)(const Slice&) = &GetSliceHash64;
+
 uint32_t Hash(const char* data, size_t n, uint32_t seed) {
   // MurmurHash1 - fast but mediocre quality
   // https://github.com/aappleby/smhasher/wiki/MurmurHash1
