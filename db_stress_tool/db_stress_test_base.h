@@ -26,6 +26,8 @@ class StressTest {
 
   static bool FeaturesIncompatibleWithBlobDBEnabled();
 
+  static std::vector<std::string> GetBlobCompressionTags();
+
   bool BuildOptionsTable();
 
   void InitDb();

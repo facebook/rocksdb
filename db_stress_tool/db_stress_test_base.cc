@@ -114,21 +114,25 @@ bool StressTest::FeaturesIncompatibleWithBlobDBEnabled() {
          FLAGS_best_efforts_recovery;
 }
 
+std::vector<std::string> StressTest::GetBlobCompressionTags() {
+  std::vector<std::string> compression_tags{"kNoCompression"};
+
+  if (Snappy_Supported()) {
+    compression_tags.emplace_back("kSnappyCompression");
+  }
+  if (LZ4_Supported()) {
+    compression_tags.emplace_back("kLZ4Compression");
+  }
+  if (ZSTD_Supported()) {
+    compression_tags.emplace_back("kZSTD");
+  }
+
+  return compression_tags;
+}
+
 bool StressTest::BuildOptionsTable() {
   if (FLAGS_set_options_one_in <= 0) {
     return true;
-  }
-
-  std::vector<std::string> compression_names{"kNoCompression"};
-
-  if (Snappy_Supported()) {
-    compression_names.emplace_back("kSnappyCompression");
-  }
-  if (LZ4_Supported()) {
-    compression_names.emplace_back("kLZ4Compression");
-  }
-  if (ZSTD_Supported()) {
-    compression_names.emplace_back("kZSTD");
   }
 
   std::unordered_map<std::string, std::vector<std::string>> options_tbl = {
@@ -205,7 +209,7 @@ bool StressTest::BuildOptionsTable() {
       {"enable_blob_files", {"false", "true"}},
       {"min_blob_size", {"0", "16", "256"}},
       {"blob_file_size", {"1M", "16M", "256M", "1G"}},
-      {"blob_compression_type", std::move(compression_names)},
+      {"blob_compression_type", GetBlobCompressionTags()},
       {"enable_blob_garbage_collection", {"false", "true"}},
       {"blob_garbage_collection_age_cutoff",
        {"0.0", "0.25", "0.5", "0.75", "1.0"}},
