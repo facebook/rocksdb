@@ -1988,20 +1988,6 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Best efforts recovery     : %d\n",
           static_cast<int>(FLAGS_best_efforts_recovery));
 
-  fprintf(stdout, "-------------- Integrated BlobDB ---------------\n");
-  fprintf(stdout, "Enable blob files         : %s\n",
-          FLAGS_enable_blob_files ? "true" : "false");
-  fprintf(stdout, "Min blob size             : %" PRIu64 "\n",
-          FLAGS_min_blob_size);
-  fprintf(stdout, "Blob file size            : %" PRIu64 "\n",
-          FLAGS_blob_file_size);
-  fprintf(stdout, "Blob compression type     : %s\n",
-          FLAGS_blob_compression_type.c_str());
-  fprintf(stdout, "Enable blob GC            : %s\n",
-          FLAGS_enable_blob_garbage_collection ? "true" : "false");
-  fprintf(stdout, "Blob GC age cutoff        : %f\n",
-          FLAGS_blob_garbage_collection_age_cutoff);
-
   fprintf(stdout, "------------------------------------------------\n");
 }
 
@@ -2215,6 +2201,18 @@ void StressTest::Open() {
 
   options_.best_efforts_recovery = FLAGS_best_efforts_recovery;
   options_.paranoid_file_checks = FLAGS_paranoid_file_checks;
+
+  if (options_.enable_blob_files) {
+    fprintf(stdout,
+            "Integrated BlobDB: blob files enabled, min blob size %" PRIu64
+            ", blob file size %" PRIu64 ", blob compression type %s\n",
+            options_.min_blob_size, options_.blob_file_size,
+            CompressionTypeToString(options_.blob_compression_type).c_str());
+  }
+  if (options_.enable_blob_garbage_collection) {
+    fprintf(stdout, "Integrated BlobDB: blob GC enabled, cutoff %f\n",
+            options_.blob_garbage_collection_age_cutoff);
+  }
 
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
