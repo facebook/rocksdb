@@ -108,6 +108,12 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity) {
   }
 }
 
+bool StressTest::FeaturesIncompatibleWithBlobDBEnabled() {
+  return FLAGS_use_merge || FLAGS_enable_compaction_filter ||
+         FLAGS_checkpoint_one_in > 0 || FLAGS_backup_one_in > 0 ||
+         FLAGS_best_efforts_recovery;
+}
+
 bool StressTest::BuildOptionsTable() {
   if (FLAGS_set_options_one_in <= 0) {
     return true;
@@ -2203,6 +2209,14 @@ void StressTest::Open() {
   options_.paranoid_file_checks = FLAGS_paranoid_file_checks;
 
   if (options_.enable_blob_files) {
+    if (FeaturesIncompatibleWithBlobDBEnabled()) {
+      fprintf(
+          stderr,
+          "Integrated BlobDB is currently incompatible with Merge, compaction "
+          "filters, checkpoints, backup/restore, and best-effort recovery\n");
+      exit(1);
+    }
+
     fprintf(stdout,
             "Integrated BlobDB: blob files enabled, min blob size %" PRIu64
             ", blob file size %" PRIu64 ", blob compression type %s\n",

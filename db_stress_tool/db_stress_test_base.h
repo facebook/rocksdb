@@ -24,6 +24,8 @@ class StressTest {
 
   std::shared_ptr<Cache> NewCache(size_t capacity);
 
+  static bool FeaturesIncompatibleWithBlobDBEnabled();
+
   bool BuildOptionsTable();
 
   void InitDb();
