@@ -206,14 +206,22 @@ bool StressTest::BuildOptionsTable() {
            "2",
        }},
       {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
-      {"enable_blob_files", {"false", "true"}},
-      {"min_blob_size", {"0", "16", "256"}},
-      {"blob_file_size", {"1M", "16M", "256M", "1G"}},
-      {"blob_compression_type", GetBlobCompressionTags()},
-      {"enable_blob_garbage_collection", {"false", "true"}},
-      {"blob_garbage_collection_age_cutoff",
-       {"0.0", "0.25", "0.5", "0.75", "1.0"}},
   };
+
+  if (!FeaturesIncompatibleWithBlobDBEnabled()) {
+    options_tbl.emplace("enable_blob_files",
+                        std::vector<std::string>{"false", "true"});
+    options_tbl.emplace("min_blob_size",
+                        std::vector<std::string>{"0", "16", "256"});
+    options_tbl.emplace("blob_file_size",
+                        std::vector<std::string>{"1M", "16M", "256M", "1G"});
+    options_tbl.emplace("blob_compression_type", GetBlobCompressionTags());
+    options_tbl.emplace("enable_blob_garbage_collection",
+                        std::vector<std::string>{"false", "true"});
+    options_tbl.emplace(
+        "blob_garbage_collection_age_cutoff",
+        std::vector<std::string>{"0.0", "0.25", "0.5", "0.75", "1.0"});
+  }
 
   options_table_ = std::move(options_tbl);
 
