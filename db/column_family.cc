@@ -215,7 +215,7 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   // calculate a proper value from writer_buffer_size;
   if (result.arena_block_size <= 0) {
     result.arena_block_size =
-      std::min(size_t{1024 * 1024}, result.write_buffer_size / 8);
+        std::min(size_t{1024 * 1024}, result.write_buffer_size / 8);
 
     // Align up to 4k
     const size_t align = 4 * 1024;
