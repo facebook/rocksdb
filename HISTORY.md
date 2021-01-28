@@ -1,7 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
-### Behavior Changes
 * When retryable IO error occurs during compaction, it is mapped to soft error and set the BG error. However, auto resume is not called to clean the soft error since compaction will reschedule by itself. In this change, When retryable IO error occurs during compaction, BG error is not set. User will be informed the error via EventHelper.
+### Default Option Change
+* Change default memtable_prefix_bloom_size_ratio from 0 to 0.015 and memtable_whole_key_filtering from false to true. It means that memtable bloom filter will be on, which uses up to 1.5% of memtable space.
 
 ## 6.17.0 (01/15/2021)
 ### Behavior Changes
@@ -248,9 +249,6 @@
 * Updated default format_version in BlockBasedTableOptions from 2 to 4. SST files generated with the new default can be read by RocksDB versions 5.16 and newer, and use more efficient encoding of keys in index blocks.
 * A new parameter `CreateBackupOptions` is added to both `BackupEngine::CreateNewBackup` and `BackupEngine::CreateNewBackupWithMetadata`, you can decrease CPU priority of `BackupEngine`'s background threads by setting `decrease_background_thread_cpu_priority` and `background_thread_cpu_priority` in `CreateBackupOptions`.
 * Updated the public API of SST file checksum. Introduce the FileChecksumGenFactory to create the FileChecksumGenerator for each SST file, such that the FileChecksumGenerator is not shared and it can be more general for checksum implementations. Changed the FileChecksumGenerator interface from Value, Extend, and GetChecksum to Update, Finalize, and GetChecksum. Finalize should be only called once after all data is processed to generate the final checksum. Temproal data should be maintained by the FileChecksumGenerator object itself and finally it can return the checksum string.
-
-### Default Option Change
-* Change default memtable_prefix_bloom_size_ratio from 0 to 0.015 and memtable_whole_key_filtering from false to true. It means that memtable bloom filter will be on, which uses up to 1.5% of memtable space.
 
 ### Bug Fixes
 * Fix a bug where range tombstone blocks in ingested files were cached incorrectly during ingestion. If range tombstones were read from those incorrectly cached blocks, the keys they covered would be exposed.
