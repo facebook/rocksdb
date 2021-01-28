@@ -1996,7 +1996,7 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Blob file size            : %" PRIu64 "\n",
           FLAGS_blob_file_size);
   fprintf(stdout, "Blob compression type     : %s\n",
-          CompressionTypeToString(blob_compression_type_e).c_str());
+          FLAGS_blob_compression_type.c_str());
   fprintf(stdout, "Enable blob GC            : %s\n",
           FLAGS_enable_blob_garbage_collection ? "true" : "false");
   fprintf(stdout, "Blob GC age cutoff        : %f\n",
@@ -2121,7 +2121,8 @@ void StressTest::Open() {
     options_.enable_blob_files = FLAGS_enable_blob_files;
     options_.min_blob_size = FLAGS_min_blob_size;
     options_.blob_file_size = FLAGS_blob_file_size;
-    options_.blob_compression_type = blob_compression_type_e;
+    options_.blob_compression_type =
+        StringToCompressionType(FLAGS_blob_compression_type.c_str());
     options_.enable_blob_garbage_collection =
         FLAGS_enable_blob_garbage_collection;
     options_.blob_garbage_collection_age_cutoff =
