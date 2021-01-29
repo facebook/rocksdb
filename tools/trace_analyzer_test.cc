@@ -120,9 +120,12 @@ class TraceAnalyzerTest : public testing::Test {
 
   void CheckFileContent(const std::vector<std::string>& cnt,
                         std::string file_path, bool full_content) {
-    ASSERT_OK(env_->FileExists(file_path));
-    std::unique_ptr<SequentialFile> f_ptr;
-    ASSERT_OK(env_->NewSequentialFile(file_path, &f_ptr, env_options_));
+    const auto& fs = env_->GetFileSystem();
+    FileOptions fopts(env_options_);
+
+    ASSERT_OK(fs->FileExists(file_path, fopts.io_options, nullptr));
+    std::unique_ptr<FSSequentialFile> file;
+    ASSERT_OK(fs->NewSequentialFile(file_path, fopts, &file, nullptr));
 
     std::string get_line;
     std::istringstream iss;
@@ -130,8 +133,6 @@ class TraceAnalyzerTest : public testing::Test {
     std::vector<std::string> result;
     uint32_t count;
     Status s;
-    std::unique_ptr<FSSequentialFile> file =
-        NewLegacySequentialFileWrapper(f_ptr);
     SequentialFileReader sf_reader(std::move(file), file_path,
                                    4096 /* filereadahead_size */);
 

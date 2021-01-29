@@ -16,6 +16,7 @@
 #include "db/version_set.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
@@ -74,12 +75,13 @@ class FlushJobTestBase : public testing::Test {
     }
 
     const std::string manifest = DescriptorFileName(dbname_, 1);
-    std::unique_ptr<WritableFile> file;
-    Status s = env_->NewWritableFile(
-        manifest, &file, env_->OptimizeForManifestWrite(env_options_));
+    const auto& fs = env_->GetFileSystem();
+    std::unique_ptr<WritableFileWriter> file_writer;
+    Status s = WritableFileWriter::Create(
+        fs, manifest, fs->OptimizeForManifestWrite(env_options_), &file_writer,
+        nullptr);
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(file)), manifest, EnvOptions()));
+
     {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;

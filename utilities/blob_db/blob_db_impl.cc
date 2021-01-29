@@ -15,7 +15,6 @@
 #include "db/blob/blob_index.h"
 #include "db/db_impl/db_impl.h"
 #include "db/write_batch_internal.h"
-#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/random_access_file_reader.h"
@@ -81,7 +80,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       bdb_options_(blob_db_options),
       db_options_(db_options),
       cf_options_(cf_options),
-      env_options_(db_options),
+      file_options_(db_options),
       statistics_(db_options_.statistics.get()),
       next_file_number_(1),
       flush_sequence_(0),
@@ -96,7 +95,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
   blob_dir_ = (bdb_options_.path_relative)
                   ? dbname + "/" + bdb_options_.blob_dir
                   : bdb_options_.blob_dir;
-  env_options_.bytes_per_sync = blob_db_options.bytes_per_sync;
+  file_options_.bytes_per_sync = blob_db_options.bytes_per_sync;
 }
 
 BlobDBImpl::~BlobDBImpl() {
@@ -346,7 +345,8 @@ Status BlobDBImpl::OpenAllBlobFiles() {
     blob_file->MarkImmutable(/* sequence */ 0);
 
     // Read file header and footer
-    Status read_metadata_status = blob_file->ReadMetadata(env_, env_options_);
+    Status read_metadata_status =
+        blob_file->ReadMetadata(env_->GetFileSystem(), file_options_);
     if (read_metadata_status.IsCorruption()) {
       // Remove incomplete file.
       if (!obsolete_files_.empty()) {
@@ -679,7 +679,7 @@ Status BlobDBImpl::GetBlobFileReader(
     std::shared_ptr<RandomAccessFileReader>* reader) {
   assert(reader != nullptr);
   bool fresh_open = false;
-  Status s = blob_file->GetReader(env_, env_options_, reader, &fresh_open);
+  Status s = blob_file->GetReader(env_, file_options_, reader, &fresh_open);
   if (s.ok() && fresh_open) {
     assert(*reader != nullptr);
     open_file_count_++;
@@ -720,21 +720,23 @@ void BlobDBImpl::RegisterBlobFile(std::shared_ptr<BlobFile> blob_file) {
 
 Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
   std::string fpath(bfile->PathName());
-  std::unique_ptr<WritableFile> wfile;
+  std::unique_ptr<FSWritableFile> wfile;
+  const auto& fs = env_->GetFileSystem();
 
-  Status s = env_->ReopenWritableFile(fpath, &wfile, env_options_);
+  Status s = fs->ReopenWritableFile(fpath, file_options_, &wfile, nullptr);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log,
                     "Failed to open blob file for write: %s status: '%s'"
                     " exists: '%s'",
                     fpath.c_str(), s.ToString().c_str(),
-                    env_->FileExists(fpath).ToString().c_str());
+                    fs->FileExists(fpath, file_options_.io_options, nullptr)
+                        .ToString()
+                        .c_str());
     return s;
   }
 
   std::unique_ptr<WritableFileWriter> fwriter;
-  fwriter.reset(new WritableFileWriter(
-      NewLegacyWritableFileWrapper(std::move(wfile)), fpath, env_options_));
+  fwriter.reset(new WritableFileWriter(std::move(wfile), fpath, file_options_));
 
   uint64_t boffset = bfile->GetFileSize();
   if (debug_level_ >= 2 && boffset) {

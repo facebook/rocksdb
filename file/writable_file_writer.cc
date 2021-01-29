@@ -22,6 +22,19 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
+Status WritableFileWriter::Create(const std::shared_ptr<FileSystem>& fs,
+                                  const std::string& fname,
+                                  const FileOptions& file_opts,
+                                  std::unique_ptr<WritableFileWriter>* writer,
+                                  IODebugContext* dbg) {
+  std::unique_ptr<FSWritableFile> file;
+  Status s = fs->NewWritableFile(fname, file_opts, &file, dbg);
+  if (s.ok()) {
+    writer->reset(new WritableFileWriter(std::move(file), fname, file_opts));
+  }
+  return s;
+}
+
 IOStatus WritableFileWriter::Append(const Slice& data) {
   const char* src = data.data();
   size_t left = data.size();

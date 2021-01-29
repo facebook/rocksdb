@@ -10,9 +10,10 @@
 #include "db/arena_wrapped_db_iter.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
-#include "env/composite_env_wrapper.h"
 #include "file/random_access_file_reader.h"
 #include "options/cf_options.h"
+#include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "table/get_context.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
@@ -42,15 +43,17 @@ Status SstFileReader::Open(const std::string& file_path) {
   auto r = rep_.get();
   Status s;
   uint64_t file_size = 0;
-  std::unique_ptr<RandomAccessFile> file;
+  std::unique_ptr<FSRandomAccessFile> file;
   std::unique_ptr<RandomAccessFileReader> file_reader;
-  s = r->options.env->GetFileSize(file_path, &file_size);
+  FileOptions fopts(r->soptions);
+  const auto& fs = r->options.env->GetFileSystem();
+
+  s = fs->GetFileSize(file_path, fopts.io_options, &file_size, nullptr);
   if (s.ok()) {
-    s = r->options.env->NewRandomAccessFile(file_path, &file, r->soptions);
+    s = fs->NewRandomAccessFile(file_path, fopts, &file, nullptr);
   }
   if (s.ok()) {
-    file_reader.reset(new RandomAccessFileReader(
-        NewLegacyRandomAccessFileWrapper(file), file_path));
+    file_reader.reset(new RandomAccessFileReader(std::move(file), file_path));
   }
   if (s.ok()) {
     TableReaderOptions t_opt(r->ioptions, r->moptions.prefix_extractor.get(),

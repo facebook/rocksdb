@@ -15,7 +15,6 @@
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
-#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/readahead_raf.h"
 #include "logging/logging.h"
@@ -151,7 +150,7 @@ void BlobFile::CloseRandomAccessLocked() {
   last_access_ = -1;
 }
 
-Status BlobFile::GetReader(Env* env, const EnvOptions& env_options,
+Status BlobFile::GetReader(Env* env, const FileOptions& file_options,
                            std::shared_ptr<RandomAccessFileReader>* reader,
                            bool* fresh_open) {
   assert(reader != nullptr);
@@ -178,8 +177,9 @@ Status BlobFile::GetReader(Env* env, const EnvOptions& env_options,
     return s;
   }
 
-  std::unique_ptr<RandomAccessFile> rfile;
-  s = env->NewRandomAccessFile(PathName(), &rfile, env_options);
+  std::unique_ptr<FSRandomAccessFile> rfile;
+  s = env->GetFileSystem()->NewRandomAccessFile(PathName(), file_options,
+                                                &rfile, nullptr);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
                     "Failed to open blob file for random-read: %s status: '%s'"
@@ -189,18 +189,20 @@ Status BlobFile::GetReader(Env* env, const EnvOptions& env_options,
     return s;
   }
 
-  ra_file_reader_ = std::make_shared<RandomAccessFileReader>(
-      NewLegacyRandomAccessFileWrapper(rfile), PathName());
+  ra_file_reader_ =
+      std::make_shared<RandomAccessFileReader>(std::move(rfile), PathName());
   *reader = ra_file_reader_;
   *fresh_open = true;
   return s;
 }
 
-Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
+Status BlobFile::ReadMetadata(const std::shared_ptr<FileSystem>& fs,
+                              const FileOptions& file_options) {
   assert(Immutable());
   // Get file size.
   uint64_t file_size = 0;
-  Status s = env->GetFileSize(PathName(), &file_size);
+  Status s =
+      fs->GetFileSize(PathName(), file_options.io_options, &file_size, nullptr);
   if (s.ok()) {
     file_size_ = file_size;
   } else {
@@ -219,17 +221,15 @@ Status BlobFile::ReadMetadata(Env* env, const EnvOptions& env_options) {
   }
 
   // Create file reader.
-  std::unique_ptr<RandomAccessFile> file;
-  s = env->NewRandomAccessFile(PathName(), &file, env_options);
+  std::unique_ptr<RandomAccessFileReader> file_reader;
+  s = RandomAccessFileReader::Create(fs, PathName(), file_options, &file_reader,
+                                     nullptr);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(info_log_,
                     "Failed to open blob file %" PRIu64 ", status: %s",
                     file_number_, s.ToString().c_str());
     return s;
   }
-  std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
-                                 PathName()));
 
   // Read file header.
   std::string header_buf;

@@ -8,10 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
-#include "env/composite_env_wrapper.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/file_system.h"
 #include "test_util/sync_point.h"
 #include "utilities/fault_injection_env.h"
 
@@ -1147,7 +1147,7 @@ class RecoveryTestHelper {
     *count = 0;
 
     std::shared_ptr<Cache> table_cache = NewLRUCache(50, 0);
-    EnvOptions env_options;
+    FileOptions file_options;
     WriteBufferManager write_buffer_manager(db_options.db_write_buffer_size);
 
     std::unique_ptr<VersionSet> versions;
@@ -1155,22 +1155,22 @@ class RecoveryTestHelper {
     WriteController write_controller;
 
     versions.reset(new VersionSet(
-        test->dbname_, &db_options, env_options, table_cache.get(),
+        test->dbname_, &db_options, file_options, table_cache.get(),
         &write_buffer_manager, &write_controller,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
 
     wal_manager.reset(
-        new WalManager(db_options, env_options, /*io_tracer=*/nullptr));
+        new WalManager(db_options, file_options, /*io_tracer=*/nullptr));
 
     std::unique_ptr<log::Writer> current_log_writer;
 
     for (size_t j = kWALFileOffset; j < wal_count + kWALFileOffset; j++) {
       uint64_t current_log_number = j;
       std::string fname = LogFileName(test->dbname_, current_log_number);
-      std::unique_ptr<WritableFile> file;
-      ASSERT_OK(db_options.env->NewWritableFile(fname, &file, env_options));
-      std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-          NewLegacyWritableFileWrapper(std::move(file)), fname, env_options));
+      std::unique_ptr<WritableFileWriter> file_writer;
+      ASSERT_OK(WritableFileWriter::Create(db_options.env->GetFileSystem(),
+                                           fname, file_options, &file_writer,
+                                           nullptr));
       current_log_writer.reset(
           new log::Writer(std::move(file_writer), current_log_number,
                           db_options.recycle_log_file_num > 0));
