@@ -26,7 +26,6 @@
 #include "rocksdb/sst_partitioner.h"
 #include "rocksdb/types.h"
 #include "rocksdb/universal_compaction.h"
-#include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
 
 #ifdef max

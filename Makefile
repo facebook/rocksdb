@@ -479,31 +479,6 @@ CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverl
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
 
-# If NO_UPDATE_BUILD_VERSION is set we don't update util/build_version.cc, but
-# the file needs to already exist or else the build will fail
-ifndef NO_UPDATE_BUILD_VERSION
-date := $(shell date +%F)
-ifdef FORCE_GIT_SHA
-	git_sha := $(FORCE_GIT_SHA)
-else
-	git_sha := $(shell git rev-parse HEAD 2>/dev/null)
-endif
-gen_build_version = sed -e s/@@GIT_SHA@@/$(git_sha)/ -e s/@@GIT_DATE_TIME@@/$(date)/ util/build_version.cc.in
-
-# Record the version of the source that we are compiling.
-# We keep a record of the git revision in this file.  It is then built
-# as a regular source file as part of the compilation process.
-# One can run "strings executable_filename | grep _build_" to find
-# the version of the source that we used to build the executable file.
-FORCE:
-util/build_version.cc: FORCE
-	$(AM_V_GEN)rm -f $@-t
-	$(AM_V_at)$(gen_build_version) > $@-t
-	$(AM_V_at)if test -f $@; then					\
-	  cmp -s $@-t $@ && rm -f $@-t || mv -f $@-t $@;		\
-	else mv -f $@-t $@; fi
-endif
-
 OBJ_DIR?=.
 LIB_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(LIB_SOURCES))
 ifeq ($(HAVE_POWER8),1)
@@ -862,6 +837,37 @@ endif
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_PATCH = $(shell egrep "ROCKSDB_PATCH.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
+
+# If NO_UPDATE_BUILD_VERSION is set we don't update util/build_version.cc, but
+# the file needs to already exist or else the build will fail
+ifndef NO_UPDATE_BUILD_VERSION
+
+# By default, use the current date-time as the date.  If there are no changes,
+# we will use the last commit date instead.
+build_date := $(shell date "+%Y-%m-%d %T")
+
+ifdef FORCE_GIT_SHA
+	git_sha := $(FORCE_GIT_SHA)
+	git_mod := 1
+	git_date := $(build_date)
+else
+	git_sha := $(shell git rev-parse HEAD 2>/dev/null)
+	git_tag  := $(shell git symbolic-ref -q --short HEAD || git describe --tags --exact-match 2>/dev/null)
+	git_mod  := $(shell git diff-index HEAD --quiet 2>/dev/null; echo $$?)
+	git_date := $(shell git log -1 --date=format:"%Y-%m-%d %T" --format="%ad" 2>/dev/null)
+endif
+gen_build_version = sed -e s/@GIT_SHA@/$(git_sha)/ -e s:@GIT_TAG@:"$(git_tag)": -e s/@GIT_MOD@/"$(git_mod)"/ -e s/@BUILD_DATE@/"$(build_date)"/ -e s/@GIT_DATE@/"$(git_date)"/ util/build_version.cc.in
+
+# Record the version of the source that we are compiling.
+# We keep a record of the git revision in this file.  It is then built
+# as a regular source file as part of the compilation process.
+# One can run "strings executable_filename | grep _build_" to find
+# the version of the source that we used to build the executable file.
+util/build_version.cc: $(filter-out $(OBJ_DIR)/util/build_version.o, $(LIB_OBJECTS)) util/build_version.cc.in
+	$(AM_V_GEN)rm -f $@-t
+	$(AM_V_at)$(gen_build_version) > $@
+endif
+CLEAN_FILES += util/build_version.cc
 
 default: all
 
