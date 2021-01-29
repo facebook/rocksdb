@@ -271,7 +271,7 @@ blob_params = {
     # enabled/disabled during the test via SetOptions
     "enable_blob_files": lambda: random.choice([0] + [1] * 3),
     "min_blob_size": lambda: random.choice([0, 16, 256]),
-    "blob_file_size": lambda: random.choice([1048576, 268435456, 1073741824]),
+    "blob_file_size": lambda: random.choice([1048576, 16777216, 268435456, 1073741824]),
     "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
     "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
