@@ -82,6 +82,7 @@
 #include "rocksdb/stats_history.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -93,7 +94,6 @@
 #include "table/two_level_iterator.h"
 #include "test_util/sync_point.h"
 #include "util/autovector.h"
-#include "util/build_version.h"
 #include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/compression.h"
@@ -4207,16 +4207,17 @@ void DBImpl::EraseThreadStatusDbInfo() const {}
 //
 // A global method that can dump out the build version
 void DumpRocksDBBuildVersion(Logger* log) {
-#if !defined(IOS_CROSS_COMPILE)
-  // if we compile with Xcode, we don't run build_detect_version, so we don't
-  // generate util/build_version.cc
-  ROCKS_LOG_HEADER(log, "RocksDB version: %d.%d.%d\n", ROCKSDB_MAJOR,
-                   ROCKSDB_MINOR, ROCKSDB_PATCH);
-  ROCKS_LOG_HEADER(log, "Git sha %s", rocksdb_build_git_sha);
-  ROCKS_LOG_HEADER(log, "Compile date %s", rocksdb_build_compile_date);
-#else
-  (void)log;  // ignore "-Wunused-parameter"
-#endif
+  ROCKS_LOG_HEADER(log, "RocksDB version: %s\n",
+                   GetRocksVersionAsString().c_str());
+  const auto& props = GetRocksBuildProperties();
+  const auto& sha = props.find("rocksdb_build_git_sha");
+  if (sha != props.end()) {
+    ROCKS_LOG_HEADER(log, "Git sha %s", sha->second.c_str());
+  }
+  const auto date = props.find("rocksdb_build_date");
+  if (date != props.end()) {
+    ROCKS_LOG_HEADER(log, "Compile date %s", date->second.c_str());
+  }
 }
 
 #ifndef ROCKSDB_LITE
