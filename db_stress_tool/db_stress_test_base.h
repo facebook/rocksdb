@@ -24,8 +24,6 @@ class StressTest {
 
   std::shared_ptr<Cache> NewCache(size_t capacity);
 
-  static bool FeaturesIncompatibleWithBlobDBEnabled();
-
   static std::vector<std::string> GetBlobCompressionTags();
 
   bool BuildOptionsTable();

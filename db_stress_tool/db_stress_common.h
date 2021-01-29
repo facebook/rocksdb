@@ -242,6 +242,7 @@ DECLARE_double(blob_db_gc_cutoff);
 #endif  // !ROCKSDB_LITE
 
 // Options for integrated BlobDB
+DECLARE_bool(allow_setting_blob_options_dynamically);
 DECLARE_bool(enable_blob_files);
 DECLARE_uint64(min_blob_size);
 DECLARE_uint64(blob_file_size);

@@ -355,6 +355,9 @@ DEFINE_double(
 #endif  // !ROCKSDB_LITE
 
 // Options for integrated BlobDB
+DEFINE_bool(allow_setting_blob_options_dynamically, false,
+            "[Integrated BlobDB] Allow setting blob options dynamically.");
+
 DEFINE_bool(
     enable_blob_files,
     ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().enable_blob_files,

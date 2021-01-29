@@ -266,6 +266,7 @@ best_efforts_recovery_params = {
 }
 
 blob_params = {
+    "allow_setting_blob_options_dynamically": 1,
     # Enable blob files and GC with a 75% chance initially; note that they might still be
     # enabled/disabled during the test via SetOptions
     "enable_blob_files": lambda: random.choice([0] + [1] * 3),
