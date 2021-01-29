@@ -88,7 +88,6 @@ class LegacySequentialFileWrapper : public FSSequentialFile {
     return status_to_io_status(
         target_->PositionedRead(offset, n, result, scratch));
   }
-  SequentialFile* target() { return target_.get(); }
 
  private:
   std::unique_ptr<SequentialFile> target_;
@@ -129,15 +128,15 @@ class LegacyRandomAccessFileWrapper : public FSRandomAccessFile {
       fs_reqs[i].status = status_to_io_status(std::move(reqs[i].status));
     }
     return status_to_io_status(std::move(status));
-    ;
   }
+
   IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& /*options*/,
                     IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->Prefetch(offset, n));
   }
   size_t GetUniqueId(char* id, size_t max_size) const override {
     return target_->GetUniqueId(id, max_size);
-  };
+  }
   void Hint(AccessPattern pattern) override {
     target_->Hint((RandomAccessFile::AccessPattern)pattern);
   }
@@ -291,8 +290,6 @@ class LegacyWritableFileWrapper : public FSWritableFile {
                     IODebugContext* /*dbg*/) override {
     return status_to_io_status(target_->Allocate(offset, len));
   }
-
-  WritableFile* target() { return target_.get(); }
 
  private:
   std::unique_ptr<WritableFile> target_;
