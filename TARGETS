@@ -1241,6 +1241,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "db_kv_checksum_test",
+        "db/db_kv_checksum_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "db_log_iter_test",
         "db/db_log_iter_test.cc",
         "serial",

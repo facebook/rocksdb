@@ -594,6 +594,7 @@ ifdef ASSERT_STATUS_CHECKED
 		db_inplace_update_test \
 		db_io_failure_test \
 		db_iterator_test \
+		db_kv_checksum_test \
 		db_logical_block_size_cache_test \
 		db_memtable_test \
 		db_merge_operand_test \
@@ -1606,6 +1607,9 @@ db_inplace_update_test: $(OBJ_DIR)/db/db_inplace_update_test.o $(TEST_LIBRARY) $
 	$(AM_LINK)
 
 db_iterator_test: $(OBJ_DIR)/db/db_iterator_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+db_kv_checksum_test: $(OBJ_DIR)/db/db_kv_checksum_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_memtable_test: $(OBJ_DIR)/db/db_memtable_test.o $(TEST_LIBRARY) $(LIBRARY)

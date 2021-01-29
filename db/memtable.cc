@@ -13,7 +13,9 @@
 #include <array>
 #include <limits>
 #include <memory>
+
 #include "db/dbformat.h"
+#include "db/kv_checksum.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
@@ -484,9 +486,54 @@ MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
   return {entry_count * (data_size / n), entry_count};
 }
 
+Status MemTable::VerifyEncodedEntry(Slice encoded,
+                                    const ProtectionInfoKVOTS64& kv_prot_info) {
+  uint32_t ikey_len = 0;
+  if (!GetVarint32(&encoded, &ikey_len)) {
+    return Status::Corruption("Unable to parse internal key length");
+  }
+  size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
+  if (ikey_len < 8 + ts_sz) {
+    return Status::Corruption("Internal key length too short");
+  }
+  if (ikey_len > encoded.size()) {
+    return Status::Corruption("Internal key length too long");
+  }
+  uint32_t value_len = 0;
+  const size_t key_without_ts_len = ikey_len - ts_sz - 8;
+  Slice key(encoded.data(), key_without_ts_len);
+  encoded.remove_prefix(key_without_ts_len);
+
+  Slice timestamp(encoded.data(), ts_sz);
+  encoded.remove_prefix(ts_sz);
+
+  uint64_t packed = DecodeFixed64(encoded.data());
+  ValueType value_type = kMaxValue;
+  SequenceNumber sequence_number = kMaxSequenceNumber;
+  UnPackSequenceAndType(packed, &sequence_number, &value_type);
+  encoded.remove_prefix(8);
+
+  if (!GetVarint32(&encoded, &value_len)) {
+    return Status::Corruption("Unable to parse value length");
+  }
+  if (value_len < encoded.size()) {
+    return Status::Corruption("Value length too short");
+  }
+  if (value_len > encoded.size()) {
+    return Status::Corruption("Value length too long");
+  }
+  Slice value(encoded.data(), value_len);
+
+  return kv_prot_info.StripS(sequence_number)
+      .StripKVOT(key, value, value_type, timestamp)
+      .GetStatus();
+}
+
 Status MemTable::Add(SequenceNumber s, ValueType type,
                      const Slice& key, /* user key */
-                     const Slice& value, bool allow_concurrent,
+                     const Slice& value,
+                     const ProtectionInfoKVOTS64* kv_prot_info,
+                     bool allow_concurrent,
                      MemTablePostProcessInfo* post_process_info, void** hint) {
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()
@@ -514,6 +561,15 @@ Status MemTable::Add(SequenceNumber s, ValueType type,
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
+  if (kv_prot_info != nullptr) {
+    Slice encoded(buf, encoded_len);
+    TEST_SYNC_POINT_CALLBACK("MemTable::Add:Encoded", &encoded);
+    Status status = VerifyEncodedEntry(encoded, *kv_prot_info);
+    if (!status.ok()) {
+      return status;
+    }
+  }
+
   size_t ts_sz = GetInternalKeyComparator().user_comparator()->timestamp_size();
   Slice key_without_ts = StripTimestampFromUserKey(key, ts_sz);
 
@@ -979,7 +1035,8 @@ void MemTable::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 }
 
 Status MemTable::Update(SequenceNumber seq, const Slice& key,
-                        const Slice& value) {
+                        const Slice& value,
+                        const ProtectionInfoKVOTS64* kv_prot_info) {
   LookupKey lkey(key, seq);
   Slice mem_key = lkey.memtable_key();
 
@@ -1023,6 +1080,13 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
                  (unsigned)(VarintLength(key_length) + key_length +
                             VarintLength(value.size()) + value.size()));
           RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
+          if (kv_prot_info != nullptr) {
+            ProtectionInfoKVOTS64 updated_kv_prot_info(*kv_prot_info);
+            // `seq` is swallowed and `existing_seq` prevails.
+            updated_kv_prot_info.UpdateS(seq, existing_seq);
+            Slice encoded(entry, p + value.size() - entry);
+            return VerifyEncodedEntry(encoded, updated_kv_prot_info);
+          }
           return Status::OK();
         }
       }
@@ -1030,11 +1094,12 @@ Status MemTable::Update(SequenceNumber seq, const Slice& key,
   }
 
   // The latest value is not `kTypeValue` or key doesn't exist
-  return Add(seq, kTypeValue, key, value);
+  return Add(seq, kTypeValue, key, value, kv_prot_info);
 }
 
 Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
-                                const Slice& delta) {
+                                const Slice& delta,
+                                const ProtectionInfoKVOTS64* kv_prot_info) {
   LookupKey lkey(key, seq);
   Slice memkey = lkey.memtable_key();
 
@@ -1060,8 +1125,8 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       ValueType type;
-      uint64_t unused;
-      UnPackSequenceAndType(tag, &unused, &type);
+      uint64_t existing_seq;
+      UnPackSequenceAndType(tag, &existing_seq, &type);
       switch (type) {
         case kTypeValue: {
           Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
@@ -1088,9 +1153,27 @@ Status MemTable::UpdateCallback(SequenceNumber seq, const Slice& key,
             }
             RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
             UpdateFlushState();
+            if (kv_prot_info != nullptr) {
+              ProtectionInfoKVOTS64 updated_kv_prot_info(*kv_prot_info);
+              // `seq` is swallowed and `existing_seq` prevails.
+              updated_kv_prot_info.UpdateS(seq, existing_seq);
+              updated_kv_prot_info.UpdateV(delta,
+                                           Slice(prev_buffer, new_prev_size));
+              Slice encoded(entry, prev_buffer + new_prev_size - entry);
+              return VerifyEncodedEntry(encoded, updated_kv_prot_info);
+            }
             return Status::OK();
           } else if (status == UpdateStatus::UPDATED) {
-            Status s = Add(seq, kTypeValue, key, Slice(str_value));
+            Status s;
+            if (kv_prot_info != nullptr) {
+              ProtectionInfoKVOTS64 updated_kv_prot_info(*kv_prot_info);
+              updated_kv_prot_info.UpdateV(delta, str_value);
+              s = Add(seq, kTypeValue, key, Slice(str_value),
+                      &updated_kv_prot_info);
+            } else {
+              s = Add(seq, kTypeValue, key, Slice(str_value),
+                      nullptr /* kv_prot_info */);
+            }
             RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
             UpdateFlushState();
             return s;

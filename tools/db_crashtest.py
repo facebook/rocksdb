@@ -31,6 +31,7 @@ default_params = {
     "backup_max_size": 100 * 1024 * 1024,
     # Consider larger number when backups considered more stable
     "backup_one_in": 100000,
+    "batch_protection_bytes_per_key": lambda: random.choice([0, 8]),
     "block_size": 16384,
     "bloom_bits": lambda: random.choice([random.randint(0,19),
                                          random.lognormvariate(2.3, 1.3)]),
@@ -330,6 +331,8 @@ def finalize_and_sanitize(src_params):
         dest_params["readpercent"] += dest_params.get("iterpercent", 10)
         dest_params["iterpercent"] = 0
         dest_params["test_batches_snapshots"] = 0
+    if dest_params.get("test_batches_snapshots") == 0:
+        dest_params["batch_protection_bytes_per_key"] = 0
     return dest_params
 
 def gen_cmd_params(args):

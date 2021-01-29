@@ -246,6 +246,7 @@ DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
 DECLARE_bool(enable_compaction_filter);
 DECLARE_bool(paranoid_file_checks);
+DECLARE_uint64(batch_protection_bytes_per_key);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;
