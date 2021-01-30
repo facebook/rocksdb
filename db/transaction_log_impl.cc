@@ -277,6 +277,11 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
     Status SingleDeleteCF(uint32_t /*cf*/, const Slice& /*key*/) override {
       return Status::OK();
     }
+    Status DeleteRangeCF(uint32_t /*column_family_id*/,
+                         const Slice& /*begin_key*/,
+                         const Slice& /*end_key*/) override {
+      return Status::OK();
+    }
     Status MergeCF(uint32_t /*cf*/, const Slice& /*key*/,
                    const Slice& /*val*/) override {
       return Status::OK();
