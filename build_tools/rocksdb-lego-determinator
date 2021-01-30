@@ -1065,7 +1065,8 @@ run_no_compression()
   mv .tmp.fbcode_config.sh build_tools/fbcode_config.sh
   cat Makefile | grep -v tools/ldb_test.py > .tmp.Makefile
   mv .tmp.Makefile Makefile
-  $SKIP_FORMAT_CHECKS make $DEBUG J=1 check
+  export $SKIP_FORMAT_CHECKS
+  make $DEBUG J=1 check
 }
 
 NO_COMPRESSION_COMMANDS="[
