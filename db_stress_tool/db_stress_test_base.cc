@@ -2214,7 +2214,8 @@ void StressTest::Open() {
   options_.best_efforts_recovery = FLAGS_best_efforts_recovery;
   options_.paranoid_file_checks = FLAGS_paranoid_file_checks;
 
-  if ((options_.enable_blob_files || options_.enable_blob_garbage_collection) &&
+  if ((options_.enable_blob_files || options_.enable_blob_garbage_collection ||
+       FLAGS_allow_setting_blob_options_dynamically) &&
       (FLAGS_use_merge || FLAGS_enable_compaction_filter ||
        FLAGS_checkpoint_one_in > 0 || FLAGS_backup_one_in > 0 ||
        FLAGS_best_efforts_recovery)) {
