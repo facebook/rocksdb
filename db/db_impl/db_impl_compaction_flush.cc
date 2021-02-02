@@ -816,9 +816,9 @@ Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyData* cfd,
   std::string current_ts_low = cfd->GetFullHistoryTsLow();
   const Comparator* ucmp = cfd->user_comparator();
   if (!current_ts_low.empty() &&
-      ucmp->CompareTimestamp(ts_low, current_ts_low) <= 0) {
+      ucmp->CompareTimestamp(ts_low, current_ts_low) < 0) {
     return Status::InvalidArgument(
-        "Invalid full_history_timestamp_low, it must be grater than the current value");
+        "Cannot decrease full_history_timestamp_low");
   }
 
   return versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
