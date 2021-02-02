@@ -150,6 +150,7 @@ std::string Status::ToString() const {
   }
 
   if (state_ != nullptr) {
+    result.append(": ");
     result.append(state_);
   }
   return result;
