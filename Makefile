@@ -252,9 +252,16 @@ LIB_SOURCES += utilities/env_librados.cc
 LDFLAGS += -lrados
 endif
 
-# Linking with this command prevents linker from dropping unreferenced symbols,
+# Linking with `AM_LINK_WHOLE` prevents linker from dropping unreferenced symbols,
 # which could include static variables registering plugins in `ObjectLibrary`.
-AM_LINK_WHOLE = $(AM_V_CCLD)$(CXX) -L. -Wl,--whole-archive $(patsubst lib%.a, -l%, $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^)) -Wl,--no-whole-archive $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+# To achieve this on Mac OS X, the library must be preceded by `-force_load`
+# linker flag. Elsewhere, the library must be surrounded by `--whole-archive` and
+# `--no-whole-archive`.
+ifeq ($(PLATFORM), OS_MACOSX)
+	AM_LINK_WHOLE = $(AM_V_CCLD)$(CXX) -L. -Wl,-force_load $(patsubst lib%.a, -l%, $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^)) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+else
+	AM_LINK_WHOLE = $(AM_V_CCLD)$(CXX) -L. -Wl,--whole-archive $(patsubst lib%.a, -l%, $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^)) -Wl,--no-whole-archive $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+endif
 AM_LINK = $(AM_V_CCLD)$(CXX) -L. $(patsubst lib%.a, -l%, $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^)) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.$(PLATFORM_SHARED_EXT), -l%, $^) $(LDFLAGS) -o $@
 
