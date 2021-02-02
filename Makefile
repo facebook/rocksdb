@@ -853,7 +853,7 @@ ifdef FORCE_GIT_SHA
 	git_date := $(build_date)
 else
 	git_sha := $(shell git rev-parse HEAD 2>/dev/null)
-	git_tag  := $(shell git symbolic-ref -q --short HEAD || git describe --tags --exact-match 2>/dev/null)
+	git_tag  := $(shell git symbolic-ref -q --short HEAD 2> /dev/null || git describe --tags --exact-match 2>/dev/null)
 	git_mod  := $(shell git diff-index HEAD --quiet 2>/dev/null; echo $$?)
 	git_date := $(shell git log -1 --date=format:"%Y-%m-%d %T" --format="%ad" 2>/dev/null)
 endif
