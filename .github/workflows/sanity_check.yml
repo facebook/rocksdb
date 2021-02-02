@@ -21,13 +21,16 @@ jobs:
         echo git branch && git branch
 
     - name: Setup Python
-      uses: actions/setup-python@v1
+      uses: actions/setup-python@v2
 
     - name: Install Dependencies
       run: python -m pip install --upgrade pip
 
-    - name: Install argparse
-      run: pip install argparse
+    - name: Install argparse and flake8
+      run: pip install argparse flake8
+
+    - name: Lint Python code with flake8
+      run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
     - name: Download clang-format-diff.py
       uses: wei/wget@v1
