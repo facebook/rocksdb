@@ -15,13 +15,17 @@ public class LRUCacheTest {
 
   @Test
   public void newLRUCache() {
-    final long capacity = 1000;
+    final long capacity = 80000000;
     final int numShardBits = 16;
     final boolean strictCapacityLimit = true;
-    final double highPriPoolRatio = 5;
+    final double highPriPoolRatio = 0.05;
     try(final Cache lruCache = new LRUCache(capacity,
         numShardBits, strictCapacityLimit, highPriPoolRatio)) {
       //no op
+      lruCache.getUsage();
+      lruCache.getPinnedUsage();
+    } catch (Exception e) {
+      assert (false);
     }
   }
 }
