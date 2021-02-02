@@ -265,6 +265,23 @@ best_efforts_recovery_params = {
     "continuous_verification_interval": 0,
 }
 
+blob_params = {
+    "allow_setting_blob_options_dynamically": 1,
+    # Enable blob files and GC with a 75% chance initially; note that they might still be
+    # enabled/disabled during the test via SetOptions
+    "enable_blob_files": lambda: random.choice([0] + [1] * 3),
+    "min_blob_size": lambda: random.choice([0, 16, 256]),
+    "blob_file_size": lambda: random.choice([1048576, 16777216, 268435456, 1073741824]),
+    "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
+    "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
+    "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
+    # The following are currently incompatible with the integrated BlobDB
+    "use_merge": 0,
+    "enable_compaction_filter": 0,
+    "backup_one_in": 0,
+    "checkpoint_one_in": 0,
+}
+
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
                         for (k, v) in src_params.items()])
@@ -355,6 +372,12 @@ def gen_cmd_params(args):
         params.update(txn_params)
     if args.test_best_efforts_recovery:
         params.update(best_efforts_recovery_params)
+
+    # Best-effort recovery and BlobDB are currently incompatible. Test BE recovery
+    # if specified on the command line; otherwise, apply BlobDB related overrides
+    # with a 10% chance.
+    if not args.test_best_efforts_recovery and random.choice([0] * 9 + [1]) == 1:
+        params.update(blob_params)
 
     for k, v in vars(args).items():
         if v is not None:
@@ -628,7 +651,8 @@ def main():
                       + list(whitebox_default_params.items())
                       + list(simple_default_params.items())
                       + list(blackbox_simple_default_params.items())
-                      + list(whitebox_simple_default_params.items()))
+                      + list(whitebox_simple_default_params.items())
+                      + list(blob_params.items()))
 
     for k, v in all_params.items():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))
