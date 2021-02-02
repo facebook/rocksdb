@@ -838,18 +838,17 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
   bool flush_needed = true;
 
   // Update full_history_ts_low if it's set
-  if (options.full_history_ts_low != nullptr) {
+  if (options.full_history_ts_low != nullptr &&
+      !options.full_history_ts_low->empty()) {
     std::string ts_low = options.full_history_ts_low->ToString();
-    if (!ts_low.empty()) {
-      if (begin != nullptr || end != nullptr) {
-        return Status::InvalidArgument(
-            "Cannot specify compaction range with full_history_ts_low");
-      }
-      Status s = IncreaseFullHistoryTsLow(cfd, ts_low);
-      if (!s.ok()) {
-        LogFlush(immutable_db_options_.info_log);
-        return s;
-      }
+    if (begin != nullptr || end != nullptr) {
+      return Status::InvalidArgument(
+          "Cannot specify compaction range with full_history_ts_low");
+    }
+    Status s = IncreaseFullHistoryTsLow(cfd, ts_low);
+    if (!s.ok()) {
+      LogFlush(immutable_db_options_.info_log);
+      return s;
     }
   }
 

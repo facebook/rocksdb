@@ -238,7 +238,7 @@ TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
   int current_ts_low = 5;
   std::string ts_low_str = Timestamp(current_ts_low, 0);
   Slice ts_low = ts_low_str;
-  CompactRangeOptions comp_opts = CompactRangeOptions();
+  CompactRangeOptions comp_opts;
   comp_opts.full_history_ts_low = &ts_low;
   comp_opts.bottommost_level_compaction = BottommostLevelCompaction::kForce;
 
