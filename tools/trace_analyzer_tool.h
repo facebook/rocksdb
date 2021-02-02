@@ -281,6 +281,37 @@ class TraceWriteHandler : public WriteBatch::Handler {
     return ta_ptr->HandleMerge(column_family_id, key, value);
   }
 
+  // The following hanlders are not implemented, return Status::OK() to avoid
+  // the running time assertion and other irrelevant falures.
+  virtual Status PutBlobIndexCF(uint32_t /*column_family_id*/,
+                                const Slice& /*key*/,
+                                const Slice& /*value*/) override {
+    return Status::OK();
+  }
+
+  // The default implementation of LogData does nothing.
+  virtual void LogData(const Slice& /*blob*/) override {}
+
+  virtual Status MarkBeginPrepare(bool = false) override {
+    return Status::OK();
+  }
+
+  virtual Status MarkEndPrepare(const Slice& /*xid*/) override {
+    return Status::OK();
+  }
+
+  virtual Status MarkNoop(bool /*empty_batch*/) override {
+    return Status::OK();
+  }
+
+  virtual Status MarkRollback(const Slice& /*xid*/) override {
+    return Status::OK();
+  }
+
+  virtual Status MarkCommit(const Slice& /*xid*/) override {
+    return Status::OK();
+  }
+
  private:
   TraceAnalyzer* ta_ptr;
 };
