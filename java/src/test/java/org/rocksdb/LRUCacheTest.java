@@ -24,8 +24,6 @@ public class LRUCacheTest {
       //no op
       lruCache.getUsage();
       lruCache.getPinnedUsage();
-    } catch (Exception e) {
-      assert (false);
     }
   }
 }

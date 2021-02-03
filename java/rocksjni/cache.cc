@@ -18,9 +18,9 @@
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_Cache_getUsage(JNIEnv*, jclass, jlong jhandle) {
-  auto& sptr_cache =
-      *reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache>*>(jhandle);
-  return static_cast<jlong>(sptr_cache->GetUsage());
+  auto* sptr_cache =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache>*>(jhandle);
+  return static_cast<jlong>(sptr_cache->get()->GetUsage());
 }
 
 /*
@@ -29,7 +29,7 @@ jlong Java_org_rocksdb_Cache_getUsage(JNIEnv*, jclass, jlong jhandle) {
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_Cache_getPinnedUsage(JNIEnv*, jclass, jlong jhandle) {
-  auto& sptr_cache =
-      *reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache>*>(jhandle);
-  return static_cast<jlong>(sptr_cache->GetPinnedUsage());
+  auto* sptr_cache =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::Cache>*>(jhandle);
+  return static_cast<jlong>(sptr_cache->get()->GetPinnedUsage());
 }
