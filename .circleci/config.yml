@@ -103,6 +103,13 @@ commands:
             git clone --single-branch --branch master --depth 1 https://github.com/google/gtest-parallel.git ~/gtest-parallel
             echo 'export PATH=$HOME/gtest-parallel:$PATH' >> $BASH_ENV
 
+  install-compression-libs:
+    steps:
+      - run:
+          name: Install compression libs
+          command: |
+            sudo apt-get update -y && sudo apt-get install -y libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
+
 executors:
   windows-2xlarge:
     machine:
@@ -572,6 +579,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
+      - install-compression-libs
       - run:
           name: "test"
           command: |
