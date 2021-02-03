@@ -346,11 +346,11 @@ class TransactionDB : public StackableDB {
   }
   // Transactional `DeleteRange()` is not yet supported.
   // However, users who know their deleted range does not conflict with
-  // anything can still use it via the `Write()` API. When using one of the
-  // `PessimisticTransactionDB`s, the `Write()` overload specifying
-  // `TransactionDBWriteOptimizations` must be used and
-  // `skip_concurrency_control` must be set. When using one of the
-  // `WritePreparedTxnDB`s, `skip_duplicate_key_check` must additionally be set.
+  // anything can still use it via the `Write()` API. In all cases, the
+  // `Write()` overload specifying `TransactionDBWriteOptimizations` must be
+  // used and `skip_concurrency_control` must be set. When using either
+  // WRITE_PREPARED or WRITE_UNPREPARED , `skip_duplicate_key_check` must
+  // additionally be set.
   virtual Status DeleteRange(const WriteOptions&, ColumnFamilyHandle*,
                              const Slice&, const Slice&) override {
     return Status::NotSupported();
