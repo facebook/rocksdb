@@ -372,7 +372,7 @@ LITE_BUILD_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB debug version',
-                'shell':'cd $WORKING_DIR; make J=1 LITE=1 all check || $CONTRUN_NAME=lite $TASK_CREATION_TOOL',
+                'shell':'cd $WORKING_DIR; $SKIP_FORMAT_CHECKS make J=1 LITE=1 all check || $CONTRUN_NAME=lite $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
