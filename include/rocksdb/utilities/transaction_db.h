@@ -352,7 +352,7 @@ class TransactionDB : public StackableDB {
   // `skip_concurrency_control` must be set. When using one of the
   // `WritePreparedTxnDB`s, `skip_duplicate_key_check` must additionally be set.
   virtual Status DeleteRange(const WriteOptions&, ColumnFamilyHandle*,
-                             const Slice&, const Slice&) {
+                             const Slice&, const Slice&) override {
     return Status::NotSupported();
   }
   // Open a TransactionDB similar to DB::Open().
