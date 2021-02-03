@@ -22,8 +22,8 @@ public class LRUCacheTest {
     try(final Cache lruCache = new LRUCache(capacity,
         numShardBits, strictCapacityLimit, highPriPoolRatio)) {
       //no op
-      lruCache.getUsage();
-      lruCache.getPinnedUsage();
+      assert (lruCache.getUsage() >= 0);
+      assert (lruCache.getPinnedUsage() >= 0);
     }
   }
 }
