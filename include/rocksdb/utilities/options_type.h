@@ -507,6 +507,13 @@ class OptionTypeInfo {
 
   bool IsEnabled(OptionTypeFlags otf) const { return (flags_ & otf) == otf; }
 
+  bool IsEditable(const ConfigOptions& opts) const {
+    if (opts.only_mutable_options) {
+      return IsMutable();
+    } else {
+      return true;
+    }
+  }
   bool IsMutable() const { return IsEnabled(OptionTypeFlags::kMutable); }
 
   bool IsDeprecated() const {
