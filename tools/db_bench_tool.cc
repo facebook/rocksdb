@@ -7484,6 +7484,14 @@ int db_bench_tool(int argc, char** argv) {
     exit(1);
   }
 
+  if ((FLAGS_enable_blob_files || FLAGS_enable_blob_garbage_collection) &&
+      (FLAGS_use_keep_filter || !FLAGS_merge_operator.empty())) {
+    fprintf(stderr,
+            "Integrated BlobDB is currently incompatible with Merge and "
+            "compaction filters\n");
+    exit(1);
+  }
+
   ROCKSDB_NAMESPACE::Benchmark benchmark;
   benchmark.Run();
 
