@@ -18,6 +18,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#ifdef __APPLE__
+#include <mach/host_info.h>
+#include <mach/mach_host.h>
+#include <sys/sysctl.h>
+#endif
 #include <atomic>
 #include <cinttypes>
 #include <condition_variable>
@@ -2576,7 +2581,7 @@ class Benchmark {
     fprintf(stderr, "RocksDB:    version %d.%d\n",
             kMajorVersion, kMinorVersion);
 
-#if defined(__linux)
+#if defined(__linux) || defined(__APPLE__)
     time_t now = time(nullptr);
     char buf[52];
     // Lint complains about ctime() usage, so replace it with ctime_r(). The
@@ -2584,6 +2589,7 @@ class Benchmark {
     fprintf(stderr, "Date:       %s",
             ctime_r(&now, buf));  // ctime_r() adds newline
 
+#if defined(__linux)
     FILE* cpuinfo = fopen("/proc/cpuinfo", "r");
     if (cpuinfo != nullptr) {
       char line[1000];
@@ -2608,6 +2614,32 @@ class Benchmark {
       fprintf(stderr, "CPU:        %d * %s\n", num_cpus, cpu_type.c_str());
       fprintf(stderr, "CPUCache:   %s\n", cache_size.c_str());
     }
+#elif defined(__APPLE__)
+    struct host_basic_info h;
+    size_t hlen = HOST_BASIC_INFO_COUNT;
+    if (host_info(mach_host_self(), HOST_BASIC_INFO, (host_info_t)&h,
+                  (uint32_t*)&hlen) == KERN_SUCCESS) {
+      std::string cpu_type;
+      std::string cache_size;
+      size_t hcache_size;
+      hlen = sizeof(hcache_size);
+      if (sysctlbyname("hw.cachelinesize", &hcache_size, &hlen, NULL, 0) == 0) {
+        cache_size = std::to_string(hcache_size);
+      }
+      switch (h.cpu_type) {
+        case CPU_TYPE_X86_64:
+          cpu_type = "x86_64";
+          break;
+        case CPU_TYPE_ARM64:
+          cpu_type = "arm64";
+          break;
+        default:
+          break;
+      }
+      fprintf(stderr, "CPU:        %d * %s\n", h.max_cpus, cpu_type.c_str());
+      fprintf(stderr, "CPUCache:   %s\n", cache_size.c_str());
+    }
+#endif
 #endif
   }
 
