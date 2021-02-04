@@ -6292,7 +6292,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff1) {
   Status s;
   Reopen(options);
 
-  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
   ASSERT_OK(Put(Key(0), "value1"));
   ASSERT_OK(Put(Key(2), "value2"));
   s = Flush();
@@ -6306,7 +6306,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff1) {
   Reopen(options);
 
   // The hash does not match, compaction write fails
-  // fault_fs->SetChecksumHandoffFuncName("xxhash");
+  // fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
   // Since the file system returns IOStatus::Corruption, it is an
   // unrecoverable error.
   ASSERT_OK(Put(Key(0), "value1"));
@@ -6317,8 +6317,9 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff1) {
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BackgroundCallCompaction:0",
-      [&](void*) { fault_fs->SetChecksumHandoffFuncName("xxhash"); });
+      "BackgroundCallCompaction:0", [&](void*) {
+        fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+      });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(Put(Key(1), "value3"));
   s = Flush();
@@ -6332,7 +6333,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff1) {
 
   // The file system does not support checksum handoff. The check
   // will be ignored.
-  fault_fs->SetChecksumHandoffFuncName("");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
   ASSERT_OK(Put(Key(0), "value1"));
   ASSERT_OK(Put(Key(2), "value2"));
   s = Flush();
@@ -6346,7 +6347,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff1) {
   // Each write will be similated as corrupted.
   // Since the file system returns IOStatus::Corruption, it is an
   // unrecoverable error.
-  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
   ASSERT_OK(Put(Key(0), "value1"));
   ASSERT_OK(Put(Key(2), "value2"));
   s = Flush();
@@ -6385,7 +6386,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff2) {
   Status s;
   Reopen(options);
 
-  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
   ASSERT_OK(Put(Key(0), "value1"));
   ASSERT_OK(Put(Key(2), "value2"));
   s = Flush();
@@ -6407,8 +6408,9 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff2) {
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BackgroundCallCompaction:0",
-      [&](void*) { fault_fs->SetChecksumHandoffFuncName("xxhash"); });
+      "BackgroundCallCompaction:0", [&](void*) {
+        fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+      });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(Put(Key(1), "value3"));
   s = Flush();
@@ -6421,7 +6423,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff2) {
 
   // The file system does not support checksum handoff. The check
   // will be ignored.
-  fault_fs->SetChecksumHandoffFuncName("");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
   ASSERT_OK(Put(Key(0), "value1"));
   ASSERT_OK(Put(Key(2), "value2"));
   s = Flush();
@@ -6433,7 +6435,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoff2) {
   ASSERT_EQ(s, Status::OK());
 
   // options is not set, the checksum handoff will not be triggered
-  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
   ASSERT_OK(Put(Key(0), "value1"));
   ASSERT_OK(Put(Key(2), "value2"));
   s = Flush();
@@ -6469,9 +6471,9 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest1) {
   options.create_if_missing = true;
   options.checksum_handoff_file_types.Add(FileType::kDescriptorFile);
   Status s;
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
   Reopen(options);
 
-  fault_fs->SetChecksumHandoffFuncName("crc32c");
   ASSERT_OK(Put(Key(0), "value1"));
   ASSERT_OK(Put(Key(2), "value2"));
   s = Flush();
@@ -6485,7 +6487,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest1) {
   Reopen(options);
 
   // The hash does not match, compaction write fails
-  // fault_fs->SetChecksumHandoffFuncName("xxhash");
+  // fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
   // Since the file system returns IOStatus::Corruption, it is mapped to
   // kFatalError error.
   ASSERT_OK(Put(Key(0), "value1"));
@@ -6496,8 +6498,9 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest1) {
       {{"DBImpl::FlushMemTable:FlushMemTableFinished",
         "BackgroundCallCompaction:0"}});
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BackgroundCallCompaction:0",
-      [&](void*) { fault_fs->SetChecksumHandoffFuncName("xxhash"); });
+      "BackgroundCallCompaction:0", [&](void*) {
+        fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+      });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(Put(Key(1), "value3"));
   s = Flush();
@@ -6523,11 +6526,11 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
   options.create_if_missing = true;
   options.checksum_handoff_file_types.Add(FileType::kDescriptorFile);
   Status s;
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
   Reopen(options);
 
   // The file system does not support checksum handoff. The check
   // will be ignored.
-  fault_fs->SetChecksumHandoffFuncName("");
   ASSERT_OK(Put(Key(0), "value1"));
   ASSERT_OK(Put(Key(2), "value2"));
   s = Flush();
@@ -6541,7 +6544,7 @@ TEST_F(DBCompactionTest, CompactionWithChecksumHandoffManifest2) {
   // Each write will be similated as corrupted.
   // Since the file system returns IOStatus::Corruption, it is mapped to
   // kFatalError error.
-  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
   ASSERT_OK(Put(Key(0), "value1"));
   ASSERT_OK(Put(Key(2), "value2"));
   s = Flush();

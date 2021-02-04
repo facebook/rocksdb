@@ -543,17 +543,17 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
   options.checksum_handoff_file_types.Add(FileType::kTableFile);
   Reopen(options);
 
-  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
   ASSERT_OK(Put("key1", "value1"));
   ASSERT_OK(Put("key2", "value2"));
   ASSERT_OK(dbfull()->TEST_SwitchMemtable());
 
   // The hash does not match, write fails
-  // fault_fs->SetChecksumHandoffFuncName("xxhash");
+  // fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
   // Since the file system returns IOStatus::Corruption, it is an
   // unrecoverable error.
   SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
-    fault_fs->SetChecksumHandoffFuncName("xxhash");
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
   });
   ASSERT_OK(Put("key3", "value3"));
   ASSERT_OK(Put("key4", "value4"));
@@ -567,7 +567,7 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
 
   // The file system does not support checksum handoff. The check
   // will be ignored.
-  fault_fs->SetChecksumHandoffFuncName("");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
   ASSERT_OK(Put("key5", "value5"));
   ASSERT_OK(Put("key6", "value6"));
   ASSERT_OK(dbfull()->TEST_SwitchMemtable());
@@ -575,7 +575,7 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
   // Each write will be similated as corrupted.
   // Since the file system returns IOStatus::Corruption, it is an
   // unrecoverable error.
-  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
   SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
     fault_fs->IngestDataCorruptionBeforeWrite();
   });
@@ -606,14 +606,14 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoff2) {
   options.env = fault_fs_env.get();
   Reopen(options);
 
-  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
   ASSERT_OK(Put("key1", "value1"));
   ASSERT_OK(Put("key2", "value2"));
   ASSERT_OK(Flush());
 
   // options is not set, the checksum handoff will not be triggered
   SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
-    fault_fs->SetChecksumHandoffFuncName("xxhash");
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
   });
   ASSERT_OK(Put("key3", "value3"));
   ASSERT_OK(Put("key4", "value4"));
@@ -625,13 +625,13 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoff2) {
 
   // The file system does not support checksum handoff. The check
   // will be ignored.
-  fault_fs->SetChecksumHandoffFuncName("");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
   ASSERT_OK(Put("key5", "value5"));
   ASSERT_OK(Put("key6", "value6"));
   ASSERT_OK(Flush());
 
   // options is not set, the checksum handoff will not be triggered
-  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
   SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
     fault_fs->IngestDataCorruptionBeforeWrite();
   });
@@ -659,21 +659,22 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest1) {
   options.disable_auto_compactions = true;
   options.env = fault_fs_env.get();
   options.checksum_handoff_file_types.Add(FileType::kDescriptorFile);
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
   Reopen(options);
 
-  fault_fs->SetChecksumHandoffFuncName("crc32c");
   ASSERT_OK(Put("key1", "value1"));
   ASSERT_OK(Put("key2", "value2"));
   ASSERT_OK(Flush());
 
   // The hash does not match, write fails
-  // fault_fs->SetChecksumHandoffFuncName("xxhash");
+  // fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
   // Since the file system returns IOStatus::Corruption, it is mapped to
   // kFatalError error.
   ASSERT_OK(Put("key3", "value3"));
   SyncPoint::GetInstance()->SetCallBack(
-      "VersionSet::LogAndApply:WriteManifest",
-      [&](void*) { fault_fs->SetChecksumHandoffFuncName("xxhash"); });
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+      });
   ASSERT_OK(Put("key3", "value3"));
   ASSERT_OK(Put("key4", "value4"));
   SyncPoint::GetInstance()->EnableProcessing();
@@ -698,10 +699,10 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest2) {
   options.disable_auto_compactions = true;
   options.env = fault_fs_env.get();
   options.checksum_handoff_file_types.Add(FileType::kDescriptorFile);
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
   Reopen(options);
   // The file system does not support checksum handoff. The check
   // will be ignored.
-  fault_fs->SetChecksumHandoffFuncName("");
   ASSERT_OK(Put("key5", "value5"));
   ASSERT_OK(Put("key6", "value6"));
   ASSERT_OK(Flush());
@@ -709,7 +710,7 @@ TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest2) {
   // Each write will be similated as corrupted.
   // Since the file system returns IOStatus::Corruption, it is mapped to
   // kFatalError error.
-  fault_fs->SetChecksumHandoffFuncName("crc32c");
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
   SyncPoint::GetInstance()->SetCallBack(
       "VersionSet::LogAndApply:WriteManifest",
       [&](void*) { fault_fs->IngestDataCorruptionBeforeWrite(); });

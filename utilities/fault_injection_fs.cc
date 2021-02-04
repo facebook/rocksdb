@@ -57,14 +57,14 @@ std::pair<std::string, std::string> TestFSGetDirAndName(
 }
 
 // Calculate the checksum of the data with corresponding checksum
-// name. If name does not match, no checksum is returned.
-void CalculateNamedChecksum(const std::string& checksum_name, const char* data,
+// type. If name does not match, no checksum is returned.
+void CalculateTypedChecksum(const ChecksumType& checksum_type, const char* data,
                             size_t size, std::string* checksum) {
-  if (checksum_name == "crc32c") {
+  if (checksum_type == ChecksumType::kCRC32c) {
     uint32_t v_crc32c = crc32c::Extend(0, data, size);
     PutFixed32(checksum, v_crc32c);
     return;
-  } else if (checksum_name == "xxhash") {
+  } else if (checksum_type == ChecksumType::kxxHash) {
     uint32_t v = XXH32(data, size, 0);
     PutFixed32(checksum, v);
   }
@@ -92,9 +92,11 @@ IOStatus TestFSDirectory::Fsync(const IOOptions& options, IODebugContext* dbg) {
 }
 
 TestFSWritableFile::TestFSWritableFile(const std::string& fname,
+                                       const FileOptions& file_opts,
                                        std::unique_ptr<FSWritableFile>&& f,
                                        FaultInjectionTestFS* fs)
     : state_(fname),
+      file_opts_(file_opts),
       target_(std::move(f)),
       writable_file_opened_(true),
       fs_(fs) {
@@ -136,9 +138,9 @@ IOStatus TestFSWritableFile::Append(
 
   // Calculate the checksum
   std::string checksum;
-  CalculateNamedChecksum(fs_->GetChecksumHandoffFuncName(), data.data(),
+  CalculateTypedChecksum(fs_->GetChecksumHandoffFuncType(), data.data(),
                          data.size(), &checksum);
-  if (fs_->GetChecksumHandoffFuncName() != "" &&
+  if (fs_->GetChecksumHandoffFuncType() != ChecksumType::kNoChecksum &&
       checksum != verification_info.checksum.ToString()) {
     std::string msg = "Data is corrupted! Origin data checksum: " +
                       verification_info.checksum.ToString() +
@@ -298,7 +300,8 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
 
   IOStatus io_s = target()->NewWritableFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
-    result->reset(new TestFSWritableFile(fname, std::move(*result), this));
+    result->reset(
+        new TestFSWritableFile(fname, file_opts, std::move(*result), this));
     // WritableFileWriter* file is opened
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
@@ -322,7 +325,8 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
   }
   IOStatus io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
-    result->reset(new TestFSWritableFile(fname, std::move(*result), this));
+    result->reset(
+        new TestFSWritableFile(fname, file_opts, std::move(*result), this));
     // WritableFileWriter* file is opened
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);

@@ -285,7 +285,6 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   {
     std::unique_ptr<FSWritableFile> file;
     FileOptions file_options = fs_->OptimizeForManifestWrite(file_options_);
-    file_options.handoff_checksum_type = ChecksumType::kCRC32c;
     s = NewWritableFile(fs_.get(), manifest, &file, file_options);
     if (!s.ok()) {
       return s;
@@ -1468,7 +1467,6 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
   FileOptions opt_file_options =
       fs_->OptimizeForLogWrite(file_options_, db_options);
-  opt_file_options.handoff_checksum_type = ChecksumType::kCRC32c;
   std::string log_fname =
       LogFileName(immutable_db_options_.wal_dir, log_file_num);
 

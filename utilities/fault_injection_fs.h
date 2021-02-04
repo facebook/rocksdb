@@ -59,6 +59,7 @@ struct FSFileState {
 class TestFSWritableFile : public FSWritableFile {
  public:
   explicit TestFSWritableFile(const std::string& fname,
+                              const FileOptions& file_opts,
                               std::unique_ptr<FSWritableFile>&& f,
                               FaultInjectionTestFS* fs);
   virtual ~TestFSWritableFile();
@@ -96,6 +97,7 @@ class TestFSWritableFile : public FSWritableFile {
 
  private:
   FSFileState state_;
+  FileOptions file_opts_;
   std::unique_ptr<FSWritableFile> target_;
   bool writable_file_opened_;
   FaultInjectionTestFS* fs_;
@@ -306,14 +308,14 @@ class FaultInjectionTestFS : public FileSystemWrapper {
     return ingest_data_corruption_before_write_;
   }
 
-  void SetChecksumHandoffFuncName(const std::string& func_name) {
+  void SetChecksumHandoffFuncType(const ChecksumType& func_type) {
     MutexLock l(&mutex_);
-    checksum_handoff_func_name = func_name;
+    checksum_handoff_func_tpye_ = func_type;
   }
 
-  const std::string& GetChecksumHandoffFuncName() {
+  const ChecksumType& GetChecksumHandoffFuncType() {
     MutexLock l(&mutex_);
-    return checksum_handoff_func_name;
+    return checksum_handoff_func_tpye_;
   }
 
   // Specify what the operation, so we can inject the right type of error
@@ -458,7 +460,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   int write_error_one_in_;
   std::vector<FileType> write_error_allowed_types_;
   bool ingest_data_corruption_before_write_;
-  std::string checksum_handoff_func_name;
+  ChecksumType checksum_handoff_func_tpye_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

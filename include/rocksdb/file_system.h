@@ -104,13 +104,13 @@ struct FileOptions : EnvOptions {
   // handoff during file writes.
   ChecksumType handoff_checksum_type;
 
-  FileOptions() : EnvOptions() {}
+  FileOptions() : EnvOptions(), handoff_checksum_type(ChecksumType::kCRC32c) {}
 
   FileOptions(const DBOptions& opts)
-    : EnvOptions(opts) {}
+      : EnvOptions(opts), handoff_checksum_type(ChecksumType::kCRC32c) {}
 
   FileOptions(const EnvOptions& opts)
-    : EnvOptions(opts) {}
+      : EnvOptions(opts), handoff_checksum_type(ChecksumType::kCRC32c) {}
 
   FileOptions(const FileOptions& opts)
       : EnvOptions(opts),
@@ -749,14 +749,14 @@ class FSWritableFile {
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;
 
-  // Append data with verification information
+  // Append data with verification information.
   // Note that this API change is experimental and it might be changed in
   // the future. Currently, RocksDB only generates crc32c based checksum for
-  // the file writes when the option is set.
-  // Expected behavior: if the supported checksum verification type in this
-  // FSWritableFile does not match the handoff_checksum_type in FileOptions,
-  // the information in DataVerificationInfo should be ignored (e.g., does
-  // not perform checksum verification).
+  // the file writes when the checksum handoff option is set.
+  // Expected behavior: if the handoff_checksum_type in FileOptions (currently,
+  // ChecksumType::kCRC32C is set as default) is not supported by this
+  // FSWritableFile, the information in DataVerificationInfo can be ignored
+  // (i.e. does not perform checksum verification).
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           const DataVerificationInfo& /* verification_info */,
                           IODebugContext* dbg) {
@@ -793,11 +793,11 @@ class FSWritableFile {
   // PositionedAppend data with verification information.
   // Note that this API change is experimental and it might be changed in
   // the future. Currently, RocksDB only generates crc32c based checksum for
-  // the file writes when the option is set.
-  // Expected behavior: if the supported checksum verification type in this
-  // FSWritableFile does not match the handoff_checksum_type in FileOptions,
-  // the information in DataVerificationInfo should be ignored (e.g., does
-  // not perform checksum verification).
+  // the file writes when the checksum handoff option is set.
+  // Expected behavior: if the handoff_checksum_type in FileOptions (currently,
+  // ChecksumType::kCRC32C is set as default) is not supported by this
+  // FSWritableFile, the information in DataVerificationInfo can be ignored
+  // (i.e. does not perform checksum verification).
   virtual IOStatus PositionedAppend(
       const Slice& /* data */, uint64_t /* offset */,
       const IOOptions& /*options*/,

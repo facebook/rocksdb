@@ -518,7 +518,7 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
 
     options.checksum_handoff_file_types.Add(FileType::kWalFile);
     options.env = fault_fs_env.get();
-    fault_fs->SetChecksumHandoffFuncName("crc32c");
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
 
     CreateAndReopenWithCF({"pikachu"}, options);
     WriteOptions writeOpt = WriteOptions();
@@ -548,7 +548,7 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
     // Data is persisted in the WAL
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "zoo", "v3"));
     // The hash does not match, write fails
-    fault_fs->SetChecksumHandoffFuncName("xxhash");
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
     writeOpt.disableWAL = false;
     ASSERT_NOK(dbfull()->Put(writeOpt, handles_[1], "foo", "v3"));
 
@@ -558,7 +558,7 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
     ASSERT_EQ("v3", Get(1, "zoo"));
     ASSERT_EQ("v3", Get(1, "bar"));
 
-    fault_fs->SetChecksumHandoffFuncName("crc32c");
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
     // Each write will be similated as corrupted.
     fault_fs->IngestDataCorruptionBeforeWrite();
     writeOpt.disableWAL = true;
@@ -570,7 +570,7 @@ TEST_F(DBWALTest, WALWithChecksumHandoff) {
     ASSERT_NE("v4", Get(1, "bar"));
     fault_fs->NoDataCorruptionBeforeWrite();
 
-    fault_fs->SetChecksumHandoffFuncName("");
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
     // The file system does not provide checksum method and verification.
     writeOpt.disableWAL = true;
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v5"));

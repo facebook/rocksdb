@@ -184,9 +184,8 @@ Status SstFileWriter::Open(const std::string& file_path) {
   Status s;
   std::unique_ptr<FSWritableFile> sst_file;
   FileOptions cur_file_opts(r->env_options);
-  cur_file_opts.handoff_checksum_type = ChecksumType::kCRC32c;
   s = r->ioptions.env->GetFileSystem()->NewWritableFile(
-      file_path, r->env_options, &sst_file, nullptr);
+      file_path, cur_file_opts, &sst_file, nullptr);
   if (!s.ok()) {
     return s;
   }

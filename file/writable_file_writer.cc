@@ -462,6 +462,12 @@ void WritableFileWriter::UpdateFileChecksum(const Slice& data) {
   }
 }
 
+// Currently, crc32c checksum is used to calculate the checksum value of the
+// content in the input buffer for handoff. In the future, the checksum might be
+// calculated from the existing crc32c checksums of the in WAl and Manifest
+// records, or even SST file blocks.
+// TODO: effectively use the existing checksum of the data being writing to
+// generate the crc32c checksum instead of a raw calculation.
 void WritableFileWriter::Crc32cHandoffChecksumCalculation(const char* data,
                                                           size_t size,
                                                           char* buf) {

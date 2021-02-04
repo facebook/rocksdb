@@ -137,9 +137,7 @@ Status BuildTable(
       bool use_direct_writes = file_options.use_direct_writes;
       TEST_SYNC_POINT_CALLBACK("BuildTable:create_file", &use_direct_writes);
 #endif  // !NDEBUG
-      FileOptions cur_file_opts = file_options;
-      cur_file_opts.handoff_checksum_type = ChecksumType::kCRC32c;
-      IOStatus io_s = NewWritableFile(fs, fname, &file, cur_file_opts);
+      IOStatus io_s = NewWritableFile(fs, fname, &file, file_options);
       assert(s.ok());
       s = io_s;
       if (io_status->ok()) {

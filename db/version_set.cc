@@ -4081,7 +4081,6 @@ Status VersionSet::ProcessManifestWrites(
   IOStatus io_s;
   {
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
-    opt_file_opts.handoff_checksum_type = ChecksumType::kCRC32c;
     mu->Unlock();
 
     TEST_SYNC_POINT_CALLBACK("VersionSet::LogAndApply:WriteManifest", nullptr);
