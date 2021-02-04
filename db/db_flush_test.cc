@@ -181,6 +181,59 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   ASSERT_EQ(1, num_compactions);
 }
 
+// Test when flush job is submitted to low priority thread pool and when DB is
+// closed in the meanwhile, CloseHelper doesn't hang.
+TEST_F(DBFlushTest, CloseDBWhenFlushInLowPri) {
+  Options options = CurrentOptions();
+  options.max_background_flushes = 1;
+  options.max_total_wal_size = 8192;
+
+  DestroyAndReopen(options);
+  CreateColumnFamilies({"cf1", "cf2"}, options);
+
+  env_->SetBackgroundThreads(0, Env::HIGH);
+  env_->SetBackgroundThreads(1, Env::LOW);
+  test::SleepingBackgroundTask sleeping_task_low;
+  int num_flushes = 0;
+
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::BGWorkFlush",
+                                        [&](void* /*arg*/) { ++num_flushes; });
+
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::CloseHelper:UnscheduleBGJobs:0", [&](void* arg) {
+        std::pair<int, int>* unscheduled_jobs =
+            static_cast<std::pair<int, int>*>(arg);
+        // unscheduled compaction jobs
+        ASSERT_EQ((*unscheduled_jobs).first, 0);
+        // unscheduled flush jobs.
+        ASSERT_EQ((*unscheduled_jobs).second, 1);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put(0, "key1", DummyString(8192)));
+  // Block thread so that flush cannot be run and can be removed from the queue
+  // when called Unschedule.
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+  sleeping_task_low.WaitUntilSleeping();
+
+  // Trigger flush and flush job will be scheduled to LOW priority thread.
+  ASSERT_OK(Put(0, "key2", DummyString(8192)));
+
+  // Close DB and flush job in low priority queue will be removed without
+  // running.
+  Close();
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+  ASSERT_EQ(0, num_flushes);
+
+  TryReopenWithColumnFamilies({"default", "cf1", "cf2"}, options);
+  ASSERT_OK(Put(0, "key3", DummyString(8192)));
+  ASSERT_OK(Flush(0));
+  ASSERT_EQ(1, num_flushes);
+}
+
 TEST_F(DBFlushTest, ManualFlushWithMinWriteBufferNumberToMerge) {
   Options options = CurrentOptions();
   options.write_buffer_size = 100;

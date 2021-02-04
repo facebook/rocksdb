@@ -190,6 +190,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       bg_flush_scheduled_(0),
       num_running_flushes_(0),
       bg_purge_scheduled_(0),
+      bg_flush_scheduled_low_(0),
       disable_delete_obsolete_files_(0),
       pending_purge_obsolete_files_(0),
       delete_obsolete_files_last_run_(clock_->NowMicros()),
@@ -522,7 +523,22 @@ Status DBImpl::CloseHelper() {
   int flushes_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);
   Status ret = Status::OK();
   mutex_.Lock();
+
   bg_bottom_compaction_scheduled_ -= bottom_compactions_unscheduled;
+  if (bg_flush_scheduled_low_) {
+    // Even if flush jobs were scheduled in Env::Priority::LOW, they should be
+    // consider part of flushes_unscheduled. Otherwise, bg_compaction_scheduled_
+    // can go < 0 and bg_flush_scheduled_ will remain > 0.
+    compactions_unscheduled -= bg_flush_scheduled_low_;
+    flushes_unscheduled += bg_flush_scheduled_low_;
+    bg_flush_scheduled_low_ = 0;
+#ifndef NDEBUG
+    std::pair<int, int> unscheduled_jobs =
+        std::make_pair(compactions_unscheduled, flushes_unscheduled);
+    TEST_SYNC_POINT_CALLBACK("DBImpl::CloseHelper:UnscheduleBGJobs:0",
+                             &unscheduled_jobs);
+#endif
+  }
   bg_compaction_scheduled_ -= compactions_unscheduled;
   bg_flush_scheduled_ -= flushes_unscheduled;
 

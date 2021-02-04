@@ -2185,6 +2185,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       env_->Schedule(&DBImpl::BGWorkFlush, fta, Env::Priority::LOW, this,
                      &DBImpl::UnscheduleFlushCallback);
       --unscheduled_flushes_;
+      bg_flush_scheduled_low_++;
     }
   }
 
@@ -2505,6 +2506,9 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
     InstrumentedMutexLock l(&mutex_);
     assert(bg_flush_scheduled_);
     num_running_flushes_++;
+    if (thread_pri == Env::Priority::LOW) {
+      bg_flush_scheduled_low_--;
+    }
 
     std::unique_ptr<std::list<uint64_t>::iterator>
         pending_outputs_inserted_elem(new std::list<uint64_t>::iterator(

@@ -2068,6 +2068,10 @@ class DBImpl : public DB {
   // number of background obsolete file purge jobs, submitted to the HIGH pool
   int bg_purge_scheduled_;
 
+  // number of background memtable flush jobs scheduled to the LOW pool. They
+  // are not running and can be unscheduled.
+  int bg_flush_scheduled_low_;
+
   std::deque<ManualCompactionState*> manual_compaction_dequeue_;
 
   // shall we disable deletion of obsolete files
