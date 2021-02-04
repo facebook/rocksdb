@@ -129,6 +129,83 @@ TEST_F(DBOptionsTest, GetLatestCFOptions) {
             GetMutableCFOptionsMap(dbfull()->GetOptions(handles_[1])));
 }
 
+TEST_F(DBOptionsTest, SetMutableTableOptions) {
+  Options options;
+  options.create_if_missing = true;
+  options.env = env_;
+  options.blob_file_size = 16384;
+  BlockBasedTableOptions bbto;
+  bbto.no_block_cache = true;
+  bbto.block_size = 8192;
+  bbto.block_restart_interval = 7;
+
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+
+  ColumnFamilyHandle* cfh = dbfull()->DefaultColumnFamily();
+  Options c_opts = dbfull()->GetOptions(cfh);
+  const auto* c_bbto =
+      c_opts.table_factory->GetOptions<BlockBasedTableOptions>();
+  ASSERT_NE(c_bbto, nullptr);
+  ASSERT_EQ(c_opts.blob_file_size, 16384);
+  ASSERT_EQ(c_bbto->no_block_cache, true);
+  ASSERT_EQ(c_bbto->block_size, 8192);
+  ASSERT_EQ(c_bbto->block_restart_interval, 7);
+  ASSERT_OK(dbfull()->SetOptions(
+      cfh, {{"table_factory.block_size", "16384"},
+            {"table_factory.block_restart_interval", "11"}}));
+  ASSERT_EQ(c_bbto->block_size, 16384);
+  ASSERT_EQ(c_bbto->block_restart_interval, 11);
+
+  // Now set an option that is not mutable - options should not change
+  ASSERT_NOK(
+      dbfull()->SetOptions(cfh, {{"table_factory.no_block_cache", "false"}}));
+  ASSERT_EQ(c_bbto->no_block_cache, true);
+  ASSERT_EQ(c_bbto->block_size, 16384);
+  ASSERT_EQ(c_bbto->block_restart_interval, 11);
+
+  // Set some that are mutable and some that are not - options should not change
+  ASSERT_NOK(dbfull()->SetOptions(
+      cfh, {{"table_factory.no_block_cache", "false"},
+            {"table_factory.block_size", "8192"},
+            {"table_factory.block_restart_interval", "7"}}));
+  ASSERT_EQ(c_bbto->no_block_cache, true);
+  ASSERT_EQ(c_bbto->block_size, 16384);
+  ASSERT_EQ(c_bbto->block_restart_interval, 11);
+
+  // Set some that are mutable and some that do not exist - options should not
+  // change
+  ASSERT_NOK(dbfull()->SetOptions(
+      cfh, {{"table_factory.block_size", "8192"},
+            {"table_factory.does_not_exist", "true"},
+            {"table_factory.block_restart_interval", "7"}}));
+  ASSERT_EQ(c_bbto->no_block_cache, true);
+  ASSERT_EQ(c_bbto->block_size, 16384);
+  ASSERT_EQ(c_bbto->block_restart_interval, 11);
+
+  // Trying to change the table factory fails
+  ASSERT_NOK(dbfull()->SetOptions(
+      cfh, {{"table_factory", TableFactory::kPlainTableName()}}));
+
+  // Set some on the table and some on the Column Family
+  ASSERT_OK(dbfull()->SetOptions(
+      cfh, {{"table_factory.block_size", "16384"},
+            {"blob_file_size", "32768"},
+            {"table_factory.block_restart_interval", "13"}}));
+  c_opts = dbfull()->GetOptions(cfh);
+  ASSERT_EQ(c_opts.blob_file_size, 32768);
+  ASSERT_EQ(c_bbto->block_size, 16384);
+  ASSERT_EQ(c_bbto->block_restart_interval, 13);
+  // Set some on the table and a bad one on the ColumnFamily - options should
+  // not change
+  ASSERT_NOK(dbfull()->SetOptions(
+      cfh, {{"table_factory.block_size", "1024"},
+            {"no_such_option", "32768"},
+            {"table_factory.block_restart_interval", "7"}}));
+  ASSERT_EQ(c_bbto->block_size, 16384);
+  ASSERT_EQ(c_bbto->block_restart_interval, 13);
+}
+
 TEST_F(DBOptionsTest, SetBytesPerSync) {
   const size_t kValueSize = 1024 * 1024;  // 1MB
   Options options;

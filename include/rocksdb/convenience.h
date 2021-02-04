@@ -56,6 +56,9 @@ struct ConfigOptions {
   // Whether or not to invoke PrepareOptions after configure is called.
   bool invoke_prepare_options = true;
 
+  // When true, only options that are mutable will be touched
+  bool only_mutable_options = false;
+
   // The separator between options when converting to a string
   std::string delimiter = ";";
 
