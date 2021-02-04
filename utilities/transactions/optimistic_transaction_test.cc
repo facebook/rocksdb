@@ -1040,7 +1040,7 @@ TEST_P(OptimisticTransactionTest, DeleteRangeSupportTest) {
           ->DeleteRange(WriteOptions(), txn_db->DefaultColumnFamily(), "a", "b")
           .IsNotSupported());
   WriteBatch wb;
-  wb.DeleteRange("a", "b");
+  ASSERT_OK(wb.DeleteRange("a", "b"));
   ASSERT_NOK(txn_db->Write(WriteOptions(), &wb));
 }
 

@@ -4848,7 +4848,7 @@ TEST_P(TransactionTest, DeleteRangeSupportTest) {
     for (bool skip_duplicate_key_check : {false, true}) {
       ASSERT_OK(db->Put(WriteOptions(), "a", "val"));
       WriteBatch wb;
-      wb.DeleteRange("a", "b");
+      ASSERT_OK(wb.DeleteRange("a", "b"));
       TransactionDBWriteOptimizations flags;
       flags.skip_concurrency_control = skip_concurrency_control;
       flags.skip_duplicate_key_check = skip_duplicate_key_check;
