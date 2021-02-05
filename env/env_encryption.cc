@@ -647,7 +647,7 @@ class EncryptedEnvImpl : public EnvWrapper {
       return status;
     }
     uint64_t file_size;
-    status = GetFileSize(fname, &file_size);
+    status = EnvWrapper::GetFileSize(fname, &file_size);
     if (!status.ok()) {
       return status;
     }
