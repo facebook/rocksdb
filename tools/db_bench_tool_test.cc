@@ -69,7 +69,7 @@ class DBBenchTest : public testing::Test {
     opt.dump_malloc_stats = true;  // db_bench uses a different default
     opt.compaction_style = style;
     opt.num_levels = levels;
-    opt.compression = kNoCompression;
+    opt.compression = Snappy_Supported() ? kSnappyCompression : kNoCompression;
     opt.arena_block_size = 8388608;
 
     return SanitizeOptions(db_path_, opt);
@@ -164,7 +164,7 @@ TEST_F(DBBenchTest, OptionsFileMultiLevelUniversal) {
 
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
                                   {ColumnFamilyOptions(opt)}, kOptionsFileName,
-                                  fs_.get()));
+                                  opt.env->GetFileSystem().get()));
 
   // override the following options as db_bench will not take these
   // options from the options file
@@ -316,7 +316,7 @@ TEST_F(DBBenchTest, OptionsFileFromFile) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
   return RUN_ALL_TESTS();
 }
 
