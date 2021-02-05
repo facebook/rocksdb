@@ -4835,6 +4835,56 @@ TEST_P(TransactionTest, MergeTest) {
   ASSERT_EQ("a,3", value);
 }
 
+TEST_P(TransactionTest, DeleteRangeSupportTest) {
+  // The `DeleteRange()` API is banned everywhere.
+  ASSERT_TRUE(
+      db->DeleteRange(WriteOptions(), db->DefaultColumnFamily(), "a", "b")
+          .IsNotSupported());
+
+  // But range deletions can be added via the `Write()` API by specifying the
+  // proper flags to promise there are no conflicts according to the DB type
+  // (see `TransactionDB::DeleteRange()` API doc for details).
+  for (bool skip_concurrency_control : {false, true}) {
+    for (bool skip_duplicate_key_check : {false, true}) {
+      ASSERT_OK(db->Put(WriteOptions(), "a", "val"));
+      WriteBatch wb;
+      ASSERT_OK(wb.DeleteRange("a", "b"));
+      TransactionDBWriteOptimizations flags;
+      flags.skip_concurrency_control = skip_concurrency_control;
+      flags.skip_duplicate_key_check = skip_duplicate_key_check;
+      Status s = db->Write(WriteOptions(), flags, &wb);
+      std::string value;
+      switch (txn_db_options.write_policy) {
+        case WRITE_COMMITTED:
+          if (skip_concurrency_control) {
+            ASSERT_OK(s);
+            ASSERT_TRUE(db->Get(ReadOptions(), "a", &value).IsNotFound());
+          } else {
+            ASSERT_NOK(s);
+            ASSERT_OK(db->Get(ReadOptions(), "a", &value));
+          }
+          break;
+        case WRITE_PREPARED:
+          // Intentional fall-through
+        case WRITE_UNPREPARED:
+          if (skip_concurrency_control && skip_duplicate_key_check) {
+            ASSERT_OK(s);
+            ASSERT_TRUE(db->Get(ReadOptions(), "a", &value).IsNotFound());
+          } else {
+            ASSERT_NOK(s);
+            ASSERT_OK(db->Get(ReadOptions(), "a", &value));
+          }
+          break;
+      }
+      // Without any promises from the user, range deletion via other `Write()`
+      // APIs are still banned.
+      ASSERT_OK(db->Put(WriteOptions(), "a", "val"));
+      ASSERT_NOK(db->Write(WriteOptions(), &wb));
+      ASSERT_OK(db->Get(ReadOptions(), "a", &value));
+    }
+  }
+}
+
 TEST_P(TransactionTest, DeferSnapshotTest) {
   WriteOptions write_options;
   ReadOptions read_options;

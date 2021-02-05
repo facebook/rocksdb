@@ -244,6 +244,17 @@ class TransactionDB : public StackableDB {
     // falls back to the un-optimized version of ::Write
     return Write(opts, updates);
   }
+  // Transactional `DeleteRange()` is not yet supported.
+  // However, users who know their deleted range does not conflict with
+  // anything can still use it via the `Write()` API. In all cases, the
+  // `Write()` overload specifying `TransactionDBWriteOptimizations` must be
+  // used and `skip_concurrency_control` must be set. When using either
+  // WRITE_PREPARED or WRITE_UNPREPARED , `skip_duplicate_key_check` must
+  // additionally be set.
+  virtual Status DeleteRange(const WriteOptions&, ColumnFamilyHandle*,
+                             const Slice&, const Slice&) override {
+    return Status::NotSupported();
+  }
   // Open a TransactionDB similar to DB::Open().
   // Internally call PrepareWrap() and WrapDB()
   // If the return status is not ok, then dbptr is set to nullptr.
