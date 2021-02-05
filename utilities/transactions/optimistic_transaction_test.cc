@@ -1035,6 +1035,17 @@ TEST_P(OptimisticTransactionTest, IteratorTest) {
   delete txn;
 }
 
+TEST_P(OptimisticTransactionTest, DeleteRangeSupportTest) {
+  // `OptimisticTransactionDB` does not allow range deletion in any API.
+  ASSERT_TRUE(
+      txn_db
+          ->DeleteRange(WriteOptions(), txn_db->DefaultColumnFamily(), "a", "b")
+          .IsNotSupported());
+  WriteBatch wb;
+  ASSERT_OK(wb.DeleteRange("a", "b"));
+  ASSERT_NOK(txn_db->Write(WriteOptions(), &wb));
+}
+
 TEST_P(OptimisticTransactionTest, SavepointTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;

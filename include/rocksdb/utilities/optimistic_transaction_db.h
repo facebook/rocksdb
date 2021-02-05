@@ -51,6 +51,8 @@ struct OptimisticTransactionDBOptions {
   uint32_t occ_lock_buckets = (1 << 20);
 };
 
+// Range deletions (including those in `WriteBatch`es passed to `Write()`) are
+// incompatible with `OptimisticTransactionDB` and will return a non-OK `Status`
 class OptimisticTransactionDB : public StackableDB {
  public:
   // Open an OptimisticTransactionDB similar to DB::Open().
