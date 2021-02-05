@@ -5672,6 +5672,10 @@ TEST_P(TransactionTest, DuplicateKeys) {
     ASSERT_OK(ReOpen());
     std::unique_ptr<const Comparator> comp_gc(new ThreeBytewiseComparator());
     cf_options.comparator = comp_gc.get();
+    // ThreeBytewiseComparator won't work with bloom filters.
+    cf_options.memtable_whole_key_filtering = false;
+    cf_options.memtable_prefix_bloom_size_ratio = 0;
+
     ASSERT_OK(db->CreateColumnFamily(cf_options, cf_name, &cf_handle));
     WriteOptions write_options;
     WriteBatch batch;

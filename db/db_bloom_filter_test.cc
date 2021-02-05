@@ -1867,6 +1867,9 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterMultipleSST) {
     options.prefix_extractor.reset(NewFixedPrefixTransform(1));
     options.disable_auto_compactions = true;
     options.statistics = CreateDBStatistics();
+    options.memtable_whole_key_filtering = false;
+    options.memtable_prefix_bloom_size_ratio = 0;
+
     // Enable prefix bloom for SST files
     BlockBasedTableOptions table_options;
     table_options.filter_policy.reset(new BFP(10, bfp_impl));

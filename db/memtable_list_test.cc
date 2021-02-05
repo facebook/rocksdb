@@ -30,6 +30,8 @@ class MemTableListTest : public testing::Test {
   MemTableListTest() : db(nullptr), file_number(1) {
     dbname = test::PerThreadDBPath("memtable_list_test");
     options.create_if_missing = true;
+    options.memtable_whole_key_filtering = false;
+    options.memtable_prefix_bloom_size_ratio = 0;
     EXPECT_OK(DestroyDB(dbname, options));
   }
 

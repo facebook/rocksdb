@@ -4001,6 +4001,8 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   options.level0_file_num_compaction_trigger = 1024;
   options.level0_slowdown_writes_trigger = 1024;
   options.level0_stop_writes_trigger = 1024;
+  options.memtable_whole_key_filtering = false;
+  options.memtable_prefix_bloom_size_ratio = 0;
   DestroyAndReopen(options);
 
   auto gen_l0_kb = [this](int size) {
