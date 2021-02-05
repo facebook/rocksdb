@@ -69,7 +69,7 @@ class DBBenchTest : public testing::Test {
     opt.dump_malloc_stats = true;  // db_bench uses a different default
     opt.compaction_style = style;
     opt.num_levels = levels;
-    opt.compression = Snappy_Supported() ? kSnappyCompression : kNoCompression;
+    opt.compression = kNoCompression;
     opt.arena_block_size = 8388608;
 
     return SanitizeOptions(db_path_, opt);
@@ -127,7 +127,7 @@ TEST_F(DBBenchTest, OptionsFile) {
   const std::string kOptionsFileName = test_path_ + "/OPTIONS_test";
   Options opt = GetDefaultOptions();
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
-                                  {ColumnFamilyOptions()}, kOptionsFileName,
+                                  {ColumnFamilyOptions(opt)}, kOptionsFileName,
                                   opt.env->GetFileSystem().get()));
 
   // override the following options as db_bench will not take these
