@@ -6,7 +6,7 @@ SHELL ["/bin/bash", "-c"]
 RUN apt-get update
 RUN apt-get install -y wget build-essential software-properties-common git \
     curl g++-6 libbz2-dev libcurl4-openssl-dev libgflags-dev libsnappy-dev zlib1g-dev \
-    libssl-dev python
+    libssl-dev python libtbb-dev
 
 ENV CXX /usr/bin/g++-6
 ENV CC /usr/bin/gcc-6
