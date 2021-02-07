@@ -1764,6 +1764,7 @@ void CompactionJob::RunRemote(PluggableCompactionService* service) {
     }
     param.input_files.push_back(files_in_one_level);
   }
+  param.shutting_down = shutting_down_;
 
   // make the RPC
   status = service->Run(param, &result);
@@ -1810,8 +1811,8 @@ void CompactionJob::RunRemote(PluggableCompactionService* service) {
   }
 
   // Install all remotely compacted file into local files.
-  auto statuses =
-      service->InstallFiles(sources, destinations, file_options_, env_);
+  auto statuses = service->InstallFiles(sources, destinations, file_options_,
+                                        env_, shutting_down_);
   compaction_stats_.micros = env_->NowMicros() - start_micros;
 
   for (uint32_t i = 0; i < statuses.size(); ++i) {
