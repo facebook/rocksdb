@@ -156,8 +156,6 @@ class PartitionedIndexTestListener : public EventListener {
 TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
   BlockBasedTableOptions table_options;
   Options options = CurrentOptions();
-  // Hold all data until manual flush.
-  options.memtable_factory.reset(new SpecialSkipListFactory(5000));
   table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
   PartitionedIndexTestListener* listener = new PartitionedIndexTestListener();
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));

@@ -110,8 +110,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSingleSortedRun) {
   options.write_buffer_size = 105 << 10;  // 105KB
   options.arena_block_size = 4 << 10;
   options.target_file_size_base = 32 << 10;  // 32KB
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   // trigger compaction if there are >= 4 files
   KeepFilterFactory* filter = new KeepFilterFactory(true);
   filter->expect_manual_compaction_.store(false);
@@ -146,8 +144,6 @@ TEST_P(DBTestUniversalCompaction, OptimizeFiltersForHits) {
   options.target_file_size_base = 32 << 10;  // 32KB
   // trigger compaction if there are >= 4 files
   options.level0_file_num_compaction_trigger = 4;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   BlockBasedTableOptions bbto;
   bbto.cache_index_and_filter_blocks = true;
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
@@ -217,8 +213,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrigger) {
   options.target_file_size_base = 32 << 10;  // 32KB
   // trigger compaction if there are >= 4 files
   options.level0_file_num_compaction_trigger = 4;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   KeepFilterFactory* filter = new KeepFilterFactory(true);
   filter->expect_manual_compaction_.store(false);
   options.compaction_filter_factory.reset(filter);
@@ -323,8 +317,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSizeAmplification) {
   options.write_buffer_size = 100 << 10;     // 100KB
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = 3;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -367,8 +359,6 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionSizeAmplification) {
   options.write_buffer_size = 100 << 10;     // 100KB
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = 3;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   // Initial setup of compaction_options_universal will prevent universal
   // compaction from happening
   options.compaction_options_universal.size_ratio = 100;
@@ -449,8 +439,6 @@ TEST_P(DBTestUniversalCompaction, DynamicUniversalCompactionReadAmplification) {
   options.write_buffer_size = 100 << 10;     // 100KB
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = 3;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   // Initial setup of compaction_options_universal will prevent universal
   // compaction from happening
   options.compaction_options_universal.max_size_amplification_percent = 2000;
@@ -552,8 +540,6 @@ TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
   options.create_if_missing = true;
   options.compaction_style = kCompactionStyleLevel;
   options.num_levels = 1;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.target_file_size_base = options.write_buffer_size;
   options.compression = kNoCompression;
   options = CurrentOptions(options);
@@ -619,8 +605,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTargetLevel) {
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100 << 10;     // 100KB
   options.num_levels = 7;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
 
@@ -667,8 +651,6 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionMultiLevels) {
   options.write_buffer_size = 100 << 10;  // 100KB
   options.level0_file_num_compaction_trigger = 8;
   options.max_background_compactions = 3;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.target_file_size_base = 32 * 1024;
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -714,8 +696,6 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
   options.level0_file_num_compaction_trigger = 3;
   options.max_background_compactions = 2;
   options.target_file_size_base = 32 * 1024;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -761,8 +741,6 @@ TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
   options.max_background_compactions = 3;
   options.max_background_flushes = 3;
   options.target_file_size_base = 1 * 1024;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.compaction_options_universal.max_size_amplification_percent = 110;
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -822,8 +800,6 @@ TEST_P(DBTestUniversalCompactionParallel, PickByFileNumberBug) {
   options.level0_file_num_compaction_trigger = 7;
   options.max_background_compactions = 2;
   options.target_file_size_base = 1024 * 1024;  // 1MB
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
 
   // Disable size amplifiction compaction
   options.compaction_options_universal.max_size_amplification_percent =
@@ -940,8 +916,6 @@ INSTANTIATE_TEST_CASE_P(Parallel, DBTestUniversalCompactionParallel,
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
   Options options = CurrentOptions();
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 105 << 10;    // 105KB
   options.arena_block_size = 4 << 10;       // 4KB
@@ -977,8 +951,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 105 << 10;    // 105KB
   options.arena_block_size = 4 << 10;       // 4KB
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.target_file_size_base = 32 << 10;  // 32KB
   // trigger compaction if there are >= 4 files
   options.level0_file_num_compaction_trigger = 4;
@@ -1065,9 +1037,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionCompressRatio1) {
 
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
-  options.write_buffer_size = 100 << 10;  // 100KB
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
+  options.write_buffer_size = 100 << 10;     // 100KB
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = num_levels_;
@@ -1135,8 +1105,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionCompressRatio2) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100 << 10;     // 100KB
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = num_levels_;
@@ -1182,8 +1150,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest1) {
   options.compaction_options_universal.allow_trivial_move = true;
   options.num_levels = 2;
   options.write_buffer_size = 100 << 10;  // 100KB
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.level0_file_num_compaction_trigger = 3;
   options.max_background_compactions = 1;
   options.target_file_size_base = 32 * 1024;
@@ -1230,8 +1196,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest2) {
   options.compaction_options_universal.allow_trivial_move = true;
   options.num_levels = 15;
   options.write_buffer_size = 100 << 10;  // 100KB
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.level0_file_num_compaction_trigger = 8;
   options.max_background_compactions = 2;
   options.target_file_size_base = 64 * 1024;
@@ -1271,8 +1235,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   options.compaction_options_universal.size_ratio = 5;
   options.write_buffer_size = 111 << 10;  // 114KB
   options.arena_block_size = 4 << 10;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 1;
 
@@ -1377,8 +1339,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionCFPathUse) {
   options.compaction_options_universal.size_ratio = 10;
   options.write_buffer_size = 111 << 10;  // 114KB
   options.arena_block_size = 4 << 10;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 1;
 
@@ -1537,8 +1497,6 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = 1;
   options.write_buffer_size = 200 << 10;  // 200KB
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.level0_file_num_compaction_trigger = 3;
   options.memtable_factory.reset(new SpecialSkipListFactory(KNumKeysPerFile));
   options = CurrentOptions(options);
@@ -1618,8 +1576,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   options.compaction_options_universal.size_ratio = 5;
   options.write_buffer_size = 111 << 10;  // 114KB
   options.arena_block_size = 4 << 10;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 1;
   options.memtable_factory.reset(
@@ -1723,8 +1679,6 @@ TEST_P(DBTestUniversalCompaction, ConcurrentBottomPriLowPriCompactions) {
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = num_levels_;
   options.write_buffer_size = 100 << 10;     // 100KB
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = kNumFilesTrigger;
   // Trigger compaction if size amplification exceeds 110%
@@ -1782,8 +1736,6 @@ TEST_P(DBTestUniversalCompaction, RecalculateScoreAfterPicking) {
   options.compaction_style = kCompactionStyleUniversal;
   options.level0_file_num_compaction_trigger = kNumFilesTrigger;
   options.num_levels = num_levels_;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   Reopen(options);
 
   std::atomic<int> num_compactions_attempted(0);
@@ -1884,8 +1836,6 @@ TEST_P(DBTestUniversalManualCompactionOutputPathId,
   options.num_levels = num_levels_;
   options.target_file_size_base = 1 << 30;  // Big size
   options.level0_file_num_compaction_trigger = 10;
-  options.memtable_whole_key_filtering = false;
-  options.memtable_prefix_bloom_size_ratio = 0;
   Destroy(options);
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -1953,8 +1903,6 @@ TEST_F(DBTestUniversalCompaction2, BasicL0toL1) {
   opts.compaction_options_universal.size_ratio = 10;
   opts.compaction_options_universal.min_merge_width = 2;
   opts.compaction_options_universal.max_size_amplification_percent = 200;
-  opts.memtable_whole_key_filtering = false;
-  opts.memtable_prefix_bloom_size_ratio = 0;
   Reopen(opts);
 
   // add an L1 file to prevent tombstones from dropping due to obsolescence
@@ -1998,8 +1946,6 @@ TEST_F(DBTestUniversalCompaction2, SingleLevel) {
   opts.compaction_options_universal.size_ratio = 10;
   opts.compaction_options_universal.min_merge_width = 2;
   opts.compaction_options_universal.max_size_amplification_percent = 200;
-  opts.memtable_whole_key_filtering = false;
-  opts.memtable_prefix_bloom_size_ratio = 0;
   Reopen(opts);
 
   // add an L1 file to prevent tombstones from dropping due to obsolescence
@@ -2038,8 +1984,6 @@ TEST_F(DBTestUniversalCompaction2, MultipleLevels) {
   opts.compaction_options_universal.size_ratio = 10;
   opts.compaction_options_universal.min_merge_width = 2;
   opts.compaction_options_universal.max_size_amplification_percent = 200;
-  opts.memtable_whole_key_filtering = false;
-  opts.memtable_prefix_bloom_size_ratio = 0;
   Reopen(opts);
 
   // add an L1 file to prevent tombstones from dropping due to obsolescence
@@ -2112,8 +2056,6 @@ TEST_F(DBTestUniversalCompaction2, OverlappingL0) {
   opts.compaction_options_universal.size_ratio = 10;
   opts.compaction_options_universal.min_merge_width = 2;
   opts.compaction_options_universal.max_size_amplification_percent = 200;
-  opts.memtable_whole_key_filtering = false;
-  opts.memtable_prefix_bloom_size_ratio = 0;
   Reopen(opts);
 
   // add an L1 file to prevent tombstones from dropping due to obsolescence
@@ -2156,8 +2098,6 @@ TEST_F(DBTestUniversalCompaction2, IngestBehind) {
   opts.compaction_options_universal.size_ratio = 10;
   opts.compaction_options_universal.min_merge_width = 2;
   opts.compaction_options_universal.max_size_amplification_percent = 200;
-  opts.memtable_whole_key_filtering = false;
-  opts.memtable_prefix_bloom_size_ratio = 0;
   Reopen(opts);
 
   // add an L1 file to prevent tombstones from dropping due to obsolescence
@@ -2220,8 +2160,6 @@ TEST_F(DBTestUniversalCompaction2, PeriodicCompaction) {
   opts.compaction_options_universal.min_merge_width = 2;
   opts.compaction_options_universal.max_size_amplification_percent = 200;
   opts.periodic_compaction_seconds = 48 * 60 * 60;  // 2 days
-  opts.memtable_whole_key_filtering = false;
-  opts.memtable_prefix_bloom_size_ratio = 0;
   opts.num_levels = 5;
   env_->SetMockSleep();
   Reopen(opts);

@@ -319,8 +319,6 @@ TEST_P(OptimisticTransactionTest, CheckKeySkipOldMemtable) {
   for (int attempt = kAttemptHistoryMemtable; attempt <= kAttemptImmMemTable;
        attempt++) {
     options.max_write_buffer_number_to_maintain = 3;
-    options.memtable_whole_key_filtering = false;
-    options.memtable_prefix_bloom_size_ratio = 0;
     Reopen();
 
     WriteOptions write_options;

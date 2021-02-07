@@ -44,8 +44,6 @@ class CuckooTableDBTest : public testing::Test {
     options.allow_mmap_reads = true;
     options.create_if_missing = true;
     options.allow_concurrent_memtable_write = false;
-    options.memtable_whole_key_filtering = false;
-    options.memtable_prefix_bloom_size_ratio = 0;
     return options;
   }
 
