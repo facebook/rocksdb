@@ -82,8 +82,7 @@ class PluggableCompactionService {
   virtual std::vector<Status> InstallFiles(
       const std::vector<std::string>& remote_paths,
       const std::vector<std::string>& local_paths,
-      const EnvOptions& env_options, Env* local_env,
-      const std::atomic<bool>* shutting_down) = 0;
+      const EnvOptions& env_options, Env* local_env) = 0;
 
   virtual ~PluggableCompactionService() {}
 };
