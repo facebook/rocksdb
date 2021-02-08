@@ -67,6 +67,7 @@ enum Tag : uint32_t {
   kFullHistoryTsLow,
   kWalAddition2,
   kWalDeletion2,
+  kDbStateEnd,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -542,6 +543,9 @@ class VersionEdit {
     full_history_ts_low_ = std::move(full_history_ts_low);
   }
 
+  bool IsDbStateEnd() const { return is_db_state_end_; }
+  void SetDbStateEnd(bool db_state_end) { is_db_state_end_ = db_state_end; }
+
   // return true on success.
   bool EncodeTo(std::string* dst) const;
   Status DecodeFrom(const Slice& src);
@@ -606,6 +610,8 @@ class VersionEdit {
   uint32_t remaining_entries_ = 0;
 
   std::string full_history_ts_low_;
+
+  bool is_db_state_end_ = false;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

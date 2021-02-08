@@ -19,10 +19,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-namespace {
-
-}  // anonymous namespace
-
 uint64_t PackFileNumberAndPathId(uint64_t number, uint64_t path_id) {
   assert(number <= kFileNumberMask);
   return number | (path_id * (kFileNumberMask + 1));
@@ -97,6 +93,7 @@ void VersionEdit::Clear() {
   is_in_atomic_group_ = false;
   remaining_entries_ = 0;
   full_history_ts_low_.clear();
+  is_db_state_end_ = false;
 }
 
 bool VersionEdit::EncodeTo(std::string* dst) const {
@@ -261,6 +258,10 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   if (HasFullHistoryTsLow()) {
     PutVarint32(dst, kFullHistoryTsLow);
     PutLengthPrefixedSlice(dst, full_history_ts_low_);
+  }
+
+  if (is_db_state_end_) {
+    PutVarint32(dst, kDbStateEnd);
   }
   return true;
 }
@@ -678,6 +679,10 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
+      case kDbStateEnd:
+        is_db_state_end_ = true;
+        break;
+
       default:
         if (tag & kTagSafeIgnoreMask) {
           // Tag from future which can be safely ignored.
@@ -814,6 +819,9 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append("\n FullHistoryTsLow: ");
     r.append(Slice(full_history_ts_low_).ToString(hex_key));
   }
+  if (is_db_state_end_) {
+    r.append("\n DbStateEnd");
+  }
   r.append("\n}\n");
   return r;
 }
@@ -941,6 +949,9 @@ std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
   }
   if (is_in_atomic_group_) {
     jw << "AtomicGroup" << remaining_entries_;
+  }
+  if (is_db_state_end_) {
+    jw << "DbStateEnd";
   }
 
   if (HasFullHistoryTsLow()) {

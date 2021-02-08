@@ -276,6 +276,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     GetDbIdentityFromIdentityFile(&temp_db_id);
     new_db.SetDBId(temp_db_id);
   }
+  new_db.SetDbStateEnd(true);
   new_db.SetLogNumber(0);
   new_db.SetNextFile(2);
   new_db.SetLastSequence(0);
@@ -295,6 +296,7 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
         std::move(file), manifest, file_options, clock_, io_tracer_,
         nullptr /* stats */, immutable_db_options_.listeners));
     log::Writer log(std::move(file_writer), 0, false);
+
     std::string record;
     new_db.EncodeTo(&record);
     s = log.AddRecord(record);

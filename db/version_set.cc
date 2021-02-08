@@ -4078,6 +4078,9 @@ Status VersionSet::ProcessManifestWrites(
   uint64_t new_manifest_file_size = 0;
   Status s;
   IOStatus io_s;
+  uint64_t next_file = next_file_number_;
+  SequenceNumber last_seq =
+      db_options_->two_write_queues ? last_published_sequence_ : last_sequence_;
   {
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
     mu->Unlock();
@@ -4126,7 +4129,8 @@ Status VersionSet::ProcessManifestWrites(
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
         s = WriteCurrentStateToManifest(curr_state, wal_additions,
-                                        descriptor_log_.get(), io_s);
+                                        descriptor_log_.get(), last_seq,
+                                        next_file, io_s);
       } else {
         s = io_s;
       }
@@ -5196,7 +5200,8 @@ void VersionSet::MarkMinLogNumberToKeep2PC(uint64_t number) {
 
 Status VersionSet::WriteCurrentStateToManifest(
     const std::unordered_map<uint32_t, MutableCFState>& curr_state,
-    const VersionEdit& wal_additions, log::Writer* log, IOStatus& io_s) {
+    const VersionEdit& wal_additions, log::Writer* log, SequenceNumber last_seq,
+    uint64_t next_file, IOStatus& io_s) {
   // TODO: Break up into multiple records to reduce memory usage on recovery?
 
   // WARNING: This method doesn't hold a mutex!!
@@ -5330,6 +5335,22 @@ Status VersionSet::WriteCurrentStateToManifest(
       if (!io_s.ok()) {
         return io_s;
       }
+    }
+  }
+  {
+    VersionEdit edit;
+    edit.SetDbStateEnd(true);
+    edit.SetLastSequence(last_seq);
+    edit.SetNextFile(next_file);
+    std::string record;
+    if (!edit.EncodeTo(&record)) {
+      return Status::Corruption("Unable to encode VersionEdit: " +
+                                edit.DebugString(true));
+    }
+    io_s = log->AddRecord(record);
+    if (!io_s.ok()) {
+      io_status_ = io_s;
+      return io_s;
     }
   }
   return Status::OK();

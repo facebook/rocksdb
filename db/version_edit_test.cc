@@ -589,6 +589,12 @@ TEST_F(VersionEditTest, IgnorableTags) {
   SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(VersionEditTest, DbStateEndMarker) {
+  VersionEdit edit;
+  edit.SetDbStateEnd(true);
+  TestEncodeDecode(edit);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
