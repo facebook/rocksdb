@@ -526,6 +526,15 @@ extern ROCKSDB_LIBRARY_API void rocksdb_compact_range_cf_opt(
     rocksdb_compactoptions_t* opt, const char* start_key, size_t start_key_len,
     const char* limit_key, size_t limit_key_len);
 
+extern ROCKSDB_LIBRARY_API char** rocksdb_compact_files(
+    rocksdb_t* db, rocksdb_compactfiles_options_t* opt,
+    const char* const* file_list, const size_t list_len, int output_level,
+    int output_path_id, size_t* output_files_len,
+    rocksdb_compaction_job_info_t* info);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_compacted_files_list_destroy(
+    char** compacted_files_list, size_t len);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_delete_file(rocksdb_t* db,
                                                     const char* name);
 
