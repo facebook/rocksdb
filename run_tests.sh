@@ -47,8 +47,6 @@ done
 
 echo "Running with $PARALLEL_JOBS parallel jobs"
 
-exit 0
-
 echo "Pulling base image..."
 docker pull rockset/rocksdb_cloud_runtime:test
 
