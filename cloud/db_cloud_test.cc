@@ -118,6 +118,7 @@ class CloudTest : public testing::Test {
 
   void CreateAwsEnv() {
     CloudEnv* aenv;
+    cloud_env_options_.use_aws_transfer_manager = true;
     ASSERT_OK(CloudEnv::NewAwsEnv(base_env_, cloud_env_options_,
                                   options_.info_log, &aenv));
     // To catch any possible file deletion bugs, we set file deletion delay to
