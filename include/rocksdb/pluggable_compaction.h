@@ -39,6 +39,9 @@ class PluggableCompactionParam {
 
   // The level to which the files are compacted into
   int output_level;
+
+  // Control whether the DB is shutting down
+  const std::atomic<bool>* shutting_down;
 };
 
 //

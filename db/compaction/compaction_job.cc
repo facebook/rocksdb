@@ -1764,6 +1764,7 @@ void CompactionJob::RunRemote(PluggableCompactionService* service) {
     }
     param.input_files.push_back(files_in_one_level);
   }
+  param.shutting_down = shutting_down_;
 
   // make the RPC
   status = service->Run(param, &result);
