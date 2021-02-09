@@ -1502,7 +1502,7 @@ char** rocksdb_compact_files(rocksdb_t* db, rocksdb_compactfiles_options_t* opt,
   *output_files_len = output_files.size();
   char** output_files_list =
       static_cast<char**>(malloc(sizeof(char*) * *output_files_len));
-  for (int i = 0; i < *output_files_len; ++i) {
+  for (unsigned int i = 0; i < *output_files_len; ++i) {
     output_files_list[i] = strdup(output_files[i].c_str());
   }
   return output_files_list;
