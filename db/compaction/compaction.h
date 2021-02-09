@@ -284,8 +284,6 @@ class Compaction {
 
   Slice GetLargestUserKey() const { return largest_user_key_; }
 
-  int GetInputBaseLevel() const;
-
   CompactionReason compaction_reason() { return compaction_reason_; }
 
   const std::vector<FileMetaData*>& grandparents() const {
