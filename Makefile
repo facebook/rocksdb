@@ -2514,6 +2514,8 @@ build_subset_tests: $(ROCKSDBTESTS_SUBSET)
 # working solution.
 ifneq ($(MAKECMDGOALS),clean)
 ifneq ($(MAKECMDGOALS),format)
+ifneq ($(MAKECMDGOALS),check-format)
+ifneq ($(MAKECMDGOALS),check-buck-targets)
 ifneq ($(MAKECMDGOALS),jclean)
 ifneq ($(MAKECMDGOALS),jtest)
 ifneq ($(MAKECMDGOALS),rocksdbjavastatic)
@@ -2521,6 +2523,8 @@ ifneq ($(MAKECMDGOALS),rocksdbjavastatic_deps)
 ifneq ($(MAKECMDGOALS),package)
 ifneq ($(MAKECMDGOALS),analyze)
 -include $(DEPFILES)
+endif
+endif
 endif
 endif
 endif
