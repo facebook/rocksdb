@@ -131,7 +131,7 @@ struct rocksdb_snapshot_t        { const Snapshot*   rep; };
 struct rocksdb_flushoptions_t    { FlushOptions      rep; };
 struct rocksdb_fifo_compaction_options_t { CompactionOptionsFIFO rep; };
 struct rocksdb_compactfiles_options_t { CompactionOptions rep; };
-struct rocksdb_compaction_job_info_t { CompactionJobInfo rep; };
+struct rocksdb_compaction_job_info_t { CompactionJobInfo* rep; };
 struct rocksdb_readoptions_t {
    ReadOptions rep;
    // stack variables to set pointers to in ReadOptions
