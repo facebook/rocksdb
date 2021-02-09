@@ -16,7 +16,7 @@ Currently the only supported build system is make. In the plugin directory, file
 
 * `$(PLUGIN_NAME)_SOURCES`: these files will be compiled and linked with RocksDB. They can access RocksDB public header files.
 * `$(PLUGIN_NAME)_HEADERS`: these files will be installed in the RocksDB header directory. Their paths will be prefixed by "rocksdb/plugin/$(PLUGIN_NAME)/".
-* `$(PLUGIN_NAME)_LDLIBS`: these flags will be passed to the final link step to allow propagating library dependencies.
+* `$(PLUGIN_NAME)_LDFLAGS`: these flags will be passed to the final link step. For example, library dependencies can be propagated here, or symbols can be forcibly included, e.g., for static registration.
 
 Users will run the usual make commands from the RocksDB directory, specifying the plugins to include in a space-separated list in the variable `ROCKSDB_PLUGINS`.
 
