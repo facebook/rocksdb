@@ -67,11 +67,6 @@ extern const uint64_t kBlockBasedTableMagicNumber;
 extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
 
-
-// Found that 256 KB readahead size provides the best performance, based on
-// experiments, for auto readahead. Experiment data is in PR #3282.
-const size_t BlockBasedTable::kMaxAutoReadaheadSize = 256 * 1024;
-
 BlockBasedTable::~BlockBasedTable() {
   delete rep_;
 }
@@ -2921,7 +2916,7 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
   // increasing of the buffer size.
   size_t readahead_size = (read_options.readahead_size != 0)
                               ? read_options.readahead_size
-                              : kMaxAutoReadaheadSize;
+                              : rep_->table_options.max_auto_readahead_size;
   // FilePrefetchBuffer doesn't work in mmap mode and readahead is not
   // needed there.
   FilePrefetchBuffer prefetch_buffer(
