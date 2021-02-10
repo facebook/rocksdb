@@ -7,7 +7,7 @@
 
 #include <utility>
 
-#include "file/file_util.h"
+#include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
 #include "port/malloc.h"
 #include "port/port.h"
@@ -460,7 +460,7 @@ Status PartitionedFilterBlockReader::CacheDependencies(const ReadOptions& ro,
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer);
 
   IOOptions opts;
-  s = PrepareIOFromReadOptions(ro, rep->file->env(), opts);
+  s = rep->file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
     s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
                                   static_cast<size_t>(prefetch_len));

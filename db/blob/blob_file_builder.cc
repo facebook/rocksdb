@@ -49,7 +49,6 @@ BlobFileBuilder::BlobFileBuilder(
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : file_number_generator_(std::move(file_number_generator)),
-      env_(env),
       fs_(fs),
       immutable_cf_options_(immutable_cf_options),
       min_blob_size_(mutable_cf_options->min_blob_size),
@@ -66,7 +65,7 @@ BlobFileBuilder::BlobFileBuilder(
       blob_count_(0),
       blob_bytes_(0) {
   assert(file_number_generator_);
-  assert(env_);
+  assert(env);
   assert(fs_);
   assert(immutable_cf_options_);
   assert(file_options_);
@@ -74,6 +73,7 @@ BlobFileBuilder::BlobFileBuilder(
   assert(blob_file_paths_->empty());
   assert(blob_file_additions_);
   assert(blob_file_additions_->empty());
+  clock_ = env->GetSystemClock();
 }
 
 BlobFileBuilder::~BlobFileBuilder() = default;
@@ -157,11 +157,12 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   std::unique_ptr<FSWritableFile> file;
 
   {
-    TEST_SYNC_POINT("BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile");
-
     assert(file_options_);
-    const Status s =
-        NewWritableFile(fs_, blob_file_path, &file, *file_options_);
+    Status s = NewWritableFile(fs_, blob_file_path, &file, *file_options_);
+
+    TEST_SYNC_POINT_CALLBACK(
+        "BlobFileBuilder::OpenBlobFileIfNeeded:NewWritableFile", &s);
+
     if (!s.ok()) {
       return s;
     }
@@ -180,13 +181,15 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   Statistics* const statistics = immutable_cf_options_->statistics;
 
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-      std::move(file), blob_file_paths_->back(), *file_options_, env_,
+      std::move(file), blob_file_paths_->back(), *file_options_, clock_,
       nullptr /*IOTracer*/, statistics, immutable_cf_options_->listeners,
       immutable_cf_options_->file_checksum_gen_factory));
 
-  std::unique_ptr<BlobLogWriter> blob_log_writer(
-      new BlobLogWriter(std::move(file_writer), env_, statistics,
-                        blob_file_number, immutable_cf_options_->use_fsync));
+  constexpr bool do_flush = false;
+
+  std::unique_ptr<BlobLogWriter> blob_log_writer(new BlobLogWriter(
+      std::move(file_writer), clock_, statistics, blob_file_number,
+      immutable_cf_options_->use_fsync, do_flush));
 
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;
@@ -195,9 +198,11 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
                        expiration_range);
 
   {
-    TEST_SYNC_POINT("BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader");
+    Status s = blob_log_writer->WriteHeader(header);
 
-    const Status s = blob_log_writer->WriteHeader(header);
+    TEST_SYNC_POINT_CALLBACK(
+        "BlobFileBuilder::OpenBlobFileIfNeeded:WriteHeader", &s);
+
     if (!s.ok()) {
       return s;
     }
@@ -247,9 +252,10 @@ Status BlobFileBuilder::WriteBlobToFile(const Slice& key, const Slice& blob,
 
   uint64_t key_offset = 0;
 
-  TEST_SYNC_POINT("BlobFileBuilder::WriteBlobToFile:AddRecord");
+  Status s = writer_->AddRecord(key, blob, &key_offset, blob_offset);
 
-  const Status s = writer_->AddRecord(key, blob, &key_offset, blob_offset);
+  TEST_SYNC_POINT_CALLBACK("BlobFileBuilder::WriteBlobToFile:AddRecord", &s);
+
   if (!s.ok()) {
     return s;
   }
@@ -271,10 +277,10 @@ Status BlobFileBuilder::CloseBlobFile() {
   std::string checksum_method;
   std::string checksum_value;
 
-  TEST_SYNC_POINT("BlobFileBuilder::WriteBlobToFile:AppendFooter");
+  Status s = writer_->AppendFooter(footer, &checksum_method, &checksum_value);
 
-  const Status s =
-      writer_->AppendFooter(footer, &checksum_method, &checksum_value);
+  TEST_SYNC_POINT_CALLBACK("BlobFileBuilder::WriteBlobToFile:AppendFooter", &s);
+
   if (!s.ok()) {
     return s;
   }

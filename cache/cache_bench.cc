@@ -13,6 +13,7 @@ int main() {
 
 #include <stdio.h>
 #include <sys/types.h>
+
 #include <cinttypes>
 #include <limits>
 
@@ -20,6 +21,7 @@ int main() {
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "util/coding.h"
 #include "util/gflags_compat.h"
 #include "util/hash.h"
@@ -210,6 +212,7 @@ class CacheBench {
 
   bool Run() {
     ROCKSDB_NAMESPACE::Env* env = ROCKSDB_NAMESPACE::Env::Default();
+    const auto& clock = env->GetSystemClock();
 
     PrintEnv();
     SharedState shared(this);
@@ -224,7 +227,7 @@ class CacheBench {
         shared.GetCondVar()->Wait();
       }
       // Record start time
-      uint64_t start_time = env->NowMicros();
+      uint64_t start_time = clock->NowMicros();
 
       // Start all threads
       shared.SetStart();
@@ -236,7 +239,7 @@ class CacheBench {
       }
 
       // Record end time
-      uint64_t end_time = env->NowMicros();
+      uint64_t end_time = clock->NowMicros();
       double elapsed = static_cast<double>(end_time - start_time) * 1e-6;
       uint32_t qps = static_cast<uint32_t>(
           static_cast<double>(FLAGS_threads * FLAGS_ops_per_thread) / elapsed);

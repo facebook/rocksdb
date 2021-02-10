@@ -9,24 +9,26 @@
 #include "db/snapshot_impl.h"
 #include "options/db_options.h"
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
+struct EnvOptions;
+class SystemClock;
 
 // Imports a set of sst files as is into a new column family. Logic is similar
 // to ExternalSstFileIngestionJob.
 class ImportColumnFamilyJob {
  public:
-  ImportColumnFamilyJob(Env* env, VersionSet* versions, ColumnFamilyData* cfd,
+  ImportColumnFamilyJob(const std::shared_ptr<SystemClock>& clock,
+                        VersionSet* versions, ColumnFamilyData* cfd,
                         const ImmutableDBOptions& db_options,
                         const EnvOptions& env_options,
                         const ImportColumnFamilyOptions& import_options,
                         const std::vector<LiveFileMetaData>& metadata,
                         const std::shared_ptr<IOTracer>& io_tracer)
-      : env_(env),
+      : clock_(clock),
         versions_(versions),
         cfd_(cfd),
         db_options_(db_options),
@@ -59,7 +61,7 @@ class ImportColumnFamilyJob {
                              IngestedFileInfo* file_to_import,
                              SuperVersion* sv);
 
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
   VersionSet* versions_;
   ColumnFamilyData* cfd_;
   const ImmutableDBOptions& db_options_;

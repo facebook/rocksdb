@@ -13,9 +13,11 @@
 #include <atomic>
 #include <chrono>
 #include <deque>
+
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksdb/system_clock.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 
@@ -24,7 +26,8 @@ namespace ROCKSDB_NAMESPACE {
 class GenericRateLimiter : public RateLimiter {
  public:
   GenericRateLimiter(int64_t refill_bytes, int64_t refill_period_us,
-                     int32_t fairness, RateLimiter::Mode mode, Env* env,
+                     int32_t fairness, RateLimiter::Mode mode,
+                     const std::shared_ptr<SystemClock>& clock,
                      bool auto_tuned);
 
   virtual ~GenericRateLimiter();
@@ -71,8 +74,8 @@ class GenericRateLimiter : public RateLimiter {
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
   Status Tune();
 
-  uint64_t NowMicrosMonotonic(Env* env) {
-    return env->NowNanos() / std::milli::den;
+  uint64_t NowMicrosMonotonic(const std::shared_ptr<SystemClock>& clock) {
+    return clock->NowNanos() / std::milli::den;
   }
 
   // This mutex guard all internal states
@@ -85,7 +88,7 @@ class GenericRateLimiter : public RateLimiter {
   int64_t rate_bytes_per_sec_;
   // This variable can be changed dynamically.
   std::atomic<int64_t> refill_bytes_per_period_;
-  Env* const env_;
+  std::shared_ptr<SystemClock> clock_;
 
   bool stop_;
   port::CondVar exit_cv_;

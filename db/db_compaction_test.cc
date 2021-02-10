@@ -11,6 +11,7 @@
 
 #include "db/blob/blob_index.h"
 #include "db/db_test_util.h"
+#include "env/mock_env.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/concurrent_task_limiter.h"
@@ -5957,11 +5958,8 @@ class DBCompactionTestBlobError
     : public DBCompactionTest,
       public testing::WithParamInterface<std::string> {
  public:
-  DBCompactionTestBlobError()
-      : fault_injection_env_(env_), sync_point_(GetParam()) {}
-  ~DBCompactionTestBlobError() { Close(); }
+  DBCompactionTestBlobError() : sync_point_(GetParam()) {}
 
-  FaultInjectionTestEnv fault_injection_env_;
   std::string sync_point_;
 };
 
@@ -5996,13 +5994,14 @@ TEST_P(DBCompactionTestBlobError, CompactionError) {
   ASSERT_OK(Flush());
 
   options.enable_blob_files = true;
-  options.env = &fault_injection_env_;
 
   Reopen(options);
 
-  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
-    fault_injection_env_.SetFilesystemActive(false,
-                                             Status::IOError(sync_point_));
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* arg) {
+    Status* const s = static_cast<Status*>(arg);
+    assert(s);
+
+    (*s) = Status::IOError(sync_point_);
   });
   SyncPoint::GetInstance()->EnableProcessing();
 

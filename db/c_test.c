@@ -2281,6 +2281,12 @@ int main(int argc, char** argv) {
     rocksdb_readoptions_set_ignore_range_deletions(ro, 1);
     CheckCondition(1 == rocksdb_readoptions_get_ignore_range_deletions(ro));
 
+    rocksdb_readoptions_set_deadline(ro, 300);
+    CheckCondition(300 == rocksdb_readoptions_get_deadline(ro));
+
+    rocksdb_readoptions_set_io_timeout(ro, 400);
+    CheckCondition(400 == rocksdb_readoptions_get_io_timeout(ro));
+
     rocksdb_readoptions_destroy(ro);
   }
 

@@ -31,6 +31,7 @@ int main() {
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "test_util/testutil.h"
 #include "util/gflags_compat.h"
@@ -417,7 +418,7 @@ class Benchmark {
     uint64_t bytes_written = 0;
     uint64_t bytes_read = 0;
     uint64_t read_hits = 0;
-    StopWatchNano timer(Env::Default(), true);
+    StopWatchNano timer(SystemClock::Default(), true);
     RunThreads(&threads, &bytes_written, &bytes_read, true, &read_hits);
     auto elapsed_time = static_cast<double>(timer.ElapsedNanos() / 1000);
     std::cout << "Elapsed time: " << static_cast<int>(elapsed_time) << " us"

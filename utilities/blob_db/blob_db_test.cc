@@ -24,6 +24,7 @@
 #include "file/sst_file_manager_impl.h"
 #include "port/port.h"
 #include "rocksdb/utilities/debug.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
@@ -58,9 +59,11 @@ class BlobDBTest : public testing::Test {
 
   BlobDBTest()
       : dbname_(test::PerThreadDBPath("blob_db_test")),
-        mock_env_(new MockTimeEnv(Env::Default())),
-        fault_injection_env_(new FaultInjectionTestEnv(Env::Default())),
         blob_db_(nullptr) {
+    mock_clock_ = std::make_shared<MockSystemClock>(SystemClock::Default());
+    mock_env_.reset(new CompositeEnvWrapper(Env::Default(), mock_clock_));
+    fault_injection_env_.reset(new FaultInjectionTestEnv(Env::Default()));
+
     Status s = DestroyBlobDB(dbname_, Options(), BlobDBOptions());
     assert(s.ok());
   }
@@ -312,7 +315,8 @@ class BlobDBTest : public testing::Test {
   }
 
   const std::string dbname_;
-  std::unique_ptr<MockTimeEnv> mock_env_;
+  std::shared_ptr<MockSystemClock> mock_clock_;
+  std::unique_ptr<Env> mock_env_;
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env_;
   BlobDB *blob_db_;
 };  // class BlobDBTest
@@ -341,13 +345,13 @@ TEST_F(BlobDBTest, PutWithTTL) {
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   std::map<std::string, std::string> data;
-  mock_env_->set_current_time(50);
+  mock_clock_->SetCurrentTime(50);
   for (size_t i = 0; i < 100; i++) {
     uint64_t ttl = rnd.Next() % 100;
     PutRandomWithTTL("key" + ToString(i), ttl, &rnd,
                      (ttl <= 50 ? nullptr : &data));
   }
-  mock_env_->set_current_time(100);
+  mock_clock_->SetCurrentTime(100);
   auto *bdb_impl = static_cast<BlobDBImpl *>(blob_db_);
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
@@ -367,13 +371,13 @@ TEST_F(BlobDBTest, PutUntil) {
   bdb_options.disable_background_tasks = true;
   Open(bdb_options, options);
   std::map<std::string, std::string> data;
-  mock_env_->set_current_time(50);
+  mock_clock_->SetCurrentTime(50);
   for (size_t i = 0; i < 100; i++) {
     uint64_t expiration = rnd.Next() % 100 + 50;
     PutRandomUntil("key" + ToString(i), expiration, &rnd,
                    (expiration <= 100 ? nullptr : &data));
   }
-  mock_env_->set_current_time(100);
+  mock_clock_->SetCurrentTime(100);
   auto *bdb_impl = static_cast<BlobDBImpl *>(blob_db_);
   auto blob_files = bdb_impl->TEST_GetBlobFiles();
   ASSERT_EQ(1, blob_files.size());
@@ -410,7 +414,7 @@ TEST_F(BlobDBTest, GetExpiration) {
   options.env = mock_env_.get();
   BlobDBOptions bdb_options;
   bdb_options.disable_background_tasks = true;
-  mock_env_->set_current_time(100);
+  mock_clock_->SetCurrentTime(100);
   Open(bdb_options, options);
   ASSERT_OK(Put("key1", "value1"));
   ASSERT_OK(PutWithTTL("key2", "value2", 200));
@@ -924,7 +928,7 @@ TEST_F(BlobDBTest, SnapshotAndGarbageCollection) {
 TEST_F(BlobDBTest, ColumnFamilyNotSupported) {
   Options options;
   options.env = mock_env_.get();
-  mock_env_->set_current_time(0);
+  mock_clock_->SetCurrentTime(0);
   Open(BlobDBOptions(), options);
   ColumnFamilyHandle *default_handle = blob_db_->DefaultColumnFamily();
   ColumnFamilyHandle *handle = nullptr;
@@ -1256,7 +1260,7 @@ TEST_F(BlobDBTest, InlineSmallValues) {
   bdb_options.disable_background_tasks = true;
   Options options;
   options.env = mock_env_.get();
-  mock_env_->set_current_time(0);
+  mock_clock_->SetCurrentTime(0);
   Open(bdb_options, options);
   std::map<std::string, std::string> data;
   std::map<std::string, KeyVersion> versions;
@@ -1490,7 +1494,7 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
   constexpr uint64_t kCompactTime = 500;
   constexpr uint64_t kMinBlobSize = 100;
   Random rnd(301);
-  mock_env_->set_current_time(0);
+  mock_clock_->SetCurrentTime(0);
   BlobDBOptions bdb_options;
   bdb_options.min_blob_size = kMinBlobSize;
   bdb_options.disable_background_tasks = true;
@@ -1529,7 +1533,7 @@ TEST_F(BlobDBTest, FilterExpiredBlobIndex) {
   }
   VerifyDB(data);
 
-  mock_env_->set_current_time(kCompactTime);
+  mock_clock_->SetCurrentTime(kCompactTime);
   // Take a snapshot before compaction. Make sure expired blob indexes is
   // filtered regardless of snapshot.
   const Snapshot *snapshot = blob_db_->GetSnapshot();
@@ -1615,7 +1619,7 @@ TEST_F(BlobDBTest, FilterForFIFOEviction) {
   bdb_options.disable_background_tasks = true;
   Options options;
   // Use mock env to stop wall clock.
-  mock_env_->set_current_time(0);
+  mock_clock_->SetCurrentTime(0);
   options.env = mock_env_.get();
   auto statistics = CreateDBStatistics();
   options.statistics = statistics;
@@ -1812,7 +1816,7 @@ TEST_F(BlobDBTest, GarbageCollection) {
     }
   }
 
-  mock_env_->set_current_time(kCompactTime);
+  mock_clock_->SetCurrentTime(kCompactTime);
 
   ASSERT_OK(blob_db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
@@ -1927,7 +1931,7 @@ TEST_F(BlobDBTest, EvictExpiredFile) {
   Options options;
   options.env = mock_env_.get();
   Open(bdb_options, options);
-  mock_env_->set_current_time(50);
+  mock_clock_->SetCurrentTime(50);
   std::map<std::string, std::string> data;
   ASSERT_OK(PutWithTTL("foo", "bar", 100, &data));
   auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
@@ -1936,7 +1940,7 @@ TEST_F(BlobDBTest, EvictExpiredFile) {
   ASSERT_FALSE(blob_file->Immutable());
   ASSERT_FALSE(blob_file->Obsolete());
   VerifyDB(data);
-  mock_env_->set_current_time(250);
+  mock_clock_->SetCurrentTime(250);
   // The key should expired now.
   blob_db_impl()->TEST_EvictExpiredFiles();
   ASSERT_EQ(1, blob_db_impl()->TEST_GetBlobFiles().size());
@@ -2293,7 +2297,7 @@ TEST_F(BlobDBTest, ShutdownWait) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   Open(bdb_options, options);
-  mock_env_->set_current_time(50);
+  mock_clock_->SetCurrentTime(50);
   std::map<std::string, std::string> data;
   ASSERT_OK(PutWithTTL("foo", "bar", 100, &data));
   auto blob_files = blob_db_impl()->TEST_GetBlobFiles();
@@ -2304,7 +2308,7 @@ TEST_F(BlobDBTest, ShutdownWait) {
   VerifyDB(data);
 
   TEST_SYNC_POINT("BlobDBTest.ShutdownWait:0");
-  mock_env_->set_current_time(250);
+  mock_clock_->SetCurrentTime(250);
   // The key should expired now.
   TEST_SYNC_POINT("BlobDBTest.ShutdownWait:1");
 
