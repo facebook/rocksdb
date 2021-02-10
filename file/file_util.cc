@@ -195,7 +195,7 @@ IOStatus GenerateOneFileChecksum(
                               : default_max_read_ahead_size;
 
   FilePrefetchBuffer prefetch_buffer(
-      reader.get(), readahead_size /* readadhead_size */,
+      reader.get(), readahead_size /* readahead_size */,
       readahead_size /* max_readahead_size */, !allow_mmap_reads /* enable */);
 
   Slice slice;

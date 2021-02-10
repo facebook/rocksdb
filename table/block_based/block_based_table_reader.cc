@@ -2925,7 +2925,7 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
   // FilePrefetchBuffer doesn't work in mmap mode and readahead is not
   // needed there.
   FilePrefetchBuffer prefetch_buffer(
-      rep_->file.get(), readahead_size /* readadhead_size */,
+      rep_->file.get(), readahead_size /* readahead_size */,
       readahead_size /* max_readahead_size */,
       !rep_->ioptions.allow_mmap_reads /* enable */);
 
