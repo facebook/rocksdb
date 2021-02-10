@@ -80,6 +80,7 @@ CompactionIterator::CompactionIterator(
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
       env_(env),
+      clock_(env_->GetSystemClock()),
       report_detailed_time_(report_detailed_time),
       expect_valid_internal_key_(expect_valid_internal_key),
       range_del_agg_(range_del_agg),
@@ -219,7 +220,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     // to get sequence number.
     Slice& filter_key = ikey_.type == kTypeValue ? ikey_.user_key : key_;
     {
-      StopWatchNano timer(env_, report_detailed_time_);
+      StopWatchNano timer(clock_, report_detailed_time_);
       filter = compaction_filter_->FilterV2(
           compaction_->level(), filter_key, value_type, value_,
           &compaction_filter_value_, compaction_filter_skip_until_.rep());
@@ -422,8 +423,8 @@ void CompactionIterator::NextFromInput() {
       // In the previous iteration we encountered a single delete that we could
       // not compact out.  We will keep this Put, but can drop it's data.
       // (See Optimization 3, below.)
-      assert(ikey_.type == kTypeValue);
-      if (ikey_.type != kTypeValue) {
+      assert(ikey_.type == kTypeValue || ikey_.type == kTypeBlobIndex);
+      if (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex) {
         ROCKS_LOG_FATAL(info_log_,
                         "Unexpected key type %d for compaction output",
                         ikey_.type);
@@ -434,6 +435,11 @@ void CompactionIterator::NextFromInput() {
                         "current_user_key_snapshot_ (%" PRIu64
                         ") != last_snapshot (%" PRIu64 ")",
                         current_user_key_snapshot_, last_snapshot);
+      }
+
+      if (ikey_.type == kTypeBlobIndex) {
+        ikey_.type = kTypeValue;
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       }
 
       value_.clear();

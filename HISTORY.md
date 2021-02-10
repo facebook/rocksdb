@@ -1,7 +1,17 @@
 # Rocksdb Change Log
 ## Unreleased
-* Fix a race condition between DB startups and shutdowns in managing the periodic background worker threads. One effect of this race condition could be the process being terminated.
+### Behavior Changes
+* When retryable IO error occurs during compaction, it is mapped to soft error and set the BG error. However, auto resume is not called to clean the soft error since compaction will reschedule by itself. In this change, When retryable IO error occurs during compaction, BG error is not set. User will be informed the error via EventHelper.
+
+### New Features
+* Add support for key-value integrity protection in live updates from the user buffers provided to `WriteBatch` through the write to RocksDB's in-memory update buffer (memtable). This is intended to detect some cases of in-memory data corruption, due to either software or hardware errors. Users can enable protection by constructing their `WriteBatch` with `protection_bytes_per_key == 8`.
+* Add support for updating `full_history_ts_low` option in manual compaction, which is for old timestamp data GC.
+* Add a mechanism for using Makefile to build external plugin code into the RocksDB libraries/binaries. This intends to simplify compatibility and distribution for plugins (e.g., special-purpose `FileSystem`s) whose source code resides outside the RocksDB repo. See "plugin/README.md" for developer details, and "PLUGINS.md" for a listing of available plugins.
 * Added memory pre-fetching for experimental Ribbon filter, which especially optimizes performance with batched MultiGet.
+
+### Bug Fixes
+* Since 6.15.0, `TransactionDB` returns error `Status`es from calls to `DeleteRange()` and calls to `Write()` where the `WriteBatch` contains a range deletion. Previously such operations may have succeeded while not providing the expected transactional guarantees. There are certain cases where range deletion can still be used on such DBs; see the API doc on `TransactionDB::DeleteRange()` for details.
+* `OptimisticTransactionDB` now returns error `Status`es from calls to `DeleteRange()` and calls to `Write()` where the `WriteBatch` contains a range deletion. Previously such operations may have succeeded while not providing the expected transactional guarantees.
 
 ## 6.17.0 (01/15/2021)
 ### Behavior Changes
@@ -10,9 +20,12 @@
 
 ### Bug Fixes
 * Version older than 6.15 cannot decode VersionEdits `WalAddition` and `WalDeletion`, fixed this by changing the encoded format of them to be ignorable by older versions.
+* Fix a race condition between DB startups and shutdowns in managing the periodic background worker threads. One effect of this race condition could be the process being terminated.
 
 ### Public API Change
 * Add a public API WriteBufferManager::dummy_entries_in_cache_usage() which reports the size of dummy entries stored in cache (passed to WriteBufferManager). Dummy entries are used to account for DataBlocks.
+* Add a SystemClock class that contains the time-related methods from Env.  The original methods in Env may be deprecated in a future release.  This class will allow easier testing, development, and expansion of time-related features.
+* Add a public API GetRocksBuildProperties and GetRocksBuildInfoAsString to get properties about the current build.  These properties may include settings related to the GIT settings (branch, timestamp).  This change also sets the "build date" based on the GIT properties, rather than the actual build time, thereby enabling more reproducible builds.
 
 ## 6.16.0 (12/18/2020)
 ### Behavior Changes

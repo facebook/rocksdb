@@ -8,8 +8,13 @@
 #include <chrono>
 #include <sstream>
 #include <thread>
+
 #include "db/db_impl/db_impl.h"
+#include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/system_clock.h"
+#include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"
 #include "util/string_util.h"
@@ -56,12 +61,13 @@ Status TracerHelper::DecodeTrace(const std::string& encoded_trace,
   return Status::OK();
 }
 
-Tracer::Tracer(Env* env, const TraceOptions& trace_options,
+Tracer::Tracer(const std::shared_ptr<SystemClock>& clock,
+               const TraceOptions& trace_options,
                std::unique_ptr<TraceWriter>&& trace_writer)
-    : env_(env),
+    : clock_(clock),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)),
-      trace_request_count_ (0) {
+      trace_request_count_(0) {
   // TODO: What if this fails?
   WriteHeader().PermitUncheckedError();
 }
@@ -74,7 +80,7 @@ Status Tracer::Write(WriteBatch* write_batch) {
     return Status::OK();
   }
   Trace trace;
-  trace.ts = env_->NowMicros();
+  trace.ts = clock_->NowMicros();
   trace.type = trace_type;
   trace.payload = write_batch->Data();
   return WriteTrace(trace);
@@ -86,7 +92,7 @@ Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
     return Status::OK();
   }
   Trace trace;
-  trace.ts = env_->NowMicros();
+  trace.ts = clock_->NowMicros();
   trace.type = trace_type;
   EncodeCFAndKey(&trace.payload, column_family->GetID(), key);
   return WriteTrace(trace);
@@ -98,7 +104,7 @@ Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
     return Status::OK();
   }
   Trace trace;
-  trace.ts = env_->NowMicros();
+  trace.ts = clock_->NowMicros();
   trace.type = trace_type;
   EncodeCFAndKey(&trace.payload, cf_id, key);
   return WriteTrace(trace);
@@ -110,7 +116,7 @@ Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
     return Status::OK();
   }
   Trace trace;
-  trace.ts = env_->NowMicros();
+  trace.ts = clock_->NowMicros();
   trace.type = trace_type;
   EncodeCFAndKey(&trace.payload, cf_id, key);
   return WriteTrace(trace);
@@ -148,7 +154,7 @@ Status Tracer::WriteHeader() {
   std::string header(s.str());
 
   Trace trace;
-  trace.ts = env_->NowMicros();
+  trace.ts = clock_->NowMicros();
   trace.type = kTraceBegin;
   trace.payload = header;
   return WriteTrace(trace);
@@ -156,7 +162,7 @@ Status Tracer::WriteHeader() {
 
 Status Tracer::WriteFooter() {
   Trace trace;
-  trace.ts = env_->NowMicros();
+  trace.ts = clock_->NowMicros();
   trace.type = kTraceEnd;
   trace.payload = "";
   return WriteTrace(trace);

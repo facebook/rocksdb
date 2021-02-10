@@ -508,7 +508,8 @@ class MemTableConstructor: public Constructor {
     memtable_->Ref();
     int seq = 1;
     for (const auto& kv : kv_map) {
-      Status s = memtable_->Add(seq, kTypeValue, kv.first, kv.second);
+      Status s = memtable_->Add(seq, kTypeValue, kv.first, kv.second,
+                                nullptr /* kv_prot_info */);
       if (!s.ok()) {
         return s;
       }

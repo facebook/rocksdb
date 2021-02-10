@@ -11,10 +11,11 @@
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
-const size_t kSizeDummyEntry = 256 * 1024;
 class WriteBufferManagerTest : public testing::Test {};
 
 #ifndef ROCKSDB_LITE
+const size_t kSizeDummyEntry = 256 * 1024;
+
 TEST_F(WriteBufferManagerTest, ShouldFlush) {
   // A write buffer manager of size 10MB
   std::unique_ptr<WriteBufferManager> wbf(

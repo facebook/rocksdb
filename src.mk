@@ -78,6 +78,7 @@ LIB_SOURCES =                                                   \
   db/write_batch_base.cc                                        \
   db/write_controller.cc                                        \
   db/write_thread.cc                                            \
+  env/composite_env.cc                                          \
   env/env.cc                                                    \
   env/env_chroot.cc                                             \
   env/env_encryption.cc                                         \
@@ -401,6 +402,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_iter_test.cc                                                    \
   db/db_iter_stress_test.cc                                             \
   db/db_iterator_test.cc                                                \
+  db/db_kv_checksum_test.cc                                             \
   db/db_log_iter_test.cc                                                \
   db/db_memtable_test.cc                                                \
   db/db_merge_operator_test.cc                                          \

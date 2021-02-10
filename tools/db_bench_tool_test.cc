@@ -127,7 +127,7 @@ TEST_F(DBBenchTest, OptionsFile) {
   const std::string kOptionsFileName = test_path_ + "/OPTIONS_test";
   Options opt = GetDefaultOptions();
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
-                                  {ColumnFamilyOptions()}, kOptionsFileName,
+                                  {ColumnFamilyOptions(opt)}, kOptionsFileName,
                                   opt.env->GetFileSystem().get()));
 
   // override the following options as db_bench will not take these
@@ -164,7 +164,7 @@ TEST_F(DBBenchTest, OptionsFileMultiLevelUniversal) {
 
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
                                   {ColumnFamilyOptions(opt)}, kOptionsFileName,
-                                  fs_.get()));
+                                  opt.env->GetFileSystem().get()));
 
   // override the following options as db_bench will not take these
   // options from the options file
@@ -316,7 +316,7 @@ TEST_F(DBBenchTest, OptionsFileFromFile) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
   return RUN_ALL_TESTS();
 }
 

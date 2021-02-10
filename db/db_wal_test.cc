@@ -8,10 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
-#include "env/composite_env_wrapper.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/file_system.h"
 #include "test_util/sync_point.h"
 #include "utilities/fault_injection_env.h"
 
@@ -437,15 +437,78 @@ TEST_F(DBWALTest, RecoverWithBlob) {
 #endif  // ROCKSDB_LITE
 }
 
+TEST_F(DBWALTest, RecoverWithBlobMultiSST) {
+  // Write several large (4 KB) values without flushing. Note that blob files
+  // are not actually enabled at this point.
+  std::string large_value(1 << 12, 'a');
+
+  constexpr int num_keys = 64;
+
+  for (int i = 0; i < num_keys; ++i) {
+    ASSERT_OK(Put(Key(i), large_value));
+  }
+
+  // There should be no files just yet since we haven't flushed.
+  {
+    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+    ASSERT_NE(versions, nullptr);
+
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    ASSERT_NE(cfd, nullptr);
+
+    Version* const current = cfd->current();
+    ASSERT_NE(current, nullptr);
+
+    const VersionStorageInfo* const storage_info = current->storage_info();
+    ASSERT_NE(storage_info, nullptr);
+
+    ASSERT_EQ(storage_info->num_non_empty_levels(), 0);
+    ASSERT_TRUE(storage_info->GetBlobFiles().empty());
+  }
+
+  // Reopen the database with blob files enabled and write buffer size set to a
+  // smaller value. Multiple table files+blob files should be written and added
+  // to the Version during recovery.
+  Options options;
+  options.write_buffer_size = 1 << 16;  // 64 KB
+  options.enable_blob_files = true;
+  options.avoid_flush_during_recovery = false;
+  options.disable_auto_compactions = true;
+  options.env = env_;
+
+  Reopen(options);
+
+  for (int i = 0; i < num_keys; ++i) {
+    ASSERT_EQ(Get(Key(i)), large_value);
+  }
+
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  ASSERT_NE(versions, nullptr);
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  ASSERT_NE(cfd, nullptr);
+
+  Version* const current = cfd->current();
+  ASSERT_NE(current, nullptr);
+
+  const VersionStorageInfo* const storage_info = current->storage_info();
+  ASSERT_NE(storage_info, nullptr);
+
+  const auto& l0_files = storage_info->LevelFiles(0);
+  ASSERT_GT(l0_files.size(), 1);
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+  ASSERT_GT(blob_files.size(), 1);
+
+  ASSERT_EQ(l0_files.size(), blob_files.size());
+}
+
 class DBRecoveryTestBlobError
     : public DBWALTest,
       public testing::WithParamInterface<std::string> {
  public:
-  DBRecoveryTestBlobError()
-      : fault_injection_env_(env_), sync_point_(GetParam()) {}
-  ~DBRecoveryTestBlobError() { Close(); }
+  DBRecoveryTestBlobError() : sync_point_(GetParam()) {}
 
-  FaultInjectionTestEnv fault_injection_env_;
   std::string sync_point_;
 };
 
@@ -460,21 +523,19 @@ TEST_P(DBRecoveryTestBlobError, RecoverWithBlobError) {
 
   // Reopen with blob files enabled but make blob file writing fail during
   // recovery.
-  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
-    fault_injection_env_.SetFilesystemActive(false,
-                                             Status::IOError(sync_point_));
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* arg) {
+    Status* const s = static_cast<Status*>(arg);
+    assert(s);
+
+    (*s) = Status::IOError(sync_point_);
   });
-  SyncPoint::GetInstance()->SetCallBack(
-      "BuildTable:BeforeDeleteFile", [this](void* /* arg */) {
-        fault_injection_env_.SetFilesystemActive(true);
-      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   Options options;
   options.enable_blob_files = true;
   options.avoid_flush_during_recovery = false;
   options.disable_auto_compactions = true;
-  options.env = &fault_injection_env_;
+  options.env = env_;
 
   ASSERT_NOK(TryReopen(options));
 
@@ -1086,7 +1147,7 @@ class RecoveryTestHelper {
     *count = 0;
 
     std::shared_ptr<Cache> table_cache = NewLRUCache(50, 0);
-    EnvOptions env_options;
+    FileOptions file_options;
     WriteBufferManager write_buffer_manager(db_options.db_write_buffer_size);
 
     std::unique_ptr<VersionSet> versions;
@@ -1094,22 +1155,22 @@ class RecoveryTestHelper {
     WriteController write_controller;
 
     versions.reset(new VersionSet(
-        test->dbname_, &db_options, env_options, table_cache.get(),
+        test->dbname_, &db_options, file_options, table_cache.get(),
         &write_buffer_manager, &write_controller,
         /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
 
     wal_manager.reset(
-        new WalManager(db_options, env_options, /*io_tracer=*/nullptr));
+        new WalManager(db_options, file_options, /*io_tracer=*/nullptr));
 
     std::unique_ptr<log::Writer> current_log_writer;
 
     for (size_t j = kWALFileOffset; j < wal_count + kWALFileOffset; j++) {
       uint64_t current_log_number = j;
       std::string fname = LogFileName(test->dbname_, current_log_number);
-      std::unique_ptr<WritableFile> file;
-      ASSERT_OK(db_options.env->NewWritableFile(fname, &file, env_options));
-      std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-          NewLegacyWritableFileWrapper(std::move(file)), fname, env_options));
+      std::unique_ptr<WritableFileWriter> file_writer;
+      ASSERT_OK(WritableFileWriter::Create(db_options.env->GetFileSystem(),
+                                           fname, file_options, &file_writer,
+                                           nullptr));
       current_log_writer.reset(
           new log::Writer(std::move(file_writer), current_log_number,
                           db_options.recycle_log_file_num > 0));

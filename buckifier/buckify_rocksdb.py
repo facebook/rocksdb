@@ -24,10 +24,10 @@ from util import ColorString
 # (This generates a TARGET file without user-specified dependency for unit
 # tests.)
 # $python3 buckifier/buckify_rocksdb.py \
-#        '{"fake": { \
-#                      "extra_deps": [":test_dep", "//fakes/module:mock1"],  \
-#                      "extra_compiler_flags": ["-DROCKSDB_LITE", "-Os"], \
-#                  } \
+#        '{"fake": {
+#                      "extra_deps": [":test_dep", "//fakes/module:mock1"],
+#                      "extra_compiler_flags": ["-DROCKSDB_LITE", "-Os"]
+#                  }
 #         }'
 # (Generated TARGETS file has test_dep and mock1 as dependencies for RocksDB
 # unit tests, and will use the extra_compiler_flags to compile the unit test
@@ -129,7 +129,13 @@ def generate_targets(repo_path, deps_map):
     if src_mk is None or cc_files is None or parallel_tests is None:
         return False
 
-    TARGETS = TARGETSBuilder("%s/TARGETS" % repo_path)
+    extra_argv = ""
+    if len(sys.argv) >= 2:
+        # Heuristically quote and canonicalize whitespace for inclusion
+        # in how the file was generated.
+        extra_argv = " '{0}'".format(" ".join(sys.argv[1].split()))
+
+    TARGETS = TARGETSBuilder("%s/TARGETS" % repo_path, extra_argv)
 
     # rocksdb_lib
     TARGETS.add_library(

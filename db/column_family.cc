@@ -556,8 +556,8 @@ ColumnFamilyData::ColumnFamilyData(
 
   // if _dummy_versions is nullptr, then this is a dummy column family.
   if (_dummy_versions != nullptr) {
-    internal_stats_.reset(
-        new InternalStats(ioptions_.num_levels, db_options.env, this));
+    internal_stats_.reset(new InternalStats(
+        ioptions_.num_levels, db_options.env->GetSystemClock(), this));
     table_cache_.reset(new TableCache(ioptions_, file_options, _table_cache,
                                       block_cache_tracer, io_tracer));
     blob_file_cache_.reset(

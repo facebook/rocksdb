@@ -2784,6 +2784,9 @@ class Benchmark {
 
   ~Benchmark() {
     db_.DeleteDBs();
+    for (auto db : multi_dbs_) {
+      db.DeleteDBs();
+    }
     delete prefix_extractor_;
     if (cache_.get() != nullptr) {
       // this will leak, but we're shutting down so nobody cares

@@ -7,12 +7,14 @@
 #ifndef ROCKSDB_LITE
 
 #include "db/arena_wrapped_db_iter.h"
-#include "monitoring/statistics.h"
 #include "rocksdb/iterator.h"
 #include "util/stop_watch.h"
 #include "utilities/blob_db/blob_db_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
+class Statistics;
+class SystemClock;
+
 namespace blob_db {
 
 using ROCKSDB_NAMESPACE::ManagedSnapshot;
@@ -20,11 +22,12 @@ using ROCKSDB_NAMESPACE::ManagedSnapshot;
 class BlobDBIterator : public Iterator {
  public:
   BlobDBIterator(ManagedSnapshot* snapshot, ArenaWrappedDBIter* iter,
-                 BlobDBImpl* blob_db, Env* env, Statistics* statistics)
+                 BlobDBImpl* blob_db, const std::shared_ptr<SystemClock>& clock,
+                 Statistics* statistics)
       : snapshot_(snapshot),
         iter_(iter),
         blob_db_(blob_db),
-        env_(env),
+        clock_(clock),
         statistics_(statistics) {}
 
   virtual ~BlobDBIterator() = default;
@@ -44,7 +47,7 @@ class BlobDBIterator : public Iterator {
   }
 
   void SeekToFirst() override {
-    StopWatch seek_sw(env_, statistics_, BLOB_DB_SEEK_MICROS);
+    StopWatch seek_sw(clock_, statistics_, BLOB_DB_SEEK_MICROS);
     RecordTick(statistics_, BLOB_DB_NUM_SEEK);
     iter_->SeekToFirst();
     while (UpdateBlobValue()) {
@@ -53,7 +56,7 @@ class BlobDBIterator : public Iterator {
   }
 
   void SeekToLast() override {
-    StopWatch seek_sw(env_, statistics_, BLOB_DB_SEEK_MICROS);
+    StopWatch seek_sw(clock_, statistics_, BLOB_DB_SEEK_MICROS);
     RecordTick(statistics_, BLOB_DB_NUM_SEEK);
     iter_->SeekToLast();
     while (UpdateBlobValue()) {
@@ -62,7 +65,7 @@ class BlobDBIterator : public Iterator {
   }
 
   void Seek(const Slice& target) override {
-    StopWatch seek_sw(env_, statistics_, BLOB_DB_SEEK_MICROS);
+    StopWatch seek_sw(clock_, statistics_, BLOB_DB_SEEK_MICROS);
     RecordTick(statistics_, BLOB_DB_NUM_SEEK);
     iter_->Seek(target);
     while (UpdateBlobValue()) {
@@ -71,7 +74,7 @@ class BlobDBIterator : public Iterator {
   }
 
   void SeekForPrev(const Slice& target) override {
-    StopWatch seek_sw(env_, statistics_, BLOB_DB_SEEK_MICROS);
+    StopWatch seek_sw(clock_, statistics_, BLOB_DB_SEEK_MICROS);
     RecordTick(statistics_, BLOB_DB_NUM_SEEK);
     iter_->SeekForPrev(target);
     while (UpdateBlobValue()) {
@@ -81,7 +84,7 @@ class BlobDBIterator : public Iterator {
 
   void Next() override {
     assert(Valid());
-    StopWatch next_sw(env_, statistics_, BLOB_DB_NEXT_MICROS);
+    StopWatch next_sw(clock_, statistics_, BLOB_DB_NEXT_MICROS);
     RecordTick(statistics_, BLOB_DB_NUM_NEXT);
     iter_->Next();
     while (UpdateBlobValue()) {
@@ -91,7 +94,7 @@ class BlobDBIterator : public Iterator {
 
   void Prev() override {
     assert(Valid());
-    StopWatch prev_sw(env_, statistics_, BLOB_DB_PREV_MICROS);
+    StopWatch prev_sw(clock_, statistics_, BLOB_DB_PREV_MICROS);
     RecordTick(statistics_, BLOB_DB_NUM_PREV);
     iter_->Prev();
     while (UpdateBlobValue()) {
@@ -137,7 +140,7 @@ class BlobDBIterator : public Iterator {
   std::unique_ptr<ManagedSnapshot> snapshot_;
   std::unique_ptr<ArenaWrappedDBIter> iter_;
   BlobDBImpl* blob_db_;
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
   Statistics* statistics_;
   Status status_;
   PinnableSlice value_;

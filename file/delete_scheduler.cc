@@ -15,17 +15,20 @@
 #include "logging/logging.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-DeleteScheduler::DeleteScheduler(Env* env, FileSystem* fs,
-                                 int64_t rate_bytes_per_sec, Logger* info_log,
+DeleteScheduler::DeleteScheduler(const std::shared_ptr<SystemClock>& clock,
+                                 FileSystem* fs, int64_t rate_bytes_per_sec,
+                                 Logger* info_log,
                                  SstFileManagerImpl* sst_file_manager,
                                  double max_trash_db_ratio,
                                  uint64_t bytes_max_delete_chunk)
-    : env_(env),
+    : clock_(clock),
       fs_(fs),
       total_trash_size_(0),
       rate_bytes_per_sec_(rate_bytes_per_sec),
@@ -223,14 +226,14 @@ void DeleteScheduler::BackgroundEmptyTrash() {
     }
 
     // Delete all files in queue_
-    uint64_t start_time = env_->NowMicros();
+    uint64_t start_time = clock_->NowMicros();
     uint64_t total_deleted_bytes = 0;
     int64_t current_delete_rate = rate_bytes_per_sec_.load();
     while (!queue_.empty() && !closing_) {
       if (current_delete_rate != rate_bytes_per_sec_.load()) {
         // User changed the delete rate
         current_delete_rate = rate_bytes_per_sec_.load();
-        start_time = env_->NowMicros();
+        start_time = clock_->NowMicros();
         total_deleted_bytes = 0;
         ROCKS_LOG_INFO(info_log_, "rate_bytes_per_sec is changed to %" PRIi64,
                        current_delete_rate);

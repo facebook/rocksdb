@@ -157,7 +157,9 @@ Status WritePreparedTxnDB::WriteInternal(const WriteOptions& write_options_orig,
     // TODO(myabandeh): add an option to allow user skipping this cost
     SubBatchCounter counter(*GetCFComparatorMap());
     auto s = batch->Iterate(&counter);
-    assert(s.ok());
+    if (!s.ok()) {
+      return s;
+    }
     batch_cnt = counter.BatchCount();
     WPRecordTick(TXN_DUPLICATE_KEY_OVERHEAD);
     ROCKS_LOG_DETAILS(info_log_, "Duplicate key overhead: %" PRIu64 " batches",
