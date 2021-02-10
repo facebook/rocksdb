@@ -21,16 +21,34 @@
 #include "rocksdb/cache.h"
 
 namespace ROCKSDB_NAMESPACE {
-class DB;
+
+// Interface to block and signal DB instances.
+// Each DB instance contains ptr to StallInterface.
+class StallInterface {
+ public:
+  virtual ~StallInterface() {}
+
+  virtual void Block() = 0;
+
+  virtual void Signal() = 0;
+};
 
 class WriteBufferManager {
  public:
-  // _buffer_size = 0 indicates no limit. Memory won't be capped.
+  // Parameters:
+  // _buffer_size: _buffer_size = 0 indicates no limit. Memory won't be capped.
   // memory_usage() won't be valid and ShouldFlush() will always return true.
-  // if `cache` is provided, we'll put dummy entries in the cache and cost
-  // the memory allocated to the cache. It can be used even if _buffer_size = 0.
+  //
+  // cache_: if `cache` is provided, we'll put dummy entries in the cache and
+  // cost the memory allocated to the cache. It can be used even if _buffer_size
+  // = 0.
+  //
+  // allow_stall: if set true, it will enable stalling of writes when
+  // memory_usage() exceeds buffer_size. It will wait for flush to complete and
+  // memory usage to drop down.
   explicit WriteBufferManager(size_t _buffer_size,
-                              std::shared_ptr<Cache> cache = {});
+                              std::shared_ptr<Cache> cache = {},
+                              bool allow_stall = false);
   // No copying allowed
   WriteBufferManager(const WriteBufferManager&) = delete;
   WriteBufferManager& operator=(const WriteBufferManager&) = delete;
@@ -59,10 +77,21 @@ class WriteBufferManager {
     return dummy_size_.load(std::memory_order_relaxed);
   }
 
-// Returns the buffer_size.
+  // Returns the buffer_size.
   size_t buffer_size() const {
     return buffer_size_.load(std::memory_order_relaxed);
   }
+
+  void SetBufferSize(size_t new_size) {
+    buffer_size_.store(new_size, std::memory_order_relaxed);
+    mutable_limit_.store(new_size * 7 / 8, std::memory_order_relaxed);
+    // Check if stall is active and can be ended.
+    if (allow_stall_) {
+      EndWriteStall();
+    }
+  }
+
+  // Below functions should be called by RocksDB internally.
 
   // Should only be called from write thread
   bool ShouldFlush() const {
@@ -83,6 +112,34 @@ class WriteBufferManager {
     return false;
   }
 
+  // Returns true if total memory usage exceeded buffer_size.
+  // We stall the writes untill memory_usage drops below buffer_size. When the
+  // function returns true, all writer threads (including one checking this
+  // condition) across all DBs will be stalled. Stall is allowed only if user
+  // pass allow_stall = true during WriteBufferManager instance creation.
+  //
+  // Should only be called by RocksDB internally .
+  bool ShouldStall() {
+    if (allow_stall_ && enabled()) {
+      if (IsStallActive()) {
+        return true;
+      }
+      if (IsStallThresholdExceeded()) {
+        stall_active_.store(true, std::memory_order_relaxed);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Returns true if stall is active.
+  bool IsStallActive() const {
+    return stall_active_.load(std::memory_order_relaxed);
+  }
+
+  // Returns true if stalling condition is met.
+  bool IsStallThresholdExceeded() { return memory_usage() >= buffer_size_; }
+
   void ReserveMem(size_t mem);
 
   // We are in the process of freeing `mem` bytes, so it is not considered
@@ -91,26 +148,12 @@ class WriteBufferManager {
 
   void FreeMem(size_t mem);
 
-  // Returns true if total memory usage exceeded buffer_size and still more than
-  // half of memory is currently in process of flush. We stall the writes untill
-  // some flush completes and memory is freed and is below buffer_size. When it
-  // returns true, all writer threads (including one checking this condition)
-  // across all DBs will be stalled.
-  //
-  // Should only be called by RocksDB internally .
-  bool ShouldStall();
-
   // Add the DB instance to the queue and block the DB.
   // Should only be called by RocksDB internally.
-  void BeginWriteStall(DB* db);
+  void BeginWriteStall(StallInterface* wbm_stall);
 
   // Remove DB instances from queue and signal them to continue.
   void EndWriteStall();
-
-  void SetBufferSize(size_t new_size) {
-    buffer_size_.store(new_size, std::memory_order_relaxed);
-    mutable_limit_.store(new_size * 7 / 8, std::memory_order_relaxed);
-  }
 
  private:
   std::atomic<size_t> buffer_size_;
@@ -121,8 +164,11 @@ class WriteBufferManager {
   std::atomic<size_t> dummy_size_;
   struct CacheRep;
   std::unique_ptr<CacheRep> cache_rep_;
-  std::list<DB*> queue_;
+  std::list<StallInterface*> queue_;
+  // Protects the queue_
   std::mutex mu_;
+  bool allow_stall_;
+  std::atomic<bool> stall_active_;
 
   void ReserveMemWithCache(size_t mem);
   void FreeMemWithCache(size_t mem);

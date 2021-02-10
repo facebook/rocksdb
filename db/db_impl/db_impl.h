@@ -113,54 +113,6 @@ class Directories {
   std::unique_ptr<FSDirectory> wal_dir_;
 };
 
-// Interface to block and signal the DB in case of stalling writes by
-// WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
-// When DB needs to be blocked or signalled by WriteBufferManager,
-// state_for_wbm_ state is changed accordingly.
-class WBMStallInterface {
- public:
-  enum State {
-    BLOCKED = 0,
-    RUNNING,
-  };
-
-  WBMStallInterface() : state_cv_(&state_mutex_) {
-    {
-      MutexLock lock(&state_mutex_);
-      state_for_wbm_.store(State::RUNNING, std::memory_order_relaxed);
-    }
-  }
-
-  // Change the state_for_wbm_ to State::BLOCKED and wait until its state is
-  // changed by WriteBufferManager. When stall is cleared, SignalDB() is called
-  // to change the state and unblock the DB.
-  void BlockDB() {
-    MutexLock lock(&state_mutex_);
-    state_for_wbm_.store(State::BLOCKED, std::memory_order_relaxed);
-    while (state_for_wbm_.load(std::memory_order_relaxed) == State::BLOCKED) {
-      TEST_SYNC_POINT("DBImpl::BlockDB");
-      state_cv_.Wait();
-    }
-  }
-
-  // Called from WriteBufferManager. This function changes the state_for_wbm_ to
-  // State::RUNNING indicating the stall is cleared and DB can proceed.
-  void SignalDB() {
-    MutexLock lock(&state_mutex_);
-    state_for_wbm_.store(State::RUNNING, std::memory_order_relaxed);
-    state_cv_.Signal();
-  }
-
- private:
-  // Conditional variable and mutex to block and
-  // signal the DB during stalling process.
-  port::Mutex state_mutex_;
-  port::CondVar state_cv_;
-  // state represting whether DB is running or blocked because of stall by
-  // WriteBufferManager.
-  std::atomic<uint8_t> state_for_wbm_;
-};
-
 // While DB is the public interface of RocksDB, and DBImpl is the actual
 // class implementing it. It's the entrance of the core RocksdB engine.
 // All other DB implementations, e.g. TransactionDB, BlobDB, etc, wrap a
@@ -1096,7 +1048,51 @@ class DBImpl : public DB {
   // flush LOG out of application buffer
   void FlushInfoLog();
 
-  WBMStallInterface* GetWBMStallInterface() { return wbm_stall_; }
+  // Interface to block and signal the DB in case of stalling writes by
+  // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
+  // When DB needs to be blocked or signalled by WriteBufferManager,
+  // state_ is changed accordingly.
+  class WBMStallInterface : public StallInterface {
+   public:
+    enum State {
+      BLOCKED = 0,
+      RUNNING,
+    };
+
+    WBMStallInterface() : state_cv_(&state_mutex_) {
+      MutexLock lock(&state_mutex_);
+      state_ = State::RUNNING;
+    }
+
+    // Change the state_ to State::BLOCKED and wait until its state is
+    // changed by WriteBufferManager. When stall is cleared, Signal() is
+    // called to change the state and unblock the DB.
+    void Block() override {
+      MutexLock lock(&state_mutex_);
+      state_ = State::BLOCKED;
+      while (state_ == State::BLOCKED) {
+        TEST_SYNC_POINT("WBMStallInterface::BlockDB");
+        state_cv_.Wait();
+      }
+    }
+
+    // Called from WriteBufferManager. This function changes the state_
+    // to State::RUNNING indicating the stall is cleared and DB can proceed.
+    void Signal() override {
+      MutexLock lock(&state_mutex_);
+      state_ = State::RUNNING;
+      state_cv_.Signal();
+    }
+
+   private:
+    // Conditional variable and mutex to block and
+    // signal the DB during stalling process.
+    port::Mutex state_mutex_;
+    port::CondVar state_cv_;
+    // state represting whether DB is running or blocked because of stall by
+    // WriteBufferManager.
+    State state_;
+  };
 
  protected:
   const std::string dbname_;
@@ -2286,7 +2282,7 @@ class DBImpl : public DB {
   BlobFileCompletionCallback blob_callback_;
 
   // Pointer to WriteBufferManager stalling interface.
-  WBMStallInterface* wbm_stall_;
+  StallInterface* wbm_stall_;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,

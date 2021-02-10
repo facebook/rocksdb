@@ -30,19 +30,15 @@ TEST_P(DBWriteBufferManagerTest, SharedBufferAcrossCFs1) {
   cost_cache_ = GetParam();
 
   if (cost_cache_) {
-    options.write_buffer_manager.reset(new WriteBufferManager(100000, cache));
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(100000, cache, true));
   } else {
-    options.write_buffer_manager.reset(new WriteBufferManager(100000));
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(100000, nullptr, true));
   }
 
   WriteOptions wo;
   wo.disableWAL = true;
-
-  int wait_count = 0;
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BlockDB", [&](void* /*arg*/) { wait_count++; });
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   CreateAndReopenWithCF({"cf1", "cf2", "cf3"}, options);
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
@@ -57,21 +53,16 @@ TEST_P(DBWriteBufferManagerTest, SharedBufferAcrossCFs1) {
   ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
 
   ASSERT_OK(Put(3, Key(2), DummyString(40000), wo));
-  // WriteBufferManager::buffer_limit_ has exceeded after the previous write is
+  // WriteBufferManager::buffer_size_ has exceeded after the previous write is
   // completed.
 
-  // Next write will be blocked as WriteBufferManager::buffer_limit_ has
-  // exceeded and will be unblocked after flush releases the memory.
+  // This make sures write will go through and if stall was in effect, it will
+  // end.
   ASSERT_OK(Put(0, Key(2), DummyString(1), wo));
-
-  ASSERT_EQ(wait_count, 1);
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
-
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 // Test Single DB with multiple writer threads get blocked when
-// WriteBufferManager execeeds buffer_limit_ and flush is waiting to be
+// WriteBufferManager execeeds buffer_size_ and flush is waiting to be
 // finished.
 TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
   Options options = CurrentOptions();
@@ -82,9 +73,11 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
   cost_cache_ = GetParam();
 
   if (cost_cache_) {
-    options.write_buffer_manager.reset(new WriteBufferManager(100000, cache));
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(100000, cache, true));
   } else {
-    options.write_buffer_manager.reset(new WriteBufferManager(100000));
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(100000, nullptr, true));
   }
   WriteOptions wo;
   wo.disableWAL = true;
@@ -102,7 +95,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
   ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
 
   ASSERT_OK(Put(3, Key(2), DummyString(40000), wo));
-  // WriteBufferManager::buffer_limit_ has exceeded after the previous write is
+  // WriteBufferManager::buffer_size_ has exceeded after the previous write is
   // completed.
 
   std::unordered_set<WriteThread::Writer*> w_set;
@@ -111,53 +104,44 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
   int num_writers = 4;
   InstrumentedMutex mutex;
   InstrumentedCondVar cv(&mutex);
+  std::atomic<int> thread_num(0);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:0",
-        "DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:1"}});
+        "DBImpl::BackgroundCallFlush:start"}});
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BlockDB", [&](void*) {
-        {
-          InstrumentedMutexLock lock(&mutex);
-          wait_count_db++;
-          cv.SignalAll();
-        }
+      "WBMStallInterface::BlockDB", [&](void*) {
+        InstrumentedMutexLock lock(&mutex);
+        wait_count_db++;
+        cv.SignalAll();
       });
-
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::WriteStall::Wait", [&](void* arg) {
         InstrumentedMutexLock lock(&mutex);
         WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
         w_set.insert(w);
-        // Allow the flush continue if all writer threads are blocked.
+        // Allow the flush to continue if all writer threads are blocked.
         if (w_set.size() == (unsigned long)num_writers) {
           TEST_SYNC_POINT(
               "DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:0");
         }
       });
-
-  // Flush is paused to create stall.
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCallFlush:start", [&](void*) {
-        // Wait until all writer threads are blocked.
-        TEST_SYNC_POINT(
-            "DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:1");
-      });
-
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::function<void()> main_writer = [&]() {
-    ASSERT_OK(Put(1, Key(3), DummyString(1), wo));
-  };
+  bool s = true;
 
-  std::function<void(int)> write_cf2 = [&](int cf) {
-    ASSERT_OK(Put(cf, Key(4), DummyString(1), wo));
+  std::function<void(int)> writer = [&](int cf) {
+    int a = thread_num.fetch_add(1);
+    std::string key = "foo" + std::to_string(a);
+    Status tmp = Put(cf, Slice(key), DummyString(1), wo);
+    InstrumentedMutexLock lock(&mutex);
+    s = s && tmp.ok();
   };
 
   // Flow:
   // main_writer thread will write but will be blocked (as Flush will on hold,
-  // buffer_limit_ has exceeded, thus will create stall in effect).
+  // buffer_size_ has exceeded, thus will create stall in effect).
   //  |
   //  |
   //  multiple writer threads will be created to write across multiple columns
@@ -167,7 +151,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
   //  Last writer thread will write and when its blocked it will signal Flush to
   //  continue to clear the stall.
 
-  threads.emplace_back(main_writer);
+  threads.emplace_back(writer, 1);
   // Wait untill first thread (main_writer) writing to DB is blocked and then
   // create the multiple writers which will be blocked from getting added to the
   // queue because stall is in effect.
@@ -178,20 +162,18 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferAcrossCFs2) {
     }
   }
   for (int i = 0; i < num_writers; i++) {
-    threads.emplace_back(write_cf2, i % 4);
+    threads.emplace_back(writer, i % 4);
   }
-
   for (auto& t : threads) {
     t.join();
   }
+
+  ASSERT_TRUE(s);
 
   // Number of DBs blocked.
   ASSERT_EQ(wait_count_db, 1);
   // Number of Writer threads blocked.
   ASSERT_EQ(w_set.size(), num_writers);
-
-  ASSERT_EQ(Get(2, Key(4)), DummyString(1));
-  ASSERT_EQ(Get(3, Key(4)), DummyString(1));
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
@@ -218,9 +200,11 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
   cost_cache_ = GetParam();
 
   if (cost_cache_) {
-    options.write_buffer_manager.reset(new WriteBufferManager(100000, cache));
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(100000, cache, true));
   } else {
-    options.write_buffer_manager.reset(new WriteBufferManager(100000));
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(100000, nullptr, true));
   }
   CreateAndReopenWithCF({"cf1", "cf2"}, options);
 
@@ -228,15 +212,14 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
     ASSERT_OK(DestroyDB(dbnames[i], options));
     ASSERT_OK(DB::Open(options, dbnames[i], &(dbs[i])));
   }
-
   WriteOptions wo;
   wo.disableWAL = true;
 
+  for (int i = 0; i < num_dbs; i++) {
+    ASSERT_OK(dbs[i]->Put(wo, Key(1), DummyString(20000)));
+  }
   // Insert to db_.
-  ASSERT_OK(Put(0, Key(1), DummyString(70000), wo));
-
-  // Insert to dbs[0].
-  ASSERT_OK(dbs[0]->Put(wo, Key(1), DummyString(30000)));
+  ASSERT_OK(Put(0, Key(1), DummyString(30000), wo));
 
   // WriteBufferManager Limit exceeded.
   std::vector<port::Thread> threads;
@@ -246,10 +229,10 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:0",
-        "DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:1"}});
+        "DBImpl::BackgroundCallFlush:start"}});
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BlockDB", [&](void*) {
+      "WBMStallInterface::BlockDB", [&](void*) {
         {
           InstrumentedMutexLock lock(&mutex);
           wait_count_db++;
@@ -261,20 +244,15 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
           }
         }
       });
-
-  // Flush is paused in between to execute stall. It will be signalled when all
-  // DBs and writer threads will be blocked.
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCallFlush:start", [&](void*) {
-        TEST_SYNC_POINT(
-            "DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:1");
-      });
-
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  bool s = true;
 
   // Write to DB.
   std::function<void(DB*)> write_db = [&](DB* db) {
-    ASSERT_OK(db->Put(wo, Key(3), DummyString(1)));
+    Status tmp = db->Put(wo, Key(3), DummyString(1));
+    InstrumentedMutexLock lock(&mutex);
+    s = s && tmp.ok();
   };
 
   // Flow:
@@ -298,17 +276,15 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
       cv.Wait();
     }
   }
-
   for (int i = 0; i < num_dbs; i++) {
     threads.emplace_back(write_db, dbs[i]);
   }
-
   for (auto& t : threads) {
     t.join();
   }
 
+  ASSERT_TRUE(s);
   ASSERT_EQ(num_dbs + 1, wait_count_db);
-
   // Clean up DBs.
   for (int i = 0; i < num_dbs; i++) {
     ASSERT_OK(dbs[i]->Close());
@@ -320,7 +296,7 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-// Test multiple threads writing across mutiple DBs and multiple columns get
+// Test multiple threads writing across multiple DBs and multiple columns get
 // blocked when stall by WriteBufferManager is in effect.
 TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
   std::vector<std::string> dbnames;
@@ -341,9 +317,11 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
   cost_cache_ = GetParam();
 
   if (cost_cache_) {
-    options.write_buffer_manager.reset(new WriteBufferManager(100000, cache));
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(100000, cache, true));
   } else {
-    options.write_buffer_manager.reset(new WriteBufferManager(100000));
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(100000, nullptr, true));
   }
   CreateAndReopenWithCF({"cf1", "cf2"}, options);
 
@@ -351,17 +329,16 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
     ASSERT_OK(DestroyDB(dbnames[i], options));
     ASSERT_OK(DB::Open(options, dbnames[i], &(dbs[i])));
   }
-
   WriteOptions wo;
   wo.disableWAL = true;
 
+  for (int i = 0; i < num_dbs; i++) {
+    ASSERT_OK(dbs[i]->Put(wo, Key(1), DummyString(20000)));
+  }
   // Insert to db_.
-  ASSERT_OK(Put(0, Key(1), DummyString(70000), wo));
+  ASSERT_OK(Put(0, Key(1), DummyString(30000), wo));
 
-  // Insert to dbs[0].
-  ASSERT_OK(dbs[0]->Put(wo, Key(1), DummyString(30000)));
-
-  // WriteBufferManager::buffer_limit_ has exceeded after the previous write to
+  // WriteBufferManager::buffer_size_ has exceeded after the previous write to
   // dbs[0] is completed.
   std::vector<port::Thread> threads;
   int wait_count_db = 0;
@@ -373,23 +350,22 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:0",
-        "DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:1"}});
+        "DBImpl::BackgroundCallFlush:start"}});
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BlockDB", [&](void*) {
+      "WBMStallInterface::BlockDB", [&](void*) {
         {
           InstrumentedMutexLock lock(&mutex);
           wait_count_db++;
           thread_num.fetch_add(1);
           cv.Signal();
-          // Allow the flush continue if all writer threads are blocked.
+          // Allow the flush to continue if all writer threads are blocked.
           if (thread_num.load(std::memory_order_relaxed) == 2 * num_dbs + 1) {
             TEST_SYNC_POINT(
                 "DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:0");
           }
         }
       });
-
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::WriteStall::Wait", [&](void* arg) {
         WriteThread::Writer* w = reinterpret_cast<WriteThread::Writer*>(arg);
@@ -404,30 +380,25 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
           }
         }
       });
-
-  // Flush is paused to create stall.
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCallFlush:start", [&](void*) {
-        // Wait until all writer threads are blocked.
-        TEST_SYNC_POINT(
-            "DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:1");
-      });
-
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
+  bool s1 = true, s2 = true;
   // Write to multiple columns of db_.
   std::function<void(int)> write_cf = [&](int cf) {
-    ASSERT_OK(Put(cf, Key(3), DummyString(1), wo));
+    Status tmp = Put(cf, Key(3), DummyString(1), wo);
+    InstrumentedMutexLock lock(&mutex);
+    s1 = s1 && tmp.ok();
   };
-
-  // Write to mutiple DBs.
+  // Write to multiple DBs.
   std::function<void(DB*)> write_db = [&](DB* db) {
-    ASSERT_OK(db->Put(wo, Key(3), DummyString(1)));
+    Status tmp = db->Put(wo, Key(3), DummyString(1));
+    InstrumentedMutexLock lock(&mutex);
+    s2 = s2 && tmp.ok();
   };
 
   // Flow:
   // thread will write to db_ will be blocked (as Flush will on hold,
-  // buffer_limit_ has exceeded and will create stall in effect).
+  // buffer_size_ has exceeded and will create stall in effect).
   //  |
   //  |
   //  multiple writers threads writing to different DBs and to db_ across
@@ -452,20 +423,20 @@ TEST_P(DBWriteBufferManagerTest, SharedWriteBufferLimitAcrossDB1) {
     // Write to different dbs.
     threads.emplace_back(write_db, dbs[i]);
   }
-
   for (auto& t : threads) {
     t.join();
   }
-
   for (auto& t : writer_threads) {
     t.join();
   }
+
+  ASSERT_TRUE(s1);
+  ASSERT_TRUE(s2);
 
   // Number of DBs blocked.
   ASSERT_EQ(num_dbs + 1, wait_count_db);
   // Number of Writer threads blocked.
   ASSERT_EQ(w_set.size(), num_dbs);
-
   // Clean up DBs.
   for (int i = 0; i < num_dbs; i++) {
     ASSERT_OK(dbs[i]->Close());
@@ -488,9 +459,11 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
   cost_cache_ = GetParam();
 
   if (cost_cache_) {
-    options.write_buffer_manager.reset(new WriteBufferManager(100000, cache));
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(100000, cache, true));
   } else {
-    options.write_buffer_manager.reset(new WriteBufferManager(100000));
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(100000, nullptr, true));
   }
   WriteOptions wo;
   wo.disableWAL = true;
@@ -509,7 +482,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
   ASSERT_OK(Put(2, Key(1), DummyString(1), wo));
   ASSERT_OK(Put(3, Key(2), DummyString(40000), wo));
 
-  // WriteBufferManager::buffer_limit_ has exceeded after the previous write to
+  // WriteBufferManager::buffer_size_ has exceeded after the previous write to
   // db_ is completed.
 
   std::unordered_set<WriteThread::Writer*> w_slowdown_set;
@@ -523,10 +496,10 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:0",
-        "DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:1"}});
+        "DBImpl::BackgroundCallFlush:start"}});
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BlockDB", [&](void*) {
+      "WBMStallInterface::BlockDB", [&](void*) {
         {
           InstrumentedMutexLock lock(&mutex);
           wait_count_db++;
@@ -549,27 +522,18 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
           }
         }
       });
-
-  // Flush is paused to create stall.
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCallFlush:start", [&](void*) {
-        // Continue flush once all writers are blocked.
-        TEST_SYNC_POINT(
-            "DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:1");
-      });
-
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::function<void()> main_writer = [&]() {
-    ASSERT_OK(Put(1, Key(3), DummyString(1), wo));
-  };
+  bool s1 = true, s2 = true;
 
   std::function<void(int)> write_slow_down = [&](int cf) {
     int a = thread_num.fetch_add(1);
     std::string key = "foo" + std::to_string(a);
     WriteOptions write_op;
     write_op.no_slowdown = false;
-    ASSERT_OK(Put(cf, Slice(key), DummyString(1), write_op));
+    Status tmp = Put(cf, Slice(key), DummyString(1), write_op);
+    InstrumentedMutexLock lock(&mutex);
+    s1 = s1 && tmp.ok();
   };
 
   std::function<void(int)> write_no_slow_down = [&](int cf) {
@@ -577,9 +541,10 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
     std::string key = "foo" + std::to_string(a);
     WriteOptions write_op;
     write_op.no_slowdown = true;
-    ASSERT_NOK(Put(cf, Slice(key), DummyString(1), write_op));
+    Status tmp = Put(cf, Slice(key), DummyString(1), write_op);
     {
       InstrumentedMutexLock lock(&mutex);
+      s2 = s2 && !tmp.ok();
       w_no_slowdown.fetch_add(1);
       // Allow the flush continue if all writer threads are blocked.
       if (w_slowdown_set.size() +
@@ -593,7 +558,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
 
   // Flow:
   // main_writer thread will write but will be blocked (as Flush will on hold,
-  // buffer_limit_ has exceeded, thus will create stall in effect).
+  // buffer_size_ has exceeded, thus will create stall in effect).
   //  |
   //  |
   //  multiple writer threads will be created to write across multiple columns
@@ -603,7 +568,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
   //  |
   //  Last writer thread will write and when its blocked/return it will signal
   //  Flush to continue to clear the stall.
-  threads.emplace_back(main_writer);
+  threads.emplace_back(write_slow_down, 1);
   // Wait untill first thread (main_writer) writing to DB is blocked and then
   // create the multiple writers which will be blocked from getting added to the
   // queue because stall is in effect.
@@ -618,11 +583,12 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsSingleDB) {
     threads.emplace_back(write_no_slow_down, (i) % 4);
     threads.emplace_back(write_slow_down, (i + 1) % 4);
   }
-
   for (auto& t : threads) {
     t.join();
   }
 
+  ASSERT_TRUE(s1);
+  ASSERT_TRUE(s2);
   // Number of DBs blocked.
   ASSERT_EQ(wait_count_db, 1);
   // Number of Writer threads blocked.
@@ -655,9 +621,11 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   cost_cache_ = GetParam();
 
   if (cost_cache_) {
-    options.write_buffer_manager.reset(new WriteBufferManager(100000, cache));
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(100000, cache, true));
   } else {
-    options.write_buffer_manager.reset(new WriteBufferManager(100000));
+    options.write_buffer_manager.reset(
+        new WriteBufferManager(100000, nullptr, true));
   }
   CreateAndReopenWithCF({"cf1", "cf2"}, options);
 
@@ -665,17 +633,16 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
     ASSERT_OK(DestroyDB(dbnames[i], options));
     ASSERT_OK(DB::Open(options, dbnames[i], &(dbs[i])));
   }
-
   WriteOptions wo;
   wo.disableWAL = true;
 
+  for (int i = 0; i < num_dbs; i++) {
+    ASSERT_OK(dbs[i]->Put(wo, Key(1), DummyString(20000)));
+  }
   // Insert to db_.
-  ASSERT_OK(Put(0, Key(1), DummyString(70000), wo));
+  ASSERT_OK(Put(0, Key(1), DummyString(30000), wo));
 
-  // Insert to dbs[0].
-  ASSERT_OK(dbs[0]->Put(wo, Key(1), DummyString(30000)));
-
-  // WriteBufferManager::buffer_limit_ has exceeded after the previous write to
+  // WriteBufferManager::buffer_size_ has exceeded after the previous write to
   // dbs[0] is completed.
   std::vector<port::Thread> threads;
   int wait_count_db = 0;
@@ -688,10 +655,10 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
       {{"DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:0",
-        "DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:1"}});
+        "DBImpl::BackgroundCallFlush:start"}});
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BlockDB", [&](void*) {
+      "WBMStallInterface::BlockDB", [&](void*) {
         InstrumentedMutexLock lock(&mutex);
         wait_count_db++;
         cv.Signal();
@@ -719,32 +686,17 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
               "DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:0");
         }
       });
-
-  // Flush is paused to create stall.
-  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCallFlush:start", [&](void*) {
-        TEST_SYNC_POINT(
-            "DBWriteBufferManagerTest::SharedWriteBufferAcrossCFs:1");
-      });
-
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  // Write to different dbs.
-  std::function<void(DB*)> write_db = [&](DB* db) {
-    ASSERT_OK(db->Put(wo, Key(3), DummyString(1)));
-  };
-
-  // Write to different columns of db_.
-  std::function<void(int)> write_cf = [&](int cf) {
-    ASSERT_OK(Put(cf, Key(3), DummyString(1), wo));
-  };
-
+  bool s1 = true, s2 = true;
   std::function<void(DB*)> write_slow_down = [&](DB* db) {
     int a = thread_num.fetch_add(1);
     std::string key = "foo" + std::to_string(a);
     WriteOptions write_op;
     write_op.no_slowdown = false;
-    ASSERT_OK(db->Put(write_op, Slice(key), DummyString(1)));
+    Status tmp = db->Put(write_op, Slice(key), DummyString(1));
+    InstrumentedMutexLock lock(&mutex);
+    s1 = s1 && tmp.ok();
   };
 
   std::function<void(DB*)> write_no_slow_down = [&](DB* db) {
@@ -752,9 +704,10 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
     std::string key = "foo" + std::to_string(a);
     WriteOptions write_op;
     write_op.no_slowdown = true;
-    ASSERT_NOK(db->Put(write_op, Slice(key), DummyString(1)));
+    Status tmp = db->Put(write_op, Slice(key), DummyString(1));
     {
       InstrumentedMutexLock lock(&mutex);
+      s2 = s2 && !tmp.ok();
       w_no_slowdown.fetch_add(1);
       if (w_slowdown_set.size() +
               (unsigned long)(w_no_slowdown.load(std::memory_order_relaxed) +
@@ -768,7 +721,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
 
   // Flow:
   // first thread will write but will be blocked (as Flush will on hold,
-  // buffer_limit_ has exceeded, thus will create stall in effect).
+  // buffer_size_ has exceeded, thus will create stall in effect).
   //  |
   //  |
   //  multiple writer threads will be created to write across multiple columns
@@ -790,7 +743,7 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
   }
 
   for (int i = 0; i < num_dbs; i += 2) {
-    // Write to mutiple columns of db_.
+    // Write to multiple columns of db_.
     writer_threads.emplace_back(write_slow_down, db_);
     writer_threads.emplace_back(write_no_slow_down, db_);
     // Write to different DBs.
@@ -806,6 +759,8 @@ TEST_P(DBWriteBufferManagerTest, MixedSlowDownOptionsMultipleDB) {
     t.join();
   }
 
+  ASSERT_TRUE(s1);
+  ASSERT_TRUE(s2);
   // Number of DBs blocked.
   ASSERT_EQ((num_dbs / 2) + 1, wait_count_db);
   // Number of writer threads writing to db_ blocked from getting added to the
