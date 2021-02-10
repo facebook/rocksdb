@@ -42,7 +42,7 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZZZZBBDBZJJJJIIIJZZZJZZIIZZBJIJI)J
+ * Signature: (ZZZZBBDBZJJJJIIIJZZZJZZIIZZBZJIJI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     JNIEnv *, jobject, jboolean jcache_index_and_filter_blocks,
@@ -60,8 +60,9 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     jboolean jwhole_key_filtering, jboolean jverify_compression,
     jint jread_amp_bytes_per_bit, jint jformat_version,
     jboolean jenable_index_compression, jboolean jblock_align,
-    jbyte jindex_shortening, jlong jblock_cache_size,
-    jint jblock_cache_num_shard_bits, jlong jblock_cache_compressed_size,
+    jbyte jindex_shortening, jboolean jenable_compaction_pipelined_load,
+    jlong jblock_cache_size, jint jblock_cache_num_shard_bits,
+    jlong jblock_cache_compressed_size,
     jint jblock_cache_compressed_num_shard_bits) {
   ROCKSDB_NAMESPACE::BlockBasedTableOptions options;
   options.cache_index_and_filter_blocks =
@@ -149,6 +150,8 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.index_shortening =
       ROCKSDB_NAMESPACE::IndexShorteningModeJni::toCppIndexShorteningMode(
           jindex_shortening);
+  options.enable_compaction_pipelined_load =
+      static_cast<bool>(jenable_compaction_pipelined_load);
 
   return reinterpret_cast<jlong>(
       ROCKSDB_NAMESPACE::NewBlockBasedTableFactory(options));

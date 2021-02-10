@@ -368,6 +368,13 @@ public class BlockBasedTableConfigTest {
         .isEqualTo(IndexShorteningMode.kShortenSeparatorsAndSuccessor);
   }
 
+  @Test
+  public void enableCompactionPipelinedLoad() {
+    final BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    blockBasedTableConfig.setEnableCompactionPipelinedLoad(true);
+    assertThat(blockBasedTableConfig.enableCompactionPipelinedLoad()).isTrue();
+  }
+
   @Deprecated
   @Test
   public void hashIndexAllowCollision() {

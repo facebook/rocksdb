@@ -627,6 +627,7 @@ struct TestArgs {
   uint32_t compression_parallel_threads;
   uint32_t format_version;
   bool use_mmap;
+  bool enable_compaction_pipelined_load;
 };
 
 std::ostream& operator<<(std::ostream& os, const TestArgs& args) {
@@ -635,7 +636,8 @@ std::ostream& operator<<(std::ostream& os, const TestArgs& args) {
      << " compression: " << args.compression
      << " compression_parallel_threads: " << args.compression_parallel_threads
      << " format_version: " << args.format_version
-     << " use_mmap: " << args.use_mmap;
+     << " use_mmap: " << args.use_mmap << " enable_compaction_pipelined_load: "
+     << args.enable_compaction_pipelined_load;
 
   return os;
 }
@@ -654,6 +656,7 @@ static std::vector<TestArgs> GenerateArgList() {
   std::vector<bool> reverse_compare_types = {false, true};
   std::vector<int> restart_intervals = {16, 1, 1024};
   std::vector<uint32_t> compression_parallel_threads = {1, 4};
+  std::vector<bool> enable_compaction_pipelined_load = {false, true};
 
   // Only add compression if it is supported
   std::vector<std::pair<CompressionType, bool>> compression_types;
@@ -699,6 +702,7 @@ static std::vector<TestArgs> GenerateArgList() {
         one_arg.compression_parallel_threads = 1;
         one_arg.format_version = 0;
         one_arg.use_mmap = true;
+        one_arg.enable_compaction_pipelined_load = false;
         test_args.push_back(one_arg);
         one_arg.use_mmap = false;
         test_args.push_back(one_arg);
@@ -709,15 +713,18 @@ static std::vector<TestArgs> GenerateArgList() {
       for (auto restart_interval : restart_intervals) {
         for (auto compression_type : compression_types) {
           for (auto num_threads : compression_parallel_threads) {
-            TestArgs one_arg;
-            one_arg.type = test_type;
-            one_arg.reverse_compare = reverse_compare;
-            one_arg.restart_interval = restart_interval;
-            one_arg.compression = compression_type.first;
-            one_arg.compression_parallel_threads = num_threads;
-            one_arg.format_version = compression_type.second ? 2 : 1;
-            one_arg.use_mmap = false;
-            test_args.push_back(one_arg);
+            for (auto enable_compaction_pl : enable_compaction_pipelined_load) {
+              TestArgs one_arg;
+              one_arg.type = test_type;
+              one_arg.reverse_compare = reverse_compare;
+              one_arg.restart_interval = restart_interval;
+              one_arg.compression = compression_type.first;
+              one_arg.compression_parallel_threads = num_threads;
+              one_arg.format_version = compression_type.second ? 2 : 1;
+              one_arg.use_mmap = false;
+              one_arg.enable_compaction_pipelined_load = enable_compaction_pl;
+              test_args.push_back(one_arg);
+            }
           }
         }
       }
@@ -774,6 +781,8 @@ class HarnessTest : public testing::Test {
     if (args_.reverse_compare) {
       options_.comparator = &reverse_key_comparator;
     }
+    table_options_.enable_compaction_pipelined_load =
+        args_.enable_compaction_pipelined_load;
 
     internal_comparator_.reset(
         new test::PlainInternalKeyComparator(options_.comparator));
@@ -1084,7 +1093,8 @@ class DBHarnessTest : public HarnessTest {
       : HarnessTest(TestArgs{DB_TEST, /* reverse_compare */ false,
                              /* restart_interval */ 16, kNoCompression,
                              /* compression_parallel_threads */ 1,
-                             /* format_version */ 0, /* use_mmap */ false}) {}
+                             /* format_version */ 0, /* use_mmap */ false,
+                             /* enable_compaction_pipelined_load */ false}) {}
 };
 
 static bool Between(uint64_t val, uint64_t low, uint64_t high) {

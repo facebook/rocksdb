@@ -148,6 +148,7 @@ DECLARE_bool(use_ribbon_filter);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
 DECLARE_int32(index_type);
+DECLARE_bool(enable_compaction_pipelined_load);
 DECLARE_string(db);
 DECLARE_string(secondaries_base);
 DECLARE_bool(test_secondary);

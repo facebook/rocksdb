@@ -51,6 +51,10 @@ void BlockBasedTableIterator::SeekImpl(const Slice* target) {
       index_iter_->SeekToFirst();
     }
 
+    if (compaction_pl_rep_ != nullptr) {
+      StartCompactionPipelinedLoad(target);
+    }
+
     if (!index_iter_->Valid()) {
       ResetDataIter();
       return;
@@ -227,21 +231,30 @@ void BlockBasedTableIterator::InitDataBlock() {
 
     bool is_for_compaction =
         lookup_context_.caller == TableReaderCaller::kCompaction;
-    // Prefetch additional data for range scans (iterators).
-    // Implicit auto readahead:
-    //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
-    // Explicit user requested readahead:
-    //   Enabled from the very first IO when ReadOptions.readahead_size is set.
-    block_prefetcher_.PrefetchIfNeeded(rep, data_block_handle,
-                                       read_options_.readahead_size,
-                                       is_for_compaction);
 
     Status s;
-    table_->NewDataBlockIterator<DataBlockIter>(
-        read_options_, data_block_handle, &block_iter_, BlockType::kData,
-        /*get_context=*/nullptr, &lookup_context_, s,
-        block_prefetcher_.prefetch_buffer(),
-        /*for_compaction=*/is_for_compaction);
+    if (compaction_pl_rep_ != nullptr) {
+      CachableEntry<Block>* block = nullptr;
+      compaction_pl_rep_->block_pipe.pop(block);
+      table_->NewDataBlockIterator<DataBlockIter>(read_options_, *block,
+                                                  &block_iter_, s);
+    } else {
+      // Prefetch additional data for range scans (iterators).
+      // Implicit auto readahead:
+      //   Enabled after 2 sequential IOs when ReadOptions.readahead_size == 0.
+      // Explicit user requested readahead:
+      //   Enabled from the very first IO when ReadOptions.readahead_size is
+      //   set.
+      block_prefetcher_.PrefetchIfNeeded(rep, data_block_handle,
+                                         read_options_.readahead_size,
+                                         is_for_compaction);
+
+      table_->NewDataBlockIterator<DataBlockIter>(
+          read_options_, data_block_handle, &block_iter_, BlockType::kData,
+          /*get_context=*/nullptr, &lookup_context_, s,
+          block_prefetcher_.prefetch_buffer(),
+          /*for_compaction=*/is_for_compaction);
+    }
     block_iter_points_to_real_block_ = true;
     CheckDataBlockWithinUpperBound();
   }
@@ -380,4 +393,63 @@ void BlockBasedTableIterator::CheckDataBlockWithinUpperBound() {
                                    : BlockUpperBound::kUpperBoundInCurBlock;
   }
 }
+
+Status BlockBasedTableIterator::StartCompactionPipelinedLoad(
+    const Slice* target) {
+  if (compaction_pl_rep_->started) {
+    return Status::Aborted("Double seek in compaction input.");
+  }
+  if (target) {
+    compaction_pl_rep_->index_iter->Seek(*target);
+  } else {
+    compaction_pl_rep_->index_iter->SeekToFirst();
+  }
+  compaction_pl_rep_->load_thread.reset(
+      new port::Thread([=] { LoadDataBlocksForCompactionPipelinedLoad(); }));
+  compaction_pl_rep_->started = true;
+  return Status::OK();
+}
+
+void BlockBasedTableIterator::LoadDataBlocksForCompactionPipelinedLoad() {
+  Status s;
+  CachableEntry<UncompressionDict> uncompression_dict;
+  uint32_t inflight_block_idx = 0;
+
+  if (table_->get_rep()->uncompression_dict_reader) {
+    const bool no_io = (read_options_.read_tier == kBlockCacheTier);
+    s = table_->get_rep()
+            ->uncompression_dict_reader->GetOrReadUncompressionDictionary(
+                block_prefetcher_.prefetch_buffer(), no_io,
+                /* get_context */ nullptr, &lookup_context_,
+                &uncompression_dict);
+    assert(s.ok());
+  }
+
+  const UncompressionDict& dict = uncompression_dict.GetValue()
+                                      ? *uncompression_dict.GetValue()
+                                      : UncompressionDict::GetEmptyDict();
+
+  while (compaction_pl_rep_->index_iter->Valid()) {
+    // Get current block handle
+    BlockHandle block_handle = compaction_pl_rep_->index_iter->value().handle;
+    // Prefetch additional data
+    block_prefetcher_.PrefetchIfNeeded(table_->get_rep(), block_handle,
+                                       read_options_.readahead_size, true);
+    // Retrieve current block
+    s = table_->RetrieveDataBlockForCompactionPipelinedLoad(
+        block_prefetcher_.prefetch_buffer(), read_options_, block_handle, dict,
+        compaction_pl_rep_->inflight_blocks + inflight_block_idx,
+        &lookup_context_);
+    assert(s.ok());
+    // Exit if block pipe has been finished
+    if (!compaction_pl_rep_->block_pipe.push(
+            compaction_pl_rep_->inflight_blocks + inflight_block_idx)) {
+      break;
+    }
+    inflight_block_idx = (inflight_block_idx + 1) %
+                         CompactionPipelinedLoadRep::kNumInflightBlocks;
+    compaction_pl_rep_->index_iter->Next();
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE

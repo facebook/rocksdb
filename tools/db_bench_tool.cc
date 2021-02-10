@@ -532,6 +532,11 @@ DEFINE_bool(block_align,
             ROCKSDB_NAMESPACE::BlockBasedTableOptions().block_align,
             "Align data blocks on page size");
 
+DEFINE_bool(enable_compaction_pipelined_load,
+            ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+                .enable_compaction_pipelined_load,
+            "Enable pipelined load for compaction");
+
 DEFINE_bool(use_data_block_hash_index, false,
             "if use kDataBlockBinaryAndHash "
             "instead of kDataBlockBinarySearch. "
@@ -3858,6 +3863,8 @@ class Benchmark {
       block_based_options.enable_index_compression =
           FLAGS_enable_index_compression;
       block_based_options.block_align = FLAGS_block_align;
+      block_based_options.enable_compaction_pipelined_load =
+          FLAGS_enable_compaction_pipelined_load;
       if (FLAGS_use_data_block_hash_index) {
         block_based_options.data_block_index_type =
             ROCKSDB_NAMESPACE::BlockBasedTableOptions::kDataBlockBinaryAndHash;
