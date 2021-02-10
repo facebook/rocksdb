@@ -29,6 +29,10 @@ namespace ribbon {
 //
 // Template parameter kCoeffBits uses uint64_t for convenience in case it
 // comes from size_t.
+//
+// Most of the complexity here is trying to optimize speed and
+// compiled code size, using templates to minimize table look-ups and
+// the compiled size of all linked look-up tables.
 
 // Represents a chosen chance of successful Ribbon construction for a single
 // seed. Allowing higher chance of failed construction can reduce space
