@@ -255,7 +255,7 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   std::unique_ptr<CompactionPipelinedLoadRep> compaction_pl_rep_;
   // Start pipelined load for compaction, called once and only once at the first
   // seek.
-  Status StartCompactionPipelinedLoad(const Slice* target);
+  void StartCompactionPipelinedLoad(const Slice* target);
   // Logic of worker thread of pipelined load for compaction.
   void LoadDataBlocksForCompactionPipelinedLoad();
 

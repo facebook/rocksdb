@@ -394,20 +394,17 @@ void BlockBasedTableIterator::CheckDataBlockWithinUpperBound() {
   }
 }
 
-Status BlockBasedTableIterator::StartCompactionPipelinedLoad(
+void BlockBasedTableIterator::StartCompactionPipelinedLoad(
     const Slice* target) {
-  if (compaction_pl_rep_->started) {
-    return Status::Aborted("Double seek in compaction input.");
-  }
+  assert(!compaction_pl_rep_->started);
   if (target) {
     compaction_pl_rep_->index_iter->Seek(*target);
   } else {
     compaction_pl_rep_->index_iter->SeekToFirst();
   }
   compaction_pl_rep_->load_thread.reset(
-      new port::Thread([=] { LoadDataBlocksForCompactionPipelinedLoad(); }));
+      new port::Thread([this] { LoadDataBlocksForCompactionPipelinedLoad(); }));
   compaction_pl_rep_->started = true;
-  return Status::OK();
 }
 
 void BlockBasedTableIterator::LoadDataBlocksForCompactionPipelinedLoad() {
