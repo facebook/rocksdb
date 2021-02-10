@@ -52,7 +52,7 @@ else
     else
       echo "You didn't have clang-format-diff.py and/or clang-format available in your computer!"
       echo "You can download clang-format-diff.py by running: "
-      echo "    curl --location https://tinyurl.com/y2kvokof -o ${REPO_ROOT}/clang-format-diff.py"
+      echo "    curl --location tinyurl.com/16e4xpg1 -o ${REPO_ROOT}/clang-format-diff.py"
       echo "You can download clang-format by running:"
       echo "    brew install clang-format"
       echo "  Or"
@@ -82,7 +82,7 @@ else
       echo "You have clang-format-diff.py for Python 2 but are using a Python 3"
       echo "interpreter (${PYTHON:-python3})."
       echo "You can download clang-format-diff.py for Python 3 by running: "
-      echo "    curl --location https://tinyurl.com/y2kvokof -o ${REPO_ROOT}/clang-format-diff.py"
+      echo "    curl --location tinyurl.com/16e4xpg1 -o ${REPO_ROOT}/clang-format-diff.py"
       exit 130
     fi
     CLANG_FORMAT_DIFF="${PYTHON:-python3} $CFD_PATH"

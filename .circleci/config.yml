@@ -103,6 +103,13 @@ commands:
             git clone --single-branch --branch master --depth 1 https://github.com/google/gtest-parallel.git ~/gtest-parallel
             echo 'export PATH=$HOME/gtest-parallel:$PATH' >> $BASH_ENV
 
+  install-compression-libs:
+    steps:
+      - run:
+          name: Install compression libs
+          command: |
+            sudo apt-get update -y && sudo apt-get install -y libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
+
 executors:
   windows-2xlarge:
     machine:
@@ -565,7 +572,25 @@ jobs:
             gtest-parallel $(</tmp/test_list) --output_dir=/tmp | cat  # pipe to cat to continuously output status on circleci UI. Otherwise, no status will be printed while the job is running.
       - post-steps
 
+  build-format-compatible:
+    machine:
+      image: ubuntu-1604:202007-01
+    resource_class: 2xlarge
+    steps:
+      - pre-steps
+      - install-gflags
+      - install-compression-libs
+      - run:
+          name: "test"
+          command: |
+            export TEST_TMPDIR=/dev/shm/rocksdb
+            rm -rf /dev/shm/rocksdb
+            mkdir /dev/shm/rocksdb
+            tools/check_format_compatible.sh
+      - post-steps
+
 workflows:
+  version: 2
   build-linux:
     jobs:
       - build-linux
@@ -666,3 +691,13 @@ workflows:
   build-cmake-mingw:
     jobs:
       - build-cmake-mingw
+  nightly:
+    triggers:
+      - schedule:
+          cron: "0 0 * * *"
+          filters:
+            branches:
+              only:
+                - master
+    jobs:
+      - build-format-compatible
