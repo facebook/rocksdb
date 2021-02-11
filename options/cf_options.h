@@ -126,6 +126,8 @@ struct ImmutableCFOptions {
   bool allow_data_in_errors;
 
   std::string db_host_id;
+
+  FileTypeSet checksum_handoff_file_types;
 };
 
 struct MutableCFOptions {
