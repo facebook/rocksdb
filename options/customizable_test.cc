@@ -662,7 +662,7 @@ TEST_F(CustomizableTest, MutableOptionsTest) {
   ASSERT_NE(im->get(), nullptr);
 
   // Now only deal with mutable options
-  options.only_mutable_options = true;
+  options.mutable_options_only = true;
 
   // Setting nested immutable customizable options fails
   ASSERT_NOK(mc.ConfigureOption(options, "immutable", "{id=B;}"));

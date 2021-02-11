@@ -1361,7 +1361,7 @@ Status ColumnFamilyData::SetOptions(
   ColumnFamilyOptions cf_opts =
       BuildColumnFamilyOptions(initial_cf_options_, mutable_cf_options_);
   ConfigOptions config_opts;
-  config_opts.only_mutable_options = true;
+  config_opts.mutable_options_only = true;
   Status s = GetColumnFamilyOptionsFromMap(config_opts, cf_opts, options_map,
                                            &cf_opts);
   if (s.ok()) {

@@ -242,14 +242,15 @@ Status Configurable::ParseOption(const ConfigOptions& config_options,
                                  const std::string& opt_name,
                                  const std::string& opt_value, void* opt_ptr) {
   if (opt_info.IsMutable()) {
-    if (config_options.only_mutable_options) {
+    if (config_options.mutable_options_only) {
+      // This option is mutable. Treat all of its children as mutable as well
       ConfigOptions copy = config_options;
-      copy.only_mutable_options = false;
+      copy.mutable_options_only = false;
       return opt_info.Parse(copy, opt_name, opt_value, opt_ptr);
     } else {
       return opt_info.Parse(config_options, opt_name, opt_value, opt_ptr);
     }
-  } else if (config_options.only_mutable_options) {
+  } else if (config_options.mutable_options_only) {
     return Status::InvalidArgument("Option not changeable: " + opt_name);
   } else {
     return opt_info.Parse(config_options, opt_name, opt_value, opt_ptr);
@@ -410,11 +411,11 @@ Status ConfigurableHelper::ConfigureOption(
         } else if (props.empty()) {
           return Status::OK();
         } else if (opt_info.IsMutable() &&
-                   config_options.only_mutable_options) {
+                   config_options.mutable_options_only) {
           // This option is mutable. Treat all of its children as mutable as
           // well
           ConfigOptions copy = config_options;
-          copy.only_mutable_options = false;
+          copy.mutable_options_only = false;
           return custom->ConfigureFromMap(copy, props);
         } else {
           return custom->ConfigureFromMap(config_options, props);
@@ -426,10 +427,10 @@ Status ConfigurableHelper::ConfigureOption(
         } else {
           return Status::InvalidArgument("Option not changeable: " + opt_name);
         }
-      } else if (opt_info.IsMutable() && config_options.only_mutable_options) {
+      } else if (opt_info.IsMutable() && config_options.mutable_options_only) {
         // This option is mutable. Treat all of its children as mutable as well
         ConfigOptions copy = config_options;
-        copy.only_mutable_options = false;
+        copy.mutable_options_only = false;
         return custom->ConfigureOption(copy, name, value);
       } else {
         return custom->ConfigureOption(config_options, name, value);
@@ -450,19 +451,19 @@ Status ConfigurableHelper::ConfigureOption(
         } else if (props.empty()) {
           return Status::OK();
         } else if (opt_info.IsMutable() &&
-                   config_options.only_mutable_options) {
+                   config_options.mutable_options_only) {
           // This option is mutable. Treat all of its children as mutable as
           // well
           ConfigOptions copy = config_options;
-          copy.only_mutable_options = false;
+          copy.mutable_options_only = false;
           return nested->ConfigureFromMap(copy, props);
         } else {
           return nested->ConfigureFromMap(config_options, props);
         }
-      } else if (opt_info.IsMutable() && config_options.only_mutable_options) {
+      } else if (opt_info.IsMutable() && config_options.mutable_options_only) {
         // This option is mutable. Treat all of its children as mutable as well
         ConfigOptions copy = config_options;
-        copy.only_mutable_options = false;
+        copy.mutable_options_only = false;
         return nested->ConfigureOption(copy, name, value);
       } else {
         return nested->ConfigureOption(config_options, name, value);
@@ -610,12 +611,12 @@ Status ConfigurableHelper::SerializeOptions(const ConfigOptions& config_options,
       if (opt_info.ShouldSerialize()) {
         std::string value;
         Status s;
-        if (!config_options.only_mutable_options) {
+        if (!config_options.mutable_options_only) {
           s = opt_info.Serialize(config_options, prefix + opt_name,
                                  opt_iter.opt_ptr, &value);
         } else if (opt_info.IsMutable()) {
           ConfigOptions copy = config_options;
-          copy.only_mutable_options = false;
+          copy.mutable_options_only = false;
           s = opt_info.Serialize(copy, prefix + opt_name, opt_iter.opt_ptr,
                                  &value);
         } else if (opt_info.IsConfigurable()) {
@@ -666,7 +667,7 @@ Status ConfigurableHelper::ListOptions(
       // If the option is no longer used in rocksdb and marked as deprecated,
       // we skip it in the serialization.
       if (!opt_info.IsDeprecated() && !opt_info.IsAlias()) {
-        if (!config_options.only_mutable_options) {
+        if (!config_options.mutable_options_only) {
           result->emplace(prefix + opt_name);
         } else if (opt_info.IsMutable()) {
           result->emplace(prefix + opt_name);
@@ -737,7 +738,7 @@ bool ConfigurableHelper::AreEquivalent(const ConfigOptions& config_options,
         for (const auto& map_iter : *(o.type_map)) {
           const auto& opt_info = map_iter.second;
           if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
-            if (!config_options.only_mutable_options) {
+            if (!config_options.mutable_options_only) {
               if (!this_one.OptionsAreEqual(config_options, opt_info,
                                             map_iter.first, this_offset,
                                             that_offset, mismatch)) {
@@ -745,7 +746,7 @@ bool ConfigurableHelper::AreEquivalent(const ConfigOptions& config_options,
               }
             } else if (opt_info.IsMutable()) {
               ConfigOptions copy = config_options;
-              copy.only_mutable_options = false;
+              copy.mutable_options_only = false;
               if (!this_one.OptionsAreEqual(copy, opt_info, map_iter.first,
                                             this_offset, that_offset,
                                             mismatch)) {

@@ -1371,7 +1371,7 @@ TEST_F(OptionsTest, MutableTableOptions) {
   ASSERT_EQ(bbto->block_size, 1024);
   ASSERT_OK(bbtf->PrepareOptions(config_options));
   ASSERT_TRUE(bbtf->IsPrepared());
-  config_options.only_mutable_options = true;
+  config_options.mutable_options_only = true;
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
   ASSERT_EQ(bbto->block_align, true);
   ASSERT_NOK(bbtf->ConfigureOption(config_options, "block_align", "false"));
@@ -1417,7 +1417,7 @@ TEST_F(OptionsTest, MutableCFOptions) {
   ASSERT_EQ(bbto, cf_opts.table_factory->GetOptions<BlockBasedTableOptions>());
   ASSERT_EQ(bbto->block_size, 16384);
 
-  config_options.only_mutable_options = true;
+  config_options.mutable_options_only = true;
   // Force consistency checks is not mutable
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(
       config_options, cf_opts, {{"force_consistency_checks", "true"}},
@@ -1673,7 +1673,7 @@ TEST_F(OptionsTest, OnlyMutableDBOptions) {
   ASSERT_OK(db_config->GetOptionNames(cfg_opts, &a_names));
 
   // Get only the mutable options from db_opts and set those in mdb_opts
-  cfg_opts.only_mutable_options = true;
+  cfg_opts.mutable_options_only = true;
 
   // Get only the Mutable DB Option names
   ASSERT_OK(db_config->GetOptionNames(cfg_opts, &m_names));
@@ -1693,7 +1693,7 @@ TEST_F(OptionsTest, OnlyMutableDBOptions) {
     ASSERT_EQ(m, d);
   }
 
-  cfg_opts.only_mutable_options = false;
+  cfg_opts.mutable_options_only = false;
   // Comparing all of the options, the two are not equivalent
   ASSERT_FALSE(mdb_config->AreEquivalent(cfg_opts, db_config.get(), &mismatch));
   ASSERT_FALSE(db_config->AreEquivalent(cfg_opts, mdb_config.get(), &mismatch));
@@ -1716,7 +1716,7 @@ TEST_F(OptionsTest, OnlyMutableCFOptions) {
   ASSERT_OK(cf_config->GetOptionNames(cfg_opts, &a_names));
 
   // Get only the mutable options from cf_opts and set those in mcf_opts
-  cfg_opts.only_mutable_options = true;
+  cfg_opts.mutable_options_only = true;
   // Get only the Mutable CF Option names
   ASSERT_OK(cf_config->GetOptionNames(cfg_opts, &m_names));
   ASSERT_OK(GetStringFromColumnFamilyOptions(cfg_opts, cf_opts, &opt_str));
@@ -1737,7 +1737,7 @@ TEST_F(OptionsTest, OnlyMutableCFOptions) {
     ASSERT_EQ(m, d);
   }
 
-  cfg_opts.only_mutable_options = false;
+  cfg_opts.mutable_options_only = false;
   // Comparing all of the options, the two are not equivalent
   ASSERT_FALSE(mcf_config->AreEquivalent(cfg_opts, cf_config.get(), &mismatch));
   ASSERT_FALSE(cf_config->AreEquivalent(cfg_opts, mcf_config.get(), &mismatch));
