@@ -852,6 +852,8 @@ DEFINE_string(
 static enum ROCKSDB_NAMESPACE::CompressionType
     FLAGS_blob_db_compression_type_e = ROCKSDB_NAMESPACE::kSnappyCompression;
 
+#endif  // ROCKSDB_LITE
+
 // Integrated BlobDB options
 DEFINE_bool(
     enable_blob_files,
@@ -881,6 +883,8 @@ DEFINE_double(blob_garbage_collection_age_cutoff,
                   .blob_garbage_collection_age_cutoff,
               "[Integrated BlobDB] The cutoff in terms of blob file age for "
               "garbage collection.");
+
+#ifndef ROCKSDB_LITE
 
 // Secondary DB instance Options
 DEFINE_bool(use_secondary_db, false,
