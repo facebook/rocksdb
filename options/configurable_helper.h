@@ -245,6 +245,10 @@ class ConfigurableHelper {
       const std::vector<Configurable::RegisteredOptions>& options,
       const std::string& name, std::string* opt_name, void** opt_ptr);
 
+  static Status ConfigureCustomizableOption(
+      const ConfigOptions& config_options, Configurable& configurable,
+      const OptionTypeInfo& opt_info, const std::string& opt_name,
+      const std::string& name, const std::string& value, void* opt_ptr);
 #endif  // ROCKSDB_LITE
 };
 
