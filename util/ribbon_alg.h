@@ -1050,13 +1050,13 @@ void InterleavedBackSubst(InterleavedSolutionStorage *iss,
   std::unique_ptr<CoeffRow[]> state{new CoeffRow[num_columns]()};
 
   Index block = num_blocks;
-  Index segment = num_segments;
+  Index segment_num = num_segments;
   while (block > upper_start_block) {
     --block;
     BackSubstBlock(state.get(), num_columns, bs, block * kCoeffBits);
-    segment -= num_columns;
+    segment_num -= num_columns;
     for (Index i = 0; i < num_columns; ++i) {
-      iss->StoreSegment(segment + i, state[i]);
+      iss->StoreSegment(segment_num + i, state[i]);
     }
   }
   // Now (if applicable), region using lower number of columns
@@ -1066,23 +1066,67 @@ void InterleavedBackSubst(InterleavedSolutionStorage *iss,
   while (block > 0) {
     --block;
     BackSubstBlock(state.get(), num_columns, bs, block * kCoeffBits);
-    segment -= num_columns;
+    segment_num -= num_columns;
     for (Index i = 0; i < num_columns; ++i) {
-      iss->StoreSegment(segment + i, state[i]);
+      iss->StoreSegment(segment_num + i, state[i]);
     }
   }
   // Verify everything processed
   assert(block == 0);
-  assert(segment == 0);
+  assert(segment_num == 0);
 }
 
-// General PHSF query a key from InterleavedSolutionStorage.
+// Prefetch memory for a key in InterleavedSolutionStorage.
 template <typename InterleavedSolutionStorage, typename PhsfQueryHasher>
-typename InterleavedSolutionStorage::ResultRow InterleavedPhsfQuery(
+inline void InterleavedPrepareQuery(
     const typename PhsfQueryHasher::Key &key, const PhsfQueryHasher &hasher,
-    const InterleavedSolutionStorage &iss) {
+    const InterleavedSolutionStorage &iss,
+    typename PhsfQueryHasher::Hash *saved_hash,
+    typename InterleavedSolutionStorage::Index *saved_segment_num,
+    typename InterleavedSolutionStorage::Index *saved_num_columns,
+    typename InterleavedSolutionStorage::Index *saved_start_bit) {
   using Hash = typename PhsfQueryHasher::Hash;
+  using CoeffRow = typename InterleavedSolutionStorage::CoeffRow;
+  using Index = typename InterleavedSolutionStorage::Index;
 
+  static_assert(sizeof(Index) == sizeof(typename PhsfQueryHasher::Index),
+                "must be same");
+
+  const Hash hash = hasher.GetHash(key);
+  const Index start_slot = hasher.GetStart(hash, iss.GetNumStarts());
+
+  constexpr auto kCoeffBits = static_cast<Index>(sizeof(CoeffRow) * 8U);
+
+  const Index upper_start_block = iss.GetUpperStartBlock();
+  Index num_columns = iss.GetUpperNumColumns();
+  Index start_block_num = start_slot / kCoeffBits;
+  Index segment_num = start_block_num * num_columns -
+                      std::min(start_block_num, upper_start_block);
+  // Change to lower num columns if applicable.
+  // (This should not compile to a conditional branch.)
+  num_columns -= (start_block_num < upper_start_block) ? 1 : 0;
+
+  Index start_bit = start_slot % kCoeffBits;
+
+  Index segment_count = num_columns + (start_bit == 0 ? 0 : num_columns);
+
+  iss.PrefetchSegmentRange(segment_num, segment_num + segment_count);
+
+  *saved_hash = hash;
+  *saved_segment_num = segment_num;
+  *saved_num_columns = num_columns;
+  *saved_start_bit = start_bit;
+}
+
+// General PHSF query from InterleavedSolutionStorage, using data for
+// the query key from InterleavedPrepareQuery
+template <typename InterleavedSolutionStorage, typename PhsfQueryHasher>
+inline typename InterleavedSolutionStorage::ResultRow InterleavedPhsfQuery(
+    typename PhsfQueryHasher::Hash hash,
+    typename InterleavedSolutionStorage::Index segment_num,
+    typename InterleavedSolutionStorage::Index num_columns,
+    typename InterleavedSolutionStorage::Index start_bit,
+    const PhsfQueryHasher &hasher, const InterleavedSolutionStorage &iss) {
   using CoeffRow = typename InterleavedSolutionStorage::CoeffRow;
   using Index = typename InterleavedSolutionStorage::Index;
   using ResultRow = typename InterleavedSolutionStorage::ResultRow;
@@ -1094,32 +1138,20 @@ typename InterleavedSolutionStorage::ResultRow InterleavedPhsfQuery(
 
   constexpr auto kCoeffBits = static_cast<Index>(sizeof(CoeffRow) * 8U);
 
-  const Hash hash = hasher.GetHash(key);
-  const Index start_slot = hasher.GetStart(hash, iss.GetNumStarts());
-
-  const Index upper_start_block = iss.GetUpperStartBlock();
-  Index num_columns = iss.GetUpperNumColumns();
-  Index start_block_num = start_slot / kCoeffBits;
-  Index segment = start_block_num * num_columns -
-                  std::min(start_block_num, upper_start_block);
-  // Change to lower num columns if applicable.
-  // (This should not compile to a conditional branch.)
-  num_columns -= (start_block_num < upper_start_block) ? 1 : 0;
-
   const CoeffRow cr = hasher.GetCoeffRow(hash);
-  Index start_bit = start_slot % kCoeffBits;
 
   ResultRow sr = 0;
-  const CoeffRow cr_left = cr << start_bit;
+  const CoeffRow cr_left = cr << static_cast<unsigned>(start_bit);
   for (Index i = 0; i < num_columns; ++i) {
-    sr ^= BitParity(iss.LoadSegment(segment + i) & cr_left) << i;
+    sr ^= BitParity(iss.LoadSegment(segment_num + i) & cr_left) << i;
   }
 
   if (start_bit > 0) {
-    segment += num_columns;
-    const CoeffRow cr_right = cr >> (kCoeffBits - start_bit);
+    segment_num += num_columns;
+    const CoeffRow cr_right =
+        cr >> static_cast<unsigned>(kCoeffBits - start_bit);
     for (Index i = 0; i < num_columns; ++i) {
-      sr ^= BitParity(iss.LoadSegment(segment + i) & cr_right) << i;
+      sr ^= BitParity(iss.LoadSegment(segment_num + i) & cr_right) << i;
     }
   }
 
@@ -1128,12 +1160,12 @@ typename InterleavedSolutionStorage::ResultRow InterleavedPhsfQuery(
 
 // Filter query a key from InterleavedFilterQuery.
 template <typename InterleavedSolutionStorage, typename FilterQueryHasher>
-bool InterleavedFilterQuery(const typename FilterQueryHasher::Key &key,
-                            const FilterQueryHasher &hasher,
-                            const InterleavedSolutionStorage &iss) {
-  // BEGIN mostly copied from InterleavedPhsfQuery
-  using Hash = typename FilterQueryHasher::Hash;
-
+inline bool InterleavedFilterQuery(
+    typename FilterQueryHasher::Hash hash,
+    typename InterleavedSolutionStorage::Index segment_num,
+    typename InterleavedSolutionStorage::Index num_columns,
+    typename InterleavedSolutionStorage::Index start_bit,
+    const FilterQueryHasher &hasher, const InterleavedSolutionStorage &iss) {
   using CoeffRow = typename InterleavedSolutionStorage::CoeffRow;
   using Index = typename InterleavedSolutionStorage::Index;
   using ResultRow = typename InterleavedSolutionStorage::ResultRow;
@@ -1149,41 +1181,28 @@ bool InterleavedFilterQuery(const typename FilterQueryHasher::Key &key,
 
   constexpr auto kCoeffBits = static_cast<Index>(sizeof(CoeffRow) * 8U);
 
-  const Hash hash = hasher.GetHash(key);
-  const Index start_slot = hasher.GetStart(hash, iss.GetNumStarts());
-
-  const Index upper_start_block = iss.GetUpperStartBlock();
-  Index num_columns = iss.GetUpperNumColumns();
-  Index start_block_num = start_slot / kCoeffBits;
-  Index segment = start_block_num * num_columns -
-                  std::min(start_block_num, upper_start_block);
-  // Change to lower num columns if applicable.
-  // (This should not compile to a conditional branch.)
-  num_columns -= (start_block_num < upper_start_block) ? 1 : 0;
-
   const CoeffRow cr = hasher.GetCoeffRow(hash);
-  Index start_bit = start_slot % kCoeffBits;
-  // END mostly copied from InterleavedPhsfQuery.
-
   const ResultRow expected = hasher.GetResultRowFromHash(hash);
 
   // TODO: consider optimizations such as
-  // * mask fetched values and shift cr, rather than shifting fetched values
   // * get rid of start_bit == 0 condition with careful fetching & shifting
   if (start_bit == 0) {
     for (Index i = 0; i < num_columns; ++i) {
-      if (BitParity(iss.LoadSegment(segment + i) & cr) !=
+      if (BitParity(iss.LoadSegment(segment_num + i) & cr) !=
           (static_cast<int>(expected >> i) & 1)) {
         return false;
       }
     }
   } else {
+    const CoeffRow cr_left = cr << static_cast<unsigned>(start_bit);
+    const CoeffRow cr_right =
+        cr >> static_cast<unsigned>(kCoeffBits - start_bit);
+
     for (Index i = 0; i < num_columns; ++i) {
-      CoeffRow soln_col =
-          (iss.LoadSegment(segment + i) >> static_cast<unsigned>(start_bit)) |
-          (iss.LoadSegment(segment + num_columns + i)
-           << static_cast<unsigned>(kCoeffBits - start_bit));
-      if (BitParity(soln_col & cr) != (static_cast<int>(expected >> i) & 1)) {
+      CoeffRow soln_data =
+          (iss.LoadSegment(segment_num + i) & cr_left) ^
+          (iss.LoadSegment(segment_num + num_columns + i) & cr_right);
+      if (BitParity(soln_data) != (static_cast<int>(expected >> i) & 1)) {
         return false;
       }
     }

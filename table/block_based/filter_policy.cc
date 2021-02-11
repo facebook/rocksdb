@@ -725,13 +725,22 @@ class Standard128RibbonBitsReader : public FilterBitsReader {
   }
 
   virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
-    std::array<uint64_t, MultiGetContext::MAX_BATCH_SIZE> hashes;
+    struct SavedData {
+      uint64_t seeded_hash;
+      uint32_t segment_num;
+      uint32_t num_columns;
+      uint32_t start_bits;
+    };
+    std::array<SavedData, MultiGetContext::MAX_BATCH_SIZE> saved;
     for (int i = 0; i < num_keys; ++i) {
-      hashes[i] = GetSliceHash64(*keys[i]);
-      // FIXME: batched get optimization
+      ribbon::InterleavedPrepareQuery(
+          GetSliceHash64(*keys[i]), hasher_, soln_, &saved[i].seeded_hash,
+          &saved[i].segment_num, &saved[i].num_columns, &saved[i].start_bits);
     }
     for (int i = 0; i < num_keys; ++i) {
-      may_match[i] = soln_.FilterQuery(hashes[i], hasher_);
+      may_match[i] = ribbon::InterleavedFilterQuery(
+          saved[i].seeded_hash, saved[i].segment_num, saved[i].num_columns,
+          saved[i].start_bits, hasher_, soln_);
     }
   }
 

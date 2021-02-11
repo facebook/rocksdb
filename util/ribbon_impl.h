@@ -810,6 +810,20 @@ class SerializableInterleavedSolution {
     assert(data_ != nullptr);  // suppress clang analyzer report
     EncodeFixedGeneric(data_ + segment_num * sizeof(CoeffRow), val);
   }
+  void PrefetchSegmentRange(Index begin_segment_num,
+                            Index end_segment_num) const {
+    if (end_segment_num == begin_segment_num) {
+      // Nothing to do
+      return;
+    }
+    char* cur = data_ + begin_segment_num * sizeof(CoeffRow);
+    char* last = data_ + (end_segment_num - 1) * sizeof(CoeffRow);
+    while (cur < last) {
+      PREFETCH(cur, 0 /* rw */, 1 /* locality */);
+      cur += CACHE_LINE_SIZE;
+    }
+    PREFETCH(last, 0 /* rw */, 1 /* locality */);
+  }
 
   // ********************************************************************
   // High-level API
@@ -846,7 +860,15 @@ class SerializableInterleavedSolution {
       return 0;
     } else {
       // Normal
-      return InterleavedPhsfQuery(input, hasher, *this);
+      // NOTE: not using a struct to encourage compiler optimization
+      Hash hash;
+      Index segment_num;
+      Index num_columns;
+      Index start_bit;
+      InterleavedPrepareQuery(input, hasher, *this, &hash, &segment_num,
+                              &num_columns, &start_bit);
+      return InterleavedPhsfQuery(hash, segment_num, num_columns, start_bit,
+                                  hasher, *this);
     }
   }
 
@@ -859,7 +881,15 @@ class SerializableInterleavedSolution {
     } else {
       // Normal, or upper_num_columns_ == 0 means "no space for data" and
       // thus will always return true.
-      return InterleavedFilterQuery(input, hasher, *this);
+      // NOTE: not using a struct to encourage compiler optimization
+      Hash hash;
+      Index segment_num;
+      Index num_columns;
+      Index start_bit;
+      InterleavedPrepareQuery(input, hasher, *this, &hash, &segment_num,
+                              &num_columns, &start_bit);
+      return InterleavedFilterQuery(hash, segment_num, num_columns, start_bit,
+                                    hasher, *this);
     }
   }
 
