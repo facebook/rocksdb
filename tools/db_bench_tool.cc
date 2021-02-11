@@ -2755,12 +2755,13 @@ class Benchmark {
   Benchmark()
       : cache_(NewCache(FLAGS_cache_size)),
         compressed_cache_(NewCache(FLAGS_compressed_cache_size)),
-        filter_policy_(FLAGS_use_ribbon_filter
-                           ? NewExperimentalRibbonFilterPolicy(FLAGS_bloom_bits)
-                       : FLAGS_bloom_bits >= 0
-                           ? NewBloomFilterPolicy(FLAGS_bloom_bits,
-                                                  FLAGS_use_block_based_filter)
-                           : nullptr),
+        filter_policy_(
+            FLAGS_use_ribbon_filter
+                ? NewExperimentalRibbonFilterPolicy(FLAGS_bloom_bits)
+                : FLAGS_bloom_bits >= 0
+                      ? NewBloomFilterPolicy(FLAGS_bloom_bits,
+                                             FLAGS_use_block_based_filter)
+                      : nullptr),
         prefix_extractor_(NewFixedPrefixTransform(FLAGS_prefix_size)),
         num_(FLAGS_num),
         key_size_(FLAGS_key_size),
