@@ -371,7 +371,7 @@ TEST_F(ConfigurableTest, MutableOptionsTest) {
   ASSERT_OK(mc.ConfigureOption(options, "struct", "{bool=false;}"));
   ASSERT_OK(mc.ConfigureOption(options, "imm", "{int=55;}"));
 
-  options.only_mutable_options = true;
+  options.mutable_options_only = true;
 
   // Now only mutable options should be settable.
   ASSERT_NOK(mc.ConfigureOption(options, "bool", "true"));

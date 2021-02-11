@@ -508,7 +508,7 @@ class OptionTypeInfo {
   bool IsEnabled(OptionTypeFlags otf) const { return (flags_ & otf) == otf; }
 
   bool IsEditable(const ConfigOptions& opts) const {
-    if (opts.only_mutable_options) {
+    if (opts.mutable_options_only) {
       return IsMutable();
     } else {
       return true;
