@@ -115,6 +115,11 @@ Status AwsCloudAccessCredentials::GetCredentialsProvider(
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider>* result) const {
   result->reset();
 
+  if (provider) {
+      *result = provider;
+      return Status::OK();
+  }
+
   AwsAccessType aws_type = GetAccessType();
   Status status = CheckCredentials(aws_type);
   if (status.ok()) {

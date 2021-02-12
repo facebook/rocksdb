@@ -81,6 +81,9 @@ class AwsCloudAccessCredentials {
   std::string secret_key;
   std::string config_file;
   AwsAccessType type{AwsAccessType::kUndefined};
+
+  // If non-nullptr, all of the above options are ignored.
+  std::shared_ptr<Aws::Auth::AWSCredentialsProvider> provider;
 };
 
 // Defines parameters required to connect to Kafka
