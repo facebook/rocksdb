@@ -12,16 +12,28 @@
 #include <regex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
+
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
-class Logger;
+class DynamicLibrary;
+class ObjectLibrary;
+
 // Returns a new T when called with a string. Populates the std::unique_ptr
 // argument if granting ownership to caller.
 template <typename T>
 using FactoryFunc =
     std::function<T*(const std::string&, std::unique_ptr<T>*, std::string*)>;
+
+// The signature of the function for loading factories
+// into an object library.  This method is expected to register
+// factory functions in the supplied ObjectLibrary.
+// @param library   The library to load factories into.
+// @param arg       Argument to the library loader
+// @return          The number of factories registered by this function
+using RegistrarFunc = std::function<int(ObjectLibrary&, const std::string&)>;
 
 class ObjectLibrary {
  public:
@@ -65,7 +77,26 @@ class ObjectLibrary {
   // Finds the entry matching the input name and type
   const Entry* FindEntry(const std::string& type,
                          const std::string& name) const;
-  void Dump(Logger* logger) const;
+
+  // Returns the number of registered types for this library.
+  // If specified (not-null), types is updated to include the names of the
+  // registered types.
+  size_t GetRegisteredTypes(std::unordered_set<std::string>* types) const;
+
+  // Returns the number of registered names for the input type
+  // If specified (not-null), names is updated to include the names for the type
+  size_t GetNamesForType(const std::string& type,
+                         std::vector<std::string>* names) const;
+
+  // Returns the total number of factories registered for this library.
+  // This method returns the sum of all factories registered for all types.
+  // @param num_types returns how many unique types are registered.
+  size_t GetFactoryCount(size_t* num_types) const;
+
+  // Invokes the registrar function with the supplied arg for this library.
+  int Register(const RegistrarFunc& registrar, const std::string& arg) {
+    return registrar(*this, arg);
+  }
 
   // Registers the factory with the library for the pattern.
   // If the pattern matches, the factory may be used to create a new object.
@@ -92,13 +123,17 @@ class ObjectLibrary {
 // not be known in advance.
 class ObjectRegistry {
  public:
+  virtual ~ObjectRegistry() {}
+
+  // Returns the default ObjectRegistry
+  static std::shared_ptr<ObjectRegistry>& Default();
+
+  // Returns a new ObjectRegistry with a parent of Default()
   static std::shared_ptr<ObjectRegistry> NewInstance();
 
-  ObjectRegistry();
-
-  void AddLibrary(const std::shared_ptr<ObjectLibrary>& library) {
-    libraries_.emplace_back(library);
-  }
+  // Returns a new ObjectRegistry with the specified parent
+  static std::shared_ptr<ObjectRegistry> NewInstance(
+      const std::shared_ptr<ObjectRegistry>& parent);
 
   // Creates a new T using the factory function that was registered with a
   // pattern that matches the provided "target" string according to
@@ -189,17 +224,42 @@ class ObjectRegistry {
     }
   }
 
-  // Dump the contents of the registry to the logger
-  void Dump(Logger* logger) const;
+  // Creates a new ObjectLibrary within this ObjectRegistry and invokes
+  // registrar(arg) to register the appropriate factories in the new library.
+  // Returns the number of factories registered.
+  virtual int AddProgramLibrary(const RegistrarFunc& registrar,
+                                const std::string& arg) = 0;
 
- private:
-  const ObjectLibrary::Entry* FindEntry(const std::string& type,
-                                        const std::string& name) const;
+  // Creates a new ObjectLibrary within this ObjectRegistry.
+  // Loads the registrar func named "method" from the input library and, upon
+  // success, invokes registrar(arg) to register the appropriate factories in
+  // the new library. Returns OK if method was found in the library and non-OK
+  // otherwise.
+  virtual Status AddLoadedLibrary(
+      const std::shared_ptr<DynamicLibrary>& library, const std::string& method,
+      const std::string& arg) = 0;
 
-  // The set of libraries to search for factories for this registry.
-  // The libraries are searched in reverse order (back to front) when
-  // searching for entries.
-  std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
+  // Returns the number of registered types for this registry.
+  // If specified (not-null), types is updated to include the names of the
+  // registered types.
+  virtual size_t GetRegisteredTypes(
+      std::unordered_set<std::string>* types) const = 0;
+  // Returns the number of registered names for the input type
+  // If specified (not-null), names is updated to include the names for the type
+  virtual size_t GetNamesForType(
+      const std::string& type,
+      std::vector<std::string>* names = nullptr) const = 0;
+
+  // Returns the total number of factories registered for this library.
+  // This method returns the sum of all factories registered for all types.
+  // @param num_types returns how many unique types are registered.
+  virtual size_t GetFactoryCount(size_t* num_types) const = 0;
+
+ protected:
+  friend class ObjectRegistryImpl;
+
+  virtual const ObjectLibrary::Entry* FindEntry(
+      const std::string& type, const std::string& name) const = 0;
 };
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

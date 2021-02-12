@@ -10,6 +10,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
+
 // Looks through the "type" factories for one that matches "name".
 // If found, returns the pointer to the Entry matching this name.
 // Otherwise, nullptr is returned
@@ -26,24 +27,46 @@ const ObjectLibrary::Entry *ObjectLibrary::FindEntry(
   return nullptr;
 }
 
+size_t ObjectLibrary::GetFactoryCount(size_t *types) const {
+  *types = entries_.size();
+  size_t factories = 0;
+  for (const auto &e : entries_) {
+    factories += e.second.size();
+  }
+  return factories;
+}
+
 void ObjectLibrary::AddEntry(const std::string &type,
                              std::unique_ptr<Entry> &entry) {
   auto &entries = entries_[type];
   entries.emplace_back(std::move(entry));
 }
 
-void ObjectLibrary::Dump(Logger *logger) const {
+size_t ObjectLibrary::GetRegisteredTypes(
+    std::unordered_set<std::string> *types) const {
+  size_t count = 0;
   for (const auto &iter : entries_) {
-    ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
-                     iter.first.c_str());
-    bool printed_one = false;
-    for (const auto &e : iter.second) {
-      ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':',
-                       e->Name().c_str());
-      printed_one = true;
+    types->insert(iter.first);
+    count++;
+  }
+  return count;
+}
+
+size_t ObjectLibrary::GetNamesForType(const std::string &type,
+                                      std::vector<std::string> *names) const {
+  size_t count = 0;
+  auto iter = entries_.find(type);
+  if (iter == entries_.end()) {
+    count = 0;  // No entry, no count
+  } else {
+    count = iter->second.size();
+    if (names != nullptr) {
+      for (const auto &f : iter->second) {
+        names->push_back(f->Name());
+      }
     }
   }
-  ROCKS_LOG_HEADER(logger, "\n");
+  return count;
 }
 
 // Returns the Default singleton instance of the ObjectLibrary
@@ -54,19 +77,89 @@ std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
   return instance;
 }
 
-std::shared_ptr<ObjectRegistry> ObjectRegistry::NewInstance() {
-  std::shared_ptr<ObjectRegistry> instance = std::make_shared<ObjectRegistry>();
+class ObjectRegistryImpl : public ObjectRegistry {
+ public:
+  ObjectRegistryImpl() { libraries_.push_back(ObjectLibrary::Default()); }
+
+  ObjectRegistryImpl(const std::shared_ptr<ObjectRegistry> &parent)
+      : parent_(parent) {}
+
+  int AddProgramLibrary(const RegistrarFunc &registrar,
+                        const std::string &arg) override;
+
+  Status AddLoadedLibrary(const std::shared_ptr<DynamicLibrary> &dyn_lib,
+                          const std::string &method,
+                          const std::string &arg) override;
+
+  // Returns the number of registered types for this registry.
+  // If specified (not-null), types is updated to include the names of the
+  // registered types.
+  size_t GetRegisteredTypes(
+      std::unordered_set<std::string> *types) const override;
+
+  // Returns the number of registered names for the input type
+  // If specified (not-null), names is updated to include the names for the type
+  size_t GetNamesForType(
+      const std::string &type,
+      std::vector<std::string> *names = nullptr) const override;
+
+  // Returns the total number of factories registered for this library.
+  // This method returns the sum of all factories registered for all types.
+  // @param num_types returns how many unique types are registered.
+  size_t GetFactoryCount(size_t *num_types) const override;
+
+ protected:
+  const ObjectLibrary::Entry *FindEntry(const std::string &type,
+                                        const std::string &name) const override;
+
+ private:
+  // The set of libraries to search for factories for this registry.
+  // The libraries are searched in reverse order (back to front) when
+  // searching for entries.
+  std::vector<std::shared_ptr<ObjectLibrary>> libraries_;
+  std::shared_ptr<ObjectRegistry> parent_;
+};
+
+std::shared_ptr<ObjectRegistry> &ObjectRegistry::Default() {
+  static std::shared_ptr<ObjectRegistry> instance =
+      std::make_shared<ObjectRegistryImpl>();
   return instance;
 }
 
-ObjectRegistry::ObjectRegistry() {
-  libraries_.push_back(ObjectLibrary::Default());
+std::shared_ptr<ObjectRegistry> ObjectRegistry::NewInstance() {
+  return NewInstance(Default());
 }
 
-// Searches (from back to front) the libraries looking for the
+std::shared_ptr<ObjectRegistry> ObjectRegistry::NewInstance(
+    const std::shared_ptr<ObjectRegistry> &parent) {
+  return std::make_shared<ObjectRegistryImpl>(parent);
+}
+
+int ObjectRegistryImpl::AddProgramLibrary(const RegistrarFunc &registrar,
+                                          const std::string &arg) {
+  auto library = std::make_shared<ObjectLibrary>();
+  int count = registrar(*(library.get()), arg);
+  libraries_.push_back(library);
+  return count;
+}
+
+Status ObjectRegistryImpl::AddLoadedLibrary(
+    const std::shared_ptr<DynamicLibrary> &dyn_lib, const std::string &method,
+    const std::string &arg) {
+  RegistrarFunc registrar;
+  Status s = dyn_lib->LoadFunction(method, &registrar);
+  if (s.ok()) {
+    auto library = std::make_shared<ObjectLibrary>();
+    registrar(*(library.get()), arg);
+    libraries_.push_back(library);
+  }
+  return s;
+}
+
+// Searches (from back to front) the libraries looking for
 // an entry that matches this pattern.
 // Returns the entry if it is found, and nullptr otherwise
-const ObjectLibrary::Entry *ObjectRegistry::FindEntry(
+const ObjectLibrary::Entry *ObjectRegistryImpl::FindEntry(
     const std::string &type, const std::string &name) const {
   for (auto iter = libraries_.crbegin(); iter != libraries_.crend(); ++iter) {
     const auto *entry = iter->get()->FindEntry(type, name);
@@ -74,13 +167,54 @@ const ObjectLibrary::Entry *ObjectRegistry::FindEntry(
       return entry;
     }
   }
-  return nullptr;
+  if (parent_ != nullptr) {
+    return parent_->FindEntry(type, name);
+  } else {
+    return nullptr;
+  }
 }
 
-void ObjectRegistry::Dump(Logger *logger) const {
-  for (auto iter = libraries_.crbegin(); iter != libraries_.crend(); ++iter) {
-    iter->get()->Dump(logger);
+// Returns the number of registered types for this registry.
+// If specified (not-null), types is updated to include the names of the
+// registered types.
+size_t ObjectRegistryImpl::GetRegisteredTypes(
+    std::unordered_set<std::string> *types) const {
+  assert(types);
+  for (const auto &library : libraries_) {
+    library->GetRegisteredTypes(types);
   }
+  if (parent_ != nullptr) {
+    parent_->GetRegisteredTypes(types);
+  }
+  return types->size();
+}
+
+size_t ObjectRegistryImpl::GetNamesForType(
+    const std::string &type, std::vector<std::string> *names) const {
+  size_t count = 0;
+  for (const auto &library : libraries_) {
+    count += library->GetNamesForType(type, names);
+  }
+  if (parent_ != nullptr) {
+    count += parent_->GetNamesForType(type, names);
+  }
+  return count;
+}
+
+// Returns the total number of factories registered for this library.
+// This method returns the sum of all factories registered for all types.
+// @param num_types returns how many unique types are registered.
+size_t ObjectRegistryImpl::GetFactoryCount(size_t *num_types) const {
+  std::unordered_set<std::string> types;
+  *num_types = GetRegisteredTypes(&types);
+  size_t count = 0;
+  for (const auto &type : types) {
+    count += GetNamesForType(type);
+  }
+  if (parent_ != nullptr) {
+    count += parent_->GetFactoryCount(num_types);
+  }
+  return count;
 }
 
 #endif  // ROCKSDB_LITE
