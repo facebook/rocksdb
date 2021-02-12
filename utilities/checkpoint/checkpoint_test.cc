@@ -314,6 +314,7 @@ TEST_F(CheckpointTest, GetSnapshotLink) {
 }
 
 TEST_F(CheckpointTest, CheckpointWithBlob) {
+  // Create a database with a blob file
   Options options = CurrentOptions();
   options.create_if_missing = true;
   options.enable_blob_files = true;
@@ -327,6 +328,7 @@ TEST_F(CheckpointTest, CheckpointWithBlob) {
   ASSERT_OK(Put(key, blob));
   ASSERT_OK(Flush());
 
+  // Create a checkpoint
   Checkpoint* checkpoint = nullptr;
   ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
 
@@ -334,19 +336,35 @@ TEST_F(CheckpointTest, CheckpointWithBlob) {
 
   ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name_));
 
-  {
-    options.create_if_missing = false;
-    DB* checkpoint_db = nullptr;
-    ASSERT_OK(DB::Open(options, snapshot_name_, &checkpoint_db));
+  // Make sure it contains the blob file
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(snapshot_name_, &files));
 
-    std::unique_ptr<DB> checkpoint_db_guard(checkpoint_db);
+  bool blob_file_found = false;
+  for (const auto& file : files) {
+    uint64_t number = 0;
+    FileType type = kWalFile;
 
-    PinnableSlice value;
-    ASSERT_OK(checkpoint_db->Get(
-        ReadOptions(), checkpoint_db->DefaultColumnFamily(), key, &value));
-
-    ASSERT_EQ(value, blob);
+    if (ParseFileName(file, &number, &type) && type == kBlobFile) {
+      blob_file_found = true;
+      break;
+    }
   }
+
+  ASSERT_TRUE(blob_file_found);
+
+  // Make sure the checkpoint can be opened and the blob value read
+  options.create_if_missing = false;
+  DB* checkpoint_db = nullptr;
+  ASSERT_OK(DB::Open(options, snapshot_name_, &checkpoint_db));
+
+  std::unique_ptr<DB> checkpoint_db_guard(checkpoint_db);
+
+  PinnableSlice value;
+  ASSERT_OK(checkpoint_db->Get(
+      ReadOptions(), checkpoint_db->DefaultColumnFamily(), key, &value));
+
+  ASSERT_EQ(value, blob);
 }
 
 TEST_F(CheckpointTest, ExportColumnFamilyWithLinks) {
