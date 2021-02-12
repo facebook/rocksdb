@@ -279,7 +279,6 @@ blob_params = {
     "use_merge": 0,
     "enable_compaction_filter": 0,
     "backup_one_in": 0,
-    "checkpoint_one_in": 0,
 }
 
 def finalize_and_sanitize(src_params):
