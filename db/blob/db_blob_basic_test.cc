@@ -210,6 +210,34 @@ TEST_F(DBBlobBasicTest, GetBlob_IndexWithInvalidFileNumber) {
                   .IsCorruption());
 }
 
+TEST_F(DBBlobBasicTest, GenerateIOTracing) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+
+  Reopen(options);
+
+  std::string trace_file = dbname_ + "/io_trace_file";
+  std::unique_ptr<TraceWriter> trace_writer;
+  ASSERT_OK(NewFileTraceWriter(env_, EnvOptions(), trace_file, &trace_writer));
+
+  ASSERT_OK(db_->StartIOTrace(env_, TraceOptions(), std::move(trace_writer)));
+
+  constexpr char key[] = "key";
+  constexpr char blob_value[] = "blob_value";
+
+  ASSERT_OK(Put(key, blob_value));
+  ASSERT_OK(Flush());
+  ASSERT_EQ(Get(key), blob_value);
+
+  ASSERT_OK(db_->EndIOTrace());
+  ASSERT_OK(env_->FileExists(trace_file));
+
+  if (env_->FileExists(trace_file).ok()) {
+    ASSERT_OK(env_->DeleteFile(trace_file));
+  }
+}
+
 class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
                                public testing::WithParamInterface<std::string> {
  protected:

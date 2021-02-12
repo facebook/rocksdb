@@ -26,6 +26,7 @@ class BlobFileAddition;
 class Status;
 class Slice;
 class BlobLogWriter;
+class IOTracer;
 
 class BlobFileBuilder {
  public:
@@ -38,7 +39,8 @@ class BlobFileBuilder {
                   Env::IOPriority io_priority,
                   Env::WriteLifeTimeHint write_hint,
                   std::vector<std::string>* blob_file_paths,
-                  std::vector<BlobFileAddition>* blob_file_additions);
+                  std::vector<BlobFileAddition>* blob_file_additions,
+                  const std::shared_ptr<IOTracer>& io_tracer);
 
   BlobFileBuilder(std::function<uint64_t()> file_number_generator, Env* env,
                   FileSystem* fs,
@@ -50,7 +52,8 @@ class BlobFileBuilder {
                   Env::IOPriority io_priority,
                   Env::WriteLifeTimeHint write_hint,
                   std::vector<std::string>* blob_file_paths,
-                  std::vector<BlobFileAddition>* blob_file_additions);
+                  std::vector<BlobFileAddition>* blob_file_additions,
+                  const std::shared_ptr<IOTracer>& io_tracer);
 
   BlobFileBuilder(const BlobFileBuilder&) = delete;
   BlobFileBuilder& operator=(const BlobFileBuilder&) = delete;
@@ -87,6 +90,7 @@ class BlobFileBuilder {
   std::unique_ptr<BlobLogWriter> writer_;
   uint64_t blob_count_;
   uint64_t blob_bytes_;
+  std::shared_ptr<IOTracer> io_tracer_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

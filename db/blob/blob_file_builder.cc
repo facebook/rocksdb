@@ -21,6 +21,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "test_util/sync_point.h"
+#include "trace_replay/io_tracer.h"
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -33,12 +34,13 @@ BlobFileBuilder::BlobFileBuilder(
     const std::string& column_family_name, Env::IOPriority io_priority,
     Env::WriteLifeTimeHint write_hint,
     std::vector<std::string>* blob_file_paths,
-    std::vector<BlobFileAddition>* blob_file_additions)
+    std::vector<BlobFileAddition>* blob_file_additions,
+    const std::shared_ptr<IOTracer>& io_tracer)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, env,
                       fs, immutable_cf_options, mutable_cf_options,
                       file_options, job_id, column_family_id,
                       column_family_name, io_priority, write_hint,
-                      blob_file_paths, blob_file_additions) {}
+                      blob_file_paths, blob_file_additions, io_tracer) {}
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, Env* env, FileSystem* fs,
@@ -48,7 +50,8 @@ BlobFileBuilder::BlobFileBuilder(
     const std::string& column_family_name, Env::IOPriority io_priority,
     Env::WriteLifeTimeHint write_hint,
     std::vector<std::string>* blob_file_paths,
-    std::vector<BlobFileAddition>* blob_file_additions)
+    std::vector<BlobFileAddition>* blob_file_additions,
+    const std::shared_ptr<IOTracer>& io_tracer)
     : file_number_generator_(std::move(file_number_generator)),
       fs_(fs),
       immutable_cf_options_(immutable_cf_options),
@@ -64,7 +67,8 @@ BlobFileBuilder::BlobFileBuilder(
       blob_file_paths_(blob_file_paths),
       blob_file_additions_(blob_file_additions),
       blob_count_(0),
-      blob_bytes_(0) {
+      blob_bytes_(0),
+      io_tracer_(io_tracer) {
   assert(file_number_generator_);
   assert(env);
   assert(fs_);
@@ -182,7 +186,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   Statistics* const statistics = immutable_cf_options_->statistics;
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
       std::move(file), blob_file_paths_->back(), *file_options_, clock_,
-      nullptr /*IOTracer*/, statistics, immutable_cf_options_->listeners,
+      io_tracer_, statistics, immutable_cf_options_->listeners,
       immutable_cf_options_->file_checksum_gen_factory,
       tmp_set.Contains(FileType::kBlobFile)));
 

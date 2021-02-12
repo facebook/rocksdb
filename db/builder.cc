@@ -180,7 +180,7 @@ Status BuildTable(
                                   &mutable_cf_options, &file_options, job_id,
                                   column_family_id, column_family_name,
                                   io_priority, write_hint, &blob_file_paths,
-                                  blob_file_additions)
+                                  blob_file_additions, io_tracer)
             : nullptr);
 
     CompactionIterator c_iter(
