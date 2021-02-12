@@ -210,6 +210,7 @@ TEST_F(DBBlobBasicTest, GetBlob_IndexWithInvalidFileNumber) {
                   .IsCorruption());
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBBlobBasicTest, GenerateIOTracing) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
@@ -237,6 +238,7 @@ TEST_F(DBBlobBasicTest, GenerateIOTracing) {
     ASSERT_OK(env_->DeleteFile(trace_file));
   }
 }
+#endif  // !ROCKSDB_LITE
 
 class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
                                public testing::WithParamInterface<std::string> {
