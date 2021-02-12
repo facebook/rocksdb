@@ -33,14 +33,14 @@ BlobFileBuilder::BlobFileBuilder(
     int job_id, uint32_t column_family_id,
     const std::string& column_family_name, Env::IOPriority io_priority,
     Env::WriteLifeTimeHint write_hint,
+    const std::shared_ptr<IOTracer>& io_tracer,
     std::vector<std::string>* blob_file_paths,
-    std::vector<BlobFileAddition>* blob_file_additions,
-    const std::shared_ptr<IOTracer>& io_tracer)
+    std::vector<BlobFileAddition>* blob_file_additions)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, env,
                       fs, immutable_cf_options, mutable_cf_options,
                       file_options, job_id, column_family_id,
-                      column_family_name, io_priority, write_hint,
-                      blob_file_paths, blob_file_additions, io_tracer) {}
+                      column_family_name, io_priority, write_hint, io_tracer,
+                      blob_file_paths, blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
     std::function<uint64_t()> file_number_generator, Env* env, FileSystem* fs,
@@ -49,9 +49,9 @@ BlobFileBuilder::BlobFileBuilder(
     int job_id, uint32_t column_family_id,
     const std::string& column_family_name, Env::IOPriority io_priority,
     Env::WriteLifeTimeHint write_hint,
+    const std::shared_ptr<IOTracer>& io_tracer,
     std::vector<std::string>* blob_file_paths,
-    std::vector<BlobFileAddition>* blob_file_additions,
-    const std::shared_ptr<IOTracer>& io_tracer)
+    std::vector<BlobFileAddition>* blob_file_additions)
     : file_number_generator_(std::move(file_number_generator)),
       fs_(fs),
       immutable_cf_options_(immutable_cf_options),
@@ -64,11 +64,11 @@ BlobFileBuilder::BlobFileBuilder(
       column_family_name_(column_family_name),
       io_priority_(io_priority),
       write_hint_(write_hint),
+      io_tracer_(io_tracer),
       blob_file_paths_(blob_file_paths),
       blob_file_additions_(blob_file_additions),
       blob_count_(0),
-      blob_bytes_(0),
-      io_tracer_(io_tracer) {
+      blob_bytes_(0) {
   assert(file_number_generator_);
   assert(env);
   assert(fs_);

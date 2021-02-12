@@ -143,8 +143,8 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckOneFile) {
   BlobFileBuilder builder(
       TestFileNumberGenerator(), &mock_env_, fs_, &immutable_cf_options,
       &mutable_cf_options, &file_options_, job_id, column_family_id,
-      column_family_name, io_priority, write_hint, &blob_file_paths,
-      &blob_file_additions, nullptr /*IOTracer*/);
+      column_family_name, io_priority, write_hint, nullptr /*IOTracer*/,
+      &blob_file_paths, &blob_file_additions);
 
   std::vector<std::pair<std::string, std::string>> expected_key_value_pairs(
       number_of_blobs);
@@ -226,8 +226,8 @@ TEST_F(BlobFileBuilderTest, BuildAndCheckMultipleFiles) {
   BlobFileBuilder builder(
       TestFileNumberGenerator(), &mock_env_, fs_, &immutable_cf_options,
       &mutable_cf_options, &file_options_, job_id, column_family_id,
-      column_family_name, io_priority, write_hint, &blob_file_paths,
-      &blob_file_additions, nullptr /*IOTracer*/);
+      column_family_name, io_priority, write_hint, nullptr /*IOTracer*/,
+      &blob_file_paths, &blob_file_additions);
 
   std::vector<std::pair<std::string, std::string>> expected_key_value_pairs(
       number_of_blobs);
@@ -311,8 +311,8 @@ TEST_F(BlobFileBuilderTest, InlinedValues) {
   BlobFileBuilder builder(
       TestFileNumberGenerator(), &mock_env_, fs_, &immutable_cf_options,
       &mutable_cf_options, &file_options_, job_id, column_family_id,
-      column_family_name, io_priority, write_hint, &blob_file_paths,
-      &blob_file_additions, nullptr /*IOTracer*/);
+      column_family_name, io_priority, write_hint, nullptr /*IOTracer*/,
+      &blob_file_paths, &blob_file_additions);
 
   for (size_t i = 0; i < number_of_blobs; ++i) {
     const std::string key = std::to_string(i);
@@ -363,8 +363,8 @@ TEST_F(BlobFileBuilderTest, Compression) {
   BlobFileBuilder builder(
       TestFileNumberGenerator(), &mock_env_, fs_, &immutable_cf_options,
       &mutable_cf_options, &file_options_, job_id, column_family_id,
-      column_family_name, io_priority, write_hint, &blob_file_paths,
-      &blob_file_additions, nullptr /*IOTracer*/);
+      column_family_name, io_priority, write_hint, nullptr /*IOTracer*/,
+      &blob_file_paths, &blob_file_additions);
 
   const std::string key("1");
   const std::string uncompressed_value(value_size, 'x');
@@ -445,8 +445,8 @@ TEST_F(BlobFileBuilderTest, CompressionError) {
   BlobFileBuilder builder(
       TestFileNumberGenerator(), &mock_env_, fs_, &immutable_cf_options,
       &mutable_cf_options, &file_options_, job_id, column_family_id,
-      column_family_name, io_priority, write_hint, &blob_file_paths,
-      &blob_file_additions, nullptr /*IOTracer*/);
+      column_family_name, io_priority, write_hint, nullptr /*IOTracer*/,
+      &blob_file_paths, &blob_file_additions);
 
   SyncPoint::GetInstance()->SetCallBack("CompressData:TamperWithReturnValue",
                                         [](void* arg) {
@@ -522,8 +522,8 @@ TEST_F(BlobFileBuilderTest, Checksum) {
   BlobFileBuilder builder(
       TestFileNumberGenerator(), &mock_env_, fs_, &immutable_cf_options,
       &mutable_cf_options, &file_options_, job_id, column_family_id,
-      column_family_name, io_priority, write_hint, &blob_file_paths,
-      &blob_file_additions, nullptr /*IOTracer*/);
+      column_family_name, io_priority, write_hint, nullptr /*IOTracer*/,
+      &blob_file_paths, &blob_file_additions);
 
   const std::string key("1");
   const std::string value("deadbeef");
@@ -618,8 +618,8 @@ TEST_P(BlobFileBuilderIOErrorTest, IOError) {
   BlobFileBuilder builder(
       TestFileNumberGenerator(), &mock_env_, fs_, &immutable_cf_options,
       &mutable_cf_options, &file_options_, job_id, column_family_id,
-      column_family_name, io_priority, write_hint, &blob_file_paths,
-      &blob_file_additions, nullptr /*IOTracer*/);
+      column_family_name, io_priority, write_hint, nullptr /*IOTracer*/,
+      &blob_file_paths, &blob_file_additions);
 
   SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* arg) {
     Status* const s = static_cast<Status*>(arg);

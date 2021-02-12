@@ -74,7 +74,7 @@ Status BlobFileCache::GetBlobFileReader(
     assert(file_options_);
     const Status s = BlobFileReader::Create(
         *immutable_cf_options_, *file_options_, column_family_id_,
-        blob_file_read_hist_, blob_file_number, &reader, io_tracer_);
+        blob_file_read_hist_, blob_file_number, io_tracer_, &reader);
     if (!s.ok()) {
       RecordTick(statistics, NO_FILE_ERRORS);
       return s;

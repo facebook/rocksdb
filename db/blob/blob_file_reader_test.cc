@@ -144,7 +144,7 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
   ASSERT_OK(BlobFileReader::Create(
       immutable_cf_options, FileOptions(), column_family_id,
-      blob_file_read_hist, blob_file_number, &reader, nullptr /*IOTracer*/));
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
 
   // Make sure the blob can be retrieved with and without checksum verification
   ReadOptions read_options;
@@ -282,8 +282,8 @@ TEST_F(BlobFileReaderTest, Malformed) {
 
   ASSERT_TRUE(BlobFileReader::Create(immutable_cf_options, FileOptions(),
                                      column_family_id, blob_file_read_hist,
-                                     blob_file_number, &reader,
-                                     nullptr /*IOTracer*/)
+                                     blob_file_number, nullptr /*IOTracer*/,
+                                     &reader)
                   .IsCorruption());
 }
 
@@ -316,8 +316,8 @@ TEST_F(BlobFileReaderTest, TTL) {
 
   ASSERT_TRUE(BlobFileReader::Create(immutable_cf_options, FileOptions(),
                                      column_family_id, blob_file_read_hist,
-                                     blob_file_number, &reader,
-                                     nullptr /*IOTracer*/)
+                                     blob_file_number, nullptr /*IOTracer*/,
+                                     &reader)
                   .IsCorruption());
 }
 
@@ -355,8 +355,8 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInHeader) {
 
   ASSERT_TRUE(BlobFileReader::Create(immutable_cf_options, FileOptions(),
                                      column_family_id, blob_file_read_hist,
-                                     blob_file_number, &reader,
-                                     nullptr /*IOTracer*/)
+                                     blob_file_number, nullptr /*IOTracer*/,
+                                     &reader)
                   .IsCorruption());
 }
 
@@ -394,8 +394,8 @@ TEST_F(BlobFileReaderTest, ExpirationRangeInFooter) {
 
   ASSERT_TRUE(BlobFileReader::Create(immutable_cf_options, FileOptions(),
                                      column_family_id, blob_file_read_hist,
-                                     blob_file_number, &reader,
-                                     nullptr /*IOTracer*/)
+                                     blob_file_number, nullptr /*IOTracer*/,
+                                     &reader)
                   .IsCorruption());
 }
 
@@ -433,7 +433,7 @@ TEST_F(BlobFileReaderTest, IncorrectColumnFamily) {
   ASSERT_TRUE(BlobFileReader::Create(immutable_cf_options, FileOptions(),
                                      incorrect_column_family_id,
                                      blob_file_read_hist, blob_file_number,
-                                     &reader, nullptr /*IOTracer*/)
+                                     nullptr /*IOTracer*/, &reader)
                   .IsCorruption());
 }
 
@@ -466,7 +466,7 @@ TEST_F(BlobFileReaderTest, BlobCRCError) {
 
   ASSERT_OK(BlobFileReader::Create(
       immutable_cf_options, FileOptions(), column_family_id,
-      blob_file_read_hist, blob_file_number, &reader, nullptr /*IOTracer*/));
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
 
   SyncPoint::GetInstance()->SetCallBack(
       "BlobFileReader::VerifyBlob:CheckBlobCRC", [](void* arg) {
@@ -522,7 +522,7 @@ TEST_F(BlobFileReaderTest, Compression) {
 
   ASSERT_OK(BlobFileReader::Create(
       immutable_cf_options, FileOptions(), column_family_id,
-      blob_file_read_hist, blob_file_number, &reader, nullptr /*IOTracer*/));
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
 
   // Make sure the blob can be retrieved with and without checksum verification
   ReadOptions read_options;
@@ -582,7 +582,7 @@ TEST_F(BlobFileReaderTest, UncompressionError) {
 
   ASSERT_OK(BlobFileReader::Create(
       immutable_cf_options, FileOptions(), column_family_id,
-      blob_file_read_hist, blob_file_number, &reader, nullptr /*IOTracer*/));
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader));
 
   SyncPoint::GetInstance()->SetCallBack(
       "BlobFileReader::UncompressBlobIfNeeded:TamperWithResult", [](void* arg) {
@@ -667,7 +667,7 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
 
   const Status s = BlobFileReader::Create(
       immutable_cf_options, FileOptions(), column_family_id,
-      blob_file_read_hist, blob_file_number, &reader, nullptr /*IOTracer*/);
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader);
 
   const bool fail_during_create =
       (sync_point_ != "BlobFileReader::GetBlob:ReadFromFile");
@@ -747,7 +747,7 @@ TEST_P(BlobFileReaderDecodingErrorTest, DecodingError) {
 
   const Status s = BlobFileReader::Create(
       immutable_cf_options, FileOptions(), column_family_id,
-      blob_file_read_hist, blob_file_number, &reader, nullptr /*IOTracer*/);
+      blob_file_read_hist, blob_file_number, nullptr /*IOTracer*/, &reader);
 
   const bool fail_during_create =
       sync_point_ != "BlobFileReader::GetBlob:TamperWithResult";
