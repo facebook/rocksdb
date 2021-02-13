@@ -306,6 +306,10 @@ struct BlockBasedTableBuilder::Rep {
     kClosed,
   };
   State state;
+  // `kBuffered` state is allowed only as long as the buffering of uncompressed
+  // data blocks (see `data_block_and_keys_buffers`) does not exceed
+  // `buffer_limit`.
+  uint64_t buffer_limit;
 
   const bool use_delta_encoding_for_index_values;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
@@ -321,7 +325,6 @@ struct BlockBasedTableBuilder::Rep {
   const std::string& column_family_name;
   uint64_t creation_time = 0;
   uint64_t oldest_key_time = 0;
-  const uint64_t target_file_size;
   uint64_t file_creation_time = 0;
 
   // DB IDs
@@ -407,7 +410,7 @@ struct BlockBasedTableBuilder::Rep {
       const CompressionOptions& _compression_opts, const bool skip_filters,
       const int _level_at_creation, const std::string& _column_family_name,
       const uint64_t _creation_time, const uint64_t _oldest_key_time,
-      const uint64_t _target_file_size, const uint64_t _file_creation_time,
+      const uint64_t target_file_size, const uint64_t _file_creation_time,
       const std::string& _db_id, const std::string& _db_session_id)
       : ioptions(_ioptions),
         moptions(_moptions),
@@ -448,13 +451,20 @@ struct BlockBasedTableBuilder::Rep {
         column_family_name(_column_family_name),
         creation_time(_creation_time),
         oldest_key_time(_oldest_key_time),
-        target_file_size(_target_file_size),
         file_creation_time(_file_creation_time),
         db_id(_db_id),
         db_session_id(_db_session_id),
         db_host_id(ioptions.db_host_id),
         status_ok(true),
         io_status_ok(true) {
+    if (target_file_size == 0) {
+      buffer_limit = compression_opts.max_dict_buffer_bytes;
+    } else if (compression_opts.max_dict_buffer_bytes == 0) {
+      buffer_limit = target_file_size;
+    } else {
+      buffer_limit =
+          std::min(target_file_size, compression_opts.max_dict_buffer_bytes);
+    }
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(new CompressionContext(compression_type));
     }
@@ -896,8 +906,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       r->first_key_in_next_block = &key;
       Flush();
 
-      if (r->state == Rep::State::kBuffered && r->target_file_size != 0 &&
-          r->data_begin_offset > r->target_file_size) {
+      if (r->state == Rep::State::kBuffered && r->buffer_limit != 0 &&
+          r->data_begin_offset > r->buffer_limit) {
         EnterUnbuffered();
       }
 

@@ -105,7 +105,7 @@ static Status ParseCompressionOptions(const std::string& value,
     }
     // Since parallel_threads comes before enabled but was added optionally
     // later, we need to check if this is the final token (meaning it is the
-    // enabled bit), or if there is another token (meaning this one is
+    // enabled bit), or if there are more tokens (meaning this one is
     // parallel_threads)
     end = value.find(':', start);
     if (end != std::string::npos) {
@@ -128,6 +128,18 @@ static Status ParseCompressionOptions(const std::string& value,
     }
     compression_opts.enabled =
         ParseBoolean("", value.substr(start, value.size() - start));
+    end = value.find(':', start);
+  }
+
+  // max_dict_buffer_bytes is optional for backwards compatibility
+  if (end != std::string::npos) {
+    start = end + 1;
+    if (start >= value.size()) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.max_dict_buffer_bytes =
+        ParseUint64(value.substr(start, value.size() - start));
   }
   return Status::OK();
 }
@@ -161,6 +173,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"enabled",
          {offsetof(struct CompressionOptions, enabled), OptionType::kBoolean,
           OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+        {"max_dict_buffer_bytes",
+         {offsetof(struct CompressionOptions, max_dict_buffer_bytes),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>

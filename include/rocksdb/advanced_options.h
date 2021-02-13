@@ -143,6 +143,28 @@ struct CompressionOptions {
   // Default: false.
   bool enabled;
 
+  // Limit on data buffering, which is used to gather samples to build a
+  // dictionary. Zero means no limit. When dictionary is disabled
+  // (`max_dict_bytes == 0`), enabling this limit (`max_dict_buffer_bytes != 0`)
+  // has no effect.
+  //
+  // In compaction, the buffering is limited to the target file size (see
+  // `target_file_size_base` and `target_file_size_multiplier`) even if this
+  // setting permits more buffering. Since we cannot determine where the file
+  // should be cut until data blocks are compressed with dictionary, buffering
+  // more than the target file size could lead to selecting samples that belong
+  // to a later output SST.
+  //
+  // Limiting too strictly may harm dictionary effectiveness since it forces
+  // RocksDB to pick samples from the initial portion of the output SST, which
+  // may not be representative of the whole file. Configuring this limit below
+  // `zstd_max_train_bytes` (when enabled) can restrict how many samples we can
+  // pass to the dictionary trainer. Configuring it below `max_dict_bytes` can
+  // restrict the size of the final dictionary.
+  //
+  // Default: 0 (unlimited)
+  uint64_t max_dict_buffer_bytes;
+
   CompressionOptions()
       : window_bits(-14),
         level(kDefaultCompressionLevel),
