@@ -249,6 +249,9 @@ class TraceAnalyzer {
   Status MakeStatisticKeyStatsOrPrefix(TraceStats& stats);
   Status MakeStatisticCorrelation(TraceStats& stats, StatsUnit& unit);
   Status MakeStatisticQPS();
+  // Set the default trace file version as version 0.2
+  int trace_file_version_;
+  int db_version_;
 };
 
 // write bach handler to be used for WriteBache iterator
