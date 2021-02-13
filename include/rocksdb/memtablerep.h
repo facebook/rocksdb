@@ -62,7 +62,7 @@ class MemTableRep {
     typedef ROCKSDB_NAMESPACE::Slice DecodedType;
 
     virtual DecodedType decode_key(const char* key) const {
-      // The format of key is frozen and can be terated as a part of the API
+      // The format of key is frozen and can be treated as a part of the API
       // contract. Refer to MemTable::Add for details.
       return GetLengthPrefixedSlice(key);
     }
