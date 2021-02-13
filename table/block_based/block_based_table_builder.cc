@@ -1007,23 +1007,28 @@ void BlockBasedTableBuilder::Flush() {
 void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
                                         BlockHandle* handle,
                                         bool is_data_block) {
-  WriteBlock(block->Finish(), handle, is_data_block);
-  block->Reset();
+  block->Finish();
+  std::string raw_block_contents;
+  block->SwapAndReset(raw_block_contents);
+  if (rep_->state == Rep::State::kBuffered) {
+    assert(is_data_block);
+    assert(!rep_->data_block_and_keys_buffers.empty());
+    rep_->data_block_and_keys_buffers.back().first =
+        std::move(raw_block_contents);
+    rep_->data_begin_offset +=
+        rep_->data_block_and_keys_buffers.back().first.size();
+    return;
+  }
+  WriteBlock(raw_block_contents, handle, is_data_block);
 }
 
 void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
                                         BlockHandle* handle,
                                         bool is_data_block) {
   Rep* r = rep_;
+  assert(r->state == Rep::State::kUnbuffered);
   Slice block_contents;
   CompressionType type;
-  if (r->state == Rep::State::kBuffered) {
-    assert(is_data_block);
-    assert(!r->data_block_and_keys_buffers.empty());
-    r->data_block_and_keys_buffers.back().first = raw_block_contents.ToString();
-    r->data_begin_offset += r->data_block_and_keys_buffers.back().first.size();
-    return;
-  }
   Status compress_status;
   CompressAndVerifyBlock(raw_block_contents, is_data_block,
                          *(r->compression_ctxs[0]), r->verify_ctxs[0].get(),
