@@ -113,7 +113,6 @@ static Status ParseCompressionOptions(const std::string& value,
           ParseInt(value.substr(start, value.size() - start));
     } else {
       // parallel_threads is not serialized with this format, but enabled is
-      compression_opts.parallel_threads = CompressionOptions().parallel_threads;
       compression_opts.enabled =
           ParseBoolean("", value.substr(start, value.size() - start));
     }

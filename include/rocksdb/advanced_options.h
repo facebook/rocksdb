@@ -172,17 +172,19 @@ struct CompressionOptions {
         max_dict_bytes(0),
         zstd_max_train_bytes(0),
         parallel_threads(1),
-        enabled(false) {}
+        enabled(false),
+        max_dict_buffer_bytes(0) {}
   CompressionOptions(int wbits, int _lev, int _strategy, int _max_dict_bytes,
                      int _zstd_max_train_bytes, int _parallel_threads,
-                     bool _enabled)
+                     bool _enabled, uint64_t _max_dict_buffer_bytes)
       : window_bits(wbits),
         level(_lev),
         strategy(_strategy),
         max_dict_bytes(_max_dict_bytes),
         zstd_max_train_bytes(_zstd_max_train_bytes),
         parallel_threads(_parallel_threads),
-        enabled(_enabled) {}
+        enabled(_enabled),
+        max_dict_buffer_bytes(_max_dict_buffer_bytes) {}
 };
 
 enum UpdateStatus {    // Return status For inplace update callback
