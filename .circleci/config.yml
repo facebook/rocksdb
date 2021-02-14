@@ -5,4 +5,4 @@ jobs:
     machine: true
     steps:
       - checkout
-      - run: ./run_tests.sh -j 32
+      - run: ./run_tests.sh -j 4
