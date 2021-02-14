@@ -32,7 +32,9 @@ class WriteBufferManager {
 
   ~WriteBufferManager();
 
-  bool enabled() const { return buffer_size_ != 0; }
+  bool enabled() const {
+    return buffer_size_.load(std::memory_order_relaxed) != 0;
+  }
 
   bool cost_to_cache() const { return cache_rep_ != nullptr; }
 
@@ -46,7 +48,9 @@ class WriteBufferManager {
   size_t dummy_entries_in_cache_usage() const {
     return dummy_size_.load(std::memory_order_relaxed);
   }
-  size_t buffer_size() const { return buffer_size_; }
+  size_t buffer_size() const {
+    return buffer_size_.load(std::memory_order_relaxed);
+  }
 
   // Should only be called from write thread
   bool ShouldFlush() const {
@@ -54,8 +58,9 @@ class WriteBufferManager {
       if (mutable_memtable_memory_usage() > mutable_limit_) {
         return true;
       }
-      if (memory_usage() >= buffer_size_ &&
-          mutable_memtable_memory_usage() >= buffer_size_ / 2) {
+      size_t buffer_size = buffer_size_.load(std::memory_order_relaxed);
+      if (memory_usage() >= buffer_size &&
+          mutable_memtable_memory_usage() >= buffer_size / 2) {
         // If the memory exceeds the buffer size, we trigger more aggressive
         // flush. But if already more than half memory is being flushed,
         // triggering more flush may not help. We will hold it instead.
@@ -90,8 +95,12 @@ class WriteBufferManager {
     }
   }
 
+  void SetBufferSize(size_t new_size) {
+    buffer_size_.store(new_size, std::memory_order_relaxed);
+  }
+
  private:
-  const size_t buffer_size_;
+  std::atomic<size_t> buffer_size_;
   const size_t mutable_limit_;
   std::atomic<size_t> memory_used_;
   // Memory that hasn't been scheduled to free.
