@@ -94,6 +94,7 @@ struct ImmutableDBOptions {
   bool allow_data_in_errors;
   std::string db_host_id;
   FileTypeSet checksum_handoff_file_types;
+  std::shared_ptr<CompactionService> compaction_service;
 };
 
 struct MutableDBOptions {

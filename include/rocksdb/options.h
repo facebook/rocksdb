@@ -39,6 +39,7 @@ namespace ROCKSDB_NAMESPACE {
 class Cache;
 class CompactionFilter;
 class CompactionFilterFactory;
+class CompactionService;
 class Comparator;
 class ConcurrentTaskLimiter;
 class Env;
@@ -1205,6 +1206,11 @@ struct DBOptions {
   // should enble this set as empty. Otherwise,it may cause unexpected
   // write failures.
   FileTypeSet checksum_handoff_file_types;
+
+  // An EXPERIMENTAL feature to allow alternative implementations to perform
+  // compaction operations. If nullptr, the default/builtin service will be
+  // used.
+  std::shared_ptr<CompactionService> compaction_service = nullptr;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
