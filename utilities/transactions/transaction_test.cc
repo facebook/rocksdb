@@ -2961,6 +2961,9 @@ TEST_P(TransactionTest, MultiGetSnapshot) {
   txn2->MultiGet(read_options, cfd, 1, keys.data(), values.data(),
                  statuses.data());
   ASSERT_TRUE(statuses[0].IsNotFound());
+  delete txn2;
+
+  db->ReleaseSnapshot(s1);
 }
 
 TEST_P(TransactionTest, ColumnFamiliesTest2) {
