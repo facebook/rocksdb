@@ -715,7 +715,8 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
       return status;
     }
     uint64_t file_size;
-    status = EnvWrapper::GetFileSize(fname, &file_size);
+    status = FileSystemWrapper::GetFileSize(fname, options.io_options,
+                                            &file_size, dbg);
     if (!status.ok()) {
       return status;
     }
