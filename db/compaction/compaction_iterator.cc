@@ -213,7 +213,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   // number is greater than any external snapshot, then invoke the
   // filter. If the return value of the compaction filter is true,
   // replace the entry with a deletion marker.
-  CompactionFilter::Decision filter;
+  CompactionFilter::Decision filter = CompactionFilter::Decision::kUndetermined;
   compaction_filter_value_.clear();
   compaction_filter_skip_until_.Clear();
   CompactionFilter::ValueType value_type =
@@ -221,14 +221,65 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
                                : CompactionFilter::ValueType::kBlobIndex;
   // Hack: pass internal key to BlobIndexCompactionFilter since it needs
   // to get sequence number.
-  Slice& filter_key = ikey_.type == kTypeValue ? ikey_.user_key : key_;
+  assert(compaction_filter_);
+  Slice& filter_key = (ikey_.type == kTypeValue ||
+                       !compaction_filter_->IsStackedBlobDbCompactionFilter())
+                          ? ikey_.user_key
+                          : key_;
   {
     StopWatchNano timer(clock_, report_detailed_time_);
-    filter = compaction_filter_->FilterV2(
-        compaction_->level(), filter_key, value_type, value_,
-        &compaction_filter_value_, compaction_filter_skip_until_.rep());
+    if (kTypeBlobIndex == ikey_.type) {
+      filter = compaction_filter_->ShouldFilterBlobByKey(
+          compaction_->level(), filter_key, &compaction_filter_value_,
+          compaction_filter_skip_until_.rep());
+      if (CompactionFilter::Decision::kUndetermined == filter &&
+          !compaction_filter_->IsStackedBlobDbCompactionFilter()) {
+        // For integrated BlobDB impl, CompactionIterator reads blob value.
+        // For Stacked BlobDB impl, the corresponding CompactionFilter's
+        // FilterV2 method should read the blob value.
+        BlobIndex blob_index;
+        Status s = blob_index.DecodeFrom(value_);
+        if (!s.ok()) {
+          status_ = s;
+          valid_ = false;
+          return false;
+        }
+        if (blob_index.HasTTL() && blob_index.IsInlined()) {
+          status_ = Status::Corruption("Unexpected TTL/inlined blob index");
+          valid_ = false;
+          return false;
+        }
+        const Version* const version = compaction_->input_version();
+        assert(version);
+        s = version->GetBlob(ReadOptions(), ikey_.user_key, blob_index,
+                             &blob_value_);
+        if (!s.ok()) {
+          status_ = s;
+          valid_ = false;
+          return false;
+        }
+        value_ = blob_value_;
+        value_type = CompactionFilter::ValueType::kValue;
+      }
+    }
+    if (CompactionFilter::Decision::kUndetermined == filter) {
+      filter = compaction_filter_->FilterV2(
+          compaction_->level(), filter_key, value_type, value_,
+          &compaction_filter_value_, compaction_filter_skip_until_.rep());
+    }
     iter_stats_.total_filter_time +=
         env_ != nullptr && report_detailed_time_ ? timer.ElapsedNanos() : 0;
+  }
+
+  if (CompactionFilter::Decision::kUndetermined == filter) {
+    filter = CompactionFilter::Decision::kKeep;
+  } else if (CompactionFilter::Decision::kChangeBlobIndex == filter &&
+             !compaction_filter_->IsStackedBlobDbCompactionFilter()) {
+    status_ = Status::NotSupported(
+        "CompactionFilter for integrated BlobDB should not return "
+        "kChangeBlobIndex");
+    valid_ = false;
+    return false;
   }
 
   if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil &&
@@ -260,6 +311,11 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
                                                      kValueTypeForSeek);
     *skip_until = compaction_filter_skip_until_.Encode();
   } else if (filter == CompactionFilter::Decision::kChangeBlobIndex) {
+    // Only the StackableDB-based BlobDB impl's compaction filter should return
+    // kChangeBlobIndex. Decision about rewriting blob and changing blob index
+    // in the integrated BlobDB impl is made in subsequent call to
+    // PrepareOutput() and its callees.
+    assert(compaction_filter_->IsStackedBlobDbCompactionFilter());
     if (ikey_.type == kTypeValue) {
       // value transfer from inlined data to blob file
       ikey_.type = kTypeBlobIndex;
@@ -267,6 +323,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     }
     value_ = compaction_filter_value_;
   } else if (filter == CompactionFilter::Decision::kIOError) {
+    assert(compaction_filter_->IsStackedBlobDbCompactionFilter());
     status_ = Status::IOError("Failed to access blob during compaction filter");
     error = true;
   }
@@ -841,7 +898,8 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
   }
 
   // GC for stacked BlobDB
-  if (compaction_filter_) {
+  if (compaction_filter_ &&
+      compaction_filter_->IsStackedBlobDbCompactionFilter()) {
     const auto blob_decision = compaction_filter_->PrepareBlobOutput(
         user_key(), value_, &compaction_filter_value_);
 

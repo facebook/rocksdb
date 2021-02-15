@@ -47,6 +47,7 @@ class CompactionFilter {
     kRemoveAndSkipUntil,
     kChangeBlobIndex,  // used internally by BlobDB.
     kIOError,          // used internally by BlobDB.
+    kUndetermined,
   };
 
   enum class BlobDecision { kKeep, kChangeValue, kCorruption, kIOError };
@@ -196,6 +197,18 @@ class CompactionFilter {
   // Returns a name that identifies this compaction filter.
   // The name will be printed to LOG file on start up for diagnosis.
   virtual const char* Name() const = 0;
+
+  // Returns true if this compaction filter is for the original
+  // StackableDB-based BlobDB implementation.
+  virtual bool IsStackedBlobDbCompactionFilter() const { return false; }
+
+  // In the case of BlobDB, it may be possible to reach a decision with only
+  // the key and/or blob index without reading the actual value.
+  virtual Decision ShouldFilterBlobByKey(int /*level*/, const Slice& /*key*/,
+                                         std::string* /*new_value*/,
+                                         std::string* /*skip_until*/) const {
+    return Decision::kUndetermined;
+  }
 };
 
 // Each compaction will create a new CompactionFilter allowing the
