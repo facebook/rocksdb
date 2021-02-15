@@ -87,7 +87,7 @@ class BlockBasedTable : public TableReader {
   //    are set.
   // @param force_direct_prefetch if true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
-  static Status Open(const ImmutableCFOptions& ioptions,
+  static Status Open(const ReadOptions& ro, const ImmutableCFOptions& ioptions,
                      const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
                      const InternalKeyComparator& internal_key_comparator,
@@ -113,6 +113,7 @@ class BlockBasedTable : public TableReader {
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
+  // @param read_options Must outlive the returned iterator.
   // @param skip_filters Disables loading/accessing the filter block
   // compaction_readahead_size: its value will only be used if caller =
   // kCompaction.
@@ -205,7 +206,10 @@ class BlockBasedTable : public TableReader {
     virtual size_t ApproximateMemoryUsage() const = 0;
     // Cache the dependencies of the index reader (e.g. the partitions
     // of a partitioned index).
-    virtual void CacheDependencies(bool /* pin */) {}
+    virtual Status CacheDependencies(const ReadOptions& /*ro*/,
+                                     bool /* pin */) {
+      return Status::OK();
+    }
   };
 
   class IndexReaderCommon;
@@ -379,7 +383,8 @@ class BlockBasedTable : public TableReader {
   // Optionally, user can pass a preloaded meta_index_iter for the index that
   // need to access extra meta blocks for index construction. This parameter
   // helps avoid re-reading meta index block if caller already created one.
-  Status CreateIndexReader(FilePrefetchBuffer* prefetch_buffer,
+  Status CreateIndexReader(const ReadOptions& ro,
+                           FilePrefetchBuffer* prefetch_buffer,
                            InternalIterator* preloaded_meta_index_iter,
                            bool use_cache, bool prefetch, bool pin,
                            BlockCacheLookupContext* lookup_context,
@@ -401,28 +406,32 @@ class BlockBasedTable : public TableReader {
   // If force_direct_prefetch is true, always prefetching to RocksDB
   //    buffer, rather than calling RandomAccessFile::Prefetch().
   static Status PrefetchTail(
-      RandomAccessFileReader* file, uint64_t file_size,
+      const ReadOptions& ro, RandomAccessFileReader* file, uint64_t file_size,
       bool force_direct_prefetch, TailPrefetchStats* tail_prefetch_stats,
       const bool prefetch_all, const bool preload_all,
       std::unique_ptr<FilePrefetchBuffer>* prefetch_buffer);
-  Status ReadMetaIndexBlock(FilePrefetchBuffer* prefetch_buffer,
+  Status ReadMetaIndexBlock(const ReadOptions& ro,
+                            FilePrefetchBuffer* prefetch_buffer,
                             std::unique_ptr<Block>* metaindex_block,
                             std::unique_ptr<InternalIterator>* iter);
-  Status TryReadPropertiesWithGlobalSeqno(FilePrefetchBuffer* prefetch_buffer,
+  Status TryReadPropertiesWithGlobalSeqno(const ReadOptions& ro,
+                                          FilePrefetchBuffer* prefetch_buffer,
                                           const Slice& handle_value,
                                           TableProperties** table_properties);
-  Status ReadPropertiesBlock(FilePrefetchBuffer* prefetch_buffer,
+  Status ReadPropertiesBlock(const ReadOptions& ro,
+                             FilePrefetchBuffer* prefetch_buffer,
                              InternalIterator* meta_iter,
                              const SequenceNumber largest_seqno);
-  Status ReadRangeDelBlock(FilePrefetchBuffer* prefetch_buffer,
+  Status ReadRangeDelBlock(const ReadOptions& ro,
+                           FilePrefetchBuffer* prefetch_buffer,
                            InternalIterator* meta_iter,
                            const InternalKeyComparator& internal_comparator,
                            BlockCacheLookupContext* lookup_context);
   Status PrefetchIndexAndFilterBlocks(
-      FilePrefetchBuffer* prefetch_buffer, InternalIterator* meta_iter,
-      BlockBasedTable* new_table, bool prefetch_all,
-      const BlockBasedTableOptions& table_options, const int level,
-      size_t file_size, size_t max_file_size_for_l0_meta_pin,
+      const ReadOptions& ro, FilePrefetchBuffer* prefetch_buffer,
+      InternalIterator* meta_iter, BlockBasedTable* new_table,
+      bool prefetch_all, const BlockBasedTableOptions& table_options,
+      const int level, size_t file_size, size_t max_file_size_for_l0_meta_pin,
       BlockCacheLookupContext* lookup_context);
 
   static BlockType GetBlockTypeForMetaBlockByName(const Slice& meta_block_name);
@@ -433,16 +442,26 @@ class BlockBasedTable : public TableReader {
 
   // Create the filter from the filter block.
   std::unique_ptr<FilterBlockReader> CreateFilterBlockReader(
-      FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
-      bool pin, BlockCacheLookupContext* lookup_context);
+      const ReadOptions& ro, FilePrefetchBuffer* prefetch_buffer,
+      bool use_cache, bool prefetch, bool pin,
+      BlockCacheLookupContext* lookup_context);
 
   static void SetupCacheKeyPrefix(Rep* rep);
 
   // Generate a cache key prefix from the file
-  static void GenerateCachePrefix(Cache* cc, FSRandomAccessFile* file,
-                                  char* buffer, size_t* size);
-  static void GenerateCachePrefix(Cache* cc, FSWritableFile* file, char* buffer,
-                                  size_t* size);
+  template <typename TCache, typename TFile>
+  static void GenerateCachePrefix(TCache* cc, TFile* file, char* buffer,
+                                  size_t* size) {
+    // generate an id from the file
+    *size = file->GetUniqueId(buffer, kMaxCacheKeyPrefixSize);
+
+    // If the prefix wasn't generated or was too long,
+    // create one from the cache.
+    if (cc != nullptr && *size == 0) {
+      char* end = EncodeVarint64(buffer, cc->NewId());
+      *size = static_cast<size_t>(end - buffer);
+    }
+  }
 
   // Size of all data blocks, maybe approximate
   uint64_t GetApproximateDataSize();
@@ -453,10 +472,10 @@ class BlockBasedTable : public TableReader {
       uint64_t data_size) const;
 
   // Helper functions for DumpTable()
-  Status DumpIndexBlock(WritableFile* out_file);
-  Status DumpDataBlocks(WritableFile* out_file);
+  Status DumpIndexBlock(std::ostream& out_stream);
+  Status DumpDataBlocks(std::ostream& out_stream);
   void DumpKeyValue(const Slice& key, const Slice& value,
-                    WritableFile* out_file);
+                    std::ostream& out_stream);
 
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
@@ -504,7 +523,7 @@ struct BlockBasedTable::Rep {
         file_size(_file_size),
         level(_level),
         immortal_table(_immortal_table) {}
-
+  ~Rep() { status.PermitUncheckedError(); }
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
   const BlockBasedTableOptions table_options;
@@ -614,5 +633,49 @@ struct BlockBasedTable::Rep {
                                       max_readahead_size,
                                       !ioptions.allow_mmap_reads /* enable */));
   }
+
+  void CreateFilePrefetchBufferIfNotExists(
+      size_t readahead_size, size_t max_readahead_size,
+      std::unique_ptr<FilePrefetchBuffer>* fpb) const {
+    if (!(*fpb)) {
+      CreateFilePrefetchBuffer(readahead_size, max_readahead_size, fpb);
+    }
+  }
 };
+
+// This is an adapter class for `WritableFile` to be used for `std::ostream`.
+// The adapter wraps a `WritableFile`, which can be passed to a `std::ostream`
+// constructor for storing streaming data.
+// Note:
+//  * This adapter doesn't provide any buffering, each write is forwarded to
+//    `WritableFile->Append()` directly.
+//  * For a failed write, the user needs to check the status by `ostream.good()`
+class WritableFileStringStreamAdapter : public std::stringbuf {
+ public:
+  explicit WritableFileStringStreamAdapter(WritableFile* writable_file)
+      : file_(writable_file) {}
+
+  // This is to handle `std::endl`, `endl` is written by `os.put()` directly
+  // without going through `xsputn()`. As we explicitly disabled buffering,
+  // every write, not captured by xsputn, is an overflow.
+  int overflow(int ch = EOF) override {
+    if (ch == '\n') {
+      file_->Append("\n");
+      return ch;
+    }
+    return EOF;
+  }
+
+  std::streamsize xsputn(char const* p, std::streamsize n) override {
+    Status s = file_->Append(Slice(p, n));
+    if (!s.ok()) {
+      return 0;
+    }
+    return n;
+  }
+
+ private:
+  WritableFile* file_;
+};
+
 }  // namespace ROCKSDB_NAMESPACE

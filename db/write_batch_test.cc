@@ -62,7 +62,7 @@ static std::string PrintContents(WriteBatch* b) {
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ParsedInternalKey ikey;
       ikey.clear();
-      EXPECT_TRUE(ParseInternalKey(iter->key(), &ikey));
+      EXPECT_OK(ParseInternalKey(iter->key(), &ikey));
       switch (ikey.type) {
         case kTypeValue:
           state.append("Put(");
@@ -419,7 +419,7 @@ TEST_F(WriteBatchTest, PrepareCommit) {
 TEST_F(WriteBatchTest, DISABLED_ManyUpdates) {
   // Insert key and value of 3GB and push total batch size to 12GB.
   static const size_t kKeyValueSize = 4u;
-  static const uint32_t kNumUpdates = uint32_t(3 << 30);
+  static const uint32_t kNumUpdates = uint32_t{3} << 30;
   std::string raw(kKeyValueSize, 'A');
   WriteBatch batch(kNumUpdates * (4 + kKeyValueSize * 2) + 1024u);
   char c = 'A';

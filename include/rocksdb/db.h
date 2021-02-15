@@ -160,7 +160,7 @@ class DB {
   // return Status::NotSupported.
   static Status OpenForReadOnly(const Options& options, const std::string& name,
                                 DB** dbptr,
-                                bool error_if_log_file_exist = false);
+                                bool error_if_wal_file_exists = false);
 
   // Open the database for read only with column families. When opening DB with
   // read only, you can specify only a subset of column families in the
@@ -174,7 +174,7 @@ class DB {
       const DBOptions& db_options, const std::string& name,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-      bool error_if_log_file_exist = false);
+      bool error_if_wal_file_exists = false);
 
   // The following OpenAsSecondary functions create a secondary instance that
   // can dynamically tail the MANIFEST of a primary that must have already been
@@ -1347,6 +1347,14 @@ class DB {
 
 // Windows API macro interference
 #undef DeleteFile
+  // WARNING: This API is planned for removal in RocksDB 7.0 since it does not
+  // operate at the proper level of abstraction for a key-value store, and its
+  // contract/restrictions are poorly documented. For example, it returns non-OK
+  // `Status` for non-bottommost files and files undergoing compaction. Since we
+  // do not plan to maintain it, the contract will likely remain underspecified
+  // until its removal. Any user is encouraged to read the implementation
+  // carefully and migrate away from it when possible.
+  //
   // Delete the file name from the db directory and update the internal state to
   // reflect that. Supports deletion of sst and log files only. 'name' must be
   // path relative to the db directory. eg. 000001.sst, /archive/000003.log
@@ -1356,6 +1364,11 @@ class DB {
   // and end key
   virtual void GetLiveFilesMetaData(
       std::vector<LiveFileMetaData>* /*metadata*/) {}
+
+  // Return a list of all table file checksum info.
+  // Note: This function might be of limited use because it cannot be
+  // synchronized with GetLiveFiles.
+  virtual Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) = 0;
 
   // Obtains the meta data of the specified column family of the DB.
   virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
@@ -1433,6 +1446,8 @@ class DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) = 0;
 
+  // Verify the block checksums of files in db. The block checksums of table
+  // files are checked.
   virtual Status VerifyChecksum(const ReadOptions& read_options) = 0;
 
   virtual Status VerifyChecksum() { return VerifyChecksum(ReadOptions()); }
@@ -1546,6 +1561,13 @@ class DB {
   // Returns Status::OK if identity could be set properly
   virtual Status GetDbIdentity(std::string& identity) const = 0;
 
+  // Return a unique identifier for each DB object that is opened
+  // This DB session ID should be unique among all open DB instances on all
+  // hosts, and should be unique among re-openings of the same or other DBs.
+  // (Two open DBs have the same identity from other function GetDbIdentity when
+  // one is physically copied from the other.)
+  virtual Status GetDbSessionId(std::string& session_id) const = 0;
+
   // Returns default column family handle
   virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;
 
@@ -1578,6 +1600,16 @@ class DB {
 
   virtual Status EndTrace() {
     return Status::NotSupported("EndTrace() is not implemented.");
+  }
+
+  // StartIOTrace and EndIOTrace are experimental. They are not enabled yet.
+  virtual Status StartIOTrace(Env* /*env*/, const TraceOptions& /*options*/,
+                              std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
+    return Status::NotSupported("StartTrace() is not implemented.");
+  }
+
+  virtual Status EndIOTrace() {
+    return Status::NotSupported("StartTrace() is not implemented.");
   }
 
   // Trace block cache accesses. Use EndBlockCacheTrace() to stop tracing.

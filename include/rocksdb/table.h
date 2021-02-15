@@ -22,15 +22,15 @@
 #include <string>
 #include <unordered_map>
 
-#include "rocksdb/cache.h"
+#include "rocksdb/configurable.h"
 #include "rocksdb/env.h"
-#include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 // -- Block-based Table
+class Cache;
 class FilterPolicy;
 class FlushBlockPolicyFactory;
 class PersistentCache;
@@ -53,6 +53,7 @@ enum ChecksumType : char {
 
 // For advanced user only
 struct BlockBasedTableOptions {
+  static const char* kName() { return "BlockTableOptions"; };
   // @flush_block_policy_factory creates the instances of flush block policy.
   // which provides a configurable way to determine when to flush a block in
   // the block based tables.  If not set, table builder will use the default
@@ -199,6 +200,40 @@ struct BlockBasedTableOptions {
   // Use partitioned full filters for each SST file. This option is
   // incompatible with block-based filters.
   bool partition_filters = false;
+
+  // EXPERIMENTAL Option to generate Bloom filters that minimize memory
+  // internal fragmentation.
+  //
+  // When false, malloc_usable_size is not available, or format_version < 5,
+  // filters are generated without regard to internal fragmentation when
+  // loaded into memory (historical behavior). When true (and
+  // malloc_usable_size is available and format_version >= 5), then Bloom
+  // filters are generated to "round up" and "round down" their sizes to
+  // minimize internal fragmentation when loaded into memory, assuming the
+  // reading DB has the same memory allocation characteristics as the
+  // generating DB. This option does not break forward or backward
+  // compatibility.
+  //
+  // While individual filters will vary in bits/key and false positive rate
+  // when setting is true, the implementation attempts to maintain a weighted
+  // average FP rate for filters consistent with this option set to false.
+  //
+  // With Jemalloc for example, this setting is expected to save about 10% of
+  // the memory footprint and block cache charge of filters, while increasing
+  // disk usage of filters by about 1-2% due to encoding efficiency losses
+  // with variance in bits/key.
+  //
+  // NOTE: Because some memory counted by block cache might be unmapped pages
+  // within internal fragmentation, this option can increase observed RSS
+  // memory usage. With cache_index_and_filter_blocks=true, this option makes
+  // the block cache better at using space it is allowed.
+  //
+  // NOTE: Do not set to true if you do not trust malloc_usable_size. With
+  // this option, RocksDB might access an allocated memory object beyond its
+  // original size if malloc_usable_size says it is safe to do so. While this
+  // can be considered bad practice, it should not produce undefined behavior
+  // unless malloc_usable_size is buggy or broken.
+  bool optimize_filters_for_memory = false;
 
   // Use delta encoding to compress keys in blocks.
   // ReadOptions::pin_data requires this option to be disabled.
@@ -358,6 +393,7 @@ struct PlainTablePropertyNames {
 const uint32_t kPlainTableVariableLength = 0;
 
 struct PlainTableOptions {
+  static const char* kName() { return "PlainTableOptions"; };
   // @user_key_len: plain table has optimization for fix-sized keys, which can
   //                be specified via user_key_len.  Alternatively, you can pass
   //                `kPlainTableVariableLength` if your keys have variable
@@ -451,6 +487,8 @@ struct CuckooTablePropertyNames {
 };
 
 struct CuckooTableOptions {
+  static const char* kName() { return "CuckooTableOptions"; };
+
   // Determines the utilization of hash tables. Smaller values
   // result in larger hash tables with fewer collisions.
   double hash_table_ratio = 0.9;
@@ -488,9 +526,19 @@ extern TableFactory* NewCuckooTableFactory(
 class RandomAccessFileReader;
 
 // A base class for table factories.
-class TableFactory {
+class TableFactory : public Configurable {
  public:
-  virtual ~TableFactory() {}
+  virtual ~TableFactory() override {}
+
+  static const char* kBlockCacheOpts() { return "BlockCache"; };
+  static const char* kBlockBasedTableName() { return "BlockBasedTable"; };
+  static const char* kPlainTableName() { return "PlainTable"; }
+  static const char* kCuckooTableName() { return "CuckooTable"; };
+
+  // Creates and configures a new TableFactory from the input options and id.
+  static Status CreateFromString(const ConfigOptions& config_options,
+                                 const std::string& id,
+                                 std::shared_ptr<TableFactory>* factory);
 
   // The type of the table.
   //
@@ -500,6 +548,13 @@ class TableFactory {
   // Names starting with "rocksdb." are reserved and should not be used
   // by any clients of this package.
   virtual const char* Name() const = 0;
+
+  // Returns true if the class is an instance of the input name.
+  // This is typically determined by if the input name matches the
+  // name of this object.
+  virtual bool IsInstanceOf(const std::string& name) const {
+    return name == Name();
+  }
 
   // Returns a Table object table that can fetch data from file specified
   // in parameter file. It's the caller's responsibility to make sure
@@ -522,7 +577,19 @@ class TableFactory {
       const TableReaderOptions& table_reader_options,
       std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       std::unique_ptr<TableReader>* table_reader,
-      bool prefetch_index_and_filter_in_cache = true) const = 0;
+      bool prefetch_index_and_filter_in_cache = true) const {
+    ReadOptions ro;
+    return NewTableReader(ro, table_reader_options, std::move(file), file_size,
+                          table_reader, prefetch_index_and_filter_in_cache);
+  }
+
+  // Overload of the above function that allows the caller to pass in a
+  // ReadOptions
+  virtual Status NewTableReader(
+      const ReadOptions& ro, const TableReaderOptions& table_reader_options,
+      std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      std::unique_ptr<TableReader>* table_reader,
+      bool prefetch_index_and_filter_in_cache) const = 0;
 
   // Return a table builder to write to a file for this table type.
   //
@@ -545,39 +612,6 @@ class TableFactory {
   virtual TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
       uint32_t column_family_id, WritableFileWriter* file) const = 0;
-
-  // Sanitizes the specified DB Options and ColumnFamilyOptions.
-  //
-  // If the function cannot find a way to sanitize the input DB Options,
-  // a non-ok Status will be returned.
-  virtual Status SanitizeOptions(const DBOptions& db_opts,
-                                 const ColumnFamilyOptions& cf_opts) const = 0;
-
-  // Return a string that contains printable format of table configurations.
-  // RocksDB prints configurations at DB Open().
-  virtual std::string GetPrintableTableOptions() const = 0;
-
-  virtual Status GetOptionString(const ConfigOptions& /*config_options*/,
-                                 std::string* /*opt_string*/) const {
-    return Status::NotSupported(
-        "The table factory doesn't implement GetOptionString().");
-  }
-
-  // Returns the raw pointer of the table options that is used by this
-  // TableFactory, or nullptr if this function is not supported.
-  // Since the return value is a raw pointer, the TableFactory owns the
-  // pointer and the caller should not delete the pointer.
-  //
-  // In certain case, it is desirable to alter the underlying options when the
-  // TableFactory is not used by any open DB by casting the returned pointer
-  // to the right class.   For instance, if BlockBasedTableFactory is used,
-  // then the pointer can be casted to BlockBasedTableOptions.
-  //
-  // Note that changing the underlying TableFactory options while the
-  // TableFactory is currently used by any open DB is undefined behavior.
-  // Developers should use DB::SetOption() instead to dynamically change
-  // options while the DB is open.
-  virtual void* GetOptions() { return nullptr; }
 
   // Return is delete range supported
   virtual bool IsDeleteRangeSupported() const { return false; }

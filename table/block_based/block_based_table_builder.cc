@@ -105,63 +105,6 @@ bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
   return compressed_size < raw_size - (raw_size / 8u);
 }
 
-bool CompressBlockInternal(const Slice& raw,
-                           const CompressionInfo& compression_info,
-                           uint32_t format_version,
-                           std::string* compressed_output) {
-  bool ret;
-
-  // Will return compressed block contents if (1) the compression method is
-  // supported in this platform and (2) the compression rate is "good enough".
-  switch (compression_info.type()) {
-    case kSnappyCompression:
-      ret = Snappy_Compress(compression_info, raw.data(), raw.size(),
-                            compressed_output);
-      break;
-    case kZlibCompression:
-      ret = Zlib_Compress(
-          compression_info,
-          GetCompressFormatForVersion(kZlibCompression, format_version),
-          raw.data(), raw.size(), compressed_output);
-      break;
-    case kBZip2Compression:
-      ret = BZip2_Compress(
-          compression_info,
-          GetCompressFormatForVersion(kBZip2Compression, format_version),
-          raw.data(), raw.size(), compressed_output);
-      break;
-    case kLZ4Compression:
-      ret = LZ4_Compress(
-          compression_info,
-          GetCompressFormatForVersion(kLZ4Compression, format_version),
-          raw.data(), raw.size(), compressed_output);
-      break;
-    case kLZ4HCCompression:
-      ret = LZ4HC_Compress(
-          compression_info,
-          GetCompressFormatForVersion(kLZ4HCCompression, format_version),
-          raw.data(), raw.size(), compressed_output);
-      break;
-    case kXpressCompression:
-      ret = XPRESS_Compress(raw.data(), raw.size(), compressed_output);
-      break;
-    case kZSTD:
-    case kZSTDNotFinalCompression:
-      ret = ZSTD_Compress(compression_info, raw.data(), raw.size(),
-                          compressed_output);
-      break;
-    default:
-      // Do not recognize this compression type
-      ret = false;
-  }
-
-  TEST_SYNC_POINT_CALLBACK(
-      "BlockBasedTableBuilder::CompressBlockInternal:TamperWithReturnValue",
-      static_cast<void*>(&ret));
-
-  return ret;
-}
-
 }  // namespace
 
 // format_version is the block format as defined in include/rocksdb/table.h
@@ -170,11 +113,9 @@ Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
                     bool do_sample, std::string* compressed_output,
                     std::string* sampled_output_fast,
                     std::string* sampled_output_slow) {
-  *type = info.type();
-
-  if (info.type() == kNoCompression && !info.SampleForCompression()) {
-    return raw;
-  }
+  assert(type);
+  assert(compressed_output);
+  assert(compressed_output->empty());
 
   // If requested, we sample one in every N block with a
   // fast and slow compression algorithm and report the stats.
@@ -182,10 +123,10 @@ Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
   // enabling compression and they also get a hint about which
   // compression algorithm wil be beneficial.
   if (do_sample && info.SampleForCompression() &&
-      Random::GetTLSInstance()->OneIn((int)info.SampleForCompression()) &&
-      sampled_output_fast && sampled_output_slow) {
+      Random::GetTLSInstance()->OneIn(
+          static_cast<int>(info.SampleForCompression()))) {
     // Sampling with a fast compression algorithm
-    if (LZ4_Supported() || Snappy_Supported()) {
+    if (sampled_output_fast && (LZ4_Supported() || Snappy_Supported())) {
       CompressionType c =
           LZ4_Supported() ? kLZ4Compression : kSnappyCompression;
       CompressionContext context(c);
@@ -194,33 +135,46 @@ Slice CompressBlock(const Slice& raw, const CompressionInfo& info,
                                CompressionDict::GetEmptyDict(), c,
                                info.SampleForCompression());
 
-      CompressBlockInternal(raw, info_tmp, format_version, sampled_output_fast);
+      CompressData(raw, info_tmp, GetCompressFormatForVersion(format_version),
+                   sampled_output_fast);
     }
 
     // Sampling with a slow but high-compression algorithm
-    if (ZSTD_Supported() || Zlib_Supported()) {
+    if (sampled_output_slow && (ZSTD_Supported() || Zlib_Supported())) {
       CompressionType c = ZSTD_Supported() ? kZSTD : kZlibCompression;
       CompressionContext context(c);
       CompressionOptions options;
       CompressionInfo info_tmp(options, context,
                                CompressionDict::GetEmptyDict(), c,
                                info.SampleForCompression());
-      CompressBlockInternal(raw, info_tmp, format_version, sampled_output_slow);
+
+      CompressData(raw, info_tmp, GetCompressFormatForVersion(format_version),
+                   sampled_output_slow);
     }
   }
 
-  // Actually compress the data
-  if (*type != kNoCompression) {
-    if (CompressBlockInternal(raw, info, format_version, compressed_output) &&
-        GoodCompressionRatio(compressed_output->size(), raw.size())) {
-      return *compressed_output;
-    }
+  if (info.type() == kNoCompression) {
+    *type = kNoCompression;
+    return raw;
   }
 
-  // Compression method is not supported, or not good
-  // compression ratio, so just fall back to uncompressed form.
-  *type = kNoCompression;
-  return raw;
+  // Actually compress the data; if the compression method is not supported,
+  // or the compression fails etc., just fall back to uncompressed
+  if (!CompressData(raw, info, GetCompressFormatForVersion(format_version),
+                    compressed_output)) {
+    *type = kNoCompression;
+    return raw;
+  }
+
+  // Check the compression ratio; if it's not good enough, just fall back to
+  // uncompressed
+  if (!GoodCompressionRatio(compressed_output->size(), raw.size())) {
+    *type = kNoCompression;
+    return raw;
+  }
+
+  *type = info.type();
+  return *compressed_output;
 }
 
 // kBlockBasedTableMagicNumber was picked by running
@@ -374,6 +328,10 @@ struct BlockBasedTableBuilder::Rep {
   const uint64_t target_file_size;
   uint64_t file_creation_time = 0;
 
+  // DB IDs
+  const std::string db_id;
+  const std::string db_session_id;
+
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
   std::unique_ptr<ParallelCompressionRep> pc_rep;
@@ -447,7 +405,8 @@ struct BlockBasedTableBuilder::Rep {
       const CompressionOptions& _compression_opts, const bool skip_filters,
       const int _level_at_creation, const std::string& _column_family_name,
       const uint64_t _creation_time, const uint64_t _oldest_key_time,
-      const uint64_t _target_file_size, const uint64_t _file_creation_time)
+      const uint64_t _target_file_size, const uint64_t _file_creation_time,
+      const std::string& _db_id, const std::string& _db_session_id)
       : ioptions(_ioptions),
         moptions(_moptions),
         table_options(table_opt),
@@ -488,7 +447,9 @@ struct BlockBasedTableBuilder::Rep {
         creation_time(_creation_time),
         oldest_key_time(_oldest_key_time),
         target_file_size(_target_file_size),
-        file_creation_time(_file_creation_time) {
+        file_creation_time(_file_creation_time),
+        db_id(_db_id),
+        db_session_id(_db_session_id) {
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(new CompressionContext(compression_type));
     }
@@ -534,8 +495,6 @@ struct BlockBasedTableBuilder::Rep {
 
   Rep(const Rep&) = delete;
   Rep& operator=(const Rep&) = delete;
-
-  ~Rep() {}
 
  private:
   Status status;
@@ -698,7 +657,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const CompressionOptions& compression_opts, const bool skip_filters,
     const std::string& column_family_name, const int level_at_creation,
     const uint64_t creation_time, const uint64_t oldest_key_time,
-    const uint64_t target_file_size, const uint64_t file_creation_time) {
+    const uint64_t target_file_size, const uint64_t file_creation_time,
+    const std::string& db_id, const std::string& db_session_id) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
@@ -711,18 +671,18 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     sanitized_table_options.format_version = 1;
   }
 
-  rep_ = new Rep(ioptions, moptions, sanitized_table_options,
-                 internal_comparator, int_tbl_prop_collector_factories,
-                 column_family_id, file, compression_type,
-                 sample_for_compression, compression_opts, skip_filters,
-                 level_at_creation, column_family_name, creation_time,
-                 oldest_key_time, target_file_size, file_creation_time);
+  rep_ = new Rep(
+      ioptions, moptions, sanitized_table_options, internal_comparator,
+      int_tbl_prop_collector_factories, column_family_id, file,
+      compression_type, sample_for_compression, compression_opts, skip_filters,
+      level_at_creation, column_family_name, creation_time, oldest_key_time,
+      target_file_size, file_creation_time, db_id, db_session_id);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
   }
   if (table_options.block_cache_compressed.get() != nullptr) {
-    BlockBasedTable::GenerateCachePrefix(
+    BlockBasedTable::GenerateCachePrefix<Cache, FSWritableFile>(
         table_options.block_cache_compressed.get(), file->writable_file(),
         &rep_->compressed_cache_key_prefix[0],
         &rep_->compressed_cache_key_prefix_size);
@@ -760,7 +720,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     if (r->props.num_entries > r->props.num_range_deletions) {
       assert(r->internal_comparator.Compare(key, Slice(r->last_key)) > 0);
     }
-#endif  // NDEBUG
+#endif  // !NDEBUG
 
     auto should_flush = r->flush_block_policy->Update(key, value);
     if (should_flush) {
@@ -768,7 +728,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       r->first_key_in_next_block = &key;
       Flush();
 
-      if (r->state == Rep::State::kBuffered &&
+      if (r->state == Rep::State::kBuffered && r->target_file_size != 0 &&
           r->data_begin_offset > r->target_file_size) {
         EnterUnbuffered();
       }
@@ -1085,48 +1045,50 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   if (io_s.ok()) {
     char trailer[kBlockTrailerSize];
     trailer[0] = type;
-    char* trailer_without_type = trailer + 1;
+    uint32_t checksum = 0;
     switch (r->table_options.checksum) {
       case kNoChecksum:
-        EncodeFixed32(trailer_without_type, 0);
         break;
       case kCRC32c: {
-        auto crc = crc32c::Value(block_contents.data(), block_contents.size());
-        crc = crc32c::Extend(crc, trailer, 1);  // Extend to cover block type
-        EncodeFixed32(trailer_without_type, crc32c::Mask(crc));
+        uint32_t crc =
+            crc32c::Value(block_contents.data(), block_contents.size());
+        // Extend to cover compression type
+        crc = crc32c::Extend(crc, trailer, 1);
+        checksum = crc32c::Mask(crc);
         break;
       }
       case kxxHash: {
         XXH32_state_t* const state = XXH32_createState();
         XXH32_reset(state, 0);
-        XXH32_update(state, block_contents.data(),
-                     static_cast<uint32_t>(block_contents.size()));
-        XXH32_update(state, trailer, 1);  // Extend  to cover block type
-        EncodeFixed32(trailer_without_type, XXH32_digest(state));
+        XXH32_update(state, block_contents.data(), block_contents.size());
+        // Extend to cover compression type
+        XXH32_update(state, trailer, 1);
+        checksum = XXH32_digest(state);
         XXH32_freeState(state);
         break;
       }
       case kxxHash64: {
         XXH64_state_t* const state = XXH64_createState();
         XXH64_reset(state, 0);
-        XXH64_update(state, block_contents.data(),
-                     static_cast<uint32_t>(block_contents.size()));
-        XXH64_update(state, trailer, 1);  // Extend  to cover block type
-        EncodeFixed32(
-            trailer_without_type,
-            static_cast<uint32_t>(XXH64_digest(state) &  // lower 32 bits
-                                  uint64_t{0xffffffff}));
+        XXH64_update(state, block_contents.data(), block_contents.size());
+        // Extend to cover compression type
+        XXH64_update(state, trailer, 1);
+        checksum = Lower32of64(XXH64_digest(state));
         XXH64_freeState(state);
         break;
       }
+      default:
+        assert(false);
+        break;
     }
-
+    EncodeFixed32(trailer + 1, checksum);
     assert(io_s.ok());
     TEST_SYNC_POINT_CALLBACK(
         "BlockBasedTableBuilder::WriteRawBlock:TamperWithChecksum",
         static_cast<char*>(trailer));
     io_s = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (io_s.ok()) {
+      assert(s.ok());
       s = InsertBlockInCache(block_contents, type, handle);
       if (!s.ok()) {
         r->SetStatus(s);
@@ -1301,13 +1263,16 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
               static_cast<size_t>(end - r->compressed_cache_key_prefix));
 
     // Insert into compressed block cache.
-    block_cache_compressed->Insert(
-        key, block_contents_to_cache,
-        block_contents_to_cache->ApproximateMemoryUsage(),
-        &DeleteCachedBlockContents);
+    // How should we deal with compressed cache full?
+    block_cache_compressed
+        ->Insert(key, block_contents_to_cache,
+                 block_contents_to_cache->ApproximateMemoryUsage(),
+                 &DeleteCachedBlockContents)
+        .PermitUncheckedError();
 
     // Invalidate OS cache.
-    r->file->InvalidateCache(static_cast<size_t>(r->get_offset()), size);
+    r->file->InvalidateCache(static_cast<size_t>(r->get_offset()), size)
+        .PermitUncheckedError();
   }
   return Status::OK();
 }
@@ -1445,6 +1410,8 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     rep_->props.creation_time = rep_->creation_time;
     rep_->props.oldest_key_time = rep_->oldest_key_time;
     rep_->props.file_creation_time = rep_->file_creation_time;
+    rep_->props.db_id = rep_->db_id;
+    rep_->props.db_session_id = rep_->db_session_id;
 
     // Add basic properties
     property_block_builder.AddTableProperty(rep_->props);
@@ -1679,6 +1646,11 @@ Status BlockBasedTableBuilder::Finish() {
     r->pc_rep->write_queue.finish();
     r->pc_rep->write_thread->join();
     r->pc_rep->finished = true;
+#ifndef NDEBUG
+    for (const auto& br : r->pc_rep->block_rep_buf) {
+      assert(br.status.ok());
+    }
+#endif  // !NDEBUG
   } else {
     // To make sure properties block is able to keep the accurate size of index
     // block, we will finish writing all index entries first.
@@ -1712,7 +1684,9 @@ Status BlockBasedTableBuilder::Finish() {
     WriteFooter(metaindex_block_handle, index_block_handle);
   }
   r->state = Rep::State::kClosed;
-  return r->GetStatus();
+  Status ret_status = r->GetStatus();
+  assert(!ret_status.ok() || io_status().ok());
+  return ret_status;
 }
 
 void BlockBasedTableBuilder::Abandon() {
@@ -1727,6 +1701,8 @@ void BlockBasedTableBuilder::Abandon() {
     rep_->pc_rep->finished = true;
   }
   rep_->state = Rep::State::kClosed;
+  rep_->GetStatus().PermitUncheckedError();
+  rep_->GetIOStatus().PermitUncheckedError();
 }
 
 uint64_t BlockBasedTableBuilder::NumEntries() const {
@@ -1764,7 +1740,7 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
     for (const auto& prop : collector->GetReadableProperties()) {
       ret.readable_properties.insert(prop);
     }
-    collector->Finish(&ret.user_collected_properties);
+    collector->Finish(&ret.user_collected_properties).PermitUncheckedError();
   }
   return ret;
 }

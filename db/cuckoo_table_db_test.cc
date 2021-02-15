@@ -13,6 +13,7 @@
 #include "table/meta_blocks.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -46,9 +47,7 @@ class CuckooTableDBTest : public testing::Test {
     return options;
   }
 
-  DBImpl* dbfull() {
-    return reinterpret_cast<DBImpl*>(db_);
-  }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_); }
 
   // The following util methods are copied from plain_table_db_test.
   void Reopen(Options* options = nullptr) {

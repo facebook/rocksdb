@@ -84,6 +84,7 @@ class DeleteScheduler {
                                  const std::string& path);
 
   void SetStatisticsPtr(const std::shared_ptr<Statistics>& stats) {
+    InstrumentedMutexLock l(&mu_);
     stats_ = stats;
   }
 
@@ -105,7 +106,7 @@ class DeleteScheduler {
   std::atomic<uint64_t> total_trash_size_;
   // Maximum number of bytes that should be deleted per second
   std::atomic<int64_t> rate_bytes_per_sec_;
-  // Mutex to protect queue_, pending_files_, bg_errors_, closing_
+  // Mutex to protect queue_, pending_files_, bg_errors_, closing_, stats_
   InstrumentedMutex mu_;
 
   struct FileAndDir {

@@ -126,6 +126,11 @@ class IOStatus : public Status {
     return IOStatus(kIOError, kPathNotFound, msg, msg2);
   }
 
+  static IOStatus IOFenced() { return IOStatus(kIOError, kIOFenced); }
+  static IOStatus IOFenced(const Slice& msg, const Slice& msg2 = Slice()) {
+    return IOStatus(kIOError, kIOFenced, msg, msg2);
+  }
+
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   // std::string ToString() const;

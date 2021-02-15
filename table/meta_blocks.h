@@ -99,7 +99,8 @@ bool NotifyCollectTableCollectorsOnFinish(
 // @returns a status to indicate if the operation succeeded. On success,
 //          *table_properties will point to a heap-allocated TableProperties
 //          object, otherwise value of `table_properties` will not be modified.
-Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
+Status ReadProperties(const ReadOptions& ro, const Slice& handle_value,
+                      RandomAccessFileReader* file,
                       FilePrefetchBuffer* prefetch_buffer, const Footer& footer,
                       const ImmutableCFOptions& ioptions,
                       TableProperties** table_properties, bool verify_checksum,

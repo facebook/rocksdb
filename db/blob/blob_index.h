@@ -3,13 +3,13 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 #pragma once
-#ifndef ROCKSDB_LITE
 
 #include <sstream>
 #include <string>
 
-#include "rocksdb/options.h"
+#include "rocksdb/compression_type.h"
 #include "util/coding.h"
+#include "util/compression.h"
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -83,6 +83,11 @@ class BlobIndex {
     return size_;
   }
 
+  CompressionType compression() const {
+    assert(!IsInlined());
+    return compression_;
+  }
+
   Status DecodeFrom(Slice slice) {
     static const std::string kErrorMessage = "Error while decoding blob index";
     assert(slice.size() > 0);
@@ -118,7 +123,8 @@ class BlobIndex {
       oss << "[inlined blob] value:" << value_.ToString(output_hex);
     } else {
       oss << "[blob ref] file:" << file_number_ << " offset:" << offset_
-          << " size:" << size_;
+          << " size:" << size_
+          << " compression: " << CompressionTypeToString(compression_);
     }
 
     if (HasTTL()) {
@@ -176,4 +182,3 @@ class BlobIndex {
 };
 
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

@@ -60,10 +60,10 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
         }
         Slice tmp;
 
-        FileOperationInfo::TimePoint start_ts;
+        FileOperationInfo::StartTimePoint start_ts;
         uint64_t orig_offset = 0;
         if (ShouldNotifyListeners()) {
-          start_ts = std::chrono::system_clock::now();
+          start_ts = FileOperationInfo::StartNow();
           orig_offset = aligned_offset + buf.CurrentSize();
         }
 
@@ -78,7 +78,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
                           &tmp, buf.Destination(), nullptr);
         }
         if (ShouldNotifyListeners()) {
-          auto finish_ts = std::chrono::system_clock::now();
+          auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileReadFinish(orig_offset, tmp.size(), start_ts, finish_ts,
                                  s);
         }
@@ -121,9 +121,9 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
         Slice tmp_result;
 
 #ifndef ROCKSDB_LITE
-        FileOperationInfo::TimePoint start_ts;
+        FileOperationInfo::StartTimePoint start_ts;
         if (ShouldNotifyListeners()) {
-          start_ts = std::chrono::system_clock::now();
+          start_ts = FileOperationInfo::StartNow();
         }
 #endif
 
@@ -139,7 +139,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
         }
 #ifndef ROCKSDB_LITE
         if (ShouldNotifyListeners()) {
-          auto finish_ts = std::chrono::system_clock::now();
+          auto finish_ts = FileOperationInfo::FinishNow();
           NotifyOnFileReadFinish(offset + pos, tmp_result.size(), start_ts,
                                  finish_ts, s);
         }
@@ -183,18 +183,12 @@ FSReadRequest Align(const FSReadRequest& r, size_t alignment) {
   return req;
 }
 
-// Try to merge src to dest if they have overlap.
-//
-// Each request represents an inclusive interval [offset, offset + len].
-// If the intervals have overlap, update offset and len to represent the
-// merged interval, and return true.
-// Otherwise, do nothing and return false.
 bool TryMerge(FSReadRequest* dest, const FSReadRequest& src) {
   size_t dest_offset = static_cast<size_t>(dest->offset);
   size_t src_offset = static_cast<size_t>(src.offset);
   size_t dest_end = End(*dest);
   size_t src_end = End(src);
-  if (std::max(dest_offset, dest_offset) > std::min(dest_end, src_end)) {
+  if (std::max(dest_offset, src_offset) > std::min(dest_end, src_end)) {
     return false;
   }
   dest->offset = static_cast<uint64_t>(std::min(dest_offset, src_offset));
@@ -234,6 +228,8 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
           aligned_reqs.push_back(r);
         }
       }
+      TEST_SYNC_POINT_CALLBACK("RandomAccessFileReader::MultiRead:AlignedReqs",
+                               &aligned_reqs);
 
       // Allocate aligned buffer and let scratch buffers point to it.
       size_t total_len = 0;
@@ -256,9 +252,9 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
 #endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
-    FileOperationInfo::TimePoint start_ts;
+    FileOperationInfo::StartTimePoint start_ts;
     if (ShouldNotifyListeners()) {
-      start_ts = std::chrono::system_clock::now();
+      start_ts = FileOperationInfo::StartNow();
     }
 #endif  // ROCKSDB_LITE
 
@@ -292,7 +288,7 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
     for (size_t i = 0; i < num_reqs; ++i) {
 #ifndef ROCKSDB_LITE
       if (ShouldNotifyListeners()) {
-        auto finish_ts = std::chrono::system_clock::now();
+        auto finish_ts = FileOperationInfo::FinishNow();
         NotifyOnFileReadFinish(read_reqs[i].offset, read_reqs[i].result.size(),
                                start_ts, finish_ts, read_reqs[i].status);
       }

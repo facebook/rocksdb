@@ -14,7 +14,7 @@ namespace ROCKSDB_NAMESPACE {
 
 // A factory of a table property collector that marks a SST
 // file as need-compaction when it observe at least "D" deletion
-// entries in any "N" consecutive entires or the ratio of tombstone
+// entries in any "N" consecutive entries or the ratio of tombstone
 // entries in the whole file >= the specified deletion ratio.
 class CompactOnDeletionCollectorFactory
     : public TablePropertiesCollectorFactory {
@@ -55,7 +55,7 @@ class CompactOnDeletionCollectorFactory
                                        double deletion_ratio);
   // A factory of a table property collector that marks a SST
   // file as need-compaction when it observe at least "D" deletion
-  // entries in any "N" consecutive entires, or the ratio of tombstone
+  // entries in any "N" consecutive entries, or the ratio of tombstone
   // entries >= deletion_ratio.
   //
   // @param sliding_window_size "N"
@@ -76,7 +76,7 @@ class CompactOnDeletionCollectorFactory
 
 // Creates a factory of a table property collector that marks a SST
 // file as need-compaction when it observe at least "D" deletion
-// entries in any "N" consecutive entires, or the ratio of tombstone
+// entries in any "N" consecutive entries, or the ratio of tombstone
 // entries >= deletion_ratio.
 //
 // @param sliding_window_size "N". Note that this number will be

@@ -51,7 +51,8 @@ class BlockBasedTableBuilder : public TableBuilder {
       const std::string& column_family_name, const int level_at_creation,
       const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0,
       const uint64_t target_file_size = 0,
-      const uint64_t file_creation_time = 0);
+      const uint64_t file_creation_time = 0, const std::string& db_id = "",
+      const std::string& db_session_id = "");
 
   // No copying allowed
   BlockBasedTableBuilder(const BlockBasedTableBuilder&) = delete;

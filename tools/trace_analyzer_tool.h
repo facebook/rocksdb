@@ -238,7 +238,7 @@ class TraceAnalyzer {
       const std::string& type, const std::string& cf_name,
       const std::string& ending,
       std::unique_ptr<ROCKSDB_NAMESPACE::WritableFile>* f_ptr);
-  void CloseOutputFiles();
+  Status CloseOutputFiles();
 
   void PrintStatistics();
   Status TraceUnitWriter(

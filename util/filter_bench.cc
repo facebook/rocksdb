@@ -88,6 +88,9 @@ DEFINE_bool(net_includes_hashing, false,
             "(if not, dry run will include hashing) "
             "(build times always include hashing)");
 
+DEFINE_bool(optimize_filters_for_memory, false,
+            "Setting for BlockBasedTableOptions::optimize_filters_for_memory");
+
 DEFINE_bool(quick, false, "Run more limited set of tests, fewer queries");
 
 DEFINE_bool(best_case, false, "Run limited tests only for best-case");
@@ -121,7 +124,7 @@ using ROCKSDB_NAMESPACE::BloomHash;
 using ROCKSDB_NAMESPACE::BuiltinFilterBitsBuilder;
 using ROCKSDB_NAMESPACE::CachableEntry;
 using ROCKSDB_NAMESPACE::EncodeFixed32;
-using ROCKSDB_NAMESPACE::fastrange32;
+using ROCKSDB_NAMESPACE::FastRange32;
 using ROCKSDB_NAMESPACE::FilterBitsReader;
 using ROCKSDB_NAMESPACE::FilterBuildingContext;
 using ROCKSDB_NAMESPACE::FullFilterBlockReader;
@@ -158,7 +161,7 @@ struct KeyMaker {
     if (FLAGS_vary_key_size_log2_interval < 30) {
       // To get range [avg_size - 2, avg_size + 2]
       // use range [smallest_size, smallest_size + 4]
-      len += fastrange32(
+      len += FastRange32(
           (val_num >> FLAGS_vary_key_size_log2_interval) * 1234567891, 5);
     }
     char * data = buf_.get() + start;
@@ -278,6 +281,8 @@ struct FilterBench : public MockBlockBasedTableTester {
       kms_.emplace_back(FLAGS_key_size < 8 ? 8 : FLAGS_key_size);
     }
     ioptions_.info_log = &stderr_logger_;
+    table_options_.optimize_filters_for_memory =
+        FLAGS_optimize_filters_for_memory;
   }
 
   void Go();
@@ -337,6 +342,7 @@ void FilterBench::Go() {
   std::unique_ptr<BuiltinFilterBitsBuilder> builder;
 
   size_t total_memory_used = 0;
+  size_t total_size = 0;
   size_t total_keys_added = 0;
 #ifdef PREDICT_FP_RATE
   double weighted_predicted_fp_rate = 0.0;
@@ -355,11 +361,11 @@ void FilterBench::Go() {
                                          true);
 
   infos_.clear();
-  while ((working_mem_size_mb == 0 || total_memory_used < max_mem) &&
+  while ((working_mem_size_mb == 0 || total_size < max_mem) &&
          total_keys_added < max_total_keys) {
     uint32_t filter_id = random_.Next();
     uint32_t keys_to_add = FLAGS_average_keys_per_filter +
-                           fastrange32(random_.Next(), variance_range) -
+                           FastRange32(random_.Next(), variance_range) -
                            variance_offset;
     if (max_total_keys - total_keys_added < keys_to_add) {
       keys_to_add = static_cast<uint32_t>(max_total_keys - total_keys_added);
@@ -405,7 +411,11 @@ void FilterBench::Go() {
       info.full_block_reader_.reset(
           new FullFilterBlockReader(table_.get(), std::move(block)));
     }
-    total_memory_used += info.filter_.size();
+    total_size += info.filter_.size();
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    total_memory_used +=
+        malloc_usable_size(const_cast<char *>(info.filter_.data()));
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
     total_keys_added += keys_to_add;
   }
 
@@ -413,11 +423,17 @@ void FilterBench::Go() {
   double ns = double(elapsed_nanos) / total_keys_added;
   std::cout << "Build avg ns/key: " << ns << std::endl;
   std::cout << "Number of filters: " << infos_.size() << std::endl;
-  std::cout << "Total memory (MB): " << total_memory_used / 1024.0 / 1024.0
-            << std::endl;
+  std::cout << "Total size (MB): " << total_size / 1024.0 / 1024.0 << std::endl;
+  if (total_memory_used > 0) {
+    std::cout << "Reported total allocated memory (MB): "
+              << total_memory_used / 1024.0 / 1024.0 << std::endl;
+    std::cout << "Reported internal fragmentation: "
+              << (total_memory_used - total_size) * 100.0 / total_size << "%"
+              << std::endl;
+  }
 
-  double bpk = total_memory_used * 8.0 / total_keys_added;
-  std::cout << "Bits/key actual: " << bpk << std::endl;
+  double bpk = total_size * 8.0 / total_keys_added;
+  std::cout << "Bits/key stored: " << bpk << std::endl;
 #ifdef PREDICT_FP_RATE
   std::cout << "Predicted FP rate %: "
             << 100.0 * (weighted_predicted_fp_rate / total_keys_added)

@@ -311,7 +311,7 @@ public:
 
   void StartThread(void(*function)(void* arg), void* arg) override;
 
-  void WaitForJoin();
+  void WaitForJoin() override;
 
   unsigned int GetThreadPoolQueueLen(Env::Priority pri) const override;
 

@@ -5,8 +5,19 @@
 
 package org.rocksdb;
 
+import java.util.Collection;
+import java.util.List;
+
 public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInterface<T>>
     extends AdvancedColumnFamilyOptionsInterface<T> {
+  /**
+   * The function recovers options to a previous version. Only 4.6 or later
+   * versions are supported.
+   *
+   * @return the instance of the current object.
+   */
+  T oldDefaults(int majorVersion, int minorVersion);
+
   /**
    * Use this if your DB is very small (like under 1GB) and you don't want to
    * spend lots of memory for memtables.
@@ -14,6 +25,16 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * @return the instance of the current object.
    */
   T optimizeForSmallDb();
+
+  /**
+   * Some functions that make it easier to optimize RocksDB
+   * Use this if your DB is very small (like under 1GB) and you don't want to
+   * spend lots of memory for memtables.
+   * An optional cache object is passed in to be used as the block cache
+   *
+   * @return the instance of the current object.
+   */
+  T optimizeForSmallDb(Cache cache);
 
   /**
    * Use this if you don't need to keep the data sorted, i.e. you'll never use
@@ -372,6 +393,30 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
   String tableFactoryName();
 
   /**
+   * A list of paths where SST files for this column family
+   * can be put into, with its target size. Similar to db_paths,
+   * newer data is placed into paths specified earlier in the
+   * vector while older data gradually moves to paths specified
+   * later in the vector.
+   * Note that, if a path is supplied to multiple column
+   * families, it would have files and total size from all
+   * the column families combined. User should provision for the
+   * total size(from all the column families) in such cases.
+   *
+   * If left empty, db_paths will be used.
+   * Default: empty
+   *
+   * @param paths collection of paths for SST files.
+   * @return the reference of the current options.
+   */
+  T setCfPaths(final Collection<DbPath> paths);
+
+  /**
+   * @return collection of paths for SST files.
+   */
+  List<DbPath> cfPaths();
+
+  /**
    * Compression algorithm that will be used for the bottommost level that
    * contain files. If level-compaction is used, this option will only affect
    * levels after base level.
@@ -436,6 +481,46 @@ public interface ColumnFamilyOptionsInterface<T extends ColumnFamilyOptionsInter
    * @return The compression options
    */
   CompressionOptions compressionOptions();
+
+  /**
+   * If non-nullptr, use the specified factory for a function to determine the
+   * partitioning of sst files. This helps compaction to split the files
+   * on interesting boundaries (key prefixes) to make propagation of sst
+   * files less write amplifying (covering the whole key space).
+   *
+   * Default: nullptr
+   *
+   * @param factory The factory reference
+   * @return the reference of the current options.
+   */
+  @Experimental("Caution: this option is experimental")
+  T setSstPartitionerFactory(SstPartitionerFactory factory);
+
+  /**
+   * Get SST partitioner factory
+   *
+   * @return SST partitioner factory
+   */
+  @Experimental("Caution: this option is experimental")
+  SstPartitionerFactory sstPartitionerFactory();
+
+  /**
+   * Compaction concurrent thread limiter for the column family.
+   * If non-nullptr, use given concurrent thread limiter to control
+   * the max outstanding compaction tasks. Limiter can be shared with
+   * multiple column families across db instances.
+   *
+   * @param concurrentTaskLimiter The compaction thread limiter.
+   * @return the reference of the current options.
+   */
+  T setCompactionThreadLimiter(ConcurrentTaskLimiter concurrentTaskLimiter);
+
+  /**
+   * Get compaction thread limiter
+   *
+   * @return Compaction thread limiter
+   */
+  ConcurrentTaskLimiter compactionThreadLimiter();
 
   /**
    * Default memtable memory budget used with the following methods:

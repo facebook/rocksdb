@@ -7,10 +7,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cstdlib>
+
 #include "cache/lru_cache.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "util/compression.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -32,7 +34,8 @@ class DBBlockCacheTest : public DBTestBase {
   const size_t kNumBlocks = 10;
   const size_t kValueSize = 100;
 
-  DBBlockCacheTest() : DBTestBase("/db_block_cache_test") {}
+  DBBlockCacheTest()
+      : DBTestBase("/db_block_cache_test", /*env_do_fsync=*/true) {}
 
   BlockBasedTableOptions GetTableOptions() {
     BlockBasedTableOptions table_options;
@@ -47,7 +50,7 @@ class DBBlockCacheTest : public DBTestBase {
     options.avoid_flush_during_recovery = false;
     // options.compression = kNoCompression;
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     return options;
   }
 
@@ -155,7 +158,7 @@ TEST_F(DBBlockCacheTest, IteratorBlockCacheUsage) {
 
   std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
   table_options.block_cache = cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   RecordCacheCounters(options);
 
@@ -179,7 +182,7 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
 
   std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
   table_options.block_cache = cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   RecordCacheCounters(options);
 
@@ -235,7 +238,7 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   std::shared_ptr<Cache> compressed_cache = NewLRUCache(1 << 25, 0, false);
   table_options.block_cache = cache;
   table_options.block_cache_compressed = compressed_cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   RecordCacheCounters(options);
 
@@ -296,7 +299,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = true;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "key", "val"));
@@ -352,7 +355,7 @@ TEST_F(DBBlockCacheTest, FillCacheAndIterateDB) {
 
   std::shared_ptr<Cache> cache = NewLRUCache(10, 0, true);
   table_options.block_cache = cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   ASSERT_OK(Put("key1", "val1"));
   ASSERT_OK(Put("key2", "val2"));
@@ -390,7 +393,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   std::shared_ptr<Cache> cache = NewLRUCache(co);
   table_options.block_cache = cache;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20, true));
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "longer_key", "val"));
@@ -471,7 +474,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksCachePriority) {
     table_options.filter_policy.reset(NewBloomFilterPolicy(20));
     table_options.cache_index_and_filter_blocks_with_high_priority =
         priority == Cache::Priority::HIGH ? true : false;
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 
     MockCache::high_pri_insert_count = 0;
@@ -570,7 +573,7 @@ TEST_F(DBBlockCacheTest, AddRedundantStats) {
     table_options.cache_index_and_filter_blocks = true;
     table_options.block_cache = cache;
     table_options.filter_policy.reset(NewBloomFilterPolicy(50));
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 
     // Create a new table.
@@ -659,7 +662,7 @@ TEST_F(DBBlockCacheTest, ParanoidFileChecks) {
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = false;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "1_key", "val"));
@@ -764,7 +767,7 @@ TEST_F(DBBlockCacheTest, CompressedCache) {
     std::string str;
     for (int i = 0; i < num_iter; i++) {
       if (i % 4 == 0) {  // high compression ratio
-        str = RandomString(&rnd, 1000);
+        str = rnd.RandomString(1000);
       }
       values.push_back(str);
       ASSERT_OK(Put(1, Key(i), values[i]));
@@ -843,7 +846,7 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
     BlockBasedTableOptions table_options;
     table_options.cache_index_and_filter_blocks = true;
     table_options.block_cache.reset(new MockCache());
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     DestroyAndReopen(options);
 
     RecordCacheCountersForCompressionDict(options);
@@ -851,7 +854,7 @@ TEST_F(DBBlockCacheTest, CacheCompressionDict) {
     for (int i = 0; i < kNumFiles; ++i) {
       ASSERT_EQ(i, NumTableFilesAtLevel(0, 0));
       for (int j = 0; j < kNumEntriesPerFile; ++j) {
-        std::string value = RandomString(&rnd, kNumBytesPerEntry);
+        std::string value = rnd.RandomString(kNumBytesPerEntry);
         ASSERT_OK(Put(Key(j * kNumFiles + i), value.c_str()));
       }
       ASSERT_OK(Flush());

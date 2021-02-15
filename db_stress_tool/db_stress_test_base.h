@@ -27,7 +27,9 @@ class StressTest {
   bool BuildOptionsTable();
 
   void InitDb();
-  void InitReadonlyDb(SharedState*);
+  // The initialization work is split into two parts to avoid a circular
+  // dependency with `SharedState`.
+  void FinishInitDb(SharedState*);
 
   // Return false if verification fails.
   bool VerifySecondaries();
@@ -187,6 +189,7 @@ class StressTest {
   Status VerifyGetLiveFiles() const;
   Status VerifyGetSortedWalFiles() const;
   Status VerifyGetCurrentWalFile() const;
+  void TestGetProperty(ThreadState* thread) const;
 
   virtual Status TestApproximateSize(
       ThreadState* thread, uint64_t iteration,

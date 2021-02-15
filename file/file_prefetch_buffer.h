@@ -11,9 +11,11 @@
 #include <atomic>
 #include <sstream>
 #include <string>
+
 #include "file/random_access_file_reader.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "util/aligned_buffer.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -59,8 +61,8 @@ class FilePrefetchBuffer {
   // offset : the file offset to start reading from.
   // n      : the number of bytes to read.
   // for_compaction : if prefetch is done for compaction read.
-  Status Prefetch(RandomAccessFileReader* reader, uint64_t offset, size_t n,
-                  bool for_compaction = false);
+  Status Prefetch(const IOOptions& opts, RandomAccessFileReader* reader,
+                  uint64_t offset, size_t n, bool for_compaction = false);
 
   // Tries returning the data for a file raed from this buffer, if that data is
   // in the buffer.
@@ -72,8 +74,8 @@ class FilePrefetchBuffer {
   // n      : the number of bytes.
   // result : output buffer to put the data into.
   // for_compaction : if cache read is done for compaction read.
-  bool TryReadFromCache(uint64_t offset, size_t n, Slice* result,
-                        bool for_compaction = false);
+  bool TryReadFromCache(const IOOptions& opts, uint64_t offset, size_t n,
+                        Slice* result, bool for_compaction = false);
 
   // The minimum `offset` ever passed to TryReadFromCache(). This will nly be
   // tracked if track_min_offset = true.

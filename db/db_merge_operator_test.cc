@@ -9,6 +9,7 @@
 #include "db/forward_iterator.h"
 #include "port/stack_trace.h"
 #include "rocksdb/merge_operator.h"
+#include "util/random.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend2.h"
 
@@ -35,7 +36,8 @@ class TestReadCallback : public ReadCallback {
 // Test merge operator functionality.
 class DBMergeOperatorTest : public DBTestBase {
  public:
-  DBMergeOperatorTest() : DBTestBase("/db_merge_operator_test") {}
+  DBMergeOperatorTest()
+      : DBTestBase("/db_merge_operator_test", /*env_do_fsync=*/true) {}
 
   std::string GetWithReadCallback(SnapshotChecker* snapshot_checker,
                                   const Slice& key,
@@ -242,7 +244,7 @@ TEST_P(MergeOperatorPinningTest, OperandsMultiBlocks) {
       std::string key = Key(key_id % 35);
       key_id++;
       for (int k = 0; k < kOperandsPerKeyPerFile; k++) {
-        std::string val = RandomString(&rnd, kOperandSize);
+        std::string val = rnd.RandomString(kOperandSize);
         ASSERT_OK(db_->Merge(WriteOptions(), key, val));
         if (true_data[key].size() == 0) {
           true_data[key] = val;
@@ -327,7 +329,7 @@ TEST_P(MergeOperatorPinningTest, EvictCacheBeforeMerge) {
   for (int i = 0; i < kNumOperands; i++) {
     for (int j = 0; j < kNumKeys; j++) {
       std::string k = Key(j);
-      std::string v = RandomString(&rnd, kOperandSize);
+      std::string v = rnd.RandomString(kOperandSize);
       ASSERT_OK(db_->Merge(WriteOptions(), k, v));
 
       true_data[k] = std::max(true_data[k], v);
@@ -620,7 +622,7 @@ TEST_P(PerConfigMergeOperatorPinningTest, Randomized) {
   // kNumPutBefore keys will have base values
   for (int i = 0; i < kNumPutBefore; i++) {
     std::string key = Key(rnd.Next() % kKeyRange);
-    std::string value = RandomString(&rnd, kOperandSize);
+    std::string value = rnd.RandomString(kOperandSize);
     ASSERT_OK(db_->Put(WriteOptions(), key, value));
 
     true_data[key] = value;
@@ -629,7 +631,7 @@ TEST_P(PerConfigMergeOperatorPinningTest, Randomized) {
   // Do kTotalMerges merges
   for (int i = 0; i < kTotalMerges; i++) {
     std::string key = Key(rnd.Next() % kKeyRange);
-    std::string value = RandomString(&rnd, kOperandSize);
+    std::string value = rnd.RandomString(kOperandSize);
     ASSERT_OK(db_->Merge(WriteOptions(), key, value));
 
     if (true_data[key] < value) {
@@ -640,7 +642,7 @@ TEST_P(PerConfigMergeOperatorPinningTest, Randomized) {
   // Overwrite random kNumPutAfter keys
   for (int i = 0; i < kNumPutAfter; i++) {
     std::string key = Key(rnd.Next() % kKeyRange);
-    std::string value = RandomString(&rnd, kOperandSize);
+    std::string value = rnd.RandomString(kOperandSize);
     ASSERT_OK(db_->Put(WriteOptions(), key, value));
 
     true_data[key] = value;

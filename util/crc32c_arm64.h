@@ -35,6 +35,7 @@
 
 extern uint32_t crc32c_arm64(uint32_t crc, unsigned char const *data, unsigned len);
 extern uint32_t crc32c_runtime_check(void);
+extern bool crc32c_pmull_runtime_check(void);
 
 #ifdef __ARM_FEATURE_CRYPTO
 #define HAVE_ARM64_CRYPTO

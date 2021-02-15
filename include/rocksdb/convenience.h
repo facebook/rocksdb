@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "rocksdb/compression_type.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -46,8 +47,14 @@ struct ConfigOptions {
   // When true, any unused options will be ignored and OK will be returned
   bool ignore_unknown_options = false;
 
+  // When true, any unsupported options will be ignored and OK will be returned
+  bool ignore_unsupported_options = true;
+
   // If the strings are escaped (old-style?)
   bool input_strings_escaped = true;
+
+  // Whether or not to invoke PrepareOptions after configure is called.
+  bool invoke_prepare_options = true;
 
   // The separator between options when converting to a string
   std::string delimiter = ";";
