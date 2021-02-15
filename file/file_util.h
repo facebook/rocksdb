@@ -12,6 +12,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/status.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/types.h"
 #include "trace_replay/io_tracer.h"
 
@@ -67,14 +68,12 @@ inline IOStatus GenerateOneFileChecksum(
       allow_mmap_reads, io_tracer);
 }
 
-inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro, Env* env,
-                                         IOOptions& opts) {
-  if (!env) {
-    env = Env::Default();
-  }
-
+inline IOStatus PrepareIOFromReadOptions(
+    const ReadOptions& ro, const std::shared_ptr<SystemClock>& clock,
+    IOOptions& opts) {
   if (ro.deadline.count()) {
-    std::chrono::microseconds now = std::chrono::microseconds(env->NowMicros());
+    std::chrono::microseconds now =
+        std::chrono::microseconds(clock->NowMicros());
     // Ensure there is atleast 1us available. We don't want to pass a value of
     // 0 as that means no timeout
     if (now >= ro.deadline) {

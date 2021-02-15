@@ -970,6 +970,21 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
           2 /*earliest_write_conflict_snapshot*/);
 }
 
+// Same as above but with a blob index. In addition to the value getting
+// trimmed, the type of the KV is changed to kTypeValue.
+TEST_F(CompactionIteratorWithSnapshotCheckerTest,
+       KeepSingleDeletionForWriteConflictChecking_BlobIndex) {
+  AddSnapshot(2, 0);
+  RunTest({test::KeyStr("a", 2, kTypeSingleDeletion),
+           test::KeyStr("a", 1, kTypeBlobIndex)},
+          {"", "fake_blob_index"},
+          {test::KeyStr("a", 2, kTypeSingleDeletion),
+           test::KeyStr("a", 1, kTypeValue)},
+          {"", ""}, 2 /*last_committed_seq*/, nullptr /*merge_operator*/,
+          nullptr /*compaction_filter*/, false /*bottommost_level*/,
+          2 /*earliest_write_conflict_snapshot*/);
+}
+
 // Compaction filter should keep uncommitted key as-is, and
 //   * Convert the latest velue to deletion, and/or
 //   * if latest value is a merge, apply filter to all suequent merges.

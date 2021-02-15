@@ -35,6 +35,7 @@
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -2213,7 +2214,8 @@ TEST_F(EnvTest, IsDirectory) {
     ASSERT_OK(s);
     std::unique_ptr<WritableFileWriter> fwriter;
     fwriter.reset(new WritableFileWriter(std::move(wfile), test_file_path,
-                                         FileOptions(), Env::Default()));
+                                         FileOptions(),
+                                         SystemClock::Default()));
     constexpr char buf[] = "test";
     s = fwriter->Append(buf);
     ASSERT_OK(s);

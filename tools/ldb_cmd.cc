@@ -22,7 +22,6 @@
 #include "db/dbformat.h"
 #include "db/log_reader.h"
 #include "db/write_batch_internal.h"
-#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/file_checksum.h"
@@ -2290,19 +2289,11 @@ class InMemoryHandler : public WriteBatch::Handler {
 void DumpWalFile(Options options, std::string wal_file, bool print_header,
                  bool print_values, bool is_write_committed,
                  LDBCommandExecuteResult* exec_state) {
-  Env* env = options.env;
-  EnvOptions soptions(options);
+  const auto& fs = options.env->GetFileSystem();
+  FileOptions soptions(options);
   std::unique_ptr<SequentialFileReader> wal_file_reader;
-
-  Status status;
-  {
-    std::unique_ptr<SequentialFile> file;
-    status = env->NewSequentialFile(wal_file, &file, soptions);
-    if (status.ok()) {
-      wal_file_reader.reset(new SequentialFileReader(
-          NewLegacySequentialFileWrapper(file), wal_file));
-    }
-  }
+  Status status = SequentialFileReader::Create(fs, wal_file, soptions,
+                                               &wal_file_reader, nullptr);
   if (!status.ok()) {
     if (exec_state) {
       *exec_state = LDBCommandExecuteResult::Failed("Failed to open WAL file " +

@@ -3936,6 +3936,25 @@ unsigned char rocksdb_readoptions_get_ignore_range_deletions(
   return opt->rep.ignore_range_deletions;
 }
 
+void rocksdb_readoptions_set_deadline(rocksdb_readoptions_t* opt,
+                                      uint64_t microseconds) {
+  opt->rep.deadline = std::chrono::microseconds(microseconds);
+}
+
+uint64_t rocksdb_readoptions_get_deadline(rocksdb_readoptions_t* opt) {
+  return opt->rep.deadline.count();
+}
+
+void rocksdb_readoptions_set_io_timeout(rocksdb_readoptions_t* opt,
+                                        uint64_t microseconds) {
+  opt->rep.io_timeout = std::chrono::microseconds(microseconds);
+}
+
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_readoptions_get_io_timeout(rocksdb_readoptions_t* opt) {
+  return opt->rep.io_timeout.count();
+}
+
 rocksdb_writeoptions_t* rocksdb_writeoptions_create() {
   return new rocksdb_writeoptions_t;
 }

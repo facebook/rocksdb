@@ -714,6 +714,15 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
     if (!status.ok()) {
       return status;
     }
+    uint64_t file_size;
+    status = EnvWrapper::GetFileSize(fname, &file_size);
+    if (!status.ok()) {
+      return status;
+    }
+    if (!file_size) {
+      *result = std::move(underlying);
+      return status;
+    }
     // Create cipher stream
     std::unique_ptr<BlockAccessCipherStream> stream;
     size_t prefix_length;
@@ -909,7 +918,7 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
                        uint64_t* file_size, IODebugContext* dbg) override {
     auto status =
         FileSystemWrapper::GetFileSize(fname, options, file_size, dbg);
-    if (!status.ok()) {
+    if (!status.ok() || !(*file_size)) {
       return status;
     }
     EncryptionProvider* provider;

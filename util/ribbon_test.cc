@@ -5,6 +5,7 @@
 
 #include <cmath>
 
+#include "rocksdb/system_clock.h"
 #include "test_util/testharness.h"
 #include "util/bloom_impl.h"
 #include "util/coding.h"
@@ -496,8 +497,8 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     Index fp_count = 0;
     cur = other_keys_begin;
     {
-      ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
-                                             true);
+      ROCKSDB_NAMESPACE::StopWatchNano timer(
+          ROCKSDB_NAMESPACE::SystemClock::Default(), true);
       while (cur != other_keys_end) {
         bool fp = soln.FilterQuery(*cur, hasher);
         fp_count += fp ? 1 : 0;
@@ -523,8 +524,8 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     if (test_interleaved) {
       Index ifp_count = 0;
       cur = other_keys_begin;
-      ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
-                                             true);
+      ROCKSDB_NAMESPACE::StopWatchNano timer(
+          ROCKSDB_NAMESPACE::SystemClock::Default(), true);
       while (cur != other_keys_end) {
         ifp_count += isoln.FilterQuery(*cur, hasher) ? 1 : 0;
         ++cur;
@@ -551,8 +552,8 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
     if (ibytes >= /* minimum Bloom impl bytes*/ 64) {
       Index bfp_count = 0;
       cur = other_keys_begin;
-      ROCKSDB_NAMESPACE::StopWatchNano timer(ROCKSDB_NAMESPACE::Env::Default(),
-                                             true);
+      ROCKSDB_NAMESPACE::StopWatchNano timer(
+          ROCKSDB_NAMESPACE::SystemClock::Default(), true);
       while (cur != other_keys_end) {
         uint64_t h = hasher.GetHash(*cur);
         uint32_t h1 = ROCKSDB_NAMESPACE::Lower32of64(h);

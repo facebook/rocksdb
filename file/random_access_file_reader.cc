@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <mutex>
 
+#include "file/file_util.h"
 #include "monitoring/histogram.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
@@ -21,6 +22,17 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
+Status RandomAccessFileReader::Create(
+    const std::shared_ptr<FileSystem>& fs, const std::string& fname,
+    const FileOptions& file_opts,
+    std::unique_ptr<RandomAccessFileReader>* reader, IODebugContext* dbg) {
+  std::unique_ptr<FSRandomAccessFile> file;
+  Status s = fs->NewRandomAccessFile(fname, file_opts, &file, dbg);
+  if (s.ok()) {
+    reader->reset(new RandomAccessFileReader(std::move(file), fname));
+  }
+  return s;
+}
 
 Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
                                     size_t n, Slice* result, char* scratch,
@@ -32,7 +44,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
   Status s;
   uint64_t elapsed = 0;
   {
-    StopWatch sw(env_, stats_, hist_type_,
+    StopWatch sw(clock_, stats_, hist_type_,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
@@ -68,7 +80,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
         }
 
         {
-          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
           // Only user reads are expected to specify a timeout. And user reads
           // are not subjected to rate_limiter and should go through only
           // one iteration of this loop, so we don't need to check and adjust
@@ -128,7 +140,7 @@ Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
 #endif
 
         {
-          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+          IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
           // Only user reads are expected to specify a timeout. And user reads
           // are not subjected to rate_limiter and should go through only
           // one iteration of this loop, so we don't need to check and adjust
@@ -205,7 +217,7 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
   Status s;
   uint64_t elapsed = 0;
   {
-    StopWatch sw(env_, stats_, hist_type_,
+    StopWatch sw(clock_, stats_, hist_type_,
                  (stats_ != nullptr) ? &elapsed : nullptr, true /*overwrite*/,
                  true /*delay_enabled*/);
     auto prev_perf_level = GetPerfLevel();
@@ -267,7 +279,7 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
 #endif  // ROCKSDB_LITE
 
     {
-      IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, env_);
+      IOSTATS_CPU_TIMER_GUARD(cpu_read_nanos, clock_);
       s = file_->MultiRead(fs_reqs, num_fs_reqs, opts, nullptr);
     }
 
@@ -312,4 +324,12 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
   return s;
 }
 
+IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
+                                                  IOOptions& opts) {
+  if (clock_.get() != nullptr) {
+    return PrepareIOFromReadOptions(ro, clock_, opts);
+  } else {
+    return PrepareIOFromReadOptions(ro, SystemClock::Default(), opts);
+  }
+}
 }  // namespace ROCKSDB_NAMESPACE

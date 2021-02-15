@@ -10,17 +10,308 @@
 #include "rocksdb/env.h"
 
 #include <thread>
+
 #include "env/composite_env_wrapper.h"
 #include "logging/env_logger.h"
 #include "memory/arena.h"
 #include "options/db_options.h"
 #include "port/port.h"
 #include "rocksdb/options.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
+class LegacySystemClock : public SystemClock {
+ private:
+  Env* env_;
+
+ public:
+  explicit LegacySystemClock(Env* env) : env_(env) {}
+  const char* Name() const override { return "Legacy System Clock"; }
+
+  // Returns the number of micro-seconds since some fixed point in time.
+  // It is often used as system time such as in GenericRateLimiter
+  // and other places so a port needs to return system time in order to work.
+  uint64_t NowMicros() override { return env_->NowMicros(); }
+
+  // Returns the number of nano-seconds since some fixed point in time. Only
+  // useful for computing deltas of time in one run.
+  // Default implementation simply relies on NowMicros.
+  // In platform-specific implementations, NowNanos() should return time points
+  // that are MONOTONIC.
+  uint64_t NowNanos() override { return env_->NowNanos(); }
+
+  uint64_t CPUMicros() override { return CPUNanos() / 1000; }
+  uint64_t CPUNanos() override { return env_->NowCPUNanos(); }
+
+  // Sleep/delay the thread for the prescribed number of micro-seconds.
+  void SleepForMicroseconds(int micros) override {
+    env_->SleepForMicroseconds(micros);
+  }
+
+  // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
+  // Only overwrites *unix_time on success.
+  Status GetCurrentTime(int64_t* unix_time) override {
+    return env_->GetCurrentTime(unix_time);
+  }
+  // Converts seconds-since-Jan-01-1970 to a printable string
+  std::string TimeToString(uint64_t time) override {
+    return env_->TimeToString(time);
+  }
+};
+
+class LegacySequentialFileWrapper : public FSSequentialFile {
+ public:
+  explicit LegacySequentialFileWrapper(
+      std::unique_ptr<SequentialFile>&& _target)
+      : target_(std::move(_target)) {}
+
+  IOStatus Read(size_t n, const IOOptions& /*options*/, Slice* result,
+                char* scratch, IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Read(n, result, scratch));
+  }
+  IOStatus Skip(uint64_t n) override {
+    return status_to_io_status(target_->Skip(n));
+  }
+  bool use_direct_io() const override { return target_->use_direct_io(); }
+  size_t GetRequiredBufferAlignment() const override {
+    return target_->GetRequiredBufferAlignment();
+  }
+  IOStatus InvalidateCache(size_t offset, size_t length) override {
+    return status_to_io_status(target_->InvalidateCache(offset, length));
+  }
+  IOStatus PositionedRead(uint64_t offset, size_t n,
+                          const IOOptions& /*options*/, Slice* result,
+                          char* scratch, IODebugContext* /*dbg*/) override {
+    return status_to_io_status(
+        target_->PositionedRead(offset, n, result, scratch));
+  }
+
+ private:
+  std::unique_ptr<SequentialFile> target_;
+};
+
+class LegacyRandomAccessFileWrapper : public FSRandomAccessFile {
+ public:
+  explicit LegacyRandomAccessFileWrapper(
+      std::unique_ptr<RandomAccessFile>&& target)
+      : target_(std::move(target)) {}
+
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& /*options*/,
+                Slice* result, char* scratch,
+                IODebugContext* /*dbg*/) const override {
+    return status_to_io_status(target_->Read(offset, n, result, scratch));
+  }
+
+  IOStatus MultiRead(FSReadRequest* fs_reqs, size_t num_reqs,
+                     const IOOptions& /*options*/,
+                     IODebugContext* /*dbg*/) override {
+    std::vector<ReadRequest> reqs;
+    Status status;
+
+    reqs.reserve(num_reqs);
+    for (size_t i = 0; i < num_reqs; ++i) {
+      ReadRequest req;
+
+      req.offset = fs_reqs[i].offset;
+      req.len = fs_reqs[i].len;
+      req.scratch = fs_reqs[i].scratch;
+      req.status = Status::OK();
+
+      reqs.emplace_back(req);
+    }
+    status = target_->MultiRead(reqs.data(), num_reqs);
+    for (size_t i = 0; i < num_reqs; ++i) {
+      fs_reqs[i].result = reqs[i].result;
+      fs_reqs[i].status = status_to_io_status(std::move(reqs[i].status));
+    }
+    return status_to_io_status(std::move(status));
+  }
+
+  IOStatus Prefetch(uint64_t offset, size_t n, const IOOptions& /*options*/,
+                    IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Prefetch(offset, n));
+  }
+  size_t GetUniqueId(char* id, size_t max_size) const override {
+    return target_->GetUniqueId(id, max_size);
+  }
+  void Hint(AccessPattern pattern) override {
+    target_->Hint((RandomAccessFile::AccessPattern)pattern);
+  }
+  bool use_direct_io() const override { return target_->use_direct_io(); }
+  size_t GetRequiredBufferAlignment() const override {
+    return target_->GetRequiredBufferAlignment();
+  }
+  IOStatus InvalidateCache(size_t offset, size_t length) override {
+    return status_to_io_status(target_->InvalidateCache(offset, length));
+  }
+
+ private:
+  std::unique_ptr<RandomAccessFile> target_;
+};
+
+class LegacyRandomRWFileWrapper : public FSRandomRWFile {
+ public:
+  explicit LegacyRandomRWFileWrapper(std::unique_ptr<RandomRWFile>&& target)
+      : target_(std::move(target)) {}
+
+  bool use_direct_io() const override { return target_->use_direct_io(); }
+  size_t GetRequiredBufferAlignment() const override {
+    return target_->GetRequiredBufferAlignment();
+  }
+  IOStatus Write(uint64_t offset, const Slice& data,
+                 const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Write(offset, data));
+  }
+  IOStatus Read(uint64_t offset, size_t n, const IOOptions& /*options*/,
+                Slice* result, char* scratch,
+                IODebugContext* /*dbg*/) const override {
+    return status_to_io_status(target_->Read(offset, n, result, scratch));
+  }
+  IOStatus Flush(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Flush());
+  }
+  IOStatus Sync(const IOOptions& /*options*/,
+                IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Sync());
+  }
+  IOStatus Fsync(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Fsync());
+  }
+  IOStatus Close(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Close());
+  }
+
+ private:
+  std::unique_ptr<RandomRWFile> target_;
+};
+
+class LegacyWritableFileWrapper : public FSWritableFile {
+ public:
+  explicit LegacyWritableFileWrapper(std::unique_ptr<WritableFile>&& _target)
+      : target_(std::move(_target)) {}
+
+  IOStatus Append(const Slice& data, const IOOptions& /*options*/,
+                  IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Append(data));
+  }
+  IOStatus Append(const Slice& data, const IOOptions& /*options*/,
+                  const DataVerificationInfo& /*verification_info*/,
+                  IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Append(data));
+  }
+  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                            const IOOptions& /*options*/,
+                            IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->PositionedAppend(data, offset));
+  }
+  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                            const IOOptions& /*options*/,
+                            const DataVerificationInfo& /*verification_info*/,
+                            IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->PositionedAppend(data, offset));
+  }
+  IOStatus Truncate(uint64_t size, const IOOptions& /*options*/,
+                    IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Truncate(size));
+  }
+  IOStatus Close(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Close());
+  }
+  IOStatus Flush(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Flush());
+  }
+  IOStatus Sync(const IOOptions& /*options*/,
+                IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Sync());
+  }
+  IOStatus Fsync(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Fsync());
+  }
+  bool IsSyncThreadSafe() const override { return target_->IsSyncThreadSafe(); }
+
+  bool use_direct_io() const override { return target_->use_direct_io(); }
+
+  size_t GetRequiredBufferAlignment() const override {
+    return target_->GetRequiredBufferAlignment();
+  }
+
+  void SetWriteLifeTimeHint(Env::WriteLifeTimeHint hint) override {
+    target_->SetWriteLifeTimeHint(hint);
+  }
+
+  Env::WriteLifeTimeHint GetWriteLifeTimeHint() override {
+    return target_->GetWriteLifeTimeHint();
+  }
+
+  uint64_t GetFileSize(const IOOptions& /*options*/,
+                       IODebugContext* /*dbg*/) override {
+    return target_->GetFileSize();
+  }
+
+  void SetPreallocationBlockSize(size_t size) override {
+    target_->SetPreallocationBlockSize(size);
+  }
+
+  void GetPreallocationStatus(size_t* block_size,
+                              size_t* last_allocated_block) override {
+    target_->GetPreallocationStatus(block_size, last_allocated_block);
+  }
+
+  size_t GetUniqueId(char* id, size_t max_size) const override {
+    return target_->GetUniqueId(id, max_size);
+  }
+
+  IOStatus InvalidateCache(size_t offset, size_t length) override {
+    return status_to_io_status(target_->InvalidateCache(offset, length));
+  }
+
+  IOStatus RangeSync(uint64_t offset, uint64_t nbytes,
+                     const IOOptions& /*options*/,
+                     IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->RangeSync(offset, nbytes));
+  }
+
+  void PrepareWrite(size_t offset, size_t len, const IOOptions& /*options*/,
+                    IODebugContext* /*dbg*/) override {
+    target_->PrepareWrite(offset, len);
+  }
+
+  IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& /*options*/,
+                    IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Allocate(offset, len));
+  }
+
+ private:
+  std::unique_ptr<WritableFile> target_;
+};
+
+class LegacyDirectoryWrapper : public FSDirectory {
+ public:
+  explicit LegacyDirectoryWrapper(std::unique_ptr<Directory>&& target)
+      : target_(std::move(target)) {}
+
+  IOStatus Fsync(const IOOptions& /*options*/,
+                 IODebugContext* /*dbg*/) override {
+    return status_to_io_status(target_->Fsync());
+  }
+  size_t GetUniqueId(char* id, size_t max_size) const override {
+    return target_->GetUniqueId(id, max_size);
+  }
+
+ private:
+  std::unique_ptr<Directory> target_;
+};
+
 class LegacyFileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
@@ -265,11 +556,17 @@ class LegacyFileSystemWrapper : public FileSystem {
 
 Env::Env() : thread_status_updater_(nullptr) {
   file_system_ = std::make_shared<LegacyFileSystemWrapper>(this);
+  system_clock_ = std::make_shared<LegacySystemClock>(this);
 }
 
-Env::Env(std::shared_ptr<FileSystem> fs)
-  : thread_status_updater_(nullptr),
-    file_system_(fs) {}
+Env::Env(const std::shared_ptr<FileSystem>& fs)
+    : thread_status_updater_(nullptr), file_system_(fs) {
+  system_clock_ = std::make_shared<LegacySystemClock>(this);
+}
+
+Env::Env(const std::shared_ptr<FileSystem>& fs,
+         const std::shared_ptr<SystemClock>& clock)
+    : thread_status_updater_(nullptr), file_system_(fs), system_clock_(clock) {}
 
 Env::~Env() {
 }
@@ -712,22 +1009,26 @@ EnvOptions::EnvOptions() {
 
 Status NewEnvLogger(const std::string& fname, Env* env,
                     std::shared_ptr<Logger>* result) {
-  EnvOptions options;
+  FileOptions options;
   // TODO: Tune the buffer size.
   options.writable_file_max_buffer_size = 1024 * 1024;
-  std::unique_ptr<WritableFile> writable_file;
-  const auto status = env->NewWritableFile(fname, &writable_file, options);
+  std::unique_ptr<FSWritableFile> writable_file;
+  const auto status = env->GetFileSystem()->NewWritableFile(
+      fname, options, &writable_file, nullptr);
   if (!status.ok()) {
     return status;
   }
 
-  *result = std::make_shared<EnvLogger>(
-      NewLegacyWritableFileWrapper(std::move(writable_file)), fname, options,
-      env);
+  *result = std::make_shared<EnvLogger>(std::move(writable_file), fname,
+                                        options, env);
   return Status::OK();
 }
 
 const std::shared_ptr<FileSystem>& Env::GetFileSystem() const {
   return file_system_;
+}
+
+const std::shared_ptr<SystemClock>& Env::GetSystemClock() const {
+  return system_clock_;
 }
 }  // namespace ROCKSDB_NAMESPACE

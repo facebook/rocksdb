@@ -19,7 +19,6 @@
 #include "db/db_test_util.h"
 #include "db/log_format.h"
 #include "db/version_set.h"
-#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
@@ -539,14 +538,15 @@ TEST_F(CorruptionTest, RangeDeletionCorrupted) {
   ASSERT_EQ(static_cast<size_t>(1), metadata.size());
   std::string filename = dbname_ + metadata[0].name;
 
-  std::unique_ptr<RandomAccessFile> file;
-  ASSERT_OK(options_.env->NewRandomAccessFile(filename, &file, EnvOptions()));
-  std::unique_ptr<RandomAccessFileReader> file_reader(
-      new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
-                                 filename));
+  FileOptions file_opts;
+  const auto& fs = options_.env->GetFileSystem();
+  std::unique_ptr<RandomAccessFileReader> file_reader;
+  ASSERT_OK(RandomAccessFileReader::Create(fs, filename, file_opts,
+                                           &file_reader, nullptr));
 
   uint64_t file_size;
-  ASSERT_OK(options_.env->GetFileSize(filename, &file_size));
+  ASSERT_OK(
+      fs->GetFileSize(filename, file_opts.io_options, &file_size, nullptr));
 
   BlockHandle range_del_handle;
   ASSERT_OK(FindMetaBlock(

@@ -18,6 +18,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class VersionSet;
 class FileSystem;
+class SystemClock;
 struct ImmutableCFOptions;
 struct MutableCFOptions;
 struct FileOptions;
@@ -69,8 +70,8 @@ class BlobFileBuilder {
   Status CloseBlobFileIfNeeded();
 
   std::function<uint64_t()> file_number_generator_;
-  Env* env_;
   FileSystem* fs_;
+  std::shared_ptr<SystemClock> clock_;
   const ImmutableCFOptions* immutable_cf_options_;
   uint64_t min_blob_size_;
   uint64_t blob_file_size_;
