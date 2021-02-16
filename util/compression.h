@@ -11,16 +11,10 @@
 
 #include <algorithm>
 #include <limits>
-#ifdef ROCKSDB_MALLOC_USABLE_SIZE
-#ifdef OS_FREEBSD
-#include <malloc_np.h>
-#else  // OS_FREEBSD
-#include <malloc.h>
-#endif  // OS_FREEBSD
-#endif  // ROCKSDB_MALLOC_USABLE_SIZE
 #include <string>
 
 #include "memory/memory_allocator.h"
+#include "port/malloc.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "test_util/sync_point.h"
