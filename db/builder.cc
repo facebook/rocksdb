@@ -179,8 +179,8 @@ Status BuildTable(
             ? new BlobFileBuilder(versions, env, fs, &ioptions,
                                   &mutable_cf_options, &file_options, job_id,
                                   column_family_id, column_family_name,
-                                  io_priority, write_hint, &blob_file_paths,
-                                  blob_file_additions)
+                                  io_priority, write_hint, io_tracer,
+                                  &blob_file_paths, blob_file_additions)
             : nullptr);
 
     CompactionIterator c_iter(

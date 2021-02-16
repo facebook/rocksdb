@@ -978,7 +978,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                 sub_compact->compaction->immutable_cf_options(),
                 mutable_cf_options, &file_options_, job_id_, cfd->GetID(),
                 cfd->GetName(), Env::IOPriority::IO_LOW, write_hint_,
-                &blob_file_paths, &sub_compact->blob_file_additions)
+                io_tracer_, &blob_file_paths, &sub_compact->blob_file_additions)
           : nullptr);
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
