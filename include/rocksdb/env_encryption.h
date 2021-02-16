@@ -314,9 +314,11 @@ class EncryptedWritableFile : public FSWritableFile {
         stream_(std::move(s)),
         prefixLength_(prefixLength) {}
 
+  using FSWritableFile::Append;
   IOStatus Append(const Slice& data, const IOOptions& options,
                   IODebugContext* dbg) override;
 
+  using FSWritableFile::PositionedAppend;
   IOStatus PositionedAppend(const Slice& data, uint64_t offset,
                             const IOOptions& options,
                             IODebugContext* dbg) override;
