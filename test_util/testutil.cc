@@ -475,6 +475,7 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
   return count;
 }
 
+
 void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
   struct stat sbuf;
   if (stat(fname.c_str(), &sbuf) != 0) {

@@ -800,6 +800,7 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern);
 // Tries to set TEST_TMPDIR to a directory supporting direct IO.
 void ResetTmpDirForDirectIO();
 
+
 void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt);
 
 }  // namespace test

@@ -35,7 +35,6 @@ struct ImmutableDBOptions {
   std::vector<DbPath> db_paths;
   std::string db_log_dir;
   std::string wal_dir;
-  uint32_t max_subcompactions;
   size_t max_log_file_size;
   size_t log_file_time_to_roll;
   size_t keep_log_file_num;

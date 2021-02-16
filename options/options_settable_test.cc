@@ -508,8 +508,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
 
   ColumnFamilyOptions rnd_filled_options = *new_options;
 
-  ColumnFamilyOptions rnd_filled_options = *new_options;
-
   options->~ColumnFamilyOptions();
   new_options->~ColumnFamilyOptions();
 
