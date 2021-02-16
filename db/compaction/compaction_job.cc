@@ -1372,7 +1372,6 @@ Status CompactionJob::FinishCompactionOutputFile(
   sub_compact->total_bytes += current_bytes;
 
   // Finish and check for file errors
-  IOStatus io_s;
   if (s.ok()) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
     io_s = sub_compact->outfile->Sync(db_options_.use_fsync);
@@ -1921,21 +1920,25 @@ void CompactionJob::RunRemote(PluggableCompactionService* service) {
     const auto& result_file = result.output_files[i];
 
     // create new output file data structure
-    CompactionJob::SubcompactionState::Output outf;
-
-    outf.finished = true;
-    outf.meta.num_entries = result_file.num_entries;
-    outf.meta.num_deletions = result_file.num_deletions;
-    outf.meta.raw_key_size = result_file.raw_key_size;
-    outf.meta.raw_value_size = result_file.raw_value_size;
-    outf.meta.fd = FileDescriptor(
-        file_numbers[i], c->output_path_id(), result_file.file_size,
-        result_file.smallest_seqno, result_file.largest_seqno);
-
+    FileMetaData meta;
+    meta.num_entries = result_file.num_entries;
+    meta.num_deletions = result_file.num_deletions;
+    meta.raw_key_size = result_file.raw_key_size;
+    meta.raw_value_size = result_file.raw_value_size;
+    meta.fd = FileDescriptor(file_numbers[i], c->output_path_id(),
+                             result_file.file_size, result_file.smallest_seqno,
+                             result_file.largest_seqno);
     // set smallest and largest keys in FileMetaData
-    outf.meta.smallest.DecodeFrom(result_file.smallest_internal_key);
-    outf.meta.largest.DecodeFrom(result_file.largest_internal_key);
+    meta.smallest.DecodeFrom(result_file.smallest_internal_key);
+    meta.largest.DecodeFrom(result_file.largest_internal_key);
 
+    ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+    CompactionJob::SubcompactionState::Output outf(
+        std::move(meta), cfd->internal_comparator(),
+        compact_->compaction->mutable_cf_options()
+            ->check_flush_compaction_key_order,
+        /*enable_hash=*/paranoid_file_checks_);
+    outf.finished = true;
     // push this file into sub compact outputs
     sub->outputs.push_back(std::move(outf));
   }

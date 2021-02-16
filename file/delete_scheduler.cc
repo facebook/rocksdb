@@ -97,7 +97,6 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
     return s;
   }
 
-  RecordTick(stats_.get(), FILES_MARKED_TRASH);
   // Update the total trash size
   uint64_t trash_file_size = 0;
   fs_->GetFileSize(trash_file, IOOptions(), &trash_file_size, nullptr);

@@ -189,11 +189,6 @@ void DataBlockIter::PrevImpl() {
     // (i.e., keys in it are not actually pinned).
     raw_key_.SetKey(current_key, raw_key_cached /* copy */);
     value_ = current_prev_entry.value;
-    key_ = applied_key_.UpdateAndGetKey();
-    // This is kind of odd in that applied_key_ may say the key is pinned while
-    // key_pinned_ ends up being false. That'll only happen when the key resides
-    // in a transient caching buffer.
-    key_pinned_ = key_pinned_ && applied_key_.IsKeyPinned();
 
     return;
   }
@@ -523,8 +518,6 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
       // This key share `shared` bytes with prev key, we need to decode it
       raw_key_.TrimAppend(shared, p, non_shared);
     }
-    key_ = applied_key_.UpdateAndGetKey();
-    key_pinned_ = applied_key_.IsKeyPinned();
 
 #ifndef NDEBUG
     if (global_seqno_ != kDisableGlobalSequenceNumber) {
@@ -587,8 +580,6 @@ bool IndexBlockIter::ParseNextIndexKey() {
     // This key share `shared` bytes with prev key, we need to decode it
     raw_key_.TrimAppend(shared, p, non_shared);
   }
-  key_ = applied_key_.UpdateAndGetKey();
-  key_pinned_ = applied_key_.IsKeyPinned();
   value_ = Slice(p + non_shared, value_length);
   if (shared == 0) {
     while (restart_index_ + 1 < num_restarts_ &&

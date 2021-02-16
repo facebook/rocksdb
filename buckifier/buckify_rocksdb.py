@@ -64,6 +64,8 @@ def get_cc_files(repo_path):
             continue
         for filename in fnmatch.filter(filenames, '*.cc'):
             cc_files.append(os.path.join(root, filename))
+        for filename in fnmatch.filter(filenames, '*.c'):
+            cc_files.append(os.path.join(root, filename))
     return cc_files
 
 

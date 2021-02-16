@@ -375,7 +375,6 @@ Status EncryptedRandomRWFile::Write(uint64_t offset, const Slice& data) {
     {
       PERF_TIMER_GUARD(encrypt_data_nanos);
       status = stream_->Encrypt(offset, buf.BufferStart(), buf.CurrentSize());
-
     }
     if (!status.ok()) {
       return status;

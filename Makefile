@@ -961,12 +961,6 @@ else
 	parallel_com = '{} >& t/log-{/}'
 endif
 
-ifeq ($(PRINT_PARALLEL_OUTPUTS), 1)	
-	parallel_com = '{}'
-else
-	parallel_com = '{} >& t/log-{/}'
-endif
-
 .PHONY: check_0
 check_0:
 	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD); \
@@ -1357,7 +1351,7 @@ block_cache_trace_analyzer: $(OBJ_DIR)/tools/block_cache_analyzer/block_cache_tr
 	$(AM_LINK)
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-folly_synchronization_distributed_mutex_test: $(OBJ_DIR)/third-party/folly/folly/synchronization/test/DistributedMutexTest.o $(TEST_LIBRARY) $(LIBRARY)
+folly_synchronization_distributed_mutex ioooooook_test: $(OBJ_DIR)/third-party/folly/folly/synchronization/test/DistributedMutexTest.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 endif
 
@@ -1867,6 +1861,18 @@ ldb_cmd_test: $(OBJ_DIR)/tools/ldb_cmd_test.o $(TOOLS_LIBRARY) $(TEST_LIBRARY) $
 ldb: $(OBJ_DIR)/tools/ldb.o $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+remote_compaction_test: cloud/remote_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+db_cloud_test: cloud/db_cloud_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+cloud_manifest_test: cloud/cloud_manifest_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+cloud_scheduler_test: cloud/cloud_scheduler_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 iostats_context_test: $(OBJ_DIR)/monitoring/iostats_context_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
@@ -1943,18 +1949,6 @@ io_tracer_parser_test: $(OBJ_DIR)/tools/io_tracer_parser_test.o $(OBJ_DIR)/tools
 	$(AM_LINK)
 
 io_tracer_parser: $(OBJ_DIR)/tools/io_tracer_parser.o $(TOOLS_LIBRARY) $(LIBRARY)
-	$(AM_LINK)
-
-blob_file_addition_test: db/blob/blob_file_addition_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
-blob_file_garbage_test: db/blob/blob_file_garbage_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
-timer_test: util/timer_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
-testutil_test: test_util/testutil_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

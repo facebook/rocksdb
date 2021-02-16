@@ -110,9 +110,6 @@ class RocksDBOptionsParser {
   Status CheckSection(const OptionSection section,
                       const std::string& section_arg, const int line_num);
 
-  Status ParseStatement(std::string* name, std::string* value,
-                        const std::string& line, const int line_num);
-
   Status EndSection(
       const ConfigOptions& config_options, const OptionSection section,
       const std::string& title, const std::string& section_arg,

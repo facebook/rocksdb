@@ -520,7 +520,6 @@ TEST_F(BlockFetcherTest, FetchAndUncompressCompressedDataBlock) {
   }};
   TestFetchDataBlock("FetchAndUncompressCompressedDataBlock", true, true,
                      expected_stats_by_mode);
-
 }
 
 #endif  // ROCKSDB_LITE

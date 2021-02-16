@@ -4,11 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 
-<<<<<<< HEAD:db/blob/blob_log_reader.cc
-#include "db/blob/blob_log_reader.h"
-=======
 #include "db/blob/blob_log_sequential_reader.h"
->>>>>>> upstream/6.14.fb:db/blob/blob_log_sequential_reader.cc
 
 #include <algorithm>
 

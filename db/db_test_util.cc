@@ -64,7 +64,11 @@ SpecialEnv::SpecialEnv(Env* base, bool time_elapse_only_sleep)
   table_write_callback_ = nullptr;
 }
 DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
-    : mem_env_(nullptr), encrypted_env_(nullptr), option_config_(kDefault) {
+    : option_env_(kDefaultEnv),
+      mem_env_(nullptr),
+      encrypted_env_(nullptr),
+      option_config_(kDefault),
+      s3_env_(nullptr) {
   Env* base_env = Env::Default();
 #ifndef ROCKSDB_LITE
   const char* test_env_uri = getenv("TEST_ENV_URI");

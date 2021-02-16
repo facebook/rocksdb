@@ -830,7 +830,6 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
   std::vector<CompactionInputFiles> inputs;
 
   if (vstorage_->num_levels() == 1) {
-#if defined(ENABLE_SINGLE_LEVEL_DTC)
     // This is single level universal. Since we're basically trying to reclaim
     // space by processing files marked for compaction due to high tombstone
     // density, let's do the same thing as compaction to reduce size amp which
@@ -873,11 +872,6 @@ Compaction* UniversalCompactionBuilder::PickDeleteTriggeredCompaction() {
       return nullptr;
     }
     inputs.push_back(start_level_inputs);
-#else
-    // Disable due to a known race condition.
-    // TODO: Reenable once the race condition is fixed
-    return nullptr;
-#endif  // ENABLE_SINGLE_LEVEL_DTC
   } else {
     int start_level;
 

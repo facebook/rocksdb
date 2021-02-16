@@ -2603,7 +2603,6 @@ void rocksdb_options_set_bottommost_compression(rocksdb_options_t* opt, int t) {
   opt->rep.bottommost_compression = static_cast<CompressionType>(t);
 }
 
-
 int rocksdb_options_get_bottommost_compression(rocksdb_options_t* opt) {
   return opt->rep.bottommost_compression;
 }

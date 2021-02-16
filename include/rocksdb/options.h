@@ -23,6 +23,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/pre_release_callback.h"
 #include "rocksdb/sst_partitioner.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
@@ -198,8 +199,6 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Compression algorithm that will be used for the bottommost level that
   // contain files.
   //
-  // Default: kDisableCompressionOption (Disabled). The means that the setting
-  // specified via Options.compression applies to the bottommost level as well.
   // Default: kDisableCompressionOption (Disabled)
   CompressionType bottommost_compression = kDisableCompressionOption;
 

@@ -8,7 +8,6 @@
 #include "rocksdb/sst_dump_tool.h"
 
 #include <cinttypes>
-#include <chrono>
 #include <iostream>
 
 #include "port/port.h"

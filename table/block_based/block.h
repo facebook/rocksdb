@@ -356,8 +356,6 @@ class BlockIter : public InternalIteratorBase<TValue> {
 
   Cache::Handle* cache_handle() { return cache_handle_; }
 
-  virtual void Next() override = 0;
-
  protected:
   const char* data_;       // underlying block contents
   uint32_t num_restarts_;  // Number of uint32_t entries in restart array

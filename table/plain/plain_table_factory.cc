@@ -136,17 +136,6 @@ Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
                                       const PlainTableOptions& table_options,
                                       const std::string& opts_str,
                                       PlainTableOptions* new_table_options) {
-  ConfigOptions config_options;
-  config_options.input_strings_escaped = false;
-  config_options.ignore_unknown_options = false;
-  return GetPlainTableOptionsFromString(config_options, table_options, opts_str,
-                                        new_table_options);
-}
-
-Status GetPlainTableOptionsFromString(const ConfigOptions& config_options,
-                                      const PlainTableOptions& table_options,
-                                      const std::string& opts_str,
-                                      PlainTableOptions* new_table_options) {
   std::unordered_map<std::string, std::string> opts_map;
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {

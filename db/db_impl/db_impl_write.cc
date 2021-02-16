@@ -878,17 +878,6 @@ void DBImpl::IOStatusCheck(const IOStatus& io_status) {
   }
 }
 
-void DBImpl::IOStatusCheck(const IOStatus& io_status) {
-  // Is setting bg_error_ enough here?  This will at least stop
-  // compaction and fail any further writes.
-  if (immutable_db_options_.paranoid_checks && !io_status.ok() &&
-      !io_status.IsBusy() && !io_status.IsIncomplete()) {
-    mutex_.Lock();
-    error_handler_.SetBGError(io_status, BackgroundErrorReason::kWriteCallback);
-    mutex_.Unlock();
-  }
-}
-
 void DBImpl::MemTableInsertStatusCheck(const Status& status) {
   // A non-OK status here indicates that the state implied by the
   // WAL has diverged from the in-memory state.  This could be

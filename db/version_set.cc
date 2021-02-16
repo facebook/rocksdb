@@ -3723,33 +3723,6 @@ void VersionSet::Reset() {
   wals_.Reset();
 }
 
-void VersionSet::Reset() {
-  if (column_family_set_) {
-    Cache* table_cache = column_family_set_->get_table_cache();
-    WriteBufferManager* wbm = column_family_set_->write_buffer_manager();
-    WriteController* wc = column_family_set_->write_controller();
-    column_family_set_.reset(new ColumnFamilySet(dbname_, db_options_,
-                                                 file_options_, table_cache,
-                                                 wbm, wc, block_cache_tracer_));
-  }
-  db_id_.clear();
-  next_file_number_.store(2);
-  min_log_number_to_keep_2pc_.store(0);
-  manifest_file_number_ = 0;
-  options_file_number_ = 0;
-  pending_manifest_file_number_ = 0;
-  last_sequence_.store(0);
-  last_allocated_sequence_.store(0);
-  last_published_sequence_.store(0);
-  prev_log_number_ = 0;
-  descriptor_log_.reset();
-  current_version_number_ = 0;
-  manifest_writers_.clear();
-  manifest_file_size_ = 0;
-  obsolete_files_.clear();
-  obsolete_manifests_.clear();
-}
-
 void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
                                Version* v) {
   // compute new compaction score

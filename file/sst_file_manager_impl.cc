@@ -318,7 +318,6 @@ void SstFileManagerImpl::ClearError() {
       // since the ErrorHandler::recovery_in_prog_ flag would be true
       cur_instance_ = error_handler;
       mu_.Unlock();
-      TEST_SYNC_POINT("SstFileManagerImpl::ClearError");
       s = error_handler->RecoverFromBGError();
       TEST_SYNC_POINT("SstFileManagerImpl::ErrorCleared");
       mu_.Lock();

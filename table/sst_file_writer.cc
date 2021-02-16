@@ -29,8 +29,7 @@ const size_t kFadviseTrigger = 1024 * 1024; // 1MB
 struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
       Env::IOPriority _io_priority, const Comparator* _user_comparator,
-      ColumnFamilyHandle* _cfh, bool _invalidate_page_cache, bool _skip_filters,
-      bool _unsafe_add)
+      ColumnFamilyHandle* _cfh, bool _invalidate_page_cache, bool _skip_filters)
       : env_options(_env_options),
         ioptions(options),
         mutable_cf_options(options),
@@ -39,8 +38,7 @@ struct SstFileWriter::Rep {
         cfh(_cfh),
         invalidate_page_cache(_invalidate_page_cache),
         last_fadvise_size(0),
-        skip_filters(_skip_filters),
-        unsafe_add(_unsafe_add) {}
+        skip_filters(_skip_filters) {}
 
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
@@ -60,7 +58,6 @@ struct SstFileWriter::Rep {
   // cached pages from page cache.
   uint64_t last_fadvise_size;
   bool skip_filters;
-  bool unsafe_add;
   Status Add(const Slice& user_key, const Slice& value,
              const ValueType value_type) {
     if (!builder) {
@@ -69,7 +66,7 @@ struct SstFileWriter::Rep {
 
     if (file_info.num_entries == 0) {
       file_info.smallest_key.assign(user_key.data(), user_key.size());
-    } else if (!unsafe_add) {
+    } else {
       if (internal_comparator.user_comparator()->Compare(
               user_key, file_info.largest_key) <= 0) {
         // Make sure that keys are added in order
@@ -168,11 +165,9 @@ SstFileWriter::SstFileWriter(const EnvOptions& env_options,
                              const Comparator* user_comparator,
                              ColumnFamilyHandle* column_family,
                              bool invalidate_page_cache,
-                             Env::IOPriority io_priority, bool skip_filters,
-                             bool unsafe_add)
+                             Env::IOPriority io_priority, bool skip_filters)
     : rep_(new Rep(env_options, options, io_priority, user_comparator,
-                   column_family, invalidate_page_cache, skip_filters,
-                   unsafe_add)) {
+                   column_family, invalidate_page_cache, skip_filters)) {
   rep_->file_info.file_size = 0;
 }
 

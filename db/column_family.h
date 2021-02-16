@@ -523,8 +523,6 @@ class ColumnFamilyData {
 
   std::vector<std::string> GetDbPaths() const;
 
-  std::vector<std::string> GetDbPaths() const;
-
   uint32_t id_;
   const std::string name_;
   Version* dummy_versions_;  // Head of circular doubly-linked list of versions.

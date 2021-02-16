@@ -4,6 +4,21 @@ LIB_SOURCES =                                                   \
   cache/clock_cache.cc                                          \
   cache/lru_cache.cc                                            \
   cache/sharded_cache.cc                                        \
+  cloud/aws/aws_env.cc                                          \
+  cloud/aws/aws_kafka.cc                                        \
+  cloud/aws/aws_kinesis.cc                                      \
+  cloud/aws/aws_retry.cc                                        \
+  cloud/aws/aws_s3.cc                                           \
+  cloud/db_cloud_impl.cc                                        \
+  cloud/cloud_env.cc                                            \
+  cloud/cloud_env_impl.cc                                       \
+  cloud/cloud_env_options.cc                                    \
+  cloud/cloud_log_controller.cc                                 \
+  cloud/manifest_reader.cc                                      \
+  cloud/purge.cc                                                \
+  cloud/cloud_manifest.cc                                       \
+  cloud/cloud_scheduler.cc                                      \
+  cloud/cloud_storage_provider.cc                               \
   db/arena_wrapped_db_iter.cc                                   \
   db/blob/blob_file_addition.cc                                 \
   db/blob/blob_file_builder.cc                                  \
@@ -34,6 +49,7 @@ LIB_SOURCES =                                                   \
   db/db_impl/db_impl_files.cc                                   \
   db/db_impl/db_impl_open.cc                                    \
   db/db_impl/db_impl_readonly.cc                                \
+  db/db_impl/db_impl_remote_compaction.cc                       \
   db/db_impl/db_impl_secondary.cc                               \
   db/db_impl/db_impl_write.cc                                   \
   db/db_info_dumper.cc                                          \
@@ -268,22 +284,6 @@ LIB_SOURCES =                                                   \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
-  cloud/aws/aws_env.cc                                          \
-  cloud/aws/aws_kafka.cc                                        \
-  cloud/aws/aws_kinesis.cc                                      \
-  cloud/aws/aws_retry.cc                                        \
-  cloud/aws/aws_s3.cc                                           \
-  cloud/db_cloud_impl.cc                                        \
-  cloud/cloud_env.cc                                            \
-  cloud/cloud_env_impl.cc                                       \
-  cloud/cloud_env_options.cc                                    \
-  cloud/cloud_log_controller.cc                                 \
-  cloud/manifest_reader.cc                                      \
-  cloud/purge.cc                                                \
-  cloud/cloud_manifest.cc                                       \
-  cloud/cloud_scheduler.cc                                      \
-  cloud/cloud_storage_provider.cc                               \
-  db/db_impl/db_impl_remote_compaction.cc
 
 ifeq ($(ARMCRC_SOURCE),1)
 LIB_SOURCES +=\
@@ -373,6 +373,7 @@ TEST_MAIN_SOURCES =                                                     \
   cloud/db_cloud_test.cc                                                \
   cloud/cloud_manifest_test.cc                                          \
   cloud/cloud_scheduler_test.cc                                         \
+  cloud/remote_compaction_test.cc                                       \
   db/blob/blob_file_addition_test.cc                                    \
   db/blob/blob_file_builder_test.cc                                     \
   db/blob/blob_file_garbage_test.cc                                     \

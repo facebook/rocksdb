@@ -124,8 +124,6 @@ class VersionStorageInfo {
 
   void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
 
-  void AddBlobFile(std::shared_ptr<BlobFileMetaData> blob_file_meta);
-
   void SetFinalized();
 
   // Update num_non_empty_levels_.

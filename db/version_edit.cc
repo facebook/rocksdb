@@ -222,7 +222,6 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
   for (const auto& blob_file_garbage : blob_file_garbages_) {
     PutVarint32(dst, kBlobFileGarbage);
     blob_file_garbage.EncodeTo(dst);
-
   }
 
   for (const auto& wal_addition : wal_additions_) {
