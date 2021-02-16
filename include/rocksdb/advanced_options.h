@@ -735,7 +735,6 @@ struct AdvancedColumnFamilyOptions {
   // data is left uncompressed (unless compression is also requested).
   uint64_t sample_for_compression = 0;
 
-  // UNDER CONSTRUCTION -- DO NOT USE
   // When set, large values (blobs) are written to separate blob files, and
   // only pointers to them are stored in SST files. This can reduce write
   // amplification for large-value use cases at the cost of introducing a level
@@ -748,7 +747,6 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   bool enable_blob_files = false;
 
-  // UNDER CONSTRUCTION -- DO NOT USE
   // The size of the smallest value to be stored separately in a blob file.
   // Values which have an uncompressed size smaller than this threshold are
   // stored alongside the keys in SST files in the usual fashion. A value of
@@ -761,7 +759,6 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   uint64_t min_blob_size = 0;
 
-  // UNDER CONSTRUCTION -- DO NOT USE
   // The size limit for blob files. When writing blob files, a new file is
   // opened once this limit is reached. Note that enable_blob_files has to be
   // set in order for this option to have any effect.
@@ -771,7 +768,6 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   uint64_t blob_file_size = 1ULL << 28;
 
-  // UNDER CONSTRUCTION -- DO NOT USE
   // The compression algorithm to use for large values stored in blob files.
   // Note that enable_blob_files has to be set in order for this option to have
   // any effect.
@@ -781,7 +777,6 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   CompressionType blob_compression_type = kNoCompression;
 
-  // UNDER CONSTRUCTION -- DO NOT USE
   // Enables garbage collection of blobs. Blob GC is performed as part of
   // compaction. Valid blobs residing in blob files older than a cutoff get
   // relocated to new files as they are encountered during compaction, which
@@ -793,7 +788,6 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through the SetOptions() API
   bool enable_blob_garbage_collection = false;
 
-  // UNDER CONSTRUCTION -- DO NOT USE
   // The cutoff in terms of blob file age for garbage collection. Blobs in
   // the oldest N blob files will be relocated when encountered during
   // compaction, where N = garbage_collection_cutoff * number_of_blob_files.
