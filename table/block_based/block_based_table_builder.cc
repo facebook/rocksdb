@@ -1645,14 +1645,36 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   const size_t kSampleBytes = r->compression_opts.zstd_max_train_bytes > 0
                                   ? r->compression_opts.zstd_max_train_bytes
                                   : r->compression_opts.max_dict_bytes;
+
+  // If buffer size is reasonable, we pre-generate a permutation to enforce
+  // uniqueness. This prevents wasting samples on duplicates, which is
+  // particularly likely when not many blocks were buffered.
+  std::vector<uint16_t> data_block_order;
+  size_t data_block_order_idx = 0;
+  if (r->data_block_and_keys_buffers.size() <= ((1 << 16) - 1)) {
+    data_block_order.resize(r->data_block_and_keys_buffers.size());
+    std::iota(data_block_order.begin(), data_block_order.end(), 0);
+    // We could be smarter and interleave the shuffling and sample appending
+    // logic. Then we could terminate as soon as `kSampleBytes` is reached,
+    // saving some shuffling computation.
+    RandomShuffle(data_block_order.begin(), data_block_order.end());
+  }
+
   Random64 generator{r->creation_time};
   std::string compression_dict_samples;
   std::vector<size_t> compression_dict_sample_lens;
   if (!r->data_block_and_keys_buffers.empty()) {
-    while (compression_dict_samples.size() < kSampleBytes) {
-      size_t rand_idx =
-          static_cast<size_t>(
-              generator.Uniform(r->data_block_and_keys_buffers.size()));
+    while ((data_block_order.empty() ||
+            data_block_order_idx < data_block_order.size()) &&
+           compression_dict_samples.size() < kSampleBytes) {
+      size_t rand_idx;
+      if (data_block_order.empty()) {
+        rand_idx = static_cast<size_t>(
+            generator.Uniform(r->data_block_and_keys_buffers.size()));
+      } else {
+        rand_idx = data_block_order[data_block_order_idx];
+        ++data_block_order_idx;
+      }
       size_t copy_len =
           std::min(kSampleBytes - compression_dict_samples.size(),
                    r->data_block_and_keys_buffers[rand_idx].first.size());
