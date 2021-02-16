@@ -1652,7 +1652,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   size_t data_block_order_idx = 0;
   if (r->data_block_and_keys_buffers.size() <= ((1 << 16) - 1)) {
     data_block_order.resize(r->data_block_and_keys_buffers.size());
-    std::iota(data_block_order.begin(), data_block_order.end(), 0);
+    std::iota(data_block_order.begin(), data_block_order.end(),
+              static_cast<uint16_t>(0));
     // We could be smarter and interleave the shuffling and sample appending
     // logic. Then we could terminate as soon as `kSampleBytes` is reached,
     // saving some shuffling computation.
