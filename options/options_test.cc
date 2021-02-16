@@ -725,7 +725,7 @@ TEST_F(OptionsTest, CompressionOptionsFromString) {
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       ignore, ColumnFamilyOptions(), "compression_opts=5:6:7:8:9:x:false",
       &base_cf_opt));
-  ASSERT_NOK(GetColumnFamilyOptionsFromString(
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
       config_options, ColumnFamilyOptions(),
       "compression_opts=1:2:3:4:5:6:true:8", &base_cf_opt));
   ASSERT_OK(GetColumnFamilyOptionsFromString(
