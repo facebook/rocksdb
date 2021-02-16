@@ -5,11 +5,12 @@
 //
 #include <algorithm>
 #include <vector>
-#include "env/composite_env_wrapper.h"
+
 #include "file/random_access_file_reader.h"
 #include "file/readahead_raf.h"
 #include "file/sequence_file_reader.h"
 #include "file/writable_file_writer.h"
+#include "rocksdb/file_system.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
@@ -21,42 +22,64 @@ class WritableFileWriterTest : public testing::Test {};
 const uint32_t kMb = 1 << 20;
 
 TEST_F(WritableFileWriterTest, RangeSync) {
-  class FakeWF : public WritableFile {
+  class FakeWF : public FSWritableFile {
    public:
     explicit FakeWF() : size_(0), last_synced_(0) {}
     ~FakeWF() override {}
 
-    Status Append(const Slice& data) override {
+    using FSWritableFile::Append;
+    IOStatus Append(const Slice& data, const IOOptions& /*options*/,
+                    IODebugContext* /*dbg*/) override {
       size_ += data.size();
-      return Status::OK();
+      return IOStatus::OK();
     }
-    Status Truncate(uint64_t /*size*/) override { return Status::OK(); }
-    Status Close() override {
+    IOStatus Truncate(uint64_t /*size*/, const IOOptions& /*options*/,
+                      IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Close(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
       EXPECT_GE(size_, last_synced_ + kMb);
       EXPECT_LT(size_, last_synced_ + 2 * kMb);
       // Make sure random writes generated enough writes.
       EXPECT_GT(size_, 10 * kMb);
-      return Status::OK();
+      return IOStatus::OK();
     }
-    Status Flush() override { return Status::OK(); }
-    Status Sync() override { return Status::OK(); }
-    Status Fsync() override { return Status::OK(); }
+    IOStatus Flush(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Sync(const IOOptions& /*options*/,
+                  IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Fsync(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
     void SetIOPriority(Env::IOPriority /*pri*/) override {}
-    uint64_t GetFileSize() override { return size_; }
+    uint64_t GetFileSize(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) override {
+      return size_;
+    }
     void GetPreallocationStatus(size_t* /*block_size*/,
                                 size_t* /*last_allocated_block*/) override {}
     size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const override {
       return 0;
     }
-    Status InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
-      return Status::OK();
+    IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
+      return IOStatus::OK();
     }
 
    protected:
-    Status Allocate(uint64_t /*offset*/, uint64_t /*len*/) override {
-      return Status::OK();
+    IOStatus Allocate(uint64_t /*offset*/, uint64_t /*len*/,
+                      const IOOptions& /*options*/,
+                      IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
     }
-    Status RangeSync(uint64_t offset, uint64_t nbytes) override {
+    IOStatus RangeSync(uint64_t offset, uint64_t nbytes,
+                       const IOOptions& /*options*/,
+                       IODebugContext* /*dbg*/) override {
       EXPECT_EQ(offset % 4096, 0u);
       EXPECT_EQ(nbytes % 4096, 0u);
 
@@ -66,7 +89,7 @@ TEST_F(WritableFileWriterTest, RangeSync) {
       if (size_ > 2 * kMb) {
         EXPECT_LT(size_, last_synced_ + 2 * kMb);
       }
-      return Status::OK();
+      return IOStatus::OK();
     }
 
     uint64_t size_;
@@ -77,8 +100,7 @@ TEST_F(WritableFileWriterTest, RangeSync) {
   env_options.bytes_per_sync = kMb;
   std::unique_ptr<FakeWF> wf(new FakeWF);
   std::unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
-                             "" /* don't care */, env_options));
+      new WritableFileWriter(std::move(wf), "" /* don't care */, env_options));
   Random r(301);
   Status s;
   std::unique_ptr<char[]> large_buf(new char[10 * kMb]);
@@ -99,7 +121,7 @@ TEST_F(WritableFileWriterTest, RangeSync) {
 }
 
 TEST_F(WritableFileWriterTest, IncrementalBuffer) {
-  class FakeWF : public WritableFile {
+  class FakeWF : public FSWritableFile {
    public:
     explicit FakeWF(std::string* _file_data, bool _use_direct_io,
                     bool _no_flush)
@@ -108,37 +130,58 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
           no_flush_(_no_flush) {}
     ~FakeWF() override {}
 
-    Status Append(const Slice& data) override {
+    using FSWritableFile::Append;
+    IOStatus Append(const Slice& data, const IOOptions& /*options*/,
+                    IODebugContext* /*dbg*/) override {
       file_data_->append(data.data(), data.size());
       size_ += data.size();
-      return Status::OK();
+      return IOStatus::OK();
     }
-    Status PositionedAppend(const Slice& data, uint64_t pos) override {
+    using FSWritableFile::PositionedAppend;
+    IOStatus PositionedAppend(const Slice& data, uint64_t pos,
+                              const IOOptions& /*options*/,
+                              IODebugContext* /*dbg*/) override {
       EXPECT_TRUE(pos % 512 == 0);
       EXPECT_TRUE(data.size() % 512 == 0);
       file_data_->resize(pos);
       file_data_->append(data.data(), data.size());
       size_ += data.size();
-      return Status::OK();
+      return IOStatus::OK();
     }
 
-    Status Truncate(uint64_t size) override {
+    IOStatus Truncate(uint64_t size, const IOOptions& /*options*/,
+                      IODebugContext* /*dbg*/) override {
       file_data_->resize(size);
-      return Status::OK();
+      return IOStatus::OK();
     }
-    Status Close() override { return Status::OK(); }
-    Status Flush() override { return Status::OK(); }
-    Status Sync() override { return Status::OK(); }
-    Status Fsync() override { return Status::OK(); }
+    IOStatus Close(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Flush(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Sync(const IOOptions& /*options*/,
+                  IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Fsync(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
     void SetIOPriority(Env::IOPriority /*pri*/) override {}
-    uint64_t GetFileSize() override { return size_; }
+    uint64_t GetFileSize(const IOOptions& /*options*/,
+                         IODebugContext* /*dbg*/) override {
+      return size_;
+    }
     void GetPreallocationStatus(size_t* /*block_size*/,
                                 size_t* /*last_allocated_block*/) override {}
     size_t GetUniqueId(char* /*id*/, size_t /*max_size*/) const override {
       return 0;
     }
-    Status InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
-      return Status::OK();
+    IOStatus InvalidateCache(size_t /*offset*/, size_t /*length*/) override {
+      return IOStatus::OK();
     }
     bool use_direct_io() const override { return use_direct_io_; }
 
@@ -163,9 +206,8 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
                                           false,
 #endif
                                           no_flush));
-    std::unique_ptr<WritableFileWriter> writer(
-        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
-                               "" /* don't care */, env_options));
+    std::unique_ptr<WritableFileWriter> writer(new WritableFileWriter(
+        std::move(wf), "" /* don't care */, env_options));
 
     std::string target;
     for (int i = 0; i < 20; i++) {
@@ -188,26 +230,41 @@ TEST_F(WritableFileWriterTest, IncrementalBuffer) {
 
 #ifndef ROCKSDB_LITE
 TEST_F(WritableFileWriterTest, AppendStatusReturn) {
-  class FakeWF : public WritableFile {
+  class FakeWF : public FSWritableFile {
    public:
     explicit FakeWF() : use_direct_io_(false), io_error_(false) {}
 
     bool use_direct_io() const override { return use_direct_io_; }
-    Status Append(const Slice& /*data*/) override {
+
+    using FSWritableFile::Append;
+    IOStatus Append(const Slice& /*data*/, const IOOptions& /*options*/,
+                    IODebugContext* /*dbg*/) override {
       if (io_error_) {
-        return Status::IOError("Fake IO error");
+        return IOStatus::IOError("Fake IO error");
       }
-      return Status::OK();
+      return IOStatus::OK();
     }
-    Status PositionedAppend(const Slice& /*data*/, uint64_t) override {
+    using FSWritableFile::PositionedAppend;
+    IOStatus PositionedAppend(const Slice& /*data*/, uint64_t,
+                              const IOOptions& /*options*/,
+                              IODebugContext* /*dbg*/) override {
       if (io_error_) {
-        return Status::IOError("Fake IO error");
+        return IOStatus::IOError("Fake IO error");
       }
-      return Status::OK();
+      return IOStatus::OK();
     }
-    Status Close() override { return Status::OK(); }
-    Status Flush() override { return Status::OK(); }
-    Status Sync() override { return Status::OK(); }
+    IOStatus Close(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Flush(const IOOptions& /*options*/,
+                   IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
+    IOStatus Sync(const IOOptions& /*options*/,
+                  IODebugContext* /*dbg*/) override {
+      return IOStatus::OK();
+    }
     void Setuse_direct_io(bool val) { use_direct_io_ = val; }
     void SetIOError(bool val) { io_error_ = val; }
 
@@ -218,15 +275,13 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   std::unique_ptr<FakeWF> wf(new FakeWF());
   wf->Setuse_direct_io(true);
   std::unique_ptr<WritableFileWriter> writer(
-      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(wf)),
-                             "" /* don't care */, EnvOptions()));
+      new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
 
   ASSERT_OK(writer->Append(std::string(2 * kMb, 'a')));
 
   // Next call to WritableFile::Append() should fail
-  LegacyWritableFileWrapper* file =
-      static_cast<LegacyWritableFileWrapper*>(writer->writable_file());
-  static_cast<FakeWF*>(file->target())->SetIOError(true);
+  FakeWF* fwf = static_cast<FakeWF*>(writer->writable_file());
+  fwf->SetIOError(true);
   ASSERT_NOK(writer->Append(std::string(2 * kMb, 'b')));
 }
 #endif

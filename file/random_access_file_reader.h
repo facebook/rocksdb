@@ -103,6 +103,10 @@ class RandomAccessFileReader {
 #endif
   }
 
+  static Status Create(const std::shared_ptr<FileSystem>& fs,
+                       const std::string& fname, const FileOptions& file_opts,
+                       std::unique_ptr<RandomAccessFileReader>* reader,
+                       IODebugContext* dbg);
   RandomAccessFileReader(const RandomAccessFileReader&) = delete;
   RandomAccessFileReader& operator=(const RandomAccessFileReader&) = delete;
 

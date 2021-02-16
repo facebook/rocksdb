@@ -94,21 +94,20 @@ class SSTDumpToolTest : public testing::Test {
 
   void createSST(const Options& opts, const std::string& file_name) {
     Env* test_env = opts.env;
-    EnvOptions env_options(opts);
+    FileOptions file_options(opts);
     ReadOptions read_options;
     const ImmutableCFOptions imoptions(opts);
     const MutableCFOptions moptions(opts);
     ROCKSDB_NAMESPACE::InternalKeyComparator ikc(opts.comparator);
     std::unique_ptr<TableBuilder> tb;
 
-    std::unique_ptr<WritableFile> file;
-    ASSERT_OK(test_env->NewWritableFile(file_name, &file, env_options));
 
     std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
         int_tbl_prop_collector_factories;
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
-                               file_name, EnvOptions()));
+    std::unique_ptr<WritableFileWriter> file_writer;
+    ASSERT_OK(WritableFileWriter::Create(test_env->GetFileSystem(), file_name,
+                                         file_options, &file_writer, nullptr));
+
     std::string column_family_name;
     int unknown_level = -1;
     tb.reset(opts.table_factory->NewTableBuilder(

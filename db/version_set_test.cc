@@ -11,6 +11,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
+#include "rocksdb/file_system.h"
 #include "table/block_based/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
@@ -783,13 +784,13 @@ class VersionSetTestBase {
     }
     *last_seqno = last_seq;
     num_initial_edits_ = static_cast<int>(new_cfs.size() + 1);
+    std::unique_ptr<WritableFileWriter> file_writer;
     const std::string manifest = DescriptorFileName(dbname_, 1);
-    std::unique_ptr<WritableFile> file;
-    Status s = env_->NewWritableFile(
-        manifest, &file, env_->OptimizeForManifestWrite(env_options_));
+    const auto& fs = env_->GetFileSystem();
+    Status s = WritableFileWriter::Create(
+        fs, manifest, fs->OptimizeForManifestWrite(env_options_), &file_writer,
+        nullptr);
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(file)), manifest, env_options_));
     {
       log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
       std::string record;
@@ -2312,14 +2313,13 @@ class EmptyDefaultCfNewManifest : public VersionSetTestBase,
     assert(log_writer != nullptr);
     VersionEdit new_db;
     new_db.SetLogNumber(0);
-    std::unique_ptr<WritableFile> file;
     const std::string manifest_path = DescriptorFileName(dbname_, 1);
-    Status s = env_->NewWritableFile(
-        manifest_path, &file, env_->OptimizeForManifestWrite(env_options_));
+    const auto& fs = env_->GetFileSystem();
+    std::unique_ptr<WritableFileWriter> file_writer;
+    Status s = WritableFileWriter::Create(
+        fs, manifest_path, fs->OptimizeForManifestWrite(env_options_),
+        &file_writer, nullptr);
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
-                               manifest_path, env_options_));
     log_writer->reset(new log::Writer(std::move(file_writer), 0, true));
     std::string record;
     ASSERT_TRUE(new_db.EncodeTo(&record));
@@ -2387,13 +2387,12 @@ class VersionSetTestEmptyDb
       new_db.SetDBId(db_id);
     }
     const std::string manifest_path = DescriptorFileName(dbname_, 1);
-    std::unique_ptr<WritableFile> file;
-    Status s = env_->NewWritableFile(
-        manifest_path, &file, env_->OptimizeForManifestWrite(env_options_));
+    const auto& fs = env_->GetFileSystem();
+    std::unique_ptr<WritableFileWriter> file_writer;
+    Status s = WritableFileWriter::Create(
+        fs, manifest_path, fs->OptimizeForManifestWrite(env_options_),
+        &file_writer, nullptr);
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
-                               manifest_path, env_options_));
     {
       log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
       std::string record;
@@ -2697,12 +2696,12 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
     assert(last_seqno != nullptr);
     assert(log_writer != nullptr);
     const std::string manifest = DescriptorFileName(dbname_, 1);
-    std::unique_ptr<WritableFile> file;
-    Status s = env_->NewWritableFile(
-        manifest, &file, env_->OptimizeForManifestWrite(env_options_));
+    const auto& fs = env_->GetFileSystem();
+    std::unique_ptr<WritableFileWriter> file_writer;
+    Status s = WritableFileWriter::Create(
+        fs, manifest, fs->OptimizeForManifestWrite(env_options_), &file_writer,
+        nullptr);
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(file)), manifest, env_options_));
     log_writer->reset(new log::Writer(std::move(file_writer), 0, false));
     VersionEdit new_db;
     if (db_options_.write_dbid_to_manifest) {

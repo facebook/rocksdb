@@ -1,5 +1,20 @@
 # Rocksdb Change Log
 ## Unreleased
+### Behavior Changes
+* When retryable IO error occurs during compaction, it is mapped to soft error and set the BG error. However, auto resume is not called to clean the soft error since compaction will reschedule by itself. In this change, When retryable IO error occurs during compaction, BG error is not set. User will be informed the error via EventHelper.
+
+### New Features
+* Add support for key-value integrity protection in live updates from the user buffers provided to `WriteBatch` through the write to RocksDB's in-memory update buffer (memtable). This is intended to detect some cases of in-memory data corruption, due to either software or hardware errors. Users can enable protection by constructing their `WriteBatch` with `protection_bytes_per_key == 8`.
+* Add support for updating `full_history_ts_low` option in manual compaction, which is for old timestamp data GC.
+* Add a mechanism for using Makefile to build external plugin code into the RocksDB libraries/binaries. This intends to simplify compatibility and distribution for plugins (e.g., special-purpose `FileSystem`s) whose source code resides outside the RocksDB repo. See "plugin/README.md" for developer details, and "PLUGINS.md" for a listing of available plugins.
+* Added memory pre-fetching for experimental Ribbon filter, which especially optimizes performance with batched MultiGet.
+
+### Bug Fixes
+* Since 6.15.0, `TransactionDB` returns error `Status`es from calls to `DeleteRange()` and calls to `Write()` where the `WriteBatch` contains a range deletion. Previously such operations may have succeeded while not providing the expected transactional guarantees. There are certain cases where range deletion can still be used on such DBs; see the API doc on `TransactionDB::DeleteRange()` for details.
+* `OptimisticTransactionDB` now returns error `Status`es from calls to `DeleteRange()` and calls to `Write()` where the `WriteBatch` contains a range deletion. Previously such operations may have succeeded while not providing the expected transactional guarantees.
+
+### Public API Change
+* Add new Append and PositionedAppend APIs to FileSystem to bring the data verification information (data checksum information) from upper layer (e.g., WritableFileWriter) to the storage layer. In this way, the customized FileSystem is able to verify the correctness of data being written to the storage on time. Add checksum_handoff_file_types to DBOptions. User can use this option to control which file types (Currently supported file tyes: kWALFile, kTableFile, kDescriptorFile.) should use the new Append and PositionedAppend APIs to handoff the verification information. Currently, RocksDB only use crc32c to calculate the checksum for write handoff.
 
 ## 6.17.0 (01/15/2021)
 ### Behavior Changes
@@ -13,6 +28,8 @@
 ### Public API Change
 * Add a public API WriteBufferManager::dummy_entries_in_cache_usage() which reports the size of dummy entries stored in cache (passed to WriteBufferManager). Dummy entries are used to account for DataBlocks.
 * Add a SystemClock class that contains the time-related methods from Env.  The original methods in Env may be deprecated in a future release.  This class will allow easier testing, development, and expansion of time-related features.
+* Add a public API GetRocksBuildProperties and GetRocksBuildInfoAsString to get properties about the current build.  These properties may include settings related to the GIT settings (branch, timestamp).  This change also sets the "build date" based on the GIT properties, rather than the actual build time, thereby enabling more reproducible builds.
+
 ## 6.16.0 (12/18/2020)
 ### Behavior Changes
 * Attempting to write a merge operand without explicitly configuring `merge_operator` now fails immediately, causing the DB to enter read-only mode. Previously, failure was deferred until the `merge_operator` was needed by a user read or a background operation.

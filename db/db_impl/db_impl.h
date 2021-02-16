@@ -951,6 +951,9 @@ class DBImpl : public DB {
   // is only for the special test of CancelledCompactions
   Status TEST_WaitForCompact(bool waitUnscheduled = false);
 
+  // Get the background error status
+  Status TEST_GetBGError();
+
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
   int64_t TEST_MaxNextLevelOverlappingBytes(
@@ -1867,6 +1870,8 @@ class DBImpl : public DB {
       SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback);
 
   Status DisableFileDeletionsWithLock();
+
+  Status IncreaseFullHistoryTsLow(ColumnFamilyData* cfd, std::string ts_low);
 
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;

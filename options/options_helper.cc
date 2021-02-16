@@ -168,6 +168,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.bgerror_resume_retry_interval;
   options.db_host_id = immutable_db_options.db_host_id;
   options.allow_data_in_errors = immutable_db_options.allow_data_in_errors;
+  options.checksum_handoff_file_types =
+      immutable_db_options.checksum_handoff_file_types;
   return options;
 }
 

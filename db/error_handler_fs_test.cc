@@ -9,9 +9,9 @@
 #ifndef ROCKSDB_LITE
 
 #include "db/db_test_util.h"
+#include "file/sst_file_manager_impl.h"
 #include "port/stack_trace.h"
 #include "rocksdb/io_status.h"
-#include "rocksdb/perf_context.h"
 #include "rocksdb/sst_file_manager.h"
 #if !defined(ROCKSDB_LITE)
 #include "test_util/sync_point.h"
@@ -892,15 +892,17 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableError) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::OpenCompactionOutputFile",
       [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:Finish",
+      [&](void*) { CancelAllBackgroundWork(dbfull()); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
   ASSERT_OK(s);
 
-  s = dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
-
+  s = dbfull()->TEST_GetBGError();
+  ASSERT_OK(s);
   fault_fs_->SetFilesystemActive(true);
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
@@ -940,14 +942,17 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteFileScopeError) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::OpenCompactionOutputFile",
       [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:Finish",
+      [&](void*) { CancelAllBackgroundWork(dbfull()); });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Put(Key(1), "val"));
   s = Flush();
   ASSERT_OK(s);
 
-  s = dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
+  s = dbfull()->TEST_GetBGError();
+  ASSERT_OK(s);
 
   fault_fs_->SetFilesystemActive(true);
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -1391,6 +1396,10 @@ TEST_F(DBErrorHandlingFSTest, MultiDBCompactionError) {
     EXPECT_EQ(atoi(prop.c_str()), 1);
   }
 
+  SstFileManagerImpl* sfmImpl =
+      static_cast_with_check<SstFileManagerImpl>(sfm.get());
+  sfmImpl->Close();
+
   for (auto i = 0; i < kNumDbInstances; ++i) {
     char buf[16];
     snprintf(buf, sizeof(buf), "_%d", i);
@@ -1523,6 +1532,10 @@ TEST_F(DBErrorHandlingFSTest, MultiDBVariousErrors) {
         "rocksdb.num-files-at-level" + NumberToString(1), &prop));
     EXPECT_EQ(atoi(prop.c_str()), 1);
   }
+
+  SstFileManagerImpl* sfmImpl =
+      static_cast_with_check<SstFileManagerImpl>(sfm.get());
+  sfmImpl->Close();
 
   for (auto i = 0; i < kNumDbInstances; ++i) {
     char buf[16];
@@ -2190,8 +2203,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableErrorAutoRecover) {
   ASSERT_OK(s);
 
   s = dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kSoftError);
-
+  ASSERT_OK(s);
   TEST_SYNC_POINT("CompactionWriteRetryableErrorAutoRecover0");
   SyncPoint::GetInstance()->ClearAllCallBacks();
   SyncPoint::GetInstance()->DisableProcessing();
@@ -2240,7 +2252,8 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
       ASSERT_OK(batch.Put(Key(i), rnd.RandomString(1024)));
     }
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
-        {{"RecoverFromRetryableBGIOError:BeforeResume0", "WALWriteError1:0"},
+        {{"WALWriteErrorDone", "RecoverFromRetryableBGIOError:BeforeStart"},
+         {"RecoverFromRetryableBGIOError:BeforeResume0", "WALWriteError1:0"},
          {"WALWriteError1:1", "RecoverFromRetryableBGIOError:BeforeResume1"},
          {"RecoverFromRetryableBGIOError:RecoverSuccess", "WALWriteError1:2"}});
 
@@ -2256,6 +2269,7 @@ TEST_F(DBErrorHandlingFSTest, WALWriteRetryableErrorAutoRecover1) {
     wopts.sync = true;
     s = dbfull()->Write(wopts, &batch);
     ASSERT_EQ(true, s.IsIOError());
+    TEST_SYNC_POINT("WALWriteErrorDone");
 
     TEST_SYNC_POINT("WALWriteError1:0");
     fault_fs_->SetFilesystemActive(true);

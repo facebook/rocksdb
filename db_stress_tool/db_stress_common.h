@@ -232,6 +232,7 @@ DECLARE_int32(get_property_one_in);
 DECLARE_string(file_checksum_impl);
 
 #ifndef ROCKSDB_LITE
+// Options for StackableDB-based BlobDB
 DECLARE_bool(use_blob_db);
 DECLARE_uint64(blob_db_min_blob_size);
 DECLARE_uint64(blob_db_bytes_per_sync);
@@ -239,6 +240,16 @@ DECLARE_uint64(blob_db_file_size);
 DECLARE_bool(blob_db_enable_gc);
 DECLARE_double(blob_db_gc_cutoff);
 #endif  // !ROCKSDB_LITE
+
+// Options for integrated BlobDB
+DECLARE_bool(allow_setting_blob_options_dynamically);
+DECLARE_bool(enable_blob_files);
+DECLARE_uint64(min_blob_size);
+DECLARE_uint64(blob_file_size);
+DECLARE_string(blob_compression_type);
+DECLARE_bool(enable_blob_garbage_collection);
+DECLARE_double(blob_garbage_collection_age_cutoff);
+
 DECLARE_int32(approximate_size_one_in);
 DECLARE_bool(sync_fault_injection);
 
@@ -246,6 +257,7 @@ DECLARE_bool(best_efforts_recovery);
 DECLARE_bool(skip_verifydb);
 DECLARE_bool(enable_compaction_filter);
 DECLARE_bool(paranoid_file_checks);
+DECLARE_uint64(batch_protection_bytes_per_key);
 
 const long KB = 1024;
 const int kRandomValueMaxFactor = 3;

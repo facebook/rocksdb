@@ -265,17 +265,14 @@ TableBuilder* MockTableFactory::NewTableBuilder(
 
 Status MockTableFactory::CreateMockTable(Env* env, const std::string& fname,
                                          KVVector file_contents) {
-  std::unique_ptr<WritableFile> file;
-  auto s = env->NewWritableFile(fname, &file, EnvOptions());
+  std::unique_ptr<WritableFileWriter> file_writer;
+  auto s = WritableFileWriter::Create(env->GetFileSystem(), fname,
+                                      FileOptions(), &file_writer, nullptr);
   if (!s.ok()) {
     return s;
   }
-
-  WritableFileWriter file_writer(NewLegacyWritableFileWrapper(std::move(file)),
-                                 fname, EnvOptions());
-
   uint32_t id;
-  s = GetAndWriteNextID(&file_writer, &id);
+  s = GetAndWriteNextID(file_writer.get(), &id);
   if (s.ok()) {
     file_system_.files.insert({id, std::move(file_contents)});
   }

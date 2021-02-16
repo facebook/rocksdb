@@ -223,6 +223,111 @@ TEST_F(DBBasicTestWithTimestamp, CompactRangeWithSpecifiedRange) {
   Close();
 }
 
+TEST_F(DBBasicTestWithTimestamp, UpdateFullHistoryTsLow) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+
+  const std::string kKey = "test kKey";
+
+  // Test set ts_low first and flush()
+  int current_ts_low = 5;
+  std::string ts_low_str = Timestamp(current_ts_low, 0);
+  Slice ts_low = ts_low_str;
+  CompactRangeOptions comp_opts;
+  comp_opts.full_history_ts_low = &ts_low;
+  comp_opts.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+
+  ASSERT_OK(db_->CompactRange(comp_opts, nullptr, nullptr));
+
+  auto* cfd =
+      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
+          ->cfd();
+  auto result_ts_low = cfd->GetFullHistoryTsLow();
+
+  ASSERT_TRUE(test_cmp.CompareTimestamp(ts_low, result_ts_low) == 0);
+
+  for (int i = 0; i < 10; i++) {
+    WriteOptions write_opts;
+    std::string ts_str = Timestamp(i, 0);
+    Slice ts = ts_str;
+    write_opts.timestamp = &ts;
+    ASSERT_OK(db_->Put(write_opts, kKey, Key(i)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < 10; i++) {
+    ReadOptions read_opts;
+    std::string ts_str = Timestamp(i, 0);
+    Slice ts = ts_str;
+    read_opts.timestamp = &ts;
+    std::string value;
+    Status status = db_->Get(read_opts, kKey, &value);
+    if (i < current_ts_low) {
+      ASSERT_TRUE(status.IsNotFound());
+    } else {
+      ASSERT_OK(status);
+      ASSERT_TRUE(value.compare(Key(i)) == 0);
+    }
+  }
+
+  // Test set ts_low and then trigger compaction
+  for (int i = 10; i < 20; i++) {
+    WriteOptions write_opts;
+    std::string ts_str = Timestamp(i, 0);
+    Slice ts = ts_str;
+    write_opts.timestamp = &ts;
+    ASSERT_OK(db_->Put(write_opts, kKey, Key(i)));
+  }
+
+  ASSERT_OK(Flush());
+
+  current_ts_low = 15;
+  ts_low_str = Timestamp(current_ts_low, 0);
+  ts_low = ts_low_str;
+  comp_opts.full_history_ts_low = &ts_low;
+  ASSERT_OK(db_->CompactRange(comp_opts, nullptr, nullptr));
+  result_ts_low = cfd->GetFullHistoryTsLow();
+  ASSERT_TRUE(test_cmp.CompareTimestamp(ts_low, result_ts_low) == 0);
+
+  for (int i = 0; i < 20; i++) {
+    ReadOptions read_opts;
+    std::string ts_str = Timestamp(i, 0);
+    Slice ts = ts_str;
+    read_opts.timestamp = &ts;
+    std::string value;
+    Status status = db_->Get(read_opts, kKey, &value);
+    if (i < current_ts_low) {
+      ASSERT_TRUE(status.IsNotFound());
+    } else {
+      ASSERT_OK(status);
+      ASSERT_TRUE(value.compare(Key(i)) == 0);
+    }
+  }
+
+  // Test invalid compaction with range
+  Slice start(kKey), end(kKey);
+  Status s = db_->CompactRange(comp_opts, &start, &end);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  s = db_->CompactRange(comp_opts, &start, nullptr);
+  ASSERT_TRUE(s.IsInvalidArgument());
+  s = db_->CompactRange(comp_opts, nullptr, &end);
+  ASSERT_TRUE(s.IsInvalidArgument());
+
+  // Test invalid compaction with the decreasing ts_low
+  ts_low_str = Timestamp(current_ts_low - 1, 0);
+  ts_low = ts_low_str;
+  comp_opts.full_history_ts_low = &ts_low;
+  s = db_->CompactRange(comp_opts, nullptr, nullptr);
+  ASSERT_TRUE(s.IsInvalidArgument());
+
+  Close();
+}
+
 TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   Options options = CurrentOptions();
   options.write_buffer_size = 100000000;  // Large write buffer

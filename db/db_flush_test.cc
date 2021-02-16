@@ -20,6 +20,7 @@
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -523,6 +524,204 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   const uint64_t* const cf_stats_value = internal_stats->TEST_GetCFStatsValue();
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED], expected_bytes);
 #endif  // ROCKSDB_LITE
+}
+
+TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_fs_env.get();
+  options.checksum_handoff_file_types.Add(FileType::kTableFile);
+  Reopen(options);
+
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  // The hash does not match, write fails
+  // fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+  // Since the file system returns IOStatus::Corruption, it is an
+  // unrecoverable error.
+  SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+  });
+  ASSERT_OK(Put("key3", "value3"));
+  ASSERT_OK(Put("key4", "value4"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = Flush();
+  ASSERT_EQ(s.severity(),
+            ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  Destroy(options);
+  Reopen(options);
+
+  // The file system does not support checksum handoff. The check
+  // will be ignored.
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
+  ASSERT_OK(Put("key5", "value5"));
+  ASSERT_OK(Put("key6", "value6"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  // Each write will be similated as corrupted.
+  // Since the file system returns IOStatus::Corruption, it is an
+  // unrecoverable error.
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
+    fault_fs->IngestDataCorruptionBeforeWrite();
+  });
+  ASSERT_OK(Put("key7", "value7"));
+  ASSERT_OK(Put("key8", "value8"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(),
+            ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  Destroy(options);
+}
+
+TEST_F(DBFlushTest, FlushWithChecksumHandoff2) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_fs_env.get();
+  Reopen(options);
+
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(Flush());
+
+  // options is not set, the checksum handoff will not be triggered
+  SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+  });
+  ASSERT_OK(Put("key3", "value3"));
+  ASSERT_OK(Put("key4", "value4"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  Destroy(options);
+  Reopen(options);
+
+  // The file system does not support checksum handoff. The check
+  // will be ignored.
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
+  ASSERT_OK(Put("key5", "value5"));
+  ASSERT_OK(Put("key6", "value6"));
+  ASSERT_OK(Flush());
+
+  // options is not set, the checksum handoff will not be triggered
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
+    fault_fs->IngestDataCorruptionBeforeWrite();
+  });
+  ASSERT_OK(Put("key7", "value7"));
+  ASSERT_OK(Put("key8", "value8"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  Destroy(options);
+}
+
+TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest1) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_fs_env.get();
+  options.checksum_handoff_file_types.Add(FileType::kDescriptorFile);
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(Flush());
+
+  // The hash does not match, write fails
+  // fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+  // Since the file system returns IOStatus::Corruption, it is mapped to
+  // kFatalError error.
+  ASSERT_OK(Put("key3", "value3"));
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+      });
+  ASSERT_OK(Put("key3", "value3"));
+  ASSERT_OK(Put("key4", "value4"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  Destroy(options);
+}
+
+TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest2) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_fs_env.get();
+  options.checksum_handoff_file_types.Add(FileType::kDescriptorFile);
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
+  Reopen(options);
+  // The file system does not support checksum handoff. The check
+  // will be ignored.
+  ASSERT_OK(Put("key5", "value5"));
+  ASSERT_OK(Put("key6", "value6"));
+  ASSERT_OK(Flush());
+
+  // Each write will be similated as corrupted.
+  // Since the file system returns IOStatus::Corruption, it is mapped to
+  // kFatalError error.
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest",
+      [&](void*) { fault_fs->IngestDataCorruptionBeforeWrite(); });
+  ASSERT_OK(Put("key7", "value7"));
+  ASSERT_OK(Put("key8", "value8"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  Destroy(options);
 }
 
 class DBFlushTestBlobError : public DBFlushTest,

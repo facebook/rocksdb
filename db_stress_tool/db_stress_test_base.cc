@@ -108,6 +108,22 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity) {
   }
 }
 
+std::vector<std::string> StressTest::GetBlobCompressionTags() {
+  std::vector<std::string> compression_tags{"kNoCompression"};
+
+  if (Snappy_Supported()) {
+    compression_tags.emplace_back("kSnappyCompression");
+  }
+  if (LZ4_Supported()) {
+    compression_tags.emplace_back("kLZ4Compression");
+  }
+  if (ZSTD_Supported()) {
+    compression_tags.emplace_back("kZSTD");
+  }
+
+  return compression_tags;
+}
+
 bool StressTest::BuildOptionsTable() {
   if (FLAGS_set_options_one_in <= 0) {
     return true;
@@ -185,6 +201,21 @@ bool StressTest::BuildOptionsTable() {
        }},
       {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
   };
+
+  if (FLAGS_allow_setting_blob_options_dynamically) {
+    options_tbl.emplace("enable_blob_files",
+                        std::vector<std::string>{"false", "true"});
+    options_tbl.emplace("min_blob_size",
+                        std::vector<std::string>{"0", "16", "256"});
+    options_tbl.emplace("blob_file_size",
+                        std::vector<std::string>{"1M", "16M", "256M", "1G"});
+    options_tbl.emplace("blob_compression_type", GetBlobCompressionTags());
+    options_tbl.emplace("enable_blob_garbage_collection",
+                        std::vector<std::string>{"false", "true"});
+    options_tbl.emplace(
+        "blob_garbage_collection_age_cutoff",
+        std::vector<std::string>{"0.0", "0.25", "0.5", "0.75", "1.0"});
+  }
 
   options_table_ = std::move(options_tbl);
 
@@ -1869,7 +1900,7 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "TransactionDB             : %s\n",
           FLAGS_use_txn ? "true" : "false");
 #ifndef ROCKSDB_LITE
-  fprintf(stdout, "BlobDB                    : %s\n",
+  fprintf(stdout, "Stacked BlobDB            : %s\n",
           FLAGS_use_blob_db ? "true" : "false");
 #endif  // !ROCKSDB_LITE
   fprintf(stdout, "Read only mode            : %s\n",
@@ -2083,6 +2114,17 @@ void StressTest::Open() {
     options_.file_checksum_gen_factory =
         GetFileChecksumImpl(FLAGS_file_checksum_impl);
     options_.track_and_verify_wals_in_manifest = true;
+
+    // Integrated BlobDB
+    options_.enable_blob_files = FLAGS_enable_blob_files;
+    options_.min_blob_size = FLAGS_min_blob_size;
+    options_.blob_file_size = FLAGS_blob_file_size;
+    options_.blob_compression_type =
+        StringToCompressionType(FLAGS_blob_compression_type.c_str());
+    options_.enable_blob_garbage_collection =
+        FLAGS_enable_blob_garbage_collection;
+    options_.blob_garbage_collection_age_cutoff =
+        FLAGS_blob_garbage_collection_age_cutoff;
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");
@@ -2172,6 +2214,31 @@ void StressTest::Open() {
   options_.best_efforts_recovery = FLAGS_best_efforts_recovery;
   options_.paranoid_file_checks = FLAGS_paranoid_file_checks;
 
+  if ((options_.enable_blob_files || options_.enable_blob_garbage_collection ||
+       FLAGS_allow_setting_blob_options_dynamically) &&
+      (FLAGS_use_merge || FLAGS_enable_compaction_filter ||
+       FLAGS_checkpoint_one_in > 0 || FLAGS_backup_one_in > 0 ||
+       FLAGS_best_efforts_recovery)) {
+    fprintf(
+        stderr,
+        "Integrated BlobDB is currently incompatible with Merge, compaction "
+        "filters, checkpoints, backup/restore, and best-effort recovery\n");
+    exit(1);
+  }
+
+  if (options_.enable_blob_files) {
+    fprintf(stdout,
+            "Integrated BlobDB: blob files enabled, min blob size %" PRIu64
+            ", blob file size %" PRIu64 ", blob compression type %s\n",
+            options_.min_blob_size, options_.blob_file_size,
+            CompressionTypeToString(options_.blob_compression_type).c_str());
+  }
+
+  if (options_.enable_blob_garbage_collection) {
+    fprintf(stdout, "Integrated BlobDB: blob GC enabled, cutoff %f\n",
+            options_.blob_garbage_collection_age_cutoff);
+  }
+
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
   Status s;
@@ -2229,6 +2296,7 @@ void StressTest::Open() {
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
 #ifndef ROCKSDB_LITE
+      // StackableDB-based BlobDB
       if (FLAGS_use_blob_db) {
         blob_db::BlobDBOptions blob_db_options;
         blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;

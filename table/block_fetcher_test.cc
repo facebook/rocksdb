@@ -6,11 +6,11 @@
 #include "table/block_fetcher.h"
 
 #include "db/table_properties_collector.h"
-#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/file_system.h"
 #include "table/block_based/binary_search_index_reader.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -248,11 +248,9 @@ class BlockFetcherTest : public testing::Test {
   void NewFileWriter(const std::string& filename,
                      std::unique_ptr<WritableFileWriter>* writer) {
     std::string path = Path(filename);
-    EnvOptions env_options;
-    std::unique_ptr<WritableFile> file;
-    ASSERT_OK(env_->NewWritableFile(path, &file, env_options));
-    writer->reset(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(file)), path, env_options));
+    FileOptions file_options;
+    ASSERT_OK(WritableFileWriter::Create(env_->GetFileSystem(), path,
+                                         file_options, writer, nullptr));
   }
 
   void NewFileReader(const std::string& filename, const FileOptions& opt,
