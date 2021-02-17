@@ -9,6 +9,9 @@
 * Add a mechanism for using Makefile to build external plugin code into the RocksDB libraries/binaries. This intends to simplify compatibility and distribution for plugins (e.g., special-purpose `FileSystem`s) whose source code resides outside the RocksDB repo. See "plugin/README.md" for developer details, and "PLUGINS.md" for a listing of available plugins.
 * Added memory pre-fetching for experimental Ribbon filter, which especially optimizes performance with batched MultiGet.
 
+### Public API Change
+* Extensions to the ObjectRegistry interface.  Added ability to register a set of functions with a library.  Added ability to register programmatic or dynamic libraries with the registry.  Added methods to query the names/types of factories installed in a registry.
+
 ### Bug Fixes
 * Since 6.15.0, `TransactionDB` returns error `Status`es from calls to `DeleteRange()` and calls to `Write()` where the `WriteBatch` contains a range deletion. Previously such operations may have succeeded while not providing the expected transactional guarantees. There are certain cases where range deletion can still be used on such DBs; see the API doc on `TransactionDB::DeleteRange()` for details.
 * `OptimisticTransactionDB` now returns error `Status`es from calls to `DeleteRange()` and calls to `Write()` where the `WriteBatch` contains a range deletion. Previously such operations may have succeeded while not providing the expected transactional guarantees.

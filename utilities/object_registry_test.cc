@@ -71,8 +71,10 @@ TEST_F(EnvRegistryTest, LocalRegistry) {
   std::string msg;
   std::unique_ptr<Env> guard;
   auto registry = ObjectRegistry::NewInstance();
-  ASSERT_NE(registry->AddProgramLibrary(RegisterTestEnvFactory, "test-program"),
-            0);
+  auto lib = registry->AddProgramLibrary("test-env", RegisterTestEnvFactory,
+                                         "test-program");
+  ASSERT_NE(lib, nullptr);
+  ASSERT_NE(lib->GetRegisteredTypes(nullptr), 0);
 
   ObjectLibrary::Default()->Register<Env>(
       "test-global",
@@ -102,8 +104,10 @@ TEST_F(EnvRegistryTest, DynamicRegistry) {
     RegistrarFunc registrar;
     s = Env::Default()->LoadLibrary("", "", &library);
     if (s.ok()) {
+      std::shared_ptr<ObjectLibrary> obj_lib;
+
       s = registry->AddLoadedLibrary(library, "RegisterTestEnvFactory",
-                                     "test-dynamic");
+                                     "test-dynamic", &obj_lib);
     }
   }
   if (s.ok()) {
@@ -134,7 +138,10 @@ int RegisterTestUnguarded(ObjectLibrary& library, const std::string& /*arg*/) {
 TEST_F(EnvRegistryTest, CheckShared) {
   std::shared_ptr<Env> shared;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  ASSERT_NE(registry->AddProgramLibrary(RegisterTestUnguarded, ""), 0);
+  auto lib =
+      registry->AddProgramLibrary("test-unguarded", RegisterTestUnguarded, "");
+  ASSERT_NE(lib, nullptr);
+  ASSERT_NE(lib->GetRegisteredTypes(nullptr), 0);
 
   ASSERT_OK(registry->NewSharedObject<Env>("guarded", &shared));
   ASSERT_NE(shared, nullptr);
@@ -146,7 +153,10 @@ TEST_F(EnvRegistryTest, CheckShared) {
 TEST_F(EnvRegistryTest, CheckStatic) {
   Env* env = nullptr;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  ASSERT_NE(registry->AddProgramLibrary(RegisterTestUnguarded, ""), 0);
+  auto lib =
+      registry->AddProgramLibrary("test-unguarded", RegisterTestUnguarded, "");
+  ASSERT_NE(lib, nullptr);
+  ASSERT_NE(lib->GetRegisteredTypes(nullptr), 0);
 
   ASSERT_NOK(registry->NewStaticObject<Env>("guarded", &env));
   ASSERT_EQ(env, nullptr);
@@ -158,7 +168,10 @@ TEST_F(EnvRegistryTest, CheckStatic) {
 TEST_F(EnvRegistryTest, CheckUnique) {
   std::unique_ptr<Env> unique;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  ASSERT_NE(registry->AddProgramLibrary(RegisterTestUnguarded, ""), 0);
+  auto lib =
+      registry->AddProgramLibrary("test-unguarded", RegisterTestUnguarded, "");
+  ASSERT_NE(lib, nullptr);
+  ASSERT_NE(lib->GetRegisteredTypes(nullptr), 0);
 
   ASSERT_OK(registry->NewUniqueObject<Env>("guarded", &unique));
   ASSERT_NE(unique, nullptr);

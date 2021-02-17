@@ -10,6 +10,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
+static const std::string kDefaultLibName = "Default";
 
 // Looks through the "type" factories for one that matches "name".
 // If found, returns the pointer to the Entry matching this name.
@@ -42,11 +43,27 @@ void ObjectLibrary::AddEntry(const std::string &type,
   entries.emplace_back(std::move(entry));
 }
 
+void ObjectLibrary::Dump(Logger *logger) const {
+  for (const auto &iter : entries_) {
+    ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",
+                     iter.first.c_str());
+    bool printed_one = false;
+    for (const auto &e : iter.second) {
+      ROCKS_LOG_HEADER(logger, "%c %s", (printed_one) ? ',' : ':',
+                       e->Name().c_str());
+      printed_one = true;
+    }
+  }
+  ROCKS_LOG_HEADER(logger, "\n");
+}
+
 size_t ObjectLibrary::GetRegisteredTypes(
     std::unordered_set<std::string> *types) const {
   size_t count = 0;
   for (const auto &iter : entries_) {
-    types->insert(iter.first);
+    if (types != nullptr) {
+      types->insert(iter.first);
+    }
     count++;
   }
   return count;
@@ -73,7 +90,7 @@ size_t ObjectLibrary::GetNamesForType(const std::string &type,
 // This instance will contain most of the "standard" registered objects
 std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
   static std::shared_ptr<ObjectLibrary> instance =
-      std::make_shared<ObjectLibrary>();
+      std::make_shared<ObjectLibrary>(kDefaultLibName);
   return instance;
 }
 
@@ -84,12 +101,15 @@ class ObjectRegistryImpl : public ObjectRegistry {
   ObjectRegistryImpl(const std::shared_ptr<ObjectRegistry> &parent)
       : parent_(parent) {}
 
-  int AddProgramLibrary(const RegistrarFunc &registrar,
-                        const std::string &arg) override;
+  std::shared_ptr<ObjectLibrary> AddProgramLibrary(
+      const std::string &id, const RegistrarFunc &registrar,
+      const std::string &arg) override;
 
   Status AddLoadedLibrary(const std::shared_ptr<DynamicLibrary> &dyn_lib,
-                          const std::string &method,
-                          const std::string &arg) override;
+                          const std::string &method, const std::string &arg,
+                          std::shared_ptr<ObjectLibrary> *result) override;
+
+  void Dump(Logger *logger) const override;
 
   // Returns the number of registered types for this registry.
   // If specified (not-null), types is updated to include the names of the
@@ -135,23 +155,33 @@ std::shared_ptr<ObjectRegistry> ObjectRegistry::NewInstance(
   return std::make_shared<ObjectRegistryImpl>(parent);
 }
 
-int ObjectRegistryImpl::AddProgramLibrary(const RegistrarFunc &registrar,
-                                          const std::string &arg) {
-  auto library = std::make_shared<ObjectLibrary>();
-  int count = registrar(*(library.get()), arg);
+void ObjectRegistryImpl::Dump(Logger *logger) const {
+  for (auto iter = libraries_.crbegin(); iter != libraries_.crend(); ++iter) {
+    iter->get()->Dump(logger);
+  }
+  if (parent_ != nullptr) {
+    parent_->Dump(logger);
+  }
+}
+
+std::shared_ptr<ObjectLibrary> ObjectRegistryImpl::AddProgramLibrary(
+    const std::string &id, const RegistrarFunc &registrar,
+    const std::string &arg) {
+  auto library = std::make_shared<ObjectLibrary>(id);
+  registrar(*(library.get()), arg);
   libraries_.push_back(library);
-  return count;
+  return library;
 }
 
 Status ObjectRegistryImpl::AddLoadedLibrary(
     const std::shared_ptr<DynamicLibrary> &dyn_lib, const std::string &method,
-    const std::string &arg) {
+    const std::string &arg, std::shared_ptr<ObjectLibrary> *result) {
   RegistrarFunc registrar;
   Status s = dyn_lib->LoadFunction(method, &registrar);
   if (s.ok()) {
-    auto library = std::make_shared<ObjectLibrary>();
-    registrar(*(library.get()), arg);
-    libraries_.push_back(library);
+    result->reset(new ObjectLibrary(dyn_lib->Name()));
+    registrar(*(result->get()), arg);
+    libraries_.push_back(*result);
   }
   return s;
 }

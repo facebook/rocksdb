@@ -19,6 +19,7 @@
 
 namespace ROCKSDB_NAMESPACE {
 class DynamicLibrary;
+class Logger;
 class ObjectLibrary;
 
 // Returns a new T when called with a string. Populates the std::unique_ptr
@@ -37,6 +38,12 @@ using RegistrarFunc = std::function<int(ObjectLibrary&, const std::string&)>;
 
 class ObjectLibrary {
  public:
+  ObjectLibrary(const std::string& id) : id_(id) {}
+
+  const std::string& GetId() const { return id_; }
+
+  // Dump the contents of the library to the logger
+  void Dump(Logger* logger) const;
   // Base class for an Entry in the Registry.
   class Entry {
    public:
@@ -114,6 +121,8 @@ class ObjectLibrary {
   // Adds the input entry to the list for the given type
   void AddEntry(const std::string& type, std::unique_ptr<Entry>& entry);
 
+  // The name of this library
+  std::string id_;
   // ** FactoryFunctions for this loader, organized by type
   std::unordered_map<std::string, std::vector<std::unique_ptr<Entry>>> entries_;
 };
@@ -224,11 +233,16 @@ class ObjectRegistry {
     }
   }
 
+  // Dump the contents of the registry to the logger
+  virtual void Dump(Logger* logger) const = 0;
+
   // Creates a new ObjectLibrary within this ObjectRegistry and invokes
   // registrar(arg) to register the appropriate factories in the new library.
+  // @param id The name for this library
   // Returns the number of factories registered.
-  virtual int AddProgramLibrary(const RegistrarFunc& registrar,
-                                const std::string& arg) = 0;
+  virtual std::shared_ptr<ObjectLibrary> AddProgramLibrary(
+      const std::string& id, const RegistrarFunc& registrar,
+      const std::string& arg) = 0;
 
   // Creates a new ObjectLibrary within this ObjectRegistry.
   // Loads the registrar func named "method" from the input library and, upon
@@ -237,7 +251,7 @@ class ObjectRegistry {
   // otherwise.
   virtual Status AddLoadedLibrary(
       const std::shared_ptr<DynamicLibrary>& library, const std::string& method,
-      const std::string& arg) = 0;
+      const std::string& arg, std::shared_ptr<ObjectLibrary>* result) = 0;
 
   // Returns the number of registered types for this registry.
   // If specified (not-null), types is updated to include the names of the
