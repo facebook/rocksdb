@@ -143,9 +143,6 @@ Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
     uint64_t manifest_file_number;
     s = VersionSet::GetCurrentManifestPath(dbname, fs.get(), &manifest_path,
                                            &manifest_file_number);
-    if (!s.ok()) {
-      return Status::NotFound(CurrentFileName(dbname), "does not exist");
-    }
   }
   return s;
 }
