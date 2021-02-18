@@ -171,6 +171,12 @@ void TracerHelper::DecodeIterPayload(Trace* trace, IterPayload* iter_payload) {
       case TracePayloadType::kIterKey:
         GetLengthPrefixedSlice(&buf, &(iter_payload->iter_key));
         break;
+      case TracePayloadType::kIterLowerBound:
+        GetLengthPrefixedSlice(&buf, &(iter_payload->lower_bound));
+        break;
+      case TracePayloadType::kIterUpperBound:
+        GetLengthPrefixedSlice(&buf, &(iter_payload->upper_bound));
+        break;
       default:
         assert(false);
     }
@@ -226,7 +232,8 @@ Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
   return WriteTrace(trace);
 }
 
-Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
+Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key,
+                            const Slice& lower_bound, const Slice upper_bound) {
   TraceType trace_type = kTraceIteratorSeek;
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
@@ -238,15 +245,31 @@ Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
   // payload.
   TracerHelper::SetPayloadMap(trace.payload_map, TracePayloadType::kIterCFID);
   TracerHelper::SetPayloadMap(trace.payload_map, TracePayloadType::kIterKey);
+  if (lower_bound.size() > 0) {
+    TracerHelper::SetPayloadMap(trace.payload_map,
+                                TracePayloadType::kIterLowerBound);
+  }
+  if (upper_bound.size() > 0) {
+    TracerHelper::SetPayloadMap(trace.payload_map,
+                                TracePayloadType::kIterUpperBound);
+  }
   // Encode the Iterator struct members into payload. Make sure add them in
   // order.
   PutFixed64(&trace.payload, trace.payload_map);
   PutFixed32(&trace.payload, cf_id);
   PutLengthPrefixedSlice(&trace.payload, key);
+  if (lower_bound.size() > 0) {
+    PutLengthPrefixedSlice(&trace.payload, lower_bound);
+  }
+  if (upper_bound.size() > 0) {
+    PutLengthPrefixedSlice(&trace.payload, upper_bound);
+  }
   return WriteTrace(trace);
 }
 
-Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
+Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                                   const Slice& lower_bound,
+                                   const Slice upper_bound) {
   TraceType trace_type = kTraceIteratorSeekForPrev;
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
@@ -258,11 +281,25 @@ Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
   // payload.
   TracerHelper::SetPayloadMap(trace.payload_map, TracePayloadType::kIterCFID);
   TracerHelper::SetPayloadMap(trace.payload_map, TracePayloadType::kIterKey);
+  if (lower_bound.size() > 0) {
+    TracerHelper::SetPayloadMap(trace.payload_map,
+                                TracePayloadType::kIterLowerBound);
+  }
+  if (upper_bound.size() > 0) {
+    TracerHelper::SetPayloadMap(trace.payload_map,
+                                TracePayloadType::kIterUpperBound);
+  }
   // Encode the Iterator struct members into payload. Make sure add them in
   // order.
   PutFixed64(&trace.payload, trace.payload_map);
   PutFixed32(&trace.payload, cf_id);
   PutLengthPrefixedSlice(&trace.payload, key);
+  if (lower_bound.size() > 0) {
+    PutLengthPrefixedSlice(&trace.payload, lower_bound);
+  }
+  if (upper_bound.size() > 0) {
+    PutLengthPrefixedSlice(&trace.payload, upper_bound);
+  }
   return WriteTrace(trace);
 }
 

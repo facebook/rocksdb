@@ -37,8 +37,8 @@ extern const std::string kTraceMagic;
 const unsigned int kTraceTimestampSize = 8;
 const unsigned int kTraceTypeSize = 1;
 const unsigned int kTracePayloadLengthSize = 4;
-const unsigned int kTraceMetadataSize = kTraceTimestampSize + kTraceTypeSize +
-                                        kTracePayloadLengthSize;
+const unsigned int kTraceMetadataSize =
+    kTraceTimestampSize + kTraceTypeSize + kTracePayloadLengthSize;
 
 static const int kTraceFileMajorVersion = 0;
 static const int kTraceFileMinorVersion = 2;
@@ -96,6 +96,8 @@ enum TracePayloadType : char {
   kGetKey = 3,
   kIterCFID = 4,
   kIterKey = 5,
+  kIterLowerBound = 6,
+  kIterUpperBound = 7,
 };
 
 struct WritePayload {
@@ -110,6 +112,8 @@ struct GetPayload {
 struct IterPayload {
   uint32_t cf_id;
   Slice iter_key;
+  Slice lower_bound;
+  Slice upper_bound;
 };
 
 class TracerHelper {
@@ -158,8 +162,10 @@ class Tracer {
   Status Get(ColumnFamilyHandle* cfname, const Slice& key);
 
   // Trace Iterators.
-  Status IteratorSeek(const uint32_t& cf_id, const Slice& key);
-  Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+  Status IteratorSeek(const uint32_t& cf_id, const Slice& key,
+                      const Slice& lower_bound, const Slice upper_bound);
+  Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                             const Slice& lower_bound, const Slice upper_bound);
 
   // Returns true if the trace is over the configured max trace file limit.
   // False otherwise.
