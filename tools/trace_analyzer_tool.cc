@@ -18,7 +18,6 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
-#include <iostream>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -428,7 +427,6 @@ Status TraceAnalyzer::ReadTraceRecord(Trace* trace) {
   std::string encoded_trace;
   Status s = trace_reader_->Read(&encoded_trace);
   if (!s.ok()) {
-    std::cout << "///read reader not ok";
     return s;
   }
   return TracerHelper::DecodeTrace(encoded_trace, trace);
@@ -445,13 +443,11 @@ Status TraceAnalyzer::StartProcessing() {
     fprintf(stderr, "Cannot read the header\n");
     return s;
   }
-  std::cout << "read out header\n";
   s = TracerHelper::ParseTraceHeader(header, &trace_file_version_,
                                      &db_version_);
   if (!s.ok()) {
     return s;
   }
-  std::cout << "get the version:" << trace_file_version_ << "\n";
   trace_create_time_ = header.ts;
   if (FLAGS_output_time_series) {
     time_series_start_ = header.ts;
@@ -462,14 +458,12 @@ Status TraceAnalyzer::StartProcessing() {
     trace.reset();
     s = ReadTraceRecord(&trace);
     if (!s.ok()) {
-      std::cout << "read the record not ok";
       break;
     }
 
     total_requests_++;
     end_time_ = trace.ts;
     if (trace.type == kTraceWrite) {
-      std::cout << "write: " << trace.payload_map << "\n";
       total_writes_++;
       c_time_ = trace.ts;
       Slice batch_data;
@@ -498,7 +492,6 @@ Status TraceAnalyzer::StartProcessing() {
         return s;
       }
     } else if (trace.type == kTraceGet) {
-      std::cout << "get: " << trace.payload_map << "\n";
       GetPayload get_payload;
       get_payload.get_key = 0;
       if (trace_file_version_ < 2) {
@@ -517,7 +510,6 @@ Status TraceAnalyzer::StartProcessing() {
       }
     } else if (trace.type == kTraceIteratorSeek ||
                trace.type == kTraceIteratorSeekForPrev) {
-      std::cout << "iterate: " << trace.payload_map << "\n";
       IterPayload iter_payload;
       iter_payload.cf_id = 0;
       if (trace_file_version_ < 2) {

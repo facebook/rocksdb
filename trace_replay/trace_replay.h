@@ -40,6 +40,9 @@ const unsigned int kTracePayloadLengthSize = 4;
 const unsigned int kTraceMetadataSize = kTraceTimestampSize + kTraceTypeSize +
                                         kTracePayloadLengthSize;
 
+static const int kTraceFileMajorVersion = 0;
+static const int kTraceFileMinorVersion = 2;
+
 // Supported Trace types.
 enum TraceType : char {
   kTraceBegin = 1,

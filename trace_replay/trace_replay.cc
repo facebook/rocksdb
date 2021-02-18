@@ -6,7 +6,6 @@
 #include "trace_replay/trace_replay.h"
 
 #include <chrono>
-#include <iostream>
 #include <sstream>
 #include <thread>
 
@@ -119,16 +118,12 @@ void TracerHelper::DecodeWritePayload(Trace* trace,
   Slice buf(trace->payload);
   GetFixed64(&buf, &trace->payload_map);
   int64_t payload_map = static_cast<int64_t>(trace->payload_map);
-  std::cout << "write: " << trace->payload_map << "\n";
   while (payload_map) {
     // Find the rightmost set bit.
     uint32_t set_pos = static_cast<uint32_t>(log2(payload_map & -payload_map));
-    std::cout << "set_pos: " << set_pos << "\n";
     switch (set_pos) {
       case TracePayloadType::kWriteBatchData:
         GetLengthPrefixedSlice(&buf, &(write_payload->write_batch_data));
-        std::cout << "write batch size: "
-                  << write_payload->write_batch_data.size() << "\n";
         break;
       default:
         assert(false);
@@ -143,11 +138,9 @@ void TracerHelper::DecodeGetPayload(Trace* trace, GetPayload* get_payload) {
   Slice buf(trace->payload);
   GetFixed64(&buf, &trace->payload_map);
   int64_t payload_map = static_cast<int64_t>(trace->payload_map);
-  std::cout << "get: " << trace->payload_map << "\n";
   while (payload_map) {
     // Find the rightmost set bit.
     uint32_t set_pos = static_cast<uint32_t>(log2(payload_map & -payload_map));
-    std::cout << "set_pos: " << set_pos << "\n";
     switch (set_pos) {
       case TracePayloadType::kGetCFID:
         GetFixed32(&buf, &(get_payload->cf_id));
@@ -211,7 +204,6 @@ Status Tracer::Write(WriteBatch* write_batch) {
                               TracePayloadType::kWriteBatchData);
   PutFixed64(&trace.payload, trace.payload_map);
   PutLengthPrefixedSlice(&trace.payload, Slice(write_batch->Data()));
-  std::cout << "write batch size: " << write_batch->Data().size() << "\n";
   return WriteTrace(trace);
 }
 
@@ -300,7 +292,8 @@ bool Tracer::IsTraceFileOverMax() {
 Status Tracer::WriteHeader() {
   std::ostringstream s;
   s << kTraceMagic << "\t"
-    << "Trace Version: 0.2\t"
+    << "Trace Version: " << kTraceFileMajorVersion << "."
+    << kTraceFileMinorVersion << "\t"
     << "RocksDB Version: " << kMajorVersion << "." << kMinorVersion << "\t"
     << "Format: Timestamp OpType Payload\n";
   std::string header(s.str());
