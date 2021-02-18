@@ -18,6 +18,16 @@ class DBBlobCompactionTest : public DBTestBase {
 };
 
 namespace {
+
+class DummyStackedBlobDbCompactionFilter : public CompactionFilter {
+ public:
+  DummyStackedBlobDbCompactionFilter() = default;
+  const char* Name() const override {
+    return "rocksdb.compaction.filter.dummy.stacked.blobdb";
+  }
+  bool IsStackedBlobDbCompactionFilter() const override { return true; }
+};
+
 class FilterByKeyLength : public CompactionFilter {
  public:
   FilterByKeyLength(size_t len) : length_threshold_(len) {}
@@ -113,6 +123,16 @@ CompactionFilter::Decision ValueMutationFilter::FilterV2(
   return CompactionFilter::Decision::kChangeValue;
 }
 }  // anonymous namespace
+
+TEST_F(DBBlobCompactionTest, OpenBlobDbWithWrongCompactionFilter) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.create_if_missing = true;
+  std::unique_ptr<CompactionFilter> compaction_filter_guard(
+      new DummyStackedBlobDbCompactionFilter);
+  options.compaction_filter = compaction_filter_guard.get();
+  ASSERT_TRUE(TryReopen(options).IsInvalidArgument());
+}
 
 TEST_F(DBBlobCompactionTest, FilterByKeyLength) {
   Options options = GetDefaultOptions();
