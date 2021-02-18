@@ -801,54 +801,90 @@ DEFINE_bool(fifo_compaction_allow_compaction, true,
 
 DEFINE_uint64(fifo_compaction_ttl, 0, "TTL for the SST Files in seconds.");
 
-// Blob DB Options
-DEFINE_bool(use_blob_db, false,
-            "Open a BlobDB instance. "
-            "Required for large value benchmark.");
+// Stacked BlobDB Options
+DEFINE_bool(use_blob_db, false, "[Stacked BlobDB] Open a BlobDB instance.");
 
 DEFINE_bool(
     blob_db_enable_gc,
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().enable_garbage_collection,
-    "Enable BlobDB garbage collection.");
+    "[Stacked BlobDB] Enable BlobDB garbage collection.");
 
 DEFINE_double(
     blob_db_gc_cutoff,
     ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().garbage_collection_cutoff,
-    "Cutoff ratio for BlobDB garbage collection.");
+    "[Stacked BlobDB] Cutoff ratio for BlobDB garbage collection.");
 
 DEFINE_bool(blob_db_is_fifo,
             ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().is_fifo,
-            "Enable FIFO eviction strategy in BlobDB.");
+            "[Stacked BlobDB] Enable FIFO eviction strategy in BlobDB.");
 
 DEFINE_uint64(blob_db_max_db_size,
               ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().max_db_size,
-              "Max size limit of the directory where blob files are stored.");
+              "[Stacked BlobDB] Max size limit of the directory where blob "
+              "files are stored.");
+
+DEFINE_uint64(blob_db_max_ttl_range, 0,
+              "[Stacked BlobDB] TTL range to generate BlobDB data (in "
+              "seconds). 0 means no TTL.");
 
 DEFINE_uint64(
-    blob_db_max_ttl_range, 0,
-    "TTL range to generate BlobDB data (in seconds). 0 means no TTL.");
+    blob_db_ttl_range_secs,
+    ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().ttl_range_secs,
+    "[Stacked BlobDB] TTL bucket size to use when creating blob files.");
 
-DEFINE_uint64(blob_db_ttl_range_secs,
-              ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().ttl_range_secs,
-              "TTL bucket size to use when creating blob files.");
-
-DEFINE_uint64(blob_db_min_blob_size,
-              ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().min_blob_size,
-              "Smallest blob to store in a file. Blobs smaller than this "
-              "will be inlined with the key in the LSM tree.");
+DEFINE_uint64(
+    blob_db_min_blob_size,
+    ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().min_blob_size,
+    "[Stacked BlobDB] Smallest blob to store in a file. Blobs "
+    "smaller than this will be inlined with the key in the LSM tree.");
 
 DEFINE_uint64(blob_db_bytes_per_sync,
               ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().bytes_per_sync,
-              "Bytes to sync blob file at.");
+              "[Stacked BlobDB] Bytes to sync blob file at.");
 
 DEFINE_uint64(blob_db_file_size,
               ROCKSDB_NAMESPACE::blob_db::BlobDBOptions().blob_file_size,
-              "Target size of each blob file.");
+              "[Stacked BlobDB] Target size of each blob file.");
 
-DEFINE_string(blob_db_compression_type, "snappy",
-              "Algorithm to use to compress blob in blob file");
+DEFINE_string(
+    blob_db_compression_type, "snappy",
+    "[Stacked BlobDB] Algorithm to use to compress blobs in blob files.");
 static enum ROCKSDB_NAMESPACE::CompressionType
     FLAGS_blob_db_compression_type_e = ROCKSDB_NAMESPACE::kSnappyCompression;
+
+#endif  // ROCKSDB_LITE
+
+// Integrated BlobDB options
+DEFINE_bool(
+    enable_blob_files,
+    ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().enable_blob_files,
+    "[Integrated BlobDB] Enable writing large values to separate blob files.");
+
+DEFINE_uint64(min_blob_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().min_blob_size,
+              "[Integrated BlobDB] The size of the smallest value to be stored "
+              "separately in a blob file.");
+
+DEFINE_uint64(blob_file_size,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions().blob_file_size,
+              "[Integrated BlobDB] The size limit for blob files.");
+
+DEFINE_string(blob_compression_type, "none",
+              "[Integrated BlobDB] The compression algorithm to use for large "
+              "values stored in blob files.");
+
+DEFINE_bool(enable_blob_garbage_collection,
+            ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                .enable_blob_garbage_collection,
+            "[Integrated BlobDB] Enable blob garbage collection.");
+
+DEFINE_double(blob_garbage_collection_age_cutoff,
+              ROCKSDB_NAMESPACE::AdvancedColumnFamilyOptions()
+                  .blob_garbage_collection_age_cutoff,
+              "[Integrated BlobDB] The cutoff in terms of blob file age for "
+              "garbage collection.");
+
+#ifndef ROCKSDB_LITE
 
 // Secondary DB instance Options
 DEFINE_bool(use_secondary_db, false,
@@ -2386,7 +2422,7 @@ class Benchmark {
   int64_t readwrites_;
   int64_t merge_keys_;
   bool report_file_operations_;
-  bool use_blob_db_;
+  bool use_blob_db_;  // Stacked BlobDB
   std::vector<std::string> keys_;
 
   class ErrorHandlerListener : public EventListener {
@@ -2747,9 +2783,9 @@ class Benchmark {
         merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
         report_file_operations_(FLAGS_report_file_operations),
 #ifndef ROCKSDB_LITE
-        use_blob_db_(FLAGS_use_blob_db)
+        use_blob_db_(FLAGS_use_blob_db)  // Stacked BlobDB
 #else
-        use_blob_db_(false)
+        use_blob_db_(false)  // Stacked BlobDB
 #endif  // !ROCKSDB_LITE
   {
     // use simcache instead of cache
@@ -2792,6 +2828,7 @@ class Benchmark {
       }
 #ifndef ROCKSDB_LITE
       if (use_blob_db_) {
+        // Stacked BlobDB
         blob_db::DestroyBlobDB(FLAGS_db, options, blob_db::BlobDBOptions());
       }
 #endif  // !ROCKSDB_LITE
@@ -4052,6 +4089,17 @@ class Benchmark {
       options.comparator = ROCKSDB_NAMESPACE::test::ComparatorWithU64Ts();
     }
 
+    // Integrated BlobDB
+    options.enable_blob_files = FLAGS_enable_blob_files;
+    options.min_blob_size = FLAGS_min_blob_size;
+    options.blob_file_size = FLAGS_blob_file_size;
+    options.blob_compression_type =
+        StringToCompressionType(FLAGS_blob_compression_type.c_str());
+    options.enable_blob_garbage_collection =
+        FLAGS_enable_blob_garbage_collection;
+    options.blob_garbage_collection_age_cutoff =
+        FLAGS_blob_garbage_collection_age_cutoff;
+
 #ifndef ROCKSDB_LITE
     if (FLAGS_readonly && FLAGS_transaction_db) {
       fprintf(stderr, "Cannot use readonly flag with transaction_db\n");
@@ -4141,6 +4189,7 @@ class Benchmark {
     }
 
     options.listeners.emplace_back(listener_);
+
     if (FLAGS_num_multi_db <= 1) {
       OpenDb(options, FLAGS_db, &db_);
     } else {
@@ -4280,6 +4329,7 @@ class Benchmark {
         db->db = ptr;
       }
     } else if (FLAGS_use_blob_db) {
+      // Stacked BlobDB
       blob_db::BlobDBOptions blob_db_options;
       blob_db_options.enable_garbage_collection = FLAGS_blob_db_enable_gc;
       blob_db_options.garbage_collection_cutoff = FLAGS_blob_db_gc_cutoff;
@@ -4498,6 +4548,7 @@ class Benchmark {
         Slice val = gen.Generate();
         if (use_blob_db_) {
 #ifndef ROCKSDB_LITE
+          // Stacked BlobDB
           blob_db::BlobDB* blobdb =
               static_cast<blob_db::BlobDB*>(db_with_cfh->db);
           if (FLAGS_blob_db_max_ttl_range > 0) {
@@ -4535,6 +4586,7 @@ class Benchmark {
                                  &expanded_keys[offset]);
               if (use_blob_db_) {
 #ifndef ROCKSDB_LITE
+                // Stacked BlobDB
                 s = db_with_cfh->db->Delete(write_options_,
                                             expanded_keys[offset]);
 #endif  //  ROCKSDB_LITE
@@ -4551,6 +4603,7 @@ class Benchmark {
                                &end_key);
             if (use_blob_db_) {
 #ifndef ROCKSDB_LITE
+              // Stacked BlobDB
               s = db_with_cfh->db->DeleteRange(
                   write_options_, db_with_cfh->db->DefaultColumnFamily(),
                   begin_key, end_key);
@@ -4583,6 +4636,7 @@ class Benchmark {
         }
       }
       if (!use_blob_db_) {
+        // Not stacked BlobDB
         s = db_with_cfh->db->Write(write_options_, &batch);
       }
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
@@ -7350,6 +7404,7 @@ int db_bench_tool(int argc, char** argv) {
     StringToCompressionType(FLAGS_compression_type.c_str());
 
 #ifndef ROCKSDB_LITE
+  // Stacked BlobDB
   FLAGS_blob_db_compression_type_e =
     StringToCompressionType(FLAGS_blob_db_compression_type.c_str());
 
@@ -7431,6 +7486,14 @@ int db_bench_tool(int argc, char** argv) {
 
   if (FLAGS_seek_missing_prefix && FLAGS_prefix_size <= 8) {
     fprintf(stderr, "prefix_size > 8 required by --seek_missing_prefix\n");
+    exit(1);
+  }
+
+  if ((FLAGS_enable_blob_files || FLAGS_enable_blob_garbage_collection) &&
+      (FLAGS_use_keep_filter || !FLAGS_merge_operator.empty())) {
+    fprintf(stderr,
+            "Integrated BlobDB is currently incompatible with Merge and "
+            "compaction filters\n");
     exit(1);
   }
 
