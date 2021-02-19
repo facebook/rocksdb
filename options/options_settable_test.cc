@@ -407,7 +407,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // Count padding bytes by setting all bytes in the memory to a special char,
   // copy a well constructed struct to this memory and see how many special
   // bytes left.
-  ColumnFamilyOptions* options = new (options_ptr) ColumnFamilyOptions();
   FillWithSpecialChar(options_ptr, sizeof(ColumnFamilyOptions),
                       kColumnFamilyOptionsExcluded);
 
@@ -415,7 +414,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // padding bytes. Note that previously we relied on the implicitly-defined
   // copy-assignment operator (i.e., `*options = ColumnFamilyOptions();`) here,
   // which did in fact modify padding bytes.
-  options = new (options_ptr) ColumnFamilyOptions();
+  ColumnFamilyOptions* options = new (options_ptr) ColumnFamilyOptions();
 
   // Deprecatd option which is not initialized. Need to set it to avoid
   // Valgrind error
