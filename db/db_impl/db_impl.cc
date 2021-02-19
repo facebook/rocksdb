@@ -4975,24 +4975,27 @@ Status DBImpl::EndBlockCacheTrace() {
   return Status::OK();
 }
 
-Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key) {
+Status DBImpl::TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
+                                 const Slice& lower_bound,
+                                 const Slice upper_bound) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      s = tracer_->IteratorSeek(cf_id, key);
+      s = tracer_->IteratorSeek(cf_id, key, lower_bound, upper_bound);
     }
   }
   return s;
 }
 
-Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id,
-                                        const Slice& key) {
+Status DBImpl::TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                                        const Slice& lower_bound,
+                                        const Slice upper_bound) {
   Status s;
   if (tracer_) {
     InstrumentedMutexLock lock(&trace_mutex_);
     if (tracer_) {
-      s = tracer_->IteratorSeekForPrev(cf_id, key);
+      s = tracer_->IteratorSeekForPrev(cf_id, key, lower_bound, upper_bound);
     }
   }
   return s;
