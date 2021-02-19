@@ -143,10 +143,9 @@ struct CompressionOptions {
   // Default: false.
   bool enabled;
 
-  // Limit on data buffering, which is used to gather samples to build a
-  // dictionary. Zero means no limit. When dictionary is disabled
-  // (`max_dict_bytes == 0`), enabling this limit (`max_dict_buffer_bytes != 0`)
-  // has no effect.
+  // Limit on data buffering when gathering samples to build a dictionary. Zero
+  // means no limit. When dictionary is disabled (`max_dict_bytes == 0`),
+  // enabling this limit (`max_dict_buffer_bytes != 0`) has no effect.
   //
   // In compaction, the buffering is limited to the target file size (see
   // `target_file_size_base` and `target_file_size_multiplier`) even if this
