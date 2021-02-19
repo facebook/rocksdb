@@ -57,7 +57,11 @@ class TraceAnalyzerTest : public testing::Test {
     Options options;
     options.create_if_missing = true;
     options.merge_operator = MergeOperators::CreatePutOperator();
+    Slice upper_bound("a");
+    Slice lower_bound("abce");
     ReadOptions ro;
+    ro.iterate_upper_bound = &upper_bound;
+    ro.iterate_lower_bound = &lower_bound;
     WriteOptions wo;
     TraceOptions trace_opt;
     DB* db_ = nullptr;

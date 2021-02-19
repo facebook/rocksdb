@@ -646,7 +646,7 @@ void Replayer::BGWorkGet(void* arg) {
   auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
       ra->cf_map);
   GetPayload get_payload;
-  get_payload.get_key = 0;
+  get_payload.cf_id = 0;
   if (ra->trace_file_version < 2) {
     DecodeCFAndKey(ra->trace_entry.payload, &get_payload.cf_id,
                    &get_payload.get_key);
