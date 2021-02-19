@@ -35,6 +35,7 @@ class DBBlobCorruptionTest : public DBTestBase {
   }
 };
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBBlobCorruptionTest, VerifyWholeTableChecksum) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
@@ -68,6 +69,7 @@ TEST_F(DBBlobCorruptionTest, VerifyWholeTableChecksum) {
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsCorruption());
   ASSERT_EQ(1, count);
 }
+#endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
