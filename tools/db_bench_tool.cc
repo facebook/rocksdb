@@ -989,6 +989,10 @@ DEFINE_int32(min_level_to_compress, -1, "If non-negative, compression starts"
 DEFINE_int32(compression_parallel_threads, 1,
              "Number of threads for parallel compression.");
 
+DEFINE_uint64(compression_max_dict_buffer_bytes,
+              ROCKSDB_NAMESPACE::CompressionOptions().max_dict_buffer_bytes,
+              "Maximum bytes to buffer to collect samples for dictionary.");
+
 static bool ValidateTableCacheNumshardbits(const char* flagname,
                                            int32_t value) {
   if (0 >= value || value > 20) {
@@ -4136,6 +4140,8 @@ class Benchmark {
         FLAGS_compression_zstd_max_train_bytes;
     options.compression_opts.parallel_threads =
         FLAGS_compression_parallel_threads;
+    options.compression_opts.max_dict_buffer_bytes =
+        FLAGS_compression_max_dict_buffer_bytes;
     // If this is a block based table, set some related options
     auto table_options =
         options.table_factory->GetOptions<BlockBasedTableOptions>();

@@ -51,83 +51,85 @@ int offset_of(T1 AdvancedColumnFamilyOptions::*member) {
 static Status ParseCompressionOptions(const std::string& value,
                                       const std::string& name,
                                       CompressionOptions& compression_opts) {
-  size_t start = 0;
-  size_t end = value.find(':');
-  if (end == std::string::npos) {
+  const char kDelimiter = ':';
+  std::istringstream field_stream(value);
+  std::string field;
+
+  if (!std::getline(field_stream, field, kDelimiter)) {
     return Status::InvalidArgument("unable to parse the specified CF option " +
                                    name);
   }
-  compression_opts.window_bits = ParseInt(value.substr(start, end - start));
-  start = end + 1;
-  end = value.find(':', start);
-  if (end == std::string::npos) {
+  compression_opts.window_bits = ParseInt(field);
+
+  if (!std::getline(field_stream, field, kDelimiter)) {
     return Status::InvalidArgument("unable to parse the specified CF option " +
                                    name);
   }
-  compression_opts.level = ParseInt(value.substr(start, end - start));
-  start = end + 1;
-  if (start >= value.size()) {
+  compression_opts.level = ParseInt(field);
+
+  if (!std::getline(field_stream, field, kDelimiter)) {
     return Status::InvalidArgument("unable to parse the specified CF option " +
                                    name);
   }
-  end = value.find(':', start);
-  compression_opts.strategy =
-      ParseInt(value.substr(start, value.size() - start));
+  compression_opts.strategy = ParseInt(field);
+
   // max_dict_bytes is optional for backwards compatibility
-  if (end != std::string::npos) {
-    start = end + 1;
-    if (start >= value.size()) {
+  if (!field_stream.eof()) {
+    if (!std::getline(field_stream, field, kDelimiter)) {
       return Status::InvalidArgument(
           "unable to parse the specified CF option " + name);
     }
-    compression_opts.max_dict_bytes =
-        ParseInt(value.substr(start, value.size() - start));
-    end = value.find(':', start);
+    compression_opts.max_dict_bytes = ParseInt(field);
   }
+
   // zstd_max_train_bytes is optional for backwards compatibility
-  if (end != std::string::npos) {
-    start = end + 1;
-    if (start >= value.size()) {
+  if (!field_stream.eof()) {
+    if (!std::getline(field_stream, field, kDelimiter)) {
       return Status::InvalidArgument(
           "unable to parse the specified CF option " + name);
     }
-    compression_opts.zstd_max_train_bytes =
-        ParseInt(value.substr(start, value.size() - start));
-    end = value.find(':', start);
+    compression_opts.zstd_max_train_bytes = ParseInt(field);
   }
 
   // parallel_threads is optional for backwards compatibility
-  if (end != std::string::npos) {
-    start = end + 1;
-    if (start >= value.size()) {
+  if (!field_stream.eof()) {
+    if (!std::getline(field_stream, field, kDelimiter)) {
       return Status::InvalidArgument(
           "unable to parse the specified CF option " + name);
     }
     // Since parallel_threads comes before enabled but was added optionally
     // later, we need to check if this is the final token (meaning it is the
-    // enabled bit), or if there is another token (meaning this one is
-    // parallel_threads)
-    end = value.find(':', start);
-    if (end != std::string::npos) {
-      compression_opts.parallel_threads =
-          ParseInt(value.substr(start, value.size() - start));
+    // enabled bit), or if there are more tokens (meaning this one is
+    // parallel_threads).
+    if (!field_stream.eof()) {
+      compression_opts.parallel_threads = ParseInt(field);
     } else {
       // parallel_threads is not serialized with this format, but enabled is
-      compression_opts.parallel_threads = CompressionOptions().parallel_threads;
-      compression_opts.enabled =
-          ParseBoolean("", value.substr(start, value.size() - start));
+      compression_opts.enabled = ParseBoolean("", field);
     }
   }
 
   // enabled is optional for backwards compatibility
-  if (end != std::string::npos) {
-    start = end + 1;
-    if (start >= value.size()) {
+  if (!field_stream.eof()) {
+    if (!std::getline(field_stream, field, kDelimiter)) {
       return Status::InvalidArgument(
           "unable to parse the specified CF option " + name);
     }
-    compression_opts.enabled =
-        ParseBoolean("", value.substr(start, value.size() - start));
+    compression_opts.enabled = ParseBoolean("", field);
+  }
+
+  // max_dict_buffer_bytes is optional for backwards compatibility
+  if (!field_stream.eof()) {
+    if (!std::getline(field_stream, field, kDelimiter)) {
+      return Status::InvalidArgument(
+          "unable to parse the specified CF option " + name);
+    }
+    compression_opts.max_dict_buffer_bytes = ParseUint64(field);
+  }
+
+  if (!field_stream.eof()) {
+    return Status::InvalidArgument("unable to parse the specified CF option " +
+                                   name);
   }
   return Status::OK();
 }
@@ -161,6 +163,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"enabled",
          {offsetof(struct CompressionOptions, enabled), OptionType::kBoolean,
           OptionVerificationType::kNormal, OptionTypeFlags::kMutable}},
+        {"max_dict_buffer_bytes",
+         {offsetof(struct CompressionOptions, max_dict_buffer_bytes),
+          OptionType::kUInt64T, OptionVerificationType::kNormal,
+          OptionTypeFlags::kMutable}},
 };
 
 static std::unordered_map<std::string, OptionTypeInfo>
