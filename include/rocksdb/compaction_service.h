@@ -42,6 +42,7 @@ struct CompactionServiceOptions : CompactionOptions {
 
   // The DBOptions for this compaction.
   DBOptions db_options;
+
   // List of existing snapshots in the db
   std::vector<SequenceNumber> existing_snapshots;
 
