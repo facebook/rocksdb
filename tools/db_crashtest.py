@@ -51,7 +51,7 @@ default_params = {
     # Disabled compression_parallel_threads as the feature is not stable
     # lambda: random.choice([1] * 9 + [4])
     "compression_parallel_threads": 1,
-    "compression_max_dict_buffer_bytes": lambda: 4096 * random.randint(0, 32),
+    "compression_max_dict_buffer_bytes": lambda: (1 << random.randint(0, 40)) - 1,
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
