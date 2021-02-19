@@ -33,6 +33,7 @@
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/table.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
@@ -1355,19 +1356,19 @@ Status ColumnFamilyData::ValidateOptions(
 
 #ifndef ROCKSDB_LITE
 Status ColumnFamilyData::SetOptions(
-    const DBOptions& db_options,
+    const DBOptions& db_opts,
     const std::unordered_map<std::string, std::string>& options_map) {
-  MutableCFOptions new_mutable_cf_options;
-  Status s =
-      GetMutableOptionsFromStrings(mutable_cf_options_, options_map,
-                                   ioptions_.info_log, &new_mutable_cf_options);
+  ColumnFamilyOptions cf_opts =
+      BuildColumnFamilyOptions(initial_cf_options_, mutable_cf_options_);
+  ConfigOptions config_opts;
+  config_opts.mutable_options_only = true;
+  Status s = GetColumnFamilyOptionsFromMap(config_opts, cf_opts, options_map,
+                                           &cf_opts);
   if (s.ok()) {
-    ColumnFamilyOptions cf_options =
-        BuildColumnFamilyOptions(initial_cf_options_, new_mutable_cf_options);
-    s = ValidateOptions(db_options, cf_options);
+    s = ValidateOptions(db_opts, cf_opts);
   }
   if (s.ok()) {
-    mutable_cf_options_ = new_mutable_cf_options;
+    mutable_cf_options_ = MutableCFOptions(cf_opts);
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
   }
   return s;

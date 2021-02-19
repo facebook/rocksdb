@@ -1371,6 +1371,7 @@ TEST_F(OptionsTest, MutableTableOptions) {
   ASSERT_EQ(bbto->block_size, 1024);
   ASSERT_OK(bbtf->PrepareOptions(config_options));
   ASSERT_TRUE(bbtf->IsPrepared());
+  config_options.mutable_options_only = true;
   ASSERT_OK(bbtf->ConfigureOption(config_options, "block_size", "1024"));
   ASSERT_EQ(bbto->block_align, true);
   ASSERT_NOK(bbtf->ConfigureOption(config_options, "block_align", "false"));
@@ -1388,6 +1389,79 @@ TEST_F(OptionsTest, MutableTableOptions) {
       &cf_opts));
   ASSERT_EQ(bbto->block_align, true);
   ASSERT_EQ(bbto->block_size, 8192);
+}
+
+TEST_F(OptionsTest, MutableCFOptions) {
+  ConfigOptions config_options;
+  ColumnFamilyOptions cf_opts;
+
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      config_options, cf_opts,
+      "paranoid_file_checks=true; block_based_table_factory.block_align=false; "
+      "block_based_table_factory.block_size=8192;",
+      &cf_opts));
+  ASSERT_TRUE(cf_opts.paranoid_file_checks);
+  ASSERT_NE(cf_opts.table_factory.get(), nullptr);
+  const auto bbto = cf_opts.table_factory->GetOptions<BlockBasedTableOptions>();
+  ASSERT_NE(bbto, nullptr);
+  ASSERT_EQ(bbto->block_size, 8192);
+  ASSERT_EQ(bbto->block_align, false);
+  std::unordered_map<std::string, std::string> unused_opts;
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(
+      config_options, cf_opts, {{"paranoid_file_checks", "false"}}, &cf_opts));
+  ASSERT_EQ(cf_opts.paranoid_file_checks, false);
+
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(
+      config_options, cf_opts,
+      {{"block_based_table_factory.block_size", "16384"}}, &cf_opts));
+  ASSERT_EQ(bbto, cf_opts.table_factory->GetOptions<BlockBasedTableOptions>());
+  ASSERT_EQ(bbto->block_size, 16384);
+
+  config_options.mutable_options_only = true;
+  // Force consistency checks is not mutable
+  ASSERT_NOK(GetColumnFamilyOptionsFromMap(
+      config_options, cf_opts, {{"force_consistency_checks", "true"}},
+      &cf_opts));
+
+  // Attempt to change the table.  It is not mutable, so this should fail and
+  // leave the original intact
+  ASSERT_NOK(GetColumnFamilyOptionsFromMap(
+      config_options, cf_opts, {{"table_factory", "PlainTable"}}, &cf_opts));
+  ASSERT_NOK(GetColumnFamilyOptionsFromMap(
+      config_options, cf_opts, {{"table_factory.id", "PlainTable"}}, &cf_opts));
+  ASSERT_NE(cf_opts.table_factory.get(), nullptr);
+  ASSERT_EQ(bbto, cf_opts.table_factory->GetOptions<BlockBasedTableOptions>());
+
+  // Change the block size.  Should update the value in the current table
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(
+      config_options, cf_opts,
+      {{"block_based_table_factory.block_size", "8192"}}, &cf_opts));
+  ASSERT_EQ(bbto, cf_opts.table_factory->GetOptions<BlockBasedTableOptions>());
+  ASSERT_EQ(bbto->block_size, 8192);
+
+  // Attempt to turn off block cache fails, as this option is not mutable
+  ASSERT_NOK(GetColumnFamilyOptionsFromMap(
+      config_options, cf_opts,
+      {{"block_based_table_factory.no_block_cache", "true"}}, &cf_opts));
+  ASSERT_EQ(bbto, cf_opts.table_factory->GetOptions<BlockBasedTableOptions>());
+
+  // Attempt to change the block size via a config string/map.  Should update
+  // the current value
+  ASSERT_OK(GetColumnFamilyOptionsFromMap(
+      config_options, cf_opts,
+      {{"block_based_table_factory", "{block_size=32768}"}}, &cf_opts));
+  ASSERT_EQ(bbto, cf_opts.table_factory->GetOptions<BlockBasedTableOptions>());
+  ASSERT_EQ(bbto->block_size, 32768);
+
+  // Attempt to change the block size and no cache through the map.  Should
+  // fail, leaving the old values intact
+  ASSERT_NOK(GetColumnFamilyOptionsFromMap(
+      config_options, cf_opts,
+      {{"block_based_table_factory",
+        "{block_size=16384; no_block_cache=true}"}},
+      &cf_opts));
+  ASSERT_EQ(bbto, cf_opts.table_factory->GetOptions<BlockBasedTableOptions>());
+  ASSERT_EQ(bbto->block_size, 32768);
 }
 
 #endif  // !ROCKSDB_LITE
@@ -1581,6 +1655,94 @@ TEST_F(OptionsTest, GetStringFromCompressionType) {
 
   ASSERT_NOK(
       GetStringFromCompressionType(&res, static_cast<CompressionType>(-10)));
+}
+
+TEST_F(OptionsTest, OnlyMutableDBOptions) {
+  std::string opt_str;
+  Random rnd(302);
+  ConfigOptions cfg_opts;
+  DBOptions db_opts;
+  DBOptions mdb_opts;
+  std::unordered_set<std::string> m_names;
+  std::unordered_set<std::string> a_names;
+
+  test::RandomInitDBOptions(&db_opts, &rnd);
+  auto db_config = DBOptionsAsConfigurable(db_opts);
+
+  // Get all of the DB Option names (mutable or not)
+  ASSERT_OK(db_config->GetOptionNames(cfg_opts, &a_names));
+
+  // Get only the mutable options from db_opts and set those in mdb_opts
+  cfg_opts.mutable_options_only = true;
+
+  // Get only the Mutable DB Option names
+  ASSERT_OK(db_config->GetOptionNames(cfg_opts, &m_names));
+  ASSERT_OK(GetStringFromDBOptions(cfg_opts, db_opts, &opt_str));
+  ASSERT_OK(GetDBOptionsFromString(cfg_opts, mdb_opts, opt_str, &mdb_opts));
+  std::string mismatch;
+  // Comparing only the mutable options, the two are equivalent
+  auto mdb_config = DBOptionsAsConfigurable(mdb_opts);
+  ASSERT_TRUE(mdb_config->AreEquivalent(cfg_opts, db_config.get(), &mismatch));
+  ASSERT_TRUE(db_config->AreEquivalent(cfg_opts, mdb_config.get(), &mismatch));
+
+  ASSERT_GT(a_names.size(), m_names.size());
+  for (const auto& n : m_names) {
+    std::string m, d;
+    ASSERT_OK(mdb_config->GetOption(cfg_opts, n, &m));
+    ASSERT_OK(db_config->GetOption(cfg_opts, n, &d));
+    ASSERT_EQ(m, d);
+  }
+
+  cfg_opts.mutable_options_only = false;
+  // Comparing all of the options, the two are not equivalent
+  ASSERT_FALSE(mdb_config->AreEquivalent(cfg_opts, db_config.get(), &mismatch));
+  ASSERT_FALSE(db_config->AreEquivalent(cfg_opts, mdb_config.get(), &mismatch));
+}
+
+TEST_F(OptionsTest, OnlyMutableCFOptions) {
+  std::string opt_str;
+  Random rnd(302);
+  ConfigOptions cfg_opts;
+  DBOptions db_opts;
+  ColumnFamilyOptions mcf_opts;
+  ColumnFamilyOptions cf_opts;
+  std::unordered_set<std::string> m_names;
+  std::unordered_set<std::string> a_names;
+
+  test::RandomInitCFOptions(&cf_opts, db_opts, &rnd);
+  auto cf_config = CFOptionsAsConfigurable(cf_opts);
+
+  // Get all of the CF Option names (mutable or not)
+  ASSERT_OK(cf_config->GetOptionNames(cfg_opts, &a_names));
+
+  // Get only the mutable options from cf_opts and set those in mcf_opts
+  cfg_opts.mutable_options_only = true;
+  // Get only the Mutable CF Option names
+  ASSERT_OK(cf_config->GetOptionNames(cfg_opts, &m_names));
+  ASSERT_OK(GetStringFromColumnFamilyOptions(cfg_opts, cf_opts, &opt_str));
+  ASSERT_OK(
+      GetColumnFamilyOptionsFromString(cfg_opts, mcf_opts, opt_str, &mcf_opts));
+  std::string mismatch;
+
+  auto mcf_config = CFOptionsAsConfigurable(mcf_opts);
+  // Comparing only the mutable options, the two are equivalent
+  ASSERT_TRUE(mcf_config->AreEquivalent(cfg_opts, cf_config.get(), &mismatch));
+  ASSERT_TRUE(cf_config->AreEquivalent(cfg_opts, mcf_config.get(), &mismatch));
+
+  ASSERT_GT(a_names.size(), m_names.size());
+  for (const auto& n : m_names) {
+    std::string m, d;
+    ASSERT_OK(mcf_config->GetOption(cfg_opts, n, &m));
+    ASSERT_OK(cf_config->GetOption(cfg_opts, n, &d));
+    ASSERT_EQ(m, d);
+  }
+
+  cfg_opts.mutable_options_only = false;
+  // Comparing all of the options, the two are not equivalent
+  ASSERT_FALSE(mcf_config->AreEquivalent(cfg_opts, cf_config.get(), &mismatch));
+  ASSERT_FALSE(cf_config->AreEquivalent(cfg_opts, mcf_config.get(), &mismatch));
+
+  delete cf_opts.compaction_filter;
 }
 #endif  // !ROCKSDB_LITE
 
