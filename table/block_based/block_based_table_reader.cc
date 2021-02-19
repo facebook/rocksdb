@@ -2009,6 +2009,26 @@ template Status BlockBasedTable::RetrieveBlock<UncompressionDict>(
     GetContext* get_context, BlockCacheLookupContext* lookup_context,
     bool for_compaction, bool use_cache) const;
 
+InternalIteratorBase<IndexValue>*
+BlockBasedTable::NewIndexIteratorForCompactionPipelinedLoad(
+    const ReadOptions& ro, BlockCacheLookupContext* lookup_context) const {
+  return NewIndexIterator(ro, /* disable_prefix_seek */ false,
+                          /* input_iter */ nullptr,
+                          /* get_context */ nullptr, lookup_context);
+}
+
+Status BlockBasedTable::RetrieveDataBlockForCompactionPipelinedLoad(
+    FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
+    const BlockHandle& handle, const UncompressionDict& uncompression_dict,
+    CachableEntry<Block>* block_entry,
+    BlockCacheLookupContext* lookup_context) const {
+  return RetrieveBlock(prefetch_buffer, ro, handle, uncompression_dict,
+                       block_entry, BlockType::kData,
+                       /* get_context */ nullptr, lookup_context,
+                       /* for_compaction */ true,
+                       /* use_cache */ true);
+}
+
 BlockBasedTable::PartitionedIndexIteratorState::PartitionedIndexIteratorState(
     const BlockBasedTable* table,
     std::unordered_map<uint64_t, CachableEntry<Block>>* block_map)

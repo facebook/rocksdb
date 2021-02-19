@@ -428,6 +428,11 @@ DEFINE_int32(
         ROCKSDB_NAMESPACE::BlockBasedTableOptions::kBinarySearch),
     "Type of block-based table index (see `enum IndexType` in table.h)");
 
+DEFINE_bool(enable_compaction_pipelined_load,
+            ROCKSDB_NAMESPACE::BlockBasedTableOptions()
+                .enable_compaction_pipelined_load,
+            "Enable pipelined load for compaction");
+
 DEFINE_string(db, "", "Use the db with the following name.");
 
 DEFINE_string(secondaries_base, "",

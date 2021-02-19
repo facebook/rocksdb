@@ -1918,7 +1918,7 @@ class DBBasicTestWithTimestampCompressionSettings
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<
           std::tuple<std::shared_ptr<const FilterPolicy>, CompressionType,
-                     uint32_t, uint32_t>> {
+                     uint32_t, uint32_t, bool>> {
  public:
   DBBasicTestWithTimestampCompressionSettings()
       : DBBasicTestWithTimestampBase(
@@ -1938,6 +1938,7 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGet) {
   BlockBasedTableOptions bbto;
   bbto.filter_policy = std::get<0>(GetParam());
   bbto.whole_key_filtering = true;
+  bbto.enable_compaction_pipelined_load = std::get<4>(GetParam());
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
 
   const CompressionType comp_type = std::get<1>(GetParam());
@@ -2013,6 +2014,7 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutDeleteGet) {
   BlockBasedTableOptions bbto;
   bbto.filter_policy = std::get<0>(GetParam());
   bbto.whole_key_filtering = true;
+  bbto.enable_compaction_pipelined_load = std::get<4>(GetParam());
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
 
   const CompressionType comp_type = std::get<1>(GetParam());
@@ -2149,6 +2151,7 @@ TEST_P(DBBasicTestWithTimestampCompressionSettings, PutAndGetWithCompaction) {
   BlockBasedTableOptions bbto;
   bbto.filter_policy = std::get<0>(GetParam());
   bbto.whole_key_filtering = true;
+  bbto.enable_compaction_pipelined_load = std::get<4>(GetParam());
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
 
   const CompressionType comp_type = std::get<1>(GetParam());
@@ -2398,7 +2401,8 @@ INSTANTIATE_TEST_CASE_P(
                               NewBloomFilterPolicy(10, false))),
         ::testing::Values(kNoCompression, kZlibCompression, kLZ4Compression,
                           kLZ4HCCompression, kZSTD),
-        ::testing::Values(0, 1 << 14), ::testing::Values(1, 4)));
+        ::testing::Values(0, 1 << 14), ::testing::Values(1, 4),
+        ::testing::Bool()));
 
 class DBBasicTestWithTimestampPrefixSeek
     : public DBBasicTestWithTimestampBase,

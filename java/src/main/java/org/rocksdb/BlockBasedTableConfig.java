@@ -42,6 +42,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     enableIndexCompression = true;
     blockAlign = false;
     indexShortening = IndexShorteningMode.kShortenSeparators;
+    enableCompactionPipelinedLoad = false;
 
     // NOTE: ONLY used if blockCache == null
     blockCacheSize = 8 * 1024 * 1024;
@@ -805,6 +806,30 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
+   * Determine whether pipelined load in compaction is enabled.
+   *
+   * See {@link #setEnableCompactionPipelinedLoad(boolean)}.
+   *
+   * @return true if pipelined load in compaction is enabled, otherwise false.
+   */
+  public boolean enableCompactionPipelinedLoad() {
+    return enableCompactionPipelinedLoad;
+  }
+
+  /**
+   * Changing this option to true will enable pipelined load for compaction.
+   *
+   * @param enableCompactionPipelinedLoad true to enable pipelined load, false to disable
+   *
+   * @return the reference to the current option.
+   */
+  public BlockBasedTableConfig setEnableCompactionPipelinedLoad(
+      final boolean enableCompactionPipelinedLoad) {
+    this.enableCompactionPipelinedLoad = enableCompactionPipelinedLoad;
+    return this;
+  }
+
+  /**
    * Get the size of the cache in bytes that will be used by RocksDB.
    *
    * @return block cache size in bytes
@@ -993,8 +1018,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
         blockRestartInterval, indexBlockRestartInterval, metadataBlockSize, partitionFilters,
         optimizeFiltersForMemory, useDeltaEncoding, filterPolicyHandle, wholeKeyFiltering,
         verifyCompression, readAmpBytesPerBit, formatVersion, enableIndexCompression, blockAlign,
-        indexShortening.getValue(), blockCacheSize, blockCacheNumShardBits,
-        blockCacheCompressedSize, blockCacheCompressedNumShardBits);
+        indexShortening.getValue(), enableCompactionPipelinedLoad, blockCacheSize,
+        blockCacheNumShardBits, blockCacheCompressedSize, blockCacheCompressedNumShardBits);
   }
 
   private native long newTableFactoryHandle(final boolean cacheIndexAndFilterBlocks,
@@ -1010,6 +1035,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       final long filterPolicyHandle, final boolean wholeKeyFiltering,
       final boolean verifyCompression, final int readAmpBytesPerBit, final int formatVersion,
       final boolean enableIndexCompression, final boolean blockAlign, final byte indexShortening,
+      final boolean enableCompactionPipelinedLoad,
 
       @Deprecated final long blockCacheSize, @Deprecated final int blockCacheNumShardBits,
 
@@ -1045,6 +1071,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private boolean enableIndexCompression;
   private boolean blockAlign;
   private IndexShorteningMode indexShortening;
+  private boolean enableCompactionPipelinedLoad;
 
   // NOTE: ONLY used if blockCache == null
   @Deprecated private long blockCacheSize;

@@ -51,6 +51,7 @@ default_params = {
     # Disabled compression_parallel_threads as the feature is not stable
     # lambda: random.choice([1] * 9 + [4])
     "compression_parallel_threads": 1,
+    "enable_compaction_pipelined_load": 0,
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,

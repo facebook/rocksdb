@@ -242,6 +242,17 @@ class BlockBasedTable : public TableReader {
                                    CachableEntry<Block>& block,
                                    TBlockIter* input_iter, Status s) const;
 
+  // Prepare a separate index iterator for pipelined load for compaction.
+  InternalIteratorBase<IndexValue>* NewIndexIteratorForCompactionPipelinedLoad(
+      const ReadOptions& ro, BlockCacheLookupContext* lookup_context) const;
+
+  // Retrieve a data block for pipelined load for compaction.
+  Status RetrieveDataBlockForCompactionPipelinedLoad(
+      FilePrefetchBuffer* prefetch_buffer, const ReadOptions& ro,
+      const BlockHandle& handle, const UncompressionDict& uncompression_dict,
+      CachableEntry<Block>* block_entry,
+      BlockCacheLookupContext* lookup_context) const;
+
   class PartitionedIndexIteratorState;
 
   template <typename TBlocklike>

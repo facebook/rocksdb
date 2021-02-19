@@ -435,6 +435,9 @@ struct BlockBasedTableOptions {
 
   IndexShorteningMode index_shortening =
       IndexShorteningMode::kShortenSeparators;
+
+  // Enable pipelined load for compaction.
+  bool enable_compaction_pipelined_load = false;
 };
 
 // Table Properties that are specific to block-based table properties.

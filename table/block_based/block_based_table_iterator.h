@@ -8,10 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 #include "table/block_based/block_based_table_reader.h"
-
 #include "table/block_based/block_based_table_reader_impl.h"
 #include "table/block_based/block_prefetcher.h"
 #include "table/block_based/reader_common.h"
+#include "util/work_queue.h"
 
 namespace ROCKSDB_NAMESPACE {
 // Iterates over the contents of BlockBasedTable.
@@ -39,7 +39,15 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
         allow_unprepared_value_(allow_unprepared_value),
         block_iter_points_to_real_block_(false),
         check_filter_(check_filter),
-        need_upper_bound_check_(need_upper_bound_check) {}
+        need_upper_bound_check_(need_upper_bound_check),
+        compaction_pl_rep_(
+            lookup_context_.caller == TableReaderCaller::kCompaction &&
+                    table_->get_rep()
+                        ->table_options.enable_compaction_pipelined_load
+                ? new CompactionPipelinedLoadRep(
+                      table_->NewIndexIteratorForCompactionPipelinedLoad(
+                          read_options_, &lookup_context_))
+                : nullptr) {}
 
   ~BlockBasedTableIterator() {}
 
@@ -183,6 +191,38 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
     kUnknown,
   };
 
+  struct CompactionPipelinedLoadRep {
+    // A separate index iterator for pipelined load.
+    std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter;
+
+    // Loader thread will push blocks into the block pipe (1 at most), and main
+    // thread will consume blocks in the pipe at the same time.
+    typedef WorkQueue<CachableEntry<Block>*> BlockPipe;
+    BlockPipe block_pipe;
+
+    // Whether the loader thread has been started.
+    bool started;
+
+    // Thread to load blocks.
+    std::unique_ptr<port::Thread> load_thread;
+
+    // There would be at most three blocks at the same time: one being used by
+    // main thread, one already pushed into the pipe, and one being prepared by
+    // loader thread.
+    static const uint32_t kNumInflightBlocks = 3;
+    CachableEntry<Block> inflight_blocks[kNumInflightBlocks];
+
+    CompactionPipelinedLoadRep(InternalIteratorBase<IndexValue>* _index_iter)
+        : index_iter(_index_iter), block_pipe(1), started(false) {}
+
+    ~CompactionPipelinedLoadRep() {
+      if (started) {
+        block_pipe.finish();
+        load_thread->join();
+      }
+    }
+  };
+
   const BlockBasedTable* table_;
   const ReadOptions& read_options_;
   const InternalKeyComparator& icomp_;
@@ -211,6 +251,13 @@ class BlockBasedTableIterator : public InternalIteratorBase<Slice> {
   bool check_filter_;
   // TODO(Zhongyi): pick a better name
   bool need_upper_bound_check_;
+
+  std::unique_ptr<CompactionPipelinedLoadRep> compaction_pl_rep_;
+  // Start pipelined load for compaction, called once and only once at the first
+  // seek.
+  void StartCompactionPipelinedLoad(const Slice* target);
+  // Logic of worker thread of pipelined load for compaction.
+  void LoadDataBlocksForCompactionPipelinedLoad();
 
   // If `target` is null, seek to first.
   void SeekImpl(const Slice* target);
