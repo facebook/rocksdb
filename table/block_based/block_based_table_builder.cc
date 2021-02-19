@@ -1657,7 +1657,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
     // We could be smarter and interleave the shuffling and sample appending
     // logic. Then we could terminate as soon as `kSampleBytes` is reached,
     // saving some shuffling computation.
-    RandomShuffle(data_block_order.begin(), data_block_order.end());
+    RandomShuffle(data_block_order.begin(), data_block_order.end(),
+                  static_cast<uint32_t>(r->creation_time));
   }
 
   Random64 generator{r->creation_time};
