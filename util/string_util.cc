@@ -279,16 +279,9 @@ bool StartsWith(const std::string& string, const std::string& pattern) {
 #ifndef ROCKSDB_LITE
 
 bool ParseBoolean(const std::string& type, const std::string& value) {
-  const static std::string kTrue = "true", kFalse = "false";
-  if (value.compare(0 /* pos */, kTrue.size(), kTrue) == 0) {
+  if (value == "true" || value == "1") {
     return true;
-  } else if (value.compare(0 /* pos */, kFalse.size(), kFalse) == 0) {
-    return false;
-  }
-  int num = ParseInt(value);
-  if (num == 1) {
-    return true;
-  } else if (num == 0) {
+  } else if (value == "false" || value == "0") {
     return false;
   }
   throw std::invalid_argument(type);
