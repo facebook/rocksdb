@@ -691,7 +691,8 @@ std::string BlockBasedTableFactory::GetPrintableOptions() const {
   snprintf(buffer, kBufferSize, "  block_align: %d\n",
            table_options_.block_align);
   ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  max_auto_readahead_size: %" PRIu64 "\n",
+  snprintf(buffer, kBufferSize,
+           "  max_auto_readahead_size: %" ROCKSDB_PRIszt "\n",
            table_options_.max_auto_readahead_size);
   return ret;
 }

@@ -175,7 +175,8 @@ TEST_P(PrefetchTest, Basic) {
   Close();
 }
 
-TEST_P(PrefetchTest, ConfigureMaxReadaheadSize) {
+#ifndef ROCKSDB_LITE
+TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
   // First param is if the mockFS support_prefetch or not
   bool support_prefetch =
       std::get<0>(GetParam()) &&
@@ -307,6 +308,7 @@ TEST_P(PrefetchTest, ConfigureMaxReadaheadSize) {
 INSTANTIATE_TEST_CASE_P(PrefetchTest, PrefetchTest,
                         ::testing::Combine(::testing::Bool(),
                                            ::testing::Bool()));
+#endif  // !ROCKSDB_LITE
 
 class PrefetchTest1 : public DBTestBase,
                       public ::testing::WithParamInterface<bool> {
