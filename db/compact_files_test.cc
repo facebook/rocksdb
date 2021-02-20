@@ -103,7 +103,6 @@ TEST_F(CompactFilesTest, FilterContext) {
   // Small slowdown and stop trigger for experimental purpose.
   options.level0_slowdown_writes_trigger = 20;
   options.level0_stop_writes_trigger = 20;
-  options.level0_stop_writes_trigger = 20;
   options.write_buffer_size = kWriteBufferSize;
   options.level0_file_num_compaction_trigger = kLevel0Trigger;
   options.compression = kNoCompression;
@@ -556,6 +555,87 @@ TEST_F(CompactFilesTest, GetCompactionJobInfo) {
   ASSERT_OK(compaction_job_info.status);
   // no assertion failure
   delete db;
+}
+
+TEST_F(CompactFilesTest, IsWriteStalled) {
+  class SlowFilter : public CompactionFilter {
+   public:
+    SlowFilter(std::atomic<bool>* would_block) { would_block_ = would_block; }
+
+    bool Filter(int /*level*/, const Slice& /*key*/, const Slice& /*value*/,
+                std::string* /*new_value*/,
+                bool* /*value_changed*/) const override {
+      while (would_block_->load(std::memory_order_relaxed)) {
+        usleep(10000);
+      }
+      return false;
+    }
+
+    const char* Name() const override { return "SlowFilter"; }
+
+   private:
+    std::atomic<bool>* would_block_;
+  };
+
+  Options options;
+  options.create_if_missing = true;
+  options.delayed_write_rate = 1;
+
+  ColumnFamilyOptions cf_options;
+  cf_options.level0_slowdown_writes_trigger = 12;
+  cf_options.level0_stop_writes_trigger = 15;
+  cf_options.write_buffer_size = 1024 * 1024;
+
+  std::atomic<bool> compaction_would_block;
+  compaction_would_block.store(true, std::memory_order_relaxed);
+  cf_options.compaction_filter = new SlowFilter(&compaction_would_block);
+
+  std::vector<ColumnFamilyDescriptor> cfds;
+  cfds.push_back(ColumnFamilyDescriptor("default", cf_options));
+
+  DB* db = nullptr;
+  std::vector<ColumnFamilyHandle*> handles;
+  DestroyDB(db_name_, options);
+
+  Status s = DB::Open(options, db_name_, cfds, &handles, &db);
+  assert(s.ok());
+  assert(db);
+
+  int flushed_l0_files = 0;
+  for (; flushed_l0_files < 100;) {
+    WriteBatch wb;
+    for (int j = 0; j < 100; ++j) {
+      char key[16];
+      bzero(key, 16);
+      sprintf(key, "foo%.2d", j);
+      ASSERT_OK(wb.Put(handles[0], key, "bar"));
+    }
+
+    WriteOptions wopts;
+    wopts.no_slowdown = true;
+    s = db->Write(wopts, &wb);
+    if (s.ok()) {
+      FlushOptions fopts;
+      fopts.allow_write_stall = true;
+      ASSERT_OK(db->Flush(fopts));
+      ++flushed_l0_files;
+    } else {
+      ASSERT_EQ(s.code(), Status::Code::kIncomplete);
+      break;
+    }
+  }
+
+  // The write loop must be terminated by write stall.
+  ASSERT_EQ(flushed_l0_files, 12);
+  uint64_t stalled = false;
+  db->GetIntProperty(handles[0], "rocksdb.is-write-stalled", &stalled);
+  ASSERT_TRUE(stalled);
+
+  compaction_would_block.store(false, std::memory_order_relaxed);
+  for (size_t i = 0; i < handles.size(); ++i) {
+    delete handles[i];
+  }
+  delete (db);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
