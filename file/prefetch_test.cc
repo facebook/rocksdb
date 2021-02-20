@@ -248,9 +248,8 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
     MoveFilesToLevel(level);
   }
   Close();
-
+  std::vector<int> buff_prefectch_level_count = {0, 0, 0};
   TryReopen(options);
-  std::vector<int> prefetch_count_expected = {0, 7, 5};
   {
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
     fs->ClearPrefetchCount();
@@ -285,6 +284,7 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
         iter->Next();
       }
 
+      buff_prefectch_level_count[level] = buff_prefetch_count;
       if (support_prefetch && !use_direct_io) {
         if (level == 0) {
           ASSERT_FALSE(fs->IsPrefetchCalled());
@@ -294,10 +294,18 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
         fs->ClearPrefetchCount();
       } else {
         ASSERT_FALSE(fs->IsPrefetchCalled());
-        ASSERT_EQ(prefetch_count_expected[level], buff_prefetch_count);
+        if (level == 0) {
+          ASSERT_EQ(buff_prefetch_count, 0);
+        } else {
+          ASSERT_GT(buff_prefetch_count, 0);
+        }
         buff_prefetch_count = 0;
       }
     }
+  }
+
+  if (!support_prefetch) {
+    ASSERT_GT(buff_prefectch_level_count[1], buff_prefectch_level_count[2]);
   }
 
   SyncPoint::GetInstance()->DisableProcessing();
