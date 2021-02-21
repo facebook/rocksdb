@@ -85,7 +85,9 @@ class TraceAnalyzerTest : public testing::Test {
     ASSERT_OK(db_->Get(ro, "a", &value));
     single_iter = db_->NewIterator(ro);
     single_iter->Seek("a");
+    ASSERT_OK(single_iter->status());
     single_iter->SeekForPrev("b");
+    ASSERT_OK(single_iter->status());
     delete single_iter;
     std::this_thread::sleep_for (std::chrono::seconds(1));
 
