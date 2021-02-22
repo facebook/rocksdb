@@ -210,6 +210,63 @@ TEST_F(DBBlobBasicTest, GetBlob_IndexWithInvalidFileNumber) {
                   .IsCorruption());
 }
 
+#ifndef ROCKSDB_LITE
+TEST_F(DBBlobBasicTest, GenerateIOTracing) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  std::string trace_file = dbname_ + "/io_trace_file";
+
+  Reopen(options);
+  {
+    // Create IO trace file
+    std::unique_ptr<TraceWriter> trace_writer;
+    ASSERT_OK(
+        NewFileTraceWriter(env_, EnvOptions(), trace_file, &trace_writer));
+    ASSERT_OK(db_->StartIOTrace(env_, TraceOptions(), std::move(trace_writer)));
+
+    constexpr char key[] = "key";
+    constexpr char blob_value[] = "blob_value";
+
+    ASSERT_OK(Put(key, blob_value));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(Get(key), blob_value);
+
+    ASSERT_OK(db_->EndIOTrace());
+    ASSERT_OK(env_->FileExists(trace_file));
+  }
+  {
+    // Parse trace file to check file opertions related to blob files are
+    // recorded.
+    std::unique_ptr<TraceReader> trace_reader;
+    ASSERT_OK(
+        NewFileTraceReader(env_, EnvOptions(), trace_file, &trace_reader));
+    IOTraceReader reader(std::move(trace_reader));
+
+    IOTraceHeader header;
+    ASSERT_OK(reader.ReadHeader(&header));
+    ASSERT_EQ(kMajorVersion, static_cast<int>(header.rocksdb_major_version));
+    ASSERT_EQ(kMinorVersion, static_cast<int>(header.rocksdb_minor_version));
+
+    // Read records.
+    int blob_files_op_count = 0;
+    Status status;
+    while (true) {
+      IOTraceRecord record;
+      status = reader.ReadIOOp(&record);
+      if (!status.ok()) {
+        break;
+      }
+      if (record.file_name.find("blob") != std::string::npos) {
+        blob_files_op_count++;
+      }
+    }
+    // Assuming blob files will have Append, Close and then Read operations.
+    ASSERT_GT(blob_files_op_count, 2);
+  }
+}
+#endif  // !ROCKSDB_LITE
+
 class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
                                public testing::WithParamInterface<std::string> {
  protected:

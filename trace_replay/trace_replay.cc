@@ -25,17 +25,60 @@ namespace ROCKSDB_NAMESPACE {
 const std::string kTraceMagic = "feedcafedeadbeef";
 
 namespace {
-void EncodeCFAndKey(std::string* dst, uint32_t cf_id, const Slice& key) {
-  PutFixed32(dst, cf_id);
-  PutLengthPrefixedSlice(dst, key);
-}
-
 void DecodeCFAndKey(std::string& buffer, uint32_t* cf_id, Slice* key) {
   Slice buf(buffer);
   GetFixed32(&buf, cf_id);
   GetLengthPrefixedSlice(&buf, key);
 }
 }  // namespace
+
+Status TracerHelper::ParseVersionStr(std::string& v_string, int* v_num) {
+  if (v_string.find_first_of('.') == std::string::npos ||
+      v_string.find_first_of('.') != v_string.find_last_of('.')) {
+    return Status::Corruption(
+        "Corrupted trace file. Incorrect version format.");
+  }
+  int tmp_num = 0;
+  for (int i = 0; i < static_cast<int>(v_string.size()); i++) {
+    if (v_string[i] == '.') {
+      continue;
+    } else if (isdigit(v_string[i])) {
+      tmp_num = tmp_num * 10 + (v_string[i] - '0');
+    } else {
+      return Status::Corruption(
+          "Corrupted trace file. Incorrect version format");
+    }
+  }
+  *v_num = tmp_num;
+  return Status::OK();
+}
+
+Status TracerHelper::ParseTraceHeader(const Trace& header, int* trace_version,
+                                      int* db_version) {
+  std::vector<std::string> s_vec;
+  int begin = 0, end;
+  for (int i = 0; i < 3; i++) {
+    assert(header.payload.find("\t", begin) != std::string::npos);
+    end = static_cast<int>(header.payload.find("\t", begin));
+    s_vec.push_back(header.payload.substr(begin, end - begin));
+    begin = end + 1;
+  }
+
+  std::string t_v_str, db_v_str;
+  assert(s_vec.size() == 3);
+  assert(s_vec[1].find("Trace Version: ") != std::string::npos);
+  t_v_str = s_vec[1].substr(15);
+  assert(s_vec[2].find("RocksDB Version: ") != std::string::npos);
+  db_v_str = s_vec[2].substr(17);
+
+  Status s;
+  s = ParseVersionStr(t_v_str, trace_version);
+  if (s != Status::OK()) {
+    return s;
+  }
+  s = ParseVersionStr(db_v_str, db_version);
+  return s;
+}
 
 void TracerHelper::EncodeTrace(const Trace& trace, std::string* encoded_trace) {
   assert(encoded_trace);
@@ -61,6 +104,87 @@ Status TracerHelper::DecodeTrace(const std::string& encoded_trace,
   return Status::OK();
 }
 
+bool TracerHelper::SetPayloadMap(uint64_t& payload_map,
+                                 const TracePayloadType payload_type) {
+  uint64_t old_state = payload_map;
+  uint64_t tmp = 1;
+  payload_map |= (tmp << payload_type);
+  return old_state != payload_map;
+}
+
+void TracerHelper::DecodeWritePayload(Trace* trace,
+                                      WritePayload* write_payload) {
+  assert(write_payload != nullptr);
+  Slice buf(trace->payload);
+  GetFixed64(&buf, &trace->payload_map);
+  int64_t payload_map = static_cast<int64_t>(trace->payload_map);
+  while (payload_map) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(payload_map & -payload_map));
+    switch (set_pos) {
+      case TracePayloadType::kWriteBatchData:
+        GetLengthPrefixedSlice(&buf, &(write_payload->write_batch_data));
+        break;
+      default:
+        assert(false);
+    }
+    // unset the rightmost bit.
+    payload_map &= (payload_map - 1);
+  }
+}
+
+void TracerHelper::DecodeGetPayload(Trace* trace, GetPayload* get_payload) {
+  assert(get_payload != nullptr);
+  Slice buf(trace->payload);
+  GetFixed64(&buf, &trace->payload_map);
+  int64_t payload_map = static_cast<int64_t>(trace->payload_map);
+  while (payload_map) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(payload_map & -payload_map));
+    switch (set_pos) {
+      case TracePayloadType::kGetCFID:
+        GetFixed32(&buf, &(get_payload->cf_id));
+        break;
+      case TracePayloadType::kGetKey:
+        GetLengthPrefixedSlice(&buf, &(get_payload->get_key));
+        break;
+      default:
+        assert(false);
+    }
+    // unset the rightmost bit.
+    payload_map &= (payload_map - 1);
+  }
+}
+
+void TracerHelper::DecodeIterPayload(Trace* trace, IterPayload* iter_payload) {
+  assert(iter_payload != nullptr);
+  Slice buf(trace->payload);
+  GetFixed64(&buf, &trace->payload_map);
+  int64_t payload_map = static_cast<int64_t>(trace->payload_map);
+  while (payload_map) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(payload_map & -payload_map));
+    switch (set_pos) {
+      case TracePayloadType::kIterCFID:
+        GetFixed32(&buf, &(iter_payload->cf_id));
+        break;
+      case TracePayloadType::kIterKey:
+        GetLengthPrefixedSlice(&buf, &(iter_payload->iter_key));
+        break;
+      case TracePayloadType::kIterLowerBound:
+        GetLengthPrefixedSlice(&buf, &(iter_payload->lower_bound));
+        break;
+      case TracePayloadType::kIterUpperBound:
+        GetLengthPrefixedSlice(&buf, &(iter_payload->upper_bound));
+        break;
+      default:
+        assert(false);
+    }
+    // unset the rightmost bit.
+    payload_map &= (payload_map - 1);
+  }
+}
+
 Tracer::Tracer(const std::shared_ptr<SystemClock>& clock,
                const TraceOptions& trace_options,
                std::unique_ptr<TraceWriter>&& trace_writer)
@@ -82,7 +206,10 @@ Status Tracer::Write(WriteBatch* write_batch) {
   Trace trace;
   trace.ts = clock_->NowMicros();
   trace.type = trace_type;
-  trace.payload = write_batch->Data();
+  TracerHelper::SetPayloadMap(trace.payload_map,
+                              TracePayloadType::kWriteBatchData);
+  PutFixed64(&trace.payload, trace.payload_map);
+  PutLengthPrefixedSlice(&trace.payload, Slice(write_batch->Data()));
   return WriteTrace(trace);
 }
 
@@ -94,11 +221,19 @@ Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
   Trace trace;
   trace.ts = clock_->NowMicros();
   trace.type = trace_type;
-  EncodeCFAndKey(&trace.payload, column_family->GetID(), key);
+  // Set the payloadmap of the struct member that will be encoded in the
+  // payload.
+  TracerHelper::SetPayloadMap(trace.payload_map, TracePayloadType::kGetCFID);
+  TracerHelper::SetPayloadMap(trace.payload_map, TracePayloadType::kGetKey);
+  // Encode the Get struct members into payload. Make sure add them in order.
+  PutFixed64(&trace.payload, trace.payload_map);
+  PutFixed32(&trace.payload, column_family->GetID());
+  PutLengthPrefixedSlice(&trace.payload, key);
   return WriteTrace(trace);
 }
 
-Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
+Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key,
+                            const Slice& lower_bound, const Slice upper_bound) {
   TraceType trace_type = kTraceIteratorSeek;
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
@@ -106,11 +241,35 @@ Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key) {
   Trace trace;
   trace.ts = clock_->NowMicros();
   trace.type = trace_type;
-  EncodeCFAndKey(&trace.payload, cf_id, key);
+  // Set the payloadmap of the struct member that will be encoded in the
+  // payload.
+  TracerHelper::SetPayloadMap(trace.payload_map, TracePayloadType::kIterCFID);
+  TracerHelper::SetPayloadMap(trace.payload_map, TracePayloadType::kIterKey);
+  if (lower_bound.size() > 0) {
+    TracerHelper::SetPayloadMap(trace.payload_map,
+                                TracePayloadType::kIterLowerBound);
+  }
+  if (upper_bound.size() > 0) {
+    TracerHelper::SetPayloadMap(trace.payload_map,
+                                TracePayloadType::kIterUpperBound);
+  }
+  // Encode the Iterator struct members into payload. Make sure add them in
+  // order.
+  PutFixed64(&trace.payload, trace.payload_map);
+  PutFixed32(&trace.payload, cf_id);
+  PutLengthPrefixedSlice(&trace.payload, key);
+  if (lower_bound.size() > 0) {
+    PutLengthPrefixedSlice(&trace.payload, lower_bound);
+  }
+  if (upper_bound.size() > 0) {
+    PutLengthPrefixedSlice(&trace.payload, upper_bound);
+  }
   return WriteTrace(trace);
 }
 
-Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
+Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                                   const Slice& lower_bound,
+                                   const Slice upper_bound) {
   TraceType trace_type = kTraceIteratorSeekForPrev;
   if (ShouldSkipTrace(trace_type)) {
     return Status::OK();
@@ -118,7 +277,29 @@ Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key) {
   Trace trace;
   trace.ts = clock_->NowMicros();
   trace.type = trace_type;
-  EncodeCFAndKey(&trace.payload, cf_id, key);
+  // Set the payloadmap of the struct member that will be encoded in the
+  // payload.
+  TracerHelper::SetPayloadMap(trace.payload_map, TracePayloadType::kIterCFID);
+  TracerHelper::SetPayloadMap(trace.payload_map, TracePayloadType::kIterKey);
+  if (lower_bound.size() > 0) {
+    TracerHelper::SetPayloadMap(trace.payload_map,
+                                TracePayloadType::kIterLowerBound);
+  }
+  if (upper_bound.size() > 0) {
+    TracerHelper::SetPayloadMap(trace.payload_map,
+                                TracePayloadType::kIterUpperBound);
+  }
+  // Encode the Iterator struct members into payload. Make sure add them in
+  // order.
+  PutFixed64(&trace.payload, trace.payload_map);
+  PutFixed32(&trace.payload, cf_id);
+  PutLengthPrefixedSlice(&trace.payload, key);
+  if (lower_bound.size() > 0) {
+    PutLengthPrefixedSlice(&trace.payload, lower_bound);
+  }
+  if (upper_bound.size() > 0) {
+    PutLengthPrefixedSlice(&trace.payload, upper_bound);
+  }
   return WriteTrace(trace);
 }
 
@@ -148,7 +329,8 @@ bool Tracer::IsTraceFileOverMax() {
 Status Tracer::WriteHeader() {
   std::ostringstream s;
   s << kTraceMagic << "\t"
-    << "Trace Version: 0.1\t"
+    << "Trace Version: " << kTraceFileMajorVersion << "."
+    << kTraceFileMinorVersion << "\t"
     << "RocksDB Version: " << kMajorVersion << "." << kMinorVersion << "\t"
     << "Format: Timestamp OpType Payload\n";
   std::string header(s.str());
@@ -164,6 +346,8 @@ Status Tracer::WriteFooter() {
   Trace trace;
   trace.ts = clock_->NowMicros();
   trace.type = kTraceEnd;
+  TracerHelper::SetPayloadMap(trace.payload_map,
+                              TracePayloadType::kEmptyPayload);
   trace.payload = "";
   return WriteTrace(trace);
 }
@@ -204,7 +388,12 @@ Status Replayer::SetFastForward(uint32_t fast_forward) {
 Status Replayer::Replay() {
   Status s;
   Trace header;
+  int db_version;
   s = ReadHeader(&header);
+  if (!s.ok()) {
+    return s;
+  }
+  s = TracerHelper::ParseTraceHeader(header, &trace_file_version_, &db_version);
   if (!s.ok()) {
     return s;
   }
@@ -227,55 +416,83 @@ Status Replayer::Replay() {
         replay_epoch +
         std::chrono::microseconds((trace.ts - header.ts) / fast_forward_));
     if (trace.type == kTraceWrite) {
-      WriteBatch batch(trace.payload);
-      db_->Write(woptions, &batch);
+      if (trace_file_version_ < 2) {
+        WriteBatch batch(trace.payload);
+        db_->Write(woptions, &batch);
+      } else {
+        WritePayload w_payload;
+        TracerHelper::DecodeWritePayload(&trace, &w_payload);
+        WriteBatch batch(w_payload.write_batch_data.ToString());
+        db_->Write(woptions, &batch);
+      }
       ops++;
     } else if (trace.type == kTraceGet) {
-      uint32_t cf_id = 0;
-      Slice key;
-      DecodeCFAndKey(trace.payload, &cf_id, &key);
-      if (cf_id > 0 && cf_map_.find(cf_id) == cf_map_.end()) {
+      GetPayload get_payload;
+      get_payload.get_key = 0;
+      if (trace_file_version_ < 2) {
+        DecodeCFAndKey(trace.payload, &get_payload.cf_id, &get_payload.get_key);
+      } else {
+        TracerHelper::DecodeGetPayload(&trace, &get_payload);
+      }
+      if (get_payload.cf_id > 0 &&
+          cf_map_.find(get_payload.cf_id) == cf_map_.end()) {
         return Status::Corruption("Invalid Column Family ID.");
       }
 
       std::string value;
-      if (cf_id == 0) {
-        db_->Get(roptions, key, &value);
+      if (get_payload.cf_id == 0) {
+        db_->Get(roptions, get_payload.get_key, &value);
       } else {
-        db_->Get(roptions, cf_map_[cf_id], key, &value);
+        db_->Get(roptions, cf_map_[get_payload.cf_id], get_payload.get_key,
+                 &value);
       }
       ops++;
     } else if (trace.type == kTraceIteratorSeek) {
-      uint32_t cf_id = 0;
-      Slice key;
-      DecodeCFAndKey(trace.payload, &cf_id, &key);
-      if (cf_id > 0 && cf_map_.find(cf_id) == cf_map_.end()) {
+      // Currently, we only support to call Seek. The Next() and Prev() is not
+      // supported.
+      IterPayload iter_payload;
+      iter_payload.cf_id = 0;
+      if (trace_file_version_ < 2) {
+        DecodeCFAndKey(trace.payload, &iter_payload.cf_id,
+                       &iter_payload.iter_key);
+      } else {
+        TracerHelper::DecodeIterPayload(&trace, &iter_payload);
+      }
+      if (iter_payload.cf_id > 0 &&
+          cf_map_.find(iter_payload.cf_id) == cf_map_.end()) {
         return Status::Corruption("Invalid Column Family ID.");
       }
 
-      if (cf_id == 0) {
+      if (iter_payload.cf_id == 0) {
         single_iter = db_->NewIterator(roptions);
       } else {
-        single_iter = db_->NewIterator(roptions, cf_map_[cf_id]);
+        single_iter = db_->NewIterator(roptions, cf_map_[iter_payload.cf_id]);
       }
-      single_iter->Seek(key);
+      single_iter->Seek(iter_payload.iter_key);
       ops++;
       delete single_iter;
     } else if (trace.type == kTraceIteratorSeekForPrev) {
-      // Currently, only support to call the Seek()
-      uint32_t cf_id = 0;
-      Slice key;
-      DecodeCFAndKey(trace.payload, &cf_id, &key);
-      if (cf_id > 0 && cf_map_.find(cf_id) == cf_map_.end()) {
+      // Currently, we only support to call SeekForPrev. The Next() and Prev()
+      // is not supported.
+      IterPayload iter_payload;
+      iter_payload.cf_id = 0;
+      if (trace_file_version_ < 2) {
+        DecodeCFAndKey(trace.payload, &iter_payload.cf_id,
+                       &iter_payload.iter_key);
+      } else {
+        TracerHelper::DecodeIterPayload(&trace, &iter_payload);
+      }
+      if (iter_payload.cf_id > 0 &&
+          cf_map_.find(iter_payload.cf_id) == cf_map_.end()) {
         return Status::Corruption("Invalid Column Family ID.");
       }
 
-      if (cf_id == 0) {
+      if (iter_payload.cf_id == 0) {
         single_iter = db_->NewIterator(roptions);
       } else {
-        single_iter = db_->NewIterator(roptions, cf_map_[cf_id]);
+        single_iter = db_->NewIterator(roptions, cf_map_[iter_payload.cf_id]);
       }
-      single_iter->SeekForPrev(key);
+      single_iter->SeekForPrev(iter_payload.iter_key);
       ops++;
       delete single_iter;
     } else if (trace.type == kTraceEnd) {
@@ -302,11 +519,15 @@ Status Replayer::Replay() {
 Status Replayer::MultiThreadReplay(uint32_t threads_num) {
   Status s;
   Trace header;
+  int db_version;
   s = ReadHeader(&header);
   if (!s.ok()) {
     return s;
   }
-
+  s = TracerHelper::ParseTraceHeader(header, &trace_file_version_, &db_version);
+  if (!s.ok()) {
+    return s;
+  }
   ThreadPoolImpl thread_pool;
   thread_pool.SetHostEnv(env_);
 
@@ -331,6 +552,7 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
     ra->cf_map = &cf_map_;
     ra->woptions = woptions;
     ra->roptions = roptions;
+    ra->trace_file_version = trace_file_version_;
 
     std::this_thread::sleep_until(
         replay_epoch + std::chrono::microseconds(
@@ -374,10 +596,15 @@ Status Replayer::MultiThreadReplay(uint32_t threads_num) {
 
 Status Replayer::ReadHeader(Trace* header) {
   assert(header != nullptr);
-  Status s = ReadTrace(header);
+  std::string encoded_trace;
+  // Read the trace head
+  Status s = trace_reader_->Read(&encoded_trace);
   if (!s.ok()) {
     return s;
   }
+
+  s = TracerHelper::DecodeTrace(encoded_trace, header);
+
   if (header->type != kTraceBegin) {
     return Status::Corruption("Corrupted trace file. Incorrect header.");
   }
@@ -418,20 +645,26 @@ void Replayer::BGWorkGet(void* arg) {
   assert(ra != nullptr);
   auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
       ra->cf_map);
-  uint32_t cf_id = 0;
-  Slice key;
-  DecodeCFAndKey(ra->trace_entry.payload, &cf_id, &key);
-  if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
+  GetPayload get_payload;
+  get_payload.cf_id = 0;
+  if (ra->trace_file_version < 2) {
+    DecodeCFAndKey(ra->trace_entry.payload, &get_payload.cf_id,
+                   &get_payload.get_key);
+  } else {
+    TracerHelper::DecodeGetPayload(&(ra->trace_entry), &get_payload);
+  }
+  if (get_payload.cf_id > 0 &&
+      cf_map->find(get_payload.cf_id) == cf_map->end()) {
     return;
   }
 
   std::string value;
-  if (cf_id == 0) {
-    ra->db->Get(ra->roptions, key, &value);
+  if (get_payload.cf_id == 0) {
+    ra->db->Get(ra->roptions, get_payload.get_key, &value);
   } else {
-    ra->db->Get(ra->roptions, (*cf_map)[cf_id], key, &value);
+    ra->db->Get(ra->roptions, (*cf_map)[get_payload.cf_id], get_payload.get_key,
+                &value);
   }
-
   return;
 }
 
@@ -439,8 +672,16 @@ void Replayer::BGWorkWriteBatch(void* arg) {
   std::unique_ptr<ReplayerWorkerArg> ra(
       reinterpret_cast<ReplayerWorkerArg*>(arg));
   assert(ra != nullptr);
-  WriteBatch batch(ra->trace_entry.payload);
-  ra->db->Write(ra->woptions, &batch);
+
+  if (ra->trace_file_version < 2) {
+    WriteBatch batch(ra->trace_entry.payload);
+    ra->db->Write(ra->woptions, &batch);
+  } else {
+    WritePayload w_payload;
+    TracerHelper::DecodeWritePayload(&(ra->trace_entry), &w_payload);
+    WriteBatch batch(w_payload.write_batch_data.ToString());
+    ra->db->Write(ra->woptions, &batch);
+  }
   return;
 }
 
@@ -450,21 +691,28 @@ void Replayer::BGWorkIterSeek(void* arg) {
   assert(ra != nullptr);
   auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
       ra->cf_map);
-  uint32_t cf_id = 0;
-  Slice key;
-  DecodeCFAndKey(ra->trace_entry.payload, &cf_id, &key);
-  if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
+  IterPayload iter_payload;
+  iter_payload.cf_id = 0;
+
+  if (ra->trace_file_version < 2) {
+    DecodeCFAndKey(ra->trace_entry.payload, &iter_payload.cf_id,
+                   &iter_payload.iter_key);
+  } else {
+    TracerHelper::DecodeIterPayload(&(ra->trace_entry), &iter_payload);
+  }
+  if (iter_payload.cf_id > 0 &&
+      cf_map->find(iter_payload.cf_id) == cf_map->end()) {
     return;
   }
 
-  std::string value;
   Iterator* single_iter = nullptr;
-  if (cf_id == 0) {
+  if (iter_payload.cf_id == 0) {
     single_iter = ra->db->NewIterator(ra->roptions);
   } else {
-    single_iter = ra->db->NewIterator(ra->roptions, (*cf_map)[cf_id]);
+    single_iter =
+        ra->db->NewIterator(ra->roptions, (*cf_map)[iter_payload.cf_id]);
   }
-  single_iter->Seek(key);
+  single_iter->Seek(iter_payload.iter_key);
   delete single_iter;
   return;
 }
@@ -475,21 +723,28 @@ void Replayer::BGWorkIterSeekForPrev(void* arg) {
   assert(ra != nullptr);
   auto cf_map = static_cast<std::unordered_map<uint32_t, ColumnFamilyHandle*>*>(
       ra->cf_map);
-  uint32_t cf_id = 0;
-  Slice key;
-  DecodeCFAndKey(ra->trace_entry.payload, &cf_id, &key);
-  if (cf_id > 0 && cf_map->find(cf_id) == cf_map->end()) {
+  IterPayload iter_payload;
+  iter_payload.cf_id = 0;
+
+  if (ra->trace_file_version < 2) {
+    DecodeCFAndKey(ra->trace_entry.payload, &iter_payload.cf_id,
+                   &iter_payload.iter_key);
+  } else {
+    TracerHelper::DecodeIterPayload(&(ra->trace_entry), &iter_payload);
+  }
+  if (iter_payload.cf_id > 0 &&
+      cf_map->find(iter_payload.cf_id) == cf_map->end()) {
     return;
   }
 
-  std::string value;
   Iterator* single_iter = nullptr;
-  if (cf_id == 0) {
+  if (iter_payload.cf_id == 0) {
     single_iter = ra->db->NewIterator(ra->roptions);
   } else {
-    single_iter = ra->db->NewIterator(ra->roptions, (*cf_map)[cf_id]);
+    single_iter =
+        ra->db->NewIterator(ra->roptions, (*cf_map)[iter_payload.cf_id]);
   }
-  single_iter->SeekForPrev(key);
+  single_iter->SeekForPrev(iter_payload.iter_key);
   delete single_iter;
   return;
 }

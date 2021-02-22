@@ -283,6 +283,8 @@ TraceAnalyzer::TraceAnalyzer(std::string& trace_path, std::string& output_path,
   end_time_ = 0;
   time_series_start_ = 0;
   cur_time_sec_ = 0;
+  // Set the default trace file version as version 0.2
+  trace_file_version_ = 2;
   if (FLAGS_sample_ratio > 1.0 || FLAGS_sample_ratio <= 0) {
     sample_max_ = 1;
   } else {
@@ -389,10 +391,15 @@ Status TraceAnalyzer::PrepareProcessing() {
 
 Status TraceAnalyzer::ReadTraceHeader(Trace* header) {
   assert(header != nullptr);
-  Status s = ReadTraceRecord(header);
+  std::string encoded_trace;
+  // Read the trace head
+  Status s = trace_reader_->Read(&encoded_trace);
   if (!s.ok()) {
     return s;
   }
+
+  s = TracerHelper::DecodeTrace(encoded_trace, header);
+
   if (header->type != kTraceBegin) {
     return Status::Corruption("Corrupted trace file. Incorrect header.");
   }
@@ -422,13 +429,7 @@ Status TraceAnalyzer::ReadTraceRecord(Trace* trace) {
   if (!s.ok()) {
     return s;
   }
-
-  Slice enc_slice = Slice(encoded_trace);
-  GetFixed64(&enc_slice, &trace->ts);
-  trace->type = static_cast<TraceType>(enc_slice[0]);
-  enc_slice.remove_prefix(kTraceTypeSize + kTracePayloadLengthSize);
-  trace->payload = enc_slice.ToString();
-  return s;
+  return TracerHelper::DecodeTrace(encoded_trace, trace);
 }
 
 // process the trace itself and redirect the trace content
@@ -440,6 +441,11 @@ Status TraceAnalyzer::StartProcessing() {
   s = ReadTraceHeader(&header);
   if (!s.ok()) {
     fprintf(stderr, "Cannot read the header\n");
+    return s;
+  }
+  s = TracerHelper::ParseTraceHeader(header, &trace_file_version_,
+                                     &db_version_);
+  if (!s.ok()) {
     return s;
   }
   trace_create_time_ = header.ts;
@@ -460,14 +466,22 @@ Status TraceAnalyzer::StartProcessing() {
     if (trace.type == kTraceWrite) {
       total_writes_++;
       c_time_ = trace.ts;
-      WriteBatch batch(trace.payload);
-
+      Slice batch_data;
+      if (trace_file_version_ < 2) {
+        Slice tmp_data(trace.payload);
+        batch_data = tmp_data;
+      } else {
+        WritePayload w_payload;
+        TracerHelper::DecodeWritePayload(&trace, &w_payload);
+        batch_data = w_payload.write_batch_data;
+      }
       // Note that, if the write happens in a transaction,
       // 'Write' will be called twice, one for Prepare, one for
       // Commit. Thus, in the trace, for the same WriteBatch, there
       // will be two reords if it is in a transaction. Here, we only
       // process the reord that is committed. If write is non-transaction,
       // HasBeginPrepare()==false, so we process it normally.
+      WriteBatch batch(batch_data.ToString());
       if (batch.HasBeginPrepare() && !batch.HasCommit()) {
         continue;
       }
@@ -478,22 +492,34 @@ Status TraceAnalyzer::StartProcessing() {
         return s;
       }
     } else if (trace.type == kTraceGet) {
-      uint32_t cf_id = 0;
-      Slice key;
-      DecodeCFAndKeyFromString(trace.payload, &cf_id, &key);
+      GetPayload get_payload;
+      get_payload.get_key = 0;
+      if (trace_file_version_ < 2) {
+        DecodeCFAndKeyFromString(trace.payload, &get_payload.cf_id,
+                                 &get_payload.get_key);
+      } else {
+        TracerHelper::DecodeGetPayload(&trace, &get_payload);
+      }
       total_gets_++;
 
-      s = HandleGet(cf_id, key.ToString(), trace.ts, 1);
+      s = HandleGet(get_payload.cf_id, get_payload.get_key.ToString(), trace.ts,
+                    1);
       if (!s.ok()) {
         fprintf(stderr, "Cannot process the get in the trace\n");
         return s;
       }
     } else if (trace.type == kTraceIteratorSeek ||
                trace.type == kTraceIteratorSeekForPrev) {
-      uint32_t cf_id = 0;
-      Slice key;
-      DecodeCFAndKeyFromString(trace.payload, &cf_id, &key);
-      s = HandleIter(cf_id, key.ToString(), trace.ts, trace.type);
+      IterPayload iter_payload;
+      iter_payload.cf_id = 0;
+      if (trace_file_version_ < 2) {
+        DecodeCFAndKeyFromString(trace.payload, &iter_payload.cf_id,
+                                 &iter_payload.iter_key);
+      } else {
+        TracerHelper::DecodeIterPayload(&trace, &iter_payload);
+      }
+      s = HandleIter(iter_payload.cf_id, iter_payload.iter_key.ToString(),
+                     trace.ts, trace.type);
       if (!s.ok()) {
         fprintf(stderr, "Cannot process the iterator in the trace\n");
         return s;

@@ -627,6 +627,9 @@ inline std::string CompressionOptionsToString(
   result.append("enabled=")
       .append(ToString(compression_options.enabled))
       .append("; ");
+  result.append("max_dict_buffer_bytes=")
+      .append(ToString(compression_options.max_dict_buffer_bytes))
+      .append("; ");
   return result;
 }
 
