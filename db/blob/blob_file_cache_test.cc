@@ -114,7 +114,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader) {
 
   BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
                                 &file_options, column_family_id,
-                                blob_file_read_hist);
+                                blob_file_read_hist, nullptr /*IOTracer*/);
 
   // First try: reader should be opened and put in cache
   CacheHandleGuard<BlobFileReader> first;
@@ -159,7 +159,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_Race) {
 
   BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
                                 &file_options, column_family_id,
-                                blob_file_read_hist);
+                                blob_file_read_hist, nullptr /*IOTracer*/);
 
   CacheHandleGuard<BlobFileReader> first;
   CacheHandleGuard<BlobFileReader> second;
@@ -207,7 +207,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_IOError) {
 
   BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
                                 &file_options, column_family_id,
-                                blob_file_read_hist);
+                                blob_file_read_hist, nullptr /*IOTracer*/);
 
   // Note: there is no blob file with the below number
   constexpr uint64_t blob_file_number = 123;
@@ -248,7 +248,7 @@ TEST_F(BlobFileCacheTest, GetBlobFileReader_CacheFull) {
 
   BlobFileCache blob_file_cache(backing_cache.get(), &immutable_cf_options,
                                 &file_options, column_family_id,
-                                blob_file_read_hist);
+                                blob_file_read_hist, nullptr /*IOTracer*/);
 
   // Insert into cache should fail since it has zero capacity and
   // strict_capacity_limit is set

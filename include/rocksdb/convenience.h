@@ -56,6 +56,13 @@ struct ConfigOptions {
   // Whether or not to invoke PrepareOptions after configure is called.
   bool invoke_prepare_options = true;
 
+  // Options can be marked as Mutable (OptionTypeInfo::IsMutable()) or not.
+  // When "mutable_options_only=false", all options are evaluated.
+  // When "mutable_options_only="true", any option not marked as Mutable is
+  // either ignored (in the case of string/equals methods) or results in an
+  // error (in the case of Configure).
+  bool mutable_options_only = false;
+
   // The separator between options when converting to a string
   std::string delimiter = ";";
 
