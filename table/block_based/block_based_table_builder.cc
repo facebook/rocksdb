@@ -1655,9 +1655,9 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   // `kPrimeGeneratorRemainder` is close to zero or close to
   // `kNumBlocksBuffered`.
   //
-  // Pick the first prime number over a trillion. Hope it has no special
-  // properties.
-  const uint64_t kPrimeGenerator = 1000000000039ull;
+  // Picked a random number between one and one trillion and then chose the
+  // next prime number greater than or equal to it.
+  const uint64_t kPrimeGenerator = 545055921143ull;
   // Can avoid repeated division by just adding the remainder repeatedly.
   const size_t kPrimeGeneratorRemainder = static_cast<size_t>(
       kPrimeGenerator % static_cast<uint64_t>(kNumBlocksBuffered));
