@@ -32,9 +32,7 @@ class WriteBufferManager {
 
   ~WriteBufferManager();
 
-  bool enabled() const {
-    return buffer_size() > 0;
-  }
+  bool enabled() const { return buffer_size() > 0; }
 
   bool cost_to_cache() const { return cache_rep_ != nullptr; }
 
@@ -55,7 +53,8 @@ class WriteBufferManager {
   // Should only be called from write thread
   bool ShouldFlush() const {
     if (enabled()) {
-      if (mutable_memtable_memory_usage() > mutable_limit_.load(std::memory_order_relaxed)) {
+      if (mutable_memtable_memory_usage() >
+          mutable_limit_.load(std::memory_order_relaxed)) {
         return true;
       }
       size_t local_size = buffer_size();
