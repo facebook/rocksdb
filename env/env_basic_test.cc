@@ -55,7 +55,7 @@ static Env* NewTestEncryptedEnv(Env* base, const std::string& provider_id) {
 
 // next statements run env test against default encryption code.
 static std::unique_ptr<Env> ctr_encrypt_env(NewTestEncryptedEnv(Env::Default(),
-                                                                "test://CTR"));
+                                                                "CTR://test"));
 INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvBasicTestWithParam,
                         ::testing::Values(ctr_encrypt_env.get()));
 INSTANTIATE_TEST_CASE_P(EncryptedEnv, EnvMoreTestWithParam,

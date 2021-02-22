@@ -75,9 +75,15 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
 #ifndef ROCKSDB_LITE
   if (getenv("ENCRYPTED_ENV")) {
     std::shared_ptr<EncryptionProvider> provider;
-    Status s = EncryptionProvider::CreateFromString(
-        ConfigOptions(), std::string("test://") + getenv("ENCRYPTED_ENV"),
-        &provider);
+    std::string provider_id = getenv("ENCRYPTED_ENV");
+    if (provider_id.find("=") == std::string::npos &&
+        !EndsWith(provider_id, "://test")) {
+      provider_id = provider_id + "://test";
+    }
+    Status s =
+        EncryptionProvider::CreateFromString(ConfigOptions(), provider_id,
+
+                                             &provider);
     encrypted_env_ = NewEncryptedEnv(mem_env_ ? mem_env_ : base_env, provider);
   }
 #endif  // !ROCKSDB_LITE

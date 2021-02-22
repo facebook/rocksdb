@@ -14,6 +14,7 @@
 
 #include "env/env_encryption_ctr.h"
 #include "monitoring/perf_context_imp.h"
+#include "options/customizable_helper.h"
 #include "rocksdb/convenience.h"
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
@@ -21,54 +22,72 @@
 #include "util/string_util.h"
 
 #endif
-
 namespace ROCKSDB_NAMESPACE {
-
 #ifndef ROCKSDB_LITE
 static constexpr char kROT13CipherName[] = "ROT13";
 static constexpr char kCTRProviderName[] = "CTR";
+namespace {
+int RegisterEncryptionBuiltins(ObjectLibrary& library,
+                               const std::string& /*arg*/) {
+  static int count = 0;
+  if (count == 0) {
+    library.Register<EncryptionProvider>(
+        "CTR?(://test)",
+        [](const std::string& uri, std::unique_ptr<EncryptionProvider>* guard,
+           std::string* /*errmsg*/) {
+          if (EndsWith(uri, "://test")) {
+            std::shared_ptr<BlockCipher> cipher =
+                std::make_shared<ROT13BlockCipher>(32);
+            guard->reset(new CTREncryptionProvider(cipher));
+          } else {
+            guard->reset(new CTREncryptionProvider());
+          }
+          return guard->get();
+        });
 
-Status BlockCipher::CreateFromString(const ConfigOptions& /*config_options*/,
+    library.Register<EncryptionProvider>(
+        "1://test", [](const std::string& /*uri*/,
+                       std::unique_ptr<EncryptionProvider>* guard,
+                       std::string* /*errmsg*/) {
+          std::shared_ptr<BlockCipher> cipher =
+              std::make_shared<ROT13BlockCipher>(32);
+          guard->reset(new CTREncryptionProvider(cipher));
+          return guard->get();
+        });
+
+    library.Register<BlockCipher>(
+        "ROT13?(:.*)",
+        [](const std::string& uri, std::unique_ptr<BlockCipher>* guard,
+           std::string* /* errmsg */) {
+          size_t colon = uri.find(':');
+          if (colon != std::string::npos) {
+            size_t block_size = ParseSizeT(uri.substr(colon + 1));
+            guard->reset(new ROT13BlockCipher(block_size));
+          } else {
+            guard->reset(new ROT13BlockCipher(32));
+          }
+
+          return guard->get();
+        });
+    count = 2;
+  }
+  return count;
+}
+}  // namespace
+
+Status BlockCipher::CreateFromString(const ConfigOptions& config_options,
                                      const std::string& value,
                                      std::shared_ptr<BlockCipher>* result) {
-  std::string id = value;
-  size_t colon = value.find(':');
-  if (colon != std::string::npos) {
-    id = value.substr(0, colon);
-  }
-  if (id == kROT13CipherName) {
-    if (colon != std::string::npos) {
-      size_t block_size = ParseSizeT(value.substr(colon + 1));
-      result->reset(new ROT13BlockCipher(block_size));
-    } else {
-      result->reset(new ROT13BlockCipher(32));
-    }
-    return Status::OK();
-  } else {
-    return Status::NotSupported("Could not find cipher ", value);
-  }
+  RegisterEncryptionBuiltins(*(ObjectLibrary::Default().get()), "");
+  return LoadSharedObject<BlockCipher>(config_options, value, nullptr, result);
 }
 
 Status EncryptionProvider::CreateFromString(
-    const ConfigOptions& /*config_options*/, const std::string& value,
+    const ConfigOptions& config_options, const std::string& value,
     std::shared_ptr<EncryptionProvider>* result) {
-  std::string id = value;
-  bool is_test = StartsWith(value, "test://");
-  Status status = Status::OK();
-  if (is_test) {
-    id = value.substr(strlen("test://"));
-  }
-  if (id == kCTRProviderName) {
-    result->reset(new CTREncryptionProvider());
-  } else if (is_test) {
-    result->reset(new CTREncryptionProvider());
-  } else {
-    return Status::NotSupported("Could not find provider ", value);
-  }
-  if (status.ok() && is_test) {
-    status = result->get()->TEST_Initialize();
-  }
-  return status;
+  RegisterEncryptionBuiltins(*(ObjectLibrary::Default().get()), "");
+  return LoadSharedObject<EncryptionProvider>(config_options, value, nullptr,
+                                              result);
 }
 
 std::shared_ptr<EncryptionProvider> EncryptionProvider::NewCTRProvider(
@@ -1020,14 +1039,6 @@ const char* CTREncryptionProvider::Name() const { return kCTRProviderName; }
 // the page size.
 size_t CTREncryptionProvider::GetPrefixLength() const {
   return defaultPrefixLength;
-}
-
-Status CTREncryptionProvider::TEST_Initialize() {
-  if (!cipher_) {
-    return BlockCipher::CreateFromString(
-        ConfigOptions(), std::string(kROT13CipherName) + ":32", &cipher_);
-  }
-  return Status::OK();
 }
 
 Status CTREncryptionProvider::AddCipher(const std::string& /*descriptor*/,

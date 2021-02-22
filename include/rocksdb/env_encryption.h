@@ -9,6 +9,7 @@
 
 #include <string>
 
+#include "rocksdb/customizable.h"
 #include "rocksdb/env.h"
 #include "rocksdb/rocksdb_namespace.h"
 
@@ -57,7 +58,7 @@ class BlockAccessCipherStream {
 };
 
 // BlockCipher
-class BlockCipher {
+class BlockCipher : public Customizable {
  public:
   virtual ~BlockCipher(){};
 
@@ -79,6 +80,7 @@ class BlockCipher {
                                  const std::string& value,
                                  std::shared_ptr<BlockCipher>* result);
 
+  static const char* Type() { return "BlockCipher"; }
   // Short-cut method to create a ROT13 BlockCipher.
   // This cipher is only suitable for test purposes and should not be used in
   // production!!!
@@ -100,7 +102,7 @@ class BlockCipher {
 // The encryption provider is used to create a cipher stream for a specific
 // file. The returned cipher stream will be used for actual
 // encryption/decryption actions.
-class EncryptionProvider {
+class EncryptionProvider : public Customizable {
  public:
   virtual ~EncryptionProvider(){};
 
@@ -124,6 +126,7 @@ class EncryptionProvider {
                                  const std::string& value,
                                  std::shared_ptr<EncryptionProvider>* result);
 
+  static const char* Type() { return "EncryptionProvider"; }
   // Short-cut method to create a CTR-provider
   static std::shared_ptr<EncryptionProvider> NewCTRProvider(
       const std::shared_ptr<BlockCipher>& cipher);
@@ -164,11 +167,6 @@ class EncryptionProvider {
   // or not a file is encrypted by this provider.  The maker will also be part
   // of any encryption prefix for this provider.
   virtual std::string GetMarker() const { return ""; }
-
- protected:
-  // Optional method to initialize an EncryptionProvider in the TEST
-  // environment.
-  virtual Status TEST_Initialize() { return Status::OK(); }
 };
 
 class EncryptedSequentialFile : public SequentialFile {
