@@ -33,7 +33,7 @@ class WriteBufferManager {
   ~WriteBufferManager();
 
   bool enabled() const {
-    return buffer_size_.load(std::memory_order_relaxed) != 0;
+    return buffer_size() > 0;
   }
 
   bool cost_to_cache() const { return cache_rep_ != nullptr; }
@@ -55,10 +55,10 @@ class WriteBufferManager {
   // Should only be called from write thread
   bool ShouldFlush() const {
     if (enabled()) {
-      if (mutable_memtable_memory_usage() > mutable_limit_) {
+      if (mutable_memtable_memory_usage() > mutable_limit_.load(std::memory_order_relaxed)) {
         return true;
       }
-      size_t local_size = buffer_size_.load(std::memory_order_relaxed);
+      size_t local_size = buffer_size();
       if (memory_usage() >= local_size &&
           mutable_memtable_memory_usage() >= local_size / 2) {
         // If the memory exceeds the buffer size, we trigger more aggressive
@@ -97,11 +97,12 @@ class WriteBufferManager {
 
   void SetBufferSize(size_t new_size) {
     buffer_size_.store(new_size, std::memory_order_relaxed);
+    mutable_limit_.store(new_size * 7 / 8, std::memory_order_relaxed);
   }
 
  private:
   std::atomic<size_t> buffer_size_;
-  const size_t mutable_limit_;
+  std::atomic<size_t> mutable_limit_;
   std::atomic<size_t> memory_used_;
   // Memory that hasn't been scheduled to free.
   std::atomic<size_t> memory_active_;
