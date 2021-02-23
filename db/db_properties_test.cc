@@ -1737,8 +1737,7 @@ TEST_F(DBPropertiesTest, TableCacheProperties) {
   std::unordered_map<std::string, std::string> new_options;
   new_options.insert(std::pair<std::string, std::string>(
       "max_open_files", std::to_string(new_value)));
-  rocksdb::Status stat = db_->SetDBOptions(new_options);
-  ASSERT_TRUE(stat.ok());
+  ASSERT_OK(db_->SetDBOptions(new_options));
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTableCacheCapacity, &value));
   // rocksdb does a -10 to number passed in
   ASSERT_EQ(new_value - 10, value);
