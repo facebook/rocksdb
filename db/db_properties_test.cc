@@ -245,7 +245,8 @@ void GetExpectedTableProperties(
   const int kDeletionCount = kTableCount * kDeletionsPerTable;
   const int kMergeCount = kTableCount * kMergeOperandsPerTable;
   const int kRangeDeletionCount = kTableCount * kRangeDeletionsPerTable;
-  const int kKeyCount = kPutCount + kDeletionCount + kMergeCount + kRangeDeletionCount;
+  const int kKeyCount =
+      kPutCount + kDeletionCount + kMergeCount + kRangeDeletionCount;
   const int kAvgSuccessorSize = kKeySize / 5;
   const int kEncodingSavePerKey = kKeySize / 4;
   expected_tp->raw_key_size = kKeyCount * (kKeySize + 8);
@@ -256,7 +257,8 @@ void GetExpectedTableProperties(
   expected_tp->num_merge_operands = kMergeCount;
   expected_tp->num_range_deletions = kRangeDeletionCount;
   expected_tp->num_data_blocks =
-      kTableCount * (kKeysPerTable * (kKeySize - kEncodingSavePerKey + kValueSize)) /
+      kTableCount *
+      (kKeysPerTable * (kKeySize - kEncodingSavePerKey + kValueSize)) /
       kBlockSize;
   expected_tp->data_size =
       kTableCount * (kKeysPerTable * (kKeySize + 8 + kValueSize));
@@ -1090,7 +1092,8 @@ class CountingUserTblPropCollector : public TablePropertiesCollector {
     std::string encoded;
     PutVarint32(&encoded, count_);
     *properties = UserCollectedProperties{
-        {"CountingUserTblPropCollector", message_}, {"Count", encoded},
+        {"CountingUserTblPropCollector", message_},
+        {"Count", encoded},
     };
     return Status::OK();
   }
@@ -1728,16 +1731,15 @@ TEST_F(DBPropertiesTest, TableCacheProperties) {
   // test table_cache access is "live"
   //  get default max_open_files
   //
-  ASSERT_TRUE(
-      db_->GetIntProperty(DB::Properties::kTableCacheCapacity, &value));
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTableCacheCapacity, &value));
   new_value = value / 2;
 
   std::unordered_map<std::string, std::string> new_options;
-  new_options.insert(std::pair<std::string, std::string>("max_open_files", std::to_string(new_value)));
+  new_options.insert(std::pair<std::string, std::string>(
+      "max_open_files", std::to_string(new_value)));
   rocksdb::Status stat = db_->SetDBOptions(new_options);
   ASSERT_TRUE(stat.ok());
-  ASSERT_TRUE(
-      db_->GetIntProperty(DB::Properties::kTableCacheCapacity, &value));
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTableCacheCapacity, &value));
   // rocksdb does a -10 to number passed in
   ASSERT_EQ(new_value - 10, value);
 
@@ -1747,9 +1749,9 @@ TEST_F(DBPropertiesTest, TableCacheProperties) {
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTableCacheUsage, &value));
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTableCacheUsage, &new_value));
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kTableCacheUsage, &new_value));
   ASSERT_EQ(new_value, value + 1);
-
 }
 
 #endif  // ROCKSDB_LITE
