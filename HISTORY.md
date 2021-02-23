@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Bug Fixes
+* In WritableFileStringStreamAdapter::overflow(), not only we need to handle `std::endl`, but also there are other cases like unsigned long long that calls `os.put()` directly then drops into sputc() function. The internal implementation of `sputc()` calls `overflow()`. As buffering is explicitly disabled in this stream wrapper, every write, not captured by xsputn, becomes an overflow here. Now it is fixed so all characters that are not captured by xsputn will be appended here, unless the file appending fails.
 
 ## 6.18.0 (02/19/2021)
 ### Behavior Changes
