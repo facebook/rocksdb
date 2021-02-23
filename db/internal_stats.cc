@@ -260,6 +260,8 @@ static const std::string estimate_oldest_key_time = "estimate-oldest-key-time";
 static const std::string block_cache_capacity = "block-cache-capacity";
 static const std::string block_cache_usage = "block-cache-usage";
 static const std::string block_cache_pinned_usage = "block-cache-pinned-usage";
+static const std::string table_cache_capacity = "table-cache-capacity";
+static const std::string table_cache_usage = "table-cache-usage";
 static const std::string options_statistics = "options-statistics";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
@@ -348,6 +350,10 @@ const std::string DB::Properties::kBlockCacheUsage =
     rocksdb_prefix + block_cache_usage;
 const std::string DB::Properties::kBlockCachePinnedUsage =
     rocksdb_prefix + block_cache_pinned_usage;
+const std::string DB::Properties::kTableCacheCapacity =
+    rocksdb_prefix + table_cache_capacity;
+const std::string DB::Properties::kTableCacheUsage =
+    rocksdb_prefix + table_cache_usage;
 const std::string DB::Properties::kOptionsStatistics =
     rocksdb_prefix + options_statistics;
 
@@ -486,6 +492,12 @@ const std::unordered_map<std::string, DBPropertyInfo>
           nullptr}},
         {DB::Properties::kBlockCachePinnedUsage,
          {false, nullptr, &InternalStats::HandleBlockCachePinnedUsage, nullptr,
+          nullptr}},
+        {DB::Properties::kTableCacheCapacity,
+         {false, nullptr, &InternalStats::HandleTableCacheCapacity, nullptr,
+          nullptr}},
+        {DB::Properties::kTableCacheUsage,
+         {false, nullptr, &InternalStats::HandleTableCacheUsage, nullptr,
           nullptr}},
         {DB::Properties::kOptionsStatistics,
          {false, nullptr, nullptr, nullptr,
@@ -984,6 +996,18 @@ bool InternalStats::HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* /*db*/,
     return false;
   }
   *value = static_cast<uint64_t>(block_cache->GetPinnedUsage());
+  return true;
+}
+
+bool InternalStats::HandleTableCacheCapacity(uint64_t* value, DBImpl* db,
+                                             Version* /*version*/) {
+  *value = static_cast<uint64_t>(db->table_cache_->GetCapacity());
+  return true;
+}
+
+bool InternalStats::HandleTableCacheUsage(uint64_t* value, DBImpl* db,
+                                          Version* /*version*/) {
+  *value = static_cast<uint64_t>(db->table_cache_->GetUsage());
   return true;
 }
 

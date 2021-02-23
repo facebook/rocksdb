@@ -1713,6 +1713,45 @@ TEST_F(DBPropertiesTest, BlockCacheProperties) {
   ASSERT_EQ(0, value);
 }
 
+TEST_F(DBPropertiesTest, TableCacheProperties) {
+  Options options;
+  uint64_t value, new_value;
+
+  options.env = CurrentOptions().env;
+
+  // Block cache properties are not available if block cache is not used.
+  BlockBasedTableOptions table_options;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  //
+  // test table_cache access is "live"
+  //  get default max_open_files
+  //
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kTableCacheCapacity, &value));
+  new_value = value / 2;
+
+  std::unordered_map<std::string, std::string> new_options;
+  new_options.insert(std::pair<std::string, std::string>("max_open_files", std::to_string(new_value)));
+  rocksdb::Status stat = db_->SetDBOptions(new_options);
+  ASSERT_TRUE(stat.ok());
+  ASSERT_TRUE(
+      db_->GetIntProperty(DB::Properties::kTableCacheCapacity, &value));
+  // rocksdb does a -10 to number passed in
+  ASSERT_EQ(new_value - 10, value);
+
+  //
+  // create a new table to see if usage is "live"
+  //
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTableCacheUsage, &value));
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTableCacheUsage, &new_value));
+  ASSERT_EQ(new_value, value + 1);
+
+}
+
 #endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
