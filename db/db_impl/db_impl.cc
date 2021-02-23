@@ -4855,10 +4855,29 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
         if (use_file_checksum) {
-          s = VerifySstFileChecksum(*fmeta, fname, read_options);
+          s = VerifyFullFileChecksum(fmeta->file_checksum,
+                                     fmeta->file_checksum_func_name, fname,
+                                     read_options);
         } else {
           s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
                                                        read_options, fname);
+        }
+      }
+    }
+
+    if (s.ok() && use_file_checksum) {
+      const auto& blob_files = vstorage->GetBlobFiles();
+      for (const auto& pair : blob_files) {
+        const uint64_t blob_file_number = pair.first;
+        const auto& meta = pair.second;
+        assert(meta);
+        const std::string blob_file_name = BlobFileName(
+            cfd->ioptions()->cf_paths.front().path, blob_file_number);
+        s = VerifyFullFileChecksum(meta->GetChecksumValue(),
+                                   meta->GetChecksumMethod(), blob_file_name,
+                                   read_options);
+        if (!s.ok()) {
+          break;
         }
       }
     }
@@ -4866,6 +4885,7 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
       break;
     }
   }
+
   bool defer_purge =
           immutable_db_options().avoid_unnecessary_blocking_io;
   {
@@ -4890,29 +4910,31 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
   return s;
 }
 
-Status DBImpl::VerifySstFileChecksum(const FileMetaData& fmeta,
-                                     const std::string& fname,
-                                     const ReadOptions& read_options) {
+Status DBImpl::VerifyFullFileChecksum(const std::string& file_checksum_expected,
+                                      const std::string& func_name_expected,
+                                      const std::string& fname,
+                                      const ReadOptions& read_options) {
   Status s;
-  if (fmeta.file_checksum == kUnknownFileChecksum) {
+  if (file_checksum_expected == kUnknownFileChecksum) {
     return s;
   }
   std::string file_checksum;
   std::string func_name;
   s = ROCKSDB_NAMESPACE::GenerateOneFileChecksum(
       fs_.get(), fname, immutable_db_options_.file_checksum_gen_factory.get(),
-      fmeta.file_checksum_func_name, &file_checksum, &func_name,
+      func_name_expected, &file_checksum, &func_name,
       read_options.readahead_size, immutable_db_options_.allow_mmap_reads,
       io_tracer_, immutable_db_options_.rate_limiter.get());
   if (s.ok()) {
-    assert(fmeta.file_checksum_func_name == func_name);
-    if (file_checksum != fmeta.file_checksum) {
+    assert(func_name_expected == func_name);
+    if (file_checksum != file_checksum_expected) {
       std::ostringstream oss;
       oss << fname << " file checksum mismatch, ";
-      oss << "expecting " << Slice(fmeta.file_checksum).ToString(/*hex=*/true);
+      oss << "expecting "
+          << Slice(file_checksum_expected).ToString(/*hex=*/true);
       oss << ", but actual " << Slice(file_checksum).ToString(/*hex=*/true);
       s = Status::Corruption(oss.str());
-      TEST_SYNC_POINT_CALLBACK("DBImpl::VerifySstFileChecksum:mismatch", &s);
+      TEST_SYNC_POINT_CALLBACK("DBImpl::VerifyFullFileChecksum:mismatch", &s);
     }
   }
   return s;
