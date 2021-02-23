@@ -2881,7 +2881,7 @@ int main(int argc, char** argv) {
 
 #else
 
-int main() {
+int main(void) {
   fprintf(stderr, "SKIPPED\n");
   return 0;
 }
