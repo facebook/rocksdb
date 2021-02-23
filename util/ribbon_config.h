@@ -32,7 +32,9 @@ namespace ribbon {
 //
 // Most of the complexity here is trying to optimize speed and
 // compiled code size, using templates to minimize table look-ups and
-// the compiled size of all linked look-up tables.
+// the compiled size of all linked look-up tables. Look-up tables are
+// required because we don't have good formulas, and the data comes
+// from running FindOccupancy in ribbon_test.
 
 // Represents a chosen chance of successful Ribbon construction for a single
 // seed. Allowing higher chance of failed construction can reduce space
@@ -46,9 +48,6 @@ enum ConstructionFailureChance {
   // is appropriate. (TODO)
   kOneIn1000,
 };
-
-// BandingConfigHelperData* are populated based on data from FindOccupancy
-// in ribbon_test.
 
 namespace detail {
 

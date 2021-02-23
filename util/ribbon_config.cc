@@ -11,6 +11,10 @@ namespace ribbon {
 
 namespace detail {
 
+// Each instantiation of this struct is sufficiently unique for configuration
+// purposes, and is only instantiated for settings where we support the
+// configuration API. An application might only reference one instantiation,
+// meaning the rest could be pruned at link time.
 template <ConstructionFailureChance kCfc, uint64_t kCoeffBits, bool kUseSmash>
 struct BandingConfigHelperData {
   static constexpr size_t kKnownSize = 18U;
@@ -353,6 +357,9 @@ const std::array<double, 18>
             114932,
         }};
 
+// We hide these implementation details from the .h file with explicit
+// instantiations below these partial specializations.
+
 template <ConstructionFailureChance kCfc, uint64_t kCoeffBits, bool kUseSmash,
           bool kHomogeneous>
 uint32_t BandingConfigHelper1MaybeSupported<
@@ -436,6 +443,10 @@ uint32_t BandingConfigHelper1MaybeSupported<
   return static_cast<uint32_t>(upper_portion * lower_num_slots +
                                lower_num_slots + 0.999999999);
 }
+
+// These explicit instantiations enable us to hide most of the
+// implementation details from the .h file. (The .h file currently
+// needs to determine whether settings are "supported" or not.)
 
 template struct BandingConfigHelper1MaybeSupported<kOneIn2, 128U, /*sm*/ false,
                                                    /*hm*/ false, /*sup*/ true>;
