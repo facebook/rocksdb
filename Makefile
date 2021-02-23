@@ -591,8 +591,8 @@ ifdef ASSERT_STATUS_CHECKED
 		db_iter_stress_test \
 		db_log_iter_test \
 		db_bloom_filter_test \
-		db_blob_corruption_test \
 		db_blob_basic_test \
+		db_blob_corruption_test \
 		db_blob_index_test \
 		db_block_cache_test \
 		db_compaction_test \

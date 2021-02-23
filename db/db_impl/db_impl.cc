@@ -4855,9 +4855,9 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
         std::string fname = TableFileName(cfd->ioptions()->cf_paths,
                                           fd.GetNumber(), fd.GetPathId());
         if (use_file_checksum) {
-          s = VerifySstFileChecksum(fmeta->file_checksum,
-                                    fmeta->file_checksum_func_name, fname,
-                                    read_options);
+          s = VerifyFullFileChecksum(fmeta->file_checksum,
+                                     fmeta->file_checksum_func_name, fname,
+                                     read_options);
         } else {
           s = ROCKSDB_NAMESPACE::VerifySstFileChecksum(opts, file_options_,
                                                        read_options, fname);
@@ -4873,9 +4873,9 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
         assert(meta);
         const std::string blob_file_name = BlobFileName(
             cfd->ioptions()->cf_paths.front().path, blob_file_number);
-        s = VerifySstFileChecksum(meta->GetChecksumValue(),
-                                  meta->GetChecksumMethod(), blob_file_name,
-                                  read_options);
+        s = VerifyFullFileChecksum(meta->GetChecksumValue(),
+                                   meta->GetChecksumMethod(), blob_file_name,
+                                   read_options);
         if (!s.ok()) {
           break;
         }
@@ -4910,10 +4910,10 @@ Status DBImpl::VerifyChecksumInternal(const ReadOptions& read_options,
   return s;
 }
 
-Status DBImpl::VerifySstFileChecksum(const std::string& file_checksum_expected,
-                                     const std::string& func_name_expected,
-                                     const std::string& fname,
-                                     const ReadOptions& read_options) {
+Status DBImpl::VerifyFullFileChecksum(const std::string& file_checksum_expected,
+                                      const std::string& func_name_expected,
+                                      const std::string& fname,
+                                      const ReadOptions& read_options) {
   Status s;
   if (file_checksum_expected == kUnknownFileChecksum) {
     return s;
@@ -4934,7 +4934,7 @@ Status DBImpl::VerifySstFileChecksum(const std::string& file_checksum_expected,
           << Slice(file_checksum_expected).ToString(/*hex=*/true);
       oss << ", but actual " << Slice(file_checksum).ToString(/*hex=*/true);
       s = Status::Corruption(oss.str());
-      TEST_SYNC_POINT_CALLBACK("DBImpl::VerifySstFileChecksum:mismatch", &s);
+      TEST_SYNC_POINT_CALLBACK("DBImpl::VerifyFullFileChecksum:mismatch", &s);
     }
   }
   return s;

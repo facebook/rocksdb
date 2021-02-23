@@ -21,12 +21,12 @@ class DBBlobCorruptionTest : public DBTestBase {
     uint64_t number;
     FileType type;
     std::string fname;
-    int picked_number = -1;
+    uint64_t picked_number = kInvalidBlobFileNumber;
     for (size_t i = 0; i < filenames.size(); i++) {
       if (ParseFileName(filenames[i], &number, &type) && type == filetype &&
-          static_cast<int>(number) > picked_number) {  // Pick latest file
+          number > picked_number) {  // Pick latest file
         fname = dbname_ + "/" + filenames[i];
-        picked_number = static_cast<int>(number);
+        picked_number = number;
       }
     }
     ASSERT_TRUE(!fname.empty()) << filetype;
@@ -35,7 +35,7 @@ class DBBlobCorruptionTest : public DBTestBase {
 };
 
 #ifndef ROCKSDB_LITE
-TEST_F(DBBlobCorruptionTest, VerifyWholeTableChecksum) {
+TEST_F(DBBlobCorruptionTest, VerifyWholeBlobFileChecksum) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
@@ -57,8 +57,8 @@ TEST_F(DBBlobCorruptionTest, VerifyWholeTableChecksum) {
 
   int count{0};
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::VerifySstFileChecksum:mismatch", [&](void* arg) {
-        auto* s = reinterpret_cast<Status*>(arg);
+      "DBImpl::VerifyFullFileChecksum:mismatch", [&](void* arg) {
+        const Status* s = static_cast<Status*>(arg);
         ASSERT_NE(s, nullptr);
         ++count;
         ASSERT_NOK(*s);
@@ -67,6 +67,9 @@ TEST_F(DBBlobCorruptionTest, VerifyWholeTableChecksum) {
 
   ASSERT_TRUE(db_->VerifyFileChecksums(ReadOptions()).IsCorruption());
   ASSERT_EQ(1, count);
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
 #endif  // !ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
