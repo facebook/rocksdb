@@ -222,10 +222,11 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   // Hack: pass internal key to BlobIndexCompactionFilter since it needs
   // to get sequence number.
   assert(compaction_filter_);
-  Slice& filter_key = (ikey_.type == kTypeValue ||
-                       !compaction_filter_->IsStackedBlobDbCompactionFilter())
-                          ? ikey_.user_key
-                          : key_;
+  Slice& filter_key =
+      (ikey_.type == kTypeValue ||
+       !compaction_filter_->IsStackedBlobDbInternalCompactionFilter())
+          ? ikey_.user_key
+          : key_;
   {
     StopWatchNano timer(clock_, report_detailed_time_);
     if (kTypeBlobIndex == ikey_.type) {
@@ -233,7 +234,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           compaction_->level(), filter_key, &compaction_filter_value_,
           compaction_filter_skip_until_.rep());
       if (CompactionFilter::Decision::kUndetermined == filter &&
-          !compaction_filter_->IsStackedBlobDbCompactionFilter()) {
+          !compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
         // For integrated BlobDB impl, CompactionIterator reads blob value.
         // For Stacked BlobDB impl, the corresponding CompactionFilter's
         // FilterV2 method should read the blob value.
@@ -244,7 +245,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           valid_ = false;
           return false;
         }
-        if (blob_index.HasTTL() && blob_index.IsInlined()) {
+        if (blob_index.HasTTL() || blob_index.IsInlined()) {
           status_ = Status::Corruption("Unexpected TTL/inlined blob index");
           valid_ = false;
           return false;
@@ -272,9 +273,14 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   }
 
   if (CompactionFilter::Decision::kUndetermined == filter) {
-    filter = CompactionFilter::Decision::kKeep;
+    // Should not reach here, since FilterV2 should never return kUndetermined.
+    assert(false);
+    status_ =
+        Status::NotSupported("FilterV2() should never return kUndetermined");
+    valid_ = false;
+    return false;
   } else if (CompactionFilter::Decision::kChangeBlobIndex == filter &&
-             !compaction_filter_->IsStackedBlobDbCompactionFilter()) {
+             !compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
     status_ = Status::NotSupported(
         "CompactionFilter for integrated BlobDB should not return "
         "kChangeBlobIndex");
@@ -315,7 +321,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     // kChangeBlobIndex. Decision about rewriting blob and changing blob index
     // in the integrated BlobDB impl is made in subsequent call to
     // PrepareOutput() and its callees.
-    assert(compaction_filter_->IsStackedBlobDbCompactionFilter());
+    assert(compaction_filter_->IsStackedBlobDbInternalCompactionFilter());
     if (ikey_.type == kTypeValue) {
       // value transfer from inlined data to blob file
       ikey_.type = kTypeBlobIndex;
@@ -323,7 +329,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     }
     value_ = compaction_filter_value_;
   } else if (filter == CompactionFilter::Decision::kIOError) {
-    assert(compaction_filter_->IsStackedBlobDbCompactionFilter());
+    assert(compaction_filter_->IsStackedBlobDbInternalCompactionFilter());
     status_ = Status::IOError("Failed to access blob during compaction filter");
     error = true;
   }
@@ -899,7 +905,7 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
 
   // GC for stacked BlobDB
   if (compaction_filter_ &&
-      compaction_filter_->IsStackedBlobDbCompactionFilter()) {
+      compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
     const auto blob_decision = compaction_filter_->PrepareBlobOutput(
         user_key(), value_, &compaction_filter_value_);
 

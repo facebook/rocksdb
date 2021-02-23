@@ -54,7 +54,7 @@ class BlobIndexCompactionFilterBase : public LayeredCompactionFilterBase {
                     const Slice& value, std::string* new_value,
                     std::string* skip_until) const override;
 
-  bool IsStackedBlobDbCompactionFilter() const override { return true; }
+  bool IsStackedBlobDbInternalCompactionFilter() const override { return true; }
 
  protected:
   bool IsBlobFileOpened() const;

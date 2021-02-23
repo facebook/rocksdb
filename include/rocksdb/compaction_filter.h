@@ -151,6 +151,7 @@ class CompactionFilter {
   //       - If you use kRemoveAndSkipUntil, consider also reducing
   //         compaction_readahead_size option.
   //
+  // Should never return kUndetermined.
   // Note: If you are using a TransactionDB, it is not recommended to filter
   // out or modify merge operands (ValueType::kMergeOperand).
   // If a merge operation is filtered out, TransactionDB may not realize there
@@ -198,12 +199,13 @@ class CompactionFilter {
   // The name will be printed to LOG file on start up for diagnosis.
   virtual const char* Name() const = 0;
 
-  // Returns true if this compaction filter is for the original
-  // StackableDB-based BlobDB implementation.
-  virtual bool IsStackedBlobDbCompactionFilter() const { return false; }
+  // Internal (BlobDB) use only. Do not override in application code.
+  virtual bool IsStackedBlobDbInternalCompactionFilter() const { return false; }
 
   // In the case of BlobDB, it may be possible to reach a decision with only
-  // the key and/or blob index without reading the actual value.
+  // the key without reading the actual value.
+  // Returning kUndetermined will cause FilterV2() to be called to make a
+  // decision as usual.
   virtual Decision ShouldFilterBlobByKey(int /*level*/, const Slice& /*key*/,
                                          std::string* /*new_value*/,
                                          std::string* /*skip_until*/) const {

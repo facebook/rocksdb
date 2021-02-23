@@ -1351,13 +1351,6 @@ Status ColumnFamilyData::ValidateOptions(
         "[0.0, 1.0].");
   }
 
-  if (cf_options.enable_blob_files && cf_options.compaction_filter &&
-      cf_options.compaction_filter->IsStackedBlobDbCompactionFilter()) {
-    return Status::InvalidArgument(
-        "User compaction filter for BlobDB should not override "
-        "CompactionFilter::IsStackedBlobDbCompactionFilter() and return true.");
-  }
-
   return s;
 }
 

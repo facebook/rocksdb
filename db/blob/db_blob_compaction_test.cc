@@ -21,16 +21,16 @@ namespace {
 
 class DummyStackedBlobDbCompactionFilter : public CompactionFilter {
  public:
-  DummyStackedBlobDbCompactionFilter() = default;
+  explicit DummyStackedBlobDbCompactionFilter() = default;
   const char* Name() const override {
     return "rocksdb.compaction.filter.dummy.stacked.blobdb";
   }
-  bool IsStackedBlobDbCompactionFilter() const override { return true; }
+  bool IsStackedBlobDbInternalCompactionFilter() const override { return true; }
 };
 
 class FilterByKeyLength : public CompactionFilter {
  public:
-  FilterByKeyLength(size_t len) : length_threshold_(len) {}
+  explicit FilterByKeyLength(size_t len) : length_threshold_(len) {}
   const char* Name() const override {
     return "rocksdb.compaction.filter.by.key.length";
   }
@@ -49,7 +49,8 @@ class FilterByKeyLength : public CompactionFilter {
 
 class BadBlobCompactionFilter : public CompactionFilter {
  public:
-  BadBlobCompactionFilter(std::string prefix) : prefix_(std::move(prefix)) {}
+  explicit BadBlobCompactionFilter(std::string prefix)
+      : prefix_(std::move(prefix)) {}
   const char* Name() const override { return "rocksdb.compaction.filter.bad"; }
   CompactionFilter::Decision ShouldFilterBlobByKey(
       int /*level*/, const Slice& key, std::string* /*new_value*/,
@@ -73,7 +74,8 @@ class BadBlobCompactionFilter : public CompactionFilter {
 
 class ValueBlindWriteFilter : public CompactionFilter {
  public:
-  ValueBlindWriteFilter(std::string new_val) : new_value_(std::move(new_val)) {}
+  explicit ValueBlindWriteFilter(std::string new_val)
+      : new_value_(std::move(new_val)) {}
   const char* Name() const override {
     return "rocksdb.compaction.filter.blind.write";
   }
@@ -95,7 +97,8 @@ CompactionFilter::Decision ValueBlindWriteFilter::ShouldFilterBlobByKey(
 
 class ValueMutationFilter : public CompactionFilter {
  public:
-  ValueMutationFilter(std::string padding) : padding_(std::move(padding)) {}
+  explicit ValueMutationFilter(std::string padding)
+      : padding_(std::move(padding)) {}
   const char* Name() const override {
     return "rocksdb.compaction.filter.value.mutation";
   }
@@ -174,9 +177,10 @@ TEST_F(DBBlobCompactionTest, BlindWriteFilter) {
   DestroyAndReopen(options);
   const std::vector<std::string> keys = {"a", "b", "c"};
   const std::vector<std::string> values = {"a_value", "b_value", "c_value"};
-  ASSERT_OK(Put("a", "a_value"));
-  ASSERT_OK(Put("b", "b_value"));
-  ASSERT_OK(Put("c", "c_value"));
+  assert(keys.size() == values.size());
+  for (size_t i = 0; i < keys.size(); ++i) {
+    ASSERT_OK(Put(keys[i], values[i]));
+  }
   ASSERT_OK(Flush());
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
                               /*end=*/nullptr));
