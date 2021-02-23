@@ -1150,6 +1150,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "db_blob_corruption_test",
+        "db/blob/db_blob_corruption_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "db_blob_index_test",
         "db/blob/db_blob_index_test.cc",
         "serial",
