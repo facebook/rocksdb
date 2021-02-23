@@ -457,7 +457,10 @@ struct BlockBasedTableOptions {
   // DB::SetOptions({{"block_based_table_factory",
   //                  "{max_auto_readahead_size=0;}"}}));
   //
-  //  Default: 256 KB (256 * 1024).
+  // Changing the value dynamically will only affect files opened after the
+  // change.
+  //
+  // Default: 256 KB (256 * 1024).
   size_t max_auto_readahead_size = 256 * 1024;
 };
 
