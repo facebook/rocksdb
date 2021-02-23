@@ -392,6 +392,8 @@ TEST_F(SSTDumpToolTest, RawOutput) {
 
   ASSERT_EQ(kNumKey, key_count);
 
+  raw_file.close();
+
   cleanup(opts, file_path);
   for (int i = 0; i < 3; i++) {
     delete[] usage[i];
