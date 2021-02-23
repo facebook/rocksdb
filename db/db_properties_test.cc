@@ -1729,22 +1729,29 @@ TEST_F(DBPropertiesTest, TableCacheProperties) {
 
   //
   // test table_cache access is "live"
-  //  get default max_open_files
-  //
+  //  TableCacheCapacity originally comes from DBOptions::max_open_files
+  //  and can vary by system.  Get its current value.
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTableCacheCapacity, &value));
-  new_value = value / 2;
 
+  // now, change max_open_files to prove we are really accessing the value of
+  // interest
+  new_value = value / 2;
   std::unordered_map<std::string, std::string> new_options;
   new_options.insert(std::pair<std::string, std::string>(
       "max_open_files", std::to_string(new_value)));
   ASSERT_OK(db_->SetDBOptions(new_options));
+
+  // did the value we are reading update. NOTE: rocksdb internally reduces
+  //  the value we pass by 10.
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTableCacheCapacity, &value));
-  // rocksdb does a -10 to number passed in
   ASSERT_EQ(new_value - 10, value);
 
   //
-  // create a new table to see if usage is "live"
-  //
+  //  TableCacheUsage is a count of open .sst files.  Force the creation of a
+  //   a new table file.  First add a record via Put().  Then force that
+  //   record from write buffer to new .sst via CompactRange().  New .sst
+  //   automatically opens and gets position in table cache ... raising usage
+  //   count
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTableCacheUsage, &value));
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
