@@ -573,8 +573,10 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
 #ifdef ROCKSDB_JEMALLOC
       fprintf(stderr, "Jemalloc detected? %d\n", HasJemalloc());
       if (HasJemalloc()) {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
         // More than 5% internal fragmentation
         EXPECT_GE(total_mem, total_size * 105 / 100);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
       }
 #endif  // ROCKSDB_JEMALLOC
       // No storage penalty, just usual overhead
