@@ -14,6 +14,7 @@
 #include "rocksdb/file_system.h"
 #include "test_util/sync_point.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 class DBWALTestBase : public DBTestBase {
@@ -501,6 +502,87 @@ TEST_F(DBWALTest, RecoverWithBlobMultiSST) {
   ASSERT_GT(blob_files.size(), 1);
 
   ASSERT_EQ(l0_files.size(), blob_files.size());
+}
+
+TEST_F(DBWALTest, WALWithChecksumHandoff) {
+#ifndef ROCKSDB_ASSERT_STATUS_CHECKED
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  do {
+    Options options = CurrentOptions();
+
+    options.checksum_handoff_file_types.Add(FileType::kWalFile);
+    options.env = fault_fs_env.get();
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+
+    CreateAndReopenWithCF({"pikachu"}, options);
+    WriteOptions writeOpt = WriteOptions();
+    writeOpt.disableWAL = true;
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v1"));
+
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    ASSERT_EQ("v1", Get(1, "foo"));
+    ASSERT_EQ("v1", Get(1, "bar"));
+
+    writeOpt.disableWAL = false;
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v2"));
+    writeOpt.disableWAL = true;
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v2"));
+
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    // Both value's should be present.
+    ASSERT_EQ("v2", Get(1, "bar"));
+    ASSERT_EQ("v2", Get(1, "foo"));
+
+    writeOpt.disableWAL = true;
+    // This put, data is persisted by Flush
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v3"));
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    writeOpt.disableWAL = false;
+    // Data is persisted in the WAL
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "zoo", "v3"));
+    // The hash does not match, write fails
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+    writeOpt.disableWAL = false;
+    ASSERT_NOK(dbfull()->Put(writeOpt, handles_[1], "foo", "v3"));
+
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    // Due to the write failure, Get should not find
+    ASSERT_NE("v3", Get(1, "foo"));
+    ASSERT_EQ("v3", Get(1, "zoo"));
+    ASSERT_EQ("v3", Get(1, "bar"));
+
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+    // Each write will be similated as corrupted.
+    fault_fs->IngestDataCorruptionBeforeWrite();
+    writeOpt.disableWAL = true;
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v4"));
+    writeOpt.disableWAL = false;
+    ASSERT_NOK(dbfull()->Put(writeOpt, handles_[1], "foo", "v4"));
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    ASSERT_NE("v4", Get(1, "foo"));
+    ASSERT_NE("v4", Get(1, "bar"));
+    fault_fs->NoDataCorruptionBeforeWrite();
+
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
+    // The file system does not provide checksum method and verification.
+    writeOpt.disableWAL = true;
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v5"));
+    writeOpt.disableWAL = false;
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v5"));
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    ASSERT_EQ("v5", Get(1, "foo"));
+    ASSERT_EQ("v5", Get(1, "bar"));
+
+    Destroy(options);
+  } while (ChangeWalOptions());
+#endif  // ROCKSDB_ASSERT_STATUS_CHECKED
 }
 
 class DBRecoveryTestBlobError

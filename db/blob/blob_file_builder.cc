@@ -17,9 +17,11 @@
 #include "file/writable_file_writer.h"
 #include "logging/logging.h"
 #include "options/cf_options.h"
+#include "options/options_helper.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "test_util/sync_point.h"
+#include "trace_replay/io_tracer.h"
 #include "util/compression.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -31,12 +33,13 @@ BlobFileBuilder::BlobFileBuilder(
     int job_id, uint32_t column_family_id,
     const std::string& column_family_name, Env::IOPriority io_priority,
     Env::WriteLifeTimeHint write_hint,
+    const std::shared_ptr<IOTracer>& io_tracer,
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, env,
                       fs, immutable_cf_options, mutable_cf_options,
                       file_options, job_id, column_family_id,
-                      column_family_name, io_priority, write_hint,
+                      column_family_name, io_priority, write_hint, io_tracer,
                       blob_file_paths, blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
@@ -46,6 +49,7 @@ BlobFileBuilder::BlobFileBuilder(
     int job_id, uint32_t column_family_id,
     const std::string& column_family_name, Env::IOPriority io_priority,
     Env::WriteLifeTimeHint write_hint,
+    const std::shared_ptr<IOTracer>& io_tracer,
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : file_number_generator_(std::move(file_number_generator)),
@@ -60,6 +64,7 @@ BlobFileBuilder::BlobFileBuilder(
       column_family_name_(column_family_name),
       io_priority_(io_priority),
       write_hint_(write_hint),
+      io_tracer_(io_tracer),
       blob_file_paths_(blob_file_paths),
       blob_file_additions_(blob_file_additions),
       blob_count_(0),
@@ -177,13 +182,13 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   assert(file);
   file->SetIOPriority(io_priority_);
   file->SetWriteLifeTimeHint(write_hint_);
-
+  FileTypeSet tmp_set = immutable_cf_options_->checksum_handoff_file_types;
   Statistics* const statistics = immutable_cf_options_->statistics;
-
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
       std::move(file), blob_file_paths_->back(), *file_options_, clock_,
-      nullptr /*IOTracer*/, statistics, immutable_cf_options_->listeners,
-      immutable_cf_options_->file_checksum_gen_factory));
+      io_tracer_, statistics, immutable_cf_options_->listeners,
+      immutable_cf_options_->file_checksum_gen_factory,
+      tmp_set.Contains(FileType::kBlobFile)));
 
   constexpr bool do_flush = false;
 
