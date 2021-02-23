@@ -7,6 +7,10 @@
 * Add a new option BlockBasedTableOptions::max_auto_readahead_size. RocksDB does auto-readahead for iterators on noticing more than two reads for a table file if user doesn't provide readahead_size. The readahead starts at 8KB and doubles on every additional read upto max_auto_readahead_size and now max_auto_readahead_size can be configured dynamically as well. Found that 256 KB readahead size provides the best performance, based on experiments, for auto readahead. Experiment data is in PR #3282. If value is set 0 then no automatic prefetching will be done by rocksdb. Also changing the value will only affect files opened after the change.
 * Add suppport to extend DB::VerifyFileChecksums API to also verify blob files checksum.
 
+### New Features
+* Support compaction filters for the new implementation of BlobDB. Add `ShouldFilterBlobByKey()` to `CompactionFilter`. Subclasses can override this method so that compaction filters can determine whether the actual blob value has to be read during compaction. Use a new `kUndetermined` in `CompactionFilter::Decision` to indicated that further action is necessary for compaction filter to make a decision.
+
+
 ## 6.18.0 (02/19/2021)
 ### Behavior Changes
 * When retryable IO error occurs during compaction, it is mapped to soft error and set the BG error. However, auto resume is not called to clean the soft error since compaction will reschedule by itself. In this change, When retryable IO error occurs during compaction, BG error is not set. User will be informed the error via EventHelper.
@@ -18,7 +22,6 @@
 * Add a mechanism for using Makefile to build external plugin code into the RocksDB libraries/binaries. This intends to simplify compatibility and distribution for plugins (e.g., special-purpose `FileSystem`s) whose source code resides outside the RocksDB repo. See "plugin/README.md" for developer details, and "PLUGINS.md" for a listing of available plugins.
 * Added memory pre-fetching for experimental Ribbon filter, which especially optimizes performance with batched MultiGet.
 * A new, experimental version of BlobDB (key-value separation) is now available. The new implementation is integrated into the RocksDB core, i.e. it is accessible via the usual `rocksdb::DB` API, as opposed to the separate `rocksdb::blob_db::BlobDB` interface used by the earlier version, and can be configured on a per-column family basis using the configuration options `enable_blob_files`, `min_blob_size`, `blob_file_size`, `blob_compression_type`, `enable_blob_garbage_collection`, and `blob_garbage_collection_age_cutoff`. It extends RocksDB's consistency guarantees to blobs, and offers more features and better performance. Note that some features, most notably `Merge`, compaction filters, and backup/restore are not yet supported, and there is no support for migrating a database created by the old implementation.
-* Support compaction filters for the new implementation of BlobDB. Add `ShouldFilterBlobByKey()` to `CompactionFilter`. Subclasses can override this method so that compaction filters can determine whether the actual blob value has to be read during compaction. Use a new `kUndetermined` in `CompactionFilter::Decision` to indicated that further action is necessary for compaction filter to make a decision.
 
 ### Bug Fixes
 * Since 6.15.0, `TransactionDB` returns error `Status`es from calls to `DeleteRange()` and calls to `Write()` where the `WriteBatch` contains a range deletion. Previously such operations may have succeeded while not providing the expected transactional guarantees. There are certain cases where range deletion can still be used on such DBs; see the API doc on `TransactionDB::DeleteRange()` for details.
