@@ -245,10 +245,10 @@ TEST_F(StatsHistoryTest, InMemoryStatsHistoryPurging) {
   }
   size_t stats_history_size = dbfull()->TEST_EstimateInMemoryStatsHistorySize();
   ASSERT_GE(slice_count, kIterations - 1);
-  ASSERT_GE(stats_history_size, 13000);
-  // capping memory cost at 13000 bytes since one slice is around 10000~13000
-  ASSERT_OK(dbfull()->SetDBOptions({{"stats_history_buffer_size", "13000"}}));
-  ASSERT_EQ(13000, dbfull()->GetDBOptions().stats_history_buffer_size);
+  ASSERT_GE(stats_history_size, 14000);
+  // capping memory cost at 14000 bytes since one slice is around 10000~14000
+  ASSERT_OK(dbfull()->SetDBOptions({{"stats_history_buffer_size", "14000"}}));
+  ASSERT_EQ(14000, dbfull()->GetDBOptions().stats_history_buffer_size);
 
   // Wait for stats persist to finish
   for (int i = 0; i < kIterations; ++i) {
