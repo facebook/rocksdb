@@ -5,6 +5,7 @@
 
 ### Public API change
 * Add a new option BlockBasedTableOptions::max_auto_readahead_size. RocksDB does auto-readahead for iterators on noticing more than two reads for a table file if user doesn't provide readahead_size. The readahead starts at 8KB and doubles on every additional read upto max_auto_readahead_size and now max_auto_readahead_size can be configured dynamically as well. Found that 256 KB readahead size provides the best performance, based on experiments, for auto readahead. Experiment data is in PR #3282. If value is set 0 then no automatic prefetching will be done by rocksdb. Also changing the value will only affect files opened after the change.
+* Add suppport to extend DB::VerifyFileChecksums API to also verify blob files checksum.
 
 ## 6.18.0 (02/19/2021)
 ### Behavior Changes
