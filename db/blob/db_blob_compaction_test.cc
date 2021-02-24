@@ -34,7 +34,7 @@ class FilterByKeyLength : public CompactionFilter {
   const char* Name() const override {
     return "rocksdb.compaction.filter.by.key.length";
   }
-  CompactionFilter::Decision ShouldFilterBlobByKey(
+  CompactionFilter::Decision FilterBlobByKey(
       int /*level*/, const Slice& key, std::string* /*new_value*/,
       std::string* /*skip_until*/) const override {
     if (key.size() < length_threshold_) {
@@ -52,7 +52,7 @@ class BadBlobCompactionFilter : public CompactionFilter {
   explicit BadBlobCompactionFilter(std::string prefix)
       : prefix_(std::move(prefix)) {}
   const char* Name() const override { return "rocksdb.compaction.filter.bad"; }
-  CompactionFilter::Decision ShouldFilterBlobByKey(
+  CompactionFilter::Decision FilterBlobByKey(
       int /*level*/, const Slice& key, std::string* /*new_value*/,
       std::string* /*skip_until*/) const override {
     if (key.size() >= prefix_.size() &&
@@ -79,7 +79,7 @@ class ValueBlindWriteFilter : public CompactionFilter {
   const char* Name() const override {
     return "rocksdb.compaction.filter.blind.write";
   }
-  CompactionFilter::Decision ShouldFilterBlobByKey(
+  CompactionFilter::Decision FilterBlobByKey(
       int level, const Slice& key, std::string* new_value,
       std::string* skip_until) const override;
 
@@ -87,7 +87,7 @@ class ValueBlindWriteFilter : public CompactionFilter {
   const std::string new_value_;
 };
 
-CompactionFilter::Decision ValueBlindWriteFilter::ShouldFilterBlobByKey(
+CompactionFilter::Decision ValueBlindWriteFilter::FilterBlobByKey(
     int /*level*/, const Slice& /*key*/, std::string* new_value,
     std::string* /*skip_until*/) const {
   assert(new_value);

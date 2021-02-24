@@ -203,12 +203,13 @@ class CompactionFilter {
   virtual bool IsStackedBlobDbInternalCompactionFilter() const { return false; }
 
   // In the case of BlobDB, it may be possible to reach a decision with only
-  // the key without reading the actual value.
+  // the key without reading the actual value. Keys whose value_type is
+  // kBlobIndex will be checked by this method.
   // Returning kUndetermined will cause FilterV2() to be called to make a
   // decision as usual.
-  virtual Decision ShouldFilterBlobByKey(int /*level*/, const Slice& /*key*/,
-                                         std::string* /*new_value*/,
-                                         std::string* /*skip_until*/) const {
+  virtual Decision FilterBlobByKey(int /*level*/, const Slice& /*key*/,
+                                   std::string* /*new_value*/,
+                                   std::string* /*skip_until*/) const {
     return Decision::kUndetermined;
   }
 };

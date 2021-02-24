@@ -230,7 +230,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   {
     StopWatchNano timer(clock_, report_detailed_time_);
     if (kTypeBlobIndex == ikey_.type) {
-      filter = compaction_filter_->ShouldFilterBlobByKey(
+      filter = compaction_filter_->FilterBlobByKey(
           compaction_->level(), filter_key, &compaction_filter_value_,
           compaction_filter_skip_until_.rep());
       if (CompactionFilter::Decision::kUndetermined == filter &&
@@ -274,7 +274,6 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
 
   if (CompactionFilter::Decision::kUndetermined == filter) {
     // Should not reach here, since FilterV2 should never return kUndetermined.
-    assert(false);
     status_ =
         Status::NotSupported("FilterV2() should never return kUndetermined");
     valid_ = false;
@@ -321,7 +320,13 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     // kChangeBlobIndex. Decision about rewriting blob and changing blob index
     // in the integrated BlobDB impl is made in subsequent call to
     // PrepareOutput() and its callees.
-    assert(compaction_filter_->IsStackedBlobDbInternalCompactionFilter());
+    if (!compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
+      status_ = Status::NotSupported(
+          "Only stacked BlobDB's internal compaction filter can return "
+          "kChangeBlobIndex.");
+      valid_ = false;
+      return false;
+    }
     if (ikey_.type == kTypeValue) {
       // value transfer from inlined data to blob file
       ikey_.type = kTypeBlobIndex;
@@ -329,7 +334,12 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
     }
     value_ = compaction_filter_value_;
   } else if (filter == CompactionFilter::Decision::kIOError) {
-    assert(compaction_filter_->IsStackedBlobDbInternalCompactionFilter());
+    if (!compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
+      status_ = Status::NotSupported(
+          "CompactionFilter for integrated BlobDB should not return kIOError");
+      valid_ = false;
+      return false;
+    }
     status_ = Status::IOError("Failed to access blob during compaction filter");
     error = true;
   }

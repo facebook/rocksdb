@@ -8,7 +8,7 @@
 * Add suppport to extend DB::VerifyFileChecksums API to also verify blob files checksum.
 
 ### New Features
-* Support compaction filters for the new implementation of BlobDB. Add `ShouldFilterBlobByKey()` to `CompactionFilter`. Subclasses can override this method so that compaction filters can determine whether the actual blob value has to be read during compaction. Use a new `kUndetermined` in `CompactionFilter::Decision` to indicated that further action is necessary for compaction filter to make a decision.
+* Support compaction filters for the new implementation of BlobDB. Add `FilterBlobByKey()` to `CompactionFilter`. Subclasses can override this method so that compaction filters can determine whether the actual blob value has to be read during compaction. Use a new `kUndetermined` in `CompactionFilter::Decision` to indicated that further action is necessary for compaction filter to make a decision.
 
 
 ## 6.18.0 (02/19/2021)
