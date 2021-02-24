@@ -271,6 +271,12 @@ const std::string options_file_content = R"OPTIONS_FILE(
   hard_pending_compaction_bytes_limit=0
   disable_auto_compactions=false
   compaction_measure_io_stats=false
+  enable_blob_files=true
+  min_blob_size=16
+  blob_file_size=10485760
+  blob_compression_type=kNoCompression
+  enable_blob_garbage_collection=true
+  blob_garbage_collection_age_cutoff=0.75
 
 [TableOptions/BlockBasedTable "default"]
   format_version=0

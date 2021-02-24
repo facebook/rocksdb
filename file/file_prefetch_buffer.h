@@ -41,16 +41,16 @@ class FilePrefetchBuffer {
   //
   // Automatic readhead is enabled for a file if file_reader, readahead_size,
   // and max_readahead_size are passed in.
-  // If file_reader is a nullptr, setting readadhead_size and max_readahead_size
+  // If file_reader is a nullptr, setting readahead_size and max_readahead_size
   // does not make any sense. So it does nothing.
   // A user can construct a FilePrefetchBuffer without any arguments, but use
   // `Prefetch` to load data into the buffer.
   FilePrefetchBuffer(RandomAccessFileReader* file_reader = nullptr,
-                     size_t readadhead_size = 0, size_t max_readahead_size = 0,
+                     size_t readahead_size = 0, size_t max_readahead_size = 0,
                      bool enable = true, bool track_min_offset = false)
       : buffer_offset_(0),
         file_reader_(file_reader),
-        readahead_size_(readadhead_size),
+        readahead_size_(readahead_size),
         max_readahead_size_(max_readahead_size),
         min_offset_read_(port::kMaxSizet),
         enable_(enable),
@@ -67,7 +67,7 @@ class FilePrefetchBuffer {
   // Tries returning the data for a file raed from this buffer, if that data is
   // in the buffer.
   // It handles tracking the minimum read offset if track_min_offset = true.
-  // It also does the exponential readahead when readadhead_size is set as part
+  // It also does the exponential readahead when readahead_size is set as part
   // of the constructor.
   //
   // offset : the file offset.
