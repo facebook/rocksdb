@@ -459,20 +459,6 @@ TEST_F(DBSecondaryTest, MissingTableFileDuringOpen) {
 }
 
 TEST_F(DBSecondaryTest, MissingTableFile) {
-  int table_files_not_exist = 0;
-  SyncPoint::GetInstance()->DisableProcessing();
-  SyncPoint::GetInstance()->ClearAllCallBacks();
-  SyncPoint::GetInstance()->SetCallBack(
-      "ReactiveVersionSet::ApplyOneVersionEditToBuilder:AfterLoadTableHandlers",
-      [&](void* arg) {
-        Status s = *reinterpret_cast<Status*>(arg);
-        if (s.IsPathNotFound()) {
-          ++table_files_not_exist;
-        } else if (!s.ok()) {
-          assert(false);  // Should not reach here
-        }
-      });
-  SyncPoint::GetInstance()->EnableProcessing();
   Options options;
   options.env = env_;
   options.level0_file_num_compaction_trigger = 4;
@@ -499,7 +485,6 @@ TEST_F(DBSecondaryTest, MissingTableFile) {
   ASSERT_NOK(db_secondary_->Get(ropts, "bar", &value));
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
-  ASSERT_EQ(options.level0_file_num_compaction_trigger, table_files_not_exist);
   ASSERT_OK(db_secondary_->Get(ropts, "foo", &value));
   ASSERT_EQ("foo_value" +
                 std::to_string(options.level0_file_num_compaction_trigger - 1),
@@ -613,34 +598,6 @@ TEST_F(DBSecondaryTest, SwitchManifest) {
 
   ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
   range_scan_db();
-}
-
-// Here, "Snapshot" refers to the version edits written by
-// VersionSet::WriteSnapshot() at the beginning of the new MANIFEST after
-// switching from the old one.
-TEST_F(DBSecondaryTest, SkipSnapshotAfterManifestSwitch) {
-  Options options;
-  options.env = env_;
-  options.disable_auto_compactions = true;
-  Reopen(options);
-
-  Options options1;
-  options1.env = env_;
-  options1.max_open_files = -1;
-  OpenSecondary(options1);
-
-  ASSERT_OK(Put("0", "value0"));
-  ASSERT_OK(Flush());
-  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
-  std::string value;
-  ReadOptions ropts;
-  ropts.verify_checksums = true;
-  ASSERT_OK(db_secondary_->Get(ropts, "0", &value));
-  ASSERT_EQ("value0", value);
-
-  Reopen(options);
-  ASSERT_OK(dbfull()->SetOptions({{"disable_auto_compactions", "false"}}));
-  ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
 }
 
 TEST_F(DBSecondaryTest, SwitchWAL) {

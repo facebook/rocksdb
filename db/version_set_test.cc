@@ -1884,13 +1884,6 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
           num_recovered_edits_ = *reinterpret_cast<int*>(arg);
         });
     SyncPoint::GetInstance()->SetCallBack(
-        "VersionSet::ReadAndRecover:RecoveredEdits", [&](void* arg) {
-          num_recovered_edits_ = *reinterpret_cast<int*>(arg);
-        });
-    SyncPoint::GetInstance()->SetCallBack(
-        "ReactiveVersionSet::ReadAndApply:AppliedEdits",
-        [&](void* arg) { num_applied_edits_ = *reinterpret_cast<int*>(arg); });
-    SyncPoint::GetInstance()->SetCallBack(
         "AtomicGroupReadBuffer::AddEdit:AtomicGroup",
         [&](void* /* arg */) { ++num_edits_in_atomic_group_; });
     SyncPoint::GetInstance()->SetCallBack(
@@ -1929,7 +1922,6 @@ class VersionSetAtomicGroupTest : public VersionSetTestBase,
   bool last_in_atomic_group_ = false;
   int num_edits_in_atomic_group_ = 0;
   int num_recovered_edits_ = 0;
-  int num_applied_edits_ = 0;
   VersionEdit corrupted_edit_;
   VersionEdit edit_with_incorrect_group_size_;
   std::unique_ptr<log::Writer> log_writer_;
@@ -1945,7 +1937,6 @@ TEST_F(VersionSetAtomicGroupTest, HandleValidAtomicGroupWithVersionSetRecover) {
   EXPECT_TRUE(first_in_atomic_group_);
   EXPECT_TRUE(last_in_atomic_group_);
   EXPECT_EQ(num_initial_edits_ + kAtomicGroupSize, num_recovered_edits_);
-  EXPECT_EQ(0, num_applied_edits_);
 }
 
 TEST_F(VersionSetAtomicGroupTest,
@@ -1967,7 +1958,6 @@ TEST_F(VersionSetAtomicGroupTest,
   EXPECT_TRUE(reactive_versions_->TEST_read_edits_in_atomic_group() == 0);
   EXPECT_TRUE(reactive_versions_->replay_buffer().size() == 0);
   EXPECT_EQ(num_initial_edits_ + kAtomicGroupSize, num_recovered_edits_);
-  EXPECT_EQ(0, num_applied_edits_);
 }
 
 TEST_F(VersionSetAtomicGroupTest,
@@ -1980,6 +1970,7 @@ TEST_F(VersionSetAtomicGroupTest,
   EXPECT_OK(reactive_versions_->Recover(column_families_, &manifest_reader,
                                         &manifest_reporter,
                                         &manifest_reader_status));
+  EXPECT_EQ(num_initial_edits_, num_recovered_edits_);
   AddNewEditsToLog(kAtomicGroupSize);
   InstrumentedMutex mu;
   std::unordered_set<ColumnFamilyData*> cfds_changed;
@@ -1992,8 +1983,7 @@ TEST_F(VersionSetAtomicGroupTest,
   // The recover should clean up the replay buffer.
   EXPECT_TRUE(reactive_versions_->TEST_read_edits_in_atomic_group() == 0);
   EXPECT_TRUE(reactive_versions_->replay_buffer().size() == 0);
-  EXPECT_EQ(num_initial_edits_, num_recovered_edits_);
-  EXPECT_EQ(kAtomicGroupSize, num_applied_edits_);
+  EXPECT_EQ(kAtomicGroupSize, num_recovered_edits_);
 }
 
 TEST_F(VersionSetAtomicGroupTest,
@@ -2009,7 +1999,6 @@ TEST_F(VersionSetAtomicGroupTest,
   EXPECT_FALSE(last_in_atomic_group_);
   EXPECT_EQ(kNumberOfPersistedVersionEdits, num_edits_in_atomic_group_);
   EXPECT_EQ(num_initial_edits_, num_recovered_edits_);
-  EXPECT_EQ(0, num_applied_edits_);
 }
 
 TEST_F(VersionSetAtomicGroupTest,
@@ -2048,7 +2037,6 @@ TEST_F(VersionSetAtomicGroupTest,
   EXPECT_TRUE(reactive_versions_->TEST_read_edits_in_atomic_group() == 0);
   EXPECT_TRUE(reactive_versions_->replay_buffer().size() == 0);
   EXPECT_EQ(num_initial_edits_, num_recovered_edits_);
-  EXPECT_EQ(kAtomicGroupSize, num_applied_edits_);
 }
 
 TEST_F(VersionSetAtomicGroupTest,
@@ -2065,6 +2053,7 @@ TEST_F(VersionSetAtomicGroupTest,
                                         &manifest_reader_status));
   EXPECT_EQ(column_families_.size(),
             reactive_versions_->GetColumnFamilySet()->NumberOfColumnFamilies());
+  EXPECT_EQ(num_initial_edits_, num_recovered_edits_);
   // Write a few edits in an atomic group.
   AddNewEditsToLog(kNumberOfPersistedVersionEdits);
   InstrumentedMutex mu;
@@ -2080,8 +2069,6 @@ TEST_F(VersionSetAtomicGroupTest,
   EXPECT_TRUE(reactive_versions_->TEST_read_edits_in_atomic_group() ==
               kNumberOfPersistedVersionEdits);
   EXPECT_TRUE(reactive_versions_->replay_buffer().size() == kAtomicGroupSize);
-  EXPECT_EQ(num_initial_edits_, num_recovered_edits_);
-  EXPECT_EQ(0, num_applied_edits_);
 }
 
 TEST_F(VersionSetAtomicGroupTest,
