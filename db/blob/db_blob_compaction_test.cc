@@ -13,7 +13,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBBlobCompactionTest : public DBTestBase {
  public:
-  DBBlobCompactionTest()
+  explicit DBBlobCompactionTest()
       : DBTestBase("/db_blob_compaction_test", /*env_do_fsync=*/false) {}
 };
 
@@ -49,8 +49,12 @@ class FilterByKeyLength : public CompactionFilter {
 
 class BadBlobCompactionFilter : public CompactionFilter {
  public:
-  explicit BadBlobCompactionFilter(std::string prefix)
-      : prefix_(std::move(prefix)) {}
+  explicit BadBlobCompactionFilter(std::string prefix,
+                                   CompactionFilter::Decision filter_by_key,
+                                   CompactionFilter::Decision filter_v2)
+      : prefix_(std::move(prefix)),
+        filter_blob_by_key_(filter_by_key),
+        filter_v2_(filter_v2) {}
   const char* Name() const override { return "rocksdb.compaction.filter.bad"; }
   CompactionFilter::Decision FilterBlobByKey(
       int /*level*/, const Slice& key, std::string* /*new_value*/,
@@ -59,17 +63,19 @@ class BadBlobCompactionFilter : public CompactionFilter {
         0 == strncmp(prefix_.data(), key.data(), prefix_.size())) {
       return CompactionFilter::Decision::kUndetermined;
     }
-    return CompactionFilter::Decision::kChangeBlobIndex;
+    return filter_blob_by_key_;
   }
   CompactionFilter::Decision FilterV2(
       int /*level*/, const Slice& /*key*/, ValueType /*value_type*/,
       const Slice& /*existing_value*/, std::string* /*new_value*/,
       std::string* /*skip_until*/) const override {
-    return CompactionFilter::Decision::kChangeBlobIndex;
+    return filter_v2_;
   }
 
  private:
   const std::string prefix_;
+  const CompactionFilter::Decision filter_blob_by_key_;
+  const CompactionFilter::Decision filter_v2_;
 };
 
 class ValueBlindWriteFilter : public CompactionFilter {
@@ -127,6 +133,31 @@ CompactionFilter::Decision ValueMutationFilter::FilterV2(
 }
 }  // anonymous namespace
 
+class DBBlobBadCompactionFilterTest
+    : public DBBlobCompactionTest,
+      public testing::WithParamInterface<
+          std::tuple<std::string, CompactionFilter::Decision,
+                     CompactionFilter::Decision>> {
+ public:
+  explicit DBBlobBadCompactionFilterTest()
+      : compaction_filter_guard_(new BadBlobCompactionFilter(
+            std::get<0>(GetParam()), std::get<1>(GetParam()),
+            std::get<2>(GetParam()))) {}
+
+ protected:
+  std::unique_ptr<CompactionFilter> compaction_filter_guard_;
+};
+
+INSTANTIATE_TEST_CASE_P(
+    BadCompactionFilter, DBBlobBadCompactionFilterTest,
+    testing::Combine(
+        testing::Values("a"),
+        testing::Values(CompactionFilter::Decision::kChangeBlobIndex,
+                        CompactionFilter::Decision::kIOError),
+        testing::Values(CompactionFilter::Decision::kUndetermined,
+                        CompactionFilter::Decision::kChangeBlobIndex,
+                        CompactionFilter::Decision::kIOError)));
+
 TEST_F(DBBlobCompactionTest, FilterByKeyLength) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
@@ -180,15 +211,12 @@ TEST_F(DBBlobCompactionTest, BlindWriteFilter) {
   Close();
 }
 
-TEST_F(DBBlobCompactionTest, BadDecisionFromCompactionFilter) {
+TEST_P(DBBlobBadCompactionFilterTest, BadDecisionFromCompactionFilter) {
   Options options = GetDefaultOptions();
   options.enable_blob_files = true;
   options.min_blob_size = 0;
   options.create_if_missing = true;
-  const std::string kPrefix("a");
-  std::unique_ptr<CompactionFilter> compaction_filter_guard(
-      new BadBlobCompactionFilter(kPrefix));
-  options.compaction_filter = compaction_filter_guard.get();
+  options.compaction_filter = compaction_filter_guard_.get();
   DestroyAndReopen(options);
   ASSERT_OK(Put("b", "value"));
   ASSERT_OK(Flush());
@@ -198,7 +226,7 @@ TEST_F(DBBlobCompactionTest, BadDecisionFromCompactionFilter) {
   Close();
 
   DestroyAndReopen(options);
-  std::string key(kPrefix);
+  std::string key(std::get<0>(GetParam()));
   ASSERT_OK(Put(key, "value"));
   ASSERT_OK(Flush());
   ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
