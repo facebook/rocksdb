@@ -1756,7 +1756,6 @@ TEST_F(DBPropertiesTest, TableCacheProperties) {
       db_->GetIntProperty(DB::Properties::kTableCacheUsage, &new_value));
   ASSERT_EQ(new_value, value + 1);
 }
-
 #endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE
 
