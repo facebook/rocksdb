@@ -15,6 +15,32 @@ class DBBlobCompactionTest : public DBTestBase {
  public:
   explicit DBBlobCompactionTest()
       : DBTestBase("/db_blob_compaction_test", /*env_do_fsync=*/false) {}
+
+  // TODO: copied from DBCompactionTest. Should be de-duplicated in the future.
+  std::vector<uint64_t> GetBlobFileNumbers() {
+    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+    assert(versions);
+
+    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+    assert(cfd);
+
+    Version* const current = cfd->current();
+    assert(current);
+
+    const VersionStorageInfo* const storage_info = current->storage_info();
+    assert(storage_info);
+
+    const auto& blob_files = storage_info->GetBlobFiles();
+
+    std::vector<uint64_t> result;
+    result.reserve(blob_files.size());
+
+    for (const auto& blob_file : blob_files) {
+      result.emplace_back(blob_file.first);
+    }
+
+    return result;
+  }
 };
 
 namespace {
@@ -131,6 +157,20 @@ CompactionFilter::Decision ValueMutationFilter::FilterV2(
   new_value->append(padding_);
   return CompactionFilter::Decision::kChangeValue;
 }
+
+class AlwaysKeepFilter : public CompactionFilter {
+ public:
+  explicit AlwaysKeepFilter() = default;
+  const char* Name() const override {
+    return "rocksdb.compaction.filter.always.keep";
+  }
+  CompactionFilter::Decision FilterV2(
+      int /*level*/, const Slice& /*key*/, ValueType /*value_type*/,
+      const Slice& /*existing_value*/, std::string* /*new_value*/,
+      std::string* /*skip_until*/) const override {
+    return CompactionFilter::Decision::kKeep;
+  }
+};
 }  // anonymous namespace
 
 class DBBlobBadCompactionFilterTest
@@ -303,6 +343,26 @@ TEST_F(DBBlobCompactionTest, CorruptedBlobIndex) {
   ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
                                 /*end=*/nullptr)
                   .IsCorruption());
+  Close();
+}
+
+TEST_F(DBBlobCompactionTest, CompactionFilterReadBlobAndKeep) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  std::unique_ptr<CompactionFilter> compaction_filter_guard(
+      new AlwaysKeepFilter());
+  options.compaction_filter = compaction_filter_guard.get();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "foo_value"));
+  ASSERT_OK(Flush());
+  std::vector<uint64_t> blob_files = GetBlobFileNumbers();
+  ASSERT_EQ(1, blob_files.size());
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                              /*end=*/nullptr));
+  ASSERT_EQ(blob_files, GetBlobFileNumbers());
+
   Close();
 }
 

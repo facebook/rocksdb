@@ -230,6 +230,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
   {
     StopWatchNano timer(clock_, report_detailed_time_);
     if (kTypeBlobIndex == ikey_.type) {
+      blob_value_.Reset();
       filter = compaction_filter_->FilterBlobByKey(
           compaction_->level(), filter_key, &compaction_filter_value_,
           compaction_filter_skip_until_.rep());
@@ -259,14 +260,14 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           valid_ = false;
           return false;
         }
-        value_ = blob_value_;
         value_type = CompactionFilter::ValueType::kValue;
       }
     }
     if (CompactionFilter::Decision::kUndetermined == filter) {
       filter = compaction_filter_->FilterV2(
-          compaction_->level(), filter_key, value_type, value_,
-          &compaction_filter_value_, compaction_filter_skip_until_.rep());
+          compaction_->level(), filter_key, value_type,
+          blob_value_.empty() ? value_ : blob_value_, &compaction_filter_value_,
+          compaction_filter_skip_until_.rep());
     }
     iter_stats_.total_filter_time +=
         env_ != nullptr && report_detailed_time_ ? timer.ElapsedNanos() : 0;
