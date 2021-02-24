@@ -1722,9 +1722,6 @@ TEST_F(DBPropertiesTest, TableCacheProperties) {
 
   options.env = CurrentOptions().env;
 
-  // Block cache properties are not available if block cache is not used.
-  BlockBasedTableOptions table_options;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
 
   //
