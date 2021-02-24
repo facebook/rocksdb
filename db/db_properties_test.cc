@@ -1754,7 +1754,7 @@ TEST_F(DBPropertiesTest, TableCacheProperties) {
   //   count
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTableCacheUsage, &value));
   ASSERT_OK(Put("foo", "v1"));
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_TRUE(
       db_->GetIntProperty(DB::Properties::kTableCacheUsage, &new_value));
   ASSERT_EQ(new_value, value + 1);
