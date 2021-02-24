@@ -1749,7 +1749,7 @@ TEST_F(DBPropertiesTest, TableCacheProperties) {
   //
   //  TableCacheUsage is a count of open .sst files.  Force the creation of a
   //   a new table file.  First add a record via Put().  Then force that
-  //   record from write buffer to new .sst via CompactRange().  New .sst
+  //   record from write buffer to new .sst via Flush().  New .sst
   //   automatically opens and gets position in table cache ... raising usage
   //   count
   ASSERT_TRUE(db_->GetIntProperty(DB::Properties::kTableCacheUsage, &value));
