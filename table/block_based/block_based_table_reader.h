@@ -656,13 +656,21 @@ class WritableFileStringStreamAdapter : public std::stringbuf {
   explicit WritableFileStringStreamAdapter(WritableFile* writable_file)
       : file_(writable_file) {}
 
-  // This is to handle `std::endl`, `endl` is written by `os.put()` directly
-  // without going through `xsputn()`. As we explicitly disabled buffering,
-  // every write, not captured by xsputn, is an overflow.
+  // Override overflow() to handle `sputc()`. There are cases that will not go
+  // through `xsputn()` e.g. `std::endl` or an unsigned long long is written by
+  // `os.put()` directly and will call `sputc()` By internal implementation:
+  //    int_type __CLR_OR_THIS_CALL sputc(_Elem _Ch) {  // put a character
+  //        return 0 < _Pnavail() ? _Traits::to_int_type(*_Pninc() = _Ch) :
+  //        overflow(_Traits::to_int_type(_Ch));
+  //    }
+  // As we explicitly disabled buffering (_Pnavail() is always 0), every write,
+  // not captured by xsputn(), becomes an overflow here.
   int overflow(int ch = EOF) override {
-    if (ch == '\n') {
-      file_->Append("\n");
-      return ch;
+    if (ch != EOF) {
+      Status s = file_->Append(Slice((char*)&ch, 1));
+      if (s.ok()) {
+        return ch;
+      }
     }
     return EOF;
   }
