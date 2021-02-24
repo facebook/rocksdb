@@ -137,14 +137,10 @@ int InternalKeyComparator::Compare(const ParsedInternalKey& a,
   //    decreasing type (though sequence# should be enough to disambiguate)
   int r = user_comparator_.Compare(a.user_key, b.user_key);
   if (r == 0) {
-    if (a.sequence > b.sequence) {
+    if (a.sequence > b.sequence || a.type > b.type) {
       r = -1;
-    } else if (a.sequence < b.sequence) {
-      r = +1;
-    } else if (a.type > b.type) {
-      r = -1;
-    } else if (a.type < b.type) {
-      r = +1;
+    } else if (a.sequence < b.sequence || a.type < b.type) {
+      r = 1;
     }
   }
   return r;
