@@ -66,6 +66,11 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.use_fsync = immutable_db_options.use_fsync;
   options.db_paths = immutable_db_options.db_paths;
   options.db_log_dir = immutable_db_options.db_log_dir;
+  options.trace_path = immutable_db_options.trace_path;
+  options.max_trace_file_size = immutable_db_options.max_trace_file_size;
+  options.enable_trace = mutable_db_options.enable_trace;
+  options.trace_is_on = mutable_db_options.trace_is_on;
+  options.trace_name_postfix = mutable_db_options.trace_name_postfix;
   options.wal_dir = immutable_db_options.wal_dir;
   options.delete_obsolete_files_period_micros =
       mutable_db_options.delete_obsolete_files_period_micros;

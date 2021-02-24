@@ -375,6 +375,20 @@ struct DBOptions {
   // bottlenecked by RocksDB.
   DBOptions* IncreaseParallelism(int total_threads = 16);
 #endif  // ROCKSDB_LITE
+  // This specifies the traces file path.
+  std::string trace_path = "";
+
+  // This specifies the traces file name.
+  std::string trace_name_postfix = "";
+
+  // Max trace file size in byte
+  uint64_t max_trace_file_size = 1 * 1024 * 1024 * 1024;
+
+  // If true, the database will be created if it is missing.
+  bool enable_trace = false;
+
+  // Status of tracing on or off
+  bool trace_is_on = false;
 
   // If true, the database will be created if it is missing.
   // Default: false

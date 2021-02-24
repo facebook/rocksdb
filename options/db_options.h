@@ -35,6 +35,8 @@ struct ImmutableDBOptions {
   bool use_fsync;
   std::vector<DbPath> db_paths;
   std::string db_log_dir;
+  std::string trace_path;
+  uint64_t max_trace_file_size;
   std::string wal_dir;
   size_t max_log_file_size;
   size_t log_file_time_to_roll;
@@ -112,6 +114,9 @@ struct MutableDBOptions {
   size_t writable_file_max_buffer_size;
   uint64_t delayed_write_rate;
   uint64_t max_total_wal_size;
+  bool enable_trace;
+  bool trace_is_on;
+  std::string trace_name_postfix;
   uint64_t delete_obsolete_files_period_micros;
   unsigned int stats_dump_period_sec;
   unsigned int stats_persist_period_sec;
