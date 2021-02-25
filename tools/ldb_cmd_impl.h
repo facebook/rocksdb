@@ -541,6 +541,7 @@ class BackupableCommand : public LDBCommand {
  protected:
   static void Help(const std::string& name, std::string& ret);
   std::string backup_env_uri_;
+  std::string backup_fs_uri_;
   std::string backup_dir_;
   int num_threads_;
   std::unique_ptr<Logger> logger_;
@@ -549,6 +550,7 @@ class BackupableCommand : public LDBCommand {
  private:
   static const std::string ARG_BACKUP_DIR;
   static const std::string ARG_BACKUP_ENV_URI;
+  static const std::string ARG_BACKUP_FS_URI;
   static const std::string ARG_NUM_THREADS;
   static const std::string ARG_STDERR_LOG_LEVEL;
 };
