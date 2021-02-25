@@ -67,7 +67,7 @@ class DBIter final : public Iterator {
   //        this->key().
   // (2) When moving backwards, the internal iterator is positioned
   //     just before all entries whose user key == this->key().
-  enum Direction { kForward, kReverse };
+  enum Direction : uint8_t { kForward, kReverse };
 
   // LocalStatistics contain Statistics counters that will be aggregated per
   // each iterator instance and then will be sent to the global statistics when
