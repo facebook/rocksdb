@@ -517,37 +517,58 @@ void ThreadLocalPtr::StaticMeta::ReclaimId(uint32_t id) {
 }
 
 ThreadLocalPtr::ThreadLocalPtr(UnrefHandler handler)
-    : id_(Instance()->GetId()) {
+    : inited_(true), id_(Instance()->GetId()) {
   if (handler != nullptr) {
     Instance()->SetHandler(id_, handler);
   }
 }
 
 ThreadLocalPtr::~ThreadLocalPtr() {
-  Instance()->ReclaimId(id_);
+  if (inited_.load()) {
+    Instance()->ReclaimId(id_);
+  }
+}
+
+void ThreadLocalPtr::Init(UnrefHandler handler) {
+  bool expected = false;
+  // Don't handle spurious failures
+  if (inited_.compare_exchange_strong(expected, true, std::memory_order_relaxed,
+                                      std::memory_order_relaxed)) {
+    // This is the first call Init()
+    id_ = Instance()->GetId();
+    if (handler != nullptr) {
+      Instance()->SetHandler(id_, handler);
+    }
+  }
 }
 
 void* ThreadLocalPtr::Get() const {
+  assert(inited_.load());
   return Instance()->Get(id_);
 }
 
 void ThreadLocalPtr::Reset(void* ptr) {
+  assert(inited_.load());
   Instance()->Reset(id_, ptr);
 }
 
 void* ThreadLocalPtr::Swap(void* ptr) {
+  assert(inited_.load());
   return Instance()->Swap(id_, ptr);
 }
 
 bool ThreadLocalPtr::CompareAndSwap(void* ptr, void*& expected) {
+  assert(inited_.load());
   return Instance()->CompareAndSwap(id_, ptr, expected);
 }
 
 void ThreadLocalPtr::Scrape(autovector<void*>* ptrs, void* const replacement) {
+  assert(inited_.load());
   Instance()->Scrape(id_, ptrs, replacement);
 }
 
 void ThreadLocalPtr::Fold(FoldFunc func, void* res) {
+  assert(inited_.load());
   Instance()->Fold(id_, func, res);
 }
 

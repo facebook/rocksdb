@@ -485,6 +485,13 @@ class FileSystem {
                                    std::string* output_path,
                                    IODebugContext* dbg) = 0;
 
+  // Poll the file system for async IO completion. The poll should wait for
+  // atleast n IO completions, or all outstanding IO completions, whichever
+  // is less
+  // If a file system supports interrupt based completions (signal handler
+  // or a seperate thread), it need not support Poll
+  virtual IOStatus Poll(size_t /*n*/) { return IOStatus::NotSupported(); }
+
   // Sanitize the FileOptions. Typically called by a FileOptions/EnvOptions
   // copy constructor
   virtual void SanitizeFileOptions(FileOptions* /*opts*/) const {}
@@ -605,6 +612,7 @@ class FSSequentialFile {
 };
 
 // A read IO request structure for use in MultiRead
+// For a synchronous read, the result is returned in thisstructure
 struct FSReadRequest {
   // File offset in bytes
   uint64_t offset;
@@ -623,6 +631,23 @@ struct FSReadRequest {
   // Status of read
   IOStatus status;
 };
+
+// Response to an asynchronous read
+struct FSReadResponse {
+  IOStatus status;
+  Slice result;
+};
+
+// Completion callback for an async read.
+// resps - A pointer to an array of responses
+// num_reesps - Number of entries in the above array. Should match num_reqs
+//              of teh corresponding MultiReadAsync call
+// arg1, arg2 - Arguments provided in MultiReadAsync
+typedef void (*IOCallback)(const FSReadResponse* resps, const size_t num_resps,
+                           void* arg1, void* arg2);
+
+// Deleter for an async Read/MultiRead handle
+typedef std::function<void(void*)> IOHandleDeleter;
 
 // A file abstraction for randomly reading the contents of a file.
 class FSRandomAccessFile {
@@ -644,6 +669,14 @@ class FSRandomAccessFile {
   virtual IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                         Slice* result, char* scratch,
                         IODebugContext* dbg) const = 0;
+
+  virtual IOStatus ReadAsync(const IOOptions& /*opts*/, IOCallback /*cb*/,
+                             const void* /*cb_arg1*/, const void* /*cb_arg2*/,
+                             const FSReadRequest* /*reqs*/,
+                             std::unique_ptr<void, IOHandleDeleter>* /*handle*/,
+                             IODebugContext* /*dbg*/) {
+    return IOStatus::NotSupported();
+  }
 
   // Readahead the file starting from offset by n bytes for caching.
   // If it's not implemented (default: `NotSupported`), RocksDB will create
@@ -670,6 +703,36 @@ class FSRandomAccessFile {
           Read(req.offset, req.len, options, &req.result, req.scratch, dbg);
     }
     return IOStatus::OK();
+  }
+
+  // Asynchronous MultiRead
+  // cb - Completion callback, which will be called for both success and
+  //      failure
+  // handle - A pointer to an optional type erased unique_ptr with a custom
+  //          deleter. This object is guaranteed to live atleast till the
+  //          cb is called
+  virtual IOStatus MultiReadAsync(
+      const IOOptions& opts, IOCallback cb, const void* cb_arg1,
+      const void* cb_arg2, const size_t num_reads, const FSReadRequest* reqs,
+      std::unique_ptr<void, IOHandleDeleter>* /*handle*/, IODebugContext* dbg) {
+    std::vector<FSReadRequest> req_copies(num_reads);
+    std::vector<FSReadResponse> resps(num_reads);
+    for (size_t i = 0; i < num_reads; ++i) {
+      req_copies[i].offset = reqs[i].offset;
+      req_copies[i].len = reqs[i].len;
+      req_copies[i].scratch = reqs[i].scratch;
+    }
+    IOStatus s = MultiRead(req_copies.data(), num_reads, opts, dbg);
+    if (!s.ok()) {
+      return s;
+    }
+    for (size_t i = 0; i < num_reads; ++i) {
+      resps[i].status = req_copies[i].status;
+      resps[i].result = req_copies[i].result;
+    }
+    (*cb)(resps.data(), num_reads, const_cast<void*>(cb_arg1),
+          const_cast<void*>(cb_arg2));
+    return s;
   }
 
   // Tries to get an unique ID for this file that will be the same each time

@@ -21,6 +21,9 @@
 #include "table/two_level_iterator.h"
 
 #include "trace_replay/block_cache_tracer.h"
+#include "util/thread_local.h"
+#include "utilities/async/context_pool.h"
+#include "utilities/async/future.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -135,6 +138,18 @@ class BlockBasedTable : public TableReader {
                 const SliceTransform* prefix_extractor,
                 bool skip_filters = false) override;
 
+  Future<Status> MultiGetAsync(const ReadOptions& read_options,
+                               const MultiGetRange* mget_range,
+                               const SliceTransform* prefix_extractor,
+                               bool skip_filters,
+                               MultiGetAsyncContext* async_ctx) override;
+
+  struct BlockBasedTableContext;
+  static Future<Status> MultiGetAsyncCallback(void* cb_arg1, void* cb_arg2,
+                                              MultiGetAsyncContext* async_ctx);
+  Status MultiGetAsyncStage2(BlockBasedTableContext* ctx,
+                             MultiGetAsyncContext* async_ctx);
+
   // Pre-fetch the disk blocks that correspond to the key range specified by
   // (kbegin, kend). The call will return error status in the event of
   // IO or iteration error.
@@ -248,6 +263,39 @@ class BlockBasedTable : public TableReader {
 
   friend class UncompressionDictReader;
 
+  struct BlockBasedTableContext : public Context {
+    BlockBasedTableContext(const ReadOptions& ro,
+                           const MultiGetRange* mget_range)
+        : options(ro),
+          batch(mget_range),
+          sst_file_range(*mget_range, mget_range->begin(), mget_range->end()),
+          iiter(nullptr),
+          scratch(nullptr),
+          total_len(0) {}
+    ~BlockBasedTableContext() {}
+
+    const ReadOptions& options;
+    const MultiGetRange* batch;
+    bool skip_filters;
+    bool record_filter_stats;
+    MultiGetRange sst_file_range;
+    IndexBlockIter iiter_inline;
+    InternalIteratorBase<IndexValue>* iiter;
+    std::unique_ptr<InternalIteratorBase<IndexValue>> iiter_unique_ptr;
+    autovector<BlockHandle, MultiGetContext::MAX_BATCH_SIZE> block_handles;
+    autovector<FSReadRequest, MultiGetContext::MAX_BATCH_SIZE> read_reqs;
+    autovector<size_t, MultiGetContext::MAX_BATCH_SIZE> req_idx_for_block;
+    autovector<size_t, MultiGetContext::MAX_BATCH_SIZE> req_offset_for_block;
+    autovector<Status, MultiGetContext::MAX_BATCH_SIZE> statuses;
+    std::unique_ptr<char[]> scratch;
+    size_t total_len;
+    autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE> results;
+    CachableEntry<UncompressionDict> uncompression_dict;
+    AlignedBuf direct_io_buf;
+    std::unique_ptr<void, IOHandleDeleter> handle;
+    Promise<Status> promise;
+  };
+
  protected:
   Rep* rep_;
   explicit BlockBasedTable(Rep* rep, BlockCacheTracer* const block_cache_tracer)
@@ -316,6 +364,14 @@ class BlockBasedTable : public TableReader {
       autovector<CachableEntry<Block>, MultiGetContext::MAX_BATCH_SIZE>*
           results,
       char* scratch, const UncompressionDict& uncompression_dict) const;
+
+  Status RetrieveMultipleBlocksAsync(BlockBasedTableContext* ctx);
+
+  using BlockBasedTableContextPool =
+      ThreadLocalContextPool<BlockBasedTable::BlockBasedTableContext>;
+  BlockBasedTableContextPool* GetContextPool() const;
+
+  void RetrieveMultipleBlocksAsyncStage2(BlockBasedTableContext* ctx) const;
 
   // Get the iterator from the index reader.
   //
@@ -478,6 +534,8 @@ class BlockBasedTable : public TableReader {
   // A cumulative data block file read in MultiGet lower than this size will
   // use a stack buffer
   static constexpr size_t kMultiGetReadStackBufSize = 8192;
+
+  static ThreadLocalPtr context_pool_ptr;
 
   friend class PartitionedFilterBlockReader;
   friend class PartitionedFilterBlockTest;

@@ -2011,6 +2011,180 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   }
 }
 
+Status Version::CheckMultiGetStatus(const ReadOptions& opts, const Status& s,
+                                    const FdWithKeyRange* f,
+                                    const unsigned int hit_file_level,
+                                    MultiGetRange* file_picker_range,
+                                    MultiGetRange* file_range) {
+  if (!s.ok()) {
+    // TODO: Set status for individual keys appropriately
+    for (auto iter = file_range->begin(); iter != file_range->end(); ++iter) {
+      *iter->s = s;
+      file_range->MarkKeyDone(iter);
+    }
+    // Even though there was an error in the file, overall MultiGet status
+    // is ok
+    return Status::OK();
+  }
+  uint64_t batch_size = 0;
+  Status mget_status;
+  for (auto iter = file_range->begin();
+       mget_status.ok() && iter != file_range->end(); ++iter) {
+    GetContext& get_context = *iter->get_context;
+    Status* status = iter->s;
+    // The Status in the KeyContext takes precedence over GetContext state
+    // Status may be an error if there were any IO errors in the table
+    // reader. We never expect Status to be NotFound(), as that is
+    // determined by get_context
+    assert(!status->IsNotFound());
+    if (!status->ok()) {
+      file_range->MarkKeyDone(iter);
+      continue;
+    }
+
+    if (get_context.sample()) {
+      sample_file_read_inc(f->file_metadata);
+    }
+    batch_size++;
+    // TODO: Add these stats back
+#if 0
+    num_index_read += get_context.get_context_stats_.num_index_read;
+    num_filter_read += get_context.get_context_stats_.num_filter_read;
+    num_data_read += get_context.get_context_stats_.num_data_read;
+    num_sst_read += get_context.get_context_stats_.num_sst_read;
+#endif
+    // report the counters before returning
+    if (get_context.State() != GetContext::kNotFound &&
+        get_context.State() != GetContext::kMerge &&
+        db_statistics_ != nullptr) {
+      get_context.ReportCounters();
+    } else {
+      if (iter->max_covering_tombstone_seq > 0) {
+        // The remaining files we look at will only contain covered keys, so
+        // we stop here for this key
+        file_picker_range->SkipKey(iter);
+      }
+    }
+    switch (get_context.State()) {
+      case GetContext::kNotFound:
+        // Keep searching in other files
+        break;
+      case GetContext::kMerge:
+        // TODO: update per-level perfcontext user_key_return_count for kMerge
+        break;
+      case GetContext::kFound:
+        if (hit_file_level == 0) {
+          RecordTick(db_statistics_, GET_HIT_L0);
+        } else if (hit_file_level == 1) {
+          RecordTick(db_statistics_, GET_HIT_L1);
+        } else if (hit_file_level >= 2) {
+          RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
+        }
+        PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1, hit_file_level);
+        file_range->AddValueSize(iter->value->size());
+        file_range->MarkKeyDone(iter);
+        if (file_range->GetValueSize() > opts.value_size_soft_limit) {
+          mget_status = Status::Aborted();
+          break;
+        }
+        continue;
+      case GetContext::kDeleted:
+        // Use empty error message for speed
+        *status = Status::NotFound();
+        file_range->MarkKeyDone(iter);
+        continue;
+      case GetContext::kCorrupt:
+        *status =
+            Status::Corruption("corrupted key for ", iter->lkey->user_key());
+        file_range->MarkKeyDone(iter);
+        continue;
+      case GetContext::kUnexpectedBlobIndex:
+        ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
+        *status = Status::NotSupported(
+            "Encounter unexpected blob index. Please open DB with "
+            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
+        file_range->MarkKeyDone(iter);
+        continue;
+    }
+  }
+
+  // TODO: Add these stats back
+#if 0
+  // Report MultiGet stats per level.
+  if (fp.IsHitFileLastInLevel()) {
+    // Dump the stats if this is the last file of this level and reset for
+    // next level.
+    RecordInHistogram(db_statistics_,
+                      NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+                      num_index_read + num_filter_read);
+    RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
+                      num_data_read);
+    RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
+    num_filter_read = 0;
+    num_index_read = 0;
+    num_data_read = 0;
+    num_sst_read = 0;
+  }
+#endif
+
+  RecordInHistogram(db_statistics_, SST_BATCH_SIZE, batch_size);
+  return mget_status;
+}
+
+Status Version::ProcessMultiGetFutures(
+    const ReadOptions& opts, bool poll, const unsigned int hit_file_level,
+    std::vector<Future<Status>>& futures,
+    autovector<VersionMultiGetContext, MultiGetContext::MAX_BATCH_SIZE>&
+        futures_ctx,
+    MultiGetRange* file_picker_range) {
+  Status s;
+  do {
+    // The FileSystem may or may not support polling, but we call it anyway to
+    // reap IO completions. If polling is not supported, the completions
+    // will be done in a different thread
+    if (poll) {
+      env_->GetFileSystem()
+          ->Poll(MultiGetContext::MAX_BATCH_SIZE)
+          .PermitUncheckedError();
+      poll = false;
+    }
+
+    Future<std::vector<Status>> aggr_future = CollectAll<Status>(futures);
+    if (!aggr_future.IsReady()) {
+      aggr_future.Wait();
+    }
+
+    std::vector<Status>& results = aggr_future.Value();
+    assert(results.size() == futures.size());
+    int next_stage_count = 0;
+    for (size_t i = 0; i < results.size(); ++i) {
+      Status& result = results[i];
+      if (result.IsIncomplete()) {
+        MultiGetAsyncContext& ctx = futures_ctx[i].ctx;
+        futures_ctx[next_stage_count].f = futures_ctx[i].f;
+        futures_ctx[next_stage_count].file_range = futures_ctx[i].file_range;
+        ;
+        futures[next_stage_count] = (*ctx.cb)(
+            ctx.cb_arg1, ctx.cb_arg2, &futures_ctx[next_stage_count].ctx);
+        if (!futures[next_stage_count].IsReady()) {
+          poll = true;
+        }
+        next_stage_count++;
+      } else {
+        Status status = CheckMultiGetStatus(
+            opts, futures[i].Value(), futures_ctx[i].f, hit_file_level,
+            file_picker_range, &futures_ctx[i].file_range);
+        if (!status.ok() && s.ok()) {
+          s = status;
+        }
+      }
+    }
+    futures.resize(next_stage_count);
+    futures_ctx.resize(next_stage_count);
+  } while (futures.size() != 0);
+  return s;
+}
+
 void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
                        ReadCallback* callback) {
   PinnedIteratorsManager pinned_iters_mgr;
@@ -2051,161 +2225,85 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
   }
 
   MultiGetRange file_picker_range(*range, range->begin(), range->end());
-  FilePickerMultiGet fp(
-      &file_picker_range,
-      &storage_info_.level_files_brief_, storage_info_.num_non_empty_levels_,
-      &storage_info_.file_indexer_, user_comparator(), internal_comparator());
+  FilePickerMultiGet fp(&file_picker_range, &storage_info_.level_files_brief_,
+                        storage_info_.num_non_empty_levels_,
+                        &storage_info_.file_indexer_, user_comparator(),
+                        internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
   Status s;
-  uint64_t num_index_read = 0;
-  uint64_t num_filter_read = 0;
-  uint64_t num_data_read = 0;
-  uint64_t num_sst_read = 0;
+
+  std::vector<Future<Status>> futures;
+  autovector<VersionMultiGetContext, MultiGetContext::MAX_BATCH_SIZE>
+      futures_ctx;
+  bool poll = false;
+  unsigned int hit_file_level = fp.GetHitFileLevel();
+  bool timer_enabled = GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
+                       get_perf_context()->per_level_perf_context_enabled;
+  StopWatchNano timer(clock_, timer_enabled /* auto_start */);
 
   while (f != nullptr) {
+    assert(futures.size() == futures_ctx.size());
+    // If we have moved to the next level, process and wait for all the async
+    // results from the previous level
+    if (!futures.empty() && fp.GetHitFileLevel() != hit_file_level) {
+      s = ProcessMultiGetFutures(read_options, poll, hit_file_level, futures,
+                                 futures_ctx, &file_picker_range);
+      if (!s.ok()) {
+        break;
+      }
+    }
+
     MultiGetRange file_range = fp.CurrentFileRange();
-    bool timer_enabled =
-        GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
-        get_perf_context()->per_level_perf_context_enabled;
-    StopWatchNano timer(clock_, timer_enabled /* auto_start */);
-    s = table_cache_->MultiGet(
-        read_options, *internal_comparator(), *f->file_metadata, &file_range,
-        mutable_cf_options_.prefix_extractor.get(),
-        cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
-        IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
-                        fp.IsHitFileLastInLevel()),
-        fp.GetHitFileLevel());
-    // TODO: examine the behavior for corrupted key
-    if (timer_enabled) {
-      PERF_COUNTER_BY_LEVEL_ADD(get_from_table_nanos, timer.ElapsedNanos(),
-                                fp.GetHitFileLevel());
-    }
-    if (!s.ok()) {
-      // TODO: Set status for individual keys appropriately
-      for (auto iter = file_range.begin(); iter != file_range.end(); ++iter) {
-        *iter->s = s;
-        file_range.MarkKeyDone(iter);
+    if (!read_options.allow_async) {
+      s = table_cache_->MultiGet(
+          read_options, *internal_comparator(), *f->file_metadata, &file_range,
+          mutable_cf_options_.prefix_extractor.get(),
+          cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
+          IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
+                          fp.IsHitFileLastInLevel()),
+          fp.GetHitFileLevel());
+      s = CheckMultiGetStatus(read_options, s, f, fp.GetHitFileLevel(),
+                              &file_picker_range, &file_range);
+    } else {
+      Future<Status> future;
+      futures_ctx.emplace_back();
+      future = table_cache_->MultiGetAsync(
+          read_options, *internal_comparator(), *f->file_metadata, &file_range,
+          mutable_cf_options_.prefix_extractor.get(),
+          cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
+          IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
+                          fp.IsHitFileLastInLevel()),
+          fp.GetHitFileLevel(), &futures_ctx.back().ctx);
+      if (!future.IsReady()) {
+        poll = true;
       }
-      return;
-    }
-    uint64_t batch_size = 0;
-    for (auto iter = file_range.begin(); s.ok() && iter != file_range.end();
-         ++iter) {
-      GetContext& get_context = *iter->get_context;
-      Status* status = iter->s;
-      // The Status in the KeyContext takes precedence over GetContext state
-      // Status may be an error if there were any IO errors in the table
-      // reader. We never expect Status to be NotFound(), as that is
-      // determined by get_context
-      assert(!status->IsNotFound());
-      if (!status->ok()) {
-        file_range.MarkKeyDone(iter);
-        continue;
-      }
-
-      if (get_context.sample()) {
-        sample_file_read_inc(f->file_metadata);
-      }
-      batch_size++;
-      num_index_read += get_context.get_context_stats_.num_index_read;
-      num_filter_read += get_context.get_context_stats_.num_filter_read;
-      num_data_read += get_context.get_context_stats_.num_data_read;
-      num_sst_read += get_context.get_context_stats_.num_sst_read;
-
-      // report the counters before returning
-      if (get_context.State() != GetContext::kNotFound &&
-          get_context.State() != GetContext::kMerge &&
-          db_statistics_ != nullptr) {
-        get_context.ReportCounters();
-      } else {
-        if (iter->max_covering_tombstone_seq > 0) {
-          // The remaining files we look at will only contain covered keys, so
-          // we stop here for this key
-          file_picker_range.SkipKey(iter);
-        }
-      }
-      switch (get_context.State()) {
-        case GetContext::kNotFound:
-          // Keep searching in other files
-          break;
-        case GetContext::kMerge:
-          // TODO: update per-level perfcontext user_key_return_count for kMerge
-          break;
-        case GetContext::kFound:
-          if (fp.GetHitFileLevel() == 0) {
-            RecordTick(db_statistics_, GET_HIT_L0);
-          } else if (fp.GetHitFileLevel() == 1) {
-            RecordTick(db_statistics_, GET_HIT_L1);
-          } else if (fp.GetHitFileLevel() >= 2) {
-            RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
-          }
-
-          PERF_COUNTER_BY_LEVEL_ADD(user_key_return_count, 1,
-                                    fp.GetHitFileLevel());
-
-          file_range.MarkKeyDone(iter);
-
-          if (iter->is_blob_index) {
-            if (iter->value) {
-              *status = GetBlob(read_options, iter->ukey_with_ts, *iter->value,
-                                iter->value);
-              if (!status->ok()) {
-                if (status->IsIncomplete()) {
-                  get_context.MarkKeyMayExist();
-                }
-
-                continue;
-              }
-            }
-          }
-
-          file_range.AddValueSize(iter->value->size());
-          if (file_range.GetValueSize() > read_options.value_size_soft_limit) {
-            s = Status::Aborted();
-            break;
-          }
-          continue;
-        case GetContext::kDeleted:
-          // Use empty error message for speed
-          *status = Status::NotFound();
-          file_range.MarkKeyDone(iter);
-          continue;
-        case GetContext::kCorrupt:
-          *status =
-              Status::Corruption("corrupted key for ", iter->lkey->user_key());
-          file_range.MarkKeyDone(iter);
-          continue;
-        case GetContext::kUnexpectedBlobIndex:
-          ROCKS_LOG_ERROR(info_log_, "Encounter unexpected blob index.");
-          *status = Status::NotSupported(
-              "Encounter unexpected blob index. Please open DB with "
-              "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-          file_range.MarkKeyDone(iter);
-          continue;
-      }
+      // Stash the future away, regardless of whether the MultiGet call is
+      // finished or not
+      futures_ctx.back().f = f;
+      futures_ctx.back().file_range = file_range;
+      futures.emplace_back(future);
     }
 
-    // Report MultiGet stats per level.
-    if (fp.IsHitFileLastInLevel()) {
-      // Dump the stats if this is the last file of this level and reset for
-      // next level.
-      RecordInHistogram(db_statistics_,
-                        NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
-                        num_index_read + num_filter_read);
-      RecordInHistogram(db_statistics_, NUM_DATA_BLOCKS_READ_PER_LEVEL,
-                        num_data_read);
-      RecordInHistogram(db_statistics_, NUM_SST_READ_PER_LEVEL, num_sst_read);
-      num_filter_read = 0;
-      num_index_read = 0;
-      num_data_read = 0;
-      num_sst_read = 0;
+    if (!futures.empty() && fp.GetHitFileLevel() == 0) {
+      s = ProcessMultiGetFutures(read_options, poll, hit_file_level, futures,
+                                 futures_ctx, &file_picker_range);
+      if (!s.ok()) {
+        break;
+      }
     }
-
-    RecordInHistogram(db_statistics_, SST_BATCH_SIZE, batch_size);
     if (!s.ok() || file_picker_range.empty()) {
       break;
     }
     f = fp.GetNextFile();
+  }
+  if (!futures.empty()) {
+    ProcessMultiGetFutures(read_options, poll, hit_file_level, futures,
+                           futures_ctx, &file_picker_range)
+        .PermitUncheckedError();
+    if (timer_enabled) {
+      PERF_COUNTER_BY_LEVEL_ADD(get_from_table_nanos, timer.ElapsedNanos(),
+                                fp.GetHitFileLevel());
+    }
   }
 
   // Process any left over keys

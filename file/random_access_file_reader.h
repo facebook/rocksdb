@@ -19,6 +19,9 @@
 #include "rocksdb/options.h"
 #include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
+#include "util/autovector.h"
+#include "util/thread_local.h"
+#include "utilities/async/context_pool.h"
 
 namespace ROCKSDB_NAMESPACE {
 class Statistics;
@@ -46,6 +49,19 @@ bool TryMerge(FSReadRequest* dest, const FSReadRequest& src);
 // - Updating IO stats.
 class RandomAccessFileReader {
  private:
+  struct MultiReadContext : public Context {
+    autovector<FSReadRequest, 8> reqs;
+    std::vector<FSReadResponse> resps;
+    std::unique_ptr<void, IOHandleDeleter> handle;
+    FileOperationInfo::StartTimePoint start_ts;
+    IOCallback cb;
+    void* cb_arg1;
+    void* cb_arg2;
+
+    explicit MultiReadContext(size_t num_reqs) : resps(num_reqs) {}
+  };
+  using MultiReadContextPool = ThreadLocalContextPool<MultiReadContext>;
+
 #ifndef ROCKSDB_LITE
   void NotifyOnFileReadFinish(
       uint64_t offset, size_t length,
@@ -63,8 +79,16 @@ class RandomAccessFileReader {
   }
 #endif  // ROCKSDB_LITE
 
+  void MultiReadAsyncStage2(const FSReadResponse* resps, const size_t num_resps,
+                            MultiReadContext* ctx);
+
+  static void MultiReadCallback(const FSReadResponse* resps,
+                                const size_t num_resps, void* cb_arg1,
+                                void* cb_arg2);
+
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
 
+  static ThreadLocalPtr context_pool_ptr;
   FSRandomAccessFilePtr file_;
   std::string file_name_;
   std::shared_ptr<SystemClock> clock_;
@@ -101,6 +125,7 @@ class RandomAccessFileReader {
 #else  // !ROCKSDB_LITE
     (void)listeners;
 #endif
+    context_pool_ptr.Init(nullptr);
   }
 
   static Status Create(const std::shared_ptr<FileSystem>& fs,
@@ -131,6 +156,19 @@ class RandomAccessFileReader {
   // MultiRead, the result Slices in reqs refer to aligned_buf.
   Status MultiRead(const IOOptions& opts, FSReadRequest* reqs, size_t num_reqs,
                    AlignedBuf* aligned_buf) const;
+
+  // An asynchronous version of MultiRead. Upon completion of all the reads,
+  // the completion callback in cb will be called, with cb_arg1 and cb_arg2 as
+  // arguments, as well as the status. The callback will always be called,
+  // regardless of success or failure
+  // handle - A pointer will be returned in handle, which the caller will
+  //          guarantee will live atleast until the completion callback is
+  //          called
+  Status MultiReadAsync(const IOOptions& opts, IOCallback cb, void* cb_arg1,
+                        void* cb_arg2, FSReadRequest* read_reqs,
+                        size_t num_reqs,
+                        std::unique_ptr<void, IOHandleDeleter>* handle,
+                        AlignedBuf* aligned_buf) const;
 
   Status Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n, IOOptions(), nullptr);

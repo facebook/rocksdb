@@ -43,12 +43,18 @@ typedef void (*UnrefHandler)(void* ptr);
 // usage would be O(# of threads * # of ThreadLocalPtr instances).
 class ThreadLocalPtr {
  public:
-  explicit ThreadLocalPtr(UnrefHandler handler = nullptr);
+  explicit ThreadLocalPtr(UnrefHandler handler);
+  ThreadLocalPtr() : inited_(false) {}
 
   ThreadLocalPtr(const ThreadLocalPtr&) = delete;
   ThreadLocalPtr& operator=(const ThreadLocalPtr&) = delete;
 
   ~ThreadLocalPtr();
+
+  // An initialization function that can be called if the ThreadLocalPtr has
+  // been defined as a global static variable, sometime after Env::Default()
+  // has been called
+  void Init(UnrefHandler handler);
 
   // Return the current pointer stored in thread local
   void* Get() const;
@@ -95,7 +101,8 @@ private:
 
   static StaticMeta* Instance();
 
-  const uint32_t id_;
+  std::atomic<bool> inited_;
+  uint32_t id_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

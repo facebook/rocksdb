@@ -544,7 +544,8 @@ PosixRandomAccessFile::PosixRandomAccessFile(
     const EnvOptions& options
 #if defined(ROCKSDB_IOURING_PRESENT)
     ,
-    ThreadLocalPtr* thread_local_io_urings
+    ThreadLocalPtr* thread_local_io_urings,
+    ThreadLocalPtr* thread_local_ctx_pool
 #endif
     )
     : filename_(fname),
@@ -553,7 +554,8 @@ PosixRandomAccessFile::PosixRandomAccessFile(
       logical_sector_size_(logical_block_size)
 #if defined(ROCKSDB_IOURING_PRESENT)
       ,
-      thread_local_io_urings_(thread_local_io_urings)
+      thread_local_io_urings_(thread_local_io_urings),
+      thread_local_ctx_pool_(thread_local_ctx_pool)
 #endif
 {
   assert(!options.use_direct_reads || !options.use_mmap_reads);
@@ -617,21 +619,26 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
 
 #if defined(ROCKSDB_IOURING_PRESENT)
   struct io_uring* iu = nullptr;
+  PosixIOUring* posix_iu = nullptr;
   if (thread_local_io_urings_) {
-    iu = static_cast<struct io_uring*>(thread_local_io_urings_->Get());
-    if (iu == nullptr) {
-      iu = CreateIOUring();
-      if (iu != nullptr) {
-        thread_local_io_urings_->Reset(iu);
+    posix_iu = static_cast<PosixIOUring*>(thread_local_io_urings_->Get());
+    if (posix_iu == nullptr) {
+      posix_iu = CreateIOUring();
+      if (posix_iu != nullptr) {
+        thread_local_io_urings_->Reset(posix_iu);
       }
     }
   }
 
   // Init failed, platform doesn't support io_uring. Fall back to
   // serialized reads
-  if (iu == nullptr) {
+  if (posix_iu == nullptr) {
     return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
   }
+  iu = &posix_iu->iu;
+  // Don't allow a mix of MultiRead/MultiReadAsync at the same time in the
+  // same thread for now
+  assert(posix_iu->num_busy_sqes == 0);
 
   struct WrappedReadRequest {
     FSReadRequest* req;
@@ -743,6 +750,202 @@ IOStatus PosixRandomAccessFile::MultiRead(FSReadRequest* reqs,
   return IOStatus::OK();
 #else
   return FSRandomAccessFile::MultiRead(reqs, num_reqs, options, dbg);
+#endif
+}
+
+IOStatus PosixRandomAccessFile::MultiReadAsync(
+    const IOOptions& options, IOCallback cb, const void* cb_arg1,
+    const void* cb_arg2, const size_t num_reqs, const FSReadRequest* reqs,
+    std::unique_ptr<void, IOHandleDeleter>* handle, IODebugContext* dbg) {
+  if (use_direct_io()) {
+    for (size_t i = 0; i < num_reqs; i++) {
+      assert(IsSectorAligned(reqs[i].offset, GetRequiredBufferAlignment()));
+      assert(IsSectorAligned(reqs[i].len, GetRequiredBufferAlignment()));
+      assert(IsSectorAligned(reqs[i].scratch, GetRequiredBufferAlignment()));
+    }
+  }
+
+#if defined(ROCKSDB_IOURING_PRESENT)
+  struct io_uring* iu = nullptr;
+  PosixIOUring* posix_iu = nullptr;
+  if (thread_local_io_urings_) {
+    posix_iu = static_cast<PosixIOUring*>(thread_local_io_urings_->Get());
+    if (posix_iu == nullptr) {
+      posix_iu = CreateIOUring();
+      if (posix_iu != nullptr) {
+        thread_local_io_urings_->Reset(posix_iu);
+      }
+    }
+  }
+
+  // Allocate a thread local context pool to optimize memory allocations
+  PosixMultiReadContextPool* ctx_pool = nullptr;
+  if (thread_local_ctx_pool_) {
+    ctx_pool =
+        static_cast<PosixMultiReadContextPool*>(thread_local_ctx_pool_->Get());
+    if (ctx_pool == nullptr) {
+      ctx_pool = new PosixMultiReadContextPool();
+      thread_local_ctx_pool_->Reset(ctx_pool);
+    }
+  }
+  // Init failed, platform doesn't support io_uring. Fall back to
+  // serialized reads
+  if (posix_iu == nullptr || ctx_pool == nullptr) {
+    return FSRandomAccessFile::MultiReadAsync(options, cb, cb_arg1, cb_arg2,
+                                              num_reqs, reqs, handle, dbg);
+  }
+  iu = &posix_iu->iu;
+
+  PosixMultiReadContext* ctx =
+      ctx_pool->Allocate(this, num_reqs, cb, cb_arg1, cb_arg2);
+  auto& req_wraps = ctx->req_wraps;
+
+  for (size_t i = 0; i < num_reqs; i++) {
+    req_wraps.emplace_back(ctx, &reqs[i], i);
+  }
+
+  size_t reqs_off = 0;
+  if (posix_iu->num_busy_sqes + num_reqs > kIoUringDepth) {
+    Poll(posix_iu->num_busy_sqes + num_reqs - kIoUringDepth, posix_iu);
+  }
+  assert(posix_iu->num_busy_sqes + num_reqs <= kIoUringDepth);
+  for (size_t i = 0; i < num_reqs; i++) {
+    auto* rep_to_submit = &req_wraps[reqs_off++];
+    assert(rep_to_submit->len > rep_to_submit->finished_len);
+    rep_to_submit->iov.iov_base = reqs[i].scratch + rep_to_submit->finished_len;
+    rep_to_submit->iov.iov_len =
+        rep_to_submit->len - rep_to_submit->finished_len;
+
+    struct io_uring_sqe* sqe;
+    sqe = io_uring_get_sqe(iu);
+    io_uring_prep_readv(sqe, fd_, &rep_to_submit->iov, 1,
+                        rep_to_submit->offset + rep_to_submit->finished_len);
+    // Set the private data of the sqe to the address of rep_to_submit, so we
+    // can find the PosixMultiReadContext in the completion path
+    io_uring_sqe_set_data(sqe, rep_to_submit);
+  }
+
+  ssize_t ret = io_uring_submit(iu);
+  if (static_cast<size_t>(ret) != num_reqs) {
+    fprintf(stderr, "ret = %ld num_reqs: %ld\n", (long)ret, (long)num_reqs);
+  }
+  if (ret > 0) {
+    posix_iu->num_busy_sqes += ret;
+  }
+  assert(static_cast<size_t>(ret) == num_reqs);
+
+  std::unique_ptr<void, IOHandleDeleter> hndl(ctx, [this](void* ptr) {
+    assert(thread_local_ctx_pool_);
+    PosixMultiReadContextPool* pool =
+        static_cast<PosixMultiReadContextPool*>(thread_local_ctx_pool_->Get());
+    assert(pool);
+    PosixMultiReadContext* context = static_cast<PosixMultiReadContext*>(ptr);
+    pool->Free(context);
+  });
+  *handle = std::move(hndl);
+  return IOStatus::OK();
+#else
+  return FSRandomAccessFile::MultiReadAsync(options, cb, cb_arg1, cb_arg2,
+                                            num_reqs, reqs, handle, dbg);
+#endif
+}
+
+IOStatus PosixRandomAccessFile::Poll(size_t n
+#if defined(ROCKSDB_IOURING_PRESENT)
+    , PosixIOUring* posix_iu
+#endif
+    ) {
+#if defined(ROCKSDB_IOURING_PRESENT)
+  assert(posix_iu);
+  struct io_uring* iu = &posix_iu->iu;
+  struct io_uring_cqe* cqe;
+  // int ret = io_uring_wait_cqe_nr(iu, &cqe, static_cast<unsigned>(n));
+  int ret = io_uring_wait_cqe(iu, &cqe);
+
+  assert(!ret);
+  n = std::min<size_t>(n, posix_iu->num_busy_sqes);
+  while (n && !ret) {
+    ReadRequestContext* req_ctx;
+    PosixMultiReadContext* ctx;
+    PosixRandomAccessFile* file;
+    FSReadResponse* resp;
+
+    assert(cqe);
+    posix_iu->num_busy_sqes--;
+    req_ctx = static_cast<ReadRequestContext*>(io_uring_cqe_get_data(cqe));
+    ctx = req_ctx->ctx;
+    file = ctx->file;
+    resp = &ctx->resps[req_ctx->idx];
+    char* scratch = (char*)req_ctx->iov.iov_base;
+    if (cqe->res < 0) {
+      resp->result = Slice(scratch, 0);
+      resp->status = IOError("Req failed", "", cqe->res);
+    } else {
+      size_t bytes_read = static_cast<size_t>(cqe->res);
+      TEST_SYNC_POINT_CALLBACK("PosixRandomAccessFile::Poll:io_uring_result",
+                               &bytes_read);
+      if (bytes_read == req_ctx->iov.iov_len) {
+        resp->result = Slice(scratch, req_ctx->len);
+        resp->status = IOStatus::OK();
+      } else if (bytes_read == 0) {
+        // cqe->res == 0 can means EOF, or can mean partial results. See
+        // comment
+        // https://github.com/facebook/rocksdb/pull/6441#issuecomment-589843435
+        // Fall back to pread in this case.
+        if (file->use_direct_io() &&
+            !IsSectorAligned(req_ctx->finished_len,
+                             file->GetRequiredBufferAlignment())) {
+          // Bytes reads don't fill sectors. Should only happen at the end
+          // of the file.
+          resp->result = Slice(scratch, req_ctx->finished_len);
+          resp->status = IOStatus::OK();
+        } else {
+          Slice tmp_slice;
+          resp->status =
+              file->Read(req_ctx->offset + req_ctx->finished_len,
+                         req_ctx->len - req_ctx->finished_len, IOOptions(),
+                         &tmp_slice, scratch + req_ctx->finished_len, nullptr);
+          resp->result =
+              Slice(scratch, req_ctx->finished_len + tmp_slice.size());
+        }
+      } else if (bytes_read < req_ctx->iov.iov_len) {
+        assert(bytes_read > 0);
+        assert(bytes_read + req_ctx->finished_len < req_ctx->len);
+        req_ctx->finished_len += bytes_read;
+        Slice tmp_slice;
+        resp->status =
+            file->Read(req_ctx->offset + req_ctx->finished_len,
+                       req_ctx->len - req_ctx->finished_len, IOOptions(),
+                       &tmp_slice, scratch + req_ctx->finished_len, nullptr);
+        resp->result = Slice(scratch, req_ctx->finished_len + tmp_slice.size());
+      } else {
+        resp->result = Slice(scratch, 0);
+        resp->status = IOError("Req returned more bytes than requested",
+                               file->filename_, cqe->res);
+      }
+    }
+    io_uring_cqe_seen(iu, cqe);
+    ctx->finished_count++;
+    // If all the outstanding reads for this MultiRead request are finished,
+    // invoke the completion callback
+    if (ctx->finished_count == ctx->req_wraps.size()) {
+      IOCallback cb = ctx->cb;
+      (*cb)(ctx->resps.data(), ctx->resps.size(),
+            const_cast<void*>(ctx->cb_arg1), const_cast<void*>(ctx->cb_arg2));
+    }
+    n--;
+    if (n > 0) {
+      ret = io_uring_wait_cqe(iu, &cqe);
+    }
+  }
+  if (ret) {
+    return IOError("io_uring_wait_cqe_nr failed", "", ret);
+    ;
+  }
+  return IOStatus::OK();
+#else
+  (void)n;
+  return IOStatus::OK();
 #endif
 }
 

@@ -259,7 +259,7 @@ class PosixFileSystem : public FileSystem {
           options
 #if defined(ROCKSDB_IOURING_PRESENT)
           ,
-          thread_local_io_urings_.get()
+          thread_local_io_urings_.get(), thread_local_ctx_pool_.get()
 #endif
               ));
     }
@@ -922,6 +922,28 @@ class PosixFileSystem : public FileSystem {
     return io_s;
   }
 
+  // Poll for async IO. Defers to PosixRandomAccessFile as taht's the only
+  // place where async IO is implemented for now
+  IOStatus Poll(size_t n) override {
+#if defined(ROCKSDB_IOURING_PRESENT)
+    PosixIOUring* posix_iu = nullptr;
+    if (thread_local_io_urings_) {
+      posix_iu = static_cast<PosixIOUring*>(thread_local_io_urings_->Get());
+    }
+
+    // Init failed, platform doesn't support io_uring. Fall back to
+    // serialized reads
+    if (posix_iu == nullptr) {
+      return IOStatus::OK();
+    }
+
+    return PosixRandomAccessFile::Poll(n, posix_iu);
+#else
+    (void)n;
+    return IOStatus::OK();
+#endif
+  }
+
   FileOptions OptimizeForLogWrite(const FileOptions& file_options,
                                  const DBOptions& db_options) const override {
     FileOptions optimized = file_options;
@@ -992,6 +1014,9 @@ class PosixFileSystem : public FileSystem {
 #if defined(ROCKSDB_IOURING_PRESENT)
   // io_uring instance
   std::unique_ptr<ThreadLocalPtr> thread_local_io_urings_;
+
+  // Thread local for  async read context pool instances
+  std::unique_ptr<ThreadLocalPtr> thread_local_ctx_pool_;
 #endif
 
   size_t page_size_;
@@ -1050,11 +1075,16 @@ PosixFileSystem::PosixFileSystem()
   // Test whether IOUring is supported, and if it does, create a managing
   // object for thread local point so that in the future thread-local
   // io_uring can be created.
-  struct io_uring* new_io_uring = CreateIOUring();
+  PosixIOUring* new_io_uring = CreateIOUring();
   if (new_io_uring != nullptr) {
     thread_local_io_urings_.reset(new ThreadLocalPtr(DeleteIOUring));
     delete new_io_uring;
   }
+
+  // IO uring is supported, so we can instantiate the async context pool
+  // thread local
+  thread_local_ctx_pool_.reset(
+      new ThreadLocalPtr(PosixRandomAccessFile::DeleteCtxPool));
 #endif
 }
 

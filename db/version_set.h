@@ -787,6 +787,13 @@ class Version {
   friend class VersionEditHandler;
   friend class VersionEditHandlerPointInTime;
 
+  // Cache some async MultiGet context per file in a level
+  struct VersionMultiGetContext {
+    MultiGetAsyncContext ctx;
+    FdWithKeyRange* f;
+    MultiGetRange file_range;
+  };
+
   const InternalKeyComparator* internal_comparator() const {
     return storage_info_.internal_comparator_;
   }
@@ -813,6 +820,23 @@ class Version {
   // record results in files_by_compaction_pri_. The largest files are listed
   // first.
   void UpdateFilesByCompactionPri();
+
+  // Helper function to check the status of table reader MultiGet. Called
+  // for each key per-level where its present until final value is found
+  Status CheckMultiGetStatus(const ReadOptions& opts, const Status& s,
+                             const FdWithKeyRange* f,
+                             const unsigned int hit_file_level,
+                             MultiGetRange* file_picker_range,
+                             MultiGetRange* file_range);
+
+  // Helper function to wait for all the stages of an async MultiGet in a
+  // level, and process the status for each key in the batch
+  Status ProcessMultiGetFutures(
+      const ReadOptions& opts, bool poll, const unsigned int hit_file_level,
+      std::vector<Future<Status>>& futures,
+      autovector<VersionMultiGetContext, MultiGetContext::MAX_BATCH_SIZE>&
+          futures_ctx,
+      MultiGetRange* file_picker_range);
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;

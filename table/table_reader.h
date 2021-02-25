@@ -15,6 +15,7 @@
 #include "table/internal_iterator.h"
 #include "table/multiget_context.h"
 #include "table/table_reader_caller.h"
+#include "utilities/async/future.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -118,6 +119,15 @@ class TableReader {
       *iter->s = Get(readOptions, iter->ikey, iter->get_context,
                      prefix_extractor, skip_filters);
     }
+  }
+
+  virtual Future<Status> MultiGetAsync(const ReadOptions& readOptions,
+                                       const MultiGetContext::Range* mget_range,
+                                       const SliceTransform* prefix_extractor,
+                                       bool skip_filters,
+                                       MultiGetAsyncContext* /*ctx*/) {
+    MultiGet(readOptions, mget_range, prefix_extractor, skip_filters);
+    return Future<Status>(Status::OK());
   }
 
   // Prefetch data corresponding to a give range of keys

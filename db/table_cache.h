@@ -24,6 +24,7 @@
 #include "rocksdb/table.h"
 #include "table/table_reader.h"
 #include "trace_replay/block_cache_tracer.h"
+#include "utilities/async/future.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -121,6 +122,14 @@ class TableCache {
                   HistogramImpl* file_read_hist = nullptr,
                   bool skip_filters = false, int level = -1);
 
+  Future<Status> MultiGetAsync(const ReadOptions& options,
+                               const InternalKeyComparator& internal_comparator,
+                               const FileMetaData& file_meta,
+                               const MultiGetContext::Range* mget_range,
+                               const SliceTransform* prefix_extractor,
+                               HistogramImpl* file_read_hist, bool skip_filters,
+                               int level, MultiGetAsyncContext* ctx);
+
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
 
@@ -196,6 +205,16 @@ class TableCache {
   }
 
  private:
+  // Cache some context for async MultiGet
+  struct TableCacheContext : public Context {
+    MultiGetAsyncContext table_ctx;  // Save the table reader callback/cb_arg
+                                     // TableCache returns its own callback
+                                     // to Version::MultiGet and chains the
+                                     // table reader callback
+    Cache::Handle* handle;           // Save the table reader cache handle
+  };
+  using TableCacheContextPool = ThreadLocalContextPool<TableCacheContext>;
+
   // Build a table reader
   Status GetTableReader(const ReadOptions& ro, const FileOptions& file_options,
                         const InternalKeyComparator& internal_comparator,
@@ -220,6 +239,12 @@ class TableCache {
   bool GetFromRowCache(const Slice& user_key, IterKey& row_cache_key,
                        size_t prefix_size, GetContext* get_context);
 
+  static Future<Status> TableCacheMultiGetCallback(void* cb_arg1, void* cb_arg2,
+                                                   MultiGetAsyncContext* ctx);
+
+  // Thread local context pool used to cache TableCacheContext objects and
+  // avoid memory allocation overhead
+  static ThreadLocalPtr context_pool_ptr;
   const ImmutableCFOptions& ioptions_;
   const FileOptions& file_options_;
   Cache* const cache_;
