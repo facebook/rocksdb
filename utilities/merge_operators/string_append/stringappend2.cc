@@ -17,8 +17,10 @@ namespace ROCKSDB_NAMESPACE {
 
 // Constructor: also specify the delimiter character.
 StringAppendTESTOperator::StringAppendTESTOperator(char delim_char)
-    : delim_(delim_char) {
-}
+    : delim_(1, delim_char) {}
+
+StringAppendTESTOperator::StringAppendTESTOperator(const std::string& delim)
+    : delim_(delim) {}
 
 // Implementation for the merge operation (concatenates two strings)
 bool StringAppendTESTOperator::FullMergeV2(
@@ -37,7 +39,7 @@ bool StringAppendTESTOperator::FullMergeV2(
   size_t numBytes = 0;
   for (auto it = merge_in.operand_list.begin();
        it != merge_in.operand_list.end(); ++it) {
-    numBytes += it->size() + 1;   // Plus 1 for the delimiter
+    numBytes += it->size() + delim_.size();
   }
 
   // Only print the delimiter after the first entry has been printed
@@ -51,14 +53,14 @@ bool StringAppendTESTOperator::FullMergeV2(
     printDelim = true;
   } else if (numBytes) {
     merge_out->new_value.reserve(
-        numBytes - 1);  // Minus 1 since we have one less delimiter
+        numBytes - delim_.size());  // Adjust for one less delimiter
   }
 
   // Concatenate the sequence of strings (and add a delimiter between each)
   for (auto it = merge_in.operand_list.begin();
        it != merge_in.operand_list.end(); ++it) {
     if (printDelim) {
-      merge_out->new_value.append(1, delim_);
+      merge_out->new_value.append(delim_);
     }
     merge_out->new_value.append(it->data(), it->size());
     printDelim = true;
@@ -89,7 +91,7 @@ bool StringAppendTESTOperator::_AssocPartialMergeMulti(
   for (const auto& operand : operand_list) {
     size += operand.size();
   }
-  size += operand_list.size() - 1;  // Delimiters
+  size += (operand_list.size() - 1) * delim_.length();  // Delimiters
   new_value->reserve(size);
 
   // Apply concatenation
@@ -97,7 +99,7 @@ bool StringAppendTESTOperator::_AssocPartialMergeMulti(
 
   for (std::deque<Slice>::const_iterator it = operand_list.begin() + 1;
        it != operand_list.end(); ++it) {
-    new_value->append(1, delim_);
+    new_value->append(delim_);
     new_value->append(it->data(), it->size());
   }
 
