@@ -279,13 +279,6 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         Status::NotSupported("FilterV2() should never return kUndetermined");
     valid_ = false;
     return false;
-  } else if (CompactionFilter::Decision::kChangeBlobIndex == filter &&
-             !compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
-    status_ = Status::NotSupported(
-        "CompactionFilter for integrated BlobDB should not return "
-        "kChangeBlobIndex");
-    valid_ = false;
-    return false;
   }
 
   if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil &&

@@ -45,15 +45,6 @@ class DBBlobCompactionTest : public DBTestBase {
 
 namespace {
 
-class DummyStackedBlobDbCompactionFilter : public CompactionFilter {
- public:
-  explicit DummyStackedBlobDbCompactionFilter() = default;
-  const char* Name() const override {
-    return "rocksdb.compaction.filter.dummy.stacked.blobdb";
-  }
-  bool IsStackedBlobDbInternalCompactionFilter() const override { return true; }
-};
-
 class FilterByKeyLength : public CompactionFilter {
  public:
   explicit FilterByKeyLength(size_t len) : length_threshold_(len) {}
