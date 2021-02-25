@@ -1975,8 +1975,8 @@ TEST_F(VersionSetAtomicGroupTest,
   InstrumentedMutex mu;
   std::unordered_set<ColumnFamilyData*> cfds_changed;
   mu.Lock();
-  EXPECT_OK(
-      reactive_versions_->ReadAndApply(&mu, &manifest_reader, &cfds_changed));
+  EXPECT_OK(reactive_versions_->ReadAndApply(
+      &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed));
   mu.Unlock();
   EXPECT_TRUE(first_in_atomic_group_);
   EXPECT_TRUE(last_in_atomic_group_);
@@ -2030,8 +2030,8 @@ TEST_F(VersionSetAtomicGroupTest,
   InstrumentedMutex mu;
   std::unordered_set<ColumnFamilyData*> cfds_changed;
   mu.Lock();
-  EXPECT_OK(
-      reactive_versions_->ReadAndApply(&mu, &manifest_reader, &cfds_changed));
+  EXPECT_OK(reactive_versions_->ReadAndApply(
+      &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed));
   mu.Unlock();
   // Reactive version set should be empty now.
   EXPECT_TRUE(reactive_versions_->TEST_read_edits_in_atomic_group() == 0);
@@ -2059,8 +2059,8 @@ TEST_F(VersionSetAtomicGroupTest,
   InstrumentedMutex mu;
   std::unordered_set<ColumnFamilyData*> cfds_changed;
   mu.Lock();
-  EXPECT_OK(
-      reactive_versions_->ReadAndApply(&mu, &manifest_reader, &cfds_changed));
+  EXPECT_OK(reactive_versions_->ReadAndApply(
+      &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed));
   mu.Unlock();
   EXPECT_TRUE(first_in_atomic_group_);
   EXPECT_FALSE(last_in_atomic_group_);
@@ -2115,8 +2115,8 @@ TEST_F(VersionSetAtomicGroupTest,
   // Write the corrupted edits.
   AddNewEditsToLog(kAtomicGroupSize);
   mu.Lock();
-  EXPECT_NOK(
-      reactive_versions_->ReadAndApply(&mu, &manifest_reader, &cfds_changed));
+  EXPECT_NOK(reactive_versions_->ReadAndApply(
+      &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed));
   mu.Unlock();
   EXPECT_EQ(edits_[kAtomicGroupSize / 2].DebugString(),
             corrupted_edit_.DebugString());
@@ -2165,8 +2165,8 @@ TEST_F(VersionSetAtomicGroupTest,
                                         &manifest_reader_status));
   AddNewEditsToLog(kAtomicGroupSize);
   mu.Lock();
-  EXPECT_NOK(
-      reactive_versions_->ReadAndApply(&mu, &manifest_reader, &cfds_changed));
+  EXPECT_NOK(reactive_versions_->ReadAndApply(
+      &mu, &manifest_reader, manifest_reader_status.get(), &cfds_changed));
   mu.Unlock();
   EXPECT_EQ(edits_[1].DebugString(),
             edit_with_incorrect_group_size_.DebugString());

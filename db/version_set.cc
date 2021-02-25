@@ -5743,6 +5743,7 @@ Status ReactiveVersionSet::Recover(
 Status ReactiveVersionSet::ReadAndApply(
     InstrumentedMutex* mu,
     std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
+    Status* manifest_read_status,
     std::unordered_set<ColumnFamilyData*>* cfds_changed) {
   assert(manifest_reader != nullptr);
   assert(cfds_changed != nullptr);
@@ -5755,12 +5756,7 @@ Status ReactiveVersionSet::ReadAndApply(
   if (!s.ok()) {
     return s;
   }
-  auto* reporter =
-      static_cast_with_check<VersionSet::LogReporter>(reader->GetReporter());
-  assert(reporter);
-  Status* manifest_reader_status = reporter->status;
-  assert(manifest_reader->get());
-  manifest_tailer_->Iterate(*(manifest_reader->get()), manifest_reader_status);
+  manifest_tailer_->Iterate(*(manifest_reader->get()), manifest_read_status);
   s = manifest_tailer_->status();
   if (s.ok()) {
     *cfds_changed = std::move(manifest_tailer_->GetUpdatedColumnFamilies());
