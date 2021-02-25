@@ -16,5 +16,16 @@ package org.rocksdb;
  * </ol>
  */
 public enum BuiltinComparator {
-  BYTEWISE_COMPARATOR, REVERSE_BYTEWISE_COMPARATOR
+  BYTEWISE_COMPARATOR((byte)0x0),
+  REVERSE_BYTEWISE_COMPARATOR((byte)0x1);
+
+  private final byte value;
+
+  BuiltinComparator(final byte value) {
+    this.value = value;
+  }
+
+  public byte getValue() {
+    return value;
+  }
 }
