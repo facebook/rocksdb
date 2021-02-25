@@ -115,7 +115,7 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
 
 bool DBIter::ParseKey(ParsedInternalKey* ikey) {
   Status s =
-      ParseInternalKey(iter_.key(), ikey, false /* log_err_key */);  // TODO
+      ParseInternalKey(iter_.key(), ikey, false /* log_err_key */);
   if (!s.ok()) {
     status_ = Status::Corruption("In DBIter: ", s.getState());
     valid_ = false;
@@ -635,13 +635,6 @@ bool DBIter::MergeValuesNewToOld() {
 }
 
 void DBIter::Prev() {
-  if (timestamp_size_ > 0) {
-    valid_ = false;
-    status_ = Status::NotSupported(
-        "SeekToLast/SeekForPrev/Prev currently not supported with timestamp.");
-    return;
-  }
-
   assert(valid_);
   assert(status_.ok());
 
@@ -1353,13 +1346,6 @@ void DBIter::SeekForPrev(const Slice& target) {
   }
 #endif  // ROCKSDB_LITE
 
-  if (timestamp_size_ > 0) {
-    valid_ = false;
-    status_ = Status::NotSupported(
-        "SeekToLast/SeekForPrev/Prev currently not supported with timestamp.");
-    return;
-  }
-
   status_ = Status::OK();
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
@@ -1454,13 +1440,6 @@ void DBIter::SeekToFirst() {
 }
 
 void DBIter::SeekToLast() {
-  if (timestamp_size_ > 0) {
-    valid_ = false;
-    status_ = Status::NotSupported(
-        "SeekToLast/SeekForPrev/Prev currently not supported with timestamp.");
-    return;
-  }
-
   if (iterate_upper_bound_ != nullptr) {
     // Seek to last key strictly less than ReadOptions.iterate_upper_bound.
     SeekForPrev(*iterate_upper_bound_);
