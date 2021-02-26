@@ -111,6 +111,14 @@ Status FileChecksumRetriever::ApplyVersionEdit(VersionEdit& edit,
       return s;
     }
   }
+  for (const auto& new_blob_file : edit.GetBlobFileAdditions()) {
+    Status s = file_checksum_list_.InsertOneFileChecksum(
+        new_blob_file.GetBlobFileNumber(), new_blob_file.GetChecksumValue(),
+        new_blob_file.GetChecksumMethod());
+    if (!s.ok()) {
+      return s;
+    }
+  }
   return Status::OK();
 }
 
