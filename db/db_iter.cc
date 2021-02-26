@@ -673,8 +673,14 @@ bool DBIter::ReverseToForward() {
   // If that's the case, seek iter_ to current key.
   if (!expect_total_order_inner_iter() || !iter_.Valid()) {
     IterKey last_key;
-    last_key.SetInternalKey(ParsedInternalKey(
-        saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
+    ParsedInternalKey pikey(saved_key_.GetUserKey(), kMaxSequenceNumber,
+                            kValueTypeForSeek);
+    if (timestamp_size_ > 0) {
+      // TODO: pre-create kTsMax.
+      const std::string kTsMax(timestamp_size_, static_cast<char>(0xff));
+      pikey.SetTimestamp(kTsMax);
+    }
+    last_key.SetInternalKey(pikey);
     iter_.Seek(last_key.GetInternalKey());
     RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
   }
@@ -804,8 +810,8 @@ bool DBIter::FindValueForCurrentKey() {
   assert(iter_.Valid());
   merge_context_.Clear();
   current_entry_is_merged_ = false;
-  // last entry before merge (could be kTypeDeletion, kTypeSingleDeletion or
-  // kTypeValue)
+  // last entry before merge (could be kTypeDeletion,
+  // kTypeDeletionWithTimestamp, kTypeSingleDeletion or kTypeValue)
   ValueType last_not_merge_type = kTypeDeletion;
   ValueType last_key_entry_type = kTypeDeletion;
 
@@ -826,7 +832,8 @@ bool DBIter::FindValueForCurrentKey() {
                  timestamp_size_);
     }
     if (!IsVisible(ikey.sequence, ts) ||
-        !user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
+        0 != user_comparator_.CompareWithoutTimestamp(
+                 ikey.user_key, saved_key_.GetUserKey())) {
       break;
     }
     if (TooManyInternalKeysSkipped()) {
@@ -868,6 +875,7 @@ bool DBIter::FindValueForCurrentKey() {
         }
         break;
       case kTypeDeletion:
+      case kTypeDeletionWithTimestamp:
       case kTypeSingleDeletion:
         merge_context_.Clear();
         last_not_merge_type = last_key_entry_type;
@@ -911,6 +919,7 @@ bool DBIter::FindValueForCurrentKey() {
   is_blob_ = false;
   switch (last_key_entry_type) {
     case kTypeDeletion:
+    case kTypeDeletionWithTimestamp:
     case kTypeSingleDeletion:
     case kTypeRangeDeletion:
       valid_ = false;
@@ -971,8 +980,17 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // FindValueForCurrentKeyUsingSeek()
   assert(pinned_iters_mgr_.PinningEnabled());
   std::string last_key;
-  AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetUserKey(),
-                                                 sequence_, kValueTypeForSeek));
+  if (0 == timestamp_size_) {
+    AppendInternalKey(&last_key,
+                      ParsedInternalKey(saved_key_.GetUserKey(), sequence_,
+                                        kValueTypeForSeek));
+  } else {
+    AppendInternalKeyWithDifferentTimestamp(
+        &last_key,
+        ParsedInternalKey(saved_key_.GetUserKey(), sequence_,
+                          kValueTypeForSeek),
+        *timestamp_ub_);
+  }
   iter_.Seek(last_key);
   RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
 
@@ -996,7 +1014,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
                  timestamp_size_);
     }
 
-    if (!user_comparator_.Equal(ikey.user_key, saved_key_.GetUserKey())) {
+    if (0 != user_comparator_.CompareWithoutTimestamp(
+                 ikey.user_key, saved_key_.GetUserKey())) {
       // No visible values for this key, even though FindValueForCurrentKey()
       // has seen some. This is possible if we're using a tailing iterator, and
       // the entries were discarded in a compaction.
@@ -1013,7 +1032,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
   if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
       range_del_agg_.ShouldDelete(
-          ikey, RangeDelPositioningMode::kBackwardTraversal)) {
+          ikey, RangeDelPositioningMode::kBackwardTraversal) ||
+      kTypeDeletionWithTimestamp == ikey.type) {
     valid_ = false;
     return true;
   }
@@ -1137,7 +1157,8 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
       return false;
     }
 
-    if (user_comparator_.Compare(ikey.user_key, saved_key_.GetUserKey()) < 0) {
+    if (user_comparator_.CompareWithoutTimestamp(ikey.user_key,
+                                                 saved_key_.GetUserKey()) < 0) {
       return true;
     }
 
@@ -1161,8 +1182,14 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
     if (num_skipped >= max_skip_) {
       num_skipped = 0;
       IterKey last_key;
-      last_key.SetInternalKey(ParsedInternalKey(
-          saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
+      ParsedInternalKey pikey(saved_key_.GetUserKey(), kMaxSequenceNumber,
+                              kValueTypeForSeek);
+      if (timestamp_size_ > 0) {
+        // TODO: pre-create kTsMax.
+        const std::string kTsMax(timestamp_size_, static_cast<char>(0xff));
+        pikey.SetTimestamp(kTsMax);
+      }
+      last_key.SetInternalKey(pikey);
       // It would be more efficient to use SeekForPrev() here, but some
       // iterators may not support it.
       iter_.Seek(last_key.GetInternalKey());
@@ -1239,7 +1266,14 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
   saved_key_.Clear();
   // now saved_key is used to store internal key.
   saved_key_.SetInternalKey(target, 0 /* sequence_number */,
-                            kValueTypeForSeekForPrev);
+                            kValueTypeForSeekForPrev, timestamp_ub_);
+
+  if (timestamp_size_ > 0) {
+    const std::string kTsMin(timestamp_size_, static_cast<char>(0x0));
+    Slice ts = kTsMin;
+    saved_key_.UpdateInternalKey(/*sequence_number=*/0,
+                                 kValueTypeForSeekForPrev, &ts);
+  }
 
   if (iterate_upper_bound_ != nullptr &&
       user_comparator_.CompareWithoutTimestamp(
@@ -1448,7 +1482,7 @@ void DBIter::SeekToLast() {
     SeekForPrev(*iterate_upper_bound_);
     if (Valid() && 0 == user_comparator_.CompareWithoutTimestamp(
                             *iterate_upper_bound_, /*a_has_ts=*/false, key(),
-                            /*b_has_ts=*/true)) {
+                            /*b_has_ts=*/false)) {
       ReleaseTempPinnedData();
       PrevInternal(nullptr);
     }
