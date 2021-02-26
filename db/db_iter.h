@@ -21,7 +21,6 @@
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
-class SystemClock_;
 class Version;
 
 // This file declares the factory functions of DBIter, in its original form
