@@ -175,7 +175,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
         NewSstFileManager(result.env, result.info_log));
     result.sst_file_manager = sst_file_manager;
   }
-#endif
+#endif  // !ROCKSDB_LITE
 
   if (!result.paranoid_checks) {
     result.skip_checking_sst_file_sizes_on_db_open = true;
