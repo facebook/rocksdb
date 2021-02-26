@@ -114,8 +114,7 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
 }
 
 bool DBIter::ParseKey(ParsedInternalKey* ikey) {
-  Status s =
-      ParseInternalKey(iter_.key(), ikey, false /* log_err_key */);
+  Status s = ParseInternalKey(iter_.key(), ikey, false /* log_err_key */);
   if (!s.ok()) {
     status_ = Status::Corruption("In DBIter: ", s.getState());
     valid_ = false;
@@ -836,6 +835,9 @@ bool DBIter::FindValueForCurrentKey() {
                  ikey.user_key, saved_key_.GetUserKey())) {
       break;
     }
+    if (!ts.empty()) {
+      saved_timestamp_.assign(ts.data(), ts.size());
+    }
     if (TooManyInternalKeysSkipped()) {
       return false;
     }
@@ -1040,6 +1042,10 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   if (!iter_.PrepareValue()) {
     valid_ = false;
     return false;
+  }
+  if (timestamp_size_ > 0) {
+    Slice ts = ExtractTimestampFromUserKey(ikey.user_key, timestamp_size_);
+    saved_timestamp_.assign(ts.data(), ts.size());
   }
   if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex) {
     assert(iter_.iter()->IsValuePinned());
@@ -1265,8 +1271,10 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
   is_key_seqnum_zero_ = false;
   saved_key_.Clear();
   // now saved_key is used to store internal key.
+  const std::string kTsMin(timestamp_size_, static_cast<char>(0x0));
+  Slice ts = kTsMin;
   saved_key_.SetInternalKey(target, 0 /* sequence_number */,
-                            kValueTypeForSeekForPrev, timestamp_ub_);
+                            kValueTypeForSeekForPrev, &ts);
 
   if (timestamp_size_ > 0) {
     const std::string kTsMin(timestamp_size_, static_cast<char>(0x0));
@@ -1280,7 +1288,8 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
           saved_key_.GetUserKey(), /*a_has_ts=*/true, *iterate_upper_bound_,
           /*b_has_ts=*/false) >= 0) {
     saved_key_.Clear();
-    saved_key_.SetInternalKey(*iterate_upper_bound_, kMaxSequenceNumber);
+    saved_key_.SetInternalKey(*iterate_upper_bound_, kMaxSequenceNumber,
+                              kValueTypeForSeekForPrev, timestamp_ub_);
   }
 }
 
