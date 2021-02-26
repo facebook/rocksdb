@@ -35,6 +35,7 @@
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -1148,7 +1149,9 @@ TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDConcurrent) {
   }
 }
 
-TEST_P(EnvPosixTestWithParam, RandomAccessUniqueIDDeletes) {
+// TODO: Disable the flaky test, it's a known issue that ext4 may return same
+// key after file deletion. The issue is tracked in #7405, #7470.
+TEST_P(EnvPosixTestWithParam, DISABLED_RandomAccessUniqueIDDeletes) {
   if (env_ == Env::Default()) {
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;
@@ -2049,6 +2052,26 @@ TEST_F(EnvTest, Close) {
   delete env;
 }
 
+class LogvWithInfoLogLevelLogger : public Logger {
+ public:
+  using Logger::Logv;
+  void Logv(const InfoLogLevel /* log_level */, const char* /* format */,
+            va_list /* ap */) override {}
+};
+
+TEST_F(EnvTest, LogvWithInfoLogLevel) {
+  // Verifies the log functions work on a `Logger` that only overrides the
+  // `Logv()` overload including `InfoLogLevel`.
+  const std::string kSampleMessage("sample log message");
+  LogvWithInfoLogLevelLogger logger;
+  ROCKS_LOG_HEADER(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_DEBUG(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_INFO(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_WARN(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_ERROR(&logger, "%s", kSampleMessage.c_str());
+  ROCKS_LOG_FATAL(&logger, "%s", kSampleMessage.c_str());
+}
+
 INSTANTIATE_TEST_CASE_P(DefaultEnvWithoutDirectIO, EnvPosixTestWithParam,
                         ::testing::Values(std::pair<Env*, bool>(Env::Default(),
                                                                 false)));
@@ -2144,7 +2167,7 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
 
     ASSERT_OK(db->Close());
     delete db;
-    DestroyDB(dbname, opts);
+    ASSERT_OK(DestroyDB(dbname, opts));
 
     dbname = dbname2_;
   }
@@ -2191,7 +2214,8 @@ TEST_F(EnvTest, IsDirectory) {
     ASSERT_OK(s);
     std::unique_ptr<WritableFileWriter> fwriter;
     fwriter.reset(new WritableFileWriter(std::move(wfile), test_file_path,
-                                         FileOptions(), Env::Default()));
+                                         FileOptions(),
+                                         SystemClock::Default()));
     constexpr char buf[] = "test";
     s = fwriter->Append(buf);
     ASSERT_OK(s);

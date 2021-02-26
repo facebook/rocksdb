@@ -465,6 +465,14 @@ enum Histograms : uint32_t {
   SST_BATCH_SIZE,
   DB_WRITE_WAL_TIME,
 
+  // MultiGet stats logged per level
+  // Num of index and filter blocks read from file system per level.
+  NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL,
+  // Num of data blocks read from file system per level.
+  NUM_DATA_BLOCKS_READ_PER_LEVEL,
+  // Num of sst files read from file system per level.
+  NUM_SST_READ_PER_LEVEL,
+
   HISTOGRAM_ENUM_MAX,
 };
 

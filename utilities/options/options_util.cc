@@ -7,7 +7,6 @@
 
 #include "rocksdb/utilities/options_util.h"
 
-#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "options/options_parser.h"
 #include "rocksdb/convenience.h"
@@ -34,8 +33,8 @@ Status LoadOptionsFromFile(const ConfigOptions& config_options,
                            std::vector<ColumnFamilyDescriptor>* cf_descs,
                            std::shared_ptr<Cache>* cache) {
   RocksDBOptionsParser parser;
-  LegacyFileSystemWrapper fs(config_options.env);
-  Status s = parser.Parse(config_options, file_name, &fs);
+  const auto& fs = config_options.env->GetFileSystem();
+  Status s = parser.Parse(config_options, file_name, fs.get());
   if (!s.ok()) {
     return s;
   }
@@ -65,7 +64,11 @@ Status GetLatestOptionsFileName(const std::string& dbpath,
   uint64_t latest_time_stamp = 0;
   std::vector<std::string> file_names;
   s = env->GetChildren(dbpath, &file_names);
-  if (!s.ok()) {
+  if (s.IsNotFound()) {
+    return Status::NotFound(Status::kPathNotFound,
+                            "No options files found in the DB directory.",
+                            dbpath);
+  } else if (!s.ok()) {
     return s;
   }
   for (auto& file_name : file_names) {
@@ -79,7 +82,9 @@ Status GetLatestOptionsFileName(const std::string& dbpath,
     }
   }
   if (latest_file_name.size() == 0) {
-    return Status::NotFound("No options files found in the DB directory.");
+    return Status::NotFound(Status::kPathNotFound,
+                            "No options files found in the DB directory.",
+                            dbpath);
   }
   *options_file_name = latest_file_name;
   return Status::OK();
@@ -143,12 +148,11 @@ Status CheckOptionsCompatibility(
     cf_opts.push_back(cf_desc.options);
   }
 
-  LegacyFileSystemWrapper fs(config_options.env);
+  const auto& fs = config_options.env->GetFileSystem();
 
   return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
-
       config_options, db_options, cf_names, cf_opts,
-      dbpath + "/" + options_file_name, &fs);
+      dbpath + "/" + options_file_name, fs.get());
 }
 
 }  // namespace ROCKSDB_NAMESPACE

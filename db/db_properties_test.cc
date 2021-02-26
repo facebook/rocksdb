@@ -336,7 +336,7 @@ TEST_F(DBPropertiesTest, AggregatedTableProperties) {
     table_options.filter_policy.reset(
         NewBloomFilterPolicy(kBloomBitsPerKey, false));
     table_options.block_size = 1024;
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     DestroyAndReopen(options);
 
@@ -536,7 +536,7 @@ TEST_F(DBPropertiesTest, AggregatedTablePropertiesAtLevel) {
   table_options.filter_policy.reset(
       NewBloomFilterPolicy(kBloomBitsPerKey, false));
   table_options.block_size = 1024;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   DestroyAndReopen(options);
 
@@ -1414,7 +1414,7 @@ TEST_F(DBPropertiesTest, NeedCompactHintPersistentTest) {
 }
 
 TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
-  Options options;
+  Options options = CurrentOptions();
   Reopen(options);
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Delete("foo"));
@@ -1524,6 +1524,7 @@ TEST_F(DBPropertiesTest, SstFilesSize) {
   std::shared_ptr<TestListener> listener = std::make_shared<TestListener>();
 
   Options options;
+  options.env = CurrentOptions().env;
   options.disable_auto_compactions = true;
   options.listeners.push_back(listener);
   Reopen(options);
@@ -1607,6 +1608,8 @@ TEST_F(DBPropertiesTest, MinObsoleteSstNumberToKeep) {
 TEST_F(DBPropertiesTest, BlockCacheProperties) {
   Options options;
   uint64_t value;
+
+  options.env = CurrentOptions().env;
 
   // Block cache properties are not available for tables other than
   // block-based table.

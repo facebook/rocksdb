@@ -54,9 +54,6 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
-#include "trace_replay/block_cache_tracer.h"
-#include "trace_replay/io_tracer.h"
-#include "trace_replay/trace_replay.h"
 #include "util/autovector.h"
 #include "util/hash.h"
 #include "util/repeatable_thread.h"
@@ -431,8 +428,29 @@ class DBImpl : public DB {
       const ExportImportFilesMetaData& metadata,
       ColumnFamilyHandle** handle) override;
 
+  using DB::VerifyFileChecksums;
+  Status VerifyFileChecksums(const ReadOptions& read_options) override;
+
   using DB::VerifyChecksum;
   virtual Status VerifyChecksum(const ReadOptions& /*read_options*/) override;
+  // Verify the checksums of files in db. Currently only tables are checked.
+  //
+  // read_options: controls file I/O behavior, e.g. read ahead size while
+  //               reading all the live table files.
+  //
+  // use_file_checksum: if false, verify the block checksums of all live table
+  //                    in db. Otherwise, obtain the file checksums and compare
+  //                    with the MANIFEST. Currently, file checksums are
+  //                    recomputed by reading all table files.
+  //
+  // Returns: OK if there is no file whose file or block checksum mismatches.
+  Status VerifyChecksumInternal(const ReadOptions& read_options,
+                                bool use_file_checksum);
+
+  Status VerifyFullFileChecksum(const std::string& file_checksum_expected,
+                                const std::string& func_name_expected,
+                                const std::string& fpath,
+                                const ReadOptions& read_options);
 
   using DB::StartTrace;
   virtual Status StartTrace(
@@ -502,7 +520,7 @@ class DBImpl : public DB {
                                       ColumnFamilyData* cfd,
                                       SequenceNumber snapshot,
                                       ReadCallback* read_callback,
-                                      bool allow_blob = false,
+                                      bool expose_blob_index = false,
                                       bool allow_refresh = true);
 
   virtual SequenceNumber GetLastPublishedSequence() const {
@@ -575,8 +593,11 @@ class DBImpl : public DB {
                                  bool* found_record_for_key,
                                  bool* is_blob_index = nullptr);
 
-  Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key);
-  Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+  Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
+                           const Slice& lower_bound, const Slice upper_bound);
+  Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                                  const Slice& lower_bound,
+                                  const Slice upper_bound);
 #endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
@@ -902,7 +923,7 @@ class DBImpl : public DB {
                            ColumnFamilyHandle* column_family = nullptr,
                            bool disallow_trivial_move = false);
 
-  void TEST_SwitchWAL();
+  Status TEST_SwitchWAL();
 
   bool TEST_UnableToReleaseOldestLog() { return unable_to_release_oldest_log_; }
 
@@ -933,6 +954,9 @@ class DBImpl : public DB {
   // We add a bool parameter to wait for unscheduledCompactions_ == 0, but this
   // is only for the special test of CancelledCompactions
   Status TEST_WaitForCompact(bool waitUnscheduled = false);
+
+  // Get the background error status
+  Status TEST_GetBGError();
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
@@ -997,6 +1021,12 @@ class DBImpl : public DB {
 
   VersionSet* TEST_GetVersionSet() const { return versions_.get(); }
 
+  uint64_t TEST_GetCurrentLogNumber() const {
+    InstrumentedMutexLock l(mutex());
+    assert(!logs_.empty());
+    return logs_.back().number;
+  }
+
   const std::unordered_set<uint64_t>& TEST_GetFilesGrabbedForPurge() const {
     return files_grabbed_for_purge_;
   }
@@ -1027,6 +1057,7 @@ class DBImpl : public DB {
   bool own_info_log_;
   const DBOptions initial_db_options_;
   Env* const env_;
+  std::shared_ptr<SystemClock> clock_;
   std::shared_ptr<IOTracer> io_tracer_;
   const ImmutableDBOptions immutable_db_options_;
   FileSystemPtr fs_;
@@ -1083,6 +1114,15 @@ class DBImpl : public DB {
   // If need_mutex_lock = false, the method will lock DB mutex.
   // If need_enter_write_thread = false, the method will enter write thread.
   Status WriteOptionsFile(bool need_mutex_lock, bool need_enter_write_thread);
+
+  Status CompactRangeInternal(const CompactRangeOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice* begin, const Slice* end);
+
+  Status GetApproximateSizesInternal(const SizeApproximationOptions& options,
+                                     ColumnFamilyHandle* column_family,
+                                     const Range* range, int n,
+                                     uint64_t* sizes);
 
   // The following two functions can only be called when:
   // 1. WriteThread::Writer::EnterUnbatched() is used.
@@ -1195,14 +1235,22 @@ class DBImpl : public DB {
 
   virtual bool OwnTablesAndLogs() const { return true; }
 
+  // Set DB identity file, and write DB ID to manifest if necessary.
+  Status SetDBId();
+
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
   // returns.
-  // After best-efforts recovery, there may be SST files in db/cf paths that are
-  // not referenced in the MANIFEST. We delete these SST files. In the
+  // After recovery, there may be SST files in db/cf paths that are
+  // not referenced in the MANIFEST (e.g.
+  // 1. It's best effort recovery;
+  // 2. The VersionEdits referencing the SST files are appended to
+  // MANIFEST, DB crashes when syncing the MANIFEST, the VersionEdits are
+  // still not synced to MANIFEST during recovery.)
+  // We delete these SST files. In the
   // meantime, we find out the largest file number present in the paths, and
   // bump up the version set's next_file_number_ to be 1 + largest_file_number.
-  Status FinishBestEffortsRecovery();
+  Status DeleteUnreferencedSstFiles();
 
   // SetDbSessionId() should be called in the constuctor DBImpl()
   // to ensure that db_session_id_ gets updated every time the DB is opened
@@ -1682,7 +1730,9 @@ class DBImpl : public DB {
       std::unique_ptr<TaskLimiterToken>* token, LogBuffer* log_buffer);
 
   // helper function to call after some of the logs_ were synced
-  void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
+  Status MarkLogsSynced(uint64_t up_to, bool synced_dir);
+  // WALs with log number up to up_to are not synced successfully.
+  void MarkLogsNotSynced(uint64_t up_to);
 
   SnapshotImpl* GetSnapshotImpl(bool is_write_conflict_boundary,
                                 bool lock = true);
@@ -1821,10 +1871,11 @@ class DBImpl : public DB {
   Status MultiGetImpl(
       const ReadOptions& read_options, size_t start_key, size_t num_keys,
       autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
-      SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback,
-      bool* is_blob_index);
+      SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback);
 
   Status DisableFileDeletionsWithLock();
+
+  Status IncreaseFullHistoryTsLow(ColumnFamilyData* cfd, std::string ts_low);
 
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
@@ -2184,11 +2235,27 @@ extern CompressionType GetCompressionFlush(
 // `memtables_to_flush`) will be flushed and thus will not depend on any WAL
 // file.
 // The function is only applicable to 2pc mode.
-extern uint64_t PrecomputeMinLogNumberToKeep(
+extern uint64_t PrecomputeMinLogNumberToKeep2PC(
     VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
-    autovector<VersionEdit*> edit_list,
+    const autovector<VersionEdit*>& edit_list,
     const autovector<MemTable*>& memtables_to_flush,
     LogsWithPrepTracker* prep_tracker);
+// For atomic flush.
+extern uint64_t PrecomputeMinLogNumberToKeep2PC(
+    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    const autovector<autovector<VersionEdit*>>& edit_lists,
+    const autovector<const autovector<MemTable*>*>& memtables_to_flush,
+    LogsWithPrepTracker* prep_tracker);
+
+// In non-2PC mode, WALs with log number < the returned number can be
+// deleted after the cfd_to_flush column family is flushed successfully.
+extern uint64_t PrecomputeMinLogNumberToKeepNon2PC(
+    VersionSet* vset, const ColumnFamilyData& cfd_to_flush,
+    const autovector<VersionEdit*>& edit_list);
+// For atomic flush.
+extern uint64_t PrecomputeMinLogNumberToKeepNon2PC(
+    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    const autovector<autovector<VersionEdit*>>& edit_lists);
 
 // `cfd_to_flush` is the column family whose memtable will be flushed and thus
 // will not depend on any WAL file. nullptr means no memtable is being flushed.
@@ -2196,6 +2263,10 @@ extern uint64_t PrecomputeMinLogNumberToKeep(
 extern uint64_t FindMinPrepLogReferencedByMemTable(
     VersionSet* vset, const ColumnFamilyData* cfd_to_flush,
     const autovector<MemTable*>& memtables_to_flush);
+// For atomic flush.
+extern uint64_t FindMinPrepLogReferencedByMemTable(
+    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    const autovector<const autovector<MemTable*>*>& memtables_to_flush);
 
 // Fix user-supplied options to be reasonable
 template <class T, class V>

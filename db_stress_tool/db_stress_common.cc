@@ -16,10 +16,10 @@
 #include "util/file_checksum_helper.h"
 #include "util/xxhash.h"
 
-ROCKSDB_NAMESPACE::DbStressEnvWrapper* db_stress_env = nullptr;
+ROCKSDB_NAMESPACE::Env* db_stress_env = nullptr;
 #ifndef NDEBUG
 // If non-null, injects read error at a rate specified by the
-// read_fault_one_in flag
+// read_fault_one_in or write_fault_one_in flag
 std::shared_ptr<ROCKSDB_NAMESPACE::FaultInjectionTestFS> fault_fs_guard;
 #endif // NDEBUG
 enum ROCKSDB_NAMESPACE::CompressionType compression_type_e =
@@ -160,8 +160,10 @@ void PrintKeyValue(int cf, uint64_t key, const char* value, size_t sz) {
     snprintf(buf, 4, "%X", value[i]);
     tmp.append(buf);
   }
-  fprintf(stdout, "[CF %d] %" PRIi64 " == > (%" ROCKSDB_PRIszt ") %s\n", cf,
-          key, sz, tmp.c_str());
+  auto key_str = Key(key);
+  Slice key_slice = key_str;
+  fprintf(stdout, "[CF %d] %s (%" PRIi64 ") == > (%" ROCKSDB_PRIszt ") %s\n",
+          cf, key_slice.ToString(true).c_str(), key, sz, tmp.c_str());
 }
 
 // Note that if hot_key_alpha != 0, it generates the key based on Zipfian

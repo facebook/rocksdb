@@ -49,7 +49,8 @@ EntryType GetEntryType(ValueType value_type) {
 
 bool ParseFullKey(const Slice& internal_key, FullKey* fkey) {
   ParsedInternalKey ikey;
-  if (ParseInternalKey(internal_key, &ikey) != Status::OK()) {
+  if (!ParseInternalKey(internal_key, &ikey, false /*log_err_key */)
+           .ok()) {  // TODO
     return false;
   }
   fkey->user_key = ikey.user_key;
@@ -77,12 +78,34 @@ void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
   PutFixed64(result, PackSequenceAndType(s, t));
 }
 
-std::string ParsedInternalKey::DebugString(bool hex) const {
+void AppendKeyWithMinTimestamp(std::string* result, const Slice& key,
+                               size_t ts_sz) {
+  assert(ts_sz > 0);
+  const std::string kTsMin(ts_sz, static_cast<unsigned char>(0));
+  result->append(key.data(), key.size());
+  result->append(kTsMin.data(), ts_sz);
+}
+
+void AppendKeyWithMaxTimestamp(std::string* result, const Slice& key,
+                               size_t ts_sz) {
+  assert(ts_sz > 0);
+  const std::string kTsMax(ts_sz, static_cast<unsigned char>(0xff));
+  result->append(key.data(), key.size());
+  result->append(kTsMax.data(), ts_sz);
+}
+
+std::string ParsedInternalKey::DebugString(bool log_err_key, bool hex) const {
+  std::string result = "'";
+  if (log_err_key) {
+    result += user_key.ToString(hex);
+  } else {
+    result += "<redacted>";
+  }
+
   char buf[50];
   snprintf(buf, sizeof(buf), "' seq:%" PRIu64 ", type:%d", sequence,
            static_cast<int>(type));
-  std::string result = "'";
-  result += user_key.ToString(hex);
+
   result += buf;
   return result;
 }
@@ -90,8 +113,8 @@ std::string ParsedInternalKey::DebugString(bool hex) const {
 std::string InternalKey::DebugString(bool hex) const {
   std::string result;
   ParsedInternalKey parsed;
-  if (ParseInternalKey(rep_, &parsed) == Status::OK()) {
-    result = parsed.DebugString(hex);
+  if (ParseInternalKey(rep_, &parsed, false /* log_err_key */).ok()) {
+    result = parsed.DebugString(true /* log_err_key */, hex);  // TODO
   } else {
     result = "(bad)";
     result.append(EscapeString(rep_));

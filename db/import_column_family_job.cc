@@ -140,7 +140,7 @@ Status ImportColumnFamilyJob::Run() {
   int64_t temp_current_time = 0;
   uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
   uint64_t current_time = kUnknownOldestAncesterTime;
-  if (env_->GetCurrentTime(&temp_current_time).ok()) {
+  if (clock_->GetCurrentTime(&temp_current_time).ok()) {
     current_time = oldest_ancester_time =
         static_cast<uint64_t>(temp_current_time);
   }
@@ -252,15 +252,21 @@ Status ImportColumnFamilyJob::GetIngestedFileInfo(
 
   // Get first (smallest) key from file
   iter->SeekToFirst();
-  if (ParseInternalKey(iter->key(), &key) != Status::OK()) {
-    return Status::Corruption("external file have corrupted keys");
+  Status pik_status =
+      ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
+  if (!pik_status.ok()) {
+    return Status::Corruption("Corrupted Key in external file. ",
+                              pik_status.getState());
   }
   file_to_import->smallest_internal_key.SetFrom(key);
 
   // Get last (largest) key from file
   iter->SeekToLast();
-  if (ParseInternalKey(iter->key(), &key) != Status::OK()) {
-    return Status::Corruption("external file have corrupted keys");
+  pik_status =
+      ParseInternalKey(iter->key(), &key, db_options_.allow_data_in_errors);
+  if (!pik_status.ok()) {
+    return Status::Corruption("Corrupted Key in external file. ",
+                              pik_status.getState());
   }
   file_to_import->largest_internal_key.SetFrom(key);
 

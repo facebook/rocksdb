@@ -9,7 +9,7 @@
 
 // This test uses a custom FileSystem to keep track of the state of a file
 // system the last "Sync". The data being written is cached in a "buffer".
-// Only when "Sync" is called, the data will be persistent. It can similate
+// Only when "Sync" is called, the data will be persistent. It can simulate
 // file data loss (or entire files) not protected by a "Sync". For any of the
 // FileSystem related operations, by specify the "IOStatus Error", a specific
 // error can be returned when file system is not activated.
@@ -22,7 +22,10 @@
 #include "env/composite_env_wrapper.h"
 #include "port/lang.h"
 #include "port/stack_trace.h"
+#include "util/coding.h"
+#include "util/crc32c.h"
 #include "util/random.h"
+#include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -53,6 +56,21 @@ std::pair<std::string, std::string> TestFSGetDirAndName(
   return std::make_pair(dirname, fname);
 }
 
+// Calculate the checksum of the data with corresponding checksum
+// type. If name does not match, no checksum is returned.
+void CalculateTypedChecksum(const ChecksumType& checksum_type, const char* data,
+                            size_t size, std::string* checksum) {
+  if (checksum_type == ChecksumType::kCRC32c) {
+    uint32_t v_crc32c = crc32c::Extend(0, data, size);
+    PutFixed32(checksum, v_crc32c);
+    return;
+  } else if (checksum_type == ChecksumType::kxxHash) {
+    uint32_t v = XXH32(data, size, 0);
+    PutFixed32(checksum, v);
+  }
+  return;
+}
+
 IOStatus FSFileState::DropUnsyncedData() {
   buffer_.resize(0);
   return IOStatus::OK();
@@ -74,9 +92,11 @@ IOStatus TestFSDirectory::Fsync(const IOOptions& options, IODebugContext* dbg) {
 }
 
 TestFSWritableFile::TestFSWritableFile(const std::string& fname,
+                                       const FileOptions& file_opts,
                                        std::unique_ptr<FSWritableFile>&& f,
                                        FaultInjectionTestFS* fs)
     : state_(fname),
+      file_opts_(file_opts),
       target_(std::move(f)),
       writable_file_opened_(true),
       fs_(fs) {
@@ -96,6 +116,38 @@ IOStatus TestFSWritableFile::Append(const Slice& data, const IOOptions&,
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
+  state_.buffer_.append(data.data(), data.size());
+  state_.pos_ += data.size();
+  fs_->WritableFileAppended(state_);
+  IOStatus io_s = fs_->InjectWriteError(state_.filename_);
+  return io_s;
+}
+
+// By setting the IngestDataCorruptionBeforeWrite(), the data corruption is
+// simulated.
+IOStatus TestFSWritableFile::Append(
+    const Slice& data, const IOOptions&,
+    const DataVerificationInfo& verification_info, IODebugContext*) {
+  MutexLock l(&mutex_);
+  if (!fs_->IsFilesystemActive()) {
+    return fs_->GetError();
+  }
+  if (fs_->ShouldDataCorruptionBeforeWrite()) {
+    return IOStatus::Corruption("Data is corrupted!");
+  }
+
+  // Calculate the checksum
+  std::string checksum;
+  CalculateTypedChecksum(fs_->GetChecksumHandoffFuncType(), data.data(),
+                         data.size(), &checksum);
+  if (fs_->GetChecksumHandoffFuncType() != ChecksumType::kNoChecksum &&
+      checksum != verification_info.checksum.ToString()) {
+    std::string msg = "Data is corrupted! Origin data checksum: " +
+                      verification_info.checksum.ToString() +
+                      "current data checksum: " + checksum;
+    return IOStatus::Corruption(msg);
+  }
+
   state_.buffer_.append(data.data(), data.size());
   state_.pos_ += data.size();
   fs_->WritableFileAppended(state_);
@@ -248,7 +300,8 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
 
   IOStatus io_s = target()->NewWritableFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
-    result->reset(new TestFSWritableFile(fname, std::move(*result), this));
+    result->reset(
+        new TestFSWritableFile(fname, file_opts, std::move(*result), this));
     // WritableFileWriter* file is opened
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
@@ -272,7 +325,8 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
   }
   IOStatus io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
-    result->reset(new TestFSWritableFile(fname, std::move(*result), this));
+    result->reset(
+        new TestFSWritableFile(fname, file_opts, std::move(*result), this));
     // WritableFileWriter* file is opened
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
@@ -531,6 +585,34 @@ IOStatus FaultInjectionTestFS::InjectError(ErrorOperation op,
         return IOStatus::IOError();
       default:
         assert(false);
+    }
+  }
+  return IOStatus::OK();
+}
+
+IOStatus FaultInjectionTestFS::InjectWriteError(const std::string& file_name) {
+  MutexLock l(&mutex_);
+  if (!enable_write_error_injection_ || !write_error_one_in_) {
+    return IOStatus::OK();
+  }
+  bool allowed_type = false;
+
+  uint64_t number;
+  FileType cur_type = kTempFile;
+  std::size_t found = file_name.find_last_of("/");
+  std::string file = file_name.substr(found);
+  bool ret = ParseFileName(file, &number, &cur_type);
+  if (ret) {
+    for (const auto& type : write_error_allowed_types_) {
+      if (cur_type == type) {
+        allowed_type = true;
+      }
+    }
+  }
+
+  if (allowed_type) {
+    if (write_error_rand_.OneIn(write_error_one_in_)) {
+      return GetError();
     }
   }
   return IOStatus::OK();

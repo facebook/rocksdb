@@ -31,7 +31,8 @@ using KVPair = std::pair<std::string, std::string>;
 using KVVector = std::vector<KVPair>;
 
 KVVector MakeMockFile(std::initializer_list<KVPair> l = {});
-void SortKVVector(KVVector* kv_vector);
+void SortKVVector(KVVector* kv_vector,
+                  const Comparator* ucmp = BytewiseComparator());
 
 struct MockTableFileSystem {
   port::Mutex mutex;
@@ -76,8 +77,8 @@ class MockTableFactory : public TableFactory {
   void AssertLatestFile(const KVVector& file_contents);
 
  private:
-  uint32_t GetAndWriteNextID(WritableFileWriter* file) const;
-  uint32_t GetIDFromFile(RandomAccessFileReader* file) const;
+  Status GetAndWriteNextID(WritableFileWriter* file, uint32_t* id) const;
+  Status GetIDFromFile(RandomAccessFileReader* file, uint32_t* id) const;
 
   mutable MockTableFileSystem file_system_;
   mutable std::atomic<uint32_t> next_id_;

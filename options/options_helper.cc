@@ -51,6 +51,8 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.create_missing_column_families;
   options.error_if_exists = immutable_db_options.error_if_exists;
   options.paranoid_checks = immutable_db_options.paranoid_checks;
+  options.track_and_verify_wals_in_manifest =
+      immutable_db_options.track_and_verify_wals_in_manifest;
   options.env = immutable_db_options.env;
   options.rate_limiter = immutable_db_options.rate_limiter;
   options.sst_file_manager = immutable_db_options.sst_file_manager;
@@ -164,6 +166,10 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.max_bgerror_resume_count;
   options.bgerror_resume_retry_interval =
       immutable_db_options.bgerror_resume_retry_interval;
+  options.db_host_id = immutable_db_options.db_host_id;
+  options.allow_data_in_errors = immutable_db_options.allow_data_in_errors;
+  options.checksum_handoff_file_types =
+      immutable_db_options.checksum_handoff_file_types;
   return options;
 }
 
@@ -226,6 +232,10 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.min_blob_size = mutable_cf_options.min_blob_size;
   cf_opts.blob_file_size = mutable_cf_options.blob_file_size;
   cf_opts.blob_compression_type = mutable_cf_options.blob_compression_type;
+  cf_opts.enable_blob_garbage_collection =
+      mutable_cf_options.enable_blob_garbage_collection;
+  cf_opts.blob_garbage_collection_age_cutoff =
+      mutable_cf_options.blob_garbage_collection_age_cutoff;
 
   // Misc options
   cf_opts.max_sequential_skip_in_iterations =
@@ -294,6 +304,17 @@ std::vector<CompressionType> GetSupportedCompressions() {
     }
   }
   return supported_compressions;
+}
+
+std::vector<CompressionType> GetSupportedDictCompressions() {
+  std::vector<CompressionType> dict_compression_types;
+  for (const auto& comp_to_name : OptionsHelper::compression_type_string_map) {
+    CompressionType t = comp_to_name.second;
+    if (t != kDisableCompressionOption && DictCompressionTypeSupported(t)) {
+      dict_compression_types.push_back(t);
+    }
+  }
+  return dict_compression_types;
 }
 
 #ifndef ROCKSDB_LITE
@@ -724,9 +745,15 @@ Status GetColumnFamilyOptionsFromMap(
   *new_options = base_options;
 
   const auto config = CFOptionsAsConfigurable(base_options);
-  return ConfigureFromMap<ColumnFamilyOptions>(config_options, opts_map,
-                                               OptionsHelper::kCFOptionsName,
-                                               config.get(), new_options);
+  Status s = ConfigureFromMap<ColumnFamilyOptions>(
+      config_options, opts_map, OptionsHelper::kCFOptionsName, config.get(),
+      new_options);
+  // Translate any errors (NotFound, NotSupported, to InvalidArgument
+  if (s.ok() || s.IsInvalidArgument()) {
+    return s;
+  } else {
+    return Status::InvalidArgument(s.getState());
+  }
 }
 
 Status GetColumnFamilyOptionsFromString(
@@ -773,9 +800,15 @@ Status GetDBOptionsFromMap(
   assert(new_options);
   *new_options = base_options;
   auto config = DBOptionsAsConfigurable(base_options);
-  return ConfigureFromMap<DBOptions>(config_options, opts_map,
-                                     OptionsHelper::kDBOptionsName,
-                                     config.get(), new_options);
+  Status s = ConfigureFromMap<DBOptions>(config_options, opts_map,
+                                         OptionsHelper::kDBOptionsName,
+                                         config.get(), new_options);
+  // Translate any errors (NotFound, NotSupported, to InvalidArgument
+  if (s.ok() || s.IsInvalidArgument()) {
+    return s;
+  } else {
+    return Status::InvalidArgument(s.getState());
+  }
 }
 
 Status GetDBOptionsFromString(const DBOptions& base_options,
@@ -841,7 +874,12 @@ Status GetOptionsFromString(const ConfigOptions& config_options,
       *new_options = Options(*new_db_options, base_options);
     }
   }
-  return s;
+  // Translate any errors (NotFound, NotSupported, to InvalidArgument
+  if (s.ok() || s.IsInvalidArgument()) {
+    return s;
+  } else {
+    return Status::InvalidArgument(s.getState());
+  }
 }
 
 std::unordered_map<std::string, EncodingType>
@@ -1030,6 +1068,19 @@ Status OptionTypeInfo::Serialize(const ConfigOptions& config_options,
   } else if (serialize_func_ != nullptr) {
     return serialize_func_(config_options, opt_name, opt_addr, opt_value);
   } else if (SerializeSingleOptionHelper(opt_addr, type_, opt_value)) {
+    return Status::OK();
+  } else if (IsCustomizable()) {
+    const Customizable* custom = AsRawPointer<Customizable>(opt_ptr);
+    if (custom == nullptr) {
+      *opt_value = kNullptrString;
+    } else if (IsEnabled(OptionTypeFlags::kStringNameOnly) &&
+               !config_options.IsDetailed()) {
+      *opt_value = custom->GetId();
+    } else {
+      ConfigOptions embedded = config_options;
+      embedded.delimiter = ";";
+      *opt_value = custom->ToString(embedded);
+    }
     return Status::OK();
   } else if (IsConfigurable()) {
     const Configurable* config = AsRawPointer<Configurable>(opt_ptr);

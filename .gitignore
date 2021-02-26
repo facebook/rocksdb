@@ -8,6 +8,7 @@ rocksdb.pc
 *.gcda
 *.gcno
 *.o
+*.o.tmp
 *.so
 *.so.*
 *_test
@@ -89,3 +90,8 @@ buckifier/__pycache__
 compile_commands.json
 clang-format-diff.py
 .py3/
+
+fuzz/proto/gen/
+fuzz/crash-*
+
+cmake-build-*

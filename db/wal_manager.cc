@@ -175,7 +175,7 @@ void WalManager::PurgeObsoleteWALFiles() {
   for (auto& f : files) {
     uint64_t number;
     FileType type;
-    if (ParseFileName(f, &number, &type) && type == kLogFile) {
+    if (ParseFileName(f, &number, &type) && type == kWalFile) {
       std::string const file_path = archival_dir + "/" + f;
       if (ttl_enabled) {
         uint64_t file_m_time;
@@ -243,9 +243,13 @@ void WalManager::PurgeObsoleteWALFiles() {
 
   size_t files_del_num = log_files_num - files_keep_num;
   VectorLogPtr archived_logs;
-  GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
-
-  if (files_del_num > archived_logs.size()) {
+  s = GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
+  if (!s.ok()) {
+    ROCKS_LOG_WARN(db_options_.info_log,
+                   "Unable to get archived WALs from: %s: %s",
+                   archival_dir.c_str(), s.ToString().c_str());
+    files_del_num = 0;
+  } else if (files_del_num > archived_logs.size()) {
     ROCKS_LOG_WARN(db_options_.info_log,
                    "Trying to delete more archived log files than "
                    "exist. Deleting all");
@@ -292,7 +296,7 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
   for (const auto& f : all_files) {
     uint64_t number;
     FileType type;
-    if (ParseFileName(f, &number, &type) && type == kLogFile) {
+    if (ParseFileName(f, &number, &type) && type == kWalFile) {
       SequenceNumber sequence;
       Status s = ReadFirstRecord(log_type, number, &sequence);
       if (!s.ok()) {

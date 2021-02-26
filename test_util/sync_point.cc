@@ -6,7 +6,6 @@
 #include "test_util/sync_point.h"
 
 #include <fcntl.h>
-#include <sys/stat.h>
 
 #include "test_util/sync_point_impl.h"
 

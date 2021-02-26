@@ -24,7 +24,6 @@
 #include "db/write_batch_internal.h"
 #include "env/mock_env.h"
 #include "file/filename.h"
-#include "logging/logging.h"
 #include "memtable/hash_linklist_rep.h"
 #include "monitoring/statistics.h"
 #include "monitoring/thread_status_util.h"
@@ -298,15 +297,14 @@ class CompactionJobStatsTest : public testing::Test,
     return result;
   }
 
-  uint64_t Size(const Slice& start, const Slice& limit, int cf = 0) {
+  Status Size(uint64_t* size, const Slice& start, const Slice& limit,
+              int cf = 0) {
     Range r(start, limit);
-    uint64_t size;
     if (cf == 0) {
-      db_->GetApproximateSizes(&r, 1, &size);
+      return db_->GetApproximateSizes(&r, 1, size);
     } else {
-      db_->GetApproximateSizes(handles_[1], &r, 1, &size);
+      return db_->GetApproximateSizes(handles_[1], &r, 1, size);
     }
-    return size;
   }
 
   void Compact(int cf, const Slice& start, const Slice& limit,

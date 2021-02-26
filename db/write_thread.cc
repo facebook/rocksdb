@@ -208,6 +208,7 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
 }
 
 void WriteThread::SetState(Writer* w, uint8_t new_state) {
+  assert(w);
   auto state = w->state.load(std::memory_order_acquire);
   if (state == STATE_LOCKED_WAITING ||
       !w->state.compare_exchange_strong(state, new_state)) {
@@ -344,7 +345,13 @@ void WriteThread::BeginWriteStall() {
       prev->link_older = w->link_older;
       w->status = Status::Incomplete("Write stall");
       SetState(w, STATE_COMPLETED);
-      if (prev->link_older) {
+      // Only update `link_newer` if it's already set.
+      // `CreateMissingNewerLinks()` will update the nullptr `link_newer` later,
+      // which assumes the the first non-nullptr `link_newer` is the last
+      // nullptr link in the writer list.
+      // If `link_newer` is set here, `CreateMissingNewerLinks()` may stop
+      // updating the whole list when it sees the first non nullptr link.
+      if (prev->link_older && prev->link_older->link_newer) {
         prev->link_older->link_newer = prev;
       }
       w = prev->link_older;
@@ -455,6 +462,11 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
     if (w->disable_wal != leader->disable_wal) {
       // Do not mix writes that enable WAL with the ones whose
       // WAL disabled.
+      break;
+    }
+
+    if (w->protection_bytes_per_key != leader->protection_bytes_per_key) {
+      // Do not mix writes with different levels of integrity protection.
       break;
     }
 

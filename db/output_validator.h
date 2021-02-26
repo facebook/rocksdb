@@ -34,6 +34,8 @@ class OutputValidator {
   }
 
  private:
+  // Not (yet) intended to be persisted, so subject to change
+  // without notice between releases.
   uint64_t GetHash() const { return paranoid_hash_; }
 
   const InternalKeyComparator& icmp_;

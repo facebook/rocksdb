@@ -88,6 +88,8 @@ class LDBCommand {
 
   virtual void OverrideBaseOptions();
 
+  virtual void OverrideBaseCFOptions(ColumnFamilyOptions* cf_opts);
+
   virtual void SetDBOptions(Options options) { options_ = options; }
 
   virtual void SetColumnFamilies(

@@ -88,10 +88,9 @@ if( NOT DEFINED CMAKE_CXX_STANDARD )
 endif()
 
 include(CMakeDependentOption)
-CMAKE_DEPENDENT_OPTION(WITH_GFLAGS "build with GFlags" ON
-  "NOT MSVC;NOT MINGW" OFF)
 
 if(MSVC)
+  option(WITH_GFLAGS "build with GFlags" OFF)
   option(WITH_XPRESS "build with windows built in compression" OFF)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
@@ -107,6 +106,11 @@ else()
     endif()
   endif()
 
+  if(MINGW)
+    option(WITH_GFLAGS "build with GFlags" OFF)
+  else()
+    option(WITH_GFLAGS "build with GFlags" ON)
+  endif()
   set(GFLAGS_LIB)
   if(WITH_GFLAGS)
     # Config with namespace available since gflags 2.2.2
@@ -170,23 +174,25 @@ else()
   endif()
 endif()
 
-string(TIMESTAMP TS "%Y/%m/%d %H:%M:%S" UTC)
-set(GIT_DATE_TIME "${TS}" CACHE STRING "the time we first built rocksdb")
+string(TIMESTAMP TS "%Y-%m-%d %H:%M:%S" UTC)
+set(BUILD_DATE "${TS}" CACHE STRING "the time we first built rocksdb")
 
 find_package(Git)
 
 if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
-  if(WIN32)
-    execute_process(COMMAND $ENV{COMSPEC} /C ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD OUTPUT_VARIABLE GIT_SHA)
-  else()
-    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD OUTPUT_VARIABLE GIT_SHA)
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_SHA COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD )
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" RESULT_VARIABLE GIT_MOD COMMAND "${GIT_EXECUTABLE}" diff-index HEAD --quiet)
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_DATE COMMAND "${GIT_EXECUTABLE}" log -1 --date=format:"%Y-%m-%d %T" --format="%ad")
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG RESULT_VARIABLE rv COMMAND "${GIT_EXECUTABLE}" symbolic-ref -q --short HEAD OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if (rv AND NOT rv EQUAL 0)
+    execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match OUTPUT_STRIP_TRAILING_WHITESPACE)
   endif()
 else()
   set(GIT_SHA 0)
+  set(GIT_MOD 1)
 endif()
-
-string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
-
+string(REGEX REPLACE "[^0-9a-fA-F]+" "" GIT_SHA "${GIT_SHA}")
+string(REGEX REPLACE "[^0-9: /-]+" "" GIT_DATE "${GIT_DATE}")
 
 option(WITH_MD_LIBRARY "build with MD" ON)
 if(WIN32 AND MSVC)
@@ -199,9 +205,7 @@ endif()
 
 set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
 configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
-add_library(build_version OBJECT ${BUILD_VERSION_CC})
-target_include_directories(build_version PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/util)
+
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4800 /wd4996 /wd4351 /wd4100 /wd4204 /wd4324")
@@ -243,14 +247,14 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
   endif(HAS_ALTIVEC)
 endif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|AARCH64")
         CHECK_C_COMPILER_FLAG("-march=armv8-a+crc+crypto" HAS_ARMV8_CRC)
   if(HAS_ARMV8_CRC)
     message(STATUS " HAS_ARMV8_CRC yes")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a+crc+crypto -Wno-unused-function")
   endif(HAS_ARMV8_CRC)
-endif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|AARCH64")
+endif(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64|AARCH64")
 
 option(PORTABLE "build a portable binary" OFF)
 option(FORCE_SSE42 "force building with SSE4.2, even when PORTABLE=ON" OFF)
@@ -466,11 +470,6 @@ if(CMAKE_SYSTEM_NAME MATCHES "Cygwin")
   add_definitions(-fno-builtin-memcmp -DCYGWIN)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
   add_definitions(-DOS_MACOSX)
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES arm)
-    add_definitions(-DIOS_CROSS_COMPILE -DROCKSDB_LITE)
-    # no debug info for IOS, that will make our library big
-    add_definitions(-DNDEBUG)
-  endif()
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
   add_definitions(-DOS_LINUX)
 elseif(CMAKE_SYSTEM_NAME MATCHES "SunOS")
@@ -571,10 +570,12 @@ set(SOURCES
         db/arena_wrapped_db_iter.cc
         db/blob/blob_file_addition.cc
         db/blob/blob_file_builder.cc
+        db/blob/blob_file_cache.cc
         db/blob/blob_file_garbage.cc
         db/blob/blob_file_meta.cc
+        db/blob/blob_file_reader.cc
         db/blob/blob_log_format.cc
-        db/blob/blob_log_reader.cc
+        db/blob/blob_log_sequential_reader.cc
         db/blob/blob_log_writer.cc
         db/builder.cc
         db/c.cc
@@ -640,6 +641,7 @@ set(SOURCES
         db/write_batch_base.cc
         db/write_controller.cc
         db/write_thread.cc
+        env/composite_env.cc
         env/env.cc
         env/env_chroot.cc
         env/env_encryption.cc
@@ -685,6 +687,7 @@ set(SOURCES
         monitoring/thread_status_util_debug.cc
         options/cf_options.cc
         options/configurable.cc
+        options/customizable.cc
         options/db_options.cc
         options/options.cc
         options/options_helper.cc
@@ -808,8 +811,11 @@ set(SOURCES
         utilities/simulator_cache/sim_cache.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/trace/file_trace_reader_writer.cc
-        utilities/transactions/lock/lock_tracker.cc
-        utilities/transactions/lock/point_lock_tracker.cc
+        utilities/transactions/lock/lock_manager.cc
+        utilities/transactions/lock/point/point_lock_tracker.cc
+        utilities/transactions/lock/point/point_lock_manager.cc
+        utilities/transactions/lock/range/range_tree/range_tree_lock_manager.cc
+        utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
         utilities/transactions/optimistic_transaction.cc
         utilities/transactions/pessimistic_transaction.cc
@@ -817,7 +823,6 @@ set(SOURCES
         utilities/transactions/snapshot_checker.cc
         utilities/transactions/transaction_base.cc
         utilities/transactions/transaction_db_mutex_impl.cc
-        utilities/transactions/transaction_lock_mgr.cc
         utilities/transactions/transaction_util.cc
         utilities/transactions/write_prepared_txn.cc
         utilities/transactions/write_prepared_txn_db.cc
@@ -825,8 +830,21 @@ set(SOURCES
         utilities/transactions/write_unprepared_txn_db.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
-        utilities/write_batch_with_index/write_batch_with_index_internal.cc
-        $<TARGET_OBJECTS:build_version>)
+        utilities/write_batch_with_index/write_batch_with_index_internal.cc)
+
+list(APPEND SOURCES
+  utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/keyrange.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/lock_request.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/locktree.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/manager.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/range_buffer.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/treenode.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/txnid_set.cc
+  utilities/transactions/lock/range/range_tree/lib/locktree/wfg.cc
+  utilities/transactions/lock/range/range_tree/lib/standalone_port.cc
+  utilities/transactions/lock/range/range_tree/lib/util/dbt.cc
+  utilities/transactions/lock/range/range_tree/lib/util/memarena.cc)
 
 if(HAVE_SSE42 AND NOT MSVC)
   set_source_files_properties(
@@ -903,12 +921,12 @@ else()
   set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
 endif()
 
-add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
+add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES} ${BUILD_VERSION_CC})
 target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
   ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 if(ROCKSDB_BUILD_SHARED)
-  add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
+  add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES} ${BUILD_VERSION_CC})
   target_link_libraries(${ROCKSDB_SHARED_LIB} PRIVATE
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
@@ -926,7 +944,7 @@ if(ROCKSDB_BUILD_SHARED)
                           LINKER_LANGUAGE CXX
                           VERSION ${rocksdb_VERSION}
                           SOVERSION ${rocksdb_VERSION_MAJOR}
-                          OUTPUT_NAME "rocksdb")
+                          OUTPUT_NAME "rocksdb${ARTIFACT_SUFFIX}")
   endif()
 endif()
 
@@ -1043,7 +1061,12 @@ if(WITH_TESTS)
         cache/lru_cache_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
+        db/blob/blob_file_cache_test.cc
         db/blob/blob_file_garbage_test.cc
+        db/blob/blob_file_reader_test.cc
+        db/blob/db_blob_basic_test.cc
+        db/blob/db_blob_compaction_test.cc
+        db/blob/db_blob_corruption_test.cc
         db/blob/db_blob_index_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc
@@ -1066,6 +1089,7 @@ if(WITH_TESTS)
         db/db_iter_test.cc
         db/db_iter_stress_test.cc
         db/db_iterator_test.cc
+        db/db_kv_checksum_test.cc
         db/db_log_iter_test.cc
         db/db_memtable_test.cc
         db/db_merge_operator_test.cc
@@ -1137,6 +1161,7 @@ if(WITH_TESTS)
         monitoring/statistics_test.cc
         monitoring/stats_history_test.cc
         options/configurable_test.cc
+        options/customizable_test.cc
         options/options_settable_test.cc
         options/options_test.cc
         table/block_based/block_based_filter_block_test.cc
@@ -1153,6 +1178,7 @@ if(WITH_TESTS)
         table/table_test.cc
         table/block_fetcher_test.cc
         test_util/testutil_test.cc
+        trace_replay/block_cache_tracer_test.cc
         trace_replay/io_tracer_test.cc
         tools/block_cache_analyzer/block_cache_trace_analyzer_test.cc
         tools/io_tracer_parser_test.cc
@@ -1173,6 +1199,7 @@ if(WITH_TESTS)
         util/random_test.cc
         util/rate_limiter_test.cc
         util/repeatable_thread_test.cc
+        util/ribbon_test.cc
         util/slice_test.cc
         util/slice_transform_test.cc
         util/timer_queue_test.cc
@@ -1199,9 +1226,10 @@ if(WITH_TESTS)
         utilities/table_properties_collectors/compact_on_deletion_collector_test.cc
         utilities/transactions/optimistic_transaction_test.cc
         utilities/transactions/transaction_test.cc
-        utilities/transactions/transaction_lock_mgr_test.cc
+        utilities/transactions/lock/point/point_lock_manager_test.cc
         utilities/transactions/write_prepared_transaction_test.cc
         utilities/transactions/write_unprepared_transaction_test.cc
+        utilities/transactions/lock/range/range_locking_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
     )

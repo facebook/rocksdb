@@ -8,9 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_iter.h"
-#include <string>
+
 #include <iostream>
 #include <limits>
+#include <string>
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
@@ -24,6 +25,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
+#include "rocksdb/system_clock.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
 #include "trace_replay/trace_replay.h"
@@ -36,16 +38,19 @@ namespace ROCKSDB_NAMESPACE {
 DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                const ImmutableCFOptions& cf_options,
                const MutableCFOptions& mutable_cf_options,
-               const Comparator* cmp, InternalIterator* iter, SequenceNumber s,
-               bool arena_mode, uint64_t max_sequential_skip_in_iterations,
+               const Comparator* cmp, InternalIterator* iter,
+               const Version* version, SequenceNumber s, bool arena_mode,
+               uint64_t max_sequential_skip_in_iterations,
                ReadCallback* read_callback, DBImpl* db_impl,
-               ColumnFamilyData* cfd, bool allow_blob)
+               ColumnFamilyData* cfd, bool expose_blob_index)
     : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       env_(_env),
+      clock_(_env->GetSystemClock()),
       logger_(cf_options.info_log),
       user_comparator_(cmp),
       merge_operator_(cf_options.merge_operator),
       iter_(iter),
+      version_(version),
       read_callback_(read_callback),
       sequence_(s),
       statistics_(cf_options.statistics),
@@ -65,7 +70,9 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       expect_total_order_inner_iter_(prefix_extractor_ == nullptr ||
                                      read_options.total_order_seek ||
                                      read_options.auto_prefix_mode),
-      allow_blob_(allow_blob),
+      read_tier_(read_options.read_tier),
+      verify_checksums_(read_options.verify_checksums),
+      expose_blob_index_(expose_blob_index),
       is_blob_(false),
       arena_mode_(arena_mode),
       range_del_agg_(&cf_options.internal_comparator, s),
@@ -107,11 +114,12 @@ Status DBIter::GetProperty(std::string prop_name, std::string* prop) {
 }
 
 bool DBIter::ParseKey(ParsedInternalKey* ikey) {
-  if (ParseInternalKey(iter_.key(), ikey) != Status::OK()) {
-    status_ = Status::Corruption("corrupted internal key in DBIter");
+  Status s =
+      ParseInternalKey(iter_.key(), ikey, false /* log_err_key */);  // TODO
+  if (!s.ok()) {
+    status_ = Status::Corruption("In DBIter: ", s.getState());
     valid_ = false;
-    ROCKS_LOG_ERROR(logger_, "corrupted internal key in DBIter: %s",
-                    iter_.key().ToString(true).c_str());
+    ROCKS_LOG_ERROR(logger_, "In DBIter: %s", status_.getState());
     return false;
   } else {
     return true;
@@ -122,7 +130,7 @@ void DBIter::Next() {
   assert(valid_);
   assert(status_.ok());
 
-  PERF_CPU_TIMER_GUARD(iter_next_cpu_nanos, env_);
+  PERF_CPU_TIMER_GUARD(iter_next_cpu_nanos, clock_);
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
   local_stats_.skip_count_ += num_internal_keys_skipped_;
@@ -162,6 +170,40 @@ void DBIter::Next() {
     local_stats_.next_found_count_++;
     local_stats_.bytes_read_ += (key().size() + value().size());
   }
+}
+
+bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
+                                  const Slice& blob_index) {
+  assert(!is_blob_);
+
+  if (expose_blob_index_) {  // Stacked BlobDB implementation
+    is_blob_ = true;
+    return true;
+  }
+
+  if (!version_) {
+    status_ = Status::Corruption("Encountered unexpected blob index.");
+    valid_ = false;
+    return false;
+  }
+
+  // TODO: consider moving ReadOptions from ArenaWrappedDBIter to DBIter to
+  // avoid having to copy options back and forth.
+  ReadOptions read_options;
+  read_options.read_tier = read_tier_;
+  read_options.verify_checksums = verify_checksums_;
+
+  const Status s =
+      version_->GetBlob(read_options, user_key, blob_index, &blob_value_);
+
+  if (!s.ok()) {
+    status_ = s;
+    valid_ = false;
+    return false;
+  }
+
+  is_blob_ = true;
+  return true;
 }
 
 // PRE: saved_key_ has the current user key if skipping_saved_key
@@ -220,25 +262,28 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
       is_key_seqnum_zero_ = false;
       return false;
     }
+    Slice user_key_without_ts =
+        StripTimestampFromUserKey(ikey_.user_key, timestamp_size_);
 
     is_key_seqnum_zero_ = (ikey_.sequence == 0);
 
     assert(iterate_upper_bound_ == nullptr ||
            iter_.UpperBoundCheckResult() != IterBoundCheck::kInbound ||
            user_comparator_.CompareWithoutTimestamp(
-               ikey_.user_key, /*a_has_ts=*/true, *iterate_upper_bound_,
+               user_key_without_ts, /*a_has_ts=*/false, *iterate_upper_bound_,
                /*b_has_ts=*/false) < 0);
     if (iterate_upper_bound_ != nullptr &&
         iter_.UpperBoundCheckResult() != IterBoundCheck::kInbound &&
         user_comparator_.CompareWithoutTimestamp(
-            ikey_.user_key, /*a_has_ts=*/true, *iterate_upper_bound_,
+            user_key_without_ts, /*a_has_ts=*/false, *iterate_upper_bound_,
             /*b_has_ts=*/false) >= 0) {
       break;
     }
 
     assert(prefix == nullptr || prefix_extractor_ != nullptr);
     if (prefix != nullptr &&
-        prefix_extractor_->Transform(ikey_.user_key).compare(*prefix) != 0) {
+        prefix_extractor_->Transform(user_key_without_ts).compare(*prefix) !=
+            0) {
       assert(prefix_same_as_start_);
       break;
     }
@@ -315,8 +360,14 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
           case kTypeBlobIndex:
             if (start_seqnum_ > 0) {
               if (ikey_.sequence >= start_seqnum_) {
-                assert(ikey_.type != kTypeBlobIndex);
                 saved_key_.SetInternalKey(ikey_);
+
+                if (ikey_.type == kTypeBlobIndex) {
+                  if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                    return false;
+                  }
+                }
+
                 valid_ = true;
                 return true;
               } else {
@@ -330,6 +381,13 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               }
             } else if (timestamp_lb_) {
               saved_key_.SetInternalKey(ikey_);
+
+              if (ikey_.type == kTypeBlobIndex) {
+                if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                  return false;
+                }
+              }
+
               valid_ = true;
               return true;
             } else {
@@ -344,20 +402,13 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
                 num_skipped = 0;
                 reseek_done = false;
                 PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-              } else if (ikey_.type == kTypeBlobIndex) {
-                if (!allow_blob_) {
-                  ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-                  status_ = Status::NotSupported(
-                      "Encounter unexpected blob index. Please open DB with "
-                      "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-                  valid_ = false;
-                  return false;
+              } else {
+                if (ikey_.type == kTypeBlobIndex) {
+                  if (!SetBlobValueIfNeeded(ikey_.user_key, iter_.value())) {
+                    return false;
+                  }
                 }
 
-                is_blob_ = true;
-                valid_ = true;
-                return true;
-              } else {
                 valid_ = true;
                 return true;
               }
@@ -384,8 +435,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
             }
             break;
           default:
-            assert(false);
-            break;
+            valid_ = false;
+            status_ = Status::Corruption(
+                "Unknown value type: " +
+                std::to_string(static_cast<unsigned int>(ikey_.type)));
+            return false;
         }
       }
     } else {
@@ -433,11 +487,11 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               &last_key,
               ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion));
         } else {
-          std::string min_ts(timestamp_size_, static_cast<char>(0));
+          const std::string kTsMin(timestamp_size_, static_cast<char>(0));
           AppendInternalKeyWithDifferentTimestamp(
               &last_key,
               ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion),
-              min_ts);
+              kTsMin);
         }
         // Don't set skipping_saved_key = false because we may still see more
         // user-keys equal to saved_key_.
@@ -494,7 +548,6 @@ bool DBIter::MergeValuesNewToOld() {
   TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:PushedFirstOperand");
 
   ParsedInternalKey ikey;
-  Status s;
   for (iter_.Next(); iter_.Valid(); iter_.Next()) {
     TEST_SYNC_POINT("DBIter::MergeValuesNewToOld:SteppedToNextOperand");
     if (!ParseKey(&ikey)) {
@@ -522,9 +575,9 @@ bool DBIter::MergeValuesNewToOld() {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
       const Slice val = iter_.value();
-      s = MergeHelper::TimedFullMerge(
+      Status s = MergeHelper::TimedFullMerge(
           merge_operator_, ikey.user_key, &val, merge_context_.GetOperands(),
-          &saved_value_, logger_, statistics_, env_, &pinned_value_, true);
+          &saved_value_, logger_, statistics_, clock_, &pinned_value_, true);
       if (!s.ok()) {
         valid_ = false;
         status_ = s;
@@ -544,19 +597,15 @@ bool DBIter::MergeValuesNewToOld() {
           iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (kTypeBlobIndex == ikey.type) {
-      if (!allow_blob_) {
-        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-        status_ = Status::NotSupported(
-            "Encounter unexpected blob index. Please open DB with "
-            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-      } else {
-        status_ =
-            Status::NotSupported("Blob DB does not support merge operator.");
-      }
+      status_ = Status::NotSupported("BlobDB does not support merge operator.");
       valid_ = false;
       return false;
     } else {
-      assert(false);
+      valid_ = false;
+      status_ = Status::Corruption(
+          "Unrecognized value type: " +
+          std::to_string(static_cast<unsigned int>(ikey.type)));
+      return false;
     }
   }
 
@@ -569,10 +618,10 @@ bool DBIter::MergeValuesNewToOld() {
   // a deletion marker.
   // feed null as the existing value to the merge operator, such that
   // client can differentiate this scenario and do things accordingly.
-  s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetUserKey(),
-                                  nullptr, merge_context_.GetOperands(),
-                                  &saved_value_, logger_, statistics_, env_,
-                                  &pinned_value_, true);
+  Status s = MergeHelper::TimedFullMerge(
+      merge_operator_, saved_key_.GetUserKey(), nullptr,
+      merge_context_.GetOperands(), &saved_value_, logger_, statistics_, clock_,
+      &pinned_value_, true);
   if (!s.ok()) {
     valid_ = false;
     status_ = s;
@@ -594,7 +643,7 @@ void DBIter::Prev() {
   assert(valid_);
   assert(status_.ok());
 
-  PERF_CPU_TIMER_GUARD(iter_prev_cpu_nanos, env_);
+  PERF_CPU_TIMER_GUARD(iter_prev_cpu_nanos, clock_);
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   bool ok = true;
@@ -696,7 +745,9 @@ void DBIter::PrevInternal(const Slice* prefix) {
 
     assert(prefix == nullptr || prefix_extractor_ != nullptr);
     if (prefix != nullptr &&
-        prefix_extractor_->Transform(saved_key_.GetUserKey())
+        prefix_extractor_
+                ->Transform(StripTimestampFromUserKey(saved_key_.GetUserKey(),
+                                                      timestamp_size_))
                 .compare(*prefix) != 0) {
       assert(prefix_same_as_start_);
       // Current key does not have the same prefix as start
@@ -803,12 +854,19 @@ bool DBIter::FindValueForCurrentKey() {
                 ikey, RangeDelPositioningMode::kBackwardTraversal)) {
           last_key_entry_type = kTypeRangeDeletion;
           PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
-        } else {
-          assert(iter_.iter()->IsValuePinned());
+        } else if (iter_.iter()->IsValuePinned()) {
           pinned_value_ = iter_.value();
+        } else {
+          valid_ = false;
+          status_ = Status::NotSupported(
+              "Backward iteration not supported if underlying iterator's value "
+              "cannot be pinned.");
         }
         merge_context_.Clear();
         last_not_merge_type = last_key_entry_type;
+        if (!status_.ok()) {
+          return false;
+        }
         break;
       case kTypeDeletion:
       case kTypeSingleDeletion:
@@ -832,7 +890,11 @@ bool DBIter::FindValueForCurrentKey() {
         }
         break;
       default:
-        assert(false);
+        valid_ = false;
+        status_ = Status::Corruption(
+            "Unknown value type: " +
+            std::to_string(static_cast<unsigned int>(last_key_entry_type)));
+        return false;
     }
 
     PERF_COUNTER_ADD(internal_key_skipped_count, 1);
@@ -862,17 +924,10 @@ bool DBIter::FindValueForCurrentKey() {
         s = MergeHelper::TimedFullMerge(
             merge_operator_, saved_key_.GetUserKey(), nullptr,
             merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
-            env_, &pinned_value_, true);
+            clock_, &pinned_value_, true);
       } else if (last_not_merge_type == kTypeBlobIndex) {
-        if (!allow_blob_) {
-          ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-          status_ = Status::NotSupported(
-              "Encounter unexpected blob index. Please open DB with "
-              "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-        } else {
-          status_ =
-              Status::NotSupported("Blob DB does not support merge operator.");
-        }
+        status_ =
+            Status::NotSupported("BlobDB does not support merge operator.");
         valid_ = false;
         return false;
       } else {
@@ -880,26 +935,24 @@ bool DBIter::FindValueForCurrentKey() {
         s = MergeHelper::TimedFullMerge(
             merge_operator_, saved_key_.GetUserKey(), &pinned_value_,
             merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
-            env_, &pinned_value_, true);
+            clock_, &pinned_value_, true);
       }
       break;
     case kTypeValue:
       // do nothing - we've already has value in pinned_value_
       break;
     case kTypeBlobIndex:
-      if (!allow_blob_) {
-        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-        status_ = Status::NotSupported(
-            "Encounter unexpected blob index. Please open DB with "
-            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-        valid_ = false;
+      if (!SetBlobValueIfNeeded(saved_key_.GetUserKey(), pinned_value_)) {
         return false;
       }
-      is_blob_ = true;
+
       break;
     default:
-      assert(false);
-      break;
+      valid_ = false;
+      status_ = Status::Corruption(
+          "Unknown value type: " +
+          std::to_string(static_cast<unsigned int>(last_key_entry_type)));
+      return false;
   }
   if (!s.ok()) {
     valid_ = false;
@@ -965,14 +1018,6 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     valid_ = false;
     return true;
   }
-  if (ikey.type == kTypeBlobIndex && !allow_blob_) {
-    ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-    status_ = Status::NotSupported(
-        "Encounter unexpected blob index. Please open DB with "
-        "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-    valid_ = false;
-    return false;
-  }
   if (!iter_.PrepareValue()) {
     valid_ = false;
     return false;
@@ -980,7 +1025,12 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   if (ikey.type == kTypeValue || ikey.type == kTypeBlobIndex) {
     assert(iter_.iter()->IsValuePinned());
     pinned_value_ = iter_.value();
-    is_blob_ = (ikey.type == kTypeBlobIndex);
+    if (ikey.type == kTypeBlobIndex) {
+      if (!SetBlobValueIfNeeded(ikey.user_key, pinned_value_)) {
+        return false;
+      }
+    }
+
     valid_ = true;
     return true;
   }
@@ -1023,7 +1073,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       Status s = MergeHelper::TimedFullMerge(
           merge_operator_, saved_key_.GetUserKey(), &val,
           merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
-          env_, &pinned_value_, true);
+          clock_, &pinned_value_, true);
       if (!s.ok()) {
         valid_ = false;
         status_ = s;
@@ -1036,25 +1086,21 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
           iter_.value(), iter_.iter()->IsValuePinned() /* operand_pinned */);
       PERF_COUNTER_ADD(internal_merge_count, 1);
     } else if (ikey.type == kTypeBlobIndex) {
-      if (!allow_blob_) {
-        ROCKS_LOG_ERROR(logger_, "Encounter unexpected blob index.");
-        status_ = Status::NotSupported(
-            "Encounter unexpected blob index. Please open DB with "
-            "ROCKSDB_NAMESPACE::blob_db::BlobDB instead.");
-      } else {
-        status_ =
-            Status::NotSupported("Blob DB does not support merge operator.");
-      }
+      status_ = Status::NotSupported("BlobDB does not support merge operator.");
       valid_ = false;
       return false;
     } else {
-      assert(false);
+      valid_ = false;
+      status_ = Status::Corruption(
+          "Unknown value type: " +
+          std::to_string(static_cast<unsigned int>(ikey.type)));
+      return false;
     }
   }
 
   Status s = MergeHelper::TimedFullMerge(
       merge_operator_, saved_key_.GetUserKey(), nullptr,
-      merge_context_.GetOperands(), &saved_value_, logger_, statistics_, env_,
+      merge_context_.GetOperands(), &saved_value_, logger_, statistics_, clock_,
       &pinned_value_, true);
   if (!s.ok()) {
     valid_ = false;
@@ -1205,13 +1251,25 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
 }
 
 void DBIter::Seek(const Slice& target) {
-  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
-  StopWatch sw(env_, statistics_, DB_SEEK);
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
+  StopWatch sw(clock_, statistics_, DB_SEEK);
 
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
     // TODO: What do we do if this returns an error?
-    db_impl_->TraceIteratorSeek(cfd_->GetID(), target).PermitUncheckedError();
+    Slice lower_bound, upper_bound;
+    if (iterate_lower_bound_ != nullptr) {
+      lower_bound = *iterate_lower_bound_;
+    } else {
+      lower_bound = Slice("");
+    }
+    if (iterate_upper_bound_ != nullptr) {
+      upper_bound = *iterate_upper_bound_;
+    } else {
+      upper_bound = Slice("");
+    }
+    db_impl_->TraceIteratorSeek(cfd_->GetID(), target, lower_bound, upper_bound)
+        .PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 
@@ -1267,13 +1325,26 @@ void DBIter::Seek(const Slice& target) {
 }
 
 void DBIter::SeekForPrev(const Slice& target) {
-  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
-  StopWatch sw(env_, statistics_, DB_SEEK);
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
+  StopWatch sw(clock_, statistics_, DB_SEEK);
 
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
     // TODO: What do we do if this returns an error?
-    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target)
+    Slice lower_bound, upper_bound;
+    if (iterate_lower_bound_ != nullptr) {
+      lower_bound = *iterate_lower_bound_;
+    } else {
+      lower_bound = Slice("");
+    }
+    if (iterate_upper_bound_ != nullptr) {
+      upper_bound = *iterate_upper_bound_;
+    } else {
+      upper_bound = Slice("");
+    }
+    db_impl_
+        ->TraceIteratorSeekForPrev(cfd_->GetID(), target, lower_bound,
+                                   upper_bound)
         .PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
@@ -1335,7 +1406,7 @@ void DBIter::SeekToFirst() {
     Seek(*iterate_lower_bound_);
     return;
   }
-  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
   if (!expect_total_order_inner_iter()) {
@@ -1373,7 +1444,8 @@ void DBIter::SeekToFirst() {
   }
   if (valid_ && prefix_same_as_start_) {
     assert(prefix_extractor_ != nullptr);
-    prefix_.SetUserKey(prefix_extractor_->Transform(saved_key_.GetUserKey()));
+    prefix_.SetUserKey(prefix_extractor_->Transform(
+        StripTimestampFromUserKey(saved_key_.GetUserKey(), timestamp_size_)));
   }
 }
 
@@ -1395,7 +1467,7 @@ void DBIter::SeekToLast() {
     return;
   }
 
-  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
   if (!expect_total_order_inner_iter()) {
@@ -1424,7 +1496,8 @@ void DBIter::SeekToLast() {
   }
   if (valid_ && prefix_same_as_start_) {
     assert(prefix_extractor_ != nullptr);
-    prefix_.SetUserKey(prefix_extractor_->Transform(saved_key_.GetUserKey()));
+    prefix_.SetUserKey(prefix_extractor_->Transform(
+        StripTimestampFromUserKey(saved_key_.GetUserKey(), timestamp_size_)));
   }
 }
 
@@ -1432,15 +1505,16 @@ Iterator* NewDBIterator(Env* env, const ReadOptions& read_options,
                         const ImmutableCFOptions& cf_options,
                         const MutableCFOptions& mutable_cf_options,
                         const Comparator* user_key_comparator,
-                        InternalIterator* internal_iter,
+                        InternalIterator* internal_iter, const Version* version,
                         const SequenceNumber& sequence,
                         uint64_t max_sequential_skip_in_iterations,
                         ReadCallback* read_callback, DBImpl* db_impl,
-                        ColumnFamilyData* cfd, bool allow_blob) {
-  DBIter* db_iter = new DBIter(
-      env, read_options, cf_options, mutable_cf_options, user_key_comparator,
-      internal_iter, sequence, false, max_sequential_skip_in_iterations,
-      read_callback, db_impl, cfd, allow_blob);
+                        ColumnFamilyData* cfd, bool expose_blob_index) {
+  DBIter* db_iter =
+      new DBIter(env, read_options, cf_options, mutable_cf_options,
+                 user_key_comparator, internal_iter, version, sequence, false,
+                 max_sequential_skip_in_iterations, read_callback, db_impl, cfd,
+                 expose_blob_index);
   return db_iter;
 }
 

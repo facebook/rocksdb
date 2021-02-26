@@ -28,6 +28,7 @@
 #include "file/writable_file_writer.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_util.h"
+#include "options/options_helper.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -69,8 +70,8 @@ TableBuilder* NewTableBuilder(
 }
 
 Status BuildTable(
-    const std::string& dbname, VersionSet* versions, Env* env, FileSystem* fs,
-    const ImmutableCFOptions& ioptions,
+    const std::string& dbname, VersionSet* versions,
+    const ImmutableDBOptions& db_options, const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const FileOptions& file_options,
     TableCache* table_cache, InternalIterator* iter,
     std::vector<std::unique_ptr<FragmentedRangeTombstoneIterator>>
@@ -91,7 +92,7 @@ Status BuildTable(
     TableProperties* table_properties, int level, const uint64_t creation_time,
     const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
     const uint64_t file_creation_time, const std::string& db_id,
-    const std::string& db_session_id) {
+    const std::string& db_session_id, const std::string* full_history_ts_low) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -120,15 +121,16 @@ Status BuildTable(
   EventHelpers::NotifyTableFileCreationStarted(
       ioptions.listeners, dbname, column_family_name, fname, job_id, reason);
 #endif  // !ROCKSDB_LITE
+  Env* env = db_options.env;
+  assert(env);
+  FileSystem* fs = db_options.fs.get();
+  assert(fs);
+  const auto& clock = env->GetSystemClock();
+
   TableProperties tp;
   if (iter->Valid() || !range_del_agg->IsEmpty()) {
     TableBuilder* builder;
     std::unique_ptr<WritableFileWriter> file_writer;
-    // Currently we only enable dictionary compression during compaction to the
-    // bottommost level.
-    CompressionOptions compression_opts_for_flush(compression_opts);
-    compression_opts_for_flush.max_dict_bytes = 0;
-    compression_opts_for_flush.zstd_max_train_bytes = 0;
     {
       std::unique_ptr<FSWritableFile> file;
 #ifndef NDEBUG
@@ -148,19 +150,20 @@ Status BuildTable(
             file_checksum, file_checksum_func_name);
         return s;
       }
+      FileTypeSet tmp_set = ioptions.checksum_handoff_file_types;
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
-
       file_writer.reset(new WritableFileWriter(
-          std::move(file), fname, file_options, env, io_tracer,
+          std::move(file), fname, file_options, clock, io_tracer,
           ioptions.statistics, ioptions.listeners,
-          ioptions.file_checksum_gen_factory));
+          ioptions.file_checksum_gen_factory,
+          tmp_set.Contains(FileType::kTableFile)));
 
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
           column_family_name, file_writer.get(), compression,
-          sample_for_compression, compression_opts_for_flush, level,
+          sample_for_compression, compression_opts, level,
           false /* skip_filters */, creation_time, oldest_key_time,
           0 /*target_file_size*/, file_creation_time, db_id, db_session_id);
     }
@@ -176,8 +179,8 @@ Status BuildTable(
             ? new BlobFileBuilder(versions, env, fs, &ioptions,
                                   &mutable_cf_options, &file_options, job_id,
                                   column_family_id, column_family_name,
-                                  io_priority, write_hint, &blob_file_paths,
-                                  blob_file_additions)
+                                  io_priority, write_hint, io_tracer,
+                                  &blob_file_paths, blob_file_additions)
             : nullptr);
 
     CompactionIterator c_iter(
@@ -185,7 +188,11 @@ Status BuildTable(
         &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
         ShouldReportDetailedTime(env, ioptions.statistics),
         true /* internal key corruption is not ok */, range_del_agg.get(),
-        blob_file_builder.get(), ioptions.allow_data_in_errors);
+        blob_file_builder.get(), ioptions.allow_data_in_errors,
+        /*compaction=*/nullptr,
+        /*compaction_filter=*/nullptr, /*shutting_down=*/nullptr,
+        /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
+        db_options.info_log, full_history_ts_low);
 
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
@@ -212,6 +219,7 @@ Status BuildTable(
     } else if (!c_iter.status().ok()) {
       s = c_iter.status();
     }
+
     if (s.ok()) {
       auto range_del_it = range_del_agg->NewIterator();
       for (range_del_it->SeekToFirst(); range_del_it->Valid();
@@ -221,10 +229,6 @@ Status BuildTable(
         builder->Add(kv.first.Encode(), kv.second);
         meta->UpdateBoundariesForRange(kv.first, tombstone.SerializeEndKey(),
                                        tombstone.seq_, internal_comparator);
-      }
-
-      if (blob_file_builder) {
-        s = blob_file_builder->Finish();
       }
     }
 
@@ -254,7 +258,7 @@ Status BuildTable(
     // Finish and check for file errors
     TEST_SYNC_POINT("BuildTable:BeforeSyncTable");
     if (s.ok() && !empty) {
-      StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
+      StopWatch sw(clock, ioptions.statistics, TABLE_SYNC_MICROS);
       *io_status = file_writer->Sync(ioptions.use_fsync);
     }
     TEST_SYNC_POINT("BuildTable:BeforeCloseTableFile");
@@ -271,6 +275,14 @@ Status BuildTable(
 
     if (s.ok()) {
       s = *io_status;
+    }
+
+    if (blob_file_builder) {
+      if (s.ok()) {
+        s = blob_file_builder->Finish();
+      }
+
+      blob_file_builder.reset();
     }
 
     // TODO Also check the IO status when create the Iterator.
@@ -318,6 +330,8 @@ Status BuildTable(
   }
 
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
+    TEST_SYNC_POINT("BuildTable:BeforeDeleteFile");
+
     constexpr IODebugContext* dbg = nullptr;
 
     Status ignored = fs->DeleteFile(fname, IOOptions(), dbg);
@@ -330,8 +344,6 @@ Status BuildTable(
         ignored = fs->DeleteFile(blob_file_path, IOOptions(), dbg);
         ignored.PermitUncheckedError();
       }
-
-      blob_file_additions->clear();
     }
   }
 

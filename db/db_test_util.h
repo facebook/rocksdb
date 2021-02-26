@@ -23,7 +23,6 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
-#include "env/mock_env.h"
 #include "file/filename.h"
 #include "memtable/hash_linklist_rep.h"
 #include "rocksdb/cache.h"
@@ -40,7 +39,6 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "table/mock_table.h"
 #include "table/scoped_arena_iterator.h"
-#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
@@ -50,6 +48,7 @@
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
+class MockEnv;
 
 namespace anon {
 class AtomicCounter {
@@ -949,10 +948,13 @@ class DBTestBase : public testing::Test {
                          const anon::OptionsOverride& options_override =
                              anon::OptionsOverride()) const;
 
-  static Options GetDefaultOptions();
+  Options GetDefaultOptions() const;
 
-  Options GetOptions(int option_config,
-                     const Options& default_options = GetDefaultOptions(),
+  Options GetOptions(int option_config) const {
+    return GetOptions(option_config, GetDefaultOptions());
+  }
+
+  Options GetOptions(int option_config, const Options& default_options,
                      const anon::OptionsOverride& options_override =
                          anon::OptionsOverride()) const;
 
@@ -1067,7 +1069,13 @@ class DBTestBase : public testing::Test {
 
   size_t CountFiles();
 
-  uint64_t Size(const Slice& start, const Slice& limit, int cf = 0);
+  Status CountFiles(size_t* count);
+
+  Status Size(const Slice& start, const Slice& limit, uint64_t* size) {
+    return Size(start, limit, 0, size);
+  }
+
+  Status Size(const Slice& start, const Slice& limit, int cf, uint64_t* size);
 
   void Compact(int cf, const Slice& start, const Slice& limit,
                uint32_t target_path_id);

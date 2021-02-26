@@ -20,10 +20,12 @@
 #include "rocksdb/advanced_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/compression_type.h"
+#include "rocksdb/data_structure.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_checksum.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/sst_partitioner.h"
+#include "rocksdb/types.h"
 #include "rocksdb/universal_compaction.h"
 #include "rocksdb/version.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -56,6 +58,8 @@ class FileSystem;
 
 struct Options;
 struct DbPath;
+
+using FileTypeSet = SmallEnumSet<FileType, FileType::kBlobFile>;
 
 struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // The function recovers options to a previous version. Only 4.6 or later
@@ -348,6 +352,8 @@ struct DbPath {
   DbPath(const std::string& p, uint64_t t) : path(p), target_size(t) {}
 };
 
+extern const char* kHostnameForDbHostId;
+
 struct DBOptions {
   // The function recovers options to the option as in version 4.6.
   DBOptions* OldDefaults(int rocksdb_major_version = 4,
@@ -389,6 +395,16 @@ struct DBOptions {
   // In most cases you want this to be set to true.
   // Default: true
   bool paranoid_checks = true;
+
+  // If true, the log numbers and sizes of the synced WALs are tracked
+  // in MANIFEST, then during DB recovery, if a synced WAL is missing
+  // from disk, or the WAL's size does not match the recorded size in
+  // MANIFEST, an error will be reported and the recovery will be aborted.
+  //
+  // Note that this option does not work with secondary instance.
+  //
+  // Default: false
+  bool track_and_verify_wals_in_manifest = false;
 
   // Use the specified object to interact with the environment,
   // e.g. to read/write files, schedule background work, etc. In the near
@@ -1166,6 +1182,29 @@ struct DBOptions {
   //
   // Default: false
   bool allow_data_in_errors = false;
+
+  // A string identifying the machine hosting the DB. This
+  // will be written as a property in every SST file written by the DB (or
+  // by offline writers such as SstFileWriter and RepairDB). It can be useful
+  // for troubleshooting in memory corruption caused by a failing host when
+  // writing a file, by tracing back to the writing host. These corruptions
+  // may not be caught by the checksum since they happen before checksumming.
+  // If left as default, the table writer will substitute it with the actual
+  // hostname when writing the SST file. If set to an empty stirng, the
+  // property will not be written to the SST file.
+  //
+  // Default: hostname
+  std::string db_host_id = kHostnameForDbHostId;
+
+  // Use this if your DB want to enable checksum handoff for specific file
+  // types writes. Make sure that the File_system you use support the
+  // crc32c checksum verification
+  // Currently supported file tyes: kWALFile, kTableFile, kDescriptorFile.
+  // NOTE: currently RocksDB only generates crc32c based checksum for the
+  // handoff. If the storage layer has different checksum support, user
+  // should enble this set as empty. Otherwise,it may cause unexpected
+  // write failures.
+  FileTypeSet checksum_handoff_file_types;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1555,6 +1594,9 @@ struct CompactRangeOptions {
   bool allow_write_stall = false;
   // If > 0, it will replace the option in the DBOptions for this compaction.
   uint32_t max_subcompactions = 0;
+  // Set user-defined timestamp low bound, the data with older timestamp than
+  // low bound maybe GCed by compaction. Default: nullptr
+  Slice* full_history_ts_low = nullptr;
 };
 
 // IngestExternalFileOptions is used by IngestExternalFile()

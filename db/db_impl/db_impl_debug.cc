@@ -22,12 +22,13 @@ uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   return default_cf_handle_->cfd()->current()->storage_info()->NumLevelBytes(0);
 }
 
-void DBImpl::TEST_SwitchWAL() {
+Status DBImpl::TEST_SwitchWAL() {
   WriteContext write_context;
   InstrumentedMutexLock l(&mutex_);
   void* writer = TEST_BeginWrite();
-  SwitchWAL(&write_context);
+  auto s = SwitchWAL(&write_context);
   TEST_EndWrite(writer);
+  return s;
 }
 
 bool DBImpl::TEST_WALBufferIsEmpty(bool lock) {
@@ -170,9 +171,14 @@ Status DBImpl::TEST_WaitForCompact(bool wait_unscheduled) {
   while ((bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
           bg_flush_scheduled_ ||
           (wait_unscheduled && unscheduled_compactions_)) &&
-         (error_handler_.GetBGError() == Status::OK())) {
+         (error_handler_.GetBGError().ok())) {
     bg_cv_.Wait();
   }
+  return error_handler_.GetBGError();
+}
+
+Status DBImpl::TEST_GetBGError() {
+  InstrumentedMutexLock l(&mutex_);
   return error_handler_.GetBGError();
 }
 

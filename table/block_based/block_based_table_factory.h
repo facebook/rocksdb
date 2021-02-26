@@ -46,6 +46,9 @@ class BlockBasedTableFactory : public TableFactory {
 
   ~BlockBasedTableFactory() {}
 
+  // Method to allow CheckedCast to work for this class
+  static const char* kClassName() { return kBlockBasedTableName(); }
+
   const char* Name() const override { return kBlockBasedTableName(); }
 
   using TableFactory::NewTableReader;

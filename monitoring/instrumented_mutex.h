@@ -7,8 +7,8 @@
 
 #include "monitoring/statistics.h"
 #include "port/port.h"
-#include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/thread_status.h"
 #include "util/stop_watch.h"
 
@@ -20,13 +20,18 @@ class InstrumentedCondVar;
 class InstrumentedMutex {
  public:
   explicit InstrumentedMutex(bool adaptive = false)
-      : mutex_(adaptive), stats_(nullptr), env_(nullptr),
-        stats_code_(0) {}
+      : mutex_(adaptive), stats_(nullptr), clock_(nullptr), stats_code_(0) {}
 
-  InstrumentedMutex(
-      Statistics* stats, Env* env,
-      int stats_code, bool adaptive = false)
-      : mutex_(adaptive), stats_(stats), env_(env),
+  explicit InstrumentedMutex(const std::shared_ptr<SystemClock>& clock,
+                             bool adaptive = false)
+      : mutex_(adaptive), stats_(nullptr), clock_(clock), stats_code_(0) {}
+
+  InstrumentedMutex(Statistics* stats,
+                    const std::shared_ptr<SystemClock>& clock, int stats_code,
+                    bool adaptive = false)
+      : mutex_(adaptive),
+        stats_(stats),
+        clock_(clock),
         stats_code_(stats_code) {}
 
   void Lock();
@@ -44,7 +49,7 @@ class InstrumentedMutex {
   friend class InstrumentedCondVar;
   port::Mutex mutex_;
   Statistics* stats_;
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
   int stats_code_;
 };
 
@@ -71,7 +76,7 @@ class InstrumentedCondVar {
   explicit InstrumentedCondVar(InstrumentedMutex* instrumented_mutex)
       : cond_(&(instrumented_mutex->mutex_)),
         stats_(instrumented_mutex->stats_),
-        env_(instrumented_mutex->env_),
+        clock_(instrumented_mutex->clock_),
         stats_code_(instrumented_mutex->stats_code_) {}
 
   void Wait();
@@ -91,7 +96,7 @@ class InstrumentedCondVar {
   bool TimedWaitInternal(uint64_t abs_time_us);
   port::CondVar cond_;
   Statistics* stats_;
-  Env* env_;
+  const std::shared_ptr<SystemClock> clock_;
   int stats_code_;
 };
 

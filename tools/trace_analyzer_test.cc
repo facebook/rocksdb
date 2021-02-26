@@ -57,7 +57,11 @@ class TraceAnalyzerTest : public testing::Test {
     Options options;
     options.create_if_missing = true;
     options.merge_operator = MergeOperators::CreatePutOperator();
+    Slice upper_bound("a");
+    Slice lower_bound("abce");
     ReadOptions ro;
+    ro.iterate_upper_bound = &upper_bound;
+    ro.iterate_lower_bound = &lower_bound;
     WriteOptions wo;
     TraceOptions trace_opt;
     DB* db_ = nullptr;
@@ -81,11 +85,13 @@ class TraceAnalyzerTest : public testing::Test {
     ASSERT_OK(db_->Get(ro, "a", &value));
     single_iter = db_->NewIterator(ro);
     single_iter->Seek("a");
+    ASSERT_OK(single_iter->status());
     single_iter->SeekForPrev("b");
+    ASSERT_OK(single_iter->status());
     delete single_iter;
     std::this_thread::sleep_for (std::chrono::seconds(1));
 
-    db_->Get(ro, "g", &value);
+    db_->Get(ro, "g", &value).PermitUncheckedError();
 
     ASSERT_OK(db_->EndTrace());
 
@@ -120,9 +126,12 @@ class TraceAnalyzerTest : public testing::Test {
 
   void CheckFileContent(const std::vector<std::string>& cnt,
                         std::string file_path, bool full_content) {
-    ASSERT_OK(env_->FileExists(file_path));
-    std::unique_ptr<SequentialFile> f_ptr;
-    ASSERT_OK(env_->NewSequentialFile(file_path, &f_ptr, env_options_));
+    const auto& fs = env_->GetFileSystem();
+    FileOptions fopts(env_options_);
+
+    ASSERT_OK(fs->FileExists(file_path, fopts.io_options, nullptr));
+    std::unique_ptr<FSSequentialFile> file;
+    ASSERT_OK(fs->NewSequentialFile(file_path, fopts, &file, nullptr));
 
     std::string get_line;
     std::istringstream iss;
@@ -130,8 +139,6 @@ class TraceAnalyzerTest : public testing::Test {
     std::vector<std::string> result;
     uint32_t count;
     Status s;
-    std::unique_ptr<FSSequentialFile> file =
-        NewLegacySequentialFileWrapper(f_ptr);
     SequentialFileReader sf_reader(std::move(file), file_path,
                                    4096 /* filereadahead_size */);
 

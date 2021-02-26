@@ -15,6 +15,13 @@
 #include <gtest/gtest.h>
 #endif
 
+// If GTEST_SKIP is available, use it. Otherwise, define skip as success
+#ifdef GTEST_SKIP_
+#define ROCKSDB_GTEST_SKIP(m) GTEST_SKIP_(m)
+#else
+#define ROCKSDB_GTEST_SKIP(m) GTEST_SUCCESS_("SKIPPED: " m)
+#endif
+
 #include <string>
 #include "rocksdb/env.h"
 

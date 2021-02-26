@@ -71,7 +71,6 @@
 #include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "db/write_batch_internal.h"
-#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
@@ -312,7 +311,7 @@ class Repairer {
             if (number + 1 > next_file_number_) {
               next_file_number_ = number + 1;
             }
-            if (type == kLogFile) {
+            if (type == kWalFile) {
               logs_.push_back(number);
             } else if (type == kTableFile) {
               table_fds_.emplace_back(number, static_cast<uint32_t>(path_id),
@@ -358,14 +357,14 @@ class Repairer {
 
     // Open the log file
     std::string logname = LogFileName(db_options_.wal_dir, log);
-    std::unique_ptr<SequentialFile> lfile;
-    Status status = env_->NewSequentialFile(
-        logname, &lfile, env_->OptimizeForLogRead(env_options_));
+    const auto& fs = env_->GetFileSystem();
+    std::unique_ptr<SequentialFileReader> lfile_reader;
+    Status status = SequentialFileReader::Create(
+        fs, logname, fs->OptimizeForLogRead(env_options_), &lfile_reader,
+        nullptr);
     if (!status.ok()) {
       return status;
     }
-    std::unique_ptr<SequentialFileReader> lfile_reader(new SequentialFileReader(
-        NewLegacySequentialFileWrapper(lfile), logname));
 
     // Create the log reader.
     LogReporter reporter;
@@ -439,12 +438,11 @@ class Repairer {
         range_del_iters.emplace_back(range_del_iter);
       }
 
-      LegacyFileSystemWrapper fs(env_);
       IOStatus io_s;
       status = BuildTable(
-          dbname_, /* versions */ nullptr, env_, &fs, *cfd->ioptions(),
-          *cfd->GetLatestMutableCFOptions(), env_options_, table_cache_.get(),
-          iter.get(), std::move(range_del_iters), &meta,
+          dbname_, /* versions */ nullptr, immutable_db_options_,
+          *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(), env_options_,
+          table_cache_.get(), iter.get(), std::move(range_del_iters), &meta,
           nullptr /* blob_file_additions */, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
           {}, kMaxSequenceNumber, snapshot_checker, kNoCompression,
@@ -554,10 +552,12 @@ class Repairer {
       ParsedInternalKey parsed;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
-        if (ParseInternalKey(key, &parsed) != Status::OK()) {
+        Status pik_status =
+            ParseInternalKey(key, &parsed, db_options_.allow_data_in_errors);
+        if (!pik_status.ok()) {
           ROCKS_LOG_ERROR(db_options_.info_log,
-                          "Table #%" PRIu64 ": unparsable key %s",
-                          t->meta.fd.GetNumber(), EscapeString(key).c_str());
+                          "Table #%" PRIu64 ": unparsable key - %s",
+                          t->meta.fd.GetNumber(), pik_status.getState());
           continue;
         }
 

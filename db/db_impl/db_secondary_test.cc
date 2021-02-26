@@ -104,7 +104,7 @@ void DBSecondaryTest::CheckFileTypeCounts(const std::string& dir,
     uint64_t number;
     FileType type;
     if (ParseFileName(file, &number, &type)) {
-      log_cnt += (type == kLogFile);
+      log_cnt += (type == kWalFile);
       sst_cnt += (type == kTableFile);
       manifest_cnt += (type == kDescriptorFile);
     }
@@ -748,10 +748,12 @@ TEST_F(DBSecondaryTest, SwitchWALMultiColumnFamilies) {
     }
   };
   for (int k = 0; k != 8; ++k) {
-    ASSERT_OK(
-        Put(0 /*cf*/, "key" + std::to_string(k), "value" + std::to_string(k)));
-    ASSERT_OK(
-        Put(1 /*cf*/, "key" + std::to_string(k), "value" + std::to_string(k)));
+    for (int j = 0; j < 2; ++j) {
+      ASSERT_OK(Put(0 /*cf*/, "key" + std::to_string(k),
+                    "value" + std::to_string(k)));
+      ASSERT_OK(Put(1 /*cf*/, "key" + std::to_string(k),
+                    "value" + std::to_string(k)));
+    }
     TEST_SYNC_POINT(
         "DBSecondaryTest::SwitchWALMultipleColumnFamilies:BeforeCatchUp");
     ASSERT_OK(db_secondary_->TryCatchUpWithPrimary());
@@ -883,6 +885,7 @@ TEST_F(DBSecondaryTest, StartFromInconsistent) {
       });
   SyncPoint::GetInstance()->EnableProcessing();
   Options options1;
+  options1.env = env_;
   Status s = TryOpenSecondary(options1);
   ASSERT_TRUE(s.IsCorruption());
 }
@@ -894,6 +897,7 @@ TEST_F(DBSecondaryTest, InconsistencyDuringCatchUp) {
   ASSERT_OK(Flush());
 
   Options options1;
+  options1.env = env_;
   OpenSecondary(options1);
 
   {

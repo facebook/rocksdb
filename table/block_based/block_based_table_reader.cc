@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "cache/sharded_cache.h"
-
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "file/file_prefetch_buffer.h"
@@ -24,6 +23,7 @@
 #include "file/random_access_file_reader.h"
 #include "monitoring/perf_context_imp.h"
 #include "options/options_helper.h"
+#include "port/lang.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -32,6 +32,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based/binary_search_index_reader.h"
@@ -54,27 +55,17 @@
 #include "table/persistent_cache_helper.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/two_level_iterator.h"
-
-#include "monitoring/perf_context_imp.h"
-#include "port/lang.h"
 #include "test_util/sync_point.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
-#include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 extern const uint64_t kBlockBasedTableMagicNumber;
 extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
-
-typedef BlockBasedTable::IndexReader IndexReader;
-
-// Found that 256 KB readahead size provides the best performance, based on
-// experiments, for auto readahead. Experiment data is in PR #3282.
-const size_t BlockBasedTable::kMaxAutoReadaheadSize = 256 * 1024;
 
 BlockBasedTable::~BlockBasedTable() {
   delete rep_;
@@ -612,6 +603,10 @@ Status BlockBasedTable::Open(
     s = PrefetchTail(ro, file.get(), file_size, force_direct_prefetch,
                      tail_prefetch_stats, prefetch_all, preload_all,
                      &prefetch_buffer);
+    // Return error in prefetch path to users.
+    if (!s.ok()) {
+      return s;
+    }
   } else {
     // Should not prefetch for mmap mode.
     prefetch_buffer.reset(new FilePrefetchBuffer(
@@ -627,7 +622,7 @@ Status BlockBasedTable::Open(
   //    6. [meta block: index]
   //    7. [meta block: filter]
   IOOptions opts;
-  s = PrepareIOFromReadOptions(ro, file->env(), opts);
+  s = file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
     s = ReadFooterFromFile(opts, file.get(), prefetch_buffer.get(), file_size,
                            &footer, kBlockBasedTableMagicNumber);
@@ -760,7 +755,7 @@ Status BlockBasedTable::PrefetchTail(
   // Use `FilePrefetchBuffer`
   prefetch_buffer->reset(new FilePrefetchBuffer(nullptr, 0, 0, true, true));
   IOOptions opts;
-  Status s = PrepareIOFromReadOptions(ro, file->env(), opts);
+  Status s = file->PrepareIOOptions(ro, opts);
   if (s.ok()) {
     s = (*prefetch_buffer)->Prefetch(opts, file, prefetch_off, prefetch_len);
   }
@@ -974,6 +969,9 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
       }
     }
   }
+  // Partition filters cannot be enabled without partition indexes
+  assert(rep_->filter_type != Rep::FilterType::kPartitionedFilter ||
+         rep_->index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
 
   // Find compression dictionary handle
   bool found_compression_dict = false;
@@ -987,20 +985,53 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
 
   const bool use_cache = table_options.cache_index_and_filter_blocks;
 
-  // pin both index and filters, down to all partitions.
-  const bool pin_all =
-      rep_->table_options.pin_l0_filter_and_index_blocks_in_cache &&
+  const bool maybe_flushed =
       level == 0 && file_size <= max_file_size_for_l0_meta_pin;
+  std::function<bool(PinningTier, PinningTier)> is_pinned =
+      [maybe_flushed, &is_pinned](PinningTier pinning_tier,
+                                  PinningTier fallback_pinning_tier) {
+        // Fallback to fallback would lead to infinite recursion. Disallow it.
+        assert(fallback_pinning_tier != PinningTier::kFallback);
 
-  // prefetch the first level of index
-  const bool prefetch_index =
-      prefetch_all ||
-      (table_options.pin_top_level_index_and_filter &&
-       index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
+        switch (pinning_tier) {
+          case PinningTier::kFallback:
+            return is_pinned(fallback_pinning_tier,
+                             PinningTier::kNone /* fallback_pinning_tier */);
+          case PinningTier::kNone:
+            return false;
+          case PinningTier::kFlushedAndSimilar:
+            return maybe_flushed;
+          case PinningTier::kAll:
+            return true;
+        };
+
+        // In GCC, this is needed to suppress `control reaches end of non-void
+        // function [-Werror=return-type]`.
+        assert(false);
+        return false;
+      };
+  const bool pin_top_level_index = is_pinned(
+      table_options.metadata_cache_options.top_level_index_pinning,
+      table_options.pin_top_level_index_and_filter ? PinningTier::kAll
+                                                   : PinningTier::kNone);
+  const bool pin_partition =
+      is_pinned(table_options.metadata_cache_options.partition_pinning,
+                table_options.pin_l0_filter_and_index_blocks_in_cache
+                    ? PinningTier::kFlushedAndSimilar
+                    : PinningTier::kNone);
+  const bool pin_unpartitioned =
+      is_pinned(table_options.metadata_cache_options.unpartitioned_pinning,
+                table_options.pin_l0_filter_and_index_blocks_in_cache
+                    ? PinningTier::kFlushedAndSimilar
+                    : PinningTier::kNone);
+
   // pin the first level of index
   const bool pin_index =
-      pin_all || (table_options.pin_top_level_index_and_filter &&
-                  index_type == BlockBasedTableOptions::kTwoLevelIndexSearch);
+      index_type == BlockBasedTableOptions::kTwoLevelIndexSearch
+          ? pin_top_level_index
+          : pin_unpartitioned;
+  // prefetch the first level of index
+  const bool prefetch_index = prefetch_all || pin_index;
 
   std::unique_ptr<IndexReader> index_reader;
   s = new_table->CreateIndexReader(ro, prefetch_buffer, meta_iter, use_cache,
@@ -1015,44 +1046,43 @@ Status BlockBasedTable::PrefetchIndexAndFilterBlocks(
   // The partitions of partitioned index are always stored in cache. They
   // are hence follow the configuration for pin and prefetch regardless of
   // the value of cache_index_and_filter_blocks
-  if (prefetch_all) {
-    s = rep_->index_reader->CacheDependencies(ro, pin_all);
+  if (prefetch_all || pin_partition) {
+    s = rep_->index_reader->CacheDependencies(ro, pin_partition);
   }
   if (!s.ok()) {
     return s;
   }
 
-  // prefetch the first level of filter
-  const bool prefetch_filter =
-      prefetch_all ||
-      (table_options.pin_top_level_index_and_filter &&
-       rep_->filter_type == Rep::FilterType::kPartitionedFilter);
-  // Partition fitlers cannot be enabled without partition indexes
-  assert(!prefetch_filter || prefetch_index);
   // pin the first level of filter
   const bool pin_filter =
-      pin_all || (table_options.pin_top_level_index_and_filter &&
-                  rep_->filter_type == Rep::FilterType::kPartitionedFilter);
+      rep_->filter_type == Rep::FilterType::kPartitionedFilter
+          ? pin_top_level_index
+          : pin_unpartitioned;
+  // prefetch the first level of filter
+  const bool prefetch_filter = prefetch_all || pin_filter;
 
   if (rep_->filter_policy) {
     auto filter = new_table->CreateFilterBlockReader(
         ro, prefetch_buffer, use_cache, prefetch_filter, pin_filter,
         lookup_context);
+
     if (filter) {
       // Refer to the comment above about paritioned indexes always being cached
-      if (prefetch_all) {
-        filter->CacheDependencies(ro, pin_all);
+      if (prefetch_all || pin_partition) {
+        s = filter->CacheDependencies(ro, pin_partition);
+        if (!s.ok()) {
+          return s;
+        }
       }
-
       rep_->filter = std::move(filter);
     }
   }
 
   if (!rep_->compression_dict_handle.IsNull()) {
     std::unique_ptr<UncompressionDictReader> uncompression_dict_reader;
-    s = UncompressionDictReader::Create(this, ro, prefetch_buffer, use_cache,
-                                        prefetch_all, pin_all, lookup_context,
-                                        &uncompression_dict_reader);
+    s = UncompressionDictReader::Create(
+        this, ro, prefetch_buffer, use_cache, prefetch_all || pin_unpartitioned,
+        pin_unpartitioned, lookup_context, &uncompression_dict_reader);
     if (!s.ok()) {
       return s;
     }
@@ -1471,7 +1501,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       CompressionType raw_block_comp_type;
       BlockContents raw_block_contents;
       if (!contents) {
-        StopWatch sw(rep_->ioptions.env, statistics, READ_BLOCK_GET_MICROS);
+        StopWatch sw(rep_->clock, statistics, READ_BLOCK_GET_MICROS);
         BlockFetcher block_fetcher(
             rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle,
             &raw_block_contents, rep_->ioptions, do_uncompress,
@@ -1482,6 +1512,21 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         s = block_fetcher.ReadBlockContents();
         raw_block_comp_type = block_fetcher.get_compression_type();
         contents = &raw_block_contents;
+        if (get_context) {
+          switch (block_type) {
+            case BlockType::kIndex:
+              ++get_context->get_context_stats_.num_index_read;
+              break;
+            case BlockType::kFilter:
+              ++get_context->get_context_stats_.num_filter_read;
+              break;
+            case BlockType::kData:
+              ++get_context->get_context_stats_.num_data_read;
+              break;
+            default:
+              break;
+          }
+        }
       } else {
         raw_block_comp_type = contents->get_compression_type();
       }
@@ -1545,7 +1590,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       // Avoid making copy of block_key and cf_name when constructing the access
       // record.
       BlockCacheTraceRecord access_record(
-          rep_->ioptions.env->NowMicros(),
+          rep_->clock->NowMicros(),
           /*block_key=*/"", trace_block_type,
           /*block_size=*/usage, rep_->cf_id_for_tracing(),
           /*cf_name=*/"", rep_->level_for_tracing(),
@@ -1553,9 +1598,11 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
           no_insert, lookup_context->get_id,
           lookup_context->get_from_user_specified_snapshot,
           /*referenced_key=*/"");
-      block_cache_tracer_->WriteBlockAccess(access_record, key,
-                                            rep_->cf_name_for_tracing(),
-                                            lookup_context->referenced_key);
+      // TODO: Should handle this error?
+      block_cache_tracer_
+          ->WriteBlockAccess(access_record, key, rep_->cf_name_for_tracing(),
+                             lookup_context->referenced_key)
+          .PermitUncheckedError();
     }
   }
 
@@ -1686,7 +1733,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
   AlignedBuf direct_io_buf;
   {
     IOOptions opts;
-    IOStatus s = PrepareIOFromReadOptions(options, file->env(), opts);
+    IOStatus s = file->PrepareIOOptions(options, opts);
     if (s.IsTimedOut()) {
       for (FSReadRequest& req : read_reqs) {
         req.status = s;
@@ -1714,6 +1761,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     size_t& req_idx = req_idx_for_block[valid_batch_idx];
     size_t& req_offset = req_offset_for_block[valid_batch_idx];
     valid_batch_idx++;
+    if (mget_iter->get_context) {
+      ++(mget_iter->get_context->get_context_stats_.num_data_read);
+    }
     FSReadRequest& req = read_reqs[req_idx];
     Status s = req.status;
     if (s.ok()) {
@@ -1767,13 +1817,21 @@ void BlockBasedTable::RetrieveMultipleBlocks(
 
     if (s.ok()) {
       // When the blocks share the same underlying buffer (scratch or direct io
-      // buffer), if the block is compressed, the shared buffer will be
-      // uncompressed into heap during uncompressing; otherwise, we need to
-      // manually copy the block into heap before inserting the block to block
-      // cache.
+      // buffer), we may need to manually copy the block into heap if the raw
+      // block has to be inserted into a cache. That falls into th following
+      // cases -
+      // 1. Raw block is not compressed, it needs to be inserted into the
+      //    uncompressed block cache if there is one
+      // 2. If the raw block is compressed, it needs to be inserted into the
+      //    compressed block cache if there is one
+      //
+      // In all other cases, the raw block is either uncompressed into a heap
+      // buffer or there is no cache at all.
       CompressionType compression_type =
           raw_block_contents.get_compression_type();
-      if (use_shared_buffer && compression_type == kNoCompression) {
+      if (use_shared_buffer && (compression_type == kNoCompression ||
+                                (compression_type != kNoCompression &&
+                                 rep_->table_options.block_cache_compressed))) {
         Slice raw = Slice(req.result.data() + req_offset, block_size(handle));
         raw_block_contents = BlockContents(
             CopyBufferToHeap(GetMemoryAllocator(rep_->table_options), raw),
@@ -1877,8 +1935,7 @@ Status BlockBasedTable::RetrieveBlock(
   std::unique_ptr<TBlocklike> block;
 
   {
-    StopWatch sw(rep_->ioptions.env, rep_->ioptions.statistics,
-                 READ_BLOCK_GET_MICROS);
+    StopWatch sw(rep_->clock, rep_->ioptions.statistics, READ_BLOCK_GET_MICROS);
     s = ReadBlockFromFile(
         rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
         rep_->ioptions, do_uncompress, maybe_compressed, block_type,
@@ -1889,6 +1946,22 @@ Status BlockBasedTable::RetrieveBlock(
         GetMemoryAllocator(rep_->table_options), for_compaction,
         rep_->blocks_definitely_zstd_compressed,
         rep_->table_options.filter_policy.get());
+
+    if (get_context) {
+      switch (block_type) {
+        case BlockType::kIndex:
+          ++(get_context->get_context_stats_.num_index_read);
+          break;
+        case BlockType::kFilter:
+          ++(get_context->get_context_stats_.num_filter_read);
+          break;
+        case BlockType::kData:
+          ++(get_context->get_context_stats_.num_data_read);
+          break;
+        default:
+          break;
+      }
+    }
   }
 
   if (!s.ok()) {
@@ -1957,6 +2030,7 @@ BlockBasedTable::PartitionedIndexIteratorState::NewSecondaryIterator(
         rep->index_value_is_full);
   }
   // Create an empty iterator
+  // TODO(ajkr): this is not the right way to handle an unpinned partition.
   return new IndexBlockIter();
 }
 
@@ -1993,8 +2067,10 @@ bool BlockBasedTable::PrefixMayMatch(
   } else {
     prefix_extractor = rep_->table_prefix_extractor.get();
   }
-  auto user_key = ExtractUserKey(internal_key);
-  if (!prefix_extractor->InDomain(user_key)) {
+  auto ts_sz = rep_->internal_comparator.user_comparator()->timestamp_size();
+  auto user_key_without_ts =
+      ExtractUserKeyAndStripTimestamp(internal_key, ts_sz);
+  if (!prefix_extractor->InDomain(user_key_without_ts)) {
     return true;
   }
 
@@ -2009,15 +2085,16 @@ bool BlockBasedTable::PrefixMayMatch(
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
       may_match = filter->RangeMayExist(
-          read_options.iterate_upper_bound, user_key, prefix_extractor,
-          rep_->internal_comparator.user_comparator(), const_ikey_ptr,
-          &filter_checked, need_upper_bound_check, no_io, lookup_context);
+          read_options.iterate_upper_bound, user_key_without_ts,
+          prefix_extractor, rep_->internal_comparator.user_comparator(),
+          const_ikey_ptr, &filter_checked, need_upper_bound_check, no_io,
+          lookup_context);
     } else {
       // if prefix_extractor changed for block based filter, skip filter
       if (need_upper_bound_check) {
         return true;
       }
-      auto prefix = prefix_extractor->Transform(user_key);
+      auto prefix = prefix_extractor->Transform(user_key_without_ts);
       InternalKey internal_key_prefix(prefix, kMaxSequenceNumber, kTypeValue);
       auto internal_prefix = internal_key_prefix.Encode();
 
@@ -2137,21 +2214,20 @@ bool BlockBasedTable::FullFilterKeyMayMatch(
   Slice user_key = ExtractUserKey(internal_key);
   const Slice* const const_ikey_ptr = &internal_key;
   bool may_match = true;
+  size_t ts_sz = rep_->internal_comparator.user_comparator()->timestamp_size();
+  Slice user_key_without_ts = StripTimestampFromUserKey(user_key, ts_sz);
   if (rep_->whole_key_filtering) {
-    size_t ts_sz =
-        rep_->internal_comparator.user_comparator()->timestamp_size();
-    Slice user_key_without_ts = StripTimestampFromUserKey(user_key, ts_sz);
     may_match =
         filter->KeyMayMatch(user_key_without_ts, prefix_extractor, kNotValid,
                             no_io, const_ikey_ptr, get_context, lookup_context);
   } else if (!read_options.total_order_seek && prefix_extractor &&
              rep_->table_properties->prefix_extractor_name.compare(
                  prefix_extractor->Name()) == 0 &&
-             prefix_extractor->InDomain(user_key) &&
-             !filter->PrefixMayMatch(prefix_extractor->Transform(user_key),
-                                     prefix_extractor, kNotValid, no_io,
-                                     const_ikey_ptr, get_context,
-                                     lookup_context)) {
+             prefix_extractor->InDomain(user_key_without_ts) &&
+             !filter->PrefixMayMatch(
+                 prefix_extractor->Transform(user_key_without_ts),
+                 prefix_extractor, kNotValid, no_io, const_ikey_ptr,
+                 get_context, lookup_context)) {
     may_match = false;
   }
   if (may_match) {
@@ -2321,8 +2397,10 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         // Call the *saver function on each entry/block until it returns false
         for (; biter.Valid(); biter.Next()) {
           ParsedInternalKey parsed_key;
-          if (ParseInternalKey(biter.key(), &parsed_key) != Status::OK()) {
-            s = Status::Corruption(Slice());
+          Status pik_status = ParseInternalKey(
+              biter.key(), &parsed_key, false /* log_err_key */);  // TODO
+          if (!pik_status.ok()) {
+            s = pik_status;
           }
 
           if (!get_context->SaveValue(
@@ -2349,7 +2427,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           referenced_key = key;
         }
         BlockCacheTraceRecord access_record(
-            rep_->ioptions.env->NowMicros(),
+            rep_->clock->NowMicros(),
             /*block_key=*/"", lookup_data_block_context.block_type,
             lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
             /*cf_name=*/"", rep_->level_for_tracing(),
@@ -2361,9 +2439,12 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
             /*referenced_key=*/"", referenced_data_size,
             lookup_data_block_context.num_keys_in_block,
             does_referenced_key_exist);
-        block_cache_tracer_->WriteBlockAccess(
-            access_record, lookup_data_block_context.block_key,
-            rep_->cf_name_for_tracing(), referenced_key);
+        // TODO: Should handle status here?
+        block_cache_tracer_
+            ->WriteBlockAccess(access_record,
+                               lookup_data_block_context.block_key,
+                               rep_->cf_name_for_tracing(), referenced_key)
+            .PermitUncheckedError();
       }
 
       if (done) {
@@ -2553,6 +2634,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         }
         RetrieveMultipleBlocks(read_options, &data_block_range, &block_handles,
                                &statuses, &results, scratch, dict);
+        if (sst_file_range.begin()->get_context) {
+          ++(sst_file_range.begin()
+                 ->get_context->get_context_stats_.num_sst_read);
+        }
       }
     }
 
@@ -2638,8 +2723,10 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           ParsedInternalKey parsed_key;
           Cleanable dummy;
           Cleanable* value_pinner = nullptr;
-          if (ParseInternalKey(biter->key(), &parsed_key) != Status::OK()) {
-            s = Status::Corruption(Slice());
+          Status pik_status = ParseInternalKey(
+              biter->key(), &parsed_key, false /* log_err_key */);  // TODO
+          if (!pik_status.ok()) {
+            s = pik_status;
           }
           if (biter->IsValuePinned()) {
             if (reusing_block) {
@@ -2676,7 +2763,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
             referenced_key = key;
           }
           BlockCacheTraceRecord access_record(
-              rep_->ioptions.env->NowMicros(),
+              rep_->clock->NowMicros(),
               /*block_key=*/"", lookup_data_block_context.block_type,
               lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
               /*cf_name=*/"", rep_->level_for_tracing(),
@@ -2688,9 +2775,12 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
               /*referenced_key=*/"", referenced_data_size,
               lookup_data_block_context.num_keys_in_block,
               does_referenced_key_exist);
-          block_cache_tracer_->WriteBlockAccess(
-              access_record, lookup_data_block_context.block_key,
-              rep_->cf_name_for_tracing(), referenced_key);
+          // TODO: Should handle status here?
+          block_cache_tracer_
+              ->WriteBlockAccess(access_record,
+                                 lookup_data_block_context.block_key,
+                                 rep_->cf_name_for_tracing(), referenced_key)
+              .PermitUncheckedError();
         }
         s = biter->status();
         if (done) {
@@ -2826,11 +2916,11 @@ Status BlockBasedTable::VerifyChecksumInBlocks(
   // increasing of the buffer size.
   size_t readahead_size = (read_options.readahead_size != 0)
                               ? read_options.readahead_size
-                              : kMaxAutoReadaheadSize;
+                              : rep_->table_options.max_auto_readahead_size;
   // FilePrefetchBuffer doesn't work in mmap mode and readahead is not
   // needed there.
   FilePrefetchBuffer prefetch_buffer(
-      rep_->file.get(), readahead_size /* readadhead_size */,
+      rep_->file.get(), readahead_size /* readahead_size */,
       readahead_size /* max_readahead_size */,
       !rep_->ioptions.allow_mmap_reads /* enable */);
 

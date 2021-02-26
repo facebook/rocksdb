@@ -421,8 +421,8 @@ jlongArray Java_org_rocksdb_RocksDB_createColumnFamilies__J_3J_3_3B(
   std::vector<ROCKSDB_NAMESPACE::ColumnFamilyDescriptor> cf_descriptors;
   cf_descriptors.reserve(jlen);
 
-  jboolean jcf_options_handles_is_copy = JNI_FALSE;
-  jlong *jcf_options_handles_elems = env->GetLongArrayElements(jcf_options_handles, &jcf_options_handles_is_copy);
+  jlong* jcf_options_handles_elems =
+      env->GetLongArrayElements(jcf_options_handles, nullptr);
   if(jcf_options_handles_elems == nullptr) {
       // exception thrown: OutOfMemoryError
       return nullptr;
@@ -2343,9 +2343,7 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateSizes(
   const jsize jlen = env->GetArrayLength(jrange_slice_handles);
   const size_t range_count = jlen / 2;
 
-  jboolean jranges_is_copy = JNI_FALSE;
-  jlong* jranges = env->GetLongArrayElements(jrange_slice_handles,
-      &jranges_is_copy);
+  jlong* jranges = env->GetLongArrayElements(jrange_slice_handles, nullptr);
   if (jranges == nullptr) {
     // exception thrown: OutOfMemoryError
     return nullptr;
@@ -3256,9 +3254,8 @@ jobject Java_org_rocksdb_RocksDB_getPropertiesOfTablesInRange(
         reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyHandle*>(jcf_handle);
   }
   const jsize jlen = env->GetArrayLength(jrange_slice_handles);
-  jboolean jrange_slice_handles_is_copy = JNI_FALSE;
-  jlong *jrange_slice_handle = env->GetLongArrayElements(
-      jrange_slice_handles, &jrange_slice_handles_is_copy);
+  jlong* jrange_slice_handle =
+      env->GetLongArrayElements(jrange_slice_handles, nullptr);
   if (jrange_slice_handle == nullptr) {
     // exception occurred
     return nullptr;

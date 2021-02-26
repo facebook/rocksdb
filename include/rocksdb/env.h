@@ -30,6 +30,7 @@
 // Windows API macro interference
 #undef DeleteFile
 #undef GetCurrentTime
+#undef LoadLibrary
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -58,6 +59,7 @@ class RateLimiter;
 class ThreadStatusUpdater;
 struct ThreadStatus;
 class FileSystem;
+class SystemClock;
 
 const size_t kDefaultPageSize = 4 * 1024;
 
@@ -149,8 +151,11 @@ class Env {
   };
 
   Env();
-  // Construct an Env with a separate FileSystem implementation
-  Env(std::shared_ptr<FileSystem> fs);
+  // Construct an Env with a separate FileSystem and/or SystemClock
+  // implementation
+  explicit Env(const std::shared_ptr<FileSystem>& fs);
+  Env(const std::shared_ptr<FileSystem>& fs,
+      const std::shared_ptr<SystemClock>& clock);
   // No copying allowed
   Env(const Env&) = delete;
   void operator=(const Env&) = delete;
@@ -282,7 +287,8 @@ class Env {
   virtual Status FileExists(const std::string& fname) = 0;
 
   // Store in *result the names of the children of the specified directory.
-  // The names are relative to "dir".
+  // The names are relative to "dir", and shall never include the
+  // names `.` or `..`.
   // Original contents of *results are dropped.
   // Returns OK if "dir" exists and "*result" contains its children.
   //         NotFound if "dir" does not exist, the calling process does not have
@@ -295,7 +301,8 @@ class Env {
   // In case the implementation lists the directory prior to iterating the files
   // and files are concurrently deleted, the deleted files will be omitted from
   // result.
-  // The name attributes are relative to "dir".
+  // The name attributes are relative to "dir", and shall never include the
+  // names `.` or `..`.
   // Original contents of *results are dropped.
   // Returns OK if "dir" exists and "*result" contains its children.
   //         NotFound if "dir" does not exist, the calling process does not have
@@ -452,8 +459,14 @@ class Env {
   // Sleep/delay the thread for the prescribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
 
-  // Get the current host name.
+  // Get the current host name as a null terminated string iff the string
+  // length is < len. The hostname should otherwise be truncated to len.
   virtual Status GetHostName(char* name, uint64_t len) = 0;
+
+  // Get the current hostname from the given env as a std::string in result.
+  // The result may be truncated if the hostname is too
+  // long
+  virtual Status GetHostNameString(std::string* result);
 
   // Get the number of seconds since the Epoch, 1970-01-01 00:00:00 (UTC).
   // Only overwrites *unix_time on success.
@@ -567,6 +580,10 @@ class Env {
   // could be a fully implemented one, or a wrapper class around the Env
   const std::shared_ptr<FileSystem>& GetFileSystem() const;
 
+  // Get the SystemClock implementation this Env was constructed with. It
+  // could be a fully implemented one, or a wrapper class around the Env
+  const std::shared_ptr<SystemClock>& GetSystemClock() const;
+
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
  protected:
@@ -576,6 +593,12 @@ class Env {
 
   // Pointer to the underlying FileSystem implementation
   std::shared_ptr<FileSystem> file_system_;
+
+  // Pointer to the underlying SystemClock implementation
+  std::shared_ptr<SystemClock> system_clock_;
+
+ private:
+  static const size_t kMaxHostNameLen = 256;
 };
 
 // The factory function to construct a ThreadStatusUpdater.  Any Env
@@ -1042,11 +1065,17 @@ class Logger {
   virtual void LogHeader(const char* format, va_list ap) {
     // Default implementation does a simple INFO level log write.
     // Please override as per the logger class requirement.
-    Logv(format, ap);
+    Logv(InfoLogLevel::INFO_LEVEL, format, ap);
   }
 
   // Write an entry to the log file with the specified format.
-  virtual void Logv(const char* format, va_list ap) = 0;
+  //
+  // Users who override the `Logv()` overload taking `InfoLogLevel` do not need
+  // to implement this, unless they explicitly invoke it in
+  // `Logv(InfoLogLevel, ...)`.
+  virtual void Logv(const char* /* format */, va_list /* ap */) {
+    assert(false);
+  }
 
   // Write an entry to the log file with the specified log level
   // and format.  Any log with level under the internal log level
@@ -1648,6 +1677,6 @@ Env* NewTimedEnv(Env* base_env);
 Status NewEnvLogger(const std::string& fname, Env* env,
                     std::shared_ptr<Logger>* result);
 
-std::unique_ptr<Env> NewCompositeEnv(std::shared_ptr<FileSystem> fs);
+std::unique_ptr<Env> NewCompositeEnv(const std::shared_ptr<FileSystem>& fs);
 
 }  // namespace ROCKSDB_NAMESPACE

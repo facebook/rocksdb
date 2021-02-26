@@ -74,7 +74,7 @@ TableCache::TableCache(const ImmutableCFOptions& ioptions,
       cache_(cache),
       immortal_tables_(false),
       block_cache_tracer_(block_cache_tracer),
-      loader_mutex_(kLoadConcurency, GetSliceNPHash64),
+      loader_mutex_(kLoadConcurency, kGetSliceNPHash64UnseededFnPtr),
       io_tracer_(io_tracer) {
   if (ioptions_.row_cache) {
     // If the same cache is shared by multiple instances, we need to
@@ -106,14 +106,15 @@ Status TableCache::GetTableReader(
       TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
   std::unique_ptr<FSRandomAccessFile> file;
   FileOptions fopts = file_options;
-  Status s = PrepareIOFromReadOptions(ro, ioptions_.env, fopts.io_options);
+  const auto& clock = ioptions_.env->GetSystemClock();
+  Status s = PrepareIOFromReadOptions(ro, clock, fopts.io_options);
   if (s.ok()) {
     s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
   }
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.IsPathNotFound()) {
     fname = Rocks2LevelTableFileName(fname);
-    s = PrepareIOFromReadOptions(ro, ioptions_.env, fopts.io_options);
+    s = PrepareIOFromReadOptions(ro, clock, fopts.io_options);
     if (s.ok()) {
       s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
                                             nullptr);
@@ -125,10 +126,10 @@ Status TableCache::GetTableReader(
     if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(FSRandomAccessFile::kRandom);
     }
-    StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
+    StopWatch sw(clock, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(
-            std::move(file), fname, ioptions_.env, io_tracer_,
+            std::move(file), fname, clock, io_tracer_,
             record_read_stats ? ioptions_.statistics : nullptr, SST_READ_MICROS,
             file_read_hist, ioptions_.rate_limiter, ioptions_.listeners));
     s = ioptions_.table_factory->NewTableReader(
@@ -161,7 +162,8 @@ Status TableCache::FindTable(const ReadOptions& ro,
                              HistogramImpl* file_read_hist, bool skip_filters,
                              int level, bool prefetch_index_and_filter_in_cache,
                              size_t max_file_size_for_l0_meta_pin) {
-  PERF_TIMER_GUARD_WITH_ENV(find_table_nanos, ioptions_.env);
+  PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos,
+                              ioptions_.env->GetSystemClock());
   uint64_t number = fd.GetNumber();
   Slice key = GetSliceForFileNumber(&number);
   *handle = cache_->Lookup(key);
@@ -502,8 +504,8 @@ Status TableCache::MultiGet(const ReadOptions& options,
 
     for (auto miter = table_range.begin(); miter != table_range.end();
          ++miter) {
-      const Slice& user_key = miter->ukey;
-      ;
+      const Slice& user_key = miter->ukey_with_ts;
+
       GetContext* get_context = miter->get_context;
 
       if (GetFromRowCache(user_key, row_cache_key, row_cache_key_prefix_size,
@@ -539,9 +541,9 @@ Status TableCache::MultiGet(const ReadOptions& options,
              ++iter) {
           SequenceNumber* max_covering_tombstone_seq =
               iter->get_context->max_covering_tombstone_seq();
-          *max_covering_tombstone_seq =
-              std::max(*max_covering_tombstone_seq,
-                       range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey));
+          *max_covering_tombstone_seq = std::max(
+              *max_covering_tombstone_seq,
+              range_del_iter->MaxCoveringTombstoneSeqnum(iter->ukey_with_ts));
         }
       }
     }
@@ -566,7 +568,7 @@ Status TableCache::MultiGet(const ReadOptions& options,
     for (auto miter = table_range.begin(); miter != table_range.end();
          ++miter) {
       std::string& row_cache_entry = row_cache_entries[row_idx++];
-      const Slice& user_key = miter->ukey;
+      const Slice& user_key = miter->ukey_with_ts;
       ;
       GetContext* get_context = miter->get_context;
 

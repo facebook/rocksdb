@@ -16,9 +16,6 @@
 #include <errno.h>
 #include <fcntl.h>
 
-#if defined(OS_LINUX)
-#include <linux/fs.h>
-#endif
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -29,7 +26,6 @@
 #include <sys/stat.h>
 #if defined(OS_LINUX) || defined(OS_SOLARIS) || defined(OS_ANDROID)
 #include <sys/statfs.h>
-#include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #endif
 #include <sys/statvfs.h>
@@ -52,7 +48,6 @@
 
 #include "env/composite_env_wrapper.h"
 #include "env/io_posix.h"
-#include "logging/logging.h"
 #include "logging/posix_logger.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_updater.h"
@@ -612,6 +607,7 @@ class PosixFileSystem : public FileSystem {
                        std::vector<std::string>* result,
                        IODebugContext* /*dbg*/) override {
     result->clear();
+
     DIR* d = opendir(dir.c_str());
     if (d == nullptr) {
       switch (errno) {
@@ -623,11 +619,34 @@ class PosixFileSystem : public FileSystem {
           return IOError("While opendir", dir, errno);
       }
     }
+
+    const auto pre_read_errno = errno;  // errno may be modified by readdir
     struct dirent* entry;
-    while ((entry = readdir(d)) != nullptr) {
-      result->push_back(entry->d_name);
+    while ((entry = readdir(d)) != nullptr && errno == pre_read_errno) {
+      // filter out '.' and '..' directory entries
+      // which appear only on some platforms
+      const bool ignore =
+          entry->d_type == DT_DIR &&
+          (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0);
+      if (!ignore) {
+        result->push_back(entry->d_name);
+      }
     }
-    closedir(d);
+
+    // always attempt to close the dir
+    const auto pre_close_errno = errno;  // errno may be modified by closedir
+    const int close_result = closedir(d);
+
+    if (pre_close_errno != pre_read_errno) {
+      // error occured during readdir
+      return IOError("While readdir", dir, pre_close_errno);
+    }
+
+    if (close_result != 0) {
+      // error occured during closedir
+      return IOError("While closedir", dir, errno);
+    }
+
     return IOStatus::OK();
   }
 
@@ -771,9 +790,9 @@ class PosixFileSystem : public FileSystem {
     // closed, all locks the process holds for that *file* are released
     const auto it_success = locked_files.insert({fname, lhi});
     if (it_success.second == false) {
+      LockHoldingInfo prev_info = it_success.first->second;
       mutex_locked_files.Unlock();
       errno = ENOLCK;
-      LockHoldingInfo& prev_info = it_success.first->second;
       // Note that the thread ID printed is the same one as the one in
       // posix logger, but posix logger prints it hex format.
       return IOError("lock hold by current process, acquire time " +

@@ -15,6 +15,7 @@
 #include "db_stress_tool/db_stress_table_properties_collector.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/types.h"
 #include "util/cast_util.h"
 #include "utilities/fault_injection_fs.h"
 
@@ -22,11 +23,14 @@ namespace ROCKSDB_NAMESPACE {
 StressTest::StressTest()
     : cache_(NewCache(FLAGS_cache_size)),
       compressed_cache_(NewLRUCache(FLAGS_compressed_cache_size)),
-      filter_policy_(FLAGS_bloom_bits >= 0
-                         ? FLAGS_use_block_based_filter
-                               ? NewBloomFilterPolicy(FLAGS_bloom_bits, true)
-                               : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
-                         : nullptr),
+      filter_policy_(
+          FLAGS_bloom_bits >= 0
+              ? FLAGS_use_ribbon_filter
+                    ? NewExperimentalRibbonFilterPolicy(FLAGS_bloom_bits)
+                    : FLAGS_use_block_based_filter
+                          ? NewBloomFilterPolicy(FLAGS_bloom_bits, true)
+                          : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
+              : nullptr),
       db_(nullptr),
 #ifndef ROCKSDB_LITE
       txn_db_(nullptr),
@@ -102,6 +106,22 @@ std::shared_ptr<Cache> StressTest::NewCache(size_t capacity) {
   } else {
     return NewLRUCache((size_t)capacity);
   }
+}
+
+std::vector<std::string> StressTest::GetBlobCompressionTags() {
+  std::vector<std::string> compression_tags{"kNoCompression"};
+
+  if (Snappy_Supported()) {
+    compression_tags.emplace_back("kSnappyCompression");
+  }
+  if (LZ4_Supported()) {
+    compression_tags.emplace_back("kLZ4Compression");
+  }
+  if (ZSTD_Supported()) {
+    compression_tags.emplace_back("kZSTD");
+  }
+
+  return compression_tags;
 }
 
 bool StressTest::BuildOptionsTable() {
@@ -181,6 +201,21 @@ bool StressTest::BuildOptionsTable() {
        }},
       {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
   };
+
+  if (FLAGS_allow_setting_blob_options_dynamically) {
+    options_tbl.emplace("enable_blob_files",
+                        std::vector<std::string>{"false", "true"});
+    options_tbl.emplace("min_blob_size",
+                        std::vector<std::string>{"0", "16", "256"});
+    options_tbl.emplace("blob_file_size",
+                        std::vector<std::string>{"1M", "16M", "256M", "1G"});
+    options_tbl.emplace("blob_compression_type", GetBlobCompressionTags());
+    options_tbl.emplace("enable_blob_garbage_collection",
+                        std::vector<std::string>{"false", "true"});
+    options_tbl.emplace(
+        "blob_garbage_collection_age_cutoff",
+        std::vector<std::string>{"0.0", "0.25", "0.5", "0.75", "1.0"});
+  }
 
   options_table_ = std::move(options_tbl);
 
@@ -329,9 +364,11 @@ void StressTest::VerificationAbort(SharedState* shared, std::string msg,
 
 void StressTest::VerificationAbort(SharedState* shared, std::string msg, int cf,
                                    int64_t key) const {
+  auto key_str = Key(key);
+  Slice key_slice = key_str;
   fprintf(stderr,
-          "Verification failed for column family %d key %" PRIi64 ": %s\n", cf,
-          key, msg.c_str());
+          "Verification failed for column family %d key %s (%" PRIi64 "): %s\n",
+          cf, key_slice.ToString(true).c_str(), key, msg.c_str());
   shared->SetVerificationFailure();
 }
 
@@ -466,7 +503,7 @@ Status StressTest::NewTxn(WriteOptions& write_opts, Transaction** txn) {
   }
   static std::atomic<uint64_t> txn_id = {0};
   TransactionOptions txn_options;
-  txn_options.lock_timeout = 60000;  // 1min
+  txn_options.lock_timeout = 600000;  // 10 min
   txn_options.deadlock_detect = true;
   *txn = txn_db_->BeginTransaction(write_opts, txn_options);
   auto istr = std::to_string(txn_id.fetch_add(1));
@@ -519,6 +556,16 @@ void StressTest::OperateDb(ThreadState* thread) {
   if (FLAGS_read_fault_one_in) {
     fault_fs_guard->SetThreadLocalReadErrorContext(thread->shared->GetSeed(),
                                             FLAGS_read_fault_one_in);
+  }
+  if (FLAGS_write_fault_one_in) {
+    IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+    error_msg.SetRetryable(true);
+    std::vector<FileType> types;
+    types.push_back(FileType::kTableFile);
+    types.push_back(FileType::kDescriptorFile);
+    types.push_back(FileType::kCurrentFile);
+    fault_fs_guard->SetRandomWriteError(
+        thread->shared->GetSeed(), FLAGS_write_fault_one_in, error_msg, types);
   }
 #endif // NDEBUG
   thread->stats.Start();
@@ -613,7 +660,8 @@ void StressTest::OperateDb(ThreadState* thread) {
 
 #ifndef ROCKSDB_LITE
       // Verify GetLiveFiles with a 1 in N chance.
-      if (thread->rand.OneInOpt(FLAGS_get_live_files_one_in)) {
+      if (thread->rand.OneInOpt(FLAGS_get_live_files_one_in) &&
+          !FLAGS_write_fault_one_in) {
         Status status = VerifyGetLiveFiles();
         if (!status.ok()) {
           VerificationAbort(shared, "VerifyGetLiveFiles status not OK", status);
@@ -1455,7 +1503,7 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       FLAGS_db + "/.checkpoint" + ToString(thread->tid);
   Options tmp_opts(options_);
   tmp_opts.listeners.clear();
-  tmp_opts.env = db_stress_env->target();
+  tmp_opts.env = db_stress_env;
 
   DestroyDB(checkpoint_dir, tmp_opts);
 
@@ -1488,11 +1536,11 @@ Status StressTest::TestCheckpoint(ThreadState* thread,
       }
     }
   }
+  delete checkpoint;
+  checkpoint = nullptr;
   std::vector<ColumnFamilyHandle*> cf_handles;
   DB* checkpoint_db = nullptr;
   if (s.ok()) {
-    delete checkpoint;
-    checkpoint = nullptr;
     Options options(options_);
     options.listeners.clear();
     std::vector<ColumnFamilyDescriptor> cf_descs;
@@ -1852,7 +1900,7 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "TransactionDB             : %s\n",
           FLAGS_use_txn ? "true" : "false");
 #ifndef ROCKSDB_LITE
-  fprintf(stdout, "BlobDB                    : %s\n",
+  fprintf(stdout, "Stacked BlobDB            : %s\n",
           FLAGS_use_blob_db ? "true" : "false");
 #endif  // !ROCKSDB_LITE
   fprintf(stdout, "Read only mode            : %s\n",
@@ -1947,6 +1995,7 @@ void StressTest::PrintEnv() const {
   fprintf(stdout, "Use dynamic level         : %d\n",
           static_cast<int>(FLAGS_level_compaction_dynamic_level_bytes));
   fprintf(stdout, "Read fault one in         : %d\n", FLAGS_read_fault_one_in);
+  fprintf(stdout, "Write fault one in        : %d\n", FLAGS_write_fault_one_in);
   fprintf(stdout, "Sync fault injection      : %d\n", FLAGS_sync_fault_injection);
   fprintf(stdout, "Best efforts recovery     : %d\n",
           static_cast<int>(FLAGS_best_efforts_recovery));
@@ -1964,6 +2013,12 @@ void StressTest::Open() {
     block_based_options.block_cache = cache_;
     block_based_options.cache_index_and_filter_blocks =
         FLAGS_cache_index_and_filter_blocks;
+    block_based_options.metadata_cache_options.top_level_index_pinning =
+        static_cast<PinningTier>(FLAGS_top_level_index_pinning);
+    block_based_options.metadata_cache_options.partition_pinning =
+        static_cast<PinningTier>(FLAGS_partition_pinning);
+    block_based_options.metadata_cache_options.unpartitioned_pinning =
+        static_cast<PinningTier>(FLAGS_unpartitioned_pinning);
     block_based_options.block_cache_compressed = compressed_cache_;
     block_based_options.checksum = checksum_type_e;
     block_based_options.block_size = FLAGS_block_size;
@@ -2028,6 +2083,8 @@ void StressTest::Open() {
         FLAGS_compression_zstd_max_train_bytes;
     options_.compression_opts.parallel_threads =
         FLAGS_compression_parallel_threads;
+    options_.compression_opts.max_dict_buffer_bytes =
+        FLAGS_compression_max_dict_buffer_bytes;
     options_.create_if_missing = true;
     options_.max_manifest_file_size = FLAGS_max_manifest_file_size;
     options_.inplace_update_support = FLAGS_in_place_update;
@@ -2058,6 +2115,18 @@ void StressTest::Open() {
         FLAGS_level_compaction_dynamic_level_bytes;
     options_.file_checksum_gen_factory =
         GetFileChecksumImpl(FLAGS_file_checksum_impl);
+    options_.track_and_verify_wals_in_manifest = true;
+
+    // Integrated BlobDB
+    options_.enable_blob_files = FLAGS_enable_blob_files;
+    options_.min_blob_size = FLAGS_min_blob_size;
+    options_.blob_file_size = FLAGS_blob_file_size;
+    options_.blob_compression_type =
+        StringToCompressionType(FLAGS_blob_compression_type.c_str());
+    options_.enable_blob_garbage_collection =
+        FLAGS_enable_blob_garbage_collection;
+    options_.blob_garbage_collection_age_cutoff =
+        FLAGS_blob_garbage_collection_age_cutoff;
   } else {
 #ifdef ROCKSDB_LITE
     fprintf(stderr, "--options_file not supported in lite mode\n");
@@ -2147,6 +2216,30 @@ void StressTest::Open() {
   options_.best_efforts_recovery = FLAGS_best_efforts_recovery;
   options_.paranoid_file_checks = FLAGS_paranoid_file_checks;
 
+  if ((options_.enable_blob_files || options_.enable_blob_garbage_collection ||
+       FLAGS_allow_setting_blob_options_dynamically) &&
+      (FLAGS_use_merge || FLAGS_enable_compaction_filter ||
+       FLAGS_backup_one_in > 0 || FLAGS_best_efforts_recovery)) {
+    fprintf(
+        stderr,
+        "Integrated BlobDB is currently incompatible with Merge, compaction "
+        "filters, backup/restore, and best-effort recovery\n");
+    exit(1);
+  }
+
+  if (options_.enable_blob_files) {
+    fprintf(stdout,
+            "Integrated BlobDB: blob files enabled, min blob size %" PRIu64
+            ", blob file size %" PRIu64 ", blob compression type %s\n",
+            options_.min_blob_size, options_.blob_file_size,
+            CompressionTypeToString(options_.blob_compression_type).c_str());
+  }
+
+  if (options_.enable_blob_garbage_collection) {
+    fprintf(stdout, "Integrated BlobDB: blob GC enabled, cutoff %f\n",
+            options_.blob_garbage_collection_age_cutoff);
+  }
+
   fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
 
   Status s;
@@ -2204,6 +2297,7 @@ void StressTest::Open() {
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
 #ifndef ROCKSDB_LITE
+      // StackableDB-based BlobDB
       if (FLAGS_use_blob_db) {
         blob_db::BlobDBOptions blob_db_options;
         blob_db_options.min_blob_size = FLAGS_blob_db_min_blob_size;

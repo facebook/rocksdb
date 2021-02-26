@@ -16,13 +16,14 @@
 #include "logging/event_logger.h"
 #include "options/db_options.h"
 #include "rocksdb/db.h"
-#include "rocksdb/env.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Directories;
+class SystemClock;
 
 struct IngestedFileInfo {
   // External file path
@@ -73,13 +74,13 @@ struct IngestedFileInfo {
 class ExternalSstFileIngestionJob {
  public:
   ExternalSstFileIngestionJob(
-      Env* env, VersionSet* versions, ColumnFamilyData* cfd,
-      const ImmutableDBOptions& db_options, const EnvOptions& env_options,
-      SnapshotList* db_snapshots,
+      const std::shared_ptr<SystemClock>& clock, VersionSet* versions,
+      ColumnFamilyData* cfd, const ImmutableDBOptions& db_options,
+      const EnvOptions& env_options, SnapshotList* db_snapshots,
       const IngestExternalFileOptions& ingestion_options,
       Directories* directories, EventLogger* event_logger,
       const std::shared_ptr<IOTracer>& io_tracer)
-      : env_(env),
+      : clock_(clock),
         fs_(db_options.fs, io_tracer),
         versions_(versions),
         cfd_(cfd),
@@ -89,7 +90,7 @@ class ExternalSstFileIngestionJob {
         ingestion_options_(ingestion_options),
         directories_(directories),
         event_logger_(event_logger),
-        job_start_time_(env_->NowMicros()),
+        job_start_time_(clock_->NowMicros()),
         consumed_seqno_count_(0),
         io_tracer_(io_tracer) {
     assert(directories != nullptr);
@@ -169,7 +170,7 @@ class ExternalSstFileIngestionJob {
   template <typename TWritableFile>
   Status SyncIngestedFile(TWritableFile* file);
 
-  Env* env_;
+  std::shared_ptr<SystemClock> clock_;
   FileSystemPtr fs_;
   VersionSet* versions_;
   ColumnFamilyData* cfd_;

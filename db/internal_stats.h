@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "db/version_set.h"
+#include "rocksdb/system_clock.h"
 
 class ColumnFamilyData;
 
@@ -44,7 +45,9 @@ struct DBPropertyInfo {
                                     Version* version);
 
   // @param props Map of general properties to populate
-  bool (InternalStats::*handle_map)(std::map<std::string, std::string>* props);
+  // @param suffix Argument portion of the property. (see handle_string)
+  bool (InternalStats::*handle_map)(std::map<std::string, std::string>* props,
+                                    Slice suffix);
 
   // handle the string type properties rely on DBImpl methods
   // @param value Value-result argument for storing the property's string value
@@ -120,7 +123,8 @@ class InternalStats {
     kIntStatsNumMax,
   };
 
-  InternalStats(int num_levels, Env* env, ColumnFamilyData* cfd)
+  InternalStats(int num_levels, const std::shared_ptr<SystemClock>& clock,
+                ColumnFamilyData* cfd)
       : db_stats_{},
         cf_stats_value_{},
         cf_stats_count_{},
@@ -129,9 +133,9 @@ class InternalStats {
         file_read_latency_(num_levels),
         bg_error_count_(0),
         number_levels_(num_levels),
-        env_(env),
+        clock_(clock),
         cfd_(cfd),
-        started_at_(env->NowMicros()) {}
+        started_at_(clock->NowMicros()) {}
 
   // Per level compaction stats.  comp_stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
@@ -335,10 +339,11 @@ class InternalStats {
     for (auto& h : file_read_latency_) {
       h.Clear();
     }
+    blob_file_read_latency_.Clear();
     cf_stats_snapshot_.Clear();
     db_stats_snapshot_.Clear();
     bg_error_count_ = 0;
-    started_at_ = env_->NowMicros();
+    started_at_ = clock_->NowMicros();
   }
 
   void AddCompactionStats(int level, Env::Priority thread_pri,
@@ -374,6 +379,8 @@ class InternalStats {
   HistogramImpl* GetFileReadHist(int level) {
     return &file_read_latency_[level];
   }
+
+  HistogramImpl* GetBlobFileReadHist() { return &blob_file_read_latency_; }
 
   uint64_t GetBackgroundErrorCount() const { return bg_error_count_; }
 
@@ -426,6 +433,7 @@ class InternalStats {
   std::vector<CompactionStats> comp_stats_;
   std::vector<CompactionStats> comp_stats_by_pri_;
   std::vector<HistogramImpl> file_read_latency_;
+  HistogramImpl blob_file_read_latency_;
 
   // Used to compute per-interval statistics
   struct CFStatsSnapshot {
@@ -521,7 +529,8 @@ class InternalStats {
   bool HandleCompressionRatioAtLevelPrefix(std::string* value, Slice suffix);
   bool HandleLevelStats(std::string* value, Slice suffix);
   bool HandleStats(std::string* value, Slice suffix);
-  bool HandleCFMapStats(std::map<std::string, std::string>* compaction_stats);
+  bool HandleCFMapStats(std::map<std::string, std::string>* compaction_stats,
+                        Slice suffix);
   bool HandleCFStats(std::string* value, Slice suffix);
   bool HandleCFStatsNoFileHistogram(std::string* value, Slice suffix);
   bool HandleCFFileHistogram(std::string* value, Slice suffix);
@@ -529,6 +538,10 @@ class InternalStats {
   bool HandleSsTables(std::string* value, Slice suffix);
   bool HandleAggregatedTableProperties(std::string* value, Slice suffix);
   bool HandleAggregatedTablePropertiesAtLevel(std::string* value, Slice suffix);
+  bool HandleAggregatedTablePropertiesMap(
+      std::map<std::string, std::string>* values, Slice suffix);
+  bool HandleAggregatedTablePropertiesAtLevelMap(
+      std::map<std::string, std::string>* values, Slice suffix);
   bool HandleNumImmutableMemTable(uint64_t* value, DBImpl* db,
                                   Version* version);
   bool HandleNumImmutableMemTableFlushed(uint64_t* value, DBImpl* db,
@@ -591,7 +604,7 @@ class InternalStats {
   uint64_t bg_error_count_;
 
   const int number_levels_;
-  Env* env_;
+  const std::shared_ptr<SystemClock> clock_;
   ColumnFamilyData* cfd_;
   uint64_t started_at_;
 };
@@ -630,7 +643,9 @@ class InternalStats {
     kIntStatsNumMax,
   };
 
-  InternalStats(int /*num_levels*/, Env* /*env*/, ColumnFamilyData* /*cfd*/) {}
+  InternalStats(int /*num_levels*/,
+                const std::shared_ptr<SystemClock>& /*clock*/,
+                ColumnFamilyData* /*cfd*/) {}
 
   struct CompactionStats {
     uint64_t micros;
@@ -668,6 +683,8 @@ class InternalStats {
                   bool /*concurrent */ = false) {}
 
   HistogramImpl* GetFileReadHist(int /*level*/) { return nullptr; }
+
+  HistogramImpl* GetBlobFileReadHist() { return nullptr; }
 
   uint64_t GetBackgroundErrorCount() const { return 0; }
 

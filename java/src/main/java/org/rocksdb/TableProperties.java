@@ -1,7 +1,9 @@
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 package org.rocksdb;
 
+import java.util.Arrays;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * TableProperties contains read-only properties of its associated
@@ -39,24 +41,20 @@ public class TableProperties {
   private final Map<String, Long> propertiesOffsets;
 
   /**
-   * Access is private as this will only be constructed from
-   * C++ via JNI.
+   * Access is package private as this will only be constructed from
+   * C++ via JNI and for testing.
    */
-  private TableProperties(final long dataSize, final long indexSize,
-      final long indexPartitions, final long topLevelIndexSize,
-      final long indexKeyIsUserKey, final long indexValueIsDeltaEncoded,
-      final long filterSize, final long rawKeySize, final long rawValueSize,
-      final long numDataBlocks, final long numEntries, final long numDeletions,
-      final long numMergeOperands, final long numRangeDeletions,
-      final long formatVersion, final long fixedKeyLen,
-      final long columnFamilyId, final long creationTime,
-      final long oldestKeyTime, final byte[] columnFamilyName,
-      final String filterPolicyName, final String comparatorName,
-      final String mergeOperatorName, final String prefixExtractorName,
-      final String propertyCollectorsNames, final String compressionName,
-      final Map<String, String> userCollectedProperties,
-      final Map<String, String> readableProperties,
-      final Map<String, Long> propertiesOffsets) {
+  TableProperties(final long dataSize, final long indexSize, final long indexPartitions,
+      final long topLevelIndexSize, final long indexKeyIsUserKey,
+      final long indexValueIsDeltaEncoded, final long filterSize, final long rawKeySize,
+      final long rawValueSize, final long numDataBlocks, final long numEntries,
+      final long numDeletions, final long numMergeOperands, final long numRangeDeletions,
+      final long formatVersion, final long fixedKeyLen, final long columnFamilyId,
+      final long creationTime, final long oldestKeyTime, final byte[] columnFamilyName,
+      final String filterPolicyName, final String comparatorName, final String mergeOperatorName,
+      final String prefixExtractorName, final String propertyCollectorsNames,
+      final String compressionName, final Map<String, String> userCollectedProperties,
+      final Map<String, String> readableProperties, final Map<String, Long> propertiesOffsets) {
     this.dataSize = dataSize;
     this.indexSize = indexSize;
     this.indexPartitions = indexPartitions;
@@ -362,5 +360,47 @@ public class TableProperties {
    */
   public Map<String, Long> getPropertiesOffsets() {
     return propertiesOffsets;
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
+    TableProperties that = (TableProperties) o;
+    return dataSize == that.dataSize && indexSize == that.indexSize
+        && indexPartitions == that.indexPartitions && topLevelIndexSize == that.topLevelIndexSize
+        && indexKeyIsUserKey == that.indexKeyIsUserKey
+        && indexValueIsDeltaEncoded == that.indexValueIsDeltaEncoded
+        && filterSize == that.filterSize && rawKeySize == that.rawKeySize
+        && rawValueSize == that.rawValueSize && numDataBlocks == that.numDataBlocks
+        && numEntries == that.numEntries && numDeletions == that.numDeletions
+        && numMergeOperands == that.numMergeOperands && numRangeDeletions == that.numRangeDeletions
+        && formatVersion == that.formatVersion && fixedKeyLen == that.fixedKeyLen
+        && columnFamilyId == that.columnFamilyId && creationTime == that.creationTime
+        && oldestKeyTime == that.oldestKeyTime
+        && Arrays.equals(columnFamilyName, that.columnFamilyName)
+        && Objects.equals(filterPolicyName, that.filterPolicyName)
+        && Objects.equals(comparatorName, that.comparatorName)
+        && Objects.equals(mergeOperatorName, that.mergeOperatorName)
+        && Objects.equals(prefixExtractorName, that.prefixExtractorName)
+        && Objects.equals(propertyCollectorsNames, that.propertyCollectorsNames)
+        && Objects.equals(compressionName, that.compressionName)
+        && Objects.equals(userCollectedProperties, that.userCollectedProperties)
+        && Objects.equals(readableProperties, that.readableProperties)
+        && Objects.equals(propertiesOffsets, that.propertiesOffsets);
+  }
+
+  @Override
+  public int hashCode() {
+    int result = Objects.hash(dataSize, indexSize, indexPartitions, topLevelIndexSize,
+        indexKeyIsUserKey, indexValueIsDeltaEncoded, filterSize, rawKeySize, rawValueSize,
+        numDataBlocks, numEntries, numDeletions, numMergeOperands, numRangeDeletions, formatVersion,
+        fixedKeyLen, columnFamilyId, creationTime, oldestKeyTime, filterPolicyName, comparatorName,
+        mergeOperatorName, prefixExtractorName, propertyCollectorsNames, compressionName,
+        userCollectedProperties, readableProperties, propertiesOffsets);
+    result = 31 * result + Arrays.hashCode(columnFamilyName);
+    return result;
   }
 }

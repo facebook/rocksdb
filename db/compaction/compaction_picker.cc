@@ -139,11 +139,9 @@ CompressionOptions GetCompressionOptions(const MutableCFOptions& cf_options,
   if (!enable_compression) {
     return cf_options.compression_opts;
   }
-  // If bottommost_compression is set and we are compacting to the
-  // bottommost level then we should use the specified compression options
-  // for the bottmomost_compression.
-  if (cf_options.bottommost_compression != kDisableCompressionOption &&
-      level >= (vstorage->num_non_empty_levels() - 1) &&
+  // If bottommost_compression_opts is enabled and we are compacting to the
+  // bottommost level then we should use the specified compression options.
+  if (level >= (vstorage->num_non_empty_levels() - 1) &&
       cf_options.bottommost_compression_opts.enabled) {
     return cf_options.bottommost_compression_opts;
   }
@@ -1045,6 +1043,8 @@ void CompactionPicker::RegisterCompaction(Compaction* c) {
     level0_compactions_in_progress_.insert(c);
   }
   compactions_in_progress_.insert(c);
+  TEST_SYNC_POINT_CALLBACK("CompactionPicker::RegisterCompaction:Registered",
+                           c);
 }
 
 void CompactionPicker::UnregisterCompaction(Compaction* c) {

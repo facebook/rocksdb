@@ -135,7 +135,8 @@ class BlockBasedTableReaderTest
     std::string path = Path(filename);
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(fs_->NewRandomAccessFile(path, opt, &f, nullptr));
-    reader->reset(new RandomAccessFileReader(std::move(f), path, env_));
+    reader->reset(
+        new RandomAccessFileReader(std::move(f), path, env_->GetSystemClock()));
   }
 
   std::string ToInternalKey(const std::string& key) {
@@ -299,7 +300,8 @@ TEST_P(BlockBasedTableReaderTestVerifyChecksum, ChecksumMismatch) {
   table.reset();
 
   // Corrupt the block pointed to by handle
-  test::CorruptFile(Path(table_name), static_cast<int>(handle.offset()), 128);
+  ASSERT_OK(test::CorruptFile(options.env, Path(table_name),
+                              static_cast<int>(handle.offset()), 128));
 
   NewBlockBasedTableReader(foptions, ioptions, comparator, table_name, &table);
   Status s = table->VerifyChecksum(ReadOptions(),

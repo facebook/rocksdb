@@ -66,7 +66,10 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     // Hack: Internal key is passed to BlobIndexCompactionFilter for it to
     // get sequence number.
     ParsedInternalKey ikey;
-    if (ParseInternalKey(key, &ikey) != Status::OK()) {
+    if (!ParseInternalKey(
+             key, &ikey,
+             context_.blob_db_impl->db_options_.allow_data_in_errors)
+             .ok()) {
       assert(false);
       return Decision::kKeep;
     }
@@ -83,7 +86,10 @@ CompactionFilter::Decision BlobIndexCompactionFilterBase::FilterV2(
     // Hack: Internal key is passed to BlobIndexCompactionFilter for it to
     // get sequence number.
     ParsedInternalKey ikey;
-    if (ParseInternalKey(key, &ikey) != Status::OK()) {
+    if (!ParseInternalKey(
+             key, &ikey,
+             context_.blob_db_impl->db_options_.allow_data_in_errors)
+             .ok()) {
       assert(false);
       return Decision::kKeep;
     }

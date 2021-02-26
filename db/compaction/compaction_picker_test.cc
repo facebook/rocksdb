@@ -12,7 +12,6 @@
 #include "db/compaction/compaction_picker_level.h"
 #include "db/compaction/compaction_picker_universal.h"
 
-#include "logging/logging.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/string_util.h"
@@ -142,7 +141,7 @@ class CompactionPickerTest : public testing::Test {
     if (temp_vstorage_) {
       VersionBuilder builder(FileOptions(), &ioptions_, nullptr,
                              vstorage_.get(), nullptr);
-      builder.SaveTo(temp_vstorage_.get());
+      ASSERT_OK(builder.SaveTo(temp_vstorage_.get()));
       vstorage_ = std::move(temp_vstorage_);
     }
     vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);

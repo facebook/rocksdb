@@ -11,8 +11,8 @@ int main() {
 }
 #else
 
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 #include <memory>
 #include <random>
 #include <set>
@@ -22,13 +22,12 @@ int main() {
 #include "db/range_del_aggregator.h"
 #include "db/range_tombstone_fragmenter.h"
 #include "rocksdb/comparator.h"
-#include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
+#include "util/gflags_compat.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
-
-#include "util/gflags_compat.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
@@ -220,7 +219,7 @@ int main(int argc, char** argv) {
                   ROCKSDB_NAMESPACE::kMaxSequenceNumber));
 
       ROCKSDB_NAMESPACE::StopWatchNano stop_watch_add_tombstones(
-          ROCKSDB_NAMESPACE::Env::Default(), true /* auto_start */);
+          ROCKSDB_NAMESPACE::SystemClock::Default(), true /* auto_start */);
       range_del_agg.AddTombstones(std::move(fragmented_range_del_iter));
       stats.time_add_tombstones += stop_watch_add_tombstones.ElapsedNanos();
     }
@@ -237,7 +236,7 @@ int main(int argc, char** argv) {
       parsed_key.user_key = key_string;
 
       ROCKSDB_NAMESPACE::StopWatchNano stop_watch_should_delete(
-          ROCKSDB_NAMESPACE::Env::Default(), true /* auto_start */);
+          ROCKSDB_NAMESPACE::SystemClock::Default(), true /* auto_start */);
       range_del_agg.ShouldDelete(parsed_key, mode);
       uint64_t call_time = stop_watch_should_delete.ElapsedNanos();
 

@@ -11,7 +11,6 @@
 
 #include <assert.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string>
 
 #include "util/mutexlock.h"
