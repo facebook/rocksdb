@@ -753,11 +753,13 @@ void DBIter::PrevInternal(const Slice* prefix) {
     }
 
     assert(iterate_lower_bound_ == nullptr || iter_.MayBeOutOfLowerBound() ||
-           user_comparator_.Compare(saved_key_.GetUserKey(),
-                                    *iterate_lower_bound_) >= 0);
+           user_comparator_.CompareWithoutTimestamp(
+               saved_key_.GetUserKey(), /*a_has_ts=*/true,
+               *iterate_lower_bound_, /*b_has_ts=*/false) >= 0);
     if (iterate_lower_bound_ != nullptr && iter_.MayBeOutOfLowerBound() &&
-        user_comparator_.Compare(saved_key_.GetUserKey(),
-                                 *iterate_lower_bound_) < 0) {
+        user_comparator_.CompareWithoutTimestamp(
+            saved_key_.GetUserKey(), /*a_has_ts=*/true, *iterate_lower_bound_,
+            /*b_has_ts=*/false) < 0) {
       // We've iterated earlier than the user-specified lower bound.
       valid_ = false;
       return;
@@ -1240,8 +1242,9 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
                             kValueTypeForSeekForPrev);
 
   if (iterate_upper_bound_ != nullptr &&
-      user_comparator_.Compare(saved_key_.GetUserKey(),
-                               *iterate_upper_bound_) >= 0) {
+      user_comparator_.CompareWithoutTimestamp(
+          saved_key_.GetUserKey(), /*a_has_ts=*/true, *iterate_upper_bound_,
+          /*b_has_ts=*/false) >= 0) {
     saved_key_.Clear();
     saved_key_.SetInternalKey(*iterate_upper_bound_, kMaxSequenceNumber);
   }
@@ -1443,7 +1446,9 @@ void DBIter::SeekToLast() {
   if (iterate_upper_bound_ != nullptr) {
     // Seek to last key strictly less than ReadOptions.iterate_upper_bound.
     SeekForPrev(*iterate_upper_bound_);
-    if (Valid() && user_comparator_.Equal(*iterate_upper_bound_, key())) {
+    if (Valid() && 0 == user_comparator_.CompareWithoutTimestamp(
+                            *iterate_upper_bound_, /*a_has_ts=*/false, key(),
+                            /*b_has_ts=*/true)) {
       ReleaseTempPinnedData();
       PrevInternal(nullptr);
     }
