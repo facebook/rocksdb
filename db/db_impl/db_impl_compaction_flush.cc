@@ -1185,6 +1185,7 @@ Status DBImpl::CompactFilesImpl(
 
   // At this point, CompactFiles will be run.
   bg_compaction_scheduled_++;
+  num_low_scheduled_++;
 
   std::unique_ptr<Compaction> c;
   assert(cfd->compaction_picker());
@@ -1306,6 +1307,7 @@ Status DBImpl::CompactFilesImpl(
   c.reset();
 
   bg_compaction_scheduled_--;
+  num_low_scheduled_--;
   if (bg_compaction_scheduled_ == 0) {
     bg_cv_.SignalAll();
   }
@@ -1724,6 +1726,7 @@ Status DBImpl::RunManualCompaction(
       }
       manual.incomplete = false;
       bg_compaction_scheduled_++;
+      num_low_scheduled_++;
       Env::Priority thread_pool_pri = Env::Priority::LOW;
       if (compaction->bottommost_level() &&
           env_->GetBackgroundThreads(Env::Priority::BOTTOM) > 0) {
@@ -2214,6 +2217,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
            bg_flush_scheduled_ + bg_compaction_scheduled_ <
                bg_job_limits.max_flushes) {
       bg_flush_scheduled_++;
+      num_low_scheduled_++;
       FlushThreadArg* fta = new FlushThreadArg;
       fta->db_ = this;
       fta->thread_pri_ = Env::Priority::LOW;
@@ -2247,6 +2251,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     ca->db = this;
     ca->prepicked_compaction = nullptr;
     bg_compaction_scheduled_++;
+    num_low_scheduled_++;
     unscheduled_compactions_--;
     env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
                    &DBImpl::UnscheduleCompactionCallback);
@@ -2597,6 +2602,13 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
     assert(num_running_flushes_ > 0);
     num_running_flushes_--;
     bg_flush_scheduled_--;
+    bool is_flush_pool_empty =
+        env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
+    // Handle special case: HIGH pool is empty so flush is scheduled in LOW pool
+    if (is_flush_pool_empty) {
+      assert(num_low_scheduled_ > 0);
+      num_low_scheduled_--;
+    }
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
     atomic_flush_install_cv_.SignalAll();
@@ -2697,6 +2709,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     num_running_compactions_--;
     if (bg_thread_pri == Env::Priority::LOW) {
       bg_compaction_scheduled_--;
+      num_low_scheduled_--;
     } else {
       assert(bg_thread_pri == Env::Priority::BOTTOM);
       bg_bottom_compaction_scheduled_--;

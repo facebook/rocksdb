@@ -185,6 +185,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       unscheduled_flushes_(0),
       unscheduled_compactions_(0),
       bg_bottom_compaction_scheduled_(0),
+      num_low_scheduled_(0),
       bg_compaction_scheduled_(0),
       num_running_compactions_(0),
       bg_flush_scheduled_(0),
@@ -518,19 +519,36 @@ Status DBImpl::CloseHelper() {
   CancelAllBackgroundWork(false);
   int bottom_compactions_unscheduled =
       env_->UnSchedule(this, Env::Priority::BOTTOM);
-  int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
-  int flushes_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);
+  int bg_low_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
+  int bg_high_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);
+
   Status ret = Status::OK();
   mutex_.Lock();
   bg_bottom_compaction_scheduled_ -= bottom_compactions_unscheduled;
-  bg_compaction_scheduled_ -= compactions_unscheduled;
-  bg_flush_scheduled_ -= flushes_unscheduled;
+  bool is_flush_pool_empty =
+      env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
+  if (is_flush_pool_empty) {
+    // If HIGH pool is empty, both compaction and flush are scheduled in LOW.
+    // As we don't know the exact unscheduled work type, either compaction or
+    // flush, we use num_low_scheduled_ to track if there is any work we need to
+    // wait to finish
+    num_low_scheduled_ -= bg_low_unscheduled;
+  } else {
+    // Normal case: compactions are in LOW pool and flushes are in HIGH pool
+    bg_compaction_scheduled_ -= bg_low_unscheduled;
+    bg_flush_scheduled_ -= bg_high_unscheduled;
+  }
 
   // Wait for background work to finish
-  while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
-         bg_flush_scheduled_ || bg_purge_scheduled_ ||
-         pending_purge_obsolete_files_ ||
-         error_handler_.IsRecoveryInProgress()) {
+  while (
+      bg_bottom_compaction_scheduled_ ||
+      // If there are compactions scheduled in LOW pool or flushes in HIGH pool,
+      // wait
+      (!is_flush_pool_empty &&
+       (bg_compaction_scheduled_ || bg_flush_scheduled_)) ||
+      // If there are either compactions or flushes scheduled in LOW pool, wait
+      (is_flush_pool_empty && num_low_scheduled_) || bg_purge_scheduled_ ||
+      pending_purge_obsolete_files_ || error_handler_.IsRecoveryInProgress()) {
     TEST_SYNC_POINT("DBImpl::~DBImpl:WaitJob");
     bg_cv_.Wait();
   }

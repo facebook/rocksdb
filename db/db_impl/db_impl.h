@@ -2059,6 +2059,11 @@ class DBImpl : public DB {
   // the BOTTOM pool
   int bg_bottom_compaction_scheduled_;
 
+  // count how many background works are scheduled in LOW pool
+  // when HIGH pool is empty, both compactions and flushes are scheduled in LOW
+  // pool, so we need this counter to help unschedule in this case
+  int num_low_scheduled_;
+
   // count how many background compactions are running or have been scheduled
   int bg_compaction_scheduled_;
 
