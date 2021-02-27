@@ -2602,10 +2602,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
     assert(num_running_flushes_ > 0);
     num_running_flushes_--;
     bg_flush_scheduled_--;
-    bool is_flush_pool_empty =
-        env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
-    // Handle special case: HIGH pool is empty so flush is scheduled in LOW pool
-    if (is_flush_pool_empty) {
+    if (Env::Priority::LOW == thread_pri) {
       assert(num_low_scheduled_ > 0);
       num_low_scheduled_--;
     }
