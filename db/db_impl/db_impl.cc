@@ -529,9 +529,9 @@ Status DBImpl::CloseHelper() {
       env_->GetBackgroundThreads(Env::Priority::HIGH) == 0;
   if (is_flush_pool_empty) {
     // If HIGH pool is empty, both compaction and flush are scheduled in LOW.
-    // As we don't know the exact unscheduled work type, either compaction or
-    // flush, we use num_low_scheduled_ to track if there is any work we need to
-    // wait to finish
+    // As we don't know the exact unscheduled work type, we use
+    // num_low_scheduled_ to track if there is any left scheduled work in LOW
+    // pool
     num_low_scheduled_ -= bg_low_unscheduled;
   } else {
     // Normal case: compactions are in LOW pool and flushes are in HIGH pool

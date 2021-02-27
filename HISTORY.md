@@ -2,7 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Fixed the truncation error found in APIs/tools when dumping block-based SST files in a human-readable format. After fix, the block-based table can be fully dumped as a readable file.
-* Fixed the potential store stuck issue when unloading in a special case. When HIGH priority pool is empty, the previous unscheduled work counters were incorrect since both compactions and flushes are scheduled in LOW pool. After fix, the stuck issue is gone.
+* Fixed the potential stuck issue when store closes in a special case. When store is unloading while there are scheduled compaction/flush, if HIGH priority pool is empty, both compactions and flushes are scheduled in LOW pool and the work counters were incorrect during unscheduling. After fix, the stuck issue is gone.
 
 ### Public API change
 * Add a new option BlockBasedTableOptions::max_auto_readahead_size. RocksDB does auto-readahead for iterators on noticing more than two reads for a table file if user doesn't provide readahead_size. The readahead starts at 8KB and doubles on every additional read upto max_auto_readahead_size and now max_auto_readahead_size can be configured dynamically as well. Found that 256 KB readahead size provides the best performance, based on experiments, for auto readahead. Experiment data is in PR #3282. If value is set 0 then no automatic prefetching will be done by rocksdb. Also changing the value will only affect files opened after the change.
