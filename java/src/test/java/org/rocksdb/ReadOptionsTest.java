@@ -24,6 +24,8 @@ public class ReadOptionsTest {
   @Rule
   public ExpectedException exception = ExpectedException.none();
 
+  public static final Random rand = PlatformRandomHelper.getPlatformSpecificRandomFactory();
+
   @Test
   public void altConstructor() {
     try (final ReadOptions opt = new ReadOptions(true, true)) {
@@ -55,7 +57,6 @@ public class ReadOptionsTest {
   @Test
   public void verifyChecksum() {
     try (final ReadOptions opt = new ReadOptions()) {
-      final Random rand = new Random();
       final boolean boolValue = rand.nextBoolean();
       opt.setVerifyChecksums(boolValue);
       assertThat(opt.verifyChecksums()).isEqualTo(boolValue);
@@ -65,7 +66,6 @@ public class ReadOptionsTest {
   @Test
   public void fillCache() {
     try (final ReadOptions opt = new ReadOptions()) {
-      final Random rand = new Random();
       final boolean boolValue = rand.nextBoolean();
       opt.setFillCache(boolValue);
       assertThat(opt.fillCache()).isEqualTo(boolValue);
@@ -75,7 +75,6 @@ public class ReadOptionsTest {
   @Test
   public void tailing() {
     try (final ReadOptions opt = new ReadOptions()) {
-      final Random rand = new Random();
       final boolean boolValue = rand.nextBoolean();
       opt.setTailing(boolValue);
       assertThat(opt.tailing()).isEqualTo(boolValue);
@@ -142,7 +141,6 @@ public class ReadOptionsTest {
   @Test
   public void readaheadSize() {
     try (final ReadOptions opt = new ReadOptions()) {
-      final Random rand = new Random();
       final int intValue = rand.nextInt(2147483647);
       opt.setReadaheadSize(intValue);
       assertThat(opt.readaheadSize()).isEqualTo(intValue);
@@ -360,8 +358,7 @@ public class ReadOptionsTest {
   }
 
   private Slice buildRandomSlice() {
-    final Random rand = new Random();
-    byte[] sliceBytes = new byte[rand.nextInt(100) + 1];
+    final byte[] sliceBytes = new byte[rand.nextInt(100) + 1];
     rand.nextBytes(sliceBytes);
     return new Slice(sliceBytes);
   }
