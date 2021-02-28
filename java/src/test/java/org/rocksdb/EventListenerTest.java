@@ -237,6 +237,7 @@ public class EventListenerTest {
   @Test
   public void testAllCallbacksInvocation() {
     final long TEST_LONG_VAL = -1;
+    final long TEST_SIZET_VAL = Integer.MAX_VALUE;
     // Expected test data objects
     final Map<String, String> userCollectedPropertiesTestData =
         Collections.singletonMap("key", "value");
@@ -264,7 +265,7 @@ public class EventListenerTest {
     final MemTableInfo memTableInfoTestData = new MemTableInfo(
         "columnFamilyName", TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL);
     final FileOperationInfo fileOperationInfoTestData = new FileOperationInfo("/file/path",
-        TEST_LONG_VAL, TEST_LONG_VAL, 1_600_699_420_000_000_000L, 5_000_000_000L, statusTestData);
+        TEST_LONG_VAL, TEST_SIZET_VAL, 1_600_699_420_000_000_000L, 5_000_000_000L, statusTestData);
     final WriteStallInfo writeStallInfoTestData =
         new WriteStallInfo("columnFamilyName", (byte) 0x1, (byte) 0x2);
     final ExternalFileIngestionInfo externalFileIngestionInfoTestData =
