@@ -11,6 +11,12 @@ HOST_SRC_DIR="${HOST_SRC_DIR:-/rocksdb-host}"
 CONTAINER_SRC_DIR="${CONTAINER_SRC_DIR:-/rocksdb-local-build}"
 CONTAINER_TARGET_DIR="${CONTAINER_TARGET_DIR:-/rocksdb-java-target}"
 J="${J:-2}"
+ROCKSDB_JAVA_TARGET="rocksdbjavastatic"
+if [ -z "$SHARED_LIB" ]; then
+	ROCKSDB_JAVA_TARGET="rocksdbjavastatic"
+else
+	ROCKSDB_JAVA_TARGET="rocksdbjava"
+fi
 
 # Just in-case this is run outside the Docker container
 mkdir -p $CONTAINER_SRC_DIR
@@ -24,6 +30,6 @@ if [ -z "$SKIP_COPY" ]; then
 fi
 
 make clean-not-downloaded
-PORTABLE=1 make -j$J rocksdbjavastatic
+PORTABLE=1 make -j$J $ROCKSDB_JAVA_TARGET
 
 cp java/target/librocksdbjni-linux*.so java/target/rocksdbjni-*-linux*.jar java/target/rocksdbjni-*-linux*.jar.sha1 $CONTAINER_TARGET_DIR
