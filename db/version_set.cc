@@ -1762,7 +1762,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
                  const std::shared_ptr<IOTracer>& io_tracer,
                  uint64_t version_number)
     : env_(vset->env_),
-      clock_(env_->GetSystemClock()),
+      clock_(vset->clock_),
       cfd_(column_family_data),
       info_log_((cfd_ == nullptr) ? nullptr : cfd_->ioptions()->info_log),
       db_statistics_((cfd_ == nullptr) ? nullptr
@@ -3784,7 +3784,7 @@ VersionSet::VersionSet(const std::string& dbname,
       table_cache_(table_cache),
       env_(_db_options->env),
       fs_(_db_options->fs, io_tracer),
-      clock_(env_->GetSystemClock()),
+      clock_(_db_options->clock),
       dbname_(dbname),
       db_options_(_db_options),
       next_file_number_(2),
@@ -4171,7 +4171,7 @@ Status VersionSet::ProcessManifestWrites(
         }
       }
       if (s.ok()) {
-        io_s = SyncManifest(clock_, db_options_, descriptor_log_->file());
+        io_s = SyncManifest(db_options_, descriptor_log_->file());
         TEST_SYNC_POINT_CALLBACK(
             "VersionSet::ProcessManifestWrites:AfterSyncManifest", &io_s);
       }

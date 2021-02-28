@@ -91,7 +91,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       fifo_eviction_seq_(0),
       evict_expiration_up_to_(0),
       debug_level_(0) {
-  clock_ = env_->GetSystemClock();
+  clock_ = env_->GetSystemClock().get();
   blob_dir_ = (bdb_options_.path_relative)
                   ? dbname + "/" + bdb_options_.blob_dir
                   : bdb_options_.blob_dir;

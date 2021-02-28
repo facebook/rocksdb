@@ -104,7 +104,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                  : 0),
       prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       flush_state_(FLUSH_NOT_REQUESTED),
-      clock_(ioptions.env->GetSystemClock()),
+      clock_(ioptions.clock),
       insert_with_hint_prefix_extractor_(
           ioptions.memtable_insert_with_hint_prefix_extractor),
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
@@ -684,7 +684,7 @@ struct Saver {
   Statistics* statistics;
   bool inplace_update_support;
   bool do_merge;
-  std::shared_ptr<SystemClock> clock;
+  SystemClock* clock;
 
   ReadCallback* callback_;
   bool* is_blob_index;

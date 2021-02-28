@@ -41,7 +41,7 @@ class BlobFileBuilderTest : public testing::Test {
  protected:
   BlobFileBuilderTest() : mock_env_(Env::Default()) {
     fs_ = mock_env_.GetFileSystem().get();
-    clock_ = mock_env_.GetSystemClock();
+    clock_ = mock_env_.GetSystemClock().get();
   }
 
   void VerifyBlobFile(uint64_t blob_file_number,
@@ -110,7 +110,7 @@ class BlobFileBuilderTest : public testing::Test {
 
   MockEnv mock_env_;
   FileSystem* fs_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   FileOptions file_options_;
 };
 

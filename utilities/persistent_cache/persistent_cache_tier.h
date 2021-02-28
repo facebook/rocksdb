@@ -87,7 +87,8 @@ struct PersistentCacheConfig {
       const std::shared_ptr<Logger>& _log,
       const uint32_t _write_buffer_size = 1 * 1024 * 1024 /*1MB*/) {
     env = _env;
-    clock = (env != nullptr) ? env->GetSystemClock() : SystemClock::Default();
+    clock = (env != nullptr) ? env->GetSystemClock().get()
+                             : SystemClock::Default().get();
     path = _path;
     log = _log;
     cache_size = _cache_size;
@@ -129,7 +130,7 @@ struct PersistentCacheConfig {
   // Env abstraction to use for system level operations
   //
   Env* env;
-  std::shared_ptr<SystemClock> clock;
+  SystemClock* clock;
   //
   // Path for the block cache where blocks are persisted
   //

@@ -267,8 +267,8 @@ class BlockFetcherTest : public testing::Test {
     std::string path = Path(filename);
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(fs_->NewRandomAccessFile(path, opt, &f, nullptr));
-    reader->reset(
-        new RandomAccessFileReader(std::move(f), path, env_->GetSystemClock()));
+    reader->reset(new RandomAccessFileReader(std::move(f), path,
+                                             env_->GetSystemClock().get()));
   }
 
   void NewTableReader(const ImmutableCFOptions& ioptions,
