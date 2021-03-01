@@ -79,6 +79,7 @@ enum class LevelStatType {
   AVG_SEC,
   KEY_IN,
   KEY_DROP,
+  W_BLOB_GB,
   TOTAL  // total number of types
 };
 
