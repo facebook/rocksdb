@@ -242,9 +242,13 @@ void StressTest::FinishInitDb(SharedState* shared) {
     PreloadDbAndReopenAsReadOnly(FLAGS_max_key, shared);
   }
   if (FLAGS_enable_compaction_filter) {
-    reinterpret_cast<DbStressCompactionFilterFactory*>(
-        options_.compaction_filter_factory.get())
-        ->SetSharedState(shared);
+    auto* compaction_filter_factory =
+        reinterpret_cast<DbStressCompactionFilterFactory*>(
+            options_.compaction_filter_factory.get());
+    assert(compaction_filter_factory);
+    compaction_filter_factory->SetSharedState(shared);
+    fprintf(stdout, "Compaction filter factory: %s\n",
+            compaction_filter_factory->Name());
   }
 }
 
