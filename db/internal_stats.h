@@ -149,8 +149,11 @@ class InternalStats {
     // The number of bytes read from the compaction output level.
     uint64_t bytes_read_output_level;
 
-    // Total number of bytes written during compaction
+    // Total number of bytes written to table files during compaction
     uint64_t bytes_written;
+
+    // Total number of bytes written to blob files during compaction
+    uint64_t bytes_written_blob;
 
     // Total number of bytes moved to the output level
     uint64_t bytes_moved;
@@ -183,6 +186,7 @@ class InternalStats {
           bytes_read_non_output_levels(0),
           bytes_read_output_level(0),
           bytes_written(0),
+          bytes_written_blob(0),
           bytes_moved(0),
           num_input_files_in_non_output_levels(0),
           num_input_files_in_output_level(0),
@@ -202,6 +206,7 @@ class InternalStats {
           bytes_read_non_output_levels(0),
           bytes_read_output_level(0),
           bytes_written(0),
+          bytes_written_blob(0),
           bytes_moved(0),
           num_input_files_in_non_output_levels(0),
           num_input_files_in_output_level(0),
@@ -227,6 +232,7 @@ class InternalStats {
           bytes_read_non_output_levels(c.bytes_read_non_output_levels),
           bytes_read_output_level(c.bytes_read_output_level),
           bytes_written(c.bytes_written),
+          bytes_written_blob(c.bytes_written_blob),
           bytes_moved(c.bytes_moved),
           num_input_files_in_non_output_levels(
               c.num_input_files_in_non_output_levels),
@@ -247,6 +253,7 @@ class InternalStats {
       bytes_read_non_output_levels = c.bytes_read_non_output_levels;
       bytes_read_output_level = c.bytes_read_output_level;
       bytes_written = c.bytes_written;
+      bytes_written_blob = c.bytes_written_blob;
       bytes_moved = c.bytes_moved;
       num_input_files_in_non_output_levels =
           c.num_input_files_in_non_output_levels;
@@ -269,6 +276,7 @@ class InternalStats {
       this->bytes_read_non_output_levels = 0;
       this->bytes_read_output_level = 0;
       this->bytes_written = 0;
+      this->bytes_written_blob = 0;
       this->bytes_moved = 0;
       this->num_input_files_in_non_output_levels = 0;
       this->num_input_files_in_output_level = 0;
@@ -288,6 +296,7 @@ class InternalStats {
       this->bytes_read_non_output_levels += c.bytes_read_non_output_levels;
       this->bytes_read_output_level += c.bytes_read_output_level;
       this->bytes_written += c.bytes_written;
+      this->bytes_written_blob += c.bytes_written_blob;
       this->bytes_moved += c.bytes_moved;
       this->num_input_files_in_non_output_levels +=
           c.num_input_files_in_non_output_levels;
@@ -309,6 +318,7 @@ class InternalStats {
       this->bytes_read_non_output_levels -= c.bytes_read_non_output_levels;
       this->bytes_read_output_level -= c.bytes_read_output_level;
       this->bytes_written -= c.bytes_written;
+      this->bytes_written_blob -= c.bytes_written_blob;
       this->bytes_moved -= c.bytes_moved;
       this->num_input_files_in_non_output_levels -=
           c.num_input_files_in_non_output_levels;
@@ -653,6 +663,7 @@ class InternalStats {
     uint64_t bytes_read_non_output_levels;
     uint64_t bytes_read_output_level;
     uint64_t bytes_written;
+    uint64_t bytes_written_blob;
     uint64_t bytes_moved;
     int num_input_files_in_non_output_levels;
     int num_input_files_in_output_level;

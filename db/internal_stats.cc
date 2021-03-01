@@ -103,13 +103,14 @@ void PrepareLevelStats(std::map<LevelStatType, double>* level_stats,
   (*level_stats)[LevelStatType::RN_GB] =
       stats.bytes_read_non_output_levels / kGB;
   (*level_stats)[LevelStatType::RNP1_GB] = stats.bytes_read_output_level / kGB;
-  (*level_stats)[LevelStatType::WRITE_GB] = stats.bytes_written / kGB;
+  (*level_stats)[LevelStatType::WRITE_GB] =
+      stats.bytes_written / kGB;  // TODO WRITE_BLOB_GB
   (*level_stats)[LevelStatType::W_NEW_GB] = bytes_new / kGB;
   (*level_stats)[LevelStatType::MOVED_GB] = stats.bytes_moved / kGB;
   (*level_stats)[LevelStatType::WRITE_AMP] = w_amp;
   (*level_stats)[LevelStatType::READ_MBPS] = bytes_read / kMB / elapsed;
   (*level_stats)[LevelStatType::WRITE_MBPS] =
-      stats.bytes_written / kMB / elapsed;
+      (stats.bytes_written + stats.bytes_written_blob) / kMB / elapsed;
   (*level_stats)[LevelStatType::COMP_SEC] = stats.micros / kMicrosInSec;
   (*level_stats)[LevelStatType::COMP_CPU_SEC] = stats.cpu_micros / kMicrosInSec;
   (*level_stats)[LevelStatType::COMP_COUNT] = stats.count;
@@ -1179,7 +1180,8 @@ void InternalStats::DumpCFMapStats(
       double w_amp =
           (input_bytes == 0)
               ? 0.0
-              : static_cast<double>(comp_stats_[level].bytes_written) /
+              : static_cast<double>(comp_stats_[level].bytes_written +
+                                    comp_stats_[level].bytes_written_blob) /
                     input_bytes;
       std::map<LevelStatType, double> level_stats;
       PrepareLevelStats(&level_stats, files, files_being_compacted[level],
@@ -1189,7 +1191,8 @@ void InternalStats::DumpCFMapStats(
     }
   }
   // Cumulative summary
-  double w_amp = compaction_stats_sum->bytes_written /
+  double w_amp = (compaction_stats_sum->bytes_written +
+                  compaction_stats_sum->bytes_written_blob) /
                  static_cast<double>(curr_ingest + 1);
   // Stats summary across levels
   std::map<LevelStatType, double> sum_stats;
@@ -1294,7 +1297,8 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   CompactionStats interval_stats(compaction_stats_sum);
   interval_stats.Subtract(cf_stats_snapshot_.comp_stats);
   double w_amp =
-      interval_stats.bytes_written / static_cast<double>(interval_ingest);
+      (interval_stats.bytes_written + interval_stats.bytes_written_blob) /
+      static_cast<double>(interval_ingest);
   PrintLevelStats(buf, sizeof(buf), "Int", 0, 0, 0, 0, w_amp, interval_stats);
   value->append(buf);
 
@@ -1354,7 +1358,8 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   for (int level = 0; level < number_levels_; level++) {
     compact_bytes_read += comp_stats_[level].bytes_read_output_level +
                           comp_stats_[level].bytes_read_non_output_levels;
-    compact_bytes_write += comp_stats_[level].bytes_written;
+    compact_bytes_write += comp_stats_[level].bytes_written +
+                           comp_stats_[level].bytes_written_blob;
     compact_micros += comp_stats_[level].micros;
   }
 
