@@ -2224,10 +2224,9 @@ void StressTest::Open() {
        FLAGS_allow_setting_blob_options_dynamically) &&
       (FLAGS_use_merge || FLAGS_backup_one_in > 0 ||
        FLAGS_best_efforts_recovery)) {
-    fprintf(
-        stderr,
-        "Integrated BlobDB is currently incompatible with Merge, compaction "
-        "filters, backup/restore, and best-effort recovery\n");
+    fprintf(stderr,
+            "Integrated BlobDB is currently incompatible with Merge, "
+            "backup/restore, and best-effort recovery\n");
     exit(1);
   }
 
