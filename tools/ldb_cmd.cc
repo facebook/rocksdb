@@ -3095,7 +3095,7 @@ void BackupCommand::DoCommand() {
       BackupableDBOptions(backup_dir_, custom_env);
   backup_options.info_log = logger_.get();
   backup_options.max_background_operations = num_threads_;
-  status = BackupEngine::Open(custom_env, backup_options, &backup_engine);
+  status = BackupEngine::Open(options_.env, backup_options, &backup_engine);
   if (status.ok()) {
     fprintf(stdout, "open backup engine OK\n");
   } else {
@@ -3136,7 +3136,7 @@ void RestoreCommand::DoCommand() {
     opts.max_background_operations = num_threads_;
     BackupEngineReadOnly* raw_restore_engine_ptr;
     status =
-        BackupEngineReadOnly::Open(custom_env, opts, &raw_restore_engine_ptr);
+        BackupEngineReadOnly::Open(options_.env, opts, &raw_restore_engine_ptr);
     if (status.ok()) {
       restore_engine.reset(raw_restore_engine_ptr);
     }
