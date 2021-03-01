@@ -1359,9 +1359,8 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   uint64_t compact_bytes_write = 0;
   uint64_t compact_micros = 0;
   for (int level = 0; level < number_levels_; level++) {
-    compact_bytes_read +=
-        comp_stats_[level].bytes_read_output_level +
-        comp_stats_[level].bytes_read_non_output_levels;
+    compact_bytes_read += comp_stats_[level].bytes_read_output_level +
+                          comp_stats_[level].bytes_read_non_output_levels;
     compact_bytes_write += comp_stats_[level].bytes_written +
                            comp_stats_[level].bytes_written_blob;
     compact_micros += comp_stats_[level].micros;
