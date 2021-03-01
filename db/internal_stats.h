@@ -143,10 +143,10 @@ class InternalStats {
     uint64_t micros;
     uint64_t cpu_micros;
 
-    // The number of bytes read from all non-output levels
+    // The number of bytes read from all non-output levels (table files)
     uint64_t bytes_read_non_output_levels;
 
-    // The number of bytes read from the compaction output level.
+    // The number of bytes read from the compaction output level (table files)
     uint64_t bytes_read_output_level;
 
     // Total number of bytes written to table files during compaction
@@ -155,23 +155,27 @@ class InternalStats {
     // Total number of bytes written to blob files during compaction
     uint64_t bytes_written_blob;
 
-    // Total number of bytes moved to the output level
+    // Total number of bytes moved to the output level (table files)
     uint64_t bytes_moved;
 
-    // The number of compaction input files in all non-output levels.
+    // The number of compaction input files in all non-output levels (table
+    // files)
     int num_input_files_in_non_output_levels;
 
-    // The number of compaction input files in the output level.
+    // The number of compaction input files in the output level (table files)
     int num_input_files_in_output_level;
 
-    // The number of compaction output files.
+    // The number of compaction output files (table files)
     int num_output_files;
+
+    // The number of compaction output files (blob files)
+    int num_output_files_blob;
 
     // Total incoming entries during compaction between levels N and N+1
     uint64_t num_input_records;
 
     // Accumulated diff number of entries
-    // (num input entries - num output entires) for compaction  levels N and N+1
+    // (num input entries - num output entries) for compaction levels N and N+1
     uint64_t num_dropped_records;
 
     // Number of compactions done
@@ -191,6 +195,7 @@ class InternalStats {
           num_input_files_in_non_output_levels(0),
           num_input_files_in_output_level(0),
           num_output_files(0),
+          num_output_files_blob(0),
           num_input_records(0),
           num_dropped_records(0),
           count(0) {
@@ -211,6 +216,7 @@ class InternalStats {
           num_input_files_in_non_output_levels(0),
           num_input_files_in_output_level(0),
           num_output_files(0),
+          num_output_files_blob(0),
           num_input_records(0),
           num_dropped_records(0),
           count(c) {
@@ -238,6 +244,7 @@ class InternalStats {
               c.num_input_files_in_non_output_levels),
           num_input_files_in_output_level(c.num_input_files_in_output_level),
           num_output_files(c.num_output_files),
+          num_output_files_blob(c.num_output_files_blob),
           num_input_records(c.num_input_records),
           num_dropped_records(c.num_dropped_records),
           count(c.count) {
@@ -259,6 +266,7 @@ class InternalStats {
           c.num_input_files_in_non_output_levels;
       num_input_files_in_output_level = c.num_input_files_in_output_level;
       num_output_files = c.num_output_files;
+      num_output_files_blob = c.num_output_files_blob;
       num_input_records = c.num_input_records;
       num_dropped_records = c.num_dropped_records;
       count = c.count;
@@ -281,6 +289,7 @@ class InternalStats {
       this->num_input_files_in_non_output_levels = 0;
       this->num_input_files_in_output_level = 0;
       this->num_output_files = 0;
+      this->num_output_files_blob = 0;
       this->num_input_records = 0;
       this->num_dropped_records = 0;
       this->count = 0;
@@ -303,6 +312,7 @@ class InternalStats {
       this->num_input_files_in_output_level +=
           c.num_input_files_in_output_level;
       this->num_output_files += c.num_output_files;
+      this->num_output_files_blob += c.num_output_files_blob;
       this->num_input_records += c.num_input_records;
       this->num_dropped_records += c.num_dropped_records;
       this->count += c.count;
@@ -325,6 +335,7 @@ class InternalStats {
       this->num_input_files_in_output_level -=
           c.num_input_files_in_output_level;
       this->num_output_files -= c.num_output_files;
+      this->num_output_files_blob -= c.num_output_files_blob;
       this->num_input_records -= c.num_input_records;
       this->num_dropped_records -= c.num_dropped_records;
       this->count -= c.count;
@@ -668,6 +679,7 @@ class InternalStats {
     int num_input_files_in_non_output_levels;
     int num_input_files_in_output_level;
     int num_output_files;
+    int num_output_files_blob;
     uint64_t num_input_records;
     uint64_t num_dropped_records;
     int count;

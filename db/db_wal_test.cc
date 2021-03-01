@@ -430,7 +430,8 @@ TEST_F(DBWALTest, RecoverWithBlob) {
   ASSERT_EQ(compaction_stats[0].bytes_written, table_file->fd.GetFileSize());
   ASSERT_EQ(compaction_stats[0].bytes_written_blob,
             blob_file->GetTotalBlobBytes());
-  ASSERT_EQ(compaction_stats[0].num_output_files, 2);
+  ASSERT_EQ(compaction_stats[0].num_output_files, 1);
+  ASSERT_EQ(compaction_stats[0].num_output_files_blob, 1);
 
   const uint64_t* const cf_stats_value = internal_stats->TEST_GetCFStatsValue();
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],

@@ -815,7 +815,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   ROCKS_LOG_BUFFER(
       log_buffer_,
       "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
-      "files in(%d, %d) out(%d) "
+      "files in(%d, %d) out(%d +%d blob) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s, records in: %" PRIu64
       ", records dropped: %" PRIu64 " output_compression: %s\n",
@@ -824,6 +824,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       compact_->compaction->output_level(),
       stats.num_input_files_in_non_output_levels,
       stats.num_input_files_in_output_level, stats.num_output_files,
+      stats.num_output_files_blob,
       stats.bytes_read_non_output_levels / 1048576.0,
       stats.bytes_read_output_level / 1048576.0,
       (stats.bytes_written + stats.bytes_written_blob) / 1048576.0,
@@ -1826,7 +1827,8 @@ void CompactionJob::UpdateCompactionStats() {
   }
 
   compaction_stats_.num_output_files =
-      static_cast<int>(compact_->num_output_files) +
+      static_cast<int>(compact_->num_output_files);
+  compaction_stats_.num_output_files_blob =
       static_cast<int>(compact_->num_blob_output_files);
   compaction_stats_.bytes_written = compact_->total_bytes;
   compaction_stats_.bytes_written_blob = compact_->total_blob_bytes;
@@ -1871,7 +1873,8 @@ void CompactionJob::UpdateCompactionJobStats(
   compaction_job_stats_->total_output_bytes =
       stats.bytes_written + stats.bytes_written_blob;
   compaction_job_stats_->num_output_records = compact_->num_output_records;
-  compaction_job_stats_->num_output_files = stats.num_output_files;
+  compaction_job_stats_->num_output_files =
+      stats.num_output_files + stats.num_output_files_blob;
 
   if (stats.num_output_files > 0) {
     CopyPrefix(compact_->SmallestUserKey(),

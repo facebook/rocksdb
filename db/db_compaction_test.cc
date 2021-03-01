@@ -5951,7 +5951,8 @@ TEST_F(DBCompactionTest, CompactionWithBlob) {
   ASSERT_EQ(compaction_stats[1].bytes_written, table_file->fd.GetFileSize());
   ASSERT_EQ(compaction_stats[1].bytes_written_blob,
             blob_file->GetTotalBlobBytes());
-  ASSERT_EQ(compaction_stats[1].num_output_files, 2);
+  ASSERT_EQ(compaction_stats[1].num_output_files, 1);
+  ASSERT_EQ(compaction_stats[1].num_output_files_blob, 1);
 }
 
 class DBCompactionTestBlobError
@@ -6041,11 +6042,13 @@ TEST_P(DBCompactionTestBlobError, CompactionError) {
     ASSERT_EQ(compaction_stats[1].bytes_written, 0);
     ASSERT_EQ(compaction_stats[1].bytes_written_blob, 0);
     ASSERT_EQ(compaction_stats[1].num_output_files, 0);
+    ASSERT_EQ(compaction_stats[1].num_output_files_blob, 0);
   } else {
     // SST file writing succeeded; blob file writing failed (during Finish)
     ASSERT_GT(compaction_stats[1].bytes_written, 0);
     ASSERT_EQ(compaction_stats[1].bytes_written_blob, 0);
     ASSERT_EQ(compaction_stats[1].num_output_files, 1);
+    ASSERT_EQ(compaction_stats[1].num_output_files_blob, 0);
   }
 }
 
