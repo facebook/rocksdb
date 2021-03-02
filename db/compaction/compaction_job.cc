@@ -812,11 +812,13 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
   const std::string& column_family_name = cfd->GetName();
 
+  constexpr double kMB = 1048576.0;
+
   ROCKS_LOG_BUFFER(
       log_buffer_,
       "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
       "files in(%d, %d) out(%d +%d blob) "
-      "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
+      "MB in(%.1f, %.1f) out(%.1f +%.1f blob), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s, records in: %" PRIu64
       ", records dropped: %" PRIu64 " output_compression: %s\n",
       column_family_name.c_str(), vstorage->LevelSummary(&tmp),
@@ -824,12 +826,11 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       compact_->compaction->output_level(),
       stats.num_input_files_in_non_output_levels,
       stats.num_input_files_in_output_level, stats.num_output_files,
-      stats.num_output_files_blob,
-      stats.bytes_read_non_output_levels / 1048576.0,
-      stats.bytes_read_output_level / 1048576.0,
-      (stats.bytes_written + stats.bytes_written_blob) / 1048576.0,
-      read_write_amp, write_amp, status.ToString().c_str(),
-      stats.num_input_records, stats.num_dropped_records,
+      stats.num_output_files_blob, stats.bytes_read_non_output_levels / kMB,
+      stats.bytes_read_output_level / kMB, stats.bytes_written / kMB,
+      stats.bytes_written_blob / kMB, read_write_amp, write_amp,
+      status.ToString().c_str(), stats.num_input_records,
+      stats.num_dropped_records,
       CompressionTypeToString(compact_->compaction->output_compression())
           .c_str());
 
