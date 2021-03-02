@@ -25,6 +25,8 @@ struct CompactionJobStats {
 
   // the number of compaction input records.
   uint64_t num_input_records;
+  // the number of blobs read from blob files
+  uint64_t num_blobs_read;
   // the number of compaction input files (table files)
   size_t num_input_files;
   // the number of compaction input files at the output level (table files)

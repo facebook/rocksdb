@@ -263,6 +263,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
 
         // Note: we track the compressed size of blobs for the purposes of write
         // amp calculations
+        ++iter_stats_.num_blobs_read;
         iter_stats_.total_blob_bytes_read += blob_index.size();
 
         value_type = CompactionFilter::ValueType::kValue;
@@ -902,6 +903,7 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
 
     // Note: we track the compressed size of blobs for the purposes of write amp
     // calculations
+    ++iter_stats_.num_blobs_read;
     iter_stats_.total_blob_bytes_read += blob_index.size();
 
     value_ = blob_value_;

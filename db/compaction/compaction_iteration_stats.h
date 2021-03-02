@@ -36,5 +36,6 @@ struct CompactionIterationStats {
   uint64_t num_single_del_mismatch = 0;
 
   // Blob related statistics
+  uint64_t num_blobs_read = 0;
   uint64_t total_blob_bytes_read = 0;
 };
