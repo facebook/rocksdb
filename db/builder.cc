@@ -175,11 +175,10 @@ Status BuildTable(
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
         (mutable_cf_options.enable_blob_files && blob_file_additions)
-            ? new BlobFileBuilder(versions, env, fs, &ioptions,
-                                  &mutable_cf_options, &file_options, job_id,
-                                  column_family_id, column_family_name,
-                                  io_priority, write_hint, io_tracer,
-                                  &blob_file_paths, blob_file_additions)
+            ? new BlobFileBuilder(
+                  versions, fs, &ioptions, &mutable_cf_options, &file_options,
+                  job_id, column_family_id, column_family_name, io_priority,
+                  write_hint, io_tracer, &blob_file_paths, blob_file_additions)
             : nullptr);
 
     CompactionIterator c_iter(
