@@ -18,6 +18,7 @@
 #include "rocksdb/perf_context.h"
 #include "table/block_based/flush_block_policy.h"
 #include "util/random.h"
+#include "utilities/merge_operators/string_append/stringappend2.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -624,6 +625,8 @@ TEST_F(DBIteratorTest, ReseekUponDirectionChange) {
   options.create_if_missing = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  options.merge_operator.reset(
+      new StringAppendTESTOperator(/*delim_char=*/' '));
   DestroyAndReopen(options);
   ASSERT_OK(Put("foo", "value"));
   ASSERT_OK(Put("bar", "value"));
@@ -635,6 +638,20 @@ TEST_F(DBIteratorTest, ReseekUponDirectionChange) {
   }
   ASSERT_EQ(1,
             options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
+
+  const std::string merge_key("good");
+  ASSERT_OK(Put(merge_key, "orig"));
+  ASSERT_OK(Merge(merge_key, "suffix"));
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->Seek(merge_key);
+    ASSERT_TRUE(it->Valid());
+    const uint64_t prev_reseek_count =
+        options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION);
+    it->Prev();
+    ASSERT_EQ(prev_reseek_count + 1, options.statistics->getTickerCount(
+                                         NUMBER_OF_RESEEKS_IN_ITERATION));
+  }
 }
 
 TEST_P(DBIteratorTest, IterSmallAndLargeMix) {
