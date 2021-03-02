@@ -619,6 +619,24 @@ TEST_P(DBIteratorTest, IterReseek) {
   delete iter;
 }
 
+TEST_F(DBIteratorTest, ReseekUponDirectionChange) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "value"));
+  ASSERT_OK(Put("bar", "value"));
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->SeekToLast();
+    it->Prev();
+    it->Next();
+  }
+  ASSERT_EQ(1,
+            options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
+}
+
 TEST_P(DBIteratorTest, IterSmallAndLargeMix) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
