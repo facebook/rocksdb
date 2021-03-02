@@ -12,6 +12,7 @@
 
 #include "file/filename.h"
 #include "port/port.h"
+#include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace encryption {
@@ -267,6 +268,17 @@ Status KeyManagedEncryptedEnv::NewSequentialFile(
     case EncryptionMethod::kAES192_CTR:
     case EncryptionMethod::kAES256_CTR:
       s = encrypted_env_->NewSequentialFile(fname, result, options);
+      // Hack: when upgrading from TiKV <= v5.0.0-rc, the old current
+      // file is encrypted but it could be replaced with a plaintext
+      // current file. The operation below guarantee that the current
+      // file is read correctly.
+      if (s.ok() && IsCurrentFile(fname)) {
+        if (!IsValidCurrentFile(std::move(*result))) {
+          s = target()->NewSequentialFile(fname, result, options);
+        } else {
+          s = encrypted_env_->NewSequentialFile(fname, result, options);
+        }
+      }
       break;
     default:
       s = Status::InvalidArgument(
@@ -306,7 +318,8 @@ Status KeyManagedEncryptedEnv::NewWritableFile(
     const EnvOptions& options) {
   FileEncryptionInfo file_info;
   Status s;
-  bool skipped = ShouldSkipEncryption(fname);
+  bool skipped = IsCurrentFile(fname);
+  TEST_SYNC_POINT_CALLBACK("KeyManagedEncryptedEnv::NewWritableFile", &skipped);
   if (!skipped) {
     s = key_manager_->NewFile(fname, &file_info);
     if (!s.ok()) {
@@ -441,12 +454,12 @@ Status KeyManagedEncryptedEnv::DeleteFile(const std::string& fname) {
 
 Status KeyManagedEncryptedEnv::LinkFile(const std::string& src_fname,
                                         const std::string& dst_fname) {
-  if (ShouldSkipEncryption(dst_fname)) {
-    assert(ShouldSkipEncryption(src_fname));
+  if (IsCurrentFile(dst_fname)) {
+    assert(IsCurrentFile(src_fname));
     Status s = target()->LinkFile(src_fname, dst_fname);
     return s;
   } else {
-    assert(!ShouldSkipEncryption(src_fname));
+    assert(!IsCurrentFile(src_fname));
   }
   Status s = key_manager_->LinkFile(src_fname, dst_fname);
   if (!s.ok()) {
@@ -463,11 +476,17 @@ Status KeyManagedEncryptedEnv::LinkFile(const std::string& src_fname,
 
 Status KeyManagedEncryptedEnv::RenameFile(const std::string& src_fname,
                                           const std::string& dst_fname) {
-  if (ShouldSkipEncryption(dst_fname)) {
-    assert(ShouldSkipEncryption(src_fname));
-    return target()->RenameFile(src_fname, dst_fname);
+  if (IsCurrentFile(dst_fname)) {
+    assert(IsCurrentFile(src_fname));
+    Status s = target()->RenameFile(src_fname, dst_fname);
+    // Replacing with plaintext requires deleting the info in the key manager.
+    // The stale current file info exists when upgrading from TiKV <= v5.0.0-rc.
+    Status delete_status __attribute__((__unused__)) =
+        key_manager_->DeleteFile(dst_fname);
+    assert(delete_status.ok());
+    return s;
   } else {
-    assert(!ShouldSkipEncryption(src_fname));
+    assert(!IsCurrentFile(src_fname));
   }
   // Link(copy)File instead of RenameFile to avoid losing src_fname info when
   // failed to rename the src_fname in the file system.

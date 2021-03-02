@@ -30,7 +30,7 @@ static const std::string kRocksDBBlobFileExt = "blob";
 static const std::string kArchivalDirName = "archive";
 static const std::string kUnencryptedTempFileNameSuffix = "dbtmp.plain";
 
-bool ShouldSkipEncryption(const std::string& fname) {
+bool IsCurrentFile(const std::string& fname) {
   // skip CURRENT file.
   size_t current_length = strlen("CURRENT");
   if (fname.length() >= current_length &&
@@ -46,6 +46,13 @@ bool ShouldSkipEncryption(const std::string& fname) {
     return true;
   }
   return false;
+}
+
+bool IsValidCurrentFile(std::unique_ptr<rocksdb::SequentialFile> seq_file) {
+  Slice result;
+  char scratch[64];
+  seq_file->Read(8, &result, scratch);
+  return result.compare("MANIFEST") == 0;
 }
 
 // Given a path, flatten the path name by replacing all chars not in

@@ -10,6 +10,8 @@
 #pragma once
 #include <algorithm>
 #include <deque>
+#include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -55,10 +57,13 @@ class TestKeyManager : public encryption::KeyManager {
 
   static const std::string default_key;
   static const std::string default_iv;
+  std::mutex mutex;
+  std::set<std::string> file_set;
 
   Status GetFile(const std::string& fname,
                  encryption::FileEncryptionInfo* file_info) override {
-    if (ShouldSkipEncryption(fname)) {
+    std::lock_guard<std::mutex> l(mutex);
+    if (file_set.find(fname) == file_set.end()) {
       file_info->method = encryption::EncryptionMethod::kPlaintext;
     } else {
       file_info->method = encryption::EncryptionMethod::kAES192_CTR;
@@ -68,16 +73,25 @@ class TestKeyManager : public encryption::KeyManager {
     return Status::OK();
   }
 
-  Status NewFile(const std::string& /*fname*/,
+  Status NewFile(const std::string& fname,
                  encryption::FileEncryptionInfo* file_info) override {
+    std::lock_guard<std::mutex> l(mutex);
     file_info->method = encryption::EncryptionMethod::kAES192_CTR;
     file_info->key = default_key;
     file_info->iv = default_iv;
+    file_set.insert(fname);
     return Status::OK();
   }
 
-  Status DeleteFile(const std::string&) override { return Status::OK(); }
-  Status LinkFile(const std::string&, const std::string&) override {
+  Status DeleteFile(const std::string& fname) override {
+    std::lock_guard<std::mutex> l(mutex);
+    file_set.erase(fname);
+    return Status::OK();
+  }
+
+  Status LinkFile(const std::string& /*src*/, const std::string& dst) override {
+    std::lock_guard<std::mutex> l(mutex);
+    file_set.insert(dst);
     return Status::OK();
   }
 };

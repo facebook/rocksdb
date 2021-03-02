@@ -38,7 +38,11 @@ constexpr char kFilePathSeparator = '/';
 
 // Some non-sensitive files are not encrypted to preserve atomicity of file
 // operations.
-extern bool ShouldSkipEncryption(const std::string& fname);
+extern bool IsCurrentFile(const std::string& fname);
+
+// Determine if the content is read from the valid current file.
+extern bool IsValidCurrentFile(
+    std::unique_ptr<rocksdb::SequentialFile> seq_file);
 
 // Return the name of the log file with the specified number
 // in the db named by "dbname".  The result will be prefixed with

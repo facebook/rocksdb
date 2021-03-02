@@ -2292,6 +2292,10 @@ TEST_F(DBTest, DestroyDBMetaDatabase) {
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, SnapshotFiles) {
+  if (getenv("ENCRYPTED_ENV")) {
+    // File copy does not carry encryption key.
+    return;
+  }
   do {
     Options options = CurrentOptions();
     options.write_buffer_size = 100000000;  // Large write buffer

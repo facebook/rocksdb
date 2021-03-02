@@ -205,6 +205,52 @@ INSTANTIATE_TEST_CASE_P(CustomEnv, EnvMoreTestWithParam,
                         ::testing::ValuesIn(GetCustomEnvs()));
 #endif  // ROCKSDB_LITE
 
+TEST_P(EnvBasicTestWithParam, RenameCurrent) {
+  if (!getenv("ENCRYPTED_ENV")) {
+    return;
+  }
+  Slice result;
+  char scratch[100];
+  std::unique_ptr<SequentialFile> seq_file;
+  std::unique_ptr<WritableFile> writable_file;
+  std::vector<std::string> children;
+
+  // Create an encrypted `CURRENT` file so it shouldn't be skipped .
+  SyncPoint::GetInstance()->SetCallBack(
+      "KeyManagedEncryptedEnv::NewWritableFile", [&](void* arg) {
+        bool* skip = static_cast<bool*>(arg);
+        *skip = false;
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(
+      env_->NewWritableFile(test_dir_ + "/CURRENT", &writable_file, soptions_));
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  SyncPoint::GetInstance()->DisableProcessing();
+  ASSERT_OK(writable_file->Append("MANIFEST-0"));
+  ASSERT_OK(writable_file->Close());
+  writable_file.reset();
+
+  ASSERT_OK(
+      env_->NewSequentialFile(test_dir_ + "/CURRENT", &seq_file, soptions_));
+  ASSERT_OK(seq_file->Read(100, &result, scratch));
+  ASSERT_EQ(0, result.compare("MANIFEST-0"));
+
+  // Create a plaintext `CURRENT` temp file.
+  ASSERT_OK(env_->NewWritableFile(test_dir_ + "/current.dbtmp.plain",
+                                  &writable_file, soptions_));
+  ASSERT_OK(writable_file->Append("MANIFEST-1"));
+  ASSERT_OK(writable_file->Close());
+  writable_file.reset();
+
+  ASSERT_OK(env_->RenameFile(test_dir_ + "/current.dbtmp.plain",
+                             test_dir_ + "/CURRENT"));
+
+  ASSERT_OK(
+      env_->NewSequentialFile(test_dir_ + "/CURRENT", &seq_file, soptions_));
+  ASSERT_OK(seq_file->Read(100, &result, scratch));
+  ASSERT_EQ(0, result.compare("MANIFEST-1"));
+}
+
 TEST_P(EnvBasicTestWithParam, Basics) {
   uint64_t file_size;
   std::unique_ptr<WritableFile> writable_file;
