@@ -152,83 +152,103 @@ TEST_F(BlobFileReaderTest, CreateReaderAndGetBlob) {
 
   {
     PinnableSlice value;
+    uint64_t bytes_read = 0;
 
     ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, blob_size,
-                              kNoCompression, &value));
+                              kNoCompression, &value, &bytes_read));
     ASSERT_EQ(value, blob);
+    ASSERT_EQ(bytes_read, blob_size);
   }
 
   read_options.verify_checksums = true;
 
   {
     PinnableSlice value;
+    uint64_t bytes_read = 0;
 
     ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, blob_size,
-                              kNoCompression, &value));
+                              kNoCompression, &value, &bytes_read));
     ASSERT_EQ(value, blob);
+
+    constexpr uint64_t key_size = sizeof(key) - 1;
+    ASSERT_EQ(bytes_read,
+              BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size) +
+                  blob_size);
   }
 
   // Invalid offset (too close to start of file)
   {
     PinnableSlice value;
+    uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, key, blob_offset - 1, blob_size,
-                              kNoCompression, &value)
+                              kNoCompression, &value, &bytes_read)
                     .IsCorruption());
+    ASSERT_EQ(bytes_read, 0);
   }
 
   // Invalid offset (too close to end of file)
   {
     PinnableSlice value;
+    uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, key, blob_offset + 1, blob_size,
-                              kNoCompression, &value)
+                              kNoCompression, &value, &bytes_read)
                     .IsCorruption());
+    ASSERT_EQ(bytes_read, 0);
   }
 
   // Incorrect compression type
   {
     PinnableSlice value;
+    uint64_t bytes_read = 0;
 
-    ASSERT_TRUE(
-        reader
-            ->GetBlob(read_options, key, blob_offset, blob_size, kZSTD, &value)
-            .IsCorruption());
+    ASSERT_TRUE(reader
+                    ->GetBlob(read_options, key, blob_offset, blob_size, kZSTD,
+                              &value, &bytes_read)
+                    .IsCorruption());
+    ASSERT_EQ(bytes_read, 0);
   }
 
   // Incorrect key size
   {
     constexpr char shorter_key[] = "k";
     PinnableSlice value;
+    uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, shorter_key,
                               blob_offset - (sizeof(key) - sizeof(shorter_key)),
-                              blob_size, kNoCompression, &value)
+                              blob_size, kNoCompression, &value, &bytes_read)
                     .IsCorruption());
+    ASSERT_EQ(bytes_read, 0);
   }
 
   // Incorrect key
   {
     constexpr char incorrect_key[] = "foo";
     PinnableSlice value;
+    uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, incorrect_key, blob_offset,
-                              blob_size, kNoCompression, &value)
+                              blob_size, kNoCompression, &value, &bytes_read)
                     .IsCorruption());
+    ASSERT_EQ(bytes_read, 0);
   }
 
   // Incorrect value size
   {
     PinnableSlice value;
+    uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
                     ->GetBlob(read_options, key, blob_offset, blob_size + 1,
-                              kNoCompression, &value)
+                              kNoCompression, &value, &bytes_read)
                     .IsCorruption());
+    ASSERT_EQ(bytes_read, 0);
   }
 }
 
@@ -479,11 +499,13 @@ TEST_F(BlobFileReaderTest, BlobCRCError) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   PinnableSlice value;
+  uint64_t bytes_read = 0;
 
   ASSERT_TRUE(reader
                   ->GetBlob(ReadOptions(), key, blob_offset, blob_size,
-                            kNoCompression, &value)
+                            kNoCompression, &value, &bytes_read)
                   .IsCorruption());
+  ASSERT_EQ(bytes_read, 0);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -530,20 +552,28 @@ TEST_F(BlobFileReaderTest, Compression) {
 
   {
     PinnableSlice value;
+    uint64_t bytes_read = 0;
 
     ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, blob_size,
-                              kSnappyCompression, &value));
+                              kSnappyCompression, &value, &bytes_read));
     ASSERT_EQ(value, blob);
+    ASSERT_EQ(bytes_read, blob_size);
   }
 
   read_options.verify_checksums = true;
 
   {
     PinnableSlice value;
+    uint64_t bytes_read = 0;
 
     ASSERT_OK(reader->GetBlob(read_options, key, blob_offset, blob_size,
-                              kSnappyCompression, &value));
+                              kSnappyCompression, &value, &bytes_read));
     ASSERT_EQ(value, blob);
+
+    constexpr uint64_t key_size = sizeof(key) - 1;
+    ASSERT_EQ(bytes_read,
+              BlobLogRecord::CalculateAdjustmentForRecordHeader(key_size) +
+                  blob_size);
   }
 }
 
@@ -596,11 +626,13 @@ TEST_F(BlobFileReaderTest, UncompressionError) {
   SyncPoint::GetInstance()->EnableProcessing();
 
   PinnableSlice value;
+  uint64_t bytes_read = 0;
 
   ASSERT_TRUE(reader
                   ->GetBlob(ReadOptions(), key, blob_offset, blob_size,
-                            kSnappyCompression, &value)
+                            kSnappyCompression, &value, &bytes_read)
                   .IsCorruption());
+  ASSERT_EQ(bytes_read, 0);
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -678,11 +710,13 @@ TEST_P(BlobFileReaderIOErrorTest, IOError) {
     ASSERT_OK(s);
 
     PinnableSlice value;
+    uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
                     ->GetBlob(ReadOptions(), key, blob_offset, blob_size,
-                              kNoCompression, &value)
+                              kNoCompression, &value, &bytes_read)
                     .IsIOError());
+    ASSERT_EQ(bytes_read, 0);
   }
 
   SyncPoint::GetInstance()->DisableProcessing();
@@ -758,11 +792,13 @@ TEST_P(BlobFileReaderDecodingErrorTest, DecodingError) {
     ASSERT_OK(s);
 
     PinnableSlice value;
+    uint64_t bytes_read = 0;
 
     ASSERT_TRUE(reader
                     ->GetBlob(ReadOptions(), key, blob_offset, blob_size,
-                              kNoCompression, &value)
+                              kNoCompression, &value, &bytes_read)
                     .IsCorruption());
+    ASSERT_EQ(bytes_read, 0);
   }
 
   SyncPoint::GetInstance()->DisableProcessing();
