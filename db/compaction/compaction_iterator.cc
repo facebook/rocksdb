@@ -260,6 +260,11 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           valid_ = false;
           return false;
         }
+
+        // Note: we track the compressed size of blobs for the purposes of write
+        // amp calculations
+        iter_stats_.total_blob_bytes_read += blob_index.size();
+
         value_type = CompactionFilter::ValueType::kValue;
       }
     }
@@ -894,6 +899,10 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
         return;
       }
     }
+
+    // Note: we track the compressed size of blobs for the purposes of write amp
+    // calculations
+    iter_stats_.total_blob_bytes_read += blob_index.size();
 
     value_ = blob_value_;
 
