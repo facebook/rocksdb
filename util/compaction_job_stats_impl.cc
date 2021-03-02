@@ -19,12 +19,15 @@ void CompactionJobStats::Reset() {
 
   num_output_records = 0;
   num_output_files = 0;
+  num_output_files_blob = 0;
 
   is_full_compaction = false;
   is_manual_compaction = false;
 
   total_input_bytes = 0;
+  total_blob_bytes_read = 0;
   total_output_bytes = 0;
+  total_output_bytes_blob = 0;
 
   num_records_replaced = 0;
 
@@ -58,9 +61,12 @@ void CompactionJobStats::Add(const CompactionJobStats& stats) {
 
   num_output_records += stats.num_output_records;
   num_output_files += stats.num_output_files;
+  num_output_files_blob += stats.num_output_files_blob;
 
   total_input_bytes += stats.total_input_bytes;
+  total_blob_bytes_read += stats.total_blob_bytes_read;
   total_output_bytes += stats.total_output_bytes;
+  total_output_bytes_blob += stats.total_output_bytes_blob;
 
   num_records_replaced += stats.num_records_replaced;
 

@@ -1124,6 +1124,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
   }
 
+  sub_compact->compaction_job_stats.total_blob_bytes_read =
+      c_iter_stats.total_blob_bytes_read;
   sub_compact->compaction_job_stats.num_input_deletion_records =
       c_iter_stats.num_input_deletion_records;
   sub_compact->compaction_job_stats.num_corrupt_keys =
@@ -1871,11 +1873,11 @@ void CompactionJob::UpdateCompactionJobStats(
       stats.num_input_files_in_output_level;
 
   // output information
-  compaction_job_stats_->total_output_bytes =
-      stats.bytes_written + stats.bytes_written_blob;
+  compaction_job_stats_->total_output_bytes = stats.bytes_written;
+  compaction_job_stats_->total_output_bytes_blob = stats.bytes_written_blob;
   compaction_job_stats_->num_output_records = compact_->num_output_records;
-  compaction_job_stats_->num_output_files =
-      stats.num_output_files + stats.num_output_files_blob;
+  compaction_job_stats_->num_output_files = stats.num_output_files;
+  compaction_job_stats_->num_output_files_blob = stats.num_output_files_blob;
 
   if (stats.num_output_files > 0) {
     CopyPrefix(compact_->SmallestUserKey(),
