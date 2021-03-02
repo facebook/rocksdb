@@ -53,10 +53,10 @@ cleanup() {
 }
 trap cleanup EXIT # Always clean up, even on failure or Ctrl+C
 
-scriptpath=`dirname $BASH_SOURCE`
+scriptpath=`dirname ${BASH_SOURCE[0]}`
 
 test_dir=${TEST_TMPDIR:-"/tmp"}"/rocksdb_format_compatible_$USER"
-rm -rf $test_dir
+rm -rf ${test_dir:?}
 
 # For saving current version of scripts as we checkout different versions to test
 script_copy_dir=$test_dir"/script_copy"
@@ -143,7 +143,7 @@ declare -a bak_forward_refs=("${db_forward_no_options_refs[@]}" "${db_forward_wi
 declare -a db_backward_only_refs=("2.2.fb.branch" "2.3.fb.branch" "2.4.fb.branch" "2.5.fb.branch" "2.6.fb.branch" "2.7.fb.branch" "2.8.1.fb" "3.0.fb.branch" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb" "4.9.fb" "4.10.fb" "${bak_backward_only_refs[@]}")
 
 if [ "$SHORT_TEST" ]; then
-  # Use only the first of each list
+  # Use only the first (if exists) of each list
   db_backward_only_refs=(${db_backward_only_refs[0]})
   db_forward_no_options_refs=(${db_forward_no_options_refs[0]})
   db_forward_with_options_refs=(${db_forward_with_options_refs[0]})
@@ -293,7 +293,7 @@ do
     ingest_external_sst $ext_test_dir/${checkout_ref}_ingest $ext_test_dir/$checkout_ref
     compare_db $ext_test_dir/${checkout_ref}_ingest ${current_ext_test_dir}_ingest db_dump.txt 1 1
 
-    rm -rf $ext_test_dir/${checkout_ref}_ingest
+    rm -rf ${ext_test_dir:?}/${checkout_ref}_ingest
     echo "== Use $checkout_ref to ingest extern SST file from $current_checkout_name"
     ingest_external_sst $ext_test_dir/${checkout_ref}_ingest $current_ext_test_dir
     compare_db $ext_test_dir/${checkout_ref}_ingest ${current_ext_test_dir}_ingest db_dump.txt 1 1
@@ -322,7 +322,7 @@ do
   if member_of_array "$checkout_ref" "${bak_forward_refs[@]}"
   then
     echo "== Use $checkout_ref to restore DB from $current_checkout_name"
-    rm -rf $db_test_dir/$checkout_ref
+    rm -rf ${db_test_dir:?}/$checkout_ref
     restore_db $current_bak_test_dir $db_test_dir/$checkout_ref
     compare_db $db_test_dir/$checkout_ref $current_db_test_dir forward_${checkout_ref}_dump.txt 0
   fi
@@ -342,7 +342,7 @@ do
   if member_of_array "$checkout_ref" "${ext_backward_only_refs[@]}" ||
     member_of_array "$checkout_ref" "${ext_forward_refs[@]}"
   then
-    rm -rf $ext_test_dir/${checkout_ref}_ingest
+    rm -rf ${ext_test_dir:?}/${checkout_ref}_ingest
     echo "== Use $current_checkout_name to ingest extern SST file from $checkout_ref"
     ingest_external_sst $ext_test_dir/${checkout_ref}_ingest $current_ext_test_dir
     compare_db $ext_test_dir/${checkout_ref}_ingest ${current_ext_test_dir}_ingest db_dump.txt 1 1
@@ -352,7 +352,7 @@ do
     member_of_array "$checkout_ref" "${bak_forward_refs[@]}"
   then
     echo "== Use $current_checkout_name to restore DB from $checkout_ref"
-    rm -rf $db_test_dir/$checkout_ref
+    rm -rf ${db_test_dir:?}/$checkout_ref
     restore_db $bak_test_dir/$checkout_ref $db_test_dir/$checkout_ref
     compare_db $db_test_dir/$checkout_ref $current_db_test_dir db_dump.txt 1 0
   fi
