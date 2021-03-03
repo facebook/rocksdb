@@ -446,6 +446,7 @@ class InternalStats {
   void DumpDBStats(std::string* value);
   void DumpCFMapStats(std::map<std::string, std::string>* cf_stats);
   void DumpCFMapStats(
+      const VersionStorageInfo* vstorage,
       std::map<int, std::map<LevelStatType, double>>* level_stats,
       CompactionStats* compaction_stats_sum);
   void DumpCFMapStatsByPriority(

@@ -1123,9 +1123,10 @@ void InternalStats::DumpDBStats(std::string* value) {
  */
 void InternalStats::DumpCFMapStats(
     std::map<std::string, std::string>* cf_stats) {
+  const VersionStorageInfo* vstorage = cfd_->current()->storage_info();
   CompactionStats compaction_stats_sum;
   std::map<int, std::map<LevelStatType, double>> levels_stats;
-  DumpCFMapStats(&levels_stats, &compaction_stats_sum);
+  DumpCFMapStats(vstorage, &levels_stats, &compaction_stats_sum);
   for (auto const& level_ent : levels_stats) {
     auto level_str =
         level_ent.first == -1 ? "Sum" : "L" + ToString(level_ent.first);
@@ -1142,9 +1143,10 @@ void InternalStats::DumpCFMapStats(
 }
 
 void InternalStats::DumpCFMapStats(
+    const VersionStorageInfo* vstorage,
     std::map<int, std::map<LevelStatType, double>>* levels_stats,
     CompactionStats* compaction_stats_sum) {
-  const VersionStorageInfo* vstorage = cfd_->current()->storage_info();
+  assert(vstorage);
 
   int num_levels_to_check =
       (cfd_->ioptions()->compaction_style != kCompactionStyleFIFO)
@@ -1270,9 +1272,10 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   value->append(buf);
 
   // Print stats for each level
+  const VersionStorageInfo* vstorage = cfd_->current()->storage_info();
   std::map<int, std::map<LevelStatType, double>> levels_stats;
   CompactionStats compaction_stats_sum;
-  DumpCFMapStats(&levels_stats, &compaction_stats_sum);
+  DumpCFMapStats(vstorage, &levels_stats, &compaction_stats_sum);
   for (int l = 0; l < number_levels_; ++l) {
     if (levels_stats.find(l) != levels_stats.end()) {
       PrintLevelStats(buf, sizeof(buf), "L" + ToString(l), levels_stats[l]);
@@ -1327,6 +1330,12 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
       value->append(buf);
     }
   }
+
+  snprintf(buf, sizeof(buf),
+           "\nBlob file count: %" ROCKSDB_PRIszt ", total size: %.1f GB\n\n",
+           vstorage->GetBlobFiles().size(),
+           vstorage->GetTotalBlobFileSize() / kGB);
+  value->append(buf);
 
   double seconds_up = (clock_->NowMicros() - started_at_ + 1) / kMicrosInSec;
   double interval_seconds_up = seconds_up - cf_stats_snapshot_.seconds_up;
