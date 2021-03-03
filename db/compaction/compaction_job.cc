@@ -23,6 +23,7 @@
 #include "db/blob/blob_file_addition.h"
 #include "db/blob/blob_file_builder.h"
 #include "db/builder.h"
+#include "db/compaction/local_compaction_service.h"
 #include "db/db_impl/db_impl.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -295,29 +296,83 @@ void CompactionJob::AggregateStatistics() {
   }
 }
 
-CompactionJob::CompactionJob(
-    int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
-    const FileOptions& file_options, VersionSet* versions,
-    const std::atomic<bool>* shutting_down,
-    const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
-    FSDirectory* db_directory, FSDirectory* output_directory,
-    FSDirectory* blob_output_directory, Statistics* stats,
+LocalCompactionService::LocalCompactionService(
+    const std::string& dbname, const std::string& db_id,
+    const std::string& db_session_id, const ImmutableDBOptions& db_options,
+    FileOptions* file_options, const std::atomic<bool>* shutting_down,
+    const std::atomic<int>* manual_compaction_paused,
+    const std::atomic<SequenceNumber>* preserve_deletes_seqnum,
+    VersionSet* versions, FSDirectory* db_directory,
     InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
-    std::vector<SequenceNumber> existing_snapshots,
+    const std::shared_ptr<Cache>& table_cache, EventLogger* event_logger,
+    const std::shared_ptr<IOTracer>& io_tracer)
+    : dbname_(dbname),
+      db_id_(db_id),
+      db_session_id_(db_session_id),
+      db_options_(db_options),
+      file_options_(file_options),
+      shutting_down_(shutting_down),
+      manual_compaction_paused_(manual_compaction_paused),
+      preserve_deletes_seqnum_(preserve_deletes_seqnum),
+      versions_(versions),
+      db_directory_(db_directory),
+      db_mutex_(db_mutex),
+      db_error_handler_(db_error_handler),
+      table_cache_(table_cache),
+      event_logger_(event_logger),
+      io_tracer_(io_tracer) {
+  stats_ = db_options_.statistics.get();
+}
+
+Status LocalCompactionService::Start(
+    const CompactionServiceOptions& compaction_options, std::string* job_id) {
+  (void)compaction_options;
+  (void)job_id;
+  return Status::NotSupported("Start not yet implemented");
+}
+
+Status LocalCompactionService::Cancel(const std::string& job_id) {
+  (void)job_id;
+  return Status::NotSupported("Cancel not yet implemented");
+}
+
+Status LocalCompactionService::WaitForComplete(
+    const std::string& job_id, CompactionJobInfo* compaction_job_info) {
+  (void)job_id;
+  (void)compaction_job_info;
+  return Status::NotSupported("WaitForComplete not yet implemented");
+}
+
+std::vector<Status> LocalCompactionService::DownloadFiles(
+    const FileOptions& options, const std::vector<std::string>& remote_path,
+    const std::vector<std::string>& local_path) {
+  (void)options;
+  std::vector<Status> statuses;
+  assert(remote_path.size() == local_path.size());
+  for (size_t i = 0; i < remote_path.size(); i++) {
+    statuses.push_back(
+        Status::NotSupported("DownloadFiles not yet implemented"));
+  }
+  return statuses;
+}
+
+CompactionJob::CompactionJob(
+    int job_id, Compaction* compaction, LocalCompactionService* service,
+    const ImmutableDBOptions& db_options, const FileOptions& file_options,
+    const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
+    FSDirectory* output_directory, FSDirectory* blob_output_directory,
+    Statistics* stats, std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
-    const SnapshotChecker* snapshot_checker, std::shared_ptr<Cache> table_cache,
-    EventLogger* event_logger, bool paranoid_file_checks, bool measure_io_stats,
-    const std::string& dbname, CompactionJobStats* compaction_job_stats,
+    const SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
+    bool measure_io_stats, CompactionJobStats* compaction_job_stats,
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-    const std::atomic<int>* manual_compaction_paused, const std::string& db_id,
-    const std::string& db_session_id, std::string full_history_ts_low)
+    const std::atomic<int>* manual_compaction_paused,
+    std::string full_history_ts_low)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_job_stats_(compaction_job_stats),
       compaction_stats_(compaction->compaction_reason(), 1),
-      dbname_(dbname),
-      db_id_(db_id),
-      db_session_id_(db_session_id),
+      service_(service),
       db_options_(db_options),
       file_options_(file_options),
       env_(db_options.env),
@@ -325,23 +380,16 @@ CompactionJob::CompactionJob(
       io_tracer_(io_tracer),
       fs_(db_options.fs, io_tracer),
       file_options_for_read_(
-          fs_->OptimizeForCompactionTableRead(file_options, db_options_)),
-      versions_(versions),
-      shutting_down_(shutting_down),
+          fs_->OptimizeForCompactionTableRead(file_options_, db_options_)),
       manual_compaction_paused_(manual_compaction_paused),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
       log_buffer_(log_buffer),
-      db_directory_(db_directory),
       output_directory_(output_directory),
       blob_output_directory_(blob_output_directory),
       stats_(stats),
-      db_mutex_(db_mutex),
-      db_error_handler_(db_error_handler),
       existing_snapshots_(std::move(existing_snapshots)),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
-      table_cache_(std::move(table_cache)),
-      event_logger_(event_logger),
       bottommost_level_(false),
       paranoid_file_checks_(paranoid_file_checks),
       measure_io_stats_(measure_io_stats),
@@ -530,11 +578,11 @@ void CompactionJob::GenSubcompactionBoundaries() {
     // ApproximateSize could potentially create table reader iterator to seek
     // to the index block and may incur I/O cost in the process. Unlock db
     // mutex to reduce contention
-    db_mutex_->Unlock();
-    uint64_t size = versions_->ApproximateSize(SizeApproximationOptions(), v, a,
-                                               b, start_lvl, out_lvl + 1,
-                                               TableReaderCaller::kCompaction);
-    db_mutex_->Lock();
+    service_->db_mutex_->Unlock();
+    uint64_t size = service_->versions_->ApproximateSize(
+        SizeApproximationOptions(), v, a, b, start_lvl, out_lvl + 1,
+        TableReaderCaller::kCompaction);
+    service_->db_mutex_->Lock();
     ranges.emplace_back(a, b, size);
     sum += size;
   }
@@ -769,7 +817,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_INSTALL);
-  db_mutex_->AssertHeld();
+  service_->db_mutex_->AssertHeld();
   Status status = compact_->status;
 
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
@@ -781,8 +829,8 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   if (status.ok()) {
     status = InstallCompactionResults(mutable_cf_options);
   }
-  if (!versions_->io_status().ok()) {
-    io_status_ = versions_->io_status();
+  if (!service_->versions_->io_status().ok()) {
+    io_status_ = service_->versions_->io_status();
   }
 
   VersionStorageInfo::LevelSummaryStorage tmp;
@@ -842,7 +890,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
 
   UpdateCompactionJobStats(stats);
 
-  auto stream = event_logger_->LogToBuffer(log_buffer_);
+  auto stream = service_->event_logger_->LogToBuffer(log_buffer_);
   stream << "job" << job_id_ << "event"
          << "compaction_finished"
          << "compaction_time_micros" << stats.micros
@@ -931,8 +979,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   // Although the v2 aggregator is what the level iterator(s) know about,
   // the AddTombstones calls will be propagated down to the v1 aggregator.
   std::unique_ptr<InternalIterator> input(
-      versions_->MakeInputIterator(read_options, sub_compact->compaction,
-                                   &range_del_agg, file_options_for_read_));
+      VersionSet::MakeInputIterator(read_options, sub_compact->compaction,
+                                    &range_del_agg, file_options_for_read_));
 
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
@@ -974,7 +1022,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<BlobFileBuilder> blob_file_builder(
       mutable_cf_options->enable_blob_files
           ? new BlobFileBuilder(
-                versions_, env_, fs_.get(),
+                service_->versions_, env_, fs_.get(),
                 sub_compact->compaction->immutable_cf_options(),
                 mutable_cf_options, &file_options_, job_id_, cfd->GetID(),
                 cfd->GetName(), Env::IOPriority::IO_LOW, write_hint_,
@@ -1001,12 +1049,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   const std::string* const full_history_ts_low =
       full_history_ts_low_.empty() ? nullptr : &full_history_ts_low_;
   sub_compact->c_iter.reset(new CompactionIterator(
-      input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
-      &existing_snapshots_, earliest_write_conflict_snapshot_,
-      snapshot_checker_, env_, ShouldReportDetailedTime(env_, stats_),
+      input.get(), cfd->user_comparator(), &merge,
+      service_->versions_->LastSequence(), &existing_snapshots_,
+      earliest_write_conflict_snapshot_, snapshot_checker_, env_,
+      ShouldReportDetailedTime(env_, stats_),
       /*expect_valid_internal_key=*/true, &range_del_agg,
       blob_file_builder.get(), db_options_.allow_data_in_errors,
-      sub_compact->compaction, compaction_filter, shutting_down_,
+      sub_compact->compaction, compaction_filter, service_->shutting_down_,
       preserve_deletes_seqnum_, manual_compaction_paused_, db_options_.info_log,
       full_history_ts_low));
   auto c_iter = sub_compact->c_iter.get();
@@ -1144,7 +1193,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         Status::ColumnFamilyDropped("Column family dropped during compaction");
   }
   if ((status.ok() || status.IsColumnFamilyDropped()) &&
-      shutting_down_->load(std::memory_order_relaxed)) {
+      service_->shutting_down_->load(std::memory_order_relaxed)) {
     status = Status::ShutdownInProgress("Database shutdown");
   }
   if ((status.ok() || status.IsColumnFamilyDropped()) &&
@@ -1546,8 +1595,8 @@ Status CompactionJob::FinishCompactionOutputFile(
     fname = "(nil)";
   }
   EventHelpers::LogAndNotifyTableFileCreationFinished(
-      event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
-      job_id_, output_fd, oldest_blob_file_number, tp,
+      service_->event_logger_, cfd->ioptions()->listeners, service_->dbname_,
+      cfd->GetName(), fname, job_id_, output_fd, oldest_blob_file_number, tp,
       TableFileCreationReason::kCompaction, s, file_checksum,
       file_checksum_func_name);
 
@@ -1567,8 +1616,9 @@ Status CompactionJob::FinishCompactionOutputFile(
       TEST_SYNC_POINT(
           "CompactionJob::FinishCompactionOutputFile:"
           "MaxAllowedSpaceReached");
-      InstrumentedMutexLock l(db_mutex_);
-      db_error_handler_->SetBGError(s, BackgroundErrorReason::kCompaction);
+      InstrumentedMutexLock l(service_->db_mutex_);
+      service_->db_error_handler_->SetBGError(
+          s, BackgroundErrorReason::kCompaction);
     }
   }
 #endif
@@ -1582,7 +1632,7 @@ Status CompactionJob::InstallCompactionResults(
     const MutableCFOptions& mutable_cf_options) {
   assert(compact_);
 
-  db_mutex_->AssertHeld();
+  service_->db_mutex_->AssertHeld();
 
   auto* compaction = compact_->compaction;
   assert(compaction);
@@ -1591,7 +1641,7 @@ Status CompactionJob::InstallCompactionResults(
   // still exist in the current version and in the same original level.
   // This ensures that a concurrent compaction did not erroneously
   // pick the same files to compact_.
-  if (!versions_->VerifyCompactionFileConsistency(compaction)) {
+  if (!service_->versions_->VerifyCompactionFileConsistency(compaction)) {
     Compaction::InputLevelSummaryBuffer inputs_summary;
 
     ROCKS_LOG_ERROR(db_options_.info_log, "[%s] [JOB %d] Compaction %s aborted",
@@ -1625,9 +1675,9 @@ Status CompactionJob::InstallCompactionResults(
     }
   }
 
-  return versions_->LogAndApply(compaction->column_family_data(),
-                                mutable_cf_options, edit, db_mutex_,
-                                db_directory_);
+  return service_->versions_->LogAndApply(
+      compaction->column_family_data(), mutable_cf_options, edit,
+      service_->db_mutex_, service_->db_directory_);
 }
 
 void CompactionJob::RecordCompactionIOStats() {
@@ -1658,7 +1708,7 @@ Status CompactionJob::OpenCompactionOutputFile(
   assert(sub_compact != nullptr);
   assert(sub_compact->builder == nullptr);
   // no need to lock because VersionSet::next_file_number_ is atomic
-  uint64_t file_number = versions_->NewFileNumber();
+  uint64_t file_number = service_->versions_->NewFileNumber();
   std::string fname =
       TableFileName(sub_compact->compaction->immutable_cf_options()->cf_paths,
                     file_number, sub_compact->compaction->output_path_id());
@@ -1666,8 +1716,8 @@ Status CompactionJob::OpenCompactionOutputFile(
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
 #ifndef ROCKSDB_LITE
   EventHelpers::NotifyTableFileCreationStarted(
-      cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname, job_id_,
-      TableFileCreationReason::kCompaction);
+      cfd->ioptions()->listeners, service_->dbname_, cfd->GetName(), fname,
+      job_id_, TableFileCreationReason::kCompaction);
 #endif  // !ROCKSDB_LITE
   // Make the output file
   std::unique_ptr<FSWritableFile> writable_file;
@@ -1695,10 +1745,11 @@ Status CompactionJob::OpenCompactionOutputFile(
         job_id_, file_number, s.ToString().c_str());
     LogFlush(db_options_.info_log);
     EventHelpers::LogAndNotifyTableFileCreationFinished(
-        event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(),
-        fname, job_id_, FileDescriptor(), kInvalidBlobFileNumber,
-        TableProperties(), TableFileCreationReason::kCompaction, s,
-        kUnknownFileChecksum, kUnknownFileChecksumFuncName);
+        service_->event_logger_, cfd->ioptions()->listeners, service_->dbname_,
+        cfd->GetName(), fname, job_id_, FileDescriptor(),
+        kInvalidBlobFileNumber, TableProperties(),
+        TableFileCreationReason::kCompaction, s, kUnknownFileChecksum,
+        kUnknownFileChecksumFuncName);
     return s;
   }
 
@@ -1761,8 +1812,8 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->output_compression_opts(),
       sub_compact->compaction->output_level(), skip_filters,
       oldest_ancester_time, 0 /* oldest_key_time */,
-      sub_compact->compaction->max_output_file_size(), current_time, db_id_,
-      db_session_id_));
+      sub_compact->compaction->max_output_file_size(), current_time,
+      service_->db_id_, service_->db_session_id_));
   LogFlush(db_options_.info_log);
   return s;
 }
@@ -1782,7 +1833,8 @@ void CompactionJob::CleanupCompaction() {
       // If this file was inserted into the table cache then remove
       // them here because this compaction was not committed.
       if (!sub_status.ok()) {
-        TableCache::Evict(table_cache_.get(), out.meta.fd.GetNumber());
+        TableCache::Evict(service_->table_cache_.get(),
+                          out.meta.fd.GetNumber());
       }
     }
     // TODO: sub_compact.io_status is not checked like status. Not sure if thats
@@ -1900,7 +1952,7 @@ void CompactionJob::LogCompaction() {
     ROCKS_LOG_INFO(db_options_.info_log, "[%s] Compaction start summary: %s\n",
                    cfd->GetName().c_str(), scratch);
     // build event logger report
-    auto stream = event_logger_->Log();
+    auto stream = service_->event_logger_->Log();
     stream << "job" << job_id_ << "event"
            << "compaction_started"
            << "compaction_reason"

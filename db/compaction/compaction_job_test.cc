@@ -16,6 +16,7 @@
 
 #include "db/blob/blob_index.h"
 #include "db/column_family.h"
+#include "db/compaction/local_compaction_service.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/version_set.h"
@@ -83,7 +84,7 @@ class CompactionJobTestBase : public testing::Test {
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
         versions_(new VersionSet(
-            dbname_, &db_options_, env_options_, table_cache_.get(),
+            dbname_, &db_options_, file_options_, table_cache_.get(),
             &write_buffer_manager_, &write_controller_,
             /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr)),
         shutting_down_(false),
@@ -267,7 +268,7 @@ class CompactionJobTestBase : public testing::Test {
     EXPECT_OK(DestroyDB(dbname_, Options()));
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
     versions_.reset(
-        new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
+        new VersionSet(dbname_, &db_options_, file_options_, table_cache_.get(),
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
     compaction_job_stats_.Reset();
@@ -282,7 +283,7 @@ class CompactionJobTestBase : public testing::Test {
     std::unique_ptr<WritableFileWriter> file_writer;
     const auto& fs = env_->GetFileSystem();
     Status s = WritableFileWriter::Create(
-        fs, manifest, fs->OptimizeForManifestWrite(env_options_), &file_writer,
+        fs, manifest, fs->OptimizeForManifestWrite(file_options_), &file_writer,
         nullptr);
 
     ASSERT_OK(s);
@@ -343,15 +344,18 @@ class CompactionJobTestBase : public testing::Test {
     SnapshotChecker* snapshot_checker = nullptr;
     ASSERT_TRUE(full_history_ts_low_.empty() ||
                 ucmp_->timestamp_size() == full_history_ts_low_.size());
+    LocalCompactionService service(
+        dbname_, /*db_id=*/"", /*db_session_id=*/"", db_options_,
+        &file_options_, &shutting_down_, /*manual_compaction_paused=*/nullptr,
+        &preserve_deletes_seqnum_, versions_.get(), nullptr, &mutex_,
+        &error_handler_, table_cache_, &event_logger, nullptr /* IOTracer */);
     CompactionJob compaction_job(
-        0, &compaction, db_options_, env_options_, versions_.get(),
-        &shutting_down_, preserve_deletes_seqnum_, &log_buffer, nullptr,
-        nullptr, nullptr, nullptr, &mutex_, &error_handler_, snapshots,
-        earliest_write_conflict_snapshot, snapshot_checker, table_cache_,
-        &event_logger, false, false, dbname_, &compaction_job_stats_,
-        Env::Priority::USER, nullptr /* IOTracer */,
-        /*manual_compaction_paused=*/nullptr, /*db_id=*/"",
-        /*db_session_id=*/"", full_history_ts_low_);
+        0, &compaction, &service, db_options_, file_options_,
+        preserve_deletes_seqnum_.load(), &log_buffer, nullptr, nullptr, nullptr,
+        snapshots, earliest_write_conflict_snapshot, snapshot_checker, false,
+        false, &compaction_job_stats_, Env::Priority::USER,
+        nullptr /* IOTracer */,
+        /*manual_compaction_paused=*/nullptr, full_history_ts_low_);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
     compaction_job.Prepare();
@@ -387,7 +391,7 @@ class CompactionJobTestBase : public testing::Test {
   std::shared_ptr<FileSystem> fs_;
   std::string dbname_;
   const Comparator* const ucmp_;
-  EnvOptions env_options_;
+  FileOptions file_options_;
   ImmutableDBOptions db_options_;
   ColumnFamilyOptions cf_options_;
   MutableCFOptions mutable_cf_options_;
@@ -398,7 +402,7 @@ class CompactionJobTestBase : public testing::Test {
   std::unique_ptr<VersionSet> versions_;
   InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
-  SequenceNumber preserve_deletes_seqnum_;
+  std::atomic<SequenceNumber> preserve_deletes_seqnum_;
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
   CompactionJobStats compaction_job_stats_;
   ColumnFamilyData* cfd_;

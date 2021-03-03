@@ -48,6 +48,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class Arena;
 class ErrorHandler;
+class LocalCompactionService;
 class MemTable;
 class SnapshotChecker;
 class SystemClock;
@@ -64,22 +65,16 @@ class VersionSet;
 class CompactionJob {
  public:
   CompactionJob(
-      int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
-      const FileOptions& file_options, VersionSet* versions,
-      const std::atomic<bool>* shutting_down,
+      int job_id, Compaction* compaction, LocalCompactionService* service,
+      const ImmutableDBOptions& db_options, const FileOptions& file_options,
       const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
-      FSDirectory* db_directory, FSDirectory* output_directory,
-      FSDirectory* blob_output_directory, Statistics* stats,
-      InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
-      std::vector<SequenceNumber> existing_snapshots,
+      FSDirectory* output_directory, FSDirectory* blob_output_directory,
+      Statistics* stats, std::vector<SequenceNumber> existing_snapshots,
       SequenceNumber earliest_write_conflict_snapshot,
-      const SnapshotChecker* snapshot_checker,
-      std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
-      bool paranoid_file_checks, bool measure_io_stats,
-      const std::string& dbname, CompactionJobStats* compaction_job_stats,
+      const SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
+      bool measure_io_stats, CompactionJobStats* compaction_job_stats,
       Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
       const std::atomic<int>* manual_compaction_paused = nullptr,
-      const std::string& db_id = "", const std::string& db_session_id = "",
       std::string full_history_ts_low = "");
 
   ~CompactionJob();
@@ -153,9 +148,7 @@ class CompactionJob {
   InternalStats::CompactionStats compaction_stats_;
 
   // DBImpl state
-  const std::string& dbname_;
-  const std::string db_id_;
-  const std::string db_session_id_;
+  LocalCompactionService* service_;
   const ImmutableDBOptions& db_options_;
   const FileOptions file_options_;
 
@@ -165,17 +158,12 @@ class CompactionJob {
   FileSystemPtr fs_;
   // env_option optimized for compaction table reads
   FileOptions file_options_for_read_;
-  VersionSet* versions_;
-  const std::atomic<bool>* shutting_down_;
   const std::atomic<int>* manual_compaction_paused_;
   const SequenceNumber preserve_deletes_seqnum_;
   LogBuffer* log_buffer_;
-  FSDirectory* db_directory_;
   FSDirectory* output_directory_;
   FSDirectory* blob_output_directory_;
   Statistics* stats_;
-  InstrumentedMutex* db_mutex_;
-  ErrorHandler* db_error_handler_;
   // If there were two snapshots with seq numbers s1 and
   // s2 and s1 < s2, and if we find two instances of a key k1 then lies
   // entirely within s1 and s2, then the earlier version of k1 can be safely
@@ -189,9 +177,6 @@ class CompactionJob {
 
   const SnapshotChecker* const snapshot_checker_;
 
-  std::shared_ptr<Cache> table_cache_;
-
-  EventLogger* event_logger_;
 
   // Is this compaction creating a file in the bottom most level?
   bool bottommost_level_;

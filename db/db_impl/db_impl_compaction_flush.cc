@@ -9,6 +9,8 @@
 #include <cinttypes>
 
 #include "db/builder.h"
+#include "db/compaction/compaction_job.h"
+#include "db/compaction/local_compaction_service.h"  // MJR
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
@@ -1212,17 +1214,15 @@ Status DBImpl::CompactFilesImpl(
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJobStats compaction_job_stats;
   CompactionJob compaction_job(
-      job_context->job_id, c.get(), immutable_db_options_,
-      file_options_for_compaction_, versions_.get(), &shutting_down_,
-      preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
+      job_context->job_id, c.get(), compaction_service_.get(),
+      immutable_db_options_, file_options_for_compaction_,
+      preserve_deletes_seqnum_.load(), log_buffer,
       GetDataDir(c->column_family_data(), c->output_path_id()),
-      GetDataDir(c->column_family_data(), 0), stats_, &mutex_, &error_handler_,
-      snapshot_seqs, earliest_write_conflict_snapshot, snapshot_checker,
-      table_cache_, &event_logger_,
+      GetDataDir(c->column_family_data(), 0), stats_, snapshot_seqs,
+      earliest_write_conflict_snapshot, snapshot_checker,
       c->mutable_cf_options()->paranoid_file_checks,
-      c->mutable_cf_options()->report_bg_io_stats, dbname_,
-      &compaction_job_stats, Env::Priority::USER, io_tracer_,
-      &manual_compaction_paused_, db_id_, db_session_id_,
+      c->mutable_cf_options()->report_bg_io_stats, &compaction_job_stats,
+      Env::Priority::USER, io_tracer_, &manual_compaction_paused_,
       c->column_family_data()->GetFullHistoryTsLow());
 
   // Creating a compaction influences the compaction score because the score
@@ -3067,18 +3067,17 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                        &earliest_write_conflict_snapshot, &snapshot_checker);
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
-        job_context->job_id, c.get(), immutable_db_options_,
-        file_options_for_compaction_, versions_.get(), &shutting_down_,
-        preserve_deletes_seqnum_.load(), log_buffer, directories_.GetDbDir(),
+        job_context->job_id, c.get(), compaction_service_.get(),
+        immutable_db_options_, file_options_for_compaction_,
+        preserve_deletes_seqnum_.load(), log_buffer,
         GetDataDir(c->column_family_data(), c->output_path_id()),
-        GetDataDir(c->column_family_data(), 0), stats_, &mutex_,
-        &error_handler_, snapshot_seqs, earliest_write_conflict_snapshot,
-        snapshot_checker, table_cache_, &event_logger_,
+        GetDataDir(c->column_family_data(), 0), stats_, snapshot_seqs,
+        earliest_write_conflict_snapshot, snapshot_checker,
         c->mutable_cf_options()->paranoid_file_checks,
-        c->mutable_cf_options()->report_bg_io_stats, dbname_,
-        &compaction_job_stats, thread_pri, io_tracer_,
-        is_manual ? &manual_compaction_paused_ : nullptr, db_id_,
-        db_session_id_, c->column_family_data()->GetFullHistoryTsLow());
+        c->mutable_cf_options()->report_bg_io_stats, &compaction_job_stats,
+        thread_pri, io_tracer_,
+        is_manual ? &manual_compaction_paused_ : nullptr,
+        c->column_family_data()->GetFullHistoryTsLow());
     compaction_job.Prepare();
 
     NotifyOnCompactionBegin(c->column_family_data(), c.get(), status,

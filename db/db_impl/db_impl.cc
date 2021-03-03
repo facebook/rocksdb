@@ -28,6 +28,7 @@
 #include "db/arena_wrapped_db_iter.h"
 #include "db/builder.h"
 #include "db/compaction/compaction_job.h"
+#include "db/compaction/local_compaction_service.h"
 #include "db/db_info_dumper.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -268,6 +269,12 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
   // is called by client and this seqnum is advanced.
   preserve_deletes_seqnum_.store(0);
+  compaction_service_ = std::make_shared<LocalCompactionService>(
+      dbname_, db_id_, db_session_id_, immutable_db_options_,
+      &file_options_for_compaction_, &shutting_down_,
+      &manual_compaction_paused_, &preserve_deletes_seqnum_, versions_.get(),
+      directories_.GetDbDir(), &mutex_, &error_handler_, table_cache_,
+      &event_logger_, io_tracer_);
 }
 
 Status DBImpl::Resume() {

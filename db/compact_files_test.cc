@@ -12,6 +12,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "port/port.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "test_util/sync_point.h"

@@ -20,7 +20,6 @@
 #include <vector>
 
 #include "db/column_family.h"
-#include "db/compaction/compaction_job.h"
 #include "db/dbformat.h"
 #include "db/error_handler.h"
 #include "db/event_helpers.h"
@@ -65,6 +64,7 @@ namespace ROCKSDB_NAMESPACE {
 class Arena;
 class ArenaWrappedDBIter;
 class InMemoryStatsHistoryIterator;
+class LocalCompactionService;
 class MemTable;
 class PersistentStatsHistoryIterator;
 class PeriodicWorkScheduler;
@@ -1056,6 +1056,7 @@ class DBImpl : public DB {
   std::shared_ptr<SystemClock> clock_;
   std::shared_ptr<IOTracer> io_tracer_;
   const ImmutableDBOptions immutable_db_options_;
+  std::shared_ptr<LocalCompactionService> compaction_service_;
   FileSystemPtr fs_;
   MutableDBOptions mutable_db_options_;
   Statistics* stats_;
