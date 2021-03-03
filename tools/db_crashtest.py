@@ -51,6 +51,7 @@ default_params = {
     # Disabled compression_parallel_threads as the feature is not stable
     # lambda: random.choice([1] * 9 + [4])
     "compression_parallel_threads": 1,
+    "compression_max_dict_buffer_bytes": lambda: (1 << random.randint(0, 40)) - 1,
     "clear_column_family_one_in": 0,
     "compact_files_one_in": 1000000,
     "compact_range_one_in": 1000000,
@@ -277,16 +278,16 @@ blob_params = {
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
     # The following are currently incompatible with the integrated BlobDB
     "use_merge": 0,
-    "enable_compaction_filter": 0,
     "backup_one_in": 0,
-    "checkpoint_one_in": 0,
 }
 
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
                         for (k, v) in src_params.items()])
-    if dest_params.get("compression_type") != "zstd" or \
-            dest_params.get("compression_max_dict_bytes") == 0:
+    if dest_params.get("compression_max_dict_bytes") == 0:
+        dest_params["compression_zstd_max_train_bytes"] = 0
+        dest_params["compression_max_dict_buffer_bytes"] = 0
+    if dest_params.get("compression_type") != "zstd":
         dest_params["compression_zstd_max_train_bytes"] = 0
     if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
         dest_params["memtablerep"] = "skip_list"

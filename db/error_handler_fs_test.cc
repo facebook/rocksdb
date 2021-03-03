@@ -864,7 +864,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableError) {
+TEST_F(DBErrorHandlingFSTest, DISABLED_CompactionWriteRetryableError) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
@@ -911,7 +911,7 @@ TEST_F(DBErrorHandlingFSTest, CompactionWriteRetryableError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, CompactionWriteFileScopeError) {
+TEST_F(DBErrorHandlingFSTest, DISABLED_CompactionWriteFileScopeError) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();

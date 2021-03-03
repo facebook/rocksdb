@@ -40,6 +40,9 @@ const unsigned int kTracePayloadLengthSize = 4;
 const unsigned int kTraceMetadataSize =
     kTraceTimestampSize + kTraceTypeSize + kTracePayloadLengthSize;
 
+static const int kTraceFileMajorVersion = 0;
+static const int kTraceFileMinorVersion = 2;
+
 // Supported Trace types.
 enum TraceType : char {
   kTraceBegin = 1,
@@ -67,22 +70,79 @@ enum TraceType : char {
 struct Trace {
   uint64_t ts;  // timestamp
   TraceType type;
+  // Each bit in payload_map stores which corresponding struct member added in
+  // the payload. Each TraceType has its corresponding payload struct. For
+  // example, if bit at position 0 is set in write payload, then the write batch
+  // will be addedd.
+  uint64_t payload_map = 0;
+  // Each trace type has its own payload_struct, which will be serilized in the
+  // payload.
   std::string payload;
 
   void reset() {
     ts = 0;
     type = kTraceMax;
+    payload_map = 0;
     payload.clear();
   }
 };
 
+enum TracePayloadType : char {
+  // Each member of all query payload structs should have a corresponding flag
+  // here. Make sure to add them sequentially in the order of it is added.
+  kEmptyPayload = 0,
+  kWriteBatchData = 1,
+  kGetCFID = 2,
+  kGetKey = 3,
+  kIterCFID = 4,
+  kIterKey = 5,
+  kIterLowerBound = 6,
+  kIterUpperBound = 7,
+};
+
+struct WritePayload {
+  Slice write_batch_data;
+};
+
+struct GetPayload {
+  uint32_t cf_id;
+  Slice get_key;
+};
+
+struct IterPayload {
+  uint32_t cf_id;
+  Slice iter_key;
+  Slice lower_bound;
+  Slice upper_bound;
+};
+
 class TracerHelper {
  public:
-  // Encode a trace object into the given string.
+  // Parse the string with major and minor version only
+  static Status ParseVersionStr(std::string& v_string, int* v_num);
+
+  // Parse the trace file version and db version in trace header
+  static Status ParseTraceHeader(const Trace& header, int* trace_version,
+                                 int* db_version);
+
+  // Encode a version 0.1 trace object into the given string.
   static void EncodeTrace(const Trace& trace, std::string* encoded_trace);
 
   // Decode a string into the given trace object.
   static Status DecodeTrace(const std::string& encoded_trace, Trace* trace);
+
+  // Set the payload map based on the payload type
+  static bool SetPayloadMap(uint64_t& payload_map,
+                            const TracePayloadType payload_type);
+
+  // Decode the write payload and store in WrteiPayload
+  static void DecodeWritePayload(Trace* trace, WritePayload* write_payload);
+
+  // Decode the get payload and store in WrteiPayload
+  static void DecodeGetPayload(Trace* trace, GetPayload* get_payload);
+
+  // Decode the iter payload and store in WrteiPayload
+  static void DecodeIterPayload(Trace* trace, IterPayload* iter_payload);
 };
 
 // Tracer captures all RocksDB operations using a user-provided TraceWriter.
@@ -102,8 +162,10 @@ class Tracer {
   Status Get(ColumnFamilyHandle* cfname, const Slice& key);
 
   // Trace Iterators.
-  Status IteratorSeek(const uint32_t& cf_id, const Slice& key);
-  Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+  Status IteratorSeek(const uint32_t& cf_id, const Slice& key,
+                      const Slice& lower_bound, const Slice upper_bound);
+  Status IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                             const Slice& lower_bound, const Slice upper_bound);
 
   // Returns true if the trace is over the configured max trace file limit.
   // False otherwise.
@@ -186,6 +248,10 @@ class Replayer {
   std::unique_ptr<TraceReader> trace_reader_;
   std::unordered_map<uint32_t, ColumnFamilyHandle*> cf_map_;
   uint32_t fast_forward_;
+  // When reading the trace header, the trace file version can be parsed.
+  // Replayer will use different decode method to get the trace content based
+  // on different trace file version.
+  int trace_file_version_;
 };
 
 // The passin arg of MultiThreadRepkay for each trace record.
@@ -195,6 +261,7 @@ struct ReplayerWorkerArg {
   std::unordered_map<uint32_t, ColumnFamilyHandle*>* cf_map;
   WriteOptions woptions;
   ReadOptions roptions;
+  int trace_file_version;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
