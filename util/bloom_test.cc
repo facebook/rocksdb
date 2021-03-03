@@ -431,10 +431,10 @@ TEST_P(FullBloomTest, FilterSize) {
       size_t n2 = bits_builder->ApproximateNumEntries(space);
       EXPECT_GE(n2, n);
       size_t space2 = bits_builder->CalculateSpace(n2);
-      if (n > 6000 && GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
+      if (n > 12000 && GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
         // TODO(peterd): better approximation?
         EXPECT_GE(space2, space);
-        EXPECT_LE(space2 * 0.98 - 16.0, space * 1.0);
+        EXPECT_LE(space2 * 0.998, space * 1.0);
       } else {
         EXPECT_EQ(space2, space);
       }

@@ -40,7 +40,7 @@ extern __thread IOStatsContext iostats_context;
 // Declare and set start time of the timer
 #define IOSTATS_CPU_TIMER_GUARD(metric, clock)         \
   PerfStepTimer iostats_step_timer_##metric(           \
-      &(iostats_context.metric), clock, true,          \
+      &(iostats_context.metric), clock.get(), true,    \
       PerfLevel::kEnableTimeAndCPUTimeExceptForMutex); \
   iostats_step_timer_##metric.Start();
 
