@@ -306,7 +306,10 @@ Status DBImpl::Resume() {
 //    means a new super version wouldn't have been installed
 Status DBImpl::ResumeImpl(DBRecoverContext context) {
   mutex_.AssertHeld();
+  fprintf(stdout,"before wait bg work");
+  clock_->SleepForMicroseconds(1000000);
   WaitForBackgroundWork();
+  fprintf(stdout,"after wait bg work");
 
   Status s;
   if (shutdown_initiated_) {
@@ -326,6 +329,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
   }
 
   // Make sure the IO Status stored in version set is set to OK.
+  fprintf(stdout,"before deal with version set: %s", s.ToString().c_str());
   bool file_deletion_disabled = !IsFileDeletionsEnabled();
   if (s.ok()) {
     IOStatus io_s = versions_->io_status();
@@ -361,6 +365,7 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
 
   // We cannot guarantee consistency of the WAL. So force flush Memtables of
   // all the column families
+  fprintf(stdout,"before call any flush : %s", s.ToString().c_str());
   if (s.ok()) {
     FlushOptions flush_opts;
     // We allow flush to stall write since we are trying to resume from error.
@@ -378,7 +383,9 @@ Status DBImpl::ResumeImpl(DBRecoverContext context) {
         }
         cfd->Ref();
         mutex_.Unlock();
+        fprintf(stdout,"call flush memtable: %s", s.ToString().c_str());
         s = FlushMemTable(cfd, flush_opts, context.flush_reason);
+        fprintf(stdout,"finish flush memtable: %s", s.ToString().c_str());
         mutex_.Lock();
         cfd->UnrefAndTryDelete();
         if (!s.ok()) {
