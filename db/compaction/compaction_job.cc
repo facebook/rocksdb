@@ -822,8 +822,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
       "files in(%d, %d) out(%d +%d blob) "
       "MB in(%.1f, %.1f +%.1f blob) out(%.1f +%.1f blob), "
-      "read-write-amplify(%.1f) "
-      "write-amplify(%.1f) %s, records in: %" PRIu64
+      "read-write-amplify(%.1f) write-amplify(%.1f) %s, records in: %" PRIu64
       ", records dropped: %" PRIu64 " output_compression: %s\n",
       column_family_name.c_str(), vstorage->LevelSummary(&tmp),
       bytes_read_per_sec, bytes_written_per_sec,
