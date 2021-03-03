@@ -722,19 +722,17 @@ bool DBIter::ReverseToBackward() {
         saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
     if (!expect_total_order_inner_iter()) {
       iter_.SeekForPrev(last_key.GetInternalKey());
-      RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
     } else {
       // Some iterators may not support SeekForPrev(), so we avoid using it
       // when prefix seek mode is disabled. This is somewhat expensive
       // (an extra Prev(), as well as an extra change of direction of iter_),
       // so we may need to reconsider it later.
       iter_.Seek(last_key.GetInternalKey());
-      RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
       if (!iter_.Valid() && iter_.status().ok()) {
         iter_.SeekToLast();
-        RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
       }
     }
+    RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
   }
 
   direction_ = kReverse;
