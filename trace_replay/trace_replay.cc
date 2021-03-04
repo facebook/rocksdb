@@ -8,13 +8,8 @@
 #include <chrono>
 #include <sstream>
 #include <thread>
-
 #include "db/db_impl/db_impl.h"
-#include "rocksdb/env.h"
-#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/system_clock.h"
-#include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"
 #include "util/string_util.h"
@@ -185,13 +180,13 @@ void TracerHelper::DecodeIterPayload(Trace* trace, IterPayload* iter_payload) {
   }
 }
 
-Tracer::Tracer(const std::shared_ptr<SystemClock>& clock,
+Tracer::Tracer(Env* env,
                const TraceOptions& trace_options,
                std::unique_ptr<TraceWriter>&& trace_writer)
-    : clock_(clock),
+    : env_(env),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)),
-      trace_request_count_(0) {
+      trace_request_count_ (0) {
   // TODO: What if this fails?
   WriteHeader().PermitUncheckedError();
 }
@@ -204,7 +199,7 @@ Status Tracer::Write(WriteBatch* write_batch) {
     return Status::OK();
   }
   Trace trace;
-  trace.ts = clock_->NowMicros();
+  trace.ts = env_->NowMicros();
   trace.type = trace_type;
   TracerHelper::SetPayloadMap(trace.payload_map,
                               TracePayloadType::kWriteBatchData);
@@ -219,7 +214,7 @@ Status Tracer::Get(ColumnFamilyHandle* column_family, const Slice& key) {
     return Status::OK();
   }
   Trace trace;
-  trace.ts = clock_->NowMicros();
+  trace.ts = env_->NowMicros();
   trace.type = trace_type;
   // Set the payloadmap of the struct member that will be encoded in the
   // payload.
@@ -239,7 +234,7 @@ Status Tracer::IteratorSeek(const uint32_t& cf_id, const Slice& key,
     return Status::OK();
   }
   Trace trace;
-  trace.ts = clock_->NowMicros();
+  trace.ts = env_->NowMicros();
   trace.type = trace_type;
   // Set the payloadmap of the struct member that will be encoded in the
   // payload.
@@ -275,7 +270,7 @@ Status Tracer::IteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
     return Status::OK();
   }
   Trace trace;
-  trace.ts = clock_->NowMicros();
+  trace.ts = env_->NowMicros();
   trace.type = trace_type;
   // Set the payloadmap of the struct member that will be encoded in the
   // payload.
@@ -336,7 +331,7 @@ Status Tracer::WriteHeader() {
   std::string header(s.str());
 
   Trace trace;
-  trace.ts = clock_->NowMicros();
+  trace.ts = env_->NowMicros();
   trace.type = kTraceBegin;
   trace.payload = header;
   return WriteTrace(trace);
@@ -344,7 +339,7 @@ Status Tracer::WriteHeader() {
 
 Status Tracer::WriteFooter() {
   Trace trace;
-  trace.ts = clock_->NowMicros();
+  trace.ts = env_->NowMicros();
   trace.type = kTraceEnd;
   TracerHelper::SetPayloadMap(trace.payload_map,
                               TracePayloadType::kEmptyPayload);

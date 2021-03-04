@@ -16,7 +16,6 @@
 #include "env/composite_env_wrapper.h"
 #include "logging/logging.h"
 #include "port/port.h"
-#include "rocksdb/system_clock.h"
 #include "util/crc32c.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -220,7 +219,7 @@ bool RandomAccessCacheFile::OpenImpl(const bool enable_direct_reads) {
     return false;
   }
   freader_.reset(new RandomAccessFileReader(
-      NewLegacyRandomAccessFileWrapper(file), Path(), env_->GetSystemClock()));
+      NewLegacyRandomAccessFileWrapper(file), Path(), env_));
 
   return true;
 }
@@ -580,7 +579,7 @@ void ThreadedWriter::ThreadMain() {
       // We can fail to reserve space if every file in the system
       // is being currently accessed
       /* sleep override */
-      SystemClock::Default()->SleepForMicroseconds(1000000);
+      Env::Default()->SleepForMicroseconds(1000000);
     }
 
     DispatchIO(io);

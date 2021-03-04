@@ -53,6 +53,7 @@ BlobFileBuilder::BlobFileBuilder(
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
     : file_number_generator_(std::move(file_number_generator)),
+      env_(env),
       fs_(fs),
       immutable_cf_options_(immutable_cf_options),
       min_blob_size_(mutable_cf_options->min_blob_size),
@@ -70,7 +71,7 @@ BlobFileBuilder::BlobFileBuilder(
       blob_count_(0),
       blob_bytes_(0) {
   assert(file_number_generator_);
-  assert(env);
+  assert(env_);
   assert(fs_);
   assert(immutable_cf_options_);
   assert(file_options_);
@@ -78,7 +79,6 @@ BlobFileBuilder::BlobFileBuilder(
   assert(blob_file_paths_->empty());
   assert(blob_file_additions_);
   assert(blob_file_additions_->empty());
-  clock_ = env->GetSystemClock();
 }
 
 BlobFileBuilder::~BlobFileBuilder() = default;
@@ -185,7 +185,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   FileTypeSet tmp_set = immutable_cf_options_->checksum_handoff_file_types;
   Statistics* const statistics = immutable_cf_options_->statistics;
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-      std::move(file), blob_file_paths_->back(), *file_options_, clock_,
+      std::move(file), blob_file_paths_->back(), *file_options_, env_,
       io_tracer_, statistics, immutable_cf_options_->listeners,
       immutable_cf_options_->file_checksum_gen_factory,
       tmp_set.Contains(FileType::kBlobFile)));
@@ -193,7 +193,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   constexpr bool do_flush = false;
 
   std::unique_ptr<BlobLogWriter> blob_log_writer(new BlobLogWriter(
-      std::move(file_writer), clock_, statistics, blob_file_number,
+      std::move(file_writer), env_, statistics, blob_file_number,
       immutable_cf_options_->use_fsync, do_flush));
 
   constexpr bool has_ttl = false;

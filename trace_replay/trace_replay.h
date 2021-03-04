@@ -9,9 +9,9 @@
 #include <unordered_map>
 #include <utility>
 
+#include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "rocksdb/rocksdb_namespace.h"
-#include "rocksdb/status.h"
+#include "rocksdb/trace_reader_writer.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -22,16 +22,8 @@ class ColumnFamilyHandle;
 class ColumnFamilyData;
 class DB;
 class DBImpl;
-class Env;
 class Slice;
-class SystemClock;
-class TraceReader;
-class TraceWriter;
 class WriteBatch;
-
-struct ReadOptions;
-struct TraceOptions;
-struct WriteOptions;
 
 extern const std::string kTraceMagic;
 const unsigned int kTraceTimestampSize = 8;
@@ -150,8 +142,7 @@ class TracerHelper {
 // timestamp and type, followed by the trace payload.
 class Tracer {
  public:
-  Tracer(const std::shared_ptr<SystemClock>& clock,
-         const TraceOptions& trace_options,
+  Tracer(Env* env, const TraceOptions& trace_options,
          std::unique_ptr<TraceWriter>&& trace_writer);
   ~Tracer();
 
@@ -191,7 +182,7 @@ class Tracer {
   // Returns true if a trace should be skipped, false otherwise.
   bool ShouldSkipTrace(const TraceType& type);
 
-  std::shared_ptr<SystemClock> clock_;
+  Env* env_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
   uint64_t trace_request_count_;

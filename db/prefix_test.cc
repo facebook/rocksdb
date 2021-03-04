@@ -25,7 +25,6 @@ int main() {
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
@@ -609,7 +608,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
         std::string value(FLAGS_value_size, 0);
 
         get_perf_context()->Reset();
-        StopWatchNano timer(SystemClock::Default(), true);
+        StopWatchNano timer(Env::Default(), true);
         ASSERT_OK(db->Put(write_options, key, value));
         hist_put_time.Add(timer.ElapsedNanos());
         hist_put_comparison.Add(get_perf_context()->user_key_comparison_count);
@@ -632,7 +631,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       std::string value = "v" + ToString(0);
 
       get_perf_context()->Reset();
-      StopWatchNano timer(SystemClock::Default(), true);
+      StopWatchNano timer(Env::Default(), true);
       auto key_prefix = options.prefix_extractor->Transform(key);
       uint64_t total_keys = 0;
       for (iter->Seek(key);
@@ -666,7 +665,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       Slice key = TestKeyToSlice(s, test_key);
 
       get_perf_context()->Reset();
-      StopWatchNano timer(SystemClock::Default(), true);
+      StopWatchNano timer(Env::Default(), true);
       iter->Seek(key);
       hist_no_seek_time.Add(timer.ElapsedNanos());
       hist_no_seek_comparison.Add(get_perf_context()->user_key_comparison_count);

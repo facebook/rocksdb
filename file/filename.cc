@@ -419,17 +419,15 @@ Status SetIdentityFile(Env* env, const std::string& dbname,
   return s;
 }
 
-IOStatus SyncManifest(const std::shared_ptr<SystemClock>& clock,
-                      const ImmutableDBOptions* db_options,
+IOStatus SyncManifest(Env* env, const ImmutableDBOptions* db_options,
                       WritableFileWriter* file) {
   TEST_KILL_RANDOM("SyncManifest:0", rocksdb_kill_odds * REDUCE_ODDS2);
-  StopWatch sw(clock, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
+  StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
   return file->Sync(db_options->use_fsync);
 }
 
-Status GetInfoLogFiles(const std::shared_ptr<FileSystem>& fs,
-                       const std::string& db_log_dir, const std::string& dbname,
-                       std::string* parent_dir,
+Status GetInfoLogFiles(Env* env, const std::string& db_log_dir,
+                       const std::string& dbname, std::string* parent_dir,
                        std::vector<std::string>* info_log_list) {
   assert(parent_dir != nullptr);
   assert(info_log_list != nullptr);
@@ -445,7 +443,7 @@ Status GetInfoLogFiles(const std::shared_ptr<FileSystem>& fs,
   InfoLogPrefix info_log_prefix(!db_log_dir.empty(), dbname);
 
   std::vector<std::string> file_names;
-  Status s = fs->GetChildren(*parent_dir, IOOptions(), &file_names, nullptr);
+  Status s = env->GetChildren(*parent_dir, &file_names);
 
   if (!s.ok()) {
     return s;

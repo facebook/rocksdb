@@ -42,8 +42,7 @@ class RandomAccessFileReaderTest : public testing::Test {
     std::string fpath = Path(fname);
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(fs_->NewRandomAccessFile(fpath, opts, &f, nullptr));
-    (*reader).reset(new RandomAccessFileReader(std::move(f), fpath,
-                                               env_->GetSystemClock()));
+    (*reader).reset(new RandomAccessFileReader(std::move(f), fpath, env_));
   }
 
   void AssertResult(const std::string& content,

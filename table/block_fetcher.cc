@@ -12,6 +12,7 @@
 #include <cinttypes>
 #include <string>
 
+#include "file/file_util.h"
 #include "logging/logging.h"
 #include "memory/memory_allocator.h"
 #include "monitoring/perf_context_imp.h"
@@ -59,7 +60,7 @@ inline bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
 inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr) {
     IOOptions opts;
-    Status s = file_->PrepareIOOptions(read_options_, opts);
+    Status s = PrepareIOFromReadOptions(read_options_, file_->env(), opts);
     if (s.ok() && prefetch_buffer_->TryReadFromCache(
                       opts, handle_.offset(), block_size_with_trailer_, &slice_,
                       &s, for_compaction_)) {
@@ -229,7 +230,7 @@ Status BlockFetcher::ReadBlockContents() {
     }
   } else if (!TryGetCompressedBlockFromPersistentCache()) {
     IOOptions opts;
-    status_ = file_->PrepareIOOptions(read_options_, opts);
+    status_ = PrepareIOFromReadOptions(read_options_, file_->env(), opts);
     // Actual file read
     if (status_.ok()) {
       if (file_->use_direct_io()) {

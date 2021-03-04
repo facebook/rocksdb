@@ -12,13 +12,14 @@
 #include "port/port.h"
 
 #include "db/compaction/compaction.h"
+#include "db/error_handler.h"
 #include "file/delete_scheduler.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/sst_file_manager.h"
 
 namespace ROCKSDB_NAMESPACE {
-class ErrorHandler;
-class FileSystem;
-class SystemClock;
+
+class Env;
 class Logger;
 
 // SstFileManager is used to track SST files in the DB and control their
@@ -26,9 +27,8 @@ class Logger;
 // All SstFileManager public functions are thread-safe.
 class SstFileManagerImpl : public SstFileManager {
  public:
-  explicit SstFileManagerImpl(const std::shared_ptr<SystemClock>& clock,
-                              const std::shared_ptr<FileSystem>& fs,
-                              const std::shared_ptr<Logger>& logger,
+  explicit SstFileManagerImpl(Env* env, std::shared_ptr<FileSystem> fs,
+                              std::shared_ptr<Logger> logger,
                               int64_t rate_bytes_per_sec,
                               double max_trash_db_ratio,
                               uint64_t bytes_max_delete_chunk);
@@ -152,7 +152,7 @@ class SstFileManagerImpl : public SstFileManager {
     return bg_err_.severity() == Status::Severity::kSoftError;
   }
 
-  std::shared_ptr<SystemClock> clock_;
+  Env* env_;
   std::shared_ptr<FileSystem> fs_;
   std::shared_ptr<Logger> logger_;
   // Mutex to protect tracked_files_, total_files_size_

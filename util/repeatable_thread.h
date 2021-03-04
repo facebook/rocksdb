@@ -8,9 +8,11 @@
 #include <functional>
 #include <string>
 
-#include "monitoring/instrumented_mutex.h"
 #include "port/port.h"
-#include "rocksdb/system_clock.h"
+#include "rocksdb/env.h"
+#ifndef NDEBUG
+#include "test_util/mock_time_env.h"
+#endif  // !NDEBUG
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -21,15 +23,14 @@ namespace ROCKSDB_NAMESPACE {
 class RepeatableThread {
  public:
   RepeatableThread(std::function<void()> function,
-                   const std::string& thread_name,
-                   const std::shared_ptr<SystemClock>& clock, uint64_t delay_us,
+                   const std::string& thread_name, Env* env, uint64_t delay_us,
                    uint64_t initial_delay_us = 0)
       : function_(function),
         thread_name_("rocksdb:" + thread_name),
-        clock_(clock),
+        env_(env),
         delay_us_(delay_us),
         initial_delay_us_(initial_delay_us),
-        mutex_(clock),
+        mutex_(env),
         cond_var_(&mutex_),
         running_(true),
 #ifndef NDEBUG
@@ -58,7 +59,7 @@ class RepeatableThread {
 #ifndef NDEBUG
   // Wait until RepeatableThread starting waiting, call the optional callback,
   // then wait for one run of RepeatableThread. Tests can use provide a
-  // custom clock object to mock time, and use the callback here to bump current
+  // custom env object to mock time, and use the callback here to bump current
   // time and trigger RepeatableThread. See repeatable_thread_test for example.
   //
   // Note: only support one caller of this method.
@@ -82,14 +83,14 @@ class RepeatableThread {
   bool wait(uint64_t delay) {
     InstrumentedMutexLock l(&mutex_);
     if (running_ && delay > 0) {
-      uint64_t wait_until = clock_->NowMicros() + delay;
+      uint64_t wait_until = env_->NowMicros() + delay;
 #ifndef NDEBUG
       waiting_ = true;
       cond_var_.SignalAll();
 #endif
       while (running_) {
         cond_var_.TimedWait(wait_until);
-        if (clock_->NowMicros() >= wait_until) {
+        if (env_->NowMicros() >= wait_until) {
           break;
         }
       }
@@ -129,8 +130,7 @@ class RepeatableThread {
 
   const std::function<void()> function_;
   const std::string thread_name_;
-  const std::shared_ptr<SystemClock> clock_;
-  ;
+  Env* const env_;
   const uint64_t delay_us_;
   const uint64_t initial_delay_us_;
 

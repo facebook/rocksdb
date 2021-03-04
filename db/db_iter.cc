@@ -8,10 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_iter.h"
-
+#include <string>
 #include <iostream>
 #include <limits>
-#include <string>
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
@@ -25,7 +24,6 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
-#include "rocksdb/system_clock.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
 #include "trace_replay/trace_replay.h"
@@ -45,7 +43,6 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                ColumnFamilyData* cfd, bool expose_blob_index)
     : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       env_(_env),
-      clock_(_env->GetSystemClock()),
       logger_(cf_options.info_log),
       user_comparator_(cmp),
       merge_operator_(cf_options.merge_operator),
@@ -130,7 +127,7 @@ void DBIter::Next() {
   assert(valid_);
   assert(status_.ok());
 
-  PERF_CPU_TIMER_GUARD(iter_next_cpu_nanos, clock_);
+  PERF_CPU_TIMER_GUARD(iter_next_cpu_nanos, env_);
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
   local_stats_.skip_count_ += num_internal_keys_skipped_;
@@ -577,7 +574,7 @@ bool DBIter::MergeValuesNewToOld() {
       const Slice val = iter_.value();
       Status s = MergeHelper::TimedFullMerge(
           merge_operator_, ikey.user_key, &val, merge_context_.GetOperands(),
-          &saved_value_, logger_, statistics_, clock_, &pinned_value_, true);
+          &saved_value_, logger_, statistics_, env_, &pinned_value_, true);
       if (!s.ok()) {
         valid_ = false;
         status_ = s;
@@ -620,7 +617,7 @@ bool DBIter::MergeValuesNewToOld() {
   // client can differentiate this scenario and do things accordingly.
   Status s = MergeHelper::TimedFullMerge(
       merge_operator_, saved_key_.GetUserKey(), nullptr,
-      merge_context_.GetOperands(), &saved_value_, logger_, statistics_, clock_,
+      merge_context_.GetOperands(), &saved_value_, logger_, statistics_, env_,
       &pinned_value_, true);
   if (!s.ok()) {
     valid_ = false;
@@ -643,7 +640,7 @@ void DBIter::Prev() {
   assert(valid_);
   assert(status_.ok());
 
-  PERF_CPU_TIMER_GUARD(iter_prev_cpu_nanos, clock_);
+  PERF_CPU_TIMER_GUARD(iter_prev_cpu_nanos, env_);
   ReleaseTempPinnedData();
   ResetInternalKeysSkippedCounter();
   bool ok = true;
@@ -924,7 +921,7 @@ bool DBIter::FindValueForCurrentKey() {
         s = MergeHelper::TimedFullMerge(
             merge_operator_, saved_key_.GetUserKey(), nullptr,
             merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
-            clock_, &pinned_value_, true);
+            env_, &pinned_value_, true);
       } else if (last_not_merge_type == kTypeBlobIndex) {
         status_ =
             Status::NotSupported("BlobDB does not support merge operator.");
@@ -935,7 +932,7 @@ bool DBIter::FindValueForCurrentKey() {
         s = MergeHelper::TimedFullMerge(
             merge_operator_, saved_key_.GetUserKey(), &pinned_value_,
             merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
-            clock_, &pinned_value_, true);
+            env_, &pinned_value_, true);
       }
       break;
     case kTypeValue:
@@ -1073,7 +1070,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       Status s = MergeHelper::TimedFullMerge(
           merge_operator_, saved_key_.GetUserKey(), &val,
           merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
-          clock_, &pinned_value_, true);
+          env_, &pinned_value_, true);
       if (!s.ok()) {
         valid_ = false;
         status_ = s;
@@ -1100,7 +1097,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
   Status s = MergeHelper::TimedFullMerge(
       merge_operator_, saved_key_.GetUserKey(), nullptr,
-      merge_context_.GetOperands(), &saved_value_, logger_, statistics_, clock_,
+      merge_context_.GetOperands(), &saved_value_, logger_, statistics_, env_,
       &pinned_value_, true);
   if (!s.ok()) {
     valid_ = false;
@@ -1251,8 +1248,8 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
 }
 
 void DBIter::Seek(const Slice& target) {
-  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
-  StopWatch sw(clock_, statistics_, DB_SEEK);
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
+  StopWatch sw(env_, statistics_, DB_SEEK);
 
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
@@ -1325,8 +1322,8 @@ void DBIter::Seek(const Slice& target) {
 }
 
 void DBIter::SeekForPrev(const Slice& target) {
-  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
-  StopWatch sw(clock_, statistics_, DB_SEEK);
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
+  StopWatch sw(env_, statistics_, DB_SEEK);
 
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
@@ -1406,7 +1403,7 @@ void DBIter::SeekToFirst() {
     Seek(*iterate_lower_bound_);
     return;
   }
-  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
   if (!expect_total_order_inner_iter()) {
@@ -1467,7 +1464,7 @@ void DBIter::SeekToLast() {
     return;
   }
 
-  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, clock_);
+  PERF_CPU_TIMER_GUARD(iter_seek_cpu_nanos, env_);
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
   if (!expect_total_order_inner_iter()) {

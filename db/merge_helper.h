@@ -25,7 +25,6 @@ class Iterator;
 class Logger;
 class MergeOperator;
 class Statistics;
-class SystemClock;
 
 class MergeHelper {
  public:
@@ -45,11 +44,13 @@ class MergeHelper {
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
   // - Corruption: Merge operator reported unsuccessful merge.
-  static Status TimedFullMerge(
-      const MergeOperator* merge_operator, const Slice& key, const Slice* value,
-      const std::vector<Slice>& operands, std::string* result, Logger* logger,
-      Statistics* statistics, const std::shared_ptr<SystemClock>& clock,
-      Slice* result_operand = nullptr, bool update_num_ops_stats = false);
+  static Status TimedFullMerge(const MergeOperator* merge_operator,
+                               const Slice& key, const Slice* value,
+                               const std::vector<Slice>& operands,
+                               std::string* result, Logger* logger,
+                               Statistics* statistics, Env* env,
+                               Slice* result_operand = nullptr,
+                               bool update_num_ops_stats = false);
 
   // Merge entries until we hit
   //     - a corrupted key
@@ -139,7 +140,6 @@ class MergeHelper {
 
  private:
   Env* env_;
-  std::shared_ptr<SystemClock> clock_;
   const Comparator* user_comparator_;
   const MergeOperator* user_merge_operator_;
   const CompactionFilter* compaction_filter_;

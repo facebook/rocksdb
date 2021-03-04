@@ -16,7 +16,6 @@
 #include "monitoring/histogram.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
-#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/crc32c.h"
 #include "util/random.h"
@@ -333,7 +332,7 @@ IOStatus WritableFileWriter::SyncInternal(bool use_fsync) {
   IOSTATS_TIMER_GUARD(fsync_nanos);
   TEST_SYNC_POINT("WritableFileWriter::SyncInternal:0");
   auto prev_perf_level = GetPerfLevel();
-  IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, clock_);
+  IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, env_);
 #ifndef ROCKSDB_LITE
   FileOperationInfo::StartTimePoint start_ts;
   if (ShouldNotifyListeners()) {
@@ -411,7 +410,7 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
       {
         auto prev_perf_level = GetPerfLevel();
 
-        IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, clock_);
+        IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, env_);
         if (perform_data_verification_) {
           Crc32cHandoffChecksumCalculation(src, allowed, checksum_buf);
           v_info.checksum = Slice(checksum_buf, sizeof(uint32_t));
