@@ -107,10 +107,12 @@ DEFINE_string(
     "readreverse,"
     "compact,"
     "compactall,"
+    "flush,"
+#ifndef ROCKSDB_LITE
     "compact0,"
     "compact1,"
-    "flush,"
     "waitforcompaction,"
+#endif
     "multireadrandom,"
     "mixgraph,"
     "readseq,"
@@ -200,10 +202,12 @@ DEFINE_string(
     "Meta operations:\n"
     "\tcompact     -- Compact the entire DB; If multiple, randomly choose one\n"
     "\tcompactall  -- Compact the entire DB\n"
+#ifndef ROCKSDB_LITE
     "\tcompact0  -- compact L0 into L1\n"
     "\tcompact1  -- compact L1 into L2\n"
-    "\tflush - flush the memtable\n"
     "\twaitforcompaction - pause until compaction is (probably) done\n"
+#endif
+    "\tflush - flush the memtable\n"
     "\tstats       -- Print DB stats\n"
     "\tresetstats  -- Reset DB stats\n"
     "\tlevelstats  -- Print the number of files and bytes per level\n"
@@ -3221,14 +3225,16 @@ class Benchmark {
         method = &Benchmark::Compact;
       } else if (name == "compactall") {
         CompactAll();
+#ifndef ROCKSDB_LITE
       } else if (name == "compact0") {
         CompactLevel(0);
       } else if (name == "compact1") {
         CompactLevel(1);
-      } else if (name == "flush") {
-        Flush();
       } else if (name == "waitforcompaction") {
         WaitForCompaction();
+#endif
+      } else if (name == "flush") {
+        Flush();
       } else if (name == "crc32c") {
         method = &Benchmark::Crc32c;
       } else if (name == "xxhash") {
@@ -7286,6 +7292,7 @@ class Benchmark {
     }
   }
 
+#ifndef ROCKSDB_LITE
   void WaitForCompactionHelper(DBWithColumnFamilies& db) {
     // This is an imperfect way of waiting for compaction. The loop and sleep
     // is done because a thread that finishes a compaction job should get a
@@ -7422,6 +7429,7 @@ class Benchmark {
       while (!CompactLevelHelper(db_with_cfh, from_level)) WaitForCompaction();
     }
   }
+#endif
 
   void Flush() {
     FlushOptions flush_opt;
