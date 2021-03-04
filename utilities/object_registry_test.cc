@@ -91,33 +91,6 @@ TEST_F(EnvRegistryTest, LocalRegistry) {
   ASSERT_NE(registry->NewObject<Env>("test-global", &guard, &msg), nullptr);
 }
 
-TEST_F(EnvRegistryTest, DynamicRegistry) {
-  Status s;
-
-  auto registry = ObjectRegistry::NewInstance();
-  std::string msg;
-  std::unique_ptr<Env> guard;
-  ASSERT_EQ(registry->NewObject<Env>("test-dynamic", &guard, &msg), nullptr);
-
-  {
-    std::shared_ptr<DynamicLibrary> library;
-    RegistrarFunc registrar;
-    s = Env::Default()->LoadLibrary("", "", &library);
-    if (s.ok()) {
-      std::shared_ptr<ObjectLibrary> obj_lib;
-
-      s = registry->AddLoadedLibrary(library, "RegisterTestEnvFactory",
-                                     "test-dynamic", &obj_lib);
-    }
-  }
-  if (s.ok()) {
-    ASSERT_NE(registry->NewObject("test-dynamic", &guard, &msg), nullptr);
-    ASSERT_EQ(
-        ObjectRegistry::NewInstance()->NewObject("test-dynamic", &guard, &msg),
-        nullptr);
-  }
-}
-
 extern "C" {
 int RegisterTestUnguarded(ObjectLibrary& library, const std::string& /*arg*/) {
   library.Register<Env>(

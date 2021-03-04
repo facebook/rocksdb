@@ -105,10 +105,6 @@ class ObjectRegistryImpl : public ObjectRegistry {
       const std::string &id, const RegistrarFunc &registrar,
       const std::string &arg) override;
 
-  Status AddLoadedLibrary(const std::shared_ptr<DynamicLibrary> &dyn_lib,
-                          const std::string &method, const std::string &arg,
-                          std::shared_ptr<ObjectLibrary> *result) override;
-
   void Dump(Logger *logger) const override;
 
   // Returns the number of registered types for this registry.
@@ -171,19 +167,6 @@ std::shared_ptr<ObjectLibrary> ObjectRegistryImpl::AddProgramLibrary(
   registrar(*(library.get()), arg);
   libraries_.push_back(library);
   return library;
-}
-
-Status ObjectRegistryImpl::AddLoadedLibrary(
-    const std::shared_ptr<DynamicLibrary> &dyn_lib, const std::string &method,
-    const std::string &arg, std::shared_ptr<ObjectLibrary> *result) {
-  RegistrarFunc registrar;
-  Status s = dyn_lib->LoadFunction(method, &registrar);
-  if (s.ok()) {
-    result->reset(new ObjectLibrary(dyn_lib->Name()));
-    registrar(*(result->get()), arg);
-    libraries_.push_back(*result);
-  }
-  return s;
 }
 
 // Searches (from back to front) the libraries looking for

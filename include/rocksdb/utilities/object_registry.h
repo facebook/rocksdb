@@ -244,15 +244,6 @@ class ObjectRegistry {
       const std::string& id, const RegistrarFunc& registrar,
       const std::string& arg) = 0;
 
-  // Creates a new ObjectLibrary within this ObjectRegistry.
-  // Loads the registrar func named "method" from the input library and, upon
-  // success, invokes registrar(arg) to register the appropriate factories in
-  // the new library. Returns OK if method was found in the library and non-OK
-  // otherwise.
-  virtual Status AddLoadedLibrary(
-      const std::shared_ptr<DynamicLibrary>& library, const std::string& method,
-      const std::string& arg, std::shared_ptr<ObjectLibrary>* result) = 0;
-
   // Returns the number of registered types for this registry.
   // If specified (not-null), types is updated to include the names of the
   // registered types.
