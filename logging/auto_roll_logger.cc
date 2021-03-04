@@ -6,12 +6,8 @@
 #include "logging/auto_roll_logger.h"
 
 #include <algorithm>
-
 #include "file/filename.h"
 #include "logging/logging.h"
-#include "rocksdb/env.h"
-#include "rocksdb/file_system.h"
-#include "rocksdb/system_clock.h"
 #include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -19,9 +15,7 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 // -- AutoRollLogger
 
-AutoRollLogger::AutoRollLogger(const std::shared_ptr<FileSystem>& fs,
-                               const std::shared_ptr<SystemClock>& clock,
-                               const std::string& dbname,
+AutoRollLogger::AutoRollLogger(Env* env, const std::string& dbname,
                                const std::string& db_log_dir,
                                size_t log_max_size,
                                size_t log_file_time_to_roll,
@@ -30,26 +24,24 @@ AutoRollLogger::AutoRollLogger(const std::shared_ptr<FileSystem>& fs,
     : Logger(log_level),
       dbname_(dbname),
       db_log_dir_(db_log_dir),
-      fs_(fs),
-      clock_(clock),
+      env_(env),
       status_(Status::OK()),
       kMaxLogFileSize(log_max_size),
       kLogFileTimeToRoll(log_file_time_to_roll),
       kKeepLogFileNum(keep_log_file_num),
-      cached_now(static_cast<uint64_t>(clock_->NowMicros() * 1e-6)),
+      cached_now(static_cast<uint64_t>(env_->NowMicros() * 1e-6)),
       ctime_(cached_now),
       cached_now_access_count(0),
       call_NowMicros_every_N_records_(100),
       mutex_() {
-  Status s = fs->GetAbsolutePath(dbname, io_options_, &db_absolute_path_,
-                                 &io_context_);
+  Status s = env->GetAbsolutePath(dbname, &db_absolute_path_);
   if (s.IsNotSupported()) {
     db_absolute_path_ = dbname;
   } else {
     status_ = s;
   }
   log_fname_ = InfoLogFileName(dbname_, db_absolute_path_, db_log_dir_);
-  if (fs_->FileExists(log_fname_, io_options_, &io_context_).ok()) {
+  if (env_->FileExists(log_fname_).ok()) {
     RollLogFile();
   }
   GetExistingFiles();
@@ -61,7 +53,7 @@ AutoRollLogger::AutoRollLogger(const std::shared_ptr<FileSystem>& fs,
 
 Status AutoRollLogger::ResetLogger() {
   TEST_SYNC_POINT("AutoRollLogger::ResetLogger:BeforeNewLogger");
-  status_ = fs_->NewLogger(log_fname_, io_options_, &logger_, &io_context_);
+  status_ = env_->NewLogger(log_fname_, &logger_);
   TEST_SYNC_POINT("AutoRollLogger::ResetLogger:AfterNewLogger");
 
   if (!status_.ok()) {
@@ -75,7 +67,7 @@ Status AutoRollLogger::ResetLogger() {
         "The underlying logger doesn't support GetLogFileSize()");
   }
   if (status_.ok()) {
-    cached_now = static_cast<uint64_t>(clock_->NowMicros() * 1e-6);
+    cached_now = static_cast<uint64_t>(env_->NowMicros() * 1e-6);
     ctime_ = cached_now;
     cached_now_access_count = 0;
   }
@@ -87,14 +79,14 @@ void AutoRollLogger::RollLogFile() {
   // This function is called when log is rotating. Two rotations
   // can happen quickly (NowMicro returns same value). To not overwrite
   // previous log file we increment by one micro second and try again.
-  uint64_t now = clock_->NowMicros();
+  uint64_t now = env_->NowMicros();
   std::string old_fname;
   do {
     old_fname = OldInfoLogFileName(
       dbname_, now, db_absolute_path_, db_log_dir_);
     now++;
-  } while (fs_->FileExists(old_fname, io_options_, &io_context_).ok());
-  Status s = fs_->RenameFile(log_fname_, old_fname, io_options_, &io_context_);
+  } while (env_->FileExists(old_fname).ok());
+  Status s = env_->RenameFile(log_fname_, old_fname);
   if (!s.ok()) {
     // What should we do on error?
   }
@@ -111,7 +103,7 @@ void AutoRollLogger::GetExistingFiles() {
   std::string parent_dir;
   std::vector<std::string> info_log_files;
   Status s =
-      GetInfoLogFiles(fs_, db_log_dir_, dbname_, &parent_dir, &info_log_files);
+      GetInfoLogFiles(env_, db_log_dir_, dbname_, &parent_dir, &info_log_files);
   if (status_.ok()) {
     status_ = s;
   }
@@ -125,7 +117,7 @@ void AutoRollLogger::GetExistingFiles() {
 }
 
 Status AutoRollLogger::TrimOldLogFiles() {
-  // Here we directly list info files and delete them through FileSystem.
+  // Here we directly list info files and delete them through Env.
   // The deletion isn't going through DB, so there are shortcomes:
   // 1. the deletion is not rate limited by SstFileManager
   // 2. there is a chance that an I/O will be issued here
@@ -138,8 +130,7 @@ Status AutoRollLogger::TrimOldLogFiles() {
   // it's essentially the same thing, and checking empty before accessing
   // the queue feels safer.
   while (!old_log_files_.empty() && old_log_files_.size() >= kKeepLogFileNum) {
-    Status s =
-        fs_->DeleteFile(old_log_files_.front(), io_options_, &io_context_);
+    Status s = env_->DeleteFile(old_log_files_.front());
     // Remove the file from the tracking anyway. It's possible that
     // DB cleaned up the old log file, or people cleaned it up manually.
     old_log_files_.pop();
@@ -250,7 +241,7 @@ void AutoRollLogger::LogHeader(const char* format, va_list args) {
 
 bool AutoRollLogger::LogExpired() {
   if (cached_now_access_count >= call_NowMicros_every_N_records_) {
-    cached_now = static_cast<uint64_t>(clock_->NowMicros() * 1e-6);
+    cached_now = static_cast<uint64_t>(env_->NowMicros() * 1e-6);
     cached_now_access_count = 0;
   }
 
@@ -276,16 +267,15 @@ Status CreateLoggerFromOptions(const std::string& dbname,
   std::string fname =
       InfoLogFileName(dbname, db_absolute_path, options.db_log_dir);
 
-  const auto& clock = env->GetSystemClock();
   env->CreateDirIfMissing(dbname)
       .PermitUncheckedError();  // In case it does not exist
   // Currently we only support roll by time-to-roll and log size
 #ifndef ROCKSDB_LITE
   if (options.log_file_time_to_roll > 0 || options.max_log_file_size > 0) {
     AutoRollLogger* result = new AutoRollLogger(
-        env->GetFileSystem(), clock, dbname, options.db_log_dir,
-        options.max_log_file_size, options.log_file_time_to_roll,
-        options.keep_log_file_num, options.info_log_level);
+        env, dbname, options.db_log_dir, options.max_log_file_size,
+        options.log_file_time_to_roll, options.keep_log_file_num,
+        options.info_log_level);
     s = result->GetStatus();
     if (!s.ok()) {
       delete result;
@@ -296,9 +286,9 @@ Status CreateLoggerFromOptions(const std::string& dbname,
   }
 #endif  // !ROCKSDB_LITE
   // Open a log file in the same directory as the db
-  env->RenameFile(
-         fname, OldInfoLogFileName(dbname, clock->NowMicros(), db_absolute_path,
-                                   options.db_log_dir))
+  env->RenameFile(fname,
+                  OldInfoLogFileName(dbname, env->NowMicros(), db_absolute_path,
+                                     options.db_log_dir))
       .PermitUncheckedError();
   s = env->NewLogger(fname, logger);
   if (logger->get() != nullptr) {

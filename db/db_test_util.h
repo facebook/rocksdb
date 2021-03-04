@@ -23,6 +23,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
+#include "env/mock_env.h"
 #include "file/filename.h"
 #include "memtable/hash_linklist_rep.h"
 #include "rocksdb/cache.h"
@@ -39,6 +40,7 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "table/mock_table.h"
 #include "table/scoped_arena_iterator.h"
+#include "test_util/mock_time_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
@@ -48,7 +50,6 @@
 #include "utilities/merge_operators.h"
 
 namespace ROCKSDB_NAMESPACE {
-class MockEnv;
 
 namespace anon {
 class AtomicCounter {

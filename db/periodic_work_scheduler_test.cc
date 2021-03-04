@@ -6,8 +6,6 @@
 #include "db/periodic_work_scheduler.h"
 
 #include "db/db_test_util.h"
-#include "env/composite_env_wrapper.h"
-#include "test_util/mock_time_env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -16,22 +14,20 @@ class PeriodicWorkSchedulerTest : public DBTestBase {
  public:
   PeriodicWorkSchedulerTest()
       : DBTestBase("/periodic_work_scheduler_test", /*env_do_fsync=*/true) {
-    mock_clock_ = std::make_shared<MockSystemClock>(env_->GetSystemClock());
-    mock_env_.reset(new CompositeEnvWrapper(env_, mock_clock_));
+    mock_env_.reset(new MockTimeEnv(env_));
   }
 
  protected:
-  std::unique_ptr<Env> mock_env_;
-  std::shared_ptr<MockSystemClock> mock_clock_;
+  std::unique_ptr<MockTimeEnv> mock_env_;
 
   void SetUp() override {
-    mock_clock_->InstallTimedWaitFixCallback();
+    mock_env_->InstallTimedWaitFixCallback();
     SyncPoint::GetInstance()->SetCallBack(
         "DBImpl::StartPeriodicWorkScheduler:Init", [&](void* arg) {
           auto* periodic_work_scheduler_ptr =
               reinterpret_cast<PeriodicWorkScheduler**>(arg);
           *periodic_work_scheduler_ptr =
-              PeriodicWorkTestScheduler::Default(mock_clock_);
+              PeriodicWorkTestScheduler::Default(mock_env_.get());
         });
   }
 };
@@ -67,7 +63,7 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
 
   ASSERT_GT(kPeriodSec, 1u);
   dbfull()->TEST_WaitForStatsDumpRun([&] {
-    mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec) - 1);
+    mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec) - 1);
   });
 
   auto scheduler = dbfull()->TEST_GetPeriodicWorkScheduler();
@@ -79,14 +75,14 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
   ASSERT_EQ(1, flush_info_log_counter);
 
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
+      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
 
   ASSERT_EQ(2, dump_st_counter);
   ASSERT_EQ(2, pst_st_counter);
   ASSERT_EQ(2, flush_info_log_counter);
 
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
+      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
 
   ASSERT_EQ(3, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
@@ -100,7 +96,7 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
 
   // Info log flush should still run.
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
+      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
   ASSERT_EQ(3, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
   ASSERT_EQ(4, flush_info_log_counter);
@@ -118,7 +114,7 @@ TEST_F(PeriodicWorkSchedulerTest, Basic) {
   ASSERT_EQ(2, scheduler->TEST_GetValidTaskNum());
 
   dbfull()->TEST_WaitForStatsDumpRun(
-      [&] { mock_clock_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
+      [&] { mock_env_->MockSleepForSeconds(static_cast<int>(kPeriodSec)); });
   ASSERT_EQ(4, dump_st_counter);
   ASSERT_EQ(3, pst_st_counter);
   ASSERT_EQ(5, flush_info_log_counter);
@@ -158,19 +154,19 @@ TEST_F(PeriodicWorkSchedulerTest, MultiInstances) {
 
   int expected_run = kInstanceNum;
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_clock_->MockSleepForSeconds(kPeriodSec - 1); });
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec - 1); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
   expected_run += kInstanceNum;
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_clock_->MockSleepForSeconds(kPeriodSec); });
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
   expected_run += kInstanceNum;
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_clock_->MockSleepForSeconds(kPeriodSec); });
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
@@ -182,9 +178,9 @@ TEST_F(PeriodicWorkSchedulerTest, MultiInstances) {
   expected_run += (kInstanceNum - half) * 2;
 
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_clock_->MockSleepForSeconds(kPeriodSec); });
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
   dbi->TEST_WaitForStatsDumpRun(
-      [&] { mock_clock_->MockSleepForSeconds(kPeriodSec); });
+      [&] { mock_env_->MockSleepForSeconds(kPeriodSec); });
   ASSERT_EQ(expected_run, dump_st_counter);
   ASSERT_EQ(expected_run, pst_st_counter);
 
@@ -206,8 +202,7 @@ TEST_F(PeriodicWorkSchedulerTest, MultiEnv) {
 
   Reopen(options1);
 
-  std::unique_ptr<Env> mock_env2(
-      new CompositeEnvWrapper(Env::Default(), mock_clock_));
+  std::unique_ptr<MockTimeEnv> mock_env2(new MockTimeEnv(Env::Default()));
   Options options2;
   options2.stats_dump_period_sec = kDumpPeriodSec;
   options2.stats_persist_period_sec = kPersistPeriodSec;

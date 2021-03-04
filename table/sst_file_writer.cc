@@ -260,7 +260,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
   FileTypeSet tmp_set = r->ioptions.checksum_handoff_file_types;
   r->file_writer.reset(new WritableFileWriter(
       std::move(sst_file), file_path, r->env_options,
-      r->ioptions.env->GetSystemClock(), nullptr /* io_tracer */,
+      r->ioptions.env, nullptr /* io_tracer */,
       nullptr /* stats */, r->ioptions.listeners,
       r->ioptions.file_checksum_gen_factory,
       tmp_set.Contains(FileType::kTableFile)));

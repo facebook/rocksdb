@@ -10,9 +10,9 @@
 #pragma once
 
 #include "monitoring/histogram.h"
+#include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
-class SystemClock;
 
 class HistogramWindowingImpl : public Histogram
 {
@@ -45,9 +45,7 @@ public:
   virtual void Data(HistogramData* const data) const override;
 
 #ifndef NDEBUG
-  void TEST_UpdateClock(const std::shared_ptr<SystemClock>& clock) {
-    clock_ = clock;
-  }
+  void TEST_UpdateEnv(Env* env) { env_ = env; }
 #endif  // NDEBUG
 
  private:
@@ -60,7 +58,7 @@ public:
     return last_swap_time_.load(std::memory_order_relaxed);
   }
 
-  std::shared_ptr<SystemClock> clock_;
+  Env* env_;
   std::mutex mutex_;
 
   // Aggregated stats over windows_stats_, all the computation is done

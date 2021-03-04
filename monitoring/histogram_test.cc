@@ -8,7 +8,6 @@
 #include <cmath>
 
 #include "monitoring/histogram_windowing.h"
-#include "rocksdb/system_clock.h"
 #include "test_util/mock_time_env.h"
 #include "test_util/testharness.h"
 #include "util/random.h"
@@ -20,8 +19,7 @@ class HistogramTest : public testing::Test {};
 namespace {
   const double kIota = 0.1;
   const HistogramBucketMapper bucketMapper;
-  std::shared_ptr<MockSystemClock> clock =
-      std::make_shared<MockSystemClock>(SystemClock::Default());
+  MockTimeEnv* env = new MockTimeEnv(Env::Default());
 }
 
 void PopulateHistogram(Histogram& histogram,
@@ -31,11 +29,11 @@ void PopulateHistogram(Histogram& histogram,
     for (uint64_t i = low; i <= high; i++) {
       histogram.Add(i);
       // sleep a random microseconds [0-10)
-      clock->MockSleepForMicroseconds(rnd.Uniform(10));
+      env->MockSleepForMicroseconds(rnd.Uniform(10));
     }
   }
   // make sure each data population at least take some time
-  clock->MockSleepForMicroseconds(1);
+  env->MockSleepForMicroseconds(1);
 }
 
 void BasicOperation(Histogram& histogram) {
@@ -141,23 +139,23 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
 
   HistogramWindowingImpl
       histogramWindowing(num_windows, micros_per_window, min_num_per_window);
-  histogramWindowing.TEST_UpdateClock(clock);
+  histogramWindowing.TEST_UpdateEnv(env);
   PopulateHistogram(histogramWindowing, 1, 1, 100);
-  clock->MockSleepForMicroseconds(micros_per_window);
+  env->MockSleepForMicroseconds(micros_per_window);
   ASSERT_EQ(histogramWindowing.num(), 100);
   ASSERT_EQ(histogramWindowing.min(), 1);
   ASSERT_EQ(histogramWindowing.max(), 1);
   ASSERT_EQ(histogramWindowing.Average(), 1);
 
   PopulateHistogram(histogramWindowing, 2, 2, 100);
-  clock->MockSleepForMicroseconds(micros_per_window);
+  env->MockSleepForMicroseconds(micros_per_window);
   ASSERT_EQ(histogramWindowing.num(), 200);
   ASSERT_EQ(histogramWindowing.min(), 1);
   ASSERT_EQ(histogramWindowing.max(), 2);
   ASSERT_EQ(histogramWindowing.Average(), 1.5);
 
   PopulateHistogram(histogramWindowing, 3, 3, 100);
-  clock->MockSleepForMicroseconds(micros_per_window);
+  env->MockSleepForMicroseconds(micros_per_window);
   ASSERT_EQ(histogramWindowing.num(), 300);
   ASSERT_EQ(histogramWindowing.min(), 1);
   ASSERT_EQ(histogramWindowing.max(), 3);
@@ -165,7 +163,7 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
 
   // dropping oldest window with value 1, remaining 2 ~ 4
   PopulateHistogram(histogramWindowing, 4, 4, 100);
-  clock->MockSleepForMicroseconds(micros_per_window);
+  env->MockSleepForMicroseconds(micros_per_window);
   ASSERT_EQ(histogramWindowing.num(), 300);
   ASSERT_EQ(histogramWindowing.min(), 2);
   ASSERT_EQ(histogramWindowing.max(), 4);
@@ -173,7 +171,7 @@ TEST_F(HistogramTest, HistogramWindowingExpire) {
 
   // dropping oldest window with value 2, remaining 3 ~ 5
   PopulateHistogram(histogramWindowing, 5, 5, 100);
-  clock->MockSleepForMicroseconds(micros_per_window);
+  env->MockSleepForMicroseconds(micros_per_window);
   ASSERT_EQ(histogramWindowing.num(), 300);
   ASSERT_EQ(histogramWindowing.min(), 3);
   ASSERT_EQ(histogramWindowing.max(), 5);
@@ -189,20 +187,20 @@ TEST_F(HistogramTest, HistogramWindowingMerge) {
       histogramWindowing(num_windows, micros_per_window, min_num_per_window);
   HistogramWindowingImpl
       otherWindowing(num_windows, micros_per_window, min_num_per_window);
-  histogramWindowing.TEST_UpdateClock(clock);
-  otherWindowing.TEST_UpdateClock(clock);
+  histogramWindowing.TEST_UpdateEnv(env);
+  otherWindowing.TEST_UpdateEnv(env);
 
   PopulateHistogram(histogramWindowing, 1, 1, 100);
   PopulateHistogram(otherWindowing, 1, 1, 100);
-  clock->MockSleepForMicroseconds(micros_per_window);
+  env->MockSleepForMicroseconds(micros_per_window);
 
   PopulateHistogram(histogramWindowing, 2, 2, 100);
   PopulateHistogram(otherWindowing, 2, 2, 100);
-  clock->MockSleepForMicroseconds(micros_per_window);
+  env->MockSleepForMicroseconds(micros_per_window);
 
   PopulateHistogram(histogramWindowing, 3, 3, 100);
   PopulateHistogram(otherWindowing, 3, 3, 100);
-  clock->MockSleepForMicroseconds(micros_per_window);
+  env->MockSleepForMicroseconds(micros_per_window);
 
   histogramWindowing.Merge(otherWindowing);
   ASSERT_EQ(histogramWindowing.num(), 600);
@@ -212,14 +210,14 @@ TEST_F(HistogramTest, HistogramWindowingMerge) {
 
   // dropping oldest window with value 1, remaining 2 ~ 4
   PopulateHistogram(histogramWindowing, 4, 4, 100);
-  clock->MockSleepForMicroseconds(micros_per_window);
+  env->MockSleepForMicroseconds(micros_per_window);
   ASSERT_EQ(histogramWindowing.num(), 500);
   ASSERT_EQ(histogramWindowing.min(), 2);
   ASSERT_EQ(histogramWindowing.max(), 4);
 
   // dropping oldest window with value 2, remaining 3 ~ 5
   PopulateHistogram(histogramWindowing, 5, 5, 100);
-  clock->MockSleepForMicroseconds(micros_per_window);
+  env->MockSleepForMicroseconds(micros_per_window);
   ASSERT_EQ(histogramWindowing.num(), 400);
   ASSERT_EQ(histogramWindowing.min(), 3);
   ASSERT_EQ(histogramWindowing.max(), 5);

@@ -59,7 +59,6 @@ class RateLimiter;
 class ThreadStatusUpdater;
 struct ThreadStatus;
 class FileSystem;
-class SystemClock;
 
 const size_t kDefaultPageSize = 4 * 1024;
 
@@ -151,11 +150,8 @@ class Env {
   };
 
   Env();
-  // Construct an Env with a separate FileSystem and/or SystemClock
-  // implementation
-  explicit Env(const std::shared_ptr<FileSystem>& fs);
-  Env(const std::shared_ptr<FileSystem>& fs,
-      const std::shared_ptr<SystemClock>& clock);
+  // Construct an Env with a separate FileSystem implementation
+  Env(std::shared_ptr<FileSystem> fs);
   // No copying allowed
   Env(const Env&) = delete;
   void operator=(const Env&) = delete;
@@ -580,10 +576,6 @@ class Env {
   // could be a fully implemented one, or a wrapper class around the Env
   const std::shared_ptr<FileSystem>& GetFileSystem() const;
 
-  // Get the SystemClock implementation this Env was constructed with. It
-  // could be a fully implemented one, or a wrapper class around the Env
-  const std::shared_ptr<SystemClock>& GetSystemClock() const;
-
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
  protected:
@@ -593,9 +585,6 @@ class Env {
 
   // Pointer to the underlying FileSystem implementation
   std::shared_ptr<FileSystem> file_system_;
-
-  // Pointer to the underlying SystemClock implementation
-  std::shared_ptr<SystemClock> system_clock_;
 
  private:
   static const size_t kMaxHostNameLen = 256;

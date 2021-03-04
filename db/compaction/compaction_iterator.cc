@@ -80,7 +80,6 @@ CompactionIterator::CompactionIterator(
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
       env_(env),
-      clock_(env_->GetSystemClock()),
       report_detailed_time_(report_detailed_time),
       expect_valid_internal_key_(expect_valid_internal_key),
       range_del_agg_(range_del_agg),
@@ -228,7 +227,7 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           ? ikey_.user_key
           : key_;
   {
-    StopWatchNano timer(clock_, report_detailed_time_);
+    StopWatchNano timer(env_, report_detailed_time_);
     if (kTypeBlobIndex == ikey_.type) {
       blob_value_.Reset();
       filter = compaction_filter_->FilterBlobByKey(

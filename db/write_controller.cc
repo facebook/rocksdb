@@ -8,8 +8,7 @@
 #include <atomic>
 #include <cassert>
 #include <ratio>
-
-#include "rocksdb/system_clock.h"
+#include "rocksdb/env.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -43,8 +42,7 @@ bool WriteController::IsStopped() const {
 // If it turns out to be a performance issue, we can redesign the thread
 // synchronization model here.
 // The function trust caller will sleep micros returned.
-uint64_t WriteController::GetDelay(const std::shared_ptr<SystemClock>& clock,
-                                   uint64_t num_bytes) {
+uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
   if (total_stopped_.load(std::memory_order_relaxed) > 0) {
     return 0;
   }
@@ -61,7 +59,7 @@ uint64_t WriteController::GetDelay(const std::shared_ptr<SystemClock>& clock,
   }
   // The frequency to get time inside DB mutex is less than one per refill
   // interval.
-  auto time_now = NowMicrosMonotonic(clock);
+  auto time_now = NowMicrosMonotonic(env);
 
   uint64_t sleep_debt = 0;
   uint64_t time_since_last_refill = 0;
@@ -108,9 +106,8 @@ uint64_t WriteController::GetDelay(const std::shared_ptr<SystemClock>& clock,
   return sleep_amount;
 }
 
-uint64_t WriteController::NowMicrosMonotonic(
-    const std::shared_ptr<SystemClock>& clock) {
-  return clock->NowNanos() / std::milli::den;
+uint64_t WriteController::NowMicrosMonotonic(Env* env) {
+  return env->NowNanos() / std::milli::den;
 }
 
 StopWriteToken::~StopWriteToken() {

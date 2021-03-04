@@ -1083,7 +1083,7 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
   bool abort_compression = false;
 
   StopWatchNano timer(
-      r->ioptions.env->GetSystemClock(),
+      r->ioptions.env,
       ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics));
 
   if (is_status_ok && raw_block_contents.size() < kCompressionSizeLimit) {
@@ -1177,8 +1177,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   Rep* r = rep_;
   Status s = Status::OK();
   IOStatus io_s = IOStatus::OK();
-  StopWatch sw(r->ioptions.env->GetSystemClock(), r->ioptions.statistics,
-               WRITE_RAW_BLOCK_MICROS);
+  StopWatch sw(r->ioptions.env, r->ioptions.statistics, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->get_offset());
   handle->set_size(block_contents.size());
   assert(status().ok());

@@ -104,7 +104,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                  : 0),
       prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       flush_state_(FLUSH_NOT_REQUESTED),
-      clock_(ioptions.env->GetSystemClock()),
+      env_(ioptions.env),
       insert_with_hint_prefix_extractor_(
           ioptions.memtable_insert_with_hint_prefix_extractor),
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
@@ -223,7 +223,7 @@ void MemTable::UpdateOldestKeyTime() {
   uint64_t oldest_key_time = oldest_key_time_.load(std::memory_order_relaxed);
   if (oldest_key_time == std::numeric_limits<uint64_t>::max()) {
     int64_t current_time = 0;
-    auto s = clock_->GetCurrentTime(&current_time);
+    auto s = env_->GetCurrentTime(&current_time);
     if (s.ok()) {
       assert(current_time >= 0);
       // If fail, the timestamp is already set.
@@ -684,8 +684,7 @@ struct Saver {
   Statistics* statistics;
   bool inplace_update_support;
   bool do_merge;
-  std::shared_ptr<SystemClock> clock;
-
+  Env* env_;
   ReadCallback* callback_;
   bool* is_blob_index;
   bool allow_data_in_errors;
@@ -769,7 +768,7 @@ static bool SaveValue(void* arg, const char* entry) {
               *(s->status) = MergeHelper::TimedFullMerge(
                   merge_operator, s->key->user_key(), &v,
                   merge_context->GetOperands(), s->value, s->logger,
-                  s->statistics, s->clock, nullptr /* result_operand */, true);
+                  s->statistics, s->env_, nullptr /* result_operand */, true);
             }
           } else {
             // Preserve the value with the goal of returning it as part of
@@ -808,7 +807,7 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) = MergeHelper::TimedFullMerge(
                 merge_operator, s->key->user_key(), nullptr,
                 merge_context->GetOperands(), s->value, s->logger,
-                s->statistics, s->clock, nullptr /* result_operand */, true);
+                s->statistics, s->env_, nullptr /* result_operand */, true);
           }
         } else {
           *(s->status) = Status::NotFound();
@@ -836,7 +835,7 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->status) = MergeHelper::TimedFullMerge(
               merge_operator, s->key->user_key(), nullptr,
               merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->clock, nullptr /* result_operand */, true);
+              s->env_, nullptr /* result_operand */, true);
           *(s->found_final_value) = true;
           return false;
         }
@@ -944,7 +943,7 @@ void MemTable::GetFromTable(const LookupKey& key,
   saver.logger = moptions_.info_log;
   saver.inplace_update_support = moptions_.inplace_update_support;
   saver.statistics = moptions_.statistics;
-  saver.clock = clock_;
+  saver.env_ = env_;
   saver.callback_ = callback;
   saver.is_blob_index = is_blob_index;
   saver.do_merge = do_merge;

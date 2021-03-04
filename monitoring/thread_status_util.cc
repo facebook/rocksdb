@@ -7,7 +7,6 @@
 
 #include "monitoring/thread_status_updater.h"
 #include "rocksdb/env.h"
-#include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -58,7 +57,7 @@ void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType op) {
   }
 
   if (op != ThreadStatus::OP_UNKNOWN) {
-    uint64_t current_time = SystemClock::Default()->NowMicros();
+    uint64_t current_time = Env::Default()->NowMicros();
     thread_updater_local_cache_->SetOperationStartTime(current_time);
   } else {
     // TDOO(yhchiang): we could report the time when we set operation to

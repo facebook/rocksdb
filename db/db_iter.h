@@ -21,6 +21,7 @@
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
+
 class Version;
 
 // This file declares the factory functions of DBIter, in its original form
@@ -297,7 +298,6 @@ class DBIter final : public Iterator {
 
   const SliceTransform* prefix_extractor_;
   Env* const env_;
-  std::shared_ptr<SystemClock> clock_;
   Logger* logger_;
   UserComparatorWrapper user_comparator_;
   const MergeOperator* const merge_operator_;

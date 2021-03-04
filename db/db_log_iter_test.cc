@@ -13,7 +13,6 @@
 #if !defined(ROCKSDB_LITE)
 
 #include "db/db_test_util.h"
-#include "env/mock_env.h"
 #include "port/stack_trace.h"
 
 namespace ROCKSDB_NAMESPACE {

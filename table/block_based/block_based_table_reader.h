@@ -32,7 +32,6 @@ class Footer;
 class InternalKeyComparator;
 class Iterator;
 class FSRandomAccessFile;
-class SystemClock;
 class TableCache;
 class TableReader;
 class WritableFile;
@@ -520,16 +519,13 @@ struct BlockBasedTable::Rep {
         global_seqno(kDisableGlobalSequenceNumber),
         file_size(_file_size),
         level(_level),
-        immortal_table(_immortal_table) {
-    clock = ioptions.env->GetSystemClock();
-  }
+        immortal_table(_immortal_table) {}
   ~Rep() { status.PermitUncheckedError(); }
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
   const BlockBasedTableOptions table_options;
   const FilterPolicy* const filter_policy;
   const InternalKeyComparator& internal_comparator;
-  std::shared_ptr<SystemClock> clock;
   Status status;
   std::unique_ptr<RandomAccessFileReader> file;
   char cache_key_prefix[kMaxCacheKeyPrefixSize];

@@ -39,10 +39,8 @@ class TestFileNumberGenerator {
 
 class BlobFileBuilderTest : public testing::Test {
  protected:
-  BlobFileBuilderTest() : mock_env_(Env::Default()) {
-    fs_ = mock_env_.GetFileSystem().get();
-    clock_ = mock_env_.GetSystemClock();
-  }
+  BlobFileBuilderTest()
+      : mock_env_(Env::Default()), fs_(mock_env_.GetFileSystem().get()) {}
 
   void VerifyBlobFile(uint64_t blob_file_number,
                       const std::string& blob_file_path,
@@ -59,10 +57,11 @@ class BlobFileBuilderTest : public testing::Test {
         fs_->NewRandomAccessFile(blob_file_path, file_options_, &file, dbg));
 
     std::unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(std::move(file), blob_file_path, clock_));
+        new RandomAccessFileReader(std::move(file), blob_file_path,
+                                   &mock_env_));
 
     constexpr Statistics* statistics = nullptr;
-    BlobLogSequentialReader blob_log_reader(std::move(file_reader), clock_,
+    BlobLogSequentialReader blob_log_reader(std::move(file_reader), &mock_env_,
                                             statistics);
 
     BlobLogHeader header;
@@ -110,7 +109,6 @@ class BlobFileBuilderTest : public testing::Test {
 
   MockEnv mock_env_;
   FileSystem* fs_;
-  std::shared_ptr<SystemClock> clock_;
   FileOptions file_options_;
 };
 
