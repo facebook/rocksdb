@@ -4,6 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/get_context.h"
+
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/read_callback.h"

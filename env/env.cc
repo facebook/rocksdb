@@ -268,8 +268,7 @@ Env::Env() : thread_status_updater_(nullptr) {
 }
 
 Env::Env(std::shared_ptr<FileSystem> fs)
-  : thread_status_updater_(nullptr),
-    file_system_(fs) {}
+    : thread_status_updater_(nullptr), file_system_(fs) {}
 
 Env::~Env() {
 }

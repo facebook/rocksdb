@@ -5,20 +5,20 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "db/wal_manager.h"
+
 #include <map>
 #include <string>
-
-#include "rocksdb/cache.h"
-#include "rocksdb/write_batch.h"
-#include "rocksdb/write_buffer_manager.h"
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
 #include "db/version_set.h"
-#include "db/wal_manager.h"
 #include "env/mock_env.h"
 #include "file/writable_file_writer.h"
+#include "rocksdb/cache.h"
+#include "rocksdb/write_batch.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"

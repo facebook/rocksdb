@@ -3,13 +3,14 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "util/repeatable_thread.h"
+
 #include <atomic>
 #include <memory>
 
 #include "db/db_test_util.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
-#include "util/repeatable_thread.h"
 
 class RepeatableThreadTest : public testing::Test {
  public:

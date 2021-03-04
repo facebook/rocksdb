@@ -15,18 +15,16 @@ int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 #include <sstream>
 #include <unordered_map>
 
-#include "rocksdb/env.h"
-
-#include "utilities/persistent_cache/block_cache_tier.h"
-#include "utilities/persistent_cache/persistent_cache_tier.h"
-#include "utilities/persistent_cache/volatile_tier_impl.h"
-
 #include "monitoring/histogram.h"
 #include "port/port.h"
+#include "rocksdb/env.h"
 #include "table/block_based/block_builder.h"
 #include "util/gflags_compat.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
+#include "utilities/persistent_cache/block_cache_tier.h"
+#include "utilities/persistent_cache/persistent_cache_tier.h"
+#include "utilities/persistent_cache/volatile_tier_impl.h"
 
 DEFINE_int32(nsec, 10, "nsec");
 DEFINE_int32(nthread_write, 1, "Insert threads");

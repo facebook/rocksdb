@@ -8,10 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "monitoring/histogram_windowing.h"
-#include "monitoring/histogram.h"
-#include "util/cast_util.h"
 
 #include <algorithm>
+
+#include "monitoring/histogram.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 

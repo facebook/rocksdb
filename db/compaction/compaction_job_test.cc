@@ -5,6 +5,8 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "db/compaction/compaction_job.h"
+
 #include <algorithm>
 #include <array>
 #include <cinttypes>
@@ -14,7 +16,6 @@
 
 #include "db/blob/blob_index.h"
 #include "db/column_family.h"
-#include "db/compaction/compaction_job.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/version_set.h"

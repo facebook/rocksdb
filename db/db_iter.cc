@@ -8,9 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_iter.h"
-#include <string>
+
 #include <iostream>
 #include <limits>
+#include <string>
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"

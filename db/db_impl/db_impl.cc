@@ -1986,7 +1986,7 @@ std::vector<Status> DBImpl::MultiGet(
     // The only reason to break out of the loop is when the deadline is
     // exceeded
     assert(env_->NowMicros() >
-        static_cast<uint64_t>(read_options.deadline.count()));
+           static_cast<uint64_t>(read_options.deadline.count()));
     for (++keys_read; keys_read < num_keys; ++keys_read) {
       stat_list[keys_read] = Status::TimedOut();
     }

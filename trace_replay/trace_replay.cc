@@ -180,13 +180,12 @@ void TracerHelper::DecodeIterPayload(Trace* trace, IterPayload* iter_payload) {
   }
 }
 
-Tracer::Tracer(Env* env,
-               const TraceOptions& trace_options,
+Tracer::Tracer(Env* env, const TraceOptions& trace_options,
                std::unique_ptr<TraceWriter>&& trace_writer)
     : env_(env),
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)),
-      trace_request_count_ (0) {
+      trace_request_count_(0) {
   // TODO: What if this fails?
   WriteHeader().PermitUncheckedError();
 }

@@ -5,14 +5,15 @@
 
 #ifndef ROCKSDB_LITE
 
-#include <vector>
-#include <string>
+#include "table/cuckoo/cuckoo_table_builder.h"
+
 #include <map>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "file/random_access_file_reader.h"
 #include "file/writable_file_writer.h"
-#include "table/cuckoo/cuckoo_table_builder.h"
 #include "table/meta_blocks.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"

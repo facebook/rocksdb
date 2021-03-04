@@ -14,7 +14,6 @@
 
 #include "monitoring/instrumented_mutex.h"
 #include "port/port.h"
-
 #include "rocksdb/file_system.h"
 #include "rocksdb/status.h"
 

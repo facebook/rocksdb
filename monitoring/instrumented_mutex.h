@@ -20,14 +20,11 @@ class InstrumentedCondVar;
 class InstrumentedMutex {
  public:
   explicit InstrumentedMutex(bool adaptive = false)
-      : mutex_(adaptive), stats_(nullptr), env_(nullptr),
-        stats_code_(0) {}
+      : mutex_(adaptive), stats_(nullptr), env_(nullptr), stats_code_(0) {}
 
-  InstrumentedMutex(
-      Statistics* stats, Env* env,
-      int stats_code, bool adaptive = false)
-      : mutex_(adaptive), stats_(stats), env_(env),
-        stats_code_(stats_code) {}
+  InstrumentedMutex(Statistics* stats, Env* env, int stats_code,
+                    bool adaptive = false)
+      : mutex_(adaptive), stats_(stats), env_(env), stats_code_(stats_code) {}
 
   void Lock();
 

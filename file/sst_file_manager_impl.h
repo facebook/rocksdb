@@ -9,11 +9,10 @@
 
 #include <string>
 
-#include "port/port.h"
-
 #include "db/compaction/compaction.h"
 #include "db/error_handler.h"
 #include "file/delete_scheduler.h"
+#include "port/port.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/sst_file_manager.h"
 

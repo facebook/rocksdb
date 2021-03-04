@@ -7,9 +7,9 @@
 #include "utilities/blob_db/blob_file.h"
 
 #include <stdio.h>
-#include <cinttypes>
 
 #include <algorithm>
+#include <cinttypes>
 #include <memory>
 
 #include "db/column_family.h"

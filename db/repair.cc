@@ -62,6 +62,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <cinttypes>
+
 #include "db/builder.h"
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"

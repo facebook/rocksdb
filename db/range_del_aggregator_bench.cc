@@ -11,8 +11,8 @@ int main() {
 }
 #else
 
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 #include <memory>
 #include <random>
 #include <set>
@@ -25,10 +25,9 @@ int main() {
 #include "rocksdb/env.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
+#include "util/gflags_compat.h"
 #include "util/random.h"
 #include "util/stop_watch.h"
-
-#include "util/gflags_compat.h"
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
