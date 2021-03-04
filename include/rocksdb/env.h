@@ -619,6 +619,9 @@ class SequentialFile {
   // "scratch[0..n-1]" must be live when "*result" is used.
   // If an error was encountered, returns a non-OK status.
   //
+  // After call, result->size() < n iff end of file has been reached.
+  // In this case, Read might fail if called again.
+  //
   // REQUIRES: External synchronization
   virtual Status Read(size_t n, Slice* result, char* scratch) = 0;
 
@@ -665,6 +668,7 @@ struct ReadRequest {
   uint64_t offset;
 
   // Length to read in bytes
+  // FIXME: Can it only read less on EOF?
   size_t len;
 
   // A buffer that MultiRead()  can optionally place data in. It can
@@ -692,6 +696,9 @@ class RandomAccessFile {
   // "scratch[0..n-1]", so "scratch[0..n-1]" must be live when
   // "*result" is used.  If an error was encountered, returns a non-OK
   // status.
+  //
+  // After call, result->size() < n iff end of file has been reached.
+  // In this case, Read might fail if called again.
   //
   // Safe for concurrent use by multiple threads.
   // If Direct I/O enabled, offset, n, and scratch should be aligned properly.
@@ -977,6 +984,10 @@ class RandomRWFile {
 
   // Read up to `n` bytes starting from offset `offset` and store them in
   // result, provided `scratch` size should be at least `n`.
+  //
+  // After call, result->size() < n iff end of file has been reached.
+  // In this case, Read might fail if called again.
+  //
   // Returns Status::OK() on success.
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
