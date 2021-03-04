@@ -78,6 +78,7 @@ enum class LevelStatType {
   AVG_SEC,
   KEY_IN,
   KEY_DROP,
+  R_BLOB_GB,
   W_BLOB_GB,
   TOTAL  // total number of types
 };
@@ -148,6 +149,9 @@ class InternalStats {
     // The number of bytes read from the compaction output level (table files)
     uint64_t bytes_read_output_level;
 
+    // The number of bytes read from blob files
+    uint64_t bytes_read_blob;
+
     // Total number of bytes written to table files during compaction
     uint64_t bytes_written;
 
@@ -188,6 +192,7 @@ class InternalStats {
           cpu_micros(0),
           bytes_read_non_output_levels(0),
           bytes_read_output_level(0),
+          bytes_read_blob(0),
           bytes_written(0),
           bytes_written_blob(0),
           bytes_moved(0),
@@ -209,6 +214,7 @@ class InternalStats {
           cpu_micros(0),
           bytes_read_non_output_levels(0),
           bytes_read_output_level(0),
+          bytes_read_blob(0),
           bytes_written(0),
           bytes_written_blob(0),
           bytes_moved(0),
@@ -236,6 +242,7 @@ class InternalStats {
           cpu_micros(c.cpu_micros),
           bytes_read_non_output_levels(c.bytes_read_non_output_levels),
           bytes_read_output_level(c.bytes_read_output_level),
+          bytes_read_blob(c.bytes_read_blob),
           bytes_written(c.bytes_written),
           bytes_written_blob(c.bytes_written_blob),
           bytes_moved(c.bytes_moved),
@@ -258,6 +265,7 @@ class InternalStats {
       cpu_micros = c.cpu_micros;
       bytes_read_non_output_levels = c.bytes_read_non_output_levels;
       bytes_read_output_level = c.bytes_read_output_level;
+      bytes_read_blob = c.bytes_read_blob;
       bytes_written = c.bytes_written;
       bytes_written_blob = c.bytes_written_blob;
       bytes_moved = c.bytes_moved;
@@ -282,6 +290,7 @@ class InternalStats {
       this->cpu_micros = 0;
       this->bytes_read_non_output_levels = 0;
       this->bytes_read_output_level = 0;
+      this->bytes_read_blob = 0;
       this->bytes_written = 0;
       this->bytes_written_blob = 0;
       this->bytes_moved = 0;
@@ -303,6 +312,7 @@ class InternalStats {
       this->cpu_micros += c.cpu_micros;
       this->bytes_read_non_output_levels += c.bytes_read_non_output_levels;
       this->bytes_read_output_level += c.bytes_read_output_level;
+      this->bytes_read_blob += c.bytes_read_blob;
       this->bytes_written += c.bytes_written;
       this->bytes_written_blob += c.bytes_written_blob;
       this->bytes_moved += c.bytes_moved;
@@ -326,6 +336,7 @@ class InternalStats {
       this->cpu_micros -= c.cpu_micros;
       this->bytes_read_non_output_levels -= c.bytes_read_non_output_levels;
       this->bytes_read_output_level -= c.bytes_read_output_level;
+      this->bytes_read_blob -= c.bytes_read_blob;
       this->bytes_written -= c.bytes_written;
       this->bytes_written_blob -= c.bytes_written_blob;
       this->bytes_moved -= c.bytes_moved;
@@ -433,6 +444,7 @@ class InternalStats {
   void DumpDBStats(std::string* value);
   void DumpCFMapStats(std::map<std::string, std::string>* cf_stats);
   void DumpCFMapStats(
+      const VersionStorageInfo* vstorage,
       std::map<int, std::map<LevelStatType, double>>* level_stats,
       CompactionStats* compaction_stats_sum);
   void DumpCFMapStatsByPriority(
@@ -670,6 +682,7 @@ class InternalStats {
     uint64_t cpu_micros;
     uint64_t bytes_read_non_output_levels;
     uint64_t bytes_read_output_level;
+    uint64_t bytes_read_blob;
     uint64_t bytes_written;
     uint64_t bytes_written_blob;
     uint64_t bytes_moved;
