@@ -592,6 +592,8 @@ ifdef ASSERT_STATUS_CHECKED
 		db_log_iter_test \
 		db_bloom_filter_test \
 		db_blob_basic_test \
+		db_blob_compaction_test \
+		db_blob_corruption_test \
 		db_blob_index_test \
 		db_block_cache_test \
 		db_compaction_test \
@@ -1568,6 +1570,9 @@ db_basic_test: $(OBJ_DIR)/db/db_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 db_blob_basic_test: $(OBJ_DIR)/db/blob/db_blob_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_blob_compaction_test: $(OBJ_DIR)/db/blob/db_blob_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
 db_with_timestamp_basic_test: $(OBJ_DIR)/db/db_with_timestamp_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
@@ -2059,6 +2064,8 @@ io_tracer_parser_test: $(OBJ_DIR)/tools/io_tracer_parser_test.o $(OBJ_DIR)/tools
 io_tracer_parser: $(OBJ_DIR)/tools/io_tracer_parser.o $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_blob_corruption_test: $(OBJ_DIR)/db/blob/db_blob_corruption_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
 #-------------------------------------------------
 # make install related stuff
 PREFIX ?= /usr/local

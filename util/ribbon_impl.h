@@ -8,6 +8,7 @@
 #include <cmath>
 
 #include "port/port.h"  // for PREFETCH
+#include "util/fastrange.h"
 #include "util/ribbon_alg.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -23,6 +24,8 @@ namespace ribbon {
 // and core design details.
 //
 // TODO: more details on trade-offs and practical issues.
+//
+// APIs for configuring Ribbon are in ribbon_config.h
 
 // Ribbon implementations in this file take these parameters, which must be
 // provided in a class/struct type with members expressed in this concept:
@@ -49,10 +52,22 @@ namespace ribbon {
 //   // construction.
 //   static constexpr bool kIsFilter;
 //
+//   // When true, enables a special "homogeneous" filter implementation that
+//   // is slightly faster to construct, and never fails to construct though
+//   // FP rate can quickly explode in cases where corresponding
+//   // non-homogeneous filter would fail (or nearly fail?) to construct.
+//   // For smaller filters, you can configure with ConstructionFailureChance
+//   // smaller than desired FP rate to largely counteract this effect.
+//   // TODO: configuring Homogeneous Ribbon for arbitrarily large filters
+//   // based on data from OptimizeHomogAtScale
+//   static constexpr bool kHomogeneous;
+//
 //   // When true, adds a tiny bit more hashing logic on queries and
 //   // construction to improve utilization at the beginning and end of
 //   // the structure.  Recommended when CoeffRow is only 64 bits (or
-//   // less), so typical num_starts < 10k.
+//   // less), so typical num_starts < 10k. Although this is compatible
+//   // with kHomogeneous, the competing space vs. time priorities might
+//   // not be useful.
 //   static constexpr bool kUseSmash;
 //
 //   // When true, allows number of "starts" to be zero, for best support
@@ -201,7 +216,27 @@ class StandardHasher {
     // This is not so much "critical path" code because it can be done in
     // parallel (instruction level) with memory lookup.
     //
-    // We do not need exhaustive remixing for CoeffRow, but just enough that
+    // When we might have many entries squeezed into a single start,
+    // we need reasonably good remixing for CoeffRow.
+    if (TypesAndSettings::kUseSmash) {
+      // Reasonably good, reasonably fast, reasonably general.
+      // Probably not 1:1 but probably close enough.
+      Unsigned128 a = Multiply64to128(h, kAltCoeffFactor1);
+      Unsigned128 b = Multiply64to128(h, kAltCoeffFactor2);
+      auto cr = static_cast<CoeffRow>(b ^ (a << 64) ^ (a >> 64));
+
+      // Now ensure the value is non-zero
+      if (kFirstCoeffAlwaysOne) {
+        cr |= 1;
+      } else {
+        // Still have to ensure some bit is non-zero
+        cr |= (cr == 0) ? 1 : 0;
+      }
+      return cr;
+    }
+    // If not kUseSmash, we ensure we're not squeezing many entries into a
+    // single start, in part by ensuring num_starts > num_slots / 2. Thus,
+    // here we do not need good remixing for CoeffRow, but just enough that
     // (a) every bit is reasonably independent from Start.
     // (b) every Hash-length bit subsequence of the CoeffRow has full or
     // nearly full entropy from h.
@@ -220,25 +255,27 @@ class StandardHasher {
     // even with a (likely) different multiplier here.
     Hash a = h * kCoeffAndResultFactor;
 
-    // If that's big enough, we're done. If not, we have to expand it,
-    // maybe up to 4x size.
-    uint64_t b = a;
     static_assert(
         sizeof(Hash) == sizeof(uint64_t) || sizeof(Hash) == sizeof(uint32_t),
         "Supported sizes");
+    // If that's big enough, we're done. If not, we have to expand it,
+    // maybe up to 4x size.
+    uint64_t b;
     if (sizeof(Hash) < sizeof(uint64_t)) {
       // Almost-trivial hash expansion (OK - see above), favoring roughly
       // equal number of 1's and 0's in result
-      b = (b << 32) ^ b ^ kCoeffXor32;
+      b = (uint64_t{a} << 32) ^ (a ^ kCoeffXor32);
+    } else {
+      b = a;
     }
-    Unsigned128 c = b;
-    static_assert(sizeof(CoeffRow) == sizeof(uint64_t) ||
-                      sizeof(CoeffRow) == sizeof(Unsigned128),
-                  "Supported sizes");
+    static_assert(sizeof(CoeffRow) <= sizeof(Unsigned128), "Supported sizes");
+    Unsigned128 c;
     if (sizeof(uint64_t) < sizeof(CoeffRow)) {
       // Almost-trivial hash expansion (OK - see above), favoring roughly
       // equal number of 1's and 0's in result
-      c = (c << 64) ^ c ^ kCoeffXor64;
+      c = (Unsigned128{b} << 64) ^ (b ^ kCoeffXor64);
+    } else {
+      c = b;
     }
     auto cr = static_cast<CoeffRow>(c);
 
@@ -261,7 +298,7 @@ class StandardHasher {
     return static_cast<ResultRow>(~ResultRow{0});
   }
   inline ResultRow GetResultRowFromHash(Hash h) const {
-    if (TypesAndSettings::kIsFilter) {
+    if (TypesAndSettings::kIsFilter && !TypesAndSettings::kHomogeneous) {
       // This is not so much "critical path" code because it can be done in
       // parallel (instruction level) with memory lookup.
       //
@@ -272,10 +309,9 @@ class StandardHasher {
       // the same bits computed for CoeffRow, which are reasonably
       // independent from Start. (Inlining and common subexpression
       // elimination with GetCoeffRow should make this
-      // a single shared multiplication in generated code.)
-      //
-      // TODO: fix & test the kUseSmash case with very small num_starts
+      // a single shared multiplication in generated code when !kUseSmash.)
       Hash a = h * kCoeffAndResultFactor;
+
       // The bits here that are *most* independent of Start are the highest
       // order bits (as in Knuth multiplicative hash). To make those the
       // most preferred for use in the result row, we do a bswap here.
@@ -337,6 +373,8 @@ class StandardHasher {
   // large random prime
   static constexpr Hash kCoeffAndResultFactor =
       static_cast<Hash>(0xc28f82822b650bedULL);
+  static constexpr uint64_t kAltCoeffFactor1 = 0x876f170be4f1fcb9U;
+  static constexpr uint64_t kAltCoeffFactor2 = 0xf0433a4aecda4c5fU;
   // random-ish data
   static constexpr uint32_t kCoeffXor32 = 0xa6293635U;
   static constexpr uint64_t kCoeffXor64 = 0xc367844a6e52731dU;
@@ -447,15 +485,20 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
       assert(num_slots >= kCoeffBits);
       if (num_slots > num_slots_allocated_) {
         coeff_rows_.reset(new CoeffRow[num_slots]());
-        // Note: don't strictly have to zero-init result_rows,
-        // except possible information leakage ;)
-        result_rows_.reset(new ResultRow[num_slots]());
+        if (!TypesAndSettings::kHomogeneous) {
+          // Note: don't strictly have to zero-init result_rows,
+          // except possible information leakage, etc ;)
+          result_rows_.reset(new ResultRow[num_slots]());
+        }
         num_slots_allocated_ = num_slots;
       } else {
         for (Index i = 0; i < num_slots; ++i) {
           coeff_rows_[i] = 0;
-          // Note: don't strictly have to zero-init result_rows
-          result_rows_[i] = 0;
+          if (!TypesAndSettings::kHomogeneous) {
+            // Note: don't strictly have to zero-init result_rows,
+            // except possible information leakage, etc ;)
+            result_rows_[i] = 0;
+          }
         }
       }
       num_starts_ = num_slots - kCoeffBits + 1;
@@ -480,10 +523,32 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
   }
   inline void Prefetch(Index i) const {
     PREFETCH(&coeff_rows_[i], 1 /* rw */, 1 /* locality */);
-    PREFETCH(&result_rows_[i], 1 /* rw */, 1 /* locality */);
+    if (!TypesAndSettings::kHomogeneous) {
+      PREFETCH(&result_rows_[i], 1 /* rw */, 1 /* locality */);
+    }
   }
-  inline CoeffRow* CoeffRowPtr(Index i) { return &coeff_rows_[i]; }
-  inline ResultRow* ResultRowPtr(Index i) { return &result_rows_[i]; }
+  inline void LoadRow(Index i, CoeffRow* cr, ResultRow* rr,
+                      bool for_back_subst) const {
+    *cr = coeff_rows_[i];
+    if (TypesAndSettings::kHomogeneous) {
+      if (for_back_subst && *cr == 0) {
+        // Cheap pseudorandom data to fill unconstrained solution rows
+        *rr = static_cast<ResultRow>(i * 0x9E3779B185EBCA87ULL);
+      } else {
+        *rr = 0;
+      }
+    } else {
+      *rr = result_rows_[i];
+    }
+  }
+  inline void StoreRow(Index i, CoeffRow cr, ResultRow rr) {
+    coeff_rows_[i] = cr;
+    if (TypesAndSettings::kHomogeneous) {
+      assert(rr == 0);
+    } else {
+      result_rows_[i] = rr;
+    }
+  }
   inline Index GetNumStarts() const { return num_starts_; }
 
   // from concept BacktrackStorage, for when backtracking is used
@@ -554,6 +619,10 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
     return count;
   }
 
+  // Returns whether a row is "occupied" in the banding (non-zero
+  // coefficients stored). (Only recommended for debug/test)
+  bool IsOccupied(Index i) { return coeff_rows_[i] != 0; }
+
   // ********************************************************************
   // High-level API
 
@@ -606,54 +675,6 @@ class StandardBanding : public StandardHasher<TypesAndSettings> {
     } while (cur_ordinal_seed != starting_ordinal_seed);
     // Reached limit by circling around
     return false;
-  }
-
-  // ********************************************************************
-  // Static high-level API
-
-  // Based on data from FindOccupancyForSuccessRate in ribbon_test,
-  // returns a number of slots for a given number of entries to add
-  // that should have roughly 95% or better chance of successful
-  // construction per seed. Does NOT do rounding for InterleavedSoln;
-  // call RoundUpNumSlots for that.
-  //
-  // num_to_add should not exceed roughly 2/3rds of the maximum value
-  // of the Index type to avoid overflow.
-  static Index GetNumSlotsFor95PctSuccess(Index num_to_add) {
-    if (num_to_add == 0) {
-      return 0;
-    }
-    double factor = GetFactorFor95PctSuccess(num_to_add);
-    Index num_slots = static_cast<Index>(num_to_add * factor);
-    assert(num_slots >= num_to_add);
-    return num_slots;
-  }
-
-  // Based on data from FindOccupancyForSuccessRate in ribbon_test,
-  // given a number of entries to add, returns a space overhead factor
-  // (slots divided by num_to_add) that should have roughly 95% or better
-  // chance of successful construction per seed. Does NOT do rounding for
-  // InterleavedSoln; call RoundUpNumSlots for that.
-  //
-  // The reason that num_to_add is needed is that Ribbon filters of a
-  // particular CoeffRow size do not scale infinitely.
-  static double GetFactorFor95PctSuccess(Index num_to_add) {
-    double log2_num_to_add = std::log(num_to_add) * 1.442695;
-    if (kCoeffBits == 64) {
-      if (TypesAndSettings::kUseSmash) {
-        return 1.02 + std::max(log2_num_to_add - 8.5, 0.0) * 0.009;
-      } else {
-        return 1.05 + std::max(log2_num_to_add - 11.0, 0.0) * 0.009;
-      }
-    } else {
-      // Currently only support 64 and 128
-      assert(kCoeffBits == 128);
-      if (TypesAndSettings::kUseSmash) {
-        return 1.01 + std::max(log2_num_to_add - 10.0, 0.0) * 0.0042;
-      } else {
-        return 1.02 + std::max(log2_num_to_add - 12.0, 0.0) * 0.0042;
-      }
-    }
   }
 
  protected:
@@ -716,8 +737,8 @@ class InMemSimpleSolution {
   }
 
   template <typename PhsfQueryHasher>
-  ResultRow PhsfQuery(const Key& input, const PhsfQueryHasher& hasher) {
-    assert(!TypesAndSettings::kIsFilter);
+  ResultRow PhsfQuery(const Key& input, const PhsfQueryHasher& hasher) const {
+    // assert(!TypesAndSettings::kIsFilter);  Can be useful in testing
     if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
       // Unusual
       return 0;
@@ -728,7 +749,7 @@ class InMemSimpleSolution {
   }
 
   template <typename FilterQueryHasher>
-  bool FilterQuery(const Key& input, const FilterQueryHasher& hasher) {
+  bool FilterQuery(const Key& input, const FilterQueryHasher& hasher) const {
     assert(TypesAndSettings::kIsFilter);
     if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
       // Unusual. Zero starts presumes no keys added -> always false
@@ -740,7 +761,7 @@ class InMemSimpleSolution {
     }
   }
 
-  double ExpectedFpRate() {
+  double ExpectedFpRate() const {
     assert(TypesAndSettings::kIsFilter);
     if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
       // Unusual, but we don't have FPs if we always return false.
@@ -750,6 +771,20 @@ class InMemSimpleSolution {
 
     // Each result (solution) bit (column) cuts FP rate in half
     return std::pow(0.5, 8U * sizeof(ResultRow));
+  }
+
+  // ********************************************************************
+  // Static high-level API
+
+  // Round up to a number of slots supported by this structure. Note that
+  // this needs to be must be taken into account for the banding if this
+  // solution layout/storage is to be used.
+  static Index RoundUpNumSlots(Index num_slots) {
+    // Must be at least kCoeffBits for at least one start
+    // Or if not smash, even more because hashing not equipped
+    // for stacking up so many entries on a single start location
+    auto min_slots = kCoeffBits * (TypesAndSettings::kUseSmash ? 1 : 2);
+    return std::max(num_slots, static_cast<Index>(min_slots));
   }
 
  protected:
@@ -853,8 +888,8 @@ class SerializableInterleavedSolution {
   }
 
   template <typename PhsfQueryHasher>
-  ResultRow PhsfQuery(const Key& input, const PhsfQueryHasher& hasher) {
-    assert(!TypesAndSettings::kIsFilter);
+  ResultRow PhsfQuery(const Key& input, const PhsfQueryHasher& hasher) const {
+    // assert(!TypesAndSettings::kIsFilter);  Can be useful in testing
     if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
       // Unusual
       return 0;
@@ -873,7 +908,7 @@ class SerializableInterleavedSolution {
   }
 
   template <typename FilterQueryHasher>
-  bool FilterQuery(const Key& input, const FilterQueryHasher& hasher) {
+  bool FilterQuery(const Key& input, const FilterQueryHasher& hasher) const {
     assert(TypesAndSettings::kIsFilter);
     if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
       // Unusual. Zero starts presumes no keys added -> always false
@@ -893,7 +928,7 @@ class SerializableInterleavedSolution {
     }
   }
 
-  double ExpectedFpRate() {
+  double ExpectedFpRate() const {
     assert(TypesAndSettings::kIsFilter);
     if (TypesAndSettings::kAllowZeroStarts && num_starts_ == 0) {
       // Unusual. Zero starts presumes no keys added -> always false

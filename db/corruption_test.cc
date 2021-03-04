@@ -882,7 +882,7 @@ TEST_F(CorruptionTest, VerifyWholeTableChecksum) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   int count{0};
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::VerifySstFileChecksum:mismatch", [&](void* arg) {
+      "DBImpl::VerifyFullFileChecksum:mismatch", [&](void* arg) {
         auto* s = reinterpret_cast<Status*>(arg);
         ASSERT_NE(s, nullptr);
         ++count;

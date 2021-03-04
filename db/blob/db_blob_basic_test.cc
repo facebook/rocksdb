@@ -355,6 +355,59 @@ TEST_P(DBBlobBasicIOErrorTest, MultiGetBlobs_IOError) {
   ASSERT_TRUE(statuses[1].IsIOError());
 }
 
+namespace {
+
+class ReadBlobCompactionFilter : public CompactionFilter {
+ public:
+  ReadBlobCompactionFilter() = default;
+  const char* Name() const override {
+    return "rocksdb.compaction.filter.read.blob";
+  }
+  CompactionFilter::Decision FilterV2(
+      int /*level*/, const Slice& /*key*/, ValueType value_type,
+      const Slice& existing_value, std::string* new_value,
+      std::string* /*skip_until*/) const override {
+    if (value_type != CompactionFilter::ValueType::kValue) {
+      return CompactionFilter::Decision::kKeep;
+    }
+    assert(new_value);
+    new_value->assign(existing_value.data(), existing_value.size());
+    return CompactionFilter::Decision::kChangeValue;
+  }
+};
+
+}  // anonymous namespace
+
+TEST_P(DBBlobBasicIOErrorTest, CompactionFilterReadBlob_IOError) {
+  Options options = GetDefaultOptions();
+  options.env = fault_injection_env_.get();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.create_if_missing = true;
+  std::unique_ptr<CompactionFilter> compaction_filter_guard(
+      new ReadBlobCompactionFilter);
+  options.compaction_filter = compaction_filter_guard.get();
+
+  DestroyAndReopen(options);
+  constexpr char key[] = "foo";
+  constexpr char blob_value[] = "foo_blob_value";
+  ASSERT_OK(Put(key, blob_value));
+  ASSERT_OK(Flush());
+
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
+    fault_injection_env_->SetFilesystemActive(false,
+                                              Status::IOError(sync_point_));
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                                /*end=*/nullptr)
+                  .IsIOError());
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
