@@ -24,6 +24,7 @@ namespace ROCKSDB_NAMESPACE {
 class SystemClock;
 
 namespace port {
+
 class WinLogger : public ROCKSDB_NAMESPACE::Logger {
  public:
   WinLogger(uint64_t (*gettid)(), const std::shared_ptr<SystemClock>& clock,

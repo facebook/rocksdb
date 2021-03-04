@@ -8,8 +8,8 @@
 #include <vector>
 
 #include "db/dbformat.h"
+#include "env/composite_env_wrapper.h"
 #include "file/writable_file_writer.h"
-#include "rocksdb/file_system.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/sst_file_writer_collectors.h"

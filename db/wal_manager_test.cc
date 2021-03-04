@@ -5,21 +5,20 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db/wal_manager.h"
-
 #include <map>
 #include <string>
+
+#include "rocksdb/cache.h"
+#include "rocksdb/write_batch.h"
+#include "rocksdb/write_buffer_manager.h"
 
 #include "db/column_family.h"
 #include "db/db_impl/db_impl.h"
 #include "db/log_writer.h"
 #include "db/version_set.h"
+#include "db/wal_manager.h"
 #include "env/mock_env.h"
 #include "file/writable_file_writer.h"
-#include "rocksdb/cache.h"
-#include "rocksdb/file_system.h"
-#include "rocksdb/write_batch.h"
-#include "rocksdb/write_buffer_manager.h"
 #include "table/mock_table.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
@@ -82,10 +81,10 @@ class WalManagerTest : public testing::Test {
   void RollTheLog(bool /*archived*/) {
     current_log_number_++;
     std::string fname = ArchivedLogFileName(dbname_, current_log_number_);
-    const auto& fs = env_->GetFileSystem();
-    std::unique_ptr<WritableFileWriter> file_writer;
-    ASSERT_OK(WritableFileWriter::Create(fs, fname, env_options_, &file_writer,
-                                         nullptr));
+    std::unique_ptr<WritableFile> file;
+    ASSERT_OK(env_->NewWritableFile(fname, &file, env_options_));
+    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+        NewLegacyWritableFileWrapper(std::move(file)), fname, env_options_));
     current_log_writer_.reset(new log::Writer(std::move(file_writer), 0, false));
   }
 
@@ -124,9 +123,8 @@ class WalManagerTest : public testing::Test {
 TEST_F(WalManagerTest, ReadFirstRecordCache) {
   Init();
   std::string path = dbname_ + "/000001.log";
-  std::unique_ptr<FSWritableFile> file;
-  ASSERT_OK(env_->GetFileSystem()->NewWritableFile(path, FileOptions(), &file,
-                                                   nullptr));
+  std::unique_ptr<WritableFile> file;
+  ASSERT_OK(env_->NewWritableFile(path, &file, EnvOptions()));
 
   SequenceNumber s;
   ASSERT_OK(wal_manager_->TEST_ReadFirstLine(path, 1 /* number */, &s));
@@ -136,8 +134,8 @@ TEST_F(WalManagerTest, ReadFirstRecordCache) {
       wal_manager_->TEST_ReadFirstRecord(kAliveLogFile, 1 /* number */, &s));
   ASSERT_EQ(s, 0U);
 
-  std::unique_ptr<WritableFileWriter> file_writer(
-      new WritableFileWriter(std::move(file), path, FileOptions()));
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      NewLegacyWritableFileWrapper(std::move(file)), path, EnvOptions()));
   log::Writer writer(std::move(file_writer), 1,
                      db_options_.recycle_log_file_num > 0);
   WriteBatch batch;
