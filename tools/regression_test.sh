@@ -158,7 +158,7 @@ function init_arguments {
 
   current_time=$(date +"%F-%H:%M:%S")
   RESULT_PATH=${RESULT_PATH:-"$1/results/$current_time"}
-  COMMIT_ID=`hg id -i`
+  COMMIT_ID=`git log | head -n1 | cut -c 8-`
   SUMMARY_FILE="$RESULT_PATH/SUMMARY.csv"
 
   DB_PATH=${3:-"$1/db"}
@@ -222,7 +222,9 @@ function run_db_bench {
   db_bench_cmd="("'\$(which time)'" -p $DB_BENCH_DIR/db_bench \
       --benchmarks=$1 --db=$DB_PATH --wal_dir=$WAL_PATH \
       --use_existing_db=$USE_EXISTING_DB \
+      --perf_level=3 \
       --disable_auto_compactions \
+      --perf_level=3 \
       --threads=$threads \
       --num=$NUM_KEYS \
       --reads=$ops \
