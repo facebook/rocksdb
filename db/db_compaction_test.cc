@@ -5948,6 +5948,7 @@ TEST_F(DBCompactionTest, CompactionWithBlob) {
 
   const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
   ASSERT_GE(compaction_stats.size(), 2);
+  ASSERT_EQ(compaction_stats[1].bytes_read_blob, 0);
   ASSERT_EQ(compaction_stats[1].bytes_written, table_file->fd.GetFileSize());
   ASSERT_EQ(compaction_stats[1].bytes_written_blob,
             blob_file->GetTotalBlobBytes());
@@ -6039,12 +6040,14 @@ TEST_P(DBCompactionTestBlobError, CompactionError) {
   ASSERT_GE(compaction_stats.size(), 2);
 
   if (sync_point_ == "BlobFileBuilder::WriteBlobToFile:AddRecord") {
+    ASSERT_EQ(compaction_stats[1].bytes_read_blob, 0);
     ASSERT_EQ(compaction_stats[1].bytes_written, 0);
     ASSERT_EQ(compaction_stats[1].bytes_written_blob, 0);
     ASSERT_EQ(compaction_stats[1].num_output_files, 0);
     ASSERT_EQ(compaction_stats[1].num_output_files_blob, 0);
   } else {
     // SST file writing succeeded; blob file writing failed (during Finish)
+    ASSERT_EQ(compaction_stats[1].bytes_read_blob, 0);
     ASSERT_GT(compaction_stats[1].bytes_written, 0);
     ASSERT_EQ(compaction_stats[1].bytes_written_blob, 0);
     ASSERT_EQ(compaction_stats[1].num_output_files, 1);
@@ -6132,6 +6135,36 @@ TEST_P(DBCompactionTestBlobGC, CompactionWithBlobGC) {
   // or above the cutoff should be still there
   for (size_t i = cutoff_index; i < original_blob_files.size(); ++i) {
     ASSERT_EQ(new_blob_files[i - cutoff_index], original_blob_files[i]);
+  }
+
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
+  assert(versions->GetColumnFamilySet());
+
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  const InternalStats* const internal_stats = cfd->internal_stats();
+  assert(internal_stats);
+
+  const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
+  ASSERT_GE(compaction_stats.size(), 2);
+
+  if (blob_gc_age_cutoff_ > 0.0) {
+    ASSERT_GT(compaction_stats[1].bytes_read_blob, 0);
+
+    if (updated_enable_blob_files_) {
+      // GC relocated some blobs to new blob files
+      ASSERT_GT(compaction_stats[1].bytes_written_blob, 0);
+      ASSERT_EQ(compaction_stats[1].bytes_read_blob,
+                compaction_stats[1].bytes_written_blob);
+    } else {
+      // GC moved some blobs back to the LSM, no new blob files
+      ASSERT_EQ(compaction_stats[1].bytes_written_blob, 0);
+    }
+  } else {
+    ASSERT_EQ(compaction_stats[1].bytes_read_blob, 0);
+    ASSERT_EQ(compaction_stats[1].bytes_written_blob, 0);
   }
 }
 
