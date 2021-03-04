@@ -1214,8 +1214,7 @@ Status DBImpl::CompactFilesImpl(
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJobStats compaction_job_stats;
   CompactionJob compaction_job(
-      job_context->job_id, c.get(), compaction_service_.get(),
-      preserve_deletes_seqnum_.load(), log_buffer,
+      job_context->job_id, c.get(), compaction_service_.get(), log_buffer,
       GetDataDir(c->column_family_data(), c->output_path_id()),
       GetDataDir(c->column_family_data(), 0), snapshot_seqs,
       earliest_write_conflict_snapshot, snapshot_checker,
@@ -3066,8 +3065,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                        &earliest_write_conflict_snapshot, &snapshot_checker);
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
-        job_context->job_id, c.get(), compaction_service_.get(),
-        preserve_deletes_seqnum_.load(), log_buffer,
+        job_context->job_id, c.get(), compaction_service_.get(), log_buffer,
         GetDataDir(c->column_family_data(), c->output_path_id()),
         GetDataDir(c->column_family_data(), 0), snapshot_seqs,
         earliest_write_conflict_snapshot, snapshot_checker,

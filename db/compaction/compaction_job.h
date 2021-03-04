@@ -66,7 +66,6 @@ class CompactionJob {
  public:
   CompactionJob(int job_id, Compaction* compaction,
                 LocalCompactionService* service,
-                const SequenceNumber preserve_deletes_seqnum,
                 LogBuffer* log_buffer, FSDirectory* output_directory,
                 FSDirectory* blob_output_directory,
                 std::vector<SequenceNumber> existing_snapshots,

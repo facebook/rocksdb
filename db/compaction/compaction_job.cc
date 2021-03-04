@@ -358,8 +358,8 @@ std::vector<Status> LocalCompactionService::DownloadFiles(
 
 CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, LocalCompactionService* service,
-    const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
-    FSDirectory* output_directory, FSDirectory* blob_output_directory,
+    LogBuffer* log_buffer, FSDirectory* output_directory,
+    FSDirectory* blob_output_directory,
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     const SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
@@ -379,7 +379,7 @@ CompactionJob::CompactionJob(
       file_options_for_read_(
           fs_->OptimizeForCompactionTableRead(file_options_, db_options_)),
       manual_compaction_paused_(manual_compaction_paused),
-      preserve_deletes_seqnum_(preserve_deletes_seqnum),
+      preserve_deletes_seqnum_(service_->preserve_deletes_seqnum_->load()),
       log_buffer_(log_buffer),
       output_directory_(output_directory),
       blob_output_directory_(blob_output_directory),
@@ -1592,7 +1592,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     fname = "(nil)";
   }
   EventHelpers::LogAndNotifyTableFileCreationFinished(
-      service_->event_logger_, cfd->ioptions()->listeners, service_->dbname_,
+      service_->event_logger_, db_options_.listeners, service_->dbname_,
       cfd->GetName(), fname, job_id_, output_fd, oldest_blob_file_number, tp,
       TableFileCreationReason::kCompaction, s, file_checksum,
       file_checksum_func_name);
@@ -1742,7 +1742,7 @@ Status CompactionJob::OpenCompactionOutputFile(
         job_id_, file_number, s.ToString().c_str());
     LogFlush(db_options_.info_log);
     EventHelpers::LogAndNotifyTableFileCreationFinished(
-        service_->event_logger_, cfd->ioptions()->listeners, service_->dbname_,
+        service_->event_logger_, db_options_.listeners, service_->dbname_,
         cfd->GetName(), fname, job_id_, FileDescriptor(),
         kInvalidBlobFileNumber, TableProperties(),
         TableFileCreationReason::kCompaction, s, kUnknownFileChecksum,
@@ -1786,11 +1786,9 @@ Status CompactionJob::OpenCompactionOutputFile(
   FileTypeSet tmp_set = db_options_.checksum_handoff_file_types;
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
-  const auto& listeners =
-      sub_compact->compaction->immutable_cf_options()->listeners;
   sub_compact->outfile.reset(new WritableFileWriter(
       std::move(writable_file), fname, file_options_, clock_,
-      service_->io_tracer_, db_options_.statistics.get(), listeners,
+      service_->io_tracer_, db_options_.statistics.get(), db_options_.listeners,
       db_options_.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile)));
 
