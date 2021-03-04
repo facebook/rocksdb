@@ -42,7 +42,7 @@ class DBBlobCompactionTest : public DBTestBase {
     return result;
   }
 
-  const InternalStats* GetInternalStats() {
+  const std::vector<InternalStats::CompactionStats>& GetCompactionStats() {
     VersionSet* const versions = dbfull()->TEST_GetVersionSet();
     assert(versions);
     assert(versions->GetColumnFamilySet());
@@ -50,7 +50,10 @@ class DBBlobCompactionTest : public DBTestBase {
     ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
     assert(cfd);
 
-    return cfd->internal_stats();
+    const InternalStats* const internal_stats = cfd->internal_stats();
+    assert(internal_stats);
+
+    return internal_stats->TEST_GetCompactionStats();
   }
 };
 
@@ -226,10 +229,7 @@ TEST_F(DBBlobCompactionTest, FilterByKeyLength) {
   ASSERT_OK(db_->Get(ReadOptions(), long_key, &value));
   ASSERT_EQ("value", value);
 
-  const InternalStats* internal_stats = GetInternalStats();
-  assert(internal_stats);
-
-  const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
+  const auto& compaction_stats = GetCompactionStats();
   ASSERT_GE(compaction_stats.size(), 2);
 
   // Filter decides between kKeep and kRemove solely based on key;
@@ -263,10 +263,7 @@ TEST_F(DBBlobCompactionTest, BlindWriteFilter) {
     ASSERT_EQ(new_blob_value, Get(key));
   }
 
-  const InternalStats* internal_stats = GetInternalStats();
-  assert(internal_stats);
-
-  const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
+  const auto& compaction_stats = GetCompactionStats();
   ASSERT_GE(compaction_stats.size(), 2);
 
   // Filter unconditionally changes value in FilterBlobByKey;
@@ -348,10 +345,7 @@ TEST_F(DBBlobCompactionTest, CompactionFilter) {
     ASSERT_EQ(kv.second + std::string(padding), Get(kv.first));
   }
 
-  const InternalStats* internal_stats = GetInternalStats();
-  assert(internal_stats);
-
-  const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
+  const auto& compaction_stats = GetCompactionStats();
   ASSERT_GE(compaction_stats.size(), 2);
 
   // Filter changes the value using the previous value in FilterV2;
@@ -401,10 +395,7 @@ TEST_F(DBBlobCompactionTest, CompactionFilterReadBlobAndKeep) {
                               /*end=*/nullptr));
   ASSERT_EQ(blob_files, GetBlobFileNumbers());
 
-  const InternalStats* internal_stats = GetInternalStats();
-  assert(internal_stats);
-
-  const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
+  const auto& compaction_stats = GetCompactionStats();
   ASSERT_GE(compaction_stats.size(), 2);
 
   // Filter decides to keep the existing value in FilterV2;
