@@ -24,7 +24,6 @@
 #include "db/db_iter.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
-#include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
@@ -408,7 +407,7 @@ class BlobDBImpl : public BlobDB {
   BlobDBOptions bdb_options_;
   DBOptions db_options_;
   ColumnFamilyOptions cf_options_;
-  FileOptions file_options_;
+  EnvOptions env_options_;
 
   // Raw pointer of statistic. db_options_ has a std::shared_ptr to hold
   // ownership.

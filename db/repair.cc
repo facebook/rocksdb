@@ -71,6 +71,7 @@
 #include "db/table_cache.h"
 #include "db/version_edit.h"
 #include "db/write_batch_internal.h"
+#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
@@ -357,14 +358,14 @@ class Repairer {
 
     // Open the log file
     std::string logname = LogFileName(db_options_.wal_dir, log);
-    const auto& fs = env_->GetFileSystem();
-    std::unique_ptr<SequentialFileReader> lfile_reader;
-    Status status = SequentialFileReader::Create(
-        fs, logname, fs->OptimizeForLogRead(env_options_), &lfile_reader,
-        nullptr);
+    std::unique_ptr<SequentialFile> lfile;
+    Status status = env_->NewSequentialFile(
+        logname, &lfile, env_->OptimizeForLogRead(env_options_));
     if (!status.ok()) {
       return status;
     }
+    std::unique_ptr<SequentialFileReader> lfile_reader(new SequentialFileReader(
+        NewLegacySequentialFileWrapper(lfile), logname));
 
     // Create the log reader.
     LogReporter reporter;

@@ -33,15 +33,15 @@ Status NewWritableCacheFile(Env* const env, const std::string& filepath,
   return s;
 }
 
-Status NewRandomAccessCacheFile(const std::shared_ptr<FileSystem>& fs,
-                                const std::string& filepath,
-                                std::unique_ptr<FSRandomAccessFile>* file,
+Status NewRandomAccessCacheFile(Env* const env, const std::string& filepath,
+                                std::unique_ptr<RandomAccessFile>* file,
                                 const bool use_direct_reads = true) {
-  assert(fs.get());
+  assert(env);
 
-  FileOptions opt;
+  EnvOptions opt;
   opt.use_direct_reads = use_direct_reads;
-  return fs->NewRandomAccessFile(filepath, opt, file, nullptr);
+  Status s = env->NewRandomAccessFile(filepath, file, opt);
+  return s;
 }
 
 //
@@ -210,18 +210,17 @@ bool RandomAccessCacheFile::OpenImpl(const bool enable_direct_reads) {
   rwlock_.AssertHeld();
 
   ROCKS_LOG_DEBUG(log_, "Opening cache file %s", Path().c_str());
-  assert(env_);
 
-  std::unique_ptr<FSRandomAccessFile> file;
-  Status status = NewRandomAccessCacheFile(env_->GetFileSystem(), Path(), &file,
-                                           enable_direct_reads);
+  std::unique_ptr<RandomAccessFile> file;
+  Status status =
+      NewRandomAccessCacheFile(env_, Path(), &file, enable_direct_reads);
   if (!status.ok()) {
     Error(log_, "Error opening random access file %s. %s", Path().c_str(),
           status.ToString().c_str());
     return false;
   }
-  freader_.reset(new RandomAccessFileReader(std::move(file), Path(),
-                                            env_->GetSystemClock()));
+  freader_.reset(new RandomAccessFileReader(
+      NewLegacyRandomAccessFileWrapper(file), Path(), env_->GetSystemClock()));
 
   return true;
 }

@@ -123,7 +123,6 @@ class PosixDynamicLibrary : public DynamicLibrary {
   void* handle_;
 };
 #endif  // !ROCKSDB_NO_DYNAMIC_EXTENSION
-
 class PosixClock : public SystemClock {
  public:
   const char* Name() const override { return "PosixClock"; }
