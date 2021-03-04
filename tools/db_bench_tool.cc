@@ -3265,14 +3265,13 @@ class Benchmark {
       } else if (name == "levelstats") {
         PrintStats("rocksdb.levelstats");
       } else if (name == "memstats") {
-        std::vector<std::string> keys {
-          "rocksdb.num-immutable-mem-table",
-          "rocksdb.cur-size-active-mem-table",
-          "rocksdb.cur-size-all-mem-tables",
-          "rocksdb.size-all-mem-tables",
-          "rocksdb.num-entries-active-mem-table",
-          "rocksdb.num-entries-imm-mem-tables" };
-          PrintStats(keys);
+        std::vector<std::string> keys{"rocksdb.num-immutable-mem-table",
+                                      "rocksdb.cur-size-active-mem-table",
+                                      "rocksdb.cur-size-all-mem-tables",
+                                      "rocksdb.size-all-mem-tables",
+                                      "rocksdb.num-entries-active-mem-table",
+                                      "rocksdb.num-entries-imm-mem-tables"};
+        PrintStats(keys);
       } else if (name == "sstables") {
         PrintStats("rocksdb.sstables");
       } else if (name == "stats_history") {
@@ -7292,12 +7291,13 @@ class Benchmark {
     // is done because a thread that finishes a compaction job should get a
     // chance to pickup a new compaction job.
 
-    std::vector<std::string> keys = { DB::Properties::kMemTableFlushPending,
-                                      DB::Properties::kNumRunningFlushes,
-                                      DB::Properties::kCompactionPending,
-                                      DB::Properties::kNumRunningCompactions };
+    std::vector<std::string> keys = {DB::Properties::kMemTableFlushPending,
+                                     DB::Properties::kNumRunningFlushes,
+                                     DB::Properties::kCompactionPending,
+                                     DB::Properties::kNumRunningCompactions};
 
-    fprintf(stdout, "waitforcompaction(%s): started\n", db.db->GetName().c_str());
+    fprintf(stdout, "waitforcompaction(%s): started\n",
+            db.db->GetName().c_str());
 
     while (true) {
       bool retry = false;
@@ -7306,10 +7306,11 @@ class Benchmark {
         uint64_t v;
         if (!db.db->GetIntProperty(k, &v)) {
           fprintf(stderr, "waitforcompaction(%s): GetIntProperty(%s) failed\n",
-                 db.db->GetName().c_str(), k.c_str());
+                  db.db->GetName().c_str(), k.c_str());
           exit(1);
         } else if (v > 0) {
-          fprintf(stdout, "waitforcompaction(%s): active(%s). Sleep 10 seconds\n",
+          fprintf(stdout,
+                  "waitforcompaction(%s): active(%s). Sleep 10 seconds\n",
                   db.db->GetName().c_str(), k.c_str());
           sleep(10);
           retry = true;
@@ -7355,8 +7356,7 @@ class Benchmark {
       real_from_level = std::numeric_limits<int>::max();
 
       for (auto& f : files) {
-        if (f.level > 0 && f.level < real_from_level)
-          real_from_level = f.level;
+        if (f.level > 0 && f.level < real_from_level) real_from_level = f.level;
       }
 
       if (real_from_level == std::numeric_limits<int>::max()) {
@@ -7383,7 +7383,8 @@ class Benchmark {
       return true;
     } else if (next_level == std::numeric_limits<int>::max()) {
       // There is no data beyond real_from_level. So we are done.
-      fprintf(stdout, "compact%d found no data beyond L%d\n", from_level, real_from_level);
+      fprintf(stdout, "compact%d found no data beyond L%d\n", from_level,
+              real_from_level);
       return true;
     }
 
@@ -7391,36 +7392,34 @@ class Benchmark {
             from_level, static_cast<int>(files_to_compact.size()),
             real_from_level, next_level);
 
-    rocksdb::CompactionOptions options;
+    ROCKSDB_NAMESPACE::CompactionOptions options;
     // Lets RocksDB use the configured compression for this level
-    options.compression = rocksdb::kDisableCompressionOption;
+    options.compression = ROCKSDB_NAMESPACE::kDisableCompressionOption;
 
-    rocksdb::ColumnFamilyDescriptor cfDesc;
+    ROCKSDB_NAMESPACE::ColumnFamilyDescriptor cfDesc;
     db_with_cfh.db->DefaultColumnFamily()->GetDescriptor(&cfDesc);
     options.output_file_size_limit = cfDesc.options.target_file_size_base;
 
-    Status status = db_with_cfh.db->CompactFiles(options, files_to_compact,
-                                                 next_level);
+    Status status =
+        db_with_cfh.db->CompactFiles(options, files_to_compact, next_level);
     if (!status.ok()) {
-        // This can fail for valid reasons including the operation was aborted
-        // or a filename is invalid because background compaction removed it.
-        // Having read the current cases for which an error is raised I prefer
-        // not to figure out whether an exception should be thrown here.
-        fprintf(stderr, "compact%d CompactFiles failed: %s\n", from_level,
-                status.ToString().c_str());
-        return false;
+      // This can fail for valid reasons including the operation was aborted
+      // or a filename is invalid because background compaction removed it.
+      // Having read the current cases for which an error is raised I prefer
+      // not to figure out whether an exception should be thrown here.
+      fprintf(stderr, "compact%d CompactFiles failed: %s\n", from_level,
+              status.ToString().c_str());
+      return false;
     }
     return true;
   }
 
   void CompactLevel(int from_level) {
     if (db_.db != nullptr) {
-      while (!CompactLevelHelper(db_, from_level))
-        WaitForCompaction();
+      while (!CompactLevelHelper(db_, from_level)) WaitForCompaction();
     }
     for (auto& db_with_cfh : multi_dbs_) {
-      while (!CompactLevelHelper(db_with_cfh, from_level))
-        WaitForCompaction();
+      while (!CompactLevelHelper(db_with_cfh, from_level)) WaitForCompaction();
     }
   }
 

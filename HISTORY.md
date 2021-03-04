@@ -9,6 +9,7 @@
 
 ### New Features
 * Support compaction filters for the new implementation of BlobDB. Add `FilterBlobByKey()` to `CompactionFilter`. Subclasses can override this method so that compaction filters can determine whether the actual blob value has to be read during compaction. Use a new `kUndetermined` in `CompactionFilter::Decision` to indicated that further action is necessary for compaction filter to make a decision.
+* Add compact0, compact1, flush and waitforcompaction as values that db_bench accepts in --benchmarks
 
 
 ## 6.18.0 (02/19/2021)
