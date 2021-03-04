@@ -358,27 +358,24 @@ std::vector<Status> LocalCompactionService::DownloadFiles(
 
 CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, LocalCompactionService* service,
-    const ImmutableDBOptions& db_options, const FileOptions& file_options,
     const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
     FSDirectory* output_directory, FSDirectory* blob_output_directory,
-    Statistics* stats, std::vector<SequenceNumber> existing_snapshots,
+    std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     const SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
     bool measure_io_stats, CompactionJobStats* compaction_job_stats,
-    Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-    const std::atomic<int>* manual_compaction_paused,
+    Env::Priority thread_pri, const std::atomic<int>* manual_compaction_paused,
     std::string full_history_ts_low)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_job_stats_(compaction_job_stats),
       compaction_stats_(compaction->compaction_reason(), 1),
       service_(service),
-      db_options_(db_options),
-      file_options_(file_options),
-      env_(db_options.env),
+      db_options_(service_->db_options_),
+      file_options_(*(service_->file_options_)),
+      env_(db_options_.env),
       clock_(env_->GetSystemClock()),
-      io_tracer_(io_tracer),
-      fs_(db_options.fs, io_tracer),
+      fs_(db_options_.fs, service_->io_tracer_),
       file_options_for_read_(
           fs_->OptimizeForCompactionTableRead(file_options_, db_options_)),
       manual_compaction_paused_(manual_compaction_paused),
@@ -386,7 +383,7 @@ CompactionJob::CompactionJob(
       log_buffer_(log_buffer),
       output_directory_(output_directory),
       blob_output_directory_(blob_output_directory),
-      stats_(stats),
+      stats_(service_->stats_),
       existing_snapshots_(std::move(existing_snapshots)),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
@@ -1792,8 +1789,8 @@ Status CompactionJob::OpenCompactionOutputFile(
   const auto& listeners =
       sub_compact->compaction->immutable_cf_options()->listeners;
   sub_compact->outfile.reset(new WritableFileWriter(
-      std::move(writable_file), fname, file_options_, clock_, io_tracer_,
-      db_options_.statistics.get(), listeners,
+      std::move(writable_file), fname, file_options_, clock_,
+      service_->io_tracer_, db_options_.statistics.get(), listeners,
       db_options_.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile)));
 

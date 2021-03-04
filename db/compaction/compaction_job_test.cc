@@ -350,11 +350,10 @@ class CompactionJobTestBase : public testing::Test {
         &preserve_deletes_seqnum_, versions_.get(), nullptr, &mutex_,
         &error_handler_, table_cache_, &event_logger, nullptr /* IOTracer */);
     CompactionJob compaction_job(
-        0, &compaction, &service, db_options_, file_options_,
-        preserve_deletes_seqnum_.load(), &log_buffer, nullptr, nullptr, nullptr,
-        snapshots, earliest_write_conflict_snapshot, snapshot_checker, false,
-        false, &compaction_job_stats_, Env::Priority::USER,
-        nullptr /* IOTracer */,
+        0, &compaction, &service, preserve_deletes_seqnum_.load(), &log_buffer,
+        nullptr, nullptr, snapshots, earliest_write_conflict_snapshot,
+        snapshot_checker, false, false, &compaction_job_stats_,
+        Env::Priority::USER,
         /*manual_compaction_paused=*/nullptr, full_history_ts_low_);
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 

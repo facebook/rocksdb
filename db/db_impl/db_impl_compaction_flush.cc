@@ -1215,14 +1215,13 @@ Status DBImpl::CompactFilesImpl(
   CompactionJobStats compaction_job_stats;
   CompactionJob compaction_job(
       job_context->job_id, c.get(), compaction_service_.get(),
-      immutable_db_options_, file_options_for_compaction_,
       preserve_deletes_seqnum_.load(), log_buffer,
       GetDataDir(c->column_family_data(), c->output_path_id()),
-      GetDataDir(c->column_family_data(), 0), stats_, snapshot_seqs,
+      GetDataDir(c->column_family_data(), 0), snapshot_seqs,
       earliest_write_conflict_snapshot, snapshot_checker,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, &compaction_job_stats,
-      Env::Priority::USER, io_tracer_, &manual_compaction_paused_,
+      Env::Priority::USER, &manual_compaction_paused_,
       c->column_family_data()->GetFullHistoryTsLow());
 
   // Creating a compaction influences the compaction score because the score
@@ -3068,15 +3067,13 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), compaction_service_.get(),
-        immutable_db_options_, file_options_for_compaction_,
         preserve_deletes_seqnum_.load(), log_buffer,
         GetDataDir(c->column_family_data(), c->output_path_id()),
-        GetDataDir(c->column_family_data(), 0), stats_, snapshot_seqs,
+        GetDataDir(c->column_family_data(), 0), snapshot_seqs,
         earliest_write_conflict_snapshot, snapshot_checker,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->report_bg_io_stats, &compaction_job_stats,
-        thread_pri, io_tracer_,
-        is_manual ? &manual_compaction_paused_ : nullptr,
+        thread_pri, is_manual ? &manual_compaction_paused_ : nullptr,
         c->column_family_data()->GetFullHistoryTsLow());
     compaction_job.Prepare();
 

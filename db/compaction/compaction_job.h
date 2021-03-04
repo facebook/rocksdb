@@ -64,18 +64,19 @@ class VersionSet;
 // if needed.
 class CompactionJob {
  public:
-  CompactionJob(
-      int job_id, Compaction* compaction, LocalCompactionService* service,
-      const ImmutableDBOptions& db_options, const FileOptions& file_options,
-      const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
-      FSDirectory* output_directory, FSDirectory* blob_output_directory,
-      Statistics* stats, std::vector<SequenceNumber> existing_snapshots,
-      SequenceNumber earliest_write_conflict_snapshot,
-      const SnapshotChecker* snapshot_checker, bool paranoid_file_checks,
-      bool measure_io_stats, CompactionJobStats* compaction_job_stats,
-      Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
-      const std::atomic<int>* manual_compaction_paused = nullptr,
-      std::string full_history_ts_low = "");
+  CompactionJob(int job_id, Compaction* compaction,
+                LocalCompactionService* service,
+                const SequenceNumber preserve_deletes_seqnum,
+                LogBuffer* log_buffer, FSDirectory* output_directory,
+                FSDirectory* blob_output_directory,
+                std::vector<SequenceNumber> existing_snapshots,
+                SequenceNumber earliest_write_conflict_snapshot,
+                const SnapshotChecker* snapshot_checker,
+                bool paranoid_file_checks, bool measure_io_stats,
+                CompactionJobStats* compaction_job_stats,
+                Env::Priority thread_pri,
+                const std::atomic<int>* manual_compaction_paused = nullptr,
+                std::string full_history_ts_low = "");
 
   ~CompactionJob();
 
@@ -154,7 +155,6 @@ class CompactionJob {
 
   Env* env_;
   std::shared_ptr<SystemClock> clock_;
-  std::shared_ptr<IOTracer> io_tracer_;
   FileSystemPtr fs_;
   // env_option optimized for compaction table reads
   FileOptions file_options_for_read_;
