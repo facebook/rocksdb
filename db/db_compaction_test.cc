@@ -5946,13 +5946,13 @@ TEST_F(DBCompactionTest, CompactionWithBlob) {
   const InternalStats* const internal_stats = cfd->internal_stats();
   ASSERT_NE(internal_stats, nullptr);
 
-  const uint64_t expected_bytes =
-      table_file->fd.GetFileSize() + blob_file->GetTotalBlobBytes();
-
   const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
   ASSERT_GE(compaction_stats.size(), 2);
-  ASSERT_EQ(compaction_stats[1].bytes_written, expected_bytes);
-  ASSERT_EQ(compaction_stats[1].num_output_files, 2);
+  ASSERT_EQ(compaction_stats[1].bytes_written, table_file->fd.GetFileSize());
+  ASSERT_EQ(compaction_stats[1].bytes_written_blob,
+            blob_file->GetTotalBlobBytes());
+  ASSERT_EQ(compaction_stats[1].num_output_files, 1);
+  ASSERT_EQ(compaction_stats[1].num_output_files_blob, 1);
 }
 
 class DBCompactionTestBlobError
@@ -6040,11 +6040,15 @@ TEST_P(DBCompactionTestBlobError, CompactionError) {
 
   if (sync_point_ == "BlobFileBuilder::WriteBlobToFile:AddRecord") {
     ASSERT_EQ(compaction_stats[1].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[1].bytes_written_blob, 0);
     ASSERT_EQ(compaction_stats[1].num_output_files, 0);
+    ASSERT_EQ(compaction_stats[1].num_output_files_blob, 0);
   } else {
     // SST file writing succeeded; blob file writing failed (during Finish)
     ASSERT_GT(compaction_stats[1].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[1].bytes_written_blob, 0);
     ASSERT_EQ(compaction_stats[1].num_output_files, 1);
+    ASSERT_EQ(compaction_stats[1].num_output_files_blob, 0);
   }
 }
 

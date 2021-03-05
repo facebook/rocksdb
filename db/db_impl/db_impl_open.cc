@@ -1408,14 +1408,15 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
   const auto& blobs = edit->GetBlobFileAdditions();
   for (const auto& blob : blobs) {
-    stats.bytes_written += blob.GetTotalBlobBytes();
+    stats.bytes_written_blob += blob.GetTotalBlobBytes();
   }
 
-  stats.num_output_files += static_cast<int>(blobs.size());
+  stats.num_output_files_blob = static_cast<int>(blobs.size());
 
   cfd->internal_stats()->AddCompactionStats(level, Env::Priority::USER, stats);
-  cfd->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
-                                    stats.bytes_written);
+  cfd->internal_stats()->AddCFStats(
+      InternalStats::BYTES_FLUSHED,
+      stats.bytes_written + stats.bytes_written_blob);
   RecordTick(stats_, COMPACT_WRITE_BYTES, meta.fd.GetFileSize());
   return s;
 }

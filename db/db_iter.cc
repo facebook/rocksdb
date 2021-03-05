@@ -681,6 +681,7 @@ bool DBIter::ReverseToForward() {
     last_key.SetInternalKey(ParsedInternalKey(
         saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
     iter_.Seek(last_key.GetInternalKey());
+    RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
   }
 
   direction_ = kForward;
@@ -731,6 +732,7 @@ bool DBIter::ReverseToBackward() {
         iter_.SeekToLast();
       }
     }
+    RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
   }
 
   direction_ = kReverse;
