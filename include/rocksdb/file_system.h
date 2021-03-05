@@ -563,8 +563,9 @@ class FSSequentialFile {
   // "scratch[0..n-1]" must be live when "*result" is used.
   // If an error was encountered, returns a non-OK status.
   //
-  // After call, result->size() < n iff end of file has been reached.
-  // In this case, Read might fail if called again.
+  // After call, result->size() < n only if end of file has been
+  // reached (or non-OK status). Read might fail if called again after
+  // first result->size() < n.
   //
   // REQUIRES: External synchronization
   virtual IOStatus Read(size_t n, const IOOptions& options, Slice* result,
@@ -643,8 +644,9 @@ class FSRandomAccessFile {
   // "*result" is used.  If an error was encountered, returns a non-OK
   // status.
   //
-  // After call, result->size() < n iff end of file has been reached.
-  // In this case, Read might fail if called again.
+  // After call, result->size() < n only if end of file has been
+  // reached (or non-OK status). Read might fail if called again after
+  // first result->size() < n.
   //
   // Safe for concurrent use by multiple threads.
   // If Direct I/O enabled, offset, n, and scratch should be aligned properly.
@@ -983,8 +985,9 @@ class FSRandomRWFile {
   // Read up to `n` bytes starting from offset `offset` and store them in
   // result, provided `scratch` size should be at least `n`.
   //
-  // After call, result->size() < n iff end of file has been reached.
-  // In this case, Read might fail if called again.
+  // After call, result->size() < n only if end of file has been
+  // reached (or non-OK status). Read might fail if called again after
+  // first result->size() < n.
   //
   // Returns Status::OK() on success.
   virtual IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
