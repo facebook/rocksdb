@@ -121,6 +121,11 @@ class Comparator {
     return Compare(a, b);
   }
 
+  virtual bool EqualWithoutTimestamp(const Slice& a, const Slice& b) const {
+    return 0 ==
+           CompareWithoutTimestamp(a, /*a_has_ts=*/true, b, /*b_has_ts=*/true);
+  }
+
  private:
   size_t timestamp_size_;
 };

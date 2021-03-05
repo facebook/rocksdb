@@ -1016,8 +1016,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
                  timestamp_size_);
     }
 
-    if (0 != user_comparator_.CompareWithoutTimestamp(
-                 ikey.user_key, saved_key_.GetUserKey())) {
+    if (!user_comparator_.EqualWithoutTimestamp(ikey.user_key,
+                                                saved_key_.GetUserKey())) {
       // No visible values for this key, even though FindValueForCurrentKey()
       // has seen some. This is possible if we're using a tailing iterator, and
       // the entries were discarded in a compaction.

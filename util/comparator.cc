@@ -129,6 +129,11 @@ class BytewiseComparatorImpl : public Comparator {
                               bool /*b_has_ts*/) const override {
     return a.compare(b);
   }
+
+  using Comparator::EqualWithoutTimestamp;
+  bool EqualWithoutTimestamp(const Slice& a, const Slice& b) const override {
+    return a == b;
+  }
 };
 
 class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {

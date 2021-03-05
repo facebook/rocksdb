@@ -73,6 +73,11 @@ class UserComparatorWrapper final : public Comparator {
     return user_comparator_->CompareWithoutTimestamp(a, a_has_ts, b, b_has_ts);
   }
 
+  using Comparator::EqualWithoutTimestamp;
+  bool EqualWithoutTimestamp(const Slice& a, const Slice& b) const override {
+    return user_comparator_->EqualWithoutTimestamp(a, b);
+  }
+
  private:
   const Comparator* user_comparator_;
 };
