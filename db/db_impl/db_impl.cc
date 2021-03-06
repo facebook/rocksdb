@@ -3943,7 +3943,8 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         std::string path_to_delete = dbname + "/" + fname;
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
-        } else if (type == kTableFile || type == kWalFile) {
+        } else if (type == kTableFile || type == kWalFile ||
+                   type == kBlobFile) {
           del = DeleteDBFile(&soptions, path_to_delete, dbname,
                              /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
         } else {
@@ -3968,9 +3969,10 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       if (env->GetChildren(path, &filenames).ok()) {
         for (const auto& fname : filenames) {
           if (ParseFileName(fname, &number, &type) &&
-              type == kTableFile) {  // Lock file will be deleted at end
-            std::string table_path = path + "/" + fname;
-            Status del = DeleteDBFile(&soptions, table_path, dbname,
+              (type == kTableFile ||
+               type == kBlobFile)) {  // Lock file will be deleted at end
+            std::string file_path = path + "/" + fname;
+            Status del = DeleteDBFile(&soptions, file_path, dbname,
                                       /*force_bg=*/false, /*force_fg=*/false);
             if (!del.ok() && result.ok()) {
               result = del;

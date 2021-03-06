@@ -25,6 +25,7 @@
 #include "db/version_edit.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
+#include "file/sst_file_manager_impl.h"
 #include "file/writable_file_writer.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_util.h"
@@ -279,7 +280,23 @@ Status BuildTable(
       if (s.ok()) {
         s = blob_file_builder->Finish();
       }
-
+      auto sfm =
+          static_cast<SstFileManagerImpl*>(db_options.sst_file_manager.get());
+      if (s.ok() && sfm) {
+        // Report new blob files to SstFileManagerImpl
+        for (auto blob_file = blob_file_additions->begin();
+             blob_file != blob_file_additions->end(); ++blob_file) {
+          std::string filename = BlobFileName(ioptions.cf_paths.front().path,
+                                              blob_file->GetBlobFileNumber());
+          Status add_s = sfm->OnAddFile(filename);
+          if (!add_s.ok() && s.ok()) {
+            s = add_s;
+          }
+          if (sfm->IsMaxAllowedSpaceReached()) {
+            s = Status::SpaceLimit("Max allowed space was reached");
+          }
+        }
+      }
       blob_file_builder.reset();
     }
 

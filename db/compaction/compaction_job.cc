@@ -1190,7 +1190,28 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     if (status.ok()) {
       status = blob_file_builder->Finish();
     }
-
+    auto sfm =
+        static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
+    if (status.ok() && sfm) {
+      // Report new blob files to SstFileManagerImpl
+      for (auto const& blob_file : sub_compact->blob_file_additions) {
+        std::string fname =
+            BlobFileName(sub_compact->compaction->immutable_cf_options()
+                             ->cf_paths.front()
+                             .path,
+                         blob_file.GetBlobFileNumber());
+        Status add_s = sfm->OnAddFile(fname);
+        if (!add_s.ok() && status.ok()) {
+          status = add_s;
+        }
+        if (sfm->IsMaxAllowedSpaceReached()) {
+          status = Status::SpaceLimit("Max allowed space was reached");
+          InstrumentedMutexLock l(db_mutex_);
+          db_error_handler_->SetBGError(status,
+                                        BackgroundErrorReason::kCompaction);
+        }
+      }
+    }
     blob_file_builder.reset();
   }
 
