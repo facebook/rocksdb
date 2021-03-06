@@ -2990,7 +2990,8 @@ const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
 SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
                                       bool lock) {
   int64_t unix_time = 0;
-  env_->GetCurrentTime(&unix_time).PermitUncheckedError();  // Ignore error
+  immutable_db_options_.clock->GetCurrentTime(&unix_time)
+      .PermitUncheckedError();  // Ignore error
   SnapshotImpl* s = new SnapshotImpl;
 
   if (lock) {
@@ -3135,12 +3136,16 @@ FileSystem* DBImpl::GetFileSystem() const {
   return immutable_db_options_.fs.get();
 }
 
+SystemClock* DBImpl::GetSystemClock() const {
+  return immutable_db_options_.clock;
+}
+
 #ifndef ROCKSDB_LITE
 
-Status DBImpl::StartIOTrace(Env* env, const TraceOptions& trace_options,
+Status DBImpl::StartIOTrace(Env* /*env*/, const TraceOptions& trace_options,
                             std::unique_ptr<TraceWriter>&& trace_writer) {
   assert(trace_writer != nullptr);
-  return io_tracer_->StartIOTrace(env->GetSystemClock(), trace_options,
+  return io_tracer_->StartIOTrace(GetSystemClock(), trace_options,
                                   std::move(trace_writer));
 }
 
@@ -4988,8 +4993,8 @@ Status DBImpl::EndTrace() {
 Status DBImpl::StartBlockCacheTrace(
     const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer) {
-  return block_cache_tracer_.StartTrace(env_, trace_options,
-                                        std::move(trace_writer));
+  return block_cache_tracer_.StartTrace(immutable_db_options_.clock,
+                                        trace_options, std::move(trace_writer));
 }
 
 Status DBImpl::EndBlockCacheTrace() {

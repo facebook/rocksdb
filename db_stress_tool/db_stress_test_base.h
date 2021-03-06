@@ -13,6 +13,7 @@
 #include "db_stress_tool/db_stress_shared_state.h"
 
 namespace ROCKSDB_NAMESPACE {
+class SystemClock;
 class Transaction;
 class TransactionDB;
 
@@ -218,6 +219,7 @@ class StressTest {
   TransactionDB* txn_db_;
 #endif
   Options options_;
+  SystemClock* clock_;
   std::vector<ColumnFamilyHandle*> column_families_;
   std::vector<std::string> column_family_names_;
   std::atomic<int> new_column_family_name_;

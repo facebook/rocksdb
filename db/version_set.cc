@@ -2529,7 +2529,7 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableCFOptions& ioptions,
   uint32_t ttl_expired_files_count = 0;
 
   int64_t _current_time;
-  auto status = ioptions.env->GetCurrentTime(&_current_time);
+  auto status = ioptions.clock->GetCurrentTime(&_current_time);
   if (status.ok()) {
     const uint64_t current_time = static_cast<uint64_t>(_current_time);
     for (FileMetaData* f : files) {
@@ -2698,7 +2698,7 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
   expired_ttl_files_.clear();
 
   int64_t _current_time;
-  auto status = ioptions.env->GetCurrentTime(&_current_time);
+  auto status = ioptions.clock->GetCurrentTime(&_current_time);
   if (!status.ok()) {
     return;
   }
@@ -2725,7 +2725,7 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
   files_marked_for_periodic_compaction_.clear();
 
   int64_t temp_current_time;
-  auto status = ioptions.env->GetCurrentTime(&temp_current_time);
+  auto status = ioptions.clock->GetCurrentTime(&temp_current_time);
   if (!status.ok()) {
     return;
   }

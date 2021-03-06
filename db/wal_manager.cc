@@ -140,8 +140,8 @@ void WalManager::PurgeObsoleteWALFiles() {
     return;
   }
 
-  int64_t current_time;
-  Status s = env_->GetCurrentTime(&current_time);
+  int64_t current_time = 0;
+  Status s = db_options_.clock->GetCurrentTime(&current_time);
   if (!s.ok()) {
     ROCKS_LOG_ERROR(db_options_.info_log, "Can't get current time: %s",
                     s.ToString().c_str());
@@ -171,7 +171,6 @@ void WalManager::PurgeObsoleteWALFiles() {
 
   size_t log_files_num = 0;
   uint64_t log_file_size = 0;
-
   for (auto& f : files) {
     uint64_t number;
     FileType type;

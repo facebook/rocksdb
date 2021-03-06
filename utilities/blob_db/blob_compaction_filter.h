@@ -10,12 +10,12 @@
 #include "db/blob/blob_index.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/compaction_filter.h"
-#include "rocksdb/env.h"
 #include "utilities/blob_db/blob_db_gc_stats.h"
 #include "utilities/blob_db/blob_db_impl.h"
 #include "utilities/compaction_filters/layered_compaction_filter_base.h"
 
 namespace ROCKSDB_NAMESPACE {
+class SystemClock;
 namespace blob_db {
 
 struct BlobCompactionContext {
@@ -136,11 +136,12 @@ class BlobIndexCompactionFilterGC : public BlobIndexCompactionFilterBase {
 // that creates non-GC filters.
 class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
  public:
-  BlobIndexCompactionFilterFactoryBase(BlobDBImpl* _blob_db_impl, Env* _env,
+  BlobIndexCompactionFilterFactoryBase(BlobDBImpl* _blob_db_impl,
+                                       SystemClock* _clock,
                                        const ColumnFamilyOptions& _cf_options,
                                        Statistics* _statistics)
       : blob_db_impl_(_blob_db_impl),
-        env_(_env),
+        clock_(_clock),
         statistics_(_statistics),
         user_comp_filter_(_cf_options.compaction_filter),
         user_comp_filter_factory_(_cf_options.compaction_filter_factory) {}
@@ -150,13 +151,13 @@ class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
       const CompactionFilter::Context& context) const;
 
   BlobDBImpl* blob_db_impl() const { return blob_db_impl_; }
-  Env* env() const { return env_; }
+  SystemClock* clock() const { return clock_; }
   Statistics* statistics() const { return statistics_; }
   const CompactionFilter* user_comp_filter() const { return user_comp_filter_; }
 
  private:
   BlobDBImpl* blob_db_impl_;
-  Env* env_;
+  SystemClock* clock_;
   Statistics* statistics_;
   const CompactionFilter* user_comp_filter_;
   std::shared_ptr<CompactionFilterFactory> user_comp_filter_factory_;
@@ -165,10 +166,11 @@ class BlobIndexCompactionFilterFactoryBase : public CompactionFilterFactory {
 class BlobIndexCompactionFilterFactory
     : public BlobIndexCompactionFilterFactoryBase {
  public:
-  BlobIndexCompactionFilterFactory(BlobDBImpl* _blob_db_impl, Env* _env,
+  BlobIndexCompactionFilterFactory(BlobDBImpl* _blob_db_impl,
+                                   SystemClock* _clock,
                                    const ColumnFamilyOptions& _cf_options,
                                    Statistics* _statistics)
-      : BlobIndexCompactionFilterFactoryBase(_blob_db_impl, _env, _cf_options,
+      : BlobIndexCompactionFilterFactoryBase(_blob_db_impl, _clock, _cf_options,
                                              _statistics) {}
 
   const char* Name() const override {
@@ -182,10 +184,11 @@ class BlobIndexCompactionFilterFactory
 class BlobIndexCompactionFilterFactoryGC
     : public BlobIndexCompactionFilterFactoryBase {
  public:
-  BlobIndexCompactionFilterFactoryGC(BlobDBImpl* _blob_db_impl, Env* _env,
+  BlobIndexCompactionFilterFactoryGC(BlobDBImpl* _blob_db_impl,
+                                     SystemClock* _clock,
                                      const ColumnFamilyOptions& _cf_options,
                                      Statistics* _statistics)
-      : BlobIndexCompactionFilterFactoryBase(_blob_db_impl, _env, _cf_options,
+      : BlobIndexCompactionFilterFactoryBase(_blob_db_impl, _clock, _cf_options,
                                              _statistics) {}
 
   const char* Name() const override {

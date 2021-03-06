@@ -32,8 +32,7 @@ namespace ROCKSDB_NAMESPACE {
 
 namespace port {
 
-WinLogger::WinLogger(uint64_t (*gettid)(),
-                     const std::shared_ptr<SystemClock>& clock, HANDLE file,
+WinLogger::WinLogger(uint64_t (*gettid)(), SystemClock* clock, HANDLE file,
                      const InfoLogLevel log_level)
     : Logger(log_level),
       file_(file),

@@ -196,12 +196,12 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
     db_options_.listeners.push_back(std::make_shared<BlobDBListenerGC>(this));
     cf_options_.compaction_filter_factory =
         std::make_shared<BlobIndexCompactionFilterFactoryGC>(
-            this, env_, cf_options_, statistics_);
+            this, clock_, cf_options_, statistics_);
   } else {
     db_options_.listeners.push_back(std::make_shared<BlobDBListener>(this));
     cf_options_.compaction_filter_factory =
         std::make_shared<BlobIndexCompactionFilterFactory>(
-            this, env_, cf_options_, statistics_);
+            this, clock_, cf_options_, statistics_);
   }
 
   // Reset user compaction filter after building into compaction factory.
