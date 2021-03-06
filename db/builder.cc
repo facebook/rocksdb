@@ -293,6 +293,7 @@ Status BuildTable(
             s = add_s;
           }
           if (sfm->IsMaxAllowedSpaceReached()) {
+            TEST_SYNC_POINT("BuildTable:MaxAllowedSpaceReached");
             s = Status::SpaceLimit("Max allowed space was reached");
           }
         }
