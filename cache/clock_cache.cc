@@ -282,10 +282,13 @@ class ClockCacheShard final : public CacheShard {
   bool EraseAndConfirm(const Slice& key, uint32_t hash,
                        CleanupContext* context);
   size_t GetUsage() const override;
+  size_t GetHighPriorityPoolUsage() const override;
   size_t GetPinnedUsage() const override;
   void EraseUnRefEntries() override;
   void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                               bool thread_safe) override;
+
+  size_t GetEntries() const override;
 
  private:
   static const uint32_t kInCacheBit = 1;
@@ -400,9 +403,13 @@ size_t ClockCacheShard::GetUsage() const {
   return usage_.load(std::memory_order_relaxed);
 }
 
+size_t ClockCacheShard::GetHighPriorityPoolUsage() const { return 0; }
+
 size_t ClockCacheShard::GetPinnedUsage() const {
   return pinned_usage_.load(std::memory_order_relaxed);
 }
+
+size_t ClockCacheShard::GetEntries() const { return table_.size(); }
 
 void ClockCacheShard::ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                              bool thread_safe) {

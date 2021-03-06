@@ -35,7 +35,9 @@ class CacheShard {
   virtual void SetCapacity(size_t capacity) = 0;
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) = 0;
   virtual size_t GetUsage() const = 0;
+  virtual size_t GetHighPriorityPoolUsage() const = 0;
   virtual size_t GetPinnedUsage() const = 0;
+  virtual size_t GetEntries() const = 0;
   virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                       bool thread_safe) = 0;
   virtual void EraseUnRefEntries() = 0;
@@ -80,8 +82,10 @@ class ShardedCache : public Cache {
   virtual size_t GetCapacity() const override;
   virtual bool HasStrictCapacityLimit() const override;
   virtual size_t GetUsage() const override;
+  virtual size_t GetHighPriorityPoolUsage() const override;
   virtual size_t GetUsage(Handle* handle) const override;
   virtual size_t GetPinnedUsage() const override;
+  virtual size_t GetEntries() const override;
   virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                       bool thread_safe) override;
   virtual void EraseUnRefEntries() override;

@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.junit.Test;
 
 public class LRUCacheTest {
@@ -14,14 +16,18 @@ public class LRUCacheTest {
   }
 
   @Test
-  public void newLRUCache() {
+  public void newLRUCache() throws RocksDBException {
     final long capacity = 1000;
     final int numShardBits = 16;
     final boolean strictCapacityLimit = true;
-    final double highPriPoolRatio = 5;
+    final double highPriPoolRatio = 0.5;
     try(final Cache lruCache = new LRUCache(capacity,
         numShardBits, strictCapacityLimit, highPriPoolRatio)) {
-      //no op
+      assertThat(lruCache.getCapacity()).isEqualTo(capacity);
+      assertThat(lruCache.getEntries()).isEqualTo(0);
+      assertThat(lruCache.getUsage()).isEqualTo(0);
+      assertThat(lruCache.getHighPriorityPoolUsage()).isEqualTo(0);
+      assertThat(lruCache.getPinnedUsage()).isEqualTo(0);
     }
   }
 }

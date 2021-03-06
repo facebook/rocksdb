@@ -160,6 +160,9 @@ class LRUHandleTable {
   LRUHandle* Insert(LRUHandle* h);
   LRUHandle* Remove(const Slice& key, uint32_t hash);
 
+  // Returns number of elements in the table
+  size_t GetEntries() const;
+
   template <typename T>
   void ApplyToAllCacheEntries(T func) {
     for (uint32_t i = 0; i < length_; i++) {
@@ -224,7 +227,9 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // protect them with mutex_.
 
   virtual size_t GetUsage() const override;
+  virtual size_t GetHighPriorityPoolUsage() const override;
   virtual size_t GetPinnedUsage() const override;
+  virtual size_t GetEntries() const override;
 
   virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                       bool thread_safe) override;
