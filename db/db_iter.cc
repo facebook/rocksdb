@@ -488,7 +488,8 @@ bool DBIter::FindNextUserEntryInternal(bool skipping_saved_key,
               &last_key,
               ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion));
         } else {
-          const std::string kTsMin(timestamp_size_, static_cast<char>(0));
+          const std::string kTsMin(timestamp_size_,
+                                   static_cast<unsigned char>(0));
           AppendInternalKeyWithDifferentTimestamp(
               &last_key,
               ParsedInternalKey(saved_key_.GetUserKey(), 0, kTypeDeletion),
@@ -676,7 +677,8 @@ bool DBIter::ReverseToForward() {
                             kValueTypeForSeek);
     if (timestamp_size_ > 0) {
       // TODO: pre-create kTsMax.
-      const std::string kTsMax(timestamp_size_, static_cast<char>(0xff));
+      const std::string kTsMax(timestamp_size_,
+                               static_cast<unsigned char>(0xff));
       pikey.SetTimestamp(kTsMax);
     }
     last_key.SetInternalKey(pikey);
@@ -1192,7 +1194,8 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
                               kValueTypeForSeek);
       if (timestamp_size_ > 0) {
         // TODO: pre-create kTsMax.
-        const std::string kTsMax(timestamp_size_, static_cast<char>(0xff));
+        const std::string kTsMax(timestamp_size_,
+                                 static_cast<unsigned char>(0xff));
         pikey.SetTimestamp(kTsMax);
       }
       last_key.SetInternalKey(pikey);
@@ -1275,7 +1278,7 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
                             kValueTypeForSeekForPrev, timestamp_ub_);
 
   if (timestamp_size_ > 0) {
-    const std::string kTsMin(timestamp_size_, static_cast<char>(0x0));
+    const std::string kTsMin(timestamp_size_, static_cast<unsigned char>(0x0));
     Slice ts = kTsMin;
     saved_key_.UpdateInternalKey(/*sequence_number=*/0,
                                  kValueTypeForSeekForPrev, &ts);
@@ -1289,7 +1292,8 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
     saved_key_.SetInternalKey(*iterate_upper_bound_, kMaxSequenceNumber,
                               kValueTypeForSeekForPrev, timestamp_ub_);
     if (timestamp_size_ > 0) {
-      const std::string kTsMax(timestamp_size_, static_cast<char>(0xff));
+      const std::string kTsMax(timestamp_size_,
+                               static_cast<unsigned char>(0xff));
       Slice ts = kTsMax;
       saved_key_.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeekForPrev,
                                    &ts);

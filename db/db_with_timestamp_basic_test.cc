@@ -402,7 +402,6 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   ASSERT_OK(
       db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, 0);
-  std::cout << size << std::endl;
 
   Close();
 }
@@ -674,7 +673,7 @@ TEST_F(DBBasicTestWithTimestamp, ChangeIterationDirection) {
   const std::vector<std::string> timestamps = {Timestamp(1, 1), Timestamp(0, 2),
                                                Timestamp(4, 3)};
   const std::vector<std::tuple<std::string, std::string>> kvs = {
-      {"aa", "value1"}, {"ab", "value2"}};
+      std::make_tuple("aa", "value1"), std::make_tuple("ab", "value2")};
   for (const auto& ts : timestamps) {
     WriteBatch wb(0, 0, kTimestampSize);
     for (const auto& kv : kvs) {
