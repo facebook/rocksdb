@@ -382,9 +382,8 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
     // compactions settle.
     //
     // Proof: The compensated size of the file containing the most tombstones is
-    // enough on its own to trigger size ratio compaction. Size ratio compaction
-    // is a full compaction, so all tombstones meet the obsolete keys they
-    // cover.
+    // enough on its own to trigger size amp compaction. Size amp compaction is
+    // a full compaction, so all tombstones meet the obsolete keys they cover.
 
     // The looser of the above two constraints can apply in all cases.
     ASSERT_GT(db_size[0] / 2, db_size[1]);
