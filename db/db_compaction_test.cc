@@ -761,8 +761,15 @@ TEST_F(DBCompactionTest, DisableStatsUpdateReopen) {
       values.push_back(rnd.RandomString(kCDTValueSize));
       ASSERT_OK(Put(Key(k), values[k]));
     }
-    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    Flush();
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
+    // L1 and L2 can fit deletions iff size compensation does not take effect,
+    // i.e., when `skip_stats_update_on_db_open == true`. Move any remaining
+    // files at or above L2 down to L3 to ensure obsolete data does not
+    // accidentally meet its tombstone above L3. This makes the final size more
+    // deterministic and easy to see whether size compensation for deletions
+    // took effect.
+    MoveFilesToLevel(3 /* level */);
     ASSERT_OK(Size(Key(0), Key(kTestSize - 1), &db_size[0]));
     Close();
 
@@ -792,6 +799,10 @@ TEST_F(DBCompactionTest, DisableStatsUpdateReopen) {
     if (options.skip_stats_update_on_db_open) {
       // If update stats on DB::Open is disable, we don't expect
       // deletion entries taking effect.
+      //
+      // The deletions are small enough to fit in L1 and L2, and obsolete keys
+      // were moved to L3+, so none of the original data should have been
+      // dropped.
       ASSERT_LE(db_size[0], db_size[2]);
     } else {
       // Otherwise, we should see a significant drop in db size.
