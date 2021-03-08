@@ -773,10 +773,8 @@ class Version {
 
   ColumnFamilyData* cfd() const { return cfd_; }
 
-  // Return the next Version in the linked list. Used for debug only
-  Version* TEST_Next() const {
-    return next_;
-  }
+  // Return the next Version in the linked list.
+  Version* Next() const { return next_; }
 
   int TEST_refs() const { return refs_; }
 
@@ -1439,8 +1437,9 @@ class ReactiveVersionSet : public VersionSet {
                  std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
                  std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
                  std::unique_ptr<Status>* manifest_reader_status);
-
+#ifndef NDEBUG
   uint64_t TEST_read_edits_in_atomic_group() const;
+#endif  //! NDEBUG
 
   std::vector<VersionEdit>& replay_buffer();
 

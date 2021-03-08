@@ -5810,10 +5810,12 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
   return s;
 }
 
+#ifndef NDEBUG
 uint64_t ReactiveVersionSet::TEST_read_edits_in_atomic_group() const {
   assert(manifest_tailer_);
   return manifest_tailer_->GetReadBuffer().TEST_read_edits_in_atomic_group();
 }
+#endif  // !NDEBUG
 
 std::vector<VersionEdit>& ReactiveVersionSet::replay_buffer() {
   assert(manifest_tailer_);
