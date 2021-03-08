@@ -1190,6 +1190,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     if (status.ok()) {
       status = blob_file_builder->Finish();
     }
+
+#ifndef ROCKSDB_LITE
     auto sfm =
         static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
     if (status.ok() && sfm) {
@@ -1212,6 +1214,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         }
       }
     }
+#endif  // !ROCKSDB_LITE
     blob_file_builder.reset();
   }
 

@@ -1128,6 +1128,8 @@ std::string DBTestBase::FilesPerLevel(int cf) {
   return result;
 }
 
+#endif  // !ROCKSDB_LITE
+
 std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
   VersionSet* const versions = dbfull()->TEST_GetVersionSet();
   assert(versions);
@@ -1152,7 +1154,6 @@ std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
 
   return result;
 }
-#endif  // !ROCKSDB_LITE
 
 size_t DBTestBase::CountFiles() {
   size_t count = 0;

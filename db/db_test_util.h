@@ -1062,9 +1062,9 @@ class DBTestBase : public testing::Test {
   double CompressionRatioAtLevel(int level, int cf = 0);
 
   int TotalTableFiles(int cf = 0, int levels = -1);
+#endif  // ROCKSDB_LITE
 
   std::vector<uint64_t> GetBlobFileNumbers();
-#endif  // ROCKSDB_LITE
 
   // Return spread of files per level
   std::string FilesPerLevel(int cf = 0);
