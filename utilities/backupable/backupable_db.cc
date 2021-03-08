@@ -129,7 +129,8 @@ class BackupEngineImpl : public BackupEngine {
 
   // The returned BackupInfos are in chronological order, which means the
   // latest backup comes last.
-  void GetBackupInfo(std::vector<BackupInfo>* backup_info) override;
+  void GetBackupInfo(std::vector<BackupInfo>* backup_info,
+                     bool include_file_details) override;
 
   void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) override;
 
@@ -222,13 +223,13 @@ class BackupEngineImpl : public BackupEngine {
     uint64_t GetSize() const {
       return size_;
     }
-    uint32_t GetNumberFiles() { return static_cast<uint32_t>(files_.size()); }
+    uint32_t GetNumberFiles() const {
+      return static_cast<uint32_t>(files_.size());
+    }
     void SetSequenceNumber(uint64_t sequence_number) {
       sequence_number_ = sequence_number;
     }
-    uint64_t GetSequenceNumber() {
-      return sequence_number_;
-    }
+    uint64_t GetSequenceNumber() const { return sequence_number_; }
 
     const std::string& GetAppMetadata() const { return app_metadata_; }
 
@@ -240,9 +241,7 @@ class BackupEngineImpl : public BackupEngine {
 
     Status Delete(bool delete_meta = true);
 
-    bool Empty() {
-      return files_.empty();
-    }
+    bool Empty() const { return files_.empty(); }
 
     std::shared_ptr<FileInfo> GetFile(const std::string& filename) const {
       auto it = file_infos_->find(filename);
@@ -251,7 +250,7 @@ class BackupEngineImpl : public BackupEngine {
       return it->second;
     }
 
-    const std::vector<std::shared_ptr<FileInfo>>& GetFiles() {
+    const std::vector<std::shared_ptr<FileInfo>>& GetFiles() const {
       return files_;
     }
 
@@ -1281,14 +1280,25 @@ Status BackupEngineImpl::DeleteBackupInternal(BackupID backup_id) {
   return Status::OK();
 }
 
-void BackupEngineImpl::GetBackupInfo(std::vector<BackupInfo>* backup_info) {
+void BackupEngineImpl::GetBackupInfo(std::vector<BackupInfo>* backup_info,
+                                     bool include_file_details) {
   assert(initialized_);
   backup_info->reserve(backups_.size());
   for (auto& backup : backups_) {
-    if (!backup.second->Empty()) {
-      backup_info->push_back(BackupInfo(
-          backup.first, backup.second->GetTimestamp(), backup.second->GetSize(),
-          backup.second->GetNumberFiles(), backup.second->GetAppMetadata()));
+    const auto& meta = *backup.second;
+    if (!meta.Empty()) {
+      backup_info->push_back(BackupInfo(backup.first, meta.GetTimestamp(),
+                                        meta.GetSize(), meta.GetNumberFiles(),
+                                        meta.GetAppMetadata()));
+      if (include_file_details) {
+        auto& file_details = backup_info->back().file_details;
+        file_details.reserve(meta.GetFiles().size());
+        for (auto& file_ptr : meta.GetFiles()) {
+          BackupFileInfo& info = *file_details.emplace(file_details.end());
+          info.relative_filename = file_ptr->filename;
+          info.size = file_ptr->size;
+        }
+      }
     }
   }
 }
@@ -2296,8 +2306,9 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
 
   // The returned BackupInfos are in chronological order, which means the
   // latest backup comes last.
-  void GetBackupInfo(std::vector<BackupInfo>* backup_info) override {
-    backup_engine_->GetBackupInfo(backup_info);
+  void GetBackupInfo(std::vector<BackupInfo>* backup_info,
+                     bool include_file_details) override {
+    backup_engine_->GetBackupInfo(backup_info, include_file_details);
   }
 
   void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) override {
