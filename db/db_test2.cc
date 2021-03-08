@@ -18,6 +18,7 @@
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/wal_filter.h"
 #include "util/random.h"
+#include "util/stderr_logger.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -160,6 +161,7 @@ TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
   PartitionedIndexTestListener* listener = new PartitionedIndexTestListener();
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.listeners.emplace_back(listener);
+  options.info_log.reset(new StderrLogger());
   std::vector<const Snapshot*> snapshots;
   Reopen(options);
   Random rnd(301);
