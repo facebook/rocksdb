@@ -630,7 +630,7 @@ TEST_F(DBSecondaryTest, SwitchManifestTwice) {
   ASSERT_EQ("value1", value);
 }
 
-TEST_F(DBSecondaryTest, SwitchWAL) {
+TEST_F(DBSecondaryTest, DISABLED_SwitchWAL) {
   const int kNumKeysPerMemtable = 1;
   Options options;
   options.env = env_;
@@ -679,7 +679,7 @@ TEST_F(DBSecondaryTest, SwitchWAL) {
   }
 }
 
-TEST_F(DBSecondaryTest, SwitchWALMultiColumnFamilies) {
+TEST_F(DBSecondaryTest, DISABLED_SwitchWALMultiColumnFamilies) {
   const int kNumKeysPerMemtable = 1;
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency(
