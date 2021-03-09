@@ -127,7 +127,7 @@ TEST_F(DBBenchTest, OptionsFile) {
   const std::string kOptionsFileName = test_path_ + "/OPTIONS_test";
   Options opt = GetDefaultOptions();
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
-                                  {ColumnFamilyOptions()}, kOptionsFileName,
+                                  {ColumnFamilyOptions(opt)}, kOptionsFileName,
                                   opt.env->GetFileSystem().get()));
 
   // override the following options as db_bench will not take these
@@ -164,7 +164,7 @@ TEST_F(DBBenchTest, OptionsFileMultiLevelUniversal) {
 
   ASSERT_OK(PersistRocksDBOptions(DBOptions(opt), {"default"},
                                   {ColumnFamilyOptions(opt)}, kOptionsFileName,
-                                  fs_.get()));
+                                  opt.env->GetFileSystem().get()));
 
   // override the following options as db_bench will not take these
   // options from the options file
@@ -271,6 +271,12 @@ const std::string options_file_content = R"OPTIONS_FILE(
   hard_pending_compaction_bytes_limit=0
   disable_auto_compactions=false
   compaction_measure_io_stats=false
+  enable_blob_files=true
+  min_blob_size=16
+  blob_file_size=10485760
+  blob_compression_type=kNoCompression
+  enable_blob_garbage_collection=true
+  blob_garbage_collection_age_cutoff=0.75
 
 [TableOptions/BlockBasedTable "default"]
   format_version=0
@@ -316,7 +322,7 @@ TEST_F(DBBenchTest, OptionsFileFromFile) {
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
-  google::ParseCommandLineFlags(&argc, &argv, true);
+  GFLAGS_NAMESPACE::ParseCommandLineFlags(&argc, &argv, true);
   return RUN_ALL_TESTS();
 }
 

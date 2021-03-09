@@ -108,7 +108,7 @@ class ConfigurableHelper {
   // @return InvalidArgument if the value could not be converted to a map or
   // there was or there is no id property in the map.
   static Status GetOptionsMap(
-      const std::string& opt_value, std::string* id,
+      const std::string& opt_value, const Customizable* custom, std::string* id,
       std::unordered_map<std::string, std::string>* options);
   static Status GetOptionsMap(
       const std::string& opt_value, const std::string& default_id,
@@ -245,6 +245,10 @@ class ConfigurableHelper {
       const std::vector<Configurable::RegisteredOptions>& options,
       const std::string& name, std::string* opt_name, void** opt_ptr);
 
+  static Status ConfigureCustomizableOption(
+      const ConfigOptions& config_options, Configurable& configurable,
+      const OptionTypeInfo& opt_info, const std::string& opt_name,
+      const std::string& name, const std::string& value, void* opt_ptr);
 #endif  // ROCKSDB_LITE
 };
 

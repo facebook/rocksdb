@@ -2925,6 +2925,47 @@ TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
   }
 }
 
+TEST_P(TransactionTest, MultiGetSnapshot) {
+  WriteOptions write_options;
+  TransactionOptions transaction_options;
+  Transaction* txn1 = db->BeginTransaction(write_options, transaction_options);
+
+  Slice key = "foo";
+
+  Status s = txn1->Put(key, "bar");
+  ASSERT_OK(s);
+
+  s = txn1->SetName("test");
+  ASSERT_OK(s);
+
+  s = txn1->Prepare();
+  ASSERT_OK(s);
+
+  // Get snapshot between prepare and commit
+  // Un-committed data should be invisible to other transactions
+  const Snapshot* s1 = db->GetSnapshot();
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+
+  Transaction* txn2 = db->BeginTransaction(write_options, transaction_options);
+  ReadOptions read_options;
+  read_options.snapshot = s1;
+
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values(1);
+  std::vector<Status> statuses(1);
+  keys.push_back(key);
+  auto cfd = db->DefaultColumnFamily();
+  txn2->MultiGet(read_options, cfd, 1, keys.data(), values.data(),
+                 statuses.data());
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  delete txn2;
+
+  db->ReleaseSnapshot(s1);
+}
+
 TEST_P(TransactionTest, ColumnFamiliesTest2) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
@@ -4833,6 +4874,56 @@ TEST_P(TransactionTest, MergeTest) {
   s = db->Get(read_options, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("a,3", value);
+}
+
+TEST_P(TransactionTest, DeleteRangeSupportTest) {
+  // The `DeleteRange()` API is banned everywhere.
+  ASSERT_TRUE(
+      db->DeleteRange(WriteOptions(), db->DefaultColumnFamily(), "a", "b")
+          .IsNotSupported());
+
+  // But range deletions can be added via the `Write()` API by specifying the
+  // proper flags to promise there are no conflicts according to the DB type
+  // (see `TransactionDB::DeleteRange()` API doc for details).
+  for (bool skip_concurrency_control : {false, true}) {
+    for (bool skip_duplicate_key_check : {false, true}) {
+      ASSERT_OK(db->Put(WriteOptions(), "a", "val"));
+      WriteBatch wb;
+      ASSERT_OK(wb.DeleteRange("a", "b"));
+      TransactionDBWriteOptimizations flags;
+      flags.skip_concurrency_control = skip_concurrency_control;
+      flags.skip_duplicate_key_check = skip_duplicate_key_check;
+      Status s = db->Write(WriteOptions(), flags, &wb);
+      std::string value;
+      switch (txn_db_options.write_policy) {
+        case WRITE_COMMITTED:
+          if (skip_concurrency_control) {
+            ASSERT_OK(s);
+            ASSERT_TRUE(db->Get(ReadOptions(), "a", &value).IsNotFound());
+          } else {
+            ASSERT_NOK(s);
+            ASSERT_OK(db->Get(ReadOptions(), "a", &value));
+          }
+          break;
+        case WRITE_PREPARED:
+          // Intentional fall-through
+        case WRITE_UNPREPARED:
+          if (skip_concurrency_control && skip_duplicate_key_check) {
+            ASSERT_OK(s);
+            ASSERT_TRUE(db->Get(ReadOptions(), "a", &value).IsNotFound());
+          } else {
+            ASSERT_NOK(s);
+            ASSERT_OK(db->Get(ReadOptions(), "a", &value));
+          }
+          break;
+      }
+      // Without any promises from the user, range deletion via other `Write()`
+      // APIs are still banned.
+      ASSERT_OK(db->Put(WriteOptions(), "a", "val"));
+      ASSERT_NOK(db->Write(WriteOptions(), &wb));
+      ASSERT_OK(db->Get(ReadOptions(), "a", &value));
+    }
+  }
 }
 
 TEST_P(TransactionTest, DeferSnapshotTest) {

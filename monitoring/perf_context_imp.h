@@ -46,14 +46,14 @@ extern thread_local PerfContext perf_context;
   perf_step_timer_##metric.Start();
 
 // Declare and set start time of the timer
-#define PERF_TIMER_GUARD_WITH_CLOCK(metric, clock)                       \
-  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), clock); \
+#define PERF_TIMER_GUARD_WITH_CLOCK(metric, clock)                             \
+  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), clock.get()); \
   perf_step_timer_##metric.Start();
 
 // Declare and set start time of the timer
 #define PERF_CPU_TIMER_GUARD(metric, clock)            \
   PerfStepTimer perf_step_timer_##metric(              \
-      &(perf_context.metric), clock, true,             \
+      &(perf_context.metric), clock.get(), true,       \
       PerfLevel::kEnableTimeAndCPUTimeExceptForMutex); \
   perf_step_timer_##metric.Start();
 

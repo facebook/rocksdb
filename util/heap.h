@@ -72,7 +72,12 @@ class BinaryHeap {
 
   void pop() {
     assert(!empty());
-    data_.front() = std::move(data_.back());
+    if (data_.size() > 1) {
+      // Avoid self-move-assign, because it could cause problems with
+      // classes which are not prepared for this and it trips up the
+      // STL debugger when activated.
+      data_.front() = std::move(data_.back());
+    }
     data_.pop_back();
     if (!empty()) {
       downheap(get_root());

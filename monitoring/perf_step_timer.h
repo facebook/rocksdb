@@ -13,14 +13,13 @@ namespace ROCKSDB_NAMESPACE {
 class PerfStepTimer {
  public:
   explicit PerfStepTimer(
-      uint64_t* metric, const std::shared_ptr<SystemClock>& clock = nullptr,
-      bool use_cpu_time = false,
+      uint64_t* metric, SystemClock* clock = nullptr, bool use_cpu_time = false,
       PerfLevel enable_level = PerfLevel::kEnableTimeExceptForMutex,
       Statistics* statistics = nullptr, uint32_t ticker_type = 0)
       : perf_counter_enabled_(perf_level >= enable_level),
         use_cpu_time_(use_cpu_time),
         clock_((perf_counter_enabled_ || statistics != nullptr)
-                   ? ((clock.get() != nullptr) ? clock : SystemClock::Default())
+                   ? (clock ? clock : SystemClock::Default().get())
                    : nullptr),
         start_(0),
         metric_(metric),
@@ -70,7 +69,7 @@ class PerfStepTimer {
 
   const bool perf_counter_enabled_;
   const bool use_cpu_time_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* const clock_;
   uint64_t start_;
   uint64_t* metric_;
   Statistics* statistics_;

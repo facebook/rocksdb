@@ -32,7 +32,7 @@ ROCKSDB_EXTERNAL_DEPS = [
     ("zlib", None, "z"),
     ("gflags", None, "gflags"),
     ("lz4", None, "lz4"),
-    ("zstd", None),
+    ("zstd", None, "zstd"),
 ]
 
 ROCKSDB_OS_DEPS = [

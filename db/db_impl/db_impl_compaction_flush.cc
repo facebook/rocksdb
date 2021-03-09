@@ -806,6 +806,25 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                               end_with_ts);
 }
 
+Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyData* cfd,
+                                        std::string ts_low) {
+  VersionEdit edit;
+  edit.SetColumnFamily(cfd->GetID());
+  edit.SetFullHistoryTsLow(ts_low);
+
+  InstrumentedMutexLock l(&mutex_);
+  std::string current_ts_low = cfd->GetFullHistoryTsLow();
+  const Comparator* ucmp = cfd->user_comparator();
+  if (!current_ts_low.empty() &&
+      ucmp->CompareTimestamp(ts_low, current_ts_low) < 0) {
+    return Status::InvalidArgument(
+        "Cannot decrease full_history_timestamp_low");
+  }
+
+  return versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
+                                &mutex_);
+}
+
 Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                                     ColumnFamilyHandle* column_family,
                                     const Slice* begin, const Slice* end) {
@@ -817,6 +836,22 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
   }
 
   bool flush_needed = true;
+
+  // Update full_history_ts_low if it's set
+  if (options.full_history_ts_low != nullptr &&
+      !options.full_history_ts_low->empty()) {
+    std::string ts_low = options.full_history_ts_low->ToString();
+    if (begin != nullptr || end != nullptr) {
+      return Status::InvalidArgument(
+          "Cannot specify compaction range with full_history_ts_low");
+    }
+    Status s = IncreaseFullHistoryTsLow(cfd, ts_low);
+    if (!s.ok()) {
+      LogFlush(immutable_db_options_.info_log);
+      return s;
+    }
+  }
+
   Status s;
   if (begin != nullptr && end != nullptr) {
     // TODO(ajkr): We could also optimize away the flush in certain cases where

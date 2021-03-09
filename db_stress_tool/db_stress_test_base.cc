@@ -242,9 +242,13 @@ void StressTest::FinishInitDb(SharedState* shared) {
     PreloadDbAndReopenAsReadOnly(FLAGS_max_key, shared);
   }
   if (FLAGS_enable_compaction_filter) {
-    reinterpret_cast<DbStressCompactionFilterFactory*>(
-        options_.compaction_filter_factory.get())
-        ->SetSharedState(shared);
+    auto* compaction_filter_factory =
+        reinterpret_cast<DbStressCompactionFilterFactory*>(
+            options_.compaction_filter_factory.get());
+    assert(compaction_filter_factory);
+    compaction_filter_factory->SetSharedState(shared);
+    fprintf(stdout, "Compaction filter factory: %s\n",
+            compaction_filter_factory->Name());
   }
 }
 
@@ -2083,6 +2087,8 @@ void StressTest::Open() {
         FLAGS_compression_zstd_max_train_bytes;
     options_.compression_opts.parallel_threads =
         FLAGS_compression_parallel_threads;
+    options_.compression_opts.max_dict_buffer_bytes =
+        FLAGS_compression_max_dict_buffer_bytes;
     options_.create_if_missing = true;
     options_.max_manifest_file_size = FLAGS_max_manifest_file_size;
     options_.inplace_update_support = FLAGS_in_place_update;
@@ -2216,13 +2222,11 @@ void StressTest::Open() {
 
   if ((options_.enable_blob_files || options_.enable_blob_garbage_collection ||
        FLAGS_allow_setting_blob_options_dynamically) &&
-      (FLAGS_use_merge || FLAGS_enable_compaction_filter ||
-       FLAGS_checkpoint_one_in > 0 || FLAGS_backup_one_in > 0 ||
+      (FLAGS_use_merge || FLAGS_backup_one_in > 0 ||
        FLAGS_best_efforts_recovery)) {
-    fprintf(
-        stderr,
-        "Integrated BlobDB is currently incompatible with Merge, compaction "
-        "filters, checkpoints, backup/restore, and best-effort recovery\n");
+    fprintf(stderr,
+            "Integrated BlobDB is currently incompatible with Merge, "
+            "backup/restore, and best-effort recovery\n");
     exit(1);
   }
 
