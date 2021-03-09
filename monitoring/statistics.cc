@@ -246,6 +246,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
      "rocksdb.num.index.and.filter.blocks.read.per.level"},
     {NUM_DATA_BLOCKS_READ_PER_LEVEL, "rocksdb.num.data.blocks.read.per.level"},
     {NUM_SST_READ_PER_LEVEL, "rocksdb.num.sst.read.per.level"},
+    {DB_WRITE_WAL_TIME, "rocksdb.db.write.wal.time"},  
 };
 
 std::shared_ptr<Statistics> CreateDBStatistics() {
