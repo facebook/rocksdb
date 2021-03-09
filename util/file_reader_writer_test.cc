@@ -544,6 +544,10 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
     ASSERT_OK(reader->GetStatus());
     ASSERT_EQ(count, nlines);
     ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
+    // And still
+    ASSERT_FALSE(reader->ReadLine(&line));
+    ASSERT_OK(reader->GetStatus());
+    ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
   }
 
   // Verify with injected I/O error
@@ -563,10 +567,12 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
     ASSERT_OK(reader->GetStatus());
 
     // Inject error
+    int callback_count = 0;
     SyncPoint::GetInstance()->SetCallBack(
-        "MemFile::Read:IOStatus", [](void* arg) {
+        "MemFile::Read:IOStatus", [&](void* arg) {
           IOStatus* status = static_cast<IOStatus*>(arg);
           *status = IOStatus::Corruption("test");
+          ++callback_count;
         });
     SyncPoint::GetInstance()->EnableProcessing();
 
@@ -577,6 +583,12 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
     }
     ASSERT_TRUE(reader->GetStatus().IsCorruption());
     ASSERT_LT(count, nlines / 2);
+    ASSERT_EQ(callback_count, 1);
+
+    // Still get error & no retry
+    ASSERT_FALSE(reader->ReadLine(&line));
+    ASSERT_TRUE(reader->GetStatus().IsCorruption());
+    ASSERT_EQ(callback_count, 1);
 
     SyncPoint::GetInstance()->DisableProcessing();
     SyncPoint::GetInstance()->ClearAllCallBacks();
