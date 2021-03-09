@@ -29,7 +29,6 @@ bool LineFileReader::ReadLine(std::string* out) {
     status_.MustCheck();
     return false;
   }
-  ++line_number_;
   out->clear();
   for (;;) {
     // Look for line delimiter
@@ -39,6 +38,7 @@ bool LineFileReader::ReadLine(std::string* out) {
       size_t len = found - buf_begin_;
       out->append(buf_begin_, len);
       buf_begin_ += len + /*delim*/ 1;
+      ++line_number_;
       return true;
     }
     if (at_eof_) {

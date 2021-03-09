@@ -44,8 +44,10 @@ class LineFileReader {
   bool ReadLine(std::string* out);
 
   // Returns the number of the line most recently returned from ReadLine.
-  // The first line is 1, and 0 is returned if no line has been read.
-  // Return value is unspecified if ReadLine has returned false.
+  // Return value is unspecified if ReadLine has returned false due to
+  // I/O error. After ReadLine returns false due to end-of-file, return
+  // value is the last returned line number, or equivalently the total
+  // number of lines returned.
   size_t GetLineNumber() const { return line_number_; }
 
   // Returns any error encountered during read. The error is considered

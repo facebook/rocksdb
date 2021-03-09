@@ -543,6 +543,7 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
     }
     ASSERT_OK(reader->GetStatus());
     ASSERT_EQ(count, nlines);
+    ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
   }
 
   // Verify with injected I/O error
