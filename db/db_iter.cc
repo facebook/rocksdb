@@ -193,8 +193,10 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
   read_options.read_tier = read_tier_;
   read_options.verify_checksums = verify_checksums_;
 
-  const Status s =
-      version_->GetBlob(read_options, user_key, blob_index, &blob_value_);
+  constexpr uint64_t* bytes_read = nullptr;
+
+  const Status s = version_->GetBlob(read_options, user_key, blob_index,
+                                     &blob_value_, bytes_read);
 
   if (!s.ok()) {
     status_ = s;
@@ -681,6 +683,7 @@ bool DBIter::ReverseToForward() {
     last_key.SetInternalKey(ParsedInternalKey(
         saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
     iter_.Seek(last_key.GetInternalKey());
+    RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
   }
 
   direction_ = kForward;
@@ -731,6 +734,7 @@ bool DBIter::ReverseToBackward() {
         iter_.SeekToLast();
       }
     }
+    RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
   }
 
   direction_ = kReverse;
@@ -1257,7 +1261,19 @@ void DBIter::Seek(const Slice& target) {
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
     // TODO: What do we do if this returns an error?
-    db_impl_->TraceIteratorSeek(cfd_->GetID(), target).PermitUncheckedError();
+    Slice lower_bound, upper_bound;
+    if (iterate_lower_bound_ != nullptr) {
+      lower_bound = *iterate_lower_bound_;
+    } else {
+      lower_bound = Slice("");
+    }
+    if (iterate_upper_bound_ != nullptr) {
+      upper_bound = *iterate_upper_bound_;
+    } else {
+      upper_bound = Slice("");
+    }
+    db_impl_->TraceIteratorSeek(cfd_->GetID(), target, lower_bound, upper_bound)
+        .PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
 
@@ -1319,7 +1335,20 @@ void DBIter::SeekForPrev(const Slice& target) {
 #ifndef ROCKSDB_LITE
   if (db_impl_ != nullptr && cfd_ != nullptr) {
     // TODO: What do we do if this returns an error?
-    db_impl_->TraceIteratorSeekForPrev(cfd_->GetID(), target)
+    Slice lower_bound, upper_bound;
+    if (iterate_lower_bound_ != nullptr) {
+      lower_bound = *iterate_lower_bound_;
+    } else {
+      lower_bound = Slice("");
+    }
+    if (iterate_upper_bound_ != nullptr) {
+      upper_bound = *iterate_upper_bound_;
+    } else {
+      upper_bound = Slice("");
+    }
+    db_impl_
+        ->TraceIteratorSeekForPrev(cfd_->GetID(), target, lower_bound,
+                                   upper_bound)
         .PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE

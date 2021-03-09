@@ -158,7 +158,7 @@ function init_arguments {
 
   current_time=$(date +"%F-%H:%M:%S")
   RESULT_PATH=${RESULT_PATH:-"$1/results/$current_time"}
-  COMMIT_ID=`git log | head -n1 | cut -c 8-`
+  COMMIT_ID=`hg id -i`
   SUMMARY_FILE="$RESULT_PATH/SUMMARY.csv"
 
   DB_PATH=${3:-"$1/db"}
@@ -365,16 +365,6 @@ function exit_on_error {
     echo "ERROR" >> $SUMMARY_FILE
     exit $1
   fi
-}
-
-function checkout_rocksdb {
-  echo "Checking out commit $1 ..."
-
-  git fetch --all
-  exit_on_error $?
-
-  git checkout $1
-  exit_on_error $?
 }
 
 function build_db_bench_and_ldb {
