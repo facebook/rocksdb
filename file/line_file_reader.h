@@ -46,12 +46,12 @@ class LineFileReader {
   // Returns the number of the line most recently returned from ReadLine.
   // The first line is 1, and 0 is returned if no line has been read.
   // Return value is unspecified if ReadLine has returned false.
-  size_t GetLineNumber() { return line_number_; }
+  size_t GetLineNumber() const { return line_number_; }
 
   // Returns any error encountered during read. The error is considered
   // permanent and no retry or recovery is attempted with the same
   // LineFileReader.
-  const Status& GetStatus() { return status_; }
+  const Status& GetStatus() const { return status_; }
 };
 
 }  // namespace ROCKSDB_NAMESPACE

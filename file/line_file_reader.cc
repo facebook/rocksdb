@@ -23,6 +23,7 @@ Status LineFileReader::Create(const std::shared_ptr<FileSystem>& fs,
 }
 
 bool LineFileReader::ReadLine(std::string* out) {
+  assert(out);
   if (!status_.ok()) {
     // Status should be checked (or permit unchecked) any time we return false.
     status_.MustCheck();

@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <vector>
 
+#include "env/mock_env.h"
+#include "file/line_file_reader.h"
 #include "file/random_access_file_reader.h"
 #include "file/readahead_raf.h"
 #include "file/sequence_file_reader.h"
@@ -496,6 +498,90 @@ INSTANTIATE_TEST_CASE_P(
 INSTANTIATE_TEST_CASE_P(
     ReadExceedsReadaheadSize, ReadaheadSequentialFileTest,
     ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
+
+namespace {
+  std::string GenerateLine(int n) {
+    std::string rv;
+    // Multiples of 17 characters per line, for likely bad buffer alignment
+    for (int i = 0; i < n; ++i) {
+      rv.push_back(static_cast<char>('0' + (i % 10)));
+      rv.append("xxxxxxxxxxxxxxxx");
+    }
+    return rv;
+  }
+}
+
+
+TEST(LineFileReaderTest, LineFileReaderTest) {
+  const int nlines = 1000;
+
+  std::unique_ptr<MockEnv> mem_env(new MockEnv(Env::Default()));
+  std::shared_ptr<FileSystem> fs = mem_env->GetFileSystem();
+  // Create an input file
+  {
+    std::unique_ptr<FSWritableFile> file;
+    ASSERT_OK(fs->NewWritableFile("testfile", FileOptions(), &file, /*dbg*/ nullptr));
+
+    for (int i = 0; i < nlines; ++i) {
+      std::string line = GenerateLine(i);
+      line.push_back('\n');
+      ASSERT_OK(file->Append(line, IOOptions(), /*dbg*/ nullptr));
+    }
+  }
+
+  // Verify with no I/O errors
+  {
+    std::unique_ptr<LineFileReader> reader;
+    ASSERT_OK(LineFileReader::Create(fs, "testfile",
+                               FileOptions(), &reader, nullptr));
+    std::string line;
+    int count = 0;
+    while (reader->ReadLine(&line)) {
+      ASSERT_EQ(line, GenerateLine(count));
+      ++count;
+      ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
+    }
+    ASSERT_OK(reader->GetStatus());
+    ASSERT_EQ(count, nlines);
+  }
+
+  // Verify with injected I/O error
+  {
+    std::unique_ptr<LineFileReader> reader;
+    ASSERT_OK(LineFileReader::Create(fs, "testfile",
+                               FileOptions(), &reader, nullptr));
+    std::string line;
+    int count = 0;
+    // Read part way through the file
+    while (count < nlines / 4) {
+      ASSERT_TRUE(reader->ReadLine(&line));
+      ASSERT_EQ(line, GenerateLine(count));
+      ++count;
+      ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
+    }
+    ASSERT_OK(reader->GetStatus());
+
+    // Inject error
+    SyncPoint::GetInstance()->SetCallBack(
+      "MemFile::Read:IOStatus", [](void* arg) {
+        IOStatus* status = static_cast<IOStatus*>(arg);
+        *status = IOStatus::Corruption("test");
+      });
+    SyncPoint::GetInstance()->EnableProcessing();
+
+    while (reader->ReadLine(&line)) {
+      ASSERT_EQ(line, GenerateLine(count));
+      ++count;
+      ASSERT_EQ(static_cast<int>(reader->GetLineNumber()), count);
+    }
+    ASSERT_TRUE(reader->GetStatus().IsCorruption());
+    ASSERT_LT(count, nlines / 2);
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
