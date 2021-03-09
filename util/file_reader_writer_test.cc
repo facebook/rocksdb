@@ -500,17 +500,16 @@ INSTANTIATE_TEST_CASE_P(
     ::testing::ValuesIn(ReadaheadSequentialFileTest::GetReadaheadSizeList()));
 
 namespace {
-  std::string GenerateLine(int n) {
-    std::string rv;
-    // Multiples of 17 characters per line, for likely bad buffer alignment
-    for (int i = 0; i < n; ++i) {
-      rv.push_back(static_cast<char>('0' + (i % 10)));
-      rv.append("xxxxxxxxxxxxxxxx");
-    }
-    return rv;
+std::string GenerateLine(int n) {
+  std::string rv;
+  // Multiples of 17 characters per line, for likely bad buffer alignment
+  for (int i = 0; i < n; ++i) {
+    rv.push_back(static_cast<char>('0' + (i % 10)));
+    rv.append("xxxxxxxxxxxxxxxx");
   }
+  return rv;
 }
-
+}  // namespace
 
 TEST(LineFileReaderTest, LineFileReaderTest) {
   const int nlines = 1000;
@@ -520,7 +519,8 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   // Create an input file
   {
     std::unique_ptr<FSWritableFile> file;
-    ASSERT_OK(fs->NewWritableFile("testfile", FileOptions(), &file, /*dbg*/ nullptr));
+    ASSERT_OK(
+        fs->NewWritableFile("testfile", FileOptions(), &file, /*dbg*/ nullptr));
 
     for (int i = 0; i < nlines; ++i) {
       std::string line = GenerateLine(i);
@@ -532,8 +532,8 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   // Verify with no I/O errors
   {
     std::unique_ptr<LineFileReader> reader;
-    ASSERT_OK(LineFileReader::Create(fs, "testfile",
-                               FileOptions(), &reader, nullptr));
+    ASSERT_OK(LineFileReader::Create(fs, "testfile", FileOptions(), &reader,
+                                     nullptr));
     std::string line;
     int count = 0;
     while (reader->ReadLine(&line)) {
@@ -548,8 +548,8 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
   // Verify with injected I/O error
   {
     std::unique_ptr<LineFileReader> reader;
-    ASSERT_OK(LineFileReader::Create(fs, "testfile",
-                               FileOptions(), &reader, nullptr));
+    ASSERT_OK(LineFileReader::Create(fs, "testfile", FileOptions(), &reader,
+                                     nullptr));
     std::string line;
     int count = 0;
     // Read part way through the file
@@ -563,10 +563,10 @@ TEST(LineFileReaderTest, LineFileReaderTest) {
 
     // Inject error
     SyncPoint::GetInstance()->SetCallBack(
-      "MemFile::Read:IOStatus", [](void* arg) {
-        IOStatus* status = static_cast<IOStatus*>(arg);
-        *status = IOStatus::Corruption("test");
-      });
+        "MemFile::Read:IOStatus", [](void* arg) {
+          IOStatus* status = static_cast<IOStatus*>(arg);
+          *status = IOStatus::Corruption("test");
+        });
     SyncPoint::GetInstance()->EnableProcessing();
 
     while (reader->ReadLine(&line)) {
