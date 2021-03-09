@@ -18,8 +18,8 @@ class LineFileReader {
   std::array<char, 8192> buf_;
   SequentialFileReader sfr_;
   Status status_;
-  const char* buf_begin_ = nullptr;
-  const char* buf_end_ = nullptr;
+  const char* buf_begin_ = buf_.data();
+  const char* buf_end_ = buf_.data();
   size_t line_number_ = 0;
   bool at_eof_ = false;
 
@@ -38,9 +38,9 @@ class LineFileReader {
   LineFileReader& operator=(const LineFileReader&) = delete;
 
   // Reads another line from the file, returning true on success and saving
-  // the line to `out`, or returning false on failure. You must check
-  // GetStatus to determine whether the failure was just end-of-file (OK
-  // status) or an I/O error (another status).
+  // the line to `out`, without delimiter, or returning false on failure. You
+  // must check GetStatus() to determine whether the failure was just
+  // end-of-file (OK status) or an I/O error (another status).
   bool ReadLine(std::string* out);
 
   // Returns the number of the line most recently returned from ReadLine.
