@@ -475,9 +475,11 @@ class ColumnFamilyData {
     kPendingCompactionBytes,
   };
   static std::pair<WriteStallCondition, WriteStallCause>
-  GetWriteStallConditionAndCause(int num_unflushed_memtables, int num_l0_files,
-                                 uint64_t num_compaction_needed_bytes,
-                                 const MutableCFOptions& mutable_cf_options);
+  GetWriteStallConditionAndCause(
+      int num_unflushed_memtables, int num_l0_files,
+      uint64_t num_compaction_needed_bytes,
+      const MutableCFOptions& mutable_cf_options,
+      const ImmutableCFOptions& immutable_cf_options);
 
   // Recalculate some small conditions, which are changed only during
   // compaction, adding new memtable and/or

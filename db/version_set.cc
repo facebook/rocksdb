@@ -1793,8 +1793,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       io_tracer_(io_tracer) {}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                        const Slice& blob_index_slice,
-                        PinnableSlice* value) const {
+                        const Slice& blob_index_slice, PinnableSlice* value,
+                        uint64_t* bytes_read) const {
   if (read_options.read_tier == kBlockCacheTier) {
     return Status::Incomplete("Cannot read blob: no disk I/O allowed");
   }
@@ -1808,12 +1808,12 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
     }
   }
 
-  return GetBlob(read_options, user_key, blob_index, value);
+  return GetBlob(read_options, user_key, blob_index, value, bytes_read);
 }
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                        const BlobIndex& blob_index,
-                        PinnableSlice* value) const {
+                        const BlobIndex& blob_index, PinnableSlice* value,
+                        uint64_t* bytes_read) const {
   assert(value);
 
   if (blob_index.HasTTL() || blob_index.IsInlined()) {
@@ -1843,7 +1843,7 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   assert(blob_file_reader.GetValue());
   const Status s = blob_file_reader.GetValue()->GetBlob(
       read_options, user_key, blob_index.offset(), blob_index.size(),
-      blob_index.compression(), value);
+      blob_index.compression(), value, bytes_read);
 
   return s;
 }
@@ -1953,7 +1953,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 
         if (is_blob_index) {
           if (do_merge && value) {
-            *status = GetBlob(read_options, user_key, *value, value);
+            constexpr uint64_t* bytes_read = nullptr;
+
+            *status =
+                GetBlob(read_options, user_key, *value, value, bytes_read);
             if (!status->ok()) {
               if (status->IsIncomplete()) {
                 get_context.MarkKeyMayExist();
@@ -2147,8 +2150,10 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
           if (iter->is_blob_index) {
             if (iter->value) {
+              constexpr uint64_t* bytes_read = nullptr;
+
               *status = GetBlob(read_options, iter->ukey_with_ts, *iter->value,
-                                iter->value);
+                                iter->value, bytes_read);
               if (!status->ok()) {
                 if (status->IsIncomplete()) {
                   get_context.MarkKeyMayExist();

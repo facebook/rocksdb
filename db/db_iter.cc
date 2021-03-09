@@ -193,8 +193,10 @@ bool DBIter::SetBlobValueIfNeeded(const Slice& user_key,
   read_options.read_tier = read_tier_;
   read_options.verify_checksums = verify_checksums_;
 
-  const Status s =
-      version_->GetBlob(read_options, user_key, blob_index, &blob_value_);
+  constexpr uint64_t* bytes_read = nullptr;
+
+  const Status s = version_->GetBlob(read_options, user_key, blob_index,
+                                     &blob_value_, bytes_read);
 
   if (!s.ok()) {
     status_ = s;
