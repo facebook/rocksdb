@@ -394,9 +394,7 @@ void CompactionIterator::NextFromInput() {
     int cmp_ts = 0;
     if (has_current_user_key_) {
       user_key_equal_without_ts =
-          timestamp_size_
-              ? cmp_->EqualWithoutTimestamp(ikey_.user_key, current_user_key_)
-              : cmp_->Equal(ikey_.user_key, current_user_key_);
+          cmp_->EqualWithoutTimestamp(ikey_.user_key, current_user_key_);
       // if timestamp_size_ > 0, then curr_ts_ has been initialized by a
       // previous key.
       cmp_ts = timestamp_size_ ? cmp_->CompareTimestamp(

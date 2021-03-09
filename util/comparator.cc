@@ -130,7 +130,6 @@ class BytewiseComparatorImpl : public Comparator {
     return a.compare(b);
   }
 
-  using Comparator::EqualWithoutTimestamp;
   bool EqualWithoutTimestamp(const Slice& a, const Slice& b) const override {
     return a == b;
   }
