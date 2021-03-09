@@ -3,6 +3,8 @@
 #  COPYING file in the root directory) and Apache 2.0 License
 #  (found in the LICENSE.Apache file in the root directory).
 
+# flake8: noqa: F723 syntax error in type comment X 2
+
 import copy
 from advisor.db_log_parser import DataSource, NO_COL_FAMILY
 from advisor.ini_parser import IniParser
