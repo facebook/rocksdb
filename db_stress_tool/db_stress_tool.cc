@@ -153,17 +153,22 @@ int db_stress_tool(int argc, char** argv) {
             "test_batches_snapshots test!\n");
     exit(1);
   }
-  if (FLAGS_memtable_prefix_bloom_size_ratio > 0.0 && FLAGS_prefix_size < 0) {
+  if (FLAGS_memtable_prefix_bloom_size_ratio > 0.0 && FLAGS_prefix_size < 0 &&
+      !FLAGS_memtable_whole_key_filtering) {
     fprintf(stderr,
-            "Error: please specify positive prefix_size in order to use "
-            "memtable_prefix_bloom_size_ratio\n");
+            "Error: please specify positive prefix_size or enable whole key "
+            "filtering in order to use memtable_prefix_bloom_size_ratio\n");
     exit(1);
   }
   if ((FLAGS_readpercent + FLAGS_prefixpercent + FLAGS_writepercent +
        FLAGS_delpercent + FLAGS_delrangepercent + FLAGS_iterpercent) != 100) {
     fprintf(stderr,
-            "Error: Read+Prefix+Write+Delete+DeleteRange+Iterate percents != "
-            "100!\n");
+            "Error: "
+            "Read(%d)+Prefix(%d)+Write(%d)+Delete(%d)+DeleteRange(%d)"
+            "+Iterate(%d) percents != "
+            "100!\n",
+            FLAGS_readpercent, FLAGS_prefixpercent, FLAGS_writepercent,
+            FLAGS_delpercent, FLAGS_delrangepercent, FLAGS_iterpercent);
     exit(1);
   }
   if (FLAGS_disable_wal == 1 && FLAGS_reopen > 0) {

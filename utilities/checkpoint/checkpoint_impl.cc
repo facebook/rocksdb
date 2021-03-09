@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cinttypes>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "db/wal_manager.h"
@@ -269,10 +270,11 @@ Status CheckpointImpl::CreateCustomCheckpoint(
 
   size_t wal_size = live_wal_files.size();
 
-  // process live files, non-table files first
+  // process live files, non-table, non-blob files first
   std::string manifest_fname, current_fname;
-  // record table files for processing next
-  std::vector<std::pair<std::string, uint64_t>> live_table_files;
+  // record table and blob files for processing next
+  std::vector<std::tuple<std::string, uint64_t, FileType>>
+      live_table_and_blob_files;
   for (auto& live_file : live_files) {
     if (!s.ok()) {
       break;
@@ -284,8 +286,8 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       s = Status::Corruption("Can't parse file name. This is very bad");
       break;
     }
-    // we should only get sst, options, manifest and current files here
-    assert(type == kTableFile || type == kDescriptorFile ||
+    // we should only get sst, blob, options, manifest and current files here
+    assert(type == kTableFile || type == kBlobFile || type == kDescriptorFile ||
            type == kCurrentFile || type == kOptionsFile);
     assert(live_file.size() > 0 && live_file[0] == '/');
     if (type == kCurrentFile) {
@@ -297,20 +299,21 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     } else if (type == kDescriptorFile) {
       manifest_fname = live_file;
     }
-    if (type != kTableFile) {
-      // copy non-table files here
+
+    if (type != kTableFile && type != kBlobFile) {
+      // copy non-table, non-blob files here
       // * if it's kDescriptorFile, limit the size to manifest_file_size
       s = copy_file_cb(db_->GetName(), live_file,
                        (type == kDescriptorFile) ? manifest_file_size : 0, type,
                        kUnknownFileChecksumFuncName, kUnknownFileChecksum);
     } else {
-      // process table files below
-      live_table_files.push_back(make_pair(live_file, number));
+      // process table and blob files below
+      live_table_and_blob_files.emplace_back(live_file, number, type);
     }
   }
 
-  // get checksum info for table files
-  // get table file checksums if get_live_table_checksum is true
+  // get checksum info for table and blob files.
+  // get table and blob file checksums if get_live_table_checksum is true
   std::unique_ptr<FileChecksumList> checksum_list;
 
   if (s.ok() && get_live_table_checksum) {
@@ -322,19 +325,21 @@ Status CheckpointImpl::CreateCustomCheckpoint(
                                      manifest_file_size, checksum_list.get());
   }
 
-  // copy/hard link live table files
-  for (auto& ltf : live_table_files) {
+  // copy/hard link live table and blob files
+  for (const auto& file : live_table_and_blob_files) {
     if (!s.ok()) {
       break;
     }
-    std::string& src_fname = ltf.first;
-    uint64_t number = ltf.second;
+
+    const std::string& src_fname = std::get<0>(file);
+    const uint64_t number = std::get<1>(file);
+    const FileType type = std::get<2>(file);
 
     // rules:
-    // * for kTableFile, attempt hard link instead of copy.
+    // * for kTableFile/kBlobFile, attempt hard link instead of copy.
     // * but can't hard link across filesystems.
     if (same_fs) {
-      s = link_file_cb(db_->GetName(), src_fname, kTableFile);
+      s = link_file_cb(db_->GetName(), src_fname, type);
       if (s.IsNotSupported()) {
         same_fs = false;
         s = Status::OK();
@@ -345,7 +350,7 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       std::string checksum_value = kUnknownFileChecksum;
 
       // we ignore the checksums either they are not required or we failed to
-      // obtain the checksum lsit for old table files that have no file
+      // obtain the checksum list for old table files that have no file
       // checksums
       if (get_live_table_checksum) {
         // find checksum info for table files
@@ -359,7 +364,7 @@ Status CheckpointImpl::CreateCustomCheckpoint(
           assert(checksum_value == kUnknownFileChecksum);
         }
       }
-      s = copy_file_cb(db_->GetName(), src_fname, 0, kTableFile, checksum_name,
+      s = copy_file_cb(db_->GetName(), src_fname, 0, type, checksum_name,
                        checksum_value);
     }
   }

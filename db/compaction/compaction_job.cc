@@ -46,6 +46,7 @@
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/thread_status_util.h"
+#include "options/options_helper.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -793,39 +794,45 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   double bytes_read_per_sec = 0;
   double bytes_written_per_sec = 0;
 
-  if (stats.bytes_read_non_output_levels > 0) {
-    read_write_amp = (stats.bytes_written + stats.bytes_read_output_level +
-                      stats.bytes_read_non_output_levels) /
-                     static_cast<double>(stats.bytes_read_non_output_levels);
-    write_amp = stats.bytes_written /
-                static_cast<double>(stats.bytes_read_non_output_levels);
+  const uint64_t bytes_read_non_output_and_blob =
+      stats.bytes_read_non_output_levels + stats.bytes_read_blob;
+  const uint64_t bytes_read_all =
+      stats.bytes_read_output_level + bytes_read_non_output_and_blob;
+  const uint64_t bytes_written_all =
+      stats.bytes_written + stats.bytes_written_blob;
+
+  if (bytes_read_non_output_and_blob > 0) {
+    read_write_amp = (bytes_written_all + bytes_read_all) /
+                     static_cast<double>(bytes_read_non_output_and_blob);
+    write_amp =
+        bytes_written_all / static_cast<double>(bytes_read_non_output_and_blob);
   }
   if (stats.micros > 0) {
-    bytes_read_per_sec =
-        (stats.bytes_read_non_output_levels + stats.bytes_read_output_level) /
-        static_cast<double>(stats.micros);
+    bytes_read_per_sec = bytes_read_all / static_cast<double>(stats.micros);
     bytes_written_per_sec =
-        stats.bytes_written / static_cast<double>(stats.micros);
+        bytes_written_all / static_cast<double>(stats.micros);
   }
 
   const std::string& column_family_name = cfd->GetName();
 
+  constexpr double kMB = 1048576.0;
+
   ROCKS_LOG_BUFFER(
       log_buffer_,
       "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
-      "files in(%d, %d) out(%d) "
-      "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
-      "write-amplify(%.1f) %s, records in: %" PRIu64
+      "files in(%d, %d) out(%d +%d blob) "
+      "MB in(%.1f, %.1f +%.1f blob) out(%.1f +%.1f blob), "
+      "read-write-amplify(%.1f) write-amplify(%.1f) %s, records in: %" PRIu64
       ", records dropped: %" PRIu64 " output_compression: %s\n",
       column_family_name.c_str(), vstorage->LevelSummary(&tmp),
       bytes_read_per_sec, bytes_written_per_sec,
       compact_->compaction->output_level(),
       stats.num_input_files_in_non_output_levels,
       stats.num_input_files_in_output_level, stats.num_output_files,
-      stats.bytes_read_non_output_levels / 1048576.0,
-      stats.bytes_read_output_level / 1048576.0,
-      stats.bytes_written / 1048576.0, read_write_amp, write_amp,
-      status.ToString().c_str(), stats.num_input_records,
+      stats.num_output_files_blob, stats.bytes_read_non_output_levels / kMB,
+      stats.bytes_read_output_level / kMB, stats.bytes_read_blob / kMB,
+      stats.bytes_written / kMB, stats.bytes_written_blob / kMB, read_write_amp,
+      write_amp, status.ToString().c_str(), stats.num_input_records,
       stats.num_dropped_records,
       CompressionTypeToString(compact_->compaction->output_compression())
           .c_str());
@@ -977,7 +984,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                 sub_compact->compaction->immutable_cf_options(),
                 mutable_cf_options, &file_options_, job_id_, cfd->GetID(),
                 cfd->GetName(), Env::IOPriority::IO_LOW, write_hint_,
-                &blob_file_paths, &sub_compact->blob_file_additions)
+                io_tracer_, &blob_file_paths, &sub_compact->blob_file_additions)
           : nullptr);
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
@@ -1120,6 +1127,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
   }
 
+  sub_compact->compaction_job_stats.num_blobs_read =
+      c_iter_stats.num_blobs_read;
+  sub_compact->compaction_job_stats.total_blob_bytes_read =
+      c_iter_stats.total_blob_bytes_read;
   sub_compact->compaction_job_stats.num_input_deletion_records =
       c_iter_stats.num_input_deletion_records;
   sub_compact->compaction_job_stats.num_corrupt_keys =
@@ -1734,6 +1745,7 @@ Status CompactionJob::OpenCompactionOutputFile(
 
   writable_file->SetIOPriority(Env::IOPriority::IO_LOW);
   writable_file->SetWriteLifeTimeHint(write_hint_);
+  FileTypeSet tmp_set = db_options_.checksum_handoff_file_types;
   writable_file->SetPreallocationBlockSize(static_cast<size_t>(
       sub_compact->compaction->OutputFilePreallocationSize()));
   const auto& listeners =
@@ -1741,7 +1753,8 @@ Status CompactionJob::OpenCompactionOutputFile(
   sub_compact->outfile.reset(new WritableFileWriter(
       std::move(writable_file), fname, file_options_, clock_, io_tracer_,
       db_options_.statistics.get(), listeners,
-      db_options_.file_checksum_gen_factory.get()));
+      db_options_.file_checksum_gen_factory.get(),
+      tmp_set.Contains(FileType::kTableFile)));
 
   // If the Column family flag is to only optimize filters for hits,
   // we can skip creating filters if this is the bottommost_level where
@@ -1821,11 +1834,16 @@ void CompactionJob::UpdateCompactionStats() {
     }
   }
 
+  assert(compaction_job_stats_);
+  compaction_stats_.bytes_read_blob =
+      compaction_job_stats_->total_blob_bytes_read;
+
   compaction_stats_.num_output_files =
-      static_cast<int>(compact_->num_output_files) +
+      static_cast<int>(compact_->num_output_files);
+  compaction_stats_.num_output_files_blob =
       static_cast<int>(compact_->num_blob_output_files);
-  compaction_stats_.bytes_written =
-      compact_->total_bytes + compact_->total_blob_bytes;
+  compaction_stats_.bytes_written = compact_->total_bytes;
+  compaction_stats_.bytes_written_blob = compact_->total_blob_bytes;
 
   if (compaction_stats_.num_input_records > compact_->num_output_records) {
     compaction_stats_.num_dropped_records =
@@ -1865,8 +1883,10 @@ void CompactionJob::UpdateCompactionJobStats(
 
   // output information
   compaction_job_stats_->total_output_bytes = stats.bytes_written;
+  compaction_job_stats_->total_output_bytes_blob = stats.bytes_written_blob;
   compaction_job_stats_->num_output_records = compact_->num_output_records;
   compaction_job_stats_->num_output_files = stats.num_output_files;
+  compaction_job_stats_->num_output_files_blob = stats.num_output_files_blob;
 
   if (stats.num_output_files > 0) {
     CopyPrefix(compact_->SmallestUserKey(),

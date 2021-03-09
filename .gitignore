@@ -93,3 +93,5 @@ clang-format-diff.py
 
 fuzz/proto/gen/
 fuzz/crash-*
+
+cmake-build-*

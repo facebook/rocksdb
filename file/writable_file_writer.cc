@@ -18,6 +18,7 @@
 #include "port/port.h"
 #include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
+#include "util/crc32c.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
 
@@ -395,6 +396,8 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   assert(!use_direct_io());
   const char* src = data;
   size_t left = size;
+  DataVerificationInfo v_info;
+  char checksum_buf[sizeof(uint32_t)];
 
   while (left > 0) {
     size_t allowed;
@@ -420,8 +423,16 @@ IOStatus WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 #endif
       {
         auto prev_perf_level = GetPerfLevel();
+
         IOSTATS_CPU_TIMER_GUARD(cpu_write_nanos, clock_);
-        s = writable_file_->Append(Slice(src, allowed), IOOptions(), nullptr);
+        if (perform_data_verification_) {
+          Crc32cHandoffChecksumCalculation(src, allowed, checksum_buf);
+          v_info.checksum = Slice(checksum_buf, sizeof(uint32_t));
+          s = writable_file_->Append(Slice(src, allowed), IOOptions(), v_info,
+                                     nullptr);
+        } else {
+          s = writable_file_->Append(Slice(src, allowed), IOOptions(), nullptr);
+        }
         SetPerfLevel(prev_perf_level);
       }
 #ifndef ROCKSDB_LITE
@@ -449,6 +460,19 @@ void WritableFileWriter::UpdateFileChecksum(const Slice& data) {
   if (checksum_generator_ != nullptr) {
     checksum_generator_->Update(data.data(), data.size());
   }
+}
+
+// Currently, crc32c checksum is used to calculate the checksum value of the
+// content in the input buffer for handoff. In the future, the checksum might be
+// calculated from the existing crc32c checksums of the in WAl and Manifest
+// records, or even SST file blocks.
+// TODO: effectively use the existing checksum of the data being writing to
+// generate the crc32c checksum instead of a raw calculation.
+void WritableFileWriter::Crc32cHandoffChecksumCalculation(const char* data,
+                                                          size_t size,
+                                                          char* buf) {
+  uint32_t v_crc32c = crc32c::Extend(0, data, size);
+  EncodeFixed32(buf, v_crc32c);
 }
 
 // This flushes the accumulated data in the buffer. We pad data with zeros if
@@ -481,6 +505,8 @@ IOStatus WritableFileWriter::WriteDirect() {
   const char* src = buf_.BufferStart();
   uint64_t write_offset = next_write_offset_;
   size_t left = buf_.CurrentSize();
+  DataVerificationInfo v_info;
+  char checksum_buf[sizeof(uint32_t)];
 
   while (left > 0) {
     // Check how much is allowed
@@ -501,8 +527,16 @@ IOStatus WritableFileWriter::WriteDirect() {
         start_ts = FileOperationInfo::StartNow();
       }
       // direct writes must be positional
-      s = writable_file_->PositionedAppend(Slice(src, size), write_offset,
-                                           IOOptions(), nullptr);
+      if (perform_data_verification_) {
+        Crc32cHandoffChecksumCalculation(src, size, checksum_buf);
+        v_info.checksum = Slice(checksum_buf, sizeof(uint32_t));
+        s = writable_file_->PositionedAppend(Slice(src, size), write_offset,
+                                             IOOptions(), v_info, nullptr);
+      } else {
+        s = writable_file_->PositionedAppend(Slice(src, size), write_offset,
+                                             IOOptions(), nullptr);
+      }
+
       if (ShouldNotifyListeners()) {
         auto finish_ts = std::chrono::steady_clock::now();
         NotifyOnFileWriteFinish(write_offset, size, start_ts, finish_ts, s);
