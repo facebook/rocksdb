@@ -3921,6 +3921,8 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
   table_options.index_block_restart_interval = index_block_restart_interval;
   if (value_delta_encoding) {
     table_options.format_version = 4;
+  } else {
+    table_options.format_version = 3;
   }
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
 

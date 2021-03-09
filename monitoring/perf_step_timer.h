@@ -18,13 +18,13 @@ class PerfStepTimer {
       Statistics* statistics = nullptr, uint32_t ticker_type = 0)
       : perf_counter_enabled_(perf_level >= enable_level),
         use_cpu_time_(use_cpu_time),
+        ticker_type_(ticker_type),
         clock_((perf_counter_enabled_ || statistics != nullptr)
                    ? (clock ? clock : SystemClock::Default().get())
                    : nullptr),
         start_(0),
         metric_(metric),
-        statistics_(statistics),
-        ticker_type_(ticker_type) {}
+        statistics_(statistics) {}
 
   ~PerfStepTimer() {
     Stop();
@@ -69,11 +69,11 @@ class PerfStepTimer {
 
   const bool perf_counter_enabled_;
   const bool use_cpu_time_;
+  uint32_t ticker_type_;
   SystemClock* const clock_;
   uint64_t start_;
   uint64_t* metric_;
   Statistics* statistics_;
-  uint32_t ticker_type_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
