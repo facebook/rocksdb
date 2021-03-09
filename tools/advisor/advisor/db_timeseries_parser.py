@@ -7,6 +7,7 @@ from abc import abstractmethod
 from advisor.db_log_parser import DataSource
 from enum import Enum
 import math
+from typing import Dict
 
 
 NO_ENTITY = 'ENTITY_PLACEHOLDER'
@@ -90,7 +91,7 @@ class TimeSeriesData(DataSource):
         return burst_epochs
 
     def fetch_aggregated_values(self, entity, statistics, aggregation_op):
-        # type: (str, AggregationOperator) -> Dict[str, float]
+        # type: (str, TimeSeriesData.AggregationOperator) -> Dict[str, float]
         # this method performs the aggregation specified by 'aggregation_op'
         # on the timeseries of 'statistics' for 'entity' and returns:
         # Dict[statistic, aggregated_value]
