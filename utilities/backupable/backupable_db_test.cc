@@ -755,6 +755,7 @@ class BackupableDBTest : public testing::Test {
       // fprintf(stderr, "ls %s\n", (backupdir_ + "/" + dir).c_str());
       for (auto& file : children) {
         uint64_t size;
+        size = UINT64_MAX; // appease clang-analyze
         std::string rel_file = dir + "/" + file;
         // fprintf(stderr, "stat %s\n", (backupdir_ + "/" + rel_file).c_str());
         if (test_backup_env_->GetFileSize(backupdir_ + "/" + rel_file, &size)
