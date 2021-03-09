@@ -280,6 +280,8 @@ Status BuildTable(
       if (s.ok()) {
         s = blob_file_builder->Finish();
       }
+      assert(blob_file_additions);
+      assert(!ioptions.cf_paths.empty());
 #ifndef ROCKSDB_LITE
       auto sfm =
           static_cast<SstFileManagerImpl*>(db_options.sst_file_manager.get());
