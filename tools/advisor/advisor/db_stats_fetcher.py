@@ -10,6 +10,7 @@ import glob
 import re
 import subprocess
 import time
+from typing import List
 
 
 class LogStatsParser(TimeSeriesData):
