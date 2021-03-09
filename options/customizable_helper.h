@@ -61,7 +61,8 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
                                std::shared_ptr<T>* result) {
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
-  Status status = ConfigurableHelper::GetOptionsMap(value, &id, &opt_map);
+  Status status =
+      ConfigurableHelper::GetOptionsMap(value, result->get(), &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
   }
@@ -75,7 +76,7 @@ static Status LoadSharedObject(const ConfigOptions& config_options,
   }
 #endif
   if (func == nullptr || !func(id, result)) {  // No factory, or it failed
-    if (id.empty() && opt_map.empty()) {
+    if (value.empty()) {
       // No Id and no options.  Clear the object
       result->reset();
       return Status::OK();
@@ -119,7 +120,8 @@ static Status LoadUniqueObject(const ConfigOptions& config_options,
                                std::unique_ptr<T>* result) {
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
-  Status status = ConfigurableHelper::GetOptionsMap(value, &id, &opt_map);
+  Status status =
+      ConfigurableHelper::GetOptionsMap(value, result->get(), &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
   }
@@ -133,7 +135,7 @@ static Status LoadUniqueObject(const ConfigOptions& config_options,
   }
 #endif
   if (func == nullptr || !func(id, result)) {  // No factory, or it failed
-    if (id.empty() && opt_map.empty()) {
+    if (value.empty()) {
       // No Id and no options.  Clear the object
       result->reset();
       return Status::OK();
@@ -175,7 +177,8 @@ static Status LoadStaticObject(const ConfigOptions& config_options,
                                const StaticFactoryFunc<T>& func, T** result) {
   std::string id;
   std::unordered_map<std::string, std::string> opt_map;
-  Status status = ConfigurableHelper::GetOptionsMap(value, &id, &opt_map);
+  Status status =
+      ConfigurableHelper::GetOptionsMap(value, *result, &id, &opt_map);
   if (!status.ok()) {  // GetOptionsMap failed
     return status;
   }
@@ -189,7 +192,7 @@ static Status LoadStaticObject(const ConfigOptions& config_options,
   }
 #endif
   if (func == nullptr || !func(id, result)) {  // No factory, or it failed
-    if (id.empty() && opt_map.empty()) {
+    if (value.empty()) {
       // No Id and no options.  Clear the object
       *result = nullptr;
       return Status::OK();

@@ -758,41 +758,44 @@ class BackupableDBTest : public testing::Test {
     }
   }
 
-  Status GetTableFilesInDB(std::vector<FileAttributes>* table_files) {
+  Status GetDataFilesInDB(const FileType& file_type,
+                          std::vector<FileAttributes>* files) {
     std::vector<FileAttributes> children;
     Status s = test_db_env_->GetChildrenFileAttributes(dbname_, &children);
     for (const auto& child : children) {
-      if (child.size_bytes > 0 && child.name.size() > 4 &&
-          child.name.rfind(".sst") == child.name.length() - 4) {
-        table_files->push_back(child);
+      FileType type;
+      uint64_t number = 0;
+      if (ParseFileName(child.name, &number, &type) && type == file_type) {
+        files->push_back(child);
       }
     }
     return s;
   }
 
-  Status GetRandomTableFileInDB(std::string* fname_out,
-                                uint64_t* fsize_out = nullptr) {
+  Status GetRandomDataFileInDB(const FileType& file_type,
+                               std::string* fname_out,
+                               uint64_t* fsize_out = nullptr) {
     Random rnd(6);  // NB: hardly "random"
-    std::vector<FileAttributes> table_files;
-    Status s = GetTableFilesInDB(&table_files);
+    std::vector<FileAttributes> files;
+    Status s = GetDataFilesInDB(file_type, &files);
     if (!s.ok()) {
       return s;
     }
-    if (table_files.empty()) {
+    if (files.empty()) {
       return Status::NotFound("");
     }
-    size_t i = rnd.Uniform(static_cast<int>(table_files.size()));
-    *fname_out = dbname_ + "/" + table_files[i].name;
+    size_t i = rnd.Uniform(static_cast<int>(files.size()));
+    *fname_out = dbname_ + "/" + files[i].name;
     if (fsize_out) {
-      *fsize_out = table_files[i].size_bytes;
+      *fsize_out = files[i].size_bytes;
     }
     return Status::OK();
   }
 
-  Status CorruptRandomTableFileInDB() {
+  Status CorruptRandomDataFileInDB(const FileType& file_type) {
     std::string fname;
     uint64_t fsize = 0;
-    Status s = GetRandomTableFileInDB(&fname, &fsize);
+    Status s = GetRandomDataFileInDB(file_type, &fname, &fsize);
     if (!s.ok()) {
       return s;
     }
@@ -1351,6 +1354,46 @@ TEST_F(BackupableDBTest, CorruptFileMaintainSize) {
   CloseDBAndBackupEngine();
 }
 
+// Corrupt a blob file but maintain its size
+TEST_F(BackupableDBTest, CorruptBlobFileMaintainSize) {
+  const int keys_iteration = 5000;
+  options_.enable_blob_files = true;
+  OpenDBAndBackupEngine(true);
+  // create a backup
+  FillDB(db_.get(), 0, keys_iteration);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine();
+  // verify with file size
+  ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+  // verify with file checksum
+  ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+
+  std::string file_to_corrupt;
+  std::vector<FileAttributes> children;
+  const std::string dir = backupdir_ + "/private/1";
+  ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
+
+  for (const auto& child : children) {
+    if (child.name.find(".blob") != std::string::npos &&
+        child.size_bytes != 0) {
+      // corrupt the blob files by replacing its content by file_size random
+      // bytes
+      ASSERT_OK(
+          file_manager_->CorruptFile(dir + "/" + child.name, child.size_bytes));
+    }
+  }
+
+  // file sizes match
+  ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+  // file checksums mismatch
+  ASSERT_NOK(backup_engine_->VerifyBackup(1, true));
+  // sanity check, use default second argument
+  ASSERT_OK(backup_engine_->VerifyBackup(1));
+  CloseDBAndBackupEngine();
+}
+
 // Test if BackupEngine will fail to create new backup if some table has been
 // corrupted and the table file checksum is stored in the DB manifest
 TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
@@ -1361,7 +1404,7 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
   FillDB(db_.get(), 0, keys_iteration);
   CloseAndReopenDB();
   // corrupt a random table file in the DB directory
-  ASSERT_OK(CorruptRandomTableFileInDB());
+  ASSERT_OK(CorruptRandomDataFileInDB(kTableFile));
   // file_checksum_gen_factory is null, and thus table checksum is not
   // verified for creating a new backup; no correction is detected
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
@@ -1377,8 +1420,43 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
   FillDB(db_.get(), 0, keys_iteration);
   CloseAndReopenDB();
   // corrupt a random table file in the DB directory
-  ASSERT_OK(CorruptRandomTableFileInDB());
+  ASSERT_OK(CorruptRandomDataFileInDB(kTableFile));
   // table file checksum is enabled so we should be able to detect any
+  // corruption
+  ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+}
+
+// Test if BackupEngine will fail to create new backup if some blob files has
+// been corrupted and the blob file checksum is stored in the DB manifest
+TEST_F(BackupableDBTest, BlobFileCorruptedBeforeBackup) {
+  const int keys_iteration = 50000;
+  options_.enable_blob_files = true;
+
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kNoShare);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseAndReopenDB();
+  // corrupt a random blob file in the DB directory
+  ASSERT_OK(CorruptRandomDataFileInDB(kBlobFile));
+  // file_checksum_gen_factory is null, and thus blob checksum is not
+  // verified for creating a new backup; no correction is detected
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+
+  // delete old files in db
+  ASSERT_OK(DestroyDB(dbname_, options_));
+
+  // Enable file checksum in DB manifest
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kNoShare);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseAndReopenDB();
+  // corrupt a random blob file in the DB directory
+  ASSERT_OK(CorruptRandomDataFileInDB(kBlobFile));
+
+  // file checksum is enabled so we should be able to detect any
   // corruption
   ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
   CloseDBAndBackupEngine();
@@ -1394,7 +1472,7 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   FillDB(db_.get(), 0, keys_iteration);
   CloseAndReopenDB();
   // corrupt a random table file in the DB directory
-  ASSERT_OK(CorruptRandomTableFileInDB());
+  ASSERT_OK(CorruptRandomDataFileInDB(kTableFile));
   // cannot detect corruption since DB manifest has no table checksums
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
   CloseDBAndBackupEngine();
@@ -1408,7 +1486,37 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   FillDB(db_.get(), 0, keys_iteration);
   CloseAndReopenDB();
   // corrupt a random table file in the DB directory
-  ASSERT_OK(CorruptRandomTableFileInDB());
+  ASSERT_OK(CorruptRandomDataFileInDB(kTableFile));
+  // corruption is detected
+  ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+}
+
+// Test if BackupEngine will fail to create new backup if some blob files have
+// been corrupted and the blob file checksum is stored in the DB manifest for
+// the case when backup blob files will be stored in a shared directory
+TEST_P(BackupableDBTestWithParam, BlobFileCorruptedBeforeBackup) {
+  const int keys_iteration = 50000;
+  options_.enable_blob_files = true;
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseAndReopenDB();
+  // corrupt a random blob file in the DB directory
+  ASSERT_OK(CorruptRandomDataFileInDB(kBlobFile));
+  // cannot detect corruption since DB manifest has no blob file checksums
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+
+  // delete old files in db
+  ASSERT_OK(DestroyDB(dbname_, options_));
+
+  // Enable blob file checksums in DB manifest
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseAndReopenDB();
+  // corrupt a random blob file in the DB directory
+  ASSERT_OK(CorruptRandomDataFileInDB(kBlobFile));
   // corruption is detected
   ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
   CloseDBAndBackupEngine();
@@ -1934,7 +2042,7 @@ TEST_F(BackupableDBTest, TableFileCorruptionBeforeIncremental) {
       CloseDBAndBackupEngine();
 
       std::vector<FileAttributes> table_files;
-      ASSERT_OK(GetTableFilesInDB(&table_files));
+      ASSERT_OK(GetDataFilesInDB(kTableFile, &table_files));
       ASSERT_EQ(table_files.size(), 2);
       std::string tf0 = dbname_ + "/" + table_files[0].name;
       std::string tf1 = dbname_ + "/" + table_files[1].name;

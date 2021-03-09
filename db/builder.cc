@@ -28,6 +28,7 @@
 #include "file/writable_file_writer.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_util.h"
+#include "options/options_helper.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -149,13 +150,14 @@ Status BuildTable(
             file_checksum, file_checksum_func_name);
         return s;
       }
+      FileTypeSet tmp_set = ioptions.checksum_handoff_file_types;
       file->SetIOPriority(io_priority);
       file->SetWriteLifeTimeHint(write_hint);
-
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, clock, io_tracer,
           ioptions.statistics, ioptions.listeners,
-          ioptions.file_checksum_gen_factory));
+          ioptions.file_checksum_gen_factory,
+          tmp_set.Contains(FileType::kTableFile)));
 
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
@@ -177,8 +179,8 @@ Status BuildTable(
             ? new BlobFileBuilder(versions, env, fs, &ioptions,
                                   &mutable_cf_options, &file_options, job_id,
                                   column_family_id, column_family_name,
-                                  io_priority, write_hint, &blob_file_paths,
-                                  blob_file_additions)
+                                  io_priority, write_hint, io_tracer,
+                                  &blob_file_paths, blob_file_additions)
             : nullptr);
 
     CompactionIterator c_iter(
