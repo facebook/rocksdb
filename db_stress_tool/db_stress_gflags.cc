@@ -661,6 +661,10 @@ DEFINE_int32(compression_zstd_max_train_bytes, 0,
 DEFINE_int32(compression_parallel_threads, 1,
              "Number of threads for parallel compression.");
 
+DEFINE_uint64(compression_max_dict_buffer_bytes, 0,
+              "Buffering limit for SST file data to sample for dictionary "
+              "compression.");
+
 DEFINE_string(bottommost_compression_type, "disable",
               "Algorithm to use to compress bottommost level of the database. "
               "\"disable\" means disabling the feature");

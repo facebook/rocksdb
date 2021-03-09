@@ -21,6 +21,7 @@
 #include "util/bloom_impl.h"
 #include "util/coding.h"
 #include "util/hash.h"
+#include "util/ribbon_config.h"
 #include "util/ribbon_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -399,6 +400,7 @@ struct Standard128RibbonRehasherTypesAndSettings {
   // These are schema-critical. Any change almost certainly changes
   // underlying data.
   static constexpr bool kIsFilter = true;
+  static constexpr bool kHomogeneous = false;
   static constexpr bool kFirstCoeffAlwaysOne = true;
   static constexpr bool kUseSmash = false;
   using CoeffRow = ROCKSDB_NAMESPACE::Unsigned128;
@@ -598,8 +600,7 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
 
     // Let's not bother accounting for overflow to Bloom filter
     // (Includes NaN case)
-    if (!(max_slots <
-          BandingType::GetNumSlotsFor95PctSuccess(kMaxRibbonEntries))) {
+    if (!(max_slots < ConfigHelper::GetNumSlots(kMaxRibbonEntries))) {
       return kMaxRibbonEntries;
     }
 
@@ -628,12 +629,7 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
       slots = SolnType::RoundDownNumSlots(slots - 1);
     }
 
-    // Using slots instead of entries to get overhead factor estimate
-    double f = BandingType::GetFactorFor95PctSuccess(slots);
-    uint32_t num_entries = static_cast<uint32_t>(slots / f);
-    // Improve precision with another round
-    f = BandingType::GetFactorFor95PctSuccess(num_entries);
-    num_entries = static_cast<uint32_t>(slots / f + 0.999999999);
+    uint32_t num_entries = ConfigHelper::GetNumToAdd(slots);
 
     // Consider possible Bloom fallback for small filters
     if (slots < 1024) {
@@ -675,9 +671,10 @@ class Standard128RibbonBitsBuilder : public XXH3pFilterBitsBuilder {
   using TS = Standard128RibbonTypesAndSettings;
   using SolnType = ribbon::SerializableInterleavedSolution<TS>;
   using BandingType = ribbon::StandardBanding<TS>;
+  using ConfigHelper = ribbon::BandingConfigHelper1TS<ribbon::kOneIn20, TS>;
 
   static uint32_t NumEntriesToNumSlots(uint32_t num_entries) {
-    uint32_t num_slots1 = BandingType::GetNumSlotsFor95PctSuccess(num_entries);
+    uint32_t num_slots1 = ConfigHelper::GetNumSlots(num_entries);
     return SolnType::RoundUpNumSlots(num_slots1);
   }
 
@@ -725,13 +722,22 @@ class Standard128RibbonBitsReader : public FilterBitsReader {
   }
 
   virtual void MayMatch(int num_keys, Slice** keys, bool* may_match) override {
-    std::array<uint64_t, MultiGetContext::MAX_BATCH_SIZE> hashes;
+    struct SavedData {
+      uint64_t seeded_hash;
+      uint32_t segment_num;
+      uint32_t num_columns;
+      uint32_t start_bits;
+    };
+    std::array<SavedData, MultiGetContext::MAX_BATCH_SIZE> saved;
     for (int i = 0; i < num_keys; ++i) {
-      hashes[i] = GetSliceHash64(*keys[i]);
-      // FIXME: batched get optimization
+      ribbon::InterleavedPrepareQuery(
+          GetSliceHash64(*keys[i]), hasher_, soln_, &saved[i].seeded_hash,
+          &saved[i].segment_num, &saved[i].num_columns, &saved[i].start_bits);
     }
     for (int i = 0; i < num_keys; ++i) {
-      may_match[i] = soln_.FilterQuery(hashes[i], hasher_);
+      may_match[i] = ribbon::InterleavedFilterQuery(
+          saved[i].seeded_hash, saved[i].segment_num, saved[i].num_columns,
+          saved[i].start_bits, hasher_, soln_);
     }
   }
 

@@ -111,6 +111,20 @@ Status FileChecksumRetriever::ApplyVersionEdit(VersionEdit& edit,
       return s;
     }
   }
+  for (const auto& new_blob_file : edit.GetBlobFileAdditions()) {
+    std::string checksum_value = new_blob_file.GetChecksumValue();
+    std::string checksum_method = new_blob_file.GetChecksumMethod();
+    assert(checksum_value.empty() == checksum_method.empty());
+    if (checksum_method.empty()) {
+      checksum_value = kUnknownFileChecksum;
+      checksum_method = kUnknownFileChecksumFuncName;
+    }
+    Status s = file_checksum_list_.InsertOneFileChecksum(
+        new_blob_file.GetBlobFileNumber(), checksum_value, checksum_method);
+    if (!s.ok()) {
+      return s;
+    }
+  }
   return Status::OK();
 }
 

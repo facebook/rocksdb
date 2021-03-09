@@ -48,6 +48,8 @@ class FlushJobTestBase : public testing::Test {
     if (getenv("KEEP_DB")) {
       fprintf(stdout, "db is still in %s\n", dbname_.c_str());
     } else {
+      // destroy versions_ to release all file handles
+      versions_.reset();
       EXPECT_OK(DestroyDir(env_, dbname_));
     }
   }
