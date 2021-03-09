@@ -368,11 +368,11 @@ class BackupEngineReadOnly {
   // Setting include_file_details=true provides information about each
   // backed-up file in BackupInfo::file_details.
   virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info,
-                             bool include_file_details = false) = 0;
+                             bool include_file_details = false) const = 0;
 
   // Returns info about corrupt backups in corrupt_backups
   virtual void GetCorruptedBackups(
-      std::vector<BackupID>* corrupt_backup_ids) = 0;
+      std::vector<BackupID>* corrupt_backup_ids) const = 0;
 
   // Restoring DB from backup is NOT safe when there is another BackupEngine
   // running that might call DeleteBackup() or PurgeOldBackups(). It is caller's
@@ -491,11 +491,11 @@ class BackupEngine {
 
   // Returns info about backups in backup_info
   virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info,
-                             bool include_file_details = false) = 0;
+                             bool include_file_details = false) const = 0;
 
   // Returns info about corrupt backups in corrupt_backups
   virtual void GetCorruptedBackups(
-      std::vector<BackupID>* corrupt_backup_ids) = 0;
+      std::vector<BackupID>* corrupt_backup_ids) const = 0;
 
   // restore from backup with backup_id
   // IMPORTANT -- if options_.share_table_files == true,

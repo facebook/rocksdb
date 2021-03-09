@@ -746,8 +746,8 @@ class BackupableDBTest : public testing::Test {
     for (auto& dir : child_dirs) {
       dir = "private/" + dir;
     }
-    child_dirs.push_back("shared");
-    child_dirs.push_back("shared_checksum");
+    child_dirs.push_back("shared");           // might not exist
+    child_dirs.push_back("shared_checksum");  // might not exist
     for (auto& dir : child_dirs) {
       std::vector<std::string> children;
       test_backup_env_->GetChildren(backupdir_ + "/" + dir, &children)
@@ -758,16 +758,15 @@ class BackupableDBTest : public testing::Test {
         size = UINT64_MAX;  // appease clang-analyze
         std::string rel_file = dir + "/" + file;
         // fprintf(stderr, "stat %s\n", (backupdir_ + "/" + rel_file).c_str());
-        if (test_backup_env_->GetFileSize(backupdir_ + "/" + rel_file, &size)
-                .ok()) {
-          auto e = file_sizes.find(rel_file);
-          if (e == file_sizes.end()) {
-            // The only case in which we should find files not reported
-            ASSERT_TRUE(has_corrupt);
-          } else {
-            ASSERT_EQ(e->second, size);
-            file_sizes.erase(e);
-          }
+        ASSERT_OK(
+            test_backup_env_->GetFileSize(backupdir_ + "/" + rel_file, &size));
+        auto e = file_sizes.find(rel_file);
+        if (e == file_sizes.end()) {
+          // The only case in which we should find files not reported
+          ASSERT_TRUE(has_corrupt);
+        } else {
+          ASSERT_EQ(e->second, size);
+          file_sizes.erase(e);
         }
       }
     }

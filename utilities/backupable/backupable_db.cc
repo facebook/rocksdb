@@ -130,9 +130,10 @@ class BackupEngineImpl : public BackupEngine {
   // The returned BackupInfos are in chronological order, which means the
   // latest backup comes last.
   void GetBackupInfo(std::vector<BackupInfo>* backup_info,
-                     bool include_file_details) override;
+                     bool include_file_details) const override;
 
-  void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) override;
+  void GetCorruptedBackups(
+      std::vector<BackupID>* corrupt_backup_ids) const override;
 
   using BackupEngine::RestoreDBFromBackup;
   Status RestoreDBFromBackup(const RestoreOptions& options, BackupID backup_id,
@@ -1281,7 +1282,7 @@ Status BackupEngineImpl::DeleteBackupInternal(BackupID backup_id) {
 }
 
 void BackupEngineImpl::GetBackupInfo(std::vector<BackupInfo>* backup_info,
-                                     bool include_file_details) {
+                                     bool include_file_details) const {
   assert(initialized_);
   backup_info->reserve(backups_.size());
   for (auto& backup : backups_) {
@@ -1303,9 +1304,8 @@ void BackupEngineImpl::GetBackupInfo(std::vector<BackupInfo>* backup_info,
   }
 }
 
-void
-BackupEngineImpl::GetCorruptedBackups(
-    std::vector<BackupID>* corrupt_backup_ids) {
+void BackupEngineImpl::GetCorruptedBackups(
+    std::vector<BackupID>* corrupt_backup_ids) const {
   assert(initialized_);
   corrupt_backup_ids->reserve(corrupt_backups_.size());
   for (auto& backup : corrupt_backups_) {
@@ -2307,11 +2307,12 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
   // The returned BackupInfos are in chronological order, which means the
   // latest backup comes last.
   void GetBackupInfo(std::vector<BackupInfo>* backup_info,
-                     bool include_file_details) override {
+                     bool include_file_details) const override {
     backup_engine_->GetBackupInfo(backup_info, include_file_details);
   }
 
-  void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) override {
+  void GetCorruptedBackups(
+      std::vector<BackupID>* corrupt_backup_ids) const override {
     backup_engine_->GetCorruptedBackups(corrupt_backup_ids);
   }
 
