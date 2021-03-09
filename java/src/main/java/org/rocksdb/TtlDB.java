@@ -113,7 +113,7 @@ public class TtlDB extends RocksDB {
       throws RocksDBException {
     if (columnFamilyDescriptors.size() != ttlValues.size()) {
       throw new IllegalArgumentException("There must be a ttl value per column"
-          + "family handle.");
+          + " family handle.");
     }
 
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
