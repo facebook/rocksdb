@@ -1464,7 +1464,7 @@ void DBTestBase::CopyFile(const std::string& source,
 }
 
 Status DBTestBase::GetAllDataFiles(
-    const FileType& file_type, std::unordered_map<std::string, uint64_t>* files,
+    const FileType file_type, std::unordered_map<std::string, uint64_t>* files,
     uint64_t* total_size /* = nullptr */) {
   if (total_size) {
     *total_size = 0;

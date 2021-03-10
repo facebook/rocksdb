@@ -60,13 +60,12 @@ void SstFileManagerImpl::Close() {
   }
 }
 
-Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
-                                     bool compaction) {
+Status SstFileManagerImpl::OnAddFile(const std::string& file_path) {
   uint64_t file_size;
   Status s = fs_->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
   if (s.ok()) {
     MutexLock l(&mu_);
-    OnAddFileImpl(file_path, file_size, compaction);
+    OnAddFileImpl(file_path, file_size);
   }
   TEST_SYNC_POINT_CALLBACK("SstFileManagerImpl::OnAddFile",
                            const_cast<std::string*>(&file_path));
@@ -74,9 +73,9 @@ Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
 }
 
 Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
-                                     uint64_t file_size, bool compaction) {
+                                     uint64_t file_size) {
   MutexLock l(&mu_);
-  OnAddFileImpl(file_path, file_size, compaction);
+  OnAddFileImpl(file_path, file_size);
   TEST_SYNC_POINT_CALLBACK("SstFileManagerImpl::OnAddFile",
                            const_cast<std::string*>(&file_path));
   return Status::OK();
@@ -125,7 +124,7 @@ Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
     if (file_size != nullptr) {
       *file_size = tracked_files_[old_path];
     }
-    OnAddFileImpl(new_path, tracked_files_[old_path], false);
+    OnAddFileImpl(new_path, tracked_files_[old_path]);
     OnDeleteFileImpl(old_path);
   }
   TEST_SYNC_POINT("SstFileManagerImpl::OnMoveFile");
@@ -443,24 +442,15 @@ void SstFileManagerImpl::WaitForEmptyTrash() {
 }
 
 void SstFileManagerImpl::OnAddFileImpl(const std::string& file_path,
-                                       uint64_t file_size, bool compaction) {
+                                       uint64_t file_size) {
   auto tracked_file = tracked_files_.find(file_path);
   if (tracked_file != tracked_files_.end()) {
     // File was added before, we will just update the size
-    assert(!compaction);
     total_files_size_ -= tracked_file->second;
     total_files_size_ += file_size;
     cur_compactions_reserved_size_ -= file_size;
   } else {
     total_files_size_ += file_size;
-    if (compaction) {
-      // Keep track of the size of files created by in-progress compactions.
-      // When calculating whether there's enough headroom for new compactions,
-      // this will be subtracted from cur_compactions_reserved_size_.
-      // Otherwise, compactions will be double counted.
-      in_progress_files_size_ += file_size;
-      in_progress_files_.insert(file_path);
-    }
   }
   tracked_files_[file_path] = file_size;
 }

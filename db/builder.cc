@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "db/blob/blob_file_builder.h"
+#include "db/blob/blob_file_completion_callback.h"
 #include "db/compaction/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
@@ -93,7 +94,8 @@ Status BuildTable(
     TableProperties* table_properties, int level, const uint64_t creation_time,
     const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
     const uint64_t file_creation_time, const std::string& db_id,
-    const std::string& db_session_id, const std::string* full_history_ts_low) {
+    const std::string& db_session_id, const std::string* full_history_ts_low,
+    BlobFileCompletionCallback* blob_callback) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -176,10 +178,11 @@ Status BuildTable(
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
         (mutable_cf_options.enable_blob_files && blob_file_additions)
-            ? new BlobFileBuilder(
-                  versions, fs, &ioptions, &mutable_cf_options, &file_options,
-                  job_id, column_family_id, column_family_name, io_priority,
-                  write_hint, io_tracer, &blob_file_paths, blob_file_additions)
+            ? new BlobFileBuilder(versions, fs, &ioptions, &mutable_cf_options,
+                                  &file_options, job_id, column_family_id,
+                                  column_family_name, io_priority, write_hint,
+                                  io_tracer, blob_callback, &blob_file_paths,
+                                  blob_file_additions)
             : nullptr);
 
     CompactionIterator c_iter(
@@ -279,30 +282,9 @@ Status BuildTable(
     if (blob_file_builder) {
       if (s.ok()) {
         s = blob_file_builder->Finish();
+      } else {
+        blob_file_builder->Abandon();
       }
-      assert(blob_file_additions);
-      assert(!ioptions.cf_paths.empty());
-#ifndef ROCKSDB_LITE
-      auto sfm =
-          static_cast<SstFileManagerImpl*>(db_options.sst_file_manager.get());
-      if (s.ok() && sfm) {
-        // Report new blob files to SstFileManagerImpl
-        for (auto blob_file = blob_file_additions->begin();
-             blob_file != blob_file_additions->end(); ++blob_file) {
-          std::string filename = BlobFileName(ioptions.cf_paths.front().path,
-                                              blob_file->GetBlobFileNumber());
-          Status add_s = sfm->OnAddFile(filename);
-          if (!add_s.ok() && s.ok()) {
-            s = add_s;
-          }
-          if (sfm->IsMaxAllowedSpaceReached()) {
-            TEST_SYNC_POINT("BuildTable:MaxAllowedSpaceReached");
-            s = Status::SpaceLimit("Max allowed space was reached");
-          }
-        }
-      }
-#endif  // !ROCKSDB_LITE
-
       blob_file_builder.reset();
     }
 

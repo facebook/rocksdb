@@ -87,7 +87,7 @@ class DeleteSchedulerTest : public testing::Test {
     std::string data(size, 'A');
     EXPECT_OK(f->Append(data));
     EXPECT_OK(f->Close());
-    sst_file_mgr_->OnAddFile(file_path, false);
+    sst_file_mgr_->OnAddFile(file_path);
     return file_path;
   }
 

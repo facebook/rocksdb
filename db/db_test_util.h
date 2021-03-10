@@ -1155,7 +1155,7 @@ class DBTestBase : public testing::Test {
   void CopyFile(const std::string& source, const std::string& destination,
                 uint64_t size = 0);
 
-  Status GetAllDataFiles(const FileType& file_type,
+  Status GetAllDataFiles(const FileType file_type,
                          std::unordered_map<std::string, uint64_t>* sst_files,
                          uint64_t* total_size = nullptr);
 

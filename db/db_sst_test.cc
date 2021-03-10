@@ -1082,7 +1082,7 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedWithBlobFiles) {
   // Sync point called after blob file is closed and max allowed space is
   // checked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
-      "BuildTable:MaxAllowedSpaceReached",
+      "BlobFileCompletionCallback::CallBack::MaxAllowedSpaceReached",
       [&](void* /*arg*/) { max_allowed_space_reached = true; });
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
