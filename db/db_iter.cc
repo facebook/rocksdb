@@ -676,7 +676,7 @@ bool DBIter::ReverseToForward() {
                             kValueTypeForSeek);
     if (timestamp_size_ > 0) {
       // TODO: pre-create kTsMax.
-      const std::string kTsMax(timestamp_size_, static_cast<char>(0xffu));
+      const std::string kTsMax(timestamp_size_, '\xff');
       pikey.SetTimestamp(kTsMax);
     }
     last_key.SetInternalKey(pikey);
@@ -1192,7 +1192,7 @@ bool DBIter::FindUserKeyBeforeSavedKey() {
                               kValueTypeForSeek);
       if (timestamp_size_ > 0) {
         // TODO: pre-create kTsMax.
-        const std::string kTsMax(timestamp_size_, static_cast<char>(0xffu));
+        const std::string kTsMax(timestamp_size_, '\xff');
         pikey.SetTimestamp(kTsMax);
       }
       last_key.SetInternalKey(pikey);
@@ -1277,8 +1277,7 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
   if (timestamp_size_ > 0) {
     const std::string kTsMin(timestamp_size_, '\0');
     Slice ts = kTsMin;
-    saved_key_.UpdateInternalKey(/*sequence_number=*/0,
-                                 kValueTypeForSeekForPrev, &ts);
+    saved_key_.UpdateInternalKey(/*seq=*/0, kValueTypeForSeekForPrev, &ts);
   }
 
   if (iterate_upper_bound_ != nullptr &&
@@ -1289,7 +1288,7 @@ void DBIter::SetSavedKeyToSeekForPrevTarget(const Slice& target) {
     saved_key_.SetInternalKey(*iterate_upper_bound_, kMaxSequenceNumber,
                               kValueTypeForSeekForPrev, timestamp_ub_);
     if (timestamp_size_ > 0) {
-      const std::string kTsMax(timestamp_size_, static_cast<char>(0xffu));
+      const std::string kTsMax(timestamp_size_, '\xff');
       Slice ts = kTsMax;
       saved_key_.UpdateInternalKey(kMaxSequenceNumber, kValueTypeForSeekForPrev,
                                    &ts);
