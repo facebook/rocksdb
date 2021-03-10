@@ -1297,11 +1297,6 @@ Status StressTest::TestBackupRestore(
             backup_opts.share_files_with_checksum_naming |
             BackupableDBOptions::kFlagIncludeFileSize;
       }
-      if (thread->rand.OneIn(2)) {
-        backup_opts.share_files_with_checksum_naming =
-            backup_opts.share_files_with_checksum_naming |
-            BackupableDBOptions::kFlagMatchInterimNaming;
-      }
     }
   }
   BackupEngine* backup_engine = nullptr;

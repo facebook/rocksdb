@@ -212,6 +212,9 @@ if(MSVC)
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wstrict-prototypes")
+  endif()
   if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format -fno-asynchronous-unwind-tables")
     add_definitions(-D_POSIX_C_SOURCE=1)
@@ -653,6 +656,7 @@ set(SOURCES
         file/file_prefetch_buffer.cc
         file/file_util.cc
         file/filename.cc
+        file/line_file_reader.cc
         file/random_access_file_reader.cc
         file/read_write_util.cc
         file/readahead_raf.cc
