@@ -329,13 +329,6 @@ class BackupEngineImpl : public BackupEngine {
                BackupableDBOptions::kLegacyCrc32cAndFileSize ||
            sid.empty();
   }
-  inline bool UseInterimNaming(const std::string& sid) const {
-    // The indicator of SST file from early internal 6.12 release
-    // is a '-' in the DB session id. DB session id was made more
-    // concise without '-' after that.
-    return (GetNamingFlags() & BackupableDBOptions::kFlagMatchInterimNaming) &&
-           sid.find('-') != std::string::npos;
-  }
   inline std::string GetSharedFileWithChecksum(
       const std::string& file, bool has_checksum,
       const std::string& checksum_hex, const uint64_t file_size,
@@ -348,8 +341,6 @@ class BackupEngineImpl : public BackupEngine {
       file_copy.insert(file_copy.find_last_of('.'),
                        "_" + ToString(ChecksumHexToInt32(checksum_hex)) + "_" +
                            ToString(file_size));
-    } else if (UseInterimNaming(db_session_id)) {
-      file_copy.insert(file_copy.find_last_of('.'), "_" + db_session_id);
     } else {
       file_copy.insert(file_copy.find_last_of('.'), "_s" + db_session_id);
       if (GetNamingFlags() & BackupableDBOptions::kFlagIncludeFileSize) {
@@ -982,6 +973,13 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   ROCKS_LOG_INFO(options_.info_log,
                  "Started the backup process -- creating backup %u",
                  new_backup_id);
+
+  if (options_.share_table_files && !options_.share_files_with_checksum) {
+    ROCKS_LOG_WARN(options_.info_log,
+                   "BackupableDBOptions::share_files_with_checksum=false is "
+                   "DEPRECATED and could lead to data loss.");
+  }
+
   if (s.ok()) {
     s = backup_env_->CreateDir(private_dir);
   }
