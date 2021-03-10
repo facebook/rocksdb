@@ -436,6 +436,10 @@ default: all
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wunused-parameter
 
+ifeq (,$(filter amd64, $(MACHINE)))
+	C_WARNING_FLAGS = -Wstrict-prototypes
+endif
+
 ifdef USE_CLANG
 	# Used by some teams in Facebook
 	WARNING_FLAGS += -Wshift-sign-overflow
@@ -480,7 +484,7 @@ ifeq ($(NO_THREEWAY_CRC32C), 1)
 	CXXFLAGS += -DNO_THREEWAY_CRC32C
 endif
 
-CFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
+CFLAGS += $(C_WARNING_FLAGS) $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
