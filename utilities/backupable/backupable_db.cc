@@ -1283,7 +1283,7 @@ void BackupEngineImpl::GetBackupInfo(std::vector<BackupInfo>* backup_info,
   assert(initialized_);
   backup_info->reserve(backups_.size());
   for (auto& backup : backups_) {
-    const auto& meta = *backup.second;
+    const BackupMeta& meta = *backup.second;
     if (!meta.Empty()) {
       backup_info->push_back(BackupInfo(backup.first, meta.GetTimestamp(),
                                         meta.GetSize(), meta.GetNumberFiles(),
