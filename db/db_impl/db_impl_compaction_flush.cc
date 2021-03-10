@@ -806,6 +806,25 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                               end_with_ts);
 }
 
+Status DBImpl::IncreaseFullHistoryTsLow(ColumnFamilyData* cfd,
+                                        std::string ts_low) {
+  VersionEdit edit;
+  edit.SetColumnFamily(cfd->GetID());
+  edit.SetFullHistoryTsLow(ts_low);
+
+  InstrumentedMutexLock l(&mutex_);
+  std::string current_ts_low = cfd->GetFullHistoryTsLow();
+  const Comparator* ucmp = cfd->user_comparator();
+  if (!current_ts_low.empty() &&
+      ucmp->CompareTimestamp(ts_low, current_ts_low) < 0) {
+    return Status::InvalidArgument(
+        "Cannot decrease full_history_timestamp_low");
+  }
+
+  return versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(), &edit,
+                                &mutex_);
+}
+
 Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
                                     ColumnFamilyHandle* column_family,
                                     const Slice* begin, const Slice* end) {
@@ -817,6 +836,22 @@ Status DBImpl::CompactRangeInternal(const CompactRangeOptions& options,
   }
 
   bool flush_needed = true;
+
+  // Update full_history_ts_low if it's set
+  if (options.full_history_ts_low != nullptr &&
+      !options.full_history_ts_low->empty()) {
+    std::string ts_low = options.full_history_ts_low->ToString();
+    if (begin != nullptr || end != nullptr) {
+      return Status::InvalidArgument(
+          "Cannot specify compaction range with full_history_ts_low");
+    }
+    Status s = IncreaseFullHistoryTsLow(cfd, ts_low);
+    if (!s.ok()) {
+      LogFlush(immutable_db_options_.info_log);
+      return s;
+    }
+  }
+
   Status s;
   if (begin != nullptr && end != nullptr) {
     // TODO(ajkr): We could also optimize away the flush in certain cases where
@@ -2026,12 +2061,12 @@ Status DBImpl::WaitUntilFlushWouldNotStallWrites(ColumnFamilyData* cfd,
       // check whether one extra immutable memtable or an extra L0 file would
       // cause write stalling mode to be entered. It could still enter stall
       // mode due to pending compaction bytes, but that's less common
-      write_stall_condition =
-          ColumnFamilyData::GetWriteStallConditionAndCause(
-              cfd->imm()->NumNotFlushed() + 1,
-              vstorage->l0_delay_trigger_count() + 1,
-              vstorage->estimated_compaction_needed_bytes(), mutable_cf_options)
-              .first;
+      write_stall_condition = ColumnFamilyData::GetWriteStallConditionAndCause(
+                                  cfd->imm()->NumNotFlushed() + 1,
+                                  vstorage->l0_delay_trigger_count() + 1,
+                                  vstorage->estimated_compaction_needed_bytes(),
+                                  mutable_cf_options, *cfd->ioptions())
+                                  .first;
     } while (write_stall_condition != WriteStallCondition::kNormal);
   }
   return Status::OK();
@@ -2529,7 +2564,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
                       s.ToString().c_str(), error_cnt);
       log_buffer.FlushBufferToLog();
       LogFlush(immutable_db_options_.info_log);
-      env_->SleepForMicroseconds(1000000);
+      clock_->SleepForMicroseconds(1000000);
       mutex_.Lock();
     }
 
@@ -2602,7 +2637,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
     if (s.IsBusy()) {
       bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
       mutex_.Unlock();
-      env_->SleepForMicroseconds(10000);  // prevent hot loop
+      clock_->SleepForMicroseconds(10000);  // prevent hot loop
       mutex_.Lock();
     } else if (!s.ok() && !s.IsShutdownInProgress() &&
                !s.IsManualCompactionPaused() && !s.IsColumnFamilyDropped()) {
@@ -2620,7 +2655,7 @@ void DBImpl::BackgroundCallCompaction(PrepickedCompaction* prepicked_compaction,
                       "Accumulated background error counts: %" PRIu64,
                       s.ToString().c_str(), error_cnt);
       LogFlush(immutable_db_options_.info_log);
-      env_->SleepForMicroseconds(1000000);
+      clock_->SleepForMicroseconds(1000000);
       mutex_.Lock();
     } else if (s.IsManualCompactionPaused()) {
       ManualCompactionState* m = prepicked_compaction->manual_compaction_state;

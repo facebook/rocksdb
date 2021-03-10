@@ -24,6 +24,7 @@
 #include "file/writable_file_writer.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
 
@@ -194,6 +195,28 @@ std::string KeyStr(uint64_t ts, const std::string& user_key,
   PutFixed64(&ts_str, ts);
   user_key_with_ts.append(ts_str);
   return KeyStr(user_key_with_ts, seq, t, corrupt);
+}
+
+bool SleepingBackgroundTask::TimedWaitUntilSleeping(uint64_t wait_time) {
+  auto abs_time = SystemClock::Default()->NowMicros() + wait_time;
+  MutexLock l(&mutex_);
+  while (!sleeping_ || !should_sleep_) {
+    if (bg_cv_.TimedWait(abs_time)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool SleepingBackgroundTask::TimedWaitUntilDone(uint64_t wait_time) {
+  auto abs_time = SystemClock::Default()->NowMicros() + wait_time;
+  MutexLock l(&mutex_);
+  while (!done_with_sleep_) {
+    if (bg_cv_.TimedWait(abs_time)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 std::string RandomName(Random* rnd, const size_t len) {

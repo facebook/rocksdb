@@ -120,7 +120,7 @@ class MemTableRep {
     return true;
   }
 
-  // Same as ::InsertWithHint, but allow concurrnet write
+  // Same as ::InsertWithHint, but allow concurrent write
   //
   // If hint points to nullptr, a new hint will be allocated on heap, otherwise
   // the hint will be updated to reflect the last insert location. The hint is

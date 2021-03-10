@@ -58,16 +58,15 @@ TableReader* NewTableReader(const std::string& sst_file_path,
   // This code block is similar to SstFileReader::Open.
 
   uint64_t file_size = 0;
-  std::unique_ptr<RandomAccessFile> file;
   std::unique_ptr<RandomAccessFileReader> file_reader;
   std::unique_ptr<TableReader> table_reader;
-  Status s = options.env->GetFileSize(sst_file_path, &file_size);
+  const auto& fs = options.env->GetFileSystem();
+  FileOptions fopts(env_options);
+  Status s = options.env->GetFileSize(sst_file_path, fopts.io_options,
+                                      &file_size, nullptr);
   if (s.ok()) {
-    s = options.env->NewRandomAccessFile(sst_file_path, &file, env_options);
-  }
-  if (s.ok()) {
-    file_reader.reset(new RandomAccessFileReader(
-        NewLegacyRandomAccessFileWrapper(file), sst_file_path));
+    s = RandomAccessFileReader::Create(fs, sst_file_path, fopts, &file_reader,
+                                       nullptr);
   }
   if (s.ok()) {
     TableReaderOptions t_opt(cf_ioptions, /*prefix_extractor=*/nullptr,

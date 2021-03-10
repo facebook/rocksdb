@@ -59,6 +59,7 @@ class RateLimiter;
 class ThreadStatusUpdater;
 struct ThreadStatus;
 class FileSystem;
+class SystemClock;
 
 const size_t kDefaultPageSize = 4 * 1024;
 
@@ -150,8 +151,11 @@ class Env {
   };
 
   Env();
-  // Construct an Env with a separate FileSystem implementation
-  Env(std::shared_ptr<FileSystem> fs);
+  // Construct an Env with a separate FileSystem and/or SystemClock
+  // implementation
+  explicit Env(const std::shared_ptr<FileSystem>& fs);
+  Env(const std::shared_ptr<FileSystem>& fs,
+      const std::shared_ptr<SystemClock>& clock);
   // No copying allowed
   Env(const Env&) = delete;
   void operator=(const Env&) = delete;
@@ -576,6 +580,10 @@ class Env {
   // could be a fully implemented one, or a wrapper class around the Env
   const std::shared_ptr<FileSystem>& GetFileSystem() const;
 
+  // Get the SystemClock implementation this Env was constructed with. It
+  // could be a fully implemented one, or a wrapper class around the Env
+  const std::shared_ptr<SystemClock>& GetSystemClock() const;
+
   // If you're adding methods here, remember to add them to EnvWrapper too.
 
  protected:
@@ -585,6 +593,9 @@ class Env {
 
   // Pointer to the underlying FileSystem implementation
   std::shared_ptr<FileSystem> file_system_;
+
+  // Pointer to the underlying SystemClock implementation
+  std::shared_ptr<SystemClock> system_clock_;
 
  private:
   static const size_t kMaxHostNameLen = 256;
@@ -607,6 +618,10 @@ class SequentialFile {
   // May set "*result" to point at data in "scratch[0..n-1]", so
   // "scratch[0..n-1]" must be live when "*result" is used.
   // If an error was encountered, returns a non-OK status.
+  //
+  // After call, result->size() < n only if end of file has been
+  // reached (or non-OK status). Read might fail if called again after
+  // first result->size() < n.
   //
   // REQUIRES: External synchronization
   virtual Status Read(size_t n, Slice* result, char* scratch) = 0;
@@ -653,7 +668,8 @@ struct ReadRequest {
   // File offset in bytes
   uint64_t offset;
 
-  // Length to read in bytes
+  // Length to read in bytes. `result` only returns fewer bytes if end of file
+  // is hit (or `status` is not OK).
   size_t len;
 
   // A buffer that MultiRead()  can optionally place data in. It can
@@ -681,6 +697,10 @@ class RandomAccessFile {
   // "scratch[0..n-1]", so "scratch[0..n-1]" must be live when
   // "*result" is used.  If an error was encountered, returns a non-OK
   // status.
+  //
+  // After call, result->size() < n only if end of file has been
+  // reached (or non-OK status). Read might fail if called again after
+  // first result->size() < n.
   //
   // Safe for concurrent use by multiple threads.
   // If Direct I/O enabled, offset, n, and scratch should be aligned properly.
@@ -966,6 +986,11 @@ class RandomRWFile {
 
   // Read up to `n` bytes starting from offset `offset` and store them in
   // result, provided `scratch` size should be at least `n`.
+  //
+  // After call, result->size() < n only if end of file has been
+  // reached (or non-OK status). Read might fail if called again after
+  // first result->size() < n.
+  //
   // Returns Status::OK() on success.
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;

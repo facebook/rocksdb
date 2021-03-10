@@ -508,7 +508,8 @@ class MemTableConstructor: public Constructor {
     memtable_->Ref();
     int seq = 1;
     for (const auto& kv : kv_map) {
-      Status s = memtable_->Add(seq, kTypeValue, kv.first, kv.second);
+      Status s = memtable_->Add(seq, kTypeValue, kv.first, kv.second,
+                                nullptr /* kv_prot_info */);
       if (!s.ok()) {
         return s;
       }
@@ -3920,6 +3921,8 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
   table_options.index_block_restart_interval = index_block_restart_interval;
   if (value_delta_encoding) {
     table_options.format_version = 4;
+  } else {
+    table_options.format_version = 3;
   }
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
 

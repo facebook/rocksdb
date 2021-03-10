@@ -161,7 +161,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_purge_old_backups(
     rocksdb_backup_engine_t* be, uint32_t num_backups_to_keep, char** errptr);
 
 extern ROCKSDB_LIBRARY_API rocksdb_restore_options_t*
-rocksdb_restore_options_create();
+rocksdb_restore_options_create(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_restore_options_destroy(
     rocksdb_restore_options_t* opt);
 extern ROCKSDB_LIBRARY_API void rocksdb_restore_options_set_keep_log_files(
@@ -582,7 +582,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_wal_iter_destroy (const rocksdb_wal_iter
 
 /* Write batch */
 
-extern ROCKSDB_LIBRARY_API rocksdb_writebatch_t* rocksdb_writebatch_create();
+extern ROCKSDB_LIBRARY_API rocksdb_writebatch_t* rocksdb_writebatch_create(
+    void);
 extern ROCKSDB_LIBRARY_API rocksdb_writebatch_t* rocksdb_writebatch_create_from(
     const char* rep, size_t size);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_destroy(
@@ -811,7 +812,7 @@ extern ROCKSDB_LIBRARY_API rocksdb_iterator_t* rocksdb_writebatch_wi_create_iter
 /* Block based table options */
 
 extern ROCKSDB_LIBRARY_API rocksdb_block_based_table_options_t*
-rocksdb_block_based_options_create();
+rocksdb_block_based_options_create(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_destroy(
     rocksdb_block_based_table_options_t* options);
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_block_size(
@@ -886,7 +887,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_block_based_table_factory(
 /* Cuckoo table options */
 
 extern ROCKSDB_LIBRARY_API rocksdb_cuckoo_table_options_t*
-rocksdb_cuckoo_options_create();
+rocksdb_cuckoo_options_create(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_cuckoo_options_destroy(
     rocksdb_cuckoo_table_options_t* options);
 extern ROCKSDB_LIBRARY_API void rocksdb_cuckoo_options_set_hash_ratio(
@@ -910,7 +911,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_set_options(
 extern ROCKSDB_LIBRARY_API void rocksdb_set_options_cf(
     rocksdb_t* db, rocksdb_column_family_handle_t* handle, int count, const char* const keys[], const char* const values[], char** errptr);
 
-extern ROCKSDB_LIBRARY_API rocksdb_options_t* rocksdb_options_create();
+extern ROCKSDB_LIBRARY_API rocksdb_options_t* rocksdb_options_create(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_destroy(rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API rocksdb_options_t* rocksdb_options_create_copy(
     rocksdb_options_t*);
@@ -998,11 +999,17 @@ extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_compression_options_zstd_max_train_bytes(rocksdb_options_t*,
                                                              int);
 extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_compression_options_max_dict_buffer_bytes(
+    rocksdb_options_t*, uint64_t);
+extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_bottommost_compression_options(rocksdb_options_t*, int, int,
                                                    int, int, unsigned char);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_bottommost_compression_options_zstd_max_train_bytes(
     rocksdb_options_t*, int, unsigned char);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_bottommost_compression_options_max_dict_buffer_bytes(
+    rocksdb_options_t*, uint64_t, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_prefix_extractor(
     rocksdb_options_t*, rocksdb_slicetransform_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_num_levels(
@@ -1462,7 +1469,8 @@ enum {
 };
 
 extern ROCKSDB_LIBRARY_API void rocksdb_set_perf_level(int);
-extern ROCKSDB_LIBRARY_API rocksdb_perfcontext_t* rocksdb_perfcontext_create();
+extern ROCKSDB_LIBRARY_API rocksdb_perfcontext_t* rocksdb_perfcontext_create(
+    void);
 extern ROCKSDB_LIBRARY_API void rocksdb_perfcontext_reset(
     rocksdb_perfcontext_t* context);
 extern ROCKSDB_LIBRARY_API char* rocksdb_perfcontext_report(
@@ -1560,7 +1568,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_mergeoperator_destroy(
 
 /* Read options */
 
-extern ROCKSDB_LIBRARY_API rocksdb_readoptions_t* rocksdb_readoptions_create();
+extern ROCKSDB_LIBRARY_API rocksdb_readoptions_t* rocksdb_readoptions_create(
+    void);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_destroy(
     rocksdb_readoptions_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_verify_checksums(
@@ -1617,11 +1626,19 @@ extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_ignore_range_deletions(
     rocksdb_readoptions_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API unsigned char
 rocksdb_readoptions_get_ignore_range_deletions(rocksdb_readoptions_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_deadline(
+    rocksdb_readoptions_t*, uint64_t microseconds);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_readoptions_get_deadline(rocksdb_readoptions_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_io_timeout(
+    rocksdb_readoptions_t*, uint64_t microseconds);
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_readoptions_get_io_timeout(rocksdb_readoptions_t*);
 
 /* Write options */
 
-extern ROCKSDB_LIBRARY_API rocksdb_writeoptions_t*
-rocksdb_writeoptions_create();
+extern ROCKSDB_LIBRARY_API rocksdb_writeoptions_t* rocksdb_writeoptions_create(
+    void);
 extern ROCKSDB_LIBRARY_API void rocksdb_writeoptions_destroy(
     rocksdb_writeoptions_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_writeoptions_set_sync(
@@ -1655,7 +1672,7 @@ rocksdb_writeoptions_get_memtable_insert_hint_per_batch(
 /* Compact range options */
 
 extern ROCKSDB_LIBRARY_API rocksdb_compactoptions_t*
-rocksdb_compactoptions_create();
+rocksdb_compactoptions_create(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_destroy(
     rocksdb_compactoptions_t*);
 extern ROCKSDB_LIBRARY_API void
@@ -1681,8 +1698,8 @@ extern ROCKSDB_LIBRARY_API int rocksdb_compactoptions_get_target_level(
 
 /* Flush options */
 
-extern ROCKSDB_LIBRARY_API rocksdb_flushoptions_t*
-rocksdb_flushoptions_create();
+extern ROCKSDB_LIBRARY_API rocksdb_flushoptions_t* rocksdb_flushoptions_create(
+    void);
 extern ROCKSDB_LIBRARY_API void rocksdb_flushoptions_destroy(
     rocksdb_flushoptions_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_flushoptions_set_wait(
@@ -1711,8 +1728,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_dbpath_destroy(rocksdb_dbpath_t*);
 
 /* Env */
 
-extern ROCKSDB_LIBRARY_API rocksdb_env_t* rocksdb_create_default_env();
-extern ROCKSDB_LIBRARY_API rocksdb_env_t* rocksdb_create_mem_env();
+extern ROCKSDB_LIBRARY_API rocksdb_env_t* rocksdb_create_default_env(void);
+extern ROCKSDB_LIBRARY_API rocksdb_env_t* rocksdb_create_mem_env(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_env_set_background_threads(
     rocksdb_env_t* env, int n);
 extern ROCKSDB_LIBRARY_API int rocksdb_env_get_background_threads(
@@ -1738,7 +1755,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_env_lower_high_priority_thread_pool_cpu_
 
 extern ROCKSDB_LIBRARY_API void rocksdb_env_destroy(rocksdb_env_t*);
 
-extern ROCKSDB_LIBRARY_API rocksdb_envoptions_t* rocksdb_envoptions_create();
+extern ROCKSDB_LIBRARY_API rocksdb_envoptions_t* rocksdb_envoptions_create(
+    void);
 extern ROCKSDB_LIBRARY_API void rocksdb_envoptions_destroy(
     rocksdb_envoptions_t* opt);
 
@@ -1773,7 +1791,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_destroy(
     rocksdb_sstfilewriter_t* writer);
 
 extern ROCKSDB_LIBRARY_API rocksdb_ingestexternalfileoptions_t*
-rocksdb_ingestexternalfileoptions_create();
+rocksdb_ingestexternalfileoptions_create(void);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_ingestexternalfileoptions_set_move_files(
     rocksdb_ingestexternalfileoptions_t* opt, unsigned char move_files);
@@ -1819,7 +1837,7 @@ rocksdb_slicetransform_create(
 extern ROCKSDB_LIBRARY_API rocksdb_slicetransform_t*
     rocksdb_slicetransform_create_fixed_prefix(size_t);
 extern ROCKSDB_LIBRARY_API rocksdb_slicetransform_t*
-rocksdb_slicetransform_create_noop();
+rocksdb_slicetransform_create_noop(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_slicetransform_destroy(
     rocksdb_slicetransform_t*);
 
@@ -1831,7 +1849,7 @@ enum {
 };
 
 extern ROCKSDB_LIBRARY_API rocksdb_universal_compaction_options_t*
-rocksdb_universal_compaction_options_create();
+rocksdb_universal_compaction_options_create(void);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_universal_compaction_options_set_size_ratio(
     rocksdb_universal_compaction_options_t*, int);
@@ -1872,7 +1890,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_universal_compaction_options_destroy(
     rocksdb_universal_compaction_options_t*);
 
 extern ROCKSDB_LIBRARY_API rocksdb_fifo_compaction_options_t*
-rocksdb_fifo_compaction_options_create();
+rocksdb_fifo_compaction_options_create(void);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_fifo_compaction_options_set_max_table_files_size(
     rocksdb_fifo_compaction_options_t* fifo_opts, uint64_t size);
@@ -1929,7 +1947,7 @@ extern ROCKSDB_LIBRARY_API rocksdb_transactiondb_t* rocksdb_transactiondb_open(
     const rocksdb_transactiondb_options_t* txn_db_options, const char* name,
     char** errptr);
 
-rocksdb_transactiondb_t* rocksdb_transactiondb_open_column_families(
+extern ROCKSDB_LIBRARY_API rocksdb_transactiondb_t* rocksdb_transactiondb_open_column_families(
     const rocksdb_options_t* options,
     const rocksdb_transactiondb_options_t* txn_db_options, const char* name,
     int num_column_families, const char* const* column_family_names,
@@ -2105,7 +2123,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_optimistictransactiondb_close(
 /* Transaction Options */
 
 extern ROCKSDB_LIBRARY_API rocksdb_transactiondb_options_t*
-rocksdb_transactiondb_options_create();
+rocksdb_transactiondb_options_create(void);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_transactiondb_options_destroy(
     rocksdb_transactiondb_options_t* opt);
@@ -2125,7 +2143,7 @@ rocksdb_transactiondb_options_set_default_lock_timeout(
     rocksdb_transactiondb_options_t* opt, int64_t default_lock_timeout);
 
 extern ROCKSDB_LIBRARY_API rocksdb_transaction_options_t*
-rocksdb_transaction_options_create();
+rocksdb_transaction_options_create(void);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_transaction_options_destroy(
     rocksdb_transaction_options_t* opt);
@@ -2151,7 +2169,7 @@ rocksdb_transaction_options_set_max_write_batch_size(
     rocksdb_transaction_options_t* opt, size_t size);
 
 extern ROCKSDB_LIBRARY_API rocksdb_optimistictransaction_options_t*
-rocksdb_optimistictransaction_options_create();
+rocksdb_optimistictransaction_options_create(void);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_optimistictransaction_options_destroy(
     rocksdb_optimistictransaction_options_t* opt);
@@ -2177,7 +2195,7 @@ extern ROCKSDB_LIBRARY_API const char* rocksdb_pinnableslice_value(
     const rocksdb_pinnableslice_t* t, size_t* vlen);
 
 extern ROCKSDB_LIBRARY_API rocksdb_memory_consumers_t*
-    rocksdb_memory_consumers_create();
+rocksdb_memory_consumers_create(void);
 extern ROCKSDB_LIBRARY_API void rocksdb_memory_consumers_add_db(
     rocksdb_memory_consumers_t* consumers, rocksdb_t* db);
 extern ROCKSDB_LIBRARY_API void rocksdb_memory_consumers_add_cache(

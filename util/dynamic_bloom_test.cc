@@ -22,6 +22,7 @@ int main() {
 #include "dynamic_bloom.h"
 #include "memory/arena.h"
 #include "port/port.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/gflags_compat.h"
@@ -177,7 +178,7 @@ TEST_F(DynamicBloomTest, VaryingLengths) {
 
 TEST_F(DynamicBloomTest, perf) {
   KeyMaker km;
-  StopWatchNano timer(Env::Default());
+  StopWatchNano timer(SystemClock::Default());
   uint32_t num_probes = static_cast<uint32_t>(FLAGS_num_probes);
 
   if (!FLAGS_enable_perf) {
@@ -237,7 +238,7 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
 
     std::function<void(size_t)> adder([&](size_t t) {
       KeyMaker km;
-      StopWatchNano timer(Env::Default());
+      StopWatchNano timer(SystemClock::Default());
       timer.Start();
       for (uint64_t i = 1 + t; i <= num_keys; i += num_threads) {
         std_bloom.AddConcurrently(km.Seq(i));
@@ -260,7 +261,7 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
     elapsed = 0;
     std::function<void(size_t)> hitter([&](size_t t) {
       KeyMaker km;
-      StopWatchNano timer(Env::Default());
+      StopWatchNano timer(SystemClock::Default());
       timer.Start();
       for (uint64_t i = 1 + t; i <= num_keys; i += num_threads) {
         bool f = std_bloom.MayContain(km.Seq(i));
@@ -285,7 +286,7 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
     std::atomic<uint32_t> false_positives(0);
     std::function<void(size_t)> misser([&](size_t t) {
       KeyMaker km;
-      StopWatchNano timer(Env::Default());
+      StopWatchNano timer(SystemClock::Default());
       timer.Start();
       for (uint64_t i = num_keys + 1 + t; i <= 2 * num_keys; i += num_threads) {
         bool f = std_bloom.MayContain(km.Seq(i));

@@ -42,6 +42,7 @@
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/persistent_stats_history.h"
+#include "options/options_helper.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -1761,6 +1762,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
                  const std::shared_ptr<IOTracer>& io_tracer,
                  uint64_t version_number)
     : env_(vset->env_),
+      clock_(env_->GetSystemClock()),
       cfd_(column_family_data),
       info_log_((cfd_ == nullptr) ? nullptr : cfd_->ioptions()->info_log),
       db_statistics_((cfd_ == nullptr) ? nullptr
@@ -1791,8 +1793,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       io_tracer_(io_tracer) {}
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                        const Slice& blob_index_slice,
-                        PinnableSlice* value) const {
+                        const Slice& blob_index_slice, PinnableSlice* value,
+                        uint64_t* bytes_read) const {
   if (read_options.read_tier == kBlockCacheTier) {
     return Status::Incomplete("Cannot read blob: no disk I/O allowed");
   }
@@ -1806,12 +1808,12 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
     }
   }
 
-  return GetBlob(read_options, user_key, blob_index, value);
+  return GetBlob(read_options, user_key, blob_index, value, bytes_read);
 }
 
 Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                        const BlobIndex& blob_index,
-                        PinnableSlice* value) const {
+                        const BlobIndex& blob_index, PinnableSlice* value,
+                        uint64_t* bytes_read) const {
   assert(value);
 
   if (blob_index.HasTTL() || blob_index.IsInlined()) {
@@ -1841,7 +1843,7 @@ Status Version::GetBlob(const ReadOptions& read_options, const Slice& user_key,
   assert(blob_file_reader.GetValue());
   const Status s = blob_file_reader.GetValue()->GetBlob(
       read_options, user_key, blob_index.offset(), blob_index.size(),
-      blob_index.compression(), value);
+      blob_index.compression(), value, bytes_read);
 
   return s;
 }
@@ -1879,7 +1881,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
       do_merge ? value : nullptr, do_merge ? timestamp : nullptr, value_found,
-      merge_context, do_merge, max_covering_tombstone_seq, this->env_, seq,
+      merge_context, do_merge, max_covering_tombstone_seq, clock_, seq,
       merge_operator_ ? &pinned_iters_mgr : nullptr, callback, is_blob_to_use,
       tracing_get_id);
 
@@ -1907,7 +1909,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     bool timer_enabled =
         GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
         get_perf_context()->per_level_perf_context_enabled;
-    StopWatchNano timer(env_, timer_enabled /* auto_start */);
+    StopWatchNano timer(clock_, timer_enabled /* auto_start */);
     *status = table_cache_->Get(
         read_options, *internal_comparator(), *f->file_metadata, ikey,
         &get_context, mutable_cf_options_.prefix_extractor.get(),
@@ -1951,7 +1953,10 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 
         if (is_blob_index) {
           if (do_merge && value) {
-            *status = GetBlob(read_options, user_key, *value, value);
+            constexpr uint64_t* bytes_read = nullptr;
+
+            *status =
+                GetBlob(read_options, user_key, *value, value, bytes_read);
             if (!status->ok()) {
               if (status->IsIncomplete()) {
                 get_context.MarkKeyMayExist();
@@ -1996,7 +2001,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     std::string* str_value = value != nullptr ? value->GetSelf() : nullptr;
     *status = MergeHelper::TimedFullMerge(
         merge_operator_, user_key, nullptr, merge_context->GetOperands(),
-        str_value, info_log_, db_statistics_, env_,
+        str_value, info_log_, db_statistics_, clock_,
         nullptr /* result_operand */, true);
     if (LIKELY(value != nullptr)) {
       value->PinSelf();
@@ -2033,9 +2038,9 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
         user_comparator(), merge_operator_, info_log_, db_statistics_,
         iter->s->ok() ? GetContext::kNotFound : GetContext::kMerge,
         iter->ukey_with_ts, iter->value, iter->timestamp, nullptr,
-        &(iter->merge_context), true, &iter->max_covering_tombstone_seq,
-        this->env_, nullptr, merge_operator_ ? &pinned_iters_mgr : nullptr,
-        callback, &iter->is_blob_index, tracing_mget_id);
+        &(iter->merge_context), true, &iter->max_covering_tombstone_seq, clock_,
+        nullptr, merge_operator_ ? &pinned_iters_mgr : nullptr, callback,
+        &iter->is_blob_index, tracing_mget_id);
     // MergeInProgress status, if set, has been transferred to the get_context
     // state, so we set status to ok here. From now on, the iter status will
     // be used for IO errors, and get_context state will be used for any
@@ -2065,7 +2070,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
     bool timer_enabled =
         GetPerfLevel() >= PerfLevel::kEnableTimeExceptForMutex &&
         get_perf_context()->per_level_perf_context_enabled;
-    StopWatchNano timer(env_, timer_enabled /* auto_start */);
+    StopWatchNano timer(clock_, timer_enabled /* auto_start */);
     s = table_cache_->MultiGet(
         read_options, *internal_comparator(), *f->file_metadata, &file_range,
         mutable_cf_options_.prefix_extractor.get(),
@@ -2145,8 +2150,10 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
 
           if (iter->is_blob_index) {
             if (iter->value) {
+              constexpr uint64_t* bytes_read = nullptr;
+
               *status = GetBlob(read_options, iter->ukey_with_ts, *iter->value,
-                                iter->value);
+                                iter->value, bytes_read);
               if (!status->ok()) {
                 if (status->IsIncomplete()) {
                   get_context.MarkKeyMayExist();
@@ -2228,7 +2235,7 @@ void Version::MultiGet(const ReadOptions& read_options, MultiGetRange* range,
           iter->value != nullptr ? iter->value->GetSelf() : nullptr;
       *status = MergeHelper::TimedFullMerge(
           merge_operator_, user_key, nullptr, iter->merge_context.GetOperands(),
-          str_value, info_log_, db_statistics_, env_,
+          str_value, info_log_, db_statistics_, clock_,
           nullptr /* result_operand */, true);
       if (LIKELY(iter->value != nullptr)) {
         iter->value->PinSelf();
@@ -3782,6 +3789,7 @@ VersionSet::VersionSet(const std::string& dbname,
       table_cache_(table_cache),
       env_(_db_options->env),
       fs_(_db_options->fs, io_tracer),
+      clock_(env_->GetSystemClock()),
       dbname_(dbname),
       db_options_(_db_options),
       next_file_number_(2),
@@ -4117,10 +4125,11 @@ Status VersionSet::ProcessManifestWrites(
       if (io_s.ok()) {
         descriptor_file->SetPreallocationBlockSize(
             db_options_->manifest_preallocation_size);
-
+        FileTypeSet tmp_set = db_options_->checksum_handoff_file_types;
         std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-            std::move(descriptor_file), descriptor_fname, opt_file_opts, env_,
-            io_tracer_, nullptr, db_options_->listeners));
+            std::move(descriptor_file), descriptor_fname, opt_file_opts, clock_,
+            io_tracer_, nullptr, db_options_->listeners, nullptr,
+            tmp_set.Contains(FileType::kDescriptorFile)));
         descriptor_log_.reset(
             new log::Writer(std::move(file_writer), 0, false));
         s = WriteCurrentStateToManifest(curr_state, wal_additions,
@@ -4167,7 +4176,7 @@ Status VersionSet::ProcessManifestWrites(
         }
       }
       if (s.ok()) {
-        io_s = SyncManifest(env_, db_options_, descriptor_log_->file());
+        io_s = SyncManifest(clock_, db_options_, descriptor_log_->file());
         TEST_SYNC_POINT_CALLBACK(
             "VersionSet::ProcessManifestWrites:AfterSyncManifest", &io_s);
       }
@@ -6302,7 +6311,7 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
             "ReactiveVersionSet::MaybeSwitchManifest:"
             "AfterGetCurrentManifestPath:1");
         s = fs_->NewSequentialFile(manifest_path,
-                                   env_->OptimizeForManifestRead(file_options_),
+                                   fs_->OptimizeForManifestRead(file_options_),
                                    &manifest_file, nullptr);
       } else {
         // No need to switch manifest.

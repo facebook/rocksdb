@@ -4,15 +4,16 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include "table/get_context.h"
+
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/read_callback.h"
 #include "monitoring/file_read_sample.h"
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
-#include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/system_clock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -43,7 +44,8 @@ GetContext::GetContext(
     Statistics* statistics, GetState init_state, const Slice& user_key,
     PinnableSlice* pinnable_val, std::string* timestamp, bool* value_found,
     MergeContext* merge_context, bool do_merge,
-    SequenceNumber* _max_covering_tombstone_seq, Env* env, SequenceNumber* seq,
+    SequenceNumber* _max_covering_tombstone_seq,
+    const std::shared_ptr<SystemClock>& clock, SequenceNumber* seq,
     PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
     bool* is_blob_index, uint64_t tracing_get_id)
     : ucmp_(ucmp),
@@ -57,7 +59,7 @@ GetContext::GetContext(
       value_found_(value_found),
       merge_context_(merge_context),
       max_covering_tombstone_seq_(_max_covering_tombstone_seq),
-      env_(env),
+      clock_(clock),
       seq_(seq),
       replay_log_(nullptr),
       pinned_iters_mgr_(_pinned_iters_mgr),
@@ -75,12 +77,13 @@ GetContext::GetContext(
     const Comparator* ucmp, const MergeOperator* merge_operator, Logger* logger,
     Statistics* statistics, GetState init_state, const Slice& user_key,
     PinnableSlice* pinnable_val, bool* value_found, MergeContext* merge_context,
-    bool do_merge, SequenceNumber* _max_covering_tombstone_seq, Env* env,
-    SequenceNumber* seq, PinnedIteratorsManager* _pinned_iters_mgr,
-    ReadCallback* callback, bool* is_blob_index, uint64_t tracing_get_id)
+    bool do_merge, SequenceNumber* _max_covering_tombstone_seq,
+    const std::shared_ptr<SystemClock>& clock, SequenceNumber* seq,
+    PinnedIteratorsManager* _pinned_iters_mgr, ReadCallback* callback,
+    bool* is_blob_index, uint64_t tracing_get_id)
     : GetContext(ucmp, merge_operator, logger, statistics, init_state, user_key,
                  pinnable_val, nullptr, value_found, merge_context, do_merge,
-                 _max_covering_tombstone_seq, env, seq, _pinned_iters_mgr,
+                 _max_covering_tombstone_seq, clock, seq, _pinned_iters_mgr,
                  callback, is_blob_index, tracing_get_id) {}
 
 // Called from TableCache::Get and Table::Get when file/block in which
@@ -277,7 +280,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               Status merge_status = MergeHelper::TimedFullMerge(
                   merge_operator_, user_key_, &value,
                   merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                  logger_, statistics_, env_);
+                  logger_, statistics_, clock_);
               pinnable_val_->PinSelf();
               if (!merge_status.ok()) {
                 state_ = kCorrupt;
@@ -318,7 +321,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               Status merge_status = MergeHelper::TimedFullMerge(
                   merge_operator_, user_key_, nullptr,
                   merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                  logger_, statistics_, env_);
+                  logger_, statistics_, clock_);
               pinnable_val_->PinSelf();
               if (!merge_status.ok()) {
                 state_ = kCorrupt;
@@ -346,7 +349,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
               Status merge_status = MergeHelper::TimedFullMerge(
                   merge_operator_, user_key_, nullptr,
                   merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                  logger_, statistics_, env_);
+                  logger_, statistics_, clock_);
               pinnable_val_->PinSelf();
               if (!merge_status.ok()) {
                 state_ = kCorrupt;

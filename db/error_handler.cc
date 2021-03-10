@@ -417,11 +417,11 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
                                           &new_bg_io_err, db_mutex_,
                                           &auto_recovery);
     if (BackgroundErrorReason::kCompaction == reason) {
-      Status bg_err(new_bg_io_err, Status::Severity::kSoftError);
-      if (bg_err.severity() > bg_error_.severity()) {
-        bg_error_ = bg_err;
-      }
-      recover_context_ = context;
+      // We map the retryable IO error during compaction to soft error. Since
+      // compaction can reschedule by itself. We will not set the BG error in
+      // this case
+      // TODO:  a better way to set or clean the retryable IO error which
+      // happens during compaction SST file write.
       return bg_error_;
     } else if (BackgroundErrorReason::kFlushNoWAL == reason ||
                BackgroundErrorReason::kManifestWriteNoWAL == reason) {
@@ -670,7 +670,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
       // a period of time and redo auto resume if it is allowed.
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeWait0");
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeWait1");
-      int64_t wait_until = db_->env_->NowMicros() + wait_interval;
+      int64_t wait_until = db_->clock_->NowMicros() + wait_interval;
       cv_.TimedWait(wait_until);
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterWait0");
     } else {

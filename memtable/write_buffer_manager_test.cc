@@ -11,10 +11,11 @@
 #include "test_util/testharness.h"
 
 namespace ROCKSDB_NAMESPACE {
-const size_t kSizeDummyEntry = 256 * 1024;
 class WriteBufferManagerTest : public testing::Test {};
 
 #ifndef ROCKSDB_LITE
+const size_t kSizeDummyEntry = 256 * 1024;
+
 TEST_F(WriteBufferManagerTest, ShouldFlush) {
   // A write buffer manager of size 10MB
   std::unique_ptr<WriteBufferManager> wbf(
@@ -46,7 +47,33 @@ TEST_F(WriteBufferManagerTest, ShouldFlush) {
   ASSERT_TRUE(wbf->ShouldFlush());
 
   wbf->FreeMem(7 * 1024 * 1024);
-  // 9MB total, 8MB mutable.
+  // 8MB total, 8MB mutable.
+  ASSERT_FALSE(wbf->ShouldFlush());
+
+  // change size: 8M limit, 7M mutable limit
+  wbf->SetBufferSize(8 * 1024 * 1024);
+  // 8MB total, 8MB mutable.
+  ASSERT_TRUE(wbf->ShouldFlush());
+
+  wbf->ScheduleFreeMem(2 * 1024 * 1024);
+  // 8MB total, 6MB mutable.
+  ASSERT_TRUE(wbf->ShouldFlush());
+
+  wbf->FreeMem(2 * 1024 * 1024);
+  // 6MB total, 6MB mutable.
+  ASSERT_FALSE(wbf->ShouldFlush());
+
+  wbf->ReserveMem(1 * 1024 * 1024);
+  // 7MB total, 7MB mutable.
+  ASSERT_FALSE(wbf->ShouldFlush());
+
+  wbf->ReserveMem(1 * 1024 * 1024);
+  // 8MB total, 8MB mutable.
+  ASSERT_TRUE(wbf->ShouldFlush());
+
+  wbf->ScheduleFreeMem(1 * 1024 * 1024);
+  wbf->FreeMem(1 * 1024 * 1024);
+  // 7MB total, 7MB mutable.
   ASSERT_FALSE(wbf->ShouldFlush());
 }
 

@@ -54,9 +54,6 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
-#include "trace_replay/block_cache_tracer.h"
-#include "trace_replay/io_tracer.h"
-#include "trace_replay/trace_replay.h"
 #include "util/autovector.h"
 #include "util/hash.h"
 #include "util/repeatable_thread.h"
@@ -450,9 +447,10 @@ class DBImpl : public DB {
   Status VerifyChecksumInternal(const ReadOptions& read_options,
                                 bool use_file_checksum);
 
-  Status VerifySstFileChecksum(const FileMetaData& fmeta,
-                               const std::string& fpath,
-                               const ReadOptions& read_options);
+  Status VerifyFullFileChecksum(const std::string& file_checksum_expected,
+                                const std::string& func_name_expected,
+                                const std::string& fpath,
+                                const ReadOptions& read_options);
 
   using DB::StartTrace;
   virtual Status StartTrace(
@@ -595,8 +593,11 @@ class DBImpl : public DB {
                                  bool* found_record_for_key,
                                  bool* is_blob_index = nullptr);
 
-  Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key);
-  Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+  Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
+                           const Slice& lower_bound, const Slice upper_bound);
+  Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                                  const Slice& lower_bound,
+                                  const Slice upper_bound);
 #endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
@@ -954,6 +955,9 @@ class DBImpl : public DB {
   // is only for the special test of CancelledCompactions
   Status TEST_WaitForCompact(bool waitUnscheduled = false);
 
+  // Get the background error status
+  Status TEST_GetBGError();
+
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
   int64_t TEST_MaxNextLevelOverlappingBytes(
@@ -1053,6 +1057,7 @@ class DBImpl : public DB {
   bool own_info_log_;
   const DBOptions initial_db_options_;
   Env* const env_;
+  std::shared_ptr<SystemClock> clock_;
   std::shared_ptr<IOTracer> io_tracer_;
   const ImmutableDBOptions immutable_db_options_;
   FileSystemPtr fs_;
@@ -1869,6 +1874,8 @@ class DBImpl : public DB {
       SuperVersion* sv, SequenceNumber snap_seqnum, ReadCallback* callback);
 
   Status DisableFileDeletionsWithLock();
+
+  Status IncreaseFullHistoryTsLow(ColumnFamilyData* cfd, std::string ts_low);
 
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;

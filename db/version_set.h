@@ -71,6 +71,7 @@ class WriteBufferManager;
 class MergeContext;
 class ColumnFamilySet;
 class MergeIteratorBuilder;
+class SystemClock;
 
 // VersionEdit is always supposed to be valid and it is used to point at
 // entries in Manifest. Ideally it should not be used as a container to
@@ -342,6 +343,19 @@ class VersionStorageInfo {
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   using BlobFiles = std::map<uint64_t, std::shared_ptr<BlobFileMetaData>>;
   const BlobFiles& GetBlobFiles() const { return blob_files_; }
+
+  uint64_t GetTotalBlobFileSize() const {
+    uint64_t total_blob_bytes = 0;
+
+    for (const auto& pair : blob_files_) {
+      const auto& meta = pair.second;
+      assert(meta);
+
+      total_blob_bytes += meta->GetTotalBlobBytes();
+    }
+
+    return total_blob_bytes;
+  }
 
   const ROCKSDB_NAMESPACE::LevelFilesBrief& LevelFilesBrief(int level) const {
     assert(level < static_cast<int>(level_files_brief_.size()));
@@ -689,12 +703,14 @@ class Version {
   // saves it in *value.
   // REQUIRES: blob_index_slice stores an encoded blob reference
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 const Slice& blob_index_slice, PinnableSlice* value) const;
+                 const Slice& blob_index_slice, PinnableSlice* value,
+                 uint64_t* bytes_read) const;
 
   // Retrieves a blob using a blob reference and saves it in *value,
   // assuming the corresponding blob file is part of this Version.
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 const BlobIndex& blob_index, PinnableSlice* value) const;
+                 const BlobIndex& blob_index, PinnableSlice* value,
+                 uint64_t* bytes_read) const;
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.
@@ -779,6 +795,8 @@ class Version {
 
  private:
   Env* env_;
+  std::shared_ptr<SystemClock> clock_;
+
   friend class ReactiveVersionSet;
   friend class VersionSet;
   friend class VersionEditHandler;
@@ -1346,6 +1364,7 @@ class VersionSet {
   Cache* table_cache_;
   Env* const env_;
   FileSystemPtr const fs_;
+  const std::shared_ptr<SystemClock> clock_;
   const std::string dbname_;
   std::string db_id_;
   const ImmutableDBOptions* const db_options_;

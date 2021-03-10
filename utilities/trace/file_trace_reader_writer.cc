@@ -92,15 +92,13 @@ uint64_t FileTraceWriter::GetFileSize() { return file_writer_->GetFileSize(); }
 Status NewFileTraceReader(Env* env, const EnvOptions& env_options,
                           const std::string& trace_filename,
                           std::unique_ptr<TraceReader>* trace_reader) {
-  std::unique_ptr<RandomAccessFile> trace_file;
-  Status s = env->NewRandomAccessFile(trace_filename, &trace_file, env_options);
+  std::unique_ptr<RandomAccessFileReader> file_reader;
+  Status s = RandomAccessFileReader::Create(
+      env->GetFileSystem(), trace_filename, FileOptions(env_options),
+      &file_reader, nullptr);
   if (!s.ok()) {
     return s;
   }
-
-  std::unique_ptr<RandomAccessFileReader> file_reader;
-  file_reader.reset(new RandomAccessFileReader(
-      NewLegacyRandomAccessFileWrapper(trace_file), trace_filename));
   trace_reader->reset(new FileTraceReader(std::move(file_reader)));
   return s;
 }
@@ -108,16 +106,13 @@ Status NewFileTraceReader(Env* env, const EnvOptions& env_options,
 Status NewFileTraceWriter(Env* env, const EnvOptions& env_options,
                           const std::string& trace_filename,
                           std::unique_ptr<TraceWriter>* trace_writer) {
-  std::unique_ptr<WritableFile> trace_file;
-  Status s = env->NewWritableFile(trace_filename, &trace_file, env_options);
+  std::unique_ptr<WritableFileWriter> file_writer;
+  Status s = WritableFileWriter::Create(env->GetFileSystem(), trace_filename,
+                                        FileOptions(env_options), &file_writer,
+                                        nullptr);
   if (!s.ok()) {
     return s;
   }
-
-  std::unique_ptr<WritableFileWriter> file_writer;
-  file_writer.reset(new WritableFileWriter(
-      NewLegacyWritableFileWrapper(std::move(trace_file)), trace_filename,
-      env_options));
   trace_writer->reset(new FileTraceWriter(std::move(file_writer)));
   return s;
 }
