@@ -253,13 +253,19 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         }
         const Version* const version = compaction_->input_version();
         assert(version);
+
+        uint64_t bytes_read = 0;
         s = version->GetBlob(ReadOptions(), ikey_.user_key, blob_index,
-                             &blob_value_);
+                             &blob_value_, &bytes_read);
         if (!s.ok()) {
           status_ = s;
           valid_ = false;
           return false;
         }
+
+        ++iter_stats_.num_blobs_read;
+        iter_stats_.total_blob_bytes_read += bytes_read;
+
         value_type = CompactionFilter::ValueType::kValue;
       }
     }
@@ -883,9 +889,11 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
     const Version* const version = compaction_->input_version();
     assert(version);
 
+    uint64_t bytes_read = 0;
+
     {
-      const Status s =
-          version->GetBlob(ReadOptions(), user_key(), blob_index, &blob_value_);
+      const Status s = version->GetBlob(ReadOptions(), user_key(), blob_index,
+                                        &blob_value_, &bytes_read);
 
       if (!s.ok()) {
         status_ = s;
@@ -894,6 +902,9 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
         return;
       }
     }
+
+    ++iter_stats_.num_blobs_read;
+    iter_stats_.total_blob_bytes_read += bytes_read;
 
     value_ = blob_value_;
 
