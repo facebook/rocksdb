@@ -402,12 +402,11 @@ TEST_F(DBBasicTestWithTimestamp, GetApproximateSizes) {
   ASSERT_OK(
       db_->GetApproximateSizes(size_approx_options, default_cf, &r, 1, &size));
   ASSERT_EQ(size, 0);
-  std::cout << size << std::endl;
 
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
+TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
   const int kNumKeysPerFile = 128;
   const uint64_t kMaxKey = 1024;
   Options options = CurrentOptions();
@@ -439,6 +438,7 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
     std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
     int count = 0;
     uint64_t key = 0;
+    // Forward iterate.
     for (it->Seek(Key1(0)), key = start_keys[i]; it->Valid();
          it->Next(), ++count, ++key) {
       CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
@@ -447,7 +447,16 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
     size_t expected_count = kMaxKey - start_keys[i] + 1;
     ASSERT_EQ(expected_count, count);
 
-    // SeekToFirst() with lower bound.
+    // Backward iterate.
+    count = 0;
+    for (it->SeekForPrev(Key1(kMaxKey)), key = kMaxKey; it->Valid();
+         it->Prev(), ++count, --key) {
+      CheckIterUserEntry(it.get(), Key1(key), kTypeValue,
+                         "value" + std::to_string(i), write_timestamps[i]);
+    }
+    ASSERT_EQ(static_cast<size_t>(kMaxKey) - start_keys[i] + 1, count);
+
+    // SeekToFirst()/SeekToLast() with lower/upper bounds.
     // Then iter with lower and upper bounds.
     uint64_t l = 0;
     uint64_t r = kMaxKey + 1;
@@ -465,6 +474,12 @@ TEST_F(DBBasicTestWithTimestamp, SimpleForwardIterate) {
                            "value" + std::to_string(i), write_timestamps[i]);
       }
       ASSERT_EQ(r - std::max(l, start_keys[i]), count);
+
+      for (it->SeekToLast(), key = std::min(r, kMaxKey + 1), count = 0;
+           it->Valid(); it->Prev(), --key, ++count) {
+        CheckIterUserEntry(it.get(), Key1(key - 1), kTypeValue,
+                           "value" + std::to_string(i), write_timestamps[i]);
+      }
       l += (kMaxKey / 100);
       r -= (kMaxKey / 100);
     }
@@ -527,7 +542,7 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLessThanKey) {
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLargerThanKey) {
+TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLongerThanKey) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -600,35 +615,132 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithBound) {
   Slice ts = ts_str;
   write_opts.timestamp = &ts;
 
-  ASSERT_OK(db_->Put(write_opts, "foo1", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo1", "bar1"));
   ASSERT_OK(Flush());
 
-  ASSERT_OK(db_->Put(write_opts, "foo2", "bar"));
+  ASSERT_OK(db_->Put(write_opts, "foo2", "bar2"));
   ASSERT_OK(Flush());
 
   // Move sst file to next level
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
-  ASSERT_OK(db_->Put(write_opts, "foo3", "bar"));
+  for (int i = 3; i < 9; ++i) {
+    ASSERT_OK(db_->Put(write_opts, "foo" + std::to_string(i),
+                       "bar" + std::to_string(i)));
+  }
   ASSERT_OK(Flush());
 
   ReadOptions read_opts;
   std::string read_ts = Timestamp(2, 0);
   ts = read_ts;
   read_opts.timestamp = &ts;
-  std::string up_bound = "foo5";
+  std::string up_bound = "foo5";  // exclusive
   Slice up_bound_slice = up_bound;
+  std::string lo_bound = "foo2";  // inclusive
+  Slice lo_bound_slice = lo_bound;
   read_opts.iterate_upper_bound = &up_bound_slice;
+  read_opts.iterate_lower_bound = &lo_bound_slice;
   read_opts.auto_prefix_mode = true;
   {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
     // Make sure the prefix extractor doesn't include timestamp, otherwise it
     // may return invalid result.
     iter->Seek("foo");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_OK(iter->status());
+    CheckIterUserEntry(iter.get(), lo_bound, kTypeValue, "bar2",
+                       Timestamp(1, 0));
+    iter->SeekToFirst();
+    CheckIterUserEntry(iter.get(), lo_bound, kTypeValue, "bar2",
+                       Timestamp(1, 0));
+    iter->SeekForPrev("g");
+    CheckIterUserEntry(iter.get(), "foo4", kTypeValue, "bar4", Timestamp(1, 0));
+    iter->SeekToLast();
+    CheckIterUserEntry(iter.get(), "foo4", kTypeValue, "bar4", Timestamp(1, 0));
   }
 
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, ChangeIterationDirection) {
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  options.env = env_;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  DestroyAndReopen(options);
+  const std::vector<std::string> timestamps = {Timestamp(1, 1), Timestamp(0, 2),
+                                               Timestamp(4, 3)};
+  const std::vector<std::tuple<std::string, std::string>> kvs = {
+      std::make_tuple("aa", "value1"), std::make_tuple("ab", "value2")};
+  for (const auto& ts : timestamps) {
+    WriteBatch wb(0, 0, kTimestampSize);
+    for (const auto& kv : kvs) {
+      const std::string& key = std::get<0>(kv);
+      const std::string& value = std::get<1>(kv);
+      ASSERT_OK(wb.Put(key, value));
+    }
+
+    ASSERT_OK(wb.AssignTimestamp(ts));
+    ASSERT_OK(db_->Write(WriteOptions(), &wb));
+  }
+  std::string read_ts_str = Timestamp(5, 3);
+  Slice read_ts = read_ts_str;
+  ReadOptions read_opts;
+  read_opts.timestamp = &read_ts;
+  std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+
+  it->SeekToFirst();
+  ASSERT_TRUE(it->Valid());
+  it->Prev();
+  ASSERT_FALSE(it->Valid());
+
+  it->SeekToLast();
+  ASSERT_TRUE(it->Valid());
+  uint64_t prev_reseek_count =
+      options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION);
+  ASSERT_EQ(0, prev_reseek_count);
+  it->Next();
+  ASSERT_FALSE(it->Valid());
+  ASSERT_EQ(1 + prev_reseek_count,
+            options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
+
+  it->Seek(std::get<0>(kvs[0]));
+  CheckIterUserEntry(it.get(), std::get<0>(kvs[0]), kTypeValue,
+                     std::get<1>(kvs[0]), Timestamp(4, 3));
+  it->Next();
+  CheckIterUserEntry(it.get(), std::get<0>(kvs[1]), kTypeValue,
+                     std::get<1>(kvs[1]), Timestamp(4, 3));
+  it->Prev();
+  CheckIterUserEntry(it.get(), std::get<0>(kvs[0]), kTypeValue,
+                     std::get<1>(kvs[0]), Timestamp(4, 3));
+
+  prev_reseek_count =
+      options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION);
+  ASSERT_EQ(1, prev_reseek_count);
+  it->Next();
+  CheckIterUserEntry(it.get(), std::get<0>(kvs[1]), kTypeValue,
+                     std::get<1>(kvs[1]), Timestamp(4, 3));
+  ASSERT_EQ(1 + prev_reseek_count,
+            options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
+
+  it->SeekForPrev(std::get<0>(kvs[1]));
+  CheckIterUserEntry(it.get(), std::get<0>(kvs[1]), kTypeValue,
+                     std::get<1>(kvs[1]), Timestamp(4, 3));
+  it->Prev();
+  CheckIterUserEntry(it.get(), std::get<0>(kvs[0]), kTypeValue,
+                     std::get<1>(kvs[0]), Timestamp(4, 3));
+
+  prev_reseek_count =
+      options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION);
+  it->Next();
+  CheckIterUserEntry(it.get(), std::get<0>(kvs[1]), kTypeValue,
+                     std::get<1>(kvs[1]), Timestamp(4, 3));
+  ASSERT_EQ(1 + prev_reseek_count,
+            options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
+
+  it.reset();
   Close();
 }
 
@@ -830,6 +942,16 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToTargetTimestamp) {
     CheckIterUserEntry(iter.get(), "foo", kTypeValue, "value0", ts_str);
     ASSERT_EQ(
         1, options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
+
+    ts_str = Timestamp(kNumKeys, 0);
+    ts = ts_str;
+    read_opts.timestamp = &ts;
+    iter.reset(db_->NewIterator(read_opts));
+    iter->SeekToLast();
+    CheckIterUserEntry(iter.get(), "foo", kTypeValue,
+                       "value" + std::to_string(kNumKeys - 1), ts_str);
+    ASSERT_EQ(
+        2, options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
   }
   Close();
 }
@@ -874,6 +996,47 @@ TEST_F(DBBasicTestWithTimestamp, ReseekToNextUserKey) {
     iter->Seek("a");
     iter->Next();
     CheckIterUserEntry(iter.get(), "b", kTypeValue, "new_value", ts_str);
+    ASSERT_EQ(
+        1, options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
+  }
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, ReseekToUserKeyBeforeSavedKey) {
+  Options options = GetDefaultOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  constexpr size_t kNumKeys = 16;
+  options.max_sequential_skip_in_iterations = kNumKeys / 2;
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    std::string ts_str = Timestamp(static_cast<uint64_t>(i + 1), 0);
+    Slice ts = ts_str;
+    WriteOptions write_opts;
+    write_opts.timestamp = &ts;
+    Status s = db_->Put(write_opts, "b", "value" + std::to_string(i));
+    ASSERT_OK(s);
+  }
+  {
+    std::string ts_str = Timestamp(1, 0);
+    Slice ts = ts_str;
+    WriteOptions write_opts;
+    write_opts.timestamp = &ts;
+    ASSERT_OK(db_->Put(write_opts, "a", "value"));
+  }
+  {
+    ReadOptions read_opts;
+    std::string ts_str = Timestamp(1, 0);
+    Slice ts = ts_str;
+    read_opts.timestamp = &ts;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    iter->SeekToLast();
+    iter->Prev();
+    CheckIterUserEntry(iter.get(), "a", kTypeValue, "value", ts_str);
     ASSERT_EQ(
         1, options.statistics->getTickerCount(NUMBER_OF_RESEEKS_IN_ITERATION));
   }
@@ -1102,7 +1265,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetPrefixFilter) {
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp, MaxKeysSkipped) {
+TEST_F(DBBasicTestWithTimestamp, MaxKeysSkippedDuringNext) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -1136,6 +1299,45 @@ TEST_F(DBBasicTestWithTimestamp, MaxKeysSkipped) {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
     iter->SeekToFirst();
     iter->Next();
+    ASSERT_TRUE(iter->status().IsIncomplete());
+  }
+  Close();
+}
+
+TEST_F(DBBasicTestWithTimestamp, MaxKeysSkippedDuringPrev) {
+  Options options = GetDefaultOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  const size_t kTimestampSize = Timestamp(0, 0).size();
+  TestComparator test_cmp(kTimestampSize);
+  options.comparator = &test_cmp;
+  DestroyAndReopen(options);
+  constexpr size_t max_skippable_internal_keys = 2;
+  const size_t kNumKeys = max_skippable_internal_keys + 2;
+  WriteOptions write_opts;
+  Status s;
+  {
+    std::string ts_str = Timestamp(1, 0);
+    Slice ts = ts_str;
+    write_opts.timestamp = &ts;
+    ASSERT_OK(db_->Put(write_opts, "b", "value"));
+  }
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    std::string ts_str = Timestamp(static_cast<uint64_t>(i + 1), 0);
+    Slice ts = ts_str;
+    write_opts.timestamp = &ts;
+    s = db_->Put(write_opts, "a", "value" + std::to_string(i));
+    ASSERT_OK(s);
+  }
+  {
+    ReadOptions read_opts;
+    read_opts.max_skippable_internal_keys = max_skippable_internal_keys;
+    std::string ts_str = Timestamp(1, 0);
+    Slice ts = ts_str;
+    read_opts.timestamp = &ts;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_opts));
+    iter->SeekToLast();
+    iter->Prev();
     ASSERT_TRUE(iter->status().IsIncomplete());
   }
   Close();
@@ -2411,7 +2613,7 @@ class DBBasicTestWithTimestampPrefixSeek
             "/db_basic_test_with_timestamp_prefix_seek") {}
 };
 
-TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
+TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
   const size_t kNumKeysPerFile = 128;
   Options options = CurrentOptions();
   options.env = env_;
@@ -2461,6 +2663,13 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
                          "value" + std::to_string(i), write_ts_list[i]);
       iter->Next();
       ASSERT_FALSE(iter->Valid());
+
+      // Seek to kMinKey
+      iter->Seek(Key1(kMinKey));
+      CheckIterUserEntry(iter.get(), Key1(kMinKey), kTypeValue,
+                         "value" + std::to_string(i), write_ts_list[i]);
+      iter->Prev();
+      ASSERT_FALSE(iter->Valid());
     }
     const std::vector<uint64_t> targets = {kMinKey, kMinKey + 0x10,
                                            kMinKey + 0x100, kMaxKey};
@@ -2476,6 +2685,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
       Slice read_ts = read_ts_list[i];
       read_opts.timestamp = &read_ts;
       std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+      // Forward and backward iterate.
       for (size_t j = 0; j != targets.size(); ++j) {
         std::string start_key = Key1(targets[j]);
         uint64_t expected_ub =
@@ -2499,6 +2709,24 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, ForwardIterateWithPrefix) {
           it->Next();
         }
         ASSERT_EQ(expected_ub - targets[j] + 1, count);
+
+        count = 0;
+        expected_key = targets[j];
+        it->SeekForPrev(start_key);
+        uint64_t expected_lb = (targets[j] & kPrefixMask);
+        while (it->Valid()) {
+          // Out of prefix
+          if (!read_opts.prefix_same_as_start &&
+              pe->Transform(it->key()) != pe->Transform(start_key)) {
+            break;
+          }
+          CheckIterUserEntry(it.get(), Key1(expected_key), kTypeValue,
+                             "value" + std::to_string(i), write_ts_list[i]);
+          ++count;
+          --expected_key;
+          it->Prev();
+        }
+        ASSERT_EQ(targets[j] - std::max(expected_lb, kMinKey) + 1, count);
       }
     }
   }
@@ -2533,7 +2761,7 @@ class DBBasicTestWithTsIterTombstones
       : DBBasicTestWithTimestampBase("/db_basic_ts_iter_tombstones") {}
 };
 
-TEST_P(DBBasicTestWithTsIterTombstones, ForwardIterDelete) {
+TEST_P(DBBasicTestWithTsIterTombstones, IterWithDelete) {
   constexpr size_t kNumKeysPerFile = 128;
   Options options = CurrentOptions();
   options.env = env_;
@@ -2563,7 +2791,7 @@ TEST_P(DBBasicTestWithTsIterTombstones, ForwardIterDelete) {
     }
     ++key;
   } while (true);
-  // Delete them all
+
   ts = write_ts_strs[1];
   write_opts.timestamp = &ts;
   for (key = kMaxKey; key >= kMinKey; --key) {
@@ -2586,6 +2814,13 @@ TEST_P(DBBasicTestWithTsIterTombstones, ForwardIterDelete) {
     size_t count = 0;
     key = kMinKey + 1;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next(), ++count, key += 2) {
+      ASSERT_EQ(Key1(key), iter->key());
+      ASSERT_EQ("value1" + std::to_string(key), iter->value());
+    }
+    ASSERT_EQ((kMaxKey - kMinKey + 1) / 2, count);
+
+    for (iter->SeekToLast(), count = 0, key = kMaxKey; iter->Valid();
+         key -= 2, ++count, iter->Prev()) {
       ASSERT_EQ(Key1(key), iter->key());
       ASSERT_EQ("value1" + std::to_string(key), iter->value());
     }
