@@ -434,7 +434,7 @@ function setup_test_directory {
   run_local "mkdir -p $RESULT_PATH"
 
   (printf $TITLE_FORMAT \
-      "commit id" "benchmark" "user@host" "num-dbs" "key-range" "key-size" \
+      "commit-id" "benchmark" "host-name" "num-dbs" "key-range" "key-size" \
       "value-size" "compress-rate" "ops-per-thread" "num-threads" "cache-size" \
       "flushes" "compactions" \
       "ops-per-s" "p50" "p75" "p99" "p99.9" "p99.99" "debug" \
