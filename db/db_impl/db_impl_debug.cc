@@ -157,7 +157,6 @@ Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
     auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
     cfd = cfh->cfd();
   }
-  fprintf(stdout,"start to wait returned result\n");
   return WaitForFlushMemTable(cfd, nullptr, false);
 }
 

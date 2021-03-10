@@ -105,17 +105,14 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
       ROCKS_LOG_INFO(immutable_db_options_.info_log,
                      "[JOB %d] Syncing log #%" PRIu64, job_context->job_id,
                      log->get_log_number());
-                     fprintf(stdout, "really sync,,,,,,,,,,,\n");
       io_s = log->file()->Sync(immutable_db_options_.use_fsync);
       if (!io_s.ok()) {
-        fprintf(stdout, "sync error,,,,,,,,,,,\n");
         break;
       }
 
       if (immutable_db_options_.recycle_log_file_num > 0) {
         io_s = log->Close();
         if (!io_s.ok()) {
-          fprintf(stdout, "close error,,,,,,,,,,,\n");
           break;
         }
       }
@@ -168,16 +165,13 @@ Status DBImpl::FlushMemTableToOutputFile(
       &blob_callback_);
   FileMetaData file_meta;
 
-  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
-  flush_job.PickMemTable();
-  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:AfterPickMemtables");
-
 #ifndef ROCKSDB_LITE
   // may temporarily unlock and lock the mutex.
   NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options, job_context->job_id);
 #endif  // ROCKSDB_LITE
 
   Status s;
+  bool pick_status = false;
   IOStatus log_io_s = IOStatus::OK();
   if (logfile_number_ > 0 &&
       versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1) {
@@ -187,17 +181,24 @@ Status DBImpl::FlushMemTableToOutputFile(
     // flushed SST may contain data from write batches whose updates to
     // other column families are missing.
     // SyncClosedLogs() may unlock and re-lock the db_mutex.
-    fprintf(stdout, "start sync,,,,,,,,,,,\n");
     log_io_s = SyncClosedLogs(job_context);
     s = log_io_s;
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
         !log_io_s.IsColumnFamilyDropped()) {
-      fprintf(stdout, "set bg error,,,,,,,,,,,\n");
       error_handler_.SetBGError(log_io_s, BackgroundErrorReason::kFlush);
     }
   } else {
     TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Skip");
   }
+
+  // If the log sync failed, we do not need to pick memtable. Otherwise,
+  // num_flush_not_started_ needs to be rollback.
+  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
+  if (s.ok()) {
+    flush_job.PickMemTable();
+    pick_status = true;
+  }
+  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:AfterPickMemtables");
 
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
@@ -207,7 +208,9 @@ Status DBImpl::FlushMemTableToOutputFile(
   // is unlocked by the current thread.
   if (s.ok()) {
     s = flush_job.Run(&logs_with_prep_tracker_, &file_meta);
-  } else {
+  }
+
+  if (!s.ok() && pick_status) {
     flush_job.Cancel();
   }
   IOStatus io_s = IOStatus::OK();
@@ -249,7 +252,6 @@ Status DBImpl::FlushMemTableToOutputFile(
   if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
     if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
         !io_s.IsColumnFamilyDropped()) {
-          fprintf(stdout, "io_s is no ok,,,,,,,,,,,\n");
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
       // CURRENT file. With current code, it's just difficult to tell. So just
@@ -407,7 +409,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         false /* sync_output_directory */, false /* write_manifest */,
         thread_pri, io_tracer_, db_id_, db_session_id_,
         cfd->GetFullHistoryTsLow()));
-    jobs.back()->PickMemTable();
   }
 
   std::vector<FileMetaData> file_meta(num_cfs);
@@ -444,10 +445,19 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // <bool /* executed */, Status /* status code */>
   autovector<std::pair<bool, Status>> exec_status;
   autovector<IOStatus> io_status;
+  std::vector<bool> pick_status;
   for (int i = 0; i != num_cfs; ++i) {
     // Initially all jobs are not executed, with status OK.
     exec_status.emplace_back(false, Status::OK());
     io_status.emplace_back(IOStatus::OK());
+    pick_status.push_back(false);
+  }
+
+  if (s.ok()) {
+    for (int i = 0; i != num_cfs; ++i) {
+      jobs[i]->PickMemTable();
+      pick_status[i] = true;
+    }
   }
 
   if (s.ok()) {
@@ -524,7 +534,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // Have to cancel the flush jobs that have NOT executed because we need to
     // unref the versions.
     for (int i = 0; i != num_cfs; ++i) {
-      if (!exec_status[i].first) {
+      if (pick_status[i] && !exec_status[i].first) {
         jobs[i]->Cancel();
       }
     }
@@ -1567,9 +1577,6 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
                              FlushReason::kManualFlush);
   } else {
     s = FlushMemTable(cfh->cfd(), flush_options, FlushReason::kManualFlush);
-    if (!s.ok()) {
-      fprintf(stdout, "return the error,,,,,,,,,,,\n");
-    }
   }
 
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
@@ -1784,7 +1791,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   // This method should not be called if atomic_flush is true.
   assert(!immutable_db_options_.atomic_flush);
   Status s;
-  fprintf(stdout,"flush memtable: %s\n", s.ToString().c_str());
   clock_->SleepForMicroseconds(1000000);
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
@@ -1862,7 +1868,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         }
       }
     }
-    fprintf(stdout,"before call flush: %s", s.ToString().c_str());
     if (s.ok() && !flush_reqs.empty()) {
       for (const auto& req : flush_reqs) {
         assert(req.size() == 1);
@@ -1914,7 +1919,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       tmp_cfd->UnrefAndTryDelete();
     }
   }
-  fprintf(stdout,"before return: %s", s.ToString().c_str());
   TEST_SYNC_POINT("DBImpl::FlushMemTable:FlushMemTableFinished");
   return s;
 }
@@ -2160,7 +2164,6 @@ Status DBImpl::WaitForFlushMemTables(
   // then report the bg error to caller.
   if (!resuming_from_bg_err && error_handler_.IsDBStopped()) {
     s = error_handler_.GetBGError();
-    fprintf(stdout,"in the wait return: %s\n", s.ToString().c_str());
   }
   return s;
 }
@@ -2571,7 +2574,6 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
         pending_outputs_inserted_elem(new std::list<uint64_t>::iterator(
             CaptureCurrentFileNumberInPendingOutputs()));
     FlushReason reason;
-
     Status s = BackgroundFlush(&made_progress, &job_context, &log_buffer,
                                &reason, thread_pri);
     if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped() &&
