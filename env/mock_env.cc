@@ -15,6 +15,7 @@
 #include "file/filename.h"
 #include "port/sys_time.h"
 #include "rocksdb/file_system.h"
+#include "test_util/sync_point.h"
 #include "util/cast_util.h"
 #include "util/hash.h"
 #include "util/random.h"
@@ -105,6 +106,15 @@ class MemFile {
 
   IOStatus Read(uint64_t offset, size_t n, const IOOptions& /*options*/,
                 Slice* result, char* scratch, IODebugContext* /*dbg*/) const {
+    {
+      IOStatus s;
+      TEST_SYNC_POINT_CALLBACK("MemFile::Read:IOStatus", &s);
+      if (!s.ok()) {
+        // with sync point only
+        *result = Slice();
+        return s;
+      }
+    }
     MutexLock lock(&mutex_);
     const uint64_t available = Size() - std::min(Size(), offset);
     size_t offset_ = static_cast<size_t>(offset);

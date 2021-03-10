@@ -93,6 +93,7 @@ LIB_SOURCES =                                                   \
   file/file_prefetch_buffer.cc                                  \
   file/file_util.cc                                             \
   file/filename.cc                                              \
+  file/line_file_reader.cc                                      \
   file/random_access_file_reader.cc                             \
   file/read_write_util.cc                                       \
   file/readahead_raf.cc                                         \
