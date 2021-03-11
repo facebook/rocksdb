@@ -742,6 +742,16 @@ public enum TickerType {
     COMPACT_WRITE_BYTES_PERIODIC((byte) -0x14),
     COMPACT_WRITE_BYTES_TTL((byte) -0x15),
 
+    /**
+     * DB error handler statistics
+     */
+    ERROR_HANDLER_BG_ERROR_COUNT((byte) -0x16),
+    ERROR_HANDLER_BG_IO_ERROR_COUNT((byte) -0x17),
+    ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT((byte) -0x18),
+    ERROR_HANDLER_AUTORESUME_COUNT((byte) -0x19),
+    ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT((byte) -0x1A),
+    ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT((byte) -0x1B),
+
     TICKER_ENUM_MAX((byte) 0x5F);
 
     private final byte value;

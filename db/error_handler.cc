@@ -4,9 +4,11 @@
 //  (found in the LICENSE.Apache file in the root directory).
 //
 #include "db/error_handler.h"
+
 #include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
 #include "file/sst_file_manager_impl.h"
+#include "logging/logging.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -274,6 +276,11 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
     return bg_err;
   }
 
+  if (bg_error_stats_ != nullptr) {
+    RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
+  }
+  ROCKS_LOG_INFO(db_options_.info_log, "Set regular background error\n");
+
   bool paranoid = db_options_.paranoid_checks;
   Status::Severity sev = Status::Severity::kFatalError;
   Status new_bg_err;
@@ -399,6 +406,12 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     if (recovery_in_prog_ && recovery_error_.ok()) {
       recovery_error_ = bg_err;
     }
+    if (bg_error_stats_ != nullptr) {
+      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
+      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
+    }
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "Set background IO error as unrecoverable error\n");
     EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
                                           &bg_err, db_mutex_, &auto_recovery);
     recover_context_ = context;
@@ -416,6 +429,13 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
     EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
                                           &new_bg_io_err, db_mutex_,
                                           &auto_recovery);
+    if (bg_error_stats_ != nullptr) {
+      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
+      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
+      RecordTick(bg_error_stats_.get(),
+                 ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT);
+    }
+    ROCKS_LOG_INFO(db_options_.info_log, "Set background retryable IO error\n");
     if (BackgroundErrorReason::kCompaction == reason) {
       // We map the retryable IO error during compaction to soft error. Since
       // compaction can reschedule by itself. We will not set the BG error in
@@ -455,6 +475,9 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       return StartRecoverFromRetryableBGIOError(bg_io_err);
     }
   } else {
+    if (bg_error_stats_ != nullptr) {
+      RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
+    }
     return SetBGError(new_bg_io_err, reason);
   }
 }
@@ -603,7 +626,11 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
     // Auto resume BG error is not enabled, directly return bg_error_.
     return bg_error_;
   }
-
+  if (bg_error_stats_ != nullptr) {
+    RecordTick(bg_error_stats_.get(), ERROR_HANDLER_AUTORESUME_COUNT);
+  }
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "Call StartRecoverFromRetryableBGIOError to resume\n");
   if (recovery_thread_) {
     // In this case, if recovery_in_prog_ is false, current thread should
     // wait the previous recover thread to finish and create a new thread
@@ -642,6 +669,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
   DBRecoverContext context = recover_context_;
   int resume_count = db_options_.max_bgerror_resume_count;
   uint64_t wait_interval = db_options_.bgerror_resume_retry_interval;
+  uint64_t retry_count = 0;
   // Recover from the retryable error. Create a separate thread to do it.
   while (resume_count > 0) {
     if (end_recovery_) {
@@ -651,15 +679,24 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeResume1");
     recovery_io_error_ = IOStatus::OK();
     recovery_error_ = Status::OK();
+    retry_count++;
     Status s = db_->ResumeImpl(context);
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterResume0");
     TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterResume1");
+    if (bg_error_stats_ != nullptr) {
+      RecordTick(bg_error_stats_.get(),
+                 ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT);
+    }
     if (s.IsShutdownInProgress() ||
         bg_error_.severity() >= Status::Severity::kFatalError) {
       // If DB shutdown in progress or the error severity is higher than
       // Hard Error, stop auto resume and returns.
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:RecoverFail0");
       recovery_in_prog_ = false;
+      if (bg_error_stats_ != nullptr) {
+        RecordInHistogram(bg_error_stats_.get(),
+                          ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
+      }
       return;
     }
     if (!recovery_io_error_.ok() &&
@@ -686,6 +723,12 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         bg_error_.PermitUncheckedError();
         EventHelpers::NotifyOnErrorRecoveryCompleted(db_options_.listeners,
                                                      old_bg_error, db_mutex_);
+        if (bg_error_stats_ != nullptr) {
+          RecordTick(bg_error_stats_.get(),
+                     ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT);
+          RecordInHistogram(bg_error_stats_.get(),
+                            ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
+        }
         recovery_in_prog_ = false;
         if (soft_error_no_bg_work_) {
           soft_error_no_bg_work_ = false;
@@ -696,6 +739,10 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
         // In this case: 1) recovery_io_error is more serious or not retryable
         // 2) other Non IO recovery_error happens. The auto recovery stops.
         recovery_in_prog_ = false;
+        if (bg_error_stats_ != nullptr) {
+          RecordInHistogram(bg_error_stats_.get(),
+                            ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
+        }
         return;
       }
     }
@@ -703,6 +750,10 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
   }
   recovery_in_prog_ = false;
   TEST_SYNC_POINT("RecoverFromRetryableBGIOError:LoopOut");
+  if (bg_error_stats_ != nullptr) {
+    RecordInHistogram(bg_error_stats_.get(),
+                      ERROR_HANDLER_AUTORESUME_RETRY_COUNT, retry_count);
+  }
   return;
 #else
   return;

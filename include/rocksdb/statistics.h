@@ -374,6 +374,15 @@ enum Tickers : uint32_t {
   // # of files deleted immediately by sst file manger through delete scheduler.
   FILES_DELETED_IMMEDIATELY,
 
+  // The counters for error handler, not that, bg_io_error is the subset of
+  // bg_error and bg_retryable_io_error is the subset of bg_io_error
+  ERROR_HANDLER_BG_ERROR_COUNT,
+  ERROR_HANDLER_BG_IO_ERROR_COUNT,
+  ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT,
+  ERROR_HANDLER_AUTORESUME_COUNT,
+  ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT,
+  ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
+
   TICKER_ENUM_MAX
 };
 
@@ -471,6 +480,9 @@ enum Histograms : uint32_t {
   NUM_DATA_BLOCKS_READ_PER_LEVEL,
   // Num of sst files read from file system per level.
   NUM_SST_READ_PER_LEVEL,
+
+  // Error handler statistics
+  ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
 
   HISTOGRAM_ENUM_MAX,
 };
