@@ -46,6 +46,7 @@ BLOB_COMPRESSION_TYPE=lz4"
 ARGS_GC="$ARGS ENABLE_BLOB_GC=1"
 ARGS_GC_D="$ARGS_GC DURATION=900"
 
+rm -rf $output_dir
 mkdir -p $output_dir
 echo -e "ops/sec\tmb/sec\tSize-GB\tL0_GB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp75\tp99\tp99.9\tp99.99\tUptime\tStall-time\tStall%\tTest" \
   > $output_dir/report.txt
