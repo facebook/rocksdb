@@ -115,10 +115,17 @@ compression_max_dict_bytes=${COMPRESSION_MAX_DICT_BYTES:-0}
 compression_type=${COMPRESSION_TYPE:-zstd}
 duration=${DURATION:-0}
 
-num_keys=${NUM_KEYS:-8000000000}
 key_size=${KEY_SIZE:-20}
 value_size=${VALUE_SIZE:-400}
 block_size=${BLOCK_SIZE:-8192}
+num_keys=${NUM_KEYS:-$((128 * G / $value_size))}
+
+enable_blob_files=${ENABLE_BLOB_FILES:-0}
+min_blob_size=${MIN_BLOB_SIZE:-0}
+blob_file_size=${BLOB_FILE_SIZE:-268435456}
+blob_compression_type=${BLOB_COMPRESSION_TYPE:-none}
+enable_blob_garbage_collection=${ENABLE_BLOB_GC:-0}
+blob_garbage_collection_age_cutoff=${BLOB_GC_AGE_CUTOFF:-0.25}
 
 const_params="
   --db=$DB_DIR \
@@ -140,11 +147,9 @@ const_params="
   --pin_l0_filter_and_index_blocks_in_cache=1 \
   --benchmark_write_rate_limit=$(( 1024 * 1024 * $mb_written_per_sec )) \
   \
-  --hard_rate_limit=3 \
-  --rate_limit_delay_max_milliseconds=1000000 \
-  --write_buffer_size=$((128 * M)) \
-  --target_file_size_base=$((128 * M)) \
-  --max_bytes_for_level_base=$((1 * G)) \
+  --write_buffer_size=$blob_file_size \
+  --target_file_size_base=$(($blob_file_size / $value_size * 32)) \
+  --max_bytes_for_level_base=$(($blob_file_size / $value_size * 256)) \
   \
   --verify_checksum=1 \
   --delete_obsolete_files_period_micros=$((60 * M)) \
@@ -159,26 +164,33 @@ const_params="
   --bloom_bits=10 \
   --open_files=-1 \
   \
+  --enable_blob_files=$enable_blob_files \
+  --min_blob_size=$min_blob_size \
+  --blob_file_size=$blob_file_size \
+  --blob_compression_type=$blob_compression_type \
+  --enable_blob_garbage_collection=$enable_blob_garbage_collection \
+  --blob_garbage_collection_age_cutoff=$blob_garbage_collection_age_cutoff \
   $bench_args"
 
 l0_config="
   --level0_file_num_compaction_trigger=4 \
-  --level0_stop_writes_trigger=20"
+  --level0_slowdown_writes_trigger=27 \
+  --level0_stop_writes_trigger=36"
 
 if [ $duration -gt 0 ]; then
   const_params="$const_params --duration=$duration"
 fi
 
 params_w="$l0_config \
-          --max_background_compactions=16 \
-          --max_write_buffer_number=8 \
-          --max_background_flushes=7 \
+          --max_background_compactions=27 \
+          --max_write_buffer_number=10 \
+          --max_background_flushes=9 \
           $const_params"
 
-params_bulkload="--max_background_compactions=16 \
-                 --max_write_buffer_number=8 \
+params_bulkload="--max_background_compactions=27 \
+                 --max_write_buffer_number=10 \
                  --allow_concurrent_memtable_write=false \
-                 --max_background_flushes=7 \
+                 --max_background_flushes=9 \
                  --level0_file_num_compaction_trigger=$((10 * M)) \
                  --level0_slowdown_writes_trigger=$((10 * M)) \
                  --level0_stop_writes_trigger=$((10 * M)) \
@@ -468,7 +480,6 @@ function run_change {
        --sync=$syncval \
        $params_w \
        --threads=$num_threads \
-       --merge_operator=\"put\" \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
   if [[ "$job_id" != "" ]]; then
@@ -549,7 +560,6 @@ function run_readwhile {
        --sync=$syncval \
        $params_w \
        --threads=$num_threads \
-       --merge_operator=\"put\" \
        --seed=$( date +%s ) \
        2>&1 | tee -a $log_file_name"
   if [[ "$job_id" != "" ]]; then
@@ -573,7 +583,6 @@ function run_rangewhile {
        --sync=$syncval \
        $params_w \
        --threads=$num_threads \
-       --merge_operator=\"put\" \
        --seek_nexts=$num_nexts_per_seek \
        --reverse_iterator=$reverse_arg \
        --seed=$( date +%s ) \
