@@ -127,6 +127,15 @@ blob_compression_type=${BLOB_COMPRESSION_TYPE:-none}
 enable_blob_garbage_collection=${ENABLE_BLOB_GC:-0}
 blob_garbage_collection_age_cutoff=${BLOB_GC_AGE_CUTOFF:-0.25}
 
+write_buffer_size=$blob_file_size
+
+target_file_size_base=$blob_file_size
+if [ "$enable_blob_files" == "1" ]; then
+  target_file_size_base=$(($blob_file_size / $value_size * 32))
+fi
+
+max_bytes_for_level_base=$((8 * $target_file_size_base))
+
 const_params="
   --db=$DB_DIR \
   --wal_dir=$WAL_DIR \
@@ -147,9 +156,9 @@ const_params="
   --pin_l0_filter_and_index_blocks_in_cache=1 \
   --benchmark_write_rate_limit=$(( 1024 * 1024 * $mb_written_per_sec )) \
   \
-  --write_buffer_size=$blob_file_size \
-  --target_file_size_base=$(($blob_file_size / $value_size * 32)) \
-  --max_bytes_for_level_base=$(($blob_file_size / $value_size * 256)) \
+  --write_buffer_size=$write_buffer_size \
+  --target_file_size_base=$target_file_size_base \
+  --max_bytes_for_level_base=$max_bytes_for_level_base \
   \
   --verify_checksum=1 \
   --delete_obsolete_files_period_micros=$((60 * M)) \
