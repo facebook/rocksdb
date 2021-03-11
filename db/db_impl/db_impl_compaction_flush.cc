@@ -171,7 +171,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 #endif  // ROCKSDB_LITE
 
   Status s;
-  bool pick_status = false;
+  bool need_cancel = false;
   IOStatus log_io_s = IOStatus::OK();
   if (logfile_number_ > 0 &&
       versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1) {
@@ -196,7 +196,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
   if (s.ok()) {
     flush_job.PickMemTable();
-    pick_status = true;
+    need_cancel = true;
   }
   TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:AfterPickMemtables");
 
@@ -208,9 +208,10 @@ Status DBImpl::FlushMemTableToOutputFile(
   // is unlocked by the current thread.
   if (s.ok()) {
     s = flush_job.Run(&logs_with_prep_tracker_, &file_meta);
+    need_cancel = false;
   }
 
-  if (!s.ok() && pick_status) {
+  if (!s.ok() && need_cancel) {
     flush_job.Cancel();
   }
   IOStatus io_s = IOStatus::OK();
@@ -252,13 +253,14 @@ Status DBImpl::FlushMemTableToOutputFile(
   if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
     if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
         !io_s.IsColumnFamilyDropped()) {
+      assert(log_io_s.ok());
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
       // CURRENT file. With current code, it's just difficult to tell. So just
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
-        if (total_log_size_ > 0 || !log_io_s.ok()) {
+        if (total_log_size_ > 0) {
           // If the WAL is empty, we use different error reason
           error_handler_.SetBGError(io_s,
                                     BackgroundErrorReason::kManifestWrite);
@@ -678,13 +680,14 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // it is not because of CF drop.
   if (!s.ok() && !s.IsColumnFamilyDropped()) {
     if (!io_s.ok() && !io_s.IsColumnFamilyDropped()) {
+      assert(log_io_s.ok());
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
       // CURRENT file. With current code, it's just difficult to tell. So just
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
-        if (total_log_size_ > 0 || !log_io_s.ok()) {
+        if (total_log_size_ > 0) {
           // If the WAL is empty, we use different error reason
           error_handler_.SetBGError(io_s,
                                     BackgroundErrorReason::kManifestWrite);
@@ -692,7 +695,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
           error_handler_.SetBGError(io_s,
                                     BackgroundErrorReason::kManifestWriteNoWAL);
         }
-      } else if (total_log_size_ > 0 || !log_io_s.ok()) {
+      } else if (total_log_size_ > 0) {
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
       } else {
         // If the WAL is empty, we use different error reason
@@ -1791,7 +1794,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   // This method should not be called if atomic_flush is true.
   assert(!immutable_db_options_.atomic_flush);
   Status s;
-  clock_->SleepForMicroseconds(1000000);
   if (!flush_options.allow_write_stall) {
     bool flush_needed = true;
     s = WaitUntilFlushWouldNotStallWrites(cfd, &flush_needed);
@@ -1868,6 +1870,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         }
       }
     }
+
     if (s.ok() && !flush_reqs.empty()) {
       for (const auto& req : flush_reqs) {
         assert(req.size() == 1);
@@ -1913,7 +1916,6 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
         cfds, flush_memtable_ids,
         (flush_reason == FlushReason::kErrorRecovery ||
          flush_reason == FlushReason::kErrorRecoveryRetryFlush));
-
     InstrumentedMutexLock lock_guard(&mutex_);
     for (auto* tmp_cfd : cfds) {
       tmp_cfd->UnrefAndTryDelete();
@@ -2574,6 +2576,7 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
         pending_outputs_inserted_elem(new std::list<uint64_t>::iterator(
             CaptureCurrentFileNumberInPendingOutputs()));
     FlushReason reason;
+
     Status s = BackgroundFlush(&made_progress, &job_context, &log_buffer,
                                &reason, thread_pri);
     if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped() &&

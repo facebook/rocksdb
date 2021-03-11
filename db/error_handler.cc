@@ -283,7 +283,6 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
                  "ErrorHandler: Set regular background error\n");
 
   bool paranoid = db_options_.paranoid_checks;
-
   Status::Severity sev = Status::Severity::kFatalError;
   Status new_bg_err;
   DBRecoverContext context;
