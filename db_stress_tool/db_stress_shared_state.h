@@ -418,6 +418,8 @@ struct ThreadState {
     std::string value;
     // optional state of all keys in the db
     std::vector<bool>* key_vec;
+
+    std::string timestamp;
   };
   std::queue<std::pair<uint64_t, SnapshotState>> snapshot_queue;
 
