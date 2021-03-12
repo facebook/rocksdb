@@ -269,15 +269,34 @@ struct RestoreOptions {
       : keep_log_files(_keep_log_files) {}
 };
 
+struct BackupFileInfo {
+  // File name and path relative to the backup_dir directory.
+  std::string relative_filename;
+
+  // Size of the file in bytes, not including filesystem overheads.
+  uint64_t size;
+};
+
 typedef uint32_t BackupID;
 
 struct BackupInfo {
   BackupID backup_id;
+  // Creation time, according to GetCurrentTime
   int64_t timestamp;
+
+  // Total size in bytes (based on file payloads, not including filesystem
+  // overheads or backup meta file)
   uint64_t size;
 
+  // Number of backed up files, some of which might be shared with other
+  // backups. Does not include backup meta file.
   uint32_t number_files;
+
+  // Backup API user metadata
   std::string app_metadata;
+
+  // Backup file details, if requested
+  std::vector<BackupFileInfo> file_details;
 
   BackupInfo() {}
 
@@ -334,12 +353,15 @@ class BackupEngineReadOnly {
 
   // Returns info about backups in backup_info
   // You can GetBackupInfo safely, even with other BackupEngine performing
-  // backups on the same directory
-  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) = 0;
+  // backups on the same directory.
+  // Setting include_file_details=true provides information about each
+  // backed-up file in BackupInfo::file_details.
+  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info,
+                             bool include_file_details = false) const = 0;
 
   // Returns info about corrupt backups in corrupt_backups
   virtual void GetCorruptedBackups(
-      std::vector<BackupID>* corrupt_backup_ids) = 0;
+      std::vector<BackupID>* corrupt_backup_ids) const = 0;
 
   // Restoring DB from backup is NOT safe when there is another BackupEngine
   // running that might call DeleteBackup() or PurgeOldBackups(). It is caller's
@@ -457,11 +479,12 @@ class BackupEngine {
   virtual void StopBackup() = 0;
 
   // Returns info about backups in backup_info
-  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) = 0;
+  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info,
+                             bool include_file_details = false) const = 0;
 
   // Returns info about corrupt backups in corrupt_backups
   virtual void GetCorruptedBackups(
-      std::vector<BackupID>* corrupt_backup_ids) = 0;
+      std::vector<BackupID>* corrupt_backup_ids) const = 0;
 
   // restore from backup with backup_id
   // IMPORTANT -- if options_.share_table_files == true,
