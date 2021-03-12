@@ -723,8 +723,8 @@ static bool SaveValue(void* arg, const char* entry) {
   const Comparator* user_comparator =
       s->mem->GetInternalKeyComparator().user_comparator();
   size_t ts_sz = user_comparator->timestamp_size();
-  if (user_comparator->CompareWithoutTimestamp(user_key_slice,
-                                               s->key->user_key()) == 0) {
+  if (user_comparator->EqualWithoutTimestamp(user_key_slice,
+                                             s->key->user_key())) {
     // Correct user key
     const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
     ValueType type;
