@@ -41,10 +41,10 @@
   } while (false) /* user ; */
 #endif
 
-// We add "bypass" as an alternative to ROCKSDB_GTEST_SKIP that is allowed
-// to be a permanent condition, e.g. for intentionally omitting or disabling
-// some parameterizations for some tests. (Use _DISABLED at the end of the
-// test name to disable an entire test.)
+// We add "bypass" as an alternative to ROCKSDB_GTEST_SKIP that is allowed to
+// be a permanent condition, e.g. for intentionally omitting or disabling some
+// parameterizations for some tests. (Use _DISABLED at the end of the test
+// name to disable an entire test.)
 #define ROCKSDB_GTEST_BYPASS(m)         \
   do {                                  \
     fputs("BYPASSED: " m "\n", stderr); \
