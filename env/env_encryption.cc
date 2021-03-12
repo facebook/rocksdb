@@ -465,6 +465,7 @@ IOStatus EncryptedRandomRWFile::Close(const IOOptions& options,
   return file_->Close(options, dbg);
 }
 
+namespace {
 // EncryptedFileSystemImpl implements an FileSystemWrapper that adds encryption
 // to files stored on disk.
 class EncryptedFileSystemImpl : public EncryptedFileSystem {
@@ -935,6 +936,7 @@ class EncryptedFileSystemImpl : public EncryptedFileSystem {
  private:
   std::shared_ptr<EncryptionProvider> provider_;
 };
+}  // namespace
 
 std::shared_ptr<FileSystem> NewEncryptedFS(
     const std::shared_ptr<FileSystem>& base,

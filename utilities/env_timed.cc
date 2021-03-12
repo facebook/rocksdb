@@ -12,7 +12,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
-
+namespace {
 class TimedFileSystem : public FileSystemWrapper {
  public:
   explicit TimedFileSystem(const std::shared_ptr<FileSystem>& base)
@@ -159,6 +159,7 @@ class TimedFileSystem : public FileSystemWrapper {
     return FileSystemWrapper::NewLogger(fname, options, result, dbg);
   }
 };
+}  // namespace
 
 std::shared_ptr<FileSystem> NewTimedFileSystem(
     const std::shared_ptr<FileSystem>& base) {
@@ -167,14 +168,11 @@ std::shared_ptr<FileSystem> NewTimedFileSystem(
 
 // An environment that measures function call times for filesystem
 // operations, reporting results to variables in PerfContext.
-class TimedEnv : public CompositeEnvWrapper {
- public:
-  explicit TimedEnv(Env* base_env)
-      : CompositeEnvWrapper(base_env,
-                            NewTimedFileSystem(base_env->GetFileSystem())) {}
-};
-
-Env* NewTimedEnv(Env* base_env) { return new TimedEnv(base_env); }
+Env* NewTimedEnv(Env* base_env) {
+  std::shared_ptr<FileSystem> timed_fs =
+      NewTimedFileSystem(base_env->GetFileSystem());
+  return new CompositeEnvWrapper(base_env, timed_fs);
+}
 
 #else  // ROCKSDB_LITE
 

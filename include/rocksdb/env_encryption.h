@@ -423,7 +423,7 @@ class EncryptedRandomRWFile : public FSRandomRWFile {
 
 class EncryptedFileSystem : public FileSystemWrapper {
  public:
-  EncryptedFileSystem(const std::shared_ptr<FileSystem>& base)
+  explicit EncryptedFileSystem(const std::shared_ptr<FileSystem>& base)
       : FileSystemWrapper(base) {}
   // Method to add a new cipher key for use by the EncryptionProvider.
   // @param description  Descriptor for this key.

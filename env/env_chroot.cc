@@ -21,7 +21,7 @@
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
-
+namespace {
 class ChrootFileSystem : public FileSystemWrapper {
  public:
   ChrootFileSystem(const std::shared_ptr<FileSystem>& base,
@@ -372,25 +372,20 @@ class ChrootFileSystem : public FileSystemWrapper {
 
   std::string chroot_dir_;
 };
+}  // namespace
 
 std::shared_ptr<FileSystem> NewChrootFileSystem(
     const std::shared_ptr<FileSystem>& base, const std::string& chroot_dir) {
   return std::make_shared<ChrootFileSystem>(base, chroot_dir);
 }
 
-class ChrootEnv : public CompositeEnvWrapper {
- public:
-  explicit ChrootEnv(Env* base_env, const std::string& chroot_dir)
-      : CompositeEnvWrapper(
-            base_env,
-            NewChrootFileSystem(base_env->GetFileSystem(), chroot_dir)) {}
-};
-
 Env* NewChrootEnv(Env* base_env, const std::string& chroot_dir) {
   if (!base_env->FileExists(chroot_dir).ok()) {
     return nullptr;
   }
-  return new ChrootEnv(base_env, chroot_dir);
+  std::shared_ptr<FileSystem> chroot_fs =
+      NewChrootFileSystem(base_env->GetFileSystem(), chroot_dir);
+  return new CompositeEnvWrapper(base_env, chroot_fs);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
