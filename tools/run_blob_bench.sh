@@ -20,10 +20,10 @@ M=$((1024 * K))
 G=$((1024 * M))
 
 # Update these parameters before execution !!!
-db_dir=${DATA_DIR:-"/tmp/ltamasi-dbbench/"}
-wal_dir=${LOG_DIR:-"/tmp/ltamasi-dbbench/"}
+db_dir=${DATA_DIR:-"/data/ltamasi-dbbench/"}
+wal_dir=${LOG_DIR:-"/data/ltamasi-dbbench/"}
 
-for value_size in $((64 * K)) $((32 * K)) $((16 * K)) $((8 * K)) $((4 * K)) $((2 * K)) $((1 * K)); do
+for value_size in $((4 * M)) $((1 * M)) $((256 * K)) $((64 * K)) $((16 * K)) $((4 * K)) $((1 * K)); do
 for enable_blob_files in 0 1; do
 
 echo "======================== Value size: $value_size, blob files: $enable_blob_files ========================"

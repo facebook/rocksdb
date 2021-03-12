@@ -118,11 +118,11 @@ duration=${DURATION:-0}
 key_size=${KEY_SIZE:-20}
 value_size=${VALUE_SIZE:-400}
 block_size=${BLOCK_SIZE:-8192}
-num_keys=${NUM_KEYS:-$((128 * G / $value_size))}
+num_keys=${NUM_KEYS:-$((1 * T / $value_size))}
 
 enable_blob_files=${ENABLE_BLOB_FILES:-0}
 min_blob_size=${MIN_BLOB_SIZE:-0}
-blob_file_size=${BLOB_FILE_SIZE:-268435456}
+blob_file_size=${BLOB_FILE_SIZE:-$((1 * G))}
 blob_compression_type=${BLOB_COMPRESSION_TYPE:-none}
 enable_blob_garbage_collection=${ENABLE_BLOB_GC:-0}
 blob_garbage_collection_age_cutoff=${BLOB_GC_AGE_CUTOFF:-0.25}
