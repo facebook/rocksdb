@@ -709,6 +709,69 @@ class BackupableDBTest : public testing::Test {
 
   void CloseBackupEngine() { backup_engine_.reset(nullptr); }
 
+  // cross-cutting test of GetBackupInfo
+  void AssertBackupInfoConsistency() {
+    std::vector<BackupInfo> backup_info;
+    backup_engine_->GetBackupInfo(&backup_info, /*with file details*/ true);
+    std::map<std::string, uint64_t> file_sizes;
+
+    // Find the files that are supposed to be there
+    for (auto& backup : backup_info) {
+      uint64_t sum_for_backup = 0;
+      for (auto& file : backup.file_details) {
+        auto e = file_sizes.find(file.relative_filename);
+        if (e == file_sizes.end()) {
+          // fprintf(stderr, "Adding %s -> %u\n",
+          // file.relative_filename.c_str(), (unsigned)file.size);
+          file_sizes[file.relative_filename] = file.size;
+        } else {
+          ASSERT_EQ(file_sizes[file.relative_filename], file.size);
+        }
+        sum_for_backup += file.size;
+      }
+      ASSERT_EQ(backup.size, sum_for_backup);
+    }
+
+    std::vector<BackupID> corrupt_backup_ids;
+    backup_engine_->GetCorruptedBackups(&corrupt_backup_ids);
+    bool has_corrupt = corrupt_backup_ids.size() > 0;
+
+    // Compare with what's in backup dir
+    std::vector<std::string> child_dirs;
+    ASSERT_OK(
+        test_backup_env_->GetChildren(backupdir_ + "/private", &child_dirs));
+    for (auto& dir : child_dirs) {
+      dir = "private/" + dir;
+    }
+    child_dirs.push_back("shared");           // might not exist
+    child_dirs.push_back("shared_checksum");  // might not exist
+    for (auto& dir : child_dirs) {
+      std::vector<std::string> children;
+      test_backup_env_->GetChildren(backupdir_ + "/" + dir, &children)
+          .PermitUncheckedError();
+      // fprintf(stderr, "ls %s\n", (backupdir_ + "/" + dir).c_str());
+      for (auto& file : children) {
+        uint64_t size;
+        size = UINT64_MAX;  // appease clang-analyze
+        std::string rel_file = dir + "/" + file;
+        // fprintf(stderr, "stat %s\n", (backupdir_ + "/" + rel_file).c_str());
+        ASSERT_OK(
+            test_backup_env_->GetFileSize(backupdir_ + "/" + rel_file, &size));
+        auto e = file_sizes.find(rel_file);
+        if (e == file_sizes.end()) {
+          // The only case in which we should find files not reported
+          ASSERT_TRUE(has_corrupt);
+        } else {
+          ASSERT_EQ(e->second, size);
+          file_sizes.erase(e);
+        }
+      }
+    }
+
+    // Everything should have been matched
+    ASSERT_EQ(file_sizes.size(), 0);
+  }
+
   // restores backup backup_id and asserts the existence of
   // [start_exist, end_exist> and not-existence of
   // [end_exist, end>
@@ -724,6 +787,9 @@ class BackupableDBTest : public testing::Test {
       opened_backup_engine = true;
       OpenBackupEngine();
     }
+    AssertBackupInfoConsistency();
+
+    // Now perform restore
     if (backup_id > 0) {
       ASSERT_OK(backup_engine_->RestoreDBFromBackup(backup_id, dbname_, dbname_,
                                                     restore_options));
@@ -732,6 +798,7 @@ class BackupableDBTest : public testing::Test {
                                                           restore_options));
     }
     DB* db = OpenDB();
+    // Check DB contents
     AssertExists(db, start_exist, end_exist);
     if (end != 0) {
       AssertEmpty(db, end_exist, end);
