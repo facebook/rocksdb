@@ -15,12 +15,14 @@
 #include <gtest/gtest.h>
 #endif
 
-// If GTEST_SKIP is available, use it. Otherwise, define skip as success.
-//
-// A "skipped" test has a specific meaning in Facebook infrastructure: a
-// precondition was not met, and there is a testing hole if any
+// A "skipped" test has a specific meaning in Facebook infrastructure: the
+// test is in good shape and should be run, but something about the
+// compilation or execution environment means the test cannot be run.
+// Specifically, the is a hole in intended testing if any
 // parameterization of a test (e.g. Foo/FooTest.Bar/42) is skipped for all
 // tested build configurations/platforms/etc.
+//
+// If GTEST_SKIP is available, use it. Otherwise, define skip as success.
 //
 // The GTEST macros do not seem to print the message, even with -verbose,
 // so these print to stderr. Note that these do not exit the test themselves;
@@ -39,9 +41,10 @@
   } while (false) /* user ; */
 #endif
 
-// An alternative to ROCKSDB_GTEST_SKIP that is allowed to be a permanent
-// condition, e.g. for intentionally omitting or disabling some
-// parameterizations for some tests.
+// We add "bypass" as an alternative to ROCKSDB_GTEST_SKIP that is allowed
+// to be a permanent condition, e.g. for intentionally omitting or disabling
+// some parameterizations for some tests. (Use _DISABLED at the end of the
+// test name to disable an entire test.)
 #define ROCKSDB_GTEST_BYPASS(m)         \
   do {                                  \
     fputs("BYPASSED: " m "\n", stderr); \
