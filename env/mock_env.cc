@@ -1026,7 +1026,7 @@ Status MockFileSystem::CorruptBuffer(const std::string& fname) {
 
 class MockSystemClock : public SystemClockWrapper {
  public:
-  MockSystemClock(const std::shared_ptr<SystemClock>& c)
+  explicit MockSystemClock(const std::shared_ptr<SystemClock>& c)
       : SystemClockWrapper(c), fake_sleep_micros_(0) {}
 
   void FakeSleepForMicroseconds(int64_t micros) {
