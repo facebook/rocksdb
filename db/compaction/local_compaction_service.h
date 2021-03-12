@@ -30,6 +30,9 @@ class LocalCompactionService : public CompactionService {
   const std::string& db_id_;
   const std::string& db_session_id_;
   const ImmutableDBOptions& db_options_;
+
+  FileSystemPtr fs_;
+  std::shared_ptr<SystemClock> clock_;  // Temporary
   FileOptions* file_options_;
   const std::atomic<bool>* shutting_down_;
   const std::atomic<int>* manual_compaction_paused_;

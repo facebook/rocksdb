@@ -65,8 +65,8 @@ class VersionSet;
 class CompactionJob {
  public:
   CompactionJob(int job_id, Compaction* compaction,
-                LocalCompactionService* service,
-                LogBuffer* log_buffer, FSDirectory* output_directory,
+                LocalCompactionService* service, LogBuffer* log_buffer,
+                FSDirectory* output_directory,
                 FSDirectory* blob_output_directory,
                 std::vector<SequenceNumber> existing_snapshots,
                 SequenceNumber earliest_write_conflict_snapshot,
@@ -143,18 +143,14 @@ class CompactionJob {
 
   // CompactionJob state
   struct CompactionState;
-  CompactionState* compact_;
+  CompactionState* compaction_state_;
   CompactionJobStats* compaction_job_stats_;
   InternalStats::CompactionStats compaction_stats_;
 
   // DBImpl state
   LocalCompactionService* service_;
-  const ImmutableDBOptions& db_options_;
   const FileOptions file_options_;
 
-  Env* env_;
-  std::shared_ptr<SystemClock> clock_;
-  FileSystemPtr fs_;
   // env_option optimized for compaction table reads
   FileOptions file_options_for_read_;
   const std::atomic<int>* manual_compaction_paused_;
@@ -162,7 +158,6 @@ class CompactionJob {
   LogBuffer* log_buffer_;
   FSDirectory* output_directory_;
   FSDirectory* blob_output_directory_;
-  Statistics* stats_;
   // If there were two snapshots with seq numbers s1 and
   // s2 and s1 < s2, and if we find two instances of a key k1 then lies
   // entirely within s1 and s2, then the earlier version of k1 can be safely

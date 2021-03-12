@@ -51,7 +51,12 @@ class CompactionIterator {
 
     virtual double blob_garbage_collection_age_cutoff() const = 0;
 
-    virtual Version* input_version() const = 0;
+    virtual uint64_t ComputeBlobGarbageCollectionCutoffFileNumber() const = 0;
+
+    virtual Status GetBlobValue(const ReadOptions& read_options,
+                                const Slice& user_key,
+                                const BlobIndex& blob_index,
+                                PinnableSlice* blob_value) const = 0;
   };
 
   class RealCompaction : public CompactionProxy {
@@ -97,9 +102,11 @@ class CompactionIterator {
           ->blob_garbage_collection_age_cutoff;
     }
 
-    Version* input_version() const override {
-      return compaction_->input_version();
-    }
+    uint64_t ComputeBlobGarbageCollectionCutoffFileNumber() const override;
+
+    Status GetBlobValue(const ReadOptions& read_options, const Slice& user_key,
+                        const BlobIndex& blob_index,
+                        PinnableSlice* blob_value) const override;
 
    private:
     const Compaction* compaction_;

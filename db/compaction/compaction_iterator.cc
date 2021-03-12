@@ -33,6 +33,34 @@
    (snapshot_checker_ == nullptr || LIKELY(IsInEarliestSnapshot(seq))))
 
 namespace ROCKSDB_NAMESPACE {
+uint64_t CompactionIterator::RealCompaction::
+    ComputeBlobGarbageCollectionCutoffFileNumber() const {
+  if (!compaction_->mutable_cf_options()->enable_blob_garbage_collection) {
+    return 0;
+  } else {
+    const VersionStorageInfo* const storage_info =
+        compaction_->input_version()->storage_info();
+    assert(storage_info);
+
+    const auto& blob_files = storage_info->GetBlobFiles();
+
+    auto it = blob_files.begin();
+    std::advance(
+        it,
+        compaction_->mutable_cf_options()->blob_garbage_collection_age_cutoff *
+            blob_files.size());
+
+    return it != blob_files.end() ? it->first
+                                  : std::numeric_limits<uint64_t>::max();
+  }
+}
+
+Status CompactionIterator::RealCompaction::GetBlobValue(
+    const ReadOptions& options, const Slice& user_key,
+    const BlobIndex& blob_index, PinnableSlice* blob_value) const {
+  return compaction_->input_version()->GetBlob(options, user_key, blob_index,
+                                               blob_value);
+}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -810,19 +838,12 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
     if (blob_index.file_number() >=
         blob_garbage_collection_cutoff_file_number_) {
       return;
-    }
-
-    const Version* const version = compaction_->input_version();
-    assert(version);
-
-    {
-      const Status s =
-          version->GetBlob(ReadOptions(), user_key(), blob_index, &blob_value_);
-
+    } else {
+      Status s = compaction_->GetBlobValue(ReadOptions(), user_key(),
+                                           blob_index, &blob_value_);
       if (!s.ok()) {
         status_ = s;
         valid_ = false;
-
         return;
       }
     }
@@ -1004,26 +1025,10 @@ uint64_t CompactionIterator::ComputeBlobGarbageCollectionCutoffFileNumber(
     const CompactionProxy* compaction) {
   if (!compaction) {
     return 0;
-  }
-
-  if (!compaction->enable_blob_garbage_collection()) {
+  } else if (!compaction->enable_blob_garbage_collection()) {
     return 0;
+  } else {
+    return compaction->ComputeBlobGarbageCollectionCutoffFileNumber();
   }
-
-  Version* const version = compaction->input_version();
-  assert(version);
-
-  const VersionStorageInfo* const storage_info = version->storage_info();
-  assert(storage_info);
-
-  const auto& blob_files = storage_info->GetBlobFiles();
-
-  auto it = blob_files.begin();
-  std::advance(
-      it, compaction->blob_garbage_collection_age_cutoff() * blob_files.size());
-
-  return it != blob_files.end() ? it->first
-                                : std::numeric_limits<uint64_t>::max();
 }
-
 }  // namespace ROCKSDB_NAMESPACE

@@ -38,7 +38,7 @@ struct CompactionServiceOptions : CompactionOptions {
   std::string db_id;
 
   // The handle of the column family to compact
-  ColumnFamilyHandle *column_family;
+  ColumnFamilyHandle* column_family;
 
   // The DBOptions for this compaction.
   DBOptions db_options;

@@ -180,7 +180,15 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
 
   double blob_garbage_collection_age_cutoff() const override { return 0.0; }
 
-  Version* input_version() const override { return nullptr; }
+  uint64_t ComputeBlobGarbageCollectionCutoffFileNumber() const override {
+    return 0;
+  }
+
+  Status GetBlobValue(const ReadOptions& /*options*/, const Slice& /*user_key*/,
+                      const BlobIndex& /*blob_index*/,
+                      PinnableSlice* /*blob_value*/) const override {
+    return Status::NotSupported();
+  }
 
   bool key_not_exists_beyond_output_level = false;
 
