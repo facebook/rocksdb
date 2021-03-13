@@ -1460,8 +1460,16 @@ Status StressTest::TestBackupRestore(
     std::string key_str = Key(rand_keys[0]);
     Slice key = key_str;
     std::string restored_value;
+    ReadOptions read_opts;
+    std::string ts_str;
+    Slice ts;
+    if (FLAGS_user_timestamp_size > 0) {
+      ts_str = GenerateTimestampForRead();
+      ts = ts_str;
+      read_opts.timestamp = &ts;
+    }
     Status get_status = restored_db->Get(
-        ReadOptions(), restored_cf_handles[rand_column_families[i]], key,
+        read_opts, restored_cf_handles[rand_column_families[i]], key,
         &restored_value);
     bool exists = thread->shared->Exists(rand_column_families[i], rand_keys[0]);
     if (get_status.ok()) {
@@ -1948,6 +1956,13 @@ uint32_t StressTest::GetRangeHash(ThreadState* thread, const Snapshot* snapshot,
   ReadOptions ro;
   ro.snapshot = snapshot;
   ro.total_order_seek = true;
+  std::string ts_str;
+  Slice ts;
+  if (FLAGS_user_timestamp_size > 0) {
+    ts_str = GenerateTimestampForRead();
+    ts = ts_str;
+    ro.timestamp = &ts;
+  }
   std::unique_ptr<Iterator> it(db_->NewIterator(ro, column_family));
   for (it->Seek(start_key);
        it->Valid() && options_.comparator->Compare(it->key(), end_key) <= 0;
@@ -2353,6 +2368,13 @@ void StressTest::Open() {
     if (FLAGS_secondary_catch_up_one_in > 0 ||
         FLAGS_continuous_verification_interval > 0) {
       fprintf(stderr, "Secondary instance does not support timestamp.\n");
+      exit(1);
+    }
+    if (FLAGS_checkpoint_one_in > 0) {
+      fprintf(stderr,
+              "-checkpoint_one_in=%d requires "
+              "DBImplReadOnly, which is not supported with timestamp\n",
+              FLAGS_checkpoint_one_in);
       exit(1);
     }
     options_.comparator = cmp;
