@@ -2328,6 +2328,33 @@ void StressTest::Open() {
               static_cast<int>(cmp->timestamp_size()));
       exit(1);
     }
+    if (FLAGS_nooverwritepercent > 0) {
+      fprintf(stderr,
+              "-nooverwritepercent must be 0 because SingleDelete must be "
+              "disabled.\n");
+      exit(1);
+    }
+    if (FLAGS_use_merge) {
+      fprintf(stderr, "Merge not supported.\n");
+      exit(1);
+    }
+    if (FLAGS_delrangepercent > 0) {
+      fprintf(stderr, "DeleteRange not supported.\n");
+      exit(1);
+    }
+    if (FLAGS_use_txn) {
+      fprintf(stderr, "TransactionDB does not support timestamp yet.\n");
+      exit(1);
+    }
+    if (FLAGS_read_only) {
+      fprintf(stderr, "When opened as read-only, timestamp not supported.\n");
+      exit(1);
+    }
+    if (FLAGS_secondary_catch_up_one_in > 0 ||
+        FLAGS_continuous_verification_interval > 0) {
+      fprintf(stderr, "Secondary instance does not support timestamp.\n");
+      exit(1);
+    }
     options_.comparator = cmp;
   }
 
