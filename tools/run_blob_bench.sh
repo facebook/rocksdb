@@ -43,7 +43,7 @@ COMPRESSION_TYPE=lz4 \
 ENABLE_BLOB_FILES=$enable_blob_files \
 BLOB_COMPRESSION_TYPE=lz4"
 
-ARGS_GC="$ARGS ENABLE_BLOB_GC=1"
+ARGS_GC="$ARGS ENABLE_BLOB_GC=$enable_blob_files"
 ARGS_GC_D="$ARGS_GC DURATION=1800"
 
 rm -rf $output_dir
