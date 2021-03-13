@@ -2381,6 +2381,10 @@ void StressTest::Open() {
       fprintf(stderr, "BlobDB not supported with timestamp.\n");
       exit(1);
     }
+    if (FLAGS_enable_compaction_filter) {
+      fprintf(stderr, "CompactionFilter not supported with timestamp.\n");
+      exit(1);
+    }
     options_.comparator = cmp;
   }
 
