@@ -487,7 +487,24 @@ TEST_F(DBBasicTestWithTimestamp, SimpleIterate) {
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLessThanKey) {
+class DBBasicTestWithTimestampTableOptions
+    : public DBBasicTestWithTimestampBase,
+      public testing::WithParamInterface<BlockBasedTableOptions::IndexType> {
+ public:
+  explicit DBBasicTestWithTimestampTableOptions()
+      : DBBasicTestWithTimestampBase(
+            "db_basic_test_with_timestamp_table_options") {}
+};
+
+INSTANTIATE_TEST_CASE_P(
+    Timestamp, DBBasicTestWithTimestampTableOptions,
+    testing::Values(
+        BlockBasedTableOptions::IndexType::kBinarySearch,
+        BlockBasedTableOptions::IndexType::kHashSearch,
+        BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
+        BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey));
+
+TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithPrefixLessThanKey) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -498,6 +515,7 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLessThanKey) {
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.cache_index_and_filter_blocks = true;
   bbto.whole_key_filtering = true;
+  bbto.index_type = GetParam();
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
@@ -542,7 +560,7 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLessThanKey) {
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLongerThanKey) {
+TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithPrefixLongerThanKey) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -553,6 +571,7 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLongerThanKey) {
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.cache_index_and_filter_blocks = true;
   bbto.whole_key_filtering = true;
+  bbto.index_type = GetParam();
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
@@ -595,7 +614,7 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithPrefixLongerThanKey) {
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp, SeekWithBound) {
+TEST_P(DBBasicTestWithTimestampTableOptions, SeekWithBound) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -604,6 +623,7 @@ TEST_F(DBBasicTestWithTimestamp, SeekWithBound) {
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.cache_index_and_filter_blocks = true;
   bbto.whole_key_filtering = true;
+  bbto.index_type = GetParam();
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
@@ -1083,7 +1103,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithFastLocalBloom) {
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp, MultiGetWithPrefix) {
+TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetWithPrefix) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -1092,6 +1112,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithPrefix) {
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.cache_index_and_filter_blocks = true;
   bbto.whole_key_filtering = false;
+  bbto.index_type = GetParam();
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   const size_t kTimestampSize = Timestamp(0, 0).size();
   TestComparator test_cmp(kTimestampSize);
@@ -1124,7 +1145,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithPrefix) {
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp, MultiGetWithMemBloomFilter) {
+TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetWithMemBloomFilter) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -1133,6 +1154,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetWithMemBloomFilter) {
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.cache_index_and_filter_blocks = true;
   bbto.whole_key_filtering = false;
+  bbto.index_type = GetParam();
   options.memtable_prefix_bloom_size_ratio = 0.1;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   const size_t kTimestampSize = Timestamp(0, 0).size();
@@ -1222,7 +1244,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetRangeFiltering) {
   Close();
 }
 
-TEST_F(DBBasicTestWithTimestamp, MultiGetPrefixFilter) {
+TEST_P(DBBasicTestWithTimestampTableOptions, MultiGetPrefixFilter) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
@@ -1231,6 +1253,7 @@ TEST_F(DBBasicTestWithTimestamp, MultiGetPrefixFilter) {
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.cache_index_and_filter_blocks = true;
   bbto.whole_key_filtering = false;
+  bbto.index_type = GetParam();
   options.memtable_prefix_bloom_size_ratio = 0.1;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   const size_t kTimestampSize = Timestamp(0, 0).size();
@@ -1406,7 +1429,8 @@ class DBBasicTestWithTimestampFilterPrefixSettings
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<
           std::tuple<std::shared_ptr<const FilterPolicy>, bool, bool,
-                     std::shared_ptr<const SliceTransform>, bool, double>> {
+                     std::shared_ptr<const SliceTransform>, bool, double,
+                     BlockBasedTableOptions::IndexType>> {
  public:
   DBBasicTestWithTimestampFilterPrefixSettings()
       : DBBasicTestWithTimestampBase(
@@ -1421,6 +1445,7 @@ TEST_P(DBBasicTestWithTimestampFilterPrefixSettings, GetAndMultiGet) {
   bbto.filter_policy = std::get<0>(GetParam());
   bbto.whole_key_filtering = std::get<1>(GetParam());
   bbto.cache_index_and_filter_blocks = std::get<2>(GetParam());
+  bbto.index_type = std::get<6>(GetParam());
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   options.prefix_extractor = std::get<3>(GetParam());
   options.memtable_whole_key_filtering = std::get<4>(GetParam());
@@ -1525,7 +1550,12 @@ INSTANTIATE_TEST_CASE_P(
             std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(4)),
             std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(7)),
             std::shared_ptr<const SliceTransform>(NewFixedPrefixTransform(8))),
-        ::testing::Bool(), ::testing::Values(0, 0.1)));
+        ::testing::Bool(), ::testing::Values(0, 0.1),
+        ::testing::Values(
+            BlockBasedTableOptions::IndexType::kBinarySearch,
+            BlockBasedTableOptions::IndexType::kHashSearch,
+            BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
+            BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey)));
 
 class DataVisibilityTest : public DBBasicTestWithTimestampBase {
  public:
@@ -2606,7 +2636,8 @@ class DBBasicTestWithTimestampPrefixSeek
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<
           std::tuple<std::shared_ptr<const SliceTransform>,
-                     std::shared_ptr<const FilterPolicy>, bool>> {
+                     std::shared_ptr<const FilterPolicy>, bool,
+                     BlockBasedTableOptions::IndexType>> {
  public:
   DBBasicTestWithTimestampPrefixSeek()
       : DBBasicTestWithTimestampBase(
@@ -2625,6 +2656,7 @@ TEST_P(DBBasicTestWithTimestampPrefixSeek, IterateWithPrefix) {
   options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
   BlockBasedTableOptions bbto;
   bbto.filter_policy = std::get<1>(GetParam());
+  bbto.index_type = std::get<3>(GetParam());
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   DestroyAndReopen(options);
 
@@ -2749,13 +2781,19 @@ INSTANTIATE_TEST_CASE_P(
                           std::shared_ptr<const FilterPolicy>(
                               NewBloomFilterPolicy(20 /*bits_per_key*/,
                                                    false))),
-        ::testing::Bool()));
+        ::testing::Bool(),
+        ::testing::Values(
+            BlockBasedTableOptions::IndexType::kBinarySearch,
+            BlockBasedTableOptions::IndexType::kHashSearch,
+            BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
+            BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey)));
 
 class DBBasicTestWithTsIterTombstones
     : public DBBasicTestWithTimestampBase,
       public testing::WithParamInterface<
           std::tuple<std::shared_ptr<const SliceTransform>,
-                     std::shared_ptr<const FilterPolicy>, int>> {
+                     std::shared_ptr<const FilterPolicy>, int,
+                     BlockBasedTableOptions::IndexType>> {
  public:
   DBBasicTestWithTsIterTombstones()
       : DBBasicTestWithTimestampBase("/db_basic_ts_iter_tombstones") {}
@@ -2772,6 +2810,7 @@ TEST_P(DBBasicTestWithTsIterTombstones, IterWithDelete) {
   options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
   BlockBasedTableOptions bbto;
   bbto.filter_policy = std::get<1>(GetParam());
+  bbto.index_type = std::get<3>(GetParam());
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   options.num_levels = std::get<2>(GetParam());
   DestroyAndReopen(options);
@@ -2840,7 +2879,12 @@ INSTANTIATE_TEST_CASE_P(
                               NewBloomFilterPolicy(10, false)),
                           std::shared_ptr<const FilterPolicy>(
                               NewBloomFilterPolicy(20, false))),
-        ::testing::Values(2, 6)));
+        ::testing::Values(2, 6),
+        ::testing::Values(
+            BlockBasedTableOptions::IndexType::kBinarySearch,
+            BlockBasedTableOptions::IndexType::kHashSearch,
+            BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch,
+            BlockBasedTableOptions::IndexType::kBinarySearchWithFirstKey)));
 
 }  // namespace ROCKSDB_NAMESPACE
 
