@@ -2335,63 +2335,7 @@ void StressTest::Open() {
   Status s;
 
   if (FLAGS_user_timestamp_size > 0) {
-    const Comparator* const cmp = test::ComparatorWithU64Ts();
-    assert(cmp);
-    if (FLAGS_user_timestamp_size != cmp->timestamp_size()) {
-      fprintf(stderr,
-              "Only -user_timestamp_size=%d is supported in stress test.\n",
-              static_cast<int>(cmp->timestamp_size()));
-      exit(1);
-    }
-    if (FLAGS_nooverwritepercent > 0) {
-      fprintf(stderr,
-              "-nooverwritepercent must be 0 because SingleDelete must be "
-              "disabled.\n");
-      exit(1);
-    }
-    if (FLAGS_use_merge) {
-      fprintf(stderr, "Merge not supported.\n");
-      exit(1);
-    }
-    if (FLAGS_delrangepercent > 0) {
-      fprintf(stderr, "DeleteRange not supported.\n");
-      exit(1);
-    }
-    if (FLAGS_use_txn) {
-      fprintf(stderr, "TransactionDB does not support timestamp yet.\n");
-      exit(1);
-    }
-    if (FLAGS_read_only) {
-      fprintf(stderr, "When opened as read-only, timestamp not supported.\n");
-      exit(1);
-    }
-    if (FLAGS_secondary_catch_up_one_in > 0 ||
-        FLAGS_continuous_verification_interval > 0) {
-      fprintf(stderr, "Secondary instance does not support timestamp.\n");
-      exit(1);
-    }
-    if (FLAGS_checkpoint_one_in > 0) {
-      fprintf(stderr,
-              "-checkpoint_one_in=%d requires "
-              "DBImplReadOnly, which is not supported with timestamp\n",
-              FLAGS_checkpoint_one_in);
-      exit(1);
-    }
-    if (FLAGS_enable_blob_files || FLAGS_use_blob_db) {
-      fprintf(stderr, "BlobDB not supported with timestamp.\n");
-      exit(1);
-    }
-    if (FLAGS_enable_compaction_filter) {
-      fprintf(stderr, "CompactionFilter not supported with timestamp.\n");
-      exit(1);
-    }
-    if (FLAGS_test_cf_consistency || FLAGS_test_batches_snapshots) {
-      fprintf(stderr,
-              "Due to per-key ts-seq ordering constraint, only the (default) "
-              "non-batched test is supported with timestamp.\n");
-      exit(1);
-    }
-    options_.comparator = cmp;
+    CheckAndSetOptionsForUserTimestamp();
   }
 
   if (FLAGS_ttl == -1) {
@@ -2644,6 +2588,71 @@ void StressTest::Reopen(ThreadState* thread) {
   fprintf(stdout, "%s Reopening database for the %dth time\n",
           clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
   Open();
+}
+
+void StressTest::CheckAndSetOptionsForUserTimestamp() {
+  assert(FLAGS_user_timestamp_size > 0);
+  const Comparator* const cmp = test::ComparatorWithU64Ts();
+  assert(cmp);
+  if (FLAGS_user_timestamp_size != cmp->timestamp_size()) {
+    fprintf(stderr,
+            "Only -user_timestamp_size=%d is supported in stress test.\n",
+            static_cast<int>(cmp->timestamp_size()));
+    exit(1);
+  }
+  if (FLAGS_nooverwritepercent > 0) {
+    fprintf(stderr,
+            "-nooverwritepercent must be 0 because SingleDelete must be "
+            "disabled.\n");
+    exit(1);
+  }
+  if (FLAGS_use_merge) {
+    fprintf(stderr, "Merge not supported.\n");
+    exit(1);
+  }
+  if (FLAGS_delrangepercent > 0) {
+    fprintf(stderr, "DeleteRange not supported.\n");
+    exit(1);
+  }
+  if (FLAGS_use_txn) {
+    fprintf(stderr, "TransactionDB does not support timestamp yet.\n");
+    exit(1);
+  }
+  if (FLAGS_read_only) {
+    fprintf(stderr, "When opened as read-only, timestamp not supported.\n");
+    exit(1);
+  }
+  if (FLAGS_secondary_catch_up_one_in > 0 ||
+      FLAGS_continuous_verification_interval > 0) {
+    fprintf(stderr, "Secondary instance does not support timestamp.\n");
+    exit(1);
+  }
+  if (FLAGS_checkpoint_one_in > 0) {
+    fprintf(stderr,
+            "-checkpoint_one_in=%d requires "
+            "DBImplReadOnly, which is not supported with timestamp\n",
+            FLAGS_checkpoint_one_in);
+    exit(1);
+  }
+  if (FLAGS_enable_blob_files || FLAGS_use_blob_db) {
+    fprintf(stderr, "BlobDB not supported with timestamp.\n");
+    exit(1);
+  }
+  if (FLAGS_enable_compaction_filter) {
+    fprintf(stderr, "CompactionFilter not supported with timestamp.\n");
+    exit(1);
+  }
+  if (FLAGS_test_cf_consistency || FLAGS_test_batches_snapshots) {
+    fprintf(stderr,
+            "Due to per-key ts-seq ordering constraint, only the (default) "
+            "non-batched test is supported with timestamp.\n");
+    exit(1);
+  }
+  if (FLAGS_ingest_external_file_one_in > 0) {
+    fprintf(stderr, "Bulk loading may not support timestamp yet.\n");
+    exit(1);
+  }
+  options_.comparator = cmp;
 }
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // GFLAGS

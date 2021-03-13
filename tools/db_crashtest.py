@@ -295,6 +295,7 @@ ts_params = {
     "enable_blob_files": False,
     "use_blob_db": False,
     "enable_compaction_filter": False,
+    "ingest_external_file_one_in": 0,
 }
 
 def finalize_and_sanitize(src_params):
