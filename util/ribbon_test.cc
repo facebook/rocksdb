@@ -412,7 +412,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
       ROCKSDB_NAMESPACE::ribbon::BandingConfigHelper<TypeParam>;
 
   if (sizeof(CoeffRow) < 8) {
-    ROCKSDB_GTEST_SKIP("Not fully supported");
+    ROCKSDB_GTEST_BYPASS("Not fully supported");
     return;
   }
 
@@ -1124,7 +1124,7 @@ TYPED_TEST(RibbonTypeParamTest, FindOccupancy) {
   using KeyGen = typename TypeParam::KeyGen;
 
   if (!FLAGS_find_occ) {
-    fprintf(stderr, "Tool disabled during unit test runs\n");
+    ROCKSDB_GTEST_BYPASS("Tool disabled during unit test runs");
     return;
   }
 
@@ -1238,12 +1238,12 @@ TYPED_TEST(RibbonTypeParamTest, OptimizeHomogAtScale) {
   using KeyGen = typename TypeParam::KeyGen;
 
   if (!FLAGS_optimize_homog) {
-    fprintf(stderr, "Tool disabled during unit test runs\n");
+    ROCKSDB_GTEST_BYPASS("Tool disabled during unit test runs");
     return;
   }
 
   if (!TypeParam::kHomogeneous) {
-    fprintf(stderr, "Only for Homogeneous Ribbon\n");
+    ROCKSDB_GTEST_BYPASS("Only for Homogeneous Ribbon");
     return;
   }
 
