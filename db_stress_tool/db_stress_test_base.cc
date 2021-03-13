@@ -2385,6 +2385,12 @@ void StressTest::Open() {
       fprintf(stderr, "CompactionFilter not supported with timestamp.\n");
       exit(1);
     }
+    if (FLAGS_test_cf_consistency || FLAGS_test_batches_snapshots) {
+      fprintf(stderr,
+              "Due to per-key ts-seq ordering constraint, only the (default) "
+              "non-batched test is supported with timestamp.\n");
+      exit(1);
+    }
     options_.comparator = cmp;
   }
 
