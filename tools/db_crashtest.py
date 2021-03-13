@@ -281,6 +281,22 @@ blob_params = {
     "backup_one_in": 0,
 }
 
+ts_params = {
+    "user_timestamp_size": 8,
+    "use_merge": False,
+    # In order to disable SingleDelete
+    "nooverwritepercent": 0,
+    "delrangepercent": 0,
+    "use_txn": False,
+    "read_only": False,
+    "secondary_catch_up_one_in": 0,
+    "continuous_verification_interval": 0,
+    "checkpoint_one_in": 0,
+    "enable_blob_files": False,
+    "use_blob_db": False,
+    "enable_compaction_filter": False,
+}
+
 def finalize_and_sanitize(src_params):
     dest_params = dict([(k,  v() if callable(v) else v)
                         for (k, v) in src_params.items()])
