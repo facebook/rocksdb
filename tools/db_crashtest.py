@@ -282,20 +282,21 @@ blob_params = {
 }
 
 ts_params = {
+    "test_cf_consistency": 0,
+    "test_batches_snapshots": 0,
     "user_timestamp_size": 8,
-    "use_merge": False,
-    "use_full_merge_v1": False,
+    "use_merge": 0,
+    "use_full_merge_v1": 0,
     # In order to disable SingleDelete
     "nooverwritepercent": 0,
-    "delrangepercent": 0,
-    "use_txn": False,
-    "read_only": False,
+    "use_txn": 0,
+    "read_only": 0,
     "secondary_catch_up_one_in": 0,
     "continuous_verification_interval": 0,
     "checkpoint_one_in": 0,
-    "enable_blob_files": False,
-    "use_blob_db": False,
-    "enable_compaction_filter": False,
+    "enable_blob_files": 0,
+    "use_blob_db": 0,
+    "enable_compaction_filter": 0,
     "ingest_external_file_one_in": 0,
 }
 
@@ -324,9 +325,10 @@ def finalize_and_sanitize(src_params):
         else:
             dest_params["mock_direct_io"] = True
 
-    # DeleteRange is not currnetly compatible with Txns
-    if dest_params.get("test_batches_snapshots") == 1 or \
-            dest_params.get("use_txn") == 1:
+    # DeleteRange is not currnetly compatible with Txns and timestamp
+    if (dest_params.get("test_batches_snapshots") == 1 or
+        dest_params.get("use_txn") == 1 or
+        dest_params.get("user_timestamp_size") > 0):
         dest_params["delpercent"] += dest_params["delrangepercent"]
         dest_params["delrangepercent"] = 0
     # Only under WritePrepared txns, unordered_write would provide the same guarnatees as vanilla rocksdb
@@ -391,11 +393,15 @@ def gen_cmd_params(args):
         params.update(txn_params)
     if args.test_best_efforts_recovery:
         params.update(best_efforts_recovery_params)
+    if args.enable_ts:
+        params.update(ts_params)
 
     # Best-effort recovery and BlobDB are currently incompatible. Test BE recovery
     # if specified on the command line; otherwise, apply BlobDB related overrides
     # with a 10% chance.
-    if not args.test_best_efforts_recovery and random.choice([0] * 9 + [1]) == 1:
+    if (not args.test_best_efforts_recovery and
+        not args.enable_ts and
+        random.choice([0] * 9 + [1]) == 1):
         params.update(blob_params)
 
     for k, v in vars(args).items():
@@ -411,7 +417,7 @@ def gen_cmd(params, unknown_params):
         for k, v in [(k, finalzied_params[k]) for k in sorted(finalzied_params)]
         if k not in set(['test_type', 'simple', 'duration', 'interval',
                          'random_kill_odd', 'cf_consistency', 'txn',
-                         'test_best_efforts_recovery'])
+                         'test_best_efforts_recovery', 'enable_ts'])
         and v is not None] + unknown_params
     return cmd
 
@@ -664,6 +670,7 @@ def main():
     parser.add_argument("--cf_consistency", action='store_true')
     parser.add_argument("--txn", action='store_true')
     parser.add_argument("--test_best_efforts_recovery", action='store_true')
+    parser.add_argument("--enable_ts", action='store_true')
 
     all_params = dict(list(default_params.items())
                       + list(blackbox_default_params.items())
@@ -671,7 +678,8 @@ def main():
                       + list(simple_default_params.items())
                       + list(blackbox_simple_default_params.items())
                       + list(whitebox_simple_default_params.items())
-                      + list(blob_params.items()))
+                      + list(blob_params.items())
+                      + list(ts_params.items()))
 
     for k, v in all_params.items():
         parser.add_argument("--" + k, type=type(v() if callable(v) else v))

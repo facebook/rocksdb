@@ -2607,11 +2607,11 @@ void StressTest::CheckAndSetOptionsForUserTimestamp() {
     exit(1);
   }
   if (FLAGS_use_merge || FLAGS_use_full_merge_v1) {
-    fprintf(stderr, "Merge not supported.\n");
+    fprintf(stderr, "Merge does not support timestamp yet.\n");
     exit(1);
   }
   if (FLAGS_delrangepercent > 0) {
-    fprintf(stderr, "DeleteRange not supported.\n");
+    fprintf(stderr, "DeleteRange does not support timestamp yet.\n");
     exit(1);
   }
   if (FLAGS_use_txn) {
