@@ -34,6 +34,9 @@ rm -rf $db_dir
 rm -rf $wal_dir
 
 output_dir="/root/ltamasi/output/$value_size.$enable_blob_files"
+if [[ $enable_blob_files == 1 ]]; then
+  output_dir="$output_dir.$blob_gc_age_cutoff_bulk"
+fi
 
 ARGS="\
 OUTPUT_DIR=$output_dir \
