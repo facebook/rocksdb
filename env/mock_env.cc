@@ -1023,7 +1023,7 @@ Status MockFileSystem::CorruptBuffer(const std::string& fname) {
   iter->second->CorruptBuffer();
   return Status::OK();
 }
-
+namespace {
 class MockSystemClock : public SystemClockWrapper {
  public:
   explicit MockSystemClock(const std::shared_ptr<SystemClock>& c)
@@ -1055,7 +1055,7 @@ class MockSystemClock : public SystemClockWrapper {
  private:
   std::atomic<int64_t> fake_sleep_micros_;
 };
-
+}  // namespace
 MockEnv::MockEnv(Env* base_env)
     : CompositeEnvWrapper(
           base_env, std::make_shared<MockFileSystem>(this),
