@@ -56,7 +56,7 @@ env $ARGS ./tools/benchmark.sh bulkload
 echo -n "Disk usage after bulkload: " >> $output_dir/report.txt
 du $db_dir >> $output_dir/report.txt
 
-# overwrite
+# overwrite + waitforcompaction
 env $ARGS_GC ./tools/benchmark.sh overwrite
 echo -n "Disk usage after overwrite: " >> $output_dir/report.txt
 du $db_dir >> $output_dir/report.txt
