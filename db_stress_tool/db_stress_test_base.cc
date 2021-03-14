@@ -978,13 +978,6 @@ Status StressTest::TestIterate(ThreadState* thread,
   }
 
   auto cfh = column_families_[rand_column_families[0]];
-  std::string ts_str;
-  Slice ts;
-  if (FLAGS_user_timestamp_size > 0) {
-    ts_str = GenerateTimestampForRead();
-    ts = ts_str;
-    readoptionscopy.timestamp = &ts;
-  }
   std::unique_ptr<Iterator> iter(db_->NewIterator(readoptionscopy, cfh));
 
   std::vector<std::string> key_str;
@@ -1047,11 +1040,7 @@ Status StressTest::TestIterate(ThreadState* thread,
     // iterators with the same set-up, and it doesn't hurt to check them
     // to be equal.
     ReadOptions cmp_ro;
-    if (FLAGS_user_timestamp_size > 0) {
-      ts_str = GenerateTimestampForRead();
-      ts = ts_str;
-      cmp_ro.timestamp = &ts;
-    }
+    cmp_ro.timestamp = readoptionscopy.timestamp;
     cmp_ro.snapshot = snapshot;
     cmp_ro.total_order_seek = true;
     ColumnFamilyHandle* cmp_cfh =
