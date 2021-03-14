@@ -284,6 +284,7 @@ blob_params = {
 ts_params = {
     "user_timestamp_size": 8,
     "use_merge": False,
+    "use_full_merge_v1": False,
     # In order to disable SingleDelete
     "nooverwritepercent": 0,
     "delrangepercent": 0,

@@ -2606,7 +2606,7 @@ void StressTest::CheckAndSetOptionsForUserTimestamp() {
             "disabled.\n");
     exit(1);
   }
-  if (FLAGS_use_merge) {
+  if (FLAGS_use_merge || FLAGS_use_full_merge_v1) {
     fprintf(stderr, "Merge not supported.\n");
     exit(1);
   }
@@ -2622,7 +2622,7 @@ void StressTest::CheckAndSetOptionsForUserTimestamp() {
     fprintf(stderr, "When opened as read-only, timestamp not supported.\n");
     exit(1);
   }
-  if (FLAGS_secondary_catch_up_one_in > 0 ||
+  if (FLAGS_test_secondary || FLAGS_secondary_catch_up_one_in > 0 ||
       FLAGS_continuous_verification_interval > 0) {
     fprintf(stderr, "Secondary instance does not support timestamp.\n");
     exit(1);
