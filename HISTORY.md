@@ -2,6 +2,7 @@
 ## Unreleased
 ### Bug Fixes
 * Fixed the truncation error found in APIs/tools when dumping block-based SST files in a human-readable format. After fix, the block-based table can be fully dumped as a readable file.
+* Made `delayed_write_rate` more strictly enforced, except now avoiding unnecessary initial delays. Specifically, writes are only delayed if during elapsed time t they exceed the allowance for t + 1 millisecond.
 
 ### Public API change
 * Changed default `BackupableDBOptions::share_files_with_checksum` to `true` and deprecated `false` because of potential for data loss. Note that accepting this change in behavior can temporarily increase backup data usage because files are not shared between backups using the two different settings. Also removed obsolete option kFlagMatchInterimNaming.

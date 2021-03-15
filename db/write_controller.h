@@ -28,7 +28,7 @@ class WriteController {
         total_delayed_(0),
         total_compaction_pressure_(0),
         bytes_left_(0),
-        last_refill_time_(0),
+        next_refill_time_(0),
         low_pri_rate_limiter_(
             NewGenericRateLimiter(low_pri_rate_bytes_per_sec)) {
     set_max_delayed_write_rate(_delayed_write_rate);
@@ -96,7 +96,7 @@ class WriteController {
   std::atomic<int> total_delayed_;
   std::atomic<int> total_compaction_pressure_;
   uint64_t bytes_left_;
-  uint64_t last_refill_time_;
+  uint64_t next_refill_time_;
   // write rate set when initialization or by `DBImpl::SetDBOptions`
   uint64_t max_delayed_write_rate_;
   // current write rate
