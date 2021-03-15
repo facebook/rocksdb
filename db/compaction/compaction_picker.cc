@@ -155,7 +155,8 @@ CompactionPicker::CompactionPicker(const ImmutableCFOptions& ioptions,
 CompactionPicker::~CompactionPicker() {}
 
 // Delete this compaction from the list of running compactions.
-void CompactionPicker::ReleaseCompactionFiles(Compaction* c, Status status) {
+void CompactionPicker::ReleaseCompactionFiles(Compaction* c,
+                                              const Status& status) {
   UnregisterCompaction(c);
   if (!status.ok()) {
     c->ResetNextCompactionIndex();
