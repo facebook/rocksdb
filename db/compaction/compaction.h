@@ -123,7 +123,7 @@ class Compaction {
   // Returns the ColumnFamilyData associated with the compaction.
   ColumnFamilyData* column_family_data() const { return cfd_; }
 
-  // Returns the file meta data of the 'i'th input file at the
+  // Returns the file meta data of the 'i' with input file at the
   // specified compaction input level.
   // REQUIREMENT: "compaction_input_level" must be >= 0 and
   //              < "input_levels()"
@@ -341,7 +341,7 @@ class Compaction {
   const uint32_t output_path_id_;
   CompressionType output_compression_;
   CompressionOptions output_compression_opts_;
-  // If true, then the comaction can be done by simply deleting input files.
+  // If true, then the compaction can be done by simply deleting input files.
   const bool deletion_compaction_;
 
   // Compaction input files organized by level. Constant after construction
