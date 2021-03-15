@@ -64,7 +64,6 @@ void WriteBlobFile(uint32_t column_family_id,
   constexpr char blob[] = "blob";
 
   std::string compressed_blob;
-  Slice blob_to_write;
 
   uint64_t key_offset = 0;
   uint64_t blob_offset = 0;
