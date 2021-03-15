@@ -353,9 +353,8 @@ Status UncompressBlockContentsForCompressionType(
   assert(uncompression_info.type() != kNoCompression &&
          "Invalid compression type");
 
-  StopWatchNano timer(
-      ioptions.env->GetSystemClock(),
-      ShouldReportDetailedTime(ioptions.env, ioptions.statistics));
+  StopWatchNano timer(ioptions.clock, ShouldReportDetailedTime(
+                                          ioptions.env, ioptions.statistics));
   size_t uncompressed_size = 0;
   CacheAllocationPtr ubuf =
       UncompressData(uncompression_info, data, n, &uncompressed_size,

@@ -212,6 +212,9 @@ if(MSVC)
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wstrict-prototypes")
+  endif()
   if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format -fno-asynchronous-unwind-tables")
     add_definitions(-D_POSIX_C_SOURCE=1)
@@ -653,6 +656,7 @@ set(SOURCES
         file/file_prefetch_buffer.cc
         file/file_util.cc
         file/filename.cc
+        file/line_file_reader.cc
         file/random_access_file_reader.cc
         file/read_write_util.cc
         file/readahead_raf.cc
@@ -1304,40 +1308,40 @@ if(WITH_TESTS)
 endif()
 
 if(WITH_BENCHMARK_TOOLS)
-  add_executable(db_bench
+  add_executable(db_bench${ARTIFACT_SUFFIX}
     tools/db_bench.cc
     tools/db_bench_tool.cc)
-  target_link_libraries(db_bench
+  target_link_libraries(db_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
-  add_executable(cache_bench
+  add_executable(cache_bench${ARTIFACT_SUFFIX}
     cache/cache_bench.cc)
-  target_link_libraries(cache_bench
+  target_link_libraries(cache_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(memtablerep_bench
+  add_executable(memtablerep_bench${ARTIFACT_SUFFIX}
     memtable/memtablerep_bench.cc)
-  target_link_libraries(memtablerep_bench
+  target_link_libraries(memtablerep_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(range_del_aggregator_bench
+  add_executable(range_del_aggregator_bench${ARTIFACT_SUFFIX}
     db/range_del_aggregator_bench.cc)
-  target_link_libraries(range_del_aggregator_bench
+  target_link_libraries(range_del_aggregator_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(table_reader_bench
+  add_executable(table_reader_bench${ARTIFACT_SUFFIX}
     table/table_reader_bench.cc)
-  target_link_libraries(table_reader_bench
+  target_link_libraries(table_reader_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} testharness ${GFLAGS_LIB})
 
-  add_executable(filter_bench
+  add_executable(filter_bench${ARTIFACT_SUFFIX}
     util/filter_bench.cc)
-  target_link_libraries(filter_bench
+  target_link_libraries(filter_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(hash_table_bench
+  add_executable(hash_table_bench${ARTIFACT_SUFFIX}
     utilities/persistent_cache/hash_table_bench.cc)
-  target_link_libraries(hash_table_bench
+  target_link_libraries(hash_table_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 endif()
 

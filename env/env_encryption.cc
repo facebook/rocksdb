@@ -17,6 +17,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/io_status.h"
+#include "rocksdb/system_clock.h"
 #include "util/aligned_buffer.h"
 #include "util/coding.h"
 #include "util/random.h"
@@ -1151,7 +1152,7 @@ Status CTREncryptionProvider::CreateNewPrefix(const std::string& /*fname*/,
     return Status::InvalidArgument("Encryption Cipher is missing");
   }
   // Create & seed rnd.
-  Random rnd((uint32_t)Env::Default()->NowMicros());
+  Random rnd((uint32_t)SystemClock::Default()->NowMicros());
   // Fill entire prefix block with random values.
   for (size_t i = 0; i < prefixLength; i++) {
     prefix[i] = rnd.Uniform(256) & 0xFF;

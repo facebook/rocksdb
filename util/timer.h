@@ -38,7 +38,7 @@ namespace ROCKSDB_NAMESPACE {
 // A map from a function name to the function keeps track of all the functions.
 class Timer {
  public:
-  explicit Timer(const std::shared_ptr<SystemClock>& clock)
+  explicit Timer(SystemClock* clock)
       : clock_(clock),
         mutex_(clock),
         cond_var_(&mutex_),
@@ -310,7 +310,7 @@ class Timer {
     }
   };
 
-  const std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   // This mutex controls both the heap_ and the map_. It needs to be held for
   // making any changes in them.
   mutable InstrumentedMutex mutex_;

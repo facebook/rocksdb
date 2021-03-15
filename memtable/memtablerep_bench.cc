@@ -418,7 +418,7 @@ class Benchmark {
     uint64_t bytes_written = 0;
     uint64_t bytes_read = 0;
     uint64_t read_hits = 0;
-    StopWatchNano timer(SystemClock::Default(), true);
+    StopWatchNano timer(SystemClock::Default().get(), true);
     RunThreads(&threads, &bytes_written, &bytes_read, true, &read_hits);
     auto elapsed_time = static_cast<double>(timer.ElapsedNanos() / 1000);
     std::cout << "Elapsed time: " << static_cast<int>(elapsed_time) << " us"

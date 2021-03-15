@@ -19,9 +19,9 @@
 namespace ROCKSDB_NAMESPACE {
 
 BlobLogWriter::BlobLogWriter(std::unique_ptr<WritableFileWriter>&& dest,
-                             const std::shared_ptr<SystemClock>& clock,
-                             Statistics* statistics, uint64_t log_number,
-                             bool use_fs, bool do_flush, uint64_t boffset)
+                             SystemClock* clock, Statistics* statistics,
+                             uint64_t log_number, bool use_fs, bool do_flush,
+                             uint64_t boffset)
     : dest_(std::move(dest)),
       clock_(clock),
       statistics_(statistics),

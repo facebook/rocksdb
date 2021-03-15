@@ -557,8 +557,8 @@ ColumnFamilyData::ColumnFamilyData(
 
   // if _dummy_versions is nullptr, then this is a dummy column family.
   if (_dummy_versions != nullptr) {
-    internal_stats_.reset(new InternalStats(
-        ioptions_.num_levels, db_options.env->GetSystemClock(), this));
+    internal_stats_.reset(
+        new InternalStats(ioptions_.num_levels, ioptions_.clock, this));
     table_cache_.reset(new TableCache(ioptions_, file_options, _table_cache,
                                       block_cache_tracer, io_tracer));
     blob_file_cache_.reset(
@@ -633,7 +633,7 @@ ColumnFamilyData::~ColumnFamilyData() {
 
   if (dummy_versions_ != nullptr) {
     // List must be empty
-    assert(dummy_versions_->TEST_Next() == dummy_versions_);
+    assert(dummy_versions_->Next() == dummy_versions_);
     bool deleted __attribute__((__unused__));
     deleted = dummy_versions_->Unref();
     assert(deleted);

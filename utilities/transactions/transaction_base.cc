@@ -28,7 +28,7 @@ TransactionBaseImpl::TransactionBaseImpl(
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       lock_tracker_factory_(lock_tracker_factory),
-      start_time_(db_->GetEnv()->NowMicros()),
+      start_time_(dbimpl_->GetSystemClock()->NowMicros()),
       write_batch_(cmp_, 0, true, 0),
       tracked_locks_(lock_tracker_factory_.Create()),
       indexing_enabled_(true) {
@@ -67,7 +67,7 @@ void TransactionBaseImpl::Reinitialize(DB* db,
   name_.clear();
   log_number_ = 0;
   write_options_ = write_options;
-  start_time_ = db_->GetEnv()->NowMicros();
+  start_time_ = dbimpl_->GetSystemClock()->NowMicros();
   indexing_enabled_ = true;
   cmp_ = GetColumnFamilyUserComparator(db_->DefaultColumnFamily());
 }
@@ -540,7 +540,7 @@ WriteBatchWithIndex* TransactionBaseImpl::GetWriteBatch() {
 }
 
 uint64_t TransactionBaseImpl::GetElapsedTime() const {
-  return (db_->GetEnv()->NowMicros() - start_time_) / 1000;
+  return (dbimpl_->GetSystemClock()->NowMicros() - start_time_) / 1000;
 }
 
 uint64_t TransactionBaseImpl::GetNumPuts() const { return num_puts_; }
