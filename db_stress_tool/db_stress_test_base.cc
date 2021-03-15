@@ -2623,10 +2623,12 @@ void StressTest::CheckAndSetOptionsForUserTimestamp() {
             FLAGS_checkpoint_one_in);
     exit(1);
   }
+#ifndef ROCKSDB_LITE
   if (FLAGS_enable_blob_files || FLAGS_use_blob_db) {
     fprintf(stderr, "BlobDB not supported with timestamp.\n");
     exit(1);
   }
+#endif  // !ROCKSDB_LITE
   if (FLAGS_enable_compaction_filter) {
     fprintf(stderr, "CompactionFilter not supported with timestamp.\n");
     exit(1);
