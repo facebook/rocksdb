@@ -705,7 +705,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
       cur = other_keys_begin;
       {
         ROCKSDB_NAMESPACE::StopWatchNano timer(
-            ROCKSDB_NAMESPACE::SystemClock::Default(), true);
+            ROCKSDB_NAMESPACE::SystemClock::Default().get(), true);
         while (cur != other_keys_end) {
           bool fp = soln.FilterQuery(*cur, hasher);
           fp_count += fp ? 1 : 0;
@@ -734,7 +734,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
         Index ifp_count = 0;
         cur = other_keys_begin;
         ROCKSDB_NAMESPACE::StopWatchNano timer(
-            ROCKSDB_NAMESPACE::SystemClock::Default(), true);
+            ROCKSDB_NAMESPACE::SystemClock::Default().get(), true);
         while (cur != other_keys_end) {
           ifp_count += isoln.FilterQuery(*cur, hasher) ? 1 : 0;
           ++cur;
@@ -768,7 +768,7 @@ TYPED_TEST(RibbonTypeParamTest, CompactnessAndBacktrackAndFpRate) {
         Index bfp_count = 0;
         cur = other_keys_begin;
         ROCKSDB_NAMESPACE::StopWatchNano timer(
-            ROCKSDB_NAMESPACE::SystemClock::Default(), true);
+            ROCKSDB_NAMESPACE::SystemClock::Default().get(), true);
         while (cur != other_keys_end) {
           uint64_t h = hasher.GetHash(*cur);
           uint32_t h1 = ROCKSDB_NAMESPACE::Lower32of64(h);

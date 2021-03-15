@@ -17,6 +17,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/wal_filter.h"
 #include "util/string_util.h"
@@ -582,6 +583,11 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_data_in_errors(options.allow_data_in_errors),
       db_host_id(options.db_host_id),
       checksum_handoff_file_types(options.checksum_handoff_file_types) {
+  if (env != nullptr) {
+    clock = env->GetSystemClock().get();
+  } else {
+    clock = SystemClock::Default().get();
+  }
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {

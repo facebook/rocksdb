@@ -300,7 +300,7 @@ class DBIter final : public Iterator {
 
   const SliceTransform* prefix_extractor_;
   Env* const env_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   Logger* logger_;
   UserComparatorWrapper user_comparator_;
   const MergeOperator* const merge_operator_;

@@ -1140,7 +1140,8 @@ class BlockBasedTableTest
                                  &trace_writer));
     // Always return Status::OK().
     assert(c->block_cache_tracer_
-               .StartTrace(env_, trace_opt, std::move(trace_writer))
+               .StartTrace(env_->GetSystemClock().get(), trace_opt,
+                           std::move(trace_writer))
                .ok());
     {
       std::string user_key = "k01";

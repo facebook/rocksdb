@@ -327,8 +327,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, PinnableSlice* pinnable_val) {
   assert(pinnable_val != nullptr);
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, clock_);
-  StopWatch sw(clock_, stats_, DB_GET);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+  StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   auto cfh = static_cast<ColumnFamilyHandleImpl*>(column_family);

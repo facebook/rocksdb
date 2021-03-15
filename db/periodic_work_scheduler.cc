@@ -13,7 +13,7 @@ namespace ROCKSDB_NAMESPACE {
 
 PeriodicWorkScheduler::PeriodicWorkScheduler(
     const std::shared_ptr<SystemClock>& clock) {
-  timer = std::unique_ptr<Timer>(new Timer(clock));
+  timer = std::unique_ptr<Timer>(new Timer(clock.get()));
 }
 
 void PeriodicWorkScheduler::Register(DBImpl* dbi,
@@ -87,7 +87,7 @@ PeriodicWorkTestScheduler* PeriodicWorkTestScheduler::Default(
         MutexLock timer_mu_guard(&scheduler.timer_mu_);
         scheduler.timer->Shutdown();
       }
-      scheduler.timer.reset(new Timer(clock));
+      scheduler.timer.reset(new Timer(clock.get()));
     }
   }
   return &scheduler;

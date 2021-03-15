@@ -45,7 +45,7 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
                ColumnFamilyData* cfd, bool expose_blob_index)
     : prefix_extractor_(mutable_cf_options.prefix_extractor.get()),
       env_(_env),
-      clock_(_env->GetSystemClock()),
+      clock_(_env->GetSystemClock().get()),
       logger_(cf_options.info_log),
       user_comparator_(cmp),
       merge_operator_(cf_options.merge_operator),

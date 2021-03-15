@@ -794,7 +794,7 @@ class Version {
 
  private:
   Env* env_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
 
   friend class ReactiveVersionSet;
   friend class VersionSet;
@@ -1345,7 +1345,7 @@ class VersionSet {
   Cache* table_cache_;
   Env* const env_;
   FileSystemPtr const fs_;
-  const std::shared_ptr<SystemClock> clock_;
+  SystemClock* const clock_;
   const std::string dbname_;
   std::string db_id_;
   const ImmutableDBOptions* const db_options_;

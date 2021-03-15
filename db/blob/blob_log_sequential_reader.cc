@@ -13,8 +13,8 @@
 namespace ROCKSDB_NAMESPACE {
 
 BlobLogSequentialReader::BlobLogSequentialReader(
-    std::unique_ptr<RandomAccessFileReader>&& file_reader,
-    const std::shared_ptr<SystemClock>& clock, Statistics* statistics)
+    std::unique_ptr<RandomAccessFileReader>&& file_reader, SystemClock* clock,
+    Statistics* statistics)
     : file_(std::move(file_reader)),
       clock_(clock),
       statistics_(statistics),

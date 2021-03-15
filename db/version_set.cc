@@ -1762,7 +1762,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
                  const std::shared_ptr<IOTracer>& io_tracer,
                  uint64_t version_number)
     : env_(vset->env_),
-      clock_(env_->GetSystemClock()),
+      clock_(vset->clock_),
       cfd_(column_family_data),
       info_log_((cfd_ == nullptr) ? nullptr : cfd_->ioptions()->info_log),
       db_statistics_((cfd_ == nullptr) ? nullptr
@@ -2534,7 +2534,7 @@ uint32_t GetExpiredTtlFilesCount(const ImmutableCFOptions& ioptions,
   uint32_t ttl_expired_files_count = 0;
 
   int64_t _current_time;
-  auto status = ioptions.env->GetCurrentTime(&_current_time);
+  auto status = ioptions.clock->GetCurrentTime(&_current_time);
   if (status.ok()) {
     const uint64_t current_time = static_cast<uint64_t>(_current_time);
     for (FileMetaData* f : files) {
@@ -2703,7 +2703,7 @@ void VersionStorageInfo::ComputeExpiredTtlFiles(
   expired_ttl_files_.clear();
 
   int64_t _current_time;
-  auto status = ioptions.env->GetCurrentTime(&_current_time);
+  auto status = ioptions.clock->GetCurrentTime(&_current_time);
   if (!status.ok()) {
     return;
   }
@@ -2730,7 +2730,7 @@ void VersionStorageInfo::ComputeFilesMarkedForPeriodicCompaction(
   files_marked_for_periodic_compaction_.clear();
 
   int64_t temp_current_time;
-  auto status = ioptions.env->GetCurrentTime(&temp_current_time);
+  auto status = ioptions.clock->GetCurrentTime(&temp_current_time);
   if (!status.ok()) {
     return;
   }
@@ -3789,7 +3789,7 @@ VersionSet::VersionSet(const std::string& dbname,
       table_cache_(table_cache),
       env_(_db_options->env),
       fs_(_db_options->fs, io_tracer),
-      clock_(env_->GetSystemClock()),
+      clock_(_db_options->clock),
       dbname_(dbname),
       db_options_(_db_options),
       next_file_number_(2),
@@ -4176,7 +4176,7 @@ Status VersionSet::ProcessManifestWrites(
         }
       }
       if (s.ok()) {
-        io_s = SyncManifest(clock_, db_options_, descriptor_log_->file());
+        io_s = SyncManifest(db_options_, descriptor_log_->file());
         TEST_SYNC_POINT_CALLBACK(
             "VersionSet::ProcessManifestWrites:AfterSyncManifest", &io_s);
       }

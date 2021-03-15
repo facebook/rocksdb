@@ -59,7 +59,7 @@ GenericRateLimiter::GenericRateLimiter(
       exit_cv_(&request_mutex_),
       requests_to_wait_(0),
       available_bytes_(0),
-      next_refill_us_(NowMicrosMonotonic(clock_)),
+      next_refill_us_(NowMicrosMonotonic()),
       fairness_(fairness > 100 ? 100 : fairness),
       rnd_((uint32_t)time(nullptr)),
       leader_(nullptr),
@@ -67,7 +67,7 @@ GenericRateLimiter::GenericRateLimiter(
       num_drains_(0),
       prev_num_drains_(0),
       max_bytes_per_sec_(rate_bytes_per_sec),
-      tuned_time_(NowMicrosMonotonic(clock_)) {
+      tuned_time_(NowMicrosMonotonic()) {
   total_requests_[0] = 0;
   total_requests_[1] = 0;
   total_bytes_through_[0] = 0;
@@ -109,7 +109,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
   if (auto_tuned_) {
     static const int kRefillsPerTune = 100;
-    std::chrono::microseconds now(NowMicrosMonotonic(clock_));
+    std::chrono::microseconds now(NowMicrosMonotonic());
     if (now - tuned_time_ >=
         kRefillsPerTune * std::chrono::microseconds(refill_period_us_)) {
       Status s = Tune();
@@ -150,7 +150,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
          (!queue_[Env::IO_LOW].empty() &&
             &r == queue_[Env::IO_LOW].front()))) {
       leader_ = &r;
-      int64_t delta = next_refill_us_ - NowMicrosMonotonic(clock_);
+      int64_t delta = next_refill_us_ - NowMicrosMonotonic();
       delta = delta > 0 ? delta : 0;
       if (delta == 0) {
         timedout = true;
@@ -230,7 +230,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
 
 void GenericRateLimiter::Refill() {
   TEST_SYNC_POINT("GenericRateLimiter::Refill");
-  next_refill_us_ = NowMicrosMonotonic(clock_) + refill_period_us_;
+  next_refill_us_ = NowMicrosMonotonic() + refill_period_us_;
   // Carry over the left over quota from the last period
   auto refill_bytes_per_period =
       refill_bytes_per_period_.load(std::memory_order_relaxed);
@@ -285,7 +285,7 @@ Status GenericRateLimiter::Tune() {
   const int kAllowedRangeFactor = 20;
 
   std::chrono::microseconds prev_tuned_time = tuned_time_;
-  tuned_time_ = std::chrono::microseconds(NowMicrosMonotonic(clock_));
+  tuned_time_ = std::chrono::microseconds(NowMicrosMonotonic());
 
   int64_t elapsed_intervals = (tuned_time_ - prev_tuned_time +
                                std::chrono::microseconds(refill_period_us_) -

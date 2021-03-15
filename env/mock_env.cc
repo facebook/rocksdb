@@ -1033,26 +1033,43 @@ Status MockFileSystem::CorruptBuffer(const std::string& fname) {
   iter->second->CorruptBuffer();
   return Status::OK();
 }
+namespace {
+class MockSystemClock : public SystemClockWrapper {
+ public:
+  explicit MockSystemClock(const std::shared_ptr<SystemClock>& c)
+      : SystemClockWrapper(c), fake_sleep_micros_(0) {}
 
-MockEnv::MockEnv(Env* base_env)
-    : CompositeEnvWrapper(base_env, std::make_shared<MockFileSystem>(this)),
-      fake_sleep_micros_(0) {}
-
-Status MockEnv::GetCurrentTime(int64_t* unix_time) {
-  auto s = CompositeEnvWrapper::GetCurrentTime(unix_time);
-  if (s.ok()) {
-    *unix_time += fake_sleep_micros_.load() / (1000 * 1000);
+  void FakeSleepForMicroseconds(int64_t micros) {
+    fake_sleep_micros_.fetch_add(micros);
   }
-  return s;
-}
 
-uint64_t MockEnv::NowMicros() {
-  return CompositeEnvWrapper::NowMicros() + fake_sleep_micros_.load();
-}
+  const char* Name() const override { return "MockSystemClock"; }
 
-uint64_t MockEnv::NowNanos() {
-  return CompositeEnvWrapper::NowNanos() + fake_sleep_micros_.load() * 1000;
-}
+  Status GetCurrentTime(int64_t* unix_time) override {
+    auto s = SystemClockWrapper::GetCurrentTime(unix_time);
+    if (s.ok()) {
+      auto fake_time = fake_sleep_micros_.load() / (1000 * 1000);
+      *unix_time += fake_time;
+    }
+    return s;
+  }
+
+  uint64_t NowMicros() override {
+    return SystemClockWrapper::NowMicros() + fake_sleep_micros_.load();
+  }
+
+  uint64_t NowNanos() override {
+    return SystemClockWrapper::NowNanos() + fake_sleep_micros_.load() * 1000;
+  }
+
+ private:
+  std::atomic<int64_t> fake_sleep_micros_;
+};
+}  // namespace
+MockEnv::MockEnv(Env* base_env)
+    : CompositeEnvWrapper(
+          base_env, std::make_shared<MockFileSystem>(this),
+          std::make_shared<MockSystemClock>(base_env->GetSystemClock())) {}
 
 Status MockEnv::CorruptBuffer(const std::string& fname) {
   auto mock = static_cast_with_check<MockFileSystem>(GetFileSystem().get());
@@ -1060,7 +1077,8 @@ Status MockEnv::CorruptBuffer(const std::string& fname) {
 }
 
 void MockEnv::FakeSleepForMicroseconds(int64_t micros) {
-  fake_sleep_micros_.fetch_add(micros);
+  auto mock = static_cast_with_check<MockSystemClock>(GetSystemClock().get());
+  mock->FakeSleepForMicroseconds(micros);
 }
 
 #ifndef ROCKSDB_LITE

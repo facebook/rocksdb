@@ -774,7 +774,9 @@ class PosixFileSystem : public FileSystem {
     LockHoldingInfo lhi;
     int64_t current_time = 0;
     // Ignore status code as the time is only used for error message.
-    Env::Default()->GetCurrentTime(&current_time).PermitUncheckedError();
+    SystemClock::Default()
+        ->GetCurrentTime(&current_time)
+        .PermitUncheckedError();
     lhi.acquire_time = current_time;
     lhi.acquiring_thread = Env::Default()->GetThreadID();
 

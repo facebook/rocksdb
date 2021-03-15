@@ -127,7 +127,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       pick_memtable_called(false),
       thread_pri_(thread_pri),
       io_tracer_(io_tracer),
-      clock_(db_options_.env->GetSystemClock()),
+      clock_(db_options_.clock),
       full_history_ts_low_(std::move(full_history_ts_low)) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
