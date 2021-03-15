@@ -295,7 +295,7 @@ TEST_P(DBBlobBadCompactionFilterTest, BadDecisionFromCompactionFilter) {
   Close();
 
   DestroyAndReopen(options);
-  std::string key(std::get<0>(GetParam()));
+  const std::string& key(std::get<0>(GetParam()));
   ASSERT_OK(Put(key, "value"));
   ASSERT_OK(Flush());
   ASSERT_TRUE(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
