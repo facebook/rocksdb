@@ -1323,7 +1323,7 @@ ROCKS_TESTS = [
     ],
     [
         "db_secondary_test",
-        "db/db_impl/db_secondary_test.cc",
+        "db/db_secondary_test.cc",
         "serial",
         [],
         [],
