@@ -23,19 +23,18 @@ G=$((1024 * M))
 db_dir=${DATA_DIR:-"/data/ltamasi-dbbench/"}
 wal_dir=${LOG_DIR:-"/data/ltamasi-dbbench/"}
 
-blob_gc_age_cutoff_bulk=${BLOB_GC_AGE_CUTOFF_BULK:-1.0}
-
 for value_size in $((4 * M)) $((1 * M)) $((256 * K)) $((64 * K)) $((16 * K)) $((4 * K)) $((1 * K)); do
 for enable_blob_files in 0 1; do
+for blob_gc_age_cutoff in 0.25 0.3 0.35; do
 
-echo "======================== Value size: $value_size, blob files: $enable_blob_files ========================"
+echo "======================== Value size: $value_size, blob files: $enable_blob_files, GC cutoff: $blob_gc_age_cutoff ========================"
 
 rm -rf $db_dir
 rm -rf $wal_dir
 
 output_dir="/root/ltamasi/output/$value_size.$enable_blob_files"
 if [[ $enable_blob_files == 1 ]]; then
-  output_dir="$output_dir.$blob_gc_age_cutoff_bulk"
+  output_dir="$output_dir.$blob_gc_age_cutoff"
 fi
 
 ARGS="\
@@ -48,8 +47,7 @@ COMPRESSION_TYPE=lz4 \
 ENABLE_BLOB_FILES=$enable_blob_files \
 BLOB_COMPRESSION_TYPE=lz4"
 
-ARGS_GC="$ARGS ENABLE_BLOB_GC=$enable_blob_files"
-ARGS_GC_BULK="$ARGS_GC BLOB_GC_AGE_CUTOFF=$blob_gc_age_cutoff_bulk"
+ARGS_GC="$ARGS ENABLE_BLOB_GC=$enable_blob_files BLOB_GC_AGE_CUTOFF=$blob_gc_age_cutoff"
 ARGS_GC_D="$ARGS_GC DURATION=1800"
 
 rm -rf $output_dir
@@ -58,7 +56,7 @@ echo -e "ops/sec\tmb/sec\tSize-GB\tL0_GB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp
   > $output_dir/report.txt
 
 # bulk load (using fillrandom) + compact
-env $ARGS_GC_BULK ./tools/benchmark.sh bulkload
+env $ARGS ./tools/benchmark.sh bulkload
 echo -n "Disk usage after bulkload: " >> $output_dir/report.txt
 du $db_dir >> $output_dir/report.txt
 
@@ -115,5 +113,6 @@ grep fwdrange\.t $output_dir/report.txt >> $output_dir/report2.txt
 
 cat $output_dir/report2.txt
 
+done
 done
 done
