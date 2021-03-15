@@ -93,8 +93,7 @@ struct IOTraceHeader {
 // timestamp and type, followed by the trace payload.
 class IOTraceWriter {
  public:
-  IOTraceWriter(const std::shared_ptr<SystemClock>& clock,
-                const TraceOptions& trace_options,
+  IOTraceWriter(SystemClock* clock, const TraceOptions& trace_options,
                 std::unique_ptr<TraceWriter>&& trace_writer);
   ~IOTraceWriter() = default;
   // No copy and move.
@@ -110,7 +109,7 @@ class IOTraceWriter {
   Status WriteHeader();
 
  private:
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
 };
@@ -168,8 +167,7 @@ class IOTracer {
 
   // Start writing IO operations to the trace_writer.
   TSAN_SUPPRESSION Status
-  StartIOTrace(const std::shared_ptr<SystemClock>& clock,
-               const TraceOptions& trace_options,
+  StartIOTrace(SystemClock* clock, const TraceOptions& trace_options,
                std::unique_ptr<TraceWriter>&& trace_writer);
 
   // Stop writing IO operations to the trace_writer.

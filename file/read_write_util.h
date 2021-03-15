@@ -24,10 +24,6 @@ extern IOStatus NewWritableFile(FileSystem* fs, const std::string& fname,
                                 std::unique_ptr<FSWritableFile>* result,
                                 const FileOptions& options);
 
-// Read a single line from a file.
-bool ReadOneLine(std::istringstream* iss, SequentialFileReader* seq_file_reader,
-                 std::string* output, bool* has_data, Status* result);
-
 #ifndef NDEBUG
 bool IsFileSectorAligned(const size_t off, size_t sector_size);
 #endif  // NDEBUG

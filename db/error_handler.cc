@@ -670,7 +670,7 @@ void ErrorHandler::RecoverFromRetryableBGIOError() {
       // a period of time and redo auto resume if it is allowed.
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeWait0");
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:BeforeWait1");
-      int64_t wait_until = db_->clock_->NowMicros() + wait_interval;
+      int64_t wait_until = db_options_.clock->NowMicros() + wait_interval;
       cv_.TimedWait(wait_until);
       TEST_SYNC_POINT("RecoverFromRetryableBGIOError:AfterWait0");
     } else {

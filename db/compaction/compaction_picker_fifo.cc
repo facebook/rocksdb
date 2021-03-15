@@ -45,7 +45,7 @@ Compaction* FIFOCompactionPicker::PickTTLCompaction(
   uint64_t total_size = GetTotalFilesSize(level_files);
 
   int64_t _current_time;
-  auto status = ioptions_.env->GetCurrentTime(&_current_time);
+  auto status = ioptions_.clock->GetCurrentTime(&_current_time);
   if (!status.ok()) {
     ROCKS_LOG_BUFFER(log_buffer,
                      "[%s] FIFO compaction: Couldn't get current time: %s. "

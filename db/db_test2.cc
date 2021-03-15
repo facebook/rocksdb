@@ -154,8 +154,14 @@ class PartitionedIndexTestListener : public EventListener {
 };
 
 TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
+  const int kValueSize = 10500;
+  const int kNumEntriesPerFile = 1000;
+  const int kNumFiles = 3;
+  const int kNumDistinctKeys = 30;
+
   BlockBasedTableOptions table_options;
   Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
   table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
   PartitionedIndexTestListener* listener = new PartitionedIndexTestListener();
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -164,14 +170,15 @@ TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
   Reopen(options);
   Random rnd(301);
 
-  for (int i = 0; i < 3000; i++) {
-    int j = i % 30;
-    std::string value = rnd.RandomString(10500);
-    ASSERT_OK(Put("keykey_" + std::to_string(j), value));
-    snapshots.push_back(db_->GetSnapshot());
+  for (int i = 0; i < kNumFiles; i++) {
+    for (int j = 0; j < kNumEntriesPerFile; j++) {
+      int key_id = (i * kNumEntriesPerFile + j) % kNumDistinctKeys;
+      std::string value = rnd.RandomString(kValueSize);
+      ASSERT_OK(Put("keykey_" + std::to_string(key_id), value));
+      snapshots.push_back(db_->GetSnapshot());
+    }
+    ASSERT_OK(Flush());
   }
-  ASSERT_OK(Flush());
-  dbfull()->TEST_WaitForFlushMemTable();
 
   for (auto s : snapshots) {
     db_->ReleaseSnapshot(s);

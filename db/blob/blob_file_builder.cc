@@ -27,7 +27,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 BlobFileBuilder::BlobFileBuilder(
-    VersionSet* versions, Env* env, FileSystem* fs,
+    VersionSet* versions, FileSystem* fs,
     const ImmutableCFOptions* immutable_cf_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
     int job_id, uint32_t column_family_id,
@@ -36,14 +36,14 @@ BlobFileBuilder::BlobFileBuilder(
     const std::shared_ptr<IOTracer>& io_tracer,
     std::vector<std::string>* blob_file_paths,
     std::vector<BlobFileAddition>* blob_file_additions)
-    : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, env,
-                      fs, immutable_cf_options, mutable_cf_options,
-                      file_options, job_id, column_family_id,
-                      column_family_name, io_priority, write_hint, io_tracer,
-                      blob_file_paths, blob_file_additions) {}
+    : BlobFileBuilder([versions]() { return versions->NewFileNumber(); }, fs,
+                      immutable_cf_options, mutable_cf_options, file_options,
+                      job_id, column_family_id, column_family_name, io_priority,
+                      write_hint, io_tracer, blob_file_paths,
+                      blob_file_additions) {}
 
 BlobFileBuilder::BlobFileBuilder(
-    std::function<uint64_t()> file_number_generator, Env* env, FileSystem* fs,
+    std::function<uint64_t()> file_number_generator, FileSystem* fs,
     const ImmutableCFOptions* immutable_cf_options,
     const MutableCFOptions* mutable_cf_options, const FileOptions* file_options,
     int job_id, uint32_t column_family_id,
@@ -70,7 +70,6 @@ BlobFileBuilder::BlobFileBuilder(
       blob_count_(0),
       blob_bytes_(0) {
   assert(file_number_generator_);
-  assert(env);
   assert(fs_);
   assert(immutable_cf_options_);
   assert(file_options_);
@@ -78,7 +77,6 @@ BlobFileBuilder::BlobFileBuilder(
   assert(blob_file_paths_->empty());
   assert(blob_file_additions_);
   assert(blob_file_additions_->empty());
-  clock_ = env->GetSystemClock();
 }
 
 BlobFileBuilder::~BlobFileBuilder() = default;
@@ -185,16 +183,17 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   FileTypeSet tmp_set = immutable_cf_options_->checksum_handoff_file_types;
   Statistics* const statistics = immutable_cf_options_->statistics;
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-      std::move(file), blob_file_paths_->back(), *file_options_, clock_,
-      io_tracer_, statistics, immutable_cf_options_->listeners,
+      std::move(file), blob_file_paths_->back(), *file_options_,
+      immutable_cf_options_->clock, io_tracer_, statistics,
+      immutable_cf_options_->listeners,
       immutable_cf_options_->file_checksum_gen_factory,
       tmp_set.Contains(FileType::kBlobFile)));
 
   constexpr bool do_flush = false;
 
   std::unique_ptr<BlobLogWriter> blob_log_writer(new BlobLogWriter(
-      std::move(file_writer), clock_, statistics, blob_file_number,
-      immutable_cf_options_->use_fsync, do_flush));
+      std::move(file_writer), immutable_cf_options_->clock, statistics,
+      blob_file_number, immutable_cf_options_->use_fsync, do_flush));
 
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;

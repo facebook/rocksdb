@@ -2332,6 +2332,13 @@ TEST_F(DBTest, ReadonlyDBGetLiveManifestSize) {
 }
 
 TEST_F(DBTest, GetLiveBlobFiles) {
+  // Note: the following prevents an otherwise harmless data race between the
+  // test setup code (AddBlobFile) below and the periodic stat dumping thread.
+  Options options = CurrentOptions();
+  options.stats_dump_period_sec = 0;
+
+  Reopen(options);
+
   VersionSet* const versions = dbfull()->TEST_GetVersionSet();
   assert(versions);
   assert(versions->GetColumnFamilySet());

@@ -2215,7 +2215,7 @@ TEST_F(EnvTest, IsDirectory) {
     std::unique_ptr<WritableFileWriter> fwriter;
     fwriter.reset(new WritableFileWriter(std::move(wfile), test_file_path,
                                          FileOptions(),
-                                         SystemClock::Default()));
+                                         SystemClock::Default().get()));
     constexpr char buf[] = "test";
     s = fwriter->Append(buf);
     ASSERT_OK(s);

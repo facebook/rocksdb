@@ -23,6 +23,7 @@ class IOTracerTest : public testing::Test {
   IOTracerTest() {
     test_path_ = test::PerThreadDBPath("io_tracer_test");
     env_ = ROCKSDB_NAMESPACE::Env::Default();
+    clock_ = env_->GetSystemClock().get();
     EXPECT_OK(env_->CreateDir(test_path_));
     trace_file_path_ = test_path_ + "/io_trace";
   }
@@ -79,6 +80,7 @@ class IOTracerTest : public testing::Test {
   }
 
   Env* env_;
+  SystemClock* clock_;
   EnvOptions env_options_;
   std::string trace_file_path_;
   std::string test_path_;
@@ -92,8 +94,7 @@ TEST_F(IOTracerTest, MultipleRecordsWithDifferentIOOpOptions) {
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
     IOTracer writer;
-    ASSERT_OK(writer.StartIOTrace(env_->GetSystemClock(), trace_opt,
-                                  std::move(trace_writer)));
+    ASSERT_OK(writer.StartIOTrace(clock_, trace_opt, std::move(trace_writer)));
 
     // Write general record.
     IOTraceRecord record0(0, TraceType::kIOTracer, 0 /*io_op_data*/,
@@ -202,8 +203,7 @@ TEST_F(IOTracerTest, AtomicWrite) {
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
     IOTracer writer;
-    ASSERT_OK(writer.StartIOTrace(env_->GetSystemClock(), trace_opt,
-                                  std::move(trace_writer)));
+    ASSERT_OK(writer.StartIOTrace(clock_, trace_opt, std::move(trace_writer)));
     writer.WriteIOOp(record);
     ASSERT_OK(env_->FileExists(trace_file_path_));
   }
@@ -266,8 +266,7 @@ TEST_F(IOTracerTest, AtomicNoWriteAfterEndTrace) {
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
     IOTracer writer;
-    ASSERT_OK(writer.StartIOTrace(env_->GetSystemClock(), trace_opt,
-                                  std::move(trace_writer)));
+    ASSERT_OK(writer.StartIOTrace(clock_, trace_opt, std::move(trace_writer)));
     writer.WriteIOOp(record);
     writer.EndIOTrace();
     // Write the record again. This time the record should not be written since
@@ -302,8 +301,7 @@ TEST_F(IOTracerTest, AtomicMultipleWrites) {
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
-    IOTraceWriter writer(env_->GetSystemClock(), trace_opt,
-                         std::move(trace_writer));
+    IOTraceWriter writer(clock_, trace_opt, std::move(trace_writer));
     ASSERT_OK(writer.WriteHeader());
     // Write 10 records
     WriteIOOp(&writer, 10);

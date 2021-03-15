@@ -36,8 +36,7 @@ class BlobLogSequentialReader {
 
   // Create a reader that will return log records from "*file_reader".
   BlobLogSequentialReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
-                          const std::shared_ptr<SystemClock>& clock,
-                          Statistics* statistics);
+                          SystemClock* clock, Statistics* statistics);
 
   // No copying allowed
   BlobLogSequentialReader(const BlobLogSequentialReader&) = delete;
@@ -65,7 +64,7 @@ class BlobLogSequentialReader {
   Status ReadSlice(uint64_t size, Slice* slice, char* buf);
 
   const std::unique_ptr<RandomAccessFileReader> file_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
 
   Statistics* statistics_;
 

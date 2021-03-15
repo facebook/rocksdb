@@ -49,6 +49,7 @@ class FileChecksumGenCrc32c;
 class FileChecksumGenCrc32cFactory;
 
 const std::string LDBCommand::ARG_ENV_URI = "env_uri";
+const std::string LDBCommand::ARG_FS_URI = "fs_uri";
 const std::string LDBCommand::ARG_DB = "db";
 const std::string LDBCommand::ARG_PATH = "path";
 const std::string LDBCommand::ARG_SECONDARY_PATH = "secondary_path";
@@ -286,6 +287,16 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   return nullptr;
 }
 
+static Env* GetCompositeEnv(std::shared_ptr<FileSystem> fs) {
+  static std::shared_ptr<Env> composite_env = NewCompositeEnv(fs);
+  return composite_env.get();
+}
+
+static Env* GetCompositeBackupEnv(std::shared_ptr<FileSystem> fs) {
+  static std::shared_ptr<Env> composite_backup_env = NewCompositeEnv(fs);
+  return composite_backup_env.get();
+}
+
 /* Run the command, and return the execute result. */
 void LDBCommand::Run() {
   if (!exec_state_.IsNotStarted()) {
@@ -294,12 +305,33 @@ void LDBCommand::Run() {
 
   if (!options_.env || options_.env == Env::Default()) {
     Env* env = Env::Default();
-    Status s = Env::LoadEnv(env_uri_, &env, &env_guard_);
-    if (!s.ok() && !s.IsNotFound()) {
-      fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
-      exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
+
+    if (!env_uri_.empty() && !fs_uri_.empty()) {
+      std::string err =
+          "Error: you may not specity both "
+          "fs_uri and fs_env.";
+      fprintf(stderr, "%s\n", err.c_str());
+      exec_state_ = LDBCommandExecuteResult::Failed(err);
       return;
     }
+    if (!env_uri_.empty()) {
+      Status s = Env::LoadEnv(env_uri_, &env, &env_guard_);
+      if (!s.ok() && !s.IsNotFound()) {
+        fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
+        exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
+        return;
+      }
+    } else if (!fs_uri_.empty()) {
+      std::shared_ptr<FileSystem> fs;
+      Status s = FileSystem::Load(fs_uri_, &fs);
+      if (fs == nullptr) {
+        fprintf(stderr, "error: %s\n", s.ToString().c_str());
+        exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
+        return;
+      }
+      env = GetCompositeEnv(fs);
+    }
+
     options_.env = env;
   }
 
@@ -349,6 +381,11 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   itr = options.find(ARG_ENV_URI);
   if (itr != options.end()) {
     env_uri_ = itr->second;
+  }
+
+  itr = options.find(ARG_FS_URI);
+  if (itr != options.end()) {
+    fs_uri_ = itr->second;
   }
 
   itr = options.find(ARG_CF_NAME);
@@ -483,6 +520,7 @@ ColumnFamilyHandle* LDBCommand::GetCfHandle() {
 std::vector<std::string> LDBCommand::BuildCmdLineOptions(
     std::vector<std::string> options) {
   std::vector<std::string> ret = {ARG_ENV_URI,
+                                  ARG_FS_URI,
                                   ARG_DB,
                                   ARG_SECONDARY_PATH,
                                   ARG_BLOOM_BITS,
@@ -3016,6 +3054,7 @@ void RepairCommand::DoCommand() {
 
 const std::string BackupableCommand::ARG_NUM_THREADS = "num_threads";
 const std::string BackupableCommand::ARG_BACKUP_ENV_URI = "backup_env_uri";
+const std::string BackupableCommand::ARG_BACKUP_FS_URI = "backup_fs_uri";
 const std::string BackupableCommand::ARG_BACKUP_DIR = "backup_dir";
 const std::string BackupableCommand::ARG_STDERR_LOG_LEVEL = "stderr_log_level";
 
@@ -3024,8 +3063,9 @@ BackupableCommand::BackupableCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, false /* is_read_only */,
-                 BuildCmdLineOptions({ARG_BACKUP_ENV_URI, ARG_BACKUP_DIR,
-                                      ARG_NUM_THREADS, ARG_STDERR_LOG_LEVEL})),
+                 BuildCmdLineOptions({ARG_BACKUP_ENV_URI, ARG_BACKUP_FS_URI,
+                                      ARG_BACKUP_DIR, ARG_NUM_THREADS,
+                                      ARG_STDERR_LOG_LEVEL})),
       num_threads_(1) {
   auto itr = options.find(ARG_NUM_THREADS);
   if (itr != options.end()) {
@@ -3034,6 +3074,15 @@ BackupableCommand::BackupableCommand(
   itr = options.find(ARG_BACKUP_ENV_URI);
   if (itr != options.end()) {
     backup_env_uri_ = itr->second;
+  }
+  itr = options.find(ARG_BACKUP_FS_URI);
+  if (itr != options.end()) {
+    backup_fs_uri_ = itr->second;
+  }
+  if (!backup_env_uri_.empty() && !backup_fs_uri_.empty()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "you may not specity both --" + ARG_BACKUP_ENV_URI + " and --" +
+        ARG_BACKUP_FS_URI);
   }
   itr = options.find(ARG_BACKUP_DIR);
   if (itr == options.end()) {
@@ -3061,7 +3110,7 @@ BackupableCommand::BackupableCommand(
 void BackupableCommand::Help(const std::string& name, std::string& ret) {
   ret.append("  ");
   ret.append(name);
-  ret.append(" [--" + ARG_BACKUP_ENV_URI + "] ");
+  ret.append(" [--" + ARG_BACKUP_ENV_URI + " | --" + ARG_BACKUP_FS_URI + "] ");
   ret.append(" [--" + ARG_BACKUP_DIR + "] ");
   ret.append(" [--" + ARG_NUM_THREADS + "] ");
   ret.append(" [--" + ARG_STDERR_LOG_LEVEL + "=<int (InfoLogLevel)>] ");
@@ -3087,15 +3136,26 @@ void BackupCommand::DoCommand() {
     return;
   }
   fprintf(stdout, "open db OK\n");
+
   Env* custom_env = nullptr;
-  Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
-  assert(custom_env != nullptr);
+  if (!backup_fs_uri_.empty()) {
+    std::shared_ptr<FileSystem> fs;
+    Status s = FileSystem::Load(backup_fs_uri_, &fs);
+    if (fs == nullptr) {
+      exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
+      return;
+    }
+    custom_env = GetCompositeBackupEnv(fs);
+  } else {
+    Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
+    assert(custom_env != nullptr);
+  }
 
   BackupableDBOptions backup_options =
       BackupableDBOptions(backup_dir_, custom_env);
   backup_options.info_log = logger_.get();
   backup_options.max_background_operations = num_threads_;
-  status = BackupEngine::Open(custom_env, backup_options, &backup_engine);
+  status = BackupEngine::Open(options_.env, backup_options, &backup_engine);
   if (status.ok()) {
     fprintf(stdout, "open backup engine OK\n");
   } else {
@@ -3125,8 +3185,18 @@ void RestoreCommand::Help(std::string& ret) {
 
 void RestoreCommand::DoCommand() {
   Env* custom_env = nullptr;
-  Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
-  assert(custom_env != nullptr);
+  if (!backup_fs_uri_.empty()) {
+    std::shared_ptr<FileSystem> fs;
+    Status s = FileSystem::Load(backup_fs_uri_, &fs);
+    if (fs == nullptr) {
+      exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
+      return;
+    }
+    custom_env = GetCompositeBackupEnv(fs);
+  } else {
+    Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
+    assert(custom_env != nullptr);
+  }
 
   std::unique_ptr<BackupEngineReadOnly> restore_engine;
   Status status;
@@ -3136,7 +3206,7 @@ void RestoreCommand::DoCommand() {
     opts.max_background_operations = num_threads_;
     BackupEngineReadOnly* raw_restore_engine_ptr;
     status =
-        BackupEngineReadOnly::Open(custom_env, opts, &raw_restore_engine_ptr);
+        BackupEngineReadOnly::Open(options_.env, opts, &raw_restore_engine_ptr);
     if (status.ok()) {
       restore_engine.reset(raw_restore_engine_ptr);
     }

@@ -93,6 +93,7 @@ LIB_SOURCES =                                                   \
   file/file_prefetch_buffer.cc                                  \
   file/file_util.cc                                             \
   file/filename.cc                                              \
+  file/line_file_reader.cc                                      \
   file/random_access_file_reader.cc                             \
   file/read_write_util.cc                                       \
   file/readahead_raf.cc                                         \
@@ -413,7 +414,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_options_test.cc                                                 \
   db/db_properties_test.cc                                              \
   db/db_range_del_test.cc                                               \
-  db/db_impl/db_secondary_test.cc                                       \
+  db/db_secondary_test.cc                                               \
   db/db_sst_test.cc                                                     \
   db/db_statistics_test.cc                                              \
   db/db_table_properties_test.cc                                        \
