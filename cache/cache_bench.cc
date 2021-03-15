@@ -11,7 +11,7 @@ int main() {
 }
 #else
 
-#include <stdio.h>
+#include <cstdio>
 #include <sys/types.h>
 
 #include <cinttypes>
