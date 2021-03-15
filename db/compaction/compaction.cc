@@ -340,7 +340,7 @@ bool Compaction::IsTrivialMove() const {
       return false;
     }
 
-    if (partitioner.get() != nullptr) {
+    if (partitioner != nullptr) {
       if (!partitioner->CanDoTrivialMove(file->smallest.user_key(),
                                          file->largest.user_key())) {
         return false;
@@ -519,7 +519,7 @@ uint64_t Compaction::OutputFilePreallocationSize() const {
 
   // Over-estimate slightly so we don't end up just barely crossing
   // the threshold
-  // No point to prellocate more than 1GB.
+  // No point to preallocate more than 1GB.
   return std::min(uint64_t{1073741824},
                   preallocation_size + (preallocation_size / 10));
 }
