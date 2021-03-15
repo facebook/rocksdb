@@ -361,32 +361,34 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
     for (int k = 0; k < kTestSize; ++k) {
       ASSERT_OK(Delete(Key(k)));
     }
-    Flush();
+    ASSERT_OK(Flush());
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     ASSERT_OK(Size(Key(0), Key(kTestSize - 1), &db_size[1]));
 
-    // Claim: in level compaction at most `db_size[0] / 2` of the original data
-    // will remain once compactions settle.
-    //
-    // Proof: Assume the original data is all in the bottom level. If it were
-    // not, it would meet its tombstone sooner. The original data size is large
-    // enough to require fanout to bottom level to be greater than
-    // `max_bytes_for_level_multiplier == 2`. In the level just above,
-    // tombstones must cover less than `db_size[0] / 4` bytes since fanout >= 2
-    // and file size is compensated by doubling the size of values we expect are
-    // covered (`kDeletionWeightOnCompaction == 2`). The tombstones in levels
-    // above must cover less than `db_size[0] / 8` bytes of original data,
-    // `db_size[0] / 16`, and so on.
-    //
-    // Claim: in universal compaction none of the original data will remain once
-    // compactions settle.
-    //
-    // Proof: The compensated size of the file containing the most tombstones is
-    // enough on its own to trigger size amp compaction. Size amp compaction is
-    // a full compaction, so all tombstones meet the obsolete keys they cover.
-
-    // The looser of the above two constraints can apply in all cases.
-    ASSERT_GT(db_size[0] / 2, db_size[1]);
+    if (options.compaction_style == kCompactionStyleUniversal) {
+      // Claim: in universal compaction none of the original data will remain
+      // once compactions settle.
+      //
+      // Proof: The compensated size of the file containing the most tombstones
+      // is enough on its own to trigger size amp compaction. Size amp
+      // compaction is a full compaction, so all tombstones meet the obsolete
+      // keys they cover.
+      ASSERT_EQ(0, db_size[1]);
+    } else {
+      // Claim: in level compaction at most `db_size[0] / 2` of the original
+      // data will remain once compactions settle.
+      //
+      // Proof: Assume the original data is all in the bottom level. If it were
+      // not, it would meet its tombstone sooner. The original data size is
+      // large enough to require fanout to bottom level to be greater than
+      // `max_bytes_for_level_multiplier == 2`. In the level just above,
+      // tombstones must cover less than `db_size[0] / 4` bytes since fanout >=
+      // 2 and file size is compensated by doubling the size of values we expect
+      // are covered (`kDeletionWeightOnCompaction == 2`). The tombstones in
+      // levels above must cover less than `db_size[0] / 8` bytes of original
+      // data, `db_size[0] / 16`, and so on.
+      ASSERT_GT(db_size[0] / 2, db_size[1]);
+    }
   }
 }
 #endif  // ROCKSDB_VALGRIND_RUN
@@ -761,7 +763,7 @@ TEST_F(DBCompactionTest, DisableStatsUpdateReopen) {
       values.push_back(rnd.RandomString(kCDTValueSize));
       ASSERT_OK(Put(Key(k), values[k]));
     }
-    Flush();
+    ASSERT_OK(Flush());
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
     // L1 and L2 can fit deletions iff size compensation does not take effect,
     // i.e., when `skip_stats_update_on_db_open == true`. Move any remaining
