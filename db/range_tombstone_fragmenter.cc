@@ -9,7 +9,7 @@
 #include <functional>
 #include <set>
 
-#include <stdio.h>
+#include <cstdio>
 #include <cinttypes>
 
 #include "util/autovector.h"

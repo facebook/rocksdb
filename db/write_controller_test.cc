@@ -87,7 +87,7 @@ TEST_F(WriteControllerTest, SanityTest) {
   ASSERT_EQ(static_cast<uint64_t>(0), controller.GetDelay(clock_.get(), 1000u));
 
   clock_->now_micros_ += 100u;  // sleep credit 200
-  // One refill: 10240 fileed, sleep credit generates 2000. 8000 used
+  // One refill: 10240 filled, sleep credit generates 2000. 8000 used
   //             7240 + 10240 + 2000 - 8000 = 11480 left
   ASSERT_EQ(static_cast<uint64_t>(1024u),
             controller.GetDelay(clock_.get(), 8000u));

@@ -5,8 +5,8 @@
 
 #pragma once
 
-#include <assert.h>
-#include <stdint.h>
+#include <cassert>
+#include <cstdint>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>

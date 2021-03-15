@@ -5,7 +5,7 @@
 //
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 #include <cassert>
 #include <cstdlib>
 #include <mutex>

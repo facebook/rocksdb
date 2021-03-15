@@ -339,7 +339,7 @@ void ForwardIterator::Cleanup(bool release_sv) {
 
 bool ForwardIterator::Valid() const {
   // See UpdateCurrent().
-  return valid_ ? !current_over_upper_bound_ : false;
+  return valid_ && !current_over_upper_bound_;
 }
 
 void ForwardIterator::SeekToFirst() {
@@ -426,7 +426,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       if (seek_to_first) {
         l0_iters_[i]->SeekToFirst();
       } else {
-        // If the target key passes over the larget key, we are sure Next()
+        // If the target key passes over the largest key, we are sure Next()
         // won't go over this file.
         if (user_comparator_->Compare(target_user_key,
                                       l0[i]->largest.user_key()) > 0) {
