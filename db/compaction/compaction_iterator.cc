@@ -103,10 +103,9 @@ CompactionIterator::CompactionIterator(
       cmp_with_history_ts_low_(0) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   assert(snapshots_ != nullptr);
-  bottommost_level_ = compaction_ == nullptr
-                          ? false
-                          : compaction_->bottommost_level() &&
-                                !compaction_->allow_ingest_behind();
+  bottommost_level_ = !(compaction_ == nullptr) &&
+                      compaction_->bottommost_level() &&
+                      !compaction_->allow_ingest_behind();
   if (compaction_ != nullptr) {
     level_ptrs_ = std::vector<size_t>(compaction_->number_levels(), 0);
   }
@@ -135,7 +134,7 @@ CompactionIterator::CompactionIterator(
 }
 
 CompactionIterator::~CompactionIterator() {
-  // input_ Iteartor lifetime is longer than pinned_iters_mgr_ lifetime
+  // input_ Iterator lifetime is longer than pinned_iters_mgr_ lifetime
   input_->SetPinnedItersMgr(nullptr);
 }
 
