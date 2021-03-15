@@ -425,7 +425,8 @@ class Repairer {
       Arena arena;
       ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
       int64_t _current_time = 0;
-      status = env_->GetCurrentTime(&_current_time);  // ignore error
+      immutable_db_options_.clock->GetCurrentTime(&_current_time)
+          .PermitUncheckedError();  // ignore error
       const uint64_t current_time = static_cast<uint64_t>(_current_time);
       SnapshotChecker* snapshot_checker = DisableGCSnapshotChecker::Instance();
 

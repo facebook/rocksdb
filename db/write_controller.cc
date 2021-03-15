@@ -43,8 +43,7 @@ bool WriteController::IsStopped() const {
 // If it turns out to be a performance issue, we can redesign the thread
 // synchronization model here.
 // The function trust caller will sleep micros returned.
-uint64_t WriteController::GetDelay(const std::shared_ptr<SystemClock>& clock,
-                                   uint64_t num_bytes) {
+uint64_t WriteController::GetDelay(SystemClock* clock, uint64_t num_bytes) {
   if (total_stopped_.load(std::memory_order_relaxed) > 0) {
     return 0;
   }
@@ -108,8 +107,7 @@ uint64_t WriteController::GetDelay(const std::shared_ptr<SystemClock>& clock,
   return sleep_amount;
 }
 
-uint64_t WriteController::NowMicrosMonotonic(
-    const std::shared_ptr<SystemClock>& clock) {
+uint64_t WriteController::NowMicrosMonotonic(SystemClock* clock) {
   return clock->NowNanos() / std::milli::den;
 }
 

@@ -92,16 +92,16 @@ struct BackupableDBOptions {
   // Default: nullptr
   std::shared_ptr<RateLimiter> restore_rate_limiter{nullptr};
 
-  // Only used if share_table_files is set to true. If true, will consider
-  // that backups can come from different databases, even differently mutated
-  // databases with the same DB ID. See share_files_with_checksum_naming and
-  // ShareFilesNaming for details on how table files names are made
-  // unique between databases.
+  // Only used if share_table_files is set to true. Setting to false is
+  // DEPRECATED and potentially dangerous because in that case BackupEngine
+  // can lose data if backing up databases with distinct or divergent
+  // history, for example if restoring from a backup other than the latest,
+  // writing to the DB, and creating another backup. Setting to true (default)
+  // prevents these issues by ensuring that different table files (SSTs) with
+  // the same number are treated as distinct. See
+  // share_files_with_checksum_naming and ShareFilesNaming.
   //
-  // Using 'true' is fundamentally safer, and performance improvements vs.
-  // original design should leave almost no reason to use the 'false' setting.
-  //
-  // Default (only for historical reasons): false
+  // Default: true
   bool share_files_with_checksum;
 
   // Up to this many background threads will copy files for CreateNewBackup()
@@ -167,16 +167,6 @@ struct BackupableDBOptions {
     // contribute significantly to naming uniqueness.
     kFlagIncludeFileSize = 1U << 31,
 
-    // When encountering an SST file from a Facebook-internal early
-    // release of 6.12, use the default naming scheme in effect for
-    // when the SST file was generated (assuming full file checksum
-    // was not set to GetFileChecksumGenCrc32cFactory()). That naming is
-    // <file_number>_<db_session_id>.sst
-    // and ignores kFlagIncludeFileSize setting.
-    // NOTE: This flag is intended to be temporary and should be removed
-    // in a later release.
-    kFlagMatchInterimNaming = 1U << 30,
-
     kMaskNamingFlags = ~kMaskNoNamingFlags,
   };
 
@@ -193,7 +183,7 @@ struct BackupableDBOptions {
   // directory, under the new shared name in addition to the old shared
   // name.
   //
-  // Default: kUseDbSessionId | kFlagIncludeFileSize | kFlagMatchInterimNaming
+  // Default: kUseDbSessionId | kFlagIncludeFileSize
   //
   // Note: This option comes into effect only if both share_files_with_checksum
   // and share_table_files are true.
@@ -210,8 +200,7 @@ struct BackupableDBOptions {
       uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
       int _max_valid_backups_to_open = INT_MAX,
       ShareFilesNaming _share_files_with_checksum_naming =
-          static_cast<ShareFilesNaming>(kUseDbSessionId | kFlagIncludeFileSize |
-                                        kFlagMatchInterimNaming))
+          static_cast<ShareFilesNaming>(kUseDbSessionId | kFlagIncludeFileSize))
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
@@ -221,7 +210,7 @@ struct BackupableDBOptions {
         backup_log_files(_backup_log_files),
         backup_rate_limit(_backup_rate_limit),
         restore_rate_limit(_restore_rate_limit),
-        share_files_with_checksum(false),
+        share_files_with_checksum(true),
         max_background_operations(_max_background_operations),
         callback_trigger_interval_size(_callback_trigger_interval_size),
         max_valid_backups_to_open(_max_valid_backups_to_open),
@@ -280,15 +269,34 @@ struct RestoreOptions {
       : keep_log_files(_keep_log_files) {}
 };
 
+struct BackupFileInfo {
+  // File name and path relative to the backup_dir directory.
+  std::string relative_filename;
+
+  // Size of the file in bytes, not including filesystem overheads.
+  uint64_t size;
+};
+
 typedef uint32_t BackupID;
 
 struct BackupInfo {
   BackupID backup_id;
+  // Creation time, according to GetCurrentTime
   int64_t timestamp;
+
+  // Total size in bytes (based on file payloads, not including filesystem
+  // overheads or backup meta file)
   uint64_t size;
 
+  // Number of backed up files, some of which might be shared with other
+  // backups. Does not include backup meta file.
   uint32_t number_files;
+
+  // Backup API user metadata
   std::string app_metadata;
+
+  // Backup file details, if requested
+  std::vector<BackupFileInfo> file_details;
 
   BackupInfo() {}
 
@@ -345,12 +353,15 @@ class BackupEngineReadOnly {
 
   // Returns info about backups in backup_info
   // You can GetBackupInfo safely, even with other BackupEngine performing
-  // backups on the same directory
-  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) = 0;
+  // backups on the same directory.
+  // Setting include_file_details=true provides information about each
+  // backed-up file in BackupInfo::file_details.
+  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info,
+                             bool include_file_details = false) const = 0;
 
   // Returns info about corrupt backups in corrupt_backups
   virtual void GetCorruptedBackups(
-      std::vector<BackupID>* corrupt_backup_ids) = 0;
+      std::vector<BackupID>* corrupt_backup_ids) const = 0;
 
   // Restoring DB from backup is NOT safe when there is another BackupEngine
   // running that might call DeleteBackup() or PurgeOldBackups(). It is caller's
@@ -468,11 +479,12 @@ class BackupEngine {
   virtual void StopBackup() = 0;
 
   // Returns info about backups in backup_info
-  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) = 0;
+  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info,
+                             bool include_file_details = false) const = 0;
 
   // Returns info about corrupt backups in corrupt_backups
   virtual void GetCorruptedBackups(
-      std::vector<BackupID>* corrupt_backup_ids) = 0;
+      std::vector<BackupID>* corrupt_backup_ids) const = 0;
 
   // restore from backup with backup_id
   // IMPORTANT -- if options_.share_table_files == true,

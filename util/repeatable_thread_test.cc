@@ -42,7 +42,7 @@ TEST_F(RepeatableThreadTest, TimedTest) {
           test_cv.SignalAll();
         }
       },
-      "rt_test", clock, 1 * kSecond);
+      "rt_test", clock.get(), 1 * kSecond);
   // Wait for execution finish.
   {
     ROCKSDB_NAMESPACE::MutexLock l(&mutex);
@@ -91,7 +91,7 @@ TEST_F(RepeatableThreadTest, MockEnvTest) {
 #endif  // OS_MACOSX && !NDEBUG
 
   ROCKSDB_NAMESPACE::RepeatableThread thread(
-      [&] { count++; }, "rt_test", mock_clock_, 1 * kSecond, 1 * kSecond);
+      [&] { count++; }, "rt_test", mock_clock_.get(), 1 * kSecond, 1 * kSecond);
   for (int i = 1; i <= kIteration; i++) {
     // Bump current time
     thread.TEST_WaitForRun([&] { mock_clock_->SetCurrentTime(i); });

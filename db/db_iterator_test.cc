@@ -1553,6 +1553,10 @@ TEST_P(DBIteratorTestForPinnedData, PinnedDataIteratorRandomizedFlush) {
   PinnedDataIteratorRandomized(TestConfig::FLUSH_EVERY_1000);
 }
 
+INSTANTIATE_TEST_CASE_P(DBIteratorTestForPinnedDataInstance,
+                        DBIteratorTestForPinnedData,
+                        testing::Values(true, false));
+
 #ifndef ROCKSDB_LITE
 TEST_P(DBIteratorTest, PinnedDataIteratorMultipleFiles) {
   Options options = CurrentOptions();

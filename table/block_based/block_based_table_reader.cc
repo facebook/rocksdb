@@ -1501,7 +1501,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       CompressionType raw_block_comp_type;
       BlockContents raw_block_contents;
       if (!contents) {
-        StopWatch sw(rep_->clock, statistics, READ_BLOCK_GET_MICROS);
+        StopWatch sw(rep_->ioptions.clock, statistics, READ_BLOCK_GET_MICROS);
         BlockFetcher block_fetcher(
             rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle,
             &raw_block_contents, rep_->ioptions, do_uncompress,
@@ -1590,7 +1590,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
       // Avoid making copy of block_key and cf_name when constructing the access
       // record.
       BlockCacheTraceRecord access_record(
-          rep_->clock->NowMicros(),
+          rep_->ioptions.clock->NowMicros(),
           /*block_key=*/"", trace_block_type,
           /*block_size=*/usage, rep_->cf_id_for_tracing(),
           /*cf_name=*/"", rep_->level_for_tracing(),
@@ -1935,7 +1935,8 @@ Status BlockBasedTable::RetrieveBlock(
   std::unique_ptr<TBlocklike> block;
 
   {
-    StopWatch sw(rep_->clock, rep_->ioptions.statistics, READ_BLOCK_GET_MICROS);
+    StopWatch sw(rep_->ioptions.clock, rep_->ioptions.statistics,
+                 READ_BLOCK_GET_MICROS);
     s = ReadBlockFromFile(
         rep_->file.get(), prefetch_buffer, rep_->footer, ro, handle, &block,
         rep_->ioptions, do_uncompress, maybe_compressed, block_type,
@@ -2427,7 +2428,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           referenced_key = key;
         }
         BlockCacheTraceRecord access_record(
-            rep_->clock->NowMicros(),
+            rep_->ioptions.clock->NowMicros(),
             /*block_key=*/"", lookup_data_block_context.block_type,
             lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
             /*cf_name=*/"", rep_->level_for_tracing(),
@@ -2763,7 +2764,7 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
             referenced_key = key;
           }
           BlockCacheTraceRecord access_record(
-              rep_->clock->NowMicros(),
+              rep_->ioptions.clock->NowMicros(),
               /*block_key=*/"", lookup_data_block_context.block_type,
               lookup_data_block_context.block_size, rep_->cf_id_for_tracing(),
               /*cf_name=*/"", rep_->level_for_tracing(),

@@ -49,6 +49,7 @@ class WalManagerTest : public testing::Test {
     db_options_.wal_dir = dbname_;
     db_options_.env = env_.get();
     db_options_.fs = env_->GetFileSystem();
+    db_options_.clock = env_->GetSystemClock().get();
 
     versions_.reset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),

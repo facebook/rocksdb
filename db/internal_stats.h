@@ -125,8 +125,7 @@ class InternalStats {
     kIntStatsNumMax,
   };
 
-  InternalStats(int num_levels, const std::shared_ptr<SystemClock>& clock,
-                ColumnFamilyData* cfd)
+  InternalStats(int num_levels, SystemClock* clock, ColumnFamilyData* cfd)
       : db_stats_{},
         cf_stats_value_{},
         cf_stats_count_{},
@@ -638,7 +637,7 @@ class InternalStats {
   uint64_t bg_error_count_;
 
   const int number_levels_;
-  const std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   ColumnFamilyData* cfd_;
   uint64_t started_at_;
 };
@@ -677,8 +676,7 @@ class InternalStats {
     kIntStatsNumMax,
   };
 
-  InternalStats(int /*num_levels*/,
-                const std::shared_ptr<SystemClock>& /*clock*/,
+  InternalStats(int /*num_levels*/, SystemClock* /*clock*/,
                 ColumnFamilyData* /*cfd*/) {}
 
   struct CompactionStats {
