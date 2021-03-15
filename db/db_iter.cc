@@ -63,9 +63,8 @@ DBIter::DBIter(Env* _env, const ReadOptions& read_options,
       valid_(false),
       current_entry_is_merged_(false),
       is_key_seqnum_zero_(false),
-      prefix_same_as_start_(mutable_cf_options.prefix_extractor
-                                ? read_options.prefix_same_as_start
-                                : false),
+      prefix_same_as_start_(mutable_cf_options.prefix_extractor &&
+                            read_options.prefix_same_as_start),
       pin_thru_lifetime_(read_options.pin_data),
       expect_total_order_inner_iter_(prefix_extractor_ == nullptr ||
                                      read_options.total_order_seek ||
@@ -1343,7 +1342,7 @@ void DBIter::Seek(const Slice& target) {
   // we need to find out the next key that is visible to the user.
   ClearSavedValue();
   if (prefix_same_as_start_) {
-    // The case where the iterator needs to be invalidated if it has exausted
+    // The case where the iterator needs to be invalidated if it has exhausted
     // keys within the same prefix of the seek key.
     assert(prefix_extractor_ != nullptr);
     Slice target_prefix = prefix_extractor_->Transform(target);
@@ -1418,7 +1417,7 @@ void DBIter::SeekForPrev(const Slice& target) {
   // backward direction.
   ClearSavedValue();
   if (prefix_same_as_start_) {
-    // The case where the iterator needs to be invalidated if it has exausted
+    // The case where the iterator needs to be invalidated if it has exhausted
     // keys within the same prefix of the seek key.
     assert(prefix_extractor_ != nullptr);
     Slice target_prefix = prefix_extractor_->Transform(target);
