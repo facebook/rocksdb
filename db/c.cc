@@ -11,7 +11,7 @@
 
 #include "rocksdb/c.h"
 
-#include <stdlib.h>
+#include <cstdlib>
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -2959,6 +2959,8 @@ void rocksdb_options_set_access_hint_on_compaction_start(
       opt->rep.access_hint_on_compaction_start =
           ROCKSDB_NAMESPACE::Options::WILLNEED;
       break;
+    default:
+      assert(0);
   }
 }
 
