@@ -156,8 +156,6 @@ class SstFileManagerImpl : public SstFileManager {
   port::Mutex mu_;
   // The summation of the sizes of all files in tracked_files_ map
   uint64_t total_files_size_;
-  // The summation of all output files of in-progress compactions
-  uint64_t in_progress_files_size_;
   // Compactions should only execute if they can leave at least
   // this amount of buffer space for logs and flushes
   uint64_t compaction_buffer_size_;
@@ -166,8 +164,6 @@ class SstFileManagerImpl : public SstFileManager {
   // A map containing all tracked files and there sizes
   //  file_path => file_size
   std::unordered_map<std::string, uint64_t> tracked_files_;
-  // A set of files belonging to in-progress compactions
-  std::unordered_set<std::string> in_progress_files_;
   // The maximum allowed space (in bytes) for sst and blob files.
   uint64_t max_allowed_space_;
   // DeleteScheduler used to throttle file deletition.

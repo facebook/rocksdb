@@ -27,7 +27,6 @@ SstFileManagerImpl::SstFileManagerImpl(
       fs_(fs),
       logger_(logger),
       total_files_size_(0),
-      in_progress_files_size_(0),
       compaction_buffer_size_(0),
       cur_compactions_reserved_size_(0),
       max_allowed_space_(0),
@@ -101,19 +100,6 @@ void SstFileManagerImpl::OnCompactionCompletion(Compaction* c) {
     }
   }
   cur_compactions_reserved_size_ -= size_added_by_compaction;
-
-  auto new_files = c->edit()->GetNewFiles();
-  for (auto& new_file : new_files) {
-    auto fn = TableFileName(c->immutable_cf_options()->cf_paths,
-                            new_file.second.fd.GetNumber(),
-                            new_file.second.fd.GetPathId());
-    if (in_progress_files_.find(fn) != in_progress_files_.end()) {
-      auto tracked_file = tracked_files_.find(fn);
-      assert(tracked_file != tracked_files_.end());
-      in_progress_files_size_ -= tracked_file->second;
-      in_progress_files_.erase(fn);
-    }
-  }
 }
 
 Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
@@ -201,7 +187,6 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
     if (compaction_buffer_size_ == 0) {
       needed_headroom += reserved_disk_buffer_;
     }
-    needed_headroom -= in_progress_files_size_;
     if (free_space < needed_headroom + size_added_by_compaction) {
       // We hit the condition of not enough disk space
       ROCKS_LOG_ERROR(logger_,
@@ -459,16 +444,10 @@ void SstFileManagerImpl::OnDeleteFileImpl(const std::string& file_path) {
   auto tracked_file = tracked_files_.find(file_path);
   if (tracked_file == tracked_files_.end()) {
     // File is not tracked
-    assert(in_progress_files_.find(file_path) == in_progress_files_.end());
     return;
   }
 
   total_files_size_ -= tracked_file->second;
-  // Check if it belonged to an in-progress compaction
-  if (in_progress_files_.find(file_path) != in_progress_files_.end()) {
-    in_progress_files_size_ -= tracked_file->second;
-    in_progress_files_.erase(file_path);
-  }
   tracked_files_.erase(tracked_file);
 }
 
