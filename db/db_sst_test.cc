@@ -1079,17 +1079,23 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedWithBlobFiles) {
   sfm->SetMaxAllowedSpaceUsage(files_size + 1);
 
   bool max_allowed_space_reached = false;
+  bool delete_blob_file = false;
   // Sync point called after blob file is closed and max allowed space is
   // checked.
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BlobFileCompletionCallback::CallBack::MaxAllowedSpaceReached",
       [&](void* /*arg*/) { max_allowed_space_reached = true; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "BuildTable::AfterDeleteFile",
+      [&](void* /*arg*/) { delete_blob_file = true; });
+
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_OK(Put("key1", "val1"));
   // This flush will fail
   ASSERT_NOK(Flush());
   ASSERT_TRUE(max_allowed_space_reached);
+  ASSERT_TRUE(delete_blob_file);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
 

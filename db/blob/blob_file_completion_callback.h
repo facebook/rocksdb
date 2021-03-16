@@ -23,27 +23,30 @@ class BlobFileCompletionCallback {
         mutex_(mutex),
         error_handler_(error_handler) {}
 
-#ifndef ROCKSDB_LITE
-  Status Callback(const std::string& file_name) {
+  Status OnBlobFileCompleted(const std::string& file_name) {
     Status s;
 
+#ifndef ROCKSDB_LITE
     auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager_);
     if (sfm) {
       // Report new blob files to SstFileManagerImpl
-      s = sfm->OnAddFile(file_name);
+      // TODO (PR7798).  We should only add the file to the FileManager if it
+      // exists. Otherwise, some tests may fail.  Ignore the error in the
+      // interim.
+      sfm->OnAddFile(file_name).PermitUncheckedError();
       if (sfm->IsMaxAllowedSpaceReached()) {
         s = Status::SpaceLimit("Max allowed space was reached");
-        TEST_SYNC_POINT_CALLBACK(
-            "BlobFileCompletionCallback::CallBack::MaxAllowedSpaceReached", &s);
+        TEST_SYNC_POINT(
+            "BlobFileCompletionCallback::CallBack::MaxAllowedSpaceReached");
         InstrumentedMutexLock l(mutex_);
         error_handler_->SetBGError(s, BackgroundErrorReason::kFlush);
       }
     }
+#else
+    (void)file_name;
+#endif  // ROCKSDB_LITE
     return s;
   }
-#else
-  Status Callback(const std::string& /*file_name*/) { return Status::OK(); }
-#endif  // ROCKSDB_LITE
 
  private:
   SstFileManager* sst_file_manager_;

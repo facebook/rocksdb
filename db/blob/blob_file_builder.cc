@@ -308,7 +308,7 @@ Status BlobFileBuilder::CloseBlobFile() {
                  blob_count_, blob_bytes_);
 
   if (blob_callback_) {
-    s = blob_callback_->Callback(blob_file_paths_->back());
+    s = blob_callback_->OnBlobFileCompleted(blob_file_paths_->back());
   }
 
   writer_.reset();
@@ -339,7 +339,8 @@ void BlobFileBuilder::Abandon() {
   if (blob_callback_) {
     // BlobFileBuilder::Abandon() is called because of error while writing to
     // Blob files. So we can ignore the below error.
-    blob_callback_->Callback(blob_file_paths_->back()).PermitUncheckedError();
+    blob_callback_->OnBlobFileCompleted(blob_file_paths_->back())
+        .PermitUncheckedError();
   }
 
   writer_.reset();

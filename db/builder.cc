@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "db/blob/blob_file_builder.h"
-#include "db/blob/blob_file_completion_callback.h"
 #include "db/compaction/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
@@ -24,9 +23,9 @@
 #include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
+#include "file/file_util.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
-#include "file/sst_file_manager_impl.h"
 #include "file/writable_file_writer.h"
 #include "monitoring/iostats_context_imp.h"
 #include "monitoring/thread_status_util.h"
@@ -344,8 +343,10 @@ Status BuildTable(
 
     if (blob_file_additions) {
       for (const std::string& blob_file_path : blob_file_paths) {
-        ignored = fs->DeleteFile(blob_file_path, IOOptions(), dbg);
+        ignored = DeleteDBFile(&db_options, blob_file_path, dbname,
+                               /*force_bg=*/false, /*force_fg=*/false);
         ignored.PermitUncheckedError();
+        TEST_SYNC_POINT("BuildTable::AfterDeleteFile");
       }
     }
   }
