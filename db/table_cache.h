@@ -183,7 +183,7 @@ class TableCache {
 
   Cache* get_cache() const { return cache_; }
 
-  // Capacity of the backing Cache that indicates inifinite TableCache capacity.
+  // Capacity of the backing Cache that indicates infinite TableCache capacity.
   // For example when max_open_files is -1 we set the backing Cache to this.
   static const int kInfiniteCapacity = 0x400000;
 
