@@ -9,11 +9,10 @@
 
 #include "db/version_set.h"
 
-#include <stdio.h>
-
 #include <algorithm>
 #include <array>
 #include <cinttypes>
+#include <cstdio>
 #include <list>
 #include <map>
 #include <set>
