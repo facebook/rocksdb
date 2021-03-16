@@ -11,10 +11,10 @@ int main() {
 }
 #else
 
-#include <cstdio>
 #include <sys/types.h>
 
 #include <cinttypes>
+#include <cstdio>
 #include <limits>
 
 #include "port/port.h"

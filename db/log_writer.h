@@ -9,7 +9,6 @@
 #pragma once
 
 #include <cstdint>
-
 #include <memory>
 
 #include "db/log_format.h"

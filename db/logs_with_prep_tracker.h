@@ -5,8 +5,8 @@
 //
 #pragma once
 
-#include <cstdint>
 #include <cassert>
+#include <cstdint>
 #include <cstdlib>
 #include <mutex>
 #include <unordered_map>
