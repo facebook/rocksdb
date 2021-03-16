@@ -1414,7 +1414,7 @@ class WinDynamicLibrary : public DynamicLibrary {
 
   Status LoadSymbol(const std::string& sym_name, void** func) override {
     assert(nullptr != func);
-    *func = GetProcAddress(handle_, sym_name.c_str());
+    *func = (void*) GetProcAddress(handle_, sym_name.c_str());
     if (*func != nullptr) {
       return Status::OK();
     } else {
