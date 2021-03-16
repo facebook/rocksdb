@@ -16,14 +16,17 @@
 #include <utility>
 #include <vector>
 
+#include "env/composite_env_wrapper.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
-
-class ChrootEnv : public EnvWrapper {
+namespace {
+class ChrootFileSystem : public FileSystemWrapper {
  public:
-  ChrootEnv(Env* base_env, const std::string& chroot_dir)
-      : EnvWrapper(base_env) {
+  ChrootFileSystem(const std::shared_ptr<FileSystem>& base,
+                   const std::string& chroot_dir)
+      : FileSystemWrapper(base) {
 #if defined(OS_AIX)
     char resolvedName[PATH_MAX];
     char* real_chroot_dir = realpath(chroot_dir.c_str(), resolvedName);
@@ -38,6 +41,7 @@ class ChrootEnv : public EnvWrapper {
 #endif
   }
 
+  const char* Name() const override { return "ChrootFS"; }
   Status RegisterDbPaths(const std::vector<std::string>& paths) override {
     std::vector<std::string> encoded_paths;
     encoded_paths.reserve(paths.size());
@@ -48,7 +52,7 @@ class ChrootEnv : public EnvWrapper {
       }
       encoded_paths.emplace_back(status_and_enc_path.second);
     }
-    return EnvWrapper::Env::RegisterDbPaths(encoded_paths);
+    return FileSystemWrapper::RegisterDbPaths(encoded_paths);
   }
 
   Status UnregisterDbPaths(const std::vector<std::string>& paths) override {
@@ -61,46 +65,49 @@ class ChrootEnv : public EnvWrapper {
       }
       encoded_paths.emplace_back(status_and_enc_path.second);
     }
-    return EnvWrapper::Env::UnregisterDbPaths(encoded_paths);
+    return FileSystemWrapper::UnregisterDbPaths(encoded_paths);
   }
 
-  Status NewSequentialFile(const std::string& fname,
-                           std::unique_ptr<SequentialFile>* result,
-                           const EnvOptions& options) override {
+  IOStatus NewSequentialFile(const std::string& fname,
+                             const FileOptions& options,
+                             std::unique_ptr<FSSequentialFile>* result,
+                             IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::NewSequentialFile(status_and_enc_path.second, result,
-                                         options);
+    return FileSystemWrapper::NewSequentialFile(status_and_enc_path.second,
+                                                options, result, dbg);
   }
 
-  Status NewRandomAccessFile(const std::string& fname,
-                             std::unique_ptr<RandomAccessFile>* result,
-                             const EnvOptions& options) override {
+  IOStatus NewRandomAccessFile(const std::string& fname,
+                               const FileOptions& options,
+                               std::unique_ptr<FSRandomAccessFile>* result,
+                               IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::NewRandomAccessFile(status_and_enc_path.second, result,
-                                           options);
+    return FileSystemWrapper::NewRandomAccessFile(status_and_enc_path.second,
+                                                  options, result, dbg);
   }
 
-  Status NewWritableFile(const std::string& fname,
-                         std::unique_ptr<WritableFile>* result,
-                         const EnvOptions& options) override {
+  IOStatus NewWritableFile(const std::string& fname, const FileOptions& options,
+                           std::unique_ptr<FSWritableFile>* result,
+                           IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::NewWritableFile(status_and_enc_path.second, result,
-                                       options);
+    return FileSystemWrapper::NewWritableFile(status_and_enc_path.second,
+                                              options, result, dbg);
   }
 
-  Status ReuseWritableFile(const std::string& fname,
-                           const std::string& old_fname,
-                           std::unique_ptr<WritableFile>* result,
-                           const EnvOptions& options) override {
+  IOStatus ReuseWritableFile(const std::string& fname,
+                             const std::string& old_fname,
+                             const FileOptions& options,
+                             std::unique_ptr<FSWritableFile>* result,
+                             IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
@@ -109,109 +116,131 @@ class ChrootEnv : public EnvWrapper {
     if (!status_and_old_enc_path.first.ok()) {
       return status_and_old_enc_path.first;
     }
-    return EnvWrapper::ReuseWritableFile(status_and_old_enc_path.second,
-                                         status_and_old_enc_path.second, result,
-                                         options);
+    return FileSystemWrapper::ReuseWritableFile(status_and_old_enc_path.second,
+                                                status_and_old_enc_path.second,
+                                                options, result, dbg);
   }
 
-  Status NewRandomRWFile(const std::string& fname,
-                         std::unique_ptr<RandomRWFile>* result,
-                         const EnvOptions& options) override {
+  IOStatus NewRandomRWFile(const std::string& fname, const FileOptions& options,
+                           std::unique_ptr<FSRandomRWFile>* result,
+                           IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::NewRandomRWFile(status_and_enc_path.second, result,
-                                       options);
+    return FileSystemWrapper::NewRandomRWFile(status_and_enc_path.second,
+                                              options, result, dbg);
   }
 
-  Status NewDirectory(const std::string& dir,
-                      std::unique_ptr<Directory>* result) override {
+  IOStatus NewDirectory(const std::string& dir, const IOOptions& options,
+                        std::unique_ptr<FSDirectory>* result,
+                        IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePathWithNewBasename(dir);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::NewDirectory(status_and_enc_path.second, result);
+    return FileSystemWrapper::NewDirectory(status_and_enc_path.second, options,
+                                           result, dbg);
   }
 
-  Status FileExists(const std::string& fname) override {
+  IOStatus FileExists(const std::string& fname, const IOOptions& options,
+                      IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::FileExists(status_and_enc_path.second);
+    return FileSystemWrapper::FileExists(status_and_enc_path.second, options,
+                                         dbg);
   }
 
-  Status GetChildren(const std::string& dir,
-                     std::vector<std::string>* result) override {
+  IOStatus GetChildren(const std::string& dir, const IOOptions& options,
+                       std::vector<std::string>* result,
+                       IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePath(dir);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::GetChildren(status_and_enc_path.second, result);
+    return FileSystemWrapper::GetChildren(status_and_enc_path.second, options,
+                                          result, dbg);
   }
 
-  Status GetChildrenFileAttributes(
-      const std::string& dir, std::vector<FileAttributes>* result) override {
+  IOStatus GetChildrenFileAttributes(const std::string& dir,
+                                     const IOOptions& options,
+                                     std::vector<FileAttributes>* result,
+                                     IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePath(dir);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::GetChildrenFileAttributes(status_and_enc_path.second,
-                                                 result);
+    return FileSystemWrapper::GetChildrenFileAttributes(
+        status_and_enc_path.second, options, result, dbg);
   }
 
-  Status DeleteFile(const std::string& fname) override {
+  IOStatus DeleteFile(const std::string& fname, const IOOptions& options,
+                      IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePath(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::DeleteFile(status_and_enc_path.second);
+    return FileSystemWrapper::DeleteFile(status_and_enc_path.second, options,
+                                         dbg);
   }
 
-  Status CreateDir(const std::string& dirname) override {
+  IOStatus CreateDir(const std::string& dirname, const IOOptions& options,
+                     IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePathWithNewBasename(dirname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::CreateDir(status_and_enc_path.second);
+    return FileSystemWrapper::CreateDir(status_and_enc_path.second, options,
+                                        dbg);
   }
 
-  Status CreateDirIfMissing(const std::string& dirname) override {
+  IOStatus CreateDirIfMissing(const std::string& dirname,
+                              const IOOptions& options,
+                              IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePathWithNewBasename(dirname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::CreateDirIfMissing(status_and_enc_path.second);
+    return FileSystemWrapper::CreateDirIfMissing(status_and_enc_path.second,
+                                                 options, dbg);
   }
 
-  Status DeleteDir(const std::string& dirname) override {
+  IOStatus DeleteDir(const std::string& dirname, const IOOptions& options,
+                     IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePath(dirname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::DeleteDir(status_and_enc_path.second);
+    return FileSystemWrapper::DeleteDir(status_and_enc_path.second, options,
+                                        dbg);
   }
 
-  Status GetFileSize(const std::string& fname, uint64_t* file_size) override {
+  IOStatus GetFileSize(const std::string& fname, const IOOptions& options,
+                       uint64_t* file_size, IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePath(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::GetFileSize(status_and_enc_path.second, file_size);
+    return FileSystemWrapper::GetFileSize(status_and_enc_path.second, options,
+                                          file_size, dbg);
   }
 
-  Status GetFileModificationTime(const std::string& fname,
-                                 uint64_t* file_mtime) override {
+  IOStatus GetFileModificationTime(const std::string& fname,
+                                   const IOOptions& options,
+                                   uint64_t* file_mtime,
+                                   IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePath(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::GetFileModificationTime(status_and_enc_path.second,
-                                               file_mtime);
+    return FileSystemWrapper::GetFileModificationTime(
+        status_and_enc_path.second, options, file_mtime, dbg);
   }
 
-  Status RenameFile(const std::string& src, const std::string& dest) override {
+  IOStatus RenameFile(const std::string& src, const std::string& dest,
+                      const IOOptions& options, IODebugContext* dbg) override {
     auto status_and_src_enc_path = EncodePath(src);
     if (!status_and_src_enc_path.first.ok()) {
       return status_and_src_enc_path.first;
@@ -220,11 +249,13 @@ class ChrootEnv : public EnvWrapper {
     if (!status_and_dest_enc_path.first.ok()) {
       return status_and_dest_enc_path.first;
     }
-    return EnvWrapper::RenameFile(status_and_src_enc_path.second,
-                                  status_and_dest_enc_path.second);
+    return FileSystemWrapper::RenameFile(status_and_src_enc_path.second,
+                                         status_and_dest_enc_path.second,
+                                         options, dbg);
   }
 
-  Status LinkFile(const std::string& src, const std::string& dest) override {
+  IOStatus LinkFile(const std::string& src, const std::string& dest,
+                    const IOOptions& options, IODebugContext* dbg) override {
     auto status_and_src_enc_path = EncodePath(src);
     if (!status_and_src_enc_path.first.ok()) {
       return status_and_src_enc_path.first;
@@ -233,11 +264,13 @@ class ChrootEnv : public EnvWrapper {
     if (!status_and_dest_enc_path.first.ok()) {
       return status_and_dest_enc_path.first;
     }
-    return EnvWrapper::LinkFile(status_and_src_enc_path.second,
-                                status_and_dest_enc_path.second);
+    return FileSystemWrapper::LinkFile(status_and_src_enc_path.second,
+                                       status_and_dest_enc_path.second, options,
+                                       dbg);
   }
 
-  Status LockFile(const std::string& fname, FileLock** lock) override {
+  IOStatus LockFile(const std::string& fname, const IOOptions& options,
+                    FileLock** lock, IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
@@ -245,10 +278,12 @@ class ChrootEnv : public EnvWrapper {
     // FileLock subclasses may store path (e.g., PosixFileLock stores it). We
     // can skip stripping the chroot directory from this path because callers
     // shouldn't use it.
-    return EnvWrapper::LockFile(status_and_enc_path.second, lock);
+    return FileSystemWrapper::LockFile(status_and_enc_path.second, options,
+                                       lock, dbg);
   }
 
-  Status GetTestDirectory(std::string* path) override {
+  IOStatus GetTestDirectory(const IOOptions& options, std::string* path,
+                            IODebugContext* dbg) override {
     // Adapted from PosixEnv's implementation since it doesn't provide a way to
     // create directory in the chroot.
     char buf[256];
@@ -256,36 +291,40 @@ class ChrootEnv : public EnvWrapper {
     *path = buf;
 
     // Directory may already exist, so ignore return
-    return CreateDirIfMissing(*path);
+    return CreateDirIfMissing(*path, options, dbg);
   }
 
-  Status NewLogger(const std::string& fname,
-                   std::shared_ptr<Logger>* result) override {
+  IOStatus NewLogger(const std::string& fname, const IOOptions& options,
+                     std::shared_ptr<Logger>* result,
+                     IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::NewLogger(status_and_enc_path.second, result);
+    return FileSystemWrapper::NewLogger(status_and_enc_path.second, options,
+                                        result, dbg);
   }
 
-  Status GetAbsolutePath(const std::string& db_path,
-                         std::string* output_path) override {
+  IOStatus GetAbsolutePath(const std::string& db_path, const IOOptions& options,
+                           std::string* output_path,
+                           IODebugContext* dbg) override {
     auto status_and_enc_path = EncodePath(db_path);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
-    return EnvWrapper::GetAbsolutePath(status_and_enc_path.second, output_path);
+    return FileSystemWrapper::GetAbsolutePath(status_and_enc_path.second,
+                                              options, output_path, dbg);
   }
 
  private:
   // Returns status and expanded absolute path including the chroot directory.
   // Checks whether the provided path breaks out of the chroot. If it returns
   // non-OK status, the returned path should not be used.
-  std::pair<Status, std::string> EncodePath(const std::string& path) {
+  std::pair<IOStatus, std::string> EncodePath(const std::string& path) {
     if (path.empty() || path[0] != '/') {
-      return {Status::InvalidArgument(path, "Not an absolute path"), ""};
+      return {IOStatus::InvalidArgument(path, "Not an absolute path"), ""};
     }
-    std::pair<Status, std::string> res;
+    std::pair<IOStatus, std::string> res;
     res.second = chroot_dir_ + path;
 #if defined(OS_AIX)
     char resolvedName[PATH_MAX];
@@ -294,14 +333,14 @@ class ChrootEnv : public EnvWrapper {
     char* normalized_path = realpath(res.second.c_str(), nullptr);
 #endif
     if (normalized_path == nullptr) {
-      res.first = Status::NotFound(res.second, strerror(errno));
+      res.first = IOStatus::NotFound(res.second, strerror(errno));
     } else if (strlen(normalized_path) < chroot_dir_.size() ||
                strncmp(normalized_path, chroot_dir_.c_str(),
                        chroot_dir_.size()) != 0) {
-      res.first = Status::IOError(res.second,
-                                  "Attempted to access path outside chroot");
+      res.first = IOStatus::IOError(res.second,
+                                    "Attempted to access path outside chroot");
     } else {
-      res.first = Status::OK();
+      res.first = IOStatus::OK();
     }
 #if !defined(OS_AIX)
     free(normalized_path);
@@ -311,10 +350,10 @@ class ChrootEnv : public EnvWrapper {
 
   // Similar to EncodePath() except assumes the basename in the path hasn't been
   // created yet.
-  std::pair<Status, std::string> EncodePathWithNewBasename(
+  std::pair<IOStatus, std::string> EncodePathWithNewBasename(
       const std::string& path) {
     if (path.empty() || path[0] != '/') {
-      return {Status::InvalidArgument(path, "Not an absolute path"), ""};
+      return {IOStatus::InvalidArgument(path, "Not an absolute path"), ""};
     }
     // Basename may be followed by trailing slashes
     size_t final_idx = path.find_last_not_of('/');
@@ -333,12 +372,20 @@ class ChrootEnv : public EnvWrapper {
 
   std::string chroot_dir_;
 };
+}  // namespace
+
+std::shared_ptr<FileSystem> NewChrootFileSystem(
+    const std::shared_ptr<FileSystem>& base, const std::string& chroot_dir) {
+  return std::make_shared<ChrootFileSystem>(base, chroot_dir);
+}
 
 Env* NewChrootEnv(Env* base_env, const std::string& chroot_dir) {
   if (!base_env->FileExists(chroot_dir).ok()) {
     return nullptr;
   }
-  return new ChrootEnv(base_env, chroot_dir);
+  std::shared_ptr<FileSystem> chroot_fs =
+      NewChrootFileSystem(base_env->GetFileSystem(), chroot_dir);
+  return new CompositeEnvWrapper(base_env, chroot_fs);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
