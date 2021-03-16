@@ -5,6 +5,7 @@
 //
 #include "db/write_controller.h"
 
+#include <array>
 #include <ratio>
 
 #include "rocksdb/system_clock.h"
@@ -161,7 +162,8 @@ TEST_F(WriteControllerTest, DebtAccumulation) {
 
   // Pay down the debt
   clock_->now_micros_ += debt;
-  debt = 0;
+  debt = 0;    // consistent state
+  (void)debt;  // appease clang-analyze
 
   // Verify paid down
   EXPECT_EQ(0U, controller.GetDelay(clock_.get(), 100u /*small bytes*/));

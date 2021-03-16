@@ -5,6 +5,7 @@
 
 #include "db/write_controller.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <ratio>
@@ -61,7 +62,7 @@ uint64_t WriteController::GetDelay(SystemClock* clock, uint64_t num_bytes) {
   auto time_now = NowMicrosMonotonic(clock);
 
   const uint64_t kMicrosPerSecond = 1000000;
-  const uint64_t kRefillInterval = 1024U;
+  const uint64_t kMicrosPerRefill = 1024U;
 
   if (next_refill_time_ == 0) {
     // Start with an initial allotment of bytes for one interval
@@ -69,10 +70,10 @@ uint64_t WriteController::GetDelay(SystemClock* clock, uint64_t num_bytes) {
   }
   if (next_refill_time_ <= time_now) {
     // Refill based on time interval plus any extra elapsed
-    uint64_t elapsed = time_now - next_refill_time_ + kRefillInterval;
+    uint64_t elapsed = time_now - next_refill_time_ + kMicrosPerRefill;
     bytes_left_ += static_cast<uint64_t>(
         1.0 * elapsed / kMicrosPerSecond * delayed_write_rate_ + 0.999999);
-    next_refill_time_ = time_now + kRefillInterval;
+    next_refill_time_ = time_now + kMicrosPerRefill;
 
     if (bytes_left_ >= num_bytes) {
       // Avoid delay if possible, to reduce DB mutex release & re-aquire.
@@ -92,7 +93,7 @@ uint64_t WriteController::GetDelay(SystemClock* clock, uint64_t num_bytes) {
   next_refill_time_ += needed_delay;
 
   // Minimum delay of refill interval, to reduce DB mutex contention.
-  return std::max(next_refill_time_ - time_now, kRefillInterval);
+  return std::max(next_refill_time_ - time_now, kMicrosPerRefill);
 }
 
 uint64_t WriteController::NowMicrosMonotonic(SystemClock* clock) {
