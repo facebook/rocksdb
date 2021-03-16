@@ -106,15 +106,14 @@ Status TableCache::GetTableReader(
       TableFileName(ioptions_.cf_paths, fd.GetNumber(), fd.GetPathId());
   std::unique_ptr<FSRandomAccessFile> file;
   FileOptions fopts = file_options;
-  const auto& clock = ioptions_.env->GetSystemClock();
-  Status s = PrepareIOFromReadOptions(ro, clock, fopts.io_options);
+  Status s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
   if (s.ok()) {
     s = ioptions_.fs->NewRandomAccessFile(fname, fopts, &file, nullptr);
   }
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.IsPathNotFound()) {
     fname = Rocks2LevelTableFileName(fname);
-    s = PrepareIOFromReadOptions(ro, clock, fopts.io_options);
+    s = PrepareIOFromReadOptions(ro, ioptions_.clock, fopts.io_options);
     if (s.ok()) {
       s = ioptions_.fs->NewRandomAccessFile(fname, file_options, &file,
                                             nullptr);
@@ -126,10 +125,10 @@ Status TableCache::GetTableReader(
     if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(FSRandomAccessFile::kRandom);
     }
-    StopWatch sw(clock, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
+    StopWatch sw(ioptions_.clock, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
     std::unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(
-            std::move(file), fname, clock, io_tracer_,
+            std::move(file), fname, ioptions_.clock, io_tracer_,
             record_read_stats ? ioptions_.statistics : nullptr, SST_READ_MICROS,
             file_read_hist, ioptions_.rate_limiter, ioptions_.listeners));
     s = ioptions_.table_factory->NewTableReader(
@@ -162,8 +161,7 @@ Status TableCache::FindTable(const ReadOptions& ro,
                              HistogramImpl* file_read_hist, bool skip_filters,
                              int level, bool prefetch_index_and_filter_in_cache,
                              size_t max_file_size_for_l0_meta_pin) {
-  PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos,
-                              ioptions_.env->GetSystemClock());
+  PERF_TIMER_GUARD_WITH_CLOCK(find_table_nanos, ioptions_.clock);
   uint64_t number = fd.GetNumber();
   Slice key = GetSliceForFileNumber(&number);
   *handle = cache_->Lookup(key);

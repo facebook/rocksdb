@@ -120,7 +120,7 @@ void PessimisticTransaction::Reinitialize(
 
 bool PessimisticTransaction::IsExpired() const {
   if (expiration_time_ > 0) {
-    if (db_->GetEnv()->NowMicros() >= expiration_time_) {
+    if (dbimpl_->GetSystemClock()->NowMicros() >= expiration_time_) {
       // Transaction is expired.
       return true;
     }

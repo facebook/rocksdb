@@ -68,9 +68,8 @@ inline IOStatus GenerateOneFileChecksum(
       allow_mmap_reads, io_tracer);
 }
 
-inline IOStatus PrepareIOFromReadOptions(
-    const ReadOptions& ro, const std::shared_ptr<SystemClock>& clock,
-    IOOptions& opts) {
+inline IOStatus PrepareIOFromReadOptions(const ReadOptions& ro,
+                                         SystemClock* clock, IOOptions& opts) {
   if (ro.deadline.count()) {
     std::chrono::microseconds now =
         std::chrono::microseconds(clock->NowMicros());

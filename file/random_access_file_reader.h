@@ -67,7 +67,7 @@ class RandomAccessFileReader {
 
   FSRandomAccessFilePtr file_;
   std::string file_name_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   Statistics* stats_;
   uint32_t hist_type_;
   HistogramImpl* file_read_hist_;
@@ -77,7 +77,7 @@ class RandomAccessFileReader {
  public:
   explicit RandomAccessFileReader(
       std::unique_ptr<FSRandomAccessFile>&& raf, const std::string& _file_name,
-      const std::shared_ptr<SystemClock>& clock = nullptr,
+      SystemClock* clock = nullptr,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,

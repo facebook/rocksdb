@@ -136,6 +136,41 @@ TEST_F(RangeLockingTest, MyRocksLikeUpdate) {
   delete txn0;
 }
 
+TEST_F(RangeLockingTest, UpgradeLockAndGetConflict) {
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+  auto cf = db->DefaultColumnFamily();
+  Status s;
+  std::string value;
+  txn_options.lock_timeout= 10;
+
+  Transaction* txn0 = db->BeginTransaction(write_options, txn_options);
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+
+  // Get the shared lock in txn0
+  s = txn0->GetForUpdate(ReadOptions(), cf,
+                                Slice("a"), &value,
+                                false /*exclusive*/);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // Get the shared lock on the same key in txn1
+  s = txn1->GetForUpdate(ReadOptions(), cf,
+                         Slice("a"), &value,
+                         false /*exclusive*/);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // Now, try getting an exclusive lock that overlaps with the above
+  s = txn0->GetRangeLock(cf, Endpoint("a"), Endpoint("b"));
+  ASSERT_TRUE(s.IsTimedOut());
+
+  txn0->Rollback();
+  txn1->Rollback();
+
+  delete txn0;
+  delete txn1;
+}
+
+
 TEST_F(RangeLockingTest, SnapshotValidation) {
   Status s;
   Slice key_slice = Slice("k");

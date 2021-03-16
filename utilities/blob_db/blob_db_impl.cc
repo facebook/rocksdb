@@ -91,7 +91,7 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
       fifo_eviction_seq_(0),
       evict_expiration_up_to_(0),
       debug_level_(0) {
-  clock_ = env_->GetSystemClock();
+  clock_ = env_->GetSystemClock().get();
   blob_dir_ = (bdb_options_.path_relative)
                   ? dbname + "/" + bdb_options_.blob_dir
                   : bdb_options_.blob_dir;
@@ -196,12 +196,12 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
     db_options_.listeners.push_back(std::make_shared<BlobDBListenerGC>(this));
     cf_options_.compaction_filter_factory =
         std::make_shared<BlobIndexCompactionFilterFactoryGC>(
-            this, env_, cf_options_, statistics_);
+            this, clock_, cf_options_, statistics_);
   } else {
     db_options_.listeners.push_back(std::make_shared<BlobDBListener>(this));
     cf_options_.compaction_filter_factory =
         std::make_shared<BlobIndexCompactionFilterFactory>(
-            this, env_, cf_options_, statistics_);
+            this, clock_, cf_options_, statistics_);
   }
 
   // Reset user compaction filter after building into compaction factory.

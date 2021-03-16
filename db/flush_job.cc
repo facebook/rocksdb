@@ -127,7 +127,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       pick_memtable_called(false),
       thread_pri_(thread_pri),
       io_tracer_(io_tracer),
-      clock_(db_options_.env->GetSystemClock()),
+      clock_(db_options_.clock),
       full_history_ts_low_(std::move(full_history_ts_low)) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
@@ -477,15 +477,16 @@ Status FlushJob::WriteLevel0Table() {
 
   const auto& blobs = edit_->GetBlobFileAdditions();
   for (const auto& blob : blobs) {
-    stats.bytes_written += blob.GetTotalBlobBytes();
+    stats.bytes_written_blob += blob.GetTotalBlobBytes();
   }
 
-  stats.num_output_files += static_cast<int>(blobs.size());
+  stats.num_output_files_blob = static_cast<int>(blobs.size());
 
   RecordTimeToHistogram(stats_, FLUSH_TIME, stats.micros);
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, thread_pri_, stats);
-  cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
-                                     stats.bytes_written);
+  cfd_->internal_stats()->AddCFStats(
+      InternalStats::BYTES_FLUSHED,
+      stats.bytes_written + stats.bytes_written_blob);
   RecordFlushIOStats();
   return s;
 }

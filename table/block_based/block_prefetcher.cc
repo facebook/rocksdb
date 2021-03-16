@@ -35,10 +35,23 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
     return;
   }
 
+  size_t max_auto_readahead_size = rep->table_options.max_auto_readahead_size;
+  size_t initial_auto_readahead_size = BlockBasedTable::kInitAutoReadaheadSize;
+
+  // If max_auto_readahead_size is set to be 0 by user, no data will be
+  // prefetched.
+  if (max_auto_readahead_size == 0) {
+    return;
+  }
+
+  if (initial_auto_readahead_size > max_auto_readahead_size) {
+    initial_auto_readahead_size = max_auto_readahead_size;
+  }
+
   if (rep->file->use_direct_io()) {
-    rep->CreateFilePrefetchBufferIfNotExists(
-        BlockBasedTable::kInitAutoReadaheadSize,
-        BlockBasedTable::kMaxAutoReadaheadSize, &prefetch_buffer_);
+    rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size,
+                                             max_auto_readahead_size,
+                                             &prefetch_buffer_);
     return;
   }
 
@@ -47,20 +60,24 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
     return;
   }
 
+  if (readahead_size_ > max_auto_readahead_size) {
+    readahead_size_ = max_auto_readahead_size;
+  }
+
   // If prefetch is not supported, fall back to use internal prefetch buffer.
   // Discarding other return status of Prefetch calls intentionally, as
   // we can fallback to reading from disk if Prefetch fails.
   Status s = rep->file->Prefetch(handle.offset(), readahead_size_);
   if (s.IsNotSupported()) {
-    rep->CreateFilePrefetchBufferIfNotExists(
-        BlockBasedTable::kInitAutoReadaheadSize,
-        BlockBasedTable::kMaxAutoReadaheadSize, &prefetch_buffer_);
+    rep->CreateFilePrefetchBufferIfNotExists(initial_auto_readahead_size,
+                                             max_auto_readahead_size,
+                                             &prefetch_buffer_);
     return;
   }
   readahead_limit_ = static_cast<size_t>(handle.offset() + readahead_size_);
+
   // Keep exponentially increasing readahead size until
-  // kMaxAutoReadaheadSize.
-  readahead_size_ =
-      std::min(BlockBasedTable::kMaxAutoReadaheadSize, readahead_size_ * 2);
+  // max_auto_readahead_size.
+  readahead_size_ = std::min(max_auto_readahead_size, readahead_size_ * 2);
 }
 }  // namespace ROCKSDB_NAMESPACE

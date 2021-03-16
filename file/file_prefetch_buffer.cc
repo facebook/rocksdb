@@ -119,7 +119,7 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
   }
 
   // If the buffer contains only a few of the requested bytes:
-  //    If readahead is enabled: prefetch the remaining bytes + readadhead bytes
+  //    If readahead is enabled: prefetch the remaining bytes + readahead bytes
   //        and satisfy the request.
   //    If readahead is not enabled: return false.
   if (offset + n > buffer_offset_ + buffer_.CurrentSize()) {

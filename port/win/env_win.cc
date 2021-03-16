@@ -1068,7 +1068,7 @@ IOStatus WinFileSystem::NewLogger(const std::string& fname,
       // Set creation, last access and last write time to the same value
       SetFileTime(hFile, &ft, &ft, &ft);
     }
-    result->reset(new WinLogger(&WinEnvThreads::gettid, clock_, hFile));
+    result->reset(new WinLogger(&WinEnvThreads::gettid, clock_.get(), hFile));
   }
   return s;
 }

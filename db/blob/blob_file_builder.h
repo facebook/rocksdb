@@ -26,10 +26,11 @@ class BlobFileAddition;
 class Status;
 class Slice;
 class BlobLogWriter;
+class IOTracer;
 
 class BlobFileBuilder {
  public:
-  BlobFileBuilder(VersionSet* versions, Env* env, FileSystem* fs,
+  BlobFileBuilder(VersionSet* versions, FileSystem* fs,
                   const ImmutableCFOptions* immutable_cf_options,
                   const MutableCFOptions* mutable_cf_options,
                   const FileOptions* file_options, int job_id,
@@ -37,10 +38,11 @@ class BlobFileBuilder {
                   const std::string& column_family_name,
                   Env::IOPriority io_priority,
                   Env::WriteLifeTimeHint write_hint,
+                  const std::shared_ptr<IOTracer>& io_tracer,
                   std::vector<std::string>* blob_file_paths,
                   std::vector<BlobFileAddition>* blob_file_additions);
 
-  BlobFileBuilder(std::function<uint64_t()> file_number_generator, Env* env,
+  BlobFileBuilder(std::function<uint64_t()> file_number_generator,
                   FileSystem* fs,
                   const ImmutableCFOptions* immutable_cf_options,
                   const MutableCFOptions* mutable_cf_options,
@@ -49,6 +51,7 @@ class BlobFileBuilder {
                   const std::string& column_family_name,
                   Env::IOPriority io_priority,
                   Env::WriteLifeTimeHint write_hint,
+                  const std::shared_ptr<IOTracer>& io_tracer,
                   std::vector<std::string>* blob_file_paths,
                   std::vector<BlobFileAddition>* blob_file_additions);
 
@@ -71,7 +74,6 @@ class BlobFileBuilder {
 
   std::function<uint64_t()> file_number_generator_;
   FileSystem* fs_;
-  std::shared_ptr<SystemClock> clock_;
   const ImmutableCFOptions* immutable_cf_options_;
   uint64_t min_blob_size_;
   uint64_t blob_file_size_;
@@ -82,6 +84,7 @@ class BlobFileBuilder {
   std::string column_family_name_;
   Env::IOPriority io_priority_;
   Env::WriteLifeTimeHint write_hint_;
+  std::shared_ptr<IOTracer> io_tracer_;
   std::vector<std::string>* blob_file_paths_;
   std::vector<BlobFileAddition>* blob_file_additions_;
   std::unique_ptr<BlobLogWriter> writer_;
