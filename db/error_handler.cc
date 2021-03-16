@@ -279,7 +279,8 @@ const Status& ErrorHandler::SetBGError(const Status& bg_err,
   if (bg_error_stats_ != nullptr) {
     RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
   }
-  ROCKS_LOG_INFO(db_options_.info_log, "Set regular background error\n");
+  ROCKS_LOG_INFO(db_options_.info_log,
+                 "ErrorHandler: Set regular background error\n");
 
   bool paranoid = db_options_.paranoid_checks;
   Status::Severity sev = Status::Severity::kFatalError;
@@ -410,8 +411,9 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_ERROR_COUNT);
       RecordTick(bg_error_stats_.get(), ERROR_HANDLER_BG_IO_ERROR_COUNT);
     }
-    ROCKS_LOG_INFO(db_options_.info_log,
-                   "Set background IO error as unrecoverable error\n");
+    ROCKS_LOG_INFO(
+        db_options_.info_log,
+        "ErrorHandler: Set background IO error as unrecoverable error\n");
     EventHelpers::NotifyOnBackgroundError(db_options_.listeners, reason,
                                           &bg_err, db_mutex_, &auto_recovery);
     recover_context_ = context;
@@ -435,13 +437,20 @@ const Status& ErrorHandler::SetBGError(const IOStatus& bg_io_err,
       RecordTick(bg_error_stats_.get(),
                  ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT);
     }
-    ROCKS_LOG_INFO(db_options_.info_log, "Set background retryable IO error\n");
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "ErrorHandler: Set background retryable IO error\n");
     if (BackgroundErrorReason::kCompaction == reason) {
       // We map the retryable IO error during compaction to soft error. Since
       // compaction can reschedule by itself. We will not set the BG error in
       // this case
       // TODO:  a better way to set or clean the retryable IO error which
       // happens during compaction SST file write.
+      if (bg_error_stats_ != nullptr) {
+        RecordTick(bg_error_stats_.get(), ERROR_HANDLER_AUTORESUME_COUNT);
+      }
+      ROCKS_LOG_INFO(
+          db_options_.info_log,
+          "ErrorHandler: Compaction will schedule by itself to resume\n");
       return bg_error_;
     } else if (BackgroundErrorReason::kFlushNoWAL == reason ||
                BackgroundErrorReason::kManifestWriteNoWAL == reason) {
@@ -629,8 +638,9 @@ const Status& ErrorHandler::StartRecoverFromRetryableBGIOError(
   if (bg_error_stats_ != nullptr) {
     RecordTick(bg_error_stats_.get(), ERROR_HANDLER_AUTORESUME_COUNT);
   }
-  ROCKS_LOG_INFO(db_options_.info_log,
-                 "Call StartRecoverFromRetryableBGIOError to resume\n");
+  ROCKS_LOG_INFO(
+      db_options_.info_log,
+      "ErrorHandler: Call StartRecoverFromRetryableBGIOError to resume\n");
   if (recovery_thread_) {
     // In this case, if recovery_in_prog_ is false, current thread should
     // wait the previous recover thread to finish and create a new thread
