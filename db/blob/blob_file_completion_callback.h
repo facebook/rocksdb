@@ -30,10 +30,7 @@ class BlobFileCompletionCallback {
     auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager_);
     if (sfm) {
       // Report new blob files to SstFileManagerImpl
-      // TODO (PR7798).  We should only add the file to the FileManager if it
-      // exists. Otherwise, some tests may fail.  Ignore the error in the
-      // interim.
-      sfm->OnAddFile(file_name).PermitUncheckedError();
+      s = sfm->OnAddFile(file_name);
       if (sfm->IsMaxAllowedSpaceReached()) {
         s = Status::SpaceLimit("Max allowed space was reached");
         TEST_SYNC_POINT(
