@@ -12,7 +12,7 @@ public abstract class Cache extends RocksObject {
   }
 
   /**
-   * returns the memory size for the entries
+   * Returns the memory size for the entries
    * residing in cache.
    *
    * @return cache usage size.
@@ -24,7 +24,7 @@ public abstract class Cache extends RocksObject {
   }
 
   /**
-   * returns the memory size for the entries
+   * Returns the memory size for the entries
    * being pinned in cache.
    *
    * @return cache pinned usage size.
