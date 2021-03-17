@@ -983,7 +983,7 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
 
 // Compaction filter should keep uncommitted key as-is, and
 //   * Convert the latest value to deletion, and/or
-//   * if latest value is a merge, apply filter to all sequent merges.
+//   * if latest value is a merge, apply filter to all subsequent merges.
 
 TEST_F(CompactionIteratorWithSnapshotCheckerTest, CompactionFilter_Value) {
   std::unique_ptr<CompactionFilter> compaction_filter(

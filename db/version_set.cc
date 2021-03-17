@@ -2787,7 +2787,7 @@ struct Fsize {
   FileMetaData* file;
 };
 
-// Compactor that is used to sort files based on their size
+// Comparator that is used to sort files based on their size
 // In normal mode: descending size
 bool CompareCompensatedSizeDescending(const Fsize& first, const Fsize& second) {
   return (first.file->compensated_file_size >
