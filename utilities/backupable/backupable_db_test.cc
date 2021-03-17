@@ -2822,15 +2822,15 @@ TEST_F(BackupableDBTest, FutureMetaSchemaVersion2_SizeCorruption) {
   const std::string private_dir = backupdir_ + "/private";
 
   for (int id = 1; id <= 3; ++id) {
-    file_manager_->WriteToFile(private_dir + "/" + ToString(id) + "/CURRENT",
-                               "x");
+    ASSERT_OK(file_manager_->WriteToFile(
+        private_dir + "/" + ToString(id) + "/CURRENT", "x"));
   }
   // Except corrupt Backup 4 with same size CURRENT file
   {
     uint64_t size = 0;
     ASSERT_OK(test_backup_env_->GetFileSize(private_dir + "/4/CURRENT", &size));
-    file_manager_->WriteToFile(private_dir + "/4/CURRENT",
-                               std::string(size, 'x'));
+    ASSERT_OK(file_manager_->WriteToFile(private_dir + "/4/CURRENT",
+                                         std::string(size, 'x')));
   }
 
   OpenBackupEngine();
