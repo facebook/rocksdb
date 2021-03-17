@@ -513,6 +513,11 @@ Status DBImpl::CloseHelper() {
   }
   mutex_.Unlock();
 
+  // Below check is added as recovery_error_ is not checked and it causes crash
+  // in DBSSTTest.DBWithMaxSpaceAllowedWithBlobFiles when space limit is
+  // reached.
+  error_handler_.GetRecoveryError().PermitUncheckedError();
+
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
