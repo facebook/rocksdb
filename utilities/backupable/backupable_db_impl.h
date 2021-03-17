@@ -7,7 +7,6 @@
 
 #include "rocksdb/utilities/backupable_db.h"
 
-
 namespace ROCKSDB_NAMESPACE {
 
 struct TEST_FutureSchemaVersion2Options {
@@ -22,6 +21,7 @@ struct TEST_FutureSchemaVersion2Options {
 // Modifies the BackupEngine(Impl) to write backup meta files using the
 // unpublished schema version 2, for the life of this object (not backup_dir).
 // TEST_FutureSchemaVersion2Options offers some customization for testing.
-void TEST_EnableWriteFutureSchemaVersion2(BackupEngine *engine, TEST_FutureSchemaVersion2Options options);
+void TEST_EnableWriteFutureSchemaVersion2(
+    BackupEngine *engine, TEST_FutureSchemaVersion2Options options);
 
 }  // namespace ROCKSDB_NAMESPACE
