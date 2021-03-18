@@ -182,15 +182,14 @@ Status DBImpl::FlushMemTableToOutputFile(
     // other column families are missing.
     // SyncClosedLogs() may unlock and re-lock the db_mutex.
     log_io_s = SyncClosedLogs(job_context);
-    s = log_io_s;
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
         !log_io_s.IsColumnFamilyDropped()) {
       error_handler_.SetBGError(log_io_s, BackgroundErrorReason::kFlush);
     }
   } else {
-    log_io_s.PermitUncheckedError();
     TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Skip");
   }
+  s = log_io_s;
 
   // If the log sync failed, we do not need to pick memtable. Otherwise,
   // num_flush_not_started_ needs to be rollback.
