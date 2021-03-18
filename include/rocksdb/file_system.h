@@ -724,13 +724,6 @@ class FSRandomAccessFile {
   // RandomAccessFileWrapper too.
 };
 
-// A data structure brings the data verification information, which is
-// used togther with data being written to a file.
-struct DataVerificationInfo {
-  // checksum of the data being written.
-  Slice checksum;
-};
-
 // A file abstraction for sequential writing.  The implementation
 // must provide buffering since callers may append small fragments
 // at a time to the file.
