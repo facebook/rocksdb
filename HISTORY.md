@@ -21,6 +21,7 @@
 * Add new options for db_bench --benchmarks: flush, waitforcompaction, compact0, compact1.
 * Add an option to BackupEngine::GetBackupInfo to include the name and size of each backed-up file. Especially in the presence of file sharing among backups, this offers detailed insight into backup space usage.
 * Enable backward iteration on keys with user-defined timestamps.
+* Add statistics and info log for error handler: counters for bg error, bg io error, bg retryable io error, auto resume count, auto resume total retry number, and auto resume sucess; Histogram for auto resume retry count in each recovery call. Note that, each auto resume attempt will have one or multiple retries.
 
 ## 6.18.0 (02/19/2021)
 ### Behavior Changes
