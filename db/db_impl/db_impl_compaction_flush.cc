@@ -188,6 +188,7 @@ Status DBImpl::FlushMemTableToOutputFile(
       error_handler_.SetBGError(log_io_s, BackgroundErrorReason::kFlush);
     }
   } else {
+    log_io_s.PermitUncheckedError();
     TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Skip");
   }
 

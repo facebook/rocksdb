@@ -976,7 +976,7 @@ TEST_F(BackupableDBTest, FileCollision) {
 
     // If the db directory has been cleaned up, it is sensitive to file
     // collision.
-    DestroyDB(dbname_, options_);
+    ASSERT_OK(DestroyDB(dbname_, options_));
 
     // open with old backup
     OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
@@ -995,7 +995,7 @@ TEST_F(BackupableDBTest, FileCollision) {
     CloseDBAndBackupEngine();
 
     // delete old data
-    DestroyDB(dbname_, options_);
+    ASSERT_OK(DestroyDB(dbname_, options_));
   }
 }
 
