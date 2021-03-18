@@ -74,13 +74,13 @@ struct IngestedFileInfo {
 class ExternalSstFileIngestionJob {
  public:
   ExternalSstFileIngestionJob(
-      const std::shared_ptr<SystemClock>& clock, VersionSet* versions,
-      ColumnFamilyData* cfd, const ImmutableDBOptions& db_options,
-      const EnvOptions& env_options, SnapshotList* db_snapshots,
+      VersionSet* versions, ColumnFamilyData* cfd,
+      const ImmutableDBOptions& db_options, const EnvOptions& env_options,
+      SnapshotList* db_snapshots,
       const IngestExternalFileOptions& ingestion_options,
       Directories* directories, EventLogger* event_logger,
       const std::shared_ptr<IOTracer>& io_tracer)
-      : clock_(clock),
+      : clock_(db_options.clock),
         fs_(db_options.fs, io_tracer),
         versions_(versions),
         cfd_(cfd),
@@ -170,7 +170,7 @@ class ExternalSstFileIngestionJob {
   template <typename TWritableFile>
   Status SyncIngestedFile(TWritableFile* file);
 
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   FileSystemPtr fs_;
   VersionSet* versions_;
   ColumnFamilyData* cfd_;

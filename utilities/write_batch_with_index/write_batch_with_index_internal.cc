@@ -208,23 +208,23 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
           static_cast_with_check<DBImpl>(db_->GetRootDB())
               ->immutable_db_options();
       Statistics* statistics = immutable_db_options.statistics.get();
-      Env* env = immutable_db_options.env;
       Logger* logger = immutable_db_options.info_log.get();
-
+      SystemClock* clock = immutable_db_options.clock;
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, merge_context.GetOperands(), result,
-          logger, statistics, env->GetSystemClock(), result_operand);
+          logger, statistics, clock, result_operand);
     } else if (db_options_ != nullptr) {
       Statistics* statistics = db_options_->statistics.get();
       Env* env = db_options_->env;
       Logger* logger = db_options_->info_log.get();
+      SystemClock* clock = env->GetSystemClock().get();
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, merge_context.GetOperands(), result,
-          logger, statistics, env->GetSystemClock(), result_operand);
+          logger, statistics, clock, result_operand);
     } else {
       return MergeHelper::TimedFullMerge(
           merge_operator, key, value, merge_context.GetOperands(), result,
-          nullptr, nullptr, SystemClock::Default(), result_operand);
+          nullptr, nullptr, SystemClock::Default().get(), result_operand);
     }
   } else {
     return Status::InvalidArgument("Must provide a column_family");

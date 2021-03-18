@@ -13,6 +13,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/cassandra_value_operator.cc
         rocksjni/checkpoint.cc
         rocksjni/clock_cache.cc
+        rocksjni/cache.cc
         rocksjni/columnfamilyhandle.cc
         rocksjni/compaction_filter.cc
         rocksjni/compaction_filter_factory.cc
@@ -426,6 +427,7 @@ if(${CMAKE_VERSION} VERSION_LESS "3.11.4" OR (${Java_VERSION_MINOR} STREQUAL "7"
           org.rocksdb.CassandraValueMergeOperator
           org.rocksdb.Checkpoint
           org.rocksdb.ClockCache
+          org.rocksdb.Cache
           org.rocksdb.ColumnFamilyHandle
           org.rocksdb.ColumnFamilyOptions
           org.rocksdb.CompactionJobInfo

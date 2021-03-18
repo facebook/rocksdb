@@ -312,8 +312,8 @@ Status CheckpointImpl::CreateCustomCheckpoint(
     }
   }
 
-  // get checksum info for table files
-  // get table file checksums if get_live_table_checksum is true
+  // get checksum info for table and blob files.
+  // get table and blob file checksums if get_live_table_checksum is true
   std::unique_ptr<FileChecksumList> checksum_list;
 
   if (s.ok() && get_live_table_checksum) {
@@ -350,9 +350,8 @@ Status CheckpointImpl::CreateCustomCheckpoint(
       std::string checksum_value = kUnknownFileChecksum;
 
       // we ignore the checksums either they are not required or we failed to
-      // obtain the checksum lsit for old table files that have no file
+      // obtain the checksum list for old table files that have no file
       // checksums
-      // TODO: support this verification for blob files
       if (get_live_table_checksum) {
         // find checksum info for table files
         Status search = checksum_list->SearchOneFileChecksum(

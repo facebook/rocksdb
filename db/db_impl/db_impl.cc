@@ -151,13 +151,12 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       own_info_log_(options.info_log == nullptr),
       initial_db_options_(SanitizeOptions(dbname, options)),
       env_(initial_db_options_.env),
-      clock_(initial_db_options_.env->GetSystemClock()),
       io_tracer_(std::make_shared<IOTracer>()),
       immutable_db_options_(initial_db_options_),
       fs_(immutable_db_options_.fs, io_tracer_),
       mutable_db_options_(initial_db_options_),
       stats_(immutable_db_options_.statistics.get()),
-      mutex_(stats_, clock_, DB_MUTEX_WAIT_MICROS,
+      mutex_(stats_, immutable_db_options_.clock, DB_MUTEX_WAIT_MICROS,
              immutable_db_options_.use_adaptive_mutex),
       default_cf_handle_(nullptr),
       max_total_in_memory_state_(0),
@@ -193,7 +192,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       bg_purge_scheduled_(0),
       disable_delete_obsolete_files_(0),
       pending_purge_obsolete_files_(0),
-      delete_obsolete_files_last_run_(clock_->NowMicros()),
+      delete_obsolete_files_last_run_(immutable_db_options_.clock->NowMicros()),
       last_stats_dump_time_microsec_(0),
       next_job_id_(1),
       has_unpersisted_data_(false),
@@ -233,7 +232,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       preserve_deletes_(options.preserve_deletes),
       closed_(false),
       error_handler_(this, immutable_db_options_, &mutex_),
-      atomic_flush_install_cv_(&mutex_) {
+      atomic_flush_install_cv_(&mutex_),
+      blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
+                     &error_handler_) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -513,6 +514,11 @@ Status DBImpl::CloseHelper() {
   }
   mutex_.Unlock();
 
+  // Below check is added as recovery_error_ is not checked and it causes crash
+  // in DBSSTTest.DBWithMaxSpaceAllowedWithBlobFiles when space limit is
+  // reached.
+  error_handler_.GetRecoveryError().PermitUncheckedError();
+
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
@@ -771,7 +777,8 @@ void DBImpl::PersistStats() {
     return;
   }
   TEST_SYNC_POINT("DBImpl::PersistStats:StartRunning");
-  uint64_t now_seconds = clock_->NowMicros() / kMicrosInSecond;
+  uint64_t now_seconds =
+      immutable_db_options_.clock->NowMicros() / kMicrosInSecond;
 
   Statistics* statistics = immutable_db_options_.statistics.get();
   if (!statistics) {
@@ -1672,8 +1679,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options, const Slice& key,
   }
 #endif  // NDEBUG
 
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, clock_);
-  StopWatch sw(clock_, stats_, DB_GET);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+  StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(
@@ -1863,8 +1870,8 @@ std::vector<Status> DBImpl::MultiGet(
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values,
     std::vector<std::string>* timestamps) {
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, clock_);
-  StopWatch sw(clock_, stats_, DB_MULTIGET);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+  StopWatch sw(immutable_db_options_.clock, stats_, DB_MULTIGET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
 #ifndef NDEBUG
@@ -1993,9 +2000,8 @@ std::vector<Status> DBImpl::MultiGet(
         break;
       }
     }
-
     if (read_options.deadline.count() &&
-        clock_->NowMicros() >
+        immutable_db_options_.clock->NowMicros() >
             static_cast<uint64_t>(read_options.deadline.count())) {
       break;
     }
@@ -2004,7 +2010,7 @@ std::vector<Status> DBImpl::MultiGet(
   if (keys_read < num_keys) {
     // The only reason to break out of the loop is when the deadline is
     // exceeded
-    assert(clock_->NowMicros() >
+    assert(immutable_db_options_.clock->NowMicros() >
            static_cast<uint64_t>(read_options.deadline.count()));
     for (++keys_read; keys_read < num_keys; ++keys_read) {
       stat_list[keys_read] = Status::TimedOut();
@@ -2444,8 +2450,8 @@ Status DBImpl::MultiGetImpl(
     autovector<KeyContext*, MultiGetContext::MAX_BATCH_SIZE>* sorted_keys,
     SuperVersion* super_version, SequenceNumber snapshot,
     ReadCallback* callback) {
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, clock_);
-  StopWatch sw(clock_, stats_, DB_MULTIGET);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+  StopWatch sw(immutable_db_options_.clock, stats_, DB_MULTIGET);
 
   // For each of the given keys, apply the entire "get" process as follows:
   // First look in the memtable, then in the immutable memtable (if any).
@@ -2456,7 +2462,7 @@ Status DBImpl::MultiGetImpl(
   uint64_t curr_value_size = 0;
   while (keys_left) {
     if (read_options.deadline.count() &&
-        clock_->NowMicros() >
+        immutable_db_options_.clock->NowMicros() >
             static_cast<uint64_t>(read_options.deadline.count())) {
       s = Status::TimedOut();
       break;
@@ -3009,7 +3015,8 @@ const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
 SnapshotImpl* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary,
                                       bool lock) {
   int64_t unix_time = 0;
-  env_->GetCurrentTime(&unix_time).PermitUncheckedError();  // Ignore error
+  immutable_db_options_.clock->GetCurrentTime(&unix_time)
+      .PermitUncheckedError();  // Ignore error
   SnapshotImpl* s = new SnapshotImpl;
 
   if (lock) {
@@ -3154,12 +3161,16 @@ FileSystem* DBImpl::GetFileSystem() const {
   return immutable_db_options_.fs.get();
 }
 
+SystemClock* DBImpl::GetSystemClock() const {
+  return immutable_db_options_.clock;
+}
+
 #ifndef ROCKSDB_LITE
 
-Status DBImpl::StartIOTrace(Env* env, const TraceOptions& trace_options,
+Status DBImpl::StartIOTrace(Env* /*env*/, const TraceOptions& trace_options,
                             std::unique_ptr<TraceWriter>&& trace_writer) {
   assert(trace_writer != nullptr);
-  return io_tracer_->StartIOTrace(env->GetSystemClock(), trace_options,
+  return io_tracer_->StartIOTrace(GetSystemClock(), trace_options,
                                   std::move(trace_writer));
 }
 
@@ -3957,7 +3968,8 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         std::string path_to_delete = dbname + "/" + fname;
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
-        } else if (type == kTableFile || type == kWalFile) {
+        } else if (type == kTableFile || type == kWalFile ||
+                   type == kBlobFile) {
           del = DeleteDBFile(&soptions, path_to_delete, dbname,
                              /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
         } else {
@@ -3982,9 +3994,10 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       if (env->GetChildren(path, &filenames).ok()) {
         for (const auto& fname : filenames) {
           if (ParseFileName(fname, &number, &type) &&
-              type == kTableFile) {  // Lock file will be deleted at end
-            std::string table_path = path + "/" + fname;
-            Status del = DeleteDBFile(&soptions, table_path, dbname,
+              (type == kTableFile ||
+               type == kBlobFile)) {  // Lock file will be deleted at end
+            std::string file_path = path + "/" + fname;
+            Status del = DeleteDBFile(&soptions, file_path, dbname,
                                       /*force_bg=*/false, /*force_fg=*/false);
             if (!del.ok() && result.ok()) {
               result = del;
@@ -4440,9 +4453,9 @@ Status DBImpl::IngestExternalFiles(
   std::vector<ExternalSstFileIngestionJob> ingestion_jobs;
   for (const auto& arg : args) {
     auto* cfd = static_cast<ColumnFamilyHandleImpl*>(arg.column_family)->cfd();
-    ingestion_jobs.emplace_back(
-        clock_, versions_.get(), cfd, immutable_db_options_, file_options_,
-        &snapshots_, arg.options, &directories_, &event_logger_, io_tracer_);
+    ingestion_jobs.emplace_back(versions_.get(), cfd, immutable_db_options_,
+                                file_options_, &snapshots_, arg.options,
+                                &directories_, &event_logger_, io_tracer_);
   }
 
   // TODO(yanqin) maybe make jobs run in parallel
@@ -4709,9 +4722,9 @@ Status DBImpl::CreateColumnFamilyWithImport(
   // Import sst files from metadata.
   auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(*handle);
   auto cfd = cfh->cfd();
-  ImportColumnFamilyJob import_job(clock_, versions_.get(), cfd,
-                                   immutable_db_options_, file_options_,
-                                   import_options, metadata.files, io_tracer_);
+  ImportColumnFamilyJob import_job(versions_.get(), cfd, immutable_db_options_,
+                                   file_options_, import_options,
+                                   metadata.files, io_tracer_);
 
   SuperVersionContext dummy_sv_ctx(/* create_superversion */ true);
   VersionEdit dummy_edit;
@@ -4987,7 +5000,8 @@ void DBImpl::WaitForIngestFile() {
 Status DBImpl::StartTrace(const TraceOptions& trace_options,
                           std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock(&trace_mutex_);
-  tracer_.reset(new Tracer(clock_, trace_options, std::move(trace_writer)));
+  tracer_.reset(new Tracer(immutable_db_options_.clock, trace_options,
+                           std::move(trace_writer)));
   return Status::OK();
 }
 
@@ -5006,8 +5020,8 @@ Status DBImpl::EndTrace() {
 Status DBImpl::StartBlockCacheTrace(
     const TraceOptions& trace_options,
     std::unique_ptr<TraceWriter>&& trace_writer) {
-  return block_cache_tracer_.StartTrace(env_, trace_options,
-                                        std::move(trace_writer));
+  return block_cache_tracer_.StartTrace(immutable_db_options_.clock,
+                                        trace_options, std::move(trace_writer));
 }
 
 Status DBImpl::EndBlockCacheTrace() {

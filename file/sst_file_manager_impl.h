@@ -21,9 +21,8 @@ class FileSystem;
 class SystemClock;
 class Logger;
 
-// SstFileManager is used to track SST files in the DB and control their
-// deletion rate.
-// All SstFileManager public functions are thread-safe.
+// SstFileManager is used to track SST and blob files in the DB and control
+// their deletion rate. All SstFileManager public functions are thread-safe.
 class SstFileManagerImpl : public SstFileManager {
  public:
   explicit SstFileManagerImpl(const std::shared_ptr<SystemClock>& clock,
@@ -35,24 +34,23 @@ class SstFileManagerImpl : public SstFileManager {
 
   ~SstFileManagerImpl();
 
-  // DB will call OnAddFile whenever a new sst file is added.
-  Status OnAddFile(const std::string& file_path, bool compaction = false);
+  // DB will call OnAddFile whenever a new sst/blob file is added.
+  Status OnAddFile(const std::string& file_path);
 
   // Overload where size of the file is provided by the caller rather than
   // queried from the filesystem. This is an optimization.
-  Status OnAddFile(const std::string& file_path, uint64_t file_size,
-                   bool compaction);
+  Status OnAddFile(const std::string& file_path, uint64_t file_size);
 
-  // DB will call OnDeleteFile whenever an sst file is deleted.
+  // DB will call OnDeleteFile whenever a sst/blob file is deleted.
   Status OnDeleteFile(const std::string& file_path);
 
-  // DB will call OnMoveFile whenever an sst file is move to a new path.
+  // DB will call OnMoveFile whenever a sst/blob file is move to a new path.
   Status OnMoveFile(const std::string& old_path, const std::string& new_path,
                     uint64_t* file_size = nullptr);
 
   // Update the maximum allowed space that should be used by RocksDB, if
-  // the total size of the SST files exceeds max_allowed_space, writes to
-  // RocksDB will fail.
+  // the total size of the SST and blob files exceeds max_allowed_space, writes
+  // to RocksDB will fail.
   //
   // Setting max_allowed_space to 0 will disable this feature, maximum allowed
   // space will be infinite (Default value).
@@ -62,8 +60,8 @@ class SstFileManagerImpl : public SstFileManager {
 
   void SetCompactionBufferSize(uint64_t compaction_buffer_size) override;
 
-  // Return true if the total size of SST files exceeded the maximum allowed
-  // space usage.
+  // Return true if the total size of SST and blob files exceeded the maximum
+  // allowed space usage.
   //
   // thread-safe.
   bool IsMaxAllowedSpaceReached() override;
@@ -142,8 +140,7 @@ class SstFileManagerImpl : public SstFileManager {
 
  private:
   // REQUIRES: mutex locked
-  void OnAddFileImpl(const std::string& file_path, uint64_t file_size,
-                     bool compaction);
+  void OnAddFileImpl(const std::string& file_path, uint64_t file_size);
   // REQUIRES: mutex locked
   void OnDeleteFileImpl(const std::string& file_path);
 
@@ -159,8 +156,6 @@ class SstFileManagerImpl : public SstFileManager {
   port::Mutex mu_;
   // The summation of the sizes of all files in tracked_files_ map
   uint64_t total_files_size_;
-  // The summation of all output files of in-progress compactions
-  uint64_t in_progress_files_size_;
   // Compactions should only execute if they can leave at least
   // this amount of buffer space for logs and flushes
   uint64_t compaction_buffer_size_;
@@ -169,9 +164,7 @@ class SstFileManagerImpl : public SstFileManager {
   // A map containing all tracked files and there sizes
   //  file_path => file_size
   std::unordered_map<std::string, uint64_t> tracked_files_;
-  // A set of files belonging to in-progress compactions
-  std::unordered_set<std::string> in_progress_files_;
-  // The maximum allowed space (in bytes) for sst files.
+  // The maximum allowed space (in bytes) for sst and blob files.
   uint64_t max_allowed_space_;
   // DeleteScheduler used to throttle file deletition.
   DeleteScheduler delete_scheduler_;
@@ -191,7 +184,7 @@ class SstFileManagerImpl : public SstFileManager {
   // compactions to run full throttle. If disk space is below this trigger,
   // compactions will be gated by free disk space > input size
   uint64_t free_space_trigger_;
-  // List of database error handler instances tracked by this sst file manager
+  // List of database error handler instances tracked by this SstFileManager.
   std::list<ErrorHandler*> error_handler_list_;
   // Pointer to ErrorHandler instance that is currently processing recovery
   ErrorHandler* cur_instance_;

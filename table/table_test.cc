@@ -1140,7 +1140,8 @@ class BlockBasedTableTest
                                  &trace_writer));
     // Always return Status::OK().
     assert(c->block_cache_tracer_
-               .StartTrace(env_, trace_opt, std::move(trace_writer))
+               .StartTrace(env_->GetSystemClock().get(), trace_opt,
+                           std::move(trace_writer))
                .ok());
     {
       std::string user_key = "k01";
@@ -3921,6 +3922,8 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
   table_options.index_block_restart_interval = index_block_restart_interval;
   if (value_delta_encoding) {
     table_options.format_version = 4;
+  } else {
+    table_options.format_version = 3;
   }
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
 

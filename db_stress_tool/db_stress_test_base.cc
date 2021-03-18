@@ -35,6 +35,7 @@ StressTest::StressTest()
 #ifndef ROCKSDB_LITE
       txn_db_(nullptr),
 #endif
+      clock_(db_stress_env->GetSystemClock().get()),
       new_column_family_name_(1),
       num_times_reopened_(0),
       db_preload_finished_(false),
@@ -226,9 +227,9 @@ bool StressTest::BuildOptionsTable() {
 }
 
 void StressTest::InitDb() {
-  uint64_t now = db_stress_env->NowMicros();
+  uint64_t now = clock_->NowMicros();
   fprintf(stdout, "%s Initializing db_stress\n",
-          db_stress_env->TimeToString(now / 1000000).c_str());
+          clock_->TimeToString(now / 1000000).c_str());
   PrintEnv();
   Open();
   BuildOptionsTable();
@@ -236,25 +237,28 @@ void StressTest::InitDb() {
 
 void StressTest::FinishInitDb(SharedState* shared) {
   if (FLAGS_read_only) {
-    uint64_t now = db_stress_env->NowMicros();
+    uint64_t now = clock_->NowMicros();
     fprintf(stdout, "%s Preloading db with %" PRIu64 " KVs\n",
-            db_stress_env->TimeToString(now / 1000000).c_str(), FLAGS_max_key);
+            clock_->TimeToString(now / 1000000).c_str(), FLAGS_max_key);
     PreloadDbAndReopenAsReadOnly(FLAGS_max_key, shared);
   }
   if (FLAGS_enable_compaction_filter) {
-    reinterpret_cast<DbStressCompactionFilterFactory*>(
-        options_.compaction_filter_factory.get())
-        ->SetSharedState(shared);
+    auto* compaction_filter_factory =
+        reinterpret_cast<DbStressCompactionFilterFactory*>(
+            options_.compaction_filter_factory.get());
+    assert(compaction_filter_factory);
+    compaction_filter_factory->SetSharedState(shared);
+    fprintf(stdout, "Compaction filter factory: %s\n",
+            compaction_filter_factory->Name());
   }
 }
 
 bool StressTest::VerifySecondaries() {
 #ifndef ROCKSDB_LITE
   if (FLAGS_test_secondary) {
-    uint64_t now = db_stress_env->NowMicros();
-    fprintf(
-        stdout, "%s Start to verify secondaries against primary\n",
-        db_stress_env->TimeToString(static_cast<uint64_t>(now) / 1000000).c_str());
+    uint64_t now = clock_->NowMicros();
+    fprintf(stdout, "%s Start to verify secondaries against primary\n",
+            clock_->TimeToString(static_cast<uint64_t>(now) / 1000000).c_str());
   }
   for (size_t k = 0; k != secondaries_.size(); ++k) {
     Status s = secondaries_[k]->TryCatchUpWithPrimary();
@@ -296,10 +300,9 @@ bool StressTest::VerifySecondaries() {
     }
   }
   if (FLAGS_test_secondary) {
-    uint64_t now = db_stress_env->NowMicros();
-    fprintf(
-        stdout, "%s Verification of secondaries succeeded\n",
-        db_stress_env->TimeToString(static_cast<uint64_t>(now) / 1000000).c_str());
+    uint64_t now = clock_->NowMicros();
+    fprintf(stdout, "%s Verification of secondaries succeeded\n",
+            clock_->TimeToString(static_cast<uint64_t>(now) / 1000000).c_str());
   }
 #endif  // ROCKSDB_LITE
   return true;
@@ -458,9 +461,9 @@ void StressTest::PreloadDbAndReopenAsReadOnly(int64_t number_of_keys,
 #endif
 
     db_preload_finished_.store(true);
-    auto now = db_stress_env->NowMicros();
+    auto now = clock_->NowMicros();
     fprintf(stdout, "%s Reopening database in read-only\n",
-            db_stress_env->TimeToString(now / 1000000).c_str());
+            clock_->TimeToString(now / 1000000).c_str());
     // Reopen as read-only, can ignore all options related to updates
     Open();
   } else {
@@ -1293,11 +1296,6 @@ Status StressTest::TestBackupRestore(
             backup_opts.share_files_with_checksum_naming |
             BackupableDBOptions::kFlagIncludeFileSize;
       }
-      if (thread->rand.OneIn(2)) {
-        backup_opts.share_files_with_checksum_naming =
-            backup_opts.share_files_with_checksum_naming |
-            BackupableDBOptions::kFlagMatchInterimNaming;
-      }
     }
   }
   BackupEngine* backup_engine = nullptr;
@@ -1725,7 +1723,7 @@ Status StressTest::TestPauseBackground(ThreadState* thread) {
   // 1 chance in 625 of pausing full 16s.)
   int pwr2_micros =
       std::min(thread->rand.Uniform(25), thread->rand.Uniform(25));
-  db_stress_env->SleepForMicroseconds(1 << pwr2_micros);
+  clock_->SleepForMicroseconds(1 << pwr2_micros);
   return db_->ContinueBackgroundWork();
 }
 
@@ -2218,12 +2216,11 @@ void StressTest::Open() {
 
   if ((options_.enable_blob_files || options_.enable_blob_garbage_collection ||
        FLAGS_allow_setting_blob_options_dynamically) &&
-      (FLAGS_use_merge || FLAGS_enable_compaction_filter ||
-       FLAGS_backup_one_in > 0 || FLAGS_best_efforts_recovery)) {
-    fprintf(
-        stderr,
-        "Integrated BlobDB is currently incompatible with Merge, compaction "
-        "filters, backup/restore, and best-effort recovery\n");
+      (FLAGS_use_merge || FLAGS_backup_one_in > 0 ||
+       FLAGS_best_efforts_recovery)) {
+    fprintf(stderr,
+            "Integrated BlobDB is currently incompatible with Merge, "
+            "backup/restore, and best-effort recovery\n");
     exit(1);
   }
 
@@ -2489,10 +2486,9 @@ void StressTest::Reopen(ThreadState* thread) {
   secondaries_.clear();
 
   num_times_reopened_++;
-  auto now = db_stress_env->NowMicros();
+  auto now = clock_->NowMicros();
   fprintf(stdout, "%s Reopening database for the %dth time\n",
-          db_stress_env->TimeToString(now / 1000000).c_str(),
-          num_times_reopened_);
+          clock_->TimeToString(now / 1000000).c_str(), num_times_reopened_);
   Open();
 }
 }  // namespace ROCKSDB_NAMESPACE

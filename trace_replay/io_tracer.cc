@@ -19,7 +19,7 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-IOTraceWriter::IOTraceWriter(const std::shared_ptr<SystemClock>& clock,
+IOTraceWriter::IOTraceWriter(SystemClock* clock,
                              const TraceOptions& trace_options,
                              std::unique_ptr<TraceWriter>&& trace_writer)
     : clock_(clock),
@@ -220,7 +220,7 @@ IOTracer::IOTracer() : tracing_enabled(false) { writer_.store(nullptr); }
 
 IOTracer::~IOTracer() { EndIOTrace(); }
 
-Status IOTracer::StartIOTrace(const std::shared_ptr<SystemClock>& clock,
+Status IOTracer::StartIOTrace(SystemClock* clock,
                               const TraceOptions& trace_options,
                               std::unique_ptr<TraceWriter>&& trace_writer) {
   InstrumentedMutexLock lock_guard(&trace_writer_mutex_);

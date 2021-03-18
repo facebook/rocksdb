@@ -326,10 +326,10 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
 
 IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
                                                   IOOptions& opts) {
-  if (clock_.get() != nullptr) {
+  if (clock_ != nullptr) {
     return PrepareIOFromReadOptions(ro, clock_, opts);
   } else {
-    return PrepareIOFromReadOptions(ro, SystemClock::Default(), opts);
+    return PrepareIOFromReadOptions(ro, SystemClock::Default().get(), opts);
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

@@ -37,7 +37,10 @@ void print_help(bool to_stderr) {
       Path to SST file or directory containing SST files
 
     --env_uri=<uri of underlying Env>
-      URI of underlying Env
+      URI of underlying Env, mutually exclusive with fs_uri
+
+    --fs_uri=<uri of underlying FileSystem>
+      URI of underlying FileSystem, mutually exclusive with env_uri
 
     --command=check|scan|raw|verify|identify
         check: Iterate over entries in files but don't print anything except if an error is encountered (default command)
@@ -129,8 +132,16 @@ bool ParseIntArg(const char* arg, const std::string arg_name,
 }
 }  // namespace
 
+static ROCKSDB_NAMESPACE::Env* GetCompositeEnv(
+    std::shared_ptr<ROCKSDB_NAMESPACE::FileSystem> fs) {
+  static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
+      ROCKSDB_NAMESPACE::NewCompositeEnv(fs);
+  return composite_env.get();
+}
+
 int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   const char* env_uri = nullptr;
+  const char* fs_uri = nullptr;
   const char* dir_or_file = nullptr;
   uint64_t read_num = std::numeric_limits<uint64_t>::max();
   std::string command;
@@ -177,6 +188,8 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--env_uri=", 10) == 0) {
       env_uri = argv[i] + 10;
+    } else if (strncmp(argv[i], "--fs_uri=", 9) == 0) {
+      fs_uri = argv[i] + 9;
     } else if (strncmp(argv[i], "--file=", 7) == 0) {
       dir_or_file = argv[i] + 7;
     } else if (strcmp(argv[i], "--output_hex") == 0) {
@@ -339,14 +352,30 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 
   // If caller of SSTDumpTool::Run(...) does not specify a different env other
-  // than Env::Default(), then try to load custom env based on dir_or_file.
+  // than Env::Default(), then try to load custom env based on env_uri/fs_uri.
   // Otherwise, the caller is responsible for creating custom env.
+
+  if (env_uri && fs_uri) {
+    fprintf(stderr, "cannot specify --fs_uri and --env_uri.\n\n");
+    exit(1);
+  }
+
   if (!options.env || options.env == ROCKSDB_NAMESPACE::Env::Default()) {
     Env* env = Env::Default();
-    Status s = Env::LoadEnv(env_uri ? env_uri : "", &env, &env_guard);
-    if (!s.ok() && !s.IsNotFound()) {
-      fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
-      exit(1);
+    if (env_uri) {
+      Status s = Env::LoadEnv(env_uri ? env_uri : "", &env, &env_guard);
+      if (!s.ok() && !s.IsNotFound()) {
+        fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
+        exit(1);
+      }
+    } else if (fs_uri) {
+      std::shared_ptr<FileSystem> fs;
+      Status s = FileSystem::Load(fs_uri, &fs);
+      if (fs == nullptr) {
+        fprintf(stderr, "FileSystem Load: %s\n", s.ToString().c_str());
+        exit(1);
+      }
+      env = GetCompositeEnv(fs);
     }
     options.env = env;
   } else {

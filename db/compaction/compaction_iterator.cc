@@ -80,7 +80,7 @@ CompactionIterator::CompactionIterator(
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
       env_(env),
-      clock_(env_->GetSystemClock()),
+      clock_(env_->GetSystemClock().get()),
       report_detailed_time_(report_detailed_time),
       expect_valid_internal_key_(expect_valid_internal_key),
       range_del_agg_(range_del_agg),
@@ -253,13 +253,19 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
         }
         const Version* const version = compaction_->input_version();
         assert(version);
+
+        uint64_t bytes_read = 0;
         s = version->GetBlob(ReadOptions(), ikey_.user_key, blob_index,
-                             &blob_value_);
+                             &blob_value_, &bytes_read);
         if (!s.ok()) {
           status_ = s;
           valid_ = false;
           return false;
         }
+
+        ++iter_stats_.num_blobs_read;
+        iter_stats_.total_blob_bytes_read += bytes_read;
+
         value_type = CompactionFilter::ValueType::kValue;
       }
     }
@@ -384,13 +390,11 @@ void CompactionIterator::NextFromInput() {
     // merge_helper_->compaction_filter_skip_until_.
     Slice skip_until;
 
-    int cmp_user_key_without_ts = 0;
+    bool user_key_equal_without_ts = false;
     int cmp_ts = 0;
     if (has_current_user_key_) {
-      cmp_user_key_without_ts =
-          timestamp_size_
-              ? cmp_->CompareWithoutTimestamp(ikey_.user_key, current_user_key_)
-              : cmp_->Compare(ikey_.user_key, current_user_key_);
+      user_key_equal_without_ts =
+          cmp_->EqualWithoutTimestamp(ikey_.user_key, current_user_key_);
       // if timestamp_size_ > 0, then curr_ts_ has been initialized by a
       // previous key.
       cmp_ts = timestamp_size_ ? cmp_->CompareTimestamp(
@@ -403,7 +407,7 @@ void CompactionIterator::NextFromInput() {
     // Check whether the user key changed. After this if statement current_key_
     // is a copy of the current input key (maybe converted to a delete by the
     // compaction filter). ikey_.user_key is pointing to the copy.
-    if (!has_current_user_key_ || cmp_user_key_without_ts != 0 || cmp_ts != 0) {
+    if (!has_current_user_key_ || !user_key_equal_without_ts || cmp_ts != 0) {
       // First occurrence of this user key
       // Copy key for output
       key_ = current_key_.SetInternalKey(key_, &ikey_);
@@ -424,7 +428,7 @@ void CompactionIterator::NextFromInput() {
       // consider this key for GC, e.g. it may be dropped if certain conditions
       // match.
       if (!has_current_user_key_ || !timestamp_size_ || !full_history_ts_low_ ||
-          0 != cmp_user_key_without_ts || cmp_with_history_ts_low_ >= 0) {
+          !user_key_equal_without_ts || cmp_with_history_ts_low_ >= 0) {
         // Initialize for future comparison for rule (A) and etc.
         current_user_key_sequence_ = kMaxSequenceNumber;
         current_user_key_snapshot_ = 0;
@@ -718,8 +722,7 @@ void CompactionIterator::NextFromInput() {
              input_->Valid() &&
              (ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_)
                   .ok()) &&
-             0 == cmp_->CompareWithoutTimestamp(ikey_.user_key,
-                                                next_ikey.user_key) &&
+             cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key) &&
              (prev_snapshot == 0 ||
               DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
         input_->Next();
@@ -729,8 +732,7 @@ void CompactionIterator::NextFromInput() {
       if (input_->Valid() &&
           (ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_)
                .ok()) &&
-          0 == cmp_->CompareWithoutTimestamp(ikey_.user_key,
-                                             next_ikey.user_key)) {
+          cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
         valid_ = true;
         at_next_ = true;
       }
@@ -883,9 +885,11 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
     const Version* const version = compaction_->input_version();
     assert(version);
 
+    uint64_t bytes_read = 0;
+
     {
-      const Status s =
-          version->GetBlob(ReadOptions(), user_key(), blob_index, &blob_value_);
+      const Status s = version->GetBlob(ReadOptions(), user_key(), blob_index,
+                                        &blob_value_, &bytes_read);
 
       if (!s.ok()) {
         status_ = s;
@@ -894,6 +898,9 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
         return;
       }
     }
+
+    ++iter_stats_.num_blobs_read;
+    iter_stats_.total_blob_bytes_read += bytes_read;
 
     value_ = blob_value_;
 
