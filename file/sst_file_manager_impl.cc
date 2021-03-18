@@ -27,7 +27,6 @@ SstFileManagerImpl::SstFileManagerImpl(
       fs_(fs),
       logger_(logger),
       total_files_size_(0),
-      in_progress_files_size_(0),
       compaction_buffer_size_(0),
       cur_compactions_reserved_size_(0),
       max_allowed_space_(0),
@@ -60,23 +59,24 @@ void SstFileManagerImpl::Close() {
   }
 }
 
-Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
-                                     bool compaction) {
+Status SstFileManagerImpl::OnAddFile(const std::string& file_path) {
   uint64_t file_size;
   Status s = fs_->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
   if (s.ok()) {
     MutexLock l(&mu_);
-    OnAddFileImpl(file_path, file_size, compaction);
+    OnAddFileImpl(file_path, file_size);
   }
-  TEST_SYNC_POINT("SstFileManagerImpl::OnAddFile");
+  TEST_SYNC_POINT_CALLBACK("SstFileManagerImpl::OnAddFile",
+                           const_cast<std::string*>(&file_path));
   return s;
 }
 
 Status SstFileManagerImpl::OnAddFile(const std::string& file_path,
-                                     uint64_t file_size, bool compaction) {
+                                     uint64_t file_size) {
   MutexLock l(&mu_);
-  OnAddFileImpl(file_path, file_size, compaction);
-  TEST_SYNC_POINT("SstFileManagerImpl::OnAddFile");
+  OnAddFileImpl(file_path, file_size);
+  TEST_SYNC_POINT_CALLBACK("SstFileManagerImpl::OnAddFile",
+                           const_cast<std::string*>(&file_path));
   return Status::OK();
 }
 
@@ -85,7 +85,8 @@ Status SstFileManagerImpl::OnDeleteFile(const std::string& file_path) {
     MutexLock l(&mu_);
     OnDeleteFileImpl(file_path);
   }
-  TEST_SYNC_POINT("SstFileManagerImpl::OnDeleteFile");
+  TEST_SYNC_POINT_CALLBACK("SstFileManagerImpl::OnDeleteFile",
+                           const_cast<std::string*>(&file_path));
   return Status::OK();
 }
 
@@ -99,19 +100,6 @@ void SstFileManagerImpl::OnCompactionCompletion(Compaction* c) {
     }
   }
   cur_compactions_reserved_size_ -= size_added_by_compaction;
-
-  auto new_files = c->edit()->GetNewFiles();
-  for (auto& new_file : new_files) {
-    auto fn = TableFileName(c->immutable_cf_options()->cf_paths,
-                            new_file.second.fd.GetNumber(),
-                            new_file.second.fd.GetPathId());
-    if (in_progress_files_.find(fn) != in_progress_files_.end()) {
-      auto tracked_file = tracked_files_.find(fn);
-      assert(tracked_file != tracked_files_.end());
-      in_progress_files_size_ -= tracked_file->second;
-      in_progress_files_.erase(fn);
-    }
-  }
 }
 
 Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
@@ -122,7 +110,7 @@ Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
     if (file_size != nullptr) {
       *file_size = tracked_files_[old_path];
     }
-    OnAddFileImpl(new_path, tracked_files_[old_path], false);
+    OnAddFileImpl(new_path, tracked_files_[old_path]);
     OnDeleteFileImpl(old_path);
   }
   TEST_SYNC_POINT("SstFileManagerImpl::OnMoveFile");
@@ -199,7 +187,6 @@ bool SstFileManagerImpl::EnoughRoomForCompaction(
     if (compaction_buffer_size_ == 0) {
       needed_headroom += reserved_disk_buffer_;
     }
-    needed_headroom -= in_progress_files_size_;
     if (free_space < needed_headroom + size_added_by_compaction) {
       // We hit the condition of not enough disk space
       ROCKS_LOG_ERROR(logger_,
@@ -440,24 +427,15 @@ void SstFileManagerImpl::WaitForEmptyTrash() {
 }
 
 void SstFileManagerImpl::OnAddFileImpl(const std::string& file_path,
-                                       uint64_t file_size, bool compaction) {
+                                       uint64_t file_size) {
   auto tracked_file = tracked_files_.find(file_path);
   if (tracked_file != tracked_files_.end()) {
     // File was added before, we will just update the size
-    assert(!compaction);
     total_files_size_ -= tracked_file->second;
     total_files_size_ += file_size;
     cur_compactions_reserved_size_ -= file_size;
   } else {
     total_files_size_ += file_size;
-    if (compaction) {
-      // Keep track of the size of files created by in-progress compactions.
-      // When calculating whether there's enough headroom for new compactions,
-      // this will be subtracted from cur_compactions_reserved_size_.
-      // Otherwise, compactions will be double counted.
-      in_progress_files_size_ += file_size;
-      in_progress_files_.insert(file_path);
-    }
   }
   tracked_files_[file_path] = file_size;
 }
@@ -466,16 +444,10 @@ void SstFileManagerImpl::OnDeleteFileImpl(const std::string& file_path) {
   auto tracked_file = tracked_files_.find(file_path);
   if (tracked_file == tracked_files_.end()) {
     // File is not tracked
-    assert(in_progress_files_.find(file_path) == in_progress_files_.end());
     return;
   }
 
   total_files_size_ -= tracked_file->second;
-  // Check if it belonged to an in-progress compaction
-  if (in_progress_files_.find(file_path) != in_progress_files_.end()) {
-    in_progress_files_size_ -= tracked_file->second;
-    in_progress_files_.erase(file_path);
-  }
   tracked_files_.erase(tracked_file);
 }
 

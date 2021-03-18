@@ -1064,6 +1064,8 @@ class DBTestBase : public testing::Test {
   int TotalTableFiles(int cf = 0, int levels = -1);
 #endif  // ROCKSDB_LITE
 
+  std::vector<uint64_t> GetBlobFileNumbers();
+
   // Return spread of files per level
   std::string FilesPerLevel(int cf = 0);
 
@@ -1153,8 +1155,9 @@ class DBTestBase : public testing::Test {
   void CopyFile(const std::string& source, const std::string& destination,
                 uint64_t size = 0);
 
-  Status GetAllSSTFiles(std::unordered_map<std::string, uint64_t>* sst_files,
-                        uint64_t* total_size = nullptr);
+  Status GetAllDataFiles(const FileType file_type,
+                         std::unordered_map<std::string, uint64_t>* sst_files,
+                         uint64_t* total_size = nullptr);
 
   std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path);
 

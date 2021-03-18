@@ -23,6 +23,7 @@
 #include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
+#include "file/file_util.h"
 #include "file/filename.h"
 #include "file/read_write_util.h"
 #include "file/writable_file_writer.h"
@@ -92,7 +93,8 @@ Status BuildTable(
     TableProperties* table_properties, int level, const uint64_t creation_time,
     const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
     const uint64_t file_creation_time, const std::string& db_id,
-    const std::string& db_session_id, const std::string* full_history_ts_low) {
+    const std::string& db_session_id, const std::string* full_history_ts_low,
+    BlobFileCompletionCallback* blob_callback) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
@@ -175,10 +177,11 @@ Status BuildTable(
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
         (mutable_cf_options.enable_blob_files && blob_file_additions)
-            ? new BlobFileBuilder(
-                  versions, fs, &ioptions, &mutable_cf_options, &file_options,
-                  job_id, column_family_id, column_family_name, io_priority,
-                  write_hint, io_tracer, &blob_file_paths, blob_file_additions)
+            ? new BlobFileBuilder(versions, fs, &ioptions, &mutable_cf_options,
+                                  &file_options, job_id, column_family_id,
+                                  column_family_name, io_priority, write_hint,
+                                  io_tracer, blob_callback, &blob_file_paths,
+                                  blob_file_additions)
             : nullptr);
 
     CompactionIterator c_iter(
@@ -278,8 +281,9 @@ Status BuildTable(
     if (blob_file_builder) {
       if (s.ok()) {
         s = blob_file_builder->Finish();
+      } else {
+        blob_file_builder->Abandon();
       }
-
       blob_file_builder.reset();
     }
 
@@ -339,8 +343,10 @@ Status BuildTable(
 
     if (blob_file_additions) {
       for (const std::string& blob_file_path : blob_file_paths) {
-        ignored = fs->DeleteFile(blob_file_path, IOOptions(), dbg);
+        ignored = DeleteDBFile(&db_options, blob_file_path, dbname,
+                               /*force_bg=*/false, /*force_fg=*/false);
         ignored.PermitUncheckedError();
+        TEST_SYNC_POINT("BuildTable::AfterDeleteFile");
       }
     }
   }

@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_file_completion_callback.h"
 #include "db/column_family.h"
 #include "db/dbformat.h"
 #include "db/flush_scheduler.h"
@@ -73,7 +74,8 @@ class FlushJob {
            const bool sync_output_directory, const bool write_manifest,
            Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
            const std::string& db_id = "", const std::string& db_session_id = "",
-           std::string full_history_ts_low = "");
+           std::string full_history_ts_low = "",
+           BlobFileCompletionCallback* blob_callback = nullptr);
 
   ~FlushJob();
 
@@ -165,6 +167,7 @@ class FlushJob {
   SystemClock* clock_;
 
   const std::string full_history_ts_low_;
+  BlobFileCompletionCallback* blob_callback_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
