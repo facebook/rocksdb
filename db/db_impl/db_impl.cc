@@ -231,7 +231,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       preserve_deletes_(options.preserve_deletes),
       closed_(false),
       error_handler_(this, immutable_db_options_, &mutex_),
-      atomic_flush_install_cv_(&mutex_) {
+      atomic_flush_install_cv_(&mutex_),
+      blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
+                     &error_handler_) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -510,6 +512,11 @@ Status DBImpl::CloseHelper() {
     bg_cv_.Wait();
   }
   mutex_.Unlock();
+
+  // Below check is added as recovery_error_ is not checked and it causes crash
+  // in DBSSTTest.DBWithMaxSpaceAllowedWithBlobFiles when space limit is
+  // reached.
+  error_handler_.GetRecoveryError().PermitUncheckedError();
 
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
@@ -3943,7 +3950,8 @@ Status DestroyDB(const std::string& dbname, const Options& options,
         std::string path_to_delete = dbname + "/" + fname;
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
-        } else if (type == kTableFile || type == kWalFile) {
+        } else if (type == kTableFile || type == kWalFile ||
+                   type == kBlobFile) {
           del = DeleteDBFile(&soptions, path_to_delete, dbname,
                              /*force_bg=*/false, /*force_fg=*/!wal_in_db_path);
         } else {
@@ -3968,9 +3976,10 @@ Status DestroyDB(const std::string& dbname, const Options& options,
       if (env->GetChildren(path, &filenames).ok()) {
         for (const auto& fname : filenames) {
           if (ParseFileName(fname, &number, &type) &&
-              type == kTableFile) {  // Lock file will be deleted at end
-            std::string table_path = path + "/" + fname;
-            Status del = DeleteDBFile(&soptions, table_path, dbname,
+              (type == kTableFile ||
+               type == kBlobFile)) {  // Lock file will be deleted at end
+            std::string file_path = path + "/" + fname;
+            Status del = DeleteDBFile(&soptions, file_path, dbname,
                                       /*force_bg=*/false, /*force_fg=*/false);
             if (!del.ok() && result.ok()) {
               result = del;

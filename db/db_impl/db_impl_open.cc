@@ -1364,7 +1364,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           io_tracer_, &event_logger_, job_id, Env::IO_HIGH,
           nullptr /* table_properties */, -1 /* level */, current_time,
           0 /* oldest_key_time */, write_hint, 0 /* file_creation_time */,
-          db_id_, db_session_id_);
+          db_id_, db_session_id_, nullptr /*full_history_ts_low*/,
+          &blob_callback_);
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"
@@ -1723,6 +1724,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
     std::vector<LiveFileMetaData> metadata;
 
+    // TODO: Once GetLiveFilesMetaData supports blob files, update the logic
+    // below to get known_file_sizes for blob files.
     impl->mutex_.Lock();
     impl->versions_->GetLiveFilesMetaData(&metadata);
     impl->mutex_.Unlock();
@@ -1755,13 +1758,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         FileType file_type;
         std::string file_path = path + "/" + file_name;
         if (ParseFileName(file_name, &file_number, &file_type) &&
-            file_type == kTableFile) {
+            (file_type == kTableFile || file_type == kBlobFile)) {
           // TODO: Check for errors from OnAddFile?
           if (known_file_sizes.count(file_name)) {
             // We're assuming that each sst file name exists in at most one of
             // the paths.
-            sfm->OnAddFile(file_path, known_file_sizes.at(file_name),
-                           /* compaction */ false)
+            sfm->OnAddFile(file_path, known_file_sizes.at(file_name))
                 .PermitUncheckedError();
           } else {
             sfm->OnAddFile(file_path).PermitUncheckedError();

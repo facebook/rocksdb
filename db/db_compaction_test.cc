@@ -33,31 +33,6 @@ class DBCompactionTest : public DBTestBase {
  public:
   DBCompactionTest()
       : DBTestBase("/db_compaction_test", /*env_do_fsync=*/true) {}
-
-  std::vector<uint64_t> GetBlobFileNumbers() {
-    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
-    assert(versions);
-
-    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
-    assert(cfd);
-
-    Version* const current = cfd->current();
-    assert(current);
-
-    const VersionStorageInfo* const storage_info = current->storage_info();
-    assert(storage_info);
-
-    const auto& blob_files = storage_info->GetBlobFiles();
-
-    std::vector<uint64_t> result;
-    result.reserve(blob_files.size());
-
-    for (const auto& blob_file : blob_files) {
-      result.emplace_back(blob_file.first);
-    }
-
-    return result;
-  }
 };
 
 class DBCompactionTestWithParam
