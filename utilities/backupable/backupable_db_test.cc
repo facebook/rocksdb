@@ -2868,31 +2868,31 @@ TEST_F(BackupableDBTest, FutureMetaSchemaVersion2_NotSupported) {
 
   // Because we are injecting badness with a TEST API, the badness is only
   // detected on attempt to restore.
-  // NotSupported versions
+  // Not supported versions
   test_opts.version = "3";
   TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
-  test_opts.version = "asdf";
+  test_opts.version = "23.45.67";
   TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
   test_opts.version = "2";
 
-  // NotSupported non-ignorable fields
-  test_opts.meta_fields["ni_blah"] = "123";
+  // Non-ignorable fields
+  test_opts.meta_fields["ni::blah"] = "123";
   TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
   test_opts.meta_fields.clear();
 
-  test_opts.file_fields["ni_123"] = "xyz";
+  test_opts.file_fields["ni::123"] = "xyz";
   TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
   test_opts.file_fields.clear();
 
-  test_opts.footer_fields["ni_123"] = "xyz";
+  test_opts.footer_fields["ni::123"] = "xyz";
   TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
   ASSERT_OK(
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));

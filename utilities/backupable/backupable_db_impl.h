@@ -23,7 +23,7 @@ struct TEST_FutureSchemaVersion2Options {
 // unpublished schema version 2, for the life of this object (not backup_dir).
 // TEST_FutureSchemaVersion2Options offers some customization for testing.
 void TEST_EnableWriteFutureSchemaVersion2(
-    BackupEngine *engine, TEST_FutureSchemaVersion2Options options);
+    BackupEngine *engine, const TEST_FutureSchemaVersion2Options &options);
 
 }  // namespace ROCKSDB_NAMESPACE
 #endif  // ROCKSDB_LITE

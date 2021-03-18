@@ -2147,7 +2147,26 @@ Status BackupEngineImpl::BackupMeta::Delete(bool delete_meta) {
   return s;
 }
 
-const std::string kAppMetaDataFieldName("metadata");
+// Constants for backup meta file schema (see LoadFromFile)
+namespace {
+
+const std::string kSchemaVersionPrefix{"schema_version "};
+const std::string kFooterMarker{"// FOOTER"};
+
+const std::string kAppMetaDataFieldName{"metadata"};
+
+// WART: The checksums are crc32c but named "crc32"
+const std::string kFileCrc32cFieldName{"crc32"};
+const std::string kFileSizeFieldName{"size"};
+
+// Marks a (future) field that should cause failure if not recognized.
+// Other fields are assumed to be ignorable. For example, in the future
+// we might add
+//  ni::file_name_escape uri_percent
+// to indicate all file names have had spaces and special characters
+// escaped using a URI percent encoding.
+const std::string kNonIgnorableFieldPrefix{"ni::"};
+}  // namespace
 
 // Each backup meta file is of the format (schema version 1):
 //----------------------------------------------------------
@@ -2204,7 +2223,9 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     const std::unordered_map<std::string, uint64_t>& abs_path_to_size,
     Logger* info_log,
     std::unordered_set<std::string>* reported_ignored_fields) {
+  assert(reported_ignored_fields);
   assert(Empty());
+
   std::unique_ptr<LineFileReader> backup_meta_reader;
   {
     Status s =
@@ -2220,9 +2241,8 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   // Failures handled at the end
   std::string line;
   if (backup_meta_reader->ReadLine(&line)) {
-    const std::string ver_prefix{"schema_version "};
-    if (StartsWith(line, ver_prefix)) {
-      std::string ver = line.substr(ver_prefix.size());
+    if (StartsWith(line, kSchemaVersionPrefix)) {
+      std::string ver = line.substr(kSchemaVersionPrefix.size());
       if (ver == "2" || StartsWith(ver, "2.")) {
         schema_major_version = 2;
       } else {
@@ -2267,10 +2287,9 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     } else if (schema_major_version < 2) {
       return Status::Corruption("Expected number of files or \"" +
                                 kAppMetaDataFieldName + "\" field");
-    } else if (StartsWith(field_name, "ni_")) {
-      // ni_ short for "non-ignorable"
+    } else if (StartsWith(field_name, kNonIgnorableFieldPrefix)) {
       return Status::NotSupported("Unrecognized non-ignorable meta field " +
-                                  field_name);
+                                  field_name + " (from future version?)");
     } else {
       // Warn the first time we see any particular unrecognized meta field
       if (reported_ignored_fields->insert(field_name + "1").second) {
@@ -2288,7 +2307,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       return Status::Corruption("Empty line instead of file entry.");
     }
     if (schema_major_version >= 2 && components.size() == 2 &&
-        components[0] == "//" && components[1] == "footer") {
+        line == kFooterMarker) {
       footer_present = true;
       break;
     }
@@ -2315,12 +2334,12 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
             "Bad number of line components for file entry.");
       }
     } else {
+      // Check restricted original schema
       if (components.size() < 3) {
         return Status::Corruption("File checksum is missing for " + filename +
                                   " in " + meta_filename_);
       }
-      // WART: The checksums are crc32c, not original crc32
-      if (components[1] != "crc32") {
+      if (components[1] != kFileCrc32cFieldName) {
         return Status::Corruption("Unknown checksum type for " + filename +
                                   " in " + meta_filename_);
       }
@@ -2335,8 +2354,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       const std::string& field_name = components[i];
       const std::string& field_data = components[i + 1];
 
-      // WART: The checksums are crc32c, not original crc32
-      if (field_name == "crc32") {
+      if (field_name == kFileCrc32cFieldName) {
         uint32_t checksum_value =
             static_cast<uint32_t>(strtoul(field_data.c_str(), nullptr, 10));
         if (components[2] != ROCKSDB_NAMESPACE::ToString(checksum_value)) {
@@ -2344,7 +2362,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
                                     " in " + meta_filename_);
         }
         checksum_hex = ChecksumInt32ToHex(checksum_value);
-      } else if (field_name == "size") {
+      } else if (field_name == kFileSizeFieldName) {
         uint64_t ex_size =
             std::strtoull(field_data.c_str(), nullptr, /*base*/ 10);
         if (ex_size != actual_size) {
@@ -2352,10 +2370,9 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
                                     ToString(ex_size) + " but found size" +
                                     ToString(actual_size));
         }
-      } else if (StartsWith(field_name, "ni_")) {
-        // ni_ short for "non-ignorable"
+      } else if (StartsWith(field_name, kNonIgnorableFieldPrefix)) {
         return Status::NotSupported("Unrecognized non-ignorable file field " +
-                                    field_name);
+                                    field_name + " (from future version?)");
       } else {
         // Warn the first time we see any particular unrecognized file field
         if (reported_ignored_fields->insert(field_name + "2").second) {
@@ -2380,12 +2397,11 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       }
       std::string field_name = line.substr(0, space_pos);
       std::string field_data = line.substr(space_pos + 1);
-      // Warn the first time we see any particular unrecognized footer field
-      if (StartsWith(field_name, "ni_")) {
-        // ni_ short for "non-ignorable"
+      if (StartsWith(field_name, kNonIgnorableFieldPrefix)) {
         return Status::NotSupported("Unrecognized non-ignorable field " +
-                                    field_name);
+                                    field_name + " (from future version?)");
       } else if (reported_ignored_fields->insert(field_name + "3").second) {
+        // Warn the first time we see any particular unrecognized footer field
         ROCKS_LOG_WARN(info_log,
                        "Ignoring unrecognized backup meta footer field %s",
                        field_name.c_str());
@@ -2431,7 +2447,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(
 
   std::ostringstream buf;
   if (test_future_options) {
-    buf << "schema_version " << test_future_options->version << "\n";
+    buf << kSchemaVersionPrefix << test_future_options->version << "\n";
   }
   buf << static_cast<unsigned long long>(timestamp_) << "\n";
   buf << sequence_number_ << "\n";
@@ -2453,11 +2469,11 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(
     if (test_future_options == nullptr ||
         test_future_options->crc32c_checksums) {
       // use crc32c for now, switch to something else if needed
-      // WART: The checksums are crc32c, not original crc32
-      buf << " crc32 " << ChecksumHexToInt32(file->checksum_hex);
+      buf << " " << kFileCrc32cFieldName << " "
+          << ChecksumHexToInt32(file->checksum_hex);
     }
     if (test_future_options && test_future_options->file_sizes) {
-      buf << " size " << ToString(file->size);
+      buf << " " << kFileSizeFieldName << " " << ToString(file->size);
     }
     if (test_future_options) {
       for (auto& e : test_future_options->file_fields) {
@@ -2468,7 +2484,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(
   }
 
   if (test_future_options && !test_future_options->footer_fields.empty()) {
-    buf << "// footer\n";
+    buf << kFooterMarker << "\n";
     for (auto& e : test_future_options->footer_fields) {
       buf << e.first << " " << e.second << "\n";
     }
@@ -2551,10 +2567,10 @@ Status BackupEngineReadOnly::Open(const BackupableDBOptions& options, Env* env,
 }
 
 void TEST_EnableWriteFutureSchemaVersion2(
-    BackupEngine* engine, TEST_FutureSchemaVersion2Options options) {
+    BackupEngine* engine, const TEST_FutureSchemaVersion2Options& options) {
   BackupEngineImpl* impl = static_cast_with_check<BackupEngineImpl>(engine);
   impl->test_future_options_.reset(
-      new TEST_FutureSchemaVersion2Options(std::move(options)));
+      new TEST_FutureSchemaVersion2Options(options));
 }
 
 }  // namespace ROCKSDB_NAMESPACE
