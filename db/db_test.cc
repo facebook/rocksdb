@@ -249,6 +249,8 @@ TEST_F(DBTest, SkipDelay) {
       wo.no_slowdown = true;
       // Large enough to exceed allowance for one time interval
       std::string large_value(1024, 'x');
+      // Perhaps ideally this first write would fail because of delay, but
+      // the current implementation does not guarantee that.
       dbfull()->Put(wo, "foo", large_value).PermitUncheckedError();
       // We need the 2nd write to trigger delay. This is because delay is
       // estimated based on the last write size which is 0 for the first write.
