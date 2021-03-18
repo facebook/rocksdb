@@ -38,12 +38,14 @@ TEST_F(WriteControllerTest, BasicAPI) {
   EXPECT_EQ(controller.delayed_write_rate(), 40 MBPS);
   EXPECT_FALSE(controller.IsStopped());
   EXPECT_FALSE(controller.NeedsDelay());
+  EXPECT_EQ(0, controller.GetDelay(clock_.get(), 100 MB));
 
   // set, get
   controller.set_delayed_write_rate(20 MBPS);
   EXPECT_EQ(controller.delayed_write_rate(), 20 MBPS);
   EXPECT_FALSE(controller.IsStopped());
   EXPECT_FALSE(controller.NeedsDelay());
+  EXPECT_EQ(0, controller.GetDelay(clock_.get(), 100 MB));
 
   {
     // set with token, get
@@ -82,14 +84,22 @@ TEST_F(WriteControllerTest, BasicAPI) {
     {
       auto stop_token_1 = controller.GetStopToken();
       EXPECT_TRUE(controller.IsStopped());
+      EXPECT_EQ(0, controller.GetDelay(clock_.get(), 100 MB));
       {
         auto stop_token_2 = controller.GetStopToken();
         EXPECT_TRUE(controller.IsStopped());
+        EXPECT_EQ(0, controller.GetDelay(clock_.get(), 100 MB));
       }
       EXPECT_TRUE(controller.IsStopped());
+      EXPECT_EQ(0, controller.GetDelay(clock_.get(), 100 MB));
     }
     // Stop tokens released
     EXPECT_FALSE(controller.IsStopped());
+    EXPECT_TRUE(controller.NeedsDelay());
+    EXPECT_EQ(controller.delayed_write_rate(), 40 MBPS);
+    // pay the previous "debt"
+    clock_->now_micros_ += static_cast<uint64_t>(0.5 SECS);
+    EXPECT_EQ(1 SECS, controller.GetDelay(clock_.get(), 40 MB));
   }
 
   // Delay tokens released
@@ -109,8 +119,8 @@ TEST_F(WriteControllerTest, StartFilled) {
   EXPECT_EQ(0U, controller.GetDelay(clock_.get(), 2000u /*bytes*/));
   EXPECT_EQ(0U, controller.GetDelay(clock_.get(), 2000u /*bytes*/));
 
-  // Allow refill
-  clock_->now_micros_ += 1024;
+  // Allow refill (kMicrosPerRefill)
+  clock_->now_micros_ += 1000;
 
   // Again
   EXPECT_EQ(0U, controller.GetDelay(clock_.get(), 2000u /*bytes*/));

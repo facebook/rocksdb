@@ -24,8 +24,11 @@ std::unique_ptr<WriteControllerToken> WriteController::GetDelayToken(
   if (0 == total_delayed_++) {
     // Starting delay, so reset counters.
     next_refill_time_ = 0;
-    bytes_left_ = 0;
+    credit_in_bytes_ = 0;
   }
+  // NOTE: for simplicity, any current credit_in_bytes_ or "debt" in
+  // next_refill_time_ will be based on an old rate. This rate will apply
+  // for subsequent additional debts and for the next refill.
   set_delayed_write_rate(write_rate);
   return std::unique_ptr<WriteControllerToken>(new DelayWriteToken(this));
 }
@@ -53,8 +56,8 @@ uint64_t WriteController::GetDelay(SystemClock* clock, uint64_t num_bytes) {
     return 0;
   }
 
-  if (bytes_left_ >= num_bytes) {
-    bytes_left_ -= num_bytes;
+  if (credit_in_bytes_ >= num_bytes) {
+    credit_in_bytes_ -= num_bytes;
     return 0;
   }
   // The frequency to get time inside DB mutex is less than one per refill
@@ -62,7 +65,8 @@ uint64_t WriteController::GetDelay(SystemClock* clock, uint64_t num_bytes) {
   auto time_now = NowMicrosMonotonic(clock);
 
   const uint64_t kMicrosPerSecond = 1000000;
-  const uint64_t kMicrosPerRefill = 1024U;
+  // Refill every 1 ms
+  const uint64_t kMicrosPerRefill = 1000;
 
   if (next_refill_time_ == 0) {
     // Start with an initial allotment of bytes for one interval
@@ -71,25 +75,24 @@ uint64_t WriteController::GetDelay(SystemClock* clock, uint64_t num_bytes) {
   if (next_refill_time_ <= time_now) {
     // Refill based on time interval plus any extra elapsed
     uint64_t elapsed = time_now - next_refill_time_ + kMicrosPerRefill;
-    bytes_left_ += static_cast<uint64_t>(
+    credit_in_bytes_ += static_cast<uint64_t>(
         1.0 * elapsed / kMicrosPerSecond * delayed_write_rate_ + 0.999999);
     next_refill_time_ = time_now + kMicrosPerRefill;
 
-    if (bytes_left_ >= num_bytes) {
+    if (credit_in_bytes_ >= num_bytes) {
       // Avoid delay if possible, to reduce DB mutex release & re-aquire.
-      bytes_left_ -= num_bytes;
+      credit_in_bytes_ -= num_bytes;
       return 0;
     }
   }
 
   // We need to delay to avoid exceeding write rate.
-  assert(num_bytes > bytes_left_);
-  uint64_t bytes_over_budget = num_bytes - bytes_left_;
+  assert(num_bytes > credit_in_bytes_);
+  uint64_t bytes_over_budget = num_bytes - credit_in_bytes_;
   uint64_t needed_delay = static_cast<uint64_t>(
-      bytes_over_budget / static_cast<long double>(delayed_write_rate_) *
-      kMicrosPerSecond);
+      1.0 * bytes_over_budget / delayed_write_rate_ * kMicrosPerSecond);
 
-  bytes_left_ = 0;
+  credit_in_bytes_ = 0;
   next_refill_time_ += needed_delay;
 
   // Minimum delay of refill interval, to reduce DB mutex contention.
