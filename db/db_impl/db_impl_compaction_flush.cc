@@ -131,16 +131,11 @@ IOStatus DBImpl::SyncClosedLogs(JobContext* job_context) {
       MarkLogsNotSynced(current_log_number - 1);
     }
     if (!io_s.ok()) {
-      if (total_log_size_ > 0) {
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
-      } else {
-        // If the WAL is empty, we use different error reason
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
-      }
       TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return io_s;
     }
   }
+  TEST_SYNC_POINT("DBImpl::SyncClosedLogs:end");
   return io_s;
 }
 
@@ -170,17 +165,14 @@ Status DBImpl::FlushMemTableToOutputFile(
       &blob_callback_);
   FileMetaData file_meta;
 
-  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
-  flush_job.PickMemTable();
-  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:AfterPickMemtables");
-
 #ifndef ROCKSDB_LITE
   // may temporarily unlock and lock the mutex.
   NotifyOnFlushBegin(cfd, &file_meta, mutable_cf_options, job_context->job_id);
 #endif  // ROCKSDB_LITE
 
   Status s;
-  IOStatus io_s = IOStatus::OK();
+  bool need_cancel = false;
+  IOStatus log_io_s = IOStatus::OK();
   if (logfile_number_ > 0 &&
       versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 1) {
     // If there are more than one column families, we need to make sure that
@@ -189,15 +181,24 @@ Status DBImpl::FlushMemTableToOutputFile(
     // flushed SST may contain data from write batches whose updates to
     // other column families are missing.
     // SyncClosedLogs() may unlock and re-lock the db_mutex.
-    io_s = SyncClosedLogs(job_context);
-    s = io_s;
-    if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
-        !io_s.IsColumnFamilyDropped()) {
-      error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+    log_io_s = SyncClosedLogs(job_context);
+    s = log_io_s;
+    if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
+        !log_io_s.IsColumnFamilyDropped()) {
+      error_handler_.SetBGError(log_io_s, BackgroundErrorReason::kFlush);
     }
   } else {
     TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Skip");
   }
+
+  // If the log sync failed, we do not need to pick memtable. Otherwise,
+  // num_flush_not_started_ needs to be rollback.
+  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:BeforePickMemtables");
+  if (s.ok()) {
+    flush_job.PickMemTable();
+    need_cancel = true;
+  }
+  TEST_SYNC_POINT("DBImpl::FlushMemTableToOutputFile:AfterPickMemtables");
 
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
@@ -207,11 +208,16 @@ Status DBImpl::FlushMemTableToOutputFile(
   // is unlocked by the current thread.
   if (s.ok()) {
     s = flush_job.Run(&logs_with_prep_tracker_, &file_meta);
-  } else {
+    need_cancel = false;
+  }
+
+  if (!s.ok() && need_cancel) {
     flush_job.Cancel();
   }
-  if (io_s.ok()) {
-    io_s = flush_job.io_status();
+  IOStatus io_s = IOStatus::OK();
+  io_s = flush_job.io_status();
+  if (s.ok()) {
+    s = io_s;
   }
 
   if (s.ok()) {
@@ -247,6 +253,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   if (!s.ok() && !s.IsShutdownInProgress() && !s.IsColumnFamilyDropped()) {
     if (!io_s.ok() && !io_s.IsShutdownInProgress() &&
         !io_s.IsColumnFamilyDropped()) {
+      assert(log_io_s.ok());
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
       // CURRENT file. With current code, it's just difficult to tell. So just
@@ -261,15 +268,17 @@ Status DBImpl::FlushMemTableToOutputFile(
           error_handler_.SetBGError(io_s,
                                     BackgroundErrorReason::kManifestWriteNoWAL);
         }
-      } else if (total_log_size_ > 0) {
+      } else if (total_log_size_ > 0 || !log_io_s.ok()) {
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
       } else {
         // If the WAL is empty, we use different error reason
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
-      Status new_bg_error = s;
-      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+      if (log_io_s.ok()) {
+        Status new_bg_error = s;
+        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+      }
     }
   } else {
     // If we got here, then we decided not to care about the i_os status (either
@@ -402,12 +411,11 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         false /* sync_output_directory */, false /* write_manifest */,
         thread_pri, io_tracer_, db_id_, db_session_id_,
         cfd->GetFullHistoryTsLow()));
-    jobs.back()->PickMemTable();
   }
 
   std::vector<FileMetaData> file_meta(num_cfs);
   Status s;
-  IOStatus io_s;
+  IOStatus log_io_s = IOStatus::OK();
   assert(num_cfs == static_cast<int>(jobs.size()));
 
 #ifndef ROCKSDB_LITE
@@ -422,18 +430,36 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   if (logfile_number_ > 0) {
     // TODO (yanqin) investigate whether we should sync the closed logs for
     // single column family case.
-    io_s = SyncClosedLogs(job_context);
-    s = io_s;
+    log_io_s = SyncClosedLogs(job_context);
+    s = log_io_s;
+    if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
+        !log_io_s.IsColumnFamilyDropped()) {
+      if (total_log_size_ > 0) {
+        error_handler_.SetBGError(log_io_s, BackgroundErrorReason::kFlush);
+      } else {
+        // If the WAL is empty, we use different error reason
+        error_handler_.SetBGError(log_io_s, BackgroundErrorReason::kFlushNoWAL);
+      }
+    }
   }
 
   // exec_status stores the execution status of flush_jobs as
   // <bool /* executed */, Status /* status code */>
   autovector<std::pair<bool, Status>> exec_status;
   autovector<IOStatus> io_status;
+  std::vector<bool> pick_status;
   for (int i = 0; i != num_cfs; ++i) {
     // Initially all jobs are not executed, with status OK.
     exec_status.emplace_back(false, Status::OK());
     io_status.emplace_back(IOStatus::OK());
+    pick_status.push_back(false);
+  }
+
+  if (s.ok()) {
+    for (int i = 0; i != num_cfs; ++i) {
+      jobs[i]->PickMemTable();
+      pick_status[i] = true;
+    }
   }
 
   if (s.ok()) {
@@ -474,6 +500,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     s = error_status.ok() ? s : error_status;
   }
 
+  IOStatus io_s = IOStatus::OK();
   if (io_s.ok()) {
     IOStatus io_error = IOStatus::OK();
     for (int i = 0; i != static_cast<int>(io_status.size()); i++) {
@@ -509,7 +536,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // Have to cancel the flush jobs that have NOT executed because we need to
     // unref the versions.
     for (int i = 0; i != num_cfs; ++i) {
-      if (!exec_status[i].first) {
+      if (pick_status[i] && !exec_status[i].first) {
         jobs[i]->Cancel();
       }
     }
@@ -653,6 +680,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
   // it is not because of CF drop.
   if (!s.ok() && !s.IsColumnFamilyDropped()) {
     if (!io_s.ok() && !io_s.IsColumnFamilyDropped()) {
+      assert(log_io_s.ok());
       // Error while writing to MANIFEST.
       // In fact, versions_->io_status() can also be the result of renaming
       // CURRENT file. With current code, it's just difficult to tell. So just
@@ -674,8 +702,10 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
-      Status new_bg_error = s;
-      error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+      if (log_io_s.ok()) {
+        Status new_bg_error = s;
+        error_handler_.SetBGError(new_bg_error, BackgroundErrorReason::kFlush);
+      }
     }
   }
 
