@@ -1287,7 +1287,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
           Log(options_.info_log, "add file for backup %s", fname.c_str());
           uint64_t size_bytes = 0;
           Status st;
-          if (type == kTableFile) {
+          if (type == kTableFile || type == kBlobFile) {
             st = db_env_->GetFileSize(src_dirname + fname, &size_bytes);
           }
           EnvOptions src_env_options;
@@ -1314,10 +1314,12 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
           if (st.ok()) {
             st = AddBackupFileWorkItem(
                 live_dst_paths, backup_items_to_finish, new_backup_id,
-                options_.share_table_files && type == kTableFile, src_dirname,
-                fname, src_env_options, rate_limiter, size_bytes,
+                options_.share_table_files &&
+                    (type == kTableFile || type == kBlobFile),
+                src_dirname, fname, src_env_options, rate_limiter, size_bytes,
                 size_limit_bytes,
-                options_.share_files_with_checksum && type == kTableFile,
+                options_.share_files_with_checksum &&
+                    (type == kTableFile || type == kBlobFile),
                 options.progress_callback, "" /* contents */,
                 checksum_func_name, checksum_val);
           }
@@ -1906,7 +1908,8 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
 
   // Step 1: Prepare the relative path to destination
   if (shared && shared_checksum) {
-    if (GetNamingNoFlags() != BackupableDBOptions::kLegacyCrc32cAndFileSize) {
+    if (GetNamingNoFlags() != BackupableDBOptions::kLegacyCrc32cAndFileSize &&
+        fname.find(".blob") == std::string::npos) {
       // Prepare db_session_id to add to the file name
       // Ignore the returned status
       // In the failed cases, db_id and db_session_id will be empty
