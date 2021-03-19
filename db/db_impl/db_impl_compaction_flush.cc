@@ -182,7 +182,6 @@ Status DBImpl::FlushMemTableToOutputFile(
     // other column families are missing.
     // SyncClosedLogs() may unlock and re-lock the db_mutex.
     log_io_s = SyncClosedLogs(job_context);
-    s = log_io_s;
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
         !log_io_s.IsColumnFamilyDropped()) {
       error_handler_.SetBGError(log_io_s, BackgroundErrorReason::kFlush);
@@ -190,6 +189,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   } else {
     TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Skip");
   }
+  s = log_io_s;
 
   // If the log sync failed, we do not need to pick memtable. Otherwise,
   // num_flush_not_started_ needs to be rollback.
@@ -431,7 +431,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // TODO (yanqin) investigate whether we should sync the closed logs for
     // single column family case.
     log_io_s = SyncClosedLogs(job_context);
-    s = log_io_s;
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
         !log_io_s.IsColumnFamilyDropped()) {
       if (total_log_size_ > 0) {
@@ -442,6 +441,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
     }
   }
+  s = log_io_s;
 
   // exec_status stores the execution status of flush_jobs as
   // <bool /* executed */, Status /* status code */>
@@ -541,7 +541,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
     }
     for (int i = 0; i != num_cfs; ++i) {
-      if (exec_status[i].first && exec_status[i].second.ok()) {
+      if (exec_status[i].second.ok() && exec_status[i].first) {
         auto& mems = jobs[i]->GetMemTables();
         cfds[i]->imm()->RollbackMemtableFlush(mems,
                                               file_meta[i].fd.GetNumber());
