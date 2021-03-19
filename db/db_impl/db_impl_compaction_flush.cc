@@ -431,7 +431,6 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
     // TODO (yanqin) investigate whether we should sync the closed logs for
     // single column family case.
     log_io_s = SyncClosedLogs(job_context);
-    s = log_io_s;
     if (!log_io_s.ok() && !log_io_s.IsShutdownInProgress() &&
         !log_io_s.IsColumnFamilyDropped()) {
       if (total_log_size_ > 0) {
@@ -442,6 +441,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
     }
   }
+  s = log_io_s;
 
   // exec_status stores the execution status of flush_jobs as
   // <bool /* executed */, Status /* status code */>
@@ -541,7 +541,7 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       }
     }
     for (int i = 0; i != num_cfs; ++i) {
-      if (exec_status[i].first && exec_status[i].second.ok()) {
+      if (exec_status[i].second.ok() && exec_status[i].first) {
         auto& mems = jobs[i]->GetMemTables();
         cfds[i]->imm()->RollbackMemtableFlush(mems,
                                               file_meta[i].fd.GetNumber());
