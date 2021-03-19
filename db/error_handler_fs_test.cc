@@ -351,7 +351,96 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteFileScopeError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError1) {
+TEST_F(DBErrorHandlingFSTest, FLushWALWriteRetryableError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
+  Status s;
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  listener->EnableAutoRecovery(false);
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncClosedLogs:Start",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateAndReopenWithCF({"pikachu, sdfsdfsdf"}, options);
+
+  WriteOptions wo = WriteOptions();
+  wo.disableWAL = false;
+  ASSERT_OK(Put(Key(1), "val1", wo));
+
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+  auto cfh = dbfull()->GetColumnFamilyHandle(1);
+  s = dbfull()->DropColumnFamily(cfh);
+
+  s = dbfull()->Resume();
+  ASSERT_OK(s);
+  ASSERT_EQ("val1", Get(Key(1)));
+  ASSERT_OK(Put(Key(3), "val3", wo));
+  ASSERT_EQ("val3", Get(Key(3)));
+  s = Flush();
+  ASSERT_OK(s);
+  ASSERT_EQ("val3", Get(Key(3)));
+
+  Destroy(options);
+}
+
+TEST_F(DBErrorHandlingFSTest, FLushWALAtomicWriteRetryableError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
+  options.atomic_flush = true;
+  Status s;
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  listener->EnableAutoRecovery(false);
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncClosedLogs:Start",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateAndReopenWithCF({"pikachu, sdfsdfsdf"}, options);
+
+  WriteOptions wo = WriteOptions();
+  wo.disableWAL = false;
+  ASSERT_OK(Put(Key(1), "val1", wo));
+
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+  auto cfh = dbfull()->GetColumnFamilyHandle(1);
+  s = dbfull()->DropColumnFamily(cfh);
+
+  s = dbfull()->Resume();
+  ASSERT_OK(s);
+  ASSERT_EQ("val1", Get(Key(1)));
+  ASSERT_OK(Put(Key(3), "val3", wo));
+  ASSERT_EQ("val3", Get(Key(3)));
+  s = Flush();
+  ASSERT_OK(s);
+  ASSERT_EQ("val3", Get(Key(3)));
+
+  Destroy(options);
+}
+
+TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();

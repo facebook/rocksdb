@@ -761,7 +761,6 @@ endif
 TESTS_PLATFORM_DEPENDENT := \
 	db_basic_test \
 	db_blob_basic_test \
-	db_with_timestamp_basic_test \
 	db_encryption_test \
 	db_test2 \
 	external_sst_file_basic_test \

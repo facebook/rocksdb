@@ -11,7 +11,11 @@
 
 #include "rocksdb/c.h"
 
-#include <stdlib.h>
+#include <cstdlib>
+#include <map>
+#include <unordered_set>
+#include <vector>
+
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -24,6 +28,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
+#include "rocksdb/perf_context.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
@@ -39,12 +44,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_batch.h"
-#include "rocksdb/perf_context.h"
 #include "utilities/merge_operators.h"
-
-#include <vector>
-#include <unordered_set>
-#include <map>
 
 using ROCKSDB_NAMESPACE::BackupableDBOptions;
 using ROCKSDB_NAMESPACE::BackupEngine;
@@ -2959,6 +2959,8 @@ void rocksdb_options_set_access_hint_on_compaction_start(
       opt->rep.access_hint_on_compaction_start =
           ROCKSDB_NAMESPACE::Options::WILLNEED;
       break;
+    default:
+      assert(0);
   }
 }
 
