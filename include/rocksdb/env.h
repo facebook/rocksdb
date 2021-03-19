@@ -48,6 +48,7 @@ class Logger;
 class RandomAccessFile;
 class SequentialFile;
 class Slice;
+struct DataVerificationInfo;
 class WritableFile;
 class RandomRWFile;
 class MemoryMappedFileBuffer;
@@ -770,13 +771,6 @@ class RandomAccessFile {
 
   // If you're adding methods here, remember to add them to
   // RandomAccessFileWrapper too.
-};
-
-// A data structure brings the data verification information, which is
-// used togther with data being written to a file.
-struct DataVerificationInfo {
-  // checksum of the data being written.
-  Slice checksum;
 };
 
 // A file abstraction for sequential writing.  The implementation
@@ -1572,8 +1566,17 @@ class WritableFileWrapper : public WritableFile {
   explicit WritableFileWrapper(WritableFile* t) : target_(t) {}
 
   Status Append(const Slice& data) override { return target_->Append(data); }
+  Status Append(const Slice& data,
+                const DataVerificationInfo& verification_info) override {
+    return target_->Append(data, verification_info);
+  }
   Status PositionedAppend(const Slice& data, uint64_t offset) override {
     return target_->PositionedAppend(data, offset);
+  }
+  Status PositionedAppend(
+      const Slice& data, uint64_t offset,
+      const DataVerificationInfo& verification_info) override {
+    return target_->PositionedAppend(data, offset, verification_info);
   }
   Status Truncate(uint64_t size) override { return target_->Truncate(size); }
   Status Close() override { return target_->Close(); }

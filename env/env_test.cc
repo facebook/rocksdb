@@ -1669,8 +1669,22 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
       return Status::OK();
     }
 
+    Status Append(
+        const Slice& /*data*/,
+        const DataVerificationInfo& /* verification_info */) override {
+      inc(1);
+      return Status::OK();
+    }
+
     Status PositionedAppend(const Slice& /*data*/,
                             uint64_t /*offset*/) override {
+      inc(2);
+      return Status::OK();
+    }
+
+    Status PositionedAppend(
+        const Slice& /*data*/, uint64_t /*offset*/,
+        const DataVerificationInfo& /* verification_info */) override {
       inc(2);
       return Status::OK();
     }

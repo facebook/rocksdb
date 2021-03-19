@@ -1543,6 +1543,12 @@ class ReportFileOpEnv : public EnvWrapper {
         return rv;
       }
 
+      Status Append(
+          const Slice& data,
+          const DataVerificationInfo& /* verification_info */) override {
+        return Append(data);
+      }
+
       Status Truncate(uint64_t size) override { return target_->Truncate(size); }
       Status Close() override { return target_->Close(); }
       Status Flush() override { return target_->Flush(); }
