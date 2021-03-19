@@ -1887,10 +1887,10 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   std::string db_session_id;
   // crc32c checksum in hex. empty == unavailable / unknown
   std::string checksum_hex;
-
+ 
   // Whenever a default checksum function name is passed in, we will compares
-  // the corresponding checksum values after copying. Note that only table files
-  // may have a known checksum function name passed in.
+  // the corresponding checksum values after copying. Note that only table and
+  // blob files may have a known checksum function name passed in.
   //
   // If no default checksum function name is passed in and db session id is not
   // available, we will calculate the checksum *before* copying in two cases
@@ -1941,6 +1941,11 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     // shared_checksum/<file_number>_<db_session_id>.sst
     // Otherwise, dst_relative is of the form
     // shared_checksum/<file_number>_<checksum>_<size>.sst
+    //
+    // For blob files, db_session_id is not supported with the blob file format.
+    // It uses original/legacy naming scheme.
+    // dst_relative will be of the form:
+    // shared_checksum/<file_number>_<checksum>_<size>.blob
     dst_relative = GetSharedFileWithChecksum(dst_relative, checksum_hex,
                                              size_bytes, db_session_id);
     dst_relative_tmp = GetSharedFileWithChecksumRel(dst_relative, true);
