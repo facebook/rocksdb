@@ -5,11 +5,11 @@
 
 #pragma once
 
-#include <assert.h>
-#include <stdint.h>
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <type_traits>
 #include <vector>
