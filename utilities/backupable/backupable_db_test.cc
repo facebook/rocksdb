@@ -894,14 +894,17 @@ class BackupableDBTest : public testing::Test {
 
   void AssertDirectoryFilesMatchRegex(const std::string& dir,
                                       const std::regex& pattern,
+                                      const std::string file_type,
                                       int minimum_count) {
     std::vector<FileAttributes> children;
     ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
     int found_count = 0;
     for (const auto& child : children) {
-      const std::string match("match");
-      ASSERT_EQ(match, std::regex_replace(child.name, pattern, match));
-      ++found_count;
+      if (child.name.find(file_type) != std::string::npos) {
+        const std::string match("match");
+        ASSERT_EQ(match, std::regex_replace(child.name, pattern, match));
+        ++found_count;
+      }
     }
     ASSERT_GE(found_count, minimum_count);
   }
@@ -978,6 +981,15 @@ class BackupableDBTestWithParam : public BackupableDBTest,
   }
 };
 
+class BackupableDBTestWithBlobParam : public BackupableDBTest,
+                                      public testing::WithParamInterface<bool> {
+ public:
+  BackupableDBTestWithBlobParam() { options_.enable_blob_files = GetParam(); }
+};
+
+INSTANTIATE_TEST_CASE_P(BackupableDBTestWithBlobParam,
+                        BackupableDBTestWithBlobParam, ::testing::Bool());
+
 TEST_F(BackupableDBTest, FileCollision) {
   const int keys_iteration = 5000;
   for (const auto& sopt : kAllShareOptions) {
@@ -1040,6 +1052,102 @@ TEST_P(BackupableDBTestWithParam, VerifyBackup) {
   ASSERT_TRUE(backup_engine_->VerifyBackup(2).IsCorruption());
 
   // ---------- case 4. - invalid backup -----------
+  ASSERT_TRUE(backup_engine_->VerifyBackup(6).IsNotFound());
+  CloseDBAndBackupEngine();
+}
+
+// This test verifies that the verifyBackup method correctly identifies
+// invalid backups
+TEST_P(BackupableDBTestWithParam, BlobFileDeletionAfterBackup) {
+  const int keys_iteration = 5000;
+  options_.enable_blob_files = true;
+
+  std::string shared_dir = backupdir_;
+  if (backupable_options_->share_files_with_checksum) {
+    shared_dir += "/shared_checksum";
+  } else {
+    shared_dir += "/shared";
+  }
+
+  OpenDBAndBackupEngine(true);
+  // create a backup
+  FillDB(db_.get(), 0, keys_iteration);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine();
+
+  Random rnd(6);
+  std::vector<std::string> files;
+  std::vector<FileAttributes> children;
+  ASSERT_OK(file_manager_->GetChildrenFileAttributes(shared_dir, &children));
+
+  for (const auto& child : children) {
+    if (child.name.find(".blob") != std::string::npos &&
+        child.size_bytes != 0) {
+      files.push_back(child.name);
+    }
+  }
+
+  // ---------- case 1. - valid backup --------------------
+  ASSERT_TRUE(backup_engine_->VerifyBackup(1).ok());
+
+  // ---------- case 2. - delete a random blob file -------
+  {
+    size_t i = rnd.Uniform(static_cast<int>(files.size()));
+    ASSERT_OK(file_manager_->DeleteFile(shared_dir + "/" + files[i]));
+    ASSERT_TRUE(backup_engine_->VerifyBackup(1).IsNotFound());
+  }
+
+  // ---------- case 4. - invalid backup ------------------
+  ASSERT_TRUE(backup_engine_->VerifyBackup(2).IsNotFound());
+  CloseDBAndBackupEngine();
+}
+
+TEST_P(BackupableDBTestWithParam, BlobFileCorruptionAfterBackup) {
+  const int keys_iteration = 5000;
+  options_.enable_blob_files = true;
+
+  std::string shared_dir = backupdir_;
+  if (backupable_options_->share_files_with_checksum) {
+    shared_dir += "/shared_checksum";
+  } else {
+    shared_dir += "/shared";
+  }
+
+  OpenDBAndBackupEngine(true);
+  // create a backup
+  FillDB(db_.get(), 0, keys_iteration);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine();
+
+  Random rnd(6);
+  std::vector<std::string> files;
+  std::vector<FileAttributes> children;
+  ASSERT_OK(file_manager_->GetChildrenFileAttributes(shared_dir, &children));
+
+  for (const auto& child : children) {
+    if (child.name.find(".blob") != std::string::npos &&
+        child.size_bytes != 0) {
+      files.push_back(child.name);
+    }
+  }
+
+  // ---------- case 1. - valid backup --------------------
+  ASSERT_TRUE(backup_engine_->VerifyBackup(1).ok());
+
+  // ---------- case 2. - corrupt a random blob file ------
+  {
+    size_t i = rnd.Uniform(static_cast<int>(files.size()));
+    ASSERT_OK(file_manager_->CorruptFile(shared_dir + "/" + files[i], 10));
+    ASSERT_TRUE(backup_engine_->VerifyBackup(1, true).IsCorruption());
+  }
+
+  // ---------- case 4. - invalid backup ------------------
   ASSERT_TRUE(backup_engine_->VerifyBackup(6).IsNotFound());
   CloseDBAndBackupEngine();
 }
@@ -1433,9 +1541,9 @@ TEST_F(BackupableDBTest, CorruptFileMaintainSize) {
 }
 
 // Corrupt a blob file but maintain its size
-TEST_F(BackupableDBTest, CorruptBlobFileMaintainSize) {
-  const int keys_iteration = 5000;
+TEST_P(BackupableDBTestWithParam, CorruptBlobFileMaintainSize) {
   options_.enable_blob_files = true;
+  const int keys_iteration = 5000;
   OpenDBAndBackupEngine(true);
   // create a backup
   FillDB(db_.get(), 0, keys_iteration);
@@ -1450,7 +1558,14 @@ TEST_F(BackupableDBTest, CorruptBlobFileMaintainSize) {
 
   std::string file_to_corrupt;
   std::vector<FileAttributes> children;
-  const std::string dir = backupdir_ + "/private/1";
+
+  std::string dir = backupdir_;
+  if (backupable_options_->share_files_with_checksum) {
+    dir += "/shared_checksum";
+  } else {
+    dir += "/shared";
+  }
+
   ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
 
   for (const auto& child : children) {
@@ -1891,7 +2006,7 @@ TEST_F(BackupableDBTest, FailOverwritingBackups) {
   CloseDBAndBackupEngine();
 }
 
-TEST_F(BackupableDBTest, NoShareTableFiles) {
+TEST_P(BackupableDBTestWithBlobParam, NoShareTableFiles) {
   const int keys_iteration = 5000;
   OpenDBAndBackupEngine(true, false, kNoShare);
   for (int i = 0; i < 5; ++i) {
@@ -1907,7 +2022,7 @@ TEST_F(BackupableDBTest, NoShareTableFiles) {
 }
 
 // Verify that you can backup and restore with share_files_with_checksum on
-TEST_F(BackupableDBTest, ShareTableFilesWithChecksums) {
+TEST_P(BackupableDBTestWithBlobParam, ShareTableFilesWithChecksums) {
   const int keys_iteration = 5000;
   OpenDBAndBackupEngine(true, false, kShareWithChecksum);
   for (int i = 0; i < 5; ++i) {
@@ -1924,7 +2039,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksums) {
 
 // Verify that you can backup and restore using share_files_with_checksum set to
 // false and then transition this option to true
-TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
+TEST_P(BackupableDBTestWithBlobParam, ShareTableFilesWithChecksumsTransition) {
   const int keys_iteration = 5000;
   // set share_files_with_checksum to false
   OpenDBAndBackupEngine(true, false, kShareNoChecksum);
@@ -1966,7 +2081,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
 }
 
 // Verify backup and restore with various naming options, check names
-TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNaming) {
+TEST_P(BackupableDBTestWithBlobParam, ShareTableFilesWithChecksumsNewNaming) {
   ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
               kNamingDefault);
 
@@ -1986,6 +2101,8 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNaming) {
        "[0-9]+_s[0-9A-Z]{20}_[0-9]+[.]sst"},
   };
 
+  const std::string blobfile_pattern = "[0-9]+_[0-9]+_[0-9]+[.]blob";
+
   for (const auto& pair : option_to_expected) {
     CloseAndReopenDB();
     backupable_options_->share_files_with_checksum_naming = pair.first;
@@ -1994,11 +2111,17 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNaming) {
     CloseDBAndBackupEngine();
     AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
     AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
-                                   std::regex(pair.second),
+                                   std::regex(pair.second), ".sst",
                                    1 /* minimum_count */);
     if (std::string::npos != pair.second.find("_[0-9]+[.]sst")) {
       AssertDirectoryFilesSizeIndicators(backupdir_ + "/shared_checksum",
                                          1 /* minimum_count */);
+    }
+
+    if (options_.enable_blob_files) {
+      AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
+                                     std::regex(blobfile_pattern), ".blob",
+                                     1 /* minimum_count */);
     }
   }
 }
@@ -2032,7 +2155,7 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsOldFileNaming) {
     CloseDBAndBackupEngine();
     AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
     AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum", expected,
-                                   1 /* minimum_count */);
+                                   ".sst", 1 /* minimum_count */);
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
