@@ -906,6 +906,7 @@ Status BackupEngineImpl::Initialize() {
                                      work_item.dst_path + ": " + checksum_info);
             }
           } else {
+            // FIXME(peterd): dead code?
             std::string checksum_function_info(
                 "Existing checksum function is " +
                 work_item.src_checksum_func_name +
@@ -2236,7 +2237,9 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     }
   }
 
-  int schema_major_version = 1;  // implicit default
+  // If we don't read an explicit schema_version, that implies version 1,
+  // which is what we call the original backup meta schema.
+  int schema_major_version = 1;
 
   // Failures handled at the end
   std::string line;
@@ -2292,7 +2295,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
                                   field_name + " (from future version?)");
     } else {
       // Warn the first time we see any particular unrecognized meta field
-      if (reported_ignored_fields->insert(field_name + "1").second) {
+      if (reported_ignored_fields->insert("meta:" + field_name).second) {
         ROCKS_LOG_WARN(info_log, "Ignoring unrecognized backup meta field %s",
                        field_name.c_str());
       }
@@ -2357,7 +2360,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       if (field_name == kFileCrc32cFieldName) {
         uint32_t checksum_value =
             static_cast<uint32_t>(strtoul(field_data.c_str(), nullptr, 10));
-        if (components[2] != ROCKSDB_NAMESPACE::ToString(checksum_value)) {
+        if (field_data != ROCKSDB_NAMESPACE::ToString(checksum_value)) {
           return Status::Corruption("Invalid checksum value for " + filename +
                                     " in " + meta_filename_);
         }
@@ -2375,7 +2378,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
                                     field_name + " (from future version?)");
       } else {
         // Warn the first time we see any particular unrecognized file field
-        if (reported_ignored_fields->insert(field_name + "2").second) {
+        if (reported_ignored_fields->insert("file:" + field_name).second) {
           ROCKS_LOG_WARN(info_log, "Ignoring unrecognized backup file field %s",
                          field_name.c_str());
         }
@@ -2400,7 +2403,8 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       if (StartsWith(field_name, kNonIgnorableFieldPrefix)) {
         return Status::NotSupported("Unrecognized non-ignorable field " +
                                     field_name + " (from future version?)");
-      } else if (reported_ignored_fields->insert(field_name + "3").second) {
+      } else if (reported_ignored_fields->insert("footer:" + field_name)
+                     .second) {
         // Warn the first time we see any particular unrecognized footer field
         ROCKS_LOG_WARN(info_log,
                        "Ignoring unrecognized backup meta footer field %s",
