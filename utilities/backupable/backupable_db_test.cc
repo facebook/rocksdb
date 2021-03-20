@@ -34,6 +34,7 @@
 #include "util/random.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
+#include "utilities/backupable/backupable_db_impl.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -2790,6 +2791,188 @@ TEST_F(BackupableDBTest, MetadataTooLarge) {
       backup_engine_->CreateNewBackupWithMetadata(db_.get(), largeMetadata));
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, options_);
+}
+
+TEST_F(BackupableDBTest, FutureMetaSchemaVersion2_SizeCorruption) {
+  OpenDBAndBackupEngine(true);
+
+  // Backup 1: no future schema, no sizes, with checksums
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+
+  // Backup 2: no checksums, no sizes
+  TEST_FutureSchemaVersion2Options test_opts;
+  test_opts.crc32c_checksums = false;
+  test_opts.file_sizes = false;
+  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+
+  // Backup 3: no checksums, with sizes
+  test_opts.file_sizes = true;
+  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+
+  // Backup 4: with checksums and sizes
+  test_opts.crc32c_checksums = true;
+  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+
+  CloseDBAndBackupEngine();
+
+  // Corrupt all the CURRENT files with the wrong size
+  const std::string private_dir = backupdir_ + "/private";
+
+  for (int id = 1; id <= 3; ++id) {
+    ASSERT_OK(file_manager_->WriteToFile(
+        private_dir + "/" + ToString(id) + "/CURRENT", "x"));
+  }
+  // Except corrupt Backup 4 with same size CURRENT file
+  {
+    uint64_t size = 0;
+    ASSERT_OK(test_backup_env_->GetFileSize(private_dir + "/4/CURRENT", &size));
+    ASSERT_OK(file_manager_->WriteToFile(private_dir + "/4/CURRENT",
+                                         std::string(size, 'x')));
+  }
+
+  OpenBackupEngine();
+
+  // Only the one with sizes in metadata will be immediately detected
+  // as corrupt
+  std::vector<BackupID> corrupted;
+  backup_engine_->GetCorruptedBackups(&corrupted);
+  ASSERT_EQ(corrupted.size(), 1);
+  ASSERT_EQ(corrupted[0], 3);
+
+  // Size corruption detected on Restore with checksum
+  ASSERT_TRUE(backup_engine_->RestoreDBFromBackup(1 /*id*/, dbname_, dbname_)
+                  .IsCorruption());
+
+  // Size corruption not detected without checksums nor sizes
+  ASSERT_OK(backup_engine_->RestoreDBFromBackup(2 /*id*/, dbname_, dbname_));
+
+  // Non-size corruption detected on Restore with checksum
+  ASSERT_TRUE(backup_engine_->RestoreDBFromBackup(4 /*id*/, dbname_, dbname_)
+                  .IsCorruption());
+
+  CloseBackupEngine();
+}
+
+TEST_F(BackupableDBTest, FutureMetaSchemaVersion2_NotSupported) {
+  TEST_FutureSchemaVersion2Options test_opts;
+  std::string app_metadata = "abc\ndef";
+
+  OpenDBAndBackupEngine(true);
+  // Start with supported
+  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  ASSERT_OK(
+      backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
+
+  // Because we are injecting badness with a TEST API, the badness is only
+  // detected on attempt to restore.
+  // Not supported versions
+  test_opts.version = "3";
+  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  ASSERT_OK(
+      backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
+  test_opts.version = "23.45.67";
+  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  ASSERT_OK(
+      backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
+  test_opts.version = "2";
+
+  // Non-ignorable fields
+  test_opts.meta_fields["ni::blah"] = "123";
+  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  ASSERT_OK(
+      backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
+  test_opts.meta_fields.clear();
+
+  test_opts.file_fields["ni::123"] = "xyz";
+  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  ASSERT_OK(
+      backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
+  test_opts.file_fields.clear();
+
+  test_opts.footer_fields["ni::123"] = "xyz";
+  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  ASSERT_OK(
+      backup_engine_->CreateNewBackupWithMetadata(db_.get(), app_metadata));
+  test_opts.footer_fields.clear();
+  CloseDBAndBackupEngine();
+
+  OpenBackupEngine();
+  std::vector<BackupID> corrupted;
+  backup_engine_->GetCorruptedBackups(&corrupted);
+  ASSERT_EQ(corrupted.size(), 5);
+
+  ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
+  CloseBackupEngine();
+}
+
+TEST_F(BackupableDBTest, FutureMetaSchemaVersion2_Restore) {
+  TEST_FutureSchemaVersion2Options test_opts;
+  const int keys_iteration = 5000;
+
+  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
+  FillDB(db_.get(), 0, keys_iteration);
+  // Start with minimum metadata to ensure it works without it being filled
+  // based on shared files also in other backups with the metadata.
+  test_opts.crc32c_checksums = false;
+  test_opts.file_sizes = false;
+  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  AssertBackupConsistency(1 /* id */, 0, keys_iteration, keys_iteration * 2);
+
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false,
+                        kShareWithChecksum);
+  test_opts.file_sizes = true;
+  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  for (int id = 1; id <= 2; ++id) {
+    AssertBackupConsistency(id, 0, keys_iteration, keys_iteration * 2);
+  }
+
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false,
+                        kShareWithChecksum);
+  test_opts.crc32c_checksums = true;
+  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  for (int id = 1; id <= 3; ++id) {
+    AssertBackupConsistency(id, 0, keys_iteration, keys_iteration * 2);
+  }
+
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false,
+                        kShareWithChecksum);
+  // No TEST_EnableWriteFutureSchemaVersion2
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  for (int id = 1; id <= 4; ++id) {
+    AssertBackupConsistency(id, 0, keys_iteration, keys_iteration * 2);
+  }
+
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false,
+                        kShareWithChecksum);
+  // Minor version updates should be forward-compatible
+  test_opts.version = "2.5.70";
+  test_opts.meta_fields["asdf.3456"] = "-42";
+  test_opts.meta_fields["__QRST"] = " 1 $ %%& ";
+  test_opts.file_fields["z94._"] = "^\\";
+  test_opts.file_fields["_7yyyyyyyyy"] = "111111111111";
+  test_opts.footer_fields["Qwzn.tz89"] = "ASDF!!@# ##=\t ";
+  test_opts.footer_fields["yes"] = "no!";
+  TEST_EnableWriteFutureSchemaVersion2(backup_engine_.get(), test_opts);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  for (int id = 1; id <= 5; ++id) {
+    AssertBackupConsistency(id, 0, keys_iteration, keys_iteration * 2);
+  }
 }
 
 TEST_F(BackupableDBTest, LimitBackupsOpened) {

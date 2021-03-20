@@ -17,6 +17,7 @@
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/types.h"
 #include "util/cast_util.h"
+#include "utilities/backupable/backupable_db_impl.h"
 #include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1305,6 +1306,12 @@ Status StressTest::TestBackupRestore(
     from = "BackupEngine::Open";
   }
   if (s.ok()) {
+    if (thread->rand.OneIn(2)) {
+      TEST_FutureSchemaVersion2Options test_opts;
+      test_opts.crc32c_checksums = thread->rand.OneIn(2) == 0;
+      test_opts.file_sizes = thread->rand.OneIn(2) == 0;
+      TEST_EnableWriteFutureSchemaVersion2(backup_engine, test_opts);
+    }
     s = backup_engine->CreateNewBackup(db_);
     if (!s.ok()) {
       from = "BackupEngine::CreateNewBackup";
