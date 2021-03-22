@@ -30,7 +30,7 @@ class AwsRetryStrategy : public Aws::Client::RetryStrategy {
     retryableErrors.push_back("InternalError");
     default_strategy_ =
         std::make_shared<Aws::Client::SpecifiedRetryableErrorsRetryStrategy>(
-            retryStrategy);
+            retryableErrors);
     Log(InfoLogLevel::INFO_LEVEL, env_->info_log_,
         "[aws] Configured custom retry policy");
   }
