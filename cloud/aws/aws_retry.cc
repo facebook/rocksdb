@@ -9,7 +9,7 @@
 #ifdef USE_AWS
 #include <aws/core/client/AWSError.h>
 #include <aws/core/client/ClientConfiguration.h>
-#include <aws/core/client/DefaultRetryStrategy.h>
+#include <aws/core/client/SpecifiedRetryableErrorsRetryStrategy.h>
 #include <aws/core/client/RetryStrategy.h>
 #endif  // USE_AWS
 
@@ -21,7 +21,16 @@ namespace ROCKSDB_NAMESPACE {
 class AwsRetryStrategy : public Aws::Client::RetryStrategy {
  public:
   AwsRetryStrategy(CloudEnv* env) : env_(env) {
-    default_strategy_ = std::make_shared<Aws::Client::DefaultRetryStrategy>();
+    // In many environments, AccessDenied and ExpiredToken errors are retryable.
+    // This is because HTTP requests are involved in fetching the new tokens and
+    // credentials, which can fail.
+    Aws::Vector<Aws::String> retryableErrors;
+    retryableErrors.push_back("AccessDenied");
+    retryableErrors.push_back("ExpiredToken");
+    retryableErrors.push_back("InternalError");
+    default_strategy_ =
+        std::make_shared<Aws::Client::SpecifiedRetryableErrorsRetryStrategy>(
+            retryStrategy);
     Log(InfoLogLevel::INFO_LEVEL, env_->info_log_,
         "[aws] Configured custom retry policy");
   }
