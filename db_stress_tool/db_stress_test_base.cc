@@ -208,7 +208,7 @@ bool StressTest::BuildOptionsTable() {
     options_tbl.emplace("enable_blob_files",
                         std::vector<std::string>{"false", "true"});
     options_tbl.emplace("min_blob_size",
-                        std::vector<std::string>{"0", "16", "256"});
+                        std::vector<std::string>{"0", "8", "16"});
     options_tbl.emplace("blob_file_size",
                         std::vector<std::string>{"1M", "16M", "256M", "1G"});
     options_tbl.emplace("blob_compression_type", GetBlobCompressionTags());

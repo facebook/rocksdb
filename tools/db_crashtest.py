@@ -271,7 +271,7 @@ blob_params = {
     # Enable blob files and GC with a 75% chance initially; note that they might still be
     # enabled/disabled during the test via SetOptions
     "enable_blob_files": lambda: random.choice([0] + [1] * 3),
-    "min_blob_size": lambda: random.choice([0, 16, 256]),
+    "min_blob_size": lambda: random.choice([0, 8, 16]),
     "blob_file_size": lambda: random.choice([1048576, 16777216, 268435456, 1073741824]),
     "blob_compression_type": lambda: random.choice(["none", "snappy", "lz4", "zstd"]),
     "enable_blob_garbage_collection": lambda: random.choice([0] + [1] * 3),
