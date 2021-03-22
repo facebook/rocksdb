@@ -1887,7 +1887,9 @@ void CompactionJob::RetrieveResultsAndCleanup(
 
       OutputFile file;
       file.pathname = path;
-      file.table_properties = *(out.table_properties);
+      if (out.table_properties) {
+        file.table_properties = *(out.table_properties);
+      }
       file.file_size = out.meta.fd.file_size;
       file.num_entries = out.meta.num_entries;
       file.num_deletions = out.meta.num_deletions;
