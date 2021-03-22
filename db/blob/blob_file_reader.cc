@@ -118,8 +118,7 @@ Status BlobFileReader::OpenFile(
   }
 
   file_reader->reset(new RandomAccessFileReader(
-      std::move(file), blob_file_path,
-      immutable_cf_options.env->GetSystemClock(), io_tracer,
+      std::move(file), blob_file_path, immutable_cf_options.clock, io_tracer,
       immutable_cf_options.statistics, BLOB_DB_BLOB_FILE_READ_MICROS,
       blob_file_read_hist, immutable_cf_options.rate_limiter,
       immutable_cf_options.listeners));

@@ -150,8 +150,7 @@ class TracerHelper {
 // timestamp and type, followed by the trace payload.
 class Tracer {
  public:
-  Tracer(const std::shared_ptr<SystemClock>& clock,
-         const TraceOptions& trace_options,
+  Tracer(SystemClock* clock, const TraceOptions& trace_options,
          std::unique_ptr<TraceWriter>&& trace_writer);
   ~Tracer();
 
@@ -191,7 +190,7 @@ class Tracer {
   // Returns true if a trace should be skipped, false otherwise.
   bool ShouldSkipTrace(const TraceType& type);
 
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   TraceOptions trace_options_;
   std::unique_ptr<TraceWriter> trace_writer_;
   uint64_t trace_request_count_;

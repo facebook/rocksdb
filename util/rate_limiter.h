@@ -74,9 +74,7 @@ class GenericRateLimiter : public RateLimiter {
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
   Status Tune();
 
-  uint64_t NowMicrosMonotonic(const std::shared_ptr<SystemClock>& clock) {
-    return clock->NowNanos() / std::milli::den;
-  }
+  uint64_t NowMicrosMonotonic() { return clock_->NowNanos() / std::milli::den; }
 
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;

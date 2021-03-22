@@ -13,9 +13,8 @@
 namespace ROCKSDB_NAMESPACE {
 namespace {
 #ifndef NPERF_CONTEXT
-Statistics* stats_for_report(const std::shared_ptr<SystemClock>& clock,
-                             Statistics* stats) {
-  if (clock.get() != nullptr && stats != nullptr &&
+Statistics* stats_for_report(SystemClock* clock, Statistics* stats) {
+  if (clock != nullptr && stats != nullptr &&
       stats->get_stats_level() > kExceptTimeForMutex) {
     return stats;
   } else {

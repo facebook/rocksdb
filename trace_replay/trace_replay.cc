@@ -185,8 +185,7 @@ void TracerHelper::DecodeIterPayload(Trace* trace, IterPayload* iter_payload) {
   }
 }
 
-Tracer::Tracer(const std::shared_ptr<SystemClock>& clock,
-               const TraceOptions& trace_options,
+Tracer::Tracer(SystemClock* clock, const TraceOptions& trace_options,
                std::unique_ptr<TraceWriter>&& trace_writer)
     : clock_(clock),
       trace_options_(trace_options),

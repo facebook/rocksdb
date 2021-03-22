@@ -11,6 +11,7 @@
 #include "rocksdb/options.h"
 
 namespace ROCKSDB_NAMESPACE {
+class SystemClock;
 
 struct ImmutableDBOptions {
   static const char* kName() { return "ImmutableDBOptions"; }
@@ -26,6 +27,7 @@ struct ImmutableDBOptions {
   bool track_and_verify_wals_in_manifest;
   Env* env;
   std::shared_ptr<FileSystem> fs;
+  SystemClock* clock;
   std::shared_ptr<RateLimiter> rate_limiter;
   std::shared_ptr<SstFileManager> sst_file_manager;
   std::shared_ptr<Logger> info_log;

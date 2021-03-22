@@ -16,32 +16,6 @@ class DBBlobCompactionTest : public DBTestBase {
   explicit DBBlobCompactionTest()
       : DBTestBase("/db_blob_compaction_test", /*env_do_fsync=*/false) {}
 
-  // TODO: copied from DBCompactionTest. Should be de-duplicated in the future.
-  std::vector<uint64_t> GetBlobFileNumbers() {
-    VersionSet* const versions = dbfull()->TEST_GetVersionSet();
-    assert(versions);
-
-    ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
-    assert(cfd);
-
-    Version* const current = cfd->current();
-    assert(current);
-
-    const VersionStorageInfo* const storage_info = current->storage_info();
-    assert(storage_info);
-
-    const auto& blob_files = storage_info->GetBlobFiles();
-
-    std::vector<uint64_t> result;
-    result.reserve(blob_files.size());
-
-    for (const auto& blob_file : blob_files) {
-      result.emplace_back(blob_file.first);
-    }
-
-    return result;
-  }
-
 #ifndef ROCKSDB_LITE
   const std::vector<InternalStats::CompactionStats>& GetCompactionStats() {
     VersionSet* const versions = dbfull()->TEST_GetVersionSet();

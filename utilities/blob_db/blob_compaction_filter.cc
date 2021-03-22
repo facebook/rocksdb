@@ -10,6 +10,7 @@
 #include <cinttypes>
 
 #include "db/dbformat.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -435,10 +436,10 @@ BlobIndexCompactionFilterFactoryBase::CreateUserCompactionFilterFromFactory(
 std::unique_ptr<CompactionFilter>
 BlobIndexCompactionFilterFactory::CreateCompactionFilter(
     const CompactionFilter::Context& _context) {
-  assert(env());
+  assert(clock());
 
   int64_t current_time = 0;
-  Status s = env()->GetCurrentTime(&current_time);
+  Status s = clock()->GetCurrentTime(&current_time);
   if (!s.ok()) {
     return nullptr;
   }
@@ -460,10 +461,10 @@ BlobIndexCompactionFilterFactory::CreateCompactionFilter(
 std::unique_ptr<CompactionFilter>
 BlobIndexCompactionFilterFactoryGC::CreateCompactionFilter(
     const CompactionFilter::Context& _context) {
-  assert(env());
+  assert(clock());
 
   int64_t current_time = 0;
-  Status s = env()->GetCurrentTime(&current_time);
+  Status s = clock()->GetCurrentTime(&current_time);
   if (!s.ok()) {
     return nullptr;
   }

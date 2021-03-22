@@ -42,15 +42,15 @@ void WriteBlobFile(uint32_t column_family_id,
 
   std::unique_ptr<WritableFileWriter> file_writer(
       new WritableFileWriter(std::move(file), blob_file_path, FileOptions(),
-                             immutable_cf_options.env->GetSystemClock()));
+                             immutable_cf_options.clock));
 
   constexpr Statistics* statistics = nullptr;
   constexpr bool use_fsync = false;
   constexpr bool do_flush = false;
 
-  BlobLogWriter blob_log_writer(
-      std::move(file_writer), immutable_cf_options.env->GetSystemClock(),
-      statistics, blob_file_number, use_fsync, do_flush);
+  BlobLogWriter blob_log_writer(std::move(file_writer),
+                                immutable_cf_options.clock, statistics,
+                                blob_file_number, use_fsync, do_flush);
 
   constexpr bool has_ttl = false;
   constexpr ExpirationRange expiration_range;
@@ -64,7 +64,6 @@ void WriteBlobFile(uint32_t column_family_id,
   constexpr char blob[] = "blob";
 
   std::string compressed_blob;
-  Slice blob_to_write;
 
   uint64_t key_offset = 0;
   uint64_t blob_offset = 0;
