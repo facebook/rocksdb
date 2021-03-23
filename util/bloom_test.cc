@@ -431,10 +431,10 @@ TEST_P(FullBloomTest, FilterSize) {
       size_t n2 = bits_builder->ApproximateNumEntries(space);
       EXPECT_GE(n2, n);
       size_t space2 = bits_builder->CalculateSpace(n2);
-      if (n > 6000 && GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
+      if (n > 12000 && GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
         // TODO(peterd): better approximation?
         EXPECT_GE(space2, space);
-        EXPECT_LE(space2 * 0.98 - 16.0, space * 1.0);
+        EXPECT_LE(space2 * 0.998, space * 1.0);
       } else {
         EXPECT_EQ(space2, space);
       }
@@ -573,8 +573,10 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
 #ifdef ROCKSDB_JEMALLOC
       fprintf(stderr, "Jemalloc detected? %d\n", HasJemalloc());
       if (HasJemalloc()) {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
         // More than 5% internal fragmentation
         EXPECT_GE(total_mem, total_size * 105 / 100);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
       }
 #endif  // ROCKSDB_JEMALLOC
       // No storage penalty, just usual overhead

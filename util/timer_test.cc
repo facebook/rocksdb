@@ -26,7 +26,7 @@ class TimerTest : public testing::Test {
 
 TEST_F(TimerTest, SingleScheduleOnce) {
   const int kInitDelayUs = 1 * kUsPerSec;
-  Timer timer(mock_clock_);
+  Timer timer(mock_clock_.get());
 
   int count = 0;
   timer.Add([&] { count++; }, "fn_sch_test", kInitDelayUs, 0);
@@ -45,7 +45,7 @@ TEST_F(TimerTest, SingleScheduleOnce) {
 TEST_F(TimerTest, MultipleScheduleOnce) {
   const int kInitDelay1Us = 1 * kUsPerSec;
   const int kInitDelay2Us = 3 * kUsPerSec;
-  Timer timer(mock_clock_);
+  Timer timer(mock_clock_.get());
 
   int count1 = 0;
   timer.Add([&] { count1++; }, "fn_sch_test1", kInitDelay1Us, 0);
@@ -78,7 +78,7 @@ TEST_F(TimerTest, SingleScheduleRepeatedly) {
   const int kInitDelayUs = 1 * kUsPerSec;
   const int kRepeatUs = 1 * kUsPerSec;
 
-  Timer timer(mock_clock_);
+  Timer timer(mock_clock_.get());
   int count = 0;
   timer.Add([&] { count++; }, "fn_sch_test", kInitDelayUs, kRepeatUs);
 
@@ -108,7 +108,7 @@ TEST_F(TimerTest, MultipleScheduleRepeatedly) {
   const int kRepeatUs = 2 * kUsPerSec;
   const int kLargeRepeatUs = 100 * kUsPerSec;
 
-  Timer timer(mock_clock_);
+  Timer timer(mock_clock_.get());
 
   int count1 = 0;
   timer.Add([&] { count1++; }, "fn_sch_test1", kInitDelay1Us, kRepeatUs);
@@ -168,7 +168,7 @@ TEST_F(TimerTest, AddAfterStartTest) {
       {{"Timer::Run::Waiting", "TimerTest:AddAfterStartTest:1"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
-  Timer timer(mock_clock_);
+  Timer timer(mock_clock_.get());
 
   ASSERT_TRUE(timer.Start());
 
@@ -193,7 +193,7 @@ TEST_F(TimerTest, AddAfterStartTest) {
 TEST_F(TimerTest, CancelRunningTask) {
   static constexpr char kTestFuncName[] = "test_func";
   const int kRepeatUs = 1 * kUsPerSec;
-  Timer timer(mock_clock_);
+  Timer timer(mock_clock_.get());
   ASSERT_TRUE(timer.Start());
   int* value = new int;
   *value = 0;
@@ -229,7 +229,7 @@ TEST_F(TimerTest, ShutdownRunningTask) {
   const int kRepeatUs = 1 * kUsPerSec;
   constexpr char kTestFunc1Name[] = "test_func1";
   constexpr char kTestFunc2Name[] = "test_func2";
-  Timer timer(mock_clock_);
+  Timer timer(mock_clock_.get());
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency({
@@ -268,7 +268,7 @@ TEST_F(TimerTest, AddSameFuncName) {
   const int kRepeat1Us = 5 * kUsPerSec;
   const int kRepeat2Us = 4 * kUsPerSec;
 
-  Timer timer(mock_clock_);
+  Timer timer(mock_clock_.get());
   ASSERT_TRUE(timer.Start());
 
   int func_counter1 = 0;
@@ -309,7 +309,7 @@ TEST_F(TimerTest, RepeatIntervalWithFuncRunningTime) {
   const int kRepeatUs = 5 * kUsPerSec;
   const int kFuncRunningTimeUs = 1 * kUsPerSec;
 
-  Timer timer(mock_clock_);
+  Timer timer(mock_clock_.get());
   ASSERT_TRUE(timer.Start());
 
   int func_counter = 0;
@@ -348,7 +348,7 @@ TEST_F(TimerTest, DestroyRunningTimer) {
   const int kInitDelayUs = 1 * kUsPerSec;
   const int kRepeatUs = 1 * kUsPerSec;
 
-  auto timer_ptr = new Timer(mock_clock_);
+  auto timer_ptr = new Timer(mock_clock_.get());
 
   int count = 0;
   timer_ptr->Add([&] { count++; }, "fn_sch_test", kInitDelayUs, kRepeatUs);
@@ -363,7 +363,7 @@ TEST_F(TimerTest, DestroyRunningTimer) {
 
 TEST_F(TimerTest, DestroyTimerWithRunningFunc) {
   const int kRepeatUs = 1 * kUsPerSec;
-  auto timer_ptr = new Timer(mock_clock_);
+  auto timer_ptr = new Timer(mock_clock_.get());
 
   SyncPoint::GetInstance()->DisableProcessing();
   SyncPoint::GetInstance()->LoadDependency({

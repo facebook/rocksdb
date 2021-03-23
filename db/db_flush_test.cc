@@ -82,29 +82,16 @@ TEST_F(DBFlushTest, SyncFail) {
   options.env = fault_injection_env.get();
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBFlushTest::SyncFail:GetVersionRefCount:1",
-        "DBImpl::FlushMemTableToOutputFile:BeforePickMemtables"},
-       {"DBImpl::FlushMemTableToOutputFile:AfterPickMemtables",
-        "DBFlushTest::SyncFail:GetVersionRefCount:2"},
-       {"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedLogs:Start"},
+      {{"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedLogs:Start"},
        {"DBImpl::SyncClosedLogs:Failed", "DBFlushTest::SyncFail:2"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_OK(Put("key", "value"));
-  auto* cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
-          ->cfd();
   FlushOptions flush_options;
   flush_options.wait = false;
   ASSERT_OK(dbfull()->Flush(flush_options));
   // Flush installs a new super-version. Get the ref count after that.
-  auto current_before = cfd->current();
-  int refs_before = cfd->current()->TEST_refs();
-  TEST_SYNC_POINT("DBFlushTest::SyncFail:GetVersionRefCount:1");
-  TEST_SYNC_POINT("DBFlushTest::SyncFail:GetVersionRefCount:2");
-  int refs_after_picking_memtables = cfd->current()->TEST_refs();
-  ASSERT_EQ(refs_before + 1, refs_after_picking_memtables);
   fault_injection_env->SetFilesystemActive(false);
   TEST_SYNC_POINT("DBFlushTest::SyncFail:1");
   TEST_SYNC_POINT("DBFlushTest::SyncFail:2");
@@ -115,9 +102,6 @@ TEST_F(DBFlushTest, SyncFail) {
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("", FilesPerLevel());  // flush failed.
 #endif                             // ROCKSDB_LITE
-  // Backgroun flush job should release ref count to current version.
-  ASSERT_EQ(current_before, cfd->current());
-  ASSERT_EQ(refs_before, cfd->current()->TEST_refs());
   Destroy(options);
 }
 
@@ -513,16 +497,18 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   const InternalStats* const internal_stats = cfd->internal_stats();
   assert(internal_stats);
 
-  const uint64_t expected_bytes =
-      table_file->fd.GetFileSize() + blob_file->GetTotalBlobBytes();
-
   const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
   ASSERT_FALSE(compaction_stats.empty());
-  ASSERT_EQ(compaction_stats[0].bytes_written, expected_bytes);
-  ASSERT_EQ(compaction_stats[0].num_output_files, 2);
+  ASSERT_EQ(compaction_stats[0].bytes_written, table_file->fd.GetFileSize());
+  ASSERT_EQ(compaction_stats[0].bytes_written_blob,
+            blob_file->GetTotalBlobBytes());
+  ASSERT_EQ(compaction_stats[0].num_output_files, 1);
+  ASSERT_EQ(compaction_stats[0].num_output_files_blob, 1);
 
   const uint64_t* const cf_stats_value = internal_stats->TEST_GetCFStatsValue();
-  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED], expected_bytes);
+  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
+            compaction_stats[0].bytes_written +
+                compaction_stats[0].bytes_written_blob);
 #endif  // ROCKSDB_LITE
 }
 
@@ -802,16 +788,21 @@ TEST_P(DBFlushTestBlobError, FlushError) {
 
   if (sync_point_ == "BlobFileBuilder::WriteBlobToFile:AddRecord") {
     ASSERT_EQ(compaction_stats[0].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[0].bytes_written_blob, 0);
     ASSERT_EQ(compaction_stats[0].num_output_files, 0);
+    ASSERT_EQ(compaction_stats[0].num_output_files_blob, 0);
   } else {
     // SST file writing succeeded; blob file writing failed (during Finish)
     ASSERT_GT(compaction_stats[0].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[0].bytes_written_blob, 0);
     ASSERT_EQ(compaction_stats[0].num_output_files, 1);
+    ASSERT_EQ(compaction_stats[0].num_output_files_blob, 0);
   }
 
   const uint64_t* const cf_stats_value = internal_stats->TEST_GetCFStatsValue();
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
-            compaction_stats[0].bytes_written);
+            compaction_stats[0].bytes_written +
+                compaction_stats[0].bytes_written_blob);
 #endif  // ROCKSDB_LITE
 }
 

@@ -625,7 +625,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    *    then WAL_size_limit_MB, they will be deleted starting with the
    *    earliest until size_limit is met. All empty files will be deleted.</li>
    * <li>If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
-   *    WAL files will be checked every WAL_ttl_secondsi / 2 and those that
+   *    WAL files will be checked every WAL_ttl_seconds / 2 and those that
    *    are older than WAL_ttl_seconds will be deleted.</li>
    * <li>If both are not 0, WAL files will be checked every 10 min and both
    *    checks will be performed with ttl being first.</li>
@@ -648,7 +648,7 @@ public interface DBOptionsInterface<T extends DBOptionsInterface<T>> {
    * then WAL_size_limit_MB, they will be deleted starting with the
    * earliest until size_limit is met. All empty files will be deleted.</li>
    * <li>If WAL_ttl_seconds is not 0 and WAL_size_limit_MB is 0, then
-   * WAL files will be checked every WAL_ttl_secondsi / 2 and those that
+   * WAL files will be checked every WAL_ttl_seconds / 2 and those that
    * are older than WAL_ttl_seconds will be deleted.</li>
    * <li>If both are not 0, WAL files will be checked every 10 min and both
    * checks will be performed with ttl being first.</li>

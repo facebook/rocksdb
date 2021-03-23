@@ -512,7 +512,7 @@ class MemTable {
 
   std::atomic<FlushStateEnum> flush_state_;
 
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
 
   // Extract sequential insert prefixes.
   const SliceTransform* insert_with_hint_prefix_extractor_;

@@ -117,8 +117,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // REQUIRES: `rep_->state == kBuffered`
   void EnterUnbuffered();
 
-  // Call block's Finish() method
-  // and then write the compressed block contents to file.
+  // Call block's Finish() method and then
+  // - in buffered mode, buffer the uncompressed block contents.
+  // - in unbuffered mode, write the compressed block contents to file.
   void WriteBlock(BlockBuilder* block, BlockHandle* handle, bool is_data_block);
 
   // Compress and write block content to the file.

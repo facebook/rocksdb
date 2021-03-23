@@ -161,7 +161,10 @@ Status Configurable::ConfigureOptions(
 #ifndef ROCKSDB_LITE
   if (!config_options.ignore_unknown_options) {
     // If we are not ignoring unused, get the defaults in case we need to reset
-    GetOptionString(config_options, &curr_opts).PermitUncheckedError();
+    ConfigOptions copy = config_options;
+    copy.depth = ConfigOptions::kDepthDetailed;
+    copy.delimiter = "; ";
+    GetOptionString(copy, &curr_opts).PermitUncheckedError();
   }
 #endif  // ROCKSDB_LITE
   Status s = ConfigurableHelper::ConfigureOptions(config_options, *this,
@@ -223,9 +226,8 @@ Status Configurable::ConfigureFromString(const ConfigOptions& config_options,
 Status Configurable::ConfigureOption(const ConfigOptions& config_options,
                                      const std::string& name,
                                      const std::string& value) {
-  const std::string& opt_name = GetOptionName(name);
-  return ConfigurableHelper::ConfigureSingleOption(config_options, *this,
-                                                   opt_name, value);
+  return ConfigurableHelper::ConfigureSingleOption(config_options, *this, name,
+                                                   value);
 }
 
 /**
@@ -239,9 +241,16 @@ Status Configurable::ParseOption(const ConfigOptions& config_options,
                                  const OptionTypeInfo& opt_info,
                                  const std::string& opt_name,
                                  const std::string& opt_value, void* opt_ptr) {
-  if (opt_info.IsMutable() || opt_info.IsConfigurable()) {
-    return opt_info.Parse(config_options, opt_name, opt_value, opt_ptr);
-  } else if (prepared_) {
+  if (opt_info.IsMutable()) {
+    if (config_options.mutable_options_only) {
+      // This option is mutable. Treat all of its children as mutable as well
+      ConfigOptions copy = config_options;
+      copy.mutable_options_only = false;
+      return opt_info.Parse(copy, opt_name, opt_value, opt_ptr);
+    } else {
+      return opt_info.Parse(config_options, opt_name, opt_value, opt_ptr);
+    }
+  } else if (config_options.mutable_options_only) {
     return Status::InvalidArgument("Option not changeable: " + opt_name);
   } else {
     return opt_info.Parse(config_options, opt_name, opt_value, opt_ptr);
@@ -364,15 +373,91 @@ Status ConfigurableHelper::ConfigureSomeOptions(
 Status ConfigurableHelper::ConfigureSingleOption(
     const ConfigOptions& config_options, Configurable& configurable,
     const std::string& name, const std::string& value) {
-  std::string opt_name;
+  const std::string& opt_name = configurable.GetOptionName(name);
+  std::string elem_name;
   void* opt_ptr = nullptr;
   const auto opt_info =
-      FindOption(configurable.options_, name, &opt_name, &opt_ptr);
+      FindOption(configurable.options_, opt_name, &elem_name, &opt_ptr);
   if (opt_info == nullptr) {
     return Status::NotFound("Could not find option: ", name);
   } else {
-    return ConfigureOption(config_options, configurable, *opt_info, name,
-                           opt_name, value, opt_ptr);
+    return ConfigureOption(config_options, configurable, *opt_info, opt_name,
+                           elem_name, value, opt_ptr);
+  }
+}
+Status ConfigurableHelper::ConfigureCustomizableOption(
+    const ConfigOptions& config_options, Configurable& configurable,
+    const OptionTypeInfo& opt_info, const std::string& opt_name,
+    const std::string& name, const std::string& value, void* opt_ptr) {
+  Customizable* custom = opt_info.AsRawPointer<Customizable>(opt_ptr);
+  ConfigOptions copy = config_options;
+  if (opt_info.IsMutable()) {
+    // This option is mutable. Pass that property on to any subsequent calls
+    copy.mutable_options_only = false;
+  }
+
+  if (opt_info.IsMutable() || !config_options.mutable_options_only) {
+    // Either the option is mutable, or we are processing all of the options
+    if (opt_name == name ||
+        EndsWith(opt_name, ConfigurableHelper::kIdPropSuffix) ||
+        name == ConfigurableHelper::kIdPropName) {
+      return configurable.ParseOption(copy, opt_info, opt_name, value, opt_ptr);
+    } else if (value.empty()) {
+      return Status::OK();
+    } else if (custom == nullptr || !StartsWith(name, custom->GetId() + ".")) {
+      return configurable.ParseOption(copy, opt_info, name, value, opt_ptr);
+    } else if (value.find("=") != std::string::npos) {
+      return custom->ConfigureFromString(copy, value);
+    } else {
+      return custom->ConfigureOption(copy, name, value);
+    }
+  } else {
+    // We are processing immutable options, which means that we cannot change
+    // the Customizable object itself, but could change its mutable properties.
+    // Check to make sure that nothing is trying to change the Customizable
+    if (custom == nullptr) {
+      // We do not have a Customizable to configure.  This is OK if the
+      // value is empty (nothing being configured) but an error otherwise
+      if (value.empty()) {
+        return Status::OK();
+      } else {
+        return Status::InvalidArgument("Option not changeable: " + opt_name);
+      }
+    } else if (EndsWith(opt_name, ConfigurableHelper::kIdPropSuffix) ||
+               name == ConfigurableHelper::kIdPropName) {
+      // We have a property of the form "id=value" or "table.id=value"
+      // This is OK if we ID/value matches the current customizable object
+      if (custom->GetId() == value) {
+        return Status::OK();
+      } else {
+        return Status::InvalidArgument("Option not changeable: " + opt_name);
+      }
+    } else if (opt_name == name) {
+      // The properties are of one of forms:
+      //    name = { id = id; prop1 = value1; ... }
+      //    name = { prop1=value1; prop2=value2; ... }
+      //    name = ID
+      // Convert the value to a map and extract the ID
+      // If the ID does not match that of the current customizable, return an
+      // error. Otherwise, update the current customizable via the properties
+      // map
+      std::unordered_map<std::string, std::string> props;
+      std::string id;
+      Status s = GetOptionsMap(value, custom->GetId(), &id, &props);
+      if (!s.ok()) {
+        return s;
+      } else if (custom->GetId() != id) {
+        return Status::InvalidArgument("Option not changeable: " + opt_name);
+      } else if (props.empty()) {
+        return Status::OK();
+      } else {
+        return custom->ConfigureFromMap(copy, props);
+      }
+    } else {
+      // Attempting to configure one of the properties of the customizable
+      // Let it through
+      return custom->ConfigureOption(copy, name, value);
+    }
   }
 }
 
@@ -380,26 +465,12 @@ Status ConfigurableHelper::ConfigureOption(
     const ConfigOptions& config_options, Configurable& configurable,
     const OptionTypeInfo& opt_info, const std::string& opt_name,
     const std::string& name, const std::string& value, void* opt_ptr) {
-  if (opt_name == name) {
+  if (opt_info.IsCustomizable()) {
+    return ConfigureCustomizableOption(config_options, configurable, opt_info,
+                                       opt_name, name, value, opt_ptr);
+  } else if (opt_name == name) {
     return configurable.ParseOption(config_options, opt_info, opt_name, value,
                                     opt_ptr);
-  } else if (opt_info.IsCustomizable() &&
-             EndsWith(opt_name, ConfigurableHelper::kIdPropSuffix)) {
-    return configurable.ParseOption(config_options, opt_info, name, value,
-                                    opt_ptr);
-
-  } else if (opt_info.IsCustomizable()) {
-    Customizable* custom = opt_info.AsRawPointer<Customizable>(opt_ptr);
-    if (value.empty()) {
-      return Status::OK();
-    } else if (custom == nullptr || !StartsWith(name, custom->GetId() + ".")) {
-      return configurable.ParseOption(config_options, opt_info, name, value,
-                                      opt_ptr);
-    } else if (value.find("=") != std::string::npos) {
-      return custom->ConfigureFromString(config_options, value);
-    } else {
-      return custom->ConfigureOption(config_options, name, value);
-    }
   } else if (opt_info.IsStruct() || opt_info.IsConfigurable()) {
     return configurable.ParseOption(config_options, opt_info, name, value,
                                     opt_ptr);
@@ -521,8 +592,25 @@ Status ConfigurableHelper::SerializeOptions(const ConfigOptions& config_options,
       const auto& opt_info = map_iter.second;
       if (opt_info.ShouldSerialize()) {
         std::string value;
-        Status s = opt_info.Serialize(config_options, prefix + opt_name,
-                                      opt_iter.opt_ptr, &value);
+        Status s;
+        if (!config_options.mutable_options_only) {
+          s = opt_info.Serialize(config_options, prefix + opt_name,
+                                 opt_iter.opt_ptr, &value);
+        } else if (opt_info.IsMutable()) {
+          ConfigOptions copy = config_options;
+          copy.mutable_options_only = false;
+          s = opt_info.Serialize(copy, prefix + opt_name, opt_iter.opt_ptr,
+                                 &value);
+        } else if (opt_info.IsConfigurable()) {
+          // If it is a Configurable and we are either printing all of the
+          // details or not printing only the name, this option should be
+          // included in the list
+          if (config_options.IsDetailed() ||
+              !opt_info.IsEnabled(OptionTypeFlags::kStringNameOnly)) {
+            s = opt_info.Serialize(config_options, prefix + opt_name,
+                                   opt_iter.opt_ptr, &value);
+          }
+        }
         if (!s.ok()) {
           return s;
         } else if (!value.empty()) {
@@ -551,7 +639,7 @@ Status Configurable::GetOptionNames(
 }
 
 Status ConfigurableHelper::ListOptions(
-    const ConfigOptions& /*config_options*/, const Configurable& configurable,
+    const ConfigOptions& config_options, const Configurable& configurable,
     const std::string& prefix, std::unordered_set<std::string>* result) {
   Status status;
   for (auto const& opt_iter : configurable.options_) {
@@ -561,7 +649,11 @@ Status ConfigurableHelper::ListOptions(
       // If the option is no longer used in rocksdb and marked as deprecated,
       // we skip it in the serialization.
       if (!opt_info.IsDeprecated() && !opt_info.IsAlias()) {
-        result->emplace(prefix + opt_name);
+        if (!config_options.mutable_options_only) {
+          result->emplace(prefix + opt_name);
+        } else if (opt_info.IsMutable()) {
+          result->emplace(prefix + opt_name);
+        }
       }
     }
   }
@@ -626,11 +718,23 @@ bool ConfigurableHelper::AreEquivalent(const ConfigOptions& config_options,
         return false;
       } else {
         for (const auto& map_iter : *(o.type_map)) {
-          if (config_options.IsCheckEnabled(map_iter.second.GetSanityLevel()) &&
-              !this_one.OptionsAreEqual(config_options, map_iter.second,
-                                        map_iter.first, this_offset,
-                                        that_offset, mismatch)) {
-            return false;
+          const auto& opt_info = map_iter.second;
+          if (config_options.IsCheckEnabled(opt_info.GetSanityLevel())) {
+            if (!config_options.mutable_options_only) {
+              if (!this_one.OptionsAreEqual(config_options, opt_info,
+                                            map_iter.first, this_offset,
+                                            that_offset, mismatch)) {
+                return false;
+              }
+            } else if (opt_info.IsMutable()) {
+              ConfigOptions copy = config_options;
+              copy.mutable_options_only = false;
+              if (!this_one.OptionsAreEqual(copy, opt_info, map_iter.first,
+                                            this_offset, that_offset,
+                                            mismatch)) {
+                return false;
+              }
+            }
           }
         }
       }
@@ -641,9 +745,13 @@ bool ConfigurableHelper::AreEquivalent(const ConfigOptions& config_options,
 #endif  // ROCKSDB_LITE
 
 Status ConfigurableHelper::GetOptionsMap(
-    const std::string& value, std::string* id,
+    const std::string& value, const Customizable* customizable, std::string* id,
     std::unordered_map<std::string, std::string>* props) {
-  return GetOptionsMap(value, "", id, props);
+  if (customizable != nullptr) {
+    return GetOptionsMap(value, customizable->GetId(), id, props);
+  } else {
+    return GetOptionsMap(value, "", id, props);
+  }
 }
 
 Status ConfigurableHelper::GetOptionsMap(

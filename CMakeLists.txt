@@ -88,10 +88,9 @@ if( NOT DEFINED CMAKE_CXX_STANDARD )
 endif()
 
 include(CMakeDependentOption)
-CMAKE_DEPENDENT_OPTION(WITH_GFLAGS "build with GFlags" ON
-  "NOT MSVC;NOT MINGW" OFF)
 
 if(MSVC)
+  option(WITH_GFLAGS "build with GFlags" OFF)
   option(WITH_XPRESS "build with windows built in compression" OFF)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
@@ -107,6 +106,11 @@ else()
     endif()
   endif()
 
+  if(MINGW)
+    option(WITH_GFLAGS "build with GFlags" OFF)
+  else()
+    option(WITH_GFLAGS "build with GFlags" ON)
+  endif()
   set(GFLAGS_LIB)
   if(WITH_GFLAGS)
     # Config with namespace available since gflags 2.2.2
@@ -208,6 +212,9 @@ if(MSVC)
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wstrict-prototypes")
+  endif()
   if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format -fno-asynchronous-unwind-tables")
     add_definitions(-D_POSIX_C_SOURCE=1)
@@ -576,7 +583,6 @@ set(SOURCES
         db/builder.cc
         db/c.cc
         db/column_family.cc
-        db/compacted_db_impl.cc
         db/compaction/compaction.cc
         db/compaction/compaction_iterator.cc
         db/compaction/compaction_picker.cc
@@ -587,6 +593,7 @@ set(SOURCES
         db/compaction/sst_partitioner.cc
         db/convenience.cc
         db/db_filesnapshot.cc
+        db/db_impl/compacted_db_impl.cc
         db/db_impl/db_impl.cc
         db/db_impl/db_impl_write.cc
         db/db_impl/db_impl_compaction_flush.cc
@@ -649,6 +656,7 @@ set(SOURCES
         file/file_prefetch_buffer.cc
         file/file_util.cc
         file/filename.cc
+        file/line_file_reader.cc
         file/random_access_file_reader.cc
         file/read_write_util.cc
         file/readahead_raf.cc
@@ -762,6 +770,7 @@ set(SOURCES
         util/murmurhash.cc
         util/random.cc
         util/rate_limiter.cc
+        util/ribbon_config.cc
         util/slice.cc
         util/file_checksum_helper.cc
         util/status.cc
@@ -1061,6 +1070,8 @@ if(WITH_TESTS)
         db/blob/blob_file_garbage_test.cc
         db/blob/blob_file_reader_test.cc
         db/blob/db_blob_basic_test.cc
+        db/blob/db_blob_compaction_test.cc
+        db/blob/db_blob_corruption_test.cc
         db/blob/db_blob_index_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc
@@ -1091,7 +1102,7 @@ if(WITH_TESTS)
         db/db_options_test.cc
         db/db_properties_test.cc
         db/db_range_del_test.cc
-        db/db_impl/db_secondary_test.cc
+        db/db_secondary_test.cc
         db/db_sst_test.cc
         db/db_statistics_test.cc
         db/db_table_properties_test.cc
@@ -1297,40 +1308,40 @@ if(WITH_TESTS)
 endif()
 
 if(WITH_BENCHMARK_TOOLS)
-  add_executable(db_bench
+  add_executable(db_bench${ARTIFACT_SUFFIX}
     tools/db_bench.cc
     tools/db_bench_tool.cc)
-  target_link_libraries(db_bench
+  target_link_libraries(db_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
-  add_executable(cache_bench
+  add_executable(cache_bench${ARTIFACT_SUFFIX}
     cache/cache_bench.cc)
-  target_link_libraries(cache_bench
+  target_link_libraries(cache_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(memtablerep_bench
+  add_executable(memtablerep_bench${ARTIFACT_SUFFIX}
     memtable/memtablerep_bench.cc)
-  target_link_libraries(memtablerep_bench
+  target_link_libraries(memtablerep_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(range_del_aggregator_bench
+  add_executable(range_del_aggregator_bench${ARTIFACT_SUFFIX}
     db/range_del_aggregator_bench.cc)
-  target_link_libraries(range_del_aggregator_bench
+  target_link_libraries(range_del_aggregator_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(table_reader_bench
+  add_executable(table_reader_bench${ARTIFACT_SUFFIX}
     table/table_reader_bench.cc)
-  target_link_libraries(table_reader_bench
+  target_link_libraries(table_reader_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} testharness ${GFLAGS_LIB})
 
-  add_executable(filter_bench
+  add_executable(filter_bench${ARTIFACT_SUFFIX}
     util/filter_bench.cc)
-  target_link_libraries(filter_bench
+  target_link_libraries(filter_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(hash_table_bench
+  add_executable(hash_table_bench${ARTIFACT_SUFFIX}
     utilities/persistent_cache/hash_table_bench.cc)
-  target_link_libraries(hash_table_bench
+  target_link_libraries(hash_table_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 endif()
 

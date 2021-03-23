@@ -661,6 +661,10 @@ DEFINE_int32(compression_zstd_max_train_bytes, 0,
 DEFINE_int32(compression_parallel_threads, 1,
              "Number of threads for parallel compression.");
 
+DEFINE_uint64(compression_max_dict_buffer_bytes, 0,
+              "Buffering limit for SST file data to sample for dictionary "
+              "compression.");
+
 DEFINE_string(bottommost_compression_type, "disable",
               "Algorithm to use to compress bottommost level of the database. "
               "\"disable\" means disabling the feature");
@@ -799,5 +803,9 @@ DEFINE_string(file_checksum_impl, "none",
 
 DEFINE_int32(write_fault_one_in, 0,
              "On non-zero, enables fault injection on write");
+
+DEFINE_uint64(user_timestamp_size, 0,
+              "Number of bytes for a user-defined timestamp. Currently, only "
+              "8-byte is supported");
 
 #endif  // GFLAGS

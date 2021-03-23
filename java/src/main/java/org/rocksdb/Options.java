@@ -1408,7 +1408,7 @@ public class Options extends RocksObject
     final byte[] byteCompressionTypes =
         compressionPerLevel(nativeHandle_);
     final List<CompressionType> compressionLevels = new ArrayList<>();
-    for (final Byte byteCompressionType : byteCompressionTypes) {
+    for (final byte byteCompressionType : byteCompressionTypes) {
       compressionLevels.add(CompressionType.getCompressionType(
           byteCompressionType));
     }

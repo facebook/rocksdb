@@ -29,7 +29,7 @@ MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
                          Statistics* stats,
                          const std::atomic<bool>* shutting_down)
     : env_(env),
-      clock_(env->GetSystemClock()),
+      clock_(env->GetSystemClock().get()),
       user_comparator_(user_comparator),
       user_merge_operator_(user_merge_operator),
       compaction_filter_(compaction_filter),
@@ -50,11 +50,13 @@ MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
   }
 }
 
-Status MergeHelper::TimedFullMerge(
-    const MergeOperator* merge_operator, const Slice& key, const Slice* value,
-    const std::vector<Slice>& operands, std::string* result, Logger* logger,
-    Statistics* statistics, const std::shared_ptr<SystemClock>& clock,
-    Slice* result_operand, bool update_num_ops_stats) {
+Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
+                                   const Slice& key, const Slice* value,
+                                   const std::vector<Slice>& operands,
+                                   std::string* result, Logger* logger,
+                                   Statistics* statistics, SystemClock* clock,
+                                   Slice* result_operand,
+                                   bool update_num_ops_stats) {
   assert(merge_operator != nullptr);
 
   if (operands.size() == 0) {

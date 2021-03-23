@@ -80,24 +80,22 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
   }
 }
 
-FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
-                   const ImmutableDBOptions& db_options,
-                   const MutableCFOptions& mutable_cf_options,
-                   uint64_t max_memtable_id, const FileOptions& file_options,
-                   VersionSet* versions, InstrumentedMutex* db_mutex,
-                   std::atomic<bool>* shutting_down,
-                   std::vector<SequenceNumber> existing_snapshots,
-                   SequenceNumber earliest_write_conflict_snapshot,
-                   SnapshotChecker* snapshot_checker, JobContext* job_context,
-                   LogBuffer* log_buffer, FSDirectory* db_directory,
-                   FSDirectory* output_file_directory,
-                   CompressionType output_compression, Statistics* stats,
-                   EventLogger* event_logger, bool measure_io_stats,
-                   const bool sync_output_directory, const bool write_manifest,
-                   Env::Priority thread_pri,
-                   const std::shared_ptr<IOTracer>& io_tracer,
-                   const std::string& db_id, const std::string& db_session_id,
-                   std::string full_history_ts_low)
+FlushJob::FlushJob(
+    const std::string& dbname, ColumnFamilyData* cfd,
+    const ImmutableDBOptions& db_options,
+    const MutableCFOptions& mutable_cf_options, uint64_t max_memtable_id,
+    const FileOptions& file_options, VersionSet* versions,
+    InstrumentedMutex* db_mutex, std::atomic<bool>* shutting_down,
+    std::vector<SequenceNumber> existing_snapshots,
+    SequenceNumber earliest_write_conflict_snapshot,
+    SnapshotChecker* snapshot_checker, JobContext* job_context,
+    LogBuffer* log_buffer, FSDirectory* db_directory,
+    FSDirectory* output_file_directory, CompressionType output_compression,
+    Statistics* stats, EventLogger* event_logger, bool measure_io_stats,
+    const bool sync_output_directory, const bool write_manifest,
+    Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
+    const std::string& db_id, const std::string& db_session_id,
+    std::string full_history_ts_low, BlobFileCompletionCallback* blob_callback)
     : dbname_(dbname),
       db_id_(db_id),
       db_session_id_(db_session_id),
@@ -127,8 +125,9 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       pick_memtable_called(false),
       thread_pri_(thread_pri),
       io_tracer_(io_tracer),
-      clock_(db_options_.env->GetSystemClock()),
-      full_history_ts_low_(std::move(full_history_ts_low)) {
+      clock_(db_options_.clock),
+      full_history_ts_low_(std::move(full_history_ts_low)),
+      blob_callback_(blob_callback) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -418,7 +417,7 @@ Status FlushJob::WriteLevel0Table() {
           TableFileCreationReason::kFlush, &io_s, io_tracer_, event_logger_,
           job_context_->job_id, Env::IO_HIGH, &table_properties_, 0 /* level */,
           creation_time, oldest_key_time, write_hint, current_time, db_id_,
-          db_session_id_, full_history_ts_low);
+          db_session_id_, full_history_ts_low, blob_callback_);
       if (!io_s.ok()) {
         io_status_ = io_s;
       }
@@ -477,15 +476,16 @@ Status FlushJob::WriteLevel0Table() {
 
   const auto& blobs = edit_->GetBlobFileAdditions();
   for (const auto& blob : blobs) {
-    stats.bytes_written += blob.GetTotalBlobBytes();
+    stats.bytes_written_blob += blob.GetTotalBlobBytes();
   }
 
-  stats.num_output_files += static_cast<int>(blobs.size());
+  stats.num_output_files_blob = static_cast<int>(blobs.size());
 
   RecordTimeToHistogram(stats_, FLUSH_TIME, stats.micros);
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, thread_pri_, stats);
-  cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
-                                     stats.bytes_written);
+  cfd_->internal_stats()->AddCFStats(
+      InternalStats::BYTES_FLUSHED,
+      stats.bytes_written + stats.bytes_written_blob);
   RecordFlushIOStats();
   return s;
 }
