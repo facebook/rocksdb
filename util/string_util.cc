@@ -433,7 +433,8 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
   return true;
 }
 
-// Copied from folly/string.cpp
+// Copied from folly/string.cpp:
+// https://github.com/facebook/folly/blob/0deef031cb8aab76dc7e736f8b7c22d701d5f36b/folly/String.cpp#L457
 // There are two variants of `strerror_r` function, one returns
 // `int`, and another returns `char*`. Selecting proper version using
 // preprocessor macros portably is extremely hard.
@@ -445,6 +446,7 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
 // `strerror_r` to `invoke_strerror_r` function, and C++ compiler
 // selects proper function.
 
+#if !(defined(_WIN32) && (defined(__MINGW32__) || defined(_MSC_VER)))
 ROCKSDB_MAYBE_UNUSED
 static std::string invoke_strerror_r(int (*strerror_r)(int, char*, size_t),
                                      int err, char* buf, size_t buflen) {
@@ -465,6 +467,7 @@ static std::string invoke_strerror_r(char* (*strerror_r)(int, char*, size_t),
   // Using GNU strerror_r
   return strerror_r(err, buf, buflen);
 }
+#endif
 
 std::string errnoStr(int err) {
   char buf[1024];
