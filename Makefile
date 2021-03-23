@@ -929,7 +929,8 @@ endif  # PLATFORM_SHARED_EXT
 	analyze tools tools_lib \
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
 	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
-	blackbox_crash_test_with_best_efforts_recovery
+	blackbox_crash_test_with_best_efforts_recovery \
+	blackbox_crash_test_with_ts whitebox_crash_test_with_ts
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
@@ -1167,6 +1168,8 @@ crash_test_with_txn: whitebox_crash_test_with_txn blackbox_crash_test_with_txn
 
 crash_test_with_best_efforts_recovery: blackbox_crash_test_with_best_efforts_recovery
 
+crash_test_with_ts: whitebox_crash_test_with_ts blackbox_crash_test_with_ts
+
 blackbox_crash_test: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
 	$(PYTHON) -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
@@ -1179,6 +1182,9 @@ blackbox_crash_test_with_txn: db_stress
 
 blackbox_crash_test_with_best_efforts_recovery: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --test_best_efforts_recovery blackbox $(CRASH_TEST_EXT_ARGS)
+
+blackbox_crash_test_with_ts: db_stress
+	$(PYTHON) -u tools/db_crashtest.py --enable_ts blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
@@ -1196,6 +1202,10 @@ whitebox_crash_test_with_atomic_flush: db_stress
 
 whitebox_crash_test_with_txn: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --txn whitebox --random_kill_odd \
+      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
+
+whitebox_crash_test_with_ts: db_stress
+	$(PYTHON) -u tools/db_crashtest.py --enable_ts whitebox --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 asan_check: clean
@@ -1474,7 +1484,7 @@ memtablerep_bench: $(OBJ_DIR)/memtable/memtablerep_bench.o $(LIBRARY)
 filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
 	$(AM_LINK)
 
-db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(LIBRARY)
+db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(TESTUTIL) $(LIBRARY)
 	$(AM_LINK)
 
 write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)

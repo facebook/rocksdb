@@ -260,9 +260,11 @@ DECLARE_bool(enable_compaction_filter);
 DECLARE_bool(paranoid_file_checks);
 DECLARE_uint64(batch_protection_bytes_per_key);
 
-const long KB = 1024;
-const int kRandomValueMaxFactor = 3;
-const int kValueMaxLen = 100;
+DECLARE_uint64(user_timestamp_size);
+
+constexpr long KB = 1024;
+constexpr int kRandomValueMaxFactor = 3;
+constexpr int kValueMaxLen = 100;
 
 // wrapped posix or hdfs environment
 extern ROCKSDB_NAMESPACE::Env* db_stress_env;
@@ -560,6 +562,9 @@ extern StressTest* CreateBatchedOpsStressTest();
 extern StressTest* CreateNonBatchedOpsStressTest();
 extern void InitializeHotKeyGenerator(double alpha);
 extern int64_t GetOneHotKeyID(double rand_seed, int64_t max_key);
+
+extern std::string GenerateTimestampForRead();
+extern std::string NowNanosStr();
 
 std::shared_ptr<FileChecksumGenFactory> GetFileChecksumImpl(
     const std::string& name);
