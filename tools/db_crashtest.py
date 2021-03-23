@@ -142,6 +142,7 @@ default_params = {
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "max_write_buffer_size_to_maintain": lambda: random.choice(
         [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]),
+    "user_timestamp_size": 0,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
