@@ -17,7 +17,6 @@ LIB_SOURCES =                                                   \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
-  db/compacted_db_impl.cc                                       \
   db/compaction/compaction.cc                                   \
   db/compaction/compaction_iterator.cc                          \
   db/compaction/compaction_job.cc                               \
@@ -28,6 +27,7 @@ LIB_SOURCES =                                                   \
   db/compaction/sst_partitioner.cc                              \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
+  db/db_impl/compacted_db_impl.cc                                       \
   db/db_impl/db_impl.cc                                         \
   db/db_impl/db_impl_compaction_flush.cc                        \
   db/db_impl/db_impl_debug.cc                                   \
