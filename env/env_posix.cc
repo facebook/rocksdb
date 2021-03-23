@@ -315,7 +315,7 @@ class PosixEnv : public CompositeEnv {
     int ret = gethostname(name, static_cast<size_t>(len));
     if (ret < 0) {
       if (errno == EFAULT || errno == EINVAL) {
-        return Status::InvalidArgument(strerror(errno));
+        return Status::InvalidArgument(errnoStr(errno).c_str());
       } else {
         return IOError("GetHostName", name, errno);
       }

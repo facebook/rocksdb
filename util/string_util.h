@@ -141,4 +141,6 @@ bool SerializeIntVector(const std::vector<int>& vec, std::string* value);
 
 extern const std::string kNullptrString;
 
+extern std::string errnoStr(int err);
+
 }  // namespace ROCKSDB_NAMESPACE
