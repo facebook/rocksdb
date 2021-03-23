@@ -480,8 +480,8 @@ std::string errnoStr(int err) {
   // with strerrorlen_s). Note strerror_r and _s have swapped args.
   int r = strerror_s(buf, sizeof(buf), err);
   if (r != 0) {
-    snprintf(buf, buflen, "Unknown error %d (strerror_r failed with error %d)",
-             err, errno);
+    snprintf(buf, sizeof(buf),
+             "Unknown error %d (strerror_r failed with error %d)", err, errno);
   }
   result.assign(buf);
 #else

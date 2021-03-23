@@ -39,8 +39,8 @@ static Status IOError(const std::string& context, int err_number) {
   return (err_number == ENOSPC)
              ? Status::NoSpace(context, errnoStr(err_number).c_str())
              : (err_number == ENOENT)
-                 ? Status::PathNotFound(context, errnoStr(err_number).c_str())
-                 : Status::IOError(context, errnoStr(err_number).c_str());
+                   ? Status::PathNotFound(context, errnoStr(err_number).c_str())
+                   : Status::IOError(context, errnoStr(err_number).c_str());
 }
 
 // assume that there is one global logger for now. It is not thread-safe,
