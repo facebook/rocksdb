@@ -213,6 +213,8 @@ class HdfsWritableFile: public WritableFile {
     }
   }
 
+  using WritableFile::Append;
+
   // If the file was successfully created, then this returns true.
   // Otherwise returns false.
   bool isValid() {
