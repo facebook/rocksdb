@@ -78,6 +78,7 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
                              nullptr, nullptr, nullptr, true, nullptr, nullptr);
       LookupKey lkey(keys[idx], kMaxSequenceNumber);
       Status s = r->Get(options, lkey.internal_key(), &get_context, nullptr);
+      assert(static_cast<size_t>(idx) < statuses.size());
       if (!s.ok() && !s.IsNotFound()) {
         statuses[idx] = s;
       } else {
