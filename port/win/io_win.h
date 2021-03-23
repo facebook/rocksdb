@@ -39,9 +39,10 @@ inline IOStatus IOErrorFromLastWindowsError(const std::string& context) {
 inline IOStatus IOError(const std::string& context, int err_number) {
   return (err_number == ENOSPC)
              ? IOStatus::NoSpace(context, errnoStr(err_number).c_str())
-         : (err_number == ENOENT)
-             ? IOStatus::PathNotFound(context, errnoStr(err_number).c_str())
-             : IOStatus::IOError(context, errnoStr(err_number).c_str());
+             : (err_number == ENOENT)
+                   ? IOStatus::PathNotFound(context,
+                                            errnoStr(err_number).c_str())
+                   : IOStatus::IOError(context, errnoStr(err_number).c_str());
 }
 
 class WinFileData;
