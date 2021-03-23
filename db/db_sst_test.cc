@@ -1088,6 +1088,12 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedWithBlobFiles) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BuildTable::AfterDeleteFile",
       [&](void* /*arg*/) { delete_blob_file = true; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {
+          "BuildTable::AfterDeleteFile",
+          "DBSSTTest::DBWithMaxSpaceAllowedWithBlobFiles:1",
+      },
+  });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1095,6 +1101,8 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedWithBlobFiles) {
   // This flush will fail
   ASSERT_NOK(Flush());
   ASSERT_TRUE(max_allowed_space_reached);
+
+  TEST_SYNC_POINT("DBSSTTest::DBWithMaxSpaceAllowedWithBlobFiles:1");
   ASSERT_TRUE(delete_blob_file);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }
