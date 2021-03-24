@@ -758,6 +758,9 @@ DEFINE_bool(show_table_properties, false,
 
 DEFINE_string(db, "", "Use the db with the following name.");
 
+DEFINE_bool(progress_reports, true,
+            "If true, db_bench will report number of finished operations.");
+
 // Read cache flags
 
 DEFINE_string(read_cache_path, "",
@@ -2252,7 +2255,7 @@ class Stats {
     }
 
     done_ += num_ops;
-    if (done_ >= next_report_) {
+    if (done_ >= next_report_ && FLAGS_progress_reports) {
       if (!FLAGS_stats_interval) {
         if      (next_report_ < 1000)   next_report_ += 100;
         else if (next_report_ < 5000)   next_report_ += 500;
