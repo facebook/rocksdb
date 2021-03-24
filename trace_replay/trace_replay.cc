@@ -92,10 +92,8 @@ Status TracerHelper::DecodeTrace(const std::string& encoded_trace,
                                  Trace* trace) {
   assert(trace != nullptr);
   Slice enc_slice = Slice(encoded_trace);
-  if (!GetFixed64(&enc_slice, &trace->ts)) {
-    return Status::Incomplete("Decode trace string failed");
-  }
-  if (enc_slice.size() < kTraceTypeSize + kTracePayloadLengthSize) {
+  if (!GetFixed64(&enc_slice, &trace->ts) ||
+      enc_slice.size() < kTraceTypeSize + kTracePayloadLengthSize) {
     return Status::Incomplete("Decode trace string failed");
   }
   trace->type = static_cast<TraceType>(enc_slice[0]);
