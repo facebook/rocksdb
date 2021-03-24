@@ -515,7 +515,8 @@ TOOL_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TOOL_LIB_SOURCES))
 ANALYZE_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ANALYZER_LIB_SOURCES))
 STRESS_OBJECTS =  $(patsubst %.cc, $(OBJ_DIR)/%.o, $(STRESS_LIB_SOURCES))
 
-ALL_SOURCES  = $(LIB_SOURCES) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
+# Exclude build_version.cc -- a generated source file -- from all sources.  Not needed for dependencies
+ALL_SOURCES  = $(filter-out util/build_version.cc, $(LIB_SOURCES)) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
 ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 ALL_SOURCES += $(TEST_MAIN_SOURCES) $(TOOL_MAIN_SOURCES) $(BENCH_MAIN_SOURCES)
 
@@ -2539,28 +2540,9 @@ endif
 build_subset_tests: $(ROCKSDBTESTS_SUBSET)
 	$(AM_V_GEN)if [ -n "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}" ]; then echo "$(ROCKSDBTESTS_SUBSET)" > "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}"; else echo "$(ROCKSDBTESTS_SUBSET)"; fi
 
-# if the make goal is either "clean" or "format", we shouldn't
-# try to import the *.d files.
-# TODO(kailiu) The unfamiliarity of Make's conditions leads to the ugly
-# working solution.
-ifneq ($(MAKECMDGOALS),clean)
-ifneq ($(MAKECMDGOALS),format)
-ifneq ($(MAKECMDGOALS),check-format)
-ifneq ($(MAKECMDGOALS),check-buck-targets)
-ifneq ($(MAKECMDGOALS),jclean)
-ifneq ($(MAKECMDGOALS),jtest)
-ifneq ($(MAKECMDGOALS),rocksdbjavastatic)
-ifneq ($(MAKECMDGOALS),rocksdbjavastatic_deps)
-ifneq ($(MAKECMDGOALS),package)
-ifneq ($(MAKECMDGOALS),analyze)
+# Remove the rules for which dependencies should not be generated and see if any are left.
+#If so, include the dependencies; if not, do not include the dependency files
+ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets jclean jtest package analyze tags rocksdbjavastatic%, $(MAKECMDGOALS))
+ifneq ("$(ROCKS_DEP_RULES)", "")
 -include $(DEPFILES)
-endif
-endif
-endif
-endif
-endif
-endif
-endif
-endif
-endif
 endif
