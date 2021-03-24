@@ -62,7 +62,7 @@ typedef std::unique_ptr<void, decltype(FindCloseFunc)> UniqueFindClosePtr;
 
 void WinthreadCall(const char* label, std::error_code result) {
   if (0 != result.value()) {
-    fprintf(stderr, "pthread %s: %s\n", label,
+    fprintf(stderr, "Winthread %s: %s\n", label,
             errnoStr(result.value()).c_str());
     abort();
   }

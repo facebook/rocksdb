@@ -467,7 +467,7 @@ static std::string invoke_strerror_r(char* (*strerror_r)(int, char*, size_t),
   // Using GNU strerror_r
   return strerror_r(err, buf, buflen);
 }
-#endif
+#endif  // !(defined(_WIN32) && (defined(__MINGW32__) || defined(_MSC_VER)))
 
 std::string errnoStr(int err) {
   char buf[1024];
