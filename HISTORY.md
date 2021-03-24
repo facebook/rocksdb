@@ -43,6 +43,7 @@
 * Added BackupEngine::GetBackupInfo / GetLatestBackupInfo for querying individual backups.
 * Made the Ribbon filter a long-term supported feature in terms of the SST schema(compatible with version >= 6.15.0) though the API for enabling it is expected to change.
 
+
 ## 6.19.0 (03/21/2021)
 ### Bug Fixes
 * Fixed the truncation error found in APIs/tools when dumping block-based SST files in a human-readable format. After fix, the block-based table can be fully dumped as a readable file.
