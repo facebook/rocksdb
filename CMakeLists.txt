@@ -583,7 +583,6 @@ set(SOURCES
         db/builder.cc
         db/c.cc
         db/column_family.cc
-        db/compacted_db_impl.cc
         db/compaction/compaction.cc
         db/compaction/compaction_iterator.cc
         db/compaction/compaction_picker.cc
@@ -594,6 +593,7 @@ set(SOURCES
         db/compaction/sst_partitioner.cc
         db/convenience.cc
         db/db_filesnapshot.cc
+        db/db_impl/compacted_db_impl.cc
         db/db_impl/db_impl.cc
         db/db_impl/db_impl_write.cc
         db/db_impl/db_impl_compaction_flush.cc
@@ -1102,7 +1102,7 @@ if(WITH_TESTS)
         db/db_options_test.cc
         db/db_properties_test.cc
         db/db_range_del_test.cc
-        db/db_impl/db_secondary_test.cc
+        db/db_secondary_test.cc
         db/db_sst_test.cc
         db/db_statistics_test.cc
         db/db_table_properties_test.cc

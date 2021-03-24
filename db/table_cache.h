@@ -10,9 +10,9 @@
 // Thread-safe (provides internal synchronization)
 
 #pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <stdint.h>
 
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"

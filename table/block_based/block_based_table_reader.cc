@@ -2354,8 +2354,9 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
 
       if (!v.first_internal_key.empty() && !skip_filters &&
           UserComparatorWrapper(rep_->internal_comparator.user_comparator())
-                  .Compare(ExtractUserKey(key),
-                           ExtractUserKey(v.first_internal_key)) < 0) {
+                  .CompareWithoutTimestamp(
+                      ExtractUserKey(key),
+                      ExtractUserKey(v.first_internal_key)) < 0) {
         // The requested key falls between highest key in previous block and
         // lowest key in current block.
         break;
@@ -2542,8 +2543,9 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
         if (!iiter->Valid() ||
             (!v.first_internal_key.empty() && !skip_filters &&
              UserComparatorWrapper(rep_->internal_comparator.user_comparator())
-                     .Compare(ExtractUserKey(key),
-                              ExtractUserKey(v.first_internal_key)) < 0)) {
+                     .CompareWithoutTimestamp(
+                         ExtractUserKey(key),
+                         ExtractUserKey(v.first_internal_key)) < 0)) {
           // The requested key falls between highest key in previous block and
           // lowest key in current block.
           if (!iiter->status().IsNotFound()) {
@@ -2681,8 +2683,9 @@ void BlockBasedTable::MultiGet(const ReadOptions& read_options,
           IndexValue v = iiter->value();
           if (!v.first_internal_key.empty() && !skip_filters &&
               UserComparatorWrapper(rep_->internal_comparator.user_comparator())
-                      .Compare(ExtractUserKey(key),
-                               ExtractUserKey(v.first_internal_key)) < 0) {
+                      .CompareWithoutTimestamp(
+                          ExtractUserKey(key),
+                          ExtractUserKey(v.first_internal_key)) < 0) {
             // The requested key falls between highest key in previous block and
             // lowest key in current block.
             break;

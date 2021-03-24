@@ -211,6 +211,8 @@ class StressTest {
 
   void Reopen(ThreadState* thread);
 
+  void CheckAndSetOptionsForUserTimestamp();
+
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;

@@ -37,7 +37,8 @@ class ErrorHandler {
          db_mutex_(db_mutex),
          auto_recovery_(false),
          recovery_in_prog_(false),
-         soft_error_no_bg_work_(false) {
+         soft_error_no_bg_work_(false),
+         bg_error_stats_(db_options.statistics) {
      // Clear the checked flag for uninitialized errors
      bg_error_.PermitUncheckedError();
      recovery_error_.PermitUncheckedError();
@@ -107,6 +108,9 @@ class ErrorHandler {
 
     // Used to store the context for recover, such as flush reason.
     DBRecoverContext recover_context_;
+
+    // The pointer of DB statistics.
+    std::shared_ptr<Statistics> bg_error_stats_;
 
     Status OverrideNoSpaceError(const Status& bg_error, bool* auto_recovery);
     void RecoverFromNoSpace();

@@ -1476,9 +1476,11 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
       write_thread_.BeginWriteStall();
       TEST_SYNC_POINT("DBImpl::DelayWrite:BeginWriteStallDone");
       mutex_.Unlock();
-      // We will delay the write until we have slept for delay ms or
-      // we don't need a delay anymore
-      const uint64_t kDelayInterval = 1000;
+      // We will delay the write until we have slept for `delay` microseconds
+      // or we don't need a delay anymore. We check for cancellation every 1ms
+      // (slightly longer because WriteController minimum delay is 1ms, in
+      // case of sleep imprecision, rounding, etc.)
+      const uint64_t kDelayInterval = 1001;
       uint64_t stall_end = sw.start_time() + delay;
       while (write_controller_.NeedsDelay()) {
         if (immutable_db_options_.clock->NowMicros() >= stall_end) {

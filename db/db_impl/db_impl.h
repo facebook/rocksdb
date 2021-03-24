@@ -2219,6 +2219,8 @@ class DBImpl : public DB {
   InstrumentedCondVar atomic_flush_install_cv_;
 
   bool wal_in_db_path_;
+
+  BlobFileCompletionCallback blob_callback_;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src);

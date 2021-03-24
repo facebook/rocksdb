@@ -8,8 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <stdint.h>
+#include <cstdint>
 #include <string>
+
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
