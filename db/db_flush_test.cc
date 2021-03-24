@@ -82,29 +82,16 @@ TEST_F(DBFlushTest, SyncFail) {
   options.env = fault_injection_env.get();
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBFlushTest::SyncFail:GetVersionRefCount:1",
-        "DBImpl::FlushMemTableToOutputFile:BeforePickMemtables"},
-       {"DBImpl::FlushMemTableToOutputFile:AfterPickMemtables",
-        "DBFlushTest::SyncFail:GetVersionRefCount:2"},
-       {"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedLogs:Start"},
+      {{"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedLogs:Start"},
        {"DBImpl::SyncClosedLogs:Failed", "DBFlushTest::SyncFail:2"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_OK(Put("key", "value"));
-  auto* cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
-          ->cfd();
   FlushOptions flush_options;
   flush_options.wait = false;
   ASSERT_OK(dbfull()->Flush(flush_options));
   // Flush installs a new super-version. Get the ref count after that.
-  auto current_before = cfd->current();
-  int refs_before = cfd->current()->TEST_refs();
-  TEST_SYNC_POINT("DBFlushTest::SyncFail:GetVersionRefCount:1");
-  TEST_SYNC_POINT("DBFlushTest::SyncFail:GetVersionRefCount:2");
-  int refs_after_picking_memtables = cfd->current()->TEST_refs();
-  ASSERT_EQ(refs_before + 1, refs_after_picking_memtables);
   fault_injection_env->SetFilesystemActive(false);
   TEST_SYNC_POINT("DBFlushTest::SyncFail:1");
   TEST_SYNC_POINT("DBFlushTest::SyncFail:2");
@@ -115,9 +102,6 @@ TEST_F(DBFlushTest, SyncFail) {
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("", FilesPerLevel());  // flush failed.
 #endif                             // ROCKSDB_LITE
-  // Backgroun flush job should release ref count to current version.
-  ASSERT_EQ(current_before, cfd->current());
-  ASSERT_EQ(refs_before, cfd->current()->TEST_refs());
   Destroy(options);
 }
 

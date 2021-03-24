@@ -22,9 +22,8 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-DeleteScheduler::DeleteScheduler(const std::shared_ptr<SystemClock>& clock,
-                                 FileSystem* fs, int64_t rate_bytes_per_sec,
-                                 Logger* info_log,
+DeleteScheduler::DeleteScheduler(SystemClock* clock, FileSystem* fs,
+                                 int64_t rate_bytes_per_sec, Logger* info_log,
                                  SstFileManagerImpl* sst_file_manager,
                                  double max_trash_db_ratio,
                                  uint64_t bytes_max_delete_chunk)

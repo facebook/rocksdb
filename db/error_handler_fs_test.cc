@@ -158,6 +158,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
   options.env = fault_env_.get();
   options.create_if_missing = true;
   options.listeners.emplace_back(listener);
+  options.statistics = CreateDBStatistics();
   Status s;
 
   listener->EnableAutoRecovery(false);
@@ -174,13 +175,25 @@ TEST_F(DBErrorHandlingFSTest, FLushWriteError) {
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
   ASSERT_OK(s);
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_ERROR_COUNT));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_IO_ERROR_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT));
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, FLushWritRetryableError) {
+TEST_F(DBErrorHandlingFSTest, FLushWriteRetryableError) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
@@ -188,6 +201,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableError) {
   options.create_if_missing = true;
   options.listeners.emplace_back(listener);
   options.max_bgerror_resume_count = 0;
+  options.statistics = CreateDBStatistics();
   Status s;
 
   listener->EnableAutoRecovery(false);
@@ -207,6 +221,18 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableError) {
   fault_fs_->SetFilesystemActive(true);
   s = dbfull()->Resume();
   ASSERT_OK(s);
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_ERROR_COUNT));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_IO_ERROR_COUNT));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT));
   Reopen(options);
   ASSERT_EQ("val1", Get(Key(1)));
 
@@ -241,7 +267,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritRetryableError) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, FLushWritFileScopeError) {
+TEST_F(DBErrorHandlingFSTest, FLushWriteFileScopeError) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
@@ -325,6 +351,95 @@ TEST_F(DBErrorHandlingFSTest, FLushWritFileScopeError) {
   Destroy(options);
 }
 
+TEST_F(DBErrorHandlingFSTest, FLushWALWriteRetryableError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
+  Status s;
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  listener->EnableAutoRecovery(false);
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncClosedLogs:Start",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateAndReopenWithCF({"pikachu, sdfsdfsdf"}, options);
+
+  WriteOptions wo = WriteOptions();
+  wo.disableWAL = false;
+  ASSERT_OK(Put(Key(1), "val1", wo));
+
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+  auto cfh = dbfull()->GetColumnFamilyHandle(1);
+  s = dbfull()->DropColumnFamily(cfh);
+
+  s = dbfull()->Resume();
+  ASSERT_OK(s);
+  ASSERT_EQ("val1", Get(Key(1)));
+  ASSERT_OK(Put(Key(3), "val3", wo));
+  ASSERT_EQ("val3", Get(Key(3)));
+  s = Flush();
+  ASSERT_OK(s);
+  ASSERT_EQ("val3", Get(Key(3)));
+
+  Destroy(options);
+}
+
+TEST_F(DBErrorHandlingFSTest, FLushWALAtomicWriteRetryableError) {
+  std::shared_ptr<ErrorHandlerFSListener> listener(
+      new ErrorHandlerFSListener());
+  Options options = GetDefaultOptions();
+  options.env = fault_env_.get();
+  options.create_if_missing = true;
+  options.listeners.emplace_back(listener);
+  options.max_bgerror_resume_count = 0;
+  options.atomic_flush = true;
+  Status s;
+
+  IOStatus error_msg = IOStatus::IOError("Retryable IO Error");
+  error_msg.SetRetryable(true);
+
+  listener->EnableAutoRecovery(false);
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SyncClosedLogs:Start",
+      [&](void*) { fault_fs_->SetFilesystemActive(false, error_msg); });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateAndReopenWithCF({"pikachu, sdfsdfsdf"}, options);
+
+  WriteOptions wo = WriteOptions();
+  wo.disableWAL = false;
+  ASSERT_OK(Put(Key(1), "val1", wo));
+
+  s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kHardError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  fault_fs_->SetFilesystemActive(true);
+  auto cfh = dbfull()->GetColumnFamilyHandle(1);
+  s = dbfull()->DropColumnFamily(cfh);
+
+  s = dbfull()->Resume();
+  ASSERT_OK(s);
+  ASSERT_EQ("val1", Get(Key(1)));
+  ASSERT_OK(Put(Key(3), "val3", wo));
+  ASSERT_EQ("val3", Get(Key(3)));
+  s = Flush();
+  ASSERT_OK(s);
+  ASSERT_EQ("val3", Get(Key(3)));
+
+  Destroy(options);
+}
+
 TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
@@ -333,6 +448,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
   options.create_if_missing = true;
   options.listeners.emplace_back(listener);
   options.max_bgerror_resume_count = 0;
+  options.statistics = CreateDBStatistics();
   Status s;
 
   listener->EnableAutoRecovery(false);
@@ -363,11 +479,23 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError1) {
   s = Flush();
   ASSERT_OK(s);
   ASSERT_EQ("val3", Get(Key(3)));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_ERROR_COUNT));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_IO_ERROR_COUNT));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT));
 
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError2) {
+TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError2) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
@@ -410,7 +538,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError2) {
   Destroy(options);
 }
 
-TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableError3) {
+TEST_F(DBErrorHandlingFSTest, FLushWriteNoWALRetryableError3) {
   std::shared_ptr<ErrorHandlerFSListener> listener(
       new ErrorHandlerFSListener());
   Options options = GetDefaultOptions();
@@ -1010,6 +1138,7 @@ TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
   options.env = fault_env_.get();
   options.create_if_missing = true;
   options.listeners.emplace_back(listener);
+  options.statistics = CreateDBStatistics();
   Status s;
 
   listener->EnableAutoRecovery();
@@ -1028,6 +1157,18 @@ TEST_F(DBErrorHandlingFSTest, AutoRecoverFlushError) {
 
   s = Put(Key(1), "val");
   ASSERT_OK(s);
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_ERROR_COUNT));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_IO_ERROR_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT));
 
   Reopen(options);
   ASSERT_EQ("val", Get(Key(0)));
@@ -1567,6 +1708,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableeErrorAutoRecover1) {
   options.listeners.emplace_back(listener);
   options.max_bgerror_resume_count = 2;
   options.bgerror_resume_retry_interval = 100000;  // 0.1 second
+  options.statistics = CreateDBStatistics();
   Status s;
 
   listener->EnableAutoRecovery(false);
@@ -1594,6 +1736,22 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableeErrorAutoRecover1) {
   ASSERT_EQ("val1", Get(Key(1)));
   SyncPoint::GetInstance()->DisableProcessing();
   fault_fs_->SetFilesystemActive(true);
+  ASSERT_EQ(3, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_ERROR_COUNT));
+  ASSERT_EQ(3, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_IO_ERROR_COUNT));
+  ASSERT_EQ(3, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_COUNT));
+  ASSERT_EQ(2, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT));
+  ASSERT_EQ(0, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT));
+  HistogramData autoresume_retry;
+  options.statistics->histogramData(ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
+                                    &autoresume_retry);
+  ASSERT_EQ(autoresume_retry.max, 2);
   ASSERT_OK(Put(Key(2), "val2", wo));
   s = Flush();
   // Since auto resume fails, the bg error is not cleand, flush will
@@ -1620,6 +1778,7 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableeErrorAutoRecover2) {
   options.listeners.emplace_back(listener);
   options.max_bgerror_resume_count = 2;
   options.bgerror_resume_retry_interval = 100000;  // 0.1 second
+  options.statistics = CreateDBStatistics();
   Status s;
 
   listener->EnableAutoRecovery(false);
@@ -1643,6 +1802,22 @@ TEST_F(DBErrorHandlingFSTest, FLushWritNoWALRetryableeErrorAutoRecover2) {
   fault_fs_->SetFilesystemActive(true);
   ASSERT_EQ(listener->WaitForRecovery(5000000), true);
   ASSERT_EQ("val1", Get(Key(1)));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_ERROR_COUNT));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_IO_ERROR_COUNT));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_COUNT));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT));
+  ASSERT_EQ(1, options.statistics->getAndResetTickerCount(
+                   ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT));
+  HistogramData autoresume_retry;
+  options.statistics->histogramData(ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
+                                    &autoresume_retry);
+  ASSERT_EQ(autoresume_retry.max, 1);
   ASSERT_OK(Put(Key(2), "val2", wo));
   s = Flush();
   // Since auto resume is successful, the bg error is cleaned, flush will

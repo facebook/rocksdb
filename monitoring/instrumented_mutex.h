@@ -22,12 +22,10 @@ class InstrumentedMutex {
   explicit InstrumentedMutex(bool adaptive = false)
       : mutex_(adaptive), stats_(nullptr), clock_(nullptr), stats_code_(0) {}
 
-  explicit InstrumentedMutex(const std::shared_ptr<SystemClock>& clock,
-                             bool adaptive = false)
+  explicit InstrumentedMutex(SystemClock* clock, bool adaptive = false)
       : mutex_(adaptive), stats_(nullptr), clock_(clock), stats_code_(0) {}
 
-  InstrumentedMutex(Statistics* stats,
-                    const std::shared_ptr<SystemClock>& clock, int stats_code,
+  InstrumentedMutex(Statistics* stats, SystemClock* clock, int stats_code,
                     bool adaptive = false)
       : mutex_(adaptive),
         stats_(stats),
@@ -49,7 +47,7 @@ class InstrumentedMutex {
   friend class InstrumentedCondVar;
   port::Mutex mutex_;
   Statistics* stats_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   int stats_code_;
 };
 
@@ -96,7 +94,7 @@ class InstrumentedCondVar {
   bool TimedWaitInternal(uint64_t abs_time_us);
   port::CondVar cond_;
   Statistics* stats_;
-  const std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   int stats_code_;
 };
 
