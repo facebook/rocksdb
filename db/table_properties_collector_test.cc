@@ -55,8 +55,7 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
   builder->reset(NewTableBuilder(
       ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
       kTestColumnFamilyId, kTestColumnFamilyName, writable->get(),
-      options.compression, options.sample_for_compression,
-      options.compression_opts, unknown_level));
+      options.compression, options.compression_opts, unknown_level));
 }
 }  // namespace
 

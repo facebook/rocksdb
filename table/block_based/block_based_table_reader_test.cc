@@ -66,9 +66,9 @@ class BlockBasedTableReaderTest
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>> factories;
     std::unique_ptr<TableBuilder> table_builder(table_factory_->NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, comparator, &factories,
-                            compression_type, 0 /* sample_for_compression */,
-                            CompressionOptions(), false /* skip_filters */,
-                            kDefaultColumnFamilyName, -1 /* level */),
+                            compression_type, CompressionOptions(),
+                            false /* skip_filters */, kDefaultColumnFamilyName,
+                            -1 /* level */),
         0 /* column_family_id */, writer.get()));
 
     // Build table.
