@@ -31,8 +31,8 @@ class ThreadGuard {
     }
   }
 
-  const port::Thread& thread() const { return thread_; }
-  port::Thread& thread() { return thread_; }
+  const port::Thread& GetThread() const { return thread_; }
+  port::Thread& GetThread() { return thread_; }
 
  private:
   port::Thread thread_;
