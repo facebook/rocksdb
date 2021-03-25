@@ -16,6 +16,7 @@
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
+#include "util/thread_guard.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1307,18 +1308,18 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
 
   // While writing the MANIFEST start a thread that will ask for compaction
   Status bg_compact_status;
-  ROCKSDB_NAMESPACE::port::Thread bg_compact([&]() {
+  ThreadGuard bg_compact(port::Thread([&]() {
     bg_compact_status =
         db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-  });
+  }));
   TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:2");
 
   // Start a thread that will ingest a new file
   Status bg_addfile_status;
-  ROCKSDB_NAMESPACE::port::Thread bg_addfile([&]() {
+  ThreadGuard bg_addfile(port::Thread([&]() {
     file_keys = {1, 2, 3};
     bg_addfile_status = GenerateAndAddExternalFile(options, file_keys, 1);
-  });
+  }));
 
   // Wait for AddFile to start picking levels and writing MANIFEST
   TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:0");
@@ -1334,9 +1335,6 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
 
   // Hold AddFile from finishing writing the MANIFEST
   TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:1");
-
-  bg_addfile.join();
-  bg_compact.join();
 
   ASSERT_OK(bg_addfile_status);
   ASSERT_OK(bg_compact_status);
