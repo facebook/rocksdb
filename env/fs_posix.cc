@@ -553,11 +553,11 @@ class PosixFileSystem : public FileSystem {
   IOStatus NewLogger(const std::string& fname, const IOOptions& /*opts*/,
                    std::shared_ptr<Logger>* result,
                    IODebugContext* /*dbg*/) override {
-    FILE* f;
+    FILE* f = nullptr;
     int fd;
     {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+      fd = open(fname.c_str(), cloexec_flags(O_WRONLY | O_CREAT | O_TRUNC, nullptr), GetDBFileMode(allow_non_owner_access_));
       if (fd != -1) {
         f = fdopen(fd,
                    "w"
@@ -575,6 +575,7 @@ class PosixFileSystem : public FileSystem {
           IOError("when open a file for new logger", fname, errno));
     }
     if (f == nullptr) {
+      close(fd);
       result->reset();
       return status_to_io_status(
           IOError("when fdopen a file for new logger", fname, errno));
