@@ -577,7 +577,7 @@ class PosixFileSystem : public FileSystem {
     if (f == nullptr) {
       result->reset();
       return status_to_io_status(
-              IOError("when fdopen a file for new logger", fname, errno));
+          IOError("when fdopen a file for new logger", fname, errno));
     } else {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
       fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 4 * 1024);
