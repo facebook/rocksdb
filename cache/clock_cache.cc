@@ -271,7 +271,27 @@ class ClockCacheShard final : public CacheShard {
   Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
                 void (*deleter)(const Slice& key, void* value),
                 Cache::Handle** handle, Cache::Priority priority) override;
+  Status Insert(const Slice& key, uint32_t hash, void* value,
+                Cache::CacheItemHelperCallback helper_cb, size_t charge,
+                Cache::Handle** handle, Cache::Priority priority) override {
+    Cache::DeletionCallback delete_cb;
+    (*helper_cb)(nullptr, nullptr, &delete_cb);
+    return Insert(key, hash, value, charge, delete_cb, handle, priority);
+  }
   Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
+  Cache::Handle* Lookup(const Slice& key, uint32_t hash,
+                        Cache::CacheItemHelperCallback /*helper_cb*/,
+                        const Cache::CreateCallback& /*create_cb*/,
+                        Cache::Priority /*priority*/, bool /*wait*/) override {
+    return Lookup(key, hash);
+  }
+  bool Release(Cache::Handle* handle, bool /*useful*/,
+               bool force_erase) override {
+    return Release(handle, force_erase);
+  }
+  bool isReady(Cache::Handle* /*handle*/) override { return true; }
+  void Wait(Cache::Handle* /*handle*/) override {}
+
   // If the entry in in cache, increase reference count and return true.
   // Return false otherwise.
   //
@@ -747,6 +767,8 @@ class ClockCache final : public ShardedCache {
   }
 
   void DisownData() override { shards_ = nullptr; }
+
+  void WaitAll(std::vector<Handle*>& /*handles*/) override {}
 
  private:
   ClockCacheShard* shards_;

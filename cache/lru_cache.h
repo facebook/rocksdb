@@ -11,9 +11,9 @@
 #include <string>
 
 #include "cache/sharded_cache.h"
-
 #include "port/malloc.h"
 #include "port/port.h"
+#include "rocksdb/nvm_cache.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -49,7 +49,14 @@ namespace ROCKSDB_NAMESPACE {
 
 struct LRUHandle {
   void* value;
-  void (*deleter)(const Slice&, void* value);
+  union Info {
+    Info() {}
+    ~Info() {}
+    void (*deleter)(const Slice&, void* value);
+    ShardedCache::CacheItemHelperCallback helper_cb;
+    // This needs to be explicitly constructed and destructed
+    std::unique_ptr<NvmCacheHandle> nvm_handle;
+  } info_;
   LRUHandle* next_hash;
   LRUHandle* next;
   LRUHandle* prev;
@@ -69,6 +76,12 @@ struct LRUHandle {
     IN_HIGH_PRI_POOL = (1 << 2),
     // Whether this entry has had any lookups (hits).
     HAS_HIT = (1 << 3),
+    // Can this be inserted into the NVM cache
+    IS_NVM_COMPATIBLE = (1 << 4),
+    // Is the handle still being read from NVM
+    IS_INCOMPLETE = (1 << 5),
+    // Has the item been promoted from NVM
+    IS_PROMOTED = (1 << 6),
   };
 
   uint8_t flags;
@@ -95,6 +108,9 @@ struct LRUHandle {
   bool IsHighPri() const { return flags & IS_HIGH_PRI; }
   bool InHighPriPool() const { return flags & IN_HIGH_PRI_POOL; }
   bool HasHit() const { return flags & HAS_HIT; }
+  bool IsNvmCompatible() const { return flags & IS_NVM_COMPATIBLE; }
+  bool IsIncomplete() const { return flags & IS_INCOMPLETE; }
+  bool IsPromoted() const { return flags & IS_PROMOTED; }
 
   void SetInCache(bool in_cache) {
     if (in_cache) {
@@ -122,10 +138,38 @@ struct LRUHandle {
 
   void SetHit() { flags |= HAS_HIT; }
 
+  void SetNvmCompatible(bool nvm) {
+    if (nvm) {
+      flags |= IS_NVM_COMPATIBLE;
+    } else {
+      flags &= ~IS_NVM_COMPATIBLE;
+    }
+  }
+
+  void SetIncomplete(bool incomp) {
+    if (incomp) {
+      flags |= IS_INCOMPLETE;
+    } else {
+      flags &= ~IS_INCOMPLETE;
+    }
+  }
+
+  void SetPromoted(bool promoted) {
+    if (promoted) {
+      flags |= IS_PROMOTED;
+    } else {
+      flags &= ~IS_PROMOTED;
+    }
+  }
+
   void Free() {
     assert(refs == 0);
-    if (deleter) {
-      (*deleter)(key(), value);
+    if (!IsNvmCompatible() && info_.deleter) {
+      (*info_.deleter)(key(), value);
+    } else if (IsNvmCompatible()) {
+      ShardedCache::DeletionCallback del_cb;
+      (*info_.helper_cb)(nullptr, nullptr, &del_cb);
+      (*del_cb)(key(), value);
     }
     delete[] reinterpret_cast<char*>(this);
   }
@@ -193,7 +237,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
  public:
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                 double high_pri_pool_ratio, bool use_adaptive_mutex,
-                CacheMetadataChargePolicy metadata_charge_policy);
+                CacheMetadataChargePolicy metadata_charge_policy,
+                const std::shared_ptr<NvmCache>& nvm_cache);
   virtual ~LRUCacheShard() override = default;
 
   // Separate from constructor so caller can easily make an array of LRUCache
@@ -212,8 +257,32 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
                         size_t charge,
                         void (*deleter)(const Slice& key, void* value),
                         Cache::Handle** handle,
-                        Cache::Priority priority) override;
-  virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
+                        Cache::Priority priority) override {
+    return Insert(key, hash, value, charge, deleter, nullptr, handle, priority);
+  }
+  virtual Status Insert(const Slice& key, uint32_t hash, void* value,
+                        Cache::CacheItemHelperCallback helper_cb, size_t charge,
+                        Cache::Handle** handle,
+                        Cache::Priority priority) override {
+    return Insert(key, hash, value, charge, nullptr, helper_cb, handle,
+                  priority);
+  }
+  // If helper_cb is null, the values of the following arguments don't
+  // matter
+  virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash,
+                                ShardedCache::CacheItemHelperCallback helper_cb,
+                                const ShardedCache::CreateCallback& create_cb,
+                                ShardedCache::Priority priority,
+                                bool wait) override;
+  virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) override {
+    return Lookup(key, hash, nullptr, nullptr, Cache::Priority::LOW, true);
+  }
+  virtual bool Release(Cache::Handle* handle, bool /*useful*/,
+                       bool force_erase) override {
+    return Release(handle, force_erase);
+  }
+  virtual bool isReady(Cache::Handle* /*handle*/) override { return true; }
+  virtual void Wait(Cache::Handle* /*handle*/) override {}
   virtual bool Ref(Cache::Handle* handle) override;
   virtual bool Release(Cache::Handle* handle,
                        bool force_erase = false) override;
@@ -243,6 +312,11 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   double GetHighPriPoolRatio();
 
  private:
+  Status InsertItem(LRUHandle* item, Cache::Handle** handle);
+  Status Insert(const Slice& key, uint32_t hash, void* value, size_t charge,
+                void (*deleter)(const Slice& key, void* value),
+                Cache::CacheItemHelperCallback helper_cb,
+                Cache::Handle** handle, Cache::Priority priority);
   void LRU_Remove(LRUHandle* e);
   void LRU_Insert(LRUHandle* e);
 
@@ -303,6 +377,8 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.
   mutable port::Mutex mutex_;
+
+  std::shared_ptr<NvmCache> nvm_cache_;
 };
 
 class LRUCache
@@ -316,7 +392,8 @@ class LRUCache
            std::shared_ptr<MemoryAllocator> memory_allocator = nullptr,
            bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
            CacheMetadataChargePolicy metadata_charge_policy =
-               kDontChargeCacheMetadata);
+               kDontChargeCacheMetadata,
+           const std::shared_ptr<NvmCache>& nvm_cache = nullptr);
   virtual ~LRUCache();
   virtual const char* Name() const override { return "LRUCache"; }
   virtual CacheShard* GetShard(int shard) override;
@@ -325,6 +402,7 @@ class LRUCache
   virtual size_t GetCharge(Handle* handle) const override;
   virtual uint32_t GetHash(Handle* handle) const override;
   virtual void DisownData() override;
+  virtual void WaitAll(std::vector<Handle*>& /*handles*/) override {}
 
   //  Retrieves number of elements in LRU, for unit test purpose only
   size_t TEST_GetLRUSize();
