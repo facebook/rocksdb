@@ -557,7 +557,9 @@ class PosixFileSystem : public FileSystem {
     int fd;
     {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), cloexec_flags(O_WRONLY | O_CREAT | O_TRUNC, nullptr), GetDBFileMode(allow_non_owner_access_));
+      fd = open(fname.c_str(),
+                cloexec_flags(O_WRONLY | O_CREAT | O_TRUNC, nullptr),
+                GetDBFileMode(allow_non_owner_access_));
       if (fd != -1) {
         f = fdopen(fd,
                    "w"
