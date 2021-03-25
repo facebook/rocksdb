@@ -555,16 +555,15 @@ class PosixFileSystem : public FileSystem {
                    IODebugContext* /*dbg*/) override {
     FILE* f;
     int fd;
-
     {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(),  O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+      fd = open(fname.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
       if (fd != -1) {
         f = fdopen(fd,
-                  "w"
+                   "w"
 #ifdef __GLIBC_PREREQ
 #if __GLIBC_PREREQ(2, 7)
-                  "e"  // glibc extension to enable O_CLOEXEC
+                   "e"  // glibc extension to enable O_CLOEXEC
 #endif
 #endif
         );
@@ -573,7 +572,7 @@ class PosixFileSystem : public FileSystem {
     if (fd == -1) {
       result->reset();
       return status_to_io_status(
-              IOError("when open a file for new logger", fname, errno));
+          IOError("when open a file for new logger", fname, errno));
     }
     if (f == nullptr) {
       result->reset();
