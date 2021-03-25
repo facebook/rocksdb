@@ -7,8 +7,12 @@
 
 #include <string>
 #include <vector>
+
 #include "port/port.h"
+#include "rocksdb/cache.h"
 #include "test_util/testharness.h"
+#include "util/coding.h"
+#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -32,7 +36,7 @@ class LRUCacheTest : public testing::Test {
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
     new (cache_) LRUCacheShard(capacity, false /*strict_capcity_limit*/,
                                high_pri_pool_ratio, use_adaptive_mutex,
-                               kDontChargeCacheMetadata);
+                               kDontChargeCacheMetadata, nullptr /*nvm_cache*/);
   }
 
   void Insert(const std::string& key,
@@ -191,6 +195,178 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   ValidateLRUList({"e", "f", "g", "Z", "d"}, 2);
 }
 
+class TestNvmCache : public NvmCache {
+ public:
+  TestNvmCache(size_t capacity) : num_inserts_(0), num_lookups_(0) {
+    cache_ = NewLRUCache(capacity, 0, false, 0.5, nullptr,
+                         kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
+  }
+  ~TestNvmCache() { cache_.reset(); }
+
+  std::string Name() override { return "TestNvmCache"; }
+
+  Status Insert(const Slice& key, void* value,
+                Cache::CacheItemHelperCallback helper_cb) override {
+    Cache::SizeCallback size_cb;
+    Cache::SaveToCallback save_cb;
+    size_t size;
+    char* buf;
+    Status s;
+
+    num_inserts_++;
+    (*helper_cb)(&size_cb, &save_cb, nullptr);
+    size = (*size_cb)(value);
+    buf = new char[size + sizeof(uint64_t)];
+    EncodeFixed64(buf, size);
+    s = (*save_cb)(value, 0, size, buf + sizeof(uint64_t));
+    EXPECT_OK(s);
+    return cache_->Insert(key, buf, size,
+                          [](const Slice& /*key*/, void* value) -> void {
+                            delete[] reinterpret_cast<char*>(value);
+                          });
+  }
+
+  std::unique_ptr<NvmCacheHandle> Lookup(const Slice& key,
+                                         const Cache::CreateCallback& create_cb,
+                                         bool /*wait*/) override {
+    std::unique_ptr<TestNvmCacheHandle> nvm_handle;
+    Cache::Handle* handle = cache_->Lookup(key);
+    num_lookups_++;
+    if (handle) {
+      void* value;
+      size_t charge;
+      char* ptr = (char*)cache_->Value(handle);
+      size_t size = DecodeFixed64(ptr);
+      ptr += sizeof(uint64_t);
+      Status s = create_cb(ptr, size, &value, &charge);
+      EXPECT_OK(s);
+      nvm_handle.reset(
+          new TestNvmCacheHandle(cache_.get(), handle, value, charge));
+    }
+    return nvm_handle;
+  }
+
+  void Erase(const Slice& /*key*/) override {}
+
+  void WaitAll(std::vector<NvmCacheHandle*> /*handles*/) override {}
+
+  std::string GetPrintableOptions() const override { return ""; }
+
+  uint32_t num_inserts() { return num_inserts_; }
+
+  uint32_t num_lookups() { return num_lookups_; }
+
+ private:
+  class TestNvmCacheHandle : public NvmCacheHandle {
+   public:
+    TestNvmCacheHandle(Cache* cache, Cache::Handle* handle, void* value,
+                       size_t size)
+        : cache_(cache), handle_(handle), value_(value), size_(size) {}
+    ~TestNvmCacheHandle() {
+      delete[] reinterpret_cast<char*>(cache_->Value(handle_));
+      cache_->Release(handle_);
+    }
+
+    bool isReady() override { return true; }
+
+    void Wait() override {}
+
+    void* Value() override { return value_; }
+
+    size_t Size() override { return size_; }
+
+   private:
+    Cache* cache_;
+    Cache::Handle* handle_;
+    void* value_;
+    size_t size_;
+  };
+
+  std::shared_ptr<Cache> cache_;
+  uint32_t num_inserts_;
+  uint32_t num_lookups_;
+};
+
+TEST_F(LRUCacheTest, TestNvmCache) {
+  LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
+                       kDontChargeCacheMetadata);
+  std::shared_ptr<TestNvmCache> nvm_cache(new TestNvmCache(2048));
+  opts.nvm_cache = nvm_cache;
+  std::shared_ptr<Cache> cache = NewLRUCache(opts);
+
+  class TestItem {
+   public:
+    TestItem(const char* buf, size_t size) : buf_(new char[size]), size_(size) {
+      memcpy(buf_.get(), buf, size);
+    }
+    ~TestItem() {}
+
+    char* Buf() { return buf_.get(); }
+    size_t Size() { return size_; }
+
+   private:
+    std::unique_ptr<char[]> buf_;
+    size_t size_;
+  };
+
+  Cache::CacheItemHelperCallback helper_cb =
+      [](Cache::SizeCallback* size_cb, Cache::SaveToCallback* saveto_cb,
+         Cache::DeletionCallback* del_cb) -> void {
+    if (size_cb) {
+      *size_cb = [](void* obj) -> size_t {
+        return reinterpret_cast<TestItem*>(obj)->Size();
+      };
+    }
+    if (saveto_cb) {
+      *saveto_cb = [](void* obj, size_t offset, size_t size,
+                      void* out) -> Status {
+        TestItem* item = reinterpret_cast<TestItem*>(obj);
+        char* buf = item->Buf();
+        EXPECT_EQ(size, item->Size());
+        EXPECT_EQ(offset, 0);
+        memcpy(out, buf, size);
+        return Status::OK();
+      };
+    }
+    if (del_cb) {
+      *del_cb = [](const Slice& /*key*/, void* obj) -> void {
+        delete reinterpret_cast<TestItem*>(obj);
+      };
+    }
+  };
+
+  int create_count = 0;
+  Cache::CreateCallback test_item_creator =
+      [&create_count](void* buf, size_t size, void** out_obj,
+                      size_t* charge) -> Status {
+    create_count++;
+    *out_obj = reinterpret_cast<void*>(new TestItem((char*)buf, size));
+    *charge = size;
+    return Status::OK();
+  };
+
+  Random rnd(301);
+  std::string str1 = rnd.RandomString(1020);
+  TestItem* item1 = new TestItem(str1.data(), str1.length());
+  cache->Insert("k1", item1, helper_cb, str1.length());
+  std::string str2 = rnd.RandomString(1020);
+  TestItem* item2 = new TestItem(str2.data(), str2.length());
+  // k2 should be demoted to NVM
+  cache->Insert("k2", item2, helper_cb, str2.length());
+
+  Cache::Handle* handle;
+  handle = cache->Lookup("k2", helper_cb, test_item_creator,
+                         Cache::Priority::LOW, true);
+  ASSERT_NE(handle, nullptr);
+  cache->Release(handle);
+  // This lookup should promote k1 and demote k2
+  handle = cache->Lookup("k1", helper_cb, test_item_creator,
+                         Cache::Priority::LOW, true);
+  ASSERT_NE(handle, nullptr);
+  cache->Release(handle);
+  ASSERT_EQ(nvm_cache->num_inserts(), 2);
+  ASSERT_EQ(nvm_cache->num_lookups(), 1);
+}
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
