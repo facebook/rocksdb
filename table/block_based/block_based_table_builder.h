@@ -46,7 +46,6 @@ class BlockBasedTableBuilder : public TableBuilder {
           int_tbl_prop_collector_factories,
       uint32_t column_family_id, WritableFileWriter* file,
       const CompressionType compression_type,
-      const uint64_t sample_for_compression,
       const CompressionOptions& compression_opts, const bool skip_filters,
       const std::string& column_family_name, const int level_at_creation,
       const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0,

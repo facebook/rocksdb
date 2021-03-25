@@ -500,7 +500,6 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_options_, table_builder_options.internal_comparator,
       table_builder_options.int_tbl_prop_collector_factories, column_family_id,
       file, table_builder_options.compression_type,
-      table_builder_options.sample_for_compression,
       table_builder_options.compression_opts,
       table_builder_options.skip_filters,
       table_builder_options.column_family_name, table_builder_options.level,

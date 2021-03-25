@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 ## Unreleased
+### Behavior Changes
+* `ColumnFamilyOptions::sample_for_compression` now takes effect for creation of all block-based tables. Previously it only took effect for block-based tables created by flush.
+
 ### Bug Fixes
 * Use thread-safe `strerror_r()` to get error messages.
 
