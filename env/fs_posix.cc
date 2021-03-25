@@ -862,7 +862,7 @@ class PosixFileSystem : public FileSystem {
     char the_path[256];
     char* ret = getcwd(the_path, 256);
     if (ret == nullptr) {
-      return IOStatus::IOError(strerror(errno));
+      return IOStatus::IOError(errnoStr(errno).c_str());
     }
 
     *output_path = ret;
