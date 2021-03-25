@@ -5,6 +5,7 @@
 
 ### Bug Fixes
 * Use thread-safe `strerror_r()` to get error messages.
+* Made BackupEngine thread-safe and added documentation comments to clarify what is safe for multiple BackupEngine objects accessing the same backup directory.
 
 ## 6.19.0 (03/21/2021)
 ### Bug Fixes
