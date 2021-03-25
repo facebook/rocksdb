@@ -554,23 +554,32 @@ class PosixFileSystem : public FileSystem {
                    std::shared_ptr<Logger>* result,
                    IODebugContext* /*dbg*/) override {
     FILE* f;
+    int fd;
+
     {
       IOSTATS_TIMER_GUARD(open_nanos);
-      f = fopen(fname.c_str(),
-                "w"
+      fd = open(fname.c_str(),  O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+      if (fd != -1) {
+        f = fdopen(fd,
+                  "w"
 #ifdef __GLIBC_PREREQ
 #if __GLIBC_PREREQ(2, 7)
-                "e"  // glibc extension to enable O_CLOEXEC
+                  "e"  // glibc extension to enable O_CLOEXEC
 #endif
 #endif
-      );
+        );
+      }
+    }
+    if (fd == -1) {
+      result->reset();
+      return status_to_io_status(
+              IOError("when open a file for new logger", fname, errno));
     }
     if (f == nullptr) {
       result->reset();
       return status_to_io_status(
-              IOError("when fopen a file for new logger", fname, errno));
+              IOError("when fdopen a file for new logger", fname, errno));
     } else {
-      int fd = fileno(f);
 #ifdef ROCKSDB_FALLOCATE_PRESENT
       fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 4 * 1024);
 #endif
