@@ -24,6 +24,28 @@ class DBWALTestBase : public DBTestBase {
 
 #if defined(ROCKSDB_PLATFORM_POSIX)
  public:
+  bool IsFallocateSupported() {
+    // Test fallocate support of running file system.
+    // Skip this test if fallocate is not supported.
+    std::string fname_test_fallocate = dbname_ + "/preallocate_testfile";
+    int fd = -1;
+    do {
+      fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+    } while (fd < 0 && errno == EINTR);
+    assert(fd > 0);
+    int alloc_status = fallocate(fd, 0, 0, 1);
+    int err_number = errno;
+    close(fd);
+    assert(env_->DeleteFile(fname_test_fallocate) == Status::OK());
+    if (err_number == ENOSYS || err_number == EOPNOTSUPP) {
+      fprintf(stderr, "Skipped preallocated space check: %s\n",
+              errnoStr(err_number).c_str());
+      return false;
+    }
+    assert(alloc_status == 0);
+    return true;
+  }
+
   uint64_t GetAllocatedFileSize(std::string file_name) {
     struct stat sbuf;
     int err = stat(file_name.c_str(), &sbuf);
@@ -1849,24 +1871,9 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
     ROCKSDB_GTEST_SKIP("Test requires non-mem environment");
     return;
   }
-  // Test fallocate support of running file system.
-  // Skip this test if fallocate is not supported.
-  std::string fname_test_fallocate = dbname_ + "/preallocate_testfile";
-  int fd = -1;
-  do {
-    fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
-  } while (fd < 0 && errno == EINTR);
-  ASSERT_GT(fd, 0);
-  int alloc_status = fallocate(fd, 0, 0, 1);
-  int err_number = errno;
-  close(fd);
-  ASSERT_OK(options.env->DeleteFile(fname_test_fallocate));
-  if (err_number == ENOSYS || err_number == EOPNOTSUPP) {
-    fprintf(stderr, "Skipped preallocated space check: %s\n",
-            errnoStr(err_number).c_str());
+  if (!IsFallocateSupported()) {
     return;
   }
-  ASSERT_EQ(0, alloc_status);
 
   DestroyAndReopen(options);
   size_t preallocated_size =
@@ -1901,24 +1908,9 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithFlush) {
     ROCKSDB_GTEST_SKIP("Test requires non-mem environment");
     return;
   }
-  // Test fallocate support of running file system.
-  // Skip this test if fallocate is not supported.
-  std::string fname_test_fallocate = dbname_ + "/preallocate_testfile";
-  int fd = -1;
-  do {
-    fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
-  } while (fd < 0 && errno == EINTR);
-  ASSERT_GT(fd, 0);
-  int alloc_status = fallocate(fd, 0, 0, 1);
-  int err_number = errno;
-  close(fd);
-  ASSERT_OK(options.env->DeleteFile(fname_test_fallocate));
-  if (err_number == ENOSYS || err_number == EOPNOTSUPP) {
-    fprintf(stderr, "Skipped preallocated space check: %s\n",
-            strerror(err_number));
+  if (!IsFallocateSupported()) {
     return;
   }
-  ASSERT_EQ(0, alloc_status);
 
   DestroyAndReopen(options);
   size_t preallocated_size =
@@ -1964,24 +1956,9 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWALEmpty) {
     ROCKSDB_GTEST_SKIP("Test requires non-mem environment");
     return;
   }
-  // Test fallocate support of running file system.
-  // Skip this test if fallocate is not supported.
-  std::string fname_test_fallocate = dbname_ + "/preallocate_testfile";
-  int fd = -1;
-  do {
-    fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
-  } while (fd < 0 && errno == EINTR);
-  ASSERT_GT(fd, 0);
-  int alloc_status = fallocate(fd, 0, 0, 1);
-  int err_number = errno;
-  close(fd);
-  ASSERT_OK(options.env->DeleteFile(fname_test_fallocate));
-  if (err_number == ENOSYS || err_number == EOPNOTSUPP) {
-    fprintf(stderr, "Skipped preallocated space check: %s\n",
-            strerror(err_number));
+  if (!IsFallocateSupported()) {
     return;
   }
-  ASSERT_EQ(0, alloc_status);
 
   DestroyAndReopen(options);
   size_t preallocated_size =

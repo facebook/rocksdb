@@ -1236,9 +1236,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
       // If there's no data in the WAL, or we flushed all the data, still
       // truncate the log file. If the process goes into a crash loop before
       // the file is deleted, the preallocated space will never get freed.
-      Status s;
-      (void)GetLogSizeAndMaybeTruncate(wal_numbers.back(), true, &s);
-      s.PermitUncheckedError();
+      GetLogSizeAndMaybeTruncate(wal_numbers.back(), true, nullptr)
+          .PermitUncheckedError();
     }
   }
 
@@ -1248,13 +1247,14 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
   return status;
 }
 
-DBImpl::LogFileNumberSize DBImpl::GetLogSizeAndMaybeTruncate(
-    uint64_t wal_number, bool truncate, Status* s) {
+Status DBImpl::GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
+                                          LogFileNumberSize* log_ptr) {
   LogFileNumberSize log(wal_number);
   std::string fname = LogFileName(immutable_db_options_.wal_dir, wal_number);
+  Status s;
   // This gets the appear size of the wals, not including preallocated space.
-  *s = env_->GetFileSize(fname, &log.size);
-  if (s->ok() && truncate) {
+  s = env_->GetFileSize(fname, &log.size);
+  if (s.ok() && truncate) {
     std::unique_ptr<FSWritableFile> last_log;
     Status truncate_status = fs_->ReopenWritableFile(
         fname,
@@ -1275,7 +1275,10 @@ DBImpl::LogFileNumberSize DBImpl::GetLogSizeAndMaybeTruncate(
                      truncate_status.ToString().c_str());
     }
   }
-  return log;
+  if (log_ptr) {
+    *log_ptr = log;
+  }
+  return s;
 }
 
 Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
@@ -1296,9 +1299,9 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
     // We preallocate space for wals, but then after a crash and restart, those
     // preallocated space are not needed anymore. It is likely only the last
     // log has such preallocated space, so we only truncate for the last log.
-    LogFileNumberSize log = GetLogSizeAndMaybeTruncate(
-        wal_number,
-        /*truncate=*/(wal_number == wal_numbers.back()) ? true : false, &s);
+    LogFileNumberSize log;
+    s = GetLogSizeAndMaybeTruncate(
+        wal_number, /*truncate=*/(wal_number == wal_numbers.back()), &log);
     if (!s.ok()) {
       break;
     }

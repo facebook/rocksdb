@@ -1308,6 +1308,7 @@ class DBImpl : public DB {
 
   struct LogFileNumberSize {
     explicit LogFileNumberSize(uint64_t _number) : number(_number) {}
+    LogFileNumberSize() {}
     void AddSize(uint64_t new_size) { size += new_size; }
     uint64_t number;
     uint64_t size = 0;
@@ -1510,8 +1511,8 @@ class DBImpl : public DB {
   // Get the size of a log file and, if truncate is true, truncate the
   // log file to its actual size, thereby freeing preallocated space.
   // Return success even if truncate fails
-  LogFileNumberSize GetLogSizeAndMaybeTruncate(uint64_t wal_number,
-                                               bool truncate, Status* s);
+  Status GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
+                                    LogFileNumberSize* log);
 
   // Restore alive_log_files_ and total_log_size_ after recovery.
   // It needs to run only when there's no flush during recovery
