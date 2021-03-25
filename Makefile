@@ -1354,8 +1354,9 @@ analyze_incremental:
 		$(MAKE) dbg
 
 CLEAN_FILES += unity.cc
-unity.cc: Makefile
+unity.cc: Makefile util/build_version.cc.in
 	rm -f $@ $@-t
+	$(AM_V_at)$(gen_build_version) > util/build_version.cc
 	for source_file in $(LIB_SOURCES); do \
 		echo "#include \"$$source_file\"" >> $@-t; \
 	done
@@ -2495,11 +2496,13 @@ endif
 # ---------------------------------------------------------------------------
 #  	Source files dependencies detection
 # ---------------------------------------------------------------------------
-
+# If skip dependencies is ON, skip including the dep files
+ifneq ($(SKIP_DEPENDS), 1)
 DEPFILES = $(patsubst %.cc, $(OBJ_DIR)/%.cc.d, $(ALL_SOURCES))
 DEPFILES+ = $(patsubst %.c, $(OBJ_DIR)/%.c.d, $(LIB_SOURCES_C) $(TEST_MAIN_SOURCES_C))
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
   DEPFILES +=$(patsubst %.cpp, $(OBJ_DIR)/%.cpp.d, $(FOLLY_SOURCES))
+endif
 endif
 
 # Add proper dependency support so changing a .h file forces a .cc file to
@@ -2542,7 +2545,7 @@ build_subset_tests: $(ROCKSDBTESTS_SUBSET)
 
 # Remove the rules for which dependencies should not be generated and see if any are left.
 #If so, include the dependencies; if not, do not include the dependency files
-ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets jclean jtest package analyze tags rocksdbjavastatic%, $(MAKECMDGOALS))
+ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test, $(MAKECMDGOALS))
 ifneq ("$(ROCKS_DEP_RULES)", "")
 -include $(DEPFILES)
 endif
