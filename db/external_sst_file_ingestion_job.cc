@@ -201,7 +201,8 @@ Status ExternalSstFileIngestionJob::Prepare(
             requested_checksum_func_name, &generated_checksum,
             &generated_checksum_func_name,
             ingestion_options_.verify_checksums_readahead_size,
-            db_options_.allow_mmap_reads, io_tracer_);
+            db_options_.allow_mmap_reads, io_tracer_,
+            db_options_.rate_limiter.get());
         if (!io_s.ok()) {
           status = io_s;
           ROCKS_LOG_WARN(db_options_.info_log,
@@ -292,12 +293,13 @@ Status ExternalSstFileIngestionJob::Prepare(
 
   // TODO: The following is duplicated with Cleanup().
   if (!status.ok()) {
+    IOOptions io_opts;
     // We failed, remove all files that we copied into the db
     for (IngestedFileInfo& f : files_to_ingest_) {
       if (f.internal_file_path.empty()) {
         continue;
       }
-      Status s = env_->DeleteFile(f.internal_file_path);
+      Status s = fs_->DeleteFile(f.internal_file_path, io_opts, nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "AddFile() clean up for file %s failed : %s",
@@ -335,6 +337,12 @@ Status ExternalSstFileIngestionJob::Run() {
   // with the files we are ingesting
   bool need_flush = false;
   status = NeedsFlush(&need_flush, super_version);
+  if (!status.ok()) {
+    return status;
+  }
+  if (need_flush) {
+    return Status::TryAgain();
+  }
   assert(status.ok() && need_flush == false);
 #endif
 
@@ -385,7 +393,7 @@ Status ExternalSstFileIngestionJob::Run() {
     int64_t temp_current_time = 0;
     uint64_t current_time = kUnknownFileCreationTime;
     uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
-    if (env_->GetCurrentTime(&temp_current_time).ok()) {
+    if (clock_->GetCurrentTime(&temp_current_time).ok()) {
       current_time = oldest_ancester_time =
           static_cast<uint64_t>(temp_current_time);
     }
@@ -403,7 +411,7 @@ void ExternalSstFileIngestionJob::UpdateStats() {
   // Update internal stats for new ingested files
   uint64_t total_keys = 0;
   uint64_t total_l0_files = 0;
-  uint64_t total_time = env_->NowMicros() - job_start_time_;
+  uint64_t total_time = clock_->NowMicros() - job_start_time_;
 
   EventLoggerStream stream = event_logger_->Log();
   stream << "event"
@@ -459,6 +467,7 @@ void ExternalSstFileIngestionJob::UpdateStats() {
 }
 
 void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
+  IOOptions io_opts;
   if (!status.ok()) {
     // We failed to add the files to the database
     // remove all the files we copied
@@ -466,7 +475,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
       if (f.internal_file_path.empty()) {
         continue;
       }
-      Status s = env_->DeleteFile(f.internal_file_path);
+      Status s = fs_->DeleteFile(f.internal_file_path, io_opts, nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(db_options_.info_log,
                        "AddFile() clean up for file %s failed : %s",
@@ -478,7 +487,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
   } else if (status.ok() && ingestion_options_.move_files) {
     // The files were moved and added successfully, remove original file links
     for (IngestedFileInfo& f : files_to_ingest_) {
-      Status s = env_->DeleteFile(f.external_file_path);
+      Status s = fs_->DeleteFile(f.external_file_path, io_opts, nullptr);
       if (!s.ok()) {
         ROCKS_LOG_WARN(
             db_options_.info_log,
@@ -803,7 +812,8 @@ Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
         fs_->NewRandomRWFile(file_to_ingest->internal_file_path, env_options_,
                              &rwfile, nullptr);
     if (status.ok()) {
-      FSRandomRWFilePtr fsptr(std::move(rwfile), io_tracer_);
+      FSRandomRWFilePtr fsptr(std::move(rwfile), io_tracer_,
+                              file_to_ingest->internal_file_path);
       std::string seqno_val;
       PutFixed64(&seqno_val, seqno);
       status = fsptr->Write(file_to_ingest->global_seqno_offset, seqno_val,
@@ -850,7 +860,7 @@ IOStatus ExternalSstFileIngestionJob::GenerateChecksumForIngestedFile(
       db_options_.file_checksum_gen_factory.get(), requested_checksum_func_name,
       &file_checksum, &file_checksum_func_name,
       ingestion_options_.verify_checksums_readahead_size,
-      db_options_.allow_mmap_reads, io_tracer_);
+      db_options_.allow_mmap_reads, io_tracer_, db_options_.rate_limiter.get());
   if (!io_s.ok()) {
     return io_s;
   }

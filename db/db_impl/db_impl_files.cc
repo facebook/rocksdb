@@ -6,16 +6,17 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#include "db/db_impl/db_impl.h"
-
 #include <cinttypes>
 #include <set>
 #include <unordered_set>
+
+#include "db/db_impl/db_impl.h"
 #include "db/event_helpers.h"
 #include "db/memtable_list.h"
 #include "file/file_util.h"
 #include "file/filename.h"
 #include "file/sst_file_manager_impl.h"
+#include "port/port.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -119,7 +120,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
              mutable_db_options_.delete_obsolete_files_period_micros == 0) {
     doing_the_full_scan = true;
   } else {
-    const uint64_t now_micros = env_->NowMicros();
+    const uint64_t now_micros = immutable_db_options_.clock->NowMicros();
     if ((delete_obsolete_files_last_run_ +
          mutable_db_options_.delete_obsolete_files_period_micros) <
         now_micros) {
@@ -190,7 +191,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       // set of all files in the directory. We'll exclude files that are still
       // alive in the subsequent processings.
       std::vector<std::string> files;
-      env_->GetChildren(path, &files).PermitUncheckedError();  // Ignore errors
+      Status s = env_->GetChildren(path, &files);
+      s.PermitUncheckedError();  // TODO: What should we do on error?
       for (const std::string& file : files) {
         uint64_t number;
         FileType type;
@@ -206,7 +208,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
           continue;
         }
 
-        // TODO(icanadi) clean up this mess to avoid having one-off "/" prefixes
+        // TODO(icanadi) clean up this mess to avoid having one-off "/"
+        // prefixes
         job_context->full_scan_candidate_files.emplace_back("/" + file, path);
       }
     }
@@ -214,9 +217,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     // Add log files in wal_dir
     if (immutable_db_options_.wal_dir != dbname_) {
       std::vector<std::string> log_files;
-      env_->GetChildren(immutable_db_options_.wal_dir,
-                        &log_files)
-          .PermitUncheckedError();  // Ignore errors
+      Status s = env_->GetChildren(immutable_db_options_.wal_dir, &log_files);
+      s.PermitUncheckedError();  // TODO: What should we do on error?
       for (const std::string& log_file : log_files) {
         job_context->full_scan_candidate_files.emplace_back(
             log_file, immutable_db_options_.wal_dir);
@@ -226,9 +228,9 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     if (!immutable_db_options_.db_log_dir.empty() &&
         immutable_db_options_.db_log_dir != dbname_) {
       std::vector<std::string> info_log_files;
-      // Ignore errors
-      env_->GetChildren(immutable_db_options_.db_log_dir, &info_log_files)
-          .PermitUncheckedError();
+      Status s =
+          env_->GetChildren(immutable_db_options_.db_log_dir, &info_log_files);
+      s.PermitUncheckedError();  // TODO: What should we do on error?
       for (std::string& log_file : info_log_files) {
         job_context->full_scan_candidate_files.emplace_back(
             log_file, immutable_db_options_.db_log_dir);
@@ -651,13 +653,15 @@ uint64_t FindMinPrepLogReferencedByMemTable(
 
   // we must look through the memtables for two phase transactions
   // that have been committed but not yet flushed
+  std::unordered_set<MemTable*> memtables_to_flush_set(
+      memtables_to_flush.begin(), memtables_to_flush.end());
   for (auto loop_cfd : *vset->GetColumnFamilySet()) {
     if (loop_cfd->IsDropped() || loop_cfd == cfd_to_flush) {
       continue;
     }
 
     auto log = loop_cfd->imm()->PrecomputeMinLogContainingPrepSection(
-        memtables_to_flush);
+        &memtables_to_flush_set);
 
     if (log > 0 && (min_log == 0 || log < min_log)) {
       min_log = log;
@@ -665,6 +669,37 @@ uint64_t FindMinPrepLogReferencedByMemTable(
 
     log = loop_cfd->mem()->GetMinLogContainingPrepSection();
 
+    if (log > 0 && (min_log == 0 || log < min_log)) {
+      min_log = log;
+    }
+  }
+
+  return min_log;
+}
+
+uint64_t FindMinPrepLogReferencedByMemTable(
+    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    const autovector<const autovector<MemTable*>*>& memtables_to_flush) {
+  uint64_t min_log = 0;
+
+  std::unordered_set<ColumnFamilyData*> cfds_to_flush_set(cfds_to_flush.begin(),
+                                                          cfds_to_flush.end());
+  std::unordered_set<MemTable*> memtables_to_flush_set;
+  for (const autovector<MemTable*>* memtables : memtables_to_flush) {
+    memtables_to_flush_set.insert(memtables->begin(), memtables->end());
+  }
+  for (auto loop_cfd : *vset->GetColumnFamilySet()) {
+    if (loop_cfd->IsDropped() || cfds_to_flush_set.count(loop_cfd)) {
+      continue;
+    }
+
+    auto log = loop_cfd->imm()->PrecomputeMinLogContainingPrepSection(
+        &memtables_to_flush_set);
+    if (log > 0 && (min_log == 0 || log < min_log)) {
+      min_log = log;
+    }
+
+    log = loop_cfd->mem()->GetMinLogContainingPrepSection();
     if (log > 0 && (min_log == 0 || log < min_log)) {
       min_log = log;
     }
@@ -700,6 +735,42 @@ uint64_t PrecomputeMinLogNumberToKeepNon2PC(
     min_log_number_to_keep =
         std::min(cf_min_log_number_to_keep, min_log_number_to_keep);
   }
+  return min_log_number_to_keep;
+}
+
+uint64_t PrecomputeMinLogNumberToKeepNon2PC(
+    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    const autovector<autovector<VersionEdit*>>& edit_lists) {
+  assert(vset != nullptr);
+  assert(!cfds_to_flush.empty());
+  assert(cfds_to_flush.size() == edit_lists.size());
+
+  uint64_t min_log_number_to_keep = port::kMaxUint64;
+  for (const auto& edit_list : edit_lists) {
+    uint64_t log = 0;
+    for (const auto& e : edit_list) {
+      if (e->HasLogNumber()) {
+        log = std::max(log, e->GetLogNumber());
+      }
+    }
+    if (log != 0) {
+      min_log_number_to_keep = std::min(min_log_number_to_keep, log);
+    }
+  }
+  if (min_log_number_to_keep == port::kMaxUint64) {
+    min_log_number_to_keep = cfds_to_flush[0]->GetLogNumber();
+    for (size_t i = 1; i < cfds_to_flush.size(); i++) {
+      min_log_number_to_keep =
+          std::min(min_log_number_to_keep, cfds_to_flush[i]->GetLogNumber());
+    }
+  }
+
+  std::unordered_set<const ColumnFamilyData*> flushed_cfds(
+      cfds_to_flush.begin(), cfds_to_flush.end());
+  min_log_number_to_keep =
+      std::min(min_log_number_to_keep,
+               vset->PreComputeMinLogNumberWithUnflushedData(flushed_cfds));
+
   return min_log_number_to_keep;
 }
 
@@ -741,6 +812,38 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
       min_log_refed_by_mem < min_log_number_to_keep) {
     min_log_number_to_keep = min_log_refed_by_mem;
   }
+  return min_log_number_to_keep;
+}
+
+uint64_t PrecomputeMinLogNumberToKeep2PC(
+    VersionSet* vset, const autovector<ColumnFamilyData*>& cfds_to_flush,
+    const autovector<autovector<VersionEdit*>>& edit_lists,
+    const autovector<const autovector<MemTable*>*>& memtables_to_flush,
+    LogsWithPrepTracker* prep_tracker) {
+  assert(vset != nullptr);
+  assert(prep_tracker != nullptr);
+  assert(cfds_to_flush.size() == edit_lists.size());
+  assert(cfds_to_flush.size() == memtables_to_flush.size());
+
+  uint64_t min_log_number_to_keep =
+      PrecomputeMinLogNumberToKeepNon2PC(vset, cfds_to_flush, edit_lists);
+
+  uint64_t min_log_in_prep_heap =
+      prep_tracker->FindMinLogContainingOutstandingPrep();
+
+  if (min_log_in_prep_heap != 0 &&
+      min_log_in_prep_heap < min_log_number_to_keep) {
+    min_log_number_to_keep = min_log_in_prep_heap;
+  }
+
+  uint64_t min_log_refed_by_mem = FindMinPrepLogReferencedByMemTable(
+      vset, cfds_to_flush, memtables_to_flush);
+
+  if (min_log_refed_by_mem != 0 &&
+      min_log_refed_by_mem < min_log_number_to_keep) {
+    min_log_number_to_keep = min_log_refed_by_mem;
+  }
+
   return min_log_number_to_keep;
 }
 

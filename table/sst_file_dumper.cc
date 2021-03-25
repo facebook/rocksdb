@@ -18,7 +18,6 @@
 #include "db/blob/blob_index.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
-#include "env/composite_env_wrapper.h"
 #include "options/cf_options.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -80,11 +79,13 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
   // read table magic number
   Footer footer;
 
-  std::unique_ptr<RandomAccessFile> file;
+  const auto& fs = options_.env->GetFileSystem();
+  std::unique_ptr<FSRandomAccessFile> file;
   uint64_t file_size = 0;
-  Status s = options_.env->NewRandomAccessFile(file_path, &file, soptions_);
+  Status s = fs->NewRandomAccessFile(file_path, FileOptions(soptions_), &file,
+                                     nullptr);
   if (s.ok()) {
-    s = options_.env->GetFileSize(file_path, &file_size);
+    s = fs->GetFileSize(file_path, IOOptions(), &file_size, nullptr);
   }
 
   // check empty file
@@ -93,8 +94,7 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     return Status::Aborted(file_path, "Empty file");
   }
 
-  file_.reset(new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
-                                         file_path));
+  file_.reset(new RandomAccessFileReader(std::move(file), file_path));
 
   FilePrefetchBuffer prefetch_buffer(nullptr, 0, 0, true /* enable */,
                                      false /* track_min_offset */);
@@ -119,9 +119,10 @@ Status SstFileDumper::GetTableReader(const std::string& file_path) {
     if (magic_number == kPlainTableMagicNumber ||
         magic_number == kLegacyPlainTableMagicNumber) {
       soptions_.use_mmap_reads = true;
-      options_.env->NewRandomAccessFile(file_path, &file, soptions_);
-      file_.reset(new RandomAccessFileReader(
-          NewLegacyRandomAccessFileWrapper(file), file_path));
+
+      fs->NewRandomAccessFile(file_path, FileOptions(soptions_), &file,
+                              nullptr);
+      file_.reset(new RandomAccessFileReader(std::move(file), file_path));
     }
     options_.comparator = &internal_comparator_;
     // For old sst format, ReadTableProperties might fail but file can be read
@@ -177,8 +178,10 @@ Status SstFileDumper::VerifyChecksum() {
 Status SstFileDumper::DumpTable(const std::string& out_filename) {
   std::unique_ptr<WritableFile> out_file;
   Env* env = options_.env;
-  env->NewWritableFile(out_filename, &out_file, soptions_);
-  Status s = table_reader_->DumpTable(out_file.get());
+  Status s = env->NewWritableFile(out_filename, &out_file, soptions_);
+  if (s.ok()) {
+    s = table_reader_->DumpTable(out_file.get());
+  }
   if (!s.ok()) {
     // close the file before return error, ignore the close error if there's any
     out_file->Close().PermitUncheckedError();
@@ -190,16 +193,14 @@ Status SstFileDumper::DumpTable(const std::string& out_filename) {
 Status SstFileDumper::CalculateCompressedTableSize(
     const TableBuilderOptions& tb_options, size_t block_size,
     uint64_t* num_data_blocks, uint64_t* compressed_table_size) {
-  std::unique_ptr<WritableFile> out_file;
   std::unique_ptr<Env> env(NewMemEnv(options_.env));
-  Status s = env->NewWritableFile(testFileName, &out_file, soptions_);
+  std::unique_ptr<WritableFileWriter> dest_writer;
+  Status s =
+      WritableFileWriter::Create(env->GetFileSystem(), testFileName,
+                                 FileOptions(soptions_), &dest_writer, nullptr);
   if (!s.ok()) {
     return s;
   }
-  std::unique_ptr<WritableFileWriter> dest_writer;
-  dest_writer.reset(
-      new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(out_file)),
-                             testFileName, soptions_));
   BlockBasedTableOptions table_options;
   table_options.block_size = block_size;
   BlockBasedTableFactory block_based_tf(table_options);
@@ -233,7 +234,8 @@ Status SstFileDumper::ShowAllCompressionSizes(
     const std::vector<std::pair<CompressionType, const char*>>&
         compression_types,
     int32_t compress_level_from, int32_t compress_level_to,
-    uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes) {
+    uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes,
+    uint64_t max_dict_buffer_bytes) {
   fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
   for (auto& i : compression_types) {
     if (CompressionTypeSupported(i.first)) {
@@ -241,6 +243,7 @@ Status SstFileDumper::ShowAllCompressionSizes(
       CompressionOptions compress_opt;
       compress_opt.max_dict_bytes = max_dict_bytes;
       compress_opt.zstd_max_train_bytes = zstd_max_train_bytes;
+      compress_opt.max_dict_buffer_bytes = max_dict_buffer_bytes;
       for (int32_t j = compress_level_from; j <= compress_level_to; j++) {
         fprintf(stdout, "Compression level: %d", j);
         compress_opt.level = j;

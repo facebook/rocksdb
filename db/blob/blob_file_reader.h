@@ -29,6 +29,7 @@ class BlobFileReader {
                        uint32_t column_family_id,
                        HistogramImpl* blob_file_read_hist,
                        uint64_t blob_file_number,
+                       const std::shared_ptr<IOTracer>& io_tracer,
                        std::unique_ptr<BlobFileReader>* reader);
 
   BlobFileReader(const BlobFileReader&) = delete;
@@ -38,7 +39,8 @@ class BlobFileReader {
 
   Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
                  uint64_t offset, uint64_t value_size,
-                 CompressionType compression_type, PinnableSlice* value) const;
+                 CompressionType compression_type, PinnableSlice* value,
+                 uint64_t* bytes_read) const;
 
  private:
   BlobFileReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
@@ -47,7 +49,9 @@ class BlobFileReader {
   static Status OpenFile(const ImmutableCFOptions& immutable_cf_options,
                          const FileOptions& file_opts,
                          HistogramImpl* blob_file_read_hist,
-                         uint64_t blob_file_number, uint64_t* file_size,
+                         uint64_t blob_file_number,
+                         const std::shared_ptr<IOTracer>& io_tracer,
+                         uint64_t* file_size,
                          std::unique_ptr<RandomAccessFileReader>* file_reader);
 
   static Status ReadHeader(const RandomAccessFileReader* file_reader,

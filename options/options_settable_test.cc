@@ -179,7 +179,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "hash_index_allow_collision=false;"
       "verify_compression=true;read_amp_bytes_per_bit=0;"
       "enable_index_compression=false;"
-      "block_align=true",
+      "block_align=true;"
+      "max_auto_readahead_size=0",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
@@ -227,6 +228,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, file_checksum_gen_factory),
        sizeof(std::shared_ptr<FileChecksumGenFactory>)},
       {offsetof(struct DBOptions, db_host_id), sizeof(std::string)},
+      {offsetof(struct DBOptions, checksum_handoff_file_types),
+       sizeof(FileTypeSet)},
   };
 
   char* options_ptr = new char[sizeof(DBOptions)];
@@ -334,7 +337,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "best_efforts_recovery=false;"
                              "max_bgerror_resume_count=2;"
                              "bgerror_resume_retry_interval=1000000"
-                             "db_host_id=hostname",
+                             "db_host_id=hostname;"
+                             "allow_data_in_errors=false",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
@@ -404,14 +408,14 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // Count padding bytes by setting all bytes in the memory to a special char,
   // copy a well constructed struct to this memory and see how many special
   // bytes left.
-  ColumnFamilyOptions* options = new (options_ptr) ColumnFamilyOptions();
   FillWithSpecialChar(options_ptr, sizeof(ColumnFamilyOptions),
                       kColumnFamilyOptionsExcluded);
 
-  // It based on the behavior of compiler that padding bytes are not changed
-  // when copying the struct. It's prone to failure when compiler behavior
-  // changes. We verify there is unset bytes to detect the case.
-  *options = ColumnFamilyOptions();
+  // Invoke a user-defined constructor in the hope that it does not overwrite
+  // padding bytes. Note that previously we relied on the implicitly-defined
+  // copy-assignment operator (i.e., `*options = ColumnFamilyOptions();`) here,
+  // which did in fact modify padding bytes.
+  ColumnFamilyOptions* options = new (options_ptr) ColumnFamilyOptions();
 
   // Deprecatd option which is not initialized. Need to set it to avoid
   // Valgrind error
@@ -469,8 +473,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "max_bytes_for_level_multiplier=60;"
       "memtable_factory=SkipListFactory;"
       "compression=kNoCompression;"
-      "compression_opts=5:6:7:8:9:true;"
-      "bottommost_compression_opts=4:5:6:7:8:true;"
+      "compression_opts=5:6:7:8:9:10:true:11;"
+      "bottommost_compression_opts=4:5:6:7:8:9:true:10;"
       "bottommost_compression=kDisableCompressionOption;"
       "level0_stop_writes_trigger=33;"
       "num_levels=99;"
@@ -504,6 +508,8 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "min_blob_size=256;"
       "blob_file_size=1000000;"
       "blob_compression_type=kBZip2Compression;"
+      "enable_blob_garbage_collection=true;"
+      "blob_garbage_collection_age_cutoff=0.5;"
       "compaction_options_fifo={max_table_files_size=3;allow_"
       "compaction=false;};",
       new_options));

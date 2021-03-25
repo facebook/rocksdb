@@ -1,33 +1,40 @@
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under both the GPLv2 (found in the
+//  COPYING file in the root directory) and Apache 2.0 License
+//  (found in the LICENSE.Apache file in the root directory).
 #include <climits>
+#include <cstdint>
 #include <utility>
 
 #include "include/org_rocksdb_test_TestableEventListener.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/status.h"
+#include "rocksdb/table_properties.h"
 
 using namespace ROCKSDB_NAMESPACE;
 
 static TableProperties newTablePropertiesForTest() {
   TableProperties table_properties;
-  table_properties.data_size = LLONG_MAX;
-  table_properties.index_size = LLONG_MAX;
-  table_properties.index_partitions = LLONG_MAX;
-  table_properties.top_level_index_size = LLONG_MAX;
-  table_properties.index_key_is_user_key = LLONG_MAX;
-  table_properties.index_value_is_delta_encoded = LLONG_MAX;
-  table_properties.filter_size = LLONG_MAX;
-  table_properties.raw_key_size = LLONG_MAX;
-  table_properties.raw_value_size = LLONG_MAX;
-  table_properties.num_data_blocks = LLONG_MAX;
-  table_properties.num_entries = LLONG_MAX;
-  table_properties.num_deletions = LLONG_MAX;
-  table_properties.num_merge_operands = LLONG_MAX;
-  table_properties.num_range_deletions = LLONG_MAX;
-  table_properties.format_version = LLONG_MAX;
-  table_properties.fixed_key_len = LLONG_MAX;
-  table_properties.column_family_id = LLONG_MAX;
-  table_properties.creation_time = LLONG_MAX;
-  table_properties.oldest_key_time = LLONG_MAX;
-  table_properties.file_creation_time = LLONG_MAX;
+  table_properties.data_size = UINT64_MAX;
+  table_properties.index_size = UINT64_MAX;
+  table_properties.index_partitions = UINT64_MAX;
+  table_properties.top_level_index_size = UINT64_MAX;
+  table_properties.index_key_is_user_key = UINT64_MAX;
+  table_properties.index_value_is_delta_encoded = UINT64_MAX;
+  table_properties.filter_size = UINT64_MAX;
+  table_properties.raw_key_size = UINT64_MAX;
+  table_properties.raw_value_size = UINT64_MAX;
+  table_properties.num_data_blocks = UINT64_MAX;
+  table_properties.num_entries = UINT64_MAX;
+  table_properties.num_deletions = UINT64_MAX;
+  table_properties.num_merge_operands = UINT64_MAX;
+  table_properties.num_range_deletions = UINT64_MAX;
+  table_properties.format_version = UINT64_MAX;
+  table_properties.fixed_key_len = UINT64_MAX;
+  table_properties.column_family_id = UINT64_MAX;
+  table_properties.creation_time = UINT64_MAX;
+  table_properties.oldest_key_time = UINT64_MAX;
+  table_properties.file_creation_time = UINT64_MAX;
   table_properties.db_id = "dbId";
   table_properties.db_session_id = "sessionId";
   table_properties.column_family_name = "columnFamilyName";
@@ -40,7 +47,7 @@ static TableProperties newTablePropertiesForTest() {
   table_properties.compression_options = "compressionOptions";
   table_properties.user_collected_properties = {{"key", "value"}};
   table_properties.readable_properties = {{"key", "value"}};
-  table_properties.properties_offsets = {{"key", LLONG_MAX}};
+  table_properties.properties_offsets = {{"key", UINT64_MAX}};
   return table_properties;
 }
 
@@ -61,14 +68,14 @@ void Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks(
   flush_job_info.cf_id = INT_MAX;
   flush_job_info.cf_name = "testColumnFamily";
   flush_job_info.file_path = "/file/path";
-  flush_job_info.file_number = LLONG_MAX;
-  flush_job_info.oldest_blob_file_number = LLONG_MAX;
-  flush_job_info.thread_id = LLONG_MAX;
+  flush_job_info.file_number = UINT64_MAX;
+  flush_job_info.oldest_blob_file_number = UINT64_MAX;
+  flush_job_info.thread_id = UINT64_MAX;
   flush_job_info.job_id = INT_MAX;
   flush_job_info.triggered_writes_slowdown = true;
   flush_job_info.triggered_writes_stop = true;
-  flush_job_info.smallest_seqno = LLONG_MAX;
-  flush_job_info.largest_seqno = LLONG_MAX;
+  flush_job_info.smallest_seqno = UINT64_MAX;
+  flush_job_info.largest_seqno = UINT64_MAX;
   flush_job_info.table_properties = table_properties;
   flush_job_info.flush_reason = FlushReason::kManualFlush;
 
@@ -86,10 +93,10 @@ void Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks(
   el->OnTableFileDeleted(file_deletion_info);
 
   CompactionJobInfo compaction_job_info;
-  compaction_job_info.cf_id = INT_MAX;
+  compaction_job_info.cf_id = UINT32_MAX;
   compaction_job_info.cf_name = "compactionColumnFamily";
   compaction_job_info.status = status;
-  compaction_job_info.thread_id = LLONG_MAX;
+  compaction_job_info.thread_id = UINT64_MAX;
   compaction_job_info.job_id = INT_MAX;
   compaction_job_info.base_input_level = INT_MAX;
   compaction_job_info.output_level = INT_MAX;
@@ -109,7 +116,7 @@ void Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks(
   el->OnCompactionCompleted(nullptr, compaction_job_info);
 
   TableFileCreationInfo file_creation_info;
-  file_creation_info.file_size = LLONG_MAX;
+  file_creation_info.file_size = UINT64_MAX;
   file_creation_info.table_properties = table_properties;
   file_creation_info.status = status;
   file_creation_info.file_checksum = "fileChecksum";
@@ -133,10 +140,10 @@ void Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks(
 
   MemTableInfo mem_table_info;
   mem_table_info.cf_name = "columnFamilyName";
-  mem_table_info.first_seqno = LLONG_MAX;
-  mem_table_info.earliest_seqno = LLONG_MAX;
-  mem_table_info.num_entries = LLONG_MAX;
-  mem_table_info.num_deletes = LLONG_MAX;
+  mem_table_info.first_seqno = UINT64_MAX;
+  mem_table_info.earliest_seqno = UINT64_MAX;
+  mem_table_info.num_entries = UINT64_MAX;
+  mem_table_info.num_deletes = UINT64_MAX;
 
   el->OnMemTableSealed(mem_table_info);
   el->OnColumnFamilyHandleDeletionStarted(nullptr);
@@ -145,7 +152,7 @@ void Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks(
   file_ingestion_info.cf_name = "columnFamilyName";
   file_ingestion_info.external_file_path = "/external/file/path";
   file_ingestion_info.internal_file_path = "/internal/file/path";
-  file_ingestion_info.global_seqno = LLONG_MAX;
+  file_ingestion_info.global_seqno = UINT64_MAX;
   file_ingestion_info.table_properties = table_properties;
   el->OnExternalFileIngested(nullptr, file_ingestion_info);
 
@@ -169,8 +176,8 @@ void Java_org_rocksdb_test_TestableEventListener_invokeAllCallbacks(
                               std::chrono::nanoseconds>(
           std::chrono::nanoseconds(1600699425000000000ll)),
       status);
-  op_info.offset = LLONG_MAX;
-  op_info.length = LLONG_MAX;
+  op_info.offset = UINT64_MAX;
+  op_info.length = SIZE_MAX;
   op_info.status = status;
 
   el->OnFileReadFinish(op_info);

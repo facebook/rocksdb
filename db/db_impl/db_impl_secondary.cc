@@ -327,8 +327,8 @@ Status DBImplSecondary::GetImpl(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family,
                                 const Slice& key, PinnableSlice* pinnable_val) {
   assert(pinnable_val != nullptr);
-  PERF_CPU_TIMER_GUARD(get_cpu_nanos, env_);
-  StopWatch sw(env_, stats_, DB_GET);
+  PERF_CPU_TIMER_GUARD(get_cpu_nanos, immutable_db_options_.clock);
+  StopWatch sw(immutable_db_options_.clock, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   auto cfh = static_cast<ColumnFamilyHandleImpl*>(column_family);
@@ -421,7 +421,7 @@ ArenaWrappedDBIter* DBImplSecondary::NewIteratorImpl(
   SuperVersion* super_version = cfd->GetReferencedSuperVersion(this);
   auto db_iter = NewArenaWrappedDbIterator(
       env_, read_options, *cfd->ioptions(), super_version->mutable_cf_options,
-      snapshot,
+      super_version->current, snapshot,
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
       super_version->version_number, read_callback);
   auto internal_iter = NewInternalIterator(
@@ -519,7 +519,8 @@ Status DBImplSecondary::TryCatchUpWithPrimary() {
   {
     InstrumentedMutexLock lock_guard(&mutex_);
     s = static_cast_with_check<ReactiveVersionSet>(versions_.get())
-            ->ReadAndApply(&mutex_, &manifest_reader_, &cfds_changed);
+            ->ReadAndApply(&mutex_, &manifest_reader_,
+                           manifest_reader_status_.get(), &cfds_changed);
 
     ROCKS_LOG_INFO(immutable_db_options_.info_log, "Last sequence is %" PRIu64,
                    static_cast<uint64_t>(versions_->LastSequence()));

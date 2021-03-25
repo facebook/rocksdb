@@ -6,11 +6,11 @@
 #include "table/block_fetcher.h"
 
 #include "db/table_properties_collector.h"
-#include "env/composite_env_wrapper.h"
 #include "file/file_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/file_system.h"
 #include "table/block_based/binary_search_index_reader.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -108,7 +108,8 @@ class BlockFetcherTest : public testing::Test {
     // Build table.
     for (int i = 0; i < 9; i++) {
       std::string key = ToInternalKey(std::to_string(i));
-      std::string value = std::to_string(i);
+      // Append "00000000" to string value to enhance compression ratio
+      std::string value = "00000000" + std::to_string(i);
       table_builder->Add(key, value);
     }
     ASSERT_OK(table_builder->Finish());
@@ -190,22 +191,30 @@ class BlockFetcherTest : public testing::Test {
         ASSERT_EQ(memcpy_stats[i].num_compressed_buf_memcpy,
                   expected_stats.memcpy_stats.num_compressed_buf_memcpy);
 
-        ASSERT_EQ(heap_buf_allocators[i].GetNumAllocations(),
-                  expected_stats.buf_allocation_stats.num_heap_buf_allocations);
-        ASSERT_EQ(
-            compressed_buf_allocators[i].GetNumAllocations(),
-            expected_stats.buf_allocation_stats.num_compressed_buf_allocations);
+        if (kXpressCompression == compression_type) {
+          // XPRESS allocates memory internally, thus does not support for
+          // custom allocator verification
+          continue;
+        } else {
+          ASSERT_EQ(
+              heap_buf_allocators[i].GetNumAllocations(),
+              expected_stats.buf_allocation_stats.num_heap_buf_allocations);
+          ASSERT_EQ(compressed_buf_allocators[i].GetNumAllocations(),
+                    expected_stats.buf_allocation_stats
+                        .num_compressed_buf_allocations);
 
-        // The allocated buffers are not deallocated until
-        // the block content is deleted.
-        ASSERT_EQ(heap_buf_allocators[i].GetNumDeallocations(), 0);
-        ASSERT_EQ(compressed_buf_allocators[i].GetNumDeallocations(), 0);
-        blocks[i].allocation.reset();
-        ASSERT_EQ(heap_buf_allocators[i].GetNumDeallocations(),
-                  expected_stats.buf_allocation_stats.num_heap_buf_allocations);
-        ASSERT_EQ(
-            compressed_buf_allocators[i].GetNumDeallocations(),
-            expected_stats.buf_allocation_stats.num_compressed_buf_allocations);
+          // The allocated buffers are not deallocated until
+          // the block content is deleted.
+          ASSERT_EQ(heap_buf_allocators[i].GetNumDeallocations(), 0);
+          ASSERT_EQ(compressed_buf_allocators[i].GetNumDeallocations(), 0);
+          blocks[i].allocation.reset();
+          ASSERT_EQ(
+              heap_buf_allocators[i].GetNumDeallocations(),
+              expected_stats.buf_allocation_stats.num_heap_buf_allocations);
+          ASSERT_EQ(compressed_buf_allocators[i].GetNumDeallocations(),
+                    expected_stats.buf_allocation_stats
+                        .num_compressed_buf_allocations);
+        }
       }
     }
   }
@@ -248,11 +257,9 @@ class BlockFetcherTest : public testing::Test {
   void NewFileWriter(const std::string& filename,
                      std::unique_ptr<WritableFileWriter>* writer) {
     std::string path = Path(filename);
-    EnvOptions env_options;
-    std::unique_ptr<WritableFile> file;
-    ASSERT_OK(env_->NewWritableFile(path, &file, env_options));
-    writer->reset(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(file)), path, env_options));
+    FileOptions file_options;
+    ASSERT_OK(WritableFileWriter::Create(env_->GetFileSystem(), path,
+                                         file_options, writer, nullptr));
   }
 
   void NewFileReader(const std::string& filename, const FileOptions& opt,
@@ -260,7 +267,8 @@ class BlockFetcherTest : public testing::Test {
     std::string path = Path(filename);
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(fs_->NewRandomAccessFile(path, opt, &f, nullptr));
-    reader->reset(new RandomAccessFileReader(std::move(f), path, env_));
+    reader->reset(new RandomAccessFileReader(std::move(f), path,
+                                             env_->GetSystemClock().get()));
   }
 
   void NewTableReader(const ImmutableCFOptions& ioptions,

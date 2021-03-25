@@ -988,7 +988,9 @@ int main(int argc, char** argv) {
                   &err);
       CheckNoError(err);
     }
-    rocksdb_approximate_sizes(db, 2, start, start_len, limit, limit_len, sizes);
+    rocksdb_approximate_sizes(db, 2, start, start_len, limit, limit_len, sizes,
+                              &err);
+    CheckNoError(err);
     CheckCondition(sizes[0] > 0);
     CheckCondition(sizes[1] > 0);
   }
@@ -1117,9 +1119,8 @@ int main(int argc, char** argv) {
         // Essentially a fingerprint of the block-based Bloom schema
         CheckCondition(hits == 241);
       } else {
-        // Essentially a fingerprint of the full Bloom schema(s),
-        // format_version < 5, which vary for three different CACHE_LINE_SIZEs
-        CheckCondition(hits == 224 || hits == 180 || hits == 125);
+        // Essentially a fingerprint of full Bloom schema, format_version=5
+        CheckCondition(hits == 188);
       }
       CheckCondition(
           (keys_to_query - hits) ==
@@ -2279,6 +2280,12 @@ int main(int argc, char** argv) {
     rocksdb_readoptions_set_ignore_range_deletions(ro, 1);
     CheckCondition(1 == rocksdb_readoptions_get_ignore_range_deletions(ro));
 
+    rocksdb_readoptions_set_deadline(ro, 300);
+    CheckCondition(300 == rocksdb_readoptions_get_deadline(ro));
+
+    rocksdb_readoptions_set_io_timeout(ro, 400);
+    CheckCondition(400 == rocksdb_readoptions_get_io_timeout(ro));
+
     rocksdb_readoptions_destroy(ro);
   }
 
@@ -2873,7 +2880,7 @@ int main(int argc, char** argv) {
 
 #else
 
-int main() {
+int main(void) {
   fprintf(stderr, "SKIPPED\n");
   return 0;
 }

@@ -25,6 +25,7 @@ int main() {
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
 #include "test_util/testharness.h"
 #include "util/cast_util.h"
@@ -311,7 +312,7 @@ TEST(SamePrefixTest, InDomainTest) {
     ASSERT_OK(db->Put(write_options, "HHKB pro2", "Mar 24, 2006"));
     ASSERT_OK(db->Put(write_options, "HHKB pro2 Type-S", "June 29, 2011"));
     ASSERT_OK(db->Put(write_options, "Realforce 87u", "idk"));
-    db->Flush(FlushOptions());
+    ASSERT_OK(db->Flush(FlushOptions()));
     std::string result;
     auto db_iter = db->NewIterator(ReadOptions());
 
@@ -331,7 +332,7 @@ TEST(SamePrefixTest, InDomainTest) {
     ASSERT_OK(db->Put(write_options, "pikachu", "1"));
     ASSERT_OK(db->Put(write_options, "Meowth", "1"));
     ASSERT_OK(db->Put(write_options, "Mewtwo", "idk"));
-    db->Flush(FlushOptions());
+    ASSERT_OK(db->Flush(FlushOptions()));
     std::string result;
     auto db_iter = db->NewIterator(ReadOptions());
 
@@ -351,7 +352,7 @@ TEST_F(PrefixTest, TestResult) {
       std::cout << "*** Mem table: " << options.memtable_factory->Name()
                 << " number of buckets: " << num_buckets
                 << std::endl;
-      DestroyDB(kDbName, Options());
+      ASSERT_OK(DestroyDB(kDbName, Options()));
       auto db = OpenDb();
       WriteOptions write_options;
       ReadOptions read_options;
@@ -528,7 +529,7 @@ TEST_F(PrefixTest, PrefixValid) {
     while (NextOptions(num_buckets)) {
       std::cout << "*** Mem table: " << options.memtable_factory->Name()
                 << " number of buckets: " << num_buckets << std::endl;
-      DestroyDB(kDbName, Options());
+      ASSERT_OK(DestroyDB(kDbName, Options()));
       auto db = OpenDb();
       WriteOptions write_options;
       ReadOptions read_options;
@@ -543,7 +544,7 @@ TEST_F(PrefixTest, PrefixValid) {
       PutKey(db.get(), write_options, 12345, 8, v18);
       PutKey(db.get(), write_options, 12345, 9, v19);
       PutKey(db.get(), write_options, 12346, 8, v16);
-      db->Flush(FlushOptions());
+      ASSERT_OK(db->Flush(FlushOptions()));
       TestKey test_key(12346, 8);
       std::string s;
       ASSERT_OK(db->Delete(write_options, TestKeyToSlice(s, test_key)));
@@ -581,7 +582,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
   while (NextOptions(FLAGS_bucket_count)) {
     std::cout << "*** Mem table: " << options.memtable_factory->Name()
         << std::endl;
-    DestroyDB(kDbName, Options());
+    ASSERT_OK(DestroyDB(kDbName, Options()));
     auto db = OpenDb();
     WriteOptions write_options;
     ReadOptions read_options;
@@ -597,7 +598,6 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
 
     HistogramImpl hist_put_time;
     HistogramImpl hist_put_comparison;
-
     // insert x random prefix, each with y continuous element.
     for (auto prefix : prefixes) {
        for (uint64_t sorted = 0; sorted < FLAGS_items_per_prefix; sorted++) {
@@ -608,7 +608,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
         std::string value(FLAGS_value_size, 0);
 
         get_perf_context()->Reset();
-        StopWatchNano timer(Env::Default(), true);
+        StopWatchNano timer(SystemClock::Default().get(), true);
         ASSERT_OK(db->Put(write_options, key, value));
         hist_put_time.Add(timer.ElapsedNanos());
         hist_put_comparison.Add(get_perf_context()->user_key_comparison_count);
@@ -631,7 +631,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       std::string value = "v" + ToString(0);
 
       get_perf_context()->Reset();
-      StopWatchNano timer(Env::Default(), true);
+      StopWatchNano timer(SystemClock::Default().get(), true);
       auto key_prefix = options.prefix_extractor->Transform(key);
       uint64_t total_keys = 0;
       for (iter->Seek(key);
@@ -665,7 +665,7 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
       Slice key = TestKeyToSlice(s, test_key);
 
       get_perf_context()->Reset();
-      StopWatchNano timer(Env::Default(), true);
+      StopWatchNano timer(SystemClock::Default().get(), true);
       iter->Seek(key);
       hist_no_seek_time.Add(timer.ElapsedNanos());
       hist_no_seek_comparison.Add(get_perf_context()->user_key_comparison_count);
@@ -689,7 +689,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev) {
   for (size_t m = 1; m < 100; m++) {
     std::cout << "[" + std::to_string(m) + "]" + "*** Mem table: "
               << options.memtable_factory->Name() << std::endl;
-    DestroyDB(kDbName, Options());
+    ASSERT_OK(DestroyDB(kDbName, Options()));
     auto db = OpenDb();
     WriteOptions write_options;
     ReadOptions read_options;
@@ -714,7 +714,7 @@ TEST_F(PrefixTest, PrefixSeekModePrev) {
         }
       }
       if (i < 2) {
-        db->Flush(FlushOptions());
+        ASSERT_OK(db->Flush(FlushOptions()));
       }
     }
 

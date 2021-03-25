@@ -18,7 +18,7 @@ class CompactedDBImpl : public DBImpl {
   CompactedDBImpl(const CompactedDBImpl&) = delete;
   void operator=(const CompactedDBImpl&) = delete;
 
-  virtual ~CompactedDBImpl();
+  ~CompactedDBImpl() override;
 
   static Status Open(const Options& options, const std::string& dbname,
                      DB** dbptr);
@@ -82,6 +82,11 @@ class CompactedDBImpl : public DBImpl {
                        ColumnFamilyHandle* /*column_family*/) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
+
+  virtual Status SyncWAL() override {
+    return Status::NotSupported("Not supported in compacted db mode.");
+  }
+
   using DB::IngestExternalFile;
   virtual Status IngestExternalFile(
       ColumnFamilyHandle* /*column_family*/,

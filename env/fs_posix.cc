@@ -607,6 +607,7 @@ class PosixFileSystem : public FileSystem {
                        std::vector<std::string>* result,
                        IODebugContext* /*dbg*/) override {
     result->clear();
+
     DIR* d = opendir(dir.c_str());
     if (d == nullptr) {
       switch (errno) {
@@ -618,11 +619,34 @@ class PosixFileSystem : public FileSystem {
           return IOError("While opendir", dir, errno);
       }
     }
+
+    const auto pre_read_errno = errno;  // errno may be modified by readdir
     struct dirent* entry;
-    while ((entry = readdir(d)) != nullptr) {
-      result->push_back(entry->d_name);
+    while ((entry = readdir(d)) != nullptr && errno == pre_read_errno) {
+      // filter out '.' and '..' directory entries
+      // which appear only on some platforms
+      const bool ignore =
+          entry->d_type == DT_DIR &&
+          (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0);
+      if (!ignore) {
+        result->push_back(entry->d_name);
+      }
     }
-    closedir(d);
+
+    // always attempt to close the dir
+    const auto pre_close_errno = errno;  // errno may be modified by closedir
+    const int close_result = closedir(d);
+
+    if (pre_close_errno != pre_read_errno) {
+      // error occured during readdir
+      return IOError("While readdir", dir, pre_close_errno);
+    }
+
+    if (close_result != 0) {
+      // error occured during closedir
+      return IOError("While closedir", dir, errno);
+    }
+
     return IOStatus::OK();
   }
 
@@ -750,7 +774,9 @@ class PosixFileSystem : public FileSystem {
     LockHoldingInfo lhi;
     int64_t current_time = 0;
     // Ignore status code as the time is only used for error message.
-    Env::Default()->GetCurrentTime(&current_time).PermitUncheckedError();
+    SystemClock::Default()
+        ->GetCurrentTime(&current_time)
+        .PermitUncheckedError();
     lhi.acquire_time = current_time;
     lhi.acquiring_thread = Env::Default()->GetThreadID();
 
@@ -766,9 +792,9 @@ class PosixFileSystem : public FileSystem {
     // closed, all locks the process holds for that *file* are released
     const auto it_success = locked_files.insert({fname, lhi});
     if (it_success.second == false) {
+      LockHoldingInfo prev_info = it_success.first->second;
       mutex_locked_files.Unlock();
       errno = ENOLCK;
-      LockHoldingInfo& prev_info = it_success.first->second;
       // Note that the thread ID printed is the same one as the one in
       // posix logger, but posix logger prints it hex format.
       return IOError("lock hold by current process, acquire time " +

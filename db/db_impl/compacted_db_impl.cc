@@ -4,7 +4,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #ifndef ROCKSDB_LITE
-#include "db/compacted_db_impl.h"
+#include "db/db_impl/compacted_db_impl.h"
 
 #include "db/db_impl/db_impl.h"
 #include "db/version_set.h"
@@ -78,6 +78,7 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
                              nullptr, nullptr, nullptr, true, nullptr, nullptr);
       LookupKey lkey(keys[idx], kMaxSequenceNumber);
       Status s = r->Get(options, lkey.internal_key(), &get_context, nullptr);
+      assert(static_cast<size_t>(idx) < statuses.size());
       if (!s.ok() && !s.IsNotFound()) {
         statuses[idx] = s;
       } else {

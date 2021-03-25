@@ -156,22 +156,31 @@ class LoggingForwardVectorIterator : public InternalIterator {
 
 class FakeCompaction : public CompactionIterator::CompactionProxy {
  public:
-  FakeCompaction() = default;
+  int level() const override { return 0; }
 
-  int level(size_t /*compaction_input_level*/) const override { return 0; }
   bool KeyNotExistsBeyondOutputLevel(
       const Slice& /*user_key*/,
       std::vector<size_t>* /*level_ptrs*/) const override {
     return is_bottommost_level || key_not_exists_beyond_output_level;
   }
+
   bool bottommost_level() const override { return is_bottommost_level; }
+
   int number_levels() const override { return 1; }
+
   Slice GetLargestUserKey() const override {
     return "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
   }
+
   bool allow_ingest_behind() const override { return is_allow_ingest_behind; }
 
   bool preserve_deletes() const override { return false; }
+
+  bool enable_blob_garbage_collection() const override { return false; }
+
+  double blob_garbage_collection_age_cutoff() const override { return 0.0; }
+
+  Version* input_version() const override { return nullptr; }
 
   bool key_not_exists_beyond_output_level = false;
 
@@ -954,6 +963,21 @@ TEST_F(CompactionIteratorWithSnapshotCheckerTest,
   RunTest({test::KeyStr("a", 2, kTypeSingleDeletion),
            test::KeyStr("a", 1, kTypeValue)},
           {"", "v1"},
+          {test::KeyStr("a", 2, kTypeSingleDeletion),
+           test::KeyStr("a", 1, kTypeValue)},
+          {"", ""}, 2 /*last_committed_seq*/, nullptr /*merge_operator*/,
+          nullptr /*compaction_filter*/, false /*bottommost_level*/,
+          2 /*earliest_write_conflict_snapshot*/);
+}
+
+// Same as above but with a blob index. In addition to the value getting
+// trimmed, the type of the KV is changed to kTypeValue.
+TEST_F(CompactionIteratorWithSnapshotCheckerTest,
+       KeepSingleDeletionForWriteConflictChecking_BlobIndex) {
+  AddSnapshot(2, 0);
+  RunTest({test::KeyStr("a", 2, kTypeSingleDeletion),
+           test::KeyStr("a", 1, kTypeBlobIndex)},
+          {"", "fake_blob_index"},
           {test::KeyStr("a", 2, kTypeSingleDeletion),
            test::KeyStr("a", 1, kTypeValue)},
           {"", ""}, 2 /*last_committed_seq*/, nullptr /*merge_operator*/,

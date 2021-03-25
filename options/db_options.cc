@@ -17,6 +17,7 @@
 #include "rocksdb/file_system.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/sst_file_manager.h"
+#include "rocksdb/system_clock.h"
 #include "rocksdb/utilities/options_type.h"
 #include "rocksdb/wal_filter.h"
 #include "util/string_util.h"
@@ -136,6 +137,7 @@ static std::unordered_map<std::string, OptionTypeInfo>
           std::shared_ptr<Statistics> statistics;
           std::vector<DbPath> db_paths;
           std::vector<std::shared_ptr<EventListener>> listeners;
+          FileTypeSet checksum_handoff_file_types;
          */
         {"advise_random_on_open",
          {offsetof(struct ImmutableDBOptions, advise_random_on_open),
@@ -465,8 +467,7 @@ class DBOptionsConfigurable : public MutableDBConfigurable {
       const ConfigOptions& config_options,
       const std::unordered_map<std::string, std::string>& opts_map,
       std::unordered_map<std::string, std::string>* unused) override {
-    Status s = ConfigurableHelper::ConfigureOptions(config_options, *this,
-                                                    opts_map, unused);
+    Status s = Configurable::ConfigureOptions(config_options, opts_map, unused);
     if (s.ok()) {
       db_options_ = BuildDBOptions(immutable_, mutable_);
       s = PrepareOptions(config_options);
@@ -580,7 +581,13 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       max_bgerror_resume_count(options.max_bgerror_resume_count),
       bgerror_resume_retry_interval(options.bgerror_resume_retry_interval),
       allow_data_in_errors(options.allow_data_in_errors),
-      db_host_id(options.db_host_id) {
+      db_host_id(options.db_host_id),
+      checksum_handoff_file_types(options.checksum_handoff_file_types) {
+  if (env != nullptr) {
+    clock = env->GetSystemClock().get();
+  } else {
+    clock = SystemClock::Default().get();
+  }
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {

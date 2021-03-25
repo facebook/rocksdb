@@ -14,6 +14,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/system_clock.h"
 #include "table/format.h"
 #include "table/internal_iterator.h"
 
@@ -28,6 +29,7 @@ MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
                          Statistics* stats,
                          const std::atomic<bool>* shutting_down)
     : env_(env),
+      clock_(env->GetSystemClock().get()),
       user_comparator_(user_comparator),
       user_merge_operator_(user_merge_operator),
       compaction_filter_(compaction_filter),
@@ -39,7 +41,7 @@ MergeHelper::MergeHelper(Env* env, const Comparator* user_comparator,
       snapshot_checker_(snapshot_checker),
       level_(level),
       keys_(),
-      filter_timer_(env_),
+      filter_timer_(clock_),
       total_filter_time_(0U),
       stats_(stats) {
   assert(user_comparator_ != nullptr);
@@ -52,7 +54,7 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
                                    const Slice& key, const Slice* value,
                                    const std::vector<Slice>& operands,
                                    std::string* result, Logger* logger,
-                                   Statistics* statistics, Env* env,
+                                   Statistics* statistics, SystemClock* clock,
                                    Slice* result_operand,
                                    bool update_num_ops_stats) {
   assert(merge_operator != nullptr);
@@ -75,7 +77,7 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
   MergeOperator::MergeOperationOutput merge_out(*result, tmp_result_operand);
   {
     // Setup to time the merge
-    StopWatchNano timer(env, statistics != nullptr);
+    StopWatchNano timer(clock, statistics != nullptr);
     PERF_TIMER_GUARD(merge_operator_time_nanos);
 
     // Do the merge
@@ -183,7 +185,6 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
 
     assert(IsValueType(ikey.type));
     if (ikey.type != kTypeMerge) {
-
       // hit a put/delete/single delete
       //   => merge the put value or a nullptr with operands_
       //   => store result in operands_.back() (and update keys_.back())
@@ -214,7 +215,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       std::string merge_result;
       s = TimedFullMerge(user_merge_operator_, ikey.user_key, val_ptr,
                          merge_context_.GetOperands(), &merge_result, logger_,
-                         stats_, env_);
+                         stats_, clock_);
 
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
@@ -325,7 +326,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     std::string merge_result;
     s = TimedFullMerge(user_merge_operator_, orig_ikey.user_key, nullptr,
                        merge_context_.GetOperands(), &merge_result, logger_,
-                       stats_, env_);
+                       stats_, clock_);
     if (s.ok()) {
       // The original key encountered
       // We are certain that keys_ is not empty here (see assertions couple of
@@ -348,7 +349,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       bool merge_success = false;
       std::string merge_result;
       {
-        StopWatchNano timer(env_, stats_ != nullptr);
+        StopWatchNano timer(clock_, stats_ != nullptr);
         PERF_TIMER_GUARD(merge_operator_time_nanos);
         merge_success = user_merge_operator_->PartialMergeMulti(
             orig_ikey.user_key,
@@ -414,7 +415,9 @@ CompactionFilter::Decision MergeHelper::FilterMerge(const Slice& user_key,
                                                        kValueTypeForSeek);
     }
   }
-  total_filter_time_ += filter_timer_.ElapsedNanosSafe();
+  if (stats_ != nullptr && ShouldReportDetailedTime(env_, stats_)) {
+    total_filter_time_ += filter_timer_.ElapsedNanosSafe();
+  }
   return ret;
 }
 

@@ -33,6 +33,7 @@
 #include "monitoring/thread_status_util.h"
 #include "options/options_helper.h"
 #include "port/port.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/table.h"
 #include "table/merging_iterator.h"
 #include "util/autovector.h"
@@ -335,7 +336,9 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   // was not used)
   auto sfm = static_cast<SstFileManagerImpl*>(db_options.sst_file_manager.get());
   for (size_t i = 0; i < result.cf_paths.size(); i++) {
-    DeleteScheduler::CleanupDirectory(db_options.env, sfm, result.cf_paths[i].path);
+    DeleteScheduler::CleanupDirectory(db_options.env, sfm,
+                                      result.cf_paths[i].path)
+        .PermitUncheckedError();
   }
 #endif
 
@@ -449,9 +452,7 @@ void SuperVersion::Cleanup() {
     to_delete.push_back(m);
   }
   current->Unref();
-  if (cfd->Unref()) {
-    delete cfd;
-  }
+  cfd->UnrefAndTryDelete(this);
 }
 
 void SuperVersion::Init(ColumnFamilyData* new_cfd, MemTable* new_mem,
@@ -557,12 +558,12 @@ ColumnFamilyData::ColumnFamilyData(
   // if _dummy_versions is nullptr, then this is a dummy column family.
   if (_dummy_versions != nullptr) {
     internal_stats_.reset(
-        new InternalStats(ioptions_.num_levels, db_options.env, this));
+        new InternalStats(ioptions_.num_levels, ioptions_.clock, this));
     table_cache_.reset(new TableCache(ioptions_, file_options, _table_cache,
                                       block_cache_tracer, io_tracer));
     blob_file_cache_.reset(
         new BlobFileCache(_table_cache, ioptions(), soptions(), id_,
-                          internal_stats_->GetBlobFileReadHist()));
+                          internal_stats_->GetBlobFileReadHist(), io_tracer));
 
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
@@ -632,7 +633,7 @@ ColumnFamilyData::~ColumnFamilyData() {
 
   if (dummy_versions_ != nullptr) {
     // List must be empty
-    assert(dummy_versions_->TEST_Next() == dummy_versions_);
+    assert(dummy_versions_->Next() == dummy_versions_);
     bool deleted __attribute__((__unused__));
     deleted = dummy_versions_->Unref();
     assert(deleted);
@@ -660,7 +661,7 @@ ColumnFamilyData::~ColumnFamilyData() {
   }
 }
 
-bool ColumnFamilyData::UnrefAndTryDelete() {
+bool ColumnFamilyData::UnrefAndTryDelete(SuperVersion* sv_under_cleanup) {
   int old_refs = refs_.fetch_sub(1);
   assert(old_refs > 0);
 
@@ -670,7 +671,11 @@ bool ColumnFamilyData::UnrefAndTryDelete() {
     return true;
   }
 
-  if (old_refs == 2 && super_version_ != nullptr) {
+  // If called under SuperVersion::Cleanup, we should not re-enter Cleanup on
+  // the same SuperVersion. (But while installing a new SuperVersion, this
+  // cfd could be referenced only by two SuperVersions.)
+  if (old_refs == 2 && super_version_ != nullptr &&
+      super_version_ != sv_under_cleanup) {
     // Only the super_version_ holds me
     SuperVersion* sv = super_version_;
     super_version_ = nullptr;
@@ -708,9 +713,7 @@ uint64_t ColumnFamilyData::OldestLogToKeep() {
   auto current_log = GetLogNumber();
 
   if (allow_2pc_) {
-    autovector<MemTable*> empty_list;
-    auto imm_prep_log =
-        imm()->PrecomputeMinLogContainingPrepSection(empty_list);
+    auto imm_prep_log = imm()->PrecomputeMinLogContainingPrepSection();
     auto mem_prep_log = mem()->GetMinLogContainingPrepSection();
 
     if (imm_prep_log > 0 && imm_prep_log < current_log) {
@@ -832,7 +835,8 @@ std::pair<WriteStallCondition, ColumnFamilyData::WriteStallCause>
 ColumnFamilyData::GetWriteStallConditionAndCause(
     int num_unflushed_memtables, int num_l0_files,
     uint64_t num_compaction_needed_bytes,
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options,
+    const ImmutableCFOptions& immutable_cf_options) {
   if (num_unflushed_memtables >= mutable_cf_options.max_write_buffer_number) {
     return {WriteStallCondition::kStopped, WriteStallCause::kMemtableLimit};
   } else if (!mutable_cf_options.disable_auto_compactions &&
@@ -846,7 +850,9 @@ ColumnFamilyData::GetWriteStallConditionAndCause(
             WriteStallCause::kPendingCompactionBytes};
   } else if (mutable_cf_options.max_write_buffer_number > 3 &&
              num_unflushed_memtables >=
-                 mutable_cf_options.max_write_buffer_number - 1) {
+                 mutable_cf_options.max_write_buffer_number - 1 &&
+             num_unflushed_memtables - 1 >=
+                 immutable_cf_options.min_write_buffer_number_to_merge) {
     return {WriteStallCondition::kDelayed, WriteStallCause::kMemtableLimit};
   } else if (!mutable_cf_options.disable_auto_compactions &&
              mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
@@ -874,7 +880,8 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
 
     auto write_stall_condition_and_cause = GetWriteStallConditionAndCause(
         imm()->NumNotFlushed(), vstorage->l0_delay_trigger_count(),
-        vstorage->estimated_compaction_needed_bytes(), mutable_cf_options);
+        vstorage->estimated_compaction_needed_bytes(), mutable_cf_options,
+        *ioptions());
     write_stall_condition = write_stall_condition_and_cause.first;
     auto write_stall_cause = write_stall_condition_and_cause.second;
 
@@ -1339,24 +1346,33 @@ Status ColumnFamilyData::ValidateOptions(
           "Block-Based Table format. ");
     }
   }
+
+  if (cf_options.enable_blob_garbage_collection &&
+      (cf_options.blob_garbage_collection_age_cutoff < 0.0 ||
+       cf_options.blob_garbage_collection_age_cutoff > 1.0)) {
+    return Status::InvalidArgument(
+        "The age cutoff for blob garbage collection should be in the range "
+        "[0.0, 1.0].");
+  }
+
   return s;
 }
 
 #ifndef ROCKSDB_LITE
 Status ColumnFamilyData::SetOptions(
-    const DBOptions& db_options,
+    const DBOptions& db_opts,
     const std::unordered_map<std::string, std::string>& options_map) {
-  MutableCFOptions new_mutable_cf_options;
-  Status s =
-      GetMutableOptionsFromStrings(mutable_cf_options_, options_map,
-                                   ioptions_.info_log, &new_mutable_cf_options);
+  ColumnFamilyOptions cf_opts =
+      BuildColumnFamilyOptions(initial_cf_options_, mutable_cf_options_);
+  ConfigOptions config_opts;
+  config_opts.mutable_options_only = true;
+  Status s = GetColumnFamilyOptionsFromMap(config_opts, cf_opts, options_map,
+                                           &cf_opts);
   if (s.ok()) {
-    ColumnFamilyOptions cf_options =
-        BuildColumnFamilyOptions(initial_cf_options_, new_mutable_cf_options);
-    s = ValidateOptions(db_options, cf_options);
+    s = ValidateOptions(db_opts, cf_opts);
   }
   if (s.ok()) {
-    mutable_cf_options_ = new_mutable_cf_options;
+    mutable_cf_options_ = MutableCFOptions(cf_opts);
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
   }
   return s;

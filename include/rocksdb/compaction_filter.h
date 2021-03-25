@@ -47,6 +47,7 @@ class CompactionFilter {
     kRemoveAndSkipUntil,
     kChangeBlobIndex,  // used internally by BlobDB.
     kIOError,          // used internally by BlobDB.
+    kUndetermined,
   };
 
   enum class BlobDecision { kKeep, kChangeValue, kCorruption, kIOError };
@@ -83,7 +84,7 @@ class CompactionFilter {
   //
   // Note that RocksDB snapshots (i.e. call GetSnapshot() API on a
   // DB* object) will not guarantee to preserve the state of the DB with
-  // CompactionFilter. Data seen from a snapshot might disppear after a
+  // CompactionFilter. Data seen from a snapshot might disappear after a
   // compaction finishes. If you use snapshots, think twice about whether you
   // want to use compaction filter and whether you are using it in a safe way.
   //
@@ -150,6 +151,7 @@ class CompactionFilter {
   //       - If you use kRemoveAndSkipUntil, consider also reducing
   //         compaction_readahead_size option.
   //
+  // Should never return kUndetermined.
   // Note: If you are using a TransactionDB, it is not recommended to filter
   // out or modify merge operands (ValueType::kMergeOperand).
   // If a merge operation is filtered out, TransactionDB may not realize there
@@ -188,7 +190,7 @@ class CompactionFilter {
 
   // This function is deprecated. Snapshots will always be ignored for
   // compaction filters, because we realized that not ignoring snapshots doesn't
-  // provide the gurantee we initially thought it would provide. Repeatable
+  // provide the guarantee we initially thought it would provide. Repeatable
   // reads will not be guaranteed anyway. If you override the function and
   // returns false, we will fail the compaction.
   virtual bool IgnoreSnapshots() const { return true; }
@@ -196,6 +198,20 @@ class CompactionFilter {
   // Returns a name that identifies this compaction filter.
   // The name will be printed to LOG file on start up for diagnosis.
   virtual const char* Name() const = 0;
+
+  // Internal (BlobDB) use only. Do not override in application code.
+  virtual bool IsStackedBlobDbInternalCompactionFilter() const { return false; }
+
+  // In the case of BlobDB, it may be possible to reach a decision with only
+  // the key without reading the actual value. Keys whose value_type is
+  // kBlobIndex will be checked by this method.
+  // Returning kUndetermined will cause FilterV2() to be called to make a
+  // decision as usual.
+  virtual Decision FilterBlobByKey(int /*level*/, const Slice& /*key*/,
+                                   std::string* /*new_value*/,
+                                   std::string* /*skip_until*/) const {
+    return Decision::kUndetermined;
+  }
 };
 
 // Each compaction will create a new CompactionFilter allowing the

@@ -26,6 +26,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -59,6 +60,7 @@ namespace log {
 class Writer;
 }
 
+class BlobIndex;
 class Compaction;
 class LogBuffer;
 class LookupKey;
@@ -69,6 +71,8 @@ class WriteBufferManager;
 class MergeContext;
 class ColumnFamilySet;
 class MergeIteratorBuilder;
+class SystemClock;
+class ManifestTailer;
 
 // VersionEdit is always supposed to be valid and it is used to point at
 // entries in Manifest. Ideally it should not be used as a container to
@@ -340,6 +344,19 @@ class VersionStorageInfo {
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   using BlobFiles = std::map<uint64_t, std::shared_ptr<BlobFileMetaData>>;
   const BlobFiles& GetBlobFiles() const { return blob_files_; }
+
+  uint64_t GetTotalBlobFileSize() const {
+    uint64_t total_blob_bytes = 0;
+
+    for (const auto& pair : blob_files_) {
+      const auto& meta = pair.second;
+      assert(meta);
+
+      total_blob_bytes += meta->GetTotalBlobBytes();
+    }
+
+    return total_blob_bytes;
+  }
 
   const ROCKSDB_NAMESPACE::LevelFilesBrief& LevelFilesBrief(int level) const {
     assert(level < static_cast<int>(level_files_brief_.size()));
@@ -680,7 +697,21 @@ class Version {
            bool* is_blob = nullptr, bool do_merge = true);
 
   void MultiGet(const ReadOptions&, MultiGetRange* range,
-                ReadCallback* callback = nullptr, bool* is_blob = nullptr);
+                ReadCallback* callback = nullptr);
+
+  // Interprets blob_index_slice as a blob reference, and (assuming the
+  // corresponding blob file is part of this Version) retrieves the blob and
+  // saves it in *value.
+  // REQUIRES: blob_index_slice stores an encoded blob reference
+  Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                 const Slice& blob_index_slice, PinnableSlice* value,
+                 uint64_t* bytes_read) const;
+
+  // Retrieves a blob using a blob reference and saves it in *value,
+  // assuming the corresponding blob file is part of this Version.
+  Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
+                 const BlobIndex& blob_index, PinnableSlice* value,
+                 uint64_t* bytes_read) const;
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.
@@ -742,10 +773,8 @@ class Version {
 
   ColumnFamilyData* cfd() const { return cfd_; }
 
-  // Return the next Version in the linked list. Used for debug only
-  Version* TEST_Next() const {
-    return next_;
-  }
+  // Return the next Version in the linked list.
+  Version* Next() const { return next_; }
 
   int TEST_refs() const { return refs_; }
 
@@ -765,6 +794,8 @@ class Version {
 
  private:
   Env* env_;
+  SystemClock* clock_;
+
   friend class ReactiveVersionSet;
   friend class VersionSet;
   friend class VersionEditHandler;
@@ -776,13 +807,6 @@ class Version {
   const Comparator* user_comparator() const {
     return storage_info_.user_comparator_;
   }
-
-  // Interprets *value as a blob reference, and (assuming the corresponding
-  // blob file is part of this Version) retrieves the blob and saves it in
-  // *value, replacing the blob reference.
-  // REQUIRES: *value stores an encoded blob reference
-  Status GetBlob(const ReadOptions& read_options, const Slice& user_key,
-                 PinnableSlice* value) const;
 
   // Returns true if the filter blocks in the specified level will not be
   // checked during read operations. In certain cases (trivial move or preload),
@@ -885,6 +909,7 @@ class BaseReferencedVersionBuilder;
 
 class AtomicGroupReadBuffer {
  public:
+  AtomicGroupReadBuffer() = default;
   Status AddEdit(VersionEdit* edit);
   void Clear();
   bool IsFull() const;
@@ -1120,12 +1145,47 @@ class VersionSet {
     return PreComputeMinLogNumberWithUnflushedData(nullptr);
   }
   // Returns the minimum log number which still has data not flushed to any SST
+  // file.
+  // Empty column families' log number is considered to be
+  // new_log_number_for_empty_cf.
+  uint64_t PreComputeMinLogNumberWithUnflushedData(
+      uint64_t new_log_number_for_empty_cf) const {
+    uint64_t min_log_num = port::kMaxUint64;
+    for (auto cfd : *column_family_set_) {
+      // It's safe to ignore dropped column families here:
+      // cfd->IsDropped() becomes true after the drop is persisted in MANIFEST.
+      uint64_t num =
+          cfd->IsEmpty() ? new_log_number_for_empty_cf : cfd->GetLogNumber();
+      if (min_log_num > num && !cfd->IsDropped()) {
+        min_log_num = num;
+      }
+    }
+    return min_log_num;
+  }
+  // Returns the minimum log number which still has data not flushed to any SST
   // file, except data from `cfd_to_skip`.
   uint64_t PreComputeMinLogNumberWithUnflushedData(
       const ColumnFamilyData* cfd_to_skip) const {
-    uint64_t min_log_num = std::numeric_limits<uint64_t>::max();
+    uint64_t min_log_num = port::kMaxUint64;
     for (auto cfd : *column_family_set_) {
       if (cfd == cfd_to_skip) {
+        continue;
+      }
+      // It's safe to ignore dropped column families here:
+      // cfd->IsDropped() becomes true after the drop is persisted in MANIFEST.
+      if (min_log_num > cfd->GetLogNumber() && !cfd->IsDropped()) {
+        min_log_num = cfd->GetLogNumber();
+      }
+    }
+    return min_log_num;
+  }
+  // Returns the minimum log number which still has data not flushed to any SST
+  // file, except data from `cfds_to_skip`.
+  uint64_t PreComputeMinLogNumberWithUnflushedData(
+      const std::unordered_set<const ColumnFamilyData*>& cfds_to_skip) const {
+    uint64_t min_log_num = port::kMaxUint64;
+    for (auto cfd : *column_family_set_) {
+      if (cfds_to_skip.count(cfd)) {
         continue;
       }
       // It's safe to ignore dropped column families here:
@@ -1254,6 +1314,11 @@ class VersionSet {
 
   struct MutableCFState {
     uint64_t log_number;
+    std::string full_history_ts_low;
+
+    explicit MutableCFState() = default;
+    explicit MutableCFState(uint64_t _log_number, std::string ts_low)
+        : log_number(_log_number), full_history_ts_low(std::move(ts_low)) {}
   };
 
   // Save current contents to *log
@@ -1265,25 +1330,6 @@ class VersionSet {
 
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        const VersionEdit* edit);
-
-  Status ReadAndRecover(
-      log::Reader& reader, AtomicGroupReadBuffer* read_buffer,
-      const std::unordered_map<std::string, ColumnFamilyOptions>&
-          name_to_options,
-      std::unordered_map<int, std::string>& column_families_not_found,
-      std::unordered_map<
-          uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
-      Status* log_read_status, VersionEditParams* version_edit,
-      std::string* db_id = nullptr);
-
-  // REQUIRES db mutex
-  Status ApplyOneVersionEditToBuilder(
-      VersionEdit& edit,
-      const std::unordered_map<std::string, ColumnFamilyOptions>& name_to_opts,
-      std::unordered_map<int, std::string>& column_families_not_found,
-      std::unordered_map<
-          uint32_t, std::unique_ptr<BaseReferencedVersionBuilder>>& builders,
-      VersionEditParams* version_edit);
 
   Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
                                     const VersionEdit& from_edit,
@@ -1299,11 +1345,12 @@ class VersionSet {
   Cache* table_cache_;
   Env* const env_;
   FileSystemPtr const fs_;
+  SystemClock* const clock_;
   const std::string dbname_;
   std::string db_id_;
   const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
-  // Any log number equal or lower than this should be ignored during recovery,
+  // Any WAL number smaller than this should be ignored during recovery,
   // and is qualified for being deleted in 2PC mode. In non-2PC mode, this
   // number is ignored.
   std::atomic<uint64_t> min_log_number_to_keep_2pc_ = {0};
@@ -1383,23 +1430,20 @@ class ReactiveVersionSet : public VersionSet {
   Status ReadAndApply(
       InstrumentedMutex* mu,
       std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
+      Status* manifest_read_status,
       std::unordered_set<ColumnFamilyData*>* cfds_changed);
 
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
                  std::unique_ptr<log::FragmentBufferedReader>* manifest_reader,
                  std::unique_ptr<log::Reader::Reporter>* manifest_reporter,
                  std::unique_ptr<Status>* manifest_reader_status);
+#ifndef NDEBUG
+  uint64_t TEST_read_edits_in_atomic_group() const;
+#endif  //! NDEBUG
 
-  uint64_t TEST_read_edits_in_atomic_group() const {
-    return read_buffer_.TEST_read_edits_in_atomic_group();
-  }
-  std::vector<VersionEdit>& replay_buffer() {
-    return read_buffer_.replay_buffer();
-  }
+  std::vector<VersionEdit>& replay_buffer();
 
  protected:
-  using VersionSet::ApplyOneVersionEditToBuilder;
-
   // REQUIRES db mutex
   Status ApplyOneVersionEditToBuilder(
       VersionEdit& edit, std::unordered_set<ColumnFamilyData*>* cfds_changed,
@@ -1410,11 +1454,7 @@ class ReactiveVersionSet : public VersionSet {
       std::unique_ptr<log::FragmentBufferedReader>* manifest_reader);
 
  private:
-  VersionBuilderMap active_version_builders_;
-  AtomicGroupReadBuffer read_buffer_;
-  // Number of version edits to skip by ReadAndApply at the beginning of a new
-  // MANIFEST created by primary.
-  int number_of_edits_to_skip_;
+  std::unique_ptr<ManifestTailer> manifest_tailer_;
 
   using VersionSet::LogAndApply;
   using VersionSet::Recover;

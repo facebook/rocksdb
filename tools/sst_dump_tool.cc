@@ -37,7 +37,10 @@ void print_help(bool to_stderr) {
       Path to SST file or directory containing SST files
 
     --env_uri=<uri of underlying Env>
-      URI of underlying Env
+      URI of underlying Env, mutually exclusive with fs_uri
+
+    --fs_uri=<uri of underlying FileSystem>
+      URI of underlying FileSystem, mutually exclusive with env_uri
 
     --command=check|scan|raw|verify|identify
         check: Iterate over entries in files but don't print anything except if an error is encountered (default command)
@@ -103,6 +106,9 @@ void print_help(bool to_stderr) {
 
     --compression_zstd_max_train_bytes=<uint32_t>
       Maximum size of training data passed to zstd's dictionary trainer
+
+    --compression_max_dict_buffer_bytes=<int64_t>
+      Limit on buffer size from which we collect samples for dictionary generation.
 )");
 }
 
@@ -126,8 +132,16 @@ bool ParseIntArg(const char* arg, const std::string arg_name,
 }
 }  // namespace
 
+static ROCKSDB_NAMESPACE::Env* GetCompositeEnv(
+    std::shared_ptr<ROCKSDB_NAMESPACE::FileSystem> fs) {
+  static std::shared_ptr<ROCKSDB_NAMESPACE::Env> composite_env =
+      ROCKSDB_NAMESPACE::NewCompositeEnv(fs);
+  return composite_env.get();
+}
+
 int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   const char* env_uri = nullptr;
+  const char* fs_uri = nullptr;
   const char* dir_or_file = nullptr;
   uint64_t read_num = std::numeric_limits<uint64_t>::max();
   std::string command;
@@ -166,12 +180,16 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
       ROCKSDB_NAMESPACE::CompressionOptions().max_dict_bytes;
   uint32_t compression_zstd_max_train_bytes =
       ROCKSDB_NAMESPACE::CompressionOptions().zstd_max_train_bytes;
+  uint64_t compression_max_dict_buffer_bytes =
+      ROCKSDB_NAMESPACE::CompressionOptions().max_dict_buffer_bytes;
 
   int64_t tmp_val;
 
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--env_uri=", 10) == 0) {
       env_uri = argv[i] + 10;
+    } else if (strncmp(argv[i], "--fs_uri=", 9) == 0) {
+      fs_uri = argv[i] + 9;
     } else if (strncmp(argv[i], "--file=", 7) == 0) {
       dir_or_file = argv[i] + 7;
     } else if (strcmp(argv[i], "--output_hex") == 0) {
@@ -276,12 +294,22 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
         return 1;
       }
       compression_zstd_max_train_bytes = static_cast<uint32_t>(tmp_val);
+    } else if (ParseIntArg(argv[i], "--compression_max_dict_buffer_bytes=",
+                           "compression_max_dict_buffer_bytes must be numeric",
+                           &tmp_val)) {
+      if (tmp_val < 0) {
+        fprintf(stderr,
+                "compression_max_dict_buffer_bytes must be positive: '%s'\n",
+                argv[i]);
+        print_help(/*to_stderr*/ true);
+        return 1;
+      }
+      compression_max_dict_buffer_bytes = static_cast<uint64_t>(tmp_val);
     } else if (strcmp(argv[i], "--help") == 0) {
       print_help(/*to_stderr*/ false);
       return 0;
     } else if (strcmp(argv[i], "--version") == 0) {
-      printf("sst_dump from RocksDB %d.%d.%d\n", ROCKSDB_MAJOR, ROCKSDB_MINOR,
-             ROCKSDB_PATCH);
+      printf("%s\n", GetRocksBuildInfoAsString("sst_dump").c_str());
       return 0;
     } else {
       fprintf(stderr, "Unrecognized argument '%s'\n\n", argv[i]);
@@ -324,14 +352,30 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
   std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 
   // If caller of SSTDumpTool::Run(...) does not specify a different env other
-  // than Env::Default(), then try to load custom env based on dir_or_file.
+  // than Env::Default(), then try to load custom env based on env_uri/fs_uri.
   // Otherwise, the caller is responsible for creating custom env.
+
+  if (env_uri && fs_uri) {
+    fprintf(stderr, "cannot specify --fs_uri and --env_uri.\n\n");
+    exit(1);
+  }
+
   if (!options.env || options.env == ROCKSDB_NAMESPACE::Env::Default()) {
     Env* env = Env::Default();
-    Status s = Env::LoadEnv(env_uri ? env_uri : "", &env, &env_guard);
-    if (!s.ok() && !s.IsNotFound()) {
-      fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
-      exit(1);
+    if (env_uri) {
+      Status s = Env::LoadEnv(env_uri ? env_uri : "", &env, &env_guard);
+      if (!s.ok() && !s.IsNotFound()) {
+        fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
+        exit(1);
+      }
+    } else if (fs_uri) {
+      std::shared_ptr<FileSystem> fs;
+      Status s = FileSystem::Load(fs_uri, &fs);
+      if (fs == nullptr) {
+        fprintf(stderr, "FileSystem Load: %s\n", s.ToString().c_str());
+        exit(1);
+      }
+      env = GetCompositeEnv(fs);
     }
     options.env = env;
   } else {
@@ -404,7 +448,7 @@ int SSTDumpTool::Run(int argc, char const* const* argv, Options options) {
           set_block_size ? block_size : 16384,
           compression_types.empty() ? kCompressions : compression_types,
           compress_level_from, compress_level_to, compression_max_dict_bytes,
-          compression_zstd_max_train_bytes);
+          compression_zstd_max_train_bytes, compression_max_dict_buffer_bytes);
       if (!st.ok()) {
         fprintf(stderr, "Failed to recompress: %s\n", st.ToString().c_str());
         exit(1);

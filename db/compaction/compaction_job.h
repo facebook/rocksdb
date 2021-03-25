@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "db/blob/blob_file_completion_callback.h"
 #include "db/column_family.h"
 #include "db/compaction/compaction_iterator.h"
 #include "db/dbformat.h"
@@ -50,6 +51,7 @@ class Arena;
 class ErrorHandler;
 class MemTable;
 class SnapshotChecker;
+class SystemClock;
 class TableCache;
 class Version;
 class VersionEdit;
@@ -78,7 +80,9 @@ class CompactionJob {
       const std::string& dbname, CompactionJobStats* compaction_job_stats,
       Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
       const std::atomic<int>* manual_compaction_paused = nullptr,
-      const std::string& db_id = "", const std::string& db_session_id = "");
+      const std::string& db_id = "", const std::string& db_session_id = "",
+      std::string full_history_ts_low = "",
+      BlobFileCompletionCallback* blob_callback = nullptr);
 
   ~CompactionJob();
 
@@ -201,6 +205,8 @@ class CompactionJob {
   Env::WriteLifeTimeHint write_hint_;
   Env::Priority thread_pri_;
   IOStatus io_status_;
+  std::string full_history_ts_low_;
+  BlobFileCompletionCallback* blob_callback_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -109,7 +109,8 @@ Status FilePrefetchBuffer::Prefetch(const IOOptions& opts,
 
 bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
                                           uint64_t offset, size_t n,
-                                          Slice* result, bool for_compaction) {
+                                          Slice* result, Status* status,
+                                          bool for_compaction) {
   if (track_min_offset_ && offset < min_offset_read_) {
     min_offset_read_ = static_cast<size_t>(offset);
   }
@@ -118,7 +119,7 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
   }
 
   // If the buffer contains only a few of the requested bytes:
-  //    If readahead is enabled: prefetch the remaining bytes + readadhead bytes
+  //    If readahead is enabled: prefetch the remaining bytes + readahead bytes
   //        and satisfy the request.
   //    If readahead is not enabled: return false.
   if (offset + n > buffer_offset_ + buffer_.CurrentSize()) {
@@ -134,6 +135,9 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
                      for_compaction);
       }
       if (!s.ok()) {
+        if (status) {
+          *status = s;
+        }
 #ifndef NDEBUG
         IGNORE_STATUS_IF_ERROR(s);
 #endif

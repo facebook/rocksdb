@@ -103,7 +103,7 @@ TEST_F(MemoryTest, SharedBlockCacheTotal) {
   BlockBasedTableOptions bbt_opts;
   bbt_opts.block_cache = NewLRUCache(4096 * 1000 * 10);
   for (int i = 0; i < kNumDBs; ++i) {
-    DestroyDB(GetDBName(i), opt);
+    ASSERT_OK(DestroyDB(GetDBName(i), opt));
     DB* db = nullptr;
     ASSERT_OK(DB::Open(opt, GetDBName(i), &db));
     dbs.push_back(db);
@@ -119,13 +119,13 @@ TEST_F(MemoryTest, SharedBlockCacheTotal) {
         ASSERT_OK(dbs[i]->Put(WriteOptions(), keys_by_db[i].back(),
                               rnd_.RandomString(kValueSize)));
       }
-      dbs[i]->Flush(FlushOptions());
+      ASSERT_OK(dbs[i]->Flush(FlushOptions()));
     }
   }
   for (int i = 0; i < kNumDBs; ++i) {
     for (auto& key : keys_by_db[i]) {
       std::string value;
-      dbs[i]->Get(ReadOptions(), key, &value);
+      ASSERT_OK(dbs[i]->Get(ReadOptions(), key, &value));
     }
     UpdateUsagesHistory(dbs);
   }
@@ -162,7 +162,7 @@ TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
   };
 
   for (int i = 0; i < kNumDBs; ++i) {
-    DestroyDB(GetDBName(i), opt);
+    ASSERT_OK(DestroyDB(GetDBName(i), opt));
     std::vector<ColumnFamilyHandle*> handles;
     dbs.emplace_back();
     vec_handles.emplace_back();
@@ -198,11 +198,12 @@ TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
   // Create an iterator and flush all memtables for each db
   for (int i = 0; i < kNumDBs; ++i) {
     iters.push_back(dbs[i]->NewIterator(ReadOptions()));
-    dbs[i]->Flush(FlushOptions());
+    ASSERT_OK(dbs[i]->Flush(FlushOptions()));
 
     for (int j = 0; j < 100; ++j) {
       std::string value;
-      dbs[i]->Get(ReadOptions(), rnd_.RandomString(kKeySize), &value);
+      ASSERT_NOK(
+          dbs[i]->Get(ReadOptions(), rnd_.RandomString(kKeySize), &value));
     }
 
     UpdateUsagesHistory(dbs);

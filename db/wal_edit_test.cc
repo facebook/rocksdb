@@ -81,6 +81,26 @@ TEST(WalSet, DeleteAllWals) {
   ASSERT_OK(wals.DeleteWalsBefore(kMaxWalNumber + 1));
 }
 
+TEST(WalSet, AddObsoleteWal) {
+  constexpr WalNumber kNumber = 100;
+  WalSet wals;
+  ASSERT_OK(wals.DeleteWalsBefore(kNumber + 1));
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber)));
+  ASSERT_TRUE(wals.GetWals().empty());
+}
+
+TEST(WalSet, MinWalNumberToKeep) {
+  constexpr WalNumber kNumber = 100;
+  WalSet wals;
+  ASSERT_EQ(wals.GetMinWalNumberToKeep(), 0);
+  ASSERT_OK(wals.DeleteWalsBefore(kNumber));
+  ASSERT_EQ(wals.GetMinWalNumberToKeep(), kNumber);
+  ASSERT_OK(wals.DeleteWalsBefore(kNumber - 1));
+  ASSERT_EQ(wals.GetMinWalNumberToKeep(), kNumber);
+  ASSERT_OK(wals.DeleteWalsBefore(kNumber + 1));
+  ASSERT_EQ(wals.GetMinWalNumberToKeep(), kNumber + 1);
+}
+
 class WalSetTest : public DBTestBase {
  public:
   WalSetTest() : DBTestBase("WalSetTest", /* env_do_fsync */ true) {}

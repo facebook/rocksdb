@@ -59,29 +59,29 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   merge_operands_info.expected_max_number_of_operands = num_records;
 
   // k0 value in memtable
-  Put("k0", "PutARock");
-  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k0",
-                        values.data(), &merge_operands_info,
-                        &number_of_operands);
+  ASSERT_OK(Put("k0", "PutARock"));
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k0", values.data(), &merge_operands_info,
+                                  &number_of_operands));
   ASSERT_EQ(values[0], "PutARock");
 
   // k0.1 value in SST
-  Put("k0.1", "RockInSST");
+  ASSERT_OK(Put("k0.1", "RockInSST"));
   ASSERT_OK(Flush());
-  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k0.1",
-                        values.data(), &merge_operands_info,
-                        &number_of_operands);
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k0.1", values.data(), &merge_operands_info,
+                                  &number_of_operands));
   ASSERT_EQ(values[0], "RockInSST");
 
   // All k1 values are in memtable.
   ASSERT_OK(Merge("k1", "a"));
-  Put("k1", "x");
+  ASSERT_OK(Put("k1", "x"));
   ASSERT_OK(Merge("k1", "b"));
   ASSERT_OK(Merge("k1", "c"));
   ASSERT_OK(Merge("k1", "d"));
-  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1",
-                        values.data(), &merge_operands_info,
-                        &number_of_operands);
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k1", values.data(), &merge_operands_info,
+                                  &number_of_operands));
   ASSERT_EQ(values[0], "x");
   ASSERT_EQ(values[1], "b");
   ASSERT_EQ(values[2], "c");
@@ -98,13 +98,13 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
 
   // All k1.1 values are in memtable.
   ASSERT_OK(Merge("k1.1", "r"));
-  Delete("k1.1");
+  ASSERT_OK(Delete("k1.1"));
   ASSERT_OK(Merge("k1.1", "c"));
   ASSERT_OK(Merge("k1.1", "k"));
   ASSERT_OK(Merge("k1.1", "s"));
-  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k1.1",
-                        values.data(), &merge_operands_info,
-                        &number_of_operands);
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k1.1", values.data(), &merge_operands_info,
+                                  &number_of_operands));
   ASSERT_EQ(values[0], "c");
   ASSERT_EQ(values[1], "k");
   ASSERT_EQ(values[2], "s");
@@ -115,9 +115,9 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(Merge("k2", "e"));
   ASSERT_OK(Merge("k2", "r"));
   ASSERT_OK(Flush());
-  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k2",
-                        values.data(), &merge_operands_info,
-                        &number_of_operands);
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k2", values.data(), &merge_operands_info,
+                                  &number_of_operands));
   ASSERT_EQ(values[0], "q");
   ASSERT_EQ(values[1], "w");
   ASSERT_EQ(values[2], "e");
@@ -125,30 +125,30 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
 
   // All k2.1 values are flushed to L0 into a single file.
   ASSERT_OK(Merge("k2.1", "m"));
-  Put("k2.1", "l");
+  ASSERT_OK(Put("k2.1", "l"));
   ASSERT_OK(Merge("k2.1", "n"));
   ASSERT_OK(Merge("k2.1", "o"));
   ASSERT_OK(Flush());
-  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k2.1",
-                        values.data(), &merge_operands_info,
-                        &number_of_operands);
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k2.1", values.data(), &merge_operands_info,
+                                  &number_of_operands));
   ASSERT_EQ(values[0], "l,n,o");
 
   // All k2.2 values are flushed to L0 into a single file.
   ASSERT_OK(Merge("k2.2", "g"));
-  Delete("k2.2");
+  ASSERT_OK(Delete("k2.2"));
   ASSERT_OK(Merge("k2.2", "o"));
   ASSERT_OK(Merge("k2.2", "t"));
   ASSERT_OK(Flush());
-  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k2.2",
-                        values.data(), &merge_operands_info,
-                        &number_of_operands);
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k2.2", values.data(), &merge_operands_info,
+                                  &number_of_operands));
   ASSERT_EQ(values[0], "o,t");
 
   // Do some compaction that will make the following tests more predictable
   //  Slice start("PutARock");
   //  Slice end("t");
-  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
   // All k3 values are flushed and are in different files.
   ASSERT_OK(Merge("k3", "ab"));
@@ -158,9 +158,9 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(Merge("k3", "cd"));
   ASSERT_OK(Flush());
   ASSERT_OK(Merge("k3", "de"));
-  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k3",
-                        values.data(), &merge_operands_info,
-                        &number_of_operands);
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k3", values.data(), &merge_operands_info,
+                                  &number_of_operands));
   ASSERT_EQ(values[0], "ab");
   ASSERT_EQ(values[1], "bc");
   ASSERT_EQ(values[2], "cd");
@@ -169,14 +169,14 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   // All k3.1 values are flushed and are in different files.
   ASSERT_OK(Merge("k3.1", "ab"));
   ASSERT_OK(Flush());
-  Put("k3.1", "bc");
+  ASSERT_OK(Put("k3.1", "bc"));
   ASSERT_OK(Flush());
   ASSERT_OK(Merge("k3.1", "cd"));
   ASSERT_OK(Flush());
   ASSERT_OK(Merge("k3.1", "de"));
-  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k3.1",
-                        values.data(), &merge_operands_info,
-                        &number_of_operands);
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k3.1", values.data(), &merge_operands_info,
+                                  &number_of_operands));
   ASSERT_EQ(values[0], "bc");
   ASSERT_EQ(values[1], "cd");
   ASSERT_EQ(values[2], "de");
@@ -184,14 +184,14 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   // All k3.2 values are flushed and are in different files.
   ASSERT_OK(Merge("k3.2", "ab"));
   ASSERT_OK(Flush());
-  Delete("k3.2");
+  ASSERT_OK(Delete("k3.2"));
   ASSERT_OK(Flush());
   ASSERT_OK(Merge("k3.2", "cd"));
   ASSERT_OK(Flush());
   ASSERT_OK(Merge("k3.2", "de"));
-  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k3.2",
-                        values.data(), &merge_operands_info,
-                        &number_of_operands);
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k3.2", values.data(), &merge_operands_info,
+                                  &number_of_operands));
   ASSERT_EQ(values[0], "cd");
   ASSERT_EQ(values[1], "de");
 
@@ -206,9 +206,9 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(Flush());
   MoveFilesToLevel(1);
   ASSERT_OK(Merge("k4", "ed"));
-  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k4",
-                        values.data(), &merge_operands_info,
-                        &number_of_operands);
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k4", values.data(), &merge_operands_info,
+                                  &number_of_operands));
   ASSERT_EQ(values[0], "ba");
   ASSERT_EQ(values[1], "cb");
   ASSERT_EQ(values[2], "dc");
@@ -219,14 +219,14 @@ TEST_F(DBMergeOperandTest, GetMergeOperandsBasic) {
   ASSERT_OK(Merge("k5", "am"));
   ASSERT_OK(Merge("k5", "i"));
   ASSERT_OK(Flush());
-  Put("k5", "remember");
+  ASSERT_OK(Put("k5", "remember"));
   ASSERT_OK(Merge("k5", "i"));
   ASSERT_OK(Merge("k5", "am"));
   ASSERT_OK(Merge("k5", "rocks"));
-  dbfull()->TEST_SwitchMemtable();
-  db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(), "k5",
-                        values.data(), &merge_operands_info,
-                        &number_of_operands);
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+  ASSERT_OK(db_->GetMergeOperands(ReadOptions(), db_->DefaultColumnFamily(),
+                                  "k5", values.data(), &merge_operands_info,
+                                  &number_of_operands));
   ASSERT_EQ(values[0], "remember");
   ASSERT_EQ(values[1], "i");
   ASSERT_EQ(values[2], "am");

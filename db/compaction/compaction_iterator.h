@@ -5,6 +5,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cinttypes>
 #include <deque>
 #include <string>
 #include <unordered_set>
@@ -29,33 +30,76 @@ class CompactionIterator {
   // CompactionIterator uses. Tests can override it.
   class CompactionProxy {
    public:
-    explicit CompactionProxy(const Compaction* compaction)
-        : compaction_(compaction) {}
-
     virtual ~CompactionProxy() = default;
-    virtual int level(size_t /*compaction_input_level*/ = 0) const {
-      return compaction_->level();
-    }
+
+    virtual int level() const = 0;
+
     virtual bool KeyNotExistsBeyondOutputLevel(
-        const Slice& user_key, std::vector<size_t>* level_ptrs) const {
+        const Slice& user_key, std::vector<size_t>* level_ptrs) const = 0;
+
+    virtual bool bottommost_level() const = 0;
+
+    virtual int number_levels() const = 0;
+
+    virtual Slice GetLargestUserKey() const = 0;
+
+    virtual bool allow_ingest_behind() const = 0;
+
+    virtual bool preserve_deletes() const = 0;
+
+    virtual bool enable_blob_garbage_collection() const = 0;
+
+    virtual double blob_garbage_collection_age_cutoff() const = 0;
+
+    virtual Version* input_version() const = 0;
+  };
+
+  class RealCompaction : public CompactionProxy {
+   public:
+    explicit RealCompaction(const Compaction* compaction)
+        : compaction_(compaction) {
+      assert(compaction_);
+      assert(compaction_->immutable_cf_options());
+      assert(compaction_->mutable_cf_options());
+    }
+
+    int level() const override { return compaction_->level(); }
+
+    bool KeyNotExistsBeyondOutputLevel(
+        const Slice& user_key, std::vector<size_t>* level_ptrs) const override {
       return compaction_->KeyNotExistsBeyondOutputLevel(user_key, level_ptrs);
     }
-    virtual bool bottommost_level() const {
+
+    bool bottommost_level() const override {
       return compaction_->bottommost_level();
     }
-    virtual int number_levels() const { return compaction_->number_levels(); }
-    virtual Slice GetLargestUserKey() const {
+
+    int number_levels() const override { return compaction_->number_levels(); }
+
+    Slice GetLargestUserKey() const override {
       return compaction_->GetLargestUserKey();
     }
-    virtual bool allow_ingest_behind() const {
+
+    bool allow_ingest_behind() const override {
       return compaction_->immutable_cf_options()->allow_ingest_behind;
     }
-    virtual bool preserve_deletes() const {
+
+    bool preserve_deletes() const override {
       return compaction_->immutable_cf_options()->preserve_deletes;
     }
 
-   protected:
-    CompactionProxy() = default;
+    bool enable_blob_garbage_collection() const override {
+      return compaction_->mutable_cf_options()->enable_blob_garbage_collection;
+    }
+
+    double blob_garbage_collection_age_cutoff() const override {
+      return compaction_->mutable_cf_options()
+          ->blob_garbage_collection_age_cutoff;
+    }
+
+    Version* input_version() const override {
+      return compaction_->input_version();
+    }
 
    private:
     const Compaction* compaction_;
@@ -123,10 +167,29 @@ class CompactionIterator {
   // Processes the input stream to find the next output
   void NextFromInput();
 
-  // Do last preparations before presenting the output to the callee. At this
-  // point this only zeroes out the sequence number if possible for better
-  // compression.
+  // Do final preparations before presenting the output to the callee.
   void PrepareOutput();
+
+  // Passes the output value to the blob file builder (if any), and replaces it
+  // with the corresponding blob reference if it has been actually written to a
+  // blob file (i.e. if it passed the value size check). Returns true if the
+  // value got extracted to a blob file, false otherwise.
+  bool ExtractLargeValueIfNeededImpl();
+
+  // Extracts large values as described above, and updates the internal key's
+  // type to kTypeBlobIndex if the value got extracted. Should only be called
+  // for regular values (kTypeValue).
+  void ExtractLargeValueIfNeeded();
+
+  // Relocates valid blobs residing in the oldest blob files if garbage
+  // collection is enabled. Relocated blobs are written to new blob files or
+  // inlined in the LSM tree depending on the current settings (i.e.
+  // enable_blob_files and min_blob_size). Should only be called for blob
+  // references (kTypeBlobIndex).
+  //
+  // Note: the stacked BlobDB implementation's compaction filter based GC
+  // algorithm is also called from here.
+  void GarbageCollectBlobIfNeeded();
 
   // Invoke compaction filter if needed.
   // Return true on success, false on failures (e.g.: kIOError).
@@ -168,6 +231,9 @@ class CompactionIterator {
     }
   }
 
+  static uint64_t ComputeBlobGarbageCollectionCutoffFileNumber(
+      const CompactionProxy* compaction);
+
   InternalIterator* input_;
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
@@ -182,6 +248,7 @@ class CompactionIterator {
   const SequenceNumber earliest_write_conflict_snapshot_;
   const SnapshotChecker* const snapshot_checker_;
   Env* env_;
+  SystemClock* clock_;
   bool report_detailed_time_;
   bool expect_valid_internal_key_;
   CompactionRangeDelAggregator* range_del_agg_;
@@ -250,7 +317,11 @@ class CompactionIterator {
   // PinnedIteratorsManager used to pin input_ Iterator blocks while reading
   // merge operands and then releasing them after consuming them.
   PinnedIteratorsManager pinned_iters_mgr_;
+
+  uint64_t blob_garbage_collection_cutoff_file_number_;
+
   std::string blob_index_;
+  PinnableSlice blob_value_;
   std::string compaction_filter_value_;
   InternalKey compaction_filter_skip_until_;
   // "level_ptrs" holds indices that remember which file of an associated

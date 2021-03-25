@@ -52,15 +52,21 @@ enum Tag : uint32_t {
 
   kInAtomicGroup = 300,
 
+  kBlobFileAddition = 400,
+  kBlobFileGarbage,
+
   // Mask for an unidentified tag from the future which can be safely ignored.
   kTagSafeIgnoreMask = 1 << 13,
 
   // Forward compatible (aka ignorable) records
   kDbId,
-  kBlobFileAddition,
-  kBlobFileGarbage,
+  kBlobFileAddition_DEPRECATED,
+  kBlobFileGarbage_DEPRECATED,
   kWalAddition,
   kWalDeletion,
+  kFullHistoryTsLow,
+  kWalAddition2,
+  kWalDeletion2,
 };
 
 enum NewFileCustomTag : uint32_t {
@@ -425,6 +431,7 @@ class VersionEdit {
   }
 
   void SetBlobFileAdditions(BlobFileAdditions blob_file_additions) {
+    assert(blob_file_additions_.empty());
     blob_file_additions_ = std::move(blob_file_additions);
   }
 
@@ -448,6 +455,7 @@ class VersionEdit {
   }
 
   void SetBlobFileGarbages(BlobFileGarbages blob_file_garbages) {
+    assert(blob_file_garbages_.empty());
     blob_file_garbages_ = std::move(blob_file_garbages);
   }
 
@@ -524,6 +532,16 @@ class VersionEdit {
   bool IsInAtomicGroup() const { return is_in_atomic_group_; }
   uint32_t GetRemainingEntries() const { return remaining_entries_; }
 
+  bool HasFullHistoryTsLow() const { return !full_history_ts_low_.empty(); }
+  const std::string& GetFullHistoryTsLow() const {
+    assert(HasFullHistoryTsLow());
+    return full_history_ts_low_;
+  }
+  void SetFullHistoryTsLow(std::string full_history_ts_low) {
+    assert(!full_history_ts_low.empty());
+    full_history_ts_low_ = std::move(full_history_ts_low);
+  }
+
   // return true on success.
   bool EncodeTo(std::string* dst) const;
   Status DecodeFrom(const Slice& src);
@@ -586,6 +604,8 @@ class VersionEdit {
 
   bool is_in_atomic_group_ = false;
   uint32_t remaining_entries_ = 0;
+
+  std::string full_history_ts_low_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

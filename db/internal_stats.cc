@@ -50,6 +50,8 @@ const std::map<LevelStatType, LevelStat> InternalStats::compaction_level_stats =
         {LevelStatType::AVG_SEC, LevelStat{"AvgSec", "Avg(sec)"}},
         {LevelStatType::KEY_IN, LevelStat{"KeyIn", "KeyIn"}},
         {LevelStatType::KEY_DROP, LevelStat{"KeyDrop", "KeyDrop"}},
+        {LevelStatType::R_BLOB_GB, LevelStat{"RblobGB", "Rblob(GB)"}},
+        {LevelStatType::W_BLOB_GB, LevelStat{"WblobGB", "Wblob(GB)"}},
 };
 
 namespace {
@@ -61,12 +63,14 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name,
                            const std::string& group_by) {
   int written_size =
       snprintf(buf, len, "\n** Compaction Stats [%s] **\n", cf_name.c_str());
+  written_size = std::min(written_size, static_cast<int>(len));
   auto hdr = [](LevelStatType t) {
     return InternalStats::compaction_level_stats.at(t).header_name.c_str();
   };
   int line_size = snprintf(
       buf + written_size, len - written_size,
-      "%s    %s   %s     %s %s  %s %s %s %s %s %s %s %s %s %s %s %s %s %s\n",
+      "%s    %s   %s     %s %s  %s %s %s %s %s %s %s %s %s %s %s %s %s %s %s "
+      "%s\n",
       // Note that we skip COMPACTED_FILES and merge it with Files column
       group_by.c_str(), hdr(LevelStatType::NUM_FILES),
       hdr(LevelStatType::SIZE_BYTES), hdr(LevelStatType::SCORE),
@@ -77,9 +81,11 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name,
       hdr(LevelStatType::WRITE_MBPS), hdr(LevelStatType::COMP_SEC),
       hdr(LevelStatType::COMP_CPU_SEC), hdr(LevelStatType::COMP_COUNT),
       hdr(LevelStatType::AVG_SEC), hdr(LevelStatType::KEY_IN),
-      hdr(LevelStatType::KEY_DROP));
+      hdr(LevelStatType::KEY_DROP), hdr(LevelStatType::R_BLOB_GB),
+      hdr(LevelStatType::W_BLOB_GB));
 
   written_size += line_size;
+  written_size = std::min(written_size, static_cast<int>(len));
   snprintf(buf + written_size, len - written_size, "%s\n",
            std::string(line_size, '-').c_str());
 }
@@ -88,10 +94,12 @@ void PrepareLevelStats(std::map<LevelStatType, double>* level_stats,
                        int num_files, int being_compacted,
                        double total_file_size, double score, double w_amp,
                        const InternalStats::CompactionStats& stats) {
-  uint64_t bytes_read =
-      stats.bytes_read_non_output_levels + stats.bytes_read_output_level;
-  int64_t bytes_new = stats.bytes_written - stats.bytes_read_output_level;
-  double elapsed = (stats.micros + 1) / kMicrosInSec;
+  const uint64_t bytes_read = stats.bytes_read_non_output_levels +
+                              stats.bytes_read_output_level +
+                              stats.bytes_read_blob;
+  const uint64_t bytes_written = stats.bytes_written + stats.bytes_written_blob;
+  const int64_t bytes_new = stats.bytes_written - stats.bytes_read_output_level;
+  const double elapsed = (stats.micros + 1) / kMicrosInSec;
 
   (*level_stats)[LevelStatType::NUM_FILES] = num_files;
   (*level_stats)[LevelStatType::COMPACTED_FILES] = being_compacted;
@@ -106,8 +114,7 @@ void PrepareLevelStats(std::map<LevelStatType, double>* level_stats,
   (*level_stats)[LevelStatType::MOVED_GB] = stats.bytes_moved / kGB;
   (*level_stats)[LevelStatType::WRITE_AMP] = w_amp;
   (*level_stats)[LevelStatType::READ_MBPS] = bytes_read / kMB / elapsed;
-  (*level_stats)[LevelStatType::WRITE_MBPS] =
-      stats.bytes_written / kMB / elapsed;
+  (*level_stats)[LevelStatType::WRITE_MBPS] = bytes_written / kMB / elapsed;
   (*level_stats)[LevelStatType::COMP_SEC] = stats.micros / kMicrosInSec;
   (*level_stats)[LevelStatType::COMP_CPU_SEC] = stats.cpu_micros / kMicrosInSec;
   (*level_stats)[LevelStatType::COMP_COUNT] = stats.count;
@@ -117,6 +124,8 @@ void PrepareLevelStats(std::map<LevelStatType, double>* level_stats,
       static_cast<double>(stats.num_input_records);
   (*level_stats)[LevelStatType::KEY_DROP] =
       static_cast<double>(stats.num_dropped_records);
+  (*level_stats)[LevelStatType::R_BLOB_GB] = stats.bytes_read_blob / kGB;
+  (*level_stats)[LevelStatType::W_BLOB_GB] = stats.bytes_written_blob / kGB;
 }
 
 void PrintLevelStats(char* buf, size_t len, const std::string& name,
@@ -141,7 +150,9 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
       "%9d "      /*  Comp(cnt) */
       "%8.3f "    /*  Avg(sec) */
       "%7s "      /*  KeyIn */
-      "%6s\n",    /*  KeyDrop */
+      "%6s "      /*  KeyDrop */
+      "%9.1f "    /*  Rblob(GB) */
+      "%9.1f\n",  /*  Wblob(GB) */
       name.c_str(), static_cast<int>(stat_value.at(LevelStatType::NUM_FILES)),
       static_cast<int>(stat_value.at(LevelStatType::COMPACTED_FILES)),
       BytesToHumanString(
@@ -166,7 +177,9 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
           .c_str(),
       NumberToHumanString(
           static_cast<std::int64_t>(stat_value.at(LevelStatType::KEY_DROP)))
-          .c_str());
+          .c_str(),
+      stat_value.at(LevelStatType::R_BLOB_GB),
+      stat_value.at(LevelStatType::W_BLOB_GB));
 }
 
 void PrintLevelStats(char* buf, size_t len, const std::string& name,
@@ -376,10 +389,11 @@ const std::unordered_map<std::string, DBPropertyInfo>
          {false, &InternalStats::HandleSsTables, nullptr, nullptr, nullptr}},
         {DB::Properties::kAggregatedTableProperties,
          {false, &InternalStats::HandleAggregatedTableProperties, nullptr,
-          nullptr, nullptr}},
+          &InternalStats::HandleAggregatedTablePropertiesMap, nullptr}},
         {DB::Properties::kAggregatedTablePropertiesAtLevel,
          {false, &InternalStats::HandleAggregatedTablePropertiesAtLevel,
-          nullptr, nullptr, nullptr}},
+          nullptr, &InternalStats::HandleAggregatedTablePropertiesAtLevelMap,
+          nullptr}},
         {DB::Properties::kNumImmutableMemTable,
          {false, nullptr, &InternalStats::HandleNumImmutableMemTable, nullptr,
           nullptr}},
@@ -508,11 +522,12 @@ bool InternalStats::GetStringProperty(const DBPropertyInfo& property_info,
 }
 
 bool InternalStats::GetMapProperty(const DBPropertyInfo& property_info,
-                                   const Slice& /*property*/,
+                                   const Slice& property,
                                    std::map<std::string, std::string>* value) {
   assert(value != nullptr);
   assert(property_info.handle_map != nullptr);
-  return (this->*(property_info.handle_map))(value);
+  Slice arg = GetPropertyNameAndArg(property).second;
+  return (this->*(property_info.handle_map))(value, arg);
 }
 
 bool InternalStats::GetIntProperty(const DBPropertyInfo& property_info,
@@ -588,7 +603,7 @@ bool InternalStats::HandleStats(std::string* value, Slice suffix) {
 }
 
 bool InternalStats::HandleCFMapStats(
-    std::map<std::string, std::string>* cf_stats) {
+    std::map<std::string, std::string>* cf_stats, Slice /*suffix*/) {
   DumpCFMapStats(cf_stats);
   return true;
 }
@@ -632,7 +647,27 @@ bool InternalStats::HandleAggregatedTableProperties(std::string* value,
   return true;
 }
 
-bool InternalStats::HandleAggregatedTablePropertiesAtLevel(std::string* value,
+static std::map<std::string, std::string> MapUint64ValuesToString(
+    const std::map<std::string, uint64_t>& from) {
+  std::map<std::string, std::string> to;
+  for (const auto& e : from) {
+    to[e.first] = ToString(e.second);
+  }
+  return to;
+}
+
+bool InternalStats::HandleAggregatedTablePropertiesMap(
+    std::map<std::string, std::string>* values, Slice /*suffix*/) {
+  std::shared_ptr<const TableProperties> tp;
+  auto s = cfd_->current()->GetAggregatedTableProperties(&tp);
+  if (!s.ok()) {
+    return false;
+  }
+  *values = MapUint64ValuesToString(tp->GetAggregatablePropertiesAsMap());
+  return true;
+}
+
+bool InternalStats::HandleAggregatedTablePropertiesAtLevel(std::string* values,
                                                            Slice suffix) {
   uint64_t level;
   bool ok = ConsumeDecimalNumber(&suffix, &level) && suffix.empty();
@@ -645,7 +680,24 @@ bool InternalStats::HandleAggregatedTablePropertiesAtLevel(std::string* value,
   if (!s.ok()) {
     return false;
   }
-  *value = tp->ToString();
+  *values = tp->ToString();
+  return true;
+}
+
+bool InternalStats::HandleAggregatedTablePropertiesAtLevelMap(
+    std::map<std::string, std::string>* values, Slice suffix) {
+  uint64_t level;
+  bool ok = ConsumeDecimalNumber(&suffix, &level) && suffix.empty();
+  if (!ok || static_cast<int>(level) >= number_levels_) {
+    return false;
+  }
+  std::shared_ptr<const TableProperties> tp;
+  auto s = cfd_->current()->GetAggregatedTableProperties(
+      &tp, static_cast<int>(level));
+  if (!s.ok()) {
+    return false;
+  }
+  *values = MapUint64ValuesToString(tp->GetAggregatablePropertiesAsMap());
   return true;
 }
 
@@ -949,7 +1001,7 @@ bool InternalStats::HandleBlockCachePinnedUsage(uint64_t* value, DBImpl* /*db*/,
 void InternalStats::DumpDBStats(std::string* value) {
   char buf[1000];
   // DB-level stats, only available from default column family
-  double seconds_up = (env_->NowMicros() - started_at_ + 1) / kMicrosInSec;
+  double seconds_up = (clock_->NowMicros() - started_at_ + 1) / kMicrosInSec;
   double interval_seconds_up = seconds_up - db_stats_snapshot_.seconds_up;
   snprintf(buf, sizeof(buf),
            "\n** DB Stats **\nUptime(secs): %.1f total, %.1f interval\n",
@@ -1071,9 +1123,10 @@ void InternalStats::DumpDBStats(std::string* value) {
  */
 void InternalStats::DumpCFMapStats(
     std::map<std::string, std::string>* cf_stats) {
+  const VersionStorageInfo* vstorage = cfd_->current()->storage_info();
   CompactionStats compaction_stats_sum;
   std::map<int, std::map<LevelStatType, double>> levels_stats;
-  DumpCFMapStats(&levels_stats, &compaction_stats_sum);
+  DumpCFMapStats(vstorage, &levels_stats, &compaction_stats_sum);
   for (auto const& level_ent : levels_stats) {
     auto level_str =
         level_ent.first == -1 ? "Sum" : "L" + ToString(level_ent.first);
@@ -1090,9 +1143,10 @@ void InternalStats::DumpCFMapStats(
 }
 
 void InternalStats::DumpCFMapStats(
+    const VersionStorageInfo* vstorage,
     std::map<int, std::map<LevelStatType, double>>* levels_stats,
     CompactionStats* compaction_stats_sum) {
-  const VersionStorageInfo* vstorage = cfd_->current()->storage_info();
+  assert(vstorage);
 
   int num_levels_to_check =
       (cfd_->ioptions()->compaction_style != kCompactionStyleFIFO)
@@ -1133,12 +1187,14 @@ void InternalStats::DumpCFMapStats(
       if (level == 0) {
         input_bytes = curr_ingest;
       } else {
-        input_bytes = comp_stats_[level].bytes_read_non_output_levels;
+        input_bytes = comp_stats_[level].bytes_read_non_output_levels +
+                      comp_stats_[level].bytes_read_blob;
       }
       double w_amp =
           (input_bytes == 0)
               ? 0.0
-              : static_cast<double>(comp_stats_[level].bytes_written) /
+              : static_cast<double>(comp_stats_[level].bytes_written +
+                                    comp_stats_[level].bytes_written_blob) /
                     input_bytes;
       std::map<LevelStatType, double> level_stats;
       PrepareLevelStats(&level_stats, files, files_being_compacted[level],
@@ -1148,7 +1204,8 @@ void InternalStats::DumpCFMapStats(
     }
   }
   // Cumulative summary
-  double w_amp = compaction_stats_sum->bytes_written /
+  double w_amp = (compaction_stats_sum->bytes_written +
+                  compaction_stats_sum->bytes_written_blob) /
                  static_cast<double>(curr_ingest + 1);
   // Stats summary across levels
   std::map<LevelStatType, double> sum_stats;
@@ -1215,9 +1272,10 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   value->append(buf);
 
   // Print stats for each level
+  const VersionStorageInfo* vstorage = cfd_->current()->storage_info();
   std::map<int, std::map<LevelStatType, double>> levels_stats;
   CompactionStats compaction_stats_sum;
-  DumpCFMapStats(&levels_stats, &compaction_stats_sum);
+  DumpCFMapStats(vstorage, &levels_stats, &compaction_stats_sum);
   for (int l = 0; l < number_levels_; ++l) {
     if (levels_stats.find(l) != levels_stats.end()) {
       PrintLevelStats(buf, sizeof(buf), "L" + ToString(l), levels_stats[l]);
@@ -1253,7 +1311,8 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   CompactionStats interval_stats(compaction_stats_sum);
   interval_stats.Subtract(cf_stats_snapshot_.comp_stats);
   double w_amp =
-      interval_stats.bytes_written / static_cast<double>(interval_ingest);
+      (interval_stats.bytes_written + interval_stats.bytes_written_blob) /
+      static_cast<double>(interval_ingest);
   PrintLevelStats(buf, sizeof(buf), "Int", 0, 0, 0, 0, w_amp, interval_stats);
   value->append(buf);
 
@@ -1272,7 +1331,13 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
     }
   }
 
-  double seconds_up = (env_->NowMicros() - started_at_ + 1) / kMicrosInSec;
+  snprintf(buf, sizeof(buf),
+           "\nBlob file count: %" ROCKSDB_PRIszt ", total size: %.1f GB\n\n",
+           vstorage->GetBlobFiles().size(),
+           vstorage->GetTotalBlobFileSize() / kGB);
+  value->append(buf);
+
+  double seconds_up = (clock_->NowMicros() - started_at_ + 1) / kMicrosInSec;
   double interval_seconds_up = seconds_up - cf_stats_snapshot_.seconds_up;
   snprintf(buf, sizeof(buf), "Uptime(secs): %.1f total, %.1f interval\n",
            seconds_up, interval_seconds_up);
@@ -1312,8 +1377,10 @@ void InternalStats::DumpCFStatsNoFileHistogram(std::string* value) {
   uint64_t compact_micros = 0;
   for (int level = 0; level < number_levels_; level++) {
     compact_bytes_read += comp_stats_[level].bytes_read_output_level +
-                          comp_stats_[level].bytes_read_non_output_levels;
-    compact_bytes_write += comp_stats_[level].bytes_written;
+                          comp_stats_[level].bytes_read_non_output_levels +
+                          comp_stats_[level].bytes_read_blob;
+    compact_bytes_write += comp_stats_[level].bytes_written +
+                           comp_stats_[level].bytes_written_blob;
     compact_micros += comp_stats_[level].micros;
   }
 
@@ -1406,7 +1473,7 @@ void InternalStats::DumpCFFileHistogram(std::string* value) {
         << blob_file_read_latency_.ToString() << '\n';
   }
 
-  *value = oss.str();
+  value->append(oss.str());
 }
 
 #else

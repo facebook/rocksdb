@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 
 #include "db/forward_iterator.h"
+#include "env/mock_env.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env_encryption.h"
 #include "rocksdb/utilities/object_registry.h"
@@ -200,28 +201,28 @@ bool DBTestBase::ChangeCompactOptions() {
     Destroy(last_options_);
     auto options = CurrentOptions();
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kUniversalCompaction) {
     option_config_ = kUniversalCompactionMultiLevel;
     Destroy(last_options_);
     auto options = CurrentOptions();
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kUniversalCompactionMultiLevel) {
     option_config_ = kLevelSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
     assert(options.max_subcompactions > 1);
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kLevelSubcompactions) {
     option_config_ = kUniversalSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
     assert(options.max_subcompactions > 1);
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else {
     return false;
@@ -236,7 +237,7 @@ bool DBTestBase::ChangeWalOptions() {
     auto options = CurrentOptions();
     Destroy(options);
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kDBLogDir) {
     option_config_ = kWalDirAndMmapReads;
@@ -244,14 +245,14 @@ bool DBTestBase::ChangeWalOptions() {
     auto options = CurrentOptions();
     Destroy(options);
     options.create_if_missing = true;
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else if (option_config_ == kWalDirAndMmapReads) {
     option_config_ = kRecycleLogFiles;
     Destroy(last_options_);
     auto options = CurrentOptions();
     Destroy(options);
-    TryReopen(options);
+    Reopen(options);
     return true;
   } else {
     return false;
@@ -340,7 +341,9 @@ Options DBTestBase::GetDefaultOptions() const {
   options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   options.compaction_pri = CompactionPri::kByCompensatedSize;
   options.env = env_;
-  options.track_and_verify_wals_in_manifest = true;
+  if (!env_->skip_fsync_) {
+    options.track_and_verify_wals_in_manifest = true;
+  }
   return options;
 }
 
@@ -497,6 +500,7 @@ Options DBTestBase::GetOptions(
       break;
     }
     case kBlockBasedTableWithPartitionedIndex: {
+      table_options.format_version = 3;
       table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
       options.prefix_extractor.reset(NewNoopTransform());
       break;
@@ -678,7 +682,7 @@ void DBTestBase::Close() {
 void DBTestBase::DestroyAndReopen(const Options& options) {
   // Destroy using last options
   Destroy(last_options_);
-  ASSERT_OK(TryReopen(options));
+  Reopen(options);
 }
 
 void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
@@ -1123,29 +1127,77 @@ std::string DBTestBase::FilesPerLevel(int cf) {
   result.resize(last_non_zero_offset);
   return result;
 }
+
 #endif  // !ROCKSDB_LITE
 
-size_t DBTestBase::CountFiles() {
-  std::vector<std::string> files;
-  env_->GetChildren(dbname_, &files);
+std::vector<uint64_t> DBTestBase::GetBlobFileNumbers() {
+  VersionSet* const versions = dbfull()->TEST_GetVersionSet();
+  assert(versions);
 
-  std::vector<std::string> logfiles;
-  if (dbname_ != last_options_.wal_dir) {
-    env_->GetChildren(last_options_.wal_dir, &logfiles);
+  ColumnFamilyData* const cfd = versions->GetColumnFamilySet()->GetDefault();
+  assert(cfd);
+
+  Version* const current = cfd->current();
+  assert(current);
+
+  const VersionStorageInfo* const storage_info = current->storage_info();
+  assert(storage_info);
+
+  const auto& blob_files = storage_info->GetBlobFiles();
+
+  std::vector<uint64_t> result;
+  result.reserve(blob_files.size());
+
+  for (const auto& blob_file : blob_files) {
+    result.emplace_back(blob_file.first);
   }
 
-  return files.size() + logfiles.size();
+  return result;
 }
 
-uint64_t DBTestBase::Size(const Slice& start, const Slice& limit, int cf) {
-  Range r(start, limit);
-  uint64_t size;
-  if (cf == 0) {
-    db_->GetApproximateSizes(&r, 1, &size);
-  } else {
-    db_->GetApproximateSizes(handles_[1], &r, 1, &size);
+size_t DBTestBase::CountFiles() {
+  size_t count = 0;
+  std::vector<std::string> files;
+  if (env_->GetChildren(dbname_, &files).ok()) {
+    count += files.size();
   }
-  return size;
+
+  if (dbname_ != last_options_.wal_dir) {
+    if (env_->GetChildren(last_options_.wal_dir, &files).ok()) {
+      count += files.size();
+    }
+  }
+
+  return count;
+};
+
+Status DBTestBase::CountFiles(size_t* count) {
+  std::vector<std::string> files;
+  Status s = env_->GetChildren(dbname_, &files);
+  if (!s.ok()) {
+    return s;
+  }
+  size_t files_count = files.size();
+
+  if (dbname_ != last_options_.wal_dir) {
+    s = env_->GetChildren(last_options_.wal_dir, &files);
+    if (!s.ok()) {
+      return s;
+    }
+    *count = files_count + files.size();
+  }
+
+  return Status::OK();
+}
+
+Status DBTestBase::Size(const Slice& start, const Slice& limit, int cf,
+                        uint64_t* size) {
+  Range r(start, limit);
+  if (cf == 0) {
+    return db_->GetApproximateSizes(&r, 1, size);
+  } else {
+    return db_->GetApproximateSizes(handles_[1], &r, 1, size);
+  }
 }
 
 void DBTestBase::Compact(int cf, const Slice& start, const Slice& limit,
@@ -1264,8 +1316,8 @@ void DBTestBase::GenerateNewRandomFile(Random* rnd, bool nowait) {
   }
   ASSERT_OK(Put("key" + rnd->RandomString(7), rnd->RandomString(200)));
   if (!nowait) {
-    dbfull()->TEST_WaitForFlushMemTable();
-    dbfull()->TEST_WaitForCompact();
+    ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
   }
 }
 
@@ -1411,26 +1463,26 @@ void DBTestBase::CopyFile(const std::string& source,
   ASSERT_OK(destfile->Close());
 }
 
-Status DBTestBase::GetAllSSTFiles(
-    std::unordered_map<std::string, uint64_t>* sst_files,
+Status DBTestBase::GetAllDataFiles(
+    const FileType file_type, std::unordered_map<std::string, uint64_t>* files,
     uint64_t* total_size /* = nullptr */) {
   if (total_size) {
     *total_size = 0;
   }
-  std::vector<std::string> files;
-  Status s = env_->GetChildren(dbname_, &files);
+  std::vector<std::string> children;
+  Status s = env_->GetChildren(dbname_, &children);
   if (s.ok()) {
-    for (auto& file_name : files) {
+    for (auto& file_name : children) {
       uint64_t number;
       FileType type;
-      if (ParseFileName(file_name, &number, &type) && type == kTableFile) {
+      if (ParseFileName(file_name, &number, &type) && type == file_type) {
         std::string file_path = dbname_ + "/" + file_name;
         uint64_t file_size = 0;
         s = env_->GetFileSize(file_path, &file_size);
         if (!s.ok()) {
           break;
         }
-        (*sst_files)[file_path] = file_size;
+        (*files)[file_path] = file_size;
         if (total_size) {
           *total_size += file_size;
         }

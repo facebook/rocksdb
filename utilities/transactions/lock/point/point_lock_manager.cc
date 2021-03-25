@@ -94,64 +94,6 @@ struct LockMap {
   size_t GetStripe(const std::string& key) const;
 };
 
-void DeadlockInfoBuffer::AddNewPath(DeadlockPath path) {
-  std::lock_guard<std::mutex> lock(paths_buffer_mutex_);
-
-  if (paths_buffer_.empty()) {
-    return;
-  }
-
-  paths_buffer_[buffer_idx_] = std::move(path);
-  buffer_idx_ = (buffer_idx_ + 1) % paths_buffer_.size();
-}
-
-void DeadlockInfoBuffer::Resize(uint32_t target_size) {
-  std::lock_guard<std::mutex> lock(paths_buffer_mutex_);
-
-  paths_buffer_ = Normalize();
-
-  // Drop the deadlocks that will no longer be needed ater the normalize
-  if (target_size < paths_buffer_.size()) {
-    paths_buffer_.erase(
-        paths_buffer_.begin(),
-        paths_buffer_.begin() + (paths_buffer_.size() - target_size));
-    buffer_idx_ = 0;
-  }
-  // Resize the buffer to the target size and restore the buffer's idx
-  else {
-    auto prev_size = paths_buffer_.size();
-    paths_buffer_.resize(target_size);
-    buffer_idx_ = (uint32_t)prev_size;
-  }
-}
-
-std::vector<DeadlockPath> DeadlockInfoBuffer::Normalize() {
-  auto working = paths_buffer_;
-
-  if (working.empty()) {
-    return working;
-  }
-
-  // Next write occurs at a nonexistent path's slot
-  if (paths_buffer_[buffer_idx_].empty()) {
-    working.resize(buffer_idx_);
-  } else {
-    std::rotate(working.begin(), working.begin() + buffer_idx_, working.end());
-  }
-
-  return working;
-}
-
-std::vector<DeadlockPath> DeadlockInfoBuffer::PrepareBuffer() {
-  std::lock_guard<std::mutex> lock(paths_buffer_mutex_);
-
-  // Reversing the normalized vector returns the latest deadlocks first
-  auto working = Normalize();
-  std::reverse(working.begin(), working.end());
-
-  return working;
-}
-
 namespace {
 void UnrefLockMapsCache(void* ptr) {
   // Called when a thread exits or a ThreadLocalPtr gets destroyed.
@@ -490,7 +432,14 @@ bool PointLockManager::IncrementWaiters(
                         extracted_info.m_waiting_key});
         head = queue_parents[head];
       }
-      env->GetCurrentTime(&deadlock_time);
+      if (!env->GetCurrentTime(&deadlock_time).ok()) {
+        /*
+          TODO(AR) this preserves the current behaviour whilst checking the
+          status of env->GetCurrentTime to ensure that ASSERT_STATUS_CHECKED
+          passes. Should we instead raise an error if !ok() ?
+        */
+        deadlock_time = 0;
+      }
       std::reverse(path.begin(), path.end());
       dlock_buffer_.AddNewPath(DeadlockPath(path, deadlock_time));
       deadlock_time = 0;
@@ -506,7 +455,14 @@ bool PointLockManager::IncrementWaiters(
   }
 
   // Wait cycle too big, just assume deadlock.
-  env->GetCurrentTime(&deadlock_time);
+  if (!env->GetCurrentTime(&deadlock_time).ok()) {
+    /*
+      TODO(AR) this preserves the current behaviour whilst checking the status
+      of env->GetCurrentTime to ensure that ASSERT_STATUS_CHECKED passes.
+      Should we instead raise an error if !ok() ?
+    */
+    deadlock_time = 0;
+  }
   dlock_buffer_.AddNewPath(DeadlockPath(deadlock_time, true));
   DecrementWaitersImpl(txn, wait_ids);
   return true;

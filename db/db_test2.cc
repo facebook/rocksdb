@@ -41,9 +41,7 @@ TEST_F(DBTest2, OpenForReadOnly) {
   std::vector<std::string> files;
   ASSERT_OK(env_->GetChildren(dbname, &files));
   for (auto& f : files) {
-    if (f != "." && f != "..") {
-      ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
-    }
+    ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
   }
   // <dbname> should be empty now and we should be able to delete it
   ASSERT_OK(env_->DeleteDir(dbname));
@@ -75,9 +73,7 @@ TEST_F(DBTest2, OpenForReadOnlyWithColumnFamilies) {
   std::vector<std::string> files;
   ASSERT_OK(env_->GetChildren(dbname, &files));
   for (auto& f : files) {
-    if (f != "." && f != "..") {
-      ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
-    }
+    ASSERT_OK(env_->DeleteFile(dbname + "/" + f));
   }
   // <dbname> should be empty now and we should be able to delete it
   ASSERT_OK(env_->DeleteDir(dbname));
@@ -158,8 +154,14 @@ class PartitionedIndexTestListener : public EventListener {
 };
 
 TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
+  const int kValueSize = 10500;
+  const int kNumEntriesPerFile = 1000;
+  const int kNumFiles = 3;
+  const int kNumDistinctKeys = 30;
+
   BlockBasedTableOptions table_options;
   Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
   table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
   PartitionedIndexTestListener* listener = new PartitionedIndexTestListener();
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -168,13 +170,16 @@ TEST_F(DBTest2, PartitionedIndexUserToInternalKey) {
   Reopen(options);
   Random rnd(301);
 
-  for (int i = 0; i < 3000; i++) {
-    int j = i % 30;
-    std::string value = rnd.RandomString(10500);
-    ASSERT_OK(Put("keykey_" + std::to_string(j), value));
-    snapshots.push_back(db_->GetSnapshot());
+  for (int i = 0; i < kNumFiles; i++) {
+    for (int j = 0; j < kNumEntriesPerFile; j++) {
+      int key_id = (i * kNumEntriesPerFile + j) % kNumDistinctKeys;
+      std::string value = rnd.RandomString(kValueSize);
+      ASSERT_OK(Put("keykey_" + std::to_string(key_id), value));
+      snapshots.push_back(db_->GetSnapshot());
+    }
+    ASSERT_OK(Flush());
   }
-  Flush();
+
   for (auto s : snapshots) {
     db_->ReleaseSnapshot(s);
   }
@@ -1412,67 +1417,94 @@ INSTANTIATE_TEST_CASE_P(
 
 TEST_P(PresetCompressionDictTest, Flush) {
   // Verifies that dictionary is generated and written during flush only when
-  // `ColumnFamilyOptions::compression` enables dictionary.
+  // `ColumnFamilyOptions::compression` enables dictionary. Also verifies the
+  // size of the dictionary is within expectations according to the limit on
+  // buffering set by `CompressionOptions::max_dict_buffer_bytes`.
   const size_t kValueLen = 256;
   const size_t kKeysPerFile = 1 << 10;
-  const size_t kDictLen = 4 << 10;
+  const size_t kDictLen = 16 << 10;
+  const size_t kBlockLen = 4 << 10;
 
   Options options = CurrentOptions();
   if (bottommost_) {
     options.bottommost_compression = compression_type_;
     options.bottommost_compression_opts.enabled = true;
     options.bottommost_compression_opts.max_dict_bytes = kDictLen;
+    options.bottommost_compression_opts.max_dict_buffer_bytes = kBlockLen;
   } else {
     options.compression = compression_type_;
     options.compression_opts.max_dict_bytes = kDictLen;
+    options.compression_opts.max_dict_buffer_bytes = kBlockLen;
   }
   options.memtable_factory.reset(new SpecialSkipListFactory(kKeysPerFile));
   options.statistics = CreateDBStatistics();
   BlockBasedTableOptions bbto;
+  bbto.block_size = kBlockLen;
   bbto.cache_index_and_filter_blocks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   Reopen(options);
 
-  uint64_t prev_compression_dict_misses =
-      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS);
   Random rnd(301);
   for (size_t i = 0; i <= kKeysPerFile; ++i) {
     ASSERT_OK(Put(Key(static_cast<int>(i)), rnd.RandomString(kValueLen)));
   }
   ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
 
-  // If there's a compression dictionary, it should have been loaded when the
-  // flush finished, incurring a cache miss.
-  uint64_t expected_compression_dict_misses;
+  // We can use `BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT` to detect whether a
+  // compression dictionary exists since dictionaries would be preloaded when
+  // the flush finishes.
   if (bottommost_) {
-    expected_compression_dict_misses = prev_compression_dict_misses;
+    // Flush is never considered bottommost. This should change in the future
+    // since flushed files may have nothing underneath them, like the one in
+    // this test case.
+    ASSERT_EQ(
+        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+        0);
   } else {
-    expected_compression_dict_misses = prev_compression_dict_misses + 1;
+    ASSERT_GT(
+        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+        0);
+    // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
+    // number of bytes needs to be adjusted in case the cached block is in
+    // ZSTD's digested dictionary format.
+    if (compression_type_ != kZSTD &&
+        compression_type_ != kZSTDNotFinalCompression) {
+      // Although we limited buffering to `kBlockLen`, there may be up to two
+      // blocks of data included in the dictionary since we only check limit
+      // after each block is built.
+      ASSERT_LE(TestGetTickerCount(options,
+                                   BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+                2 * kBlockLen);
+    }
   }
-  ASSERT_EQ(expected_compression_dict_misses,
-            TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
 }
 
 TEST_P(PresetCompressionDictTest, CompactNonBottommost) {
   // Verifies that dictionary is generated and written during compaction to
   // non-bottommost level only when `ColumnFamilyOptions::compression` enables
-  // dictionary.
+  // dictionary. Also verifies the size of the dictionary is within expectations
+  // according to the limit on buffering set by
+  // `CompressionOptions::max_dict_buffer_bytes`.
   const size_t kValueLen = 256;
   const size_t kKeysPerFile = 1 << 10;
-  const size_t kDictLen = 4 << 10;
+  const size_t kDictLen = 16 << 10;
+  const size_t kBlockLen = 4 << 10;
 
   Options options = CurrentOptions();
   if (bottommost_) {
     options.bottommost_compression = compression_type_;
     options.bottommost_compression_opts.enabled = true;
     options.bottommost_compression_opts.max_dict_bytes = kDictLen;
+    options.bottommost_compression_opts.max_dict_buffer_bytes = kBlockLen;
   } else {
     options.compression = compression_type_;
     options.compression_opts.max_dict_bytes = kDictLen;
+    options.compression_opts.max_dict_buffer_bytes = kBlockLen;
   }
   options.disable_auto_compactions = true;
   options.statistics = CreateDBStatistics();
   BlockBasedTableOptions bbto;
+  bbto.block_size = kBlockLen;
   bbto.cache_index_and_filter_blocks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   Reopen(options);
@@ -1494,8 +1526,8 @@ TEST_P(PresetCompressionDictTest, CompactNonBottommost) {
   ASSERT_EQ("2,0,1", FilesPerLevel(0));
 #endif  // ROCKSDB_LITE
 
-  uint64_t prev_compression_dict_misses =
-      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS);
+  uint64_t prev_compression_dict_bytes_inserted =
+      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT);
   // This L0->L1 compaction merges the two L0 files into L1. The produced L1
   // file is not bottommost due to the existing L2 file covering the same key-
   // range.
@@ -1503,38 +1535,58 @@ TEST_P(PresetCompressionDictTest, CompactNonBottommost) {
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("0,1,1", FilesPerLevel(0));
 #endif  // ROCKSDB_LITE
-  // If there's a compression dictionary, it should have been loaded when the
-  // compaction finished, incurring a cache miss.
-  uint64_t expected_compression_dict_misses;
+  // We can use `BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT` to detect whether a
+  // compression dictionary exists since dictionaries would be preloaded when
+  // the compaction finishes.
   if (bottommost_) {
-    expected_compression_dict_misses = prev_compression_dict_misses;
+    ASSERT_EQ(
+        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+        prev_compression_dict_bytes_inserted);
   } else {
-    expected_compression_dict_misses = prev_compression_dict_misses + 1;
+    ASSERT_GT(
+        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+        prev_compression_dict_bytes_inserted);
+    // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
+    // number of bytes needs to be adjusted in case the cached block is in
+    // ZSTD's digested dictionary format.
+    if (compression_type_ != kZSTD &&
+        compression_type_ != kZSTDNotFinalCompression) {
+      // Although we limited buffering to `kBlockLen`, there may be up to two
+      // blocks of data included in the dictionary since we only check limit
+      // after each block is built.
+      ASSERT_LE(TestGetTickerCount(options,
+                                   BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+                prev_compression_dict_bytes_inserted + 2 * kBlockLen);
+    }
   }
-  ASSERT_EQ(expected_compression_dict_misses,
-            TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
 }
 
 TEST_P(PresetCompressionDictTest, CompactBottommost) {
   // Verifies that dictionary is generated and written during compaction to
   // non-bottommost level only when either `ColumnFamilyOptions::compression` or
-  // `ColumnFamilyOptions::bottommost_compression` enables dictionary.
+  // `ColumnFamilyOptions::bottommost_compression` enables dictionary. Also
+  // verifies the size of the dictionary is within expectations according to the
+  // limit on buffering set by `CompressionOptions::max_dict_buffer_bytes`.
   const size_t kValueLen = 256;
   const size_t kKeysPerFile = 1 << 10;
-  const size_t kDictLen = 4 << 10;
+  const size_t kDictLen = 16 << 10;
+  const size_t kBlockLen = 4 << 10;
 
   Options options = CurrentOptions();
   if (bottommost_) {
     options.bottommost_compression = compression_type_;
     options.bottommost_compression_opts.enabled = true;
     options.bottommost_compression_opts.max_dict_bytes = kDictLen;
+    options.bottommost_compression_opts.max_dict_buffer_bytes = kBlockLen;
   } else {
     options.compression = compression_type_;
     options.compression_opts.max_dict_bytes = kDictLen;
+    options.compression_opts.max_dict_buffer_bytes = kBlockLen;
   }
   options.disable_auto_compactions = true;
   options.statistics = CreateDBStatistics();
   BlockBasedTableOptions bbto;
+  bbto.block_size = kBlockLen;
   bbto.cache_index_and_filter_blocks = true;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   Reopen(options);
@@ -1550,17 +1602,28 @@ TEST_P(PresetCompressionDictTest, CompactBottommost) {
   ASSERT_EQ("2", FilesPerLevel(0));
 #endif  // ROCKSDB_LITE
 
-  uint64_t prev_compression_dict_misses =
-      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS);
+  uint64_t prev_compression_dict_bytes_inserted =
+      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT);
   CompactRangeOptions cro;
   ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("0,1", FilesPerLevel(0));
 #endif  // ROCKSDB_LITE
-  // If there's a compression dictionary, it should have been loaded when the
-  // compaction finished, incurring a cache miss.
-  ASSERT_EQ(prev_compression_dict_misses + 1,
-            TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_MISS));
+  ASSERT_GT(
+      TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+      prev_compression_dict_bytes_inserted);
+  // TODO(ajkr): fix the below assertion to work with ZSTD. The expectation on
+  // number of bytes needs to be adjusted in case the cached block is in ZSTD's
+  // digested dictionary format.
+  if (compression_type_ != kZSTD &&
+      compression_type_ != kZSTDNotFinalCompression) {
+    // Although we limited buffering to `kBlockLen`, there may be up to two
+    // blocks of data included in the dictionary since we only check limit after
+    // each block is built.
+    ASSERT_LE(
+        TestGetTickerCount(options, BLOCK_CACHE_COMPRESSION_DICT_BYTES_INSERT),
+        prev_compression_dict_bytes_inserted + 2 * kBlockLen);
+  }
 }
 
 class CompactionCompressionListener : public EventListener {
@@ -3683,20 +3746,26 @@ TEST_F(DBTest2, LiveFilesOmitObsoleteFiles) {
 
 TEST_F(DBTest2, TestNumPread) {
   Options options = CurrentOptions();
+  bool prefetch_supported =
+      test::IsPrefetchSupported(env_->GetFileSystem(), dbname_);
   // disable block cache
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   env_->count_random_reads_ = true;
-
   env_->random_file_open_counter_.store(0);
   ASSERT_OK(Put("bar", "foo"));
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Flush());
-  // After flush, we'll open the file and read footer, meta block,
-  // property block and index block.
-  ASSERT_EQ(4, env_->random_read_counter_.Read());
+  if (prefetch_supported) {
+    // After flush, we'll open the file and read footer, meta block,
+    // property block and index block.
+    ASSERT_EQ(4, env_->random_read_counter_.Read());
+  } else {
+    // With prefetch not supported, we will do a single read into a buffer
+    ASSERT_EQ(1, env_->random_read_counter_.Read());
+  }
   ASSERT_EQ(1, env_->random_file_open_counter_.load());
 
   // One pread per a normal data block read
@@ -3712,19 +3781,30 @@ TEST_F(DBTest2, TestNumPread) {
   ASSERT_OK(Put("bar2", "foo2"));
   ASSERT_OK(Put("foo2", "bar2"));
   ASSERT_OK(Flush());
-  // After flush, we'll open the file and read footer, meta block,
-  // property block and index block.
-  ASSERT_EQ(4, env_->random_read_counter_.Read());
+  if (prefetch_supported) {
+    // After flush, we'll open the file and read footer, meta block,
+    // property block and index block.
+    ASSERT_EQ(4, env_->random_read_counter_.Read());
+  } else {
+    // With prefetch not supported, we will do a single read into a buffer
+    ASSERT_EQ(1, env_->random_read_counter_.Read());
+  }
   ASSERT_EQ(1, env_->random_file_open_counter_.load());
 
-  // Compaction needs two input blocks, which requires 2 preads, and
-  // generate a new SST file which needs 4 preads (footer, meta block,
-  // property block and index block). In total 6.
   env_->random_file_open_counter_.store(0);
   env_->random_read_counter_.Reset();
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  ASSERT_EQ(6, env_->random_read_counter_.Read());
-  // All compactin input files should have already been opened.
+  if (prefetch_supported) {
+    // Compaction needs two input blocks, which requires 2 preads, and
+    // generate a new SST file which needs 4 preads (footer, meta block,
+    // property block and index block). In total 6.
+    ASSERT_EQ(6, env_->random_read_counter_.Read());
+  } else {
+    // With prefetch off, compaction needs two input blocks,
+    // followed by a single buffered read.  In total 3.
+    ASSERT_EQ(3, env_->random_read_counter_.Read());
+  }
+  // All compaction input files should have already been opened.
   ASSERT_EQ(1, env_->random_file_open_counter_.load());
 
   // One pread per a normal data block read

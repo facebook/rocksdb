@@ -391,7 +391,7 @@ struct BlockBasedTableOptions {
   // 5 -- Can be read by RocksDB's versions since 6.6.0. Full and partitioned
   // filters use a generally faster and more accurate Bloom filter
   // implementation, with a different schema.
-  uint32_t format_version = 4;
+  uint32_t format_version = 5;
 
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted
@@ -435,6 +435,33 @@ struct BlockBasedTableOptions {
 
   IndexShorteningMode index_shortening =
       IndexShorteningMode::kShortenSeparators;
+
+  // RocksDB does auto-readahead for iterators on noticing more than two reads
+  // for a table file if user doesn't provide readahead_size. The readahead
+  // starts at 8KB and doubles on every additional read upto
+  // max_auto_readahead_size and max_auto_readahead_size can be configured.
+  //
+  // Special Value: 0 - If max_auto_readahead_size is set 0 then no implicit
+  // auto prefetching will be done. If max_auto_readahead_size provided is less
+  // than 8KB (which is initial readahead size used by rocksdb in case of
+  // auto-readahead), readahead size will remain same as
+  // max_auto_readahead_size.
+  //
+  // Value should be provided along with KB i.e. 256 * 1024 as it will prefetch
+  // the blocks.
+  //
+  // Found that 256 KB readahead size provides the best performance, based on
+  // experiments, for auto readahead. Experiment data is in PR #3282.
+  //
+  // This parameter can be changed dynamically by
+  // DB::SetOptions({{"block_based_table_factory",
+  //                  "{max_auto_readahead_size=0;}"}}));
+  //
+  // Changing the value dynamically will only affect files opened after the
+  // change.
+  //
+  // Default: 256 KB (256 * 1024).
+  size_t max_auto_readahead_size = 256 * 1024;
 };
 
 // Table Properties that are specific to block-based table properties.

@@ -76,7 +76,7 @@ class FileChecksumGenFactory {
 };
 
 // FileChecksumList stores the checksum information of a list of files (e.g.,
-// SST files). The FileChecksumLIst can be used to store the checksum
+// SST files). The FileChecksumList can be used to store the checksum
 // information of all SST file getting  from the MANIFEST, which are
 // the checksum information of all valid SST file of a DB instance. It can
 // also be used to store the checksum information of a list of SST files to
