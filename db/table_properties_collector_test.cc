@@ -175,9 +175,9 @@ class RegularKeysStartWithAInternal : public IntTblPropCollector {
     return Status::OK();
   }
 
-  void BlockAdd(uint64_t /* blockRawBytes */,
-                uint64_t /* blockCompressedBytesFast */,
-                uint64_t /* blockCompressedBytesSlow */) override {
+  void BlockAdd(uint64_t /* block_raw_bytes */,
+                uint64_t /* block_compressed_bytes_fast */,
+                uint64_t /* block_compressed_bytes_slow */) override {
     // Nothing to do.
     return;
   }
