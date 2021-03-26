@@ -632,6 +632,7 @@ class PosixFileSystem : public FileSystem {
       if (!ignore) {
         result->push_back(entry->d_name);
       }
+      errno = 0; // reset errno if readdir() success
     }
 
     // always attempt to close the dir
