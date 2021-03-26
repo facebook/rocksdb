@@ -1862,7 +1862,8 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWithoutFlush) {
   close(fd);
   ASSERT_OK(options.env->DeleteFile(fname_test_fallocate));
   if (err_number == ENOSYS || err_number == EOPNOTSUPP) {
-    fprintf(stderr, "Skipped preallocated space check: %s\n", strerror(err_number));
+    fprintf(stderr, "Skipped preallocated space check: %s\n",
+            errnoStr(err_number).c_str());
     return;
   }
   ASSERT_EQ(0, alloc_status);

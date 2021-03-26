@@ -23,7 +23,10 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <unistd.h>
+
 #include <cstdlib>
+
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -45,7 +48,7 @@ namespace port {
 
 static int PthreadCall(const char* label, int result) {
   if (result != 0 && result != ETIMEDOUT) {
-    fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
+    fprintf(stderr, "pthread %s: %s\n", label, errnoStr(result).c_str());
     abort();
   }
   return result;

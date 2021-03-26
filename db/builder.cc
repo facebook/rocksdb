@@ -52,8 +52,8 @@ TableBuilder* NewTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
-    uint64_t sample_for_compression, const CompressionOptions& compression_opts,
-    int level, const bool skip_filters, const uint64_t creation_time,
+    const CompressionOptions& compression_opts, int level,
+    const bool skip_filters, const uint64_t creation_time,
     const uint64_t oldest_key_time, const uint64_t target_file_size,
     const uint64_t file_creation_time, const std::string& db_id,
     const std::string& db_session_id) {
@@ -63,10 +63,10 @@ TableBuilder* NewTableBuilder(
   return ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
-                          sample_for_compression, compression_opts,
-                          skip_filters, column_family_name, level,
-                          creation_time, oldest_key_time, target_file_size,
-                          file_creation_time, db_id, db_session_id),
+                          compression_opts, skip_filters, column_family_name,
+                          level, creation_time, oldest_key_time,
+                          target_file_size, file_creation_time, db_id,
+                          db_session_id),
       column_family_id, file);
 }
 
@@ -85,11 +85,10 @@ Status BuildTable(
     std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     SnapshotChecker* snapshot_checker, const CompressionType compression,
-    uint64_t sample_for_compression, const CompressionOptions& compression_opts,
-    bool paranoid_file_checks, InternalStats* internal_stats,
-    TableFileCreationReason reason, IOStatus* io_status,
-    const std::shared_ptr<IOTracer>& io_tracer, EventLogger* event_logger,
-    int job_id, const Env::IOPriority io_priority,
+    const CompressionOptions& compression_opts, bool paranoid_file_checks,
+    InternalStats* internal_stats, TableFileCreationReason reason,
+    IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
+    EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, int level, const uint64_t creation_time,
     const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
     const uint64_t file_creation_time, const std::string& db_id,
@@ -163,9 +162,8 @@ Status BuildTable(
       builder = NewTableBuilder(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
-          column_family_name, file_writer.get(), compression,
-          sample_for_compression, compression_opts, level,
-          false /* skip_filters */, creation_time, oldest_key_time,
+          column_family_name, file_writer.get(), compression, compression_opts,
+          level, false /* skip_filters */, creation_time, oldest_key_time,
           0 /*target_file_size*/, file_creation_time, db_id, db_session_id);
     }
 

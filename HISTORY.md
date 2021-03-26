@@ -1,4 +1,11 @@
 # Rocksdb Change Log
+## Unreleased
+### Behavior Changes
+* `ColumnFamilyOptions::sample_for_compression` now takes effect for creation of all block-based tables. Previously it only took effect for block-based tables created by flush.
+
+### Bug Fixes
+* Use thread-safe `strerror_r()` to get error messages.
+
 ## 6.19.0 (03/21/2021)
 ### Bug Fixes
 * Fixed the truncation error found in APIs/tools when dumping block-based SST files in a human-readable format. After fix, the block-based table can be fully dumped as a readable file.

@@ -2781,7 +2781,7 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
           TableBuilderOptions(
               immutable_cf_options_, mutable_cf_options_, *internal_comparator_,
               &int_tbl_prop_collector_factories, kNoCompression,
-              /*_sample_for_compression=*/0, CompressionOptions(),
+              CompressionOptions(),
               /*_skip_filters=*/false, info.column_family, info.level),
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
           fwriter.get()));
