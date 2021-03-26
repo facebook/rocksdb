@@ -836,6 +836,8 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
   auto& levels = cf_meta.levels;
   auto comparator = icmp_->user_comparator();
 
+  auto unchecked_input_files = *input_files;
+
   // TODO(yhchiang): add is_adjustable to CompactionOptions
 
   // the smallest and largest key of the current compaction input
@@ -861,8 +863,9 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
     // identify the first and the last compaction input files
     // in the current level.
     for (size_t f = 0; f < current_files.size(); ++f) {
-      if (input_files->find(TableFileNameToNumber(current_files[f].name)) !=
-          input_files->end()) {
+      uint64_t file_num = TableFileNameToNumber(current_files[f].name);
+      if (input_files->find(file_num) != input_files->end()) {
+        unchecked_input_files.erase(file_num);
         first_included = std::min(first_included, static_cast<int>(f));
         last_included = std::max(last_included, static_cast<int>(f));
         if (is_first == false) {
@@ -956,6 +959,11 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
         }
       }
     }
+  }
+  if (!unchecked_input_files.empty()) {
+    return Status::Aborted(
+        "Compaction output level can not be smaller than any input file's "
+        "level");
   }
   if (RangeOverlapWithCompaction(smallestkey, largestkey, output_level)) {
     return Status::Aborted(
