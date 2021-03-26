@@ -260,18 +260,16 @@ Status DBImpl::FlushMemTableToOutputFile(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
-        if (total_log_size_ > 0) {
-          // If the WAL is empty, we use different error reason
-          error_handler_.SetBGError(io_s,
-                                    BackgroundErrorReason::kManifestWrite);
-        } else {
-          error_handler_.SetBGError(io_s,
-                                    BackgroundErrorReason::kManifestWriteNoWAL);
-        }
-      } else if (total_log_size_ > 0 || !log_io_s.ok()) {
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+        // If WAL sync is successful (either WAL size is 0 or there is no IO
+        // error), all the Manifest write will be map to soft error.
+        // TODO: kManifestWriteNoWAL and kFlushNoWAL are misleading. Refactor is
+        // needed.
+        error_handler_.SetBGError(io_s,
+                                  BackgroundErrorReason::kManifestWriteNoWAL);
       } else {
-        // If the WAL is empty, we use different error reason
+        // If WAL sync is successful (either WAL size is 0 or there is no IO
+        // error), all the other SST file write errors will be set as
+        // kFlushNoWAL.
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
@@ -687,18 +685,16 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
-        if (total_log_size_ > 0) {
-          // If the WAL is empty, we use different error reason
-          error_handler_.SetBGError(io_s,
-                                    BackgroundErrorReason::kManifestWrite);
-        } else {
-          error_handler_.SetBGError(io_s,
-                                    BackgroundErrorReason::kManifestWriteNoWAL);
-        }
-      } else if (total_log_size_ > 0) {
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+        // If WAL sync is successful (either WAL size is 0 or there is no IO
+        // error), all the Manifest write will be map to soft error.
+        // TODO: kManifestWriteNoWAL and kFlushNoWAL are misleading. Refactor
+        // is needed.
+        error_handler_.SetBGError(io_s,
+                                  BackgroundErrorReason::kManifestWriteNoWAL);
       } else {
-        // If the WAL is empty, we use different error reason
+        // If WAL sync is successful (either WAL size is 0 or there is no IO
+        // error), all the other SST file write errors will be set as
+        // kFlushNoWAL.
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
