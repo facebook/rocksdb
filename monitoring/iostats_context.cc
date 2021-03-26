@@ -11,14 +11,19 @@ namespace ROCKSDB_NAMESPACE {
 
 #ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
 __thread IOStatsContext iostats_context;
-#endif
+#else
+#ifndef NIOSTATS_CONTEXT
+#error \
+    "ROCKSDB_SUPPORT_THREAD_LOCAL undefined. Opt out iostats context with -DNIOSTATS_CONTEXT"
+#else
+// Should not be used because the counters are not thread-safe.
+// Put here just to make get_iostats_context() simple without ifdef.
+static IOStatsContext iostats_context;
+#endif  // NIOSTATS_CONTEXT
+#endif  // !ROCKSDB_SUPPORT_THREAD_LOCAL
 
 IOStatsContext* get_iostats_context() {
-#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
   return &iostats_context;
-#else
-  return nullptr;
-#endif
 }
 
 void IOStatsContext::Reset() {
