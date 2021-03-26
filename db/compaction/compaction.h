@@ -341,7 +341,7 @@ class Compaction {
   const uint32_t output_path_id_;
   CompressionType output_compression_;
   CompressionOptions output_compression_opts_;
-  // If true, then the comaction can be done by simply deleting input files.
+  // If true, then the compaction can be done by simply deleting input files.
   const bool deletion_compaction_;
 
   // Compaction input files organized by level. Constant after construction
