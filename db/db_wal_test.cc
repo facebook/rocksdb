@@ -1963,8 +1963,6 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWALEmpty) {
   }
 
   DestroyAndReopen(options);
-  size_t preallocated_size =
-      dbfull()->TEST_GetWalPreallocateBlockSize(options.write_buffer_size);
   Close();
   std::vector<std::string> filenames;
   std::string last_log;
@@ -1992,20 +1990,26 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWALEmpty) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
   // Preallocate space for the empty log file. This could happen if WAL data
   // was buffered in memory and the process crashed.
+  // kPreallocSize is thte minimum we expect to be preallocated when we call
+  // PrepareWrite. The actual preallocation in most cases is based on
+  // write_buffer_size, butt Encrypted Env in some cases seems to be
+  // preallocating way less, so we check for kPreallocSize. We don't care
+  // about exactly how much is preallocated.
+  const size_t kPreallocSize = 4096;
   std::unique_ptr<WritableFile> log_file;
   ASSERT_OK(env_->ReopenWritableFile(last_log, &log_file, EnvOptions()));
-  log_file->SetPreallocationBlockSize(preallocated_size);
+  log_file->SetPreallocationBlockSize(kPreallocSize);
   log_file->PrepareWrite(0, 4096);
   log_file.reset();
 
-  ASSERT_GE(GetAllocatedFileSize(last_log), preallocated_size);
+  ASSERT_GE(GetAllocatedFileSize(last_log), kPreallocSize);
 
   port::Thread reopen_thread([&]() { Reopen(options); });
 
   TEST_SYNC_POINT(
       "DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterRecover");
   // The preallocated space should be truncated.
-  EXPECT_LT(GetAllocatedFileSize(last_log), preallocated_size);
+  EXPECT_LT(GetAllocatedFileSize(last_log), kPreallocSize);
   TEST_SYNC_POINT(
       "DBWALTest::TruncateLastLogAfterRecoverWithFlush:AfterTruncate");
   reopen_thread.join();
