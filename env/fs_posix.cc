@@ -622,7 +622,7 @@ class PosixFileSystem : public FileSystem {
 
     const auto pre_read_errno = errno;  // errno may be modified by readdir
     struct dirent* entry;
-    while ((entry = readdir(d)) != nullptr && errno == pre_read_errno) {
+    while ((entry = readdir(d)) != nullptr) {
       // filter out '.' and '..' directory entries
       // which appear only on some platforms
       const bool ignore =
