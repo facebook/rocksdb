@@ -24,6 +24,7 @@ class DBWALTestBase : public DBTestBase {
 
 #if defined(ROCKSDB_PLATFORM_POSIX)
  public:
+#if defined(ROCKSDB_FALLOCATE_PRESENT)
   bool IsFallocateSupported() {
     // Test fallocate support of running file system.
     // Skip this test if fallocate is not supported.
@@ -45,6 +46,7 @@ class DBWALTestBase : public DBTestBase {
     assert(alloc_status == 0);
     return true;
   }
+#endif // ROCKSDB_FALLOCATE_PRESENT
 
   uint64_t GetAllocatedFileSize(std::string file_name) {
     struct stat sbuf;
@@ -52,7 +54,7 @@ class DBWALTestBase : public DBTestBase {
     assert(err == 0);
     return sbuf.st_blocks * 512;
   }
-#endif
+#endif // ROCKSDB_PLATFORM_POSIX
 };
 
 class DBWALTest : public DBWALTestBase {
@@ -1994,7 +1996,6 @@ TEST_F(DBWALTest, TruncateLastLogAfterRecoverWALEmpty) {
   ASSERT_OK(env_->ReopenWritableFile(last_log, &log_file, EnvOptions()));
   log_file->SetPreallocationBlockSize(preallocated_size);
   log_file->PrepareWrite(0, 4096);
-  log_file->Close();
   log_file.reset();
 
   ASSERT_GE(GetAllocatedFileSize(last_log), preallocated_size);
