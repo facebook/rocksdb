@@ -27,6 +27,7 @@ IOStatsContext* get_iostats_context() {
 }
 
 void IOStatsContext::Reset() {
+#ifndef NIOSTATS_CONTEXT
   thread_pool_id = Env::Priority::TOTAL;
   bytes_read = 0;
   bytes_written = 0;
@@ -40,6 +41,7 @@ void IOStatsContext::Reset() {
   logger_nanos = 0;
   cpu_write_nanos = 0;
   cpu_read_nanos = 0;
+#endif  //! NIOSTATS_CONTEXT
 }
 
 #define IOSTATS_CONTEXT_OUTPUT(counter)         \
@@ -48,6 +50,10 @@ void IOStatsContext::Reset() {
   }
 
 std::string IOStatsContext::ToString(bool exclude_zero_counters) const {
+#ifdef NIOSTATS_CONTEXT
+  (void)exclude_zero_counters;
+  return "";
+#else
   std::ostringstream ss;
   IOSTATS_CONTEXT_OUTPUT(thread_pool_id);
   IOSTATS_CONTEXT_OUTPUT(bytes_read);
@@ -66,6 +72,7 @@ std::string IOStatsContext::ToString(bool exclude_zero_counters) const {
   std::string str = ss.str();
   str.erase(str.find_last_not_of(", ") + 1);
   return str;
+#endif  //! NIOSTATS_CONTEXT
 }
 
 }  // namespace ROCKSDB_NAMESPACE
