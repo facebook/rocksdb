@@ -46,7 +46,7 @@ class DBWALTestBase : public DBTestBase {
     assert(alloc_status == 0);
     return true;
   }
-#endif // ROCKSDB_FALLOCATE_PRESENT
+#endif  // ROCKSDB_FALLOCATE_PRESENT
 
   uint64_t GetAllocatedFileSize(std::string file_name) {
     struct stat sbuf;
@@ -54,7 +54,7 @@ class DBWALTestBase : public DBTestBase {
     assert(err == 0);
     return sbuf.st_blocks * 512;
   }
-#endif // ROCKSDB_PLATFORM_POSIX
+#endif  // ROCKSDB_PLATFORM_POSIX
 };
 
 class DBWALTest : public DBWALTestBase {
