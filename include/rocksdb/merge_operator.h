@@ -176,7 +176,7 @@ class MergeOperator {
   // PartialMergeMulti should combine them into a single merge operation that is
   // saved into *new_value, and then it should return true.  *new_value should
   // be constructed such that a call to DB::Merge(key, *new_value) would yield
-  // the same result as subquential individual calls to DB::Merge(key, operand)
+  // the same result as sequential individual calls to DB::Merge(key, operand)
   // for each operand in operand_list from front() to back().
   //
   // The string that new_value is pointing to will be empty.
