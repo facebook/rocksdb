@@ -620,7 +620,8 @@ class PosixFileSystem : public FileSystem {
       }
     }
 
-    const auto pre_read_errno = errno;  // errno may be modified by readdir
+    // reset errno before calling readdir()
+    errno = 0;
     struct dirent* entry;
     while ((entry = readdir(d)) != nullptr) {
       // filter out '.' and '..' directory entries
@@ -637,13 +638,13 @@ class PosixFileSystem : public FileSystem {
     const auto pre_close_errno = errno;  // errno may be modified by closedir
     const int close_result = closedir(d);
 
-    if (pre_close_errno != pre_read_errno) {
-      // error occured during readdir
+    if (pre_close_errno != 0) {
+      // error occurred during readdir
       return IOError("While readdir", dir, pre_close_errno);
     }
 
     if (close_result != 0) {
-      // error occured during closedir
+      // error occurred during closedir
       return IOError("While closedir", dir, errno);
     }
 
