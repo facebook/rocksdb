@@ -186,7 +186,7 @@ TEST_F(DBFlushTest, CloseDBWhenFlushInLowPri) {
 
   int num_low_flush_unscheduled = 0;
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::UnscheduleLowFlushCallback", [&](void* arg) {
+      "DBImpl::UnscheduleLowFlushCallback", [&](void* /*arg*/) {
         num_low_flush_unscheduled++;
         // There should be one flush job in low pool that needs to be
         // unscheduled
@@ -195,7 +195,7 @@ TEST_F(DBFlushTest, CloseDBWhenFlushInLowPri) {
 
   int num_high_flush_unscheduled = 0;
   SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::UnscheduleHighFlushCallback", [&](void* arg) {
+      "DBImpl::UnscheduleHighFlushCallback", [&](void* /*arg*/) {
         num_high_flush_unscheduled++;
         // There should be no flush job in high pool
         ASSERT_EQ(num_high_flush_unscheduled, 0);
