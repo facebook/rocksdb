@@ -179,7 +179,8 @@ TEST_F(CompactFilesTest, MultipleLevel) {
   for (int invalid_output_level = 0; invalid_output_level < 5;
        invalid_output_level++) {
     s = db->CompactFiles(CompactionOptions(), files, invalid_output_level);
-    ASSERT_TRUE(s.IsAborted());
+    std::cout << s.ToString() << std::endl;
+    ASSERT_TRUE(s.IsInvalidArgument());
   }
 
   ASSERT_OK(db->CompactFiles(CompactionOptions(), files, 5));
