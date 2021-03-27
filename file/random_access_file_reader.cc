@@ -22,6 +22,17 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
+Status RandomAccessFileReader::Create(
+    const std::shared_ptr<FileSystem>& fs, const std::string& fname,
+    const FileOptions& file_opts,
+    std::unique_ptr<RandomAccessFileReader>* reader, IODebugContext* dbg) {
+  std::unique_ptr<FSRandomAccessFile> file;
+  Status s = fs->NewRandomAccessFile(fname, file_opts, &file, dbg);
+  if (s.ok()) {
+    reader->reset(new RandomAccessFileReader(std::move(file), fname));
+  }
+  return s;
+}
 
 Status RandomAccessFileReader::Read(const IOOptions& opts, uint64_t offset,
                                     size_t n, Slice* result, char* scratch,
@@ -315,10 +326,10 @@ Status RandomAccessFileReader::MultiRead(const IOOptions& opts,
 
 IOStatus RandomAccessFileReader::PrepareIOOptions(const ReadOptions& ro,
                                                   IOOptions& opts) {
-  if (clock_.get() != nullptr) {
+  if (clock_ != nullptr) {
     return PrepareIOFromReadOptions(ro, clock_, opts);
   } else {
-    return PrepareIOFromReadOptions(ro, SystemClock::Default(), opts);
+    return PrepareIOFromReadOptions(ro, SystemClock::Default().get(), opts);
   }
 }
 }  // namespace ROCKSDB_NAMESPACE

@@ -21,9 +21,8 @@ namespace ROCKSDB_NAMESPACE {
 class RepeatableThread {
  public:
   RepeatableThread(std::function<void()> function,
-                   const std::string& thread_name,
-                   const std::shared_ptr<SystemClock>& clock, uint64_t delay_us,
-                   uint64_t initial_delay_us = 0)
+                   const std::string& thread_name, SystemClock* clock,
+                   uint64_t delay_us, uint64_t initial_delay_us = 0)
       : function_(function),
         thread_name_("rocksdb:" + thread_name),
         clock_(clock),
@@ -129,8 +128,7 @@ class RepeatableThread {
 
   const std::function<void()> function_;
   const std::string thread_name_;
-  const std::shared_ptr<SystemClock> clock_;
-  ;
+  SystemClock* clock_;
   const uint64_t delay_us_;
   const uint64_t initial_delay_us_;
 

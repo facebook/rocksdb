@@ -447,9 +447,10 @@ class DBImpl : public DB {
   Status VerifyChecksumInternal(const ReadOptions& read_options,
                                 bool use_file_checksum);
 
-  Status VerifySstFileChecksum(const FileMetaData& fmeta,
-                               const std::string& fpath,
-                               const ReadOptions& read_options);
+  Status VerifyFullFileChecksum(const std::string& file_checksum_expected,
+                                const std::string& func_name_expected,
+                                const std::string& fpath,
+                                const ReadOptions& read_options);
 
   using DB::StartTrace;
   virtual Status StartTrace(
@@ -485,6 +486,7 @@ class DBImpl : public DB {
 #endif  // ROCKSDB_LITE
 
   // ---- End of implementations of the DB interface ----
+  SystemClock* GetSystemClock() const;
 
   struct GetImplOptions {
     ColumnFamilyHandle* column_family = nullptr;
@@ -592,8 +594,11 @@ class DBImpl : public DB {
                                  bool* found_record_for_key,
                                  bool* is_blob_index = nullptr);
 
-  Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key);
-  Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key);
+  Status TraceIteratorSeek(const uint32_t& cf_id, const Slice& key,
+                           const Slice& lower_bound, const Slice upper_bound);
+  Status TraceIteratorSeekForPrev(const uint32_t& cf_id, const Slice& key,
+                                  const Slice& lower_bound,
+                                  const Slice upper_bound);
 #endif  // ROCKSDB_LITE
 
   // Similar to GetSnapshot(), but also lets the db know that this snapshot
@@ -951,6 +956,9 @@ class DBImpl : public DB {
   // is only for the special test of CancelledCompactions
   Status TEST_WaitForCompact(bool waitUnscheduled = false);
 
+  // Get the background error status
+  Status TEST_GetBGError();
+
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
   int64_t TEST_MaxNextLevelOverlappingBytes(
@@ -1050,7 +1058,6 @@ class DBImpl : public DB {
   bool own_info_log_;
   const DBOptions initial_db_options_;
   Env* const env_;
-  std::shared_ptr<SystemClock> clock_;
   std::shared_ptr<IOTracer> io_tracer_;
   const ImmutableDBOptions immutable_db_options_;
   FileSystemPtr fs_;
@@ -1868,6 +1875,8 @@ class DBImpl : public DB {
 
   Status DisableFileDeletionsWithLock();
 
+  Status IncreaseFullHistoryTsLow(ColumnFamilyData* cfd, std::string ts_low);
+
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
 
@@ -2210,6 +2219,8 @@ class DBImpl : public DB {
   InstrumentedCondVar atomic_flush_install_cv_;
 
   bool wal_in_db_path_;
+
+  BlobFileCompletionCallback blob_callback_;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src);

@@ -22,7 +22,6 @@
 #include "db/dbformat.h"
 #include "db/log_reader.h"
 #include "db/write_batch_internal.h"
-#include "env/composite_env_wrapper.h"
 #include "file/filename.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/file_checksum.h"
@@ -50,6 +49,7 @@ class FileChecksumGenCrc32c;
 class FileChecksumGenCrc32cFactory;
 
 const std::string LDBCommand::ARG_ENV_URI = "env_uri";
+const std::string LDBCommand::ARG_FS_URI = "fs_uri";
 const std::string LDBCommand::ARG_DB = "db";
 const std::string LDBCommand::ARG_PATH = "path";
 const std::string LDBCommand::ARG_SECONDARY_PATH = "secondary_path";
@@ -287,6 +287,16 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   return nullptr;
 }
 
+static Env* GetCompositeEnv(std::shared_ptr<FileSystem> fs) {
+  static std::shared_ptr<Env> composite_env = NewCompositeEnv(fs);
+  return composite_env.get();
+}
+
+static Env* GetCompositeBackupEnv(std::shared_ptr<FileSystem> fs) {
+  static std::shared_ptr<Env> composite_backup_env = NewCompositeEnv(fs);
+  return composite_backup_env.get();
+}
+
 /* Run the command, and return the execute result. */
 void LDBCommand::Run() {
   if (!exec_state_.IsNotStarted()) {
@@ -295,12 +305,33 @@ void LDBCommand::Run() {
 
   if (!options_.env || options_.env == Env::Default()) {
     Env* env = Env::Default();
-    Status s = Env::LoadEnv(env_uri_, &env, &env_guard_);
-    if (!s.ok() && !s.IsNotFound()) {
-      fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
-      exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
+
+    if (!env_uri_.empty() && !fs_uri_.empty()) {
+      std::string err =
+          "Error: you may not specity both "
+          "fs_uri and fs_env.";
+      fprintf(stderr, "%s\n", err.c_str());
+      exec_state_ = LDBCommandExecuteResult::Failed(err);
       return;
     }
+    if (!env_uri_.empty()) {
+      Status s = Env::LoadEnv(env_uri_, &env, &env_guard_);
+      if (!s.ok() && !s.IsNotFound()) {
+        fprintf(stderr, "LoadEnv: %s\n", s.ToString().c_str());
+        exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
+        return;
+      }
+    } else if (!fs_uri_.empty()) {
+      std::shared_ptr<FileSystem> fs;
+      Status s = FileSystem::Load(fs_uri_, &fs);
+      if (fs == nullptr) {
+        fprintf(stderr, "error: %s\n", s.ToString().c_str());
+        exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
+        return;
+      }
+      env = GetCompositeEnv(fs);
+    }
+
     options_.env = env;
   }
 
@@ -350,6 +381,11 @@ LDBCommand::LDBCommand(const std::map<std::string, std::string>& options,
   itr = options.find(ARG_ENV_URI);
   if (itr != options.end()) {
     env_uri_ = itr->second;
+  }
+
+  itr = options.find(ARG_FS_URI);
+  if (itr != options.end()) {
+    fs_uri_ = itr->second;
   }
 
   itr = options.find(ARG_CF_NAME);
@@ -484,6 +520,7 @@ ColumnFamilyHandle* LDBCommand::GetCfHandle() {
 std::vector<std::string> LDBCommand::BuildCmdLineOptions(
     std::vector<std::string> options) {
   std::vector<std::string> ret = {ARG_ENV_URI,
+                                  ARG_FS_URI,
                                   ARG_DB,
                                   ARG_SECONDARY_PATH,
                                   ARG_BLOOM_BITS,
@@ -944,8 +981,14 @@ void CompactorCommand::DoCommand() {
   CompactRangeOptions cro;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForceOptimized;
 
-  db_->CompactRange(cro, GetCfHandle(), begin, end);
-  exec_state_ = LDBCommandExecuteResult::Succeed("");
+  Status s = db_->CompactRange(cro, GetCfHandle(), begin, end);
+  if (!s.ok()) {
+    std::stringstream oss;
+    oss << "Compaction failed: " << s.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Succeed("");
+  }
 
   delete begin;
   delete end;
@@ -1008,11 +1051,12 @@ void DBLoaderCommand::DoCommand() {
   // prefer ifstream getline performance vs that from std::cin istream
   std::ifstream ifs_stdin("/dev/stdin");
   std::istream* istream_p = ifs_stdin.is_open() ? &ifs_stdin : &std::cin;
-  while (getline(*istream_p, line, '\n')) {
+  Status s;
+  while (s.ok() && getline(*istream_p, line, '\n')) {
     std::string key;
     std::string value;
     if (ParseKeyValue(line, &key, &value, is_key_hex_, is_value_hex_)) {
-      db_->Put(write_options, GetCfHandle(), Slice(key), Slice(value));
+      s = db_->Put(write_options, GetCfHandle(), Slice(key), Slice(value));
     } else if (0 == line.find("Keys in range:")) {
       // ignore this line
     } else if (0 == line.find("Created bg thread 0x")) {
@@ -1025,8 +1069,19 @@ void DBLoaderCommand::DoCommand() {
   if (bad_lines > 0) {
     std::cout << "Warning: " << bad_lines << " bad lines ignored." << std::endl;
   }
-  if (compact_) {
-    db_->CompactRange(CompactRangeOptions(), GetCfHandle(), nullptr, nullptr);
+  if (!s.ok()) {
+    std::stringstream oss;
+    oss << "Load failed: " << s.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
+  }
+  if (compact_ && s.ok()) {
+    s = db_->CompactRange(CompactRangeOptions(), GetCfHandle(), nullptr,
+                          nullptr);
+  }
+  if (!s.ok()) {
+    std::stringstream oss;
+    oss << "Compaction failed: " << s.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
   }
 }
 
@@ -2145,7 +2200,14 @@ void ChangeCompactionStyleCommand::DoCommand() {
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
   compact_options.target_level = 0;
-  db_->CompactRange(compact_options, GetCfHandle(), nullptr, nullptr);
+  Status s =
+      db_->CompactRange(compact_options, GetCfHandle(), nullptr, nullptr);
+  if (!s.ok()) {
+    std::stringstream oss;
+    oss << "Compaction failed: " << s.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
+    return;
+  }
 
   // verify compaction result
   files_per_level = "";
@@ -2290,19 +2352,11 @@ class InMemoryHandler : public WriteBatch::Handler {
 void DumpWalFile(Options options, std::string wal_file, bool print_header,
                  bool print_values, bool is_write_committed,
                  LDBCommandExecuteResult* exec_state) {
-  Env* env = options.env;
-  EnvOptions soptions(options);
+  const auto& fs = options.env->GetFileSystem();
+  FileOptions soptions(options);
   std::unique_ptr<SequentialFileReader> wal_file_reader;
-
-  Status status;
-  {
-    std::unique_ptr<SequentialFile> file;
-    status = env->NewSequentialFile(wal_file, &file, soptions);
-    if (status.ok()) {
-      wal_file_reader.reset(new SequentialFileReader(
-          NewLegacySequentialFileWrapper(file), wal_file));
-    }
-  }
+  Status status = SequentialFileReader::Create(fs, wal_file, soptions,
+                                               &wal_file_reader, nullptr);
   if (!status.ok()) {
     if (exec_state) {
       *exec_state = LDBCommandExecuteResult::Failed("Failed to open WAL file " +
@@ -2338,19 +2392,38 @@ void DumpWalFile(Options options, std::string wal_file, bool print_header,
       }
       std::cout << "\n";
     }
-    while (reader.ReadRecord(&record, &scratch)) {
+    while (status.ok() && reader.ReadRecord(&record, &scratch)) {
       row.str("");
       if (record.size() < WriteBatchInternal::kHeader) {
         reporter.Corruption(record.size(),
                             Status::Corruption("log record too small"));
       } else {
-        WriteBatchInternal::SetContents(&batch, record);
+        status = WriteBatchInternal::SetContents(&batch, record);
+        if (!status.ok()) {
+          std::stringstream oss;
+          oss << "Parsing write batch failed: " << status.ToString();
+          if (exec_state) {
+            *exec_state = LDBCommandExecuteResult::Failed(oss.str());
+          } else {
+            std::cerr << oss.str() << std::endl;
+          }
+          break;
+        }
         row << WriteBatchInternal::Sequence(&batch) << ",";
         row << WriteBatchInternal::Count(&batch) << ",";
         row << WriteBatchInternal::ByteSize(&batch) << ",";
         row << reader.LastRecordOffset() << ",";
         InMemoryHandler handler(row, print_values, is_write_committed);
-        batch.Iterate(&handler);
+        status = batch.Iterate(&handler);
+        if (!status.ok()) {
+          if (exec_state) {
+            std::stringstream oss;
+            oss << "Print write batch error: " << status.ToString();
+            *exec_state = LDBCommandExecuteResult::Failed(oss.str());
+          }
+          row << "error: " << status.ToString();
+          break;
+        }
         row << "\n";
       }
       std::cout << row.str();
@@ -2448,7 +2521,9 @@ void GetCommand::DoCommand() {
     fprintf(stdout, "%s\n",
               (is_value_hex_ ? StringToHex(value) : value).c_str());
   } else {
-    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+    std::stringstream oss;
+    oss << "Get failed: " << st.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
   }
 }
 
@@ -2500,7 +2575,9 @@ void ApproxSizeCommand::DoCommand() {
   uint64_t sizes[1];
   Status s = db_->GetApproximateSizes(GetCfHandle(), ranges, 1, sizes);
   if (!s.ok()) {
-    exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
+    std::stringstream oss;
+    oss << "ApproximateSize failed: " << s.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
   } else {
     fprintf(stdout, "%lu\n", (unsigned long)sizes[0]);
   }
@@ -2549,16 +2626,28 @@ void BatchPutCommand::DoCommand() {
   }
   WriteBatch batch;
 
+  Status st;
+  std::stringstream oss;
   for (std::vector<std::pair<std::string, std::string>>::const_iterator itr =
            key_values_.begin();
        itr != key_values_.end(); ++itr) {
-    batch.Put(GetCfHandle(), itr->first, itr->second);
+    st = batch.Put(GetCfHandle(), itr->first, itr->second);
+    if (!st.ok()) {
+      oss << "Put to write batch failed: " << itr->first << "=>" << itr->second
+          << " error: " << st.ToString();
+      break;
+    }
   }
-  Status st = db_->Write(WriteOptions(), &batch);
+  if (st.ok()) {
+    st = db_->Write(WriteOptions(), &batch);
+    if (!st.ok()) {
+      oss << "Write failed: " << st.ToString();
+    }
+  }
   if (st.ok()) {
     fprintf(stdout, "OK\n");
   } else {
-    exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
   }
 }
 
@@ -2886,7 +2975,9 @@ void DBQuerierCommand::DoCommand() {
   std::string line;
   std::string key;
   std::string value;
-  while (getline(std::cin, line, '\n')) {
+  Status s;
+  std::stringstream oss;
+  while (s.ok() && getline(std::cin, line, '\n')) {
     // Parse line into std::vector<std::string>
     std::vector<std::string> tokens;
     size_t pos = 0;
@@ -2909,25 +3000,41 @@ void DBQuerierCommand::DoCommand() {
               "delete <key>\n");
     } else if (cmd == DELETE_CMD && tokens.size() == 2) {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
-      db_->Delete(write_options, GetCfHandle(), Slice(key));
-      fprintf(stdout, "Successfully deleted %s\n", tokens[1].c_str());
+      s = db_->Delete(write_options, GetCfHandle(), Slice(key));
+      if (s.ok()) {
+        fprintf(stdout, "Successfully deleted %s\n", tokens[1].c_str());
+      } else {
+        oss << "delete " << key << " failed: " << s.ToString();
+      }
     } else if (cmd == PUT_CMD && tokens.size() == 3) {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
       value = (is_value_hex_ ? HexToString(tokens[2]) : tokens[2]);
-      db_->Put(write_options, GetCfHandle(), Slice(key), Slice(value));
-      fprintf(stdout, "Successfully put %s %s\n",
-              tokens[1].c_str(), tokens[2].c_str());
+      s = db_->Put(write_options, GetCfHandle(), Slice(key), Slice(value));
+      if (s.ok()) {
+        fprintf(stdout, "Successfully put %s %s\n", tokens[1].c_str(),
+                tokens[2].c_str());
+      } else {
+        oss << "put " << key << "=>" << value << " failed: " << s.ToString();
+      }
     } else if (cmd == GET_CMD && tokens.size() == 2) {
       key = (is_key_hex_ ? HexToString(tokens[1]) : tokens[1]);
-      if (db_->Get(read_options, GetCfHandle(), Slice(key), &value).ok()) {
+      s = db_->Get(read_options, GetCfHandle(), Slice(key), &value);
+      if (s.ok()) {
         fprintf(stdout, "%s\n", PrintKeyValue(key, value,
               is_key_hex_, is_value_hex_).c_str());
       } else {
-        fprintf(stdout, "Not found %s\n", tokens[1].c_str());
+        if (s.IsNotFound()) {
+          fprintf(stdout, "Not found %s\n", tokens[1].c_str());
+        } else {
+          oss << "get " << key << " error: " << s.ToString();
+        }
       }
     } else {
       fprintf(stdout, "Unknown command %s\n", line.c_str());
     }
+  }
+  if (!s.ok()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(oss.str());
   }
 }
 
@@ -3025,6 +3132,7 @@ void RepairCommand::DoCommand() {
 
 const std::string BackupableCommand::ARG_NUM_THREADS = "num_threads";
 const std::string BackupableCommand::ARG_BACKUP_ENV_URI = "backup_env_uri";
+const std::string BackupableCommand::ARG_BACKUP_FS_URI = "backup_fs_uri";
 const std::string BackupableCommand::ARG_BACKUP_DIR = "backup_dir";
 const std::string BackupableCommand::ARG_STDERR_LOG_LEVEL = "stderr_log_level";
 
@@ -3033,8 +3141,9 @@ BackupableCommand::BackupableCommand(
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, false /* is_read_only */,
-                 BuildCmdLineOptions({ARG_BACKUP_ENV_URI, ARG_BACKUP_DIR,
-                                      ARG_NUM_THREADS, ARG_STDERR_LOG_LEVEL})),
+                 BuildCmdLineOptions({ARG_BACKUP_ENV_URI, ARG_BACKUP_FS_URI,
+                                      ARG_BACKUP_DIR, ARG_NUM_THREADS,
+                                      ARG_STDERR_LOG_LEVEL})),
       num_threads_(1) {
   auto itr = options.find(ARG_NUM_THREADS);
   if (itr != options.end()) {
@@ -3043,6 +3152,15 @@ BackupableCommand::BackupableCommand(
   itr = options.find(ARG_BACKUP_ENV_URI);
   if (itr != options.end()) {
     backup_env_uri_ = itr->second;
+  }
+  itr = options.find(ARG_BACKUP_FS_URI);
+  if (itr != options.end()) {
+    backup_fs_uri_ = itr->second;
+  }
+  if (!backup_env_uri_.empty() && !backup_fs_uri_.empty()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "you may not specity both --" + ARG_BACKUP_ENV_URI + " and --" +
+        ARG_BACKUP_FS_URI);
   }
   itr = options.find(ARG_BACKUP_DIR);
   if (itr == options.end()) {
@@ -3070,7 +3188,7 @@ BackupableCommand::BackupableCommand(
 void BackupableCommand::Help(const std::string& name, std::string& ret) {
   ret.append("  ");
   ret.append(name);
-  ret.append(" [--" + ARG_BACKUP_ENV_URI + "] ");
+  ret.append(" [--" + ARG_BACKUP_ENV_URI + " | --" + ARG_BACKUP_FS_URI + "] ");
   ret.append(" [--" + ARG_BACKUP_DIR + "] ");
   ret.append(" [--" + ARG_NUM_THREADS + "] ");
   ret.append(" [--" + ARG_STDERR_LOG_LEVEL + "=<int (InfoLogLevel)>] ");
@@ -3096,15 +3214,26 @@ void BackupCommand::DoCommand() {
     return;
   }
   fprintf(stdout, "open db OK\n");
+
   Env* custom_env = nullptr;
-  Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
-  assert(custom_env != nullptr);
+  if (!backup_fs_uri_.empty()) {
+    std::shared_ptr<FileSystem> fs;
+    Status s = FileSystem::Load(backup_fs_uri_, &fs);
+    if (fs == nullptr) {
+      exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
+      return;
+    }
+    custom_env = GetCompositeBackupEnv(fs);
+  } else {
+    Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
+    assert(custom_env != nullptr);
+  }
 
   BackupableDBOptions backup_options =
       BackupableDBOptions(backup_dir_, custom_env);
   backup_options.info_log = logger_.get();
   backup_options.max_background_operations = num_threads_;
-  status = BackupEngine::Open(custom_env, backup_options, &backup_engine);
+  status = BackupEngine::Open(options_.env, backup_options, &backup_engine);
   if (status.ok()) {
     fprintf(stdout, "open backup engine OK\n");
   } else {
@@ -3134,8 +3263,18 @@ void RestoreCommand::Help(std::string& ret) {
 
 void RestoreCommand::DoCommand() {
   Env* custom_env = nullptr;
-  Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
-  assert(custom_env != nullptr);
+  if (!backup_fs_uri_.empty()) {
+    std::shared_ptr<FileSystem> fs;
+    Status s = FileSystem::Load(backup_fs_uri_, &fs);
+    if (fs == nullptr) {
+      exec_state_ = LDBCommandExecuteResult::Failed(s.ToString());
+      return;
+    }
+    custom_env = GetCompositeBackupEnv(fs);
+  } else {
+    Env::LoadEnv(backup_env_uri_, &custom_env, &backup_env_guard_);
+    assert(custom_env != nullptr);
+  }
 
   std::unique_ptr<BackupEngineReadOnly> restore_engine;
   Status status;
@@ -3145,7 +3284,7 @@ void RestoreCommand::DoCommand() {
     opts.max_background_operations = num_threads_;
     BackupEngineReadOnly* raw_restore_engine_ptr;
     status =
-        BackupEngineReadOnly::Open(custom_env, opts, &raw_restore_engine_ptr);
+        BackupEngineReadOnly::Open(options_.env, opts, &raw_restore_engine_ptr);
     if (status.ok()) {
       restore_engine.reset(raw_restore_engine_ptr);
     }
@@ -3528,7 +3667,7 @@ void UnsafeRemoveSstFileCommand::Help(std::string& ret) {
   ret.append("  ");
   ret.append(UnsafeRemoveSstFileCommand::Name());
   ret.append(" <SST file number>");
-  ret.append("\n");
+  ret.append("  ");
   ret.append("    MUST NOT be used on a live DB.");
   ret.append("\n");
 }

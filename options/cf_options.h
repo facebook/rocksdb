@@ -64,6 +64,8 @@ struct ImmutableCFOptions {
 
   FileSystem* fs;
 
+  SystemClock* clock;
+
   // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;
 
@@ -126,6 +128,8 @@ struct ImmutableCFOptions {
   bool allow_data_in_errors;
 
   std::string db_host_id;
+
+  FileTypeSet checksum_handoff_file_types;
 };
 
 struct MutableCFOptions {

@@ -171,6 +171,8 @@ int main(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
 
   Stats stats;
+  ROCKSDB_NAMESPACE::SystemClock* clock =
+      ROCKSDB_NAMESPACE::SystemClock::Default().get();
   ROCKSDB_NAMESPACE::Random64 rnd(FLAGS_seed);
   std::default_random_engine random_gen(FLAGS_seed);
   std::normal_distribution<double> normal_dist(FLAGS_tombstone_width_mean,
@@ -219,7 +221,7 @@ int main(int argc, char** argv) {
                   ROCKSDB_NAMESPACE::kMaxSequenceNumber));
 
       ROCKSDB_NAMESPACE::StopWatchNano stop_watch_add_tombstones(
-          ROCKSDB_NAMESPACE::SystemClock::Default(), true /* auto_start */);
+          clock, true /* auto_start */);
       range_del_agg.AddTombstones(std::move(fragmented_range_del_iter));
       stats.time_add_tombstones += stop_watch_add_tombstones.ElapsedNanos();
     }
@@ -236,7 +238,7 @@ int main(int argc, char** argv) {
       parsed_key.user_key = key_string;
 
       ROCKSDB_NAMESPACE::StopWatchNano stop_watch_should_delete(
-          ROCKSDB_NAMESPACE::SystemClock::Default(), true /* auto_start */);
+          clock, true /* auto_start */);
       range_del_agg.ShouldDelete(parsed_key, mode);
       uint64_t call_time = stop_watch_should_delete.ElapsedNanos();
 

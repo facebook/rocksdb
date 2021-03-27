@@ -11,7 +11,11 @@
 
 #include "rocksdb/c.h"
 
-#include <stdlib.h>
+#include <cstdlib>
+#include <map>
+#include <unordered_set>
+#include <vector>
+
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -24,6 +28,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
+#include "rocksdb/perf_context.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
@@ -39,12 +44,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/write_batch.h"
-#include "rocksdb/perf_context.h"
 #include "utilities/merge_operators.h"
-
-#include <vector>
-#include <unordered_set>
-#include <map>
 
 using ROCKSDB_NAMESPACE::BackupableDBOptions;
 using ROCKSDB_NAMESPACE::BackupEngine;
@@ -2774,6 +2774,14 @@ void rocksdb_options_set_bottommost_compression_options_zstd_max_train_bytes(
   opt->rep.bottommost_compression_opts.enabled = enabled;
 }
 
+void rocksdb_options_set_bottommost_compression_options_max_dict_buffer_bytes(
+    rocksdb_options_t* opt, uint64_t max_dict_buffer_bytes,
+    unsigned char enabled) {
+  opt->rep.bottommost_compression_opts.max_dict_buffer_bytes =
+      max_dict_buffer_bytes;
+  opt->rep.bottommost_compression_opts.enabled = enabled;
+}
+
 void rocksdb_options_set_compression_options(rocksdb_options_t* opt, int w_bits,
                                              int level, int strategy,
                                              int max_dict_bytes) {
@@ -2786,6 +2794,11 @@ void rocksdb_options_set_compression_options(rocksdb_options_t* opt, int w_bits,
 void rocksdb_options_set_compression_options_zstd_max_train_bytes(
     rocksdb_options_t* opt, int zstd_max_train_bytes) {
   opt->rep.compression_opts.zstd_max_train_bytes = zstd_max_train_bytes;
+}
+
+void rocksdb_options_set_compression_options_max_dict_buffer_bytes(
+    rocksdb_options_t* opt, uint64_t max_dict_buffer_bytes) {
+  opt->rep.compression_opts.max_dict_buffer_bytes = max_dict_buffer_bytes;
 }
 
 void rocksdb_options_set_prefix_extractor(
@@ -2946,6 +2959,8 @@ void rocksdb_options_set_access_hint_on_compaction_start(
       opt->rep.access_hint_on_compaction_start =
           ROCKSDB_NAMESPACE::Options::WILLNEED;
       break;
+    default:
+      assert(0);
   }
 }
 
@@ -3936,6 +3951,25 @@ unsigned char rocksdb_readoptions_get_ignore_range_deletions(
   return opt->rep.ignore_range_deletions;
 }
 
+void rocksdb_readoptions_set_deadline(rocksdb_readoptions_t* opt,
+                                      uint64_t microseconds) {
+  opt->rep.deadline = std::chrono::microseconds(microseconds);
+}
+
+uint64_t rocksdb_readoptions_get_deadline(rocksdb_readoptions_t* opt) {
+  return opt->rep.deadline.count();
+}
+
+void rocksdb_readoptions_set_io_timeout(rocksdb_readoptions_t* opt,
+                                        uint64_t microseconds) {
+  opt->rep.io_timeout = std::chrono::microseconds(microseconds);
+}
+
+extern ROCKSDB_LIBRARY_API uint64_t
+rocksdb_readoptions_get_io_timeout(rocksdb_readoptions_t* opt) {
+  return opt->rep.io_timeout.count();
+}
+
 rocksdb_writeoptions_t* rocksdb_writeoptions_create() {
   return new rocksdb_writeoptions_t;
 }
@@ -4756,7 +4790,10 @@ void rocksdb_transaction_destroy(rocksdb_transaction_t* txn) {
 
 const rocksdb_snapshot_t* rocksdb_transaction_get_snapshot(
     rocksdb_transaction_t* txn) {
-  rocksdb_snapshot_t* result = new rocksdb_snapshot_t;
+  // This will be freed later on using free, so use malloc here to avoid a
+  // mismatch
+  rocksdb_snapshot_t* result =
+      (rocksdb_snapshot_t*)malloc(sizeof(rocksdb_snapshot_t));
   result->rep = txn->rep->GetSnapshot();
   return result;
 }

@@ -118,10 +118,12 @@ class WritableFileWriter {
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
   void UpdateFileChecksum(const Slice& data);
+  void Crc32cHandoffChecksumCalculation(const char* data, size_t size,
+                                        char* buf);
 
   std::string file_name_;
   FSWritableFilePtr writable_file_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   AlignedBuffer buf_;
   size_t max_buffer_size_;
   // Actually written data size can be used for truncate
@@ -141,16 +143,17 @@ class WritableFileWriter {
   std::vector<std::shared_ptr<EventListener>> listeners_;
   std::unique_ptr<FileChecksumGenerator> checksum_generator_;
   bool checksum_finalized_;
+  bool perform_data_verification_;
 
  public:
   WritableFileWriter(
       std::unique_ptr<FSWritableFile>&& file, const std::string& _file_name,
-      const FileOptions& options,
-      const std::shared_ptr<SystemClock>& clock = nullptr,
+      const FileOptions& options, SystemClock* clock = nullptr,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},
-      FileChecksumGenFactory* file_checksum_gen_factory = nullptr)
+      FileChecksumGenFactory* file_checksum_gen_factory = nullptr,
+      bool perform_data_verification = false)
       : file_name_(_file_name),
         writable_file_(std::move(file), io_tracer, _file_name),
         clock_(clock),
@@ -167,7 +170,8 @@ class WritableFileWriter {
         stats_(stats),
         listeners_(),
         checksum_generator_(nullptr),
-        checksum_finalized_(false) {
+        checksum_finalized_(false),
+        perform_data_verification_(perform_data_verification) {
     TEST_SYNC_POINT_CALLBACK("WritableFileWriter::WritableFileWriter:0",
                              reinterpret_cast<void*>(max_buffer_size_));
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
@@ -191,6 +195,10 @@ class WritableFileWriter {
     }
   }
 
+  static Status Create(const std::shared_ptr<FileSystem>& fs,
+                       const std::string& fname, const FileOptions& file_opts,
+                       std::unique_ptr<WritableFileWriter>* writer,
+                       IODebugContext* dbg);
   WritableFileWriter(const WritableFileWriter&) = delete;
 
   WritableFileWriter& operator=(const WritableFileWriter&) = delete;

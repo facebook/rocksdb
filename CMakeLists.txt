@@ -88,10 +88,9 @@ if( NOT DEFINED CMAKE_CXX_STANDARD )
 endif()
 
 include(CMakeDependentOption)
-CMAKE_DEPENDENT_OPTION(WITH_GFLAGS "build with GFlags" ON
-  "NOT MSVC;NOT MINGW" OFF)
 
 if(MSVC)
+  option(WITH_GFLAGS "build with GFlags" OFF)
   option(WITH_XPRESS "build with windows built in compression" OFF)
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
@@ -107,6 +106,11 @@ else()
     endif()
   endif()
 
+  if(MINGW)
+    option(WITH_GFLAGS "build with GFlags" OFF)
+  else()
+    option(WITH_GFLAGS "build with GFlags" ON)
+  endif()
   set(GFLAGS_LIB)
   if(WITH_GFLAGS)
     # Config with namespace available since gflags 2.2.2
@@ -170,23 +174,25 @@ else()
   endif()
 endif()
 
-string(TIMESTAMP TS "%Y/%m/%d %H:%M:%S" UTC)
-set(GIT_DATE_TIME "${TS}" CACHE STRING "the time we first built rocksdb")
+string(TIMESTAMP TS "%Y-%m-%d %H:%M:%S" UTC)
+set(BUILD_DATE "${TS}" CACHE STRING "the time we first built rocksdb")
 
 find_package(Git)
 
 if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
-  if(WIN32)
-    execute_process(COMMAND $ENV{COMSPEC} /C ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD OUTPUT_VARIABLE GIT_SHA)
-  else()
-    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD OUTPUT_VARIABLE GIT_SHA)
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_SHA COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD )
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" RESULT_VARIABLE GIT_MOD COMMAND "${GIT_EXECUTABLE}" diff-index HEAD --quiet)
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_DATE COMMAND "${GIT_EXECUTABLE}" log -1 --date=format:"%Y-%m-%d %T" --format="%ad")
+  execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG RESULT_VARIABLE rv COMMAND "${GIT_EXECUTABLE}" symbolic-ref -q --short HEAD OUTPUT_STRIP_TRAILING_WHITESPACE)
+  if (rv AND NOT rv EQUAL 0)
+    execute_process(WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" OUTPUT_VARIABLE GIT_TAG COMMAND "${GIT_EXECUTABLE}" describe --tags --exact-match OUTPUT_STRIP_TRAILING_WHITESPACE)
   endif()
 else()
   set(GIT_SHA 0)
+  set(GIT_MOD 1)
 endif()
-
-string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
-
+string(REGEX REPLACE "[^0-9a-fA-F]+" "" GIT_SHA "${GIT_SHA}")
+string(REGEX REPLACE "[^0-9: /-]+" "" GIT_DATE "${GIT_DATE}")
 
 option(WITH_MD_LIBRARY "build with MD" ON)
 if(WIN32 AND MSVC)
@@ -199,15 +205,16 @@ endif()
 
 set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
 configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
-add_library(build_version OBJECT ${BUILD_VERSION_CC})
-target_include_directories(build_version PRIVATE
-  ${CMAKE_CURRENT_SOURCE_DIR}/util)
+
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W4 /wd4127 /wd4800 /wd4996 /wd4351 /wd4100 /wd4204 /wd4324")
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers -Wno-strict-aliasing")
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wstrict-prototypes")
+  endif()
   if(MINGW)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-format -fno-asynchronous-unwind-tables")
     add_definitions(-D_POSIX_C_SOURCE=1)
@@ -466,11 +473,6 @@ if(CMAKE_SYSTEM_NAME MATCHES "Cygwin")
   add_definitions(-fno-builtin-memcmp -DCYGWIN)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
   add_definitions(-DOS_MACOSX)
-  if(CMAKE_SYSTEM_PROCESSOR MATCHES arm)
-    add_definitions(-DIOS_CROSS_COMPILE -DROCKSDB_LITE)
-    # no debug info for IOS, that will make our library big
-    add_definitions(-DNDEBUG)
-  endif()
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
   add_definitions(-DOS_LINUX)
 elseif(CMAKE_SYSTEM_NAME MATCHES "SunOS")
@@ -581,7 +583,6 @@ set(SOURCES
         db/builder.cc
         db/c.cc
         db/column_family.cc
-        db/compacted_db_impl.cc
         db/compaction/compaction.cc
         db/compaction/compaction_iterator.cc
         db/compaction/compaction_picker.cc
@@ -592,6 +593,7 @@ set(SOURCES
         db/compaction/sst_partitioner.cc
         db/convenience.cc
         db/db_filesnapshot.cc
+        db/db_impl/compacted_db_impl.cc
         db/db_impl/db_impl.cc
         db/db_impl/db_impl_write.cc
         db/db_impl/db_impl_compaction_flush.cc
@@ -654,6 +656,7 @@ set(SOURCES
         file/file_prefetch_buffer.cc
         file/file_util.cc
         file/filename.cc
+        file/line_file_reader.cc
         file/random_access_file_reader.cc
         file/read_write_util.cc
         file/readahead_raf.cc
@@ -767,6 +770,7 @@ set(SOURCES
         util/murmurhash.cc
         util/random.cc
         util/rate_limiter.cc
+        util/ribbon_config.cc
         util/slice.cc
         util/file_checksum_helper.cc
         util/status.cc
@@ -831,8 +835,7 @@ set(SOURCES
         utilities/transactions/write_unprepared_txn_db.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
-        utilities/write_batch_with_index/write_batch_with_index_internal.cc
-        $<TARGET_OBJECTS:build_version>)
+        utilities/write_batch_with_index/write_batch_with_index_internal.cc)
 
 list(APPEND SOURCES
   utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc
@@ -923,12 +926,12 @@ else()
   set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
 endif()
 
-add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
+add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES} ${BUILD_VERSION_CC})
 target_link_libraries(${ROCKSDB_STATIC_LIB} PRIVATE
   ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 if(ROCKSDB_BUILD_SHARED)
-  add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
+  add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES} ${BUILD_VERSION_CC})
   target_link_libraries(${ROCKSDB_SHARED_LIB} PRIVATE
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
@@ -1067,6 +1070,8 @@ if(WITH_TESTS)
         db/blob/blob_file_garbage_test.cc
         db/blob/blob_file_reader_test.cc
         db/blob/db_blob_basic_test.cc
+        db/blob/db_blob_compaction_test.cc
+        db/blob/db_blob_corruption_test.cc
         db/blob/db_blob_index_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc
@@ -1089,6 +1094,7 @@ if(WITH_TESTS)
         db/db_iter_test.cc
         db/db_iter_stress_test.cc
         db/db_iterator_test.cc
+        db/db_kv_checksum_test.cc
         db/db_log_iter_test.cc
         db/db_memtable_test.cc
         db/db_merge_operator_test.cc
@@ -1096,7 +1102,7 @@ if(WITH_TESTS)
         db/db_options_test.cc
         db/db_properties_test.cc
         db/db_range_del_test.cc
-        db/db_impl/db_secondary_test.cc
+        db/db_secondary_test.cc
         db/db_sst_test.cc
         db/db_statistics_test.cc
         db/db_table_properties_test.cc
@@ -1302,40 +1308,40 @@ if(WITH_TESTS)
 endif()
 
 if(WITH_BENCHMARK_TOOLS)
-  add_executable(db_bench
+  add_executable(db_bench${ARTIFACT_SUFFIX}
     tools/db_bench.cc
     tools/db_bench_tool.cc)
-  target_link_libraries(db_bench
+  target_link_libraries(db_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${THIRDPARTY_LIBS})
 
-  add_executable(cache_bench
+  add_executable(cache_bench${ARTIFACT_SUFFIX}
     cache/cache_bench.cc)
-  target_link_libraries(cache_bench
+  target_link_libraries(cache_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(memtablerep_bench
+  add_executable(memtablerep_bench${ARTIFACT_SUFFIX}
     memtable/memtablerep_bench.cc)
-  target_link_libraries(memtablerep_bench
+  target_link_libraries(memtablerep_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(range_del_aggregator_bench
+  add_executable(range_del_aggregator_bench${ARTIFACT_SUFFIX}
     db/range_del_aggregator_bench.cc)
-  target_link_libraries(range_del_aggregator_bench
+  target_link_libraries(range_del_aggregator_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(table_reader_bench
+  add_executable(table_reader_bench${ARTIFACT_SUFFIX}
     table/table_reader_bench.cc)
-  target_link_libraries(table_reader_bench
+  target_link_libraries(table_reader_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} testharness ${GFLAGS_LIB})
 
-  add_executable(filter_bench
+  add_executable(filter_bench${ARTIFACT_SUFFIX}
     util/filter_bench.cc)
-  target_link_libraries(filter_bench
+  target_link_libraries(filter_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 
-  add_executable(hash_table_bench
+  add_executable(hash_table_bench${ARTIFACT_SUFFIX}
     utilities/persistent_cache/hash_table_bench.cc)
-  target_link_libraries(hash_table_bench
+  target_link_libraries(hash_table_bench${ARTIFACT_SUFFIX}
     ${ROCKSDB_LIB} ${GFLAGS_LIB})
 endif()
 

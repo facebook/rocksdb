@@ -17,7 +17,6 @@ LIB_SOURCES =                                                   \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
-  db/compacted_db_impl.cc                                       \
   db/compaction/compaction.cc                                   \
   db/compaction/compaction_iterator.cc                          \
   db/compaction/compaction_job.cc                               \
@@ -28,6 +27,7 @@ LIB_SOURCES =                                                   \
   db/compaction/sst_partitioner.cc                              \
   db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
+  db/db_impl/compacted_db_impl.cc                                       \
   db/db_impl/db_impl.cc                                         \
   db/db_impl/db_impl_compaction_flush.cc                        \
   db/db_impl/db_impl_debug.cc                                   \
@@ -93,6 +93,7 @@ LIB_SOURCES =                                                   \
   file/file_prefetch_buffer.cc                                  \
   file/file_util.cc                                             \
   file/filename.cc                                              \
+  file/line_file_reader.cc                                      \
   file/random_access_file_reader.cc                             \
   file/read_write_util.cc                                       \
   file/readahead_raf.cc                                         \
@@ -208,6 +209,7 @@ LIB_SOURCES =                                                   \
   util/murmurhash.cc                                            \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
+  util/ribbon_config.cc                                         \
   util/slice.cc                                                 \
   util/file_checksum_helper.cc                                  \
   util/status.cc                                                \
@@ -377,6 +379,8 @@ TEST_MAIN_SOURCES =                                                     \
   db/blob/blob_file_garbage_test.cc                                     \
   db/blob/blob_file_reader_test.cc                                      \
   db/blob/db_blob_basic_test.cc                                         \
+  db/blob/db_blob_compaction_test.cc                                    \
+  db/blob/db_blob_corruption_test.cc                                    \
   db/blob/db_blob_index_test.cc                                         \
   db/column_family_test.cc                                              \
   db/compact_files_test.cc                                              \
@@ -402,6 +406,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_iter_test.cc                                                    \
   db/db_iter_stress_test.cc                                             \
   db/db_iterator_test.cc                                                \
+  db/db_kv_checksum_test.cc                                             \
   db/db_log_iter_test.cc                                                \
   db/db_memtable_test.cc                                                \
   db/db_merge_operator_test.cc                                          \
@@ -409,7 +414,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_options_test.cc                                                 \
   db/db_properties_test.cc                                              \
   db/db_range_del_test.cc                                               \
-  db/db_impl/db_secondary_test.cc                                       \
+  db/db_secondary_test.cc                                               \
   db/db_sst_test.cc                                                     \
   db/db_statistics_test.cc                                              \
   db/db_table_properties_test.cc                                        \
@@ -557,6 +562,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupablejni.cc                              \
   java/rocksjni/checkpoint.cc                                 \
   java/rocksjni/clock_cache.cc                                \
+  java/rocksjni/cache.cc                                      \
   java/rocksjni/columnfamilyhandle.cc                         \
   java/rocksjni/compact_range_options.cc                      \
   java/rocksjni/compaction_filter.cc                          \

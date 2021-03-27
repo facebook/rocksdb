@@ -13,10 +13,10 @@ int main() {
 
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
-#include "env/composite_env_wrapper.h"
 #include "file/random_access_file_reader.h"
 #include "monitoring/histogram.h"
 #include "rocksdb/db.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/system_clock.h"
 #include "rocksdb/table.h"
@@ -51,8 +51,7 @@ static std::string MakeKey(int i, int j, bool through_db) {
   return key.Encode().ToString();
 }
 
-uint64_t Now(const std::shared_ptr<SystemClock>& clock,
-             bool measured_by_nanosecond) {
+uint64_t Now(SystemClock* clock, bool measured_by_nanosecond) {
   return measured_by_nanosecond ? clock->NowNanos() : clock->NowMicros();
 }
 }  // namespace
@@ -83,7 +82,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   std::string dbname = test::PerThreadDBPath("rocksdb_table_reader_bench_db");
   WriteOptions wo;
   Env* env = Env::Default();
-  const auto& clock = env->GetSystemClock();
+  auto* clock = env->GetSystemClock().get();
   TableBuilder* tb = nullptr;
   DB* db = nullptr;
   Status s;
@@ -92,21 +91,19 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   const MutableCFOptions moptions(cfo);
   std::unique_ptr<WritableFileWriter> file_writer;
   if (!through_db) {
-    std::unique_ptr<WritableFile> file;
-    env->NewWritableFile(file_name, &file, env_options);
+    ASSERT_OK(WritableFileWriter::Create(env->GetFileSystem(), file_name,
+                                         FileOptions(env_options), &file_writer,
+                                         nullptr));
 
     std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
         int_tbl_prop_collector_factories;
 
-    file_writer.reset(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(file)), file_name, env_options));
     int unknown_level = -1;
     tb = opts.table_factory->NewTableBuilder(
         TableBuilderOptions(
             ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
-            CompressionType::kNoCompression, 0 /* sample_for_compression */,
-            CompressionOptions(), false /* skip_filters */,
-            kDefaultColumnFamilyName, unknown_level),
+            CompressionType::kNoCompression, CompressionOptions(),
+            false /* skip_filters */, kDefaultColumnFamilyName, unknown_level),
         0 /* column_family_id */, file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);
@@ -133,17 +130,19 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
 
   std::unique_ptr<TableReader> table_reader;
   if (!through_db) {
-    std::unique_ptr<RandomAccessFile> raf;
-    s = env->NewRandomAccessFile(file_name, &raf, env_options);
+    const auto& fs = env->GetFileSystem();
+    FileOptions fopts(env_options);
+
+    std::unique_ptr<FSRandomAccessFile> raf;
+    s = fs->NewRandomAccessFile(file_name, fopts, &raf, nullptr);
     if (!s.ok()) {
       fprintf(stderr, "Create File Error: %s\n", s.ToString().c_str());
       exit(1);
     }
     uint64_t file_size;
-    env->GetFileSize(file_name, &file_size);
+    fs->GetFileSize(file_name, fopts.io_options, &file_size, nullptr);
     std::unique_ptr<RandomAccessFileReader> file_reader(
-        new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(raf),
-                                   file_name));
+        new RandomAccessFileReader(std::move(raf), file_name));
     s = opts.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(),
                            env_options, ikc),

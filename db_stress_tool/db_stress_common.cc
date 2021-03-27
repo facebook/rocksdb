@@ -30,7 +30,7 @@ enum ROCKSDB_NAMESPACE::ChecksumType checksum_type_e =
     ROCKSDB_NAMESPACE::kCRC32c;
 enum RepFactory FLAGS_rep_factory = kSkipList;
 std::vector<double> sum_probs(100001);
-int64_t zipf_sum_size = 100000;
+constexpr int64_t zipf_sum_size = 100000;
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -232,6 +232,15 @@ size_t GenerateValue(uint32_t rand, char* v, size_t max_sz) {
   v[value_sz] = '\0';
   return value_sz;  // the size of the value set.
 }
+
+std::string NowNanosStr() {
+  uint64_t t = db_stress_env->NowNanos();
+  std::string ret;
+  PutFixed64(&ret, t);
+  return ret;
+}
+
+std::string GenerateTimestampForRead() { return NowNanosStr(); }
 
 namespace {
 

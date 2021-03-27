@@ -35,6 +35,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "strsafe.h"
+#include "util/string_util.h"
 
 // Undefine the functions  windows might use (again)...
 #undef GetCurrentTime
@@ -61,7 +62,8 @@ typedef std::unique_ptr<void, decltype(FindCloseFunc)> UniqueFindClosePtr;
 
 void WinthreadCall(const char* label, std::error_code result) {
   if (0 != result.value()) {
-    fprintf(stderr, "pthread %s: %s\n", label, strerror(result.value()));
+    fprintf(stderr, "Winthread %s: %s\n", label,
+            errnoStr(result.value()).c_str());
     abort();
   }
 }
@@ -1059,7 +1061,7 @@ IOStatus WinFileSystem::NewLogger(const std::string& fname,
       // Set creation, last access and last write time to the same value
       SetFileTime(hFile, &ft, &ft, &ft);
     }
-    result->reset(new WinLogger(&WinEnvThreads::gettid, clock_, hFile));
+    result->reset(new WinLogger(&WinEnvThreads::gettid, clock_.get(), hFile));
   }
   return s;
 }
@@ -1360,6 +1362,7 @@ Status WinEnv::GetThreadList(std::vector<ThreadStatus>* thread_list) {
 Status WinEnv::GetHostName(char* name, uint64_t len) {
   return winenv_io_.GetHostName(name, len);
 }
+
 void WinEnv::Schedule(void (*function)(void*), void* arg, Env::Priority pri,
                       void* tag, void (*unschedFunction)(void* arg)) {
   return winenv_threads_.Schedule(function, arg, pri, tag, unschedFunction);
