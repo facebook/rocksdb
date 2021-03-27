@@ -17,13 +17,9 @@ namespace test {
 #ifdef OS_WIN
 #include <windows.h>
 
-std::string GetPidStr() {
-  return std::to_string(GetCurrentProcessId());
-}
+std::string GetPidStr() { return std::to_string(GetCurrentProcessId()); }
 #else
-std::string GetPidStr() {
-  return std::to_string(getpid());
-}
+std::string GetPidStr() { return std::to_string(getpid()); }
 #endif
 
 ::testing::AssertionResult AssertStatus(const char* s_expr, const Status& s) {
