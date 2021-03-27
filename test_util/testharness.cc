@@ -20,11 +20,11 @@ namespace test {
 std::string GetPidStr() {
   return std::to_string(GetCurrentProcessId());
 }
-#endif
-
+#else
 std::string GetPidStr() {
   return std::to_string(getpid());
 }
+#endif
 
 ::testing::AssertionResult AssertStatus(const char* s_expr, const Status& s) {
   if (s.ok()) {
