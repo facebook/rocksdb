@@ -1030,8 +1030,9 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
     if (input_file_level > output_level) {
       return Status::InvalidArgument(
           "Cannot compact file to up level, input file: " +
-          MakeTableFileName("", file_num) + " level " + ToString(input_file_level) +
-          " > output level " + ToString(output_level));
+          MakeTableFileName("", file_num) + " level " +
+          ToString(input_file_level) + " > output level " +
+          ToString(output_level));
     }
   }
 
