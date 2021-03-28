@@ -308,6 +308,15 @@ class Configurable {
       const std::unordered_map<std::string, std::string>& opts_map,
       std::unordered_map<std::string, std::string>* unused);
 
+  // Internal method to initialize the settings of this object in test mode.
+  // Classes may override this method to specify default values for the
+  // object settings when running tests.
+  // The name parameter is optionally supplied (may be an empty string).
+  // If specified, the parameter is the name of the test being invoked.
+  virtual Status TEST_Initialize(const std::string& /*name*/) {
+    return Status::OK();
+  }
+
 #ifndef ROCKSDB_LITE
   // Method that configures a the specific opt_name from opt_value.
   // By default, this method calls opt_info.ParseOption with the

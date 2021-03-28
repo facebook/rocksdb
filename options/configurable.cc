@@ -265,7 +265,17 @@ Status ConfigurableHelper::ConfigureOptions(
     std::unordered_map<std::string, std::string>* unused) {
   std::unordered_map<std::string, std::string> remaining = opts_map;
   Status s = Status::OK();
-  if (!opts_map.empty()) {
+  if (!remaining.empty()) {
+    auto test_iter = remaining.find(kTestPropName);
+    if (test_iter != remaining.end()) {
+      s = configurable.TEST_Initialize(test_iter->second);
+      remaining.erase(test_iter);
+      if (!s.ok()) {  // Failed to initialize for tests
+        return s;
+      }
+    }
+  }
+  if (!remaining.empty()) {
 #ifndef ROCKSDB_LITE
     for (const auto& iter : configurable.options_) {
       s = ConfigureSomeOptions(config_options, configurable, *(iter.type_map),

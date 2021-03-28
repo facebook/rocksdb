@@ -121,6 +121,24 @@ class TestConfigurable : public Configurable {
   }
 
   ~TestConfigurable() override { delete pointer_; }
+
+ protected:
+  Status TEST_Initialize(const std::string& name) override {
+    if (name == "NotFound") {
+      return Status::NotFound("TEST_Initialize");
+    } else if (name == "NotSupported") {
+      return Status::NotSupported("TEST_Initialize");
+    } else if (name == "InvalidArgument") {
+      return Status::InvalidArgument("TEST_Initialize");
+    } else {
+      if (!name.empty()) {
+        options_.s = name;
+        options_.u = name;
+        options_.i = -1;
+      }
+      return Configurable::TEST_Initialize(name);
+    }
+  }
 };
 
 }  // namespace test

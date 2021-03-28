@@ -533,6 +533,38 @@ TEST_F(ConfigurableTest, MatchesTest) {
   ASSERT_NE(c1value, c2value);
 }
 
+TEST_F(ConfigurableTest, TestInitialize) {
+  std::unique_ptr<Configurable> base(SimpleConfigurable::Create(
+      "Outer", TestConfigMode::kDefaultMode | TestConfigMode::kNestedMode));
+  ASSERT_OK(
+      base->ConfigureFromString(config_options_, "TEST=initialize;int=11"));
+  const auto outer = base->GetOptions<TestOptions>("Outer");
+  ASSERT_NE(outer, nullptr);
+  ASSERT_EQ(outer->i, 11);
+  ASSERT_EQ(outer->s, "initialize");
+
+  ASSERT_OK(base->ConfigureFromString(config_options_, "TEST=;int=11"));
+  ASSERT_EQ(outer->i, 11);
+  ASSERT_EQ(outer->s, "initialize");
+
+  ASSERT_OK(base->ConfigureFromString(
+      config_options_,
+      "unique={TEST=unique};shared={int=33;TEST=shared;string=s}"));
+  const auto shared =
+      base->GetOptions<std::shared_ptr<Configurable>>("OuterShared");
+  const auto s_inner = shared->get()->GetOptions<TestOptions>("SharedOuter");
+  ASSERT_NE(s_inner, nullptr);
+  ASSERT_EQ(s_inner->i, 33);
+  ASSERT_EQ(s_inner->s, "s");
+  const auto unique =
+      base->GetOptions<std::unique_ptr<Configurable>>("OuterUnique");
+  const auto u_inner = unique->get()->GetOptions<TestOptions>("UniqueOuter");
+  ASSERT_NE(u_inner, nullptr);
+  ASSERT_EQ(u_inner->i, -1);
+  ASSERT_EQ(u_inner->s, "unique");
+  ASSERT_NOK(base->ConfigureFromString(config_options_, "TEST=NotFound"));
+}
+
 static Configurable* SimpleStructFactory() {
   return SimpleConfigurable::Create(
       "simple-struct", TestConfigMode::kDefaultMode, &struct_option_info);
