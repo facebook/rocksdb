@@ -439,6 +439,33 @@ class BackupEngineAppendOnlyBase {
     options.progress_callback = progress_callback;
     return CreateNewBackup(options, db);
   }
+
+  // Call this from another thread if you want to stop the backup
+  // that is currently happening. It will return immediately, will
+  // not wait for the backup to stop.
+  // The backup will stop ASAP and the call to CreateNewBackup will
+  // return Status::Incomplete(). It will not clean up after itself, but
+  // the state will remain consistent. The state will be cleaned up the
+  // next time you call CreateNewBackup or GarbageCollect.
+  virtual void StopBackup() = 0;
+
+  // Will delete any files left over from incomplete creation or deletion of
+  // a backup. This is not normally needed as those operations also clean up
+  // after prior incomplete calls to the same kind of operation (create or
+  // delete). This does not delete corrupt backups but can delete files that
+  // would be needed to manually recover a corrupt backup or to preserve an
+  // unrecognized (e.g. incompatible future version) backup.
+  // NOTE: This is not designed to delete arbitrary files added to the backup
+  // directory outside of BackupEngine, and clean-up is always subject to
+  // permissions on and availability of the underlying filesystem.
+  // NOTE2: For concurrency and interference purposes (see BackupEngine
+  // comment), GarbageCollect (GC) is like other Append operations, even
+  // though it seems different. Although GC can delete physical data, it does
+  // not delete any logical data read by Read operations. GC can interfere
+  // with Append or Write operations in another BackupEngine on the same
+  // backup_dir, because temporary files will be treated as obsolete and
+  // deleted.
+  virtual Status GarbageCollect() = 0;
 };
 
 // A backup engine for organizing and managing backups.
@@ -480,6 +507,8 @@ class BackupEngineAppendOnlyBase {
 // Append | atomic | old    | unspec | unspec
 //  Write | unspec | unspec | unspec | unspec
 //
+// Special case: Open with destroy_old_data=true is really a Write
+//
 // conc = operations safely proceed, concurrently when applicable
 // atomic = operations are effectively atomic; if a concurrent Append
 //   operation has not completed at some key point during Open, the
@@ -514,26 +543,6 @@ class BackupEngine : public BackupEngineReadOnlyBase,
   // will be cleaned up the next time you call DeleteBackup,
   // PurgeOldBackups, or GarbageCollect.
   virtual Status DeleteBackup(BackupID backup_id) = 0;
-
-  // Call this from another thread if you want to stop the backup
-  // that is currently happening. It will return immediately, will
-  // not wait for the backup to stop.
-  // The backup will stop ASAP and the call to CreateNewBackup will
-  // return Status::Incomplete(). It will not clean up after itself, but
-  // the state will remain consistent. The state will be cleaned up the
-  // next time you call CreateNewBackup or GarbageCollect.
-  virtual void StopBackup() = 0;
-
-  // Will delete any files left over from incomplete creation or deletion of
-  // a backup. This is not normally needed as those operations also clean up
-  // after prior incomplete calls to the same kind of operation (create or
-  // delete). This does not delete corrupt backups but can delete files that
-  // would be needed to manually recover a corrupt backup or to preserve an
-  // unrecognized (e.g. incompatible future version) backup.
-  // NOTE: This is not designed to delete arbitrary files added to the backup
-  // directory outside of BackupEngine, and clean-up is always subject to
-  // permissions on and availability of the underlying filesystem.
-  virtual Status GarbageCollect() = 0;
 };
 
 // A variant of BackupEngine that only allows "Read" operations. See
