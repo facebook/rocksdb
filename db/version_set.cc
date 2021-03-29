@@ -9,11 +9,10 @@
 
 #include "db/version_set.h"
 
-#include <stdio.h>
-
 #include <algorithm>
 #include <array>
 #include <cinttypes>
+#include <cstdio>
 #include <list>
 #include <map>
 #include <set>
@@ -409,7 +408,7 @@ class FilePickerMultiGet {
   int GetCurrentLevel() const { return curr_level_; }
 
   // Iterates through files in the current level until it finds a file that
-  // contains atleast one key from the MultiGet batch
+  // contains at least one key from the MultiGet batch
   bool GetNextFileInLevelWithKeys(MultiGetRange* next_file_range,
                                   size_t* file_index, FdWithKeyRange** fd,
                                   bool* is_last_key_in_file) {
@@ -2787,7 +2786,7 @@ struct Fsize {
   FileMetaData* file;
 };
 
-// Compator that is used to sort files based on their size
+// Comparator that is used to sort files based on their size
 // In normal mode: descending size
 bool CompareCompensatedSizeDescending(const Fsize& first, const Fsize& second) {
   return (first.file->compensated_file_size >
@@ -3207,7 +3206,7 @@ void VersionStorageInfo::GetCleanInputsWithinInterval(
 // specified range. From that file, iterate backwards and
 // forwards to find all overlapping files.
 // if within_range is set, then only store the maximum clean inputs
-// within range [begin, end]. "clean" means there is a boudnary
+// within range [begin, end]. "clean" means there is a boundary
 // between the files in "*inputs" and the surrounding files
 void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
     int level, const InternalKey* begin, const InternalKey* end,
@@ -3518,7 +3517,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
         //   1. the L0 size is larger than level size base, or
         //   2. number of L0 files reaches twice the L0->L1 compaction trigger
         // We don't do this otherwise to keep the LSM-tree structure stable
-        // unless the L0 compation is backlogged.
+        // unless the L0 compaction is backlogged.
         base_level_size = l0_size;
         if (base_level_ == num_levels_ - 1) {
           level_multiplier_ = 1.0;
@@ -4355,7 +4354,7 @@ Status VersionSet::ProcessManifestWrites(
   return s;
 }
 
-// 'datas' is gramatically incorrect. We still use this notation to indicate
+// 'datas' is grammatically incorrect. We still use this notation to indicate
 // that this variable represents a collection of column_family_data.
 Status VersionSet::LogAndApply(
     const autovector<ColumnFamilyData*>& column_family_datas,
@@ -4797,7 +4796,7 @@ Status VersionSet::TryRecoverFromOneManifest(
 Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
                                       const std::string& dbname,
                                       FileSystem* fs) {
-  // these are just for performance reasons, not correcntes,
+  // these are just for performance reasons, not correctness,
   // so we're fine using the defaults
   FileOptions soptions;
   // Read "CURRENT" file, which contains a pointer to the current manifest file
@@ -5500,20 +5499,6 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
         "[%s] compaction output being applied to a different base version from"
         " input version",
         c->column_family_data()->GetName().c_str());
-
-    if (vstorage->compaction_style_ == kCompactionStyleLevel &&
-        c->start_level() == 0 && c->num_input_levels() > 2U) {
-      // We are doing a L0->base_level compaction. The assumption is if
-      // base level is not L1, levels from L1 to base_level - 1 is empty.
-      // This is ensured by having one compaction from L0 going on at the
-      // same time in level-based compaction. So that during the time, no
-      // compaction/flush can put files to those levels.
-      for (int l = c->start_level() + 1; l < c->output_level(); l++) {
-        if (vstorage->NumLevelFiles(l) != 0) {
-          return false;
-        }
-      }
-    }
   }
 
   for (size_t input = 0; input < c->num_input_levels(); ++input) {

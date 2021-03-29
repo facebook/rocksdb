@@ -521,7 +521,8 @@ TOOL_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TOOL_LIB_SOURCES))
 ANALYZE_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ANALYZER_LIB_SOURCES))
 STRESS_OBJECTS =  $(patsubst %.cc, $(OBJ_DIR)/%.o, $(STRESS_LIB_SOURCES))
 
-ALL_SOURCES  = $(LIB_SOURCES) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
+# Exclude build_version.cc -- a generated source file -- from all sources.  Not needed for dependencies
+ALL_SOURCES  = $(filter-out util/build_version.cc, $(LIB_SOURCES)) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
 ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 ALL_SOURCES += $(TEST_MAIN_SOURCES) $(TOOL_MAIN_SOURCES) $(BENCH_MAIN_SOURCES)
 
@@ -767,7 +768,6 @@ endif
 TESTS_PLATFORM_DEPENDENT := \
 	db_basic_test \
 	db_blob_basic_test \
-	db_with_timestamp_basic_test \
 	db_encryption_test \
 	db_test2 \
 	external_sst_file_basic_test \
@@ -936,7 +936,8 @@ endif  # PLATFORM_SHARED_EXT
 	analyze tools tools_lib \
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
 	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
-	blackbox_crash_test_with_best_efforts_recovery
+	blackbox_crash_test_with_best_efforts_recovery \
+	blackbox_crash_test_with_ts whitebox_crash_test_with_ts
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
@@ -1174,6 +1175,8 @@ crash_test_with_txn: whitebox_crash_test_with_txn blackbox_crash_test_with_txn
 
 crash_test_with_best_efforts_recovery: blackbox_crash_test_with_best_efforts_recovery
 
+crash_test_with_ts: whitebox_crash_test_with_ts blackbox_crash_test_with_ts
+
 blackbox_crash_test: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
 	$(PYTHON) -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
@@ -1186,6 +1189,9 @@ blackbox_crash_test_with_txn: db_stress
 
 blackbox_crash_test_with_best_efforts_recovery: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --test_best_efforts_recovery blackbox $(CRASH_TEST_EXT_ARGS)
+
+blackbox_crash_test_with_ts: db_stress
+	$(PYTHON) -u tools/db_crashtest.py --enable_ts blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
@@ -1203,6 +1209,10 @@ whitebox_crash_test_with_atomic_flush: db_stress
 
 whitebox_crash_test_with_txn: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --txn whitebox --random_kill_odd \
+      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
+
+whitebox_crash_test_with_ts: db_stress
+	$(PYTHON) -u tools/db_crashtest.py --enable_ts whitebox --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 asan_check: clean
@@ -1350,8 +1360,9 @@ analyze_incremental:
 		$(MAKE) dbg
 
 CLEAN_FILES += unity.cc
-unity.cc: Makefile
+unity.cc: Makefile util/build_version.cc.in
 	rm -f $@ $@-t
+	$(AM_V_at)$(gen_build_version) > util/build_version.cc
 	for source_file in $(LIB_SOURCES); do \
 		echo "#include \"$$source_file\"" >> $@-t; \
 	done
@@ -1481,7 +1492,7 @@ memtablerep_bench: $(OBJ_DIR)/memtable/memtablerep_bench.o $(LIBRARY)
 filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
 	$(AM_LINK)
 
-db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(LIBRARY)
+db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(TESTUTIL) $(LIBRARY)
 	$(AM_LINK)
 
 write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
@@ -2491,11 +2502,13 @@ endif
 # ---------------------------------------------------------------------------
 #  	Source files dependencies detection
 # ---------------------------------------------------------------------------
-
+# If skip dependencies is ON, skip including the dep files
+ifneq ($(SKIP_DEPENDS), 1)
 DEPFILES = $(patsubst %.cc, $(OBJ_DIR)/%.cc.d, $(ALL_SOURCES))
 DEPFILES+ = $(patsubst %.c, $(OBJ_DIR)/%.c.d, $(LIB_SOURCES_C) $(TEST_MAIN_SOURCES_C))
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
   DEPFILES +=$(patsubst %.cpp, $(OBJ_DIR)/%.cpp.d, $(FOLLY_SOURCES))
+endif
 endif
 
 # Add proper dependency support so changing a .h file forces a .cc file to
@@ -2536,28 +2549,9 @@ endif
 build_subset_tests: $(ROCKSDBTESTS_SUBSET)
 	$(AM_V_GEN)if [ -n "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}" ]; then echo "$(ROCKSDBTESTS_SUBSET)" > "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}"; else echo "$(ROCKSDBTESTS_SUBSET)"; fi
 
-# if the make goal is either "clean" or "format", we shouldn't
-# try to import the *.d files.
-# TODO(kailiu) The unfamiliarity of Make's conditions leads to the ugly
-# working solution.
-ifneq ($(MAKECMDGOALS),clean)
-ifneq ($(MAKECMDGOALS),format)
-ifneq ($(MAKECMDGOALS),check-format)
-ifneq ($(MAKECMDGOALS),check-buck-targets)
-ifneq ($(MAKECMDGOALS),jclean)
-ifneq ($(MAKECMDGOALS),jtest)
-ifneq ($(MAKECMDGOALS),rocksdbjavastatic)
-ifneq ($(MAKECMDGOALS),rocksdbjavastatic_deps)
-ifneq ($(MAKECMDGOALS),package)
-ifneq ($(MAKECMDGOALS),analyze)
+# Remove the rules for which dependencies should not be generated and see if any are left.
+#If so, include the dependencies; if not, do not include the dependency files
+ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test, $(MAKECMDGOALS))
+ifneq ("$(ROCKS_DEP_RULES)", "")
 -include $(DEPFILES)
-endif
-endif
-endif
-endif
-endif
-endif
-endif
-endif
-endif
 endif

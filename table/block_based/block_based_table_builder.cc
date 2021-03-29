@@ -210,9 +210,9 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
     return Status::OK();
   }
 
-  virtual void BlockAdd(uint64_t /* blockRawBytes */,
-                        uint64_t /* blockCompressedBytesFast */,
-                        uint64_t /* blockCompressedBytesSlow */) override {
+  virtual void BlockAdd(uint64_t /* block_raw_bytes */,
+                        uint64_t /* block_compressed_bytes_fast */,
+                        uint64_t /* block_compressed_bytes_slow */) override {
     // Intentionally left blank. No interest in collecting stats for
     // blocks.
     return;
@@ -405,7 +405,6 @@ struct BlockBasedTableBuilder::Rep {
           int_tbl_prop_collector_factories,
       uint32_t _column_family_id, WritableFileWriter* f,
       const CompressionType _compression_type,
-      const uint64_t _sample_for_compression,
       const CompressionOptions& _compression_opts, const bool skip_filters,
       const int _level_at_creation, const std::string& _column_family_name,
       const uint64_t _creation_time, const uint64_t _oldest_key_time,
@@ -431,7 +430,7 @@ struct BlockBasedTableBuilder::Rep {
         range_del_block(1 /* block_restart_interval */),
         internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_type(_compression_type),
-        sample_for_compression(_sample_for_compression),
+        sample_for_compression(_moptions.sample_for_compression),
         compression_opts(_compression_opts),
         compression_dict(),
         compression_ctxs(_compression_opts.parallel_threads),
@@ -841,7 +840,6 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, WritableFileWriter* file,
     const CompressionType compression_type,
-    const uint64_t sample_for_compression,
     const CompressionOptions& compression_opts, const bool skip_filters,
     const std::string& column_family_name, const int level_at_creation,
     const uint64_t creation_time, const uint64_t oldest_key_time,
@@ -859,12 +857,12 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     sanitized_table_options.format_version = 1;
   }
 
-  rep_ = new Rep(
-      ioptions, moptions, sanitized_table_options, internal_comparator,
-      int_tbl_prop_collector_factories, column_family_id, file,
-      compression_type, sample_for_compression, compression_opts, skip_filters,
-      level_at_creation, column_family_name, creation_time, oldest_key_time,
-      target_file_size, file_creation_time, db_id, db_session_id);
+  rep_ = new Rep(ioptions, moptions, sanitized_table_options,
+                 internal_comparator, int_tbl_prop_collector_factories,
+                 column_family_id, file, compression_type, compression_opts,
+                 skip_filters, level_at_creation, column_family_name,
+                 creation_time, oldest_key_time, target_file_size,
+                 file_creation_time, db_id, db_session_id);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);

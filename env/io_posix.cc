@@ -58,7 +58,7 @@ IOStatus IOError(const std::string& context, const std::string& file_name,
   switch (err_number) {
     case ENOSPC: {
       IOStatus s = IOStatus::NoSpace(IOErrorMsg(context, file_name),
-                                     strerror(err_number));
+                                     errnoStr(err_number).c_str());
       s.SetRetryable(true);
       return s;
     }
@@ -66,10 +66,10 @@ IOStatus IOError(const std::string& context, const std::string& file_name,
       return IOStatus::IOError(IOStatus::kStaleFile);
     case ENOENT:
       return IOStatus::PathNotFound(IOErrorMsg(context, file_name),
-                                    strerror(err_number));
+                                    errnoStr(err_number).c_str());
     default:
       return IOStatus::IOError(IOErrorMsg(context, file_name),
-                               strerror(err_number));
+                               errnoStr(err_number).c_str());
   }
 }
 
@@ -927,7 +927,7 @@ IOStatus PosixMmapFile::MapNewRegion() {
     }
     if (alloc_status != 0) {
       return IOStatus::IOError("Error allocating space to file : " + filename_ +
-                               "Error : " + strerror(alloc_status));
+                               "Error : " + errnoStr(alloc_status).c_str());
     }
   }
 
@@ -1213,6 +1213,7 @@ IOStatus PosixWritableFile::Close(const IOOptions& /*opts*/,
   size_t block_size;
   size_t last_allocated_block;
   GetPreallocationStatus(&block_size, &last_allocated_block);
+  TEST_SYNC_POINT_CALLBACK("PosixWritableFile::Close", &last_allocated_block);
   if (last_allocated_block > 0) {
     // trim the extra space preallocated at the end of the file
     // NOTE(ljin): we probably don't want to surface failure as an IOError,

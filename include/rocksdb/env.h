@@ -48,6 +48,7 @@ class Logger;
 class RandomAccessFile;
 class SequentialFile;
 class Slice;
+struct DataVerificationInfo;
 class WritableFile;
 class RandomRWFile;
 class MemoryMappedFileBuffer;
@@ -436,7 +437,7 @@ class Env {
   virtual Status GetTestDirectory(std::string* path) = 0;
 
   // Create and returns a default logger (an instance of EnvLogger) for storing
-  // informational messages. Derived classes can overide to provide custom
+  // informational messages. Derived classes can override to provide custom
   // logger.
   virtual Status NewLogger(const std::string& fname,
                            std::shared_ptr<Logger>* result);
@@ -797,9 +798,21 @@ class WritableFile {
   virtual ~WritableFile();
 
   // Append data to the end of the file
-  // Note: A WriteabelFile object must support either Append or
+  // Note: A WriteableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   virtual Status Append(const Slice& data) = 0;
+
+  // Append data with verification information.
+  // Note that this API change is experimental and it might be changed in
+  // the future. Currently, RocksDB only generates crc32c based checksum for
+  // the file writes when the checksum handoff option is set.
+  // Expected behavior: if currently ChecksumType::kCRC32C is not supported by
+  // WritableFile, the information in DataVerificationInfo can be ignored
+  // (i.e. does not perform checksum verification).
+  virtual Status Append(const Slice& data,
+                        const DataVerificationInfo& /* verification_info */) {
+    return Append(data);
+  }
 
   // PositionedAppend data to the specified offset. The new EOF after append
   // must be larger than the previous EOF. This is to be used when writes are
@@ -825,6 +838,19 @@ class WritableFile {
                                   uint64_t /* offset */) {
     return Status::NotSupported(
         "WritableFile::PositionedAppend() not supported.");
+  }
+
+  // PositionedAppend data with verification information.
+  // Note that this API change is experimental and it might be changed in
+  // the future. Currently, RocksDB only generates crc32c based checksum for
+  // the file writes when the checksum handoff option is set.
+  // Expected behavior: if currently ChecksumType::kCRC32C is not supported by
+  // WritableFile, the information in DataVerificationInfo can be ignored
+  // (i.e. does not perform checksum verification).
+  virtual Status PositionedAppend(
+      const Slice& /* data */, uint64_t /* offset */,
+      const DataVerificationInfo& /* verification_info */) {
+    return Status::NotSupported("PositionedAppend");
   }
 
   // Truncate is necessary to trim the file to the correct size
@@ -1540,8 +1566,17 @@ class WritableFileWrapper : public WritableFile {
   explicit WritableFileWrapper(WritableFile* t) : target_(t) {}
 
   Status Append(const Slice& data) override { return target_->Append(data); }
+  Status Append(const Slice& data,
+                const DataVerificationInfo& verification_info) override {
+    return target_->Append(data, verification_info);
+  }
   Status PositionedAppend(const Slice& data, uint64_t offset) override {
     return target_->PositionedAppend(data, offset);
+  }
+  Status PositionedAppend(
+      const Slice& data, uint64_t offset,
+      const DataVerificationInfo& verification_info) override {
+    return target_->PositionedAppend(data, offset, verification_info);
   }
   Status Truncate(uint64_t size) override { return target_->Truncate(size); }
   Status Close() override { return target_->Close(); }

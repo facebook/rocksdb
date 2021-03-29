@@ -705,7 +705,7 @@ struct AdvancedColumnFamilyOptions {
   // updated from the file system.
   // Pre-req: This needs max_open_files to be set to -1.
   // In Level: Non-bottom-level files older than TTL will go through the
-  //           compation process.
+  //           compaction process.
   // In FIFO: Files older than TTL will be deleted.
   // unit: seconds. Ex: 1 day = 1 * 24 * 60 * 60
   // In FIFO, this option will have the same meaning as

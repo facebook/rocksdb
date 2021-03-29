@@ -74,7 +74,7 @@ enum NewFileCustomTag : uint32_t {
   kNeedCompaction = 2,
   // Since Manifest is not entirely forward-compatible, we currently encode
   // kMinLogNumberToKeep as part of NewFile as a hack. This should be removed
-  // when manifest becomes forward-comptabile.
+  // when manifest becomes forward-compatible.
   kMinLogNumberToKeepHack = 3,
   kOldestBlobFileNumber = 4,
   kOldestAncesterTime = 5,
@@ -195,7 +195,7 @@ struct FileMetaData {
 
   // The file could be the compaction output from other SST files, which could
   // in turn be outputs for compact older SST files. We track the memtable
-  // flush timestamp for the oldest SST file that eventaully contribute data
+  // flush timestamp for the oldest SST file that eventually contribute data
   // to this file. 0 means the information is not available.
   uint64_t oldest_ancester_time = kUnknownOldestAncesterTime;
 

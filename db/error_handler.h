@@ -103,7 +103,7 @@ class ErrorHandler {
     bool auto_recovery_;
     bool recovery_in_prog_;
     // A flag to indicate that for the soft error, we should not allow any
-    // backrgound work execpt the work is from recovery.
+    // background work except the work is from recovery.
     bool soft_error_no_bg_work_;
 
     // Used to store the context for recover, such as flush reason.

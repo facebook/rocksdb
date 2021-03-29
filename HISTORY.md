@@ -1,5 +1,15 @@
 # Rocksdb Change Log
 ## Unreleased
+### Behavior Changes
+* `ColumnFamilyOptions::sample_for_compression` now takes effect for creation of all block-based tables. Previously it only took effect for block-based tables created by flush.
+
+### Bug Fixes
+* Use thread-safe `strerror_r()` to get error messages.
+
+### Performance Improvements
+* On ARM platform, use `yield` instead of `wfe` to relax cpu to gain better performance.
+
+## 6.19.0 (03/21/2021)
 ### Bug Fixes
 * Fixed the truncation error found in APIs/tools when dumping block-based SST files in a human-readable format. After fix, the block-based table can be fully dumped as a readable file.
 * When hitting a write slowdown condition, no write delay (previously 1 millisecond) is imposed until `delayed_write_rate` is actually exceeded, with an initial burst allowance of 1 millisecond worth of bytes. Also, beyond the initial burst allowance, `delayed_write_rate` is now more strictly enforced, especially with multiple column families.
@@ -15,6 +25,7 @@
 * For the new integrated BlobDB implementation, compaction statistics now include the amount of data read from blob files during compaction (due to garbage collection or compaction filters). Write amplification metrics have also been extended to account for data read from blob files.
 * Add EqualWithoutTimestamp() to Comparator.
 * Extend support to track blob files in SSTFileManager whenever a blob file is created/deleted. Blob files will be scheduled to delete via SSTFileManager and SStFileManager will now take blob files in account while calculating size and space limits along with SST files.
+* Add new Append and PositionedAppend API with checksum handoff to legacy Env.
 
 ### New Features
 * Support compaction filters for the new implementation of BlobDB. Add `FilterBlobByKey()` to `CompactionFilter`. Subclasses can override this method so that compaction filters can determine whether the actual blob value has to be read during compaction. Use a new `kUndetermined` in `CompactionFilter::Decision` to indicated that further action is necessary for compaction filter to make a decision.
@@ -23,6 +34,9 @@
 * Add an option to BackupEngine::GetBackupInfo to include the name and size of each backed-up file. Especially in the presence of file sharing among backups, this offers detailed insight into backup space usage.
 * Enable backward iteration on keys with user-defined timestamps.
 * Add statistics and info log for error handler: counters for bg error, bg io error, bg retryable io error, auto resume count, auto resume total retry number, and auto resume sucess; Histogram for auto resume retry count in each recovery call. Note that, each auto resume attempt will have one or multiple retries.
+
+### Behavior Changes
+* During flush, only WAL sync retryable IO error is mapped to hard error, which will stall the writes. When WAL is used but only SST file write has retryable IO error, it will be mapped to soft error and write will not be affected.
 
 ## 6.18.0 (02/19/2021)
 ### Behavior Changes
@@ -132,6 +146,7 @@
 * The settings of the DBOptions and ColumnFamilyOptions are now managed by Configurable objects (see New Features).  The same convenience methods to configure these options still exist but the backend implementation has been unified under a common implementation.
 
 ### New Features
+
 * Methods to configure serialize, and compare -- such as TableFactory -- are exposed directly through the Configurable base class (from which these objects inherit).  This change will allow for better and more thorough configuration management and retrieval in the future.  The options for a Configurable object can be set via the ConfigureFromMap, ConfigureFromString, or ConfigureOption method.  The serialized version of the options of an object can be retrieved via the GetOptionString, ToString, or GetOption methods.  The list of options supported by an object can be obtained via the GetOptionNames method.  The "raw" object (such as the BlockBasedTableOption) for an option may be retrieved via the GetOptions method.  Configurable options can be compared via the AreEquivalent method.  The settings within a Configurable object may be validated via the ValidateOptions method.  The object may be intialized (at which point only mutable options may be updated) via the PrepareOptions method.
 * Introduce options.check_flush_compaction_key_order with default value to be true. With this option, during flush and compaction, key order will be checked when writing to each SST file. If the order is violated, the flush or compaction will fail.
 * Added is_full_compaction to CompactionJobStats, so that the information is available through the EventListener interface.
