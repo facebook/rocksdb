@@ -221,8 +221,8 @@ class TestNvmCache : public NvmCache {
     s = (*save_cb)(value, 0, size, buf + sizeof(uint64_t));
     EXPECT_OK(s);
     return cache_->Insert(key, buf, size,
-                          [](const Slice& /*key*/, void* value) -> void {
-                            delete[] reinterpret_cast<char*>(value);
+                          [](const Slice& /*key*/, void* val) -> void {
+                            delete[] reinterpret_cast<char*>(val);
                           });
   }
 
@@ -263,7 +263,6 @@ class TestNvmCache : public NvmCache {
                        size_t size)
         : cache_(cache), handle_(handle), value_(value), size_(size) {}
     ~TestNvmCacheHandle() {
-      delete[] reinterpret_cast<char*>(cache_->Value(handle_));
       cache_->Release(handle_);
     }
 
