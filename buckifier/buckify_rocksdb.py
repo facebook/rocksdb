@@ -141,11 +141,15 @@ def generate_targets(repo_path, deps_map):
     TARGETS.add_library(
         "rocksdb_lib",
         src_mk["LIB_SOURCES"] +
+        # always add range_tree, it's only excluded on ppc64, which we don't use internally
+        src_mk["RANGE_TREE_SOURCES"] +
         src_mk["TOOL_LIB_SOURCES"])
     # rocksdb_whole_archive_lib
     TARGETS.add_library(
         "rocksdb_whole_archive_lib",
         src_mk["LIB_SOURCES"] +
+        # always add range_tree, it's only excluded on ppc64, which we don't use internally
+        src_mk["RANGE_TREE_SOURCES"] +
         src_mk["TOOL_LIB_SOURCES"],
         deps=None,
         headers=None,
