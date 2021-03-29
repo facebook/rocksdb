@@ -99,9 +99,9 @@ class TablePropertiesCollector {
   }
 
   // Called after each new block is cut
-  virtual void BlockAdd(uint64_t /* blockRawBytes */,
-                        uint64_t /* blockCompressedBytesFast */,
-                        uint64_t /* blockCompressedBytesSlow */) {
+  virtual void BlockAdd(uint64_t /* block_raw_bytes */,
+                        uint64_t /* block_compressed_bytes_fast */,
+                        uint64_t /* block_compressed_bytes_slow */) {
     // Nothing to do here. Callback registers can override.
     return;
   }

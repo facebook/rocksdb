@@ -72,7 +72,7 @@ using MultiGetRange = MultiGetContext::Range;
 // Note:  Many of the methods in this class have comments indicating that
 // external synchronization is required as these methods are not thread-safe.
 // It is up to higher layers of code to decide how to prevent concurrent
-// invokation of these methods.  This is usually done by acquiring either
+// invocation of these methods.  This is usually done by acquiring either
 // the db mutex or the single writer thread.
 //
 // Some of these methods are documented to only require external
@@ -139,7 +139,7 @@ class MemTable {
   // operations on the same MemTable (unless this Memtable is immutable).
   size_t ApproximateMemoryUsage();
 
-  // As a cheap version of `ApproximateMemoryUsage()`, this function doens't
+  // As a cheap version of `ApproximateMemoryUsage()`, this function doesn't
   // require external synchronization. The value may be less accurate though
   size_t ApproximateMemoryUsageFast() const {
     return approximate_memory_usage_.load(std::memory_order_relaxed);
@@ -533,7 +533,7 @@ class MemTable {
   SequenceNumber atomic_flush_seqno_;
 
   // keep track of memory usage in table_, arena_, and range_del_table_.
-  // Gets refrshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
+  // Gets refreshed inside `ApproximateMemoryUsage()` or `ShouldFlushNow`
   std::atomic<uint64_t> approximate_memory_usage_;
 
 #ifndef ROCKSDB_LITE

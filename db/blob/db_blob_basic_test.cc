@@ -236,7 +236,7 @@ TEST_F(DBBlobBasicTest, GenerateIOTracing) {
     ASSERT_OK(env_->FileExists(trace_file));
   }
   {
-    // Parse trace file to check file opertions related to blob files are
+    // Parse trace file to check file operations related to blob files are
     // recorded.
     std::unique_ptr<TraceReader> trace_reader;
     ASSERT_OK(
