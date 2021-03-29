@@ -5,7 +5,7 @@
 
 ### Bug Fixes
 * Use thread-safe `strerror_r()` to get error messages.
-* Fixed the potential hang issue when store closes in a special case. When store is unloading while there are scheduled compaction/flush, if HIGH priority pool is empty, both compactions and flushes are scheduled in LOW pool and the work counters were incorrect during unscheduling. After fix, the counters are now decremented in corresponding unschedule callbacks.
+* Fixed a potential hang in shutdown for a DB whose `Env` has high-pri thread pool disabled (`Env::GetBackgroundThreads(Env::Priority::HIGH) == 0`)
 
 ### Performance Improvements
 * On ARM platform, use `yield` instead of `wfe` to relax cpu to gain better performance.
