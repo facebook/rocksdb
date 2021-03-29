@@ -1891,7 +1891,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   std::string db_session_id;
   // crc32c checksum in hex. empty == unavailable / unknown
   std::string checksum_hex;
- 
+
   // Whenever a default checksum function name is passed in, we will compares
   // the corresponding checksum values after copying. Note that only table and
   // blob files may have a known checksum function name passed in.
