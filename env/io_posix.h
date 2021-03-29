@@ -159,6 +159,9 @@ inline void DeleteIOUring(void* p) {
 }
 
 inline struct io_uring* CreateIOUring() {
+  // TODO: consider activating queue polling (IORING_SETUP_SQPOLL) if
+  // allow_io_polling is set in ReadOptions
+
   struct io_uring* new_io_uring = new struct io_uring;
   int ret = io_uring_queue_init(kIoUringDepth, new_io_uring, 0);
   if (ret) {

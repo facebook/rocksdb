@@ -1500,6 +1500,11 @@ struct ReadOptions {
   // Default: std::numeric_limits<uint64_t>::max()
   uint64_t value_size_soft_limit;
 
+  // If set and the environment supports it, the environment may spend CPU
+  // cycles on IO polling in order to improve IO latency.
+  // Default: false
+  bool allow_io_polling;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
