@@ -299,6 +299,7 @@ ts_params = {
     "use_blob_db": 0,
     "enable_compaction_filter": 0,
     "ingest_external_file_one_in": 0,
+    "partition_filters": 0,
 }
 
 def finalize_and_sanitize(src_params):
