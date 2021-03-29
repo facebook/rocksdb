@@ -3492,6 +3492,99 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
   }
 }
 
+TEST_P(BackupableDBTestWithBlobParam, BlobFilesBackupUsingDirectIO) {
+  // Tests direct I/O on the backup engine's reads and writes on the DB env and
+  // backup env
+  // We use ChrootEnv underneath so the below line checks for direct I/O support
+  // in the chroot directory, not the true filesystem root.
+  if (!test::IsDirectIOSupported(test_db_env_.get(), "/")) {
+    ROCKSDB_GTEST_SKIP("Test requires Direct I/O Support");
+    return;
+  }
+  const int kNumKeysPerBackup = 100;
+  options_.use_direct_reads = true;
+  int num_direct_seq_readers_with_sst = 0, num_direct_seq_readers_with_blob = 0;
+
+  /* Open for sst files */
+  {
+    options_.enable_blob_files = false;
+    OpenDBAndBackupEngine(true /* destroy_old_data */);
+    FillDB(db_.get(), 0 /* from */, kNumKeysPerBackup /* to */, kFlushAll);
+
+    // Clear the file open counters and then do a bunch of backup engine ops.
+    // For all ops, files should be opened in direct mode.
+    test_backup_env_->ClearFileOpenCounters();
+    test_db_env_->ClearFileOpenCounters();
+    CloseBackupEngine();
+    OpenBackupEngine();
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                              false /* flush_before_backup */));
+    ASSERT_OK(backup_engine_->VerifyBackup(1));
+    CloseBackupEngine();
+    OpenBackupEngine();
+    std::vector<BackupInfo> backup_infos;
+    backup_engine_->GetBackupInfo(&backup_infos);
+    ASSERT_EQ(static_cast<size_t>(1), backup_infos.size());
+
+    // Verify backup engine always opened files with direct I/O
+    ASSERT_EQ(0, test_db_env_->num_writers());
+    ASSERT_GE(test_db_env_->num_direct_rand_readers(), 0);
+    ASSERT_GT(test_db_env_->num_direct_seq_readers(), 0);
+    // Currently the DB doesn't support reading WALs or manifest with direct
+    // I/O, so subtract two.
+    ASSERT_EQ(test_db_env_->num_seq_readers() - 2,
+              test_db_env_->num_direct_seq_readers());
+    ASSERT_EQ(test_db_env_->num_rand_readers(),
+              test_db_env_->num_direct_rand_readers());
+    num_direct_seq_readers_with_sst = test_db_env_->num_direct_seq_readers();
+    CloseDBAndBackupEngine();
+  }
+
+  /* Open for blob files */
+  {
+    options_.enable_blob_files = true;
+    OpenDBAndBackupEngine(false /* destroy_old_data */);
+    FillDB(db_.get(), kNumKeysPerBackup /* from */,
+           2 * kNumKeysPerBackup /* to */, kFlushAll);
+
+    // Clear the file open counters and then do a bunch of backup engine ops.
+    // For all ops, files should be opened in direct mode.
+    test_backup_env_->ClearFileOpenCounters();
+    test_db_env_->ClearFileOpenCounters();
+    CloseBackupEngine();
+    OpenBackupEngine();
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
+                                              false /* flush_before_backup */));
+    ASSERT_OK(backup_engine_->VerifyBackup(2));
+    CloseBackupEngine();
+    OpenBackupEngine();
+    std::vector<BackupInfo> backup_infos;
+    backup_engine_->GetBackupInfo(&backup_infos);
+    ASSERT_EQ(static_cast<size_t>(2), backup_infos.size());
+
+    // Verify backup engine always opened files with direct I/O
+    ASSERT_EQ(0, test_db_env_->num_writers());
+    ASSERT_GE(test_db_env_->num_direct_rand_readers(), 0);
+    ASSERT_GT(test_db_env_->num_direct_seq_readers(), 0);
+    // Currently the DB doesn't support reading WALs or manifest with direct
+    // I/O, so subtract two.
+    ASSERT_EQ(test_db_env_->num_seq_readers() - 2,
+              test_db_env_->num_direct_seq_readers());
+    ASSERT_EQ(test_db_env_->num_rand_readers(),
+              test_db_env_->num_direct_rand_readers());
+    num_direct_seq_readers_with_blob = test_db_env_->num_direct_seq_readers();
+    CloseDBAndBackupEngine();
+  }
+  ASSERT_GT(num_direct_seq_readers_with_blob, num_direct_seq_readers_with_sst);
+
+  AssertBackupConsistency(1 /* backup_id */, 0 /* start_exist */,
+                          kNumKeysPerBackup /* end_exist */,
+                          2 * kNumKeysPerBackup /* end */);
+  AssertBackupConsistency(
+      2 /* backup_id */, kNumKeysPerBackup /* start_exist */,
+      2 * kNumKeysPerBackup /* end_exist */, 3 * kNumKeysPerBackup /* end */);
+}
+
 TEST_F(BackupableDBTest, BackgroundThreadCpuPriority) {
   std::atomic<CpuPriority> priority(CpuPriority::kNormal);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(

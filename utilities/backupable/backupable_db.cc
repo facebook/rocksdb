@@ -1304,6 +1304,10 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
               src_env_options =
                   db_env_->OptimizeForManifestRead(src_raw_env_options);
               break;
+            case kBlobFile:
+              src_env_options = db_env_->OptimizeForBlobFileRead(
+                  src_raw_env_options, ImmutableDBOptions(db_options));
+              break;
             default:
               // Other backed up files (like options file) are not read by live
               // DB, so don't need to worry about avoiding mixing buffered and
