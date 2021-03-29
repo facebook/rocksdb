@@ -501,6 +501,12 @@ ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
   LIB_OBJECTS += $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(FOLLY_SOURCES))
 endif
 
+# range_tree is not compatible with non GNU libc on ppc64
+# see https://jira.percona.com/browse/PS-7559
+ifneq ($(PPC_LIBC_IS_GNU),0)
+  LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(RANGE_TREE_SOURCES))
+endif
+
 GTEST = $(OBJ_DIR)/$(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = $(OBJ_DIR)/test_util/testutil.o
 TESTHARNESS = $(OBJ_DIR)/test_util/testharness.o $(TESTUTIL) $(GTEST)

@@ -668,6 +668,23 @@ else
   fi
 fi
 
+if test -n "`echo $TARGET_ARCHITECTURE | grep ^ppc64`"; then
+  # check for GNU libc on ppc64
+  $CXX -x c++ - -o /dev/null 2>/dev/null <<EOF
+    #include <stdio.h>
+    #include <stdlib.h>
+    #include <gnu/libc-version.h>
+
+    int main(int argc, char *argv[]) {
+      printf("GNU libc version: %s\n", gnu_get_libc_version());
+      return 0;
+    }
+EOF
+  if [ "$?" != 0 ]; then
+      PPC_LIBC_IS_GNU=0
+  fi
+fi
+
 if test "$TRY_SSE_ETC"; then
   # The USE_SSE flag now means "attempt to compile with widely-available
   # Intel architecture extensions utilized by specific optimizations in the
@@ -860,4 +877,7 @@ fi
 echo "LUA_PATH=$LUA_PATH" >> "$OUTPUT"
 if test -n "$USE_FOLLY_DISTRIBUTED_MUTEX"; then
   echo "USE_FOLLY_DISTRIBUTED_MUTEX=$USE_FOLLY_DISTRIBUTED_MUTEX" >> "$OUTPUT"
+fi
+if test -n "$PPC_LIBC_IS_GNU"; then
+  echo "PPC_LIBC_IS_GNU=$PPC_LIBC_IS_GNU" >> "$OUTPUT"
 fi
