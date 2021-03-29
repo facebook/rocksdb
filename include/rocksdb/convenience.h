@@ -93,7 +93,7 @@ struct ConfigOptions {
 #ifndef ROCKSDB_LITE
 
 // The following set of functions provide a way to construct RocksDB Options
-// from a string or a string-to-string map.  Here're the general rule of
+// from a string or a string-to-string map.  Here is the general rule of
 // setting option values from strings by type.  Some RocksDB types are also
 // supported in these APIs.  Please refer to the comment of the function itself
 // to find more information about how to config those RocksDB types.
@@ -149,7 +149,7 @@ struct ConfigOptions {
 // ColumnFamilyOptions "new_options".
 //
 // Below are the instructions of how to config some non-primitive-typed
-// options in ColumnFOptions:
+// options in ColumnFamilyOptions:
 //
 // * table_factory:
 //   table_factory can be configured using our custom nested-option syntax.
@@ -191,7 +191,7 @@ struct ConfigOptions {
 //     * {"memtable", "skip_list:5"} is equivalent to setting
 //       memtable to SkipListFactory(5).
 //   - PrefixHash:
-//     Pass "prfix_hash:<hash_bucket_count>" to config memtable
+//     Pass "prefix_hash:<hash_bucket_count>" to config memtable
 //     to use PrefixHash, or simply "prefix_hash" to use the default
 //     PrefixHash.
 //     [Example]:
