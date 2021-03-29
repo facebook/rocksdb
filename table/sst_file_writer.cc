@@ -210,8 +210,6 @@ Status SstFileWriter::Open(const std::string& file_path) {
     compression_type = r->mutable_cf_options.compression;
     compression_opts = r->mutable_cf_options.compression_opts;
   }
-  uint64_t sample_for_compression =
-      r->mutable_cf_options.sample_for_compression;
 
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
@@ -252,10 +250,9 @@ Status SstFileWriter::Open(const std::string& file_path) {
   }
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, r->internal_comparator,
-      &int_tbl_prop_collector_factories, compression_type,
-      sample_for_compression, compression_opts, r->skip_filters,
-      r->column_family_name, unknown_level, 0 /* creation_time */,
-      0 /* oldest_key_time */, 0 /* target_file_size */,
+      &int_tbl_prop_collector_factories, compression_type, compression_opts,
+      r->skip_filters, r->column_family_name, unknown_level,
+      0 /* creation_time */, 0 /* oldest_key_time */, 0 /* target_file_size */,
       0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id);
   FileTypeSet tmp_set = r->ioptions.checksum_handoff_file_types;
   r->file_writer.reset(new WritableFileWriter(

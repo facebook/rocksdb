@@ -253,7 +253,7 @@ extern Status CheckCFPathsSupported(const DBOptions& db_options,
 
 extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                            const ColumnFamilyOptions& src);
-// Wrap user defined table proproties collector factories `from cf_options`
+// Wrap user defined table properties collector factories `from cf_options`
 // into internal ones in int_tbl_prop_collector_factories. Add a system internal
 // one too.
 extern void GetIntTblPropCollectorFactory(
@@ -441,7 +441,7 @@ class ColumnFamilyData {
   // Get SuperVersion stored in thread local storage. If it does not exist,
   // get a reference from a current SuperVersion.
   SuperVersion* GetThreadLocalSuperVersion(DBImpl* db);
-  // Try to return SuperVersion back to thread local storage. Retrun true on
+  // Try to return SuperVersion back to thread local storage. Return true on
   // success and false on failure. It fails when the thread local storage
   // contains anything other than SuperVersion::kSVInUse flag.
   bool ReturnThreadLocalSuperVersion(SuperVersion* sv);

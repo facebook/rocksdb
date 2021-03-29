@@ -19,6 +19,7 @@
 #include "env/composite_env_wrapper.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/status.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 namespace {
@@ -333,7 +334,7 @@ class ChrootFileSystem : public FileSystemWrapper {
     char* normalized_path = realpath(res.second.c_str(), nullptr);
 #endif
     if (normalized_path == nullptr) {
-      res.first = IOStatus::NotFound(res.second, strerror(errno));
+      res.first = IOStatus::NotFound(res.second, errnoStr(errno).c_str());
     } else if (strlen(normalized_path) < chroot_dir_.size() ||
                strncmp(normalized_path, chroot_dir_.c_str(),
                        chroot_dir_.size()) != 0) {
