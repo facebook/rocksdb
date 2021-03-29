@@ -616,7 +616,7 @@ class IterKey {
   void EnlargeBuffer(size_t key_size);
 };
 
-// Convert from a SliceTranform of user keys, to a SliceTransform of
+// Convert from a SliceTransform of user keys, to a SliceTransform of
 // user keys.
 class InternalKeySliceTransform : public SliceTransform {
  public:

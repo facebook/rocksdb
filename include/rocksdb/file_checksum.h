@@ -116,7 +116,7 @@ class FileChecksumList {
 // Create a new file checksum list.
 extern FileChecksumList* NewFileChecksumList();
 
-// Return a shared_ptr of the builtin Crc32c based file checksum generatory
+// Return a shared_ptr of the builtin Crc32c based file checksum generator
 // factory object, which can be shared to create the Crc32c based checksum
 // generator object.
 // Note: this implementation is compatible with many other crc32c checksum

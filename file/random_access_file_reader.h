@@ -38,7 +38,7 @@ FSReadRequest Align(const FSReadRequest& r, size_t alignment);
 // Otherwise, do nothing and return false.
 bool TryMerge(FSReadRequest* dest, const FSReadRequest& src);
 
-// RandomAccessFileReader is a wrapper on top of Env::RnadomAccessFile. It is
+// RandomAccessFileReader is a wrapper on top of Env::RandomAccessFile. It is
 // responsible for:
 // - Handling Buffered and Direct reads appropriately.
 // - Rate limiting compaction reads.

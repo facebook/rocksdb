@@ -255,7 +255,7 @@ class OptionTypeInfo {
   // - Create a static map of string values to the corresponding enum value
   // - Call this method passing the static map in as a parameter.
   // Note that it is not necessary to add a new OptionType or make any
-  // other changes -- the returned object handles parsing, serialiation, and
+  // other changes -- the returned object handles parsing, serialization, and
   // comparisons.
   //
   // @param offset The offset in the option object for this enum
@@ -718,7 +718,7 @@ class OptionTypeInfo {
   // @param opts The string in which to find the next token
   // @param delimiter The delimiter between tokens
   // @param start     The position in opts to start looking for the token
-  // @parem ed        Returns the end position in opts of the token
+  // @param ed        Returns the end position in opts of the token
   // @param token     Returns the token
   // @returns OK if a token was found
   // @return InvalidArgument if the braces mismatch
@@ -859,7 +859,7 @@ Status SerializeVector(const ConfigOptions& config_options,
 // @param vec1,vec2 The vectors to compare.
 // @param mismatch  If the vectors are not equivalent, mismatch will point to
 // the first
-//                  element of the comparison tht did not match.
+//                  element of the comparison that did not match.
 // @return true     If vec1 and vec2 are "equal", false otherwise
 template <typename T>
 bool VectorsAreEqual(const ConfigOptions& config_options,
