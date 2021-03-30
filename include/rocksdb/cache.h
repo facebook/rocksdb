@@ -175,7 +175,7 @@ class Cache {
   // contiguous buffer, in which case this callback will be called multiple
   // times with increasing offset
   typedef ROCKSDB_NAMESPACE::Status (*SaveToCallback)(void* obj, size_t offset,
-                                            size_t size, void* out);
+                                                      size_t size, void* out);
 
   // DeletionCallback is a function pointer that deletes the cached
   // object. The signature matches the old deleter function.
@@ -191,8 +191,8 @@ class Cache {
   // takes in a buffer from the NVM cache and constructs an object using
   // it. The callback doesn't have ownership of the buffer and should
   // copy the contents into its own buffer.
-  typedef std::function<ROCKSDB_NAMESPACE::Status(void* buf, size_t size,
-                                      void** out_obj, size_t* charge)>
+  typedef std::function<ROCKSDB_NAMESPACE::Status(
+      void* buf, size_t size, void** out_obj, size_t* charge)>
       CreateCallback;
 
   Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)

@@ -262,9 +262,7 @@ class TestNvmCache : public NvmCache {
     TestNvmCacheHandle(Cache* cache, Cache::Handle* handle, void* value,
                        size_t size)
         : cache_(cache), handle_(handle), value_(value), size_(size) {}
-    ~TestNvmCacheHandle() {
-      cache_->Release(handle_);
-    }
+    ~TestNvmCacheHandle() { cache_->Release(handle_); }
 
     bool isReady() override { return true; }
 
@@ -351,7 +349,7 @@ TEST_F(LRUCacheTest, TestNvmCache) {
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k2 should be demoted to NVM
-  cache->Insert("k2", item2, helper_cb, str2.length());
+  ASSERT_OK(cache->Insert("k2", item2, helper_cb, str2.length()));
 
   Cache::Handle* handle;
   handle = cache->Lookup("k2", helper_cb, test_item_creator,
