@@ -59,7 +59,8 @@ inline bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
 inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr) {
     IOOptions opts;
-    Status s = file_->PrepareIOOptions(read_options_, opts);
+    io_status_ = file_->PrepareIOOptions(read_options_, opts);
+    Status s = io_status_;
     if (s.ok() && prefetch_buffer_->TryReadFromCache(
                       opts, handle_.offset(), block_size_with_trailer_, &slice_,
                       &s, for_compaction_)) {
@@ -229,21 +230,25 @@ Status BlockFetcher::ReadBlockContents() {
     }
   } else if (!TryGetCompressedBlockFromPersistentCache()) {
     IOOptions opts;
-    status_ = file_->PrepareIOOptions(read_options_, opts);
+    io_status_ = file_->PrepareIOOptions(read_options_, opts);
+    status_ = io_status_;
     // Actual file read
     if (status_.ok()) {
       if (file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
-        status_ =
+        io_status_ =
             file_->Read(opts, handle_.offset(), block_size_with_trailer_,
                         &slice_, nullptr, &direct_io_buf_, for_compaction_);
+        status_ = io_status_;
         PERF_COUNTER_ADD(block_read_count, 1);
         used_buf_ = const_cast<char*>(slice_.data());
       } else {
         PrepareBufferForBlockFromFile();
         PERF_TIMER_GUARD(block_read_time);
-        status_ = file_->Read(opts, handle_.offset(), block_size_with_trailer_,
-                              &slice_, used_buf_, nullptr, for_compaction_);
+        io_status_ =
+            file_->Read(opts, handle_.offset(), block_size_with_trailer_,
+                        &slice_, used_buf_, nullptr, for_compaction_);
+        status_ = io_status_;
         PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
         if (slice_.data() == &stack_buf_[0]) {
