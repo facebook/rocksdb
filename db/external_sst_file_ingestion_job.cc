@@ -40,16 +40,25 @@ Status ExternalSstFileIngestionJob::Prepare(
     if (!status.ok()) {
       return status;
     }
-    files_to_ingest_.push_back(file_to_ingest);
-  }
 
-  for (const IngestedFileInfo& f : files_to_ingest_) {
-    if (f.cf_id !=
+    if (file_to_ingest.cf_id !=
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily &&
-        f.cf_id != cfd_->GetID()) {
+        file_to_ingest.cf_id != cfd_->GetID()) {
       return Status::InvalidArgument(
           "External file column family id don't match");
     }
+
+    if (file_to_ingest.num_entries == 0 &&
+        file_to_ingest.num_range_deletions == 0) {
+      return Status::InvalidArgument("File contain no entries");
+    }
+
+    if (!file_to_ingest.smallest_internal_key.Valid() ||
+        !file_to_ingest.largest_internal_key.Valid()) {
+      return Status::Corruption("Generated table have corrupted keys");
+    }
+
+    files_to_ingest_.emplace_back(std::move(file_to_ingest));
   }
 
   const Comparator* ucmp = cfd_->internal_comparator().user_comparator();
@@ -81,16 +90,6 @@ Status ExternalSstFileIngestionJob::Prepare(
 
   if (ingestion_options_.ingest_behind && files_overlap_) {
     return Status::NotSupported("Files have overlapping ranges");
-  }
-
-  for (IngestedFileInfo& f : files_to_ingest_) {
-    if (f.num_entries == 0 && f.num_range_deletions == 0) {
-      return Status::InvalidArgument("File contain no entries");
-    }
-
-    if (!f.smallest_internal_key.Valid() || !f.largest_internal_key.Valid()) {
-      return Status::Corruption("Generated table have corrupted keys");
-    }
   }
 
   // Copy/Move external files into DB
