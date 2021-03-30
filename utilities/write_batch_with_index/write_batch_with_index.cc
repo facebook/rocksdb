@@ -256,7 +256,6 @@ Iterator* WriteBatchWithIndex::NewIteratorWithBase(
     ColumnFamilyHandle* column_family, Iterator* base_iterator,
     const ReadOptions* read_options) {
   if (rep->overwrite_key == false) {
-    assert(false);
     return nullptr;
   }
   return new BaseDeltaIterator(base_iterator, NewIterator(column_family),
@@ -266,7 +265,6 @@ Iterator* WriteBatchWithIndex::NewIteratorWithBase(
 
 Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
   if (rep->overwrite_key == false) {
-    assert(false);
     return nullptr;
   }
   // default column family's comparator

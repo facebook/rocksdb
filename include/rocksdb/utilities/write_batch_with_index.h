@@ -162,7 +162,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // base_iterator as base.
   //
   // This function is only supported if the WriteBatchWithIndex was
-  // constructed with overwrite_key=true.
+  // constructed with overwrite_key=true, otherwise nullptr
+  // is returned.
   //
   // The returned iterator should be deleted by the caller.
   // The base_iterator is now 'owned' by the returned iterator. Deleting the

@@ -11,6 +11,7 @@ package org.rocksdb;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.assertNull;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -551,6 +552,92 @@ public class WriteBatchWithIndexTest {
       return iterator.isValid() &&
           Arrays.equals(key, iterator.key()) ?
           new String(iterator.value()) : null;
+    }
+  }
+
+  @Test
+  public void iteratorWithBaseOverwriteTrue() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+           final RocksIterator baseIter = db.newIterator();
+           final RocksIterator wbwiIter = wbwi.newIteratorWithBase(baseIter)) {
+        assertThat(wbwiIter).isNotNull();
+      }
+
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+           final RocksIterator baseIter = db.newIterator();
+           final ReadOptions readOptions = new ReadOptions();
+           final RocksIterator wbwiIter = wbwi.newIteratorWithBase(baseIter, readOptions)) {
+        assertThat(wbwiIter).isNotNull();
+      }
+    }
+
+    final List<ColumnFamilyDescriptor> cfNames =
+        Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+            new ColumnFamilyDescriptor("new_cf".getBytes()));
+    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
+    try (final DBOptions options =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(
+             options, dbFolder.getRoot().getAbsolutePath(), cfNames, columnFamilyHandleList)) {
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+           final RocksIterator baseIter = db.newIterator();
+           final RocksIterator wbwiIter =
+               wbwi.newIteratorWithBase(columnFamilyHandleList.get(1), baseIter)) {
+        assertThat(wbwiIter).isNotNull();
+      }
+
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+           final RocksIterator baseIter = db.newIterator();
+           final ReadOptions readOptions = new ReadOptions();
+           final RocksIterator wbwiIter =
+               wbwi.newIteratorWithBase(columnFamilyHandleList.get(1), baseIter, readOptions)) {
+        assertThat(wbwiIter).isNotNull();
+      }
+    }
+  }
+
+  @Test
+  public void iteratorWithBaseOverwriteFalse() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(false);
+           final RocksIterator baseIter = db.newIterator();
+           final RocksIterator wbwiIter = wbwi.newIteratorWithBase(baseIter)) {
+        assertThat(wbwiIter).isNull();
+      }
+
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(false);
+           final RocksIterator baseIter = db.newIterator();
+           final ReadOptions readOptions = new ReadOptions();
+           final RocksIterator wbwiIter = wbwi.newIteratorWithBase(baseIter, readOptions)) {
+        assertThat(wbwiIter).isNull();
+      }
+    }
+
+    final List<ColumnFamilyDescriptor> cfNames =
+        Arrays.asList(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+            new ColumnFamilyDescriptor("new_cf".getBytes()));
+    final List<ColumnFamilyHandle> columnFamilyHandleList = new ArrayList<>();
+    try (final DBOptions options =
+             new DBOptions().setCreateIfMissing(true).setCreateMissingColumnFamilies(true);
+         final RocksDB db = RocksDB.open(
+             options, dbFolder.getRoot().getAbsolutePath(), cfNames, columnFamilyHandleList)) {
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(false);
+           final RocksIterator baseIter = db.newIterator();
+           final RocksIterator wbwiIter =
+               wbwi.newIteratorWithBase(columnFamilyHandleList.get(1), baseIter)) {
+        assertThat(wbwiIter).isNull();
+      }
+
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(false);
+           final RocksIterator baseIter = db.newIterator();
+           final ReadOptions readOptions = new ReadOptions();
+           final RocksIterator wbwiIter =
+               wbwi.newIteratorWithBase(columnFamilyHandleList.get(1), baseIter, readOptions)) {
+        assertThat(wbwiIter).isNull();
+      }
     }
   }
 

@@ -20,6 +20,8 @@ import java.nio.ByteBuffer;
  * to get an iterator for the database with Read-Your-Own-Writes like capability
  */
 public class WriteBatchWithIndex extends AbstractWriteBatch {
+  private final boolean overwriteKey;
+
   /**
    * Creates a WriteBatchWithIndex where no bytes
    * are reserved up-front, bytewise comparison is
@@ -28,6 +30,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    */
   public WriteBatchWithIndex() {
     super(newWriteBatchWithIndex());
+    this.overwriteKey = false;
   }
 
 
@@ -43,6 +46,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    */
   public WriteBatchWithIndex(final boolean overwriteKey) {
     super(newWriteBatchWithIndex(overwriteKey));
+    this.overwriteKey = overwriteKey;
   }
 
   /**
@@ -65,6 +69,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
     super(newWriteBatchWithIndex(fallbackIndexComparator.nativeHandle_,
         fallbackIndexComparator.getComparatorType().getValue(), reservedBytes,
         overwriteKey));
+    this.overwriteKey = overwriteKey;
   }
 
   /**
@@ -77,6 +82,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   WriteBatchWithIndex(final long nativeHandle) {
     super(nativeHandle);
     disOwnNativeHandle();
+    this.overwriteKey = false;
   }
 
   /**
@@ -116,8 +122,12 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * creating a new Iterator that will use {@link org.rocksdb.WBWIRocksIterator}
    * as a delta and baseIterator as a base
    *
+   * This function is only supported if the WriteBatchWithIndex was
+   * constructed with overwriteKey=true, otherwise nullptr
+   * is returned.
+   *
    * Updating write batch with the current key of the iterator is not safe.
-   * We strongly recommand users not to do it. It will invalidate the current
+   * We strongly recommend users not to do it. It will invalidate the current
    * key() and value() of the iterator. This invalidation happens even before
    * the write batch update finishes. The state may recover after Next() is
    * called.
@@ -128,9 +138,12 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * @return An iterator which shows a view comprised of both the database
    * point-in-time from baseIterator and modifications made in this write batch.
    */
-  public RocksIterator newIteratorWithBase(
-      final ColumnFamilyHandle columnFamilyHandle,
-      final RocksIterator baseIterator) {
+  public /* @Nullable */ RocksIterator newIteratorWithBase(
+      final ColumnFamilyHandle columnFamilyHandle, final RocksIterator baseIterator) {
+    if (!overwriteKey) {
+      return null;
+    }
+
     return newIteratorWithBase(columnFamilyHandle, baseIterator, null);
   }
 
@@ -138,6 +151,10 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * Provides Read-Your-Own-Writes like functionality by
    * creating a new Iterator that will use {@link org.rocksdb.WBWIRocksIterator}
    * as a delta and baseIterator as a base
+   *
+   * This function is only supported if the WriteBatchWithIndex was
+   * constructed with overwriteKey=true, otherwise nullptr
+   * is returned.
    *
    * Updating write batch with the current key of the iterator is not safe.
    * We strongly recommand users not to do it. It will invalidate the current
@@ -152,8 +169,13 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * @return An iterator which shows a view comprised of both the database
    * point-in-time from baseIterator and modifications made in this write batch.
    */
-  public RocksIterator newIteratorWithBase(final ColumnFamilyHandle columnFamilyHandle,
-      final RocksIterator baseIterator, /* @Nullable */ final ReadOptions readOptions) {
+  public /* @Nullable */ RocksIterator newIteratorWithBase(
+      final ColumnFamilyHandle columnFamilyHandle, final RocksIterator baseIterator,
+      /* @Nullable */ final ReadOptions readOptions) {
+    if (!overwriteKey) {
+      return null;
+    }
+
     final RocksIterator iterator = new RocksIterator(baseIterator.parent_,
         iteratorWithBase(nativeHandle_, columnFamilyHandle.nativeHandle_,
             baseIterator.nativeHandle_, readOptions == null ? 0 : readOptions.nativeHandle_));

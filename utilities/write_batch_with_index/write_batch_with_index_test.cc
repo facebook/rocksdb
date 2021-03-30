@@ -680,7 +680,7 @@ TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
   }
 }
 
-TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
+TEST_F(WriteBatchWithIndexTest, TestIteratorWithBaseOverwriteTrue) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
@@ -692,6 +692,7 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
     map["e"] = "ee";
     std::unique_ptr<Iterator> iter(
         batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
+    ASSERT_NE(nullptr, iter);
 
     iter->SeekToFirst();
     AssertIter(iter.get(), "a", "aa");
@@ -730,6 +731,7 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
     KVMap empty_map;
     std::unique_ptr<Iterator> iter(
         batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map)));
+    ASSERT_NE(nullptr, iter);
 
     iter->SeekToFirst();
     AssertIter(iter.get(), "a", "aa");
@@ -750,6 +752,7 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
     map["f"] = "ff";
     std::unique_ptr<Iterator> iter(
         batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
+    ASSERT_NE(nullptr, iter);
 
     iter->SeekToFirst();
     AssertIter(iter.get(), "a", "aa");
@@ -808,6 +811,7 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
     KVMap empty_map;
     std::unique_ptr<Iterator> iter(
         batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map)));
+    ASSERT_NE(nullptr, iter);
 
     iter->SeekToFirst();
     AssertIter(iter.get(), "a", "aa");
@@ -840,6 +844,32 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
 
     iter->Prev();
     AssertIter(iter.get(), "c", "cc");
+  }
+}
+
+TEST_F(WriteBatchWithIndexTest, TestIteratorWithBaseOverwriteFalse) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, false);
+  ReadOptions read_options;
+
+  {
+    KVMap map;
+    std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(new KVIter(&map)));
+    ASSERT_EQ(nullptr, iter);
+  }
+
+  {
+    KVMap map;
+    std::unique_ptr<Iterator> iter(
+        batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
+    ASSERT_EQ(nullptr, iter);
+  }
+
+  {
+    KVMap map;
+    std::unique_ptr<Iterator> iter(
+        batch.NewIteratorWithBase(&cf1, new KVIter(&map), &read_options));
+    ASSERT_EQ(nullptr, iter);
   }
 }
 
