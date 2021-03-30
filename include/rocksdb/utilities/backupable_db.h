@@ -470,7 +470,7 @@ class BackupEngine {
   virtual Status DeleteBackup(BackupID backup_id) = 0;
 
   // Call this from another thread if you want to stop the backup
-  // that is currently happening. It will return immediatelly, will
+  // that is currently happening. It will return immediately, will
   // not wait for the backup to stop.
   // The backup will stop ASAP and the call to CreateNewBackup will
   // return Status::Incomplete(). It will not clean up after itself, but

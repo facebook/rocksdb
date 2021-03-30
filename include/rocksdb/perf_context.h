@@ -57,7 +57,7 @@ struct PerfContext {
   // enable per level perf context and allocate storage for PerfContextByLevel
   void EnablePerLevelPerfContext();
 
-  // temporarily disable per level perf contxt by setting the flag to false
+  // temporarily disable per level perf context by setting the flag to false
   void DisablePerLevelPerfContext();
 
   // free the space for PerfContextByLevel, also disable per level perf context

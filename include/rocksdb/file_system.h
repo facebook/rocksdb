@@ -473,7 +473,7 @@ class FileSystem {
                                     IODebugContext* dbg) = 0;
 
   // Create and returns a default logger (an instance of EnvLogger) for storing
-  // informational messages. Derived classes can overide to provide custom
+  // informational messages. Derived classes can override to provide custom
   // logger.
   virtual IOStatus NewLogger(const std::string& fname, const IOOptions& io_opts,
                              std::shared_ptr<Logger>* result,
@@ -725,7 +725,7 @@ class FSRandomAccessFile {
 };
 
 // A data structure brings the data verification information, which is
-// used togther with data being written to a file.
+// used together with data being written to a file.
 struct DataVerificationInfo {
   // checksum of the data being written.
   Slice checksum;
@@ -753,7 +753,7 @@ class FSWritableFile {
   virtual ~FSWritableFile() {}
 
   // Append data to the end of the file
-  // Note: A WriteabelFile object must support either Append or
+  // Note: A WriteableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;
