@@ -75,6 +75,8 @@ inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
       return true;
     }
   }
+  // TODO: remove it in the future when io_status_ is checked in all place.
+  io_status_.PermitUncheckedError();
   return got_from_prefetch_buffer_;
 }
 
@@ -261,6 +263,8 @@ Status BlockFetcher::ReadBlockContents() {
 #endif
       }
     }
+    // TODO: remove it in the future when io_status_ is checked in all place.
+    io_status_.PermitUncheckedError();
 
     // TODO: introduce dedicated perf counter for range tombstones
     switch (block_type_) {
