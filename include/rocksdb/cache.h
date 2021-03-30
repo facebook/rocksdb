@@ -174,7 +174,7 @@ class Cache {
   // data into a buffer. The NVM cache may decide to not store it in a
   // contiguous buffer, in which case this callback will be called multiple
   // times with increasing offset
-  typedef rocksdb::Status (*SaveToCallback)(void* obj, size_t offset,
+  typedef ROCKSDB_NAMESPACE::Status (*SaveToCallback)(void* obj, size_t offset,
                                             size_t size, void* out);
 
   // DeletionCallback is a function pointer that deletes the cached
@@ -191,8 +191,8 @@ class Cache {
   // takes in a buffer from the NVM cache and constructs an object using
   // it. The callback doesn't have ownership of the buffer and should
   // copy the contents into its own buffer.
-  typedef std::function<rocksdb::Status(void* buf, size_t size, void** out_obj,
-                                        size_t* charge)>
+  typedef std::function<ROCKSDB_NAMESPACE::Status(void* buf, size_t size,
+                                      void** out_obj, size_t* charge)>
       CreateCallback;
 
   Cache(std::shared_ptr<MemoryAllocator> allocator = nullptr)
@@ -275,7 +275,7 @@ class Cache {
                         CacheItemHelperCallback helper_cb, size_t charge,
                         Handle** handle = nullptr,
                         Priority priority = Priority::LOW) {
-    DeletionCallback delete_cb;
+    DeletionCallback delete_cb = nullptr;
     (*helper_cb)(nullptr, nullptr, &delete_cb);
     return Insert(key, value, charge, delete_cb, handle, priority);
   }
