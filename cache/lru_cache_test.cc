@@ -229,7 +229,7 @@ class TestNvmCache : public NvmCache {
   std::unique_ptr<NvmCacheHandle> Lookup(const Slice& key,
                                          const Cache::CreateCallback& create_cb,
                                          bool /*wait*/) override {
-    std::unique_ptr<TestNvmCacheHandle> nvm_handle;
+    std::unique_ptr<NvmCacheHandle> nvm_handle;
     Cache::Handle* handle = cache_->Lookup(key);
     num_lookups_++;
     if (handle) {
@@ -363,8 +363,8 @@ TEST_F(LRUCacheTest, TestNvmCache) {
                          Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
-  ASSERT_EQ(nvm_cache->num_inserts(), 2);
-  ASSERT_EQ(nvm_cache->num_lookups(), 1);
+  ASSERT_EQ(nvm_cache->num_inserts(), 2u);
+  ASSERT_EQ(nvm_cache->num_lookups(), 1u);
 }
 }  // namespace ROCKSDB_NAMESPACE
 
