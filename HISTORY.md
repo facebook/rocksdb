@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.16.4 (03/30/2021)
+### Bug Fixes
+* Fix build on ppc64 and musl build.
+
 ## 6.16.3 (02/05/2021)
 ### Bug Fixes
 * Since 6.15.0, `TransactionDB` returns error `Status`es from calls to `DeleteRange()` and calls to `Write()` where the `WriteBatch` contains a range deletion. Previously such operations may have succeeded while not providing the expected transactional guarantees. There are certain cases where range deletion can still be used on such DBs; see the API doc on `TransactionDB::DeleteRange()` for details.
