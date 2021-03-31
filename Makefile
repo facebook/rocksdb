@@ -259,6 +259,8 @@ AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.
 # Export some common variables that might have been passed as Make variables
 # instead of environment variables.
 dummy := $(shell (export ROCKSDB_ROOT="$(CURDIR)"; \
+                  export CXXFLAGS="$(EXTRA_CXXFLAGS)"; \
+                  export LDFLAGS="$(EXTRA_LDFLAGS)"; \
                   export COMPILE_WITH_ASAN="$(COMPILE_WITH_ASAN)"; \
                   export COMPILE_WITH_TSAN="$(COMPILE_WITH_TSAN)"; \
                   export COMPILE_WITH_UBSAN="$(COMPILE_WITH_UBSAN)"; \
