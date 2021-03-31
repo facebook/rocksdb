@@ -1560,16 +1560,18 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     rep_->props.creation_time = rep_->creation_time;
     rep_->props.oldest_key_time = rep_->oldest_key_time;
     rep_->props.file_creation_time = rep_->file_creation_time;
-    rep_->props.slow_compression_estimated_data_size = static_cast<uint64_t>(
-        static_cast<double>(rep_->sampled_output_slow_data_bytes) /
-            rep_->sampled_input_data_bytes *
-            rep_->compressible_input_data_bytes +
-        rep_->uncompressible_input_data_bytes + 0.5);
-    rep_->props.fast_compression_estimated_data_size = static_cast<uint64_t>(
-        static_cast<double>(rep_->sampled_output_fast_data_bytes) /
-            rep_->sampled_input_data_bytes *
-            rep_->compressible_input_data_bytes +
-        rep_->uncompressible_input_data_bytes + 0.5);
+    if (rep_->sampled_input_data_bytes > 0) {
+      rep_->props.slow_compression_estimated_data_size = static_cast<uint64_t>(
+          static_cast<double>(rep_->sampled_output_slow_data_bytes) /
+              rep_->sampled_input_data_bytes *
+              rep_->compressible_input_data_bytes +
+          rep_->uncompressible_input_data_bytes + 0.5);
+      rep_->props.fast_compression_estimated_data_size = static_cast<uint64_t>(
+          static_cast<double>(rep_->sampled_output_fast_data_bytes) /
+              rep_->sampled_input_data_bytes *
+              rep_->compressible_input_data_bytes +
+          rep_->uncompressible_input_data_bytes + 0.5);
+    }
     rep_->props.db_id = rep_->db_id;
     rep_->props.db_session_id = rep_->db_session_id;
     rep_->props.db_host_id = rep_->db_host_id;
