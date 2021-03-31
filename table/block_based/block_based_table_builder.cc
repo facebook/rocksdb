@@ -1582,6 +1582,15 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
               rep_->sampled_input_data_bytes *
               rep_->compressible_input_data_bytes +
           rep_->uncompressible_input_data_bytes + 0.5);
+    } else if (rep_->sample_for_compression > 0) {
+      // We tried to sample but none were found. Assume worst-case (compression
+      // ratio 1.0) so data is complete and aggregatable.
+      rep_->props.slow_compression_estimated_data_size =
+          rep_->compressible_input_data_bytes +
+          rep_->uncompressible_input_data_bytes;
+      rep_->props.fast_compression_estimated_data_size =
+          rep_->compressible_input_data_bytes +
+          rep_->uncompressible_input_data_bytes;
     }
     rep_->props.db_id = rep_->db_id;
     rep_->props.db_session_id = rep_->db_session_id;
