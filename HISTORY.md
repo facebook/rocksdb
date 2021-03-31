@@ -6,6 +6,7 @@
 
 ### Bug Fixes
 * Use thread-safe `strerror_r()` to get error messages.
+* Fixed a potential hang in shutdown for a DB whose `Env` has high-pri thread pool disabled (`Env::GetBackgroundThreads(Env::Priority::HIGH) == 0`)
 * Made BackupEngine thread-safe and added documentation comments to clarify what is safe for multiple BackupEngine objects accessing the same backup directory.
 
 ### Performance Improvements

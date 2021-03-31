@@ -1414,6 +1414,7 @@ class DBImpl : public DB {
     DBImpl* db;
     // background compaction takes ownership of `prepicked_compaction`.
     PrepickedCompaction* prepicked_compaction;
+    Env::Priority compaction_pri_;
   };
 
   // Initialize the built-in column family for persistent stats. Depending on

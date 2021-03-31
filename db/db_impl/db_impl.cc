@@ -522,15 +522,11 @@ Status DBImpl::CloseHelper() {
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
   CancelAllBackgroundWork(false);
-  int bottom_compactions_unscheduled =
-      env_->UnSchedule(this, Env::Priority::BOTTOM);
-  int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
-  int flushes_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);
-  Status ret = Status::OK();
   mutex_.Lock();
-  bg_bottom_compaction_scheduled_ -= bottom_compactions_unscheduled;
-  bg_compaction_scheduled_ -= compactions_unscheduled;
-  bg_flush_scheduled_ -= flushes_unscheduled;
+  env_->UnSchedule(this, Env::Priority::BOTTOM);
+  env_->UnSchedule(this, Env::Priority::LOW);
+  env_->UnSchedule(this, Env::Priority::HIGH);
+  Status ret = Status::OK();
 
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
