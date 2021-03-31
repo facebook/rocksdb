@@ -79,7 +79,7 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   const bool add_prefix =
       next_key && prefix_extractor() && prefix_extractor()->InDomain(*next_key);
   if (add_prefix) {
-    FullFilterBlockBuilder::AddPrefix(*next_key);
+    AddKey(prefix_extractor()->Transform(*next_key));
   }
 
   Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
