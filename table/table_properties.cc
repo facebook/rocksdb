@@ -168,6 +168,11 @@ std::string TableProperties::ToString(
   AppendProperty(result, "file creation time", file_creation_time, prop_delim,
                  kv_delim);
 
+  AppendProperty(result, "slow compression estimated data size",
+                 slow_compression_estimated_data_size, prop_delim, kv_delim);
+  AppendProperty(result, "fast compression estimated data size",
+                 fast_compression_estimated_data_size, prop_delim, kv_delim);
+
   // DB identity and DB session ID
   AppendProperty(result, "DB identity", db_id, prop_delim, kv_delim);
   AppendProperty(result, "DB session identity", db_session_id, prop_delim,
@@ -191,6 +196,10 @@ void TableProperties::Add(const TableProperties& tp) {
   num_deletions += tp.num_deletions;
   num_merge_operands += tp.num_merge_operands;
   num_range_deletions += tp.num_range_deletions;
+  slow_compression_estimated_data_size +=
+      tp.slow_compression_estimated_data_size;
+  fast_compression_estimated_data_size +=
+      tp.fast_compression_estimated_data_size;
 }
 
 std::map<std::string, uint64_t>
@@ -208,6 +217,10 @@ TableProperties::GetAggregatablePropertiesAsMap() const {
   rv["num_deletions"] = num_deletions;
   rv["num_merge_operands"] = num_merge_operands;
   rv["num_range_deletions"] = num_range_deletions;
+  rv["slow_compression_estimated_data_size"] =
+      slow_compression_estimated_data_size;
+  rv["fast_compression_estimated_data_size"] =
+      fast_compression_estimated_data_size;
   return rv;
 }
 
@@ -268,6 +281,10 @@ const std::string TablePropertiesNames::kOldestKeyTime =
     "rocksdb.oldest.key.time";
 const std::string TablePropertiesNames::kFileCreationTime =
     "rocksdb.file.creation.time";
+const std::string TablePropertiesNames::kSlowCompressionEstimatedDataSize =
+    "rocksdb.sample_for_compression.slow.data.size";
+const std::string TablePropertiesNames::kFastCompressionEstimatedDataSize =
+    "rocksdb.sample_for_compression.fast.data.size";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility

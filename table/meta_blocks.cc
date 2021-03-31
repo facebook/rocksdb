@@ -96,6 +96,14 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (props.file_creation_time > 0) {
     Add(TablePropertiesNames::kFileCreationTime, props.file_creation_time);
   }
+  if (props.slow_compression_estimated_data_size > 0) {
+    Add(TablePropertiesNames::kSlowCompressionEstimatedDataSize,
+        props.slow_compression_estimated_data_size);
+  }
+  if (props.fast_compression_estimated_data_size > 0) {
+    Add(TablePropertiesNames::kFastCompressionEstimatedDataSize,
+        props.fast_compression_estimated_data_size);
+  }
   if (!props.db_id.empty()) {
     Add(TablePropertiesNames::kDbId, props.db_id);
   }
@@ -279,6 +287,10 @@ Status ReadProperties(const ReadOptions& read_options,
        &new_table_properties->oldest_key_time},
       {TablePropertiesNames::kFileCreationTime,
        &new_table_properties->file_creation_time},
+      {TablePropertiesNames::kSlowCompressionEstimatedDataSize,
+       &new_table_properties->slow_compression_estimated_data_size},
+      {TablePropertiesNames::kFastCompressionEstimatedDataSize,
+       &new_table_properties->fast_compression_estimated_data_size},
   };
 
   std::string last_key;

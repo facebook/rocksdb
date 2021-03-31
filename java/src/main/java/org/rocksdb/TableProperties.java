@@ -29,6 +29,8 @@ public class TableProperties {
   private final long columnFamilyId;
   private final long creationTime;
   private final long oldestKeyTime;
+  private final long slowCompressionEstimatedDataSize;
+  private final long fastCompressionEstimatedDataSize;
   private final byte[] columnFamilyName;
   private final String filterPolicyName;
   private final String comparatorName;
@@ -50,10 +52,12 @@ public class TableProperties {
       final long rawValueSize, final long numDataBlocks, final long numEntries,
       final long numDeletions, final long numMergeOperands, final long numRangeDeletions,
       final long formatVersion, final long fixedKeyLen, final long columnFamilyId,
-      final long creationTime, final long oldestKeyTime, final byte[] columnFamilyName,
-      final String filterPolicyName, final String comparatorName, final String mergeOperatorName,
-      final String prefixExtractorName, final String propertyCollectorsNames,
-      final String compressionName, final Map<String, String> userCollectedProperties,
+      final long creationTime, final long oldestKeyTime,
+      final long slowCompressionEstimatedDataSize, final long fastCompressionEstimatedDataSize,
+      final byte[] columnFamilyName, final String filterPolicyName, final String comparatorName,
+      final String mergeOperatorName, final String prefixExtractorName,
+      final String propertyCollectorsNames, final String compressionName,
+      final Map<String, String> userCollectedProperties,
       final Map<String, String> readableProperties, final Map<String, Long> propertiesOffsets) {
     this.dataSize = dataSize;
     this.indexSize = indexSize;
@@ -74,6 +78,8 @@ public class TableProperties {
     this.columnFamilyId = columnFamilyId;
     this.creationTime = creationTime;
     this.oldestKeyTime = oldestKeyTime;
+    this.slowCompressionEstimatedDataSize = slowCompressionEstimatedDataSize;
+    this.fastCompressionEstimatedDataSize = fastCompressionEstimatedDataSize;
     this.columnFamilyName = columnFamilyName;
     this.filterPolicyName = filterPolicyName;
     this.comparatorName = comparatorName;
@@ -267,6 +273,26 @@ public class TableProperties {
   }
 
   /**
+   * Get the estimated size of data blocks compressed with a relatively slower
+   * compression algorithm.
+   *
+   * @return 0 means unknown, otherwise the timestamp.
+   */
+  public long getSlowCompressionEstimatedDataSize() {
+    return slowCompressionEstimatedDataSize;
+  }
+
+  /**
+   * Get the estimated size of data blocks compressed with a relatively faster
+   * compression algorithm.
+   *
+   * @return 0 means unknown, otherwise the timestamp.
+   */
+  public long getFastCompressionEstimatedDataSize() {
+    return fastCompressionEstimatedDataSize;
+  }
+
+  /**
    * Get the name of the column family with which this
    * SST file is associated.
    *
@@ -380,6 +406,8 @@ public class TableProperties {
         && formatVersion == that.formatVersion && fixedKeyLen == that.fixedKeyLen
         && columnFamilyId == that.columnFamilyId && creationTime == that.creationTime
         && oldestKeyTime == that.oldestKeyTime
+        && slowCompressionEstimatedDataSize == that.slowCompressionEstimatedDataSize
+        && fastCompressionEstimatedDataSize == that.fastCompressionEstimatedDataSize
         && Arrays.equals(columnFamilyName, that.columnFamilyName)
         && Objects.equals(filterPolicyName, that.filterPolicyName)
         && Objects.equals(comparatorName, that.comparatorName)
@@ -397,9 +425,10 @@ public class TableProperties {
     int result = Objects.hash(dataSize, indexSize, indexPartitions, topLevelIndexSize,
         indexKeyIsUserKey, indexValueIsDeltaEncoded, filterSize, rawKeySize, rawValueSize,
         numDataBlocks, numEntries, numDeletions, numMergeOperands, numRangeDeletions, formatVersion,
-        fixedKeyLen, columnFamilyId, creationTime, oldestKeyTime, filterPolicyName, comparatorName,
-        mergeOperatorName, prefixExtractorName, propertyCollectorsNames, compressionName,
-        userCollectedProperties, readableProperties, propertiesOffsets);
+        fixedKeyLen, columnFamilyId, creationTime, oldestKeyTime, slowCompressionEstimatedDataSize,
+        fastCompressionEstimatedDataSize, filterPolicyName, comparatorName, mergeOperatorName,
+        prefixExtractorName, propertyCollectorsNames, compressionName, userCollectedProperties,
+        readableProperties, propertiesOffsets);
     result = 31 * result + Arrays.hashCode(columnFamilyName);
     return result;
   }
