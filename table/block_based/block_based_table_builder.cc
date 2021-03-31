@@ -271,11 +271,11 @@ struct BlockBasedTableBuilder::Rep {
   const Slice* first_key_in_next_block = nullptr;
   CompressionType compression_type;
   uint64_t sample_for_compression;
-  uint64_t compressible_input_data_bytes = 0;
-  uint64_t uncompressible_input_data_bytes = 0;
-  uint64_t sampled_input_data_bytes = 0;
-  uint64_t sampled_output_slow_data_bytes = 0;
-  uint64_t sampled_output_fast_data_bytes = 0;
+  std::atomic<uint64_t> compressible_input_data_bytes;
+  std::atomic<uint64_t> uncompressible_input_data_bytes;
+  std::atomic<uint64_t> sampled_input_data_bytes;
+  std::atomic<uint64_t> sampled_output_slow_data_bytes;
+  std::atomic<uint64_t> sampled_output_fast_data_bytes;
   CompressionOptions compression_opts;
   std::unique_ptr<CompressionDict> compression_dict;
   std::vector<std::unique_ptr<CompressionContext>> compression_ctxs;
@@ -436,6 +436,11 @@ struct BlockBasedTableBuilder::Rep {
         internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_type(_compression_type),
         sample_for_compression(_moptions.sample_for_compression),
+        compressible_input_data_bytes(0),
+        uncompressible_input_data_bytes(0),
+        sampled_input_data_bytes(0),
+        sampled_output_slow_data_bytes(0),
+        sampled_output_fast_data_bytes(0),
         compression_opts(_compression_opts),
         compression_dict(),
         compression_ctxs(_compression_opts.parallel_threads),
@@ -1091,7 +1096,8 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
 
   if (is_status_ok && raw_block_contents.size() < kCompressionSizeLimit) {
     if (is_data_block) {
-      r->compressible_input_data_bytes += raw_block_contents.size();
+      r->compressible_input_data_bytes.fetch_add(raw_block_contents.size(),
+                                                 std::memory_order_relaxed);
     }
     const CompressionDict* compression_dict;
     if (!is_data_block || r->compression_dict == nullptr) {
@@ -1114,9 +1120,12 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     if (sampled_output_slow.size() > 0 || sampled_output_fast.size() > 0) {
       // Currently compression sampling is only enabled for data block.
       assert(is_data_block);
-      r->sampled_input_data_bytes += raw_block_contents.size();
-      r->sampled_output_slow_data_bytes += sampled_output_slow.size();
-      r->sampled_output_fast_data_bytes += sampled_output_fast.size();
+      r->sampled_input_data_bytes.fetch_add(raw_block_contents.size(),
+                                            std::memory_order_relaxed);
+      r->sampled_output_slow_data_bytes.fetch_add(sampled_output_slow.size(),
+                                                  std::memory_order_relaxed);
+      r->sampled_output_fast_data_bytes.fetch_add(sampled_output_fast.size(),
+                                                  std::memory_order_relaxed);
     }
     // notify collectors on block add
     NotifyCollectTableCollectorsOnBlockAdd(
@@ -1162,12 +1171,14 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
   } else {
     // Block is too big to be compressed.
     if (is_data_block) {
-      r->uncompressible_input_data_bytes += raw_block_contents.size();
+      r->uncompressible_input_data_bytes.fetch_add(raw_block_contents.size(),
+                                                   std::memory_order_relaxed);
     }
     abort_compression = true;
   }
   if (is_data_block) {
-    r->uncompressible_input_data_bytes += kBlockTrailerSize;
+    r->uncompressible_input_data_bytes.fetch_add(kBlockTrailerSize,
+                                                 std::memory_order_relaxed);
   }
 
   // Abort compression if the block is too big, or did not pass
