@@ -21,9 +21,9 @@ namespace ROCKSDB_NAMESPACE {
 // ready, and call Wait() in order to block until it becomes ready.
 // The caller must call value() after it becomes ready to determine if the
 // handle successfullly read the item.
-class NvmCacheHandle {
+class TieredCacheHandle {
  public:
-  virtual ~NvmCacheHandle() {}
+  virtual ~TieredCacheHandle() {}
 
   // Returns whether the handle is ready or not
   virtual bool isReady() = 0;
@@ -38,19 +38,20 @@ class NvmCacheHandle {
   virtual size_t Size() = 0;
 };
 
-// NvmCache
+// TieredCache
 //
-// NVM cache interface for caching blocks on a persistent medium.
-class NvmCache {
+// Cache interface for caching blocks on a stackable tiers (which can include
+// non-volatile mediums)
+class TieredCache {
  public:
-  virtual ~NvmCache() {}
+  virtual ~TieredCache() {}
 
   virtual std::string Name() = 0;
 
   // Insert the given value into the NVM cache. The value is not written
   // directly. Rather, the SaveToCallback provided by helper_cb will be
   // used to extract the persistable data in value, which will be written
-  // to NVM. The implementation may or may not write it to NVM depending
+  // to this tier. The implementation may or may not write it to NVM depending
   // on the admission control policy, even if the return status is success.
   virtual Status Insert(const Slice& key, void* value,
                         Cache::CacheItemHelperCallback helper_cb) = 0;
@@ -59,7 +60,7 @@ class NvmCache {
   // will be used to create the object. The handle returned may not be
   // ready yet, unless wait=true, in which case Lookup() will block until
   // the handle is ready
-  virtual std::unique_ptr<NvmCacheHandle> Lookup(
+  virtual std::unique_ptr<TieredCacheHandle> Lookup(
       const Slice& key, const Cache::CreateCallback& create_cb, bool wait) = 0;
 
   // At the discretion of the implementation, erase the data associated
@@ -67,7 +68,7 @@ class NvmCache {
   virtual void Erase(const Slice& key) = 0;
 
   // Wait for a collection of handles to become ready
-  virtual void WaitAll(std::vector<NvmCacheHandle*> handles) = 0;
+  virtual void WaitAll(std::vector<TieredCacheHandle*> handles) = 0;
 
   virtual std::string GetPrintableOptions() const = 0;
 };

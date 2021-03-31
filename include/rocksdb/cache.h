@@ -37,7 +37,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class Cache;
 struct ConfigOptions;
-class NvmCache;
+class TieredCache;
 
 extern const bool kDefaultToAdaptiveMutex;
 
@@ -91,8 +91,8 @@ struct LRUCacheOptions {
   CacheMetadataChargePolicy metadata_charge_policy =
       kDefaultCacheMetadataChargePolicy;
 
-  // An NvmCache instance to use a the non-volatile tier
-  std::shared_ptr<NvmCache> nvm_cache;
+  // A TieredCache instance to use a the non-volatile tier
+  std::shared_ptr<TieredCache> tiered_cache;
 
   LRUCacheOptions() {}
   LRUCacheOptions(size_t _capacity, int _num_shard_bits,

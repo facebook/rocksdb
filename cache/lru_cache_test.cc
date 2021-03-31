@@ -34,9 +34,9 @@ class LRUCacheTest : public testing::Test {
     DeleteCache();
     cache_ = reinterpret_cast<LRUCacheShard*>(
         port::cacheline_aligned_alloc(sizeof(LRUCacheShard)));
-    new (cache_) LRUCacheShard(capacity, false /*strict_capcity_limit*/,
-                               high_pri_pool_ratio, use_adaptive_mutex,
-                               kDontChargeCacheMetadata, nullptr /*nvm_cache*/);
+    new (cache_) LRUCacheShard(
+        capacity, false /*strict_capcity_limit*/, high_pri_pool_ratio,
+        use_adaptive_mutex, kDontChargeCacheMetadata, nullptr /*tiered_cache*/);
   }
 
   void Insert(const std::string& key,
@@ -195,15 +195,15 @@ TEST_F(LRUCacheTest, EntriesWithPriority) {
   ValidateLRUList({"e", "f", "g", "Z", "d"}, 2);
 }
 
-class TestNvmCache : public NvmCache {
+class TestTieredCache : public TieredCache {
  public:
-  TestNvmCache(size_t capacity) : num_inserts_(0), num_lookups_(0) {
+  TestTieredCache(size_t capacity) : num_inserts_(0), num_lookups_(0) {
     cache_ = NewLRUCache(capacity, 0, false, 0.5, nullptr,
                          kDefaultToAdaptiveMutex, kDontChargeCacheMetadata);
   }
-  ~TestNvmCache() { cache_.reset(); }
+  ~TestTieredCache() { cache_.reset(); }
 
-  std::string Name() override { return "TestNvmCache"; }
+  std::string Name() override { return "TestTieredCache"; }
 
   Status Insert(const Slice& key, void* value,
                 Cache::CacheItemHelperCallback helper_cb) override {
@@ -226,10 +226,10 @@ class TestNvmCache : public NvmCache {
                           });
   }
 
-  std::unique_ptr<NvmCacheHandle> Lookup(const Slice& key,
-                                         const Cache::CreateCallback& create_cb,
-                                         bool /*wait*/) override {
-    std::unique_ptr<NvmCacheHandle> nvm_handle;
+  std::unique_ptr<TieredCacheHandle> Lookup(
+      const Slice& key, const Cache::CreateCallback& create_cb,
+      bool /*wait*/) override {
+    std::unique_ptr<TieredCacheHandle> tiered_handle;
     Cache::Handle* handle = cache_->Lookup(key);
     num_lookups_++;
     if (handle) {
@@ -240,15 +240,15 @@ class TestNvmCache : public NvmCache {
       ptr += sizeof(uint64_t);
       Status s = create_cb(ptr, size, &value, &charge);
       EXPECT_OK(s);
-      nvm_handle.reset(
-          new TestNvmCacheHandle(cache_.get(), handle, value, charge));
+      tiered_handle.reset(
+          new TestTieredCacheHandle(cache_.get(), handle, value, charge));
     }
-    return nvm_handle;
+    return tiered_handle;
   }
 
   void Erase(const Slice& /*key*/) override {}
 
-  void WaitAll(std::vector<NvmCacheHandle*> /*handles*/) override {}
+  void WaitAll(std::vector<TieredCacheHandle*> /*handles*/) override {}
 
   std::string GetPrintableOptions() const override { return ""; }
 
@@ -257,12 +257,12 @@ class TestNvmCache : public NvmCache {
   uint32_t num_lookups() { return num_lookups_; }
 
  private:
-  class TestNvmCacheHandle : public NvmCacheHandle {
+  class TestTieredCacheHandle : public TieredCacheHandle {
    public:
-    TestNvmCacheHandle(Cache* cache, Cache::Handle* handle, void* value,
-                       size_t size)
+    TestTieredCacheHandle(Cache* cache, Cache::Handle* handle, void* value,
+                          size_t size)
         : cache_(cache), handle_(handle), value_(value), size_(size) {}
-    ~TestNvmCacheHandle() { cache_->Release(handle_); }
+    ~TestTieredCacheHandle() { cache_->Release(handle_); }
 
     bool isReady() override { return true; }
 
@@ -284,11 +284,11 @@ class TestNvmCache : public NvmCache {
   uint32_t num_lookups_;
 };
 
-TEST_F(LRUCacheTest, TestNvmCache) {
+TEST_F(LRUCacheTest, TestTieredCache) {
   LRUCacheOptions opts(1024, 0, false, 0.5, nullptr, kDefaultToAdaptiveMutex,
                        kDontChargeCacheMetadata);
-  std::shared_ptr<TestNvmCache> nvm_cache(new TestNvmCache(2048));
-  opts.nvm_cache = nvm_cache;
+  std::shared_ptr<TestTieredCache> tiered_cache(new TestTieredCache(2048));
+  opts.tiered_cache = tiered_cache;
   std::shared_ptr<Cache> cache = NewLRUCache(opts);
 
   class TestItem {
@@ -361,8 +361,8 @@ TEST_F(LRUCacheTest, TestNvmCache) {
                          Cache::Priority::LOW, true);
   ASSERT_NE(handle, nullptr);
   cache->Release(handle);
-  ASSERT_EQ(nvm_cache->num_inserts(), 2u);
-  ASSERT_EQ(nvm_cache->num_lookups(), 1u);
+  ASSERT_EQ(tiered_cache->num_inserts(), 2u);
+  ASSERT_EQ(tiered_cache->num_lookups(), 1u);
 }
 }  // namespace ROCKSDB_NAMESPACE
 
