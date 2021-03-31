@@ -13,7 +13,7 @@
 #include "cache/sharded_cache.h"
 #include "port/malloc.h"
 #include "port/port.h"
-#include "rocksdb/nvm_cache.h"
+#include "rocksdb/tiered_cache.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -55,7 +55,7 @@ struct LRUHandle {
     void (*deleter)(const Slice&, void* value);
     ShardedCache::CacheItemHelperCallback helper_cb;
     // This needs to be explicitly constructed and destructed
-    std::unique_ptr<NvmCacheHandle> nvm_handle;
+    std::unique_ptr<TieredCacheHandle> tiered_handle;
   } info_;
   LRUHandle* next_hash;
   LRUHandle* next;
@@ -76,11 +76,11 @@ struct LRUHandle {
     IN_HIGH_PRI_POOL = (1 << 2),
     // Whether this entry has had any lookups (hits).
     HAS_HIT = (1 << 3),
-    // Can this be inserted into the NVM cache
-    IS_NVM_COMPATIBLE = (1 << 4),
-    // Is the handle still being read from NVM
-    IS_INCOMPLETE = (1 << 5),
-    // Has the item been promoted from NVM
+    // Can this be inserted into the tiered cache
+    IS_TIERED_CACHE_COMPATIBLE = (1 << 4),
+    // Is the handle still being read from a lower tier
+    IS_PENDING = (1 << 5),
+    // Has the item been promoted from a lower tier
     IS_PROMOTED = (1 << 6),
   };
 
@@ -108,8 +108,10 @@ struct LRUHandle {
   bool IsHighPri() const { return flags & IS_HIGH_PRI; }
   bool InHighPriPool() const { return flags & IN_HIGH_PRI_POOL; }
   bool HasHit() const { return flags & HAS_HIT; }
-  bool IsNvmCompatible() const { return flags & IS_NVM_COMPATIBLE; }
-  bool IsIncomplete() const { return flags & IS_INCOMPLETE; }
+  bool IsTieredCacheCompatible() const {
+    return flags & IS_TIERED_CACHE_COMPATIBLE;
+  }
+  bool IsPending() const { return flags & IS_PENDING; }
   bool IsPromoted() const { return flags & IS_PROMOTED; }
 
   void SetInCache(bool in_cache) {
@@ -138,19 +140,19 @@ struct LRUHandle {
 
   void SetHit() { flags |= HAS_HIT; }
 
-  void SetNvmCompatible(bool nvm) {
-    if (nvm) {
-      flags |= IS_NVM_COMPATIBLE;
+  void SetTieredCacheCompatible(bool tiered) {
+    if (tiered) {
+      flags |= IS_TIERED_CACHE_COMPATIBLE;
     } else {
-      flags &= ~IS_NVM_COMPATIBLE;
+      flags &= ~IS_TIERED_CACHE_COMPATIBLE;
     }
   }
 
   void SetIncomplete(bool incomp) {
     if (incomp) {
-      flags |= IS_INCOMPLETE;
+      flags |= IS_PENDING;
     } else {
-      flags &= ~IS_INCOMPLETE;
+      flags &= ~IS_PENDING;
     }
   }
 
@@ -164,9 +166,9 @@ struct LRUHandle {
 
   void Free() {
     assert(refs == 0);
-    if (!IsNvmCompatible() && info_.deleter) {
+    if (!IsTieredCacheCompatible() && info_.deleter) {
       (*info_.deleter)(key(), value);
-    } else if (IsNvmCompatible()) {
+    } else if (IsTieredCacheCompatible()) {
       ShardedCache::DeletionCallback del_cb;
       (*info_.helper_cb)(nullptr, nullptr, &del_cb);
       (*del_cb)(key(), value);
@@ -238,7 +240,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   LRUCacheShard(size_t capacity, bool strict_capacity_limit,
                 double high_pri_pool_ratio, bool use_adaptive_mutex,
                 CacheMetadataChargePolicy metadata_charge_policy,
-                const std::shared_ptr<NvmCache>& nvm_cache);
+                const std::shared_ptr<TieredCache>& tiered_cache);
   virtual ~LRUCacheShard() override = default;
 
   // Separate from constructor so caller can easily make an array of LRUCache
@@ -378,7 +380,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   // don't mind mutex_ invoking the non-const actions.
   mutable port::Mutex mutex_;
 
-  std::shared_ptr<NvmCache> nvm_cache_;
+  std::shared_ptr<TieredCache> tiered_cache_;
 };
 
 class LRUCache
@@ -393,7 +395,7 @@ class LRUCache
            bool use_adaptive_mutex = kDefaultToAdaptiveMutex,
            CacheMetadataChargePolicy metadata_charge_policy =
                kDontChargeCacheMetadata,
-           const std::shared_ptr<NvmCache>& nvm_cache = nullptr);
+           const std::shared_ptr<TieredCache>& tiered_cache = nullptr);
   virtual ~LRUCache();
   virtual const char* Name() const override { return "LRUCache"; }
   virtual CacheShard* GetShard(int shard) override;
