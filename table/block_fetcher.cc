@@ -29,9 +29,9 @@ namespace ROCKSDB_NAMESPACE {
 inline void BlockFetcher::CheckBlockChecksum() {
   // Check the crc of the type and the block contents
   if (read_options_.verify_checksums) {
-    status_ = ROCKSDB_NAMESPACE::VerifyBlockChecksum(
+    io_status_ = status_to_io_status(ROCKSDB_NAMESPACE::VerifyBlockChecksum(
         footer_.checksum(), slice_.data(), block_size_, file_->file_name(),
-        handle_.offset());
+        handle_.offset()));
   }
 }
 
@@ -59,24 +59,21 @@ inline bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
 inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
   if (prefetch_buffer_ != nullptr) {
     IOOptions opts;
-    io_status_ = file_->PrepareIOOptions(read_options_, opts);
-    Status s = io_status_;
-    if (s.ok() && prefetch_buffer_->TryReadFromCache(
-                      opts, handle_.offset(), block_size_with_trailer_, &slice_,
-                      &s, for_compaction_)) {
+    IOStatus io_s = file_->PrepareIOOptions(read_options_, opts);
+    if (io_s.ok() && prefetch_buffer_->TryReadFromCache(
+                         opts, handle_.offset(), block_size_with_trailer_,
+                         &slice_, &io_s, for_compaction_)) {
       CheckBlockChecksum();
-      if (!status_.ok()) {
+      if (!io_status_.ok()) {
         return true;
       }
       got_from_prefetch_buffer_ = true;
       used_buf_ = const_cast<char*>(slice_.data());
-    } else if (!s.ok()) {
-      status_ = s;
+    } else if (!io_s.ok()) {
+      io_status_ = io_s;
       return true;
     }
   }
-  // TODO: remove it in the future when io_status_ is checked in all place.
-  io_status_.PermitUncheckedError();
   return got_from_prefetch_buffer_;
 }
 
@@ -85,18 +82,18 @@ inline bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
       cache_options_.persistent_cache->IsCompressed()) {
     // lookup uncompressed cache mode p-cache
     std::unique_ptr<char[]> raw_data;
-    status_ = PersistentCacheHelper::LookupRawPage(
-        cache_options_, handle_, &raw_data, block_size_with_trailer_);
-    if (status_.ok()) {
+    io_status_ = status_to_io_status(PersistentCacheHelper::LookupRawPage(
+        cache_options_, handle_, &raw_data, block_size_with_trailer_));
+    if (io_status_.ok()) {
       heap_buf_ = CacheAllocationPtr(raw_data.release());
       used_buf_ = heap_buf_.get();
       slice_ = Slice(heap_buf_.get(), block_size_);
       return true;
-    } else if (!status_.IsNotFound() && ioptions_.info_log) {
-      assert(!status_.ok());
+    } else if (!io_status_.IsNotFound() && ioptions_.info_log) {
+      assert(!io_status_.ok());
       ROCKS_LOG_INFO(ioptions_.info_log,
                      "Error reading from persistent cache. %s",
-                     status_.ToString().c_str());
+                     io_status_.ToString().c_str());
     }
   }
   return false;
@@ -139,7 +136,7 @@ inline void BlockFetcher::PrepareBufferForBlockFromFile() {
 }
 
 inline void BlockFetcher::InsertCompressedBlockToPersistentCacheIfNeeded() {
-  if (status_.ok() && read_options_.fill_cache &&
+  if (io_status_.ok() && read_options_.fill_cache &&
       cache_options_.persistent_cache &&
       cache_options_.persistent_cache->IsCompressed()) {
     // insert to raw cache
@@ -149,8 +146,8 @@ inline void BlockFetcher::InsertCompressedBlockToPersistentCacheIfNeeded() {
 }
 
 inline void BlockFetcher::InsertUncompressedBlockToPersistentCacheIfNeeded() {
-  if (status_.ok() && !got_from_prefetch_buffer_ && read_options_.fill_cache &&
-      cache_options_.persistent_cache &&
+  if (io_status_.ok() && !got_from_prefetch_buffer_ &&
+      read_options_.fill_cache && cache_options_.persistent_cache &&
       !cache_options_.persistent_cache->IsCompressed()) {
     // insert to uncompressed cache
     PersistentCacheHelper::InsertUncompressedPage(cache_options_, handle_,
@@ -218,30 +215,28 @@ inline void BlockFetcher::GetBlockContents() {
 #endif
 }
 
-Status BlockFetcher::ReadBlockContents() {
+IOStatus BlockFetcher::ReadBlockContents() {
   if (TryGetUncompressBlockFromPersistentCache()) {
     compression_type_ = kNoCompression;
 #ifndef NDEBUG
     contents_->is_raw_block = true;
 #endif  // NDEBUG
-    return Status::OK();
+    return IOStatus::OK();
   }
   if (TryGetFromPrefetchBuffer()) {
-    if (!status_.ok()) {
-      return status_;
+    if (!io_status_.ok()) {
+      return io_status_;
     }
   } else if (!TryGetCompressedBlockFromPersistentCache()) {
     IOOptions opts;
     io_status_ = file_->PrepareIOOptions(read_options_, opts);
-    status_ = io_status_;
     // Actual file read
-    if (status_.ok()) {
+    if (io_status_.ok()) {
       if (file_->use_direct_io()) {
         PERF_TIMER_GUARD(block_read_time);
         io_status_ =
             file_->Read(opts, handle_.offset(), block_size_with_trailer_,
                         &slice_, nullptr, &direct_io_buf_, for_compaction_);
-        status_ = io_status_;
         PERF_COUNTER_ADD(block_read_count, 1);
         used_buf_ = const_cast<char*>(slice_.data());
       } else {
@@ -250,7 +245,6 @@ Status BlockFetcher::ReadBlockContents() {
         io_status_ =
             file_->Read(opts, handle_.offset(), block_size_with_trailer_,
                         &slice_, used_buf_, nullptr, for_compaction_);
-        status_ = io_status_;
         PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
         if (slice_.data() == &stack_buf_[0]) {
@@ -263,8 +257,6 @@ Status BlockFetcher::ReadBlockContents() {
 #endif
       }
     }
-    // TODO: remove it in the future when io_status_ is checked in all place.
-    io_status_.PermitUncheckedError();
 
     // TODO: introduce dedicated perf counter for range tombstones
     switch (block_type_) {
@@ -286,23 +278,23 @@ Status BlockFetcher::ReadBlockContents() {
     }
 
     PERF_COUNTER_ADD(block_read_byte, block_size_with_trailer_);
-    if (!status_.ok()) {
-      return status_;
+    if (!io_status_.ok()) {
+      return io_status_;
     }
 
     if (slice_.size() != block_size_with_trailer_) {
-      return Status::Corruption("truncated block read from " +
-                                file_->file_name() + " offset " +
-                                ToString(handle_.offset()) + ", expected " +
-                                ToString(block_size_with_trailer_) +
-                                " bytes, got " + ToString(slice_.size()));
+      return IOStatus::Corruption("truncated block read from " +
+                                  file_->file_name() + " offset " +
+                                  ToString(handle_.offset()) + ", expected " +
+                                  ToString(block_size_with_trailer_) +
+                                  " bytes, got " + ToString(slice_.size()));
     }
 
     CheckBlockChecksum();
-    if (status_.ok()) {
+    if (io_status_.ok()) {
       InsertCompressedBlockToPersistentCacheIfNeeded();
     } else {
-      return status_;
+      return io_status_;
     }
   }
 
@@ -313,9 +305,9 @@ Status BlockFetcher::ReadBlockContents() {
     // compressed page, uncompress, update cache
     UncompressionContext context(compression_type_);
     UncompressionInfo info(context, uncompression_dict_, compression_type_);
-    status_ = UncompressBlockContents(info, slice_.data(), block_size_,
-                                      contents_, footer_.version(), ioptions_,
-                                      memory_allocator_);
+    io_status_ = status_to_io_status(UncompressBlockContents(
+        info, slice_.data(), block_size_, contents_, footer_.version(),
+        ioptions_, memory_allocator_));
 #ifndef NDEBUG
     num_heap_buf_memcpy_++;
 #endif
@@ -326,7 +318,7 @@ Status BlockFetcher::ReadBlockContents() {
 
   InsertUncompressedBlockToPersistentCacheIfNeeded();
 
-  return status_;
+  return io_status_;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

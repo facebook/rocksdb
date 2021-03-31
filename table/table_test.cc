@@ -4405,7 +4405,6 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
           UncompressionDict::GetEmptyDict(), cache_options);
 
       ASSERT_OK(block_fetcher.ReadBlockContents());
-      ASSERT_OK(block_fetcher.GetIOStatus());
     };
 
     // -- Read metaindex block
@@ -4493,7 +4492,6 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
       UncompressionDict::GetEmptyDict(), pcache_opts,
       nullptr /*memory_allocator*/);
   ASSERT_OK(block_fetcher.ReadBlockContents());
-  ASSERT_OK(block_fetcher.GetIOStatus());
   Block metaindex_block(std::move(metaindex_contents));
 
   // verify properties block comes last
