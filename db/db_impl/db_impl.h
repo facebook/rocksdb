@@ -469,7 +469,7 @@ class DBImpl : public DB {
   Status EndBlockCacheTrace() override;
 
   using DB::StartIOTrace;
-  Status StartIOTrace(Env* env, const TraceOptions& options,
+  Status StartIOTrace(const TraceOptions& options,
                       std::unique_ptr<TraceWriter>&& trace_writer) override;
 
   using DB::EndIOTrace;

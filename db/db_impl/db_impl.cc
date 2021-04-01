@@ -3145,7 +3145,7 @@ SystemClock* DBImpl::GetSystemClock() const {
 
 #ifndef ROCKSDB_LITE
 
-Status DBImpl::StartIOTrace(Env* /*env*/, const TraceOptions& trace_options,
+Status DBImpl::StartIOTrace(const TraceOptions& trace_options,
                             std::unique_ptr<TraceWriter>&& trace_writer) {
   assert(trace_writer != nullptr);
   return io_tracer_->StartIOTrace(GetSystemClock(), trace_options,

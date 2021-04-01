@@ -132,10 +132,34 @@ struct IODebugContext {
   // To be set by the FileSystem implementation
   std::string msg;
 
+  // To be set by the underlying FileSystem implementation.
+  std::string request_id;
+
+  // In order to log required information in IO tracing for different
+  // operations, Each bit in trace_data stores which corresponding info from
+  // IODebugContext will be added in the trace. Foreg, if trace_data = 1, it
+  // means bit at position 0 is set so TraceData::kRequestID (request_id) will
+  // be logged in the trace record.
+  //
+  enum TraceData : char {
+    // The value of each enum represents the bitwise position for
+    // that information in trace_data which will be used by IOTracer for
+    // tracing. Make sure to add them sequentially.
+    kRequestID = 0,
+  };
+  uint64_t trace_data = 0;
+
   IODebugContext() {}
 
   void AddCounter(std::string& name, uint64_t value) {
     counters.emplace(name, value);
+  }
+
+  // Called by underlying file system to set request_id and log request_id in
+  // IOTracing.
+  void SetRequestId(const std::string& _request_id) {
+    request_id = _request_id;
+    trace_data |= (1 << TraceData::kRequestID);
   }
 
   std::string ToString() {

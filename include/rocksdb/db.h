@@ -1612,7 +1612,7 @@ class DB {
   }
 
   // IO Tracing operations. Use EndIOTrace() to stop tracing.
-  virtual Status StartIOTrace(Env* /*env*/, const TraceOptions& /*options*/,
+  virtual Status StartIOTrace(const TraceOptions& /*options*/,
                               std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
     return Status::NotSupported("StartIOTrace() is not implemented.");
   }
