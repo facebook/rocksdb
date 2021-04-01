@@ -125,8 +125,12 @@ void EventHelpers::LogAndNotifyTableFileCreationFinished(
               << table_properties.compression_options << "creation_time"
               << table_properties.creation_time << "oldest_key_time"
               << table_properties.oldest_key_time << "file_creation_time"
-              << table_properties.file_creation_time << "db_id"
-              << table_properties.db_id << "db_session_id"
+              << table_properties.file_creation_time
+              << "slow_compression_estimated_data_size"
+              << table_properties.slow_compression_estimated_data_size
+              << "fast_compression_estimated_data_size"
+              << table_properties.fast_compression_estimated_data_size
+              << "db_id" << table_properties.db_id << "db_session_id"
               << table_properties.db_session_id;
 
       // user collected properties

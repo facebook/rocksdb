@@ -1520,6 +1520,80 @@ TEST_F(DBPropertiesTest, BlockAddForCompressionSampling) {
   }
 }
 
+class CompressionSamplingDBPropertiesTest
+    : public DBPropertiesTest,
+      public ::testing::WithParamInterface<bool> {
+ public:
+  CompressionSamplingDBPropertiesTest() : fast_(GetParam()) {}
+
+ protected:
+  const bool fast_;
+};
+
+INSTANTIATE_TEST_CASE_P(CompressionSamplingDBPropertiesTest,
+                        CompressionSamplingDBPropertiesTest, ::testing::Bool());
+
+// Excluded from RocksDB lite tests due to `GetPropertiesOfAllTables()` usage.
+TEST_P(CompressionSamplingDBPropertiesTest,
+       EstimateDataSizeWithCompressionSampling) {
+  Options options = CurrentOptions();
+  if (fast_) {
+    // One of the following light compression libraries must be present.
+    if (LZ4_Supported()) {
+      options.compression = kLZ4Compression;
+    } else if (Snappy_Supported()) {
+      options.compression = kSnappyCompression;
+    } else {
+      return;
+    }
+  } else {
+    // One of the following heavy compression libraries must be present.
+    if (ZSTD_Supported()) {
+      options.compression = kZSTD;
+    } else if (Zlib_Supported()) {
+      options.compression = kZlibCompression;
+    } else {
+      return;
+    }
+  }
+  options.disable_auto_compactions = true;
+  // For simplicity/determinism, sample 100%.
+  options.sample_for_compression = 1;
+  Reopen(options);
+
+  // Setup the following LSM:
+  //
+  // L0_0 ["a", "b"]
+  // L1_0 ["a", "b"]
+  //
+  // L0_0 was created by flush. L1_0 was created by compaction. Each file
+  // contains one data block. The value consists of compressible data so the
+  // data block should be stored compressed.
+  std::string val(1024, 'a');
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(Put("a", val));
+    ASSERT_OK(Put("b", val));
+    ASSERT_OK(Flush());
+    if (i == 1) {
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    }
+  }
+
+  TablePropertiesCollection file_to_props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&file_to_props));
+  ASSERT_EQ(2, file_to_props.size());
+  for (const auto& file_and_props : file_to_props) {
+    ASSERT_GT(file_and_props.second->data_size, 0);
+    if (fast_) {
+      ASSERT_EQ(file_and_props.second->data_size,
+                file_and_props.second->fast_compression_estimated_data_size);
+    } else {
+      ASSERT_EQ(file_and_props.second->data_size,
+                file_and_props.second->slow_compression_estimated_data_size);
+    }
+  }
+}
+
 TEST_F(DBPropertiesTest, EstimateNumKeysUnderflow) {
   Options options = CurrentOptions();
   Reopen(options);

@@ -271,6 +271,11 @@ struct BlockBasedTableBuilder::Rep {
   const Slice* first_key_in_next_block = nullptr;
   CompressionType compression_type;
   uint64_t sample_for_compression;
+  std::atomic<uint64_t> compressible_input_data_bytes;
+  std::atomic<uint64_t> uncompressible_input_data_bytes;
+  std::atomic<uint64_t> sampled_input_data_bytes;
+  std::atomic<uint64_t> sampled_output_slow_data_bytes;
+  std::atomic<uint64_t> sampled_output_fast_data_bytes;
   CompressionOptions compression_opts;
   std::unique_ptr<CompressionDict> compression_dict;
   std::vector<std::unique_ptr<CompressionContext>> compression_ctxs;
@@ -431,6 +436,11 @@ struct BlockBasedTableBuilder::Rep {
         internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_type(_compression_type),
         sample_for_compression(_moptions.sample_for_compression),
+        compressible_input_data_bytes(0),
+        uncompressible_input_data_bytes(0),
+        sampled_input_data_bytes(0),
+        sampled_output_slow_data_bytes(0),
+        sampled_output_fast_data_bytes(0),
         compression_opts(_compression_opts),
         compression_dict(),
         compression_ctxs(_compression_opts.parallel_threads),
@@ -1085,6 +1095,10 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
       ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics));
 
   if (is_status_ok && raw_block_contents.size() < kCompressionSizeLimit) {
+    if (is_data_block) {
+      r->compressible_input_data_bytes.fetch_add(raw_block_contents.size(),
+                                                 std::memory_order_relaxed);
+    }
     const CompressionDict* compression_dict;
     if (!is_data_block || r->compression_dict == nullptr) {
       compression_dict = &CompressionDict::GetEmptyDict();
@@ -1103,6 +1117,16 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
         r->table_options.format_version, is_data_block /* do_sample */,
         compressed_output, &sampled_output_fast, &sampled_output_slow);
 
+    if (sampled_output_slow.size() > 0 || sampled_output_fast.size() > 0) {
+      // Currently compression sampling is only enabled for data block.
+      assert(is_data_block);
+      r->sampled_input_data_bytes.fetch_add(raw_block_contents.size(),
+                                            std::memory_order_relaxed);
+      r->sampled_output_slow_data_bytes.fetch_add(sampled_output_slow.size(),
+                                                  std::memory_order_relaxed);
+      r->sampled_output_fast_data_bytes.fetch_add(sampled_output_fast.size(),
+                                                  std::memory_order_relaxed);
+    }
     // notify collectors on block add
     NotifyCollectTableCollectorsOnBlockAdd(
         r->table_properties_collectors, raw_block_contents.size(),
@@ -1146,7 +1170,15 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     }
   } else {
     // Block is too big to be compressed.
+    if (is_data_block) {
+      r->uncompressible_input_data_bytes.fetch_add(raw_block_contents.size(),
+                                                   std::memory_order_relaxed);
+    }
     abort_compression = true;
+  }
+  if (is_data_block) {
+    r->uncompressible_input_data_bytes.fetch_add(kBlockTrailerSize,
+                                                 std::memory_order_relaxed);
   }
 
   // Abort compression if the block is too big, or did not pass
@@ -1539,6 +1571,27 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     rep_->props.creation_time = rep_->creation_time;
     rep_->props.oldest_key_time = rep_->oldest_key_time;
     rep_->props.file_creation_time = rep_->file_creation_time;
+    if (rep_->sampled_input_data_bytes > 0) {
+      rep_->props.slow_compression_estimated_data_size = static_cast<uint64_t>(
+          static_cast<double>(rep_->sampled_output_slow_data_bytes) /
+              rep_->sampled_input_data_bytes *
+              rep_->compressible_input_data_bytes +
+          rep_->uncompressible_input_data_bytes + 0.5);
+      rep_->props.fast_compression_estimated_data_size = static_cast<uint64_t>(
+          static_cast<double>(rep_->sampled_output_fast_data_bytes) /
+              rep_->sampled_input_data_bytes *
+              rep_->compressible_input_data_bytes +
+          rep_->uncompressible_input_data_bytes + 0.5);
+    } else if (rep_->sample_for_compression > 0) {
+      // We tried to sample but none were found. Assume worst-case (compression
+      // ratio 1.0) so data is complete and aggregatable.
+      rep_->props.slow_compression_estimated_data_size =
+          rep_->compressible_input_data_bytes +
+          rep_->uncompressible_input_data_bytes;
+      rep_->props.fast_compression_estimated_data_size =
+          rep_->compressible_input_data_bytes +
+          rep_->uncompressible_input_data_bytes;
+    }
     rep_->props.db_id = rep_->db_id;
     rep_->props.db_session_id = rep_->db_session_id;
     rep_->props.db_host_id = rep_->db_host_id;
