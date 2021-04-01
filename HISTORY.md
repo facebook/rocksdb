@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.19.1 (04/01/2021)
 ### Bug Fixes
 * Fixed crash (divide by zero) when compression dictionary is applied to a file containing only range tombstones.
 
