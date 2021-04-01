@@ -1368,8 +1368,9 @@ Status StressTest::TestBackupRestore(
     }
   }
   std::vector<BackupInfo> backup_info;
+  bool inplace_not_restore = thread->rand.OneIn(3);
   if (s.ok()) {
-    backup_engine->GetBackupInfo(&backup_info);
+    backup_engine->GetBackupInfo(&backup_info, inplace_not_restore);
     if (backup_info.empty()) {
       s = Status::NotFound("no backups found");
       from = "BackupEngine::GetBackupInfo";
@@ -1385,8 +1386,8 @@ Status StressTest::TestBackupRestore(
   }
   const bool allow_persistent = thread->tid == 0;  // not too many
   bool from_latest = false;
-  if (s.ok()) {
-    int count = static_cast<int>(backup_info.size());
+  int count = static_cast<int>(backup_info.size());
+  if (s.ok() && !inplace_not_restore) {
     if (count > 1) {
       s = backup_engine->RestoreDBFromBackup(
           RestoreOptions(), backup_info[thread->rand.Uniform(count)].backup_id,
@@ -1404,7 +1405,8 @@ Status StressTest::TestBackupRestore(
       }
     }
   }
-  if (s.ok()) {
+  if (s.ok() && !inplace_not_restore) {
+    // Purge early if restoring
     uint32_t to_keep = 0;
     if (allow_persistent) {
       // allow one thread to keep up to 2 backups
@@ -1432,10 +1434,21 @@ Status StressTest::TestBackupRestore(
     for (auto name : column_family_names_) {
       cf_descriptors.emplace_back(name, ColumnFamilyOptions(restore_options));
     }
-    s = DB::Open(DBOptions(restore_options), restore_dir, cf_descriptors,
-                 &restored_cf_handles, &restored_db);
-    if (!s.ok()) {
-      from = "DB::Open in backup/restore";
+    if (inplace_not_restore) {
+      BackupInfo& info = backup_info[thread->rand.Uniform(count)];
+      restore_options.env = info.env_for_open.get();
+      s = DB::OpenForReadOnly(DBOptions(restore_options), info.name_for_open,
+                              cf_descriptors, &restored_cf_handles,
+                              &restored_db);
+      if (!s.ok()) {
+        from = "DB::OpenForReadOnly in backup/restore";
+      }
+    } else {
+      s = DB::Open(DBOptions(restore_options), restore_dir, cf_descriptors,
+                   &restored_cf_handles, &restored_db);
+      if (!s.ok()) {
+        from = "DB::Open in backup/restore";
+      }
     }
   }
   // Note the column families chosen by `rand_column_families` cannot be
@@ -1476,16 +1489,28 @@ Status StressTest::TestBackupRestore(
       }
     }
   }
-  if (backup_engine != nullptr) {
-    delete backup_engine;
-    backup_engine = nullptr;
-  }
   if (restored_db != nullptr) {
     for (auto* cf_handle : restored_cf_handles) {
       restored_db->DestroyColumnFamilyHandle(cf_handle);
     }
     delete restored_db;
     restored_db = nullptr;
+  }
+  if (s.ok() && inplace_not_restore) {
+    // Purge late if inplace open read-only
+    uint32_t to_keep = 0;
+    if (allow_persistent) {
+      // allow one thread to keep up to 2 backups
+      to_keep = thread->rand.Uniform(3);
+    }
+    s = backup_engine->PurgeOldBackups(to_keep);
+    if (!s.ok()) {
+      from = "BackupEngine::PurgeOldBackups";
+    }
+  }
+  if (backup_engine != nullptr) {
+    delete backup_engine;
+    backup_engine = nullptr;
   }
   if (s.ok()) {
     // Preserve directories on failure, or allowed persistent backup

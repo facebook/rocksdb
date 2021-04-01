@@ -95,7 +95,7 @@ class Repairer {
       : dbname_(dbname),
         env_(db_options.env),
         env_options_(),
-        db_options_(SanitizeOptions(dbname_, db_options)),
+        db_options_(SanitizeOptions(dbname_, db_options, /*read_only*/ false)),
         immutable_db_options_(ImmutableDBOptions(db_options_)),
         icmp_(default_cf_opts.comparator),
         default_cf_opts_(

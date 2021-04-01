@@ -2052,7 +2052,8 @@ Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
 
 Status DestroyBlobDB(const std::string& dbname, const Options& options,
                      const BlobDBOptions& bdb_options) {
-  const ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
+  const ImmutableDBOptions soptions(
+      SanitizeOptions(dbname, options, /*read_only*/ false));
   Env* env = soptions.env;
 
   Status status;

@@ -146,10 +146,11 @@ void DumpSupportInfo(Logger* logger) {
 }  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
-               const bool seq_per_batch, const bool batch_per_txn)
+               const bool seq_per_batch, const bool batch_per_txn,
+               bool read_only)
     : dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
-      initial_db_options_(SanitizeOptions(dbname, options)),
+      initial_db_options_(SanitizeOptions(dbname, options, read_only)),
       env_(initial_db_options_.env),
       io_tracer_(std::make_shared<IOTracer>()),
       immutable_db_options_(initial_db_options_),
@@ -3921,7 +3922,8 @@ Snapshot::~Snapshot() {}
 
 Status DestroyDB(const std::string& dbname, const Options& options,
                  const std::vector<ColumnFamilyDescriptor>& column_families) {
-  ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
+  ImmutableDBOptions soptions(
+      SanitizeOptions(dbname, options, /*read_only*/ false));
   Env* env = soptions.env;
   std::vector<std::string> filenames;
   bool wal_in_db_path = IsWalDirSameAsDBPath(&soptions);
