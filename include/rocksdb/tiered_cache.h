@@ -48,15 +48,16 @@ class TieredCache {
 
   virtual std::string Name() = 0;
 
-  // Insert the given value into the NVM cache. The value is not written
+  // Insert the given value into this tier. The value is not written
   // directly. Rather, the SaveToCallback provided by helper_cb will be
   // used to extract the persistable data in value, which will be written
-  // to this tier. The implementation may or may not write it to NVM depending
-  // on the admission control policy, even if the return status is success.
+  // to this tier. The implementation may or may not write it to cache
+  // depending on the admission control policy, even if the return status is
+  // success.
   virtual Status Insert(const Slice& key, void* value,
                         Cache::CacheItemHelperCallback helper_cb) = 0;
 
-  // Lookup the data for the given key in the NVM cache. The create_cb
+  // Lookup the data for the given key in this tier. The create_cb
   // will be used to create the object. The handle returned may not be
   // ready yet, unless wait=true, in which case Lookup() will block until
   // the handle is ready
