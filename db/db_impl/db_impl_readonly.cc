@@ -132,8 +132,8 @@ Status DBImplReadOnly::NewIterators(
 }
 
 namespace {
-// Return OK if dbname exists in the file system
-// or create_if_missing is false
+// Return OK if dbname exists in the file system or create it if
+// create_if_missing
 Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
                                      const std::string& dbname) {
   Status s;
@@ -144,6 +144,9 @@ Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
     uint64_t manifest_file_number;
     s = VersionSet::GetCurrentManifestPath(dbname, fs.get(), &manifest_path,
                                            &manifest_file_number);
+  } else {
+    // Historic behavior that doesn't necessarily make sense
+    s = db_options.env->CreateDirIfMissing(dbname);
   }
   return s;
 }
@@ -151,7 +154,6 @@ Status OpenForReadOnlyCheckExistence(const DBOptions& db_options,
 
 Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
                            DB** dbptr, bool /*error_if_wal_file_exists*/) {
-  // If dbname does not exist in the file system, should not do anything
   Status s = OpenForReadOnlyCheckExistence(options, dbname);
   if (!s.ok()) {
     return s;

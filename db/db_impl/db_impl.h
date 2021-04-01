@@ -2233,10 +2233,10 @@ class DBImpl : public DB {
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,
-                               bool read_only);
+                               bool read_only = false);
 
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
-                                 bool read_only);
+                                 bool read_only = false);
 
 extern CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,

@@ -3922,8 +3922,7 @@ Snapshot::~Snapshot() {}
 
 Status DestroyDB(const std::string& dbname, const Options& options,
                  const std::vector<ColumnFamilyDescriptor>& column_families) {
-  ImmutableDBOptions soptions(
-      SanitizeOptions(dbname, options, /*read_only*/ false));
+  ImmutableDBOptions soptions(SanitizeOptions(dbname, options));
   Env* env = soptions.env;
   std::vector<std::string> filenames;
   bool wal_in_db_path = IsWalDirSameAsDBPath(&soptions);
