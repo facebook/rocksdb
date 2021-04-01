@@ -235,7 +235,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       atomic_flush_install_cv_(&mutex_),
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
                      &error_handler_),
-      wbm_stall_(new WBMStallInterface()) {
       wbm_stall_(nullptr) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
