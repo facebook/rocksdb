@@ -345,7 +345,7 @@ TEST_F(LRUCacheTest, TestTieredCache) {
   Random rnd(301);
   std::string str1 = rnd.RandomString(1020);
   TestItem* item1 = new TestItem(str1.data(), str1.length());
-  cache->Insert("k1", item1, helper_cb, str1.length());
+  ASSERT_OK(cache->Insert("k1", item1, helper_cb, str1.length()));
   std::string str2 = rnd.RandomString(1020);
   TestItem* item2 = new TestItem(str2.data(), str2.length());
   // k2 should be demoted to NVM
