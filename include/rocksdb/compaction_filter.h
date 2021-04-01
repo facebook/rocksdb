@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "rocksdb/rocksdb_namespace.h"
+#include "rocksdb/table_properties.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -27,6 +28,8 @@ struct CompactionFilterContext {
   // Is this compaction requested by the client (true),
   // or is it occurring as an automatic compaction process
   bool is_manual_compaction;
+  // Whether output files are in bottommost level or not.
+  bool is_bottommost_level;
 };
 
 // CompactionFilter allows an application to modify/delete a key-value at
@@ -59,6 +62,15 @@ class CompactionFilter {
     // Is this compaction requested by the client (true),
     // or is it occurring as an automatic compaction process
     bool is_manual_compaction;
+    // Whether output files are in bottommost level or not.
+    bool is_bottommost_level;
+
+    // File numbers of all involved SST files.
+    std::vector<uint64_t> file_numbers;
+
+    // Properties of all involved SST files.
+    std::vector<std::shared_ptr<const TableProperties>> table_properties;
+
     // Which column family this compaction is for.
     uint32_t column_family_id;
   };
