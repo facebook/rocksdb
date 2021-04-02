@@ -131,7 +131,9 @@ class RemapFileSystem : public FileSystemWrapper {
 // This class has not been fully analyzed for providing strong security
 // guarantees.
 class ReadOnlyFileSystem : public FileSystemWrapper {
-  static const IOStatus kFailReadOnly;
+  static inline IOStatus FailReadOnly() {
+    return IOStatus::IOError("Attempted write to ReadOnlyFileSystem");
+  }
 
  public:
   ReadOnlyFileSystem(const std::shared_ptr<FileSystem>& base);
@@ -140,65 +142,65 @@ class ReadOnlyFileSystem : public FileSystemWrapper {
                            const FileOptions& /*options*/,
                            std::unique_ptr<FSWritableFile>* /*result*/,
                            IODebugContext* /*dbg*/) override {
-    return kFailReadOnly;
+    return FailReadOnly();
   }
   IOStatus ReuseWritableFile(const std::string& /*fname*/,
                              const std::string& /*old_fname*/,
                              const FileOptions& /*options*/,
                              std::unique_ptr<FSWritableFile>* /*result*/,
                              IODebugContext* /*dbg*/) override {
-    return kFailReadOnly;
+    return FailReadOnly();
   }
   IOStatus NewRandomRWFile(const std::string& /*fname*/,
                            const FileOptions& /*options*/,
                            std::unique_ptr<FSRandomRWFile>* /*result*/,
                            IODebugContext* /*dbg*/) override {
-    return kFailReadOnly;
+    return FailReadOnly();
   }
   IOStatus NewDirectory(const std::string& /*dir*/,
                         const IOOptions& /*options*/,
                         std::unique_ptr<FSDirectory>* /*result*/,
                         IODebugContext* /*dbg*/) override {
-    return kFailReadOnly;
+    return FailReadOnly();
   }
   IOStatus DeleteFile(const std::string& /*fname*/,
                       const IOOptions& /*options*/,
                       IODebugContext* /*dbg*/) override {
-    return kFailReadOnly;
+    return FailReadOnly();
   }
   IOStatus CreateDir(const std::string& /*dirname*/,
                      const IOOptions& /*options*/,
                      IODebugContext* /*dbg*/) override {
-    return kFailReadOnly;
+    return FailReadOnly();
   }
   IOStatus CreateDirIfMissing(const std::string& /*dirname*/,
                               const IOOptions& /*options*/,
                               IODebugContext* /*dbg*/) override {
-    return kFailReadOnly;
+    return FailReadOnly();
   }
   IOStatus DeleteDir(const std::string& /*dirname*/,
                      const IOOptions& /*options*/,
                      IODebugContext* /*dbg*/) override {
-    return kFailReadOnly;
+    return FailReadOnly();
   }
   IOStatus RenameFile(const std::string& /*src*/, const std::string& /*dest*/,
                       const IOOptions& /*options*/,
                       IODebugContext* /*dbg*/) override {
-    return kFailReadOnly;
+    return FailReadOnly();
   }
   IOStatus LinkFile(const std::string& /*src*/, const std::string& /*dest*/,
                     const IOOptions& /*options*/,
                     IODebugContext* /*dbg*/) override {
-    return kFailReadOnly;
+    return FailReadOnly();
   }
   IOStatus LockFile(const std::string& /*fname*/, const IOOptions& /*options*/,
                     FileLock** /*lock*/, IODebugContext* /*dbg*/) override {
-    return kFailReadOnly;
+    return FailReadOnly();
   }
   IOStatus NewLogger(const std::string& /*fname*/, const IOOptions& /*options*/,
                      std::shared_ptr<Logger>* /*result*/,
                      IODebugContext* /*dbg*/) override {
-    return kFailReadOnly;
+    return FailReadOnly();
   }
 };
 

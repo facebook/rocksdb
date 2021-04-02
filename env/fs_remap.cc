@@ -304,9 +304,6 @@ IOStatus RemapFileSystem::GetAbsolutePath(const std::string& db_path,
 ReadOnlyFileSystem::ReadOnlyFileSystem(const std::shared_ptr<FileSystem>& base)
     : FileSystemWrapper(base) {}
 
-const IOStatus ReadOnlyFileSystem::kFailReadOnly =
-    IOStatus::IOError("Attempted write to ReadOnlyFileSystem");
-
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE
