@@ -69,25 +69,25 @@ def get_cc_files(repo_path):
     return cc_files
 
 
-# Get parallel tests from Makefile
-def get_parallel_tests(repo_path):
+# Get non_parallel tests from Makefile
+def get_non_parallel_tests(repo_path):
     Makefile = repo_path + "/Makefile"
 
     s = set({})
 
-    found_parallel_tests = False
+    found_non_parallel_tests = False
     for line in open(Makefile):
         line = line.strip()
-        if line.startswith("PARALLEL_TEST ="):
-            found_parallel_tests = True
-        elif found_parallel_tests:
+        if line.startswith("NON_PARALLEL_TEST ="):
+            found_non_parallel_tests = True
+        elif found_non_parallel_tests:
             if line.endswith("\\"):
                 # remove the trailing \
                 line = line[:-1]
                 line = line.strip()
                 s.add(line)
             else:
-                # we consumed all the parallel tests
+                # we consumed all the non_parallel tests
                 break
 
     return s
@@ -123,10 +123,10 @@ def generate_targets(repo_path, deps_map):
     src_mk = parse_src_mk(repo_path)
     # get all .cc files
     cc_files = get_cc_files(repo_path)
-    # get parallel tests from Makefile
-    parallel_tests = get_parallel_tests(repo_path)
+    # get non_parallel tests from Makefile
+    non_parallel_tests = get_non_parallel_tests(repo_path)
 
-    if src_mk is None or cc_files is None or parallel_tests is None:
+    if src_mk is None or cc_files is None or non_parallel_tests is None:
         return False
 
     extra_argv = ""
@@ -211,7 +211,7 @@ def generate_targets(repo_path, deps_map):
             TARGETS.register_test(
                 test_target_name,
                 test_src,
-                test in parallel_tests,
+                test not in non_parallel_tests,
                 json.dumps(deps['extra_deps']),
                 json.dumps(deps['extra_compiler_flags']))
 
