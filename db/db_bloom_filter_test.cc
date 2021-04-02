@@ -2117,6 +2117,51 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
   }
 }
 
+TEST_F(DBBloomFilterTest, SeekForPrevWithPartitionedFilters) {
+  Options options = CurrentOptions();
+  constexpr size_t kNumKeys = 10000;
+  static_assert(kNumKeys <= 10000, "kNumKeys have to be <= 10000");
+  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeys + 10));
+  options.create_if_missing = true;
+  constexpr size_t kPrefixLength = 4;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefixLength));
+  options.compression = kNoCompression;
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(50));
+  bbto.index_shortening =
+      BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
+  bbto.block_size = 128;
+  bbto.metadata_block_size = 128;
+  bbto.partition_filters = true;
+  bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  const std::string value(64, '\0');
+
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    char buf[5] = {0};
+    snprintf(buf, sizeof(buf), "%04d", static_cast<int>(i));
+    ASSERT_OK(db_->Put(write_opts, Slice(buf, sizeof(buf)), value));
+  }
+  ASSERT_OK(Flush());
+
+  ReadOptions read_opts;
+  read_opts.total_order_seek = false;
+  read_opts.auto_prefix_mode = false;
+  std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    char buf[6] = {0};
+    snprintf(buf, sizeof(buf), "%04da", static_cast<int>(i));
+    it->SeekForPrev(Slice(buf, sizeof(buf)));
+    ASSERT_OK(it->status());
+    ASSERT_TRUE(it->Valid());
+  }
+  it.reset();
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace ROCKSDB_NAMESPACE
