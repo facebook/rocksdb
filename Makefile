@@ -553,6 +553,8 @@ ifdef ASSERT_STATUS_CHECKED
 	TESTS := $(filter-out $(TESTS_FAILING_ASC),$(TESTS))
 endif
 
+ROCKSDBTESTS_SUBSET ?= $(TESTS)
+
 # env_test - suspicious use of test::TmpDir
 # deletefile_test - serial because it generates giant temporary files in
 #   its various tests. Parallel can fill up your /dev/shm
