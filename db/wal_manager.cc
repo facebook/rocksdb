@@ -134,8 +134,8 @@ Status WalManager::GetUpdatesSince(
 //    b. get sorted non-empty archived logs
 //    c. delete what should be deleted
 void WalManager::PurgeObsoleteWALFiles() {
-  bool const ttl_enabled = db_options_.wal_ttl_seconds > 0;
-  bool const size_limit_enabled = db_options_.wal_size_limit_mb > 0;
+  bool const ttl_enabled = db_options_.WAL_ttl_seconds > 0;
+  bool const size_limit_enabled = db_options_.WAL_size_limit_MB > 0;
   if (!ttl_enabled && !size_limit_enabled) {
     return;
   }
@@ -150,7 +150,7 @@ void WalManager::PurgeObsoleteWALFiles() {
   }
   uint64_t const now_seconds = static_cast<uint64_t>(current_time);
   uint64_t const time_to_check = (ttl_enabled && !size_limit_enabled)
-                                     ? db_options_.wal_ttl_seconds / 2
+                                     ? db_options_.WAL_ttl_seconds / 2
                                      : kDefaultIntervalToDeleteObsoleteWAL;
 
   if (purge_wal_files_last_run_ + time_to_check > now_seconds) {
@@ -185,7 +185,7 @@ void WalManager::PurgeObsoleteWALFiles() {
                          s.ToString().c_str());
           continue;
         }
-        if (now_seconds - file_m_time > db_options_.wal_ttl_seconds) {
+        if (now_seconds - file_m_time > db_options_.WAL_ttl_seconds) {
           s = DeleteDBFile(&db_options_, file_path, archival_dir, false,
                            /*force_fg=*/!wal_in_db_path_);
           if (!s.ok()) {
@@ -234,8 +234,8 @@ void WalManager::PurgeObsoleteWALFiles() {
     return;
   }
 
-  size_t const files_keep_num =
-      static_cast<size_t>(db_options_.wal_size_limit_mb * 1024 * 1024 / log_file_size);
+  size_t const files_keep_num = static_cast<size_t>(
+      db_options_.WAL_size_limit_MB * 1024 * 1024 / log_file_size);
   if (log_files_num <= files_keep_num) {
     return;
   }

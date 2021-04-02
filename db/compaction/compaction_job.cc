@@ -965,7 +965,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   MergeHelper merge(
-      env_, cfd->user_comparator(), cfd->ioptions()->merge_operator,
+      env_, cfd->user_comparator(), cfd->ioptions()->merge_operator.get(),
       compaction_filter, db_options_.info_log.get(),
       false /* internal key corruption is expected */,
       existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),

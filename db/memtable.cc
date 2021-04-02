@@ -59,8 +59,8 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
       inplace_callback(ioptions.inplace_callback),
       max_successive_merges(mutable_cf_options.max_successive_merges),
       statistics(ioptions.statistics),
-      merge_operator(ioptions.merge_operator),
-      info_log(ioptions.info_log),
+      merge_operator(ioptions.merge_operator.get()),
+      info_log(ioptions.info_log.get()),
       allow_data_in_errors(ioptions.allow_data_in_errors) {}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
@@ -82,10 +82,10 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
              mutable_cf_options.memtable_huge_page_size),
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &arena_, mutable_cf_options.prefix_extractor.get(),
-          ioptions.info_log, column_family_id)),
+          ioptions.info_log.get(), column_family_id)),
       range_del_table_(SkipListFactory().CreateMemTableRep(
-          comparator_, &arena_, nullptr /* transform */, ioptions.info_log,
-          column_family_id)),
+          comparator_, &arena_, nullptr /* transform */,
+          ioptions.info_log.get(), column_family_id)),
       is_range_del_table_empty_(true),
       data_size_(0),
       num_entries_(0),
@@ -106,7 +106,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       flush_state_(FLUSH_NOT_REQUESTED),
       clock_(ioptions.clock),
       insert_with_hint_prefix_extractor_(
-          ioptions.memtable_insert_with_hint_prefix_extractor),
+          ioptions.memtable_insert_with_hint_prefix_extractor.get()),
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
       atomic_flush_seqno_(kMaxSequenceNumber),
       approximate_memory_usage_(0) {
@@ -117,10 +117,10 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   // use bloom_filter_ for both whole key and prefix bloom filter
   if ((prefix_extractor_ || moptions_.memtable_whole_key_filtering) &&
       moptions_.memtable_prefix_bloom_bits > 0) {
-    bloom_filter_.reset(
-        new DynamicBloom(&arena_, moptions_.memtable_prefix_bloom_bits,
-                         6 /* hard coded 6 probes */,
-                         moptions_.memtable_huge_page_size, ioptions.info_log));
+    bloom_filter_.reset(new DynamicBloom(
+        &arena_, moptions_.memtable_prefix_bloom_bits,
+        6 /* hard coded 6 probes */, moptions_.memtable_huge_page_size,
+        ioptions.info_log.get()));
   }
 }
 

@@ -70,8 +70,9 @@ class PropertyBlockBuilder {
 
 // Were we encounter any error occurs during user-defined statistics collection,
 // we'll write the warning message to info log.
-void LogPropertiesCollectionError(
-    Logger* info_log, const std::string& method, const std::string& name);
+void LogPropertiesCollectionError(const std::shared_ptr<Logger>& info_log,
+                                  const std::string& method,
+                                  const std::string& name);
 
 // Utility functions help table builder to trigger batch events for user
 // defined property collectors.
@@ -82,7 +83,7 @@ void LogPropertiesCollectionError(
 bool NotifyCollectTableCollectorsOnAdd(
     const Slice& key, const Slice& value, uint64_t file_size,
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    Logger* info_log);
+    const std::shared_ptr<Logger>& info_log);
 
 void NotifyCollectTableCollectorsOnBlockAdd(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
@@ -93,7 +94,7 @@ void NotifyCollectTableCollectorsOnBlockAdd(
 // property collectors. The collected properties will be added to `builder`.
 bool NotifyCollectTableCollectorsOnFinish(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    Logger* info_log, PropertyBlockBuilder* builder);
+    const std::shared_ptr<Logger>& info_log, PropertyBlockBuilder* builder);
 
 // Read the properties from the table.
 // @returns a status to indicate if the operation succeeded. On success,

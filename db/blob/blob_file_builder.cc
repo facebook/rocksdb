@@ -190,7 +190,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
       std::move(file), blob_file_paths_->back(), *file_options_,
       immutable_cf_options_->clock, io_tracer_, statistics,
       immutable_cf_options_->listeners,
-      immutable_cf_options_->file_checksum_gen_factory,
+      immutable_cf_options_->file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kBlobFile)));
 
   constexpr bool do_flush = false;

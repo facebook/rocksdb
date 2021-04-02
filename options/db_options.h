@@ -26,8 +26,6 @@ struct ImmutableDBOptions {
   bool paranoid_checks;
   bool track_and_verify_wals_in_manifest;
   Env* env;
-  std::shared_ptr<FileSystem> fs;
-  SystemClock* clock;
   std::shared_ptr<RateLimiter> rate_limiter;
   std::shared_ptr<SstFileManager> sst_file_manager;
   std::shared_ptr<Logger> info_log;
@@ -44,8 +42,8 @@ struct ImmutableDBOptions {
   size_t recycle_log_file_num;
   uint64_t max_manifest_file_size;
   int table_cache_numshardbits;
-  uint64_t wal_ttl_seconds;
-  uint64_t wal_size_limit_mb;
+  uint64_t WAL_ttl_seconds;
+  uint64_t WAL_size_limit_MB;
   uint64_t max_write_batch_group_size_bytes;
   size_t manifest_preallocation_size;
   bool allow_mmap_reads;
@@ -96,6 +94,9 @@ struct ImmutableDBOptions {
   bool allow_data_in_errors;
   std::string db_host_id;
   FileTypeSet checksum_handoff_file_types;
+  // Convenience/Helper objects that are not part of the base DBOptions
+  std::shared_ptr<FileSystem> fs;
+  SystemClock* clock;
 };
 
 struct MutableDBOptions {

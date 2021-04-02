@@ -68,7 +68,8 @@ class MemoryTest : public testing::Test {
         ASSERT_OK(db_impl->TEST_GetAllImmutableCFOptions(&iopts_map));
       }
       for (auto pair : iopts_map) {
-        GetCachePointersFromTableFactory(pair.second->table_factory, cache_set);
+        GetCachePointersFromTableFactory(pair.second->table_factory.get(),
+                                         cache_set);
       }
     }
   }
