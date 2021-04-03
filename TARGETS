@@ -87,10 +87,12 @@ ROCKSDB_PREPROCESSOR_FLAGS = [
 
     # Added missing flags from output of build_detect_platform
     "-DROCKSDB_BACKTRACE",
+]
 
-    # Directories with files for #include
-    "-I" + REPO_PATH + "include/",
-    "-I" + REPO_PATH,
+# Directories with files for #include
+ROCKSDB_INCLUDE_PATHS = [
+    "",
+    "include",
 ]
 
 ROCKSDB_ARCH_PREPROCESSOR_FLAGS = {
@@ -428,6 +430,7 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = [],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
     link_whole = False,
@@ -735,6 +738,7 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = [],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
     link_whole = True,
@@ -758,6 +762,7 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = [":rocksdb_lib"],
     external_deps = ROCKSDB_EXTERNAL_DEPS + [
         ("googletest", None, "gtest"),
@@ -779,6 +784,7 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = [":rocksdb_lib"],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
     link_whole = False,
@@ -806,6 +812,7 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = ROCKSDB_LIB_DEPS,
     external_deps = ROCKSDB_EXTERNAL_DEPS,
 )
@@ -817,6 +824,7 @@ cpp_binary(
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     compiler_flags = ROCKSDB_COMPILER_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = [":rocksdb_test_lib"],
 ) if not is_opt_mode else None
 
@@ -838,6 +846,7 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = [":rocksdb_test_lib"],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
     link_whole = False,
@@ -2118,6 +2127,7 @@ ROCKS_TESTS = [
         os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
         compiler_flags = ROCKSDB_COMPILER_FLAGS + extra_compiler_flags,
         preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+        include_paths = ROCKSDB_INCLUDE_PATHS,
         deps = [":rocksdb_test_lib"] + extra_deps,
         external_deps = ROCKSDB_EXTERNAL_DEPS + [
             ("googletest", None, "gtest"),
