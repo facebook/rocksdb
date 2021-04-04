@@ -129,14 +129,14 @@ Status FileChecksumRetriever::ApplyVersionEdit(VersionEdit& edit,
 VersionEditHandler::VersionEditHandler(
     bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
     VersionSet* version_set, bool track_missing_files,
-    bool no_error_if_table_files_missing,
-    const std::shared_ptr<IOTracer>& io_tracer, bool skip_load_table_files)
+    bool no_error_if_files_missing, const std::shared_ptr<IOTracer>& io_tracer,
+    bool skip_load_table_files)
     : VersionEditHandlerBase(),
       read_only_(read_only),
       column_families_(std::move(column_families)),
       version_set_(version_set),
       track_missing_files_(track_missing_files),
-      no_error_if_table_files_missing_(no_error_if_table_files_missing),
+      no_error_if_files_missing_(no_error_if_files_missing),
       io_tracer_(io_tracer),
       skip_load_table_files_(skip_load_table_files),
       initialized_(false) {
@@ -505,8 +505,7 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
       prefetch_index_and_filter_in_cache, is_initial_load,
       cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
       MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
-  if ((s.IsPathNotFound() || s.IsCorruption()) &&
-      no_error_if_table_files_missing_) {
+  if ((s.IsPathNotFound() || s.IsCorruption()) && no_error_if_files_missing_) {
     s = Status::OK();
   }
   if (!s.ok() && !version_set_->db_options_->paranoid_checks) {
@@ -576,7 +575,7 @@ VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer)
     : VersionEditHandler(read_only, column_families, version_set,
                          /*track_missing_files=*/true,
-                         /*no_error_if_table_files_missing=*/true, io_tracer) {}
+                         /*no_error_if_files_missing=*/true, io_tracer) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   for (const auto& elem : versions_) {
