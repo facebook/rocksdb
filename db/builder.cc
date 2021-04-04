@@ -167,11 +167,11 @@ Status BuildTable(
           0 /*target_file_size*/, file_creation_time, db_id, db_session_id);
     }
 
-    MergeHelper merge(
-        env, internal_comparator.user_comparator(),
-        ioptions.merge_operator.get(), nullptr, ioptions.info_log.get(),
-        true /* internal key corruption is not ok */,
-        snapshots.empty() ? 0 : snapshots.back(), snapshot_checker);
+    MergeHelper merge(env, internal_comparator.user_comparator(),
+                      ioptions.merge_operator.get(), nullptr, ioptions.info_log,
+                      true /* internal key corruption is not ok */,
+                      snapshots.empty() ? 0 : snapshots.back(),
+                      snapshot_checker);
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
         (mutable_cf_options.enable_blob_files && blob_file_additions)

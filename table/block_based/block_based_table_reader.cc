@@ -465,8 +465,7 @@ namespace {
 // Return True if table_properties has `user_prop_name` has a `true` value
 // or it doesn't contain this property (for backward compatible).
 bool IsFeatureSupported(const TableProperties& table_properties,
-                        const std::string& user_prop_name,
-                        const std::shared_ptr<Logger>& info_log) {
+                        const std::string& user_prop_name, Logger* info_log) {
   auto& props = table_properties.user_collected_properties;
   auto pos = props.find(user_prop_name);
   // Older version doesn't have this value set. Skip this check.

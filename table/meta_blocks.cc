@@ -152,8 +152,7 @@ Slice PropertyBlockBuilder::Finish() {
   return properties_block_->Finish();
 }
 
-void LogPropertiesCollectionError(const std::shared_ptr<Logger>& info_log,
-                                  const std::string& method,
+void LogPropertiesCollectionError(Logger* info_log, const std::string& method,
                                   const std::string& name) {
   assert(method == "Add" || method == "Finish");
 
@@ -166,7 +165,7 @@ void LogPropertiesCollectionError(const std::shared_ptr<Logger>& info_log,
 bool NotifyCollectTableCollectorsOnAdd(
     const Slice& key, const Slice& value, uint64_t file_size,
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    const std::shared_ptr<Logger>& info_log) {
+    Logger* info_log) {
   bool all_succeeded = true;
   for (auto& collector : collectors) {
     Status s = collector->InternalAdd(key, value, file_size);
@@ -191,7 +190,7 @@ void NotifyCollectTableCollectorsOnBlockAdd(
 
 bool NotifyCollectTableCollectorsOnFinish(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    const std::shared_ptr<Logger>& info_log, PropertyBlockBuilder* builder) {
+    Logger* info_log, PropertyBlockBuilder* builder) {
   bool all_succeeded = true;
   for (auto& collector : collectors) {
     UserCollectedProperties user_collected_properties;

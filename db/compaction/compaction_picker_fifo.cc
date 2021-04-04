@@ -244,7 +244,7 @@ Compaction* FIFOCompactionPicker::CompactRange(
   assert(input_level == 0);
   assert(output_level == 0);
   *compaction_end = nullptr;
-  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, ioptions_.info_log.get());
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, ioptions_.info_log);
   Compaction* c = PickCompaction(cf_name, mutable_cf_options,
                                  mutable_db_options, vstorage, &log_buffer);
   log_buffer.FlushBufferToLog();

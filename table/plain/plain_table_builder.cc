@@ -219,8 +219,7 @@ Status PlainTableBuilder::Finish() {
       bloom_block_.SetTotalBits(
           &arena_,
           static_cast<uint32_t>(properties_.num_entries) * bloom_bits_per_key_,
-          ioptions_.bloom_locality, huge_page_tlb_size_,
-          ioptions_.info_log.get());
+          ioptions_.bloom_locality, huge_page_tlb_size_, ioptions_.info_log);
 
       PutVarint32(&properties_.user_collected_properties
                        [PlainTablePropertyNames::kNumBloomBlocks],

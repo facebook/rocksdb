@@ -1763,7 +1763,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
     : env_(vset->env_),
       clock_(vset->clock_),
       cfd_(column_family_data),
-      info_log_((cfd_ == nullptr) ? nullptr : cfd_->ioptions()->info_log.get()),
+      info_log_((cfd_ == nullptr) ? nullptr : cfd_->ioptions()->info_log),
       db_statistics_((cfd_ == nullptr) ? nullptr
                                        : cfd_->ioptions()->statistics),
       table_cache_((cfd_ == nullptr) ? nullptr : cfd_->table_cache()),

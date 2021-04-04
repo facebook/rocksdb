@@ -53,7 +53,7 @@ struct ImmutableCFOptions {
                                    Slice delta_value,
                                    std::string* merged_value);
 
-  std::shared_ptr<Logger> info_log;  // ImmutableDBOptions
+  Logger* info_log;  // ImmutableDBOptions
 
   Statistics* statistics;  // ImmutableDBOptions
 

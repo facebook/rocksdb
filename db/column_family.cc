@@ -596,7 +596,7 @@ ColumnFamilyData::ColumnFamilyData(
       ROCKS_LOG_INFO(ioptions_.info_log,
                      "--------------- Options for column family [%s]:\n",
                      name.c_str());
-      initial_cf_options_.Dump(ioptions_.info_log.get());
+      initial_cf_options_.Dump(ioptions_.info_log);
     } else {
       ROCKS_LOG_INFO(ioptions_.info_log, "\t(skipping printing options)\n");
     }
