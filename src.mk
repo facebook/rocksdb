@@ -435,7 +435,6 @@ TEST_MAIN_SOURCES =                                                     \
   db/external_sst_file_test.cc                                          \
   db/fault_injection_test.cc                                            \
   db/file_indexer_test.cc                                               \
-  db/file_reader_writer_test.cc                                         \
   db/filename_test.cc                                                   \
   db/flush_job_test.cc                                                  \
   db/listener_test.cc                                                   \
