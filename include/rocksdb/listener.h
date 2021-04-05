@@ -118,6 +118,7 @@ enum class FlushReason : int {
   // When set the flush reason to kErrorRecoveryRetryFlush, SwitchMemtable
   // will not be called to avoid many small immutable memtables.
   kErrorRecoveryRetryFlush = 0xc,
+  kWalFull = 0xd,
 };
 
 // TODO: In the future, BackgroundErrorReason will only be used to indicate

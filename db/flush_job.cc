@@ -75,6 +75,8 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
       return "Manual Flush";
     case FlushReason::kErrorRecovery:
       return "Error Recovery";
+    case FlushReason::kWalFull:
+      return "WAL Full";
     default:
       return "Invalid";
   }

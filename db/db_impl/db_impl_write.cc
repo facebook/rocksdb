@@ -937,7 +937,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
     // be flushed. We may end up with flushing much more DBs than needed. It's
     // suboptimal but still correct.
     WaitForPendingWrites();
-    status = HandleWriteBufferFull(write_context);
+    status = HandleWriteBufferManagerFlush(write_context);
   }
 
   if (UNLIKELY(status.ok() && !trim_history_scheduler_.Empty())) {
@@ -1348,20 +1348,20 @@ Status DBImpl::SwitchWAL(WriteContext* write_context) {
       if (!immutable_db_options_.atomic_flush) {
         FlushRequest flush_req;
         GenerateFlushRequest({cfd}, &flush_req);
-        SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+        SchedulePendingFlush(flush_req, FlushReason::kWalFull);
       }
     }
     if (immutable_db_options_.atomic_flush) {
       FlushRequest flush_req;
       GenerateFlushRequest(cfds, &flush_req);
-      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
+      SchedulePendingFlush(flush_req, FlushReason::kWalFull);
     }
     MaybeScheduleFlushOrCompaction();
   }
   return status;
 }
 
-Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
+Status DBImpl::HandleWriteBufferManagerFlush(WriteContext* write_context) {
   mutex_.AssertHeld();
   assert(write_context != nullptr);
   Status status;
@@ -1373,7 +1373,7 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
   // suboptimal but still correct.
   ROCKS_LOG_INFO(
       immutable_db_options_.info_log,
-      "Flushing column family with oldest memtable entry. Write buffer is "
+      "Flushing column family with oldest memtable entry. Write buffers are "
       "using %" ROCKSDB_PRIszt " bytes out of a total of %" ROCKSDB_PRIszt ".",
       write_buffer_manager_->memory_usage(),
       write_buffer_manager_->buffer_size());
@@ -1434,13 +1434,13 @@ Status DBImpl::HandleWriteBufferFull(WriteContext* write_context) {
       if (!immutable_db_options_.atomic_flush) {
         FlushRequest flush_req;
         GenerateFlushRequest({cfd}, &flush_req);
-        SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+        SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
       }
     }
     if (immutable_db_options_.atomic_flush) {
       FlushRequest flush_req;
       GenerateFlushRequest(cfds, &flush_req);
-      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferFull);
+      SchedulePendingFlush(flush_req, FlushReason::kWriteBufferManager);
     }
     MaybeScheduleFlushOrCompaction();
   }

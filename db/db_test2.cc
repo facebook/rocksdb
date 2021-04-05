@@ -344,6 +344,10 @@ class DBTestSharedWriteBufferAcrossCFs
 TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
   Options options = CurrentOptions();
   options.arena_block_size = 4096;
+  auto flush_listener = std::make_shared<FlushCounterListener>();
+  options.listeners.push_back(flush_listener);
+  // Don't trip the listener at shutdown.
+  options.avoid_flush_during_shutdown = true;
 
   // Avoid undeterministic value by malloc_usable_size();
   // Force arena block size to 1
@@ -387,6 +391,7 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
 
   // Create some data and flush "default" and "nikitich" so that they
   // are newer CFs created.
+  flush_listener->expected_flush_reason = FlushReason::kManualFlush;
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
   Flush(3);
   ASSERT_OK(Put(3, Key(1), DummyString(1), wo));
@@ -397,6 +402,7 @@ TEST_P(DBTestSharedWriteBufferAcrossCFs, SharedWriteBufferAcrossCFs) {
   ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
             static_cast<uint64_t>(1));
 
+  flush_listener->expected_flush_reason = FlushReason::kWriteBufferManager;
   ASSERT_OK(Put(3, Key(1), DummyString(30000), wo));
   if (cost_cache_) {
     ASSERT_GE(cache->GetUsage(), 256 * 1024);
@@ -521,6 +527,10 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   std::string dbname2 = test::PerThreadDBPath("db_shared_wb_db2");
   Options options = CurrentOptions();
   options.arena_block_size = 4096;
+  auto flush_listener = std::make_shared<FlushCounterListener>();
+  options.listeners.push_back(flush_listener);
+  // Don't trip the listener at shutdown.
+  options.avoid_flush_during_shutdown = true;
   // Avoid undeterministic value by malloc_usable_size();
   // Force arena block size to 1
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
@@ -558,6 +568,7 @@ TEST_F(DBTest2, SharedWriteBufferLimitAcrossDB) {
   };
 
   // Trigger a flush on cf2
+  flush_listener->expected_flush_reason = FlushReason::kWriteBufferManager;
   ASSERT_OK(Put(2, Key(1), DummyString(70000), wo));
   wait_flush();
   ASSERT_OK(Put(0, Key(1), DummyString(20000), wo));
