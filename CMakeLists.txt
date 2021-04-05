@@ -333,6 +333,17 @@ if(HAVE_THREAD_LOCAL)
   add_definitions(-DROCKSDB_SUPPORT_THREAD_LOCAL)
 endif()
 
+option(WITH_IOSTATS_CONTEXT "Enable IO stats context" ON)
+if (NOT WITH_IOSTATS_CONTEXT)
+  add_definitions(-DNIOSTATS_CONTEXT)
+endif()
+
+if (NOT HAVE_THREAD_LOCAL)
+  if (WITH_IOSTATS_CONTEXT)
+    message(FATAL_ERROR "Thread-local not supported but io stats context enabled.")
+  endif()
+endif()
+
 option(FAIL_ON_WARNINGS "Treat compile warnings as errors" ON)
 if(FAIL_ON_WARNINGS)
   if(MSVC)
