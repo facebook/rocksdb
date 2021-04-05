@@ -1084,8 +1084,7 @@ TEST_P(BackupableDBTestWithParam, BlobFileDeletionAfterBackup) {
   ASSERT_OK(file_manager_->GetChildrenFileAttributes(shared_dir, &children));
 
   for (const auto& child : children) {
-    if (child.name.find(".blob") != std::string::npos &&
-        child.size_bytes != 0) {
+    if (EndsWith(child.name, ".blob") && child.size_bytes != 0) {
       files.push_back(child.name);
     }
   }
@@ -1131,8 +1130,7 @@ TEST_P(BackupableDBTestWithParam, BlobFileCorruptionAfterBackup) {
   ASSERT_OK(file_manager_->GetChildrenFileAttributes(shared_dir, &children));
 
   for (const auto& child : children) {
-    if (child.name.find(".blob") != std::string::npos &&
-        child.size_bytes != 0) {
+    if (EndsWith(child.name, ".blob") && child.size_bytes != 0) {
       files.push_back(child.name);
     }
   }
@@ -1569,8 +1567,7 @@ TEST_P(BackupableDBTestWithParam, CorruptBlobFileMaintainSize) {
   ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
 
   for (const auto& child : children) {
-    if (child.name.find(".blob") != std::string::npos &&
-        child.size_bytes != 0) {
+    if (EndsWith(child.name, ".blob") && child.size_bytes != 0) {
       // corrupt the blob files by replacing its content by file_size random
       // bytes
       ASSERT_OK(

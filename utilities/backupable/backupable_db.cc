@@ -1913,7 +1913,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   // Step 1: Prepare the relative path to destination
   if (shared && shared_checksum) {
     if (GetNamingNoFlags() != BackupableDBOptions::kLegacyCrc32cAndFileSize &&
-        fname.find(".blob") == std::string::npos) {
+        !EndsWith(fname, ".blob")) {
       // Prepare db_session_id to add to the file name
       // Ignore the returned status
       // In the failed cases, db_id and db_session_id will be empty

@@ -44,11 +44,11 @@ struct BackupableDBOptions {
 
   // share_table_files supports table and blob files.
   //
-  // If share_table_files == true, backup will assume that table and blob
-  // files with same name have the same contents. This enables incremental
-  // backups and avoids unnecessary data copies. If share_table_files == false,
-  // each backup will be on its own and will not share any data with other
-  // backups.
+  // If share_table_files == true, the backup directory will share table and
+  // blob files among backups, to save space among backups of the same DB and to
+  // enable incremental backups by only copying new files.
+  // If share_table_files == false, each backup will be on its own and will not
+  // share any data with other backups.
   //
   // default: true
   bool share_table_files;
@@ -135,7 +135,7 @@ struct BackupableDBOptions {
   // shared_checksum directory (i.e., both share_table_files and
   // share_files_with_checksum are true).
   enum ShareFilesNaming : uint32_t {
-    // Backup blob filenames are file_number>_<crc32c>_<file_size>.blob and
+    // Backup blob filenames are <file_number>_<crc32c>_<file_size>.blob and
     // backup SST filenames are <file_number>_<crc32c>_<file_size>.sst
     // where <crc32c> is an unsigned decimal integer. This is the
     // original/legacy naming scheme for share_files_with_checksum,
