@@ -2834,8 +2834,8 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Return a heap-allocated iterator over the contents of the
-   * database. The result of newIterator() is initially invalid
+   * <p>Return a heap-allocated iterator over the contents of a
+   * ColumnFamily. The result of newIterator() is initially invalid
    * (caller must call one of the Seek methods on the iterator
    * before using it).</p>
    *
@@ -2854,8 +2854,8 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Return a heap-allocated iterator over the contents of the
-   * database. The result of newIterator() is initially invalid
+   * <p>Return a heap-allocated iterator over the contents of a
+   * ColumnFamily. The result of newIterator() is initially invalid
    * (caller must call one of the Seek methods on the iterator
    * before using it).</p>
    *
@@ -3574,9 +3574,8 @@ public class RocksDB extends RocksObject {
       /* @Nullable */final ColumnFamilyHandle columnFamilyHandle,
       final MutableColumnFamilyOptions mutableColumnFamilyOptions)
       throws RocksDBException {
-    setOptions(nativeHandle_, columnFamilyHandle.nativeHandle_,
-        mutableColumnFamilyOptions.getKeys(),
-        mutableColumnFamilyOptions.getValues());
+    setOptions(nativeHandle_, columnFamilyHandle == null ? 0 : columnFamilyHandle.nativeHandle_,
+        mutableColumnFamilyOptions.getKeys(), mutableColumnFamilyOptions.getValues());
   }
 
   /**

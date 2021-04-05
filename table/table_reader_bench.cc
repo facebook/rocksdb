@@ -51,8 +51,7 @@ static std::string MakeKey(int i, int j, bool through_db) {
   return key.Encode().ToString();
 }
 
-uint64_t Now(const std::shared_ptr<SystemClock>& clock,
-             bool measured_by_nanosecond) {
+uint64_t Now(SystemClock* clock, bool measured_by_nanosecond) {
   return measured_by_nanosecond ? clock->NowNanos() : clock->NowMicros();
 }
 }  // namespace
@@ -83,7 +82,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   std::string dbname = test::PerThreadDBPath("rocksdb_table_reader_bench_db");
   WriteOptions wo;
   Env* env = Env::Default();
-  const auto& clock = env->GetSystemClock();
+  auto* clock = env->GetSystemClock().get();
   TableBuilder* tb = nullptr;
   DB* db = nullptr;
   Status s;
@@ -103,9 +102,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     tb = opts.table_factory->NewTableBuilder(
         TableBuilderOptions(
             ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
-            CompressionType::kNoCompression, 0 /* sample_for_compression */,
-            CompressionOptions(), false /* skip_filters */,
-            kDefaultColumnFamilyName, unknown_level),
+            CompressionType::kNoCompression, CompressionOptions(),
+            false /* skip_filters */, kDefaultColumnFamilyName, unknown_level),
         0 /* column_family_id */, file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);

@@ -521,7 +521,7 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   InstallNewVersion();
   // this method is used to move mutable memtable into an immutable list.
   // since mutable memtable is already refcounted by the DBImpl,
-  // and when moving to the imutable list we don't unref it,
+  // and when moving to the immutable list we don't unref it,
   // we don't have to ref the memtable here. we just take over the
   // reference from the DBImpl.
   current_->Add(m, to_delete);

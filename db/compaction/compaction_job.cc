@@ -151,7 +151,7 @@ struct CompactionJob::SubcompactionState {
       // This subcompaction's output could be empty if compaction was aborted
       // before this subcompaction had a chance to generate any output files.
       // When subcompactions are executed sequentially this is more likely and
-      // will be particulalry likely for the later subcompactions to be empty.
+      // will be particularly likely for the later subcompactions to be empty.
       // Once they are run in parallel however it should be much rarer.
       return nullptr;
     } else {
@@ -305,8 +305,13 @@ LocalCompactionService::LocalCompactionService(
     VersionSet* versions, FSDirectory* db_directory,
     InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
     const std::shared_ptr<Cache>& table_cache, EventLogger* event_logger,
-    const std::shared_ptr<IOTracer>& io_tracer)
-    : dbname_(dbname),
+    const std::shared_ptr<IOTracer>& io_tracer
+    BlobFileCompletionCallback* blob_callback)
+    : job_id_(job_id),
+      compact_(new CompactionState(compaction)),
+      compaction_job_stats_(compaction_job_stats),
+      compaction_stats_(compaction->compaction_reason(), 1),
+      dbname_(dbname),
       db_id_(db_id),
       db_session_id_(db_session_id),
       db_options_(db_options),
@@ -389,7 +394,8 @@ CompactionJob::CompactionJob(
       measure_io_stats_(measure_io_stats),
       write_hint_(Env::WLTH_NOT_SET),
       thread_pri_(thread_pri),
-      full_history_ts_low_(std::move(full_history_ts_low)) {
+      full_history_ts_low_(std::move(full_history_ts_low)),
+      blob_callback_(blob_callback) {
   assert(compaction_job_stats_ != nullptr);
   assert(log_buffer_ != nullptr);
   const auto* cfd = compaction_state_->compaction->column_family_data();
@@ -843,43 +849,48 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   double bytes_read_per_sec = 0;
   double bytes_written_per_sec = 0;
 
-  if (stats.bytes_read_non_output_levels > 0) {
-    read_write_amp = (stats.bytes_written + stats.bytes_read_output_level +
-                      stats.bytes_read_non_output_levels) /
-                     static_cast<double>(stats.bytes_read_non_output_levels);
-    write_amp = stats.bytes_written /
-                static_cast<double>(stats.bytes_read_non_output_levels);
+  const uint64_t bytes_read_non_output_and_blob =
+      stats.bytes_read_non_output_levels + stats.bytes_read_blob;
+  const uint64_t bytes_read_all =
+      stats.bytes_read_output_level + bytes_read_non_output_and_blob;
+  const uint64_t bytes_written_all =
+      stats.bytes_written + stats.bytes_written_blob;
+
+  if (bytes_read_non_output_and_blob > 0) {
+    read_write_amp = (bytes_written_all + bytes_read_all) /
+                     static_cast<double>(bytes_read_non_output_and_blob);
+    write_amp =
+        bytes_written_all / static_cast<double>(bytes_read_non_output_and_blob);
   }
   if (stats.micros > 0) {
-    bytes_read_per_sec =
-        (stats.bytes_read_non_output_levels + stats.bytes_read_output_level) /
-        static_cast<double>(stats.micros);
+    bytes_read_per_sec = bytes_read_all / static_cast<double>(stats.micros);
     bytes_written_per_sec =
-        stats.bytes_written / static_cast<double>(stats.micros);
+        bytes_written_all / static_cast<double>(stats.micros);
   }
 
   const std::string& column_family_name = cfd->GetName();
 
-  ROCKS_LOG_BUFFER(log_buffer_,
-                   "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
-                   "files in(%d, %d) out(%d) "
-                   "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
-                   "write-amplify(%.1f) %s, records in: %" PRIu64
-                   ", records dropped: %" PRIu64 " output_compression: %s\n",
-                   column_family_name.c_str(), vstorage->LevelSummary(&tmp),
-                   bytes_read_per_sec, bytes_written_per_sec,
-                   compaction_state_->compaction->output_level(),
-                   stats.num_input_files_in_non_output_levels,
-                   stats.num_input_files_in_output_level,
-                   stats.num_output_files,
-                   stats.bytes_read_non_output_levels / 1048576.0,
-                   stats.bytes_read_output_level / 1048576.0,
-                   stats.bytes_written / 1048576.0, read_write_amp, write_amp,
-                   status.ToString().c_str(), stats.num_input_records,
-                   stats.num_dropped_records,
-                   CompressionTypeToString(
-                       compaction_state_->compaction->output_compression())
-                       .c_str());
+  constexpr double kMB = 1048576.0;
+
+  ROCKS_LOG_BUFFER(
+      log_buffer_,
+      "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
+      "files in(%d, %d) out(%d +%d blob) "
+      "MB in(%.1f, %.1f +%.1f blob) out(%.1f +%.1f blob), "
+      "read-write-amplify(%.1f) write-amplify(%.1f) %s, records in: %" PRIu64
+      ", records dropped: %" PRIu64 " output_compression: %s\n",
+      column_family_name.c_str(), vstorage->LevelSummary(&tmp),
+      bytes_read_per_sec, bytes_written_per_sec,
+      compaction_state_->compaction->output_level(),
+      stats.num_input_files_in_non_output_levels,
+      stats.num_input_files_in_output_level, stats.num_output_files,
+      stats.num_output_files_blob, stats.bytes_read_non_output_levels / kMB,
+      stats.bytes_read_output_level / kMB, stats.bytes_read_blob / kMB,
+      stats.bytes_written / kMB, stats.bytes_written_blob / kMB, read_write_amp,
+      write_amp, status.ToString().c_str(), stats.num_input_records,
+      stats.num_dropped_records,
+      CompressionTypeToString(compaction_state_->compaction->output_compression())
+          .c_str());
 
   const auto& blob_files = vstorage->GetBlobFiles();
   if (!blob_files.empty()) {
@@ -1027,11 +1038,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<BlobFileBuilder> blob_file_builder(
       mutable_cf_options->enable_blob_files
           ? new BlobFileBuilder(
-                service_->versions_, service_->db_options_.env,
+                service_->versions_, 
                 service_->fs_.get(),
                 sub_compact->compaction->immutable_cf_options(),
                 mutable_cf_options, &file_options_, job_id_, cfd->GetID(),
                 cfd->GetName(), Env::IOPriority::IO_LOW, write_hint_,
+                io_tracer_, blob_callback_,
                 &blob_file_paths, &sub_compact->blob_file_additions)
           : nullptr);
 
@@ -1177,6 +1189,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     }
   }
 
+  sub_compact->compaction_job_stats.num_blobs_read =
+      c_iter_stats.num_blobs_read;
+  sub_compact->compaction_job_stats.total_blob_bytes_read =
+      c_iter_stats.total_blob_bytes_read;
   sub_compact->compaction_job_stats.num_input_deletion_records =
       c_iter_stats.num_input_deletion_records;
   sub_compact->compaction_job_stats.num_corrupt_keys =
@@ -1236,8 +1252,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   if (blob_file_builder) {
     if (status.ok()) {
       status = blob_file_builder->Finish();
+    } else {
+      blob_file_builder->Abandon();
     }
-
     blob_file_builder.reset();
   }
 
@@ -1770,8 +1787,7 @@ Status CompactionJob::OpenCompactionOutputFile(
 
   // Try to figure out the output file's oldest ancester time.
   int64_t temp_current_time = 0;
-  auto get_time_status =
-      service_->db_options_.env->GetCurrentTime(&temp_current_time);
+  auto get_time_status = service_->db_options_.clock->GetCurrentTime(&temp_current_time);
   // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
   if (!get_time_status.ok()) {
     ROCKS_LOG_WARN(service_->db_options_.info_log,
@@ -1823,7 +1839,6 @@ Status CompactionJob::OpenCompactionOutputFile(
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
       cfd->GetID(), cfd->GetName(), sub_compact->outfile.get(),
       sub_compact->compaction->output_compression(),
-      0 /*sample_for_compression */,
       sub_compact->compaction->output_compression_opts(),
       sub_compact->compaction->output_level(), skip_filters,
       oldest_ancester_time, 0 /* oldest_key_time */,
@@ -1892,11 +1907,16 @@ void CompactionJob::UpdateCompactionStats() {
     }
   }
 
+  assert(compaction_job_stats_);
+  compaction_stats_.bytes_read_blob =
+      compaction_job_stats_->total_blob_bytes_read;
+
   compaction_stats_.num_output_files =
-      static_cast<int>(compaction_state_->num_output_files) +
+      static_cast<int>(compact_->num_output_files);
+  compaction_stats_.num_output_files_blob =
       static_cast<int>(compaction_state_->num_blob_output_files);
-  compaction_stats_.bytes_written =
-      compaction_state_->total_bytes + compaction_state_->total_blob_bytes;
+  compaction_stats_.bytes_written = compaction_state_->total_bytes;
+  compaction_stats_.bytes_written_blob = compaction_state_->total_blob_bytes;
 
   if (compaction_stats_.num_input_records >
       compaction_state_->num_output_records) {
@@ -1938,9 +1958,11 @@ void CompactionJob::UpdateCompactionJobStats(
 
   // output information
   compaction_job_stats_->total_output_bytes = stats.bytes_written;
+  compaction_job_stats_->total_output_bytes_blob = stats.bytes_written_blob;
   compaction_job_stats_->num_output_records =
       compaction_state_->num_output_records;
   compaction_job_stats_->num_output_files = stats.num_output_files;
+  compaction_job_stats_->num_output_files_blob = stats.num_output_files_blob;
 
   if (stats.num_output_files > 0) {
     CopyPrefix(compaction_state_->SmallestUserKey(),

@@ -92,16 +92,16 @@ struct BackupableDBOptions {
   // Default: nullptr
   std::shared_ptr<RateLimiter> restore_rate_limiter{nullptr};
 
-  // Only used if share_table_files is set to true. If true, will consider
-  // that backups can come from different databases, even differently mutated
-  // databases with the same DB ID. See share_files_with_checksum_naming and
-  // ShareFilesNaming for details on how table files names are made
-  // unique between databases.
+  // Only used if share_table_files is set to true. Setting to false is
+  // DEPRECATED and potentially dangerous because in that case BackupEngine
+  // can lose data if backing up databases with distinct or divergent
+  // history, for example if restoring from a backup other than the latest,
+  // writing to the DB, and creating another backup. Setting to true (default)
+  // prevents these issues by ensuring that different table files (SSTs) with
+  // the same number are treated as distinct. See
+  // share_files_with_checksum_naming and ShareFilesNaming.
   //
-  // Using 'true' is fundamentally safer, and performance improvements vs.
-  // original design should leave almost no reason to use the 'false' setting.
-  //
-  // Default (only for historical reasons): false
+  // Default: true
   bool share_files_with_checksum;
 
   // Up to this many background threads will copy files for CreateNewBackup()
@@ -167,16 +167,6 @@ struct BackupableDBOptions {
     // contribute significantly to naming uniqueness.
     kFlagIncludeFileSize = 1U << 31,
 
-    // When encountering an SST file from a Facebook-internal early
-    // release of 6.12, use the default naming scheme in effect for
-    // when the SST file was generated (assuming full file checksum
-    // was not set to GetFileChecksumGenCrc32cFactory()). That naming is
-    // <file_number>_<db_session_id>.sst
-    // and ignores kFlagIncludeFileSize setting.
-    // NOTE: This flag is intended to be temporary and should be removed
-    // in a later release.
-    kFlagMatchInterimNaming = 1U << 30,
-
     kMaskNamingFlags = ~kMaskNoNamingFlags,
   };
 
@@ -193,7 +183,7 @@ struct BackupableDBOptions {
   // directory, under the new shared name in addition to the old shared
   // name.
   //
-  // Default: kUseDbSessionId | kFlagIncludeFileSize | kFlagMatchInterimNaming
+  // Default: kUseDbSessionId | kFlagIncludeFileSize
   //
   // Note: This option comes into effect only if both share_files_with_checksum
   // and share_table_files are true.
@@ -210,8 +200,7 @@ struct BackupableDBOptions {
       uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024,
       int _max_valid_backups_to_open = INT_MAX,
       ShareFilesNaming _share_files_with_checksum_naming =
-          static_cast<ShareFilesNaming>(kUseDbSessionId | kFlagIncludeFileSize |
-                                        kFlagMatchInterimNaming))
+          static_cast<ShareFilesNaming>(kUseDbSessionId | kFlagIncludeFileSize))
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
@@ -221,7 +210,7 @@ struct BackupableDBOptions {
         backup_log_files(_backup_log_files),
         backup_rate_limit(_backup_rate_limit),
         restore_rate_limit(_restore_rate_limit),
-        share_files_with_checksum(false),
+        share_files_with_checksum(true),
         max_background_operations(_max_background_operations),
         callback_trigger_interval_size(_callback_trigger_interval_size),
         max_valid_backups_to_open(_max_valid_backups_to_open),
@@ -280,15 +269,34 @@ struct RestoreOptions {
       : keep_log_files(_keep_log_files) {}
 };
 
+struct BackupFileInfo {
+  // File name and path relative to the backup_dir directory.
+  std::string relative_filename;
+
+  // Size of the file in bytes, not including filesystem overheads.
+  uint64_t size;
+};
+
 typedef uint32_t BackupID;
 
 struct BackupInfo {
   BackupID backup_id;
+  // Creation time, according to GetCurrentTime
   int64_t timestamp;
+
+  // Total size in bytes (based on file payloads, not including filesystem
+  // overheads or backup meta file)
   uint64_t size;
 
+  // Number of backed up files, some of which might be shared with other
+  // backups. Does not include backup meta file.
   uint32_t number_files;
+
+  // Backup API user metadata
   std::string app_metadata;
+
+  // Backup file details, if requested
+  std::vector<BackupFileInfo> file_details;
 
   BackupInfo() {}
 
@@ -328,56 +336,51 @@ class BackupStatistics {
   uint32_t number_fail_backup;
 };
 
-// A backup engine for accessing information about backups and restoring from
-// them.
-// BackupEngineReadOnly is not extensible.
-class BackupEngineReadOnly {
+// Read-only functions of a BackupEngine. (Restore writes to another directory
+// not the backup directory.) See BackupEngine comments for details on
+// safe concurrent operations.
+class BackupEngineReadOnlyBase {
  public:
-  virtual ~BackupEngineReadOnly() {}
-
-  static Status Open(const BackupableDBOptions& options, Env* db_env,
-                     BackupEngineReadOnly** backup_engine_ptr);
-  // keep for backward compatibility.
-  static Status Open(Env* db_env, const BackupableDBOptions& options,
-                     BackupEngineReadOnly** backup_engine_ptr) {
-    return BackupEngineReadOnly::Open(options, db_env, backup_engine_ptr);
-  }
+  virtual ~BackupEngineReadOnlyBase() {}
 
   // Returns info about backups in backup_info
   // You can GetBackupInfo safely, even with other BackupEngine performing
-  // backups on the same directory
-  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) = 0;
+  // backups on the same directory.
+  // Setting include_file_details=true provides information about each
+  // backed-up file in BackupInfo::file_details.
+  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info,
+                             bool include_file_details = false) const = 0;
 
-  // Returns info about corrupt backups in corrupt_backups
+  // Returns info about corrupt backups in corrupt_backups.
+  // WARNING: Any write to the BackupEngine could trigger automatic
+  // GarbageCollect(), which could delete files that would be needed to
+  // manually recover a corrupt backup or to preserve an unrecognized (e.g.
+  // incompatible future version) backup.
   virtual void GetCorruptedBackups(
-      std::vector<BackupID>* corrupt_backup_ids) = 0;
+      std::vector<BackupID>* corrupt_backup_ids) const = 0;
 
-  // Restoring DB from backup is NOT safe when there is another BackupEngine
-  // running that might call DeleteBackup() or PurgeOldBackups(). It is caller's
-  // responsibility to synchronize the operation, i.e. don't delete the backup
-  // when you're restoring from it
-  // See also the corresponding doc in BackupEngine
+  // Restore to specified db_dir and wal_dir from backup_id.
   virtual Status RestoreDBFromBackup(const RestoreOptions& options,
                                      BackupID backup_id,
                                      const std::string& db_dir,
-                                     const std::string& wal_dir) = 0;
+                                     const std::string& wal_dir) const = 0;
 
   // keep for backward compatibility.
   virtual Status RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& options = RestoreOptions()) {
+      const RestoreOptions& options = RestoreOptions()) const {
     return RestoreDBFromBackup(options, backup_id, db_dir, wal_dir);
   }
 
-  // See the corresponding doc in BackupEngine
-  virtual Status RestoreDBFromLatestBackup(const RestoreOptions& options,
-                                           const std::string& db_dir,
-                                           const std::string& wal_dir) = 0;
+  // Like RestoreDBFromBackup but restores from latest non-corrupt backup_id
+  virtual Status RestoreDBFromLatestBackup(
+      const RestoreOptions& options, const std::string& db_dir,
+      const std::string& wal_dir) const = 0;
 
   // keep for backward compatibility.
   virtual Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& options = RestoreOptions()) {
+      const RestoreOptions& options = RestoreOptions()) const {
     return RestoreDBFromLatestBackup(options, db_dir, wal_dir);
   }
 
@@ -397,25 +400,15 @@ class BackupEngineReadOnly {
   //
   // Returns Status::OK() if all checks are good
   virtual Status VerifyBackup(BackupID backup_id,
-                              bool verify_with_checksum = false) = 0;
+                              bool verify_with_checksum = false) const = 0;
 };
 
-// A backup engine for creating new backups.
-// BackupEngine is not extensible.
-class BackupEngine {
+// Append-only functions of a BackupEngine. See BackupEngine comment for
+// details on distinction between Append and Write operations and safe
+// concurrent operations.
+class BackupEngineAppendOnlyBase {
  public:
-  virtual ~BackupEngine() {}
-
-  // BackupableDBOptions have to be the same as the ones used in previous
-  // BackupEngines for the same backup directory.
-  static Status Open(const BackupableDBOptions& options, Env* db_env,
-                     BackupEngine** backup_engine_ptr);
-
-  // keep for backward compatibility.
-  static Status Open(Env* db_env, const BackupableDBOptions& options,
-                     BackupEngine** backup_engine_ptr) {
-    return BackupEngine::Open(options, db_env, backup_engine_ptr);
-  }
+  virtual ~BackupEngineAppendOnlyBase() {}
 
   // same as CreateNewBackup, but stores extra application metadata.
   virtual Status CreateNewBackupWithMetadata(
@@ -432,8 +425,7 @@ class BackupEngine {
     return CreateNewBackupWithMetadata(options, db, app_metadata);
   }
 
-  // Captures the state of the database in the latest backup
-  // NOT a thread safe call
+  // Captures the state of the database by creating a new (latest) backup
   virtual Status CreateNewBackup(const CreateBackupOptions& options, DB* db) {
     return CreateNewBackupWithMetadata(options, db, "");
   }
@@ -448,6 +440,100 @@ class BackupEngine {
     return CreateNewBackup(options, db);
   }
 
+  // Call this from another thread if you want to stop the backup
+  // that is currently happening. It will return immediately, will
+  // not wait for the backup to stop.
+  // The backup will stop ASAP and the call to CreateNewBackup will
+  // return Status::Incomplete(). It will not clean up after itself, but
+  // the state will remain consistent. The state will be cleaned up the
+  // next time you call CreateNewBackup or GarbageCollect.
+  virtual void StopBackup() = 0;
+
+  // Will delete any files left over from incomplete creation or deletion of
+  // a backup. This is not normally needed as those operations also clean up
+  // after prior incomplete calls to the same kind of operation (create or
+  // delete). This does not delete corrupt backups but can delete files that
+  // would be needed to manually recover a corrupt backup or to preserve an
+  // unrecognized (e.g. incompatible future version) backup.
+  // NOTE: This is not designed to delete arbitrary files added to the backup
+  // directory outside of BackupEngine, and clean-up is always subject to
+  // permissions on and availability of the underlying filesystem.
+  // NOTE2: For concurrency and interference purposes (see BackupEngine
+  // comment), GarbageCollect (GC) is like other Append operations, even
+  // though it seems different. Although GC can delete physical data, it does
+  // not delete any logical data read by Read operations. GC can interfere
+  // with Append or Write operations in another BackupEngine on the same
+  // backup_dir, because temporary files will be treated as obsolete and
+  // deleted.
+  virtual Status GarbageCollect() = 0;
+};
+
+// A backup engine for organizing and managing backups.
+// This class is not user-extensible.
+//
+// This class declaration adds "Write" operations in addition to the
+// operations from BackupEngineAppendOnlyBase and BackupEngineReadOnlyBase.
+//
+// # Concurrency between threads on the same BackupEngine* object
+//
+// As of version 6.20, BackupEngine* operations are generally thread-safe,
+// using a read-write lock, though single-thread operation is still
+// recommended to avoid TOCTOU bugs. Specifically, particular kinds of
+// concurrent operations behave like this:
+//
+// op1\op2| Read  | Append | Write
+// -------|-------|--------|--------
+//   Read | conc  | block  | block
+// Append | block | block  | block
+//  Write | block | block  | block
+//
+// conc = operations safely proceed concurrently
+// block = one of the operations safely blocks until the other completes.
+//   There is generally no guarantee as to which completes first.
+//
+// StopBackup is the only operation that affects an ongoing operation.
+//
+// # Interleaving operations between BackupEngine* objects open on the
+// same backup_dir
+//
+// It is recommended only to have one BackupEngine* object open for a given
+// backup_dir, but it is possible to mix / interleave some operations
+// (regardless of whether they are concurrent) with these caveats:
+//
+// op1\op2|  Open  |  Read  | Append | Write
+// -------|--------|--------|--------|--------
+//   Open | conc   | conc   | atomic | unspec
+//   Read | conc   | conc   | old    | unspec
+// Append | atomic | old    | unspec | unspec
+//  Write | unspec | unspec | unspec | unspec
+//
+// Special case: Open with destroy_old_data=true is really a Write
+//
+// conc = operations safely proceed, concurrently when applicable
+// atomic = operations are effectively atomic; if a concurrent Append
+//   operation has not completed at some key point during Open, the
+//   opened BackupEngine* will never see the result of the Append op.
+// old = Read operations do not include any state changes from other
+//   BackupEngine* objects; they return the state at their Open time.
+// unspec = Behavior is unspecified, including possibly trashing the
+//   backup_dir, but is "memory safe" (no C++ undefined behavior)
+//
+class BackupEngine : public BackupEngineReadOnlyBase,
+                     public BackupEngineAppendOnlyBase {
+ public:
+  virtual ~BackupEngine() {}
+
+  // BackupableDBOptions have to be the same as the ones used in previous
+  // BackupEngines for the same backup directory.
+  static Status Open(const BackupableDBOptions& options, Env* db_env,
+                     BackupEngine** backup_engine_ptr);
+
+  // keep for backward compatibility.
+  static Status Open(Env* db_env, const BackupableDBOptions& options,
+                     BackupEngine** backup_engine_ptr) {
+    return BackupEngine::Open(options, db_env, backup_engine_ptr);
+  }
+
   // Deletes old backups, keeping latest num_backups_to_keep alive.
   // See also DeleteBackup.
   virtual Status PurgeOldBackups(uint32_t num_backups_to_keep) = 0;
@@ -457,78 +543,21 @@ class BackupEngine {
   // will be cleaned up the next time you call DeleteBackup,
   // PurgeOldBackups, or GarbageCollect.
   virtual Status DeleteBackup(BackupID backup_id) = 0;
+};
 
-  // Call this from another thread if you want to stop the backup
-  // that is currently happening. It will return immediatelly, will
-  // not wait for the backup to stop.
-  // The backup will stop ASAP and the call to CreateNewBackup will
-  // return Status::Incomplete(). It will not clean up after itself, but
-  // the state will remain consistent. The state will be cleaned up the
-  // next time you call CreateNewBackup or GarbageCollect.
-  virtual void StopBackup() = 0;
+// A variant of BackupEngine that only allows "Read" operations. See
+// BackupEngine comment for details. This class is not user-extensible.
+class BackupEngineReadOnly : public BackupEngineReadOnlyBase {
+ public:
+  virtual ~BackupEngineReadOnly() {}
 
-  // Returns info about backups in backup_info
-  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) = 0;
-
-  // Returns info about corrupt backups in corrupt_backups
-  virtual void GetCorruptedBackups(
-      std::vector<BackupID>* corrupt_backup_ids) = 0;
-
-  // restore from backup with backup_id
-  // IMPORTANT -- if options_.share_table_files == true,
-  // options_.share_files_with_checksum == false, you restore DB from some
-  // backup that is not the latest, and you start creating new backups from the
-  // new DB, they will probably fail.
-  //
-  // Example: Let's say you have backups 1, 2, 3, 4, 5 and you restore 3.
-  // If you add new data to the DB and try creating a new backup now, the
-  // database will diverge from backups 4 and 5 and the new backup will fail.
-  // If you want to create new backup, you will first have to delete backups 4
-  // and 5.
-  virtual Status RestoreDBFromBackup(const RestoreOptions& options,
-                                     BackupID backup_id,
-                                     const std::string& db_dir,
-                                     const std::string& wal_dir) = 0;
-
+  static Status Open(const BackupableDBOptions& options, Env* db_env,
+                     BackupEngineReadOnly** backup_engine_ptr);
   // keep for backward compatibility.
-  virtual Status RestoreDBFromBackup(
-      BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& options = RestoreOptions()) {
-    return RestoreDBFromBackup(options, backup_id, db_dir, wal_dir);
+  static Status Open(Env* db_env, const BackupableDBOptions& options,
+                     BackupEngineReadOnly** backup_engine_ptr) {
+    return BackupEngineReadOnly::Open(options, db_env, backup_engine_ptr);
   }
-
-  // restore from the latest backup
-  virtual Status RestoreDBFromLatestBackup(const RestoreOptions& options,
-                                           const std::string& db_dir,
-                                           const std::string& wal_dir) = 0;
-
-  // keep for backward compatibility.
-  virtual Status RestoreDBFromLatestBackup(
-      const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& options = RestoreOptions()) {
-    return RestoreDBFromLatestBackup(options, db_dir, wal_dir);
-  }
-
-  // If verify_with_checksum is true, this function
-  // inspects the current checksums and file sizes of backup files to see if
-  // they match our expectation.
-  //
-  // If verify_with_checksum is false, this function
-  // checks that each file exists and that the size of the file matches our
-  // expectation. It does not check file checksum.
-  //
-  // Returns Status::OK() if all checks are good
-  virtual Status VerifyBackup(BackupID backup_id,
-                              bool verify_with_checksum = false) = 0;
-
-  // Will delete any files left over from incomplete creation or deletion of
-  // a backup. This is not normally needed as those operations also clean up
-  // after prior incomplete calls to the same kind of operation (create or
-  // delete).
-  // NOTE: This is not designed to delete arbitrary files added to the backup
-  // directory outside of BackupEngine, and clean-up is always subject to
-  // permissions on and availability of the underlying filesystem.
-  virtual Status GarbageCollect() = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

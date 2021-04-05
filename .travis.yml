@@ -196,30 +196,30 @@ script:
   - if [ `command -v ccache` ]; then ccache -C; fi
   - case $TEST_GROUP in
     platform_dependent)
-      OPT=-DTRAVIS V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=only make -j4 all_but_some_tests check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=only make -j4 all_but_some_tests check_some
       ;;
     1)
-      OPT=-DTRAVIS V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_END=backupable_db_test make -j4 check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_END=backupable_db_test make -j4 check_some
       ;;
     2)
-      OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 make -j4 tools && OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=backupable_db_test ROCKSDBTESTS_END=db_universal_compaction_test make -j4 check_some
+      OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" LIB_MODE=shared V=1 make -j4 tools && OPT="-DTRAVIS -DROCKSDB_NAMESPACE=alternative_rocksdb_ns" LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=backupable_db_test ROCKSDBTESTS_END=db_universal_compaction_test make -j4 check_some
       ;;
     3)
       OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=db_universal_compaction_test ROCKSDBTESTS_END=table_properties_collector_test make -j4 check_some
       ;;
     4)
-      OPT=-DTRAVIS V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=table_properties_collector_test make -j4 check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ROCKSDBTESTS_PLATFORM_DEPENDENT=exclude ROCKSDBTESTS_START=table_properties_collector_test make -j4 check_some
       ;;
     esac
   - case $JOB_NAME in
     java_test)
-      OPT=-DTRAVIS V=1 make rocksdbjava jtest
+      OPT=-DTRAVIS LIB_MODE=shared V=1 make rocksdbjava jtest
       ;;
     lite_build)
-      OPT='-DTRAVIS -DROCKSDB_LITE' V=1 make -j4 all
+      OPT='-DTRAVIS -DROCKSDB_LITE' LIB_MODE=shared V=1 make -j4 all
       ;;
     examples)
-      OPT=-DTRAVIS V=1 make -j4 static_lib && cd examples && make -j4
+      OPT=-DTRAVIS LIB_MODE=shared V=1 make -j4 static_lib && cd examples && make -j4
       ;;
     cmake-mingw)
       sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix;
@@ -235,10 +235,10 @@ script:
       mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=0 -DWITH_GFLAGS=0 -DWITH_BENCHMARK_TOOLS=0 -DWITH_TOOLS=0 -DWITH_CORE_TOOLS=1 .. && make -j4 && cd  .. && rm -rf build && mkdir build && cd build && cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release $OPT && make -j4 rocksdb rocksdbjni
       ;;
     make-gcc4.8)
-      OPT=-DTRAVIS V=1 SKIP_LINK=1 make -j4 all && [ "Linking broken because libgflags compiled with newer ABI" ]
+      OPT=-DTRAVIS LIB_MODE=shared V=1 SKIP_LINK=1 make -j4 all && [ "Linking broken because libgflags compiled with newer ABI" ]
       ;;
     status_checked)
-      OPT=-DTRAVIS V=1 ASSERT_STATUS_CHECKED=1 make -j4 check_some
+      OPT=-DTRAVIS LIB_MODE=shared V=1 ASSERT_STATUS_CHECKED=1 make -j4 check_some
       ;;
     esac
 notifications:

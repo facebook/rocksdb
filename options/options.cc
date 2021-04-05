@@ -201,6 +201,11 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "                 Options.bottommost_compression_opts.enabled: %s",
         bottommost_compression_opts.enabled ? "true" : "false");
+    ROCKS_LOG_HEADER(
+        log,
+        "        Options.bottommost_compression_opts.max_dict_buffer_bytes: "
+        "%" PRIu64,
+        bottommost_compression_opts.max_dict_buffer_bytes);
     ROCKS_LOG_HEADER(log, "           Options.compression_opts.window_bits: %d",
                      compression_opts.window_bits);
     ROCKS_LOG_HEADER(log, "                 Options.compression_opts.level: %d",
@@ -222,6 +227,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(log,
                      "                 Options.compression_opts.enabled: %s",
                      compression_opts.enabled ? "true" : "false");
+    ROCKS_LOG_HEADER(log,
+                     "        Options.compression_opts.max_dict_buffer_bytes: "
+                     "%" PRIu64,
+                     compression_opts.max_dict_buffer_bytes);
     ROCKS_LOG_HEADER(log, "     Options.level0_file_num_compaction_trigger: %d",
                      level0_file_num_compaction_trigger);
     ROCKS_LOG_HEADER(log, "         Options.level0_slowdown_writes_trigger: %d",

@@ -234,7 +234,8 @@ Status SstFileDumper::ShowAllCompressionSizes(
     const std::vector<std::pair<CompressionType, const char*>>&
         compression_types,
     int32_t compress_level_from, int32_t compress_level_to,
-    uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes) {
+    uint32_t max_dict_bytes, uint32_t zstd_max_train_bytes,
+    uint64_t max_dict_buffer_bytes) {
   fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
   for (auto& i : compression_types) {
     if (CompressionTypeSupported(i.first)) {
@@ -242,6 +243,7 @@ Status SstFileDumper::ShowAllCompressionSizes(
       CompressionOptions compress_opt;
       compress_opt.max_dict_bytes = max_dict_bytes;
       compress_opt.zstd_max_train_bytes = zstd_max_train_bytes;
+      compress_opt.max_dict_buffer_bytes = max_dict_buffer_bytes;
       for (int32_t j = compress_level_from; j <= compress_level_to; j++) {
         fprintf(stdout, "Compression level: %d", j);
         compress_opt.level = j;
@@ -272,10 +274,10 @@ Status SstFileDumper::ShowCompressionSize(
 
   std::string column_family_name;
   int unknown_level = -1;
-  TableBuilderOptions tb_opts(
-      imoptions, moptions, ikc, &block_based_table_factories, compress_type,
-      0 /* sample_for_compression */, compress_opt, false /* skip_filters */,
-      column_family_name, unknown_level);
+  TableBuilderOptions tb_opts(imoptions, moptions, ikc,
+                              &block_based_table_factories, compress_type,
+                              compress_opt, false /* skip_filters */,
+                              column_family_name, unknown_level);
   uint64_t num_data_blocks = 0;
   std::chrono::steady_clock::time_point start =
       std::chrono::steady_clock::now();

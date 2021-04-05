@@ -45,6 +45,22 @@ class StringLogger : public Logger {
  private:
   std::string string_;
 };
+static std::unordered_map<std::string, OptionTypeInfo> struct_option_info = {
+#ifndef ROCKSDB_LITE
+    {"struct", OptionTypeInfo::Struct("struct", &simple_option_info, 0,
+                                      OptionVerificationType::kNormal,
+                                      OptionTypeFlags::kMutable)},
+#endif  // ROCKSDB_LITE
+};
+
+static std::unordered_map<std::string, OptionTypeInfo> imm_struct_option_info =
+    {
+#ifndef ROCKSDB_LITE
+        {"struct", OptionTypeInfo::Struct("struct", &simple_option_info, 0,
+                                          OptionVerificationType::kNormal,
+                                          OptionTypeFlags::kNone)},
+#endif  // ROCKSDB_LITE
+};
 
 class SimpleConfigurable : public TestConfigurable<Configurable> {
  public:
@@ -322,6 +338,71 @@ TEST_F(ConfigurableTest, PrepareOptionsTest) {
   ASSERT_EQ(*up, 0);
 }
 
+TEST_F(ConfigurableTest, MutableOptionsTest) {
+  static std::unordered_map<std::string, OptionTypeInfo> imm_option_info = {
+#ifndef ROCKSDB_LITE
+      {"imm", OptionTypeInfo::Struct("imm", &simple_option_info, 0,
+                                     OptionVerificationType::kNormal,
+                                     OptionTypeFlags::kNone)},
+#endif  // ROCKSDB_LITE
+  };
+
+  class MutableConfigurable : public SimpleConfigurable {
+   public:
+    MutableConfigurable()
+        : SimpleConfigurable("mutable", TestConfigMode::kDefaultMode |
+                                            TestConfigMode::kUniqueMode |
+                                            TestConfigMode::kSharedMode) {
+      ConfigurableHelper::RegisterOptions(*this, "struct", &options_,
+                                          &struct_option_info);
+      ConfigurableHelper::RegisterOptions(*this, "imm", &options_,
+                                          &imm_option_info);
+    }
+  };
+  MutableConfigurable mc;
+  ConfigOptions options = config_options_;
+
+  ASSERT_OK(mc.ConfigureOption(options, "bool", "true"));
+  ASSERT_OK(mc.ConfigureOption(options, "int", "42"));
+  auto* opts = mc.GetOptions<TestOptions>("mutable");
+  ASSERT_NE(opts, nullptr);
+  ASSERT_EQ(opts->i, 42);
+  ASSERT_EQ(opts->b, true);
+  ASSERT_OK(mc.ConfigureOption(options, "struct", "{bool=false;}"));
+  ASSERT_OK(mc.ConfigureOption(options, "imm", "{int=55;}"));
+
+  options.mutable_options_only = true;
+
+  // Now only mutable options should be settable.
+  ASSERT_NOK(mc.ConfigureOption(options, "bool", "true"));
+  ASSERT_OK(mc.ConfigureOption(options, "int", "24"));
+  ASSERT_EQ(opts->i, 24);
+  ASSERT_EQ(opts->b, false);
+  ASSERT_NOK(mc.ConfigureFromString(options, "bool=false;int=33;"));
+  ASSERT_EQ(opts->i, 24);
+  ASSERT_EQ(opts->b, false);
+
+  // Setting options through an immutable struct fails
+  ASSERT_NOK(mc.ConfigureOption(options, "imm", "{int=55;}"));
+  ASSERT_NOK(mc.ConfigureOption(options, "imm.int", "55"));
+  ASSERT_EQ(opts->i, 24);
+  ASSERT_EQ(opts->b, false);
+
+  // Setting options through an mutable struct succeeds
+  ASSERT_OK(mc.ConfigureOption(options, "struct", "{int=44;}"));
+  ASSERT_EQ(opts->i, 44);
+  ASSERT_OK(mc.ConfigureOption(options, "struct.int", "55"));
+  ASSERT_EQ(opts->i, 55);
+
+  // Setting nested immutable configurable options fail
+  ASSERT_NOK(mc.ConfigureOption(options, "shared", "{bool=true;}"));
+  ASSERT_NOK(mc.ConfigureOption(options, "shared.bool", "true"));
+
+  // Setting nested mutable configurable options succeeds
+  ASSERT_OK(mc.ConfigureOption(options, "unique", "{bool=true}"));
+  ASSERT_OK(mc.ConfigureOption(options, "unique.bool", "true"));
+}
+
 TEST_F(ConfigurableTest, DeprecatedOptionsTest) {
   static std::unordered_map<std::string, OptionTypeInfo>
       deprecated_option_info = {
@@ -453,13 +534,6 @@ TEST_F(ConfigurableTest, MatchesTest) {
 }
 
 static Configurable* SimpleStructFactory() {
-  static std::unordered_map<std::string, OptionTypeInfo> struct_option_info = {
-#ifndef ROCKSDB_LITE
-      {"struct", OptionTypeInfo::Struct("struct", &simple_option_info, 0,
-                                        OptionVerificationType::kNormal,
-                                        OptionTypeFlags::kMutable)},
-#endif  // ROCKSDB_LITE
-  };
   return SimpleConfigurable::Create(
       "simple-struct", TestConfigMode::kDefaultMode, &struct_option_info);
 }

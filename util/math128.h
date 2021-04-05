@@ -215,7 +215,7 @@ inline int BitsSetToOne(Unsigned128 v) {
 
 template <>
 inline int BitParity(Unsigned128 v) {
-  return BitParity(Lower64of128(v)) ^ BitParity(Upper64of128(v));
+  return BitParity(Lower64of128(v) ^ Upper64of128(v));
 }
 
 template <typename T>

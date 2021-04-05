@@ -113,9 +113,8 @@ class SSTDumpToolTest : public testing::Test {
     tb.reset(opts.table_factory->NewTableBuilder(
         TableBuilderOptions(
             imoptions, moptions, ikc, &int_tbl_prop_collector_factories,
-            CompressionType::kNoCompression, 0 /* sample_for_compression */,
-            CompressionOptions(), false /* skip_filters */, column_family_name,
-            unknown_level),
+            CompressionType::kNoCompression, CompressionOptions(),
+            false /* skip_filters */, column_family_name, unknown_level),
         TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
         file_writer.get()));
 
@@ -391,6 +390,8 @@ TEST_F(SSTDumpToolTest, RawOutput) {
   }
 
   ASSERT_EQ(kNumKey, key_count);
+
+  raw_file.close();
 
   cleanup(opts, file_path);
   for (int i = 0; i < 3; i++) {

@@ -11,24 +11,25 @@
 
 #include <assert.h>
 #include <stdio.h>
+
 #include <atomic>
 #include <list>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <unordered_map>
 #include <utility>
 
 #include "db/dbformat.h"
 #include "index_builder.h"
-
+#include "memory/memory_allocator.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/table.h"
-
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_filter_block.h"
 #include "table/block_based/block_based_table_factory.h"
@@ -40,8 +41,6 @@
 #include "table/block_based/partitioned_filter_block.h"
 #include "table/format.h"
 #include "table/table_builder.h"
-
-#include "memory/memory_allocator.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -211,9 +210,9 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
     return Status::OK();
   }
 
-  virtual void BlockAdd(uint64_t /* blockRawBytes */,
-                        uint64_t /* blockCompressedBytesFast */,
-                        uint64_t /* blockCompressedBytesSlow */) override {
+  virtual void BlockAdd(uint64_t /* block_raw_bytes */,
+                        uint64_t /* block_compressed_bytes_fast */,
+                        uint64_t /* block_compressed_bytes_slow */) override {
     // Intentionally left blank. No interest in collecting stats for
     // blocks.
     return;
@@ -272,6 +271,11 @@ struct BlockBasedTableBuilder::Rep {
   const Slice* first_key_in_next_block = nullptr;
   CompressionType compression_type;
   uint64_t sample_for_compression;
+  std::atomic<uint64_t> compressible_input_data_bytes;
+  std::atomic<uint64_t> uncompressible_input_data_bytes;
+  std::atomic<uint64_t> sampled_input_data_bytes;
+  std::atomic<uint64_t> sampled_output_slow_data_bytes;
+  std::atomic<uint64_t> sampled_output_fast_data_bytes;
   CompressionOptions compression_opts;
   std::unique_ptr<CompressionDict> compression_dict;
   std::vector<std::unique_ptr<CompressionContext>> compression_ctxs;
@@ -306,6 +310,10 @@ struct BlockBasedTableBuilder::Rep {
     kClosed,
   };
   State state;
+  // `kBuffered` state is allowed only as long as the buffering of uncompressed
+  // data blocks (see `data_block_and_keys_buffers`) does not exceed
+  // `buffer_limit`.
+  uint64_t buffer_limit;
 
   const bool use_delta_encoding_for_index_values;
   std::unique_ptr<FilterBlockBuilder> filter_builder;
@@ -321,7 +329,6 @@ struct BlockBasedTableBuilder::Rep {
   const std::string& column_family_name;
   uint64_t creation_time = 0;
   uint64_t oldest_key_time = 0;
-  const uint64_t target_file_size;
   uint64_t file_creation_time = 0;
 
   // DB IDs
@@ -403,11 +410,10 @@ struct BlockBasedTableBuilder::Rep {
           int_tbl_prop_collector_factories,
       uint32_t _column_family_id, WritableFileWriter* f,
       const CompressionType _compression_type,
-      const uint64_t _sample_for_compression,
       const CompressionOptions& _compression_opts, const bool skip_filters,
       const int _level_at_creation, const std::string& _column_family_name,
       const uint64_t _creation_time, const uint64_t _oldest_key_time,
-      const uint64_t _target_file_size, const uint64_t _file_creation_time,
+      const uint64_t target_file_size, const uint64_t _file_creation_time,
       const std::string& _db_id, const std::string& _db_session_id)
       : ioptions(_ioptions),
         moptions(_moptions),
@@ -429,7 +435,12 @@ struct BlockBasedTableBuilder::Rep {
         range_del_block(1 /* block_restart_interval */),
         internal_prefix_transform(_moptions.prefix_extractor.get()),
         compression_type(_compression_type),
-        sample_for_compression(_sample_for_compression),
+        sample_for_compression(_moptions.sample_for_compression),
+        compressible_input_data_bytes(0),
+        uncompressible_input_data_bytes(0),
+        sampled_input_data_bytes(0),
+        sampled_output_slow_data_bytes(0),
+        sampled_output_fast_data_bytes(0),
         compression_opts(_compression_opts),
         compression_dict(),
         compression_ctxs(_compression_opts.parallel_threads),
@@ -448,13 +459,20 @@ struct BlockBasedTableBuilder::Rep {
         column_family_name(_column_family_name),
         creation_time(_creation_time),
         oldest_key_time(_oldest_key_time),
-        target_file_size(_target_file_size),
         file_creation_time(_file_creation_time),
         db_id(_db_id),
         db_session_id(_db_session_id),
         db_host_id(ioptions.db_host_id),
         status_ok(true),
         io_status_ok(true) {
+    if (target_file_size == 0) {
+      buffer_limit = compression_opts.max_dict_buffer_bytes;
+    } else if (compression_opts.max_dict_buffer_bytes == 0) {
+      buffer_limit = target_file_size;
+    } else {
+      buffer_limit =
+          std::min(target_file_size, compression_opts.max_dict_buffer_bytes);
+    }
     for (uint32_t i = 0; i < compression_opts.parallel_threads; i++) {
       compression_ctxs[i].reset(new CompressionContext(compression_type));
     }
@@ -832,7 +850,6 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, WritableFileWriter* file,
     const CompressionType compression_type,
-    const uint64_t sample_for_compression,
     const CompressionOptions& compression_opts, const bool skip_filters,
     const std::string& column_family_name, const int level_at_creation,
     const uint64_t creation_time, const uint64_t oldest_key_time,
@@ -850,12 +867,12 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     sanitized_table_options.format_version = 1;
   }
 
-  rep_ = new Rep(
-      ioptions, moptions, sanitized_table_options, internal_comparator,
-      int_tbl_prop_collector_factories, column_family_id, file,
-      compression_type, sample_for_compression, compression_opts, skip_filters,
-      level_at_creation, column_family_name, creation_time, oldest_key_time,
-      target_file_size, file_creation_time, db_id, db_session_id);
+  rep_ = new Rep(ioptions, moptions, sanitized_table_options,
+                 internal_comparator, int_tbl_prop_collector_factories,
+                 column_family_id, file, compression_type, compression_opts,
+                 skip_filters, level_at_creation, column_family_name,
+                 creation_time, oldest_key_time, target_file_size,
+                 file_creation_time, db_id, db_session_id);
 
   if (rep_->filter_builder != nullptr) {
     rep_->filter_builder->StartBlock(0);
@@ -896,8 +913,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       r->first_key_in_next_block = &key;
       Flush();
 
-      if (r->state == Rep::State::kBuffered && r->target_file_size != 0 &&
-          r->data_begin_offset > r->target_file_size) {
+      if (r->state == Rep::State::kBuffered && r->buffer_limit != 0 &&
+          r->data_begin_offset > r->buffer_limit) {
         EnterUnbuffered();
       }
 
@@ -997,23 +1014,28 @@ void BlockBasedTableBuilder::Flush() {
 void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
                                         BlockHandle* handle,
                                         bool is_data_block) {
-  WriteBlock(block->Finish(), handle, is_data_block);
-  block->Reset();
+  block->Finish();
+  std::string raw_block_contents;
+  block->SwapAndReset(raw_block_contents);
+  if (rep_->state == Rep::State::kBuffered) {
+    assert(is_data_block);
+    assert(!rep_->data_block_and_keys_buffers.empty());
+    rep_->data_block_and_keys_buffers.back().first =
+        std::move(raw_block_contents);
+    rep_->data_begin_offset +=
+        rep_->data_block_and_keys_buffers.back().first.size();
+    return;
+  }
+  WriteBlock(raw_block_contents, handle, is_data_block);
 }
 
 void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
                                         BlockHandle* handle,
                                         bool is_data_block) {
   Rep* r = rep_;
+  assert(r->state == Rep::State::kUnbuffered);
   Slice block_contents;
   CompressionType type;
-  if (r->state == Rep::State::kBuffered) {
-    assert(is_data_block);
-    assert(!r->data_block_and_keys_buffers.empty());
-    r->data_block_and_keys_buffers.back().first = raw_block_contents.ToString();
-    r->data_begin_offset += r->data_block_and_keys_buffers.back().first.size();
-    return;
-  }
   Status compress_status;
   CompressAndVerifyBlock(raw_block_contents, is_data_block,
                          *(r->compression_ctxs[0]), r->verify_ctxs[0].get(),
@@ -1069,10 +1091,14 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
   bool abort_compression = false;
 
   StopWatchNano timer(
-      r->ioptions.env->GetSystemClock(),
+      r->ioptions.clock,
       ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics));
 
   if (is_status_ok && raw_block_contents.size() < kCompressionSizeLimit) {
+    if (is_data_block) {
+      r->compressible_input_data_bytes.fetch_add(raw_block_contents.size(),
+                                                 std::memory_order_relaxed);
+    }
     const CompressionDict* compression_dict;
     if (!is_data_block || r->compression_dict == nullptr) {
       compression_dict = &CompressionDict::GetEmptyDict();
@@ -1091,6 +1117,16 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
         r->table_options.format_version, is_data_block /* do_sample */,
         compressed_output, &sampled_output_fast, &sampled_output_slow);
 
+    if (sampled_output_slow.size() > 0 || sampled_output_fast.size() > 0) {
+      // Currently compression sampling is only enabled for data block.
+      assert(is_data_block);
+      r->sampled_input_data_bytes.fetch_add(raw_block_contents.size(),
+                                            std::memory_order_relaxed);
+      r->sampled_output_slow_data_bytes.fetch_add(sampled_output_slow.size(),
+                                                  std::memory_order_relaxed);
+      r->sampled_output_fast_data_bytes.fetch_add(sampled_output_fast.size(),
+                                                  std::memory_order_relaxed);
+    }
     // notify collectors on block add
     NotifyCollectTableCollectorsOnBlockAdd(
         r->table_properties_collectors, raw_block_contents.size(),
@@ -1134,7 +1170,15 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     }
   } else {
     // Block is too big to be compressed.
+    if (is_data_block) {
+      r->uncompressible_input_data_bytes.fetch_add(raw_block_contents.size(),
+                                                   std::memory_order_relaxed);
+    }
     abort_compression = true;
+  }
+  if (is_data_block) {
+    r->uncompressible_input_data_bytes.fetch_add(kBlockTrailerSize,
+                                                 std::memory_order_relaxed);
   }
 
   // Abort compression if the block is too big, or did not pass
@@ -1163,7 +1207,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   Rep* r = rep_;
   Status s = Status::OK();
   IOStatus io_s = IOStatus::OK();
-  StopWatch sw(r->ioptions.env->GetSystemClock(), r->ioptions.statistics,
+  StopWatch sw(r->ioptions.clock, r->ioptions.statistics,
                WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->get_offset());
   handle->set_size(block_contents.size());
@@ -1527,6 +1571,27 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
     rep_->props.creation_time = rep_->creation_time;
     rep_->props.oldest_key_time = rep_->oldest_key_time;
     rep_->props.file_creation_time = rep_->file_creation_time;
+    if (rep_->sampled_input_data_bytes > 0) {
+      rep_->props.slow_compression_estimated_data_size = static_cast<uint64_t>(
+          static_cast<double>(rep_->sampled_output_slow_data_bytes) /
+              rep_->sampled_input_data_bytes *
+              rep_->compressible_input_data_bytes +
+          rep_->uncompressible_input_data_bytes + 0.5);
+      rep_->props.fast_compression_estimated_data_size = static_cast<uint64_t>(
+          static_cast<double>(rep_->sampled_output_fast_data_bytes) /
+              rep_->sampled_input_data_bytes *
+              rep_->compressible_input_data_bytes +
+          rep_->uncompressible_input_data_bytes + 0.5);
+    } else if (rep_->sample_for_compression > 0) {
+      // We tried to sample but none were found. Assume worst-case (compression
+      // ratio 1.0) so data is complete and aggregatable.
+      rep_->props.slow_compression_estimated_data_size =
+          rep_->compressible_input_data_bytes +
+          rep_->uncompressible_input_data_bytes;
+      rep_->props.fast_compression_estimated_data_size =
+          rep_->compressible_input_data_bytes +
+          rep_->uncompressible_input_data_bytes;
+    }
     rep_->props.db_id = rep_->db_id;
     rep_->props.db_session_id = rep_->db_session_id;
     rep_->props.db_host_id = rep_->db_host_id;
@@ -1630,20 +1695,46 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
   const size_t kSampleBytes = r->compression_opts.zstd_max_train_bytes > 0
                                   ? r->compression_opts.zstd_max_train_bytes
                                   : r->compression_opts.max_dict_bytes;
-  Random64 generator{r->creation_time};
+  const size_t kNumBlocksBuffered = r->data_block_and_keys_buffers.size();
+  if (kNumBlocksBuffered == 0) {
+    // The below code is neither safe nor necessary for handling zero data
+    // blocks.
+    return;
+  }
+
+  // Abstract algebra teaches us that a finite cyclic group (such as the
+  // additive group of integers modulo N) can be generated by a number that is
+  // coprime with N. Since N is variable (number of buffered data blocks), we
+  // must then pick a prime number in order to guarantee coprimeness with any N.
+  //
+  // One downside of this approach is the spread will be poor when
+  // `kPrimeGeneratorRemainder` is close to zero or close to
+  // `kNumBlocksBuffered`.
+  //
+  // Picked a random number between one and one trillion and then chose the
+  // next prime number greater than or equal to it.
+  const uint64_t kPrimeGenerator = 545055921143ull;
+  // Can avoid repeated division by just adding the remainder repeatedly.
+  const size_t kPrimeGeneratorRemainder = static_cast<size_t>(
+      kPrimeGenerator % static_cast<uint64_t>(kNumBlocksBuffered));
+  const size_t kInitSampleIdx = kNumBlocksBuffered / 2;
+
   std::string compression_dict_samples;
   std::vector<size_t> compression_dict_sample_lens;
-  if (!r->data_block_and_keys_buffers.empty()) {
-    while (compression_dict_samples.size() < kSampleBytes) {
-      size_t rand_idx =
-          static_cast<size_t>(
-              generator.Uniform(r->data_block_and_keys_buffers.size()));
-      size_t copy_len =
-          std::min(kSampleBytes - compression_dict_samples.size(),
-                   r->data_block_and_keys_buffers[rand_idx].first.size());
-      compression_dict_samples.append(
-          r->data_block_and_keys_buffers[rand_idx].first, 0, copy_len);
-      compression_dict_sample_lens.emplace_back(copy_len);
+  size_t buffer_idx = kInitSampleIdx;
+  for (size_t i = 0;
+       i < kNumBlocksBuffered && compression_dict_samples.size() < kSampleBytes;
+       ++i) {
+    size_t copy_len =
+        std::min(kSampleBytes - compression_dict_samples.size(),
+                 r->data_block_and_keys_buffers[buffer_idx].first.size());
+    compression_dict_samples.append(
+        r->data_block_and_keys_buffers[buffer_idx].first, 0, copy_len);
+    compression_dict_sample_lens.emplace_back(copy_len);
+
+    buffer_idx += kPrimeGeneratorRemainder;
+    if (buffer_idx >= kNumBlocksBuffered) {
+      buffer_idx -= kNumBlocksBuffered;
     }
   }
 

@@ -553,24 +553,35 @@ class PosixFileSystem : public FileSystem {
   IOStatus NewLogger(const std::string& fname, const IOOptions& /*opts*/,
                    std::shared_ptr<Logger>* result,
                    IODebugContext* /*dbg*/) override {
-    FILE* f;
+    FILE* f = nullptr;
+    int fd;
     {
       IOSTATS_TIMER_GUARD(open_nanos);
-      f = fopen(fname.c_str(),
-                "w"
+      fd = open(fname.c_str(),
+                cloexec_flags(O_WRONLY | O_CREAT | O_TRUNC, nullptr),
+                GetDBFileMode(allow_non_owner_access_));
+      if (fd != -1) {
+        f = fdopen(fd,
+                   "w"
 #ifdef __GLIBC_PREREQ
 #if __GLIBC_PREREQ(2, 7)
-                "e"  // glibc extension to enable O_CLOEXEC
+                   "e"  // glibc extension to enable O_CLOEXEC
 #endif
 #endif
-      );
+        );
+      }
     }
-    if (f == nullptr) {
+    if (fd == -1) {
       result->reset();
       return status_to_io_status(
-              IOError("when fopen a file for new logger", fname, errno));
+          IOError("when open a file for new logger", fname, errno));
+    }
+    if (f == nullptr) {
+      close(fd);
+      result->reset();
+      return status_to_io_status(
+          IOError("when fdopen a file for new logger", fname, errno));
     } else {
-      int fd = fileno(f);
 #ifdef ROCKSDB_FALLOCATE_PRESENT
       fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 4 * 1024);
 #endif
@@ -620,9 +631,10 @@ class PosixFileSystem : public FileSystem {
       }
     }
 
-    const auto pre_read_errno = errno;  // errno may be modified by readdir
+    // reset errno before calling readdir()
+    errno = 0;
     struct dirent* entry;
-    while ((entry = readdir(d)) != nullptr && errno == pre_read_errno) {
+    while ((entry = readdir(d)) != nullptr) {
       // filter out '.' and '..' directory entries
       // which appear only on some platforms
       const bool ignore =
@@ -631,19 +643,20 @@ class PosixFileSystem : public FileSystem {
       if (!ignore) {
         result->push_back(entry->d_name);
       }
+      errno = 0;  // reset errno if readdir() success
     }
 
     // always attempt to close the dir
     const auto pre_close_errno = errno;  // errno may be modified by closedir
     const int close_result = closedir(d);
 
-    if (pre_close_errno != pre_read_errno) {
-      // error occured during readdir
+    if (pre_close_errno != 0) {
+      // error occurred during readdir
       return IOError("While readdir", dir, pre_close_errno);
     }
 
     if (close_result != 0) {
-      // error occured during closedir
+      // error occurred during closedir
       return IOError("While closedir", dir, errno);
     }
 
@@ -774,7 +787,9 @@ class PosixFileSystem : public FileSystem {
     LockHoldingInfo lhi;
     int64_t current_time = 0;
     // Ignore status code as the time is only used for error message.
-    Env::Default()->GetCurrentTime(&current_time).PermitUncheckedError();
+    SystemClock::Default()
+        ->GetCurrentTime(&current_time)
+        .PermitUncheckedError();
     lhi.acquire_time = current_time;
     lhi.acquiring_thread = Env::Default()->GetThreadID();
 
@@ -860,7 +875,7 @@ class PosixFileSystem : public FileSystem {
     char the_path[256];
     char* ret = getcwd(the_path, 256);
     if (ret == nullptr) {
-      return IOStatus::IOError(strerror(errno));
+      return IOStatus::IOError(errnoStr(errno).c_str());
     }
 
     *output_path = ret;

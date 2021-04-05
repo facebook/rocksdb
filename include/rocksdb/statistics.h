@@ -117,7 +117,7 @@ enum Tickers : uint32_t {
   COMPACTION_RANGE_DEL_DROP_OBSOLETE,  // all keys in range were deleted.
   // Deletions obsoleted before bottom level due to file gap optimization.
   COMPACTION_OPTIMIZED_DEL_DROP_OBSOLETE,
-  // If a compaction was cancelled in sfm to prevent ENOSPC
+  // If a compaction was canceled in sfm to prevent ENOSPC
   COMPACTION_CANCELLED,
 
   // Number of keys written to the database via the Put and Write call's
@@ -183,7 +183,7 @@ enum Tickers : uint32_t {
   // over large number of keys with same userkey.
   NUMBER_OF_RESEEKS_IN_ITERATION,
 
-  // Record the number of calls to GetUpadtesSince. Useful to keep track of
+  // Record the number of calls to GetUpdatesSince. Useful to keep track of
   // transaction log iterator refreshes
   GET_UPDATES_SINCE_CALLS,
   BLOCK_CACHE_COMPRESSED_MISS,  // miss in the compressed block cache
@@ -374,6 +374,15 @@ enum Tickers : uint32_t {
   // # of files deleted immediately by sst file manger through delete scheduler.
   FILES_DELETED_IMMEDIATELY,
 
+  // The counters for error handler, not that, bg_io_error is the subset of
+  // bg_error and bg_retryable_io_error is the subset of bg_io_error
+  ERROR_HANDLER_BG_ERROR_COUNT,
+  ERROR_HANDLER_BG_IO_ERROR_COUNT,
+  ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT,
+  ERROR_HANDLER_AUTORESUME_COUNT,
+  ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT,
+  ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT,
+
   TICKER_ENUM_MAX
 };
 
@@ -438,7 +447,7 @@ enum Histograms : uint32_t {
   BLOB_DB_VALUE_SIZE,
   // BlobDB Put/PutWithTTL/PutUntil/Write latency.
   BLOB_DB_WRITE_MICROS,
-  // BlobDB Get lagency.
+  // BlobDB Get latency.
   BLOB_DB_GET_MICROS,
   // BlobDB MultiGet latency.
   BLOB_DB_MULTIGET_MICROS,
@@ -471,6 +480,9 @@ enum Histograms : uint32_t {
   NUM_DATA_BLOCKS_READ_PER_LEVEL,
   // Num of sst files read from file system per level.
   NUM_SST_READ_PER_LEVEL,
+
+  // Error handler statistics
+  ERROR_HANDLER_AUTORESUME_RETRY_COUNT,
 
   HISTOGRAM_ENUM_MAX,
 };

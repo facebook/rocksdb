@@ -426,7 +426,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       if (seek_to_first) {
         l0_iters_[i]->SeekToFirst();
       } else {
-        // If the target key passes over the larget key, we are sure Next()
+        // If the target key passes over the largest key, we are sure Next()
         // won't go over this file.
         if (user_comparator_->Compare(target_user_key,
                                       l0[i]->largest.user_key()) > 0) {
@@ -993,9 +993,9 @@ bool ForwardIterator::TEST_CheckDeletedIters(int* pdeleted_iters,
 uint32_t ForwardIterator::FindFileInRange(
     const std::vector<FileMetaData*>& files, const Slice& internal_key,
     uint32_t left, uint32_t right) {
-  auto cmp = [&](const FileMetaData* f, const Slice& key) -> bool {
+  auto cmp = [&](const FileMetaData* f, const Slice& k) -> bool {
     return cfd_->internal_comparator().InternalKeyComparator::Compare(
-            f->largest.Encode(), key) < 0;
+            f->largest.Encode(), k) < 0;
   };
   const auto &b = files.begin();
   return static_cast<uint32_t>(std::lower_bound(b + left,

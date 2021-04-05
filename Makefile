@@ -259,6 +259,8 @@ AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.
 # Export some common variables that might have been passed as Make variables
 # instead of environment variables.
 dummy := $(shell (export ROCKSDB_ROOT="$(CURDIR)"; \
+                  export CXXFLAGS="$(EXTRA_CXXFLAGS)"; \
+                  export LDFLAGS="$(EXTRA_LDFLAGS)"; \
                   export COMPILE_WITH_ASAN="$(COMPILE_WITH_ASAN)"; \
                   export COMPILE_WITH_TSAN="$(COMPILE_WITH_TSAN)"; \
                   export COMPILE_WITH_UBSAN="$(COMPILE_WITH_UBSAN)"; \
@@ -436,6 +438,10 @@ default: all
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wunused-parameter
 
+ifeq (,$(filter amd64, $(MACHINE)))
+	C_WARNING_FLAGS = -Wstrict-prototypes
+endif
+
 ifdef USE_CLANG
 	# Used by some teams in Facebook
 	WARNING_FLAGS += -Wshift-sign-overflow
@@ -480,7 +486,7 @@ ifeq ($(NO_THREEWAY_CRC32C), 1)
 	CXXFLAGS += -DNO_THREEWAY_CRC32C
 endif
 
-CFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
+CFLAGS += $(C_WARNING_FLAGS) $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
@@ -497,6 +503,12 @@ ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
   LIB_OBJECTS += $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(FOLLY_SOURCES))
 endif
 
+# range_tree is not compatible with non GNU libc on ppc64
+# see https://jira.percona.com/browse/PS-7559
+ifneq ($(PPC_LIBC_IS_GNU),0)
+  LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(RANGE_TREE_SOURCES))
+endif
+
 GTEST = $(OBJ_DIR)/$(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = $(OBJ_DIR)/test_util/testutil.o
 TESTHARNESS = $(OBJ_DIR)/test_util/testharness.o $(TESTUTIL) $(GTEST)
@@ -511,7 +523,8 @@ TOOL_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(TOOL_LIB_SOURCES))
 ANALYZE_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ANALYZER_LIB_SOURCES))
 STRESS_OBJECTS =  $(patsubst %.cc, $(OBJ_DIR)/%.o, $(STRESS_LIB_SOURCES))
 
-ALL_SOURCES  = $(LIB_SOURCES) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
+# Exclude build_version.cc -- a generated source file -- from all sources.  Not needed for dependencies
+ALL_SOURCES  = $(filter-out util/build_version.cc, $(LIB_SOURCES)) $(TEST_LIB_SOURCES) $(MOCK_LIB_SOURCES) $(GTEST_DIR)/gtest/gtest-all.cc
 ALL_SOURCES += $(TOOL_LIB_SOURCES) $(BENCH_LIB_SOURCES) $(ANALYZER_LIB_SOURCES) $(STRESS_LIB_SOURCES)
 ALL_SOURCES += $(TEST_MAIN_SOURCES) $(TOOL_MAIN_SOURCES) $(BENCH_MAIN_SOURCES)
 
@@ -592,6 +605,8 @@ ifdef ASSERT_STATUS_CHECKED
 		db_log_iter_test \
 		db_bloom_filter_test \
 		db_blob_basic_test \
+		db_blob_compaction_test \
+		db_blob_corruption_test \
 		db_blob_index_test \
 		db_block_cache_test \
 		db_compaction_test \
@@ -755,7 +770,6 @@ endif
 TESTS_PLATFORM_DEPENDENT := \
 	db_basic_test \
 	db_blob_basic_test \
-	db_with_timestamp_basic_test \
 	db_encryption_test \
 	db_test2 \
 	external_sst_file_basic_test \
@@ -924,7 +938,8 @@ endif  # PLATFORM_SHARED_EXT
 	analyze tools tools_lib \
 	blackbox_crash_test_with_atomic_flush whitebox_crash_test_with_atomic_flush  \
 	blackbox_crash_test_with_txn whitebox_crash_test_with_txn \
-	blackbox_crash_test_with_best_efforts_recovery
+	blackbox_crash_test_with_best_efforts_recovery \
+	blackbox_crash_test_with_ts whitebox_crash_test_with_ts
 
 
 all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
@@ -1040,7 +1055,7 @@ gen_parallel_tests:
 # 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
 #
 slow_test_regexp = \
-	^.*SnapshotConcurrentAccessTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
+	^.*SnapshotConcurrentAccessTest.*$$|^.*SeqAdvanceConcurrentTest.*$$|^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
 prioritize_long_running_tests =						\
   perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
     | sort -k1,1gr							\
@@ -1162,6 +1177,8 @@ crash_test_with_txn: whitebox_crash_test_with_txn blackbox_crash_test_with_txn
 
 crash_test_with_best_efforts_recovery: blackbox_crash_test_with_best_efforts_recovery
 
+crash_test_with_ts: whitebox_crash_test_with_ts blackbox_crash_test_with_ts
+
 blackbox_crash_test: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --simple blackbox $(CRASH_TEST_EXT_ARGS)
 	$(PYTHON) -u tools/db_crashtest.py blackbox $(CRASH_TEST_EXT_ARGS)
@@ -1174,6 +1191,9 @@ blackbox_crash_test_with_txn: db_stress
 
 blackbox_crash_test_with_best_efforts_recovery: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --test_best_efforts_recovery blackbox $(CRASH_TEST_EXT_ARGS)
+
+blackbox_crash_test_with_ts: db_stress
+	$(PYTHON) -u tools/db_crashtest.py --enable_ts blackbox $(CRASH_TEST_EXT_ARGS)
 
 ifeq ($(CRASH_TEST_KILL_ODD),)
   CRASH_TEST_KILL_ODD=888887
@@ -1191,6 +1211,10 @@ whitebox_crash_test_with_atomic_flush: db_stress
 
 whitebox_crash_test_with_txn: db_stress
 	$(PYTHON) -u tools/db_crashtest.py --txn whitebox --random_kill_odd \
+      $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
+
+whitebox_crash_test_with_ts: db_stress
+	$(PYTHON) -u tools/db_crashtest.py --enable_ts whitebox --random_kill_odd \
       $(CRASH_TEST_KILL_ODD) $(CRASH_TEST_EXT_ARGS)
 
 asan_check: clean
@@ -1338,8 +1362,9 @@ analyze_incremental:
 		$(MAKE) dbg
 
 CLEAN_FILES += unity.cc
-unity.cc: Makefile
+unity.cc: Makefile util/build_version.cc.in
 	rm -f $@ $@-t
+	$(AM_V_at)$(gen_build_version) > util/build_version.cc
 	for source_file in $(LIB_SOURCES); do \
 		echo "#include \"$$source_file\"" >> $@-t; \
 	done
@@ -1469,7 +1494,7 @@ memtablerep_bench: $(OBJ_DIR)/memtable/memtablerep_bench.o $(LIBRARY)
 filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
 	$(AM_LINK)
 
-db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(LIBRARY)
+db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(TESTUTIL) $(LIBRARY)
 	$(AM_LINK)
 
 write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
@@ -1566,6 +1591,9 @@ db_basic_test: $(OBJ_DIR)/db/db_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_blob_basic_test: $(OBJ_DIR)/db/blob/db_blob_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
+
+db_blob_compaction_test: $(OBJ_DIR)/db/blob/db_blob_compaction_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 db_with_timestamp_basic_test: $(OBJ_DIR)/db/db_with_timestamp_basic_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2011,7 +2039,7 @@ range_tombstone_fragmenter_test: $(OBJ_DIR)/db/range_tombstone_fragmenter_test.o
 sst_file_reader_test: $(OBJ_DIR)/table/sst_file_reader_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-db_secondary_test: $(OBJ_DIR)/db/db_impl/db_secondary_test.o $(TEST_LIBRARY) $(LIBRARY)
+db_secondary_test: $(OBJ_DIR)/db/db_secondary_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 block_cache_tracer_test: $(OBJ_DIR)/trace_replay/block_cache_tracer_test.o $(TEST_LIBRARY) $(LIBRARY)
@@ -2059,6 +2087,8 @@ io_tracer_parser_test: $(OBJ_DIR)/tools/io_tracer_parser_test.o $(OBJ_DIR)/tools
 io_tracer_parser: $(OBJ_DIR)/tools/io_tracer_parser.o $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
+db_blob_corruption_test: $(OBJ_DIR)/db/blob/db_blob_corruption_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
 #-------------------------------------------------
 # make install related stuff
 PREFIX ?= /usr/local
@@ -2474,11 +2504,13 @@ endif
 # ---------------------------------------------------------------------------
 #  	Source files dependencies detection
 # ---------------------------------------------------------------------------
-
+# If skip dependencies is ON, skip including the dep files
+ifneq ($(SKIP_DEPENDS), 1)
 DEPFILES = $(patsubst %.cc, $(OBJ_DIR)/%.cc.d, $(ALL_SOURCES))
 DEPFILES+ = $(patsubst %.c, $(OBJ_DIR)/%.c.d, $(LIB_SOURCES_C) $(TEST_MAIN_SOURCES_C))
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
   DEPFILES +=$(patsubst %.cpp, $(OBJ_DIR)/%.cpp.d, $(FOLLY_SOURCES))
+endif
 endif
 
 # Add proper dependency support so changing a .h file forces a .cc file to
@@ -2519,28 +2551,9 @@ endif
 build_subset_tests: $(ROCKSDBTESTS_SUBSET)
 	$(AM_V_GEN)if [ -n "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}" ]; then echo "$(ROCKSDBTESTS_SUBSET)" > "$${ROCKSDBTESTS_SUBSET_TESTS_TO_FILE}"; else echo "$(ROCKSDBTESTS_SUBSET)"; fi
 
-# if the make goal is either "clean" or "format", we shouldn't
-# try to import the *.d files.
-# TODO(kailiu) The unfamiliarity of Make's conditions leads to the ugly
-# working solution.
-ifneq ($(MAKECMDGOALS),clean)
-ifneq ($(MAKECMDGOALS),format)
-ifneq ($(MAKECMDGOALS),check-format)
-ifneq ($(MAKECMDGOALS),check-buck-targets)
-ifneq ($(MAKECMDGOALS),jclean)
-ifneq ($(MAKECMDGOALS),jtest)
-ifneq ($(MAKECMDGOALS),rocksdbjavastatic)
-ifneq ($(MAKECMDGOALS),rocksdbjavastatic_deps)
-ifneq ($(MAKECMDGOALS),package)
-ifneq ($(MAKECMDGOALS),analyze)
+# Remove the rules for which dependencies should not be generated and see if any are left.
+#If so, include the dependencies; if not, do not include the dependency files
+ROCKS_DEP_RULES=$(filter-out clean format check-format check-buck-targets jclean jtest package analyze tags rocksdbjavastatic% unity.% unity_test, $(MAKECMDGOALS))
+ifneq ("$(ROCKS_DEP_RULES)", "")
 -include $(DEPFILES)
-endif
-endif
-endif
-endif
-endif
-endif
-endif
-endif
-endif
 endif

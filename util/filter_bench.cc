@@ -360,7 +360,7 @@ void FilterBench::Go() {
   }
 
   ROCKSDB_NAMESPACE::StopWatchNano timer(
-      ROCKSDB_NAMESPACE::SystemClock::Default(), true);
+      ROCKSDB_NAMESPACE::SystemClock::Default().get(), true);
 
   infos_.clear();
   while ((working_mem_size_mb == 0 || total_size < max_mem) &&
@@ -600,7 +600,7 @@ double FilterBench::RandomQueryTest(uint32_t inside_threshold, bool dry_run,
   }
 
   ROCKSDB_NAMESPACE::StopWatchNano timer(
-      ROCKSDB_NAMESPACE::SystemClock::Default(), true);
+      ROCKSDB_NAMESPACE::SystemClock::Default().get(), true);
 
   for (uint64_t q = 0; q < max_queries; q += batch_size) {
     bool inside_this_time = random_.Next() <= inside_threshold;

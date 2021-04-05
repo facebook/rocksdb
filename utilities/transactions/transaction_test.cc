@@ -2925,6 +2925,47 @@ TEST_P(TransactionTest, MultiGetLargeBatchedTest) {
   }
 }
 
+TEST_P(TransactionTest, MultiGetSnapshot) {
+  WriteOptions write_options;
+  TransactionOptions transaction_options;
+  Transaction* txn1 = db->BeginTransaction(write_options, transaction_options);
+
+  Slice key = "foo";
+
+  Status s = txn1->Put(key, "bar");
+  ASSERT_OK(s);
+
+  s = txn1->SetName("test");
+  ASSERT_OK(s);
+
+  s = txn1->Prepare();
+  ASSERT_OK(s);
+
+  // Get snapshot between prepare and commit
+  // Un-committed data should be invisible to other transactions
+  const Snapshot* s1 = db->GetSnapshot();
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+
+  Transaction* txn2 = db->BeginTransaction(write_options, transaction_options);
+  ReadOptions read_options;
+  read_options.snapshot = s1;
+
+  std::vector<Slice> keys;
+  std::vector<PinnableSlice> values(1);
+  std::vector<Status> statuses(1);
+  keys.push_back(key);
+  auto cfd = db->DefaultColumnFamily();
+  txn2->MultiGet(read_options, cfd, 1, keys.data(), values.data(),
+                 statuses.data());
+  ASSERT_TRUE(statuses[0].IsNotFound());
+  delete txn2;
+
+  db->ReleaseSnapshot(s1);
+}
+
 TEST_P(TransactionTest, ColumnFamiliesTest2) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
