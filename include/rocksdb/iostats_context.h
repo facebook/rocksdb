@@ -50,7 +50,11 @@ struct IOStatsContext {
   uint64_t cpu_read_nanos;
 };
 
-// Get Thread-local IOStatsContext object pointer
+// Get Thread-local IOStatsContext object pointer if supported.
+// If thread-local is not supported on the platform, then a pointer to a global
+// IOStatsContext object will be returned. If RocksDB is compiled without the
+// -DNIOSTATS_CONTEXT flag, compilation should fail. If NIOSTATS_CONTEXT is
+// defined, then iostats context should not be used.
 IOStatsContext* get_iostats_context();
 
 }  // namespace ROCKSDB_NAMESPACE

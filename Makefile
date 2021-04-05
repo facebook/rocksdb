@@ -489,6 +489,12 @@ endif
 CFLAGS += $(C_WARNING_FLAGS) $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
 
+ifeq (,$(filter -DNIOSTATS_CONTEXT,$(CXXFLAGS)))
+ifeq (,$(filter -DROCKSDB_SUPPORT_THREAD_LOCAL,$(CXXFLAGS)))
+$(error No thread-local support detected on your platform, thus you must disable iostats context via -DNIOSTATS_CONTEXT)
+endif
+endif
+
 LDFLAGS += $(PLATFORM_LDFLAGS)
 
 OBJ_DIR?=.
