@@ -35,7 +35,7 @@ void FullFilterBlockBuilder::Add(const Slice& key_without_ts) {
   if (!last_prefix_recorded_ && last_key_in_domain_) {
     // We can reach here when a new filter partition starts in partitioned
     // filter. The last prefix in the previous partition should be added if
-    // necessary regardless of key_without_ts.
+    // necessary regardless of key_without_ts, to support prefix SeekForPrev.
     AddKey(last_prefix_str_);
     last_prefix_recorded_ = true;
   }

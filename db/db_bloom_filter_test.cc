@@ -7,6 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <iomanip>
+#include <sstream>
+
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
@@ -2142,20 +2145,23 @@ TEST_F(DBBloomFilterTest, SeekForPrevWithPartitionedFilters) {
   WriteOptions write_opts;
   write_opts.disableWAL = true;
   for (size_t i = 0; i < kNumKeys; ++i) {
-    char buf[5] = {0};
-    snprintf(buf, sizeof(buf), "%04d", static_cast<int>(i));
-    ASSERT_OK(db_->Put(write_opts, Slice(buf, sizeof(buf)), value));
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(4) << std::fixed << i;
+    ASSERT_OK(db_->Put(write_opts, oss.str(), value));
   }
   ASSERT_OK(Flush());
 
   ReadOptions read_opts;
+  // Use legacy, implicit prefix seek
   read_opts.total_order_seek = false;
   read_opts.auto_prefix_mode = false;
   std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
   for (size_t i = 0; i < kNumKeys; ++i) {
-    char buf[6] = {0};
-    snprintf(buf, sizeof(buf), "%04da", static_cast<int>(i));
-    it->SeekForPrev(Slice(buf, sizeof(buf)));
+    // Seek with a key after each one added but with same prefix. One will
+    // surely cross a partition boundary.
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(4) << std::fixed << i << "a";
+    it->SeekForPrev(oss.str());
     ASSERT_OK(it->status());
     ASSERT_TRUE(it->Valid());
   }
