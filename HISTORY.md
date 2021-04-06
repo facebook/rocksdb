@@ -2,6 +2,7 @@
 ## 6.19.1 (04/01/2021)
 ### Bug Fixes
 * Fixed crash (divide by zero) when compression dictionary is applied to a file containing only range tombstones.
+* Fixed a backward iteration bug with partitioned filter enabled: not including the prefix of the last key of the previous filter partition in current filter partition can cause wrong iteration result.
 
 ## 6.19.0 (03/21/2021)
 ### Bug Fixes

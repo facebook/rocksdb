@@ -3990,8 +3990,7 @@ class TestPrefixExtractor : public ROCKSDB_NAMESPACE::SliceTransform {
   }
 
   bool InDomain(const ROCKSDB_NAMESPACE::Slice& src) const override {
-    assert(IsValid(src));
-    return true;
+    return IsValid(src);
   }
 
   bool InRange(const ROCKSDB_NAMESPACE::Slice& /*dst*/) const override {
