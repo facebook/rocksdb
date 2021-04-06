@@ -344,9 +344,11 @@ class CompactionJobTestBase : public testing::Test {
     SnapshotChecker* snapshot_checker = nullptr;
     ASSERT_TRUE(full_history_ts_low_.empty() ||
                 ucmp_->timestamp_size() == full_history_ts_low_.size());
+    std::string db_id = "";
+    std::string db_session_id = "";
     LocalCompactionService service(
-        dbname_, /*db_id=*/"", /*db_session_id=*/"", db_options_,
-        &file_options_, &shutting_down_, /*manual_compaction_paused=*/nullptr,
+        dbname_, db_id, db_session_id, db_options_, &file_options_,
+        &shutting_down_, /*manual_compaction_paused=*/nullptr,
         &preserve_deletes_seqnum_, versions_.get(), nullptr, &mutex_,
         &error_handler_, table_cache_, &event_logger, nullptr /* IOTracer */,
         nullptr /*BlobCallback*/);

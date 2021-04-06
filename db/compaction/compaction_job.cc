@@ -853,7 +853,8 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
       stats.bytes_written / kMB, stats.bytes_written_blob / kMB, read_write_amp,
       write_amp, status.ToString().c_str(), stats.num_input_records,
       stats.num_dropped_records,
-      CompressionTypeToString(compaction_state_->compaction->output_compression())
+      CompressionTypeToString(
+          compaction_state_->compaction->output_compression())
           .c_str());
 
   const auto& blob_files = vstorage->GetBlobFiles();
@@ -1750,7 +1751,8 @@ Status CompactionJob::OpenCompactionOutputFile(
 
   // Try to figure out the output file's oldest ancester time.
   int64_t temp_current_time = 0;
-  auto get_time_status = service_->db_options_.clock->GetCurrentTime(&temp_current_time);
+  auto get_time_status =
+      service_->db_options_.clock->GetCurrentTime(&temp_current_time);
   // Safe to proceed even if GetCurrentTime fails. So, log and proceed.
   if (!get_time_status.ok()) {
     ROCKS_LOG_WARN(service_->db_options_.info_log,
