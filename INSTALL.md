@@ -96,9 +96,13 @@ to build a portable binary, add `PORTABLE=1` before your make commands, like thi
               sudo yum install libasan
 
     * Install zstandard:
-        * With [EPEL](https://fedoraproject.org/wiki/EPEL) or CentOS 8:
+        * With [EPEL](https://fedoraproject.org/wiki/EPEL):
 
               sudo yum install libzstd-devel
+
+        * With CentOS 8:
+
+              sudo dnf install libzstd-devel
 
         * From source:
 
