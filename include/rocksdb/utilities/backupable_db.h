@@ -168,11 +168,9 @@ struct BackupableDBOptions {
     // If not already part of the naming scheme, insert
     //   _<file_size>
     // before .sst and .blob in the name. In case of user code actually parsing
-    // the
-    // last _<whatever> before the .sst  and .blob as the file size, this
-    // preserves that
-    // feature of kLegacyCrc32cAndFileSize. In other words, this option makes
-    // official that unofficial feature of the backup metadata.
+    // the last _<whatever> before the .sst  and .blob as the file size, this
+    // preserves that feature of kLegacyCrc32cAndFileSize. In other words, this
+    // option makes official that unofficial feature of the backup metadata.
     //
     // We do not consider SST and blob file sizes to have sufficient entropy to
     // contribute significantly to naming uniqueness.

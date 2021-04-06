@@ -901,8 +901,7 @@ class BackupableDBTest : public testing::Test {
     int found_count = 0;
     for (const auto& child : children) {
       if (child.name.find(file_type) != std::string::npos) {
-        const std::string match("match");
-        ASSERT_EQ(match, std::regex_replace(child.name, pattern, match));
+        ASSERT_TRUE(std::regex_match(child.name, pattern));
         ++found_count;
       }
     }

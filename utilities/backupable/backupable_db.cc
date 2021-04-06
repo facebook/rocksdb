@@ -749,7 +749,7 @@ class BackupEngineImpl {
       BackupID backup_id, bool shared, const std::string& src_dir,
       const std::string& fname,  // starts with "/"
       const EnvOptions& src_env_options, RateLimiter* rate_limiter,
-      uint64_t size_bytes, uint64_t size_limit = 0,
+      FileType file_type, uint64_t size_bytes, uint64_t size_limit = 0,
       bool shared_checksum = false,
       std::function<void()> progress_callback = []() {},
       const std::string& contents = std::string(),
@@ -1320,8 +1320,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
                 live_dst_paths, backup_items_to_finish, new_backup_id,
                 options_.share_table_files &&
                     (type == kTableFile || type == kBlobFile),
-                src_dirname, fname, src_env_options, rate_limiter, size_bytes,
-                size_limit_bytes,
+                src_dirname, fname, src_env_options, rate_limiter, type,
+                size_bytes, size_limit_bytes,
                 options_.share_files_with_checksum &&
                     (type == kTableFile || type == kBlobFile),
                 options.progress_callback, "" /* contents */,
@@ -1329,13 +1329,14 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
           }
           return st;
         } /* copy_file_cb */,
-        [&](const std::string& fname, const std::string& contents, FileType) {
+        [&](const std::string& fname, const std::string& contents,
+            FileType type) {
           Log(options_.info_log, "add file for backup %s", fname.c_str());
           return AddBackupFileWorkItem(
               live_dst_paths, backup_items_to_finish, new_backup_id,
               false /* shared */, "" /* src_dir */, fname,
-              EnvOptions() /* src_env_options */, rate_limiter, contents.size(),
-              0 /* size_limit */, false /* shared_checksum */,
+              EnvOptions() /* src_env_options */, rate_limiter, type,
+              contents.size(), 0 /* size_limit */, false /* shared_checksum */,
               options.progress_callback, contents);
         } /* create_file_cb */,
         &sequence_number, options.flush_before_backup ? 0 : port::kMaxUint64,
@@ -1878,9 +1879,10 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     std::vector<BackupAfterCopyOrCreateWorkItem>& backup_items_to_finish,
     BackupID backup_id, bool shared, const std::string& src_dir,
     const std::string& fname, const EnvOptions& src_env_options,
-    RateLimiter* rate_limiter, uint64_t size_bytes, uint64_t size_limit,
-    bool shared_checksum, std::function<void()> progress_callback,
-    const std::string& contents, const std::string& src_checksum_func_name,
+    RateLimiter* rate_limiter, const FileType file_type, uint64_t size_bytes,
+    uint64_t size_limit, bool shared_checksum,
+    std::function<void()> progress_callback, const std::string& contents,
+    const std::string& src_checksum_func_name,
     const std::string& src_checksum_str) {
   assert(!fname.empty() && fname[0] == '/');
   assert(contents.empty() != src_dir.empty());
@@ -1913,7 +1915,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   // Step 1: Prepare the relative path to destination
   if (shared && shared_checksum) {
     if (GetNamingNoFlags() != BackupableDBOptions::kLegacyCrc32cAndFileSize &&
-        !EndsWith(fname, ".blob")) {
+        file_type != kBlobFile) {
       // Prepare db_session_id to add to the file name
       // Ignore the returned status
       // In the failed cases, db_id and db_session_id will be empty
