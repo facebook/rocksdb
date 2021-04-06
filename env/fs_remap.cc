@@ -301,9 +301,6 @@ IOStatus RemapFileSystem::GetAbsolutePath(const std::string& db_path,
                                             output_path, dbg);
 }
 
-ReadOnlyFileSystem::ReadOnlyFileSystem(const std::shared_ptr<FileSystem>& base)
-    : FileSystemWrapper(base) {}
-
 }  // namespace ROCKSDB_NAMESPACE
 
 #endif  // ROCKSDB_LITE

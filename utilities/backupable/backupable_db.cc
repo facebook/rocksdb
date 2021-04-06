@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "env/composite_env_wrapper.h"
+#include "env/fs_readonly.h"
 #include "env/fs_remap.h"
 #include "file/filename.h"
 #include "file/line_file_reader.h"

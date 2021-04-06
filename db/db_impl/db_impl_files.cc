@@ -865,6 +865,7 @@ Status DBImpl::SetDBId(bool read_only) {
     // it is no longer available then at this point DB ID is not in Identity
     // file or Manifest.
     if (s.IsNotFound()) {
+      // Create a new DB ID, saving to file only if allowed
       if (read_only) {
         db_id_ = env_->GenerateUniqueId();
         return Status::OK();

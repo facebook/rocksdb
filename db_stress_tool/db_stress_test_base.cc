@@ -1368,9 +1368,13 @@ Status StressTest::TestBackupRestore(
     }
   }
   std::vector<BackupInfo> backup_info;
+  // If inplace_not_restore, we verify the backup by opening it as a
+  // read-only DB. If !inplace_not_restore, we restore it to a temporary
+  // directory for verification.
   bool inplace_not_restore = thread->rand.OneIn(3);
   if (s.ok()) {
-    backup_engine->GetBackupInfo(&backup_info, inplace_not_restore);
+    backup_engine->GetBackupInfo(&backup_info,
+                                 /*include_file_details*/ inplace_not_restore);
     if (backup_info.empty()) {
       s = Status::NotFound("no backups found");
       from = "BackupEngine::GetBackupInfo";
@@ -1406,7 +1410,8 @@ Status StressTest::TestBackupRestore(
     }
   }
   if (s.ok() && !inplace_not_restore) {
-    // Purge early if restoring
+    // Purge early if restoring, to ensure the restored directory doesn't
+    // have some secret dependency on the backup directory.
     uint32_t to_keep = 0;
     if (allow_persistent) {
       // allow one thread to keep up to 2 backups
