@@ -178,7 +178,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
-      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 all check_some | .circleci/cat_ignore_eagain
+      - run: ASSERT_STATUS_CHECKED=1 TEST_UINT128_COMPAT=1 ROCKSDB_MODIFY_NPHASH=1 LIB_MODE=shared OPT="-DROCKSDB_NAMESPACE=alternative_rocksdb_ns" make V=1 -j32 check | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-release:
