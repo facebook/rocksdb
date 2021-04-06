@@ -186,7 +186,8 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
 
   Status GetBlobValue(const ReadOptions& /*options*/, const Slice& /*user_key*/,
                       const BlobIndex& /*blob_index*/,
-                      PinnableSlice* /*blob_value*/) const override {
+                      PinnableSlice* /*blob_value*/,
+                      uint64_t* /*bytes_read*/) const override {
     return Status::NotSupported();
   }
 

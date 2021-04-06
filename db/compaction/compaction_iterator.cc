@@ -57,9 +57,10 @@ uint64_t CompactionIterator::RealCompaction::
 
 Status CompactionIterator::RealCompaction::GetBlobValue(
     const ReadOptions& options, const Slice& user_key,
-    const BlobIndex& blob_index, PinnableSlice* blob_value) const {
+    const BlobIndex& blob_index, PinnableSlice* blob_value,
+    uint64_t* bytes_read) const {
   return compaction_->input_version()->GetBlob(options, user_key, blob_index,
-                                               blob_value);
+                                               blob_value, bytes_read);
 }
 
 CompactionIterator::CompactionIterator(
@@ -279,12 +280,9 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           valid_ = false;
           return false;
         }
-        const Version* const version = compaction_->input_version();
-        assert(version);
-
         uint64_t bytes_read = 0;
-        s = version->GetBlob(ReadOptions(), ikey_.user_key, blob_index,
-                             &blob_value_, &bytes_read);
+        s = compaction_->GetBlobValue(ReadOptions(), ikey_.user_key, blob_index,
+                                      &blob_value_, &bytes_read);
         if (!s.ok()) {
           status_ = s;
           valid_ = false;
@@ -905,12 +903,13 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
       return;
     }
 
+    uint64_t bytes_read = 0;
     if (blob_index.file_number() >=
         blob_garbage_collection_cutoff_file_number_) {
       return;
     } else {
-      Status s = compaction_->GetBlobValue(ReadOptions(), user_key(),
-                                           blob_index, &blob_value_);
+      Status s = compaction_->GetBlobValue(
+          ReadOptions(), user_key(), blob_index, &blob_value_, &bytes_read);
       if (!s.ok()) {
         status_ = s;
         valid_ = false;

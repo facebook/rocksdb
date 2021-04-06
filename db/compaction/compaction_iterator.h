@@ -56,7 +56,8 @@ class CompactionIterator {
     virtual Status GetBlobValue(const ReadOptions& read_options,
                                 const Slice& user_key,
                                 const BlobIndex& blob_index,
-                                PinnableSlice* blob_value) const = 0;
+                                PinnableSlice* blob_value,
+                                uint64_t* bytes_read) const = 0;
   };
 
   class RealCompaction : public CompactionProxy {
@@ -105,8 +106,8 @@ class CompactionIterator {
     uint64_t ComputeBlobGarbageCollectionCutoffFileNumber() const override;
 
     Status GetBlobValue(const ReadOptions& read_options, const Slice& user_key,
-                        const BlobIndex& blob_index,
-                        PinnableSlice* blob_value) const override;
+                        const BlobIndex& blob_index, PinnableSlice* blob_value,
+                        uint64_t* bytes_read) const override;
 
    private:
     const Compaction* compaction_;

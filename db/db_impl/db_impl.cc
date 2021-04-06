@@ -275,7 +275,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       &file_options_for_compaction_, &shutting_down_,
       &manual_compaction_paused_, &preserve_deletes_seqnum_, versions_.get(),
       directories_.GetDbDir(), &mutex_, &error_handler_, table_cache_,
-      &event_logger_, io_tracer_);
+      &event_logger_, io_tracer_, &blob_callback_);
 }
 
 Status DBImpl::Resume() {

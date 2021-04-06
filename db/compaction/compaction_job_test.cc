@@ -348,7 +348,8 @@ class CompactionJobTestBase : public testing::Test {
         dbname_, /*db_id=*/"", /*db_session_id=*/"", db_options_,
         &file_options_, &shutting_down_, /*manual_compaction_paused=*/nullptr,
         &preserve_deletes_seqnum_, versions_.get(), nullptr, &mutex_,
-        &error_handler_, table_cache_, &event_logger, nullptr /* IOTracer */);
+        &error_handler_, table_cache_, &event_logger, nullptr /* IOTracer */,
+        nullptr /*BlobCallback*/);
     CompactionJob compaction_job(
         0, &compaction, &service, &log_buffer, nullptr, nullptr, snapshots,
         earliest_write_conflict_snapshot, snapshot_checker, false, false,

@@ -305,18 +305,14 @@ LocalCompactionService::LocalCompactionService(
     VersionSet* versions, FSDirectory* db_directory,
     InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
     const std::shared_ptr<Cache>& table_cache, EventLogger* event_logger,
-    const std::shared_ptr<IOTracer>& io_tracer
+    const std::shared_ptr<IOTracer>& io_tracer,
     BlobFileCompletionCallback* blob_callback)
-    : job_id_(job_id),
-      compact_(new CompactionState(compaction)),
-      compaction_job_stats_(compaction_job_stats),
-      compaction_stats_(compaction->compaction_reason(), 1),
-      dbname_(dbname),
+    : dbname_(dbname),
       db_id_(db_id),
       db_session_id_(db_session_id),
       db_options_(db_options),
       fs_(db_options_.fs, io_tracer),
-      clock_(db_options_.env->GetSystemClock()),  // Temporary
+      clock_(db_options_.clock),
       file_options_(file_options),
       shutting_down_(shutting_down),
       manual_compaction_paused_(manual_compaction_paused),
@@ -327,40 +323,9 @@ LocalCompactionService::LocalCompactionService(
       db_error_handler_(db_error_handler),
       table_cache_(table_cache),
       event_logger_(event_logger),
-      io_tracer_(io_tracer) {
+      io_tracer_(io_tracer),
+      blob_callback_(blob_callback) {
   stats_ = db_options_.statistics.get();
-}
-
-Status LocalCompactionService::Start(
-    const CompactionServiceOptions& compaction_options, std::string* job_id) {
-  (void)compaction_options;
-  (void)job_id;
-  return Status::NotSupported("Start not yet implemented");
-}
-
-Status LocalCompactionService::Cancel(const std::string& job_id) {
-  (void)job_id;
-  return Status::NotSupported("Cancel not yet implemented");
-}
-
-Status LocalCompactionService::WaitForComplete(
-    const std::string& job_id, CompactionJobInfo* compaction_job_info) {
-  (void)job_id;
-  (void)compaction_job_info;
-  return Status::NotSupported("WaitForComplete not yet implemented");
-}
-
-std::vector<Status> LocalCompactionService::DownloadFiles(
-    const FileOptions& options, const std::vector<std::string>& remote_path,
-    const std::vector<std::string>& local_path) {
-  (void)options;
-  std::vector<Status> statuses;
-  assert(remote_path.size() == local_path.size());
-  for (size_t i = 0; i < remote_path.size(); i++) {
-    statuses.push_back(
-        Status::NotSupported("DownloadFiles not yet implemented"));
-  }
-  return statuses;
 }
 
 CompactionJob::CompactionJob(
@@ -394,8 +359,7 @@ CompactionJob::CompactionJob(
       measure_io_stats_(measure_io_stats),
       write_hint_(Env::WLTH_NOT_SET),
       thread_pri_(thread_pri),
-      full_history_ts_low_(std::move(full_history_ts_low)),
-      blob_callback_(blob_callback) {
+      full_history_ts_low_(std::move(full_history_ts_low)) {
   assert(compaction_job_stats_ != nullptr);
   assert(log_buffer_ != nullptr);
   const auto* cfd = compaction_state_->compaction->column_family_data();
@@ -1038,12 +1002,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::unique_ptr<BlobFileBuilder> blob_file_builder(
       mutable_cf_options->enable_blob_files
           ? new BlobFileBuilder(
-                service_->versions_, 
-                service_->fs_.get(),
+                service_->versions_, service_->fs_.get(),
                 sub_compact->compaction->immutable_cf_options(),
                 mutable_cf_options, &file_options_, job_id_, cfd->GetID(),
                 cfd->GetName(), Env::IOPriority::IO_LOW, write_hint_,
-                io_tracer_, blob_callback_,
+                service_->io_tracer_, service_->blob_callback_,
                 &blob_file_paths, &sub_compact->blob_file_additions)
           : nullptr);
 
@@ -1912,7 +1875,7 @@ void CompactionJob::UpdateCompactionStats() {
       compaction_job_stats_->total_blob_bytes_read;
 
   compaction_stats_.num_output_files =
-      static_cast<int>(compact_->num_output_files);
+      static_cast<int>(compaction_state_->num_output_files);
   compaction_stats_.num_output_files_blob =
       static_cast<int>(compaction_state_->num_blob_output_files);
   compaction_stats_.bytes_written = compaction_state_->total_bytes;
