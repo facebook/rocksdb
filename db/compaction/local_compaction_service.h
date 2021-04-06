@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "rocksdb/compaction_service.h"
+#include "rocksdb/rocksdb_namespace.h"
 
 namespace ROCKSDB_NAMESPACE {
 class BlobFileCompletionCallback;
