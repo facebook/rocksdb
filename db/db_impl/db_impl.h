@@ -129,7 +129,8 @@ class Directories {
 class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname,
-         const bool seq_per_batch = false, const bool batch_per_txn = true);
+         const bool seq_per_batch = false, const bool batch_per_txn = true,
+         bool read_only = false);
   // No copying allowed
   DBImpl(const DBImpl&) = delete;
   void operator=(const DBImpl&) = delete;
@@ -1236,7 +1237,7 @@ class DBImpl : public DB {
   virtual bool OwnTablesAndLogs() const { return true; }
 
   // Set DB identity file, and write DB ID to manifest if necessary.
-  Status SetDBId();
+  Status SetDBId(bool read_only);
 
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
@@ -2231,9 +2232,11 @@ class DBImpl : public DB {
   BlobFileCompletionCallback blob_callback_;
 };
 
-extern Options SanitizeOptions(const std::string& db, const Options& src);
+extern Options SanitizeOptions(const std::string& db, const Options& src,
+                               bool read_only = false);
 
-extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
+extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
+                                 bool read_only = false);
 
 extern CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,

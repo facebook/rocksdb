@@ -2614,6 +2614,65 @@ TEST_F(BackupableDBTest, ReadOnlyBackupEngine) {
   delete db;
 }
 
+TEST_F(BackupableDBTest, OpenBackupAsReadOnlyDB) {
+  DestroyDB(dbname_, options_);
+  OpenDBAndBackupEngine(true);
+  FillDB(db_.get(), 0, 100);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  FillDB(db_.get(), 100, 200);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  db_.reset();  // CloseDB
+  DestroyDB(dbname_, options_);
+  std::vector<BackupInfo> backup_info;
+  // First, check that we get empty fields without include_file_details
+  backup_engine_->GetBackupInfo(&backup_info, /*with file details*/ false);
+  ASSERT_EQ(backup_info.size(), 2);
+  ASSERT_EQ(backup_info[0].name_for_open, "");
+  ASSERT_FALSE(backup_info[0].env_for_open);
+
+  // Now for the real test
+  backup_info.clear();
+  backup_engine_->GetBackupInfo(&backup_info, /*with file details*/ true);
+  ASSERT_EQ(backup_info.size(), 2);
+
+  // Caution: DBOptions only holds a raw pointer to Env, so something else
+  // must keep it alive.
+  // Case 1: Keeping BackupEngine open suffices to keep Env alive
+  DB* db = nullptr;
+  Options opts = options_;
+  // Ensure some key defaults are set
+  opts.wal_dir = "";
+  opts.create_if_missing = false;
+  opts.info_log.reset();
+
+  opts.env = backup_info[0].env_for_open.get();
+  std::string name = backup_info[0].name_for_open;
+  backup_info.clear();
+  ASSERT_OK(DB::OpenForReadOnly(opts, name, &db));
+
+  AssertExists(db, 0, 100);
+  AssertEmpty(db, 100, 200);
+
+  delete db;
+  db = nullptr;
+
+  // Case 2: Keeping BackupInfo alive rather than BackupEngine also suffices
+  backup_engine_->GetBackupInfo(&backup_info, /*with file details*/ true);
+  ASSERT_EQ(backup_info.size(), 2);
+  CloseBackupEngine();
+  opts.env = backup_info[1].env_for_open.get();
+  name = backup_info[1].name_for_open;
+  // Note: keeping backup_info[1] alive
+  ASSERT_OK(DB::OpenForReadOnly(opts, name, &db));
+
+  AssertExists(db, 0, 200);
+  delete db;
+  db = nullptr;
+
+  // Now try opening read-write and make sure it fails, for safety.
+  ASSERT_TRUE(DB::Open(opts, name, &db).IsIOError());
+}
+
 TEST_F(BackupableDBTest, ProgressCallbackDuringBackup) {
   DestroyDB(dbname_, options_);
   OpenDBAndBackupEngine(true);

@@ -27,6 +27,8 @@
 #include <vector>
 
 #include "env/composite_env_wrapper.h"
+#include "env/fs_readonly.h"
+#include "env/fs_remap.h"
 #include "file/filename.h"
 #include "file/line_file_reader.h"
 #include "file/sequence_file_reader.h"
@@ -65,6 +67,16 @@ inline std::string ChecksumInt32ToHex(const uint32_t& checksum_value) {
   PutFixed32(&checksum_str, EndianSwapValue(checksum_value));
   return ChecksumStrToHex(checksum_str);
 }
+
+const std::string kPrivateDirName = "private";
+const std::string kMetaDirName = "meta";
+const std::string kSharedDirName = "shared";
+const std::string kSharedChecksumDirName = "shared_checksum";
+const std::string kPrivateDirSlash = kPrivateDirName + "/";
+const std::string kMetaDirSlash = kMetaDirName + "/";
+const std::string kSharedDirSlash = kSharedDirName + "/";
+const std::string kSharedChecksumDirSlash = kSharedChecksumDirName + "/";
+
 }  // namespace
 
 void BackupStatistics::IncrementNumberSuccessBackup() {
@@ -195,6 +207,133 @@ class BackupEngineImpl {
     // db_session_id appears in the backup SST filename if the table naming
     // option is kUseDbSessionId
     const std::string db_session_id;
+
+    std::string GetDbFileName() {
+      std::string rv;
+      // extract the filename part
+      size_t slash = filename.find_last_of('/');
+      // file will either be shared/<file>, shared_checksum/<file_crc32c_size>,
+      // shared_checksum/<file_session>, shared_checksum/<file_crc32c_session>,
+      // or private/<number>/<file>
+      assert(slash != std::string::npos);
+      rv = filename.substr(slash + 1);
+
+      // if the file was in shared_checksum, extract the real file name
+      // in this case the file is <number>_<checksum>_<size>.<type>,
+      // <number>_<session>.<type>, or <number>_<checksum>_<session>.<type>
+      if (filename.substr(0, slash) == kSharedChecksumDirName) {
+        rv = GetFileFromChecksumFile(rv);
+      }
+      return rv;
+    }
+  };
+
+  static inline std::string WithoutTrailingSlash(const std::string& path) {
+    if (path.empty() || path.back() != '/') {
+      return path;
+    } else {
+      return path.substr(path.size() - 1);
+    }
+  }
+
+  static inline std::string WithTrailingSlash(const std::string& path) {
+    if (path.empty() || path.back() != '/') {
+      return path + '/';
+    } else {
+      return path;
+    }
+  }
+
+  // A filesystem wrapper that makes shared backup files appear to be in the
+  // private backup directory (dst_dir), so that the private backup dir can
+  // be opened as a read-only DB.
+  class RemapSharedFileSystem : public RemapFileSystem {
+   public:
+    RemapSharedFileSystem(const std::shared_ptr<FileSystem>& base,
+                          const std::string& dst_dir,
+                          const std::string& src_base_dir,
+                          const std::vector<std::shared_ptr<FileInfo>>& files)
+        : RemapFileSystem(base),
+          dst_dir_(WithoutTrailingSlash(dst_dir)),
+          dst_dir_slash_(WithTrailingSlash(dst_dir)),
+          src_base_dir_(WithTrailingSlash(src_base_dir)) {
+      for (auto& info : files) {
+        if (!StartsWith(info->filename, kPrivateDirSlash)) {
+          assert(StartsWith(info->filename, kSharedDirSlash) ||
+                 StartsWith(info->filename, kSharedChecksumDirSlash));
+          remaps_[info->GetDbFileName()] = info;
+        }
+      }
+    }
+
+    const char* Name() const override {
+      return "BackupEngineImpl::RemapSharedFileSystem";
+    }
+
+    // Sometimes a directory listing is required in opening a DB
+    IOStatus GetChildren(const std::string& dir, const IOOptions& options,
+                         std::vector<std::string>* result,
+                         IODebugContext* dbg) override {
+      IOStatus s = RemapFileSystem::GetChildren(dir, options, result, dbg);
+      if (s.ok() && (dir == dst_dir_ || dir == dst_dir_slash_)) {
+        // Assume remapped files exist
+        for (auto& r : remaps_) {
+          result->push_back(r.first);
+        }
+      }
+      return s;
+    }
+
+    // Sometimes a directory listing is required in opening a DB
+    IOStatus GetChildrenFileAttributes(const std::string& dir,
+                                       const IOOptions& options,
+                                       std::vector<FileAttributes>* result,
+                                       IODebugContext* dbg) override {
+      IOStatus s =
+          RemapFileSystem::GetChildrenFileAttributes(dir, options, result, dbg);
+      if (s.ok() && (dir == dst_dir_ || dir == dst_dir_slash_)) {
+        // Assume remapped files exist with recorded size
+        for (auto& r : remaps_) {
+          result->emplace_back();  // clean up with C++20
+          FileAttributes& attr = result->back();
+          attr.name = r.first;
+          attr.size_bytes = r.second->size;
+        }
+      }
+      return s;
+    }
+
+   protected:
+    // When a file in dst_dir is requested, see if we need to remap to shared
+    // file path.
+    std::pair<IOStatus, std::string> EncodePath(
+        const std::string& path) override {
+      if (path.empty() || path[0] != '/') {
+        return {IOStatus::InvalidArgument(path, "Not an absolute path"), ""};
+      }
+      std::pair<IOStatus, std::string> rv{IOStatus(), path};
+      if (StartsWith(path, dst_dir_slash_)) {
+        std::string relative = path.substr(dst_dir_slash_.size());
+        auto it = remaps_.find(relative);
+        if (it != remaps_.end()) {
+          rv.second = src_base_dir_ + it->second->filename;
+        }
+      }
+      return rv;
+    }
+
+   private:
+    // Absolute path to a directory that some extra files will be mapped into.
+    const std::string dst_dir_;
+    // Includes a trailing slash.
+    const std::string dst_dir_slash_;
+    // Absolute path to a directory containing some files to be mapped into
+    // dst_dir_. Includes a trailing slash.
+    const std::string src_base_dir_;
+    // If remaps_[x] exists, attempt to read dst_dir_ / x should instead read
+    // src_base_dir_ / remaps_[x]->filename. FileInfo is used to maximize
+    // sharing with other backup data in memory.
+    std::unordered_map<std::string, std::shared_ptr<FileInfo>> remaps_;
   };
 
   class BackupMeta {
@@ -284,6 +423,27 @@ class BackupEngineImpl {
       return ss.str();
     }
 
+    const std::shared_ptr<Env>& GetEnvForOpen() const {
+      if (!env_for_open_) {
+        // Lazy initialize
+        // Find directories
+        std::string dst_dir = meta_filename_;
+        auto i = dst_dir.rfind(kMetaDirSlash);
+        assert(i != std::string::npos);
+        std::string src_base_dir = dst_dir.substr(0, i);
+        dst_dir.replace(i, kMetaDirSlash.size(), kPrivateDirSlash);
+        // Make the RemapSharedFileSystem
+        std::shared_ptr<FileSystem> remap_fs =
+            std::make_shared<RemapSharedFileSystem>(
+                env_->GetFileSystem(), dst_dir, src_base_dir, files_);
+        // Make it read-only for safety
+        remap_fs = std::make_shared<ReadOnlyFileSystem>(remap_fs);
+        // Make an Env wrapper
+        env_for_open_ = std::make_shared<CompositeEnvWrapper>(env_, remap_fs);
+      }
+      return env_for_open_;
+    }
+
    private:
     int64_t timestamp_;
     // sequence number is only approximate, should not be used
@@ -297,6 +457,7 @@ class BackupEngineImpl {
     std::vector<std::shared_ptr<FileInfo>> files_;
     std::unordered_map<std::string, std::shared_ptr<FileInfo>>* file_infos_;
     Env* env_;
+    mutable std::shared_ptr<Env> env_for_open_;
   };  // BackupMeta
 
   inline std::string GetAbsolutePath(
@@ -304,30 +465,23 @@ class BackupEngineImpl {
     assert(relative_path.size() == 0 || relative_path[0] != '/');
     return options_.backup_dir + "/" + relative_path;
   }
-  inline std::string GetPrivateDirRel() const {
-    return "private";
-  }
-  inline std::string GetSharedDirRel() const { return "shared"; }
-  inline std::string GetSharedChecksumDirRel() const {
-    return "shared_checksum";
-  }
   inline std::string GetPrivateFileRel(BackupID backup_id,
                                        bool tmp = false,
                                        const std::string& file = "") const {
     assert(file.size() == 0 || file[0] != '/');
-    return GetPrivateDirRel() + "/" + ROCKSDB_NAMESPACE::ToString(backup_id) +
+    return kPrivateDirSlash + ROCKSDB_NAMESPACE::ToString(backup_id) +
            (tmp ? ".tmp" : "") + "/" + file;
   }
   inline std::string GetSharedFileRel(const std::string& file = "",
                                       bool tmp = false) const {
     assert(file.size() == 0 || file[0] != '/');
-    return GetSharedDirRel() + "/" + (tmp ? "." : "") + file +
+    return kSharedDirSlash + std::string(tmp ? "." : "") + file +
            (tmp ? ".tmp" : "");
   }
   inline std::string GetSharedFileWithChecksumRel(const std::string& file = "",
                                                   bool tmp = false) const {
     assert(file.size() == 0 || file[0] != '/');
-    return GetSharedChecksumDirRel() + "/" + (tmp ? "." : "") + file +
+    return kSharedChecksumDirSlash + std::string(tmp ? "." : "") + file +
            (tmp ? ".tmp" : "");
   }
   inline bool UseLegacyNaming(const std::string& sid) const {
@@ -354,18 +508,15 @@ class BackupEngineImpl {
     }
     return file_copy;
   }
-  inline std::string GetFileFromChecksumFile(const std::string& file) const {
+  static inline std::string GetFileFromChecksumFile(const std::string& file) {
     assert(file.size() == 0 || file[0] != '/');
     std::string file_copy = file;
     size_t first_underscore = file_copy.find_first_of('_');
     return file_copy.erase(first_underscore,
                            file_copy.find_last_of('.') - first_underscore);
   }
-  inline std::string GetBackupMetaDir() const {
-    return GetAbsolutePath("meta");
-  }
   inline std::string GetBackupMetaFile(BackupID backup_id, bool tmp) const {
-    return GetBackupMetaDir() + "/" + (tmp ? "." : "") +
+    return GetAbsolutePath(kMetaDirName) + "/" + (tmp ? "." : "") +
            ROCKSDB_NAMESPACE::ToString(backup_id) + (tmp ? ".tmp" : "");
   }
 
@@ -784,6 +935,8 @@ Status BackupEngineImpl::Initialize() {
   }
   options_.Dump(options_.info_log);
 
+  auto meta_path = GetAbsolutePath(kMetaDirName);
+
   if (!read_only_) {
     // we might need to clean up from previous crash or I/O errors
     might_need_garbage_collect_ = true;
@@ -810,9 +963,9 @@ Status BackupEngineImpl::Initialize() {
                                  &shared_directory_);
       }
     }
-    directories.emplace_back(GetAbsolutePath(GetPrivateDirRel()),
+    directories.emplace_back(GetAbsolutePath(kPrivateDirName),
                              &private_directory_);
-    directories.emplace_back(GetBackupMetaDir(), &meta_directory_);
+    directories.emplace_back(meta_path, &meta_directory_);
     // create all the dirs we need
     for (const auto& d : directories) {
       auto s = backup_env_->CreateDirIfMissing(d.first);
@@ -827,9 +980,9 @@ Status BackupEngineImpl::Initialize() {
 
   std::vector<std::string> backup_meta_files;
   {
-    auto s = backup_env_->GetChildren(GetBackupMetaDir(), &backup_meta_files);
+    auto s = backup_env_->GetChildren(meta_path, &backup_meta_files);
     if (s.IsNotFound()) {
-      return Status::NotFound(GetBackupMetaDir() + " is missing");
+      return Status::NotFound(meta_path + " is missing");
     } else if (!s.ok()) {
       return s;
     }
@@ -1396,14 +1549,19 @@ void BackupEngineImpl::GetBackupInfo(std::vector<BackupInfo>* backup_info,
       backup_info->push_back(BackupInfo(backup.first, meta.GetTimestamp(),
                                         meta.GetSize(), meta.GetNumberFiles(),
                                         meta.GetAppMetadata()));
+      BackupInfo& binfo = backup_info->back();
       if (include_file_details) {
-        auto& file_details = backup_info->back().file_details;
+        auto& file_details = binfo.file_details;
         file_details.reserve(meta.GetFiles().size());
         for (auto& file_ptr : meta.GetFiles()) {
-          BackupFileInfo& info = *file_details.emplace(file_details.end());
-          info.relative_filename = file_ptr->filename;
-          info.size = file_ptr->size;
+          BackupFileInfo& finfo = *file_details.emplace(file_details.end());
+          finfo.relative_filename = file_ptr->filename;
+          finfo.size = file_ptr->size;
         }
+        binfo.name_for_open =
+            GetAbsolutePath(GetPrivateFileRel(binfo.backup_id));
+        binfo.name_for_open.pop_back();  // remove trailing '/'
+        binfo.env_for_open = meta.GetEnvForOpen();
       }
     }
   }
@@ -1488,21 +1646,8 @@ Status BackupEngineImpl::RestoreDBFromBackup(const RestoreOptions& options,
   std::vector<RestoreAfterCopyOrCreateWorkItem> restore_items_to_finish;
   for (const auto& file_info : backup->GetFiles()) {
     const std::string& file = file_info->filename;
-    std::string dst;
-    // 1. extract the filename
-    size_t slash = file.find_last_of('/');
-    // file will either be shared/<file>, shared_checksum/<file_crc32c_size>,
-    // shared_checksum/<file_session>, shared_checksum/<file_crc32c_session>,
-    // or private/<number>/<file>
-    assert(slash != std::string::npos);
-    dst = file.substr(slash + 1);
-
-    // if the file was in shared_checksum, extract the real file name
-    // in this case the file is <number>_<checksum>_<size>.<type>,
-    // <number>_<session>.<type>, or <number>_<checksum>_<session>.<type>
-    if (file.substr(0, slash) == GetSharedChecksumDirRel()) {
-      dst = GetFileFromChecksumFile(dst);
-    }
+    // 1. get DB filename
+    std::string dst = file_info->GetDbFileName();
 
     // 2. find the filetype
     uint64_t number;
@@ -2135,7 +2280,7 @@ Status BackupEngineImpl::GarbageCollect() {
   // delete obsolete private files
   std::vector<std::string> private_children;
   {
-    auto s = backup_env_->GetChildren(GetAbsolutePath(GetPrivateDirRel()),
+    auto s = backup_env_->GetChildren(GetAbsolutePath(kPrivateDirName),
                                       &private_children);
     if (!s.ok()) {
       overall_status = s;

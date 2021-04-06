@@ -854,7 +854,7 @@ uint64_t PrecomputeMinLogNumberToKeep2PC(
   return min_log_number_to_keep;
 }
 
-Status DBImpl::SetDBId() {
+Status DBImpl::SetDBId(bool read_only) {
   Status s;
   // Happens when immutable_db_options_.write_dbid_to_manifest is set to true
   // the very first time.
@@ -865,9 +865,15 @@ Status DBImpl::SetDBId() {
     // it is no longer available then at this point DB ID is not in Identity
     // file or Manifest.
     if (s.IsNotFound()) {
-      s = SetIdentityFile(env_, dbname_);
-      if (!s.ok()) {
-        return s;
+      // Create a new DB ID, saving to file only if allowed
+      if (read_only) {
+        db_id_ = env_->GenerateUniqueId();
+        return Status::OK();
+      } else {
+        s = SetIdentityFile(env_, dbname_);
+        if (!s.ok()) {
+          return s;
+        }
       }
     } else if (!s.ok()) {
       assert(s.IsIOError());

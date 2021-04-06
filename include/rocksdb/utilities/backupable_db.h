@@ -280,23 +280,42 @@ struct BackupFileInfo {
 typedef uint32_t BackupID;
 
 struct BackupInfo {
-  BackupID backup_id;
+  BackupID backup_id = 0U;
   // Creation time, according to GetCurrentTime
-  int64_t timestamp;
+  int64_t timestamp = 0;
 
   // Total size in bytes (based on file payloads, not including filesystem
   // overheads or backup meta file)
-  uint64_t size;
+  uint64_t size = 0U;
 
   // Number of backed up files, some of which might be shared with other
   // backups. Does not include backup meta file.
-  uint32_t number_files;
+  uint32_t number_files = 0U;
 
   // Backup API user metadata
   std::string app_metadata;
 
-  // Backup file details, if requested
+  // Backup file details, if requested with include_file_details=true
   std::vector<BackupFileInfo> file_details;
+
+  // DB "name" (a directory in the backup_env) for opening this backup as a
+  // read-only DB. This should also be used as the DBOptions::wal_dir, such
+  // as by default setting wal_dir="". See also env_for_open.
+  // This field is only set if include_file_details=true
+  std::string name_for_open;
+
+  // An Env(+FileSystem) for opening this backup as a read-only DB, with
+  // DB::OpenForReadOnly or similar. This field is only set if
+  // include_file_details=true. (The FileSystem in this Env takes care
+  // of making shared backup files openable from the `name_for_open` DB
+  // directory.) See also name_for_open.
+  //
+  // This Env might or might not be shared with other backups. To work
+  // around DBOptions::env being a raw pointer, this is a shared_ptr so
+  // that keeping either this BackupInfo, the BackupEngine, or a copy of
+  // this shared_ptr alive is sufficient to keep the Env alive for use by
+  // a read-only DB.
+  std::shared_ptr<Env> env_for_open;
 
   BackupInfo() {}
 
@@ -344,10 +363,8 @@ class BackupEngineReadOnlyBase {
   virtual ~BackupEngineReadOnlyBase() {}
 
   // Returns info about backups in backup_info
-  // You can GetBackupInfo safely, even with other BackupEngine performing
-  // backups on the same directory.
   // Setting include_file_details=true provides information about each
-  // backed-up file in BackupInfo::file_details.
+  // backed-up file in BackupInfo::file_details and more.
   virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info,
                              bool include_file_details = false) const = 0;
 
