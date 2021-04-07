@@ -2660,6 +2660,7 @@ TEST_F(BackupableDBTest, OpenBackupAsReadOnlyDB) {
   backup_engine_->GetBackupInfo(&backup_info, /*with file details*/ true);
   ASSERT_EQ(backup_info.size(), 2);
   CloseBackupEngine();
+  opts.create_if_missing = true;  // check also OK (though pointless)
   opts.env = backup_info[1].env_for_open.get();
   name = backup_info[1].name_for_open;
   // Note: keeping backup_info[1] alive

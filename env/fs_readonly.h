@@ -23,7 +23,7 @@ class ReadOnlyFileSystem : public FileSystemWrapper {
   }
 
  public:
-  ReadOnlyFileSystem(const std::shared_ptr<FileSystem>& base)
+  explicit ReadOnlyFileSystem(const std::shared_ptr<FileSystem>& base)
       : FileSystemWrapper(base) {}
 
   IOStatus NewWritableFile(const std::string& /*fname*/,
@@ -61,10 +61,17 @@ class ReadOnlyFileSystem : public FileSystemWrapper {
                      IODebugContext* /*dbg*/) override {
     return FailReadOnly();
   }
-  IOStatus CreateDirIfMissing(const std::string& /*dirname*/,
-                              const IOOptions& /*options*/,
-                              IODebugContext* /*dbg*/) override {
-    return FailReadOnly();
+  IOStatus CreateDirIfMissing(const std::string& dirname,
+                              const IOOptions& options,
+                              IODebugContext* dbg) override {
+    // Allow if dir already exists
+    bool is_dir = false;
+    IOStatus s = IsDirectory(dirname, options, &is_dir, dbg);
+    if (s.ok() && is_dir) {
+      return s;
+    } else {
+      return FailReadOnly();
+    }
   }
   IOStatus DeleteDir(const std::string& /*dirname*/,
                      const IOOptions& /*options*/,

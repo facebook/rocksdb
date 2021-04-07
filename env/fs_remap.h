@@ -20,7 +20,7 @@ namespace ROCKSDB_NAMESPACE {
 // guarantees.
 class RemapFileSystem : public FileSystemWrapper {
  public:
-  RemapFileSystem(const std::shared_ptr<FileSystem>& base);
+  explicit RemapFileSystem(const std::shared_ptr<FileSystem>& base);
 
  protected:
   // Returns status and mapped-to path in the wrapped filesystem.
