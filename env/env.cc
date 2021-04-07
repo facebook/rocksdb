@@ -536,6 +536,11 @@ class LegacyFileSystemWrapper : public FileSystem {
       const ImmutableDBOptions& db_options) const override {
     return target_->OptimizeForCompactionTableRead(file_options, db_options);
   }
+  FileOptions OptimizeForBlobFileRead(
+      const FileOptions& file_options,
+      const ImmutableDBOptions& db_options) const override {
+    return target_->OptimizeForBlobFileRead(file_options, db_options);
+  }
 
 #ifdef GetFreeSpace
 #undef GetFreeSpace
@@ -992,6 +997,12 @@ EnvOptions Env::OptimizeForCompactionTableWrite(
 }
 
 EnvOptions Env::OptimizeForCompactionTableRead(
+    const EnvOptions& env_options, const ImmutableDBOptions& db_options) const {
+  EnvOptions optimized_env_options(env_options);
+  optimized_env_options.use_direct_reads = db_options.use_direct_reads;
+  return optimized_env_options;
+}
+EnvOptions Env::OptimizeForBlobFileRead(
     const EnvOptions& env_options, const ImmutableDBOptions& db_options) const {
   EnvOptions optimized_env_options(env_options);
   optimized_env_options.use_direct_reads = db_options.use_direct_reads;
