@@ -890,7 +890,7 @@ Status DBImpl::SetDBId(bool read_only) {
                                  mutable_cf_options, &edit, &mutex_, nullptr,
                                  /* new_descriptor_log */ false);
     }
-  } else {
+  } else if (!read_only) {
     s = SetIdentityFile(env_, dbname_, db_id_);
   }
   return s;
