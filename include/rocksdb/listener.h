@@ -34,6 +34,27 @@ enum class TableFileCreationReason {
   kMisc,
 };
 
+inline std::ostream& operator<<(std::ostream& stream,
+                                const TableFileCreationReason& reason) {
+  std::string result;
+  switch (reason) {
+    case TableFileCreationReason::kFlush:
+      result = "Flush";
+      break;
+    case TableFileCreationReason::kCompaction:
+      result = "Compaction";
+      break;
+    case TableFileCreationReason::kRecovery:
+      result = "Recovery";
+      break;
+    case TableFileCreationReason::kMisc:
+      result = "Misc";
+      break;
+  }
+  stream << result;
+  return stream;
+}
+
 struct TableFileCreationBriefInfo {
   // the name of the database where the file was created
   std::string db_name;
@@ -102,6 +123,67 @@ enum class CompactionReason : int {
   kNumOfReasons,
 };
 
+inline std::ostream& operator<<(std::ostream& stream,
+                                const CompactionReason& reason) {
+  std::string result;
+  switch (reason) {
+    case CompactionReason::kUnknown:
+      result = "Unknown";
+      break;
+    case CompactionReason::kLevelL0FilesNum:
+      result = "LevelL0FilesNum";
+      break;
+    case CompactionReason::kLevelMaxLevelSize:
+      result = "LevelMaxLevelSize";
+      break;
+    case CompactionReason::kUniversalSizeAmplification:
+      result = "UniversalSizeAmplification";
+      break;
+    case CompactionReason::kUniversalSizeRatio:
+      result = "UniversalSizeRatio";
+      break;
+    case CompactionReason::kUniversalSortedRunNum:
+      result = "UniversalSortedRunNum";
+      break;
+    case CompactionReason::kFIFOMaxSize:
+      result = "FIFOMaxSize";
+      break;
+    case CompactionReason::kFIFOReduceNumFiles:
+      result = "FIFOReduceNumFiles";
+      break;
+    case CompactionReason::kFIFOTtl:
+      result = "FIFOTtl";
+      break;
+    case CompactionReason::kManualCompaction:
+      result = "ManualCompaction";
+      break;
+    case CompactionReason::kFilesMarkedForCompaction:
+      result = "FilesMarkedForCompaction";
+      break;
+    case CompactionReason::kBottommostFiles:
+      result = "BottommostFiles";
+      break;
+    case CompactionReason::kTtl:
+      result = "Ttl";
+      break;
+    case CompactionReason::kFlush:
+      result = "Flush";
+      break;
+    case CompactionReason::kExternalSstIngestion:
+      result = "ExternalSstIngestion";
+      break;
+    case CompactionReason::kPeriodicCompaction:
+      result = "PeriodicCompaction";
+      break;
+    case CompactionReason::kNumOfReasons:
+      result = "NumOfReasons";
+      break;
+  }
+  stream << result;
+  return stream;
+}
+
+
 enum class FlushReason : int {
   kOthers = 0x00,
   kGetLiveFiles = 0x01,
@@ -120,6 +202,54 @@ enum class FlushReason : int {
   kErrorRecoveryRetryFlush = 0xc,
 };
 
+inline std::ostream& operator<<(std::ostream& stream,
+                                const FlushReason& reason) {
+  std::string result;
+  switch (reason) {
+    case FlushReason::kOthers:
+      result = "Others";
+      break;
+    case FlushReason::kGetLiveFiles:
+      result = "GetLiveFiles";
+      break;
+    case FlushReason::kShutDown:
+      result = "ShutDown";
+      break;
+    case FlushReason::kExternalFileIngestion:
+      result = "ExternalFileIngestion";
+      break;
+    case FlushReason::kManualCompaction:
+      result = "ManualCompaction";
+      break;
+    case FlushReason::kWriteBufferManager:
+      result = "WriteBufferManager";
+      break;
+    case FlushReason::kWriteBufferFull:
+      result = "WriteBufferFull";
+      break;
+    case FlushReason::kTest:
+      result = "Test";
+      break;
+    case FlushReason::kDeleteFiles:
+      result = "DeleteFiles";
+      break;
+    case FlushReason::kAutoCompaction:
+      result = "AutoCompaction";
+      break;
+    case FlushReason::kManualFlush:
+      result = "ManualFlush";
+      break;
+    case FlushReason::kErrorRecovery:
+      result = "ErrorRecovery";
+      break;
+    case FlushReason::kErrorRecoveryRetryFlush:
+      result = "ErrorRecoveryRetryFlush";
+      break;
+  }
+  stream << result;
+  return stream;
+}
+
 // TODO: In the future, BackgroundErrorReason will only be used to indicate
 // why the BG Error is happening (e.g., flush, compaction). We may introduce
 // other data structure to indicate other essential information such as
@@ -134,11 +264,59 @@ enum class BackgroundErrorReason {
   kManifestWriteNoWAL,
 };
 
+inline std::ostream& operator<<(std::ostream& stream,
+                                const BackgroundErrorReason& reason) {
+  std::string result;
+  switch (reason) {
+    case BackgroundErrorReason::kFlush:
+      result = "Flush";
+      break;
+    case BackgroundErrorReason::kCompaction:
+      result = "Compaction";
+      break;
+    case BackgroundErrorReason::kWriteCallback:
+      result =  "WriteCallback";
+      break;
+    case BackgroundErrorReason::kMemTable:
+      result = "MemTable";
+      break;
+    case BackgroundErrorReason::kManifestWrite:
+      result = "ManifestWrite";
+      break;
+    case BackgroundErrorReason::kFlushNoWAL:
+      result = "FlushNoWAL";
+      break;
+    case BackgroundErrorReason::kManifestWriteNoWAL:
+      result = "ManifestWriteNoWAL";
+      break;
+  }
+  stream << result;
+  return stream;
+}
+
 enum class WriteStallCondition {
   kNormal,
   kDelayed,
   kStopped,
 };
+
+inline std::ostream& operator<<(std::ostream& stream,
+                                const WriteStallCondition& condition) {
+  std::string result;
+  switch (condition) {
+    case WriteStallCondition::kNormal:
+      result = "Normal";
+      break;
+    case WriteStallCondition::kDelayed:
+      result = "Delayed";
+      break;
+    case WriteStallCondition::kStopped:
+      result = "Stopped";
+      break;
+  }
+  stream << result;
+  return stream;
+}
 
 struct WriteStallInfo {
   // the name of the column family
@@ -173,6 +351,39 @@ enum class FileOperationType {
   kFsync,
   kRangeSync
 };
+
+inline std::ostream& operator<<(std::ostream& stream,
+                                const FileOperationType& type) {
+  std::string result;
+  switch (type) {
+    case FileOperationType::kRead:
+      result = "Read";
+      break;
+    case FileOperationType::kWrite:
+      result = "Write";
+      break;
+    case FileOperationType::kTruncate:
+      result = "Truncate";
+      break;
+    case FileOperationType::kClose:
+      result = "Close";
+      break;
+    case FileOperationType::kFlush:
+      result = "Flush";
+      break;
+    case FileOperationType::kSync:
+      result = "Sync";
+      break;
+    case FileOperationType::kFsync:
+      result = "Fsync";
+      break;
+    case FileOperationType::kRangeSync:
+      result = "RangeSync";
+      break;
+  }
+  stream << result;
+  return stream;
+}
 
 struct FileOperationInfo {
   using Duration = std::chrono::nanoseconds;
