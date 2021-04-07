@@ -183,6 +183,7 @@ class VersionEditHandler : public VersionEditHandlerBase {
   const bool track_missing_files_;
   std::unordered_map<uint32_t, std::unordered_set<uint64_t>>
       cf_to_missing_files_;
+  std::unordered_map<uint32_t, uint64_t> cf_to_missing_blob_files_high_;
   bool no_error_if_files_missing_;
   std::shared_ptr<IOTracer> io_tracer_;
   bool skip_load_table_files_;
@@ -213,6 +214,8 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
                             bool force_create_version) override;
   virtual Status VerifyFile(const std::string& fpath,
                             const FileMetaData& fmeta);
+  virtual Status VerifyBlobFile(ColumnFamilyData* cfd, uint64_t blob_file_num,
+                                const BlobFileAddition& blob_addition);
 
   std::unordered_map<uint32_t, Version*> versions_;
 };
