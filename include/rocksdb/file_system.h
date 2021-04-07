@@ -552,7 +552,7 @@ class FileSystem {
 
   // OptimizeForBlobFileRead will create a new FileOptions object that
   // is a copy of the FileOptions in the parameters, but is optimized for
-  // reading table files.
+  // reading blob files.
   virtual FileOptions OptimizeForBlobFileRead(
       const FileOptions& file_options,
       const ImmutableDBOptions& db_options) const;

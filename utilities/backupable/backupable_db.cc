@@ -1879,7 +1879,7 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
     std::vector<BackupAfterCopyOrCreateWorkItem>& backup_items_to_finish,
     BackupID backup_id, bool shared, const std::string& src_dir,
     const std::string& fname, const EnvOptions& src_env_options,
-    RateLimiter* rate_limiter, const FileType file_type, uint64_t size_bytes,
+    RateLimiter* rate_limiter, FileType file_type, uint64_t size_bytes,
     uint64_t size_limit, bool shared_checksum,
     std::function<void()> progress_callback, const std::string& contents,
     const std::string& src_checksum_func_name,

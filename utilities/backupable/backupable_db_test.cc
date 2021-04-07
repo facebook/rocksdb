@@ -1438,7 +1438,6 @@ TEST_F(BackupableDBTest, CorruptFileMaintainSize) {
 
 // Corrupt a blob file but maintain its size
 TEST_P(BackupableDBTestWithParam, CorruptBlobFileMaintainSize) {
-  options_.enable_blob_files = true;
   const int keys_iteration = 5000;
   OpenDBAndBackupEngine(true);
   // create a backup
@@ -1515,6 +1514,40 @@ TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
   CloseDBAndBackupEngine();
 }
 
+// Test if BackupEngine will fail to create new backup if some blob files has
+// been corrupted and the blob file checksum is stored in the DB manifest
+TEST_F(BackupableDBTest, BlobFileCorruptedBeforeBackup) {
+  const int keys_iteration = 50000;
+
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kNoShare);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseAndReopenDB(/*read_only*/ true);
+  // corrupt a random blob file in the DB directory
+  ASSERT_OK(CorruptRandomDataFileInDB(kBlobFile));
+  // file_checksum_gen_factory is null, and thus blob checksum is not
+  // verified for creating a new backup; no correction is detected
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+
+  // delete old files in db
+  ASSERT_OK(DestroyDB(dbname_, options_));
+
+  // Enable file checksum in DB manifest
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kNoShare);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseAndReopenDB(/*read_only*/ true);
+  // corrupt a random blob file in the DB directory
+  ASSERT_OK(CorruptRandomDataFileInDB(kBlobFile));
+
+  // file checksum is enabled so we should be able to detect any
+  // corruption
+  ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+}
+
 // Test if BackupEngine will fail to create new backup if some table has been
 // corrupted and the table file checksum is stored in the DB manifest for the
 // case when backup table files will be stored in a shared directory
@@ -1540,6 +1573,35 @@ TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
   CloseAndReopenDB(/*read_only*/ true);
   // corrupt a random table file in the DB directory
   ASSERT_OK(CorruptRandomDataFileInDB(kTableFile));
+  // corruption is detected
+  ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+}
+
+// Test if BackupEngine will fail to create new backup if some blob files have
+// been corrupted and the blob file checksum is stored in the DB manifest for
+// the case when backup blob files will be stored in a shared directory
+TEST_P(BackupableDBTestWithParam, BlobFileCorruptedBeforeBackup) {
+  const int keys_iteration = 50000;
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseAndReopenDB(/*read_only*/ true);
+  // corrupt a random blob file in the DB directory
+  ASSERT_OK(CorruptRandomDataFileInDB(kBlobFile));
+  // cannot detect corruption since DB manifest has no blob file checksums
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+
+  // delete old files in db
+  ASSERT_OK(DestroyDB(dbname_, options_));
+
+  // Enable blob file checksums in DB manifest
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseAndReopenDB(/*read_only*/ true);
+  // corrupt a random blob file in the DB directory
+  ASSERT_OK(CorruptRandomDataFileInDB(kBlobFile));
   // corruption is detected
   ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
   CloseDBAndBackupEngine();
@@ -1947,12 +2009,9 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNaming) {
       AssertDirectoryFilesSizeIndicators(backupdir_ + "/shared_checksum",
                                          1 /* minimum_count */);
     }
-
-    if (options_.enable_blob_files) {
-      AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
-                                     std::regex(blobfile_pattern), ".blob",
-                                     1 /* minimum_count */);
-    }
+    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
+                                   std::regex(blobfile_pattern), ".blob",
+                                   1 /* minimum_count */);
   }
 }
 
@@ -1988,11 +2047,9 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsOldFileNaming) {
     AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
     AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum", expected,
                                    ".sst", 1 /* minimum_count */);
-    if (options_.enable_blob_files) {
-      AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
-                                     std::regex(blobfile_pattern), ".blob",
-                                     1 /* minimum_count */);
-    }
+    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
+                                   std::regex(blobfile_pattern), ".blob",
+                                   1 /* minimum_count */);
   }
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
