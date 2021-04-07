@@ -71,7 +71,7 @@ class AutoRollLoggerTest : public testing::Test {
     std::string deleteCmd = "rm -rf " + kTestDir;
 #endif
     ASSERT_TRUE(system(deleteCmd.c_str()) == 0);
-    Env::Default()->CreateDir(kTestDir);
+    ASSERT_OK(Env::Default()->CreateDir(kTestDir));
   }
 
   void RollLogFileBySizeTest(AutoRollLogger* logger, size_t log_max_size,
@@ -567,7 +567,7 @@ static std::vector<std::string> GetOldFileNames(const std::string& path) {
   const std::string fname = path.substr(path.find_last_of("/") + 1);
 
   std::vector<std::string> children;
-  Env::Default()->GetChildren(dirname, &children);
+  EXPECT_OK(Env::Default()->GetChildren(dirname, &children));
 
   // We know that the old log files are named [path]<something>
   // Return all entities that match the pattern

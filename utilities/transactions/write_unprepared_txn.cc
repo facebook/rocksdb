@@ -72,10 +72,10 @@ WriteUnpreparedTxn::~WriteUnpreparedTxn() {
     }
   }
 
-  // Call tracked_keys_.clear() so that ~PessimisticTransaction does not
+  // Clear the tracked locks so that ~PessimisticTransaction does not
   // try to unlock keys for recovered transactions.
   if (recovered_txn_) {
-    tracked_keys_.clear();
+    tracked_locks_->Clear();
   }
 }
 
@@ -296,7 +296,9 @@ Status WriteUnpreparedTxn::FlushWriteBatchToDBInternal(bool prepared) {
 
     Status AddUntrackedKey(uint32_t cf, const Slice& key) {
       auto str = key.ToString();
-      if (txn_->tracked_keys_[cf].count(str) == 0) {
+      PointLockStatus lock_status =
+          txn_->tracked_locks_->GetPointLockStatus(cf, str);
+      if (!lock_status.locked) {
         txn_->untracked_keys_[cf].push_back(str);
       }
       return Status::OK();
@@ -639,8 +641,10 @@ Status WriteUnpreparedTxn::CommitInternal() {
 }
 
 Status WriteUnpreparedTxn::WriteRollbackKeys(
-    const TransactionKeyMap& tracked_keys, WriteBatchWithIndex* rollback_batch,
+    const LockTracker& lock_tracker, WriteBatchWithIndex* rollback_batch,
     ReadCallback* callback, const ReadOptions& roptions) {
+  // This assertion can be removed when range lock is supported.
+  assert(lock_tracker.IsPointLockSupported());
   const auto& cf_map = *wupt_db_->GetCFHandleMap();
   auto WriteRollbackKey = [&](const std::string& key, uint32_t cfid) {
     const auto& cf_handle = cf_map.at(cfid);
@@ -666,11 +670,17 @@ Status WriteUnpreparedTxn::WriteRollbackKeys(
     return Status::OK();
   };
 
-  for (const auto& cfkey : tracked_keys) {
-    const auto cfid = cfkey.first;
-    const auto& keys = cfkey.second;
-    for (const auto& pair : keys) {
-      auto s = WriteRollbackKey(pair.first, cfid);
+  std::unique_ptr<LockTracker::ColumnFamilyIterator> cf_it(
+      lock_tracker.GetColumnFamilyIterator());
+  assert(cf_it != nullptr);
+  while (cf_it->HasNext()) {
+    ColumnFamilyId cf = cf_it->Next();
+    std::unique_ptr<LockTracker::KeyIterator> key_it(
+        lock_tracker.GetKeyIterator(cf));
+    assert(key_it != nullptr);
+    while (key_it->HasNext()) {
+      const std::string& key = key_it->Next();
+      auto s = WriteRollbackKey(key, cf);
       if (!s.ok()) {
         return s;
       }
@@ -709,7 +719,7 @@ Status WriteUnpreparedTxn::RollbackInternal() {
   // TODO(lth): We write rollback batch all in a single batch here, but this
   // should be subdivded into multiple batches as well. In phase 2, when key
   // sets are read from WAL, this will happen naturally.
-  WriteRollbackKeys(GetTrackedKeys(), &rollback_batch, &callback, roptions);
+  WriteRollbackKeys(*tracked_locks_, &rollback_batch, &callback, roptions);
 
   // The Rollback marker will be used as a batch separator
   WriteBatchInternal::MarkRollback(rollback_batch.GetWriteBatch(), name_);
@@ -790,7 +800,7 @@ Status WriteUnpreparedTxn::RollbackInternal() {
 
 void WriteUnpreparedTxn::Clear() {
   if (!recovered_txn_) {
-    txn_db_impl_->UnLock(this, &GetTrackedKeys());
+    txn_db_impl_->UnLock(this, *tracked_locks_);
   }
   unprep_seqs_.clear();
   flushed_save_points_.reset(nullptr);
@@ -842,7 +852,7 @@ Status WriteUnpreparedTxn::RollbackToSavePointInternal() {
   WriteUnpreparedTxn::SavePoint& top = flushed_save_points_->back();
 
   assert(save_points_ != nullptr && save_points_->size() > 0);
-  const TransactionKeyMap& tracked_keys = save_points_->top().new_keys_;
+  const LockTracker& tracked_keys = *save_points_->top().new_locks_;
 
   ReadOptions roptions;
   roptions.snapshot = top.snapshot_->snapshot();

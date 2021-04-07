@@ -1,0 +1,6 @@
+# Supress UBSAN warnings related to stl_tree.h, e.g.
+# UndefinedBehaviorSanitizer: undefined-behavior /usr/bin/../lib/gcc/x86_64-linux-gnu/5.4.0/../../../../include/c++/5.4.0/bits/stl_tree.h:1505:43 in 
+# /usr/bin/../lib/gcc/x86_64-linux-gnu/5.4.0/../../../../include/c++/5.4.0/bits/stl_tree.h:1505:43:
+# runtime error: upcast of address 0x000001fa8820 with insufficient space for an object of type
+# 'std::_Rb_tree_node<std::pair<const std::__cxx11::basic_string<char>, rocksdb::(anonymous namespace)::LockHoldingInfo> >'
+src:*bits/stl_tree.h

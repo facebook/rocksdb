@@ -180,9 +180,7 @@ TEST_F(RateLimiterTest, AutoTuneIncreaseWhenFull) {
   const std::chrono::seconds kTimePerRefill(1);
   const int kRefillsPerTune = 100;  // needs to match util/rate_limiter.cc
 
-  SpecialEnv special_env(Env::Default());
-  special_env.no_slowdown_ = true;
-  special_env.time_elapse_only_sleep_ = true;
+  SpecialEnv special_env(Env::Default(), /*time_elapse_only_sleep*/ true);
 
   auto stats = CreateDBStatistics();
   std::unique_ptr<RateLimiter> rate_limiter(new GenericRateLimiter(

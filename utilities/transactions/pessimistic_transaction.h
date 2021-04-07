@@ -139,7 +139,7 @@ class PessimisticTransaction : public TransactionBaseImpl {
 
   virtual void Initialize(const TransactionOptions& txn_options);
 
-  Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
+  Status LockBatch(WriteBatch* batch, LockTracker* keys_to_unlock);
 
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                  bool read_only, bool exclusive, const bool do_validate = true,

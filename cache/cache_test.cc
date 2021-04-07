@@ -117,8 +117,8 @@ class CacheTest : public testing::TestWithParam<std::string> {
 
   void Insert(std::shared_ptr<Cache> cache, int key, int value,
               int charge = 1) {
-    cache->Insert(EncodeKey(key), EncodeValue(value), charge,
-                  &CacheTest::Deleter);
+    EXPECT_OK(cache->Insert(EncodeKey(key), EncodeValue(value), charge,
+                            &CacheTest::Deleter));
   }
 
   void Erase(std::shared_ptr<Cache> cache, int key) {
@@ -167,9 +167,10 @@ TEST_P(CacheTest, UsageTest) {
   for (int i = 1; i < 100; ++i) {
     std::string key(i, 'a');
     auto kv_size = key.size() + 5;
-    cache->Insert(key, reinterpret_cast<void*>(value), kv_size, dumbDeleter);
-    precise_cache->Insert(key, reinterpret_cast<void*>(value), kv_size,
-                          dumbDeleter);
+    ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), kv_size,
+                            dumbDeleter));
+    ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value),
+                                    kv_size, dumbDeleter));
     usage += kv_size;
     ASSERT_EQ(usage, cache->GetUsage());
     ASSERT_LT(usage, precise_cache->GetUsage());
@@ -183,10 +184,10 @@ TEST_P(CacheTest, UsageTest) {
   // make sure the cache will be overloaded
   for (uint64_t i = 1; i < kCapacity; ++i) {
     auto key = ToString(i);
-    cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
-                  dumbDeleter);
-    precise_cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
-                          dumbDeleter);
+    ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
+                            dumbDeleter));
+    ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value),
+                                    key.size() + 5, dumbDeleter));
   }
 
   // the usage should be close to the capacity
@@ -215,11 +216,12 @@ TEST_P(CacheTest, PinnedUsageTest) {
     auto kv_size = key.size() + 5;
     Cache::Handle* handle;
     Cache::Handle* handle_in_precise_cache;
-    cache->Insert(key, reinterpret_cast<void*>(value), kv_size, dumbDeleter,
-                  &handle);
+    ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), kv_size,
+                            dumbDeleter, &handle));
     assert(handle);
-    precise_cache->Insert(key, reinterpret_cast<void*>(value), kv_size,
-                          dumbDeleter, &handle_in_precise_cache);
+    ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value),
+                                    kv_size, dumbDeleter,
+                                    &handle_in_precise_cache));
     assert(handle_in_precise_cache);
     pinned_usage += kv_size;
     ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
@@ -254,10 +256,10 @@ TEST_P(CacheTest, PinnedUsageTest) {
   // check that overloading the cache does not change the pinned usage
   for (uint64_t i = 1; i < 2 * kCapacity; ++i) {
     auto key = ToString(i);
-    cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
-                  dumbDeleter);
-    precise_cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
-                          dumbDeleter);
+    ASSERT_OK(cache->Insert(key, reinterpret_cast<void*>(value), key.size() + 5,
+                            dumbDeleter));
+    ASSERT_OK(precise_cache->Insert(key, reinterpret_cast<void*>(value),
+                                    key.size() + 5, dumbDeleter));
   }
   ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
   ASSERT_EQ(precise_cache_pinned_usage, precise_cache->GetPinnedUsage());

@@ -22,7 +22,7 @@ FileTraceReader::FileTraceReader(
       buffer_(new char[kBufferSize]) {}
 
 FileTraceReader::~FileTraceReader() {
-  Close();
+  Close().PermitUncheckedError();
   delete[] buffer_;
 }
 
@@ -76,7 +76,7 @@ Status FileTraceReader::Read(std::string* data) {
   return s;
 }
 
-FileTraceWriter::~FileTraceWriter() { Close(); }
+FileTraceWriter::~FileTraceWriter() { Close().PermitUncheckedError(); }
 
 Status FileTraceWriter::Close() {
   file_writer_.reset();

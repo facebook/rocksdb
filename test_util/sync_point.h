@@ -17,7 +17,7 @@
 // If non-zero, kill at various points in source code with probability 1/this
 extern int rocksdb_kill_odds;
 // If kill point has a prefix on this list, will skip killing.
-extern std::vector<std::string> rocksdb_kill_prefix_blacklist;
+extern std::vector<std::string> rocksdb_kill_exclude_prefixes;
 
 #ifdef NDEBUG
 // empty in release build
@@ -124,6 +124,9 @@ class SyncPoint {
   Data*  impl_;
 };
 
+// Sets up sync points to mock direct IO instead of actually issuing direct IO
+// to the file system.
+void SetupSyncPointsToMockDirectIO();
 }  // namespace ROCKSDB_NAMESPACE
 
 // Use TEST_SYNC_POINT to specify sync points inside code base.

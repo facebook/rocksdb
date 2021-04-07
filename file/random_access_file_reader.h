@@ -11,10 +11,13 @@
 #include <atomic>
 #include <sstream>
 #include <string>
+
+#include "env/file_system_tracer.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/file_system.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/options.h"
 #include "rocksdb/rate_limiter.h"
 #include "util/aligned_buffer.h"
 
@@ -23,6 +26,17 @@ class Statistics;
 class HistogramImpl;
 
 using AlignedBuf = std::unique_ptr<char[]>;
+
+// Align the request r according to alignment and return the aligned result.
+FSReadRequest Align(const FSReadRequest& r, size_t alignment);
+
+// Try to merge src to dest if they have overlap.
+//
+// Each request represents an inclusive interval [offset, offset + len].
+// If the intervals have overlap, update offset and len to represent the
+// merged interval, and return true.
+// Otherwise, do nothing and return false.
+bool TryMerge(FSReadRequest* dest, const FSReadRequest& src);
 
 // RandomAccessFileReader is a wrapper on top of Env::RnadomAccessFile. It is
 // responsible for:
@@ -33,14 +47,15 @@ using AlignedBuf = std::unique_ptr<char[]>;
 class RandomAccessFileReader {
  private:
 #ifndef ROCKSDB_LITE
-  void NotifyOnFileReadFinish(uint64_t offset, size_t length,
-                              const FileOperationInfo::TimePoint& start_ts,
-                              const FileOperationInfo::TimePoint& finish_ts,
-                              const Status& status) const {
-    FileOperationInfo info(file_name_, start_ts, finish_ts);
+  void NotifyOnFileReadFinish(
+      uint64_t offset, size_t length,
+      const FileOperationInfo::StartTimePoint& start_ts,
+      const FileOperationInfo::FinishTimePoint& finish_ts,
+      const Status& status) const {
+    FileOperationInfo info(FileOperationType::kRead, file_name_, start_ts,
+                           finish_ts, status);
     info.offset = offset;
     info.length = length;
-    info.status = status;
 
     for (auto& listener : listeners_) {
       listener->OnFileReadFinish(info);
@@ -50,7 +65,7 @@ class RandomAccessFileReader {
 
   bool ShouldNotifyListeners() const { return !listeners_.empty(); }
 
-  std::unique_ptr<FSRandomAccessFile> file_;
+  FSRandomAccessFilePtr file_;
   std::string file_name_;
   Env* env_;
   Statistics* stats_;
@@ -62,11 +77,12 @@ class RandomAccessFileReader {
  public:
   explicit RandomAccessFileReader(
       std::unique_ptr<FSRandomAccessFile>&& raf, const std::string& _file_name,
-      Env* _env = nullptr, Statistics* stats = nullptr, uint32_t hist_type = 0,
+      Env* _env = nullptr, const std::shared_ptr<IOTracer>& io_tracer = nullptr,
+      Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
       RateLimiter* rate_limiter = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {})
-      : file_(std::move(raf)),
+      : file_(std::move(raf), io_tracer),
         file_name_(std::move(_file_name)),
         env_(_env),
         stats_(stats),
@@ -84,21 +100,6 @@ class RandomAccessFileReader {
 #else  // !ROCKSDB_LITE
     (void)listeners;
 #endif
-  }
-
-  RandomAccessFileReader(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT {
-    *this = std::move(o);
-  }
-
-  RandomAccessFileReader& operator=(RandomAccessFileReader&& o)
-      ROCKSDB_NOEXCEPT {
-    file_ = std::move(o.file_);
-    env_ = std::move(o.env_);
-    stats_ = std::move(o.stats_);
-    hist_type_ = std::move(o.hist_type_);
-    file_read_hist_ = std::move(o.file_read_hist_);
-    rate_limiter_ = std::move(o.rate_limiter_);
-    return *this;
   }
 
   RandomAccessFileReader(const RandomAccessFileReader&) = delete;
@@ -132,7 +133,7 @@ class RandomAccessFileReader {
 
   FSRandomAccessFile* file() { return file_.get(); }
 
-  std::string file_name() const { return file_name_; }
+  const std::string& file_name() const { return file_name_; }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
 

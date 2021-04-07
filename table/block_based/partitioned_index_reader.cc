@@ -7,13 +7,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based/partitioned_index_reader.h"
+
+#include "file/file_util.h"
 #include "table/block_based/partitioned_index_iterator.h"
 
 namespace ROCKSDB_NAMESPACE {
 Status PartitionIndexReader::Create(
-    const BlockBasedTable* table, FilePrefetchBuffer* prefetch_buffer,
-    bool use_cache, bool prefetch, bool pin,
-    BlockCacheLookupContext* lookup_context,
+    const BlockBasedTable* table, const ReadOptions& ro,
+    FilePrefetchBuffer* prefetch_buffer, bool use_cache, bool prefetch,
+    bool pin, BlockCacheLookupContext* lookup_context,
     std::unique_ptr<IndexReader>* index_reader) {
   assert(table != nullptr);
   assert(table->get_rep());
@@ -23,7 +25,7 @@ Status PartitionIndexReader::Create(
   CachableEntry<Block> index_block;
   if (prefetch || !use_cache) {
     const Status s =
-        ReadIndexBlock(table, prefetch_buffer, ReadOptions(), use_cache,
+        ReadIndexBlock(table, prefetch_buffer, ro, use_cache,
                        /*get_context=*/nullptr, lookup_context, &index_block);
     if (!s.ok()) {
       return s;
@@ -68,23 +70,25 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
         new BlockBasedTable::PartitionedIndexIteratorState(table(),
                                                            &partition_map_),
         index_block.GetValue()->NewIndexIterator(
-            internal_comparator(), internal_comparator()->user_comparator(),
+            internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
             index_value_is_full()));
   } else {
     ReadOptions ro;
     ro.fill_cache = read_options.fill_cache;
+    ro.deadline = read_options.deadline;
+    ro.io_timeout = read_options.io_timeout;
     // We don't return pinned data from index blocks, so no need
     // to set `block_contents_pinned`.
     std::unique_ptr<InternalIteratorBase<IndexValue>> index_iter(
         index_block.GetValue()->NewIndexIterator(
-            internal_comparator(), internal_comparator()->user_comparator(),
+            internal_comparator()->user_comparator(),
             rep->get_global_seqno(BlockType::kIndex), nullptr, kNullStats, true,
             index_has_first_key(), index_key_includes_seq(),
             index_value_is_full()));
 
-    it = new ParititionedIndexIterator(
+    it = new PartitionedIndexIterator(
         table(), ro, *internal_comparator(), std::move(index_iter),
         lookup_context ? lookup_context->caller
                        : TableReaderCaller::kUncategorized);
@@ -100,7 +104,8 @@ InternalIteratorBase<IndexValue>* PartitionIndexReader::NewIterator(
   // the first level iter is always on heap and will attempt to delete it
   // in its destructor.
 }
-void PartitionIndexReader::CacheDependencies(bool pin) {
+Status PartitionIndexReader::CacheDependencies(const ReadOptions& ro,
+                                               bool pin) {
   // Before read partitions, prefetch them to avoid lots of IOs
   BlockCacheLookupContext lookup_context{TableReaderCaller::kPrefetch};
   const BlockBasedTable::Rep* rep = table()->rep_;
@@ -112,18 +117,13 @@ void PartitionIndexReader::CacheDependencies(bool pin) {
   Status s = GetOrReadIndexBlock(false /* no_io */, nullptr /* get_context */,
                                  &lookup_context, &index_block);
   if (!s.ok()) {
-    ROCKS_LOG_WARN(rep->ioptions.info_log,
-                   "Error retrieving top-level index block while trying to "
-                   "cache index partitions: %s",
-                   s.ToString().c_str());
-    IGNORE_STATUS_IF_ERROR(s);
-    return;
+    return s;
   }
 
   // We don't return pinned data from index blocks, so no need
   // to set `block_contents_pinned`.
   index_block.GetValue()->NewIndexIterator(
-      internal_comparator(), internal_comparator()->user_comparator(),
+      internal_comparator()->user_comparator(),
       rep->get_global_seqno(BlockType::kIndex), &biter, kNullStats, true,
       index_has_first_key(), index_key_includes_seq(), index_value_is_full());
   // Index partitions are assumed to be consecuitive. Prefetch them all.
@@ -131,7 +131,7 @@ void PartitionIndexReader::CacheDependencies(bool pin) {
   biter.SeekToFirst();
   if (!biter.Valid()) {
     // Empty index.
-    return;
+    return biter.status();
   }
   handle = biter.value().handle;
   uint64_t prefetch_off = handle.offset();
@@ -140,19 +140,25 @@ void PartitionIndexReader::CacheDependencies(bool pin) {
   biter.SeekToLast();
   if (!biter.Valid()) {
     // Empty index.
-    return;
+    return biter.status();
   }
   handle = biter.value().handle;
   uint64_t last_off = handle.offset() + block_size(handle);
   uint64_t prefetch_len = last_off - prefetch_off;
   std::unique_ptr<FilePrefetchBuffer> prefetch_buffer;
   rep->CreateFilePrefetchBuffer(0, 0, &prefetch_buffer);
-  s = prefetch_buffer->Prefetch(rep->file.get(), prefetch_off,
-                                static_cast<size_t>(prefetch_len));
+  IOOptions opts;
+  s = PrepareIOFromReadOptions(ro, rep->file->env(), opts);
+  if (s.ok()) {
+    s = prefetch_buffer->Prefetch(opts, rep->file.get(), prefetch_off,
+                                  static_cast<size_t>(prefetch_len));
+  }
+  if (!s.ok()) {
+    return s;
+  }
 
   // After prefetch, read the partitions one by one
   biter.SeekToFirst();
-  auto ro = ReadOptions();
   for (; biter.Valid(); biter.Next()) {
     handle = biter.value().handle;
     CachableEntry<Block> block;
@@ -163,17 +169,18 @@ void PartitionIndexReader::CacheDependencies(bool pin) {
         &block, BlockType::kIndex, /*get_context=*/nullptr, &lookup_context,
         /*contents=*/nullptr);
 
-    IGNORE_STATUS_IF_ERROR(s);
-
-    assert(s.ok() || block.GetValue() == nullptr);
-    if (s.ok() && block.GetValue() != nullptr) {
-      if (block.IsCached()) {
+    if (!s.ok()) {
+      return s;
+    }
+    if (block.GetValue() != nullptr) {
+      if (block.IsCached() || block.GetOwnValue()) {
         if (pin) {
           partition_map_[handle.offset()] = std::move(block);
         }
       }
     }
   }
+  return biter.status();
 }
 
 }  // namespace ROCKSDB_NAMESPACE

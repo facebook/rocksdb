@@ -29,7 +29,7 @@ class StaticMeta;
 // global StaticMeta singleton. So if we instantiated 3 ThreadLocalPtr
 // instances, each thread will have a ThreadData with a vector of size 3:
 //     ---------------------------------------------------
-//     |          | instance 1 | instance 2 | instnace 3 |
+//     |          | instance 1 | instance 2 | instance 3 |
 //     ---------------------------------------------------
 //     | thread 1 |    void*   |    void*   |    void*   | <- ThreadData
 //     ---------------------------------------------------

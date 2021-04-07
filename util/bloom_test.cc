@@ -21,6 +21,7 @@ int main() {
 
 #include "logging/logging.h"
 #include "memory/arena.h"
+#include "port/jemalloc_helper.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block_based/filter_policy_internal.h"
 #include "test_util/testharness.h"
@@ -252,8 +253,10 @@ TEST_F(BlockBasedBloomTest, Schema) {
 // Different bits-per-byte
 
 class FullBloomTest : public testing::TestWithParam<BloomFilterPolicy::Mode> {
- private:
+ protected:
   BlockBasedTableOptions table_options_;
+
+ private:
   std::shared_ptr<const FilterPolicy>& policy_;
   std::unique_ptr<FilterBitsBuilder> bits_builder_;
   std::unique_ptr<FilterBitsReader> bits_reader_;
@@ -497,6 +500,77 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
             good_filters, mediocre_filters);
   }
   ASSERT_LE(mediocre_filters, good_filters/5);
+}
+
+TEST_P(FullBloomTest, OptimizeForMemory) {
+  char buffer[sizeof(int)];
+  for (bool offm : {true, false}) {
+    table_options_.optimize_filters_for_memory = offm;
+    ResetPolicy();
+    Random32 rnd(12345);
+    uint64_t total_size = 0;
+    uint64_t total_mem = 0;
+    int64_t total_keys = 0;
+    double total_fp_rate = 0;
+    constexpr int nfilters = 100;
+    for (int i = 0; i < nfilters; ++i) {
+      int nkeys = static_cast<int>(rnd.Uniformish(10000)) + 100;
+      Reset();
+      for (int j = 0; j < nkeys; ++j) {
+        Add(Key(j, buffer));
+      }
+      Build();
+      size_t size = FilterData().size();
+      total_size += size;
+      // optimize_filters_for_memory currently depends on malloc_usable_size
+      // but we run the rest of the test to ensure no bad behavior without it.
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+      size = malloc_usable_size(const_cast<char*>(FilterData().data()));
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+      total_mem += size;
+      total_keys += nkeys;
+      total_fp_rate += FalsePositiveRate();
+    }
+    EXPECT_LE(total_fp_rate / double{nfilters}, 0.011);
+    EXPECT_GE(total_fp_rate / double{nfilters}, 0.008);
+
+    int64_t ex_min_total_size = int64_t{FLAGS_bits_per_key} * total_keys / 8;
+    EXPECT_GE(static_cast<int64_t>(total_size), ex_min_total_size);
+
+    int64_t blocked_bloom_overhead = nfilters * (CACHE_LINE_SIZE + 5);
+    if (GetParam() == BloomFilterPolicy::kLegacyBloom) {
+      // this config can add extra cache line to make odd number
+      blocked_bloom_overhead += nfilters * CACHE_LINE_SIZE;
+    }
+
+    EXPECT_GE(total_mem, total_size);
+
+    // optimize_filters_for_memory not implemented with legacy Bloom
+    if (offm && GetParam() != BloomFilterPolicy::kLegacyBloom) {
+      // This value can include a small extra penalty for kExtraPadding
+      fprintf(stderr, "Internal fragmentation (optimized): %g%%\n",
+              (total_mem - total_size) * 100.0 / total_size);
+      // Less than 1% internal fragmentation
+      EXPECT_LE(total_mem, total_size * 101 / 100);
+      // Up to 2% storage penalty
+      EXPECT_LE(static_cast<int64_t>(total_size),
+                ex_min_total_size * 102 / 100 + blocked_bloom_overhead);
+    } else {
+      fprintf(stderr, "Internal fragmentation (not optimized): %g%%\n",
+              (total_mem - total_size) * 100.0 / total_size);
+      // TODO: add control checks for more allocators?
+#ifdef ROCKSDB_JEMALLOC
+      fprintf(stderr, "Jemalloc detected? %d\n", HasJemalloc());
+      if (HasJemalloc()) {
+        // More than 5% internal fragmentation
+        EXPECT_GE(total_mem, total_size * 105 / 100);
+      }
+#endif  // ROCKSDB_JEMALLOC
+      // No storage penalty, just usual overhead
+      EXPECT_LE(static_cast<int64_t>(total_size),
+                ex_min_total_size + blocked_bloom_overhead);
+    }
+  }
 }
 
 namespace {

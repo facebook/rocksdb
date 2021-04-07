@@ -137,11 +137,6 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
     return Status::NotSupported("No blob directory in options");
   }
 
-  if (cf_options_.compaction_filter != nullptr ||
-      cf_options_.compaction_filter_factory != nullptr) {
-    return Status::NotSupported("Blob DB doesn't support compaction filter.");
-  }
-
   if (bdb_options_.garbage_collection_cutoff < 0.0 ||
       bdb_options_.garbage_collection_cutoff > 1.0) {
     return Status::InvalidArgument(
@@ -169,6 +164,12 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
 
   ROCKS_LOG_INFO(db_options_.info_log, "Opening BlobDB...");
 
+  if ((cf_options_.compaction_filter != nullptr ||
+       cf_options_.compaction_filter_factory != nullptr)) {
+    ROCKS_LOG_INFO(db_options_.info_log,
+                   "BlobDB only support compaction filter on non-TTL values.");
+  }
+
   // Open blob directory.
   s = env_->CreateDirIfMissing(blob_dir_);
   if (!s.ok()) {
@@ -194,14 +195,17 @@ Status BlobDBImpl::Open(std::vector<ColumnFamilyHandle*>* handles) {
   if (bdb_options_.enable_garbage_collection) {
     db_options_.listeners.push_back(std::make_shared<BlobDBListenerGC>(this));
     cf_options_.compaction_filter_factory =
-        std::make_shared<BlobIndexCompactionFilterFactoryGC>(this, env_,
-                                                             statistics_);
+        std::make_shared<BlobIndexCompactionFilterFactoryGC>(
+            this, env_, cf_options_, statistics_);
   } else {
     db_options_.listeners.push_back(std::make_shared<BlobDBListener>(this));
     cf_options_.compaction_filter_factory =
-        std::make_shared<BlobIndexCompactionFilterFactory>(this, env_,
-                                                           statistics_);
+        std::make_shared<BlobIndexCompactionFilterFactory>(
+            this, env_, cf_options_, statistics_);
   }
+
+  // Reset user compaction filter after building into compaction factory.
+  cf_options_.compaction_filter = nullptr;
 
   // Open base db.
   ColumnFamilyDescriptor cf_descriptor(kDefaultColumnFamilyName, cf_options_);
@@ -738,11 +742,11 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
                     boffset);
   }
 
-  Writer::ElemType et = Writer::kEtNone;
+  BlobLogWriter::ElemType et = BlobLogWriter::kEtNone;
   if (bfile->file_size_ == BlobLogHeader::kSize) {
-    et = Writer::kEtFileHdr;
+    et = BlobLogWriter::kEtFileHdr;
   } else if (bfile->file_size_ > BlobLogHeader::kSize) {
-    et = Writer::kEtRecord;
+    et = BlobLogWriter::kEtRecord;
   } else if (bfile->file_size_) {
     ROCKS_LOG_WARN(db_options_.info_log,
                    "Open blob file: %s with wrong size: %" PRIu64,
@@ -750,9 +754,9 @@ Status BlobDBImpl::CreateWriterLocked(const std::shared_ptr<BlobFile>& bfile) {
     return Status::Corruption("Invalid blob file size");
   }
 
-  bfile->log_writer_ = std::make_shared<Writer>(
+  bfile->log_writer_ = std::make_shared<BlobLogWriter>(
       std::move(fwriter), env_, statistics_, bfile->file_number_,
-      bdb_options_.bytes_per_sync, db_options_.use_fsync, boffset);
+      db_options_.use_fsync, boffset);
   bfile->log_writer_->last_elem_type_ = et;
 
   return s;
@@ -794,7 +798,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::FindBlobFileLocked(
 
 Status BlobDBImpl::CheckOrCreateWriterLocked(
     const std::shared_ptr<BlobFile>& blob_file,
-    std::shared_ptr<Writer>* writer) {
+    std::shared_ptr<BlobLogWriter>* writer) {
   assert(writer != nullptr);
   *writer = blob_file->GetWriter();
   if (*writer != nullptr) {
@@ -810,7 +814,8 @@ Status BlobDBImpl::CheckOrCreateWriterLocked(
 Status BlobDBImpl::CreateBlobFileAndWriter(
     bool has_ttl, const ExpirationRange& expiration_range,
     const std::string& reason, std::shared_ptr<BlobFile>* blob_file,
-    std::shared_ptr<Writer>* writer) {
+    std::shared_ptr<BlobLogWriter>* writer) {
+  TEST_SYNC_POINT("BlobDBImpl::CreateBlobFileAndWriter");
   assert(has_ttl == (expiration_range.first || expiration_range.second));
   assert(blob_file);
   assert(writer);
@@ -866,7 +871,7 @@ Status BlobDBImpl::SelectBlobFile(std::shared_ptr<BlobFile>* blob_file) {
     return Status::OK();
   }
 
-  std::shared_ptr<Writer> writer;
+  std::shared_ptr<BlobLogWriter> writer;
   const Status s = CreateBlobFileAndWriter(
       /* has_ttl */ false, ExpirationRange(),
       /* reason */ "SelectBlobFile", blob_file, &writer);
@@ -912,7 +917,7 @@ Status BlobDBImpl::SelectBlobFileTTL(uint64_t expiration,
   std::ostringstream oss;
   oss << "SelectBlobFileTTL range: [" << exp_low << ',' << exp_high << ')';
 
-  std::shared_ptr<Writer> writer;
+  std::shared_ptr<BlobLogWriter> writer;
   const Status s =
       CreateBlobFileAndWriter(/* has_ttl */ true, expiration_range,
                               /* reason */ oss.str(), blob_file, &writer);
@@ -990,7 +995,8 @@ Status BlobDBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   StopWatch write_sw(env_, statistics_, BLOB_DB_WRITE_MICROS);
   RecordTick(statistics_, BLOB_DB_NUM_WRITE);
   uint32_t default_cf_id =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+      static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
+          ->GetID();
   Status s;
   BlobInserter blob_inserter(options, this, default_cf_id);
   {
@@ -1045,7 +1051,8 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
   Status s;
   std::string index_entry;
   uint32_t column_family_id =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->GetID();
+      static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
+          ->GetID();
   if (value.size() < bdb_options_.min_blob_size) {
     if (expiration == kNoExpiration) {
       // Put as normal value
@@ -1063,7 +1070,8 @@ Status BlobDBImpl::PutBlobValue(const WriteOptions& /*options*/,
     Slice value_compressed = GetCompressedSlice(value, &compression_output);
 
     std::string headerbuf;
-    Writer::ConstructBlobHeader(&headerbuf, key, value_compressed, expiration);
+    BlobLogWriter::ConstructBlobHeader(&headerbuf, key, value_compressed,
+                                       expiration);
 
     // Check DB size limit before selecting blob file to
     // Since CheckSizeAndEvictBlobFiles() can close blob files, it needs to be
@@ -1137,6 +1145,32 @@ Slice BlobDBImpl::GetCompressedSlice(const Slice& raw,
   return *compression_output;
 }
 
+Status BlobDBImpl::DecompressSlice(const Slice& compressed_value,
+                                   CompressionType compression_type,
+                                   PinnableSlice* value_output) const {
+  assert(compression_type != kNoCompression);
+
+  BlockContents contents;
+  auto cfh = static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
+
+  {
+    StopWatch decompression_sw(env_, statistics_, BLOB_DB_DECOMPRESSION_MICROS);
+    UncompressionContext context(compression_type);
+    UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
+                           compression_type);
+    Status s = UncompressBlockContentsForCompressionType(
+        info, compressed_value.data(), compressed_value.size(), &contents,
+        kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
+    if (!s.ok()) {
+      return Status::Corruption("Unable to decompress blob.");
+    }
+  }
+
+  value_output->PinSelf(contents.data);
+
+  return Status::OK();
+}
+
 Status BlobDBImpl::CompactFiles(
     const CompactionOptions& compact_options,
     const std::vector<std::string>& input_file_names, const int output_level,
@@ -1165,10 +1199,10 @@ Status BlobDBImpl::CompactFiles(
   return s;
 }
 
-void BlobDBImpl::GetCompactionContextCommon(
-    BlobCompactionContext* context) const {
+void BlobDBImpl::GetCompactionContextCommon(BlobCompactionContext* context) {
   assert(context);
 
+  context->blob_db_impl = this;
   context->next_file_number = next_file_number_.load();
   context->current_blob_files.clear();
   for (auto& p : blob_files_) {
@@ -1192,8 +1226,6 @@ void BlobDBImpl::GetCompactionContext(BlobCompactionContext* context,
 
   ReadLock l(&mutex_);
   GetCompactionContextCommon(context);
-
-  context_gc->blob_db_impl = this;
 
   if (!live_imm_non_ttl_blob_files_.empty()) {
     auto it = live_imm_non_ttl_blob_files_.begin();
@@ -1312,7 +1344,7 @@ Status BlobDBImpl::AppendBlob(const std::shared_ptr<BlobFile>& bfile,
   uint64_t key_offset = 0;
   {
     WriteLock lockbfile_w(&bfile->mutex_);
-    std::shared_ptr<Writer> writer;
+    std::shared_ptr<BlobLogWriter> writer;
     s = CheckOrCreateWriterLocked(bfile, &writer);
     if (!s.ok()) {
       return s;
@@ -1418,20 +1450,7 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
   }
 
   if (compression_type != kNoCompression) {
-    BlockContents contents;
-    auto cfh = static_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily());
-
-    {
-      StopWatch decompression_sw(env_, statistics_,
-                                 BLOB_DB_DECOMPRESSION_MICROS);
-      UncompressionContext context(compression_type);
-      UncompressionInfo info(context, UncompressionDict::GetEmptyDict(),
-                             compression_type);
-      s = UncompressBlockContentsForCompressionType(
-          info, value->data(), value->size(), &contents,
-          kBlockBasedTableVersionFormat, *(cfh->cfd()->ioptions()));
-    }
-
+    s = DecompressSlice(*value, compression_type, value);
     if (!s.ok()) {
       if (debug_level_ >= 2) {
         ROCKS_LOG_ERROR(
@@ -1442,11 +1461,8 @@ Status BlobDBImpl::GetBlobValue(const Slice& key, const Slice& index_entry,
             blob_index.file_number(), blob_index.offset(), blob_index.size(),
             key.ToString(/* output_hex */ true).c_str(), s.ToString().c_str());
       }
-
-      return Status::Corruption("Unable to uncompress blob.");
+      return s;
     }
-
-    value->PinSelf(contents.data);
   }
 
   return Status::OK();
@@ -1706,6 +1722,7 @@ std::pair<bool, int64_t> BlobDBImpl::SanityCheck(bool aborted) {
 }
 
 Status BlobDBImpl::CloseBlobFile(std::shared_ptr<BlobFile> bfile) {
+  TEST_SYNC_POINT("BlobDBImpl::CloseBlobFile");
   assert(bfile);
   assert(!bfile->Immutable());
   assert(!bfile->Obsolete());
@@ -2016,7 +2033,8 @@ void BlobDBImpl::CopyBlobFiles(
 
 Iterator* BlobDBImpl::NewIterator(const ReadOptions& read_options) {
   auto* cfd =
-      reinterpret_cast<ColumnFamilyHandleImpl*>(DefaultColumnFamily())->cfd();
+      static_cast_with_check<ColumnFamilyHandleImpl>(DefaultColumnFamily())
+          ->cfd();
   // Get a snapshot to avoid blob file get deleted between we
   // fetch and index entry and reading from the file.
   ManagedSnapshot* own_snapshot = nullptr;

@@ -5,32 +5,27 @@
 //
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
 #include <memory>
-#include <string>
 
 #include "db/blob/blob_log_format.h"
-#include "file/random_access_file_reader.h"
-#include "rocksdb/env.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/statistics.h"
-#include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
-class SequentialFileReader;
-class Logger;
-
-namespace blob_db {
+class RandomAccessFileReader;
+class Env;
+class Statistics;
+class Status;
 
 /**
- * Reader is a general purpose log stream reader implementation. The actual job
- * of reading from the device is implemented by the SequentialFile interface.
+ * BlobLogSequentialReader is a general purpose log stream reader
+ * implementation. The actual job of reading from the device is implemented by
+ * the RandomAccessFileReader interface.
  *
- * Please see Writer for details on the file and record layout.
+ * Please see BlobLogWriter for details on the file and record layout.
  */
-class Reader {
+
+class BlobLogSequentialReader {
  public:
   enum ReadLevel {
     kReadHeader,
@@ -38,26 +33,27 @@ class Reader {
     kReadHeaderKeyBlob,
   };
 
-  // Create a reader that will return log records from "*file".
-  // "*file" must remain live while this Reader is in use.
-  Reader(std::unique_ptr<RandomAccessFileReader>&& file_reader, Env* env,
-         Statistics* statistics);
-  // No copying allowed
-  Reader(const Reader&) = delete;
-  Reader& operator=(const Reader&) = delete;
+  // Create a reader that will return log records from "*file_reader".
+  BlobLogSequentialReader(std::unique_ptr<RandomAccessFileReader>&& file_reader,
+                          Env* env, Statistics* statistics);
 
-  ~Reader() = default;
+  // No copying allowed
+  BlobLogSequentialReader(const BlobLogSequentialReader&) = delete;
+  BlobLogSequentialReader& operator=(const BlobLogSequentialReader&) = delete;
+
+  ~BlobLogSequentialReader();
 
   Status ReadHeader(BlobLogHeader* header);
 
   // Read the next record into *record.  Returns true if read
-  // successfully, false if we hit end of the input.  May use
-  // "*scratch" as temporary storage.  The contents filled in *record
-  // will only be valid until the next mutating operation on this
-  // reader or the next mutation to *scratch.
+  // successfully, false if we hit end of the input. The contents filled in
+  // *record will only be valid until the next mutating operation on this
+  // reader.
   // If blob_offset is non-null, return offset of the blob through it.
   Status ReadRecord(BlobLogRecord* record, ReadLevel level = kReadHeader,
                     uint64_t* blob_offset = nullptr);
+
+  Status ReadFooter(BlobLogFooter* footer);
 
   void ResetNextByte() { next_byte_ = 0; }
 
@@ -73,10 +69,8 @@ class Reader {
   Slice buffer_;
   char header_buf_[BlobLogRecord::kHeaderSize];
 
-  // which byte to read next. For asserting proper usage
+  // which byte to read next
   uint64_t next_byte_;
 };
 
-}  // namespace blob_db
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

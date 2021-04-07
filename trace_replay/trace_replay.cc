@@ -62,7 +62,8 @@ Tracer::Tracer(Env* env, const TraceOptions& trace_options,
       trace_options_(trace_options),
       trace_writer_(std::move(trace_writer)),
       trace_request_count_ (0) {
-  WriteHeader();
+  // TODO: What if this fails?
+  WriteHeader().PermitUncheckedError();
 }
 
 Tracer::~Tracer() { trace_writer_.reset(); }

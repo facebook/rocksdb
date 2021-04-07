@@ -309,14 +309,17 @@ bool MemTableListVersion::MemtableLimitExceeded(size_t usage) {
 }
 
 // Make sure we don't use up too much space in history
-void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete,
+bool MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete,
                                       size_t usage) {
+  bool ret = false;
   while (MemtableLimitExceeded(usage) && !memlist_history_.empty()) {
     MemTable* x = memlist_history_.back();
     memlist_history_.pop_back();
 
     UnrefMemTable(to_delete, x);
+    ret = true;
   }
+  return ret;
 }
 
 // Returns true if there is at least one memtable on which flush has
@@ -442,9 +445,18 @@ Status MemTableList::TryInstallMemtableFlushResults(
       }
       if (it == memlist.rbegin() || batch_file_number != m->file_number_) {
         batch_file_number = m->file_number_;
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Level-0 commit table #%" PRIu64 " started",
-                         cfd->GetName().c_str(), m->file_number_);
+        if (m->edit_.GetBlobFileAdditions().empty()) {
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] Level-0 commit table #%" PRIu64 " started",
+                           cfd->GetName().c_str(), m->file_number_);
+        } else {
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] Level-0 commit table #%" PRIu64
+                           " (+%zu blob files) started",
+                           cfd->GetName().c_str(), m->file_number_,
+                           m->edit_.GetBlobFileAdditions().size());
+        }
+
         edit_list.push_back(&m->edit_);
         memtables_to_flush.push_back(m);
 #ifndef ROCKSDB_LITE
@@ -499,9 +511,20 @@ Status MemTableList::TryInstallMemtableFlushResults(
       if (s.ok() && !cfd->IsDropped()) {  // commit new state
         while (batch_count-- > 0) {
           MemTable* m = current_->memlist_.back();
-          ROCKS_LOG_BUFFER(log_buffer, "[%s] Level-0 commit table #%" PRIu64
-                                       ": memtable #%" PRIu64 " done",
-                           cfd->GetName().c_str(), m->file_number_, mem_id);
+          if (m->edit_.GetBlobFileAdditions().empty()) {
+            ROCKS_LOG_BUFFER(log_buffer,
+                             "[%s] Level-0 commit table #%" PRIu64
+                             ": memtable #%" PRIu64 " done",
+                             cfd->GetName().c_str(), m->file_number_, mem_id);
+          } else {
+            ROCKS_LOG_BUFFER(log_buffer,
+                             "[%s] Level-0 commit table #%" PRIu64
+                             " (+%zu blob files)"
+                             ": memtable #%" PRIu64 " done",
+                             cfd->GetName().c_str(), m->file_number_,
+                             m->edit_.GetBlobFileAdditions().size(), mem_id);
+          }
+
           assert(m->file_number_ > 0);
           current_->Remove(m, to_delete);
           UpdateCachedValuesFromMemTableListVersion();
@@ -512,9 +535,20 @@ Status MemTableList::TryInstallMemtableFlushResults(
         for (auto it = current_->memlist_.rbegin(); batch_count-- > 0; ++it) {
           MemTable* m = *it;
           // commit failed. setup state so that we can flush again.
-          ROCKS_LOG_BUFFER(log_buffer, "Level-0 commit table #%" PRIu64
-                                       ": memtable #%" PRIu64 " failed",
-                           m->file_number_, mem_id);
+          if (m->edit_.GetBlobFileAdditions().empty()) {
+            ROCKS_LOG_BUFFER(log_buffer,
+                             "Level-0 commit table #%" PRIu64
+                             ": memtable #%" PRIu64 " failed",
+                             m->file_number_, mem_id);
+          } else {
+            ROCKS_LOG_BUFFER(log_buffer,
+                             "Level-0 commit table #%" PRIu64
+                             " (+%zu blob files)"
+                             ": memtable #%" PRIu64 " failed",
+                             m->file_number_,
+                             m->edit_.GetBlobFileAdditions().size(), mem_id);
+          }
+
           m->flush_completed_ = false;
           m->flush_in_progress_ = false;
           m->edit_.Clear();
@@ -549,11 +583,12 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   ResetTrimHistoryNeeded();
 }
 
-void MemTableList::TrimHistory(autovector<MemTable*>* to_delete, size_t usage) {
+bool MemTableList::TrimHistory(autovector<MemTable*>* to_delete, size_t usage) {
   InstallNewVersion();
-  current_->TrimHistory(to_delete, usage);
+  bool ret = current_->TrimHistory(to_delete, usage);
   UpdateCachedValuesFromMemTableListVersion();
   ResetTrimHistoryNeeded();
+  return ret;
 }
 
 // Returns an estimate of the number of bytes of data in use.
@@ -709,11 +744,25 @@ Status InstallMemtableAtomicFlushResults(
       for (auto m : *mems_list[i]) {
         assert(m->GetFileNumber() > 0);
         uint64_t mem_id = m->GetID();
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Level-0 commit table #%" PRIu64
-                         ": memtable #%" PRIu64 " done",
-                         cfds[i]->GetName().c_str(), m->GetFileNumber(),
-                         mem_id);
+
+        const VersionEdit* const edit = m->GetEdits();
+        assert(edit);
+
+        if (edit->GetBlobFileAdditions().empty()) {
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] Level-0 commit table #%" PRIu64
+                           ": memtable #%" PRIu64 " done",
+                           cfds[i]->GetName().c_str(), m->GetFileNumber(),
+                           mem_id);
+        } else {
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] Level-0 commit table #%" PRIu64
+                           " (+%zu blob files)"
+                           ": memtable #%" PRIu64 " done",
+                           cfds[i]->GetName().c_str(), m->GetFileNumber(),
+                           edit->GetBlobFileAdditions().size(), mem_id);
+        }
+
         imm->current_->Remove(m, to_delete);
         imm->UpdateCachedValuesFromMemTableListVersion();
         imm->ResetTrimHistoryNeeded();
@@ -724,11 +773,25 @@ Status InstallMemtableAtomicFlushResults(
       auto* imm = (imm_lists == nullptr) ? cfds[i]->imm() : imm_lists->at(i);
       for (auto m : *mems_list[i]) {
         uint64_t mem_id = m->GetID();
-        ROCKS_LOG_BUFFER(log_buffer,
-                         "[%s] Level-0 commit table #%" PRIu64
-                         ": memtable #%" PRIu64 " failed",
-                         cfds[i]->GetName().c_str(), m->GetFileNumber(),
-                         mem_id);
+
+        const VersionEdit* const edit = m->GetEdits();
+        assert(edit);
+
+        if (edit->GetBlobFileAdditions().empty()) {
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] Level-0 commit table #%" PRIu64
+                           ": memtable #%" PRIu64 " failed",
+                           cfds[i]->GetName().c_str(), m->GetFileNumber(),
+                           mem_id);
+        } else {
+          ROCKS_LOG_BUFFER(log_buffer,
+                           "[%s] Level-0 commit table #%" PRIu64
+                           " (+%zu blob files)"
+                           ": memtable #%" PRIu64 " failed",
+                           cfds[i]->GetName().c_str(), m->GetFileNumber(),
+                           edit->GetBlobFileAdditions().size(), mem_id);
+        }
+
         m->SetFlushCompleted(false);
         m->SetFlushInProgress(false);
         m->GetEdits()->Clear();

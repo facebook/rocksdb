@@ -17,6 +17,7 @@
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/utility_db.h"
+#include "utilities/compaction_filters/layered_compaction_filter_base.h"
 
 #ifdef _WIN32
 // Windows API macro interference
@@ -148,23 +149,16 @@ class TtlIterator : public Iterator {
   Iterator* iter_;
 };
 
-class TtlCompactionFilter : public CompactionFilter {
+class TtlCompactionFilter : public LayeredCompactionFilterBase {
  public:
-  TtlCompactionFilter(
-      int32_t ttl, Env* env, const CompactionFilter* user_comp_filter,
-      std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory =
-          nullptr)
-      : ttl_(ttl),
-        env_(env),
-        user_comp_filter_(user_comp_filter),
-        user_comp_filter_from_factory_(
-            std::move(user_comp_filter_from_factory)) {
-    // Unlike the merge operator, compaction filter is necessary for TTL, hence
-    // this would be called even if user doesn't specify any compaction-filter
-    if (!user_comp_filter_) {
-      user_comp_filter_ = user_comp_filter_from_factory_.get();
-    }
-  }
+  TtlCompactionFilter(int32_t ttl, Env* env,
+                      const CompactionFilter* _user_comp_filter,
+                      std::unique_ptr<const CompactionFilter>
+                          _user_comp_filter_from_factory = nullptr)
+      : LayeredCompactionFilterBase(_user_comp_filter,
+                                    std::move(_user_comp_filter_from_factory)),
+        ttl_(ttl),
+        env_(env) {}
 
   virtual bool Filter(int level, const Slice& key, const Slice& old_val,
                       std::string* new_val, bool* value_changed) const
@@ -172,14 +166,14 @@ class TtlCompactionFilter : public CompactionFilter {
     if (DBWithTTLImpl::IsStale(old_val, ttl_, env_)) {
       return true;
     }
-    if (user_comp_filter_ == nullptr) {
+    if (user_comp_filter() == nullptr) {
       return false;
     }
     assert(old_val.size() >= DBWithTTLImpl::kTSLength);
     Slice old_val_without_ts(old_val.data(),
                              old_val.size() - DBWithTTLImpl::kTSLength);
-    if (user_comp_filter_->Filter(level, key, old_val_without_ts, new_val,
-                                  value_changed)) {
+    if (user_comp_filter()->Filter(level, key, old_val_without_ts, new_val,
+                                   value_changed)) {
       return true;
     }
     if (*value_changed) {
@@ -195,8 +189,6 @@ class TtlCompactionFilter : public CompactionFilter {
  private:
   int32_t ttl_;
   Env* env_;
-  const CompactionFilter* user_comp_filter_;
-  std::unique_ptr<const CompactionFilter> user_comp_filter_from_factory_;
 };
 
 class TtlCompactionFilterFactory : public CompactionFilterFactory {

@@ -16,7 +16,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBEncryptionTest : public DBTestBase {
  public:
-  DBEncryptionTest() : DBTestBase("/db_encryption_test") {}
+  DBEncryptionTest()
+      : DBTestBase("/db_encryption_test", /*env_do_fsync=*/true) {}
 };
 
 #ifndef ROCKSDB_LITE

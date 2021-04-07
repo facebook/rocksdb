@@ -99,6 +99,10 @@ PersistentCache::StatsType PersistentCacheTier::Stats() {
   return PersistentCache::StatsType{};
 }
 
+uint64_t PersistentCacheTier::NewId() {
+  return last_id_.fetch_add(1, std::memory_order_relaxed);
+}
+
 //
 // PersistentTieredCache implementation
 //

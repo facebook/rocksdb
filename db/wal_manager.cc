@@ -121,7 +121,7 @@ Status WalManager::GetUpdatesSince(
   }
   iter->reset(new TransactionLogIteratorImpl(
       db_options_.wal_dir, &db_options_, read_options, file_options_, seq,
-      std::move(wal_files), version_set, seq_per_batch_));
+      std::move(wal_files), version_set, seq_per_batch_, io_tracer_));
   return (*iter)->status();
 }
 
@@ -467,7 +467,7 @@ Status WalManager::ReadFirstLine(const std::string& fname,
                                          fs_->OptimizeForLogRead(file_options_),
                                          &file, nullptr);
   std::unique_ptr<SequentialFileReader> file_reader(
-      new SequentialFileReader(std::move(file), fname));
+      new SequentialFileReader(std::move(file), fname, io_tracer_));
 
   if (!status.ok()) {
     return status;
@@ -492,14 +492,19 @@ Status WalManager::ReadFirstLine(const std::string& fname,
       // TODO read record's till the first no corrupt entry?
     } else {
       WriteBatch batch;
-      WriteBatchInternal::SetContents(&batch, record);
-      *sequence = WriteBatchInternal::Sequence(&batch);
-      return Status::OK();
+      // We can overwrite an existing non-OK Status since it'd only reach here
+      // with `paranoid_checks == false`.
+      status = WriteBatchInternal::SetContents(&batch, record);
+      if (status.ok()) {
+        *sequence = WriteBatchInternal::Sequence(&batch);
+        return status;
+      }
     }
   }
 
-  // ReadRecord returns false on EOF, which means that the log file is empty. we
-  // return status.ok() in that case and set sequence number to 0
+  // ReadRecord might have returned false on EOF, which means that the log file
+  // is empty. Or, a failure may have occurred while processing the first entry.
+  // In any case, return status and set sequence number to 0.
   *sequence = 0;
   return status;
 }

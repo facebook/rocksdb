@@ -132,27 +132,24 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   if (!persistent_cache_path.empty() && persistent_cache_size_gb) {
     // Get existing options. If the persistent cache is already set, then do
     // not make any change. Otherwise, configure it.
-    void* bopt = options.table_factory->GetOptions();
-    if (bopt != nullptr) {
-      BlockBasedTableOptions* tableopt =
-          static_cast<BlockBasedTableOptions*>(bopt);
-      if (!tableopt->persistent_cache) {
-        PersistentCacheConfig config(
-            local_env, persistent_cache_path,
-            persistent_cache_size_gb * 1024L * 1024L * 1024L, options.info_log);
-        auto pcache = std::make_shared<BlockCacheTier>(config);
-        st = pcache->Open();
-        if (st.ok()) {
-          tableopt->persistent_cache = pcache;
-          Log(InfoLogLevel::INFO_LEVEL, options.info_log,
-              "Created persistent cache %s with size %" PRIu64 "GB",
-              persistent_cache_path.c_str(), persistent_cache_size_gb);
-        } else {
-          Log(InfoLogLevel::INFO_LEVEL, options.info_log,
-              "Unable to create persistent cache %s. %s",
-              persistent_cache_path.c_str(), st.ToString().c_str());
-          return st;
-        }
+    auto* tableopt =
+        options.table_factory->GetOptions<BlockBasedTableOptions>();
+    if (tableopt != nullptr && !tableopt->persistent_cache) {
+      PersistentCacheConfig config(
+          local_env, persistent_cache_path,
+          persistent_cache_size_gb * 1024L * 1024L * 1024L, options.info_log);
+      auto pcache = std::make_shared<BlockCacheTier>(config);
+      st = pcache->Open();
+      if (st.ok()) {
+        tableopt->persistent_cache = pcache;
+        Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+            "Created persistent cache %s with size %" PRIu64 "GB",
+            persistent_cache_path.c_str(), persistent_cache_size_gb);
+      } else {
+        Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+            "Unable to create persistent cache %s. %s",
+            persistent_cache_path.c_str(), st.ToString().c_str());
+        return st;
       }
     }
   }

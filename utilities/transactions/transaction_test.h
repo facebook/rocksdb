@@ -12,24 +12,24 @@
 #include <thread>
 
 #include "db/db_impl/db_impl.h"
+#include "db/db_test_util.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
-#include "test_util/fault_injection_test_env.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
 #include "util/random.h"
 #include "util/string_util.h"
+#include "utilities/fault_injection_env.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 #include "utilities/transactions/pessimistic_transaction_db.h"
 #include "utilities/transactions/write_unprepared_txn_db.h"
-
-#include "port/port.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -41,6 +41,7 @@ enum WriteOrdering : bool { kOrderedWrite, kUnorderedWrite };
 class TransactionTestBase : public ::testing::Test {
  public:
   TransactionDB* db;
+  SpecialEnv special_env;
   FaultInjectionTestEnv* env;
   std::string dbname;
   Options options;
@@ -51,14 +52,17 @@ class TransactionTestBase : public ::testing::Test {
   TransactionTestBase(bool use_stackable_db, bool two_write_queue,
                       TxnDBWritePolicy write_policy,
                       WriteOrdering write_ordering)
-      : db(nullptr), env(nullptr), use_stackable_db_(use_stackable_db) {
+      : db(nullptr),
+        special_env(Env::Default()),
+        env(nullptr),
+        use_stackable_db_(use_stackable_db) {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
     options.write_buffer_size = 4 * 1024;
     options.unordered_write = write_ordering == kUnorderedWrite;
     options.level0_file_num_compaction_trigger = 2;
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
-    env = new FaultInjectionTestEnv(Env::Default());
+    env = new FaultInjectionTestEnv(&special_env);
     options.env = env;
     options.two_write_queues = two_write_queue;
     dbname = test::PerThreadDBPath("transaction_testdb");
@@ -437,7 +441,7 @@ class TransactionTestBase : public ::testing::Test {
     if (txn_db_options.write_policy == WRITE_COMMITTED) {
       options.unordered_write = false;
     }
-    auto db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    auto db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     // Before upgrade/downgrade the WAL must be emptied
     if (empty_wal) {
       db_impl->TEST_FlushMemTable();
@@ -453,7 +457,7 @@ class TransactionTestBase : public ::testing::Test {
       ASSERT_TRUE(s.IsNotSupported());
       return;
     }
-    db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+    db_impl = static_cast_with_check<DBImpl>(db->GetRootDB());
     // Check that WAL is empty
     VectorLogPtr log_files;
     db_impl->GetSortedWalFiles(log_files);

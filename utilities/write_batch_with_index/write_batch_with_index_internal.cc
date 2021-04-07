@@ -13,6 +13,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "util/cast_util.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 
@@ -249,7 +250,8 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
         const MergeOperator* merge_operator;
 
         if (column_family != nullptr) {
-          auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+          auto cfh =
+              static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
           merge_operator = cfh->cfd()->ioptions()->merge_operator;
         } else {
           *s = Status::InvalidArgument("Must provide a column_family");

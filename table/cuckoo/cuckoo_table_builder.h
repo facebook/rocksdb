@@ -22,15 +22,14 @@ namespace ROCKSDB_NAMESPACE {
 
 class CuckooTableBuilder: public TableBuilder {
  public:
-  CuckooTableBuilder(WritableFileWriter* file, double max_hash_table_ratio,
-                     uint32_t max_num_hash_func, uint32_t max_search_depth,
-                     const Comparator* user_comparator,
-                     uint32_t cuckoo_block_size, bool use_module_hash,
-                     bool identity_as_first_hash,
-                     uint64_t (*get_slice_hash)(const Slice&, uint32_t,
-                                                uint64_t),
-                     uint32_t column_family_id,
-                     const std::string& column_family_name);
+  CuckooTableBuilder(
+      WritableFileWriter* file, double max_hash_table_ratio,
+      uint32_t max_num_hash_func, uint32_t max_search_depth,
+      const Comparator* user_comparator, uint32_t cuckoo_block_size,
+      bool use_module_hash, bool identity_as_first_hash,
+      uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t),
+      uint32_t column_family_id, const std::string& column_family_name,
+      const std::string& db_id = "", const std::string& db_session_id = "");
   // No copying allowed
   CuckooTableBuilder(const CuckooTableBuilder&) = delete;
   void operator=(const CuckooTableBuilder&) = delete;

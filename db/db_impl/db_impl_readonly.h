@@ -138,7 +138,7 @@ class DBImplReadOnly : public DBImpl {
       const DBOptions& db_options, const std::string& dbname,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
-      bool error_if_log_file_exist = false);
+      bool error_if_wal_file_exists = false);
   friend class DB;
 };
 }  // namespace ROCKSDB_NAMESPACE

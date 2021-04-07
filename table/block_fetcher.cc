@@ -19,51 +19,20 @@
 #include "rocksdb/env.h"
 #include "table/block_based/block.h"
 #include "table/block_based/block_based_table_reader.h"
+#include "table/block_based/reader_common.h"
 #include "table/format.h"
 #include "table/persistent_cache_helper.h"
-#include "util/coding.h"
 #include "util/compression.h"
-#include "util/crc32c.h"
 #include "util/stop_watch.h"
-#include "util/string_util.h"
-#include "util/xxhash.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 inline void BlockFetcher::CheckBlockChecksum() {
   // Check the crc of the type and the block contents
   if (read_options_.verify_checksums) {
-    const char* data = slice_.data();  // Pointer to where Read put the data
-    PERF_TIMER_GUARD(block_checksum_time);
-    uint32_t value = DecodeFixed32(data + block_size_ + 1);
-    uint32_t actual = 0;
-    switch (footer_.checksum()) {
-      case kNoChecksum:
-        break;
-      case kCRC32c:
-        value = crc32c::Unmask(value);
-        actual = crc32c::Value(data, block_size_ + 1);
-        break;
-      case kxxHash:
-        actual = XXH32(data, static_cast<int>(block_size_) + 1, 0);
-        break;
-      case kxxHash64:
-        actual = static_cast<uint32_t>(
-            XXH64(data, static_cast<int>(block_size_) + 1, 0) &
-            uint64_t{0xffffffff});
-        break;
-      default:
-        status_ = Status::Corruption(
-            "unknown checksum type " + ToString(footer_.checksum()) + " in " +
-            file_->file_name() + " offset " + ToString(handle_.offset()) +
-            " size " + ToString(block_size_));
-    }
-    if (status_.ok() && actual != value) {
-      status_ = Status::Corruption(
-          "block checksum mismatch: expected " + ToString(actual) + ", got " +
-          ToString(value) + "  in " + file_->file_name() + " offset " +
-          ToString(handle_.offset()) + " size " + ToString(block_size_));
-    }
+    status_ = ROCKSDB_NAMESPACE::VerifyBlockChecksum(
+        footer_.checksum(), slice_.data(), block_size_, file_->file_name(),
+        handle_.offset());
   }
 }
 
@@ -89,16 +58,19 @@ inline bool BlockFetcher::TryGetUncompressBlockFromPersistentCache() {
 }
 
 inline bool BlockFetcher::TryGetFromPrefetchBuffer() {
-  if (prefetch_buffer_ != nullptr &&
-      prefetch_buffer_->TryReadFromCache(
-          handle_.offset(), block_size_with_trailer_, &slice_,
-          for_compaction_)) {
-    CheckBlockChecksum();
-    if (!status_.ok()) {
-      return true;
+  if (prefetch_buffer_ != nullptr) {
+    IOOptions opts;
+    Status s = PrepareIOFromReadOptions(read_options_, file_->env(), opts);
+    if (s.ok() && prefetch_buffer_->TryReadFromCache(
+                      opts, handle_.offset(), block_size_with_trailer_, &slice_,
+                      for_compaction_)) {
+      CheckBlockChecksum();
+      if (!status_.ok()) {
+        return true;
+      }
+      got_from_prefetch_buffer_ = true;
+      used_buf_ = const_cast<char*>(slice_.data());
     }
-    got_from_prefetch_buffer_ = true;
-    used_buf_ = const_cast<char*>(slice_.data());
   }
   return got_from_prefetch_buffer_;
 }
@@ -127,10 +99,28 @@ inline bool BlockFetcher::TryGetCompressedBlockFromPersistentCache() {
 
 inline void BlockFetcher::PrepareBufferForBlockFromFile() {
   // cache miss read from device
-  if (do_uncompress_ &&
+  if ((do_uncompress_ || ioptions_.allow_mmap_reads) &&
       block_size_with_trailer_ < kDefaultStackBufferSize) {
     // If we've got a small enough hunk of data, read it in to the
     // trivially allocated stack buffer instead of needing a full malloc()
+    //
+    // `GetBlockContents()` cannot return this data as its lifetime is tied to
+    // this `BlockFetcher`'s lifetime. That is fine because this is only used
+    // in cases where we do not expect the `GetBlockContents()` result to be the
+    // same buffer we are assigning here. If we guess incorrectly, there will be
+    // a heap allocation and memcpy in `GetBlockContents()` to obtain the final
+    // result. Considering we are eliding a heap allocation here by using the
+    // stack buffer, the cost of guessing incorrectly here is one extra memcpy.
+    //
+    // When `do_uncompress_` is true, we expect the uncompression step will
+    // allocate heap memory for the final result. However this expectation will
+    // be wrong if the block turns out to already be uncompressed, which we
+    // won't know for sure until after reading it.
+    //
+    // When `ioptions_.allow_mmap_reads` is true, we do not expect the file
+    // reader to use the scratch buffer at all, but instead return a pointer
+    // into the mapped memory. This expectation will be wrong when using a
+    // file reader that does not implement mmap reads properly.
     used_buf_ = &stack_buf_[0];
   } else if (maybe_compressed_ && !do_uncompress_) {
     compressed_buf_ = AllocateBlock(block_size_with_trailer_,
@@ -254,11 +244,11 @@ Status BlockFetcher::ReadBlockContents() {
                               &slice_, used_buf_, nullptr, for_compaction_);
         PERF_COUNTER_ADD(block_read_count, 1);
 #ifndef NDEBUG
-        if (used_buf_ == &stack_buf_[0]) {
+        if (slice_.data() == &stack_buf_[0]) {
           num_stack_buf_memcpy_++;
-        } else if (used_buf_ == heap_buf_.get()) {
+        } else if (slice_.data() == heap_buf_.get()) {
           num_heap_buf_memcpy_++;
-        } else if (used_buf_ == compressed_buf_.get()) {
+        } else if (slice_.data() == compressed_buf_.get()) {
           num_compressed_buf_memcpy_++;
         }
 #endif

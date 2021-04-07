@@ -21,7 +21,7 @@ class SimCacheTest : public DBTestBase {
   const size_t kNumBlocks = 5;
   const size_t kValueSize = 1000;
 
-  SimCacheTest() : DBTestBase("/sim_cache_test") {}
+  SimCacheTest() : DBTestBase("/sim_cache_test", /*env_do_fsync=*/true) {}
 
   BlockBasedTableOptions GetTableOptions() {
     BlockBasedTableOptions table_options;
@@ -35,7 +35,7 @@ class SimCacheTest : public DBTestBase {
     options.create_if_missing = true;
     // options.compression = kNoCompression;
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     return options;
   }
 
@@ -84,7 +84,7 @@ TEST_F(SimCacheTest, SimCache) {
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   std::shared_ptr<SimCache> simCache = NewSimCache(NewLRUCache(co), 20000, 0);
   table_options.block_cache = simCache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
   RecordCacheCounters(options);
 
@@ -151,13 +151,13 @@ TEST_F(SimCacheTest, SimCacheLogging) {
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   std::shared_ptr<SimCache> sim_cache = NewSimCache(NewLRUCache(co), 20000, 0);
   table_options.block_cache = sim_cache;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   Reopen(options);
 
   int num_block_entries = 20;
   for (int i = 0; i < num_block_entries; i++) {
-    Put(Key(i), "val");
-    Flush();
+    ASSERT_OK(Put(Key(i), "val"));
+    ASSERT_OK(Flush());
   }
 
   std::string log_file = test::PerThreadDBPath(env_, "cache_log.txt");
@@ -172,7 +172,7 @@ TEST_F(SimCacheTest, SimCacheLogging) {
   ASSERT_OK(sim_cache->GetActivityLoggingStatus());
 
   std::string file_contents = "";
-  ReadFileToString(env_, log_file, &file_contents);
+  ASSERT_OK(ReadFileToString(env_, log_file, &file_contents));
 
   int lookup_num = 0;
   int add_num = 0;

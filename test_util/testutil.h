@@ -26,9 +26,9 @@
 #include "table/internal_iterator.h"
 #include "table/plain/plain_table_factory.h"
 #include "util/mutexlock.h"
-#include "util/random.h"
 
 namespace ROCKSDB_NAMESPACE {
+class Random;
 class SequentialFile;
 class SequentialFileReader;
 
@@ -36,12 +36,6 @@ namespace test {
 
 extern const uint32_t kDefaultFormatVersion;
 extern const uint32_t kLatestFormatVersion;
-
-// Store in *dst a random string of length "len" and return a Slice that
-// references the generated data.
-extern Slice RandomString(Random* rnd, int len, std::string* dst);
-
-extern std::string RandomHumanReadableString(Random* rnd, int len);
 
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).
@@ -796,8 +790,6 @@ TableFactory* RandomTableFactory(Random* rnd, int pre_defined = -1);
 
 std::string RandomName(Random* rnd, const size_t len);
 
-Status DestroyDir(Env* env, const std::string& dir);
-
 bool IsDirectIOSupported(Env* env, const std::string& dir);
 
 // Return the number of lines where a given pattern was found in a file.
@@ -808,9 +800,6 @@ size_t GetLinesCount(const std::string& fname, const std::string& pattern);
 // Tries to set TEST_TMPDIR to a directory supporting direct IO.
 void ResetTmpDirForDirectIO();
 
-// Sets up sync points to mock direct IO instead of actually issuing direct IO
-// to the file system.
-void SetupSyncPointsToMockDirectIO();
 
 void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt);
 

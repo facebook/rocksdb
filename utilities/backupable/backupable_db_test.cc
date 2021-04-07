@@ -9,8 +9,11 @@
 
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
+#include "rocksdb/utilities/backupable_db.h"
+
 #include <algorithm>
 #include <limits>
+#include <regex>
 #include <string>
 #include <utility>
 
@@ -22,11 +25,11 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
-#include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/options_util.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
+#include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/stderr_logger.h"
@@ -35,6 +38,15 @@
 namespace ROCKSDB_NAMESPACE {
 
 namespace {
+using ShareFilesNaming = BackupableDBOptions::ShareFilesNaming;
+const auto kLegacyCrc32cAndFileSize =
+    BackupableDBOptions::kLegacyCrc32cAndFileSize;
+const auto kUseDbSessionId = BackupableDBOptions::kUseDbSessionId;
+const auto kFlagIncludeFileSize = BackupableDBOptions::kFlagIncludeFileSize;
+const auto kFlagMatchInterimNaming =
+    BackupableDBOptions::kFlagMatchInterimNaming;
+const auto kNamingDefault =
+    kUseDbSessionId | kFlagIncludeFileSize | kFlagMatchInterimNaming;
 
 class DummyDB : public StackableDB {
  public:
@@ -292,7 +304,11 @@ class TestEnv : public EnvWrapper {
       const std::string& dir, std::vector<Env::FileAttributes>* r) override {
     if (filenames_for_mocked_attrs_.size() > 0) {
       for (const auto& filename : filenames_for_mocked_attrs_) {
-        r->push_back({dir + filename, 10 /* size_bytes */});
+        uint64_t size_bytes = 200;  // Match TestEnv
+        if (filename.find("MANIFEST") == 0) {
+          size_bytes = 100;  // Match DummyDB::GetLiveFiles
+        }
+        r->push_back({dir + filename, size_bytes});
       }
       return Status::OK();
     }
@@ -304,7 +320,10 @@ class TestEnv : public EnvWrapper {
       auto filename_iter = std::find(filenames_for_mocked_attrs_.begin(),
                                      filenames_for_mocked_attrs_.end(), fname);
       if (filename_iter != filenames_for_mocked_attrs_.end()) {
-        *size_bytes = 10;
+        *size_bytes = 200;  // Match TestEnv
+        if (fname.find("MANIFEST") == 0) {
+          *size_bytes = 100;  // Match DummyDB::GetLiveFiles
+        }
         return Status::OK();
       }
       return Status::NotFound(fname);
@@ -376,6 +395,27 @@ class FileManager : public EnvWrapper {
  public:
   explicit FileManager(Env* t) : EnvWrapper(t), rnd_(5) {}
 
+  Status GetRandomFileInDir(const std::string& dir, std::string* fname,
+                            uint64_t* fsize) {
+    std::vector<FileAttributes> children;
+    GetChildrenFileAttributes(dir, &children);
+    if (children.size() <= 2) {  // . and ..
+      return Status::NotFound("Empty directory: " + dir);
+    }
+    assert(fname != nullptr);
+    while (true) {
+      int i = rnd_.Next() % children.size();
+      if (children[i].name != "." && children[i].name != "..") {
+        fname->assign(dir + "/" + children[i].name);
+        *fsize = children[i].size_bytes;
+        return Status::OK();
+      }
+    }
+    // should never get here
+    assert(false);
+    return Status::NotFound("");
+  }
+
   Status DeleteRandomFileInDir(const std::string& dir) {
     std::vector<std::string> children;
     GetChildren(dir, &children);
@@ -423,9 +463,25 @@ class FileManager : public EnvWrapper {
     }
 
     for (uint64_t i = 0; i < bytes_to_corrupt; ++i) {
-      std::string tmp;
-      test::RandomString(&rnd_, 1, &tmp);
+      std::string tmp = rnd_.RandomString(1);
       file_contents[rnd_.Next() % file_contents.size()] = tmp[0];
+    }
+    return WriteToFile(fname, file_contents);
+  }
+
+  Status CorruptFileStart(const std::string& fname) {
+    std::string to_xor = "blah";
+    std::string file_contents;
+    Status s = ReadFileToString(this, fname, &file_contents);
+    if (!s.ok()) {
+      return s;
+    }
+    s = DeleteFile(fname);
+    if (!s.ok()) {
+      return s;
+    }
+    for (size_t i = 0; i < to_xor.size(); ++i) {
+      file_contents[i] ^= to_xor[i];
     }
     return WriteToFile(fname, file_contents);
   }
@@ -484,7 +540,20 @@ class FileManager : public EnvWrapper {
 }; // FileManager
 
 // utility functions
-static size_t FillDB(DB* db, int from, int to) {
+namespace {
+
+enum FillDBFlushAction {
+  kFlushMost,
+  kFlushAll,
+  kAutoFlushOnly,
+};
+
+// Many tests in this file expect FillDB to write at least one sst file,
+// so the default behavior (if not kAutoFlushOnly) of FillDB is to force
+// a flush. But to ensure coverage of the WAL file case, we also (by default)
+// do one Put after the Flush (kFlushMost).
+size_t FillDB(DB* db, int from, int to,
+              FillDBFlushAction flush_action = kFlushMost) {
   size_t bytes_written = 0;
   for (int i = from; i < to; ++i) {
     std::string key = "testkey" + ToString(i);
@@ -492,11 +561,18 @@ static size_t FillDB(DB* db, int from, int to) {
     bytes_written += key.size() + value.size();
 
     EXPECT_OK(db->Put(WriteOptions(), Slice(key), Slice(value)));
+
+    if (flush_action == kFlushMost && i == to - 2) {
+      EXPECT_OK(db->Flush(FlushOptions()));
+    }
+  }
+  if (flush_action == kFlushAll) {
+    EXPECT_OK(db->Flush(FlushOptions()));
   }
   return bytes_written;
 }
 
-static void AssertExists(DB* db, int from, int to) {
+void AssertExists(DB* db, int from, int to) {
   for (int i = from; i < to; ++i) {
     std::string key = "testkey" + ToString(i);
     std::string value;
@@ -505,7 +581,7 @@ static void AssertExists(DB* db, int from, int to) {
   }
 }
 
-static void AssertEmpty(DB* db, int from, int to) {
+void AssertEmpty(DB* db, int from, int to) {
   for (int i = from; i < to; ++i) {
     std::string key = "testkey" + ToString(i);
     std::string value = "testvalue" + ToString(i);
@@ -514,6 +590,7 @@ static void AssertEmpty(DB* db, int from, int to) {
     ASSERT_TRUE(s.IsNotFound());
   }
 }
+}  // namespace
 
 class BackupableDBTest : public testing::Test {
  public:
@@ -541,6 +618,7 @@ class BackupableDBTest : public testing::Test {
     test_db_env_.reset(new TestEnv(db_chroot_env_.get()));
     test_backup_env_.reset(new TestEnv(backup_chroot_env_.get()));
     file_manager_.reset(new FileManager(backup_chroot_env_.get()));
+    db_file_manager_.reset(new FileManager(db_chroot_env_.get()));
 
     // set up db options
     options_.create_if_missing = true;
@@ -571,10 +649,19 @@ class BackupableDBTest : public testing::Test {
     return db;
   }
 
-  void OpenDBAndBackupEngine(bool destroy_old_data = false, bool dummy = false,
-                             ShareOption shared_option = kShareNoChecksum) {
-    // reset all the defaults
-    test_backup_env_->SetLimitWrittenFiles(1000000);
+  void CloseAndReopenDB() {
+    // Close DB
+    db_.reset();
+
+    // Open DB
+    test_db_env_->SetLimitWrittenFiles(1000000);
+    DB* db;
+    ASSERT_OK(DB::Open(options_, dbname_, &db));
+    db_.reset(db);
+  }
+
+  void InitializeDBAndBackupEngine(bool dummy = false) {
+    // reset all the db env defaults
     test_db_env_->SetLimitWrittenFiles(1000000);
     test_db_env_->SetDummySequentialFile(dummy);
 
@@ -586,14 +673,19 @@ class BackupableDBTest : public testing::Test {
       ASSERT_OK(DB::Open(options_, dbname_, &db));
     }
     db_.reset(db);
+  }
+
+  virtual void OpenDBAndBackupEngine(
+      bool destroy_old_data = false, bool dummy = false,
+      ShareOption shared_option = kShareNoChecksum) {
+    InitializeDBAndBackupEngine(dummy);
+    // reset backup env defaults
+    test_backup_env_->SetLimitWrittenFiles(1000000);
     backupable_options_->destroy_old_data = destroy_old_data;
     backupable_options_->share_table_files = shared_option != kNoShare;
     backupable_options_->share_files_with_checksum =
         shared_option == kShareWithChecksum;
-    BackupEngine* backup_engine;
-    ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
-                                 &backup_engine));
-    backup_engine_.reset(backup_engine);
+    OpenBackupEngine(destroy_old_data);
   }
 
   void CloseDBAndBackupEngine() {
@@ -601,8 +693,8 @@ class BackupableDBTest : public testing::Test {
     backup_engine_.reset();
   }
 
-  void OpenBackupEngine() {
-    backupable_options_->destroy_old_data = false;
+  void OpenBackupEngine(bool destroy_old_data = false) {
+    backupable_options_->destroy_old_data = destroy_old_data;
     BackupEngine* backup_engine;
     ASSERT_OK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
                                  &backup_engine));
@@ -657,6 +749,98 @@ class BackupableDBTest : public testing::Test {
     }
   }
 
+  Status GetTableFilesInDB(std::vector<FileAttributes>* table_files) {
+    std::vector<FileAttributes> children;
+    Status s = test_db_env_->GetChildrenFileAttributes(dbname_, &children);
+    for (const auto& child : children) {
+      if (child.size_bytes > 0 && child.name.size() > 4 &&
+          child.name.rfind(".sst") == child.name.length() - 4) {
+        table_files->push_back(child);
+      }
+    }
+    return s;
+  }
+
+  Status GetRandomTableFileInDB(std::string* fname_out,
+                                uint64_t* fsize_out = nullptr) {
+    Random rnd(6);  // NB: hardly "random"
+    std::vector<FileAttributes> table_files;
+    Status s = GetTableFilesInDB(&table_files);
+    if (!s.ok()) {
+      return s;
+    }
+    if (table_files.empty()) {
+      return Status::NotFound("");
+    }
+    size_t i = rnd.Uniform(static_cast<int>(table_files.size()));
+    *fname_out = dbname_ + "/" + table_files[i].name;
+    if (fsize_out) {
+      *fsize_out = table_files[i].size_bytes;
+    }
+    return Status::OK();
+  }
+
+  Status CorruptRandomTableFileInDB() {
+    std::string fname;
+    uint64_t fsize = 0;
+    Status s = GetRandomTableFileInDB(&fname, &fsize);
+    if (!s.ok()) {
+      return s;
+    }
+
+    std::string file_contents;
+    s = ReadFileToString(test_db_env_.get(), fname, &file_contents);
+    if (!s.ok()) {
+      return s;
+    }
+    s = test_db_env_->DeleteFile(fname);
+    if (!s.ok()) {
+      return s;
+    }
+
+    file_contents[0] = (file_contents[0] + 257) % 256;
+    return WriteStringToFile(test_db_env_.get(), file_contents, fname);
+  }
+
+  void AssertDirectoryFilesMatchRegex(const std::string& dir,
+                                      const std::regex& pattern,
+                                      int minimum_count) {
+    std::vector<FileAttributes> children;
+    ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
+    int found_count = 0;
+    for (const auto& child : children) {
+      if (child.name == "." || child.name == "..") {
+        continue;
+      }
+      const std::string match("match");
+      ASSERT_EQ(match, std::regex_replace(child.name, pattern, match));
+      ++found_count;
+    }
+    ASSERT_GE(found_count, minimum_count);
+  }
+
+  void AssertDirectoryFilesSizeIndicators(const std::string& dir,
+                                          int minimum_count) {
+    std::vector<FileAttributes> children;
+    ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
+    int found_count = 0;
+    for (const auto& child : children) {
+      if (child.name == "." || child.name == "..") {
+        continue;
+      }
+      auto last_underscore = child.name.find_last_of('_');
+      auto last_dot = child.name.find_last_of('.');
+      ASSERT_NE(child.name, child.name.substr(0, last_underscore));
+      ASSERT_NE(child.name, child.name.substr(0, last_dot));
+      ASSERT_LT(last_underscore, last_dot);
+      std::string s = child.name.substr(last_underscore + 1,
+                                        last_dot - (last_underscore + 1));
+      ASSERT_EQ(s, ToString(child.size_bytes));
+      ++found_count;
+    }
+    ASSERT_GE(found_count, minimum_count);
+  }
+
   // files
   std::string dbname_;
   std::string backupdir_;
@@ -671,6 +855,7 @@ class BackupableDBTest : public testing::Test {
   std::unique_ptr<TestEnv> test_db_env_;
   std::unique_ptr<TestEnv> test_backup_env_;
   std::unique_ptr<FileManager> file_manager_;
+  std::unique_ptr<FileManager> db_file_manager_;
 
   // all the dbs!
   DummyDB* dummy_db_; // BackupableDB owns dummy_db_
@@ -696,13 +881,58 @@ class BackupableDBTestWithParam : public BackupableDBTest,
   BackupableDBTestWithParam() {
     backupable_options_->share_files_with_checksum = GetParam();
   }
+  void OpenDBAndBackupEngine(
+      bool destroy_old_data = false, bool dummy = false,
+      ShareOption shared_option = kShareNoChecksum) override {
+    BackupableDBTest::InitializeDBAndBackupEngine(dummy);
+    // reset backup env defaults
+    test_backup_env_->SetLimitWrittenFiles(1000000);
+    backupable_options_->destroy_old_data = destroy_old_data;
+    backupable_options_->share_table_files = shared_option != kNoShare;
+    // NOTE: keep share_files_with_checksum setting from constructor
+    OpenBackupEngine(destroy_old_data);
+  }
 };
+
+TEST_F(BackupableDBTest, FileCollision) {
+  const int keys_iteration = 5000;
+  for (const auto& sopt : kAllShareOptions) {
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    FillDB(db_.get(), 0, keys_iteration);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    CloseDBAndBackupEngine();
+
+    // If the db directory has been cleaned up, it is sensitive to file
+    // collision.
+    DestroyDB(dbname_, options_);
+
+    // open with old backup
+    OpenDBAndBackupEngine(false /* destroy_old_data */, false /* dummy */,
+                          sopt);
+    FillDB(db_.get(), 0, keys_iteration * 2);
+    if (sopt != kShareNoChecksum) {
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    } else {
+      // The new table files created in FillDB() will clash with the old
+      // backup and sharing tables with no checksum will have the file
+      // collision problem.
+      ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+      ASSERT_OK(backup_engine_->PurgeOldBackups(0));
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    }
+    CloseDBAndBackupEngine();
+
+    // delete old data
+    DestroyDB(dbname_, options_);
+  }
+}
 
 // This test verifies that the verifyBackup method correctly identifies
 // invalid backups
 TEST_P(BackupableDBTestWithParam, VerifyBackup) {
   const int keys_iteration = 5000;
-  Random rnd(6);
   Status s;
   OpenDBAndBackupEngine(true);
   // create five backups
@@ -754,7 +984,8 @@ TEST_P(BackupableDBTestWithParam, OfflineIntegrationTest) {
       // ---- insert new data and back up ----
       OpenDBAndBackupEngine(destroy_data);
       destroy_data = false;
-      FillDB(db_.get(), keys_iteration * i, fill_up_to);
+      // kAutoFlushOnly to preserve legacy test behavior (consider updating)
+      FillDB(db_.get(), keys_iteration * i, fill_up_to, kAutoFlushOnly);
       ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), iter == 0));
       CloseDBAndBackupEngine();
       DestroyDB(dbname_, options_);
@@ -797,7 +1028,8 @@ TEST_P(BackupableDBTestWithParam, OnlineIntegrationTest) {
     // in last iteration, put smaller amount of data,
     // so that backups can share sst files
     int fill_up_to = std::min(keys_iteration * (i + 1), max_key);
-    FillDB(db_.get(), keys_iteration * i, fill_up_to);
+    // kAutoFlushOnly to preserve legacy test behavior (consider updating)
+    FillDB(db_.get(), keys_iteration * i, fill_up_to, kAutoFlushOnly);
     // we should get consistent results with flush_before_backup
     // set to both true and false
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
@@ -1050,6 +1282,217 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 5);
 }
 
+// Corrupt a file but maintain its size
+TEST_F(BackupableDBTest, CorruptFileMaintainSize) {
+  const int keys_iteration = 5000;
+  Status s;
+  OpenDBAndBackupEngine(true);
+  // create a backup
+  FillDB(db_.get(), 0, keys_iteration);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine();
+  // verify with file size
+  ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+  // verify with file checksum
+  ASSERT_OK(backup_engine_->VerifyBackup(1, true));
+
+  std::string file_to_corrupt;
+  uint64_t file_size = 0;
+  // under normal circumstance, there should be at least one nonempty file
+  while (file_size == 0) {
+    // get a random file in /private/1
+    ASSERT_OK(file_manager_->GetRandomFileInDir(backupdir_ + "/private/1",
+                                                &file_to_corrupt, &file_size));
+    // corrupt the file by replacing its content by file_size random bytes
+    ASSERT_OK(file_manager_->CorruptFile(file_to_corrupt, file_size));
+  }
+  // file sizes match
+  ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+  // file checksums mismatch
+  ASSERT_NOK(backup_engine_->VerifyBackup(1, true));
+  // sanity check, use default second argument
+  ASSERT_OK(backup_engine_->VerifyBackup(1));
+  CloseDBAndBackupEngine();
+
+  // an extra challenge
+  // set share_files_with_checksum to true and do two more backups
+  // corrupt all the table files in shared_checksum but maintain their sizes
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kShareWithChecksum);
+  // creat two backups
+  for (int i = 1; i < 3; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  }
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine();
+  std::vector<FileAttributes> children;
+  const std::string dir = backupdir_ + "/shared_checksum";
+  ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
+  for (const auto& child : children) {
+    if (child.name == "." || child.name == ".." || child.size_bytes == 0) {
+      continue;
+    }
+    // corrupt the file by replacing its content by file_size random bytes
+    ASSERT_OK(
+        file_manager_->CorruptFile(dir + "/" + child.name, child.size_bytes));
+  }
+  // file sizes match
+  ASSERT_OK(backup_engine_->VerifyBackup(1, false));
+  ASSERT_OK(backup_engine_->VerifyBackup(2, false));
+  // file checksums mismatch
+  ASSERT_NOK(backup_engine_->VerifyBackup(1, true));
+  ASSERT_NOK(backup_engine_->VerifyBackup(2, true));
+  CloseDBAndBackupEngine();
+}
+
+// Test if BackupEngine will fail to create new backup if some table has been
+// corrupted and the table file checksum is stored in the DB manifest
+TEST_F(BackupableDBTest, TableFileCorruptedBeforeBackup) {
+  const int keys_iteration = 50000;
+
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kNoShare);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseAndReopenDB();
+  // corrupt a random table file in the DB directory
+  ASSERT_OK(CorruptRandomTableFileInDB());
+  // file_checksum_gen_factory is null, and thus table checksum is not
+  // verified for creating a new backup; no correction is detected
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+
+  // delete old files in db
+  ASSERT_OK(DestroyDB(dbname_, options_));
+
+  // Enable table file checksum in DB manifest
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kNoShare);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseAndReopenDB();
+  // corrupt a random table file in the DB directory
+  ASSERT_OK(CorruptRandomTableFileInDB());
+  // table file checksum is enabled so we should be able to detect any
+  // corruption
+  ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+}
+
+// Test if BackupEngine will fail to create new backup if some table has been
+// corrupted and the table file checksum is stored in the DB manifest for the
+// case when backup table files will be stored in a shared directory
+TEST_P(BackupableDBTestWithParam, TableFileCorruptedBeforeBackup) {
+  const int keys_iteration = 50000;
+
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseAndReopenDB();
+  // corrupt a random table file in the DB directory
+  ASSERT_OK(CorruptRandomTableFileInDB());
+  // cannot detect corruption since DB manifest has no table checksums
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+
+  // delete old files in db
+  ASSERT_OK(DestroyDB(dbname_, options_));
+
+  // Enable table checksums in DB manifest
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseAndReopenDB();
+  // corrupt a random table file in the DB directory
+  ASSERT_OK(CorruptRandomTableFileInDB());
+  // corruption is detected
+  ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+  CloseDBAndBackupEngine();
+}
+
+TEST_F(BackupableDBTest, TableFileWithoutDbChecksumCorruptedDuringBackup) {
+  const int keys_iteration = 50000;
+  backupable_options_->share_files_with_checksum_naming =
+      kLegacyCrc32cAndFileSize;
+  // When share_files_with_checksum is on, we calculate checksums of table
+  // files before and after copying. So we can test whether a corruption has
+  // happened during the file is copied to backup directory.
+  OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */,
+                        kShareWithChecksum);
+
+  FillDB(db_.get(), 0, keys_iteration);
+  std::atomic<bool> corrupted{false};
+  // corrupt files when copying to the backup directory
+  SyncPoint::GetInstance()->SetCallBack(
+      "BackupEngineImpl::CopyOrCreateFile:CorruptionDuringBackup",
+      [&](void* data) {
+        if (data != nullptr) {
+          Slice* d = reinterpret_cast<Slice*>(data);
+          if (!d->empty()) {
+            d->remove_suffix(1);
+            corrupted = true;
+          }
+        }
+      });
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = backup_engine_->CreateNewBackup(db_.get());
+  if (corrupted) {
+    ASSERT_NOK(s);
+  } else {
+    // should not in this path in normal cases
+    ASSERT_OK(s);
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  CloseDBAndBackupEngine();
+  // delete old files in db
+  ASSERT_OK(DestroyDB(dbname_, options_));
+}
+
+TEST_F(BackupableDBTest, TableFileWithDbChecksumCorruptedDuringBackup) {
+  const int keys_iteration = 50000;
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  for (auto& sopt : kAllShareOptions) {
+    // Since the default DB table file checksum is on, we obtain checksums of
+    // table files from the DB manifest before copying and verify it with the
+    // one calculated during copying.
+    // Therefore, we can test whether a corruption has happened during the file
+    // being copied to backup directory.
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+
+    FillDB(db_.get(), 0, keys_iteration);
+
+    // corrupt files when copying to the backup directory
+    SyncPoint::GetInstance()->SetCallBack(
+        "BackupEngineImpl::CopyOrCreateFile:CorruptionDuringBackup",
+        [&](void* data) {
+          if (data != nullptr) {
+            Slice* d = reinterpret_cast<Slice*>(data);
+            if (!d->empty()) {
+              d->remove_suffix(1);
+            }
+          }
+        });
+    SyncPoint::GetInstance()->EnableProcessing();
+    // The only case that we can't detect a corruption is when the file
+    // being backed up is empty. But as keys_iteration is large, such
+    // a case shouldn't have happened and we should be able to detect
+    // the corruption.
+    ASSERT_NOK(backup_engine_->CreateNewBackup(db_.get()));
+
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+
+    CloseDBAndBackupEngine();
+    // delete old files in db
+    ASSERT_OK(DestroyDB(dbname_, options_));
+  }
+}
+
 TEST_F(BackupableDBTest, InterruptCreationTest) {
   // Interrupt backup creation by failing new writes and failing cleanup of the
   // partial state. Then verify a subsequent backup can still succeed.
@@ -1074,6 +1517,57 @@ TEST_F(BackupableDBTest, InterruptCreationTest) {
   // latest backup should have all the keys
   CloseDBAndBackupEngine();
   AssertBackupConsistency(0, 0, keys_iteration);
+}
+
+TEST_F(BackupableDBTest, FlushCompactDuringBackupCheckpoint) {
+  const int keys_iteration = 5000;
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  for (const auto& sopt : kAllShareOptions) {
+    OpenDBAndBackupEngine(true /* destroy_old_data */, false /* dummy */, sopt);
+    FillDB(db_.get(), 0, keys_iteration);
+    // That FillDB leaves a mix of flushed and unflushed data
+    SyncPoint::GetInstance()->LoadDependency(
+        {{"CheckpointImpl::CreateCustomCheckpoint:AfterGetLive1",
+          "BackupableDBTest::FlushCompactDuringBackupCheckpoint:Before"},
+         {"BackupableDBTest::FlushCompactDuringBackupCheckpoint:After",
+          "CheckpointImpl::CreateCustomCheckpoint:AfterGetLive2"}});
+    SyncPoint::GetInstance()->EnableProcessing();
+    ROCKSDB_NAMESPACE::port::Thread flush_thread{[this]() {
+      TEST_SYNC_POINT(
+          "BackupableDBTest::FlushCompactDuringBackupCheckpoint:Before");
+      FillDB(db_.get(), keys_iteration, 2 * keys_iteration);
+      ASSERT_OK(db_->Flush(FlushOptions()));
+      DBImpl* dbi = static_cast<DBImpl*>(db_.get());
+      dbi->TEST_WaitForFlushMemTable();
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+      dbi->TEST_WaitForCompact();
+      TEST_SYNC_POINT(
+          "BackupableDBTest::FlushCompactDuringBackupCheckpoint:After");
+    }};
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    flush_thread.join();
+    CloseDBAndBackupEngine();
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->ClearAllCallBacks();
+    /* FIXME(peterd): reinstate with option for checksum in file names
+    if (sopt == kShareWithChecksum) {
+      // Ensure we actually got DB manifest checksums by inspecting
+      // shared_checksum file names for hex checksum component
+      std::regex expected("[^_]+_[0-9A-F]{8}_[^_]+.sst");
+      std::vector<FileAttributes> children;
+      const std::string dir = backupdir_ + "/shared_checksum";
+      ASSERT_OK(file_manager_->GetChildrenFileAttributes(dir, &children));
+      for (const auto& child : children) {
+        if (child.name == "." || child.name == ".." || child.size_bytes == 0) {
+          continue;
+        }
+        const std::string match("match");
+        EXPECT_EQ(match, std::regex_replace(child.name, expected, match));
+      }
+    }
+    */
+    AssertBackupConsistency(0, 0, keys_iteration);
+  }
 }
 
 inline std::string OptionsPath(std::string ret, int backupID) {
@@ -1182,8 +1676,8 @@ TEST_F(BackupableDBTest, FailOverwritingBackups) {
     CloseDBAndBackupEngine();
     DeleteLogFiles();
     OpenDBAndBackupEngine(false);
-    FillDB(db_.get(), 100 * i, 100 * (i + 1));
-    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+    FillDB(db_.get(), 100 * i, 100 * (i + 1), kFlushAll);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
   }
   CloseDBAndBackupEngine();
 
@@ -1193,19 +1687,20 @@ TEST_F(BackupableDBTest, FailOverwritingBackups) {
   CloseBackupEngine();
 
   OpenDBAndBackupEngine(false);
-  FillDB(db_.get(), 0, 300);
-  Status s = backup_engine_->CreateNewBackup(db_.get(), true);
+  // More data, bigger SST
+  FillDB(db_.get(), 1000, 1300, kFlushAll);
+  Status s = backup_engine_->CreateNewBackup(db_.get());
   // the new backup fails because new table files
   // clash with old table files from backups 4 and 5
   // (since write_buffer_size is huge, we can be sure that
   // each backup will generate only one sst file and that
-  // a file generated by a new backup is the same as
-  // sst file generated by backup 4)
+  // a file generated here would have the same name as an
+  // sst file generated by backup 4, and will be bigger)
   ASSERT_TRUE(s.IsCorruption());
   ASSERT_OK(backup_engine_->DeleteBackup(4));
   ASSERT_OK(backup_engine_->DeleteBackup(5));
   // now, the backup can succeed
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
   CloseDBAndBackupEngine();
 }
 
@@ -1280,6 +1775,505 @@ TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
   for (int i = 1; i < 10; ++i) {
     AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
                             keys_iteration * 11);
+  }
+}
+
+// Verify backup and restore with various naming options, check names
+TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNaming) {
+  ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
+              kNamingDefault);
+
+  const int keys_iteration = 5000;
+
+  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseDBAndBackupEngine();
+
+  static const std::map<ShareFilesNaming, std::string> option_to_expected = {
+      {kLegacyCrc32cAndFileSize, "[0-9]+_[0-9]+_[0-9]+[.]sst"},
+      // kFlagIncludeFileSize redundant here
+      {kLegacyCrc32cAndFileSize | kFlagIncludeFileSize,
+       "[0-9]+_[0-9]+_[0-9]+[.]sst"},
+      {kUseDbSessionId, "[0-9]+_s[0-9A-Z]{20}[.]sst"},
+      {kUseDbSessionId | kFlagIncludeFileSize,
+       "[0-9]+_s[0-9A-Z]{20}_[0-9]+[.]sst"},
+  };
+
+  for (const auto& pair : option_to_expected) {
+    // kFlagMatchInterimNaming must not matter on new SST files
+    for (const auto option :
+         {pair.first, pair.first | kFlagMatchInterimNaming}) {
+      CloseAndReopenDB();
+      backupable_options_->share_files_with_checksum_naming = option;
+      OpenBackupEngine(true /*destroy_old_data*/);
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+      CloseDBAndBackupEngine();
+      AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
+      AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
+                                     std::regex(pair.second),
+                                     1 /* minimum_count */);
+      if (std::string::npos != pair.second.find("_[0-9]+[.]sst")) {
+        AssertDirectoryFilesSizeIndicators(backupdir_ + "/shared_checksum",
+                                           1 /* minimum_count */);
+      }
+    }
+  }
+}
+
+// Mimic SST file generated by early internal-only 6.12 release
+// and test various naming options. This test can be removed when
+// the kFlagMatchInterimNaming feature is removed.
+TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsInterimNaming) {
+  const int keys_iteration = 5000;
+
+  // Essentially, reinstate old implementaiton of generating a DB
+  // session id. This is how we distinguish "interim" SST files from
+  // newer ones: from the form of the db session id string.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::SetDbSessionId", [&](void* sid_void_star) {
+        std::string* sid = static_cast<std::string*>(sid_void_star);
+        *sid = test_db_env_->GenerateUniqueId();
+        if (!sid->empty() && sid->back() == '\n') {
+          sid->pop_back();
+        }
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseDBAndBackupEngine();
+
+  static const std::map<ShareFilesNaming, std::string> option_to_expected = {
+      {kLegacyCrc32cAndFileSize, "[0-9]+_[0-9]+_[0-9]+[.]sst"},
+      // kFlagMatchInterimNaming ignored here
+      {kLegacyCrc32cAndFileSize | kFlagMatchInterimNaming,
+       "[0-9]+_[0-9]+_[0-9]+[.]sst"},
+      {kUseDbSessionId, "[0-9]+_s[0-9a-fA-F-]+[.]sst"},
+      {kUseDbSessionId | kFlagIncludeFileSize,
+       "[0-9]+_s[0-9a-fA-F-]+_[0-9]+[.]sst"},
+      {kUseDbSessionId | kFlagMatchInterimNaming, "[0-9]+_[0-9a-fA-F-]+[.]sst"},
+      {kUseDbSessionId | kFlagIncludeFileSize | kFlagMatchInterimNaming,
+       "[0-9]+_[0-9a-fA-F-]+[.]sst"},
+  };
+
+  for (const auto& pair : option_to_expected) {
+    CloseAndReopenDB();
+    backupable_options_->share_files_with_checksum_naming = pair.first;
+    OpenBackupEngine(true /*destroy_old_data*/);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
+    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum",
+                                   std::regex(pair.second),
+                                   1 /* minimum_count */);
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Mimic SST file generated by pre-6.12 releases and verify that
+// old names are always used regardless of naming option.
+TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsOldFileNaming) {
+  const int keys_iteration = 5000;
+
+  // Pre-6.12 release did not include db id and db session id properties.
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+      "PropertyBlockBuilder::AddTableProperty:Start", [&](void* props_vs) {
+        auto props = static_cast<TableProperties*>(props_vs);
+        props->db_id = "";
+        props->db_session_id = "";
+      });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
+  FillDB(db_.get(), 0, keys_iteration);
+  CloseDBAndBackupEngine();
+
+  // Old names should always be used on old files
+  const std::regex expected("[0-9]+_[0-9]+_[0-9]+[.]sst");
+
+  for (ShareFilesNaming option : {kNamingDefault, kUseDbSessionId}) {
+    CloseAndReopenDB();
+    backupable_options_->share_files_with_checksum_naming = option;
+    OpenBackupEngine(true /*destroy_old_data*/);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+    CloseDBAndBackupEngine();
+    AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * 2);
+    AssertDirectoryFilesMatchRegex(backupdir_ + "/shared_checksum", expected,
+                                   1 /* minimum_count */);
+  }
+
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+// Test how naming options interact with detecting DB corruption
+// between incremental backups
+TEST_F(BackupableDBTest, TableFileCorruptionBeforeIncremental) {
+  const auto share_no_checksum = static_cast<ShareFilesNaming>(0);
+
+  for (bool corrupt_before_first_backup : {false, true}) {
+    for (ShareFilesNaming option :
+         {share_no_checksum, kLegacyCrc32cAndFileSize, kNamingDefault}) {
+      auto share =
+          option == share_no_checksum ? kShareNoChecksum : kShareWithChecksum;
+      if (option != share_no_checksum) {
+        backupable_options_->share_files_with_checksum_naming = option;
+      }
+      OpenDBAndBackupEngine(true, false, share);
+      DBImpl* dbi = static_cast<DBImpl*>(db_.get());
+      // A small SST file
+      ASSERT_OK(dbi->Put(WriteOptions(), "x", "y"));
+      ASSERT_OK(dbi->Flush(FlushOptions()));
+      // And a bigger one
+      ASSERT_OK(dbi->Put(WriteOptions(), "y", Random(42).RandomString(500)));
+      ASSERT_OK(dbi->Flush(FlushOptions()));
+      dbi->TEST_WaitForFlushMemTable();
+      CloseDBAndBackupEngine();
+
+      std::vector<FileAttributes> table_files;
+      ASSERT_OK(GetTableFilesInDB(&table_files));
+      ASSERT_EQ(table_files.size(), 2);
+      std::string tf0 = dbname_ + "/" + table_files[0].name;
+      std::string tf1 = dbname_ + "/" + table_files[1].name;
+
+      if (corrupt_before_first_backup) {
+        // This corrupts a data block, which does not cause DB open
+        // failure, only failure on accessing the block.
+        ASSERT_OK(db_file_manager_->CorruptFileStart(tf0));
+      }
+
+      OpenDBAndBackupEngine(false, false, share);
+      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+      CloseDBAndBackupEngine();
+
+      // if corrupt_before_first_backup, this undoes the initial corruption
+      ASSERT_OK(db_file_manager_->CorruptFileStart(tf0));
+
+      OpenDBAndBackupEngine(false, false, share);
+      Status s = backup_engine_->CreateNewBackup(db_.get());
+
+      // Even though none of the naming options catch the inconsistency
+      // between the first and second time backing up fname, in the case
+      // of kUseDbSessionId (kNamingDefault), this is an intentional
+      // trade-off to avoid full scan of files from the DB that are
+      // already backed up. If we did the scan, kUseDbSessionId could catch
+      // the corruption. kLegacyCrc32cAndFileSize does the scan (to
+      // compute checksum for name) without catching the corruption,
+      // because the corruption means the names don't merge.
+      EXPECT_OK(s);
+
+      // VerifyBackup doesn't check DB integrity or table file internal
+      // checksums
+      EXPECT_OK(backup_engine_->VerifyBackup(1, true));
+      EXPECT_OK(backup_engine_->VerifyBackup(2, true));
+
+      db_.reset();
+      ASSERT_OK(backup_engine_->RestoreDBFromBackup(2, dbname_, dbname_));
+      {
+        DB* db = OpenDB();
+        s = db->VerifyChecksum();
+        delete db;
+      }
+      if (option != kLegacyCrc32cAndFileSize && !corrupt_before_first_backup) {
+        // Second backup is OK because it used (uncorrupt) file from first
+        // backup instead of (corrupt) file from DB.
+        // This is arguably a good trade-off vs. treating the file as distinct
+        // from the old version, because a file should be more likely to be
+        // corrupt as it ages. Although the backed-up file might also corrupt
+        // with age, the alternative approach (checksum in file name computed
+        // from current DB file contents) wouldn't detect that case at backup
+        // time either. Although you would have both copies of the file with
+        // the alternative approach, that would only last until the older
+        // backup is deleted.
+        ASSERT_OK(s);
+      } else if (option == kLegacyCrc32cAndFileSize &&
+                 corrupt_before_first_backup) {
+        // Second backup is OK because it saved the updated (uncorrupt)
+        // file from DB, instead of the sharing with first backup.
+        // Recall: if corrupt_before_first_backup, [second CorruptFileStart]
+        // undoes the initial corruption.
+        // This is arguably a bad trade-off vs. sharing the old version of the
+        // file because a file should be more likely to corrupt as it ages.
+        // (Not likely that the previously backed-up version was already
+        // corrupt and the new version is non-corrupt. This approach doesn't
+        // help if backed-up version is corrupted after taking the backup.)
+        ASSERT_OK(s);
+      } else {
+        // Something is legitimately corrupted, but we can't be sure what
+        // with information available (TODO? unless one passes block checksum
+        // test and other doesn't. Probably better to use end-to-end full file
+        // checksum anyway.)
+        ASSERT_TRUE(s.IsCorruption());
+      }
+
+      CloseDBAndBackupEngine();
+      ASSERT_OK(DestroyDB(dbname_, options_));
+    }
+  }
+}
+
+// Test how naming options interact with detecting file size corruption
+// between incremental backups
+TEST_F(BackupableDBTest, FileSizeForIncremental) {
+  const auto share_no_checksum = static_cast<ShareFilesNaming>(0);
+
+  for (ShareFilesNaming option : {share_no_checksum, kLegacyCrc32cAndFileSize,
+                                  kNamingDefault, kUseDbSessionId}) {
+    auto share =
+        option == share_no_checksum ? kShareNoChecksum : kShareWithChecksum;
+    if (option != share_no_checksum) {
+      backupable_options_->share_files_with_checksum_naming = option;
+    }
+    OpenDBAndBackupEngine(true, false, share);
+
+    std::vector<FileAttributes> children;
+    const std::string shared_dir =
+        backupdir_ +
+        (option == share_no_checksum ? "/shared" : "/shared_checksum");
+
+    // A single small SST file
+    ASSERT_OK(db_->Put(WriteOptions(), "x", "y"));
+
+    // First, test that we always detect file size corruption on the shared
+    // backup side on incremental. (Since sizes aren't really part of backup
+    // meta file, this works by querying the filesystem for the sizes.)
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true /*flush*/));
+    CloseDBAndBackupEngine();
+
+    // Corrupt backup SST
+    ASSERT_OK(file_manager_->GetChildrenFileAttributes(shared_dir, &children));
+    ASSERT_EQ(children.size(), 3U);  // ".", "..", one sst
+    for (const auto& child : children) {
+      if (child.name.size() > 4 && child.size_bytes > 0) {
+        ASSERT_OK(
+            file_manager_->WriteToFile(shared_dir + "/" + child.name, "asdf"));
+        break;
+      }
+    }
+
+    OpenDBAndBackupEngine(false, false, share);
+    Status s = backup_engine_->CreateNewBackup(db_.get());
+    EXPECT_TRUE(s.IsCorruption());
+
+    ASSERT_OK(backup_engine_->PurgeOldBackups(0));
+    CloseDBAndBackupEngine();
+
+    // Second, test that a hypothetical db session id collision would likely
+    // not suffice to corrupt a backup, because there's a good chance of
+    // file size difference (in this test, guaranteed) so either no name
+    // collision or detected collision.
+
+    // Create backup 1
+    OpenDBAndBackupEngine(false, false, share);
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get()));
+
+    // Even though we have "the same" DB state as backup 1, we need
+    // to restore to recreate the same conditions as later restore.
+    db_.reset();
+    ASSERT_OK(DestroyDB(dbname_, options_));
+    ASSERT_OK(backup_engine_->RestoreDBFromBackup(1, dbname_, dbname_));
+    CloseDBAndBackupEngine();
+
+    // Forge session id
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
+        "DBImpl::SetDbSessionId", [](void* sid_void_star) {
+          std::string* sid = static_cast<std::string*>(sid_void_star);
+          *sid = "01234567890123456789";
+        });
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+    // Create another SST file
+    OpenDBAndBackupEngine(false, false, share);
+    ASSERT_OK(db_->Put(WriteOptions(), "y", "x"));
+
+    // Create backup 2
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true /*flush*/));
+
+    // Restore backup 1 (again)
+    db_.reset();
+    ASSERT_OK(DestroyDB(dbname_, options_));
+    ASSERT_OK(backup_engine_->RestoreDBFromBackup(1, dbname_, dbname_));
+    CloseDBAndBackupEngine();
+
+    // Create another SST file with same number and db session id, only bigger
+    OpenDBAndBackupEngine(false, false, share);
+    ASSERT_OK(db_->Put(WriteOptions(), "y", Random(42).RandomString(500)));
+
+    // Count backup SSTs
+    children.clear();
+    ASSERT_OK(file_manager_->GetChildrenFileAttributes(shared_dir, &children));
+    ASSERT_EQ(children.size(), 4U);  // ".", "..", two sst
+
+    // Try create backup 3
+    s = backup_engine_->CreateNewBackup(db_.get(), true /*flush*/);
+
+    // Re-count backup SSTs
+    children.clear();
+    ASSERT_OK(file_manager_->GetChildrenFileAttributes(shared_dir, &children));
+
+    if (option == kUseDbSessionId) {
+      // Acceptable to call it corruption if size is not in name and
+      // db session id collision is practically impossible.
+      EXPECT_TRUE(s.IsCorruption());
+      EXPECT_EQ(children.size(), 4U);  // no SST added
+    } else if (option == share_no_checksum) {
+      // Good to call it corruption if both backups cannot be
+      // accommodated.
+      EXPECT_TRUE(s.IsCorruption());
+      EXPECT_EQ(children.size(), 4U);  // no SST added
+    } else {
+      // Since opening a DB seems sufficient for detecting size corruption
+      // on the DB side, this should be a good thing, ...
+      EXPECT_OK(s);
+      // ... as long as we did actually treat it as a distinct SST file.
+      EXPECT_EQ(children.size(), 5U);  // Another SST added
+    }
+    CloseDBAndBackupEngine();
+    ASSERT_OK(DestroyDB(dbname_, options_));
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+    ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
+  }
+}
+
+// Verify backup and restore with share_files_with_checksum off and then
+// transition this option to on and share_files_with_checksum_naming to be
+// based on kUseDbSessionId
+TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingTransition) {
+  const int keys_iteration = 5000;
+  // We may set share_files_with_checksum_naming to kLegacyCrc32cAndFileSize
+  // here but even if we don't, it should have no effect when
+  // share_files_with_checksum is false
+  ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
+              kNamingDefault);
+  // set share_files_with_checksum to false
+  OpenDBAndBackupEngine(true, false, kShareNoChecksum);
+  int j = 3;
+  for (int i = 0; i < j; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  }
+  CloseDBAndBackupEngine();
+
+  for (int i = 0; i < j; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * (j + 1));
+  }
+
+  // set share_files_with_checksum to true and do some more backups
+  // and use session id in the name of SST file backup
+  ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
+              kNamingDefault);
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false,
+                        kShareWithChecksum);
+  FillDB(db_.get(), keys_iteration * j, keys_iteration * (j + 1));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+  // Use checksum in the name as well
+  ++j;
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false,
+                        kShareWithChecksum);
+  FillDB(db_.get(), keys_iteration * j, keys_iteration * (j + 1));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  // Verify first (about to delete)
+  AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * (j + 1));
+
+  // For an extra challenge, make sure that GarbageCollect / DeleteBackup
+  // is OK even if we open without share_table_files but with
+  // share_files_with_checksum_naming based on kUseDbSessionId
+  ASSERT_TRUE(backupable_options_->share_files_with_checksum_naming ==
+              kNamingDefault);
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
+  backup_engine_->DeleteBackup(1);
+  backup_engine_->GarbageCollect();
+  CloseDBAndBackupEngine();
+
+  // Verify second (about to delete)
+  AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * (j + 1));
+
+  // Use checksum and file size for backup table file names and open without
+  // share_table_files
+  // Again, make sure that GarbageCollect / DeleteBackup is OK
+  backupable_options_->share_files_with_checksum_naming =
+      kLegacyCrc32cAndFileSize;
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
+  backup_engine_->DeleteBackup(2);
+  backup_engine_->GarbageCollect();
+  CloseDBAndBackupEngine();
+
+  // Verify rest (not deleted)
+  for (int i = 2; i < j; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * (j + 1));
+  }
+}
+
+// Verify backup and restore with share_files_with_checksum on and transition
+// from kLegacyCrc32cAndFileSize to kUseDbSessionId
+TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsNewNamingUpgrade) {
+  backupable_options_->share_files_with_checksum_naming =
+      kLegacyCrc32cAndFileSize;
+  const int keys_iteration = 5000;
+  // set share_files_with_checksum to true
+  OpenDBAndBackupEngine(true, false, kShareWithChecksum);
+  int j = 3;
+  for (int i = 0; i < j; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  }
+  CloseDBAndBackupEngine();
+
+  for (int i = 0; i < j; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * (j + 1));
+  }
+
+  backupable_options_->share_files_with_checksum_naming = kUseDbSessionId;
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false,
+                        kShareWithChecksum);
+  FillDB(db_.get(), keys_iteration * j, keys_iteration * (j + 1));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  ++j;
+  options_.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false,
+                        kShareWithChecksum);
+  FillDB(db_.get(), keys_iteration * j, keys_iteration * (j + 1));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  CloseDBAndBackupEngine();
+
+  // Verify first (about to delete)
+  AssertBackupConsistency(1, 0, keys_iteration, keys_iteration * (j + 1));
+
+  // For an extra challenge, make sure that GarbageCollect / DeleteBackup
+  // is OK even if we open without share_table_files
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
+  backup_engine_->DeleteBackup(1);
+  backup_engine_->GarbageCollect();
+  CloseDBAndBackupEngine();
+
+  // Verify second (about to delete)
+  AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * (j + 1));
+
+  // Use checksum and file size for backup table file names and open without
+  // share_table_files
+  // Again, make sure that GarbageCollect / DeleteBackup is OK
+  backupable_options_->share_files_with_checksum_naming =
+      kLegacyCrc32cAndFileSize;
+  OpenDBAndBackupEngine(false /* destroy_old_data */, false, kNoShare);
+  backup_engine_->DeleteBackup(2);
+  backup_engine_->GarbageCollect();
+  CloseDBAndBackupEngine();
+
+  // Verify rest (not deleted)
+  for (int i = 2; i < j; ++i) {
+    AssertBackupConsistency(i + 1, 0, keys_iteration * (i + 1),
+                            keys_iteration * (j + 1));
   }
 }
 
@@ -1368,77 +2362,91 @@ TEST_F(BackupableDBTest, KeepLogFiles) {
   // basically infinite
   options_.WAL_ttl_seconds = 24 * 60 * 60;
   OpenDBAndBackupEngine(true);
-  FillDB(db_.get(), 0, 100);
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  FillDB(db_.get(), 100, 200);
+  FillDB(db_.get(), 0, 100, kFlushAll);
+  FillDB(db_.get(), 100, 200, kFlushAll);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
-  FillDB(db_.get(), 200, 300);
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  FillDB(db_.get(), 300, 400);
-  ASSERT_OK(db_->Flush(FlushOptions()));
-  FillDB(db_.get(), 400, 500);
-  ASSERT_OK(db_->Flush(FlushOptions()));
+  FillDB(db_.get(), 200, 300, kFlushAll);
+  FillDB(db_.get(), 300, 400, kFlushAll);
+  FillDB(db_.get(), 400, 500, kFlushAll);
   CloseDBAndBackupEngine();
 
   // all data should be there if we call with keep_log_files = true
   AssertBackupConsistency(0, 0, 500, 600, true);
 }
 
-TEST_F(BackupableDBTest, RateLimiting) {
-  size_t const kMicrosPerSec = 1000 * 1000LL;
-  uint64_t const MB = 1024 * 1024;
+class BackupableDBRateLimitingTestWithParam
+    : public BackupableDBTest,
+      public testing::WithParamInterface<
+          std::tuple<bool /* make throttle */,
+                     int /* 0 = single threaded, 1 = multi threaded*/,
+                     std::pair<uint64_t, uint64_t> /* limits */>> {
+ public:
+  BackupableDBRateLimitingTestWithParam() {}
+};
 
-  const std::vector<std::pair<uint64_t, uint64_t>> limits(
-      {{1 * MB, 5 * MB}, {2 * MB, 3 * MB}});
+uint64_t const MB = 1024 * 1024;
+
+INSTANTIATE_TEST_CASE_P(
+    RateLimiting, BackupableDBRateLimitingTestWithParam,
+    ::testing::Values(std::make_tuple(false, 0, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(false, 0, std::make_pair(2 * MB, 3 * MB)),
+                      std::make_tuple(false, 1, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(false, 1, std::make_pair(2 * MB, 3 * MB)),
+                      std::make_tuple(true, 0, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(true, 0, std::make_pair(2 * MB, 3 * MB)),
+                      std::make_tuple(true, 1, std::make_pair(1 * MB, 5 * MB)),
+                      std::make_tuple(true, 1,
+                                      std::make_pair(2 * MB, 3 * MB))));
+
+TEST_P(BackupableDBRateLimitingTestWithParam, RateLimiting) {
+  size_t const kMicrosPerSec = 1000 * 1000LL;
 
   std::shared_ptr<RateLimiter> backupThrottler(NewGenericRateLimiter(1));
   std::shared_ptr<RateLimiter> restoreThrottler(NewGenericRateLimiter(1));
 
-  for (bool makeThrottler : {false, true}) {
-    if (makeThrottler) {
-      backupable_options_->backup_rate_limiter = backupThrottler;
-      backupable_options_->restore_rate_limiter = restoreThrottler;
-    }
-    // iter 0 -- single threaded
-    // iter 1 -- multi threaded
-    for (int iter = 0; iter < 2; ++iter) {
-      for (const auto& limit : limits) {
-        // destroy old data
-        DestroyDB(dbname_, Options());
-        if (makeThrottler) {
-          backupThrottler->SetBytesPerSecond(limit.first);
-          restoreThrottler->SetBytesPerSecond(limit.second);
-        } else {
-          backupable_options_->backup_rate_limit = limit.first;
-          backupable_options_->restore_rate_limit = limit.second;
-        }
-        backupable_options_->max_background_operations = (iter == 0) ? 1 : 10;
-        options_.compression = kNoCompression;
-        OpenDBAndBackupEngine(true);
-        size_t bytes_written = FillDB(db_.get(), 0, 100000);
-
-        auto start_backup = db_chroot_env_->NowMicros();
-        ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
-        auto backup_time = db_chroot_env_->NowMicros() - start_backup;
-        auto rate_limited_backup_time =
-            (bytes_written * kMicrosPerSec) / limit.first;
-        ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
-
-        CloseDBAndBackupEngine();
-
-        OpenBackupEngine();
-        auto start_restore = db_chroot_env_->NowMicros();
-        ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
-        auto restore_time = db_chroot_env_->NowMicros() - start_restore;
-        CloseBackupEngine();
-        auto rate_limited_restore_time =
-            (bytes_written * kMicrosPerSec) / limit.second;
-        ASSERT_GT(restore_time, 0.8 * rate_limited_restore_time);
-
-        AssertBackupConsistency(0, 0, 100000, 100010);
-      }
-    }
+  bool makeThrottler = std::get<0>(GetParam());
+  if (makeThrottler) {
+    backupable_options_->backup_rate_limiter = backupThrottler;
+    backupable_options_->restore_rate_limiter = restoreThrottler;
   }
+
+  // iter 0 -- single threaded
+  // iter 1 -- multi threaded
+  int iter = std::get<1>(GetParam());
+  const std::pair<uint64_t, uint64_t> limit = std::get<2>(GetParam());
+
+  // destroy old data
+  DestroyDB(dbname_, Options());
+  if (makeThrottler) {
+    backupThrottler->SetBytesPerSecond(limit.first);
+    restoreThrottler->SetBytesPerSecond(limit.second);
+  } else {
+    backupable_options_->backup_rate_limit = limit.first;
+    backupable_options_->restore_rate_limit = limit.second;
+  }
+  backupable_options_->max_background_operations = (iter == 0) ? 1 : 10;
+  options_.compression = kNoCompression;
+  OpenDBAndBackupEngine(true);
+  size_t bytes_written = FillDB(db_.get(), 0, 100000);
+
+  auto start_backup = db_chroot_env_->NowMicros();
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
+  auto backup_time = db_chroot_env_->NowMicros() - start_backup;
+  auto rate_limited_backup_time = (bytes_written * kMicrosPerSec) / limit.first;
+  ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
+
+  CloseDBAndBackupEngine();
+
+  OpenBackupEngine();
+  auto start_restore = db_chroot_env_->NowMicros();
+  ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
+  auto restore_time = db_chroot_env_->NowMicros() - start_restore;
+  CloseBackupEngine();
+  auto rate_limited_restore_time =
+      (bytes_written * kMicrosPerSec) / limit.second;
+  ASSERT_GT(restore_time, 0.8 * rate_limited_restore_time);
+
+  AssertBackupConsistency(0, 0, 100000, 100010);
 }
 
 TEST_F(BackupableDBTest, ReadOnlyBackupEngine) {
@@ -1570,7 +2578,7 @@ TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
   DestroyDB(dbname_, options_);
   options_.max_manifest_file_size = 0;  // always rollover manifest for file add
   OpenDBAndBackupEngine(true);
-  FillDB(db_.get(), 0, 100);
+  FillDB(db_.get(), 0, 100, kAutoFlushOnly);
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
       {"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
@@ -1591,10 +2599,10 @@ TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
   // The last manifest roll would've already been cleaned up by the full scan
   // that happens when CreateNewBackup invokes EnableFileDeletions. We need to
   // trigger another roll to verify non-full scan purges stale manifests.
-  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_.get());
+  DBImpl* db_impl = static_cast_with_check<DBImpl>(db_.get());
   std::string prev_manifest_path =
       DescriptorFileName(dbname_, db_impl->TEST_Current_Manifest_FileNo());
-  FillDB(db_.get(), 0, 100);
+  FillDB(db_.get(), 0, 100, kAutoFlushOnly);
   ASSERT_OK(db_chroot_env_->FileExists(prev_manifest_path));
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_TRUE(db_chroot_env_->FileExists(prev_manifest_path).IsNotFound());
@@ -1804,8 +2812,7 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
   OpenDBAndBackupEngine(true /* destroy_old_data */);
   for (int i = 0; i < kNumBackups; ++i) {
     FillDB(db_.get(), i * kNumKeysPerBackup /* from */,
-           (i + 1) * kNumKeysPerBackup /* to */);
-    ASSERT_OK(db_->Flush(FlushOptions()));
+           (i + 1) * kNumKeysPerBackup /* to */, kFlushAll);
 
     // Clear the file open counters and then do a bunch of backup engine ops.
     // For all ops, files should be opened in direct mode.
@@ -1824,13 +2831,14 @@ TEST_P(BackupableDBTestWithParam, BackupUsingDirectIO) {
 
     // Verify backup engine always opened files with direct I/O
     ASSERT_EQ(0, test_db_env_->num_writers());
-    ASSERT_EQ(0, test_db_env_->num_rand_readers());
+    ASSERT_GE(test_db_env_->num_direct_rand_readers(), 0);
     ASSERT_GT(test_db_env_->num_direct_seq_readers(), 0);
     // Currently the DB doesn't support reading WALs or manifest with direct
     // I/O, so subtract two.
     ASSERT_EQ(test_db_env_->num_seq_readers() - 2,
               test_db_env_->num_direct_seq_readers());
-    ASSERT_EQ(0, test_db_env_->num_rand_readers());
+    ASSERT_EQ(test_db_env_->num_rand_readers(),
+              test_db_env_->num_direct_rand_readers());
   }
   CloseDBAndBackupEngine();
 

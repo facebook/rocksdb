@@ -402,7 +402,7 @@ Status PessimisticTransactionDB::TryLock(PessimisticTransaction* txn,
 }
 
 void PessimisticTransactionDB::UnLock(PessimisticTransaction* txn,
-                                      const TransactionKeyMap* keys) {
+                                      const LockTracker& keys) {
   lock_mgr_.UnLock(txn, keys, GetEnv());
 }
 

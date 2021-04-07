@@ -3,18 +3,20 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#include "file/delete_scheduler.h"
+
 #include <atomic>
 #include <cinttypes>
 #include <thread>
 #include <vector>
 
-#include "file/delete_scheduler.h"
+#include "env/composite_env_wrapper.h"
+#include "file/file_util.h"
 #include "file/sst_file_manager_impl.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
-#include "test_util/testutil.h"
 #include "util/string_util.h"
 
 #ifndef ROCKSDB_LITE
@@ -40,12 +42,12 @@ class DeleteSchedulerTest : public testing::Test {
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({});
     ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->ClearAllCallBacks();
     for (const auto& dummy_files_dir : dummy_files_dirs_) {
-      test::DestroyDir(env_, dummy_files_dir);
+      DestroyDir(env_, dummy_files_dir);
     }
   }
 
   void DestroyAndCreateDir(const std::string& dir) {
-    ASSERT_OK(test::DestroyDir(env_, dir));
+    ASSERT_OK(DestroyDir(env_, dir));
     EXPECT_OK(env_->CreateDir(dir));
   }
 

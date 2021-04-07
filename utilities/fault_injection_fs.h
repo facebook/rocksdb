@@ -21,15 +21,11 @@
 #include <set>
 #include <string>
 
-#include "db/db_test_util.h"
-#include "db/version_set.h"
-#include "env/mock_env.h"
 #include "file/filename.h"
 #include "include/rocksdb/file_system.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/thread_local.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -68,6 +64,11 @@ class TestFSWritableFile : public FSWritableFile {
   virtual ~TestFSWritableFile();
   virtual IOStatus Append(const Slice& data, const IOOptions&,
                           IODebugContext*) override;
+  virtual IOStatus Append(const Slice& data, const IOOptions& options,
+                          const DataVerificationInfo& /*verification_info*/,
+                          IODebugContext* dbg) override {
+    return Append(data, options, dbg);
+  }
   virtual IOStatus Truncate(uint64_t size, const IOOptions& options,
                             IODebugContext* dbg) override {
     return target_->Truncate(size, options, dbg);
@@ -81,6 +82,12 @@ class TestFSWritableFile : public FSWritableFile {
                                     const IOOptions& options,
                                     IODebugContext* dbg) override {
     return target_->PositionedAppend(data, offset, options, dbg);
+  }
+  IOStatus PositionedAppend(const Slice& data, uint64_t offset,
+                            const IOOptions& options,
+                            const DataVerificationInfo& /*verification_info*/,
+                            IODebugContext* dbg) override {
+    return PositionedAppend(data, offset, options, dbg);
   }
   virtual size_t GetRequiredBufferAlignment() const override {
     return target_->GetRequiredBufferAlignment();
@@ -161,13 +168,13 @@ class TestFSDirectory : public FSDirectory {
 
 class FaultInjectionTestFS : public FileSystemWrapper {
  public:
-  explicit FaultInjectionTestFS(std::shared_ptr<FileSystem> base)
+  explicit FaultInjectionTestFS(const std::shared_ptr<FileSystem>& base)
       : FileSystemWrapper(base),
         filesystem_active_(true),
         filesystem_writable_(false),
-        thread_local_error_(
-            new ThreadLocalPtr(DeleteThreadLocalErrorContext)) {}
-  virtual ~FaultInjectionTestFS() {}
+        thread_local_error_(new ThreadLocalPtr(DeleteThreadLocalErrorContext)) {
+  }
+  virtual ~FaultInjectionTestFS() { error_.PermitUncheckedError(); }
 
   const char* Name() const override { return "FaultInjectionTestFS"; }
 
@@ -207,12 +214,13 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   virtual IOStatus GetFreeSpace(const std::string& path,
                                 const IOOptions& options, uint64_t* disk_free,
                                 IODebugContext* dbg) override {
+    IOStatus io_s;
     if (!IsFilesystemActive() && error_ == IOStatus::NoSpace()) {
       *disk_free = 0;
-      return IOStatus::OK();
     } else {
-      return target()->GetFreeSpace(path, options, disk_free, dbg);
+      io_s = target()->GetFreeSpace(path, options, disk_free, dbg);
     }
+    return io_s;
   }
 
   void WritableFileClosed(const FSFileState& state);
@@ -255,6 +263,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   }
   void SetFilesystemActiveNoLock(
       bool active, IOStatus error = IOStatus::Corruption("Not active")) {
+    error.PermitUncheckedError();
     filesystem_active_ = active;
     if (!active) {
       error_ = error;
@@ -263,6 +272,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
   void SetFilesystemActive(
       bool active, IOStatus error = IOStatus::Corruption("Not active")) {
     MutexLock l(&mutex_);
+    error.PermitUncheckedError();
     SetFilesystemActiveNoLock(active, error);
   }
   void SetFilesystemDirectWritable(
@@ -276,6 +286,7 @@ class FaultInjectionTestFS : public FileSystemWrapper {
 
   void SetFileSystemIOError(IOStatus io_error) {
     MutexLock l(&mutex_);
+    io_error.PermitUncheckedError();
     error_ = io_error;
   }
 

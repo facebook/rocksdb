@@ -101,7 +101,7 @@ Status DBImpl::doCompact(const CompactionOptions& compact_options,
 
   c.reset(cfd->compaction_picker()->CompactFiles(
       compact_options, input_files, output_level, version->storage_info(),
-      *cfd->GetLatestMutableCFOptions(), output_path_id));
+      *cfd->GetLatestMutableCFOptions(), mutable_db_options_, output_path_id));
   assert(c != nullptr);
   c->SetInputVersion(version);
 

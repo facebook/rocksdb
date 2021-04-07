@@ -10,7 +10,7 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #ifndef NDEBUG
-#include "test_util/fault_injection_test_fs.h"
+#include "utilities/fault_injection_fs.h"
 #endif // NDEBUG
 
 namespace ROCKSDB_NAMESPACE {

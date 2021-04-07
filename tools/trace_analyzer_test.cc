@@ -47,7 +47,7 @@ class TraceAnalyzerTest : public testing::Test {
     // test_path_ = test::TmpDir() + "trace_analyzer_test";
     test_path_ = test::PerThreadDBPath("trace_analyzer_test");
     env_ = ROCKSDB_NAMESPACE::Env::Default();
-    env_->CreateDir(test_path_);
+    env_->CreateDir(test_path_).PermitUncheckedError();
     dbname_ = test_path_ + "/db";
   }
 
@@ -173,7 +173,7 @@ class TraceAnalyzerTest : public testing::Test {
     if (!s.ok()) {
       GenerateTrace(trace_path);
     }
-    env_->CreateDir(output_path);
+    ASSERT_OK(env_->CreateDir(output_path));
     RunTraceAnalyzer(paras);
   }
 
