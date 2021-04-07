@@ -2616,11 +2616,17 @@ TEST_F(BackupableDBTest, ReadOnlyBackupEngine) {
 
 TEST_F(BackupableDBTest, OpenBackupAsReadOnlyDB) {
   DestroyDB(dbname_, options_);
+  options_.write_dbid_to_manifest = false;
+
   OpenDBAndBackupEngine(true);
   FillDB(db_.get(), 0, 100);
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), /*flush*/ false));
+
+  options_.write_dbid_to_manifest = true;  // exercises some read-only DB code
+  CloseAndReopenDB();
+
   FillDB(db_.get(), 100, 200);
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), /*flush*/ false));
   db_.reset();  // CloseDB
   DestroyDB(dbname_, options_);
   std::vector<BackupInfo> backup_info;
