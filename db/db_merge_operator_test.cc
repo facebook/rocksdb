@@ -71,10 +71,7 @@ TEST_F(DBMergeOperatorTest, LimitMergeOperands) {
     }
 
     bool ShouldMerge(const std::vector<Slice>& operands) const override {
-      if (operands.size() > 0 && limit_ > 0 && operands.size() >= limit_) {
-        return true;
-      }
-      return false;
+      return operands.size() > 0 && limit_ > 0 && operands.size() >= limit_;
     }
 
    private:
