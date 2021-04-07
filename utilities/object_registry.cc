@@ -32,6 +32,15 @@ void ObjectLibrary::AddEntry(const std::string &type,
   entries.emplace_back(std::move(entry));
 }
 
+size_t ObjectLibrary::GetFactoryCount(size_t *types) const {
+  *types = entries_.size();
+  size_t factories = 0;
+  for (const auto &e : entries_) {
+    factories += e.second.size();
+  }
+  return factories;
+}
+
 void ObjectLibrary::Dump(Logger *logger) const {
   for (const auto &iter : entries_) {
     ROCKS_LOG_HEADER(logger, "    Registered factories for type[%s] ",

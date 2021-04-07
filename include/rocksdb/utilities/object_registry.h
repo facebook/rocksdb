@@ -17,11 +17,21 @@
 
 namespace ROCKSDB_NAMESPACE {
 class Logger;
+class ObjectLibrary;
+
 // Returns a new T when called with a string. Populates the std::unique_ptr
 // argument if granting ownership to caller.
 template <typename T>
 using FactoryFunc =
     std::function<T*(const std::string&, std::unique_ptr<T>*, std::string*)>;
+
+// The signature of the function for loading factories
+// into an object library.  This method is expected to register
+// factory functions in the supplied ObjectLibrary.
+// @param library   The library to load factories into.
+// @param arg       Argument to the library loader
+// @return          The number of factories registered by this function
+using RegistrarFunc = std::function<int(ObjectLibrary&, const std::string&)>;
 
 class ObjectLibrary {
  public:
@@ -62,6 +72,11 @@ class ObjectLibrary {
     FactoryFunc<T> factory_;
   };  // End class FactoryEntry
  public:
+  explicit ObjectLibrary() {}
+  ObjectLibrary(const RegistrarFunc& registrar, const std::string& arg) {
+    Register(registrar, arg);
+  }
+
   // Finds the entry matching the input name and type
   const Entry* FindEntry(const std::string& type,
                          const std::string& name) const;
@@ -76,6 +91,17 @@ class ObjectLibrary {
     AddEntry(T::Type(), entry);
     return factory;
   }
+
+  // Invokes the registrar function with the supplied arg for this library.
+  int Register(const RegistrarFunc& registrar, const std::string& arg) {
+    return registrar(*this, arg);
+  }
+
+  // Returns the total number of factories registered for this library.
+  // This method returns the sum of all factories registered for all types.
+  // @param num_types returns how many unique types are registered.
+  size_t GetFactoryCount(size_t* num_types) const;
+
   // Returns the default ObjectLibrary
   static std::shared_ptr<ObjectLibrary>& Default();
 
