@@ -87,6 +87,13 @@ class FilterBitsReader {
       may_match[i] = MayMatch(*keys[i]);
     }
   }
+
+  // Size of all memory *owned* by this FilterBitsReader, which typically
+  // does NOT include the filter itself.
+  virtual size_t ApproximateMemoryUsage() const {
+    // default implementation for backward compatibility. Something modest
+    return 3U * sizeof(size_t);
+  }
 };
 
 // Contextual information passed to BloomFilterPolicy at filter building time.

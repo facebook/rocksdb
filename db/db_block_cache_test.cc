@@ -392,7 +392,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   co.metadata_charge_policy = kDontChargeCacheMetadata;
   std::shared_ptr<Cache> cache = NewLRUCache(co);
   table_options.block_cache = cache;
-  table_options.filter_policy.reset(NewBloomFilterPolicy(20, true));
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -412,7 +412,7 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   // that moved the readers out of the block cache. Disabling these until we can
   // bring the stats back.
   // ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_INDEX_BYTES_EVICT), 0);
-  // ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_FILTER_BYTES_EVICT), 0);
+  ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_FILTER_BYTES_EVICT), 0);
   // Note that the second key needs to be no longer than the first one.
   // Otherwise the second index block may not fit in cache.
   ASSERT_OK(Put(1, "key", "val"));
@@ -428,8 +428,8 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
   // bring the stats back.
   // ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_INDEX_BYTES_EVICT),
   //           index_bytes_insert);
-  // ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_FILTER_BYTES_EVICT),
-  //           filter_bytes_insert);
+  ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_FILTER_BYTES_EVICT),
+            filter_bytes_insert);
 }
 
 namespace {

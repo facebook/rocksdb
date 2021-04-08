@@ -14,6 +14,12 @@ namespace ROCKSDB_NAMESPACE {
 // and overwrite is true, it will be added to *elapsed if overwrite is false.
 class StopWatch {
  public:
+  StopWatch(SystemClock* clock, const std::shared_ptr<Statistics>& statistics,
+            const uint32_t hist_type, uint64_t* elapsed = nullptr,
+            bool overwrite = true, bool delay_enabled = false)
+      : StopWatch(clock, statistics.get(), hist_type, elapsed, overwrite,
+                  delay_enabled) {}
+
   StopWatch(SystemClock* clock, Statistics* statistics,
             const uint32_t hist_type, uint64_t* elapsed = nullptr,
             bool overwrite = true, bool delay_enabled = false)

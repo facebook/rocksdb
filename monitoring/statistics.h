@@ -114,6 +114,11 @@ inline void RecordInHistogram(Statistics* statistics, uint32_t histogram_type,
   }
 }
 
+inline void RecordInHistogram(const std::shared_ptr<Statistics>& statistics,
+                              uint32_t histogram_type, uint64_t value) {
+  RecordInHistogram(statistics.get(), histogram_type, value);
+}
+
 inline void RecordTimeToHistogram(Statistics* statistics,
                                   uint32_t histogram_type, uint64_t value) {
   if (statistics) {
@@ -121,11 +126,21 @@ inline void RecordTimeToHistogram(Statistics* statistics,
   }
 }
 
+inline void RecordTimeToHistogram(const std::shared_ptr<Statistics>& statistics,
+                                  uint32_t histogram_type, uint64_t value) {
+  RecordTimeToHistogram(statistics.get(), histogram_type, value);
+}
+
 inline void RecordTick(Statistics* statistics, uint32_t ticker_type,
                        uint64_t count = 1) {
   if (statistics) {
     statistics->recordTick(ticker_type, count);
   }
+}
+
+inline void RecordTick(const std::shared_ptr<Statistics>& statistics,
+                       uint32_t ticker_type, uint64_t count = 1) {
+  RecordTick(statistics.get(), ticker_type, count);
 }
 
 inline void SetTickerCount(Statistics* statistics, uint32_t ticker_type,

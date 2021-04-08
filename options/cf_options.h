@@ -54,7 +54,7 @@ struct ImmutableCFOptions {
 
   Logger* info_log;
 
-  Statistics* statistics;
+  std::shared_ptr<Statistics> statistics;
 
   RateLimiter* rate_limiter;
 

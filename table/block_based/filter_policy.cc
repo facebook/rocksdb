@@ -387,6 +387,10 @@ class FastLocalBloomBitsReader : public FilterBitsReader {
     }
   }
 
+  virtual size_t ApproximateMemoryUsage() const override {
+    return sizeof(*this);
+  }
+
  private:
   const char* data_;
   const int num_probes_;
@@ -741,6 +745,10 @@ class Standard128RibbonBitsReader : public FilterBitsReader {
     }
   }
 
+  virtual size_t ApproximateMemoryUsage() const override {
+    return sizeof(*this);
+  }
+
  private:
   using TS = Standard128RibbonTypesAndSettings;
   ribbon::SerializableInterleavedSolution<TS> soln_;
@@ -989,6 +997,10 @@ class LegacyBloomBitsReader : public FilterBitsReader {
     }
   }
 
+  virtual size_t ApproximateMemoryUsage() const override {
+    return sizeof(*this);
+  }
+
  private:
   const char* data_;
   const int num_probes_;
@@ -1000,12 +1012,18 @@ class AlwaysTrueFilter : public FilterBitsReader {
  public:
   bool MayMatch(const Slice&) override { return true; }
   using FilterBitsReader::MayMatch;  // inherit overload
+  virtual size_t ApproximateMemoryUsage() const override {
+    return sizeof(*this);
+  }
 };
 
 class AlwaysFalseFilter : public FilterBitsReader {
  public:
   bool MayMatch(const Slice&) override { return false; }
   using FilterBitsReader::MayMatch;  // inherit overload
+  virtual size_t ApproximateMemoryUsage() const override {
+    return sizeof(*this);
+  }
 };
 
 }  // namespace

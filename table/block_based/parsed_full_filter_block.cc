@@ -9,14 +9,33 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-ParsedFullFilterBlock::ParsedFullFilterBlock(const FilterPolicy* filter_policy,
-                                             BlockContents&& contents)
+ParsedFullFilterBlock::ParsedFullFilterBlock(
+    const FilterPolicy* filter_policy, BlockContents&& contents,
+    const std::shared_ptr<Statistics>& statistics)
     : block_contents_(std::move(contents)),
       filter_bits_reader_(
           !block_contents_.data.empty()
               ? filter_policy->GetFilterBitsReader(block_contents_.data)
-              : nullptr) {}
+              : nullptr),
+      statistics_(statistics) {}
 
-ParsedFullFilterBlock::~ParsedFullFilterBlock() = default;
+ParsedFullFilterBlock::~ParsedFullFilterBlock() {
+  RecordTick(statistics_.get(), BLOCK_CACHE_FILTER_BYTES_EVICT,
+             ApproximateMemoryUsage());
+}
+
+size_t ParsedFullFilterBlock::ApproximateMemoryUsage() const {
+  size_t usage =
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+      malloc_usable_size((void*)this);
+#else
+      sizeof(*this);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+  if (filter_bits_reader_) {
+    usage += filter_bits_reader_->ApproximateMemoryUsage();
+  }
+  usage += block_contents_.ApproximateMemoryUsage();
+  return usage;
+}
 
 }  // namespace ROCKSDB_NAMESPACE

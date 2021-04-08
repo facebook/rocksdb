@@ -353,8 +353,9 @@ Status UncompressBlockContentsForCompressionType(
   assert(uncompression_info.type() != kNoCompression &&
          "Invalid compression type");
 
-  StopWatchNano timer(ioptions.clock, ShouldReportDetailedTime(
-                                          ioptions.env, ioptions.statistics));
+  Statistics* const statistics = ioptions.statistics.get();
+  StopWatchNano timer(ioptions.clock,
+                      ShouldReportDetailedTime(ioptions.env, statistics));
   size_t uncompressed_size = 0;
   CacheAllocationPtr ubuf =
       UncompressData(uncompression_info, data, n, &uncompressed_size,
@@ -367,13 +368,12 @@ Status UncompressBlockContentsForCompressionType(
 
   *contents = BlockContents(std::move(ubuf), uncompressed_size);
 
-  if (ShouldReportDetailedTime(ioptions.env, ioptions.statistics)) {
-    RecordTimeToHistogram(ioptions.statistics, DECOMPRESSION_TIMES_NANOS,
+  if (ShouldReportDetailedTime(ioptions.env, statistics)) {
+    RecordTimeToHistogram(statistics, DECOMPRESSION_TIMES_NANOS,
                           timer.ElapsedNanos());
   }
-  RecordTimeToHistogram(ioptions.statistics, BYTES_DECOMPRESSED,
-                        contents->data.size());
-  RecordTick(ioptions.statistics, NUMBER_BLOCK_DECOMPRESSED);
+  RecordTimeToHistogram(statistics, BYTES_DECOMPRESSED, contents->data.size());
+  RecordTick(statistics, NUMBER_BLOCK_DECOMPRESSED);
 
   TEST_SYNC_POINT_CALLBACK(
       "UncompressBlockContentsForCompressionType:TamperWithReturnValue",

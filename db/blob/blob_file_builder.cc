@@ -185,7 +185,7 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   file->SetIOPriority(io_priority_);
   file->SetWriteLifeTimeHint(write_hint_);
   FileTypeSet tmp_set = immutable_cf_options_->checksum_handoff_file_types;
-  Statistics* const statistics = immutable_cf_options_->statistics;
+  Statistics* const statistics = immutable_cf_options_->statistics.get();
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
       std::move(file), blob_file_paths_->back(), *file_options_,
       immutable_cf_options_->clock, io_tracer_, statistics,

@@ -58,7 +58,7 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
       inplace_update_num_locks(mutable_cf_options.inplace_update_num_locks),
       inplace_callback(ioptions.inplace_callback),
       max_successive_merges(mutable_cf_options.max_successive_merges),
-      statistics(ioptions.statistics),
+      statistics(ioptions.statistics.get()),
       merge_operator(ioptions.merge_operator),
       info_log(ioptions.info_log),
       allow_data_in_errors(ioptions.allow_data_in_errors) {}

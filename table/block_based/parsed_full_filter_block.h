@@ -13,28 +13,29 @@ namespace ROCKSDB_NAMESPACE {
 
 class FilterBitsReader;
 class FilterPolicy;
+class Statistics;
 
 // The sharable/cachable part of the full filter.
 class ParsedFullFilterBlock {
  public:
   ParsedFullFilterBlock(const FilterPolicy* filter_policy,
-                        BlockContents&& contents);
+                        BlockContents&& contents,
+                        const std::shared_ptr<Statistics>& statistics);
   ~ParsedFullFilterBlock();
 
   FilterBitsReader* filter_bits_reader() const {
     return filter_bits_reader_.get();
   }
 
-  // TODO: consider memory usage of the FilterBitsReader
-  size_t ApproximateMemoryUsage() const {
-    return block_contents_.ApproximateMemoryUsage();
-  }
+  size_t ApproximateMemoryUsage() const;
 
   bool own_bytes() const { return block_contents_.own_bytes(); }
 
  private:
   BlockContents block_contents_;
   std::unique_ptr<FilterBitsReader> filter_bits_reader_;
+  // For filter eviction statistics, optional
+  std::shared_ptr<Statistics> statistics_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

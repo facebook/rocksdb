@@ -79,11 +79,10 @@ class BlocklikeTraits;
 template <>
 class BlocklikeTraits<BlockContents> {
  public:
-  static BlockContents* Create(BlockContents&& contents,
-                               size_t /* read_amp_bytes_per_bit */,
-                               Statistics* /* statistics */,
-                               bool /* using_zstd */,
-                               const FilterPolicy* /* filter_policy */) {
+  static BlockContents* Create(
+      BlockContents&& contents, size_t /* read_amp_bytes_per_bit */,
+      const std::shared_ptr<Statistics>& /* statistics */,
+      bool /* using_zstd */, const FilterPolicy* /* filter_policy */) {
     return new BlockContents(std::move(contents));
   }
 
@@ -95,12 +94,12 @@ class BlocklikeTraits<BlockContents> {
 template <>
 class BlocklikeTraits<ParsedFullFilterBlock> {
  public:
-  static ParsedFullFilterBlock* Create(BlockContents&& contents,
-                                       size_t /* read_amp_bytes_per_bit */,
-                                       Statistics* /* statistics */,
-                                       bool /* using_zstd */,
-                                       const FilterPolicy* filter_policy) {
-    return new ParsedFullFilterBlock(filter_policy, std::move(contents));
+  static ParsedFullFilterBlock* Create(
+      BlockContents&& contents, size_t /* read_amp_bytes_per_bit */,
+      const std::shared_ptr<Statistics>& statistics, bool /* using_zstd */,
+      const FilterPolicy* filter_policy) {
+    return new ParsedFullFilterBlock(filter_policy, std::move(contents),
+                                     statistics);
   }
 
   static uint32_t GetNumRestarts(const ParsedFullFilterBlock& /* block */) {
@@ -112,9 +111,11 @@ template <>
 class BlocklikeTraits<Block> {
  public:
   static Block* Create(BlockContents&& contents, size_t read_amp_bytes_per_bit,
-                       Statistics* statistics, bool /* using_zstd */,
+                       const std::shared_ptr<Statistics>& statistics,
+                       bool /* using_zstd */,
                        const FilterPolicy* /* filter_policy */) {
-    return new Block(std::move(contents), read_amp_bytes_per_bit, statistics);
+    return new Block(std::move(contents), read_amp_bytes_per_bit,
+                     statistics.get());
   }
 
   static uint32_t GetNumRestarts(const Block& block) {
@@ -125,11 +126,10 @@ class BlocklikeTraits<Block> {
 template <>
 class BlocklikeTraits<UncompressionDict> {
  public:
-  static UncompressionDict* Create(BlockContents&& contents,
-                                   size_t /* read_amp_bytes_per_bit */,
-                                   Statistics* /* statistics */,
-                                   bool using_zstd,
-                                   const FilterPolicy* /* filter_policy */) {
+  static UncompressionDict* Create(
+      BlockContents&& contents, size_t /* read_amp_bytes_per_bit */,
+      const std::shared_ptr<Statistics>& /* statistics */, bool using_zstd,
+      const FilterPolicy* /* filter_policy */) {
     return new UncompressionDict(contents.data, std::move(contents.allocation),
                                  using_zstd);
   }
@@ -221,7 +221,7 @@ CacheAllocationPtr CopyBufferToHeap(MemoryAllocator* allocator, Slice& buf) {
 void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
                                             GetContext* get_context,
                                             size_t usage) const {
-  Statistics* const statistics = rep_->ioptions.statistics;
+  Statistics* const statistics = rep_->ioptions.statistics.get();
 
   PERF_COUNTER_ADD(block_cache_hit_count, 1);
   PERF_COUNTER_BY_LEVEL_ADD(block_cache_hit_count, 1,
@@ -279,7 +279,7 @@ void BlockBasedTable::UpdateCacheHitMetrics(BlockType block_type,
 
 void BlockBasedTable::UpdateCacheMissMetrics(BlockType block_type,
                                              GetContext* get_context) const {
-  Statistics* const statistics = rep_->ioptions.statistics;
+  Statistics* const statistics = rep_->ioptions.statistics.get();
 
   // TODO: introduce aggregate (not per-level) block cache miss count
   PERF_COUNTER_BY_LEVEL_ADD(block_cache_miss_count, 1,
@@ -333,7 +333,7 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
                                                   GetContext* get_context,
                                                   size_t usage,
                                                   bool redundant) const {
-  Statistics* const statistics = rep_->ioptions.statistics;
+  Statistics* const statistics = rep_->ioptions.statistics.get();
 
   // TODO: introduce perf counters for block cache insertions
   if (get_context) {
@@ -425,7 +425,7 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
 Cache::Handle* BlockBasedTable::GetEntryFromCache(
     Cache* block_cache, const Slice& key, BlockType block_type,
     GetContext* get_context) const {
-  auto cache_handle = block_cache->Lookup(key, rep_->ioptions.statistics);
+  auto cache_handle = block_cache->Lookup(key, rep_->ioptions.statistics.get());
 
   if (cache_handle != nullptr) {
     UpdateCacheHitMetrics(block_type, get_context,
@@ -662,7 +662,7 @@ Status BlockBasedTable::Open(
       PersistentCacheOptions(rep->table_options.persistent_cache,
                              std::string(rep->persistent_cache_key_prefix,
                                          rep->persistent_cache_key_prefix_size),
-                             rep->ioptions.statistics);
+                             rep->ioptions.statistics.get());
 
   // Meta-blocks are not dictionary compressed. Explicitly set the dictionary
   // handle to null, otherwise it may be seen as uninitialized during the below
@@ -1206,7 +1206,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
   block_cache_compressed_handle =
       block_cache_compressed->Lookup(compressed_block_cache_key);
 
-  Statistics* statistics = rep_->ioptions.statistics;
+  Statistics* statistics = rep_->ioptions.statistics.get();
 
   // if we found in the compressed cache, then uncompress and insert into
   // uncompressed cache
@@ -1235,8 +1235,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   if (s.ok()) {
     std::unique_ptr<TBlocklike> block_holder(
         BlocklikeTraits<TBlocklike>::Create(
-            std::move(contents), read_amp_bytes_per_bit, statistics,
-            rep_->blocks_definitely_zstd_compressed,
+            std::move(contents), read_amp_bytes_per_bit,
+            rep_->ioptions.statistics, rep_->blocks_definitely_zstd_compressed,
             rep_->table_options.filter_policy.get()));  // uncompressed block
 
     if (block_cache != nullptr && block_holder->own_bytes() &&
@@ -1291,7 +1291,7 @@ Status BlockBasedTable::PutDataBlockToCache(
   assert(cached_block->IsEmpty());
 
   Status s;
-  Statistics* statistics = ioptions.statistics;
+  Statistics* statistics = ioptions.statistics.get();
 
   std::unique_ptr<TBlocklike> block_holder;
   if (raw_block_comp_type != kNoCompression) {
@@ -1309,12 +1309,12 @@ Status BlockBasedTable::PutDataBlockToCache(
 
     block_holder.reset(BlocklikeTraits<TBlocklike>::Create(
         std::move(uncompressed_block_contents), read_amp_bytes_per_bit,
-        statistics, rep_->blocks_definitely_zstd_compressed,
+        ioptions.statistics, rep_->blocks_definitely_zstd_compressed,
         rep_->table_options.filter_policy.get()));
   } else {
     block_holder.reset(BlocklikeTraits<TBlocklike>::Create(
-        std::move(*raw_block_contents), read_amp_bytes_per_bit, statistics,
-        rep_->blocks_definitely_zstd_compressed,
+        std::move(*raw_block_contents), read_amp_bytes_per_bit,
+        ioptions.statistics, rep_->blocks_definitely_zstd_compressed,
         rep_->table_options.filter_policy.get()));
   }
 
@@ -1422,7 +1422,7 @@ DataBlockIter* BlockBasedTable::InitBlockIterator<DataBlockIter>(
     DataBlockIter* input_iter, bool block_contents_pinned) {
   return block->NewDataIterator(rep->internal_comparator.user_comparator(),
                                 rep->get_global_seqno(block_type), input_iter,
-                                rep->ioptions.statistics,
+                                rep->ioptions.statistics.get(),
                                 block_contents_pinned);
 }
 
@@ -1432,7 +1432,8 @@ IndexBlockIter* BlockBasedTable::InitBlockIterator<IndexBlockIter>(
     IndexBlockIter* input_iter, bool block_contents_pinned) {
   return block->NewIndexIterator(
       rep->internal_comparator.user_comparator(),
-      rep->get_global_seqno(block_type), input_iter, rep->ioptions.statistics,
+      rep->get_global_seqno(block_type), input_iter,
+      rep->ioptions.statistics.get(),
       /* total_order_seek */ true, rep->index_has_first_key,
       rep->index_key_includes_seq, rep->index_value_is_full,
       block_contents_pinned);
@@ -1492,7 +1493,7 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
     // Can't find the block from the cache. If I/O is allowed, read from the
     // file.
     if (block_entry->GetValue() == nullptr && !no_io && ro.fill_cache) {
-      Statistics* statistics = rep_->ioptions.statistics;
+      Statistics* statistics = rep_->ioptions.statistics.get();
       const bool maybe_compressed =
           block_type != BlockType::kFilter &&
           block_type != BlockType::kCompressionDictionary &&
@@ -1885,8 +1886,9 @@ void BlockBasedTable::RetrieveMultipleBlocks(
         contents = std::move(raw_block_contents);
       }
       if (s.ok()) {
-        (*results)[idx_in_batch].SetOwnedValue(new Block(
-            std::move(contents), read_amp_bytes_per_bit, ioptions.statistics));
+        (*results)[idx_in_batch].SetOwnedValue(
+            new Block(std::move(contents), read_amp_bytes_per_bit,
+                      ioptions.statistics.get()));
       }
     }
     (*statuses)[idx_in_batch] = s;
@@ -2149,7 +2151,7 @@ bool BlockBasedTable::PrefixMayMatch(
   }
 
   if (filter_checked) {
-    Statistics* statistics = rep_->ioptions.statistics;
+    Statistics* statistics = rep_->ioptions.statistics.get();
     RecordTick(statistics, BLOOM_FILTER_PREFIX_CHECKED);
     if (!may_match) {
       RecordTick(statistics, BLOOM_FILTER_PREFIX_USEFUL);

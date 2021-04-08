@@ -155,7 +155,7 @@ Status BuildTable(
       file->SetWriteLifeTimeHint(write_hint);
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, ioptions.clock, io_tracer,
-          ioptions.statistics, ioptions.listeners,
+          ioptions.statistics.get(), ioptions.listeners,
           ioptions.file_checksum_gen_factory,
           tmp_set.Contains(FileType::kTableFile)));
 
@@ -185,7 +185,7 @@ Status BuildTable(
     CompactionIterator c_iter(
         iter, internal_comparator.user_comparator(), &merge, kMaxSequenceNumber,
         &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
-        ShouldReportDetailedTime(env, ioptions.statistics),
+        ShouldReportDetailedTime(env, ioptions.statistics.get()),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
         /*compaction=*/nullptr,

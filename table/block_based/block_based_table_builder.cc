@@ -1092,7 +1092,7 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
 
   StopWatchNano timer(
       r->ioptions.clock,
-      ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics));
+      ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics.get()));
 
   if (is_status_ok && raw_block_contents.size() < kCompressionSizeLimit) {
     if (is_data_block) {
@@ -1188,7 +1188,8 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
     *type = kNoCompression;
     *block_contents = raw_block_contents;
   } else if (*type != kNoCompression) {
-    if (ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics)) {
+    if (ShouldReportDetailedTime(r->ioptions.env,
+                                 r->ioptions.statistics.get())) {
       RecordTimeToHistogram(r->ioptions.statistics, COMPRESSION_TIMES_NANOS,
                             timer.ElapsedNanos());
     }

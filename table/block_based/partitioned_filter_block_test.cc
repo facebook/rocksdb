@@ -36,6 +36,7 @@ class MyPartitionedFilterBlockReader : public PartitionedFilterBlockReader {
   MyPartitionedFilterBlockReader(BlockBasedTable* t,
                                  CachableEntry<Block>&& filter_block)
       : PartitionedFilterBlockReader(t, std::move(filter_block)) {
+    std::shared_ptr<Statistics> statistics;  // empty
     for (const auto& pair : blooms) {
       const uint64_t offset = pair.first;
       const std::string& bloom = pair.second;
@@ -45,7 +46,7 @@ class MyPartitionedFilterBlockReader : public PartitionedFilterBlockReader {
       CachableEntry<ParsedFullFilterBlock> block(
           new ParsedFullFilterBlock(
               t->get_rep()->table_options.filter_policy.get(),
-              BlockContents(Slice(bloom))),
+              BlockContents(Slice(bloom)), statistics),
           nullptr /* cache */, nullptr /* cache_handle */,
           true /* own_value */);
       filter_map_[offset] = std::move(block);

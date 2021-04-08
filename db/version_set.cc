@@ -1765,7 +1765,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       cfd_(column_family_data),
       info_log_((cfd_ == nullptr) ? nullptr : cfd_->ioptions()->info_log),
       db_statistics_((cfd_ == nullptr) ? nullptr
-                                       : cfd_->ioptions()->statistics),
+                                       : cfd_->ioptions()->statistics.get()),
       table_cache_((cfd_ == nullptr) ? nullptr : cfd_->table_cache()),
       blob_file_cache_(cfd_ ? cfd_->blob_file_cache() : nullptr),
       merge_operator_((cfd_ == nullptr) ? nullptr
