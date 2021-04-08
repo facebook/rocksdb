@@ -311,7 +311,9 @@ CompactionJob::CompactionJob(
     Env::Priority thread_pri, const std::shared_ptr<IOTracer>& io_tracer,
     const std::atomic<int>* manual_compaction_paused, const std::string& db_id,
     const std::string& db_session_id, std::string full_history_ts_low,
-    BlobFileCompletionCallback* blob_callback)
+    BlobFileCompletionCallback* blob_callback,
+    const CompactionServiceInput* compaction_service_input,
+    const std::string& output_path)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_job_stats_(compaction_job_stats),
@@ -348,7 +350,9 @@ CompactionJob::CompactionJob(
       write_hint_(Env::WLTH_NOT_SET),
       thread_pri_(thread_pri),
       full_history_ts_low_(std::move(full_history_ts_low)),
-      blob_callback_(blob_callback) {
+      blob_callback_(blob_callback),
+      compaction_service_input_(compaction_service_input),
+      output_path_(output_path) {
   assert(compaction_job_stats_ != nullptr);
   assert(log_buffer_ != nullptr);
   const auto* cfd = compact_->compaction->column_family_data();
@@ -420,7 +424,11 @@ void CompactionJob::Prepare() {
       c->column_family_data()->CalculateSSTWriteHint(c->output_level());
   bottommost_level_ = c->bottommost_level();
 
-  if (c->ShouldFormSubcompactions()) {
+  if (IsCompactionServiceWorker()) {
+    compact_->sub_compact_states.emplace_back(
+        c, compaction_service_input_->begin, compaction_service_input_->end,
+        compaction_service_input_->approx_size);
+  } else if (c->ShouldFormSubcompactions()) {
     {
       StopWatch sw(db_options_.clock, stats_, SUBCOMPACTION_SETUP_TIME);
       GenSubcompactionBoundaries();
@@ -896,6 +904,35 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   }
 
   CleanupCompaction();
+  return status;
+}
+
+Status CompactionJob::BuildCompactionResult(
+    CompactionServiceResult* compaction_result) {
+  assert(compact_);
+  Status status = compact_->status;
+  // TODO: add validation like VerifyCompactionFileConsistency()
+  compaction_result->output_level = compact_->compaction->output_level();
+  compaction_result->output_path = output_path_;
+  // Compaction service should not have sub compaction
+  assert(compact_->sub_compact_states.size() == 1);
+  SubcompactionState& subcompaction_state = compact_->sub_compact_states[0];
+
+  for (auto& output_file : subcompaction_state.outputs) {
+    auto& meta = output_file.meta;
+    compaction_result->output_files.emplace_back(
+        MakeTableFileName(".", meta.fd.GetNumber()), meta.fd.smallest_seqno,
+        meta.fd.largest_seqno, meta.smallest, meta.largest,
+        meta.oldest_ancester_time, meta.file_creation_time,
+        output_file.validator.GetHash(), meta.marked_for_compaction);
+  }
+  compaction_result->num_output_records =
+      subcompaction_state.num_output_records;
+  compaction_result->approx_size = subcompaction_state.approx_size;
+  compaction_result->total_bytes = subcompaction_state.total_bytes;
+  compaction_result->bytes_written = bytes_written_;
+  compaction_result->bytes_read = bytes_read_;
+
   return status;
 }
 
@@ -1550,9 +1587,13 @@ Status CompactionJob::FinishCompactionOutputFile(
   FileDescriptor output_fd;
   uint64_t oldest_blob_file_number = kInvalidBlobFileNumber;
   if (meta != nullptr) {
-    fname =
-        TableFileName(sub_compact->compaction->immutable_cf_options()->cf_paths,
-                      meta->fd.GetNumber(), meta->fd.GetPathId());
+    if (IsCompactionServiceWorker()) {
+      fname = MakeTableFileName(output_path_, meta->fd.GetNumber());
+    } else {
+      fname = TableFileName(
+          sub_compact->compaction->immutable_cf_options()->cf_paths,
+          meta->fd.GetNumber(), meta->fd.GetPathId());
+    }
     output_fd = meta->fd;
     oldest_blob_file_number = meta->oldest_blob_file_number;
   } else {
@@ -1658,6 +1699,11 @@ void CompactionJob::RecordCompactionIOStats() {
     RecordTick(stats_, COMPACT_READ_BYTES_TTL, IOSTATS(bytes_read));
     RecordTick(stats_, COMPACT_WRITE_BYTES_TTL, IOSTATS(bytes_written));
   }
+  if (IsCompactionServiceWorker()) {
+    // Record these metrics before reset
+    bytes_written_ = IOSTATS(bytes_written);
+    bytes_read_ = IOSTATS(bytes_read);
+  }
   ThreadStatusUtil::IncreaseThreadOperationProperty(
       ThreadStatus::COMPACTION_BYTES_READ, IOSTATS(bytes_read));
   IOSTATS_RESET(bytes_read);
@@ -1672,9 +1718,14 @@ Status CompactionJob::OpenCompactionOutputFile(
   assert(sub_compact->builder == nullptr);
   // no need to lock because VersionSet::next_file_number_ is atomic
   uint64_t file_number = versions_->NewFileNumber();
-  std::string fname =
-      TableFileName(sub_compact->compaction->immutable_cf_options()->cf_paths,
-                    file_number, sub_compact->compaction->output_path_id());
+  std::string fname;
+  if (IsCompactionServiceWorker()) {
+    fname = MakeTableFileName(output_path_, file_number);
+  } else {
+    fname =
+        TableFileName(sub_compact->compaction->immutable_cf_options()->cf_paths,
+                      file_number, sub_compact->compaction->output_path_id());
+  }
   // Fire events.
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
 #ifndef ROCKSDB_LITE

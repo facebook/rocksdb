@@ -17,8 +17,9 @@ namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
-                                 const std::string& dbname)
-    : DBImpl(db_options, dbname) {
+                                 const std::string& dbname,
+                                 const std::string& secondary_path)
+    : DBImpl(db_options, dbname), secondary_path_(secondary_path) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Opening the db in secondary mode");
   LogFlush(immutable_db_options_.info_log);
@@ -617,7 +618,7 @@ Status DB::OpenAsSecondary(
   }
 
   handles->clear();
-  DBImplSecondary* impl = new DBImplSecondary(tmp_opts, dbname);
+  DBImplSecondary* impl = new DBImplSecondary(tmp_opts, dbname, secondary_path);
   impl->versions_.reset(new ReactiveVersionSet(
       dbname, &impl->immutable_db_options_, impl->file_options_,
       impl->table_cache_.get(), impl->write_buffer_manager_,
@@ -663,6 +664,100 @@ Status DB::OpenAsSecondary(
   }
   return s;
 }
+
+Status DBImplSecondary::CompactWithoutInstallation(
+    ColumnFamilyHandle* cfh, const CompactionServiceInput& input,
+    CompactionServiceResult* result) {
+  InstrumentedMutexLock l(&mutex_);
+  auto cfd = static_cast_with_check<ColumnFamilyHandleImpl>(cfh)->cfd();
+  if (!cfd) {
+    return Status::InvalidArgument("Cannot find column family" +
+                                   cfh->GetName());
+  }
+
+  std::unordered_set<uint64_t> input_set;
+  for (const auto& file_name : input.input_files) {
+    input_set.insert(TableFileNameToNumber(file_name));
+  }
+
+  auto* version = cfd->current();
+
+  ColumnFamilyMetaData cf_meta;
+  version->GetColumnFamilyMetaData(&cf_meta);
+
+  const MutableCFOptions* mutable_cf_options = cfd->GetLatestMutableCFOptions();
+  ColumnFamilyOptions cf_options = cfd->GetLatestCFOptions();
+  VersionStorageInfo* vstorage = version->storage_info();
+
+  // Use comp_options to reuse some CompactFiles functions
+  CompactionOptions comp_options;
+  comp_options.compression = kDisableCompressionOption;
+  comp_options.output_file_size_limit = MaxFileSizeForLevel(
+      *mutable_cf_options, input.output_level, cf_options.compaction_style,
+      vstorage->base_level(), cf_options.level_compaction_dynamic_level_bytes);
+
+  std::vector<CompactionInputFiles> input_files;
+  Status s = cfd->compaction_picker()->GetCompactionInputsFromFileNumbers(
+      &input_files, &input_set, vstorage, comp_options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<Compaction> c;
+  assert(cfd->compaction_picker());
+  c.reset(cfd->compaction_picker()->CompactFiles(
+      comp_options, input_files, input.output_level, vstorage,
+      *mutable_cf_options, mutable_db_options_, 0));
+  assert(c != nullptr);
+
+  c->SetInputVersion(version);
+
+  // Create output directory if it's not existed yet
+  std::unique_ptr<FSDirectory> output_dir;
+  CreateAndNewDirectory(fs_.get(), secondary_path_, &output_dir);
+
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
+                       immutable_db_options_.info_log.get());
+
+  // TODO: there's only 1 job could be run per DB secondary instance, add
+  // validation for that.
+  const int job_id = 1;
+
+  std::atomic<bool> shutting_down(false);        // not used
+  std::atomic<int> manual_compaction_paused(0);  // not used
+  // not supported, default to 0
+  const SequenceNumber preserve_deletes_seqnum = 0;
+
+  CompactionJob compaction_job(
+      job_id, c.get(), immutable_db_options_, file_options_for_compaction_,
+      versions_.get(), &shutting_down, preserve_deletes_seqnum, &log_buffer,
+      nullptr, output_dir.get(), nullptr, stats_, &mutex_, &error_handler_,
+      input.snapshots, kMaxSequenceNumber, nullptr, table_cache_,
+      &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
+      c->mutable_cf_options()->report_bg_io_stats, dbname_, &(result->stats),
+      Env::Priority::USER, io_tracer_, &manual_compaction_paused, db_id_,
+      db_session_id_, c->column_family_data()->GetFullHistoryTsLow(), nullptr,
+      &input, secondary_path_);
+
+  // The prepare here just setup the subcomption information from
+  // CompactionService input.
+  compaction_job.Prepare();
+
+  mutex_.Unlock();
+  compaction_job.Run().PermitUncheckedError();
+  mutex_.Lock();
+
+  s = compaction_job.BuildCompactionResult(result);
+
+  // clean up
+  compaction_job.CleanupCompaction();
+  compaction_job.io_status().PermitUncheckedError();
+  c->ReleaseCompactionFiles(s);
+  c.reset();
+
+  return s;
+}
+
 #else   // !ROCKSDB_LITE
 
 Status DB::OpenAsSecondary(const Options& /*options*/,

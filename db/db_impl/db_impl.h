@@ -1130,6 +1130,14 @@ class DBImpl : public DB {
   ColumnFamilyHandleImpl* default_cf_handle_;
   InternalStats* default_cf_internal_stats_;
 
+  // table_cache_ provides its own synchronization
+  std::shared_ptr<Cache> table_cache_;
+
+  ErrorHandler error_handler_;
+
+  // Unified interface for logging events
+  EventLogger event_logger_;
+
   // only used for dynamically adjusting max_total_wal_size. it is a sum of
   // [write_buffer_size * max_write_buffer_number] over all column families
   uint64_t max_total_in_memory_state_;
@@ -1940,9 +1948,6 @@ class DBImpl : public DB {
 
   Status IncreaseFullHistoryTsLow(ColumnFamilyData* cfd, std::string ts_low);
 
-  // table_cache_ provides its own synchronization
-  std::shared_ptr<Cache> table_cache_;
-
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
@@ -2198,9 +2203,6 @@ class DBImpl : public DB {
   WalManager wal_manager_;
 #endif  // ROCKSDB_LITE
 
-  // Unified interface for logging events
-  EventLogger event_logger_;
-
   // A value of > 0 temporarily disables scheduling of background work
   int bg_work_paused_;
 
@@ -2267,8 +2269,6 @@ class DBImpl : public DB {
 
   // Flag to check whether Close() has been called on this DB
   bool closed_;
-
-  ErrorHandler error_handler_;
 
   // Conditional variable to coordinate installation of atomic flush results.
   // With atomic flush, each bg thread installs the result of flushing multiple

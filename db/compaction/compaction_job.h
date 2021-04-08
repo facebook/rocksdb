@@ -57,6 +57,81 @@ class Version;
 class VersionEdit;
 class VersionSet;
 
+// CompactionServiceInput is used the pass compaction information between two
+// db instances. It contains the information needed to do a compaction. It
+// doesn't contain the LSM tree information, which is passed though MANIFEST
+// file.
+struct CompactionServiceInput {
+  std::string column_family_name;
+
+  DBOptions db_options;
+  ColumnFamilyOptions cf_options;
+
+  std::vector<SequenceNumber> snapshots;
+
+  // SST files for compaction, it should already be expended to include all the
+  // files needed for this compaction, for both input level files and output
+  // level files.
+  std::vector<std::string> input_files;
+  int output_level;
+
+  // information for subcompaction
+  Slice* begin = nullptr;
+  Slice* end = nullptr;
+  uint64_t approx_size = 0;
+};
+
+// CompactionServiceOutputFile is the metadata for the output SST file
+struct CompactionServiceOutputFile {
+  std::string file_name;
+  SequenceNumber smallest_seqno;
+  SequenceNumber largest_seqno;
+  InternalKey smallest_internal_key;
+  InternalKey largest_internal_key;
+  uint64_t oldest_ancester_time;
+  uint64_t file_creation_time;
+  uint64_t paranoid_hash;
+  bool marked_for_compaction;
+
+  CompactionServiceOutputFile() = default;
+  CompactionServiceOutputFile(const std::string& name, SequenceNumber smallest,
+                              SequenceNumber largest,
+                              const InternalKey& _smallest_internal_key,
+                              const InternalKey& _largest_internal_key,
+                              uint64_t _oldest_ancester_time,
+                              uint64_t _file_creation_time,
+                              uint64_t _paranoid_hash,
+                              bool _marked_for_compaction)
+      : file_name(name),
+        smallest_seqno(smallest),
+        largest_seqno(largest),
+        smallest_internal_key(_smallest_internal_key),
+        largest_internal_key(_largest_internal_key),
+        oldest_ancester_time(_oldest_ancester_time),
+        file_creation_time(_file_creation_time),
+        paranoid_hash(_paranoid_hash),
+        marked_for_compaction(_marked_for_compaction) {}
+};
+
+// CompactionServiceResult contains the compaction result from a different db
+// instance, with these information, the primary db instance with write
+// permission is able to install the result to the DB.
+struct CompactionServiceResult {
+  std::vector<CompactionServiceOutputFile> output_files;
+  int output_level;
+
+  // location of the output files
+  std::string output_path;
+
+  // some statistics about the compaction
+  uint64_t num_output_records;
+  uint64_t total_bytes;
+  uint64_t approx_size;
+  uint64_t bytes_read;
+  uint64_t bytes_written;
+  CompactionJobStats stats;
+};
+
 // CompactionJob is responsible for executing the compaction. Each (manual or
 // automated) compaction corresponds to a CompactionJob object, and usually
 // goes through the stages of `Prepare()`->`Run()`->`Install()`. CompactionJob
@@ -82,7 +157,9 @@ class CompactionJob {
       const std::atomic<int>* manual_compaction_paused = nullptr,
       const std::string& db_id = "", const std::string& db_session_id = "",
       std::string full_history_ts_low = "",
-      BlobFileCompletionCallback* blob_callback = nullptr);
+      BlobFileCompletionCallback* blob_callback = nullptr,
+      const CompactionServiceInput* compaction_service_input = nullptr,
+      const std::string& output_path = "");
 
   ~CompactionJob();
 
@@ -104,8 +181,12 @@ class CompactionJob {
   // Add compaction input/output to the current version
   Status Install(const MutableCFOptions& mutable_cf_options);
 
+  Status BuildCompactionResult(CompactionServiceResult* compaction_result);
+
   // Return the IO status
   IOStatus io_status() const { return io_status_; }
+
+  void CleanupCompaction();
 
  private:
   struct SubcompactionState;
@@ -134,7 +215,6 @@ class CompactionJob {
   Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options);
   void RecordCompactionIOStats();
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact);
-  void CleanupCompaction();
   void UpdateCompactionJobStats(
     const InternalStats::CompactionStats& stats) const;
   void RecordDroppedKeys(const CompactionIterationStats& c_iter_stats,
@@ -145,6 +225,10 @@ class CompactionJob {
       int* num_files, uint64_t* bytes_read, int input_level);
 
   void LogCompaction();
+
+  bool IsCompactionServiceWorker() {
+    return compaction_service_input_ != nullptr;
+  }
 
   int job_id_;
 
@@ -207,6 +291,14 @@ class CompactionJob {
   IOStatus io_status_;
   std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
+
+  // Only set if the compaction job is built for compaction service.
+  const CompactionServiceInput* compaction_service_input_;
+  // Specific the compaction output path, otherwise it uses default DB path
+  const std::string output_path_;
+  // The basic statistics for this compaction job
+  uint64_t bytes_written_;
+  uint64_t bytes_read_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE
