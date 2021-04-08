@@ -7,6 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <iomanip>
+#include <sstream>
+
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
@@ -2115,6 +2118,54 @@ TEST_F(DBBloomFilterTest, DynamicBloomFilterOptions) {
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_CHECKED), 12);
     ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_PREFIX_USEFUL), 3);
   }
+}
+
+TEST_F(DBBloomFilterTest, SeekForPrevWithPartitionedFilters) {
+  Options options = CurrentOptions();
+  constexpr size_t kNumKeys = 10000;
+  static_assert(kNumKeys <= 10000, "kNumKeys have to be <= 10000");
+  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeys + 10));
+  options.create_if_missing = true;
+  constexpr size_t kPrefixLength = 4;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(kPrefixLength));
+  options.compression = kNoCompression;
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(50));
+  bbto.index_shortening =
+      BlockBasedTableOptions::IndexShorteningMode::kNoShortening;
+  bbto.block_size = 128;
+  bbto.metadata_block_size = 128;
+  bbto.partition_filters = true;
+  bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  const std::string value(64, '\0');
+
+  WriteOptions write_opts;
+  write_opts.disableWAL = true;
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(4) << std::fixed << i;
+    ASSERT_OK(db_->Put(write_opts, oss.str(), value));
+  }
+  ASSERT_OK(Flush());
+
+  ReadOptions read_opts;
+  // Use legacy, implicit prefix seek
+  read_opts.total_order_seek = false;
+  read_opts.auto_prefix_mode = false;
+  std::unique_ptr<Iterator> it(db_->NewIterator(read_opts));
+  for (size_t i = 0; i < kNumKeys; ++i) {
+    // Seek with a key after each one added but with same prefix. One will
+    // surely cross a partition boundary.
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(4) << std::fixed << i << "a";
+    it->SeekForPrev(oss.str());
+    ASSERT_OK(it->status());
+    ASSERT_TRUE(it->Valid());
+  }
+  it.reset();
 }
 
 #endif  // ROCKSDB_LITE

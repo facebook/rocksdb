@@ -915,7 +915,7 @@ class IoctlFriendlyTmpdir {
       } else {
         // mkdtemp failed: diagnose it, but don't give up.
         fprintf(stderr, "mkdtemp(%s/...) failed: %s\n", d.c_str(),
-                strerror(errno));
+                errnoStr(errno).c_str());
       }
     }
 
@@ -1040,7 +1040,8 @@ TEST_P(EnvPosixTestWithParam, AllocateTest) {
     int err_number = 0;
     if (alloc_status != 0) {
       err_number = errno;
-      fprintf(stderr, "Warning: fallocate() fails, %s\n", strerror(err_number));
+      fprintf(stderr, "Warning: fallocate() fails, %s\n",
+              errnoStr(err_number).c_str());
     }
     close(fd);
     ASSERT_OK(env_->DeleteFile(fname_test_fallocate));

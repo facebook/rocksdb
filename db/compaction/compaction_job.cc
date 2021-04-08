@@ -150,7 +150,7 @@ struct CompactionJob::SubcompactionState {
       // This subcompaction's output could be empty if compaction was aborted
       // before this subcompaction had a chance to generate any output files.
       // When subcompactions are executed sequentially this is more likely and
-      // will be particulalry likely for the later subcompactions to be empty.
+      // will be particularly likely for the later subcompactions to be empty.
       // Once they are run in parallel however it should be much rarer.
       return nullptr;
     } else {
@@ -410,7 +410,7 @@ void CompactionJob::Prepare() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PREPARE);
 
-  // Generate file_levels_ for compaction berfore making Iterator
+  // Generate file_levels_ for compaction before making Iterator
   auto* c = compact_->compaction;
   assert(c->column_family_data() != nullptr);
   assert(c->column_family_data()->current()->storage_info()->NumLevelFiles(
@@ -1770,7 +1770,6 @@ Status CompactionJob::OpenCompactionOutputFile(
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
       cfd->GetID(), cfd->GetName(), sub_compact->outfile.get(),
       sub_compact->compaction->output_compression(),
-      0 /*sample_for_compression */,
       sub_compact->compaction->output_compression_opts(),
       sub_compact->compaction->output_level(), skip_filters,
       oldest_ancester_time, 0 /* oldest_key_time */,

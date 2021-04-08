@@ -151,7 +151,7 @@ class Cache {
   //   - Name-value option pairs -- "capacity=1M; num_shard_bits=4;
   //     For the LRUCache, the values are defined in LRUCacheOptions.
   // @param result The new Cache object
-  // @return OK if the cache was sucessfully created
+  // @return OK if the cache was successfully created
   // @return NotFound if an invalid name was specified in the value
   // @return InvalidArgument if either the options were not valid
   static Status CreateFromString(const ConfigOptions& config_options,

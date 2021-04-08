@@ -16,6 +16,7 @@
 #include "rocksdb/sst_file_writer.h"
 #include "test_util/testutil.h"
 #include "util/random.h"
+#include "util/thread_guard.h"
 #include "utilities/fault_injection_env.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -1305,38 +1306,38 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
-  // While writing the MANIFEST start a thread that will ask for compaction
   Status bg_compact_status;
-  ROCKSDB_NAMESPACE::port::Thread bg_compact([&]() {
-    bg_compact_status =
-        db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-  });
-  TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:2");
-
-  // Start a thread that will ingest a new file
   Status bg_addfile_status;
-  ROCKSDB_NAMESPACE::port::Thread bg_addfile([&]() {
-    file_keys = {1, 2, 3};
-    bg_addfile_status = GenerateAndAddExternalFile(options, file_keys, 1);
-  });
 
-  // Wait for AddFile to start picking levels and writing MANIFEST
-  TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:0");
+  {
+    // While writing the MANIFEST start a thread that will ask for compaction
+    ThreadGuard bg_compact(port::Thread([&]() {
+      bg_compact_status =
+          db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    }));
+    TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:2");
 
-  TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:3");
+    // Start a thread that will ingest a new file
+    ThreadGuard bg_addfile(port::Thread([&]() {
+      file_keys = {1, 2, 3};
+      bg_addfile_status = GenerateAndAddExternalFile(options, file_keys, 1);
+    }));
 
-  // We need to verify that no compactions can run while AddFile is
-  // ingesting the files into the levels it find suitable. So we will
-  // wait for 2 seconds to give a chance for compactions to run during
-  // this period, and then make sure that no compactions where able to run
-  env_->SleepForMicroseconds(1000000 * 2);
-  ASSERT_FALSE(bg_compact_started.load());
+    // Wait for AddFile to start picking levels and writing MANIFEST
+    TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:0");
 
-  // Hold AddFile from finishing writing the MANIFEST
-  TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:1");
+    TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:3");
 
-  bg_addfile.join();
-  bg_compact.join();
+    // We need to verify that no compactions can run while AddFile is
+    // ingesting the files into the levels it find suitable. So we will
+    // wait for 2 seconds to give a chance for compactions to run during
+    // this period, and then make sure that no compactions where able to run
+    env_->SleepForMicroseconds(1000000 * 2);
+    ASSERT_FALSE(bg_compact_started.load());
+
+    // Hold AddFile from finishing writing the MANIFEST
+    TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:1");
+  }
 
   ASSERT_OK(bg_addfile_status);
   ASSERT_OK(bg_compact_status);

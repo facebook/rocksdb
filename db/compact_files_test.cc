@@ -118,6 +118,78 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
   delete db;
 }
 
+TEST_F(CompactFilesTest, MultipleLevel) {
+  Options options;
+  options.create_if_missing = true;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.num_levels = 6;
+  // Add listener
+  FlushedFileCollector* collector = new FlushedFileCollector();
+  options.listeners.emplace_back(collector);
+
+  DB* db = nullptr;
+  DestroyDB(db_name_, options);
+  Status s = DB::Open(options, db_name_, &db);
+  ASSERT_OK(s);
+  ASSERT_NE(db, nullptr);
+
+  // create couple files in L0, L3, L4 and L5
+  for (int i = 5; i > 2; --i) {
+    collector->ClearFlushedFiles();
+    ASSERT_OK(db->Put(WriteOptions(), ToString(i), ""));
+    ASSERT_OK(db->Flush(FlushOptions()));
+    auto l0_files = collector->GetFlushedFiles();
+    ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files, i));
+
+    std::string prop;
+    ASSERT_TRUE(
+        db->GetProperty("rocksdb.num-files-at-level" + ToString(i), &prop));
+    ASSERT_EQ("1", prop);
+  }
+  ASSERT_OK(db->Put(WriteOptions(), ToString(0), ""));
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  ColumnFamilyMetaData meta;
+  db->GetColumnFamilyMetaData(&meta);
+  // Compact files except the file in L3
+  std::vector<std::string> files;
+  for (int i = 0; i < 6; ++i) {
+    if (i == 3) continue;
+    for (auto& file : meta.levels[i].files) {
+      files.push_back(file.db_path + "/" + file.name);
+    }
+  }
+
+  SyncPoint::GetInstance()->LoadDependency({
+      {"CompactionJob::Run():Start", "CompactFilesTest.MultipleLevel:0"},
+      {"CompactFilesTest.MultipleLevel:1", "CompactFilesImpl:3"},
+  });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  std::thread thread([&] {
+    TEST_SYNC_POINT("CompactFilesTest.MultipleLevel:0");
+    ASSERT_OK(db->Put(WriteOptions(), "bar", "v2"));
+    ASSERT_OK(db->Put(WriteOptions(), "foo", "v2"));
+    ASSERT_OK(db->Flush(FlushOptions()));
+    TEST_SYNC_POINT("CompactFilesTest.MultipleLevel:1");
+  });
+
+  // Compaction cannot move up the data to higher level
+  // here we have input file from level 5, so the output level has to be >= 5
+  for (int invalid_output_level = 0; invalid_output_level < 5;
+       invalid_output_level++) {
+    s = db->CompactFiles(CompactionOptions(), files, invalid_output_level);
+    std::cout << s.ToString() << std::endl;
+    ASSERT_TRUE(s.IsInvalidArgument());
+  }
+
+  ASSERT_OK(db->CompactFiles(CompactionOptions(), files, 5));
+  SyncPoint::GetInstance()->DisableProcessing();
+  thread.join();
+
+  delete db;
+}
+
 TEST_F(CompactFilesTest, ObsoleteFiles) {
   Options options;
   // to trigger compaction more easily

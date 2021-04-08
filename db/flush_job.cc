@@ -75,6 +75,8 @@ const char* GetFlushReasonString (FlushReason flush_reason) {
       return "Manual Flush";
     case FlushReason::kErrorRecovery:
       return "Error Recovery";
+    case FlushReason::kWalFull:
+      return "WAL Full";
     default:
       return "Invalid";
   }
@@ -411,8 +413,7 @@ Status FlushJob::WriteLevel0Table() {
           cfd_->internal_comparator(), cfd_->int_tbl_prop_collector_factories(),
           cfd_->GetID(), cfd_->GetName(), existing_snapshots_,
           earliest_write_conflict_snapshot_, snapshot_checker_,
-          output_compression_, mutable_cf_options_.sample_for_compression,
-          mutable_cf_options_.compression_opts,
+          output_compression_, mutable_cf_options_.compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, &io_s, io_tracer_, event_logger_,
           job_context_->job_id, Env::IO_HIGH, &table_properties_, 0 /* level */,

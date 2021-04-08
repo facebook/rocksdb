@@ -61,6 +61,8 @@ struct TablePropertiesNames {
   static const std::string kCreationTime;
   static const std::string kOldestKeyTime;
   static const std::string kFileCreationTime;
+  static const std::string kSlowCompressionEstimatedDataSize;
+  static const std::string kFastCompressionEstimatedDataSize;
 };
 
 extern const std::string kPropertiesBlock;
@@ -99,9 +101,9 @@ class TablePropertiesCollector {
   }
 
   // Called after each new block is cut
-  virtual void BlockAdd(uint64_t /* blockRawBytes */,
-                        uint64_t /* blockCompressedBytesFast */,
-                        uint64_t /* blockCompressedBytesSlow */) {
+  virtual void BlockAdd(uint64_t /* block_raw_bytes */,
+                        uint64_t /* block_compressed_bytes_fast */,
+                        uint64_t /* block_compressed_bytes_slow */) {
     // Nothing to do here. Callback registers can override.
     return;
   }
@@ -195,6 +197,14 @@ struct TableProperties {
   uint64_t oldest_key_time = 0;
   // Actual SST file creation time. 0 means unknown.
   uint64_t file_creation_time = 0;
+  // Estimated size of data blocks if compressed using a relatively slower
+  // compression algorithm (see `ColumnFamilyOptions::sample_for_compression`).
+  // 0 means unknown.
+  uint64_t slow_compression_estimated_data_size = 0;
+  // Estimated size of data blocks if compressed using a relatively faster
+  // compression algorithm (see `ColumnFamilyOptions::sample_for_compression`).
+  // 0 means unknown.
+  uint64_t fast_compression_estimated_data_size = 0;
 
   // DB identity
   // db_id is an identifier generated the first time the DB is created

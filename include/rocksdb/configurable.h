@@ -28,7 +28,7 @@ struct DBOptions;
 // standard way of configuring objects.  A Configurable object can:
 //   -> Populate itself given:
 //        - One or more "name/value" pair strings
-//        - A string repesenting the set of name=value properties
+//        - A string representing the set of name=value properties
 //        - A map of name/value properties.
 //   -> Convert itself into its string representation
 //   -> Dump itself to a Logger
@@ -166,7 +166,7 @@ class Configurable {
   // This is the inverse of ConfigureFromString.
   // @param config_options Controls how serialization happens.
   // @param result The string representation of this object.
-  // @return OK If the options for this object wer successfully serialized.
+  // @return OK If the options for this object were successfully serialized.
   // @return InvalidArgument If one or more of the options could not be
   // serialized.
   Status GetOptionString(const ConfigOptions& config_options,
@@ -276,7 +276,7 @@ class Configurable {
   // Classes may override this method to provide further specialization (such as
   // returning a sub-option)
   //
-  // The default implemntation looks at the registered options.  If the
+  // The default implementation looks at the registered options.  If the
   // input name matches that of a registered option, the pointer registered
   // with that name is returned.
   // e.g,, RegisterOptions("X", &my_ptr, ...); GetOptionsPtr("X") returns

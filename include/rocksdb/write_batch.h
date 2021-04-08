@@ -312,10 +312,10 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if MarkEndPrepare will be called during Iterate
   bool HasEndPrepare() const;
 
-  // Returns trie if MarkCommit will be called during Iterate
+  // Returns true if MarkCommit will be called during Iterate
   bool HasCommit() const;
 
-  // Returns trie if MarkRollback will be called during Iterate
+  // Returns true if MarkRollback will be called during Iterate
   bool HasRollback() const;
 
   // Assign timestamp to write batch

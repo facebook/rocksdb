@@ -235,7 +235,7 @@ class DBIter final : public Iterator {
   // If `skipping_saved_key` is true, the function will keep iterating until it
   // finds a user key that is larger than `saved_key_`.
   // If `prefix` is not null, the iterator needs to stop when all keys for the
-  // prefix are exhausted and the interator is set to invalid.
+  // prefix are exhausted and the iterator is set to invalid.
   bool FindNextUserEntry(bool skipping_saved_key, const Slice* prefix);
   // Internal implementation of FindNextUserEntry().
   bool FindNextUserEntryInternal(bool skipping_saved_key, const Slice* prefix);

@@ -73,6 +73,22 @@ void IOTraceRecordParser::PrintHumanReadableIOTraceRecord(
     // unset the rightmost bit.
     io_op_data &= (io_op_data - 1);
   }
+
+  int64_t trace_data = static_cast<int64_t>(record.trace_data);
+  while (trace_data) {
+    // Find the rightmost set bit.
+    uint32_t set_pos = static_cast<uint32_t>(log2(trace_data & -trace_data));
+    switch (set_pos) {
+      case IODebugContext::TraceData::kRequestID:
+        ss << ", Request Id: " << record.request_id;
+        break;
+      default:
+        assert(false);
+    }
+    // unset the rightmost bit.
+    trace_data &= (trace_data - 1);
+  }
+
   ss << "\n";
   fprintf(stdout, "%s", ss.str().c_str());
 }

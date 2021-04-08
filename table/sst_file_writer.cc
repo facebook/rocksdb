@@ -99,7 +99,8 @@ struct SstFileWriter::Rep {
     file_info.largest_key.assign(user_key.data(), user_key.size());
     file_info.file_size = builder->FileSize();
 
-    return InvalidatePageCache(false /* closing */);
+    InvalidatePageCache(false /* closing */).PermitUncheckedError();
+    return Status::OK();
   }
 
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
@@ -133,7 +134,8 @@ struct SstFileWriter::Rep {
     file_info.num_range_del_entries++;
     file_info.file_size = builder->FileSize();
 
-    return InvalidatePageCache(false /* closing */);
+    InvalidatePageCache(false /* closing */).PermitUncheckedError();
+    return Status::OK();
   }
 
   Status InvalidatePageCache(bool closing) {
@@ -210,8 +212,6 @@ Status SstFileWriter::Open(const std::string& file_path) {
     compression_type = r->mutable_cf_options.compression;
     compression_opts = r->mutable_cf_options.compression_opts;
   }
-  uint64_t sample_for_compression =
-      r->mutable_cf_options.sample_for_compression;
 
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
@@ -252,10 +252,9 @@ Status SstFileWriter::Open(const std::string& file_path) {
   }
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, r->internal_comparator,
-      &int_tbl_prop_collector_factories, compression_type,
-      sample_for_compression, compression_opts, r->skip_filters,
-      r->column_family_name, unknown_level, 0 /* creation_time */,
-      0 /* oldest_key_time */, 0 /* target_file_size */,
+      &int_tbl_prop_collector_factories, compression_type, compression_opts,
+      r->skip_filters, r->column_family_name, unknown_level,
+      0 /* creation_time */, 0 /* oldest_key_time */, 0 /* target_file_size */,
       0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id);
   FileTypeSet tmp_set = r->ioptions.checksum_handoff_file_types;
   r->file_writer.reset(new WritableFileWriter(
@@ -311,9 +310,7 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
 
   if (s.ok()) {
     s = r->file_writer->Sync(r->ioptions.use_fsync);
-    if (s.ok()) {
-      s = r->InvalidatePageCache(true /* closing */);
-    }
+    r->InvalidatePageCache(true /* closing */).PermitUncheckedError();
     if (s.ok()) {
       s = r->file_writer->Close();
     }
