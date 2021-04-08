@@ -743,7 +743,7 @@ ifdef ASSERT_STATUS_CHECKED
 		ttl_test \
 		write_batch_test \
 		write_batch_with_index_test \
-		write_batch_w_i_range_test \
+		write_batch_with_index_delete_range_test \
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
@@ -1750,7 +1750,7 @@ ttl_test: $(OBJ_DIR)/utilities/ttl/ttl_test.o $(TEST_LIBRARY) $(LIBRARY)
 write_batch_with_index_test: $(OBJ_DIR)/utilities/write_batch_with_index/write_batch_with_index_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
-write_batch_w_i_range_test: $(OBJ_DIR)/utilities/write_batch_with_index/write_batch_w_i_range_test.o $(TEST_LIBRARY) $(LIBRARY)
+write_batch_with_index_delete_range_test: $(OBJ_DIR)/utilities/write_batch_with_index/write_batch_with_index_delete_range_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 flush_job_test: $(OBJ_DIR)/db/flush_job_test.o $(TEST_LIBRARY) $(LIBRARY)

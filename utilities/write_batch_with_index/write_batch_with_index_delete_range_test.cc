@@ -118,12 +118,21 @@ class KVIter : public Iterator {
   KVMap::const_iterator iter_;
 };
 
-void AssertIter(std::unique_ptr<WBWIIterator>& iter, const std::string& key,
-                const std::string& value) {
+void AssertIterValue(std::unique_ptr<WBWIIterator>& iter,
+                     const std::string& key, const std::string& value) {
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(key, iter->Entry().key.ToString());
+  ASSERT_EQ(kPutRecord, iter->Entry().type);
   ASSERT_EQ(value, iter->Entry().value.ToString());
+}
+
+void AssertIterType(std::unique_ptr<WBWIIterator>& iter, const std::string& key,
+                    WriteType writeType) {
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(key, iter->Entry().key.ToString());
+  ASSERT_EQ(writeType, iter->Entry().type);
 }
 
 }  // namespace
@@ -195,7 +204,38 @@ static std::string PrintContents(WriteBatchWithIndex* batch,
   return result;
 }
 
-TEST_F(WriteBatchWithIndexTest, TestIteraratorMultipleWrites) {
+TEST_F(WriteBatchWithIndexTest, TestIteraratorOverwriteKeyTrue) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+
+  ASSERT_OK(batch.Put(&cf1, "A", "ab"));
+  ASSERT_OK(batch.Put(&cf1, "A", "ac"));
+  ASSERT_OK(batch.Put(&cf1, "A", "ad"));
+  {
+    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
+
+    iter->Seek("A");
+    AssertIterValue(iter, "A", "ad");
+
+    iter->SeekToLast();
+    AssertIterValue(iter, "A", "ad");
+  }
+
+  ASSERT_OK(batch.Delete(&cf1, "A"));
+  {
+    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
+
+    iter->Seek("A");
+    AssertIterType(iter, "A", kDeleteRecord);
+
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_FALSE(iter->Valid());
+  }
+}
+
+TEST_F(WriteBatchWithIndexTest, TestIteraratorOverwriteKeyFalse) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 20, false);
@@ -207,17 +247,17 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorMultipleWrites) {
     std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
 
     iter->Seek("A");
-    AssertIter(iter, "A", "ab");
+    AssertIterValue(iter, "A", "ab");
     iter->Next();
-    AssertIter(iter, "A", "ac");
+    AssertIterValue(iter, "A", "ac");
     iter->Next();
-    AssertIter(iter, "A", "ac");
+    AssertIterValue(iter, "A", "ad");
 
     iter->Seek("A");
-    AssertIter(iter, "A", "ab");
+    AssertIterValue(iter, "A", "ab");
 
     iter->SeekToLast();
-    AssertIter(iter, "A", "ad");
+    AssertIterValue(iter, "A", "ad");
   }
 
   ASSERT_OK(batch.Delete(&cf1, "A"));
@@ -225,14 +265,18 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorMultipleWrites) {
     std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
 
     iter->Seek("A");
-    AssertIter(iter, "A", "ab");
+    AssertIterValue(iter, "A", "ab");
     iter->Next();
-    AssertIter(iter, "A", "ac");
+    AssertIterValue(iter, "A", "ac");
     iter->Next();
-    AssertIter(iter, "A", "ad");
+    AssertIterValue(iter, "A", "ad");
+    iter->Next();
+    AssertIterType(iter, "A", kDeleteRecord);
 
     iter->SeekToLast();
-    AssertIter(iter, "A", "ad");
+    AssertIterType(iter, "A", kDeleteRecord);
+    iter->Prev();
+    AssertIterValue(iter, "A", "ad");
   }
 }
 
