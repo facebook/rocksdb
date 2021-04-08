@@ -2493,11 +2493,6 @@ TEST_F(OptionsOldApiTest, GetOptionsFromStringTest) {
       NewBlockBasedTableFactory(block_based_table_options));
 
   // Register an Env with object registry.
-  class CustomEnv : public EnvWrapper {
-   public:
-    explicit CustomEnv(Env* _target) : EnvWrapper(_target) {}
-  };
-
   ObjectLibrary::Default()->Register<Env>(
       "CustomEnvDefault",
       [](const std::string& /*name*/, std::unique_ptr<Env>* /*env_guard*/,
