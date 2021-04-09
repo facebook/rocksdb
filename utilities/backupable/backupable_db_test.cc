@@ -2871,7 +2871,8 @@ TEST_F(BackupableDBTest, BackupWithMetadata) {
   // Also verify in individual BackupInfo
   for (int i = 0; i < 5; i++) {
     BackupInfo backup_info;
-    backup_engine_->GetBackupInfo(static_cast<BackupID>(i + 1), &backup_info);
+    ASSERT_OK(backup_engine_->GetBackupInfo(static_cast<BackupID>(i + 1),
+                                            &backup_info));
     ASSERT_EQ(std::to_string(i), backup_info.app_metadata);
   }
   CloseDBAndBackupEngine();
