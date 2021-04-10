@@ -191,6 +191,7 @@ TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
 TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   Options options;
   options.env = env_;
+  options.disable_auto_compactions = true;
   Reopen(options);
   const int kRangeL2 = 10;
   const int kRangeL1 = 30;
@@ -217,8 +218,8 @@ TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
 
   // pick 2 files on level 0 for compaction, which has 3 overlap files on L1
   CompactionServiceInput input1;
-  input1.input_files.push_back(meta.levels[0].files[0].name);
-  input1.input_files.push_back(meta.levels[0].files[1].name);
+  input1.input_files.push_back(meta.levels[0].files[2].name);
+  input1.input_files.push_back(meta.levels[0].files[3].name);
   input1.input_files.push_back(meta.levels[1].files[0].name);
   input1.input_files.push_back(meta.levels[1].files[1].name);
   input1.input_files.push_back(meta.levels[1].files[2].name);
