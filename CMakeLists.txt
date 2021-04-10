@@ -338,9 +338,17 @@ if (NOT WITH_IOSTATS_CONTEXT)
   add_definitions(-DNIOSTATS_CONTEXT)
 endif()
 
+option(WITH_PERF_CONTEXT "Enable perf context" ON)
+if (NOT WITH_PERF_CONTEXT)
+  add_definitions(-DNPERF_CONTEXT)
+endif()
+
 if (NOT HAVE_THREAD_LOCAL)
   if (WITH_IOSTATS_CONTEXT)
     message(FATAL_ERROR "Thread-local not supported but io stats context enabled.")
+  endif()
+  if (WITH_PERF_CONTEXT)
+    message(FATAL_ERROR "Thread-local not supported but perf context enabled.")
   endif()
 endif()
 
