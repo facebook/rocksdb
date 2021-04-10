@@ -1355,6 +1355,12 @@ Status ColumnFamilyData::ValidateOptions(
         "[0.0, 1.0].");
   }
 
+  if (cf_options.compaction_style == kCompactionStyleFIFO &&
+      db_options.max_open_files != -1 && cf_options.ttl > 0) {
+    return Status::NotSupported(
+        "FIFO compaction only supported with max_open_files = -1.");
+  }
+
   return s;
 }
 

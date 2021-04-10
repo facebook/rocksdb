@@ -3507,17 +3507,21 @@ TEST_F(DBTest, FIFOCompactionStyleWithCompactionAndDelete) {
 }
 
 // Check that FIFO-with-TTL is not supported with max_open_files != -1.
+// Github issue #8014
 TEST_F(DBTest, FIFOCompactionWithTTLAndMaxOpenFilesTest) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleFIFO;
   options.create_if_missing = true;
   options.ttl = 600;  // seconds
 
-  // TTL is now supported with max_open_files != -1.
-  options.max_open_files = 100;
-  options = CurrentOptions(options);
-  ASSERT_OK(TryReopen(options));
+  // TTL is not supported with max_open_files != -1.
+  options.max_open_files = 0;
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
 
+  options.max_open_files = 100;
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+
+  // TTL is supported with unlimited max_open_files
   options.max_open_files = -1;
   ASSERT_OK(TryReopen(options));
 }

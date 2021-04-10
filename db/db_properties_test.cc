@@ -1626,6 +1626,7 @@ TEST_F(DBPropertiesTest, EstimateOldestKeyTime) {
 
   options.compaction_style = kCompactionStyleFIFO;
   options.ttl = 300;
+  options.max_open_files = -1;
   options.compaction_options_fifo.allow_compaction = false;
   DestroyAndReopen(options);
 
