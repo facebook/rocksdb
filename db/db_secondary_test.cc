@@ -188,7 +188,7 @@ TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
   ASSERT_GT(result.bytes_written, 0);
 }
 
-TEST_F(DBSecondaryTest, InternalCompaction) {
+TEST_F(DBSecondaryTest, InternalCompactionMultiLevels) {
   Options options;
   options.env = env_;
   Reopen(options);
@@ -214,7 +214,6 @@ TEST_F(DBSecondaryTest, InternalCompaction) {
 
   ColumnFamilyMetaData meta;
   db_->GetColumnFamilyMetaData(&meta);
-  std::cout << FilesPerLevel() << std::endl;
 
   // pick 2 files on level 0 for compaction, which has 3 overlap files on L1
   CompactionServiceInput input1;
@@ -228,6 +227,7 @@ TEST_F(DBSecondaryTest, InternalCompaction) {
 
   options.max_open_files = -1;
   Close();
+
   OpenSecondary(options);
   auto cfh = db_secondary_->DefaultColumnFamily();
   CompactionServiceResult result;
@@ -250,7 +250,7 @@ TEST_F(DBSecondaryTest, InternalCompaction) {
 
   // delete all l2 files, without update manifest
   for (auto& file : meta.levels[2].files) {
-    env_->DeleteFile(dbname_ + file.name);
+    ASSERT_OK(env_->DeleteFile(dbname_ + file.name));
   }
   OpenSecondary(options);
   cfh = db_secondary_->DefaultColumnFamily();
@@ -328,7 +328,7 @@ TEST_F(DBSecondaryTest, InternalCompactionMissingFiles) {
 
   Close();
 
-  env_->DeleteFile(dbname_ + input.input_files[0]);
+  ASSERT_OK(env_->DeleteFile(dbname_ + input.input_files[0]));
 
   options.max_open_files = -1;
   OpenSecondary(options);
@@ -337,13 +337,12 @@ TEST_F(DBSecondaryTest, InternalCompactionMissingFiles) {
   CompactionServiceResult result;
   Status s =
       db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input, &result);
-  std::cout << s.ToString() << std::endl;
   ASSERT_TRUE(s.IsInvalidArgument());
 
   input.input_files.erase(input.input_files.begin());
 
-  s = db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input, &result);
-  std::cout << s.ToString() << std::endl;
+  ASSERT_OK(db_secondary_full()->TEST_CompactWithoutInstallation(cfh, input,
+                                                                 &result));
 }
 
 TEST_F(DBSecondaryTest, OpenAsSecondary) {

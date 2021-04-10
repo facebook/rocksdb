@@ -738,7 +738,10 @@ Status CompactionJob::Run() {
       thread_pool.emplace_back(verify_table,
                                std::ref(compact_->sub_compact_states[i].status));
     }
-    verify_table(compact_->sub_compact_states[0].status);
+    // TODO: verify_table needs to read the output SST, which is not in DB path
+    if (!IsCompactionServiceWorker()) {
+      verify_table(compact_->sub_compact_states[0].status);
+    }
     for (auto& thread : thread_pool) {
       thread.join();
     }

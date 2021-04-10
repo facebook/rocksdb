@@ -714,7 +714,10 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   // Create output directory if it's not existed yet
   std::unique_ptr<FSDirectory> output_dir;
-  CreateAndNewDirectory(fs_.get(), secondary_path_, &output_dir);
+  s = CreateAndNewDirectory(fs_.get(), secondary_path_, &output_dir);
+  if (!s.ok()) {
+    return s;
+  }
 
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
