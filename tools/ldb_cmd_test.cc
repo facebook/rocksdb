@@ -349,6 +349,83 @@ TEST_F(LdbCmdTest, DumpFileChecksumNoChecksum) {
   ASSERT_OK(fct_helper_ac.VerifyChecksumInManifest(live_files));
 }
 
+TEST_F(LdbCmdTest, BlobDBDumpFileChecksumNoChecksum) {
+  Env* base_env = TryLoadCustomOrDefaultEnv();
+  std::unique_ptr<Env> env(NewMemEnv(base_env));
+  Options opts;
+  opts.env = env.get();
+  opts.create_if_missing = true;
+  opts.enable_blob_files = true;
+
+  DB* db = nullptr;
+  std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
+  ASSERT_OK(DB::Open(opts, dbname, &db));
+
+  WriteOptions wopts;
+  FlushOptions fopts;
+  fopts.wait = true;
+  Random rnd(test::RandomSeed());
+  for (int i = 0; i < 200; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v = rnd.RandomString(100);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+  for (int i = 100; i < 300; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v = rnd.RandomString(100);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+  for (int i = 200; i < 400; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v = rnd.RandomString(100);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+  for (int i = 300; i < 400; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v = rnd.RandomString(100);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+
+  char arg1[] = "./ldb";
+  char arg2[1024];
+  snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+  char arg3[] = "file_checksum_dump";
+  char* argv[] = {arg1, arg2, arg3};
+
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
+
+  // Verify each sst file checksum value and checksum name
+  FileChecksumTestHelper fct_helper(opts, db, dbname);
+  ASSERT_OK(fct_helper.VerifyEachFileChecksum());
+
+  // Manually trigger compaction
+  char b_buf[16];
+  snprintf(b_buf, sizeof(b_buf), "%08d", 0);
+  char e_buf[16];
+  snprintf(e_buf, sizeof(e_buf), "%08d", 399);
+  Slice begin(b_buf);
+  Slice end(e_buf);
+  CompactRangeOptions options;
+  ASSERT_OK(db->CompactRange(options, &begin, &end));
+  // Verify each sst file checksum after compaction
+  FileChecksumTestHelper fct_helper_ac(opts, db, dbname);
+  ASSERT_OK(fct_helper_ac.VerifyEachFileChecksum());
+
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
+
+  delete db;
+}
+
 TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   Env* base_env = TryLoadCustomOrDefaultEnv();
   std::unique_ptr<Env> env(NewMemEnv(base_env));
@@ -428,6 +505,83 @@ TEST_F(LdbCmdTest, DumpFileChecksumCRC32) {
   db->GetLiveFilesMetaData(&live_files);
   delete db;
   ASSERT_OK(fct_helper_ac.VerifyChecksumInManifest(live_files));
+}
+
+TEST_F(LdbCmdTest, BlobDBDumpFileChecksumCRC32) {
+  Env* base_env = TryLoadCustomOrDefaultEnv();
+  std::unique_ptr<Env> env(NewMemEnv(base_env));
+  Options opts;
+  opts.env = env.get();
+  opts.create_if_missing = true;
+  opts.file_checksum_gen_factory = GetFileChecksumGenCrc32cFactory();
+  opts.enable_blob_files = true;
+
+  DB* db = nullptr;
+  std::string dbname = test::PerThreadDBPath(env.get(), "ldb_cmd_test");
+  ASSERT_OK(DB::Open(opts, dbname, &db));
+
+  WriteOptions wopts;
+  FlushOptions fopts;
+  fopts.wait = true;
+  Random rnd(test::RandomSeed());
+  for (int i = 0; i < 100; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v = rnd.RandomString(100);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+  for (int i = 50; i < 150; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v = rnd.RandomString(100);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+  for (int i = 100; i < 200; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v = rnd.RandomString(100);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+  for (int i = 150; i < 250; i++) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08d", i);
+    std::string v = rnd.RandomString(100);
+    ASSERT_OK(db->Put(wopts, buf, v));
+  }
+  ASSERT_OK(db->Flush(fopts));
+
+  char arg1[] = "./ldb";
+  char arg2[1024];
+  snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+  char arg3[] = "file_checksum_dump";
+  char* argv[] = {arg1, arg2, arg3};
+
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
+
+  // Verify each sst file checksum value and checksum name
+  FileChecksumTestHelper fct_helper(opts, db, dbname);
+  ASSERT_OK(fct_helper.VerifyEachFileChecksum());
+
+  // Manually trigger compaction
+  char b_buf[16];
+  snprintf(b_buf, sizeof(b_buf), "%08d", 0);
+  char e_buf[16];
+  snprintf(e_buf, sizeof(e_buf), "%08d", 249);
+  Slice begin(b_buf);
+  Slice end(e_buf);
+  CompactRangeOptions options;
+  ASSERT_OK(db->CompactRange(options, &begin, &end));
+  // Verify each sst file checksum after compaction
+  FileChecksumTestHelper fct_helper_ac(opts, db, dbname);
+  ASSERT_OK(fct_helper_ac.VerifyEachFileChecksum());
+
+  ASSERT_EQ(0,
+            LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
+  delete db;
 }
 
 TEST_F(LdbCmdTest, OptionParsing) {

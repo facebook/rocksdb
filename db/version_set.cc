@@ -4954,6 +4954,7 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
     if (cfd->IsDropped() || !cfd->initialized()) {
       continue;
     }
+    /* SST files */
     for (int level = 0; level < cfd->NumberLevels(); level++) {
       for (const auto& file :
            cfd->current()->storage_info()->LevelFiles(level)) {
@@ -4961,17 +4962,36 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
                                                  file->file_checksum,
                                                  file->file_checksum_func_name);
         if (!s.ok()) {
-          break;
+          return s;
         }
       }
+    }
+
+    /* Blob files */
+    const auto& blob_files = cfd->current()->storage_info()->GetBlobFiles();
+    for (const auto& pair : blob_files) {
+      const uint64_t blob_file_number = pair.first;
+      const auto& meta = pair.second;
+
+      assert(meta);
+      assert(blob_file_number == meta->GetBlobFileNumber());
+
+      std::string checksum_value = meta->GetChecksumValue();
+      std::string checksum_method = meta->GetChecksumMethod();
+      assert(checksum_value.empty() == checksum_method.empty());
+      if (meta->GetChecksumMethod().empty()) {
+        checksum_value = kUnknownFileChecksum;
+        checksum_method = kUnknownFileChecksumFuncName;
+      }
+
+      s = checksum_list->InsertOneFileChecksum(blob_file_number, checksum_value,
+                                               checksum_method);
       if (!s.ok()) {
-        break;
+        return s;
       }
     }
-    if (!s.ok()) {
-      break;
-    }
   }
+
   return s;
 }
 
