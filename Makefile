@@ -489,12 +489,16 @@ endif
 CFLAGS += $(C_WARNING_FLAGS) $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
 
+TARGETS_NO_BUILD=tags tags0 clean format check-format check-buck-targets
+
+ifneq (,$(filter-out $(TARGETS_NO_BUILD),$(MAKECMDGOALS)))
 ifeq (,$(filter -DROCKSDB_SUPPORT_THREAD_LOCAL,$(CXXFLAGS)))
 ifeq (,$(filter -DNIOSTATS_CONTEXT,$(CXXFLAGS)))
 $(error No thread-local support detected on your platform, thus you must disable iostats context via -DNIOSTATS_CONTEXT)
 endif
 ifeq (,$(filter -DNPERF_CONTEXT,$(CXXFLAGS)))
 $(error No thread-local support detected on your platform, thus you must disable perf context via -DNPERF_CONTEXT)
+endif
 endif
 endif
 
