@@ -34,11 +34,6 @@ static std::shared_ptr<ROCKSDB_NAMESPACE::DbStressEnvWrapper> env_wrapper_guard;
 static std::shared_ptr<CompositeEnvWrapper> fault_env_guard;
 }  // namespace
 
-static Env* GetCompositeEnv(std::shared_ptr<FileSystem> fs) {
-  static std::shared_ptr<Env> composite_env = NewCompositeEnv(fs);
-  return composite_env.get();
-}
-
 KeyGenContext key_gen_ctx;
 
 int db_stress_tool(int argc, char** argv) {
@@ -78,22 +73,14 @@ int db_stress_tool(int argc, char** argv) {
 
   if (!FLAGS_hdfs.empty()) {
     raw_env = new ROCKSDB_NAMESPACE::HdfsEnv(FLAGS_hdfs);
-  } else if (!FLAGS_env_uri.empty()) {
-    Status s = Env::LoadEnv(FLAGS_env_uri, &raw_env, &env_guard);
-    if (raw_env == nullptr) {
-      fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
-      exit(1);
-    }
-  } else if (!FLAGS_fs_uri.empty()) {
-    std::shared_ptr<FileSystem> fs;
-    Status s = FileSystem::Load(FLAGS_fs_uri, &fs);
-    if (!s.ok()) {
-      fprintf(stderr, "Error: %s\n", s.ToString().c_str());
-      exit(1);
-    }
-    raw_env = GetCompositeEnv(fs);
   } else {
-    raw_env = Env::Default();
+    Status s = Env::CreateFromFlags(ConfigOptions(), FLAGS_env_uri,
+                                    FLAGS_fs_uri, &raw_env, &env_guard);
+    if (!s.ok()) {
+      fprintf(stderr, "Error Creating Env URI: %s: %s\n", FLAGS_env_uri.c_str(),
+              s.ToString().c_str());
+      exit(1);
+    }
   }
 
 #ifndef NDEBUG
