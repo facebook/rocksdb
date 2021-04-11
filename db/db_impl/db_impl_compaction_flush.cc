@@ -2125,8 +2125,8 @@ Status DBImpl::WaitForFlushMemTables(
       return Status::ShutdownInProgress();
     }
     // If an error has occurred during resumption, then no need to wait.
-    // But this flush operation may fail because of this error, so need
-    // to return the status.
+    // But flush operation may fail because of the error, so need to
+    // return the status.
     if (!error_handler_.GetRecoveryError().ok()) {
       s = error_handler_.GetRecoveryError();
       break;
