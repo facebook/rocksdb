@@ -908,6 +908,9 @@ TEST_F(DBTest, FlushSchedule) {
       static_cast<int64_t>(options.write_buffer_size);
   options.max_write_buffer_number = 2;
   options.write_buffer_size = 120 * 1024;
+  auto flush_listener = std::make_shared<FlushCounterListener>();
+  flush_listener->expected_flush_reason = FlushReason::kWriteBufferFull;
+  options.listeners.push_back(flush_listener);
   CreateAndReopenWithCF({"pikachu"}, options);
   std::vector<port::Thread> threads;
 

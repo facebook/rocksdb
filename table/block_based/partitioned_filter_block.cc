@@ -73,13 +73,16 @@ void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock(
   }
   filter_gc.push_back(std::unique_ptr<const char[]>(nullptr));
 
-  // Add the prefix of the next key before finishing the partition. This hack,
-  // fixes a bug with format_verison=3 where seeking for the prefix would lead
-  // us to the previous partition.
-  const bool add_prefix =
+  // Add the prefix of the next key before finishing the partition without
+  // updating last_prefix_str_. This hack, fixes a bug with format_verison=3
+  // where seeking for the prefix would lead us to the previous partition.
+  const bool maybe_add_prefix =
       next_key && prefix_extractor() && prefix_extractor()->InDomain(*next_key);
-  if (add_prefix) {
-    FullFilterBlockBuilder::AddPrefix(*next_key);
+  if (maybe_add_prefix) {
+    const Slice next_key_prefix = prefix_extractor()->Transform(*next_key);
+    if (next_key_prefix.compare(last_prefix_str()) != 0) {
+      AddKey(next_key_prefix);
+    }
   }
 
   Slice filter = filter_bits_builder_->Finish(&filter_gc.back());

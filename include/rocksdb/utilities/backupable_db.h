@@ -42,11 +42,14 @@ struct BackupableDBOptions {
   // Default: nullptr
   Env* backup_env;
 
-  // If share_table_files == true, backup will assume that table files with
-  // same name have the same contents. This enables incremental backups and
-  // avoids unnecessary data copies.
-  // If share_table_files == false, each backup will be on its own and will
-  // not share any data with other backups.
+  // share_table_files supports table and blob files.
+  //
+  // If share_table_files == true, the backup directory will share table and
+  // blob files among backups, to save space among backups of the same DB and to
+  // enable incremental backups by only copying new files.
+  // If share_table_files == false, each backup will be on its own and will not
+  // share any data with other backups.
+  //
   // default: true
   bool share_table_files;
 
@@ -92,13 +95,15 @@ struct BackupableDBOptions {
   // Default: nullptr
   std::shared_ptr<RateLimiter> restore_rate_limiter{nullptr};
 
+  // share_files_with_checksum supports table and blob files.
+  //
   // Only used if share_table_files is set to true. Setting to false is
   // DEPRECATED and potentially dangerous because in that case BackupEngine
   // can lose data if backing up databases with distinct or divergent
   // history, for example if restoring from a backup other than the latest,
   // writing to the DB, and creating another backup. Setting to true (default)
-  // prevents these issues by ensuring that different table files (SSTs) with
-  // the same number are treated as distinct. See
+  // prevents these issues by ensuring that different table files (SSTs) and
+  // blob files with the same number are treated as distinct. See
   // share_files_with_checksum_naming and ShareFilesNaming.
   //
   // Default: true
@@ -126,11 +131,12 @@ struct BackupableDBOptions {
   int max_valid_backups_to_open;
 
   // ShareFilesNaming describes possible naming schemes for backup
-  // table file names when the table files are stored in the shared_checksum
-  // directory (i.e., both share_table_files and share_files_with_checksum
-  // are true).
+  // table and blob file names when they are stored in the
+  // shared_checksum directory (i.e., both share_table_files and
+  // share_files_with_checksum are true).
   enum ShareFilesNaming : uint32_t {
-    // Backup SST filenames are <file_number>_<crc32c>_<file_size>.sst
+    // Backup blob filenames are <file_number>_<crc32c>_<file_size>.blob and
+    // backup SST filenames are <file_number>_<crc32c>_<file_size>.sst
     // where <crc32c> is an unsigned decimal integer. This is the
     // original/legacy naming scheme for share_files_with_checksum,
     // with two problems:
@@ -139,6 +145,7 @@ struct BackupableDBOptions {
     // * Determining the name to use requires computing the checksum,
     //   so generally requires reading the whole file even if the file
     //   is already backed up.
+    //
     // ** ONLY RECOMMENDED FOR PRESERVING OLD BEHAVIOR **
     kLegacyCrc32cAndFileSize = 1U,
 
@@ -148,6 +155,8 @@ struct BackupableDBOptions {
     // the value is a DB session id, not a checksum.
     //
     // Exceptions:
+    // * For blob files, kLegacyCrc32cAndFileSize is used as currently
+    //   db_session_id is not supported by the blob file format.
     // * For old SST files without a DB session id, kLegacyCrc32cAndFileSize
     //   will be used instead, matching the names assigned by RocksDB versions
     //   not supporting the newer naming scheme.
@@ -158,25 +167,25 @@ struct BackupableDBOptions {
 
     // If not already part of the naming scheme, insert
     //   _<file_size>
-    // before .sst in the name. In case of user code actually parsing the
-    // last _<whatever> before the .sst as the file size, this preserves that
-    // feature of kLegacyCrc32cAndFileSize. In other words, this option makes
-    // official that unofficial feature of the backup metadata.
+    // before .sst and .blob in the name. In case of user code actually parsing
+    // the last _<whatever> before the .sst  and .blob as the file size, this
+    // preserves that feature of kLegacyCrc32cAndFileSize. In other words, this
+    // option makes official that unofficial feature of the backup metadata.
     //
-    // We do not consider SST file sizes to have sufficient entropy to
+    // We do not consider SST and blob file sizes to have sufficient entropy to
     // contribute significantly to naming uniqueness.
     kFlagIncludeFileSize = 1U << 31,
 
     kMaskNamingFlags = ~kMaskNoNamingFlags,
   };
 
-  // Naming option for share_files_with_checksum table files. See
+  // Naming option for share_files_with_checksum table and blob files. See
   // ShareFilesNaming for details.
   //
   // Modifying this option cannot introduce a downgrade compatibility issue
   // because RocksDB can read, restore, and delete backups using different file
-  // names, and it's OK for a backup directory to use a mixture of table file
-  // naming schemes.
+  // names, and it's OK for a backup directory to use a mixture of table and
+  // blob files naming schemes.
   //
   // However, modifying this option and saving more backups to the same
   // directory can lead to the same file getting saved again to that
@@ -280,23 +289,42 @@ struct BackupFileInfo {
 typedef uint32_t BackupID;
 
 struct BackupInfo {
-  BackupID backup_id;
+  BackupID backup_id = 0U;
   // Creation time, according to GetCurrentTime
-  int64_t timestamp;
+  int64_t timestamp = 0;
 
   // Total size in bytes (based on file payloads, not including filesystem
   // overheads or backup meta file)
-  uint64_t size;
+  uint64_t size = 0U;
 
   // Number of backed up files, some of which might be shared with other
   // backups. Does not include backup meta file.
-  uint32_t number_files;
+  uint32_t number_files = 0U;
 
   // Backup API user metadata
   std::string app_metadata;
 
-  // Backup file details, if requested
+  // Backup file details, if requested with include_file_details=true
   std::vector<BackupFileInfo> file_details;
+
+  // DB "name" (a directory in the backup_env) for opening this backup as a
+  // read-only DB. This should also be used as the DBOptions::wal_dir, such
+  // as by default setting wal_dir="". See also env_for_open.
+  // This field is only set if include_file_details=true
+  std::string name_for_open;
+
+  // An Env(+FileSystem) for opening this backup as a read-only DB, with
+  // DB::OpenForReadOnly or similar. This field is only set if
+  // include_file_details=true. (The FileSystem in this Env takes care
+  // of making shared backup files openable from the `name_for_open` DB
+  // directory.) See also name_for_open.
+  //
+  // This Env might or might not be shared with other backups. To work
+  // around DBOptions::env being a raw pointer, this is a shared_ptr so
+  // that keeping either this BackupInfo, the BackupEngine, or a copy of
+  // this shared_ptr alive is sufficient to keep the Env alive for use by
+  // a read-only DB.
+  std::shared_ptr<Env> env_for_open;
 
   BackupInfo() {}
 
@@ -344,10 +372,8 @@ class BackupEngineReadOnlyBase {
   virtual ~BackupEngineReadOnlyBase() {}
 
   // Returns info about backups in backup_info
-  // You can GetBackupInfo safely, even with other BackupEngine performing
-  // backups on the same directory.
   // Setting include_file_details=true provides information about each
-  // backed-up file in BackupInfo::file_details.
+  // backed-up file in BackupInfo::file_details and more.
   virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info,
                              bool include_file_details = false) const = 0;
 

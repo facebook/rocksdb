@@ -4112,6 +4112,10 @@ void rocksdb_cache_destroy(rocksdb_cache_t* cache) {
   delete cache;
 }
 
+void rocksdb_cache_disown_data(rocksdb_cache_t* cache) {
+  cache->rep->DisownData();
+}
+
 void rocksdb_cache_set_capacity(rocksdb_cache_t* cache, size_t capacity) {
   cache->rep->SetCapacity(capacity);
 }

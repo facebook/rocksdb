@@ -33,6 +33,8 @@ void IOStatsContext::Reset() {
   prepare_write_nanos = 0;
   fsync_nanos = 0;
   logger_nanos = 0;
+  cpu_write_nanos = 0;
+  cpu_read_nanos = 0;
 }
 
 #define IOSTATS_CONTEXT_OUTPUT(counter)         \
@@ -53,6 +55,8 @@ std::string IOStatsContext::ToString(bool exclude_zero_counters) const {
   IOSTATS_CONTEXT_OUTPUT(fsync_nanos);
   IOSTATS_CONTEXT_OUTPUT(prepare_write_nanos);
   IOSTATS_CONTEXT_OUTPUT(logger_nanos);
+  IOSTATS_CONTEXT_OUTPUT(cpu_write_nanos);
+  IOSTATS_CONTEXT_OUTPUT(cpu_read_nanos);
 
   std::string str = ss.str();
   str.erase(str.find_last_not_of(", ") + 1);

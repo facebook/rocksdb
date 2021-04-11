@@ -17,11 +17,13 @@ extern void MarkKeyMayExist(void* arg);
 extern bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
                       const Slice& v, bool hit_and_return);
 
-CompactedDBImpl::CompactedDBImpl(
-  const DBOptions& options, const std::string& dbname)
-  : DBImpl(options, dbname), cfd_(nullptr), version_(nullptr),
-    user_comparator_(nullptr) {
-}
+CompactedDBImpl::CompactedDBImpl(const DBOptions& options,
+                                 const std::string& dbname)
+    : DBImpl(options, dbname, /*seq_per_batch*/ false, +/*batch_per_txn*/ true,
+             /*read_only*/ true),
+      cfd_(nullptr),
+      version_(nullptr),
+      user_comparator_(nullptr) {}
 
 CompactedDBImpl::~CompactedDBImpl() {
 }

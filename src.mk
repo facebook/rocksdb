@@ -86,6 +86,7 @@ LIB_SOURCES =                                                   \
   env/env_posix.cc                                              \
   env/file_system.cc                                            \
   env/fs_posix.cc                                               \
+  env/fs_remap.cc                                               \
   env/file_system_tracer.cc                                     \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
@@ -435,7 +436,6 @@ TEST_MAIN_SOURCES =                                                     \
   db/external_sst_file_test.cc                                          \
   db/fault_injection_test.cc                                            \
   db/file_indexer_test.cc                                               \
-  db/file_reader_writer_test.cc                                         \
   db/filename_test.cc                                                   \
   db/flush_job_test.cc                                                  \
   db/listener_test.cc                                                   \

@@ -218,7 +218,12 @@ class CompositeEnv : public Env {
     return file_system_->OptimizeForCompactionTableRead(
         FileOptions(env_options), db_options);
   }
-
+  EnvOptions OptimizeForBlobFileRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const override {
+    return file_system_->OptimizeForBlobFileRead(FileOptions(env_options),
+                                                 db_options);
+  }
   // This seems to clash with a macro on Windows, so #undef it here
 #ifdef GetFreeSpace
 #undef GetFreeSpace

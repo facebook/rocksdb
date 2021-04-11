@@ -751,10 +751,11 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
 }
 
 class DBWALTestWithParam
-    : public DBSSTTest,
+    : public DBTestBase,
       public testing::WithParamInterface<std::tuple<std::string, bool>> {
  public:
-  DBWALTestWithParam() {
+  explicit DBWALTestWithParam()
+      : DBTestBase("/db_wal_test_with_params", /*env_do_fsync=*/true) {
     wal_dir_ = std::get<0>(GetParam());
     wal_dir_same_as_dbname_ = std::get<1>(GetParam());
   }

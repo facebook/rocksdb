@@ -550,6 +550,13 @@ class FileSystem {
       const FileOptions& file_options,
       const ImmutableDBOptions& db_options) const;
 
+  // OptimizeForBlobFileRead will create a new FileOptions object that
+  // is a copy of the FileOptions in the parameters, but is optimized for
+  // reading blob files.
+  virtual FileOptions OptimizeForBlobFileRead(
+      const FileOptions& file_options,
+      const ImmutableDBOptions& db_options) const;
+
 // This seems to clash with a macro on Windows, so #undef it here
 #ifdef GetFreeSpace
 #undef GetFreeSpace
@@ -1288,6 +1295,11 @@ class FileSystemWrapper : public FileSystem {
       const FileOptions& file_options,
       const ImmutableDBOptions& db_options) const override {
     return target_->OptimizeForCompactionTableRead(file_options, db_options);
+  }
+  FileOptions OptimizeForBlobFileRead(
+      const FileOptions& file_options,
+      const ImmutableDBOptions& db_options) const override {
+    return target_->OptimizeForBlobFileRead(file_options, db_options);
   }
   IOStatus GetFreeSpace(const std::string& path, const IOOptions& options,
                         uint64_t* diskfree, IODebugContext* dbg) override {

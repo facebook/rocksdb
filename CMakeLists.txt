@@ -651,6 +651,7 @@ set(SOURCES
         env/env_hdfs.cc
         env/file_system.cc
         env/file_system_tracer.cc
+        env/fs_remap.cc
         env/mock_env.cc
         file/delete_scheduler.cc
         file/file_prefetch_buffer.cc
