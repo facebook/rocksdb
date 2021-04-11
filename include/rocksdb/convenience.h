@@ -37,7 +37,7 @@ struct ConfigOptions {
 
   // Constructs a new ConfigOptions using the setings from
   // the input DBOptions.
-  ConfigOptions(const DBOptions&);
+  explicit ConfigOptions(const DBOptions&);
 
   // This enum defines the RocksDB options sanity level.
   enum SanityLevel : unsigned char {
