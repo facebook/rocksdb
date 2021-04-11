@@ -19,7 +19,7 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-BaseDeltaIterator::BaseDeltaIterator(DB* db, ColumnFamilyHandle* column_family,
+BaseDeltaIterator::BaseDeltaIterator(ColumnFamilyHandle* column_family,
                                      Iterator* base_iterator,
                                      WBWIIteratorImpl* delta_iterator,
                                      const Comparator* comparator,
@@ -33,7 +33,7 @@ BaseDeltaIterator::BaseDeltaIterator(DB* db, ColumnFamilyHandle* column_family,
       comparator_(comparator),
       iterate_upper_bound_(read_options ? read_options->iterate_upper_bound
                                         : nullptr) {
-  wbwii_.reset(new WriteBatchWithIndexInternal(db, column_family));
+  wbwii_.reset(new WriteBatchWithIndexInternal(column_family));
 }
 
 void BaseDeltaIterator::SeekToFirst() {
@@ -597,6 +597,10 @@ bool WBWIIteratorImpl::MatchesKey(uint32_t cf_id, const Slice& key) {
 }
 
 WriteBatchWithIndexInternal::WriteBatchWithIndexInternal(
+    ColumnFamilyHandle* column_family)
+    : db_(nullptr), db_options_(nullptr), column_family_(column_family) {}
+
+WriteBatchWithIndexInternal::WriteBatchWithIndexInternal(
     DB* db, ColumnFamilyHandle* column_family)
     : db_(db), db_options_(nullptr), column_family_(column_family) {
   if (db_ != nullptr && column_family_ == nullptr) {
@@ -638,9 +642,11 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
                                          context.GetOperands(), result, logger,
                                          statistics, clock, result_operand);
     } else {
-      return MergeHelper::TimedFullMerge(
-          merge_operator, key, value, context.GetOperands(), result, nullptr,
-          nullptr, SystemClock::Default().get(), result_operand);
+      const auto cf_opts = cfh->cfd()->ioptions();
+      return MergeHelper::TimedFullMerge(merge_operator, key, value,
+                                         context.GetOperands(), result,
+                                         cf_opts->info_log, cf_opts->statistics,
+                                         cf_opts->clock, result_operand);
     }
   } else {
     return Status::InvalidArgument("Must provide a column_family");

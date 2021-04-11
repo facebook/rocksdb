@@ -35,8 +35,8 @@ struct Options;
 // * equal_keys_ <=> base_iterator == delta_iterator
 class BaseDeltaIterator : public Iterator {
  public:
-  BaseDeltaIterator(DB* db, ColumnFamilyHandle* column_family,
-                    Iterator* base_iterator, WBWIIteratorImpl* delta_iterator,
+  BaseDeltaIterator(ColumnFamilyHandle* column_family, Iterator* base_iterator,
+                    WBWIIteratorImpl* delta_iterator,
                     const Comparator* comparator,
                     const ReadOptions* read_options = nullptr);
 
@@ -296,6 +296,8 @@ class WriteBatchWithIndexInternal {
   // For GetFromBatchAndDB or similar
   explicit WriteBatchWithIndexInternal(DB* db,
                                        ColumnFamilyHandle* column_family);
+  // For GetFromBatchAndDB or similar
+  explicit WriteBatchWithIndexInternal(ColumnFamilyHandle* column_family);
   // For GetFromBatch or similar
   explicit WriteBatchWithIndexInternal(const DBOptions* db_options,
                                        ColumnFamilyHandle* column_family);

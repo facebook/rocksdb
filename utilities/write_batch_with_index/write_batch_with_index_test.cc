@@ -1927,33 +1927,6 @@ TEST_P(WriteBatchWithIndexTest, IteratorMergeTest) {
   AssertItersEqual(iter.get(), &kvi);
 }
 
-TEST_P(WriteBatchWithIndexTest, IteratorDBMergeTest) {
-  ASSERT_OK(OpenDB());
-  ColumnFamilyHandle* cf0 = db_->DefaultColumnFamily();
-
-  KVMap result = {
-      {"m", "m0"},                // Merge
-      {"mm", "mm0,mm1"},          // Merge, Merge
-      {"dm", "dm1"},              // Delete, Merge
-      {"dmm", "dmm1,dmm2"},       // Delete, Merge, Merge
-      {"mdm", "mdm2"},            // Merge, Delete, Merge
-      {"mpm", "mpm1,mpm2"},       // Merge, Put, Merge
-      {"pm", "pm0,pm1"},          // Put, Merge
-      {"pmm", "pmm0,pmm1,pmm2"},  // Put, Merge, Merge
-  };
-
-  for (auto& iter : result) {
-    EXPECT_EQ(AddToBatch(cf0, iter.first), iter.second);
-  }
-
-  KVIter kvi(&result);
-  // First try just the batch
-  KVMap empty_map;
-  std::unique_ptr<Iterator> iter(
-      batch_->NewIteratorWithBase(db_, new KVIter(&empty_map)));
-  AssertItersEqual(iter.get(), &kvi);
-}
-
 TEST_P(WriteBatchWithIndexTest, IteratorMergeTestWithOrig) {
   ASSERT_OK(OpenDB());
   ColumnFamilyHandle* cf0 = db_->DefaultColumnFamily();
