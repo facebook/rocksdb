@@ -23,6 +23,7 @@
 #ifdef GFLAGS
 #include "db_stress_tool/db_stress_common.h"
 #include "db_stress_tool/db_stress_driver.h"
+#include "rocksdb/convenience.h"
 #ifndef NDEBUG
 #include "utilities/fault_injection_fs.h"
 #endif
