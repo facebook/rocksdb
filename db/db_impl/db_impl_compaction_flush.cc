@@ -2117,6 +2117,7 @@ Status DBImpl::WaitForFlushMemTables(
   int num = static_cast<int>(cfds.size());
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
+  Status s;
   // If the caller is trying to resume from bg error, then
   // error_handler_.IsDBStopped() is true.
   while (resuming_from_bg_err || !error_handler_.IsDBStopped()) {
@@ -2124,7 +2125,10 @@ Status DBImpl::WaitForFlushMemTables(
       return Status::ShutdownInProgress();
     }
     // If an error has occurred during resumption, then no need to wait.
+    // But this flush operation may fail because of this error, so need
+    // to return the status.
     if (!error_handler_.GetRecoveryError().ok()) {
+      s = error_handler_.GetRecoveryError();
       break;
     }
     // If BGWorkStopped, which indicate that there is a BG error and
@@ -2158,7 +2162,6 @@ Status DBImpl::WaitForFlushMemTables(
     }
     bg_cv_.Wait();
   }
-  Status s;
   // If not resuming from bg error, and an error has caused the DB to stop,
   // then report the bg error to caller.
   if (!resuming_from_bg_err && error_handler_.IsDBStopped()) {
