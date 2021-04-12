@@ -1310,6 +1310,7 @@ TEST_F(OptionsTest, DBOptionsComposeImmutable) {
   new_opts = BuildDBOptions(i_opts, m_opts);
   ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(config_options, base_opts,
                                                   new_opts));
+  delete new_opts.compaction_filter;
 }
 
 TEST_F(OptionsTest, CFOptionsComposeImmutable) {
