@@ -4113,9 +4113,9 @@ unsigned char rocksdb_flushoptions_get_wait(rocksdb_flushoptions_t* opt) {
 rocksdb_memory_allocator_t* rocksdb_jemalloc_nodump_allocator_create(
     char** errptr) {
   rocksdb_memory_allocator_t* allocator = new rocksdb_memory_allocator_t;
-  rocksdb::JemallocAllocatorOptions options;
-  SaveError(errptr,
-            rocksdb::NewJemallocNodumpAllocator(options, &allocator->rep));
+  ROCKSDB_NAMESPACE::JemallocAllocatorOptions options;
+  SaveError(errptr, ROCKSDB_NAMESPACE::NewJemallocNodumpAllocator(
+                        options, &allocator->rep));
   return allocator;
 }
 
