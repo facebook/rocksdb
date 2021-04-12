@@ -116,9 +116,15 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Directly write data to the file.
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle,
                      bool is_data_block = false);
+
+  void SetupCacheKeyPrefix(const TableBuilderOptions& tbo);
+
   Status InsertBlockInCache(const Slice& block_contents,
                             const CompressionType type,
                             const BlockHandle* handle);
+  Status InsertBlockInCompressedCache(const Slice& block_contents,
+                                      const CompressionType type,
+                                      const BlockHandle* handle);
 
   void WriteFilterBlock(MetaIndexBuilder* meta_index_builder);
   void WriteIndexBlock(MetaIndexBuilder* meta_index_builder,
