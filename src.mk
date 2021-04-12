@@ -205,6 +205,7 @@ LIB_SOURCES =                                                   \
   util/compression_context_cache.cc                             \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
+  util/crc32c_arm64.cc                                          \
   util/dynamic_bloom.cc                                         \
   util/hash.cc                                                  \
   util/murmurhash.cc                                            \
@@ -274,11 +275,6 @@ LIB_SOURCES =                                                   \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
-
-ifeq ($(ARMCRC_SOURCE),1)
-LIB_SOURCES +=\
-  util/crc32c_arm64.cc
-endif
 
 ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
 LIB_SOURCES_ASM =\
