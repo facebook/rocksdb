@@ -4937,7 +4937,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 }
 
 // Get the checksum information including the checksum and checksum function
-// name of all SST files in VersionSet. Store the information in
+// name of all SST and blob files in VersionSet. Store the information in
 // FileChecksumList which contains a map from file number to its checksum info.
 // If DB is not running, make sure call VersionSet::Recover() to load the file
 // metadata from Manifest to VersionSet before calling this function.

@@ -403,7 +403,7 @@ TEST_F(LdbCmdTest, BlobDBDumpFileChecksumNoChecksum) {
   ASSERT_EQ(0,
             LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
 
-  // Verify each sst file checksum value and checksum name
+  // Verify each sst and blob file checksum value and checksum name
   FileChecksumTestHelper fct_helper(opts, db, dbname);
   ASSERT_OK(fct_helper.VerifyEachFileChecksum());
 
@@ -562,7 +562,7 @@ TEST_F(LdbCmdTest, BlobDBDumpFileChecksumCRC32) {
   ASSERT_EQ(0,
             LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
 
-  // Verify each sst file checksum value and checksum name
+  // Verify each sst and blob file checksum value and checksum name
   FileChecksumTestHelper fct_helper(opts, db, dbname);
   ASSERT_OK(fct_helper.VerifyEachFileChecksum());
 
