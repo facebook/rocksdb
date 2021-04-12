@@ -139,7 +139,8 @@ class CompactionJobTestBase : public testing::Test {
     return blob_index;
   }
 
-  void AddMockFile(const mock::KVVector& contents, int level = 0) {
+  void AddMockFile(const mock::KVVector& contents, int level = 0,
+                   uint64_t oldest_ancester_time = kUnknownOldestAncesterTime) {
     assert(contents.size() > 0);
 
     bool first_key = true;
@@ -198,7 +199,7 @@ class CompactionJobTestBase : public testing::Test {
     VersionEdit edit;
     edit.AddFile(level, file_number, 0, 10, smallest_key, largest_key,
                  smallest_seqno, largest_seqno, false, oldest_blob_file_number,
-                 kUnknownOldestAncesterTime, kUnknownFileCreationTime,
+                 oldest_ancester_time, kUnknownFileCreationTime,
                  kUnknownFileChecksum, kUnknownFileChecksumFuncName);
 
     mutex_.Lock();
@@ -313,7 +314,9 @@ class CompactionJobTestBase : public testing::Test {
       const std::vector<SequenceNumber>& snapshots = {},
       SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber,
       int output_level = 1, bool verify = true,
-      uint64_t expected_oldest_blob_file_number = kInvalidBlobFileNumber) {
+      uint64_t expected_oldest_blob_file_number = kInvalidBlobFileNumber,
+      std::vector<FileMetaData*>* output_files_ptr = nullptr,
+      uint64_t target_file_size = 1024 * 1024) {
     auto cfd = versions_->GetColumnFamilySet()->GetDefault();
 
     size_t num_input_files = 0;
@@ -331,9 +334,9 @@ class CompactionJobTestBase : public testing::Test {
     Compaction compaction(
         cfd->current()->storage_info(), *cfd->ioptions(),
         *cfd->GetLatestMutableCFOptions(), mutable_db_options_,
-        compaction_input_files, output_level, 1024 * 1024, 10 * 1024 * 1024, 0,
-        kNoCompression, cfd->GetLatestMutableCFOptions()->compression_opts, 0,
-        {}, true);
+        compaction_input_files, output_level, target_file_size,
+        10 * 1024 * 1024, 0, kNoCompression,
+        cfd->GetLatestMutableCFOptions()->compression_opts, 0, {}, true);
     compaction.SetInputVersion(cfd->current());
 
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
@@ -381,6 +384,8 @@ class CompactionJobTestBase : public testing::Test {
                   expected_oldest_blob_file_number);
       }
     }
+    *output_files_ptr =
+        cfd->current()->storage_info()->LevelFiles(output_level);
   }
 
   Env* env_;
@@ -455,6 +460,151 @@ TEST_F(CompactionJobTest, SimpleDeletion) {
   SetLastSequence(4U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
   RunCompaction({files}, expected_results);
+}
+
+TEST_F(CompactionJobTest, OldestAncesterTimeNormal) {
+  NewDB();
+
+  const uint64_t T1 = 1;
+  const uint64_t T2 = 2;
+  const uint64_t T3 = 3;
+  const uint64_t T4 = 4;
+
+  auto file1 = mock::MakeMockFile({{KeyStr("a", 2U, kTypeValue), "val"},
+                                   {KeyStr("b", 3U, kTypeValue), "val"},
+                                   {KeyStr("c", 4U, kTypeValue), "val"},
+                                   {KeyStr("d", 5U, kTypeValue), "val"},
+                                   {KeyStr("e", 6U, kTypeValue), "val"}});
+
+  AddMockFile(file1, 2, T1);
+
+  auto file2 = mock::MakeMockFile({{KeyStr("a", 10U, kTypeValue), "val"},
+                                   {KeyStr("c", 19U, kTypeValue), "val"}});
+  AddMockFile(file2, 1, T2);
+
+  auto file3 = mock::MakeMockFile({{KeyStr("d", 17U, kTypeValue), "val"},
+                                   {KeyStr("e", 18U, kTypeValue), "val"}});
+  AddMockFile(file3, 1, T3);
+
+  auto file4 = mock::MakeMockFile({{KeyStr("b", 20U, kTypeValue), "val"},
+                                   {KeyStr("f", 21U, kTypeValue), "val"}});
+  AddMockFile(file4, 0, T4);
+
+  SetLastSequence(21U);
+  auto expected_results =
+      mock::MakeMockFile();  // won't be used for verification
+  auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
+  auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
+  std::vector<FileMetaData*> output_files;
+  RunCompaction({lvl0_files, lvl1_files}, expected_results, {},
+                kMaxSequenceNumber, 1, false, kInvalidBlobFileNumber,
+                &output_files, 1);
+  ASSERT_EQ(output_files.size(), 6);
+
+  ASSERT_EQ(output_files[0]->oldest_ancester_time, T2);  // "a" -> T2
+  ASSERT_EQ(output_files[1]->oldest_ancester_time, T4);  // "b" -> T4
+  // "c" is from file with ancester_time T2, but it has higher sequence number
+  // than file3, so it's ancester_time should at least the same as file3: T3
+  ASSERT_EQ(output_files[2]->oldest_ancester_time, T3);  // "c" -> T3
+  ASSERT_EQ(output_files[3]->oldest_ancester_time, T3);  // "d" -> T3
+  ASSERT_EQ(output_files[4]->oldest_ancester_time, T3);  // "e" -> T3
+  ASSERT_EQ(output_files[5]->oldest_ancester_time, T4);  // "f" -> T4
+}
+
+TEST_F(CompactionJobTest, OldestAncesterTimeUnKnown) {
+  NewDB();
+
+  const uint64_t TUnknown = 0;  // kUnknownOldestAncesterTime = 0
+  const uint64_t T1 = 1;
+  const uint64_t T2 = 2;
+  const uint64_t T3 = 3;
+  const uint64_t T4 = 4;
+
+  auto file1 = mock::MakeMockFile({{KeyStr("a", 2U, kTypeValue), "val"},
+                                   {KeyStr("b", 3U, kTypeValue), "val"},
+                                   {KeyStr("c", 4U, kTypeValue), "val"},
+                                   {KeyStr("d", 5U, kTypeValue), "val"},
+                                   {KeyStr("e", 6U, kTypeValue), "val"}});
+
+  AddMockFile(file1, 2, TUnknown);
+
+  auto file2 = mock::MakeMockFile({{KeyStr("a", 10U, kTypeValue), "val"},
+                                   {KeyStr("c", 21U, kTypeValue), "val"}});
+  // mixed files with oldest_ancester_time and unknown
+  AddMockFile(file2, 1, TUnknown);
+
+  auto file3 = mock::MakeMockFile({{KeyStr("d", 17U, kTypeValue), "val"},
+                                   {KeyStr("e", 19U, kTypeValue), "val"}});
+  AddMockFile(file3, 1, T3);
+
+  auto file4 = mock::MakeMockFile({{KeyStr("b", 20U, kTypeValue), "val"},
+                                   {KeyStr("f", 22U, kTypeValue), "val"}});
+  AddMockFile(file4, 0, T4);
+
+  SetLastSequence(21U);
+  auto expected_results =
+      mock::MakeMockFile();  // won't be used for verification
+  auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
+  auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
+  std::vector<FileMetaData*> output_files;
+  RunCompaction({lvl0_files, lvl1_files}, expected_results, {},
+                kMaxSequenceNumber, 1, false, kInvalidBlobFileNumber,
+                &output_files, 1);
+  ASSERT_EQ(output_files.size(), 6);
+
+  // "a" is from a file with unknown timestamp and it's sequence number is
+  // smallest among input files, so it's set to the minimal oldest_ancester_time
+  // of all input files: T3, which is actually not accurate, but just to keep
+  // the same behavior as before.
+  ASSERT_EQ(output_files[0]->oldest_ancester_time, T3);  // "a" -> T3
+  ASSERT_EQ(output_files[1]->oldest_ancester_time, T4);  // "b" -> T4
+  // "c" is from a file with unknown timestamp, but it has large sequence number
+  // and we know seq_no 20 has oldest_ancester_time T4, so "c" should at least
+  // has the same ancester_time as T4.
+  ASSERT_EQ(output_files[2]->oldest_ancester_time, T4);  // "c" -> T4
+  ASSERT_EQ(output_files[3]->oldest_ancester_time, T3);  // "d" -> T3
+  ASSERT_EQ(output_files[4]->oldest_ancester_time, T3);  // "e" -> T3
+  ASSERT_EQ(output_files[5]->oldest_ancester_time, T4);  // "f" -> T4
+}
+
+TEST_F(CompactionJobTest, OldestAncesterTimeBottomMost) {
+  NewDB();
+
+  const uint64_t T1 = 1;
+  const uint64_t T2 = 2;
+  const uint64_t T3 = 3;
+
+  auto file1 = mock::MakeMockFile({{KeyStr("a", 10U, kTypeValue), "val"},
+                                   {KeyStr("c", 8U, kTypeValue), "val"}});
+  AddMockFile(file1, 1, T1);
+
+  auto file2 = mock::MakeMockFile({{KeyStr("d", 17U, kTypeValue), "val"},
+                                   {KeyStr("e", 18U, kTypeValue), "val"}});
+  AddMockFile(file2, 1, T2);
+
+  auto file3 = mock::MakeMockFile({{KeyStr("b", 20U, kTypeValue), "val"},
+                                   {KeyStr("f", 21U, kTypeValue), "val"}});
+  AddMockFile(file3, 0, T3);
+
+  SetLastSequence(21U);
+  auto expected_results =
+      mock::MakeMockFile();  // won't be used for verification
+  auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
+  auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
+  std::vector<FileMetaData*> output_files;
+  RunCompaction({lvl0_files, lvl1_files}, expected_results, {},
+                kMaxSequenceNumber, 1, false, kInvalidBlobFileNumber,
+                &output_files, 1);
+  ASSERT_EQ(output_files.size(), 6);
+
+  // when compacting to bottom-most level, oldest_ancester_time is using the
+  // minimal of all input files, which anyway won't be TTLed.
+  // Internally, we use sequence number to decide the maximum
+  // oldest_ancester_time it could find, as bottom-most level doesn't have
+  // sequence number, it just fall back to use minimal of all input files.
+  for (auto& file : output_files) {
+    ASSERT_EQ(file->oldest_ancester_time, T1);
+  }
 }
 
 TEST_F(CompactionJobTest, OutputNothing) {

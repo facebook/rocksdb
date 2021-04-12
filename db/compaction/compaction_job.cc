@@ -1459,6 +1459,9 @@ Status CompactionJob::FinishCompactionOutputFile(
     }
   }
   const uint64_t current_entries = sub_compact->builder->NumEntries();
+
+  meta->oldest_ancester_time = CalculateOldestAncesterTime(sub_compact);
+
   if (s.ok()) {
     s = sub_compact->builder->Finish();
   } else {
@@ -1587,6 +1590,44 @@ Status CompactionJob::FinishCompactionOutputFile(
   sub_compact->builder.reset();
   sub_compact->current_output_file_size = 0;
   return s;
+}
+
+uint64_t CompactionJob::CalculateOldestAncesterTime(
+    SubcompactionState* sub_compact) const {
+  uint64_t min_oldest_ancester_time = port::kMaxUint64;
+  uint64_t max_valid_oldest_ancester_time = 0;
+  SequenceNumber seqno = sub_compact->current_output()->meta.fd.smallest_seqno;
+
+  for (const auto& level_files : *sub_compact->compaction->inputs()) {
+    for (const auto& file : level_files.files) {
+      uint64_t oldest_ancester_time = file->TryGetOldestAncesterTime();
+      if (oldest_ancester_time == kUnknownOldestAncesterTime) {
+        continue;
+      }
+      min_oldest_ancester_time =
+          std::min(min_oldest_ancester_time, oldest_ancester_time);
+
+      // For a new file, if its smallest sequence number larger than an input
+      // file, then its timestamp should also be larger than that file.
+      // Among all these timestamps, find the maximum one:
+      if (file->fd.smallest_seqno != 0 && file->fd.smallest_seqno <= seqno) {
+        assert(seqno > 0);  // if seqno is 0, use the min oldest_ancester_time
+        max_valid_oldest_ancester_time =
+            std::max(max_valid_oldest_ancester_time, oldest_ancester_time);
+      }
+    }
+  }
+  // If we find a valid oldest_ancester_time, return it
+  if (max_valid_oldest_ancester_time != 0 &&
+      max_valid_oldest_ancester_time != port::kMaxUint64) {
+    return max_valid_oldest_ancester_time;
+  }
+  // otherwise return min of all input files' ancester time
+  if (min_oldest_ancester_time != port::kMaxUint64) {
+    return min_oldest_ancester_time;
+  }
+
+  return sub_compact->current_output()->meta.file_creation_time;
 }
 
 Status CompactionJob::InstallCompactionResults(
@@ -1721,18 +1762,13 @@ Status CompactionJob::OpenCompactionOutputFile(
                    get_time_status.ToString().c_str());
   }
   uint64_t current_time = static_cast<uint64_t>(temp_current_time);
-  uint64_t oldest_ancester_time =
-      sub_compact->compaction->MinInputFileOldestAncesterTime();
-  if (oldest_ancester_time == port::kMaxUint64) {
-    oldest_ancester_time = current_time;
-  }
 
   // Initialize a SubcompactionState::Output and add it to sub_compact->outputs
   {
     FileMetaData meta;
     meta.fd = FileDescriptor(file_number,
                              sub_compact->compaction->output_path_id(), 0);
-    meta.oldest_ancester_time = oldest_ancester_time;
+    //    meta.oldest_ancester_time = oldest_ancester_time;
     meta.file_creation_time = current_time;
     sub_compact->outputs.emplace_back(
         std::move(meta), cfd->internal_comparator(),
@@ -1761,6 +1797,12 @@ Status CompactionJob::OpenCompactionOutputFile(
   bool skip_filters =
       cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
 
+  auto oldest_ancester_time_getter = [sub_compact] {
+    assert(sub_compact);
+    assert(sub_compact->current_output());
+    return sub_compact->current_output()->meta.oldest_ancester_time;
+  };
+
   sub_compact->builder.reset(NewTableBuilder(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
@@ -1768,7 +1810,7 @@ Status CompactionJob::OpenCompactionOutputFile(
       sub_compact->compaction->output_compression(),
       sub_compact->compaction->output_compression_opts(),
       sub_compact->compaction->output_level(), skip_filters,
-      oldest_ancester_time, 0 /* oldest_key_time */,
+      oldest_ancester_time_getter, 0 /* oldest_key_time */,
       sub_compact->compaction->max_output_file_size(), current_time, db_id_,
       db_session_id_));
   LogFlush(db_options_.info_log);

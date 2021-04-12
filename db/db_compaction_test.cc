@@ -3996,6 +3996,79 @@ TEST_F(DBCompactionTest, LevelTtlCascadingCompactions) {
   }
 }
 
+TEST_F(DBCompactionTest, LevelTtlCompactionOutputAncesterTime) {
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 100;
+  options.ttl = 4 * 60 * 60;  // 4 hours
+  env_->SetMockSleep();
+  options.env = env_;
+
+  DestroyAndReopen(options);
+
+  // generate large amount of files at level 2
+  for (int i = 0; i < 50; i++) {
+    ASSERT_OK(Put(Key(i), "value" + ToString(i)));
+    ASSERT_OK(Flush());
+  }
+  MoveFilesToLevel(2);
+
+  // generate 3 files at level 1: T0 [1, 10], T1 [11, 20], T2 [21, 30]
+  for (int i = 0; i < 3; i++) {
+    ASSERT_OK(Put(Key(i * 10 + 1), "value" + ToString(i)));
+    ASSERT_OK(Put(Key((i + 1) * 10), "value" + ToString(i)));
+    ASSERT_OK(Flush());
+    env_->MockSleepForSeconds(1 * 60 * 60);
+  }
+  MoveFilesToLevel(1);
+
+  // generate 1 files at level 0: T3 [1, 25]
+  ASSERT_OK(Put(Key(1), "value" + ToString(1)));
+  ASSERT_OK(Put(Key(25), "value" + ToString(25)));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("1,3,50", FilesPerLevel());
+
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(&meta);
+  ASSERT_EQ(meta.levels[0].files.size(), 1);
+  std::vector<std::string> input_files = {meta.levels[0].files[0].name};
+  auto compaction_options = CompactionOptions();
+  // make sure it generates small files
+  compaction_options.output_file_size_limit = 0;
+  ASSERT_OK(db_->CompactFiles(compaction_options, input_files, 1));
+  // compaction generate 7 files:
+  // T3[1], T0[10], T1[11], T1[20], T2[21], T3[25], T2[30]
+  ASSERT_EQ("0,7,50", FilesPerLevel());
+
+  // after T4, T0[10] is expired, the first one T3[1] is not expired, because
+  // T0[1] is overwrite by T3[1].
+  env_->MockSleepForSeconds(1 * 60 * 60 + 1);  // after T4
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Flush());  // trigger TTL compaction
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("1,6,50", FilesPerLevel());
+
+  // after T5, T1[11] and T1[20] are expired
+  env_->MockSleepForSeconds(1 * 60 * 60 + 1);  // after T5
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Flush());  // trigger TTL compaction
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("2,4,50", FilesPerLevel());
+
+  // after T6, T2[21], T2[30] are expired
+  env_->MockSleepForSeconds(1 * 60 * 60 + 1);  // after T6
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Flush());  // trigger TTL compaction
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("3,2,50", FilesPerLevel());
+
+  // after T7, all level-1 files are expired
+  env_->MockSleepForSeconds(1 * 60 * 60 + 1);  // after T7
+  ASSERT_OK(Put("a", "1"));
+  ASSERT_OK(Flush());  // trigger TTL compaction
+  ASSERT_OK(dbfull()->TEST_WaitForCompact());
+  ASSERT_EQ("4,0,50", FilesPerLevel());
+}
+
 TEST_F(DBCompactionTest, LevelPeriodicCompaction) {
   env_->SetMockSleep();
   const int kNumKeysPerFile = 32;

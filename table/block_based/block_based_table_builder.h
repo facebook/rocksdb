@@ -48,8 +48,8 @@ class BlockBasedTableBuilder : public TableBuilder {
       const CompressionType compression_type,
       const CompressionOptions& compression_opts, const bool skip_filters,
       const std::string& column_family_name, const int level_at_creation,
-      const uint64_t creation_time = 0, const uint64_t oldest_key_time = 0,
-      const uint64_t target_file_size = 0,
+      const std::function<uint64_t()> oldest_ancester_time_getter = nullptr,
+      const uint64_t oldest_key_time = 0, const uint64_t target_file_size = 0,
       const uint64_t file_creation_time = 0, const std::string& db_id = "",
       const std::string& db_session_id = "");
 
@@ -144,6 +144,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   class BlockBasedTablePropertiesCollectorFactory;
   class BlockBasedTablePropertiesCollector;
   Rep* rep_;
+
+  const std::function<uint64_t()> oldest_ancester_time_getter_;
 
   struct ParallelCompressionRep;
 

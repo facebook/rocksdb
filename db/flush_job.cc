@@ -417,8 +417,9 @@ Status FlushJob::WriteLevel0Table() {
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, &io_s, io_tracer_, event_logger_,
           job_context_->job_id, Env::IO_HIGH, &table_properties_, 0 /* level */,
-          creation_time, oldest_key_time, write_hint, current_time, db_id_,
-          db_session_id_, full_history_ts_low, blob_callback_);
+          [creation_time] { return creation_time; }, oldest_key_time,
+          write_hint, current_time, db_id_, db_session_id_, full_history_ts_low,
+          blob_callback_);
       if (!io_s.ok()) {
         io_status_ = io_s;
       }

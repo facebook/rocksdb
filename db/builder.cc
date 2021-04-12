@@ -53,7 +53,8 @@ TableBuilder* NewTableBuilder(
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts, int level,
-    const bool skip_filters, const uint64_t creation_time,
+    const bool skip_filters,
+    const std::function<uint64_t()> oldest_ancester_time_getter,
     const uint64_t oldest_key_time, const uint64_t target_file_size,
     const uint64_t file_creation_time, const std::string& db_id,
     const std::string& db_session_id) {
@@ -64,7 +65,7 @@ TableBuilder* NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
                           compression_opts, skip_filters, column_family_name,
-                          level, creation_time, oldest_key_time,
+                          level, oldest_ancester_time_getter, oldest_key_time,
                           target_file_size, file_creation_time, db_id,
                           db_session_id),
       column_family_id, file);
@@ -89,7 +90,8 @@ Status BuildTable(
     InternalStats* internal_stats, TableFileCreationReason reason,
     IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
     EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
-    TableProperties* table_properties, int level, const uint64_t creation_time,
+    TableProperties* table_properties, int level,
+    const std::function<uint64_t()> oldest_ancester_time_getter,
     const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
     const uint64_t file_creation_time, const std::string& db_id,
     const std::string& db_session_id, const std::string* full_history_ts_low,
@@ -163,8 +165,9 @@ Status BuildTable(
           ioptions, mutable_cf_options, internal_comparator,
           int_tbl_prop_collector_factories, column_family_id,
           column_family_name, file_writer.get(), compression, compression_opts,
-          level, false /* skip_filters */, creation_time, oldest_key_time,
-          0 /*target_file_size*/, file_creation_time, db_id, db_session_id);
+          level, false /* skip_filters */, oldest_ancester_time_getter,
+          oldest_key_time, 0 /*target_file_size*/, file_creation_time, db_id,
+          db_session_id);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),

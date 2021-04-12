@@ -148,7 +148,7 @@ class Compaction {
     return &inputs_[compaction_input_level].files;
   }
 
-  const std::vector<CompactionInputFiles>* inputs() { return &inputs_; }
+  const std::vector<CompactionInputFiles>* inputs() const { return &inputs_; }
 
   // Returns the LevelFilesBrief of the specified compaction input level.
   const LevelFilesBrief* input_levels(size_t compaction_input_level) const {
@@ -295,8 +295,6 @@ class Compaction {
   uint64_t max_compaction_bytes() const { return max_compaction_bytes_; }
 
   uint32_t max_subcompactions() const { return max_subcompactions_; }
-
-  uint64_t MinInputFileOldestAncesterTime() const;
 
  private:
   // mark (or clear) all files that are being compacted

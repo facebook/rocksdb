@@ -162,6 +162,10 @@ class CompactionJob {
   void UpdateCompactionInputStatsHelper(
       int* num_files, uint64_t* bytes_read, int input_level);
 
+  void LogCompaction();
+
+  uint64_t CalculateOldestAncesterTime(SubcompactionState* sub_compact) const;
+
   int job_id_;
 
   CompactionJobStats* compaction_job_stats_;
