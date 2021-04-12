@@ -181,12 +181,16 @@ static void PrintContents(WriteBatchWithIndex* batch,
       result->append("SINGLE-DEL(");
       result->append(e.key.ToString());
       result->append(")");
-    } else {
-      assert(e.type == kDeleteRecord);
+    } else if (e.type == kDeleteRecord) {
       result->append("DEL(");
       result->append(e.key.ToString());
       result->append(")");
+    } else {
+      assert(e.type == kDeleteRangeRecord);
     }
+    result->append("RANGE-DEL(");
+    result->append(e.key.ToString());
+    result->append(")");
 
     result->append(",");
     iter->Next();
@@ -280,37 +284,286 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorOverwriteKeyFalse) {
   }
 }
 
-TEST_F(WriteBatchWithIndexTest, DeleteRangeTest) {
-  WriteBatchWithIndex batch;
+TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchUnsupportedOption) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, false);
   Status s;
   std::string value;
   DBOptions db_options;
 
-  batch.DeleteRange("A", "B");
-  ASSERT_OK(batch.DeleteRange("A", "B"));
+  // Delete range overwrite_key=false
+  s = batch.DeleteRange("B", "C");
+  ASSERT_TRUE(s.IsNotSupported());
 
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  s = batch.DeleteRange(&cf1, "B", "C");
+  ASSERT_TRUE(s.IsNotSupported());
+}
+
+TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatch) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+  Status s;
+  std::string value;
+  DBOptions db_options;
+
+  // Delete range with nothing in the range is OK,
+  ASSERT_OK(batch.DeleteRange("B", "C"));
+
+  // Read a bunch of values, ensure it's all not there OK
   s = batch.GetFromBatch(db_options, "A", &value);
   ASSERT_TRUE(s.IsNotFound());
   s = batch.GetFromBatch(db_options, "B", &value);
   ASSERT_TRUE(s.IsNotFound());
-  value = PrintContents(&batch, nullptr);
-  ASSERT_EQ("SINGLE-DEL(A),", value);
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_TRUE(s.IsNotFound());
 
+  // TODO - Range deletion doesn't appear in the iterator
+  // TODO - so we get ""
+  // TODO - iterator just isn't the appropriate answer for overwrite=true DR ?
+  // value = PrintContents(&batch, nullptr);
+  // ASSERT_EQ("RANGE-DEL(B,C)", value);
+
+  //
+  // Simple range deletion in centre of A-E
+  //
   batch.Clear();
   ASSERT_OK(batch.Put("A", "a"));
-  ASSERT_OK(batch.Put("AZ", "a2"));
   ASSERT_OK(batch.Put("B", "b"));
-  ASSERT_OK(batch.Put("AZ", "a3"));
-  ASSERT_OK(batch.DeleteRange("A", "B"));
+  ASSERT_OK(batch.Put("C", "c"));
+  ASSERT_OK(batch.Put("D", "d"));
+  ASSERT_OK(batch.Put("E", "e"));
+  ASSERT_OK(batch.DeleteRange("B", "D"));
 
+  s = batch.GetFromBatch(db_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a", value);
+  s = batch.GetFromBatch(db_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("d", value);
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e", value);
+  s = batch.GetFromBatch(db_options, "F", &value);
+  ASSERT_TRUE(s.IsNotFound());
+}
+
+TEST_F(WriteBatchWithIndexTest, PutDeleteRangePutAgainTest) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+  Status s;
+  std::string value;
+  DBOptions db_options;
+
+  ASSERT_EQ(
+      "false",
+      "Implement this test to check clearing of the in_deleted_range flag");
+}
+
+TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchAndDB) {
+  DB* db;
+  Options options;
+
+  options.create_if_missing = true;
+  std::string dbname =
+      test::PerThreadDBPath("write_batch_with_index_delete_range_test");
+
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  EXPECT_OK(DestroyDB(dbname, options));
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+
+  ReadOptions read_options;
+  WriteOptions write_options;
+
+  s = db->Put(write_options, "A", "a0");
+  ASSERT_OK(s);
+  s = db->Put(write_options, "B", "b0");
+  ASSERT_OK(s);
+  s = db->Put(write_options, "BB", "bb0");
+  ASSERT_OK(s);
+  s = db->Put(write_options, "C", "c0");
+  ASSERT_OK(s);
+
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+  std::string value;
+  DBOptions db_options;
+
+  //
+  // Range deletion and underlying database
+  //
+  batch.Clear();
+  ASSERT_OK(batch.Put("B", "b"));
+  ASSERT_OK(batch.Put("D", "d"));
+  ASSERT_OK(batch.Put("E", "e"));
+  ASSERT_OK(batch.DeleteRange("B", "D"));
+  db->Write(write_options, batch.GetWriteBatch());
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("d", value);
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e", value);
+  s = batch.GetFromBatch(db_options, "F", &value);
+  ASSERT_TRUE(s.IsNotFound());
+}
+
+TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMap) {
+  DB* db;
+  Options options;
+
+  options.create_if_missing = true;
+  std::string dbname =
+      test::PerThreadDBPath("write_batch_with_index_deleted_range_map_test");
+
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  EXPECT_OK(DestroyDB(dbname, options));
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+
+  ReadOptions read_options;
+  WriteOptions write_options;
+
+  s = db->Put(write_options, "A", "a0");
+  ASSERT_OK(s);
+  s = db->Put(write_options, "B", "b0");
+  ASSERT_OK(s);
+  s = db->Put(write_options, "C", "c0");
+  ASSERT_OK(s);
+
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+  std::string value;
+  DBOptions db_options;
+
+  //
+  // Range deletion and underlying database
+  //
+  batch.Clear();
+  ASSERT_OK(batch.Put("B", "b"));
+  ASSERT_OK(batch.Put("D", "d"));
+  ASSERT_OK(batch.Put("E", "e"));
+  ASSERT_OK(batch.DeleteRange("B", "D"));
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
+
+  // TODO this fails because the range map is not there yet
+  // TODO implement the range map
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("d", value);
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e", value);
+  s = batch.GetFromBatch(db_options, "F", &value);
+  ASSERT_TRUE(s.IsNotFound());
+}
+
+TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchX2AndDB) {
+  DB* db;
+  Options options;
+
+  options.create_if_missing = true;
+  std::string dbname =
+      test::PerThreadDBPath("write_batch_with_index_delete_range_test_x2");
+
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  EXPECT_OK(DestroyDB(dbname, options));
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+
+  ReadOptions read_options;
+  WriteOptions write_options;
+
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+  std::string value;
+  DBOptions db_options;
+
+  batch.Clear();
+  ASSERT_OK(batch.Put("A", "a0"));
+  ASSERT_OK(batch.Put("B", "b0"));
+  ASSERT_OK(batch.Put("C", "c0"));
+  ASSERT_OK(batch.DeleteRange("B", "D"));
+  db->Write(write_options, batch.GetWriteBatch());
+
+  //
+  // Check nothing is in the flushed batch
+  //
+  batch.Clear();
   s = batch.GetFromBatch(db_options, "A", &value);
   ASSERT_TRUE(s.IsNotFound());
   s = batch.GetFromBatch(db_options, "B", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ("b", value);
-  s = batch.GetFromBatch(db_options, "AZ", &value);
   ASSERT_TRUE(s.IsNotFound());
-  ASSERT_EQ("b", value);
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  //
+  // Check the Put(s) and DeleteRange(s) got into the DB
+  //
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  //
+  // Start a new batch
+  // Check GetFromBatchAndDB gets from DB where there's a value there
+  //
+  batch.Clear();
+  ASSERT_OK(batch.Put("B", "b"));
+  ASSERT_OK(batch.Put("D", "d"));
+  ASSERT_OK(batch.Put("E", "e"));
+  ASSERT_OK(batch.DeleteRange("B", "D"));
+  db->Write(write_options, batch.GetWriteBatch());
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("d", value);
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e", value);
+  s = batch.GetFromBatch(db_options, "F", &value);
+  ASSERT_TRUE(s.IsNotFound());
+}
+
+//
+// TODO mine this for tests we need to do, then get rid of it
+// TODO it is not a systematic part of what we need to test.
+//
+TEST_F(WriteBatchWithIndexTest, DeleteRangeTestXXX) {
+  WriteBatchWithIndex batch;
+  Status s;
+  std::string value;
+  DBOptions db_options;
 
   value = PrintContents(&batch, nullptr);
   ASSERT_EQ("PUT(A):a,PUT(A):a2,SINGLE-DEL(A),PUT(B):b,", value);

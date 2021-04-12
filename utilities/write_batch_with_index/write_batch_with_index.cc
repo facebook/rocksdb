@@ -65,8 +65,16 @@ struct WriteBatchWithIndex::Rep {
   // put it to skip list.
   void AddNewEntry(uint32_t column_family_id);
 
+  // Find all entries in a range of keys and remove from the index
+  bool DeleteIndexRange(const Slice& from_key, const Slice& to_key);
+
+  // Find all entries in a range of keys and remove from the index
+  bool DeleteIndexRange(ColumnFamilyHandle* column_family,
+                        const Slice& from_key, const Slice& to_key);
+
   // Clear all updates buffered in this batch.
   void Clear();
+
   void ClearIndex();
 
   // Rebuild index by reading all records from the batch.
@@ -102,6 +110,11 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
     sub_batch_cnt++;
   }
   non_const_entry->offset = last_entry_offset;
+
+  // in the case Put(K,v1) DeleteRange(K_left <= K, K < K_right) Put(K,v2)
+  // we have marked up K with is_in_deleted_range
+  // so we make sure we always overwrite this
+  non_const_entry->is_in_deleted_range = false;
   return true;
 }
 
@@ -130,15 +143,43 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
   // Extract key
   Slice key;
   bool success __attribute__((__unused__));
-  success =
-      ReadKeyFromWriteBatchEntry(&entry_ptr, &key, column_family_id != 0);
+  success = ReadKeyFromWriteBatchEntry(&entry_ptr, &key, column_family_id != 0);
   assert(success);
 
   auto* mem = arena.Allocate(sizeof(WriteBatchIndexEntry));
   auto* index_entry =
       new (mem) WriteBatchIndexEntry(last_entry_offset, column_family_id,
-                                      key.data() - wb_data.data(), key.size());
+                                     key.data() - wb_data.data(), key.size());
   skip_list.Insert(index_entry);
+}
+
+bool WriteBatchWithIndex::Rep::DeleteIndexRange(const Slice& from_key,
+                                                const Slice& to_key) {
+  return Rep::DeleteIndexRange(nullptr, from_key, to_key);
+}
+
+bool WriteBatchWithIndex::Rep::DeleteIndexRange(
+    ColumnFamilyHandle* column_family, const Slice& from_key,
+    const Slice& to_key) {
+  uint32_t cf_id = GetColumnFamilyID(column_family);
+  WBWIIteratorImpl iter(cf_id, &skip_list, &write_batch, &comparator);
+
+  iter.Seek(from_key);
+  if (!iter.Valid()) {
+    return false;
+  }
+  auto count = 0;
+  auto entry = iter.Entry();
+  while (comparator.CompareKey(cf_id, entry.key, to_key) < 0) {
+    WriteBatchIndexEntry* non_const_entry =
+        const_cast<WriteBatchIndexEntry*>(iter.GetRawEntry());
+    non_const_entry->is_in_deleted_range = true;
+    count++;
+    iter.Next();
+    if (!iter.Valid()) break;
+    entry = iter.Entry();
+  }
+  return (count > 0);
 }
 
 void WriteBatchWithIndex::Rep::Clear() {
@@ -181,8 +222,8 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
     // set offset of current entry for call to AddNewEntry()
     last_entry_offset = input.data() - write_batch.Data().data();
 
-    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key,
-                                  &value, &blob, &xid);
+    s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key, &value,
+                                 &blob, &xid);
     if (!s.ok()) {
       break;
     }
@@ -312,6 +353,37 @@ Status WriteBatchWithIndex::Delete(const Slice& key) {
   return s;
 }
 
+Status WriteBatchWithIndex::DeleteRange(ColumnFamilyHandle* column_family,
+                                        const Slice& begin_key,
+                                        const Slice& end_key) {
+  if (rep->overwrite_key == false) {
+    return Status::NotSupported(
+        "DeleteRange unsupported in WriteBatchWithIndex with overwrite_key == "
+        "false");
+  }
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.DeleteRange(column_family, begin_key, end_key);
+  if (s.ok()) {
+    rep->DeleteIndexRange(column_family, begin_key, end_key);
+  }
+  return s;
+}
+
+Status WriteBatchWithIndex::DeleteRange(const Slice& begin_key,
+                                        const Slice& end_key) {
+  if (rep->overwrite_key == false) {
+    return Status::NotSupported(
+        "DeleteRange unsupported in WriteBatchWithIndex with overwrite_key == "
+        "false");
+  }
+  rep->SetLastEntryOffset();
+  auto s = rep->write_batch.DeleteRange(begin_key, end_key);
+  if (s.ok()) {
+    rep->DeleteIndexRange(begin_key, end_key);
+  }
+  return s;
+}
+
 Status WriteBatchWithIndex::SingleDelete(ColumnFamilyHandle* column_family,
                                          const Slice& key) {
   rep->SetLastEntryOffset();
@@ -436,9 +508,9 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   Status s;
   WriteBatchWithIndexInternal wbwii(db, column_family);
 
-  // Since the lifetime of the WriteBatch is the same as that of the transaction
-  // we cannot pin it as otherwise the returned value will not be available
-  // after the transaction finishes.
+  // Since the lifetime of the WriteBatch is the same as that of the
+  // transaction we cannot pin it as otherwise the returned value will not be
+  // available after the transaction finishes.
   std::string& batch_value = *pinnable_val->GetSelf();
   auto result =
       wbwii.GetFromBatch(this, key, &batch_value, rep->overwrite_key, &s);
@@ -516,9 +588,9 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
   autovector<std::pair<WriteBatchWithIndexInternal::Result, MergeContext>,
              MultiGetContext::MAX_BATCH_SIZE>
       merges;
-  // Since the lifetime of the WriteBatch is the same as that of the transaction
-  // we cannot pin it as otherwise the returned value will not be available
-  // after the transaction finishes.
+  // Since the lifetime of the WriteBatch is the same as that of the
+  // transaction we cannot pin it as otherwise the returned value will not be
+  // available after the transaction finishes.
   for (size_t i = 0; i < num_keys; ++i) {
     MergeContext merge_context;
     PinnableSlice* pinnable_val = &values[i];
@@ -540,9 +612,9 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     }
     if (result == WriteBatchWithIndexInternal::Result::kMergeInProgress &&
         rep->overwrite_key == true) {
-      // Since we've overwritten keys, we do not know what other operations are
-      // in this batch for this key, so we cannot do a Merge to compute the
-      // result.  Instead, we will simply return MergeInProgress.
+      // Since we've overwritten keys, we do not know what other operations
+      // are in this batch for this key, so we cannot do a Merge to compute
+      // the result.  Instead, we will simply return MergeInProgress.
       *s = Status::MergeInProgress();
       continue;
     }

@@ -47,6 +47,7 @@ enum WriteType {
 // Used in WBWIIterator.
 struct WriteEntry {
   WriteType type = kUnknownRecord;
+  bool is_in_deleted_range;
   Slice key;
   Slice value;
 };
@@ -128,15 +129,9 @@ class WriteBatchWithIndex : public WriteBatchBase {
   using WriteBatchBase::DeleteRange;
   Status DeleteRange(ColumnFamilyHandle* /* column_family */,
                      const Slice& /* begin_key */,
-                     const Slice& /* end_key */) override {
-    return Status::NotSupported(
-        "DeleteRange unsupported in WriteBatchWithIndex");
-  }
+                     const Slice& /* end_key */) override;
   Status DeleteRange(const Slice& /* begin_key */,
-                     const Slice& /* end_key */) override {
-    return Status::NotSupported(
-        "DeleteRange unsupported in WriteBatchWithIndex");
-  }
+                     const Slice& /* end_key */) override;
 
   using WriteBatchBase::PutLogData;
   Status PutLogData(const Slice& blob) override;
