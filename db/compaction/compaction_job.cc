@@ -1768,7 +1768,9 @@ Status CompactionJob::OpenCompactionOutputFile(
     FileMetaData meta;
     meta.fd = FileDescriptor(file_number,
                              sub_compact->compaction->output_path_id(), 0);
-    //    meta.oldest_ancester_time = oldest_ancester_time;
+    // `oldest_ancester_time` will be calculated after all data are added to the
+    // file, set it to Unknown for now.
+    meta.oldest_ancester_time = kUnknownOldestAncesterTime;
     meta.file_creation_time = current_time;
     sub_compact->outputs.emplace_back(
         std::move(meta), cfd->internal_comparator(),

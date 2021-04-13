@@ -52,7 +52,7 @@ TableBuilder* NewTableBuilder(
     WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts, int level,
     const bool skip_filters = false,
-    const std::function<uint64_t()> oldest_ancester_time_getter = nullptr,
+    const std::function<uint64_t()>& oldest_ancester_time_getter = nullptr,
     const uint64_t oldest_key_time = 0, const uint64_t target_file_size = 0,
     const uint64_t file_creation_time = 0, const std::string& db_id = "",
     const std::string& db_session_id = "");
@@ -86,7 +86,7 @@ extern Status BuildTable(
     EventLogger* event_logger = nullptr, int job_id = 0,
     const Env::IOPriority io_priority = Env::IO_HIGH,
     TableProperties* table_properties = nullptr, int level = -1,
-    const std::function<uint64_t()> oldest_ancester_time_getter = nullptr,
+    const std::function<uint64_t()>& oldest_ancester_time_getter = nullptr,
     const uint64_t oldest_key_time = 0,
     Env::WriteLifeTimeHint write_hint = Env::WLTH_NOT_SET,
     const uint64_t file_creation_time = 0, const std::string& db_id = "",

@@ -54,7 +54,7 @@ TableBuilder* NewTableBuilder(
     WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts, int level,
     const bool skip_filters,
-    const std::function<uint64_t()> oldest_ancester_time_getter,
+    const std::function<uint64_t()>& oldest_ancester_time_getter,
     const uint64_t oldest_key_time, const uint64_t target_file_size,
     const uint64_t file_creation_time, const std::string& db_id,
     const std::string& db_session_id) {
@@ -91,7 +91,7 @@ Status BuildTable(
     IOStatus* io_status, const std::shared_ptr<IOTracer>& io_tracer,
     EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, int level,
-    const std::function<uint64_t()> oldest_ancester_time_getter,
+    const std::function<uint64_t()>& oldest_ancester_time_getter,
     const uint64_t oldest_key_time, Env::WriteLifeTimeHint write_hint,
     const uint64_t file_creation_time, const std::string& db_id,
     const std::string& db_session_id, const std::string* full_history_ts_low,
