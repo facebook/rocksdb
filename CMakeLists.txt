@@ -326,10 +326,21 @@ CHECK_CXX_SOURCE_COMPILES("
 #endif
 int main() {
   static __thread int tls;
+  (void)tls;
 }
 " HAVE_THREAD_LOCAL)
 if(HAVE_THREAD_LOCAL)
   add_definitions(-DROCKSDB_SUPPORT_THREAD_LOCAL)
+endif()
+
+option(WITH_IOSTATS_CONTEXT "Enable IO stats context" ON)
+if (NOT WITH_IOSTATS_CONTEXT)
+  add_definitions(-DNIOSTATS_CONTEXT)
+endif()
+
+option(WITH_PERF_CONTEXT "Enable perf context" ON)
+if (NOT WITH_PERF_CONTEXT)
+  add_definitions(-DNPERF_CONTEXT)
 endif()
 
 option(FAIL_ON_WARNINGS "Treat compile warnings as errors" ON)
