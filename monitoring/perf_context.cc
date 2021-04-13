@@ -11,7 +11,7 @@ namespace ROCKSDB_NAMESPACE {
 
 #if defined(NPERF_CONTEXT)
 // Should not be used because the counters are not thread-safe.
-// Put here just to make get_iostats_context() simple without ifdef.
+// Put here just to make get_perf_context() simple without ifdef.
 PerfContext perf_context;
 #elif defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 #if defined(OS_SOLARIS)
