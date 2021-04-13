@@ -366,39 +366,38 @@ TEST_F(LdbCmdTest, BlobDBDumpFileChecksumNoChecksum) {
   fopts.wait = true;
   Random rnd(test::RandomSeed());
   for (int i = 0; i < 200; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(8) << std::fixed << i;
     std::string v = rnd.RandomString(100);
-    ASSERT_OK(db->Put(wopts, buf, v));
+    ASSERT_OK(db->Put(wopts, oss.str(), v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 100; i < 300; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(8) << std::fixed << i;
     std::string v = rnd.RandomString(100);
-    ASSERT_OK(db->Put(wopts, buf, v));
+    ASSERT_OK(db->Put(wopts, oss.str(), v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 200; i < 400; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(8) << std::fixed << i;
     std::string v = rnd.RandomString(100);
-    ASSERT_OK(db->Put(wopts, buf, v));
+    ASSERT_OK(db->Put(wopts, oss.str(), v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 300; i < 400; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(8) << std::fixed << i;
     std::string v = rnd.RandomString(100);
-    ASSERT_OK(db->Put(wopts, buf, v));
+    ASSERT_OK(db->Put(wopts, oss.str(), v));
   }
   ASSERT_OK(db->Flush(fopts));
 
   char arg1[] = "./ldb";
-  char arg2[1024];
-  snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+  std::string arg2_str = "--db=" + dbname;
   char arg3[] = "file_checksum_dump";
-  char* argv[] = {arg1, arg2, arg3};
+  char* argv[] = {arg1, const_cast<char*>(arg2_str.c_str()), arg3};
 
   ASSERT_EQ(0,
             LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
@@ -408,12 +407,15 @@ TEST_F(LdbCmdTest, BlobDBDumpFileChecksumNoChecksum) {
   ASSERT_OK(fct_helper.VerifyEachFileChecksum());
 
   // Manually trigger compaction
-  char b_buf[16];
-  snprintf(b_buf, sizeof(b_buf), "%08d", 0);
-  char e_buf[16];
-  snprintf(e_buf, sizeof(e_buf), "%08d", 399);
+  std::ostringstream oss_b_buf;
+  oss_b_buf << std::setfill('0') << std::setw(8) << std::fixed << 0;
+  std::ostringstream oss_e_buf;
+  oss_e_buf << std::setfill('0') << std::setw(8) << std::fixed << 399;
+  std::string b_buf = oss_b_buf.str();
+  std::string e_buf = oss_e_buf.str();
   Slice begin(b_buf);
   Slice end(e_buf);
+
   CompactRangeOptions options;
   ASSERT_OK(db->CompactRange(options, &begin, &end));
   // Verify each sst file checksum after compaction
@@ -525,39 +527,38 @@ TEST_F(LdbCmdTest, BlobDBDumpFileChecksumCRC32) {
   fopts.wait = true;
   Random rnd(test::RandomSeed());
   for (int i = 0; i < 100; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(8) << std::fixed << i;
     std::string v = rnd.RandomString(100);
-    ASSERT_OK(db->Put(wopts, buf, v));
+    ASSERT_OK(db->Put(wopts, oss.str(), v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 50; i < 150; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(8) << std::fixed << i;
     std::string v = rnd.RandomString(100);
-    ASSERT_OK(db->Put(wopts, buf, v));
+    ASSERT_OK(db->Put(wopts, oss.str(), v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 100; i < 200; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(8) << std::fixed << i;
     std::string v = rnd.RandomString(100);
-    ASSERT_OK(db->Put(wopts, buf, v));
+    ASSERT_OK(db->Put(wopts, oss.str(), v));
   }
   ASSERT_OK(db->Flush(fopts));
   for (int i = 150; i < 250; i++) {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%08d", i);
+    std::ostringstream oss;
+    oss << std::setfill('0') << std::setw(8) << std::fixed << i;
     std::string v = rnd.RandomString(100);
-    ASSERT_OK(db->Put(wopts, buf, v));
+    ASSERT_OK(db->Put(wopts, oss.str(), v));
   }
   ASSERT_OK(db->Flush(fopts));
 
   char arg1[] = "./ldb";
-  char arg2[1024];
-  snprintf(arg2, sizeof(arg2), "--db=%s", dbname.c_str());
+  std::string arg2_str = "--db=" + dbname;
   char arg3[] = "file_checksum_dump";
-  char* argv[] = {arg1, arg2, arg3};
+  char* argv[] = {arg1, const_cast<char*>(arg2_str.c_str()), arg3};
 
   ASSERT_EQ(0,
             LDBCommandRunner::RunCommand(3, argv, opts, LDBOptions(), nullptr));
@@ -567,12 +568,15 @@ TEST_F(LdbCmdTest, BlobDBDumpFileChecksumCRC32) {
   ASSERT_OK(fct_helper.VerifyEachFileChecksum());
 
   // Manually trigger compaction
-  char b_buf[16];
-  snprintf(b_buf, sizeof(b_buf), "%08d", 0);
-  char e_buf[16];
-  snprintf(e_buf, sizeof(e_buf), "%08d", 249);
+  std::ostringstream oss_b_buf;
+  oss_b_buf << std::setfill('0') << std::setw(8) << std::fixed << 0;
+  std::ostringstream oss_e_buf;
+  oss_e_buf << std::setfill('0') << std::setw(8) << std::fixed << 249;
+  std::string b_buf = oss_b_buf.str();
+  std::string e_buf = oss_e_buf.str();
   Slice begin(b_buf);
   Slice end(e_buf);
+
   CompactRangeOptions options;
   ASSERT_OK(db->CompactRange(options, &begin, &end));
   // Verify each sst file checksum after compaction
