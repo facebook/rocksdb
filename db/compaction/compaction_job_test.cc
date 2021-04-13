@@ -384,8 +384,10 @@ class CompactionJobTestBase : public testing::Test {
                   expected_oldest_blob_file_number);
       }
     }
-    *output_files_ptr =
-        cfd->current()->storage_info()->LevelFiles(output_level);
+    if (output_files_ptr) {
+      *output_files_ptr =
+          cfd->current()->storage_info()->LevelFiles(output_level);
+    }
   }
 
   Env* env_;
