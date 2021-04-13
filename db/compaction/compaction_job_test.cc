@@ -515,8 +515,6 @@ TEST_F(CompactionJobTest, OldestAncesterTimeUnKnown) {
   NewDB();
 
   const uint64_t TUnknown = 0;  // kUnknownOldestAncesterTime = 0
-  const uint64_t T1 = 1;
-  const uint64_t T2 = 2;
   const uint64_t T3 = 3;
   const uint64_t T4 = 4;
 
