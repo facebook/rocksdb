@@ -594,11 +594,50 @@ class Statistics {
     return stats_level_.load(std::memory_order_relaxed);
   }
 
+  // Returns the "generation" number of this object. For maximum performance,
+  // this combines two related concepts into one function.
+  // (a) If non-zero, RocksDB will assume this object lives longer than any
+  // Cache associated with a DB associated with this Statistics object.
+  // Because of implementation details and performance concerns, block cache
+  // eviction statistics are only tracked (non-zero) if this function
+  // returns non-zero. (Safe for cache entries to keep a raw pointer to it.)
+  // In some applications, { return 1; } could be a reasonable
+  // implementation, but extra caution is required to avoid memory corruption.
+  //
+  // (b) The safest approach to creating Statistics objects that live
+  // longer than Cache is to make them permanent but support recycling.
+  // See CreateDBStatistics() with pooled=true. When a Statistics object is
+  // recycled (all copies of its shared_ptr destroyed, raw pointers might
+  // remain) its "generation" number should be incremented so that old
+  // references with a raw pointer and generation number can detect that they
+  // are stale by comparing generation numbers.
+  //
+  // Default implementation: no assumption on Statistics object lifetime and
+  // block cache eviction statistics disabled.
+  virtual uint64_t GetGeneration() const { return 0; }
+
  private:
   std::atomic<StatsLevel> stats_level_{kExceptDetailedTimers};
 };
 
-// Create a concrete DBStatistics object
-std::shared_ptr<Statistics> CreateDBStatistics();
+// Create a concrete DBStatistics object.
+// If pooled=true, then the returned object is part of a pool of
+// permanent but recyclable Statistics objects. This makes them able
+// to track block cache eviction statistics, because the permanent
+// objects can be safely and efficiently referenced from a Cache
+// object that might live longer than the DB. (For pooled objects,
+// on destruction of the final copy of the returned shared_ptr, the
+// object is not freed but placed on a private "free" list for
+// recycling.) Using pooled=true should generally be OK except when
+// opening many DBs using different Statistics objects, closing those
+// DBs, and expecting the memory used by the many Statistics objects
+// to be freed. Because the pooled objects are recycled, memory usage
+// should only be proportional to the maximum number of simultaneously
+// open DBs with unique Statistics objects.
+//
+// If pooled=false, a new object is created that is actually freed
+// on destruction of the final copy of the returned shared_ptr. However,
+// block cache eviction statistics will not be tracked (== 0).
+std::shared_ptr<Statistics> CreateDBStatistics(bool pooled = false);
 
 }  // namespace ROCKSDB_NAMESPACE

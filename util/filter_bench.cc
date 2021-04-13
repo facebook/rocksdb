@@ -407,7 +407,8 @@ void FilterBench::Go() {
           table_options_.filter_policy->GetFilterBitsReader(info.filter_));
       CachableEntry<ParsedFullFilterBlock> block(
           new ParsedFullFilterBlock(table_options_.filter_policy.get(),
-                                    BlockContents(info.filter_)),
+                                    BlockContents(info.filter_),
+                                    /*statistics*/ nullptr),
           nullptr /* cache */, nullptr /* cache_handle */,
           true /* own_value */);
       info.full_block_reader_.reset(

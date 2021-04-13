@@ -68,12 +68,19 @@ class StatisticsImpl : public Statistics {
   virtual bool getTickerMap(std::map<std::string, uint64_t>*) const override;
   virtual bool HistEnabledForType(uint32_t type) const override;
 
+  virtual uint64_t GetGeneration() const override;
+  void IncrementGeneration();
+
  private:
   // If non-nullptr, forwards updates to the object pointed to by `stats_`.
   std::shared_ptr<Statistics> stats_;
   // Synchronizes anything that operates across other cores' local data,
   // such that operations like Reset() can be performed atomically.
   mutable port::Mutex aggregate_lock_;
+
+  // If non-zero, this is a permanent/recyclable/pooled object. See
+  // Statistics::GetGeneration.
+  std::atomic_uint_fast64_t generation_ = {0};
 
   // The ticker/histogram data are stored in this structure, which we will store
   // per-core. It is cache-aligned, so tickers/histograms belonging to different

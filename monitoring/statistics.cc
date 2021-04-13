@@ -8,7 +8,10 @@
 #include <algorithm>
 #include <cinttypes>
 #include <cstdio>
+
 #include "rocksdb/statistics.h"
+#include "util/cast_util.h"
+#include "util/mutexlock.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -260,8 +263,113 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
      "rocksdb.error.handler.autoresume.retry.count"},
 };
 
-std::shared_ptr<Statistics> CreateDBStatistics() {
-  return std::make_shared<StatisticsImpl>(nullptr);
+namespace {
+
+// This pool implementation is more elaborate (lock-free) than it
+// normally would be so that it still works with static destruction order.
+// Specifically, a pooled object might try to recycle itself after the pool
+// itself has been destroyed. Here we rely on std::atomic involving no
+// destruction.
+
+struct StatisticsImplWithLink : public StatisticsImpl {
+  StatisticsImplWithLink() : StatisticsImpl(nullptr) {}
+  std::atomic<StatisticsImplWithLink*> next{nullptr};
+};
+
+// A thread-safe but lock-free set of StatisticsImpl(WithLink)
+// available for recycling, implemented as a stack.
+class StatisticsImplPool {
+  std::atomic<StatisticsImplWithLink*> free_list{nullptr};
+
+ public:
+  StatisticsImplWithLink* Pop() {
+    StatisticsImplWithLink* head;
+    while ((head = free_list.load())) {
+      if (free_list.compare_exchange_weak(head, head->next.load())) {
+        head->next.store(nullptr);
+        return head;
+      }
+    }
+    // List empty
+    return nullptr;
+  }
+
+  void Push(StatisticsImplWithLink* entry) {
+    for (;;) {
+      StatisticsImplWithLink* head = free_list.load();
+      entry->next.store(head);
+      if (free_list.compare_exchange_weak(head, entry)) {
+        return;
+      }
+    }
+  }
+
+  ~StatisticsImplPool() {
+    // Freeing the entries here would be needed to reclaim all memory, but
+    // that's not safe e.g. if there is a static Cache object that has not
+    // yet been destroyed. Thus, it's safer just to leak the objects.
+
+    // StatisticsImplWithLink* entry;
+    // while ((entry = Pop())) {
+    //  delete entry;
+    //}
+  }
+};
+
+StatisticsImplPool the_pool;
+
+std::shared_ptr<Statistics> RecycleOrCreatePooledDBStatistics() {
+  StatisticsImplWithLink* entry = the_pool.Pop();
+  if (entry) {
+    // Got one for recycling.
+    // Clear all the counters. We do this as late as possible because we
+    // don't have strict synchronization to prevent recording ticks after
+    // seeing a stale generation value. For performance, we do not
+    // guarantee eviction statistic ticks will not leak to a later
+    // generation, but make a best *fast* effort.
+    entry->Reset();
+  } else {
+    // None for recycling; create one
+    entry = new StatisticsImplWithLink();
+    // Mark it as permanent (non-zero generation).
+    entry->IncrementGeneration();
+  }
+
+  // Wrap it in a custom shared_ptr that adds it to the free list for
+  // recycling it when there are no more user references.
+  auto recycler = [](Statistics* to_recycle) {
+    auto to_recycle_impl =
+        static_cast_with_check<StatisticsImplWithLink>(to_recycle);
+    // Increment the generation to stop ticking eviction statistics on
+    // old references from the block cache.  We do this as early as
+    // possible as part of best *fast* effort to minimize leaks of statistic
+    // ticks from one generation to the next.
+    to_recycle_impl->IncrementGeneration();
+    // Add to free list.
+    the_pool.Push(to_recycle_impl);
+  };
+  return std::shared_ptr<Statistics>(entry, recycler);
+}
+
+}  // namespace
+
+std::shared_ptr<Statistics> CreateDBStatistics(bool pooled) {
+  if (pooled) {
+    return RecycleOrCreatePooledDBStatistics();
+  } else {
+    return std::make_shared<StatisticsImpl>(nullptr);
+  }
+}
+
+uint64_t StatisticsImpl::GetGeneration() const {
+  // Part of best *fast* effort to minimize leaks of statistic ticks from
+  // one generation to the next.
+  return generation_.load(std::memory_order_relaxed);
+}
+
+void StatisticsImpl::IncrementGeneration() {
+  // std::atomic
+  ++generation_;
 }
 
 StatisticsImpl::StatisticsImpl(std::shared_ptr<Statistics> stats)

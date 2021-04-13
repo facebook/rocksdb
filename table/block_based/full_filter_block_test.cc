@@ -116,7 +116,7 @@ TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
 
   CachableEntry<ParsedFullFilterBlock> block(
       new ParsedFullFilterBlock(table_options_.filter_policy.get(),
-                                BlockContents(slice)),
+                                BlockContents(slice), /*statistics*/ nullptr),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
@@ -139,7 +139,7 @@ TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
 
   CachableEntry<ParsedFullFilterBlock> block(
       new ParsedFullFilterBlock(table_options_.filter_policy.get(),
-                                BlockContents(slice)),
+                                BlockContents(slice), /*statistics*/ nullptr),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
@@ -192,7 +192,7 @@ TEST_F(FullFilterBlockTest, EmptyBuilder) {
 
   CachableEntry<ParsedFullFilterBlock> block(
       new ParsedFullFilterBlock(table_options_.filter_policy.get(),
-                                BlockContents(slice)),
+                                BlockContents(slice), /*statistics*/ nullptr),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));
@@ -286,7 +286,7 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
 
   CachableEntry<ParsedFullFilterBlock> block(
       new ParsedFullFilterBlock(table_options_.filter_policy.get(),
-                                BlockContents(slice)),
+                                BlockContents(slice), /*statistics*/ nullptr),
       nullptr /* cache */, nullptr /* cache_handle */, true /* own_value */);
 
   FullFilterBlockReader reader(table_.get(), std::move(block));

@@ -97,10 +97,11 @@ class BlocklikeTraits<ParsedFullFilterBlock> {
  public:
   static ParsedFullFilterBlock* Create(BlockContents&& contents,
                                        size_t /* read_amp_bytes_per_bit */,
-                                       Statistics* /* statistics */,
+                                       Statistics* statistics,
                                        bool /* using_zstd */,
                                        const FilterPolicy* filter_policy) {
-    return new ParsedFullFilterBlock(filter_policy, std::move(contents));
+    return new ParsedFullFilterBlock(filter_policy, std::move(contents),
+                                     statistics);
   }
 
   static uint32_t GetNumRestarts(const ParsedFullFilterBlock& /* block */) {

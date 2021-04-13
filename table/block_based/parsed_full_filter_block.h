@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "rocksdb/statistics.h"
 #include "table/format.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -18,7 +19,7 @@ class FilterPolicy;
 class ParsedFullFilterBlock {
  public:
   ParsedFullFilterBlock(const FilterPolicy* filter_policy,
-                        BlockContents&& contents);
+                        BlockContents&& contents, Statistics* statistics);
   ~ParsedFullFilterBlock();
 
   FilterBitsReader* filter_bits_reader() const {
@@ -35,6 +36,10 @@ class ParsedFullFilterBlock {
  private:
   BlockContents block_contents_;
   std::unique_ptr<FilterBitsReader> filter_bits_reader_;
+  // See Statistics::GetGeneration and CreateDBStatistics.
+  // TODO: move this for eviction statistics on other block kinds
+  Statistics* statistics_for_evict_ = nullptr;
+  uint64_t statistics_generation_ = 0;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -10,13 +10,28 @@
 namespace ROCKSDB_NAMESPACE {
 
 ParsedFullFilterBlock::ParsedFullFilterBlock(const FilterPolicy* filter_policy,
-                                             BlockContents&& contents)
+                                             BlockContents&& contents,
+                                             Statistics* statistics)
     : block_contents_(std::move(contents)),
       filter_bits_reader_(
           !block_contents_.data.empty()
               ? filter_policy->GetFilterBitsReader(block_contents_.data)
-              : nullptr) {}
+              : nullptr) {
+  if (statistics) {
+    uint64_t generation = statistics->GetGeneration();
+    if (generation) {
+      statistics_for_evict_ = statistics;
+      statistics_generation_ = generation;
+    }
+  }
+}
 
-ParsedFullFilterBlock::~ParsedFullFilterBlock() = default;
+ParsedFullFilterBlock::~ParsedFullFilterBlock() {
+  if (statistics_for_evict_ &&
+      statistics_generation_ == statistics_for_evict_->GetGeneration()) {
+    RecordTick(statistics_for_evict_, BLOCK_CACHE_FILTER_BYTES_EVICT,
+               ApproximateMemoryUsage());
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE
