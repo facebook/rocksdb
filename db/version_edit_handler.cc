@@ -651,6 +651,8 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     assert(builder != nullptr);
   }
 
+  // At this point, we have not yet applied the new version edits read from the
+  // MANIFEST. We check whether we have any missing table and blob files.
   const bool prev_has_missing_files =
       !missing_files.empty() ||
       (builder &&
@@ -702,6 +704,11 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
     assert(false);
   }
 
+  // We still have not applied the new version edit, but have tried to add new
+  // table and blob files after verifying their presence and consistency.
+  // Therefore, we know whether we will see new missing table and blob files
+  // later after actually applying the version edit. We perform the check here
+  // and record the result.
   const bool has_missing_files =
       !missing_files.empty() || has_missing_blob_files;
 
@@ -709,7 +716,16 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
                       !version_edit_params_.has_next_file_number_ ||
                       !version_edit_params_.has_last_sequence_;
 
-  // Create version before apply edit
+  // Create version before apply edit. The version will represent the state
+  // before applying the version edit.
+  // A new version will created if:
+  // 1) no error has occurred so far, and
+  // 2) log_number_, next_file_number_ and last_sequence_ are known, and
+  // 3) any of the following:
+  //   a) no missing file before, but will have missing file(s) after applying
+  //      this version edit.
+  //   b) no missing file after applying the version edit, and the caller
+  //      explicitly request that a new version be created.
   if (s.ok() && !missing_info &&
       ((has_missing_files && !prev_has_missing_files) ||
        (!has_missing_files && force_create_version))) {
