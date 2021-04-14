@@ -296,6 +296,7 @@ else()
 endif()
 
 include(CheckCXXSourceCompiles)
+set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
 if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
@@ -337,7 +338,8 @@ if (NOT BUILTIN_ATOMIC)
 endif()
 endif()
 
-unset(CMAKE_REQUIRED_FLAGS)
+# Reset the required flags
+set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQUIRED_FLAGS})
 
 CHECK_CXX_SOURCE_COMPILES("
 #if defined(_MSC_VER) && !defined(__thread)
