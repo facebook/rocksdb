@@ -318,12 +318,6 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatch) {
   s = batch.GetFromBatch(db_options, "D", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  // TODO - Range deletion doesn't appear in the iterator
-  // TODO - so we get ""
-  // TODO - iterator just isn't the appropriate answer for overwrite=true DR ?
-  // value = PrintContents(&batch, nullptr);
-  // ASSERT_EQ("RANGE-DEL(B,C)", value);
-
   //
   // Simple range deletion in centre of A-E
   //
@@ -358,9 +352,21 @@ TEST_F(WriteBatchWithIndexTest, PutDeleteRangePutAgainTest) {
   std::string value;
   DBOptions db_options;
 
-  ASSERT_EQ(
-      "false",
-      "Implement this test to check clearing of the in_deleted_range flag");
+  //
+  // Test for a deleted flag being properly cleared on subsequent Put
+  //
+
+  ASSERT_OK(batch.Put("C", "c0"));
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c0", value);
+  ASSERT_OK(batch.DeleteRange("B", "D"));
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_OK(batch.Put("C", "c1"));
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c1", value);
 }
 
 TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchAndDB) {
@@ -437,6 +443,9 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMap) {
   ReadOptions read_options;
   WriteOptions write_options;
 
+  //
+  // Set up the underlying DB
+  //
   s = db->Put(write_options, "A", "a0");
   ASSERT_OK(s);
   s = db->Put(write_options, "B", "b0");
@@ -449,7 +458,8 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMap) {
   DBOptions db_options;
 
   //
-  // Range deletion and underlying database
+  // Range deletion using the batch
+  // Check get with batch and underlying database
   //
   batch.Clear();
   ASSERT_OK(batch.Put("B", "b"));
@@ -464,7 +474,7 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMap) {
   ASSERT_TRUE(s.IsNotFound());
   s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
 
-  // TODO this fails because the range map is not there yet
+  // TODO this fails without a range map to record explicit deletion
   // TODO implement the range map
   ASSERT_TRUE(s.IsNotFound());
   s = batch.GetFromBatch(db_options, "D", &value);
@@ -538,6 +548,9 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchX2AndDB) {
   ASSERT_OK(batch.DeleteRange("B", "D"));
   db->Write(write_options, batch.GetWriteBatch());
 
+  // Do the same set of checks twice,
+  // second time clear the batch (which has already been written).
+  //
   s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
@@ -551,6 +564,22 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchX2AndDB) {
   s = batch.GetFromBatch(db_options, "E", &value);
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
+  s = batch.GetFromBatch(db_options, "F", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  batch.Clear();
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_TRUE(s.IsNotFound());
   s = batch.GetFromBatch(db_options, "F", &value);
   ASSERT_TRUE(s.IsNotFound());
 }
