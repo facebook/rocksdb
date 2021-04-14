@@ -306,7 +306,6 @@ Status BlobFileBuilder::CloseBlobFile() {
                  " total blobs, %" PRIu64 " total bytes",
                  column_family_name_.c_str(), job_id_, blob_file_number,
                  blob_count_, blob_bytes_);
-
   if (blob_callback_) {
     s = blob_callback_->OnBlobFileCompleted(blob_file_paths_->back());
   }
