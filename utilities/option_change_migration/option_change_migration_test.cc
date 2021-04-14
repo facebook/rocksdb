@@ -54,7 +54,9 @@ TEST_P(DBOptionChangeMigrationTests, Migrate1) {
   if (old_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     old_options.level_compaction_dynamic_level_bytes = is_dynamic1_;
   }
-
+  if (old_options.compaction_style == CompactionStyle::kCompactionStyleFIFO) {
+    old_options.max_open_files = -1;
+  }
   old_options.level0_file_num_compaction_trigger = 3;
   old_options.write_buffer_size = 64 * 1024;
   old_options.target_file_size_base = 128 * 1024;
@@ -91,6 +93,9 @@ TEST_P(DBOptionChangeMigrationTests, Migrate1) {
       static_cast<CompactionStyle>(compaction_style2_);
   if (new_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     new_options.level_compaction_dynamic_level_bytes = is_dynamic2_;
+  }
+  if (new_options.compaction_style == CompactionStyle::kCompactionStyleFIFO) {
+    new_options.max_open_files = -1;
   }
   new_options.target_file_size_base = 256 * 1024;
   new_options.num_levels = level2_;
@@ -123,6 +128,9 @@ TEST_P(DBOptionChangeMigrationTests, Migrate2) {
   if (old_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     old_options.level_compaction_dynamic_level_bytes = is_dynamic2_;
   }
+  if (old_options.compaction_style == CompactionStyle::kCompactionStyleFIFO) {
+    old_options.max_open_files = -1;
+  }
   old_options.level0_file_num_compaction_trigger = 3;
   old_options.write_buffer_size = 64 * 1024;
   old_options.target_file_size_base = 128 * 1024;
@@ -161,6 +169,9 @@ TEST_P(DBOptionChangeMigrationTests, Migrate2) {
   if (new_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     new_options.level_compaction_dynamic_level_bytes = is_dynamic1_;
   }
+  if (new_options.compaction_style == CompactionStyle::kCompactionStyleFIFO) {
+    new_options.max_open_files = -1;
+  }
   new_options.target_file_size_base = 256 * 1024;
   new_options.num_levels = level1_;
   new_options.max_bytes_for_level_base = 150 * 1024;
@@ -191,7 +202,9 @@ TEST_P(DBOptionChangeMigrationTests, Migrate3) {
   if (old_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     old_options.level_compaction_dynamic_level_bytes = is_dynamic1_;
   }
-
+  if (old_options.compaction_style == CompactionStyle::kCompactionStyleFIFO) {
+    old_options.max_open_files = -1;
+  }
   old_options.level0_file_num_compaction_trigger = 3;
   old_options.write_buffer_size = 64 * 1024;
   old_options.target_file_size_base = 128 * 1024;
@@ -235,6 +248,9 @@ TEST_P(DBOptionChangeMigrationTests, Migrate3) {
   if (new_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     new_options.level_compaction_dynamic_level_bytes = is_dynamic2_;
   }
+  if (new_options.compaction_style == CompactionStyle::kCompactionStyleFIFO) {
+    new_options.max_open_files = -1;
+  }
   new_options.target_file_size_base = 256 * 1024;
   new_options.num_levels = level2_;
   new_options.max_bytes_for_level_base = 150 * 1024;
@@ -265,6 +281,9 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
       static_cast<CompactionStyle>(compaction_style2_);
   if (old_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     old_options.level_compaction_dynamic_level_bytes = is_dynamic2_;
+  }
+  if (old_options.compaction_style == CompactionStyle::kCompactionStyleFIFO) {
+    old_options.max_open_files = -1;
   }
   old_options.level0_file_num_compaction_trigger = 3;
   old_options.write_buffer_size = 64 * 1024;
@@ -309,6 +328,9 @@ TEST_P(DBOptionChangeMigrationTests, Migrate4) {
       static_cast<CompactionStyle>(compaction_style1_);
   if (new_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     new_options.level_compaction_dynamic_level_bytes = is_dynamic1_;
+  }
+  if (new_options.compaction_style == CompactionStyle::kCompactionStyleFIFO) {
+    new_options.max_open_files = -1;
   }
   new_options.target_file_size_base = 256 * 1024;
   new_options.num_levels = level1_;
