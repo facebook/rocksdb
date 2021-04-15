@@ -77,7 +77,7 @@ struct TestHandler : public WriteBatch::Handler {
   }
 };
 
-typedef std::map<std::string, std::string> KVMap;
+using KVMap = std::map<std::string, std::string>;
 
 class KVIter : public Iterator {
  public:
@@ -239,7 +239,7 @@ void AssertIterEqual(WBWIIteratorImpl* wbwii,
 
 class WBWIBaseTest : public testing::Test {
  public:
-  WBWIBaseTest(bool overwrite) : db_(nullptr) {
+  explicit WBWIBaseTest(bool overwrite) : db_(nullptr) {
     options_.merge_operator =
         MergeOperators::CreateFromStringId("stringappend");
     options_.create_if_missing = true;
