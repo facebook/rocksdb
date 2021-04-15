@@ -313,8 +313,11 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
       new_filenames->emplace_back(
           manifest.substr(manifest.find_last_of("/\\") + 1));
     }
-  } else {
-    fs_->DeleteFile(manifest, IOOptions(), nullptr);
+  }
+  if (!s.ok()) {
+    fs_->DeleteFile(manifest, IOOptions(), nullptr).PermitUncheckedError();
+    fs_->DeleteFile(CurrentFileName(dbname_), IOOptions(), nullptr)
+        .PermitUncheckedError();
   }
   return s;
 }
