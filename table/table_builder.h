@@ -95,7 +95,7 @@ struct TableBuilderOptions {
       CompressionType _compression_type,
       const CompressionOptions& _compression_opts, bool _skip_filters,
       const std::string& _column_family_name, int _level,
-      const std::function<uint64_t()> _oldest_ancester_time_getter = nullptr,
+      std::function<uint64_t()> _oldest_ancester_time_getter = nullptr,
       const int64_t _oldest_key_time = 0, const uint64_t _target_file_size = 0,
       const uint64_t _file_creation_time = 0, const std::string& _db_id = "",
       const std::string& _db_session_id = "")

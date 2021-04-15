@@ -847,7 +847,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const CompressionType compression_type,
     const CompressionOptions& compression_opts, const bool skip_filters,
     const std::string& column_family_name, const int level_at_creation,
-    const std::function<uint64_t()>& oldest_ancester_time_getter,
+    std::function<uint64_t()> oldest_ancester_time_getter,
     const uint64_t oldest_key_time, const uint64_t target_file_size,
     const uint64_t file_creation_time, const std::string& db_id,
     const std::string& db_session_id)
