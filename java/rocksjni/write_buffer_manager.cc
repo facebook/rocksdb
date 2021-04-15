@@ -40,3 +40,44 @@ void Java_org_rocksdb_WriteBufferManager_disposeInternal(
   assert(write_buffer_manager != nullptr);
   delete write_buffer_manager;
 }
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
+ * Method:    getMemoryUsage
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_WriteBufferManager_getMemoryUsage(JNIEnv* /*env*/,
+                                                         jclass,
+                                                         jlong jhandle) {
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
+  return static_cast<jlong>(write_buffer_manager->memory_usage());
+}
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
+ * Method:    getMutableMemtableMemoryUsage
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_WriteBufferManager_getMutableMemtableMemoryUsage(
+    JNIEnv* /*env*/, jclass, jlong jhandle) {
+  auto* write_buffer_manager =
+      reinterpret_cast <
+      std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>(jhandle);
+  return static_cast<jlong>(
+      write_buffer_manager->mutable_memtable_memory_usage());
+}
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
+ * Method:    getBufferSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_WriteBufferManager_getBufferSize(JNIEnv*, jclass,
+                                                        jlong jhandle) {
+  auto* write_buffer_manager =
+      reinterpret_cast <
+      std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>(jhandle);
+  return static_cast<jlong>(write_buffer_manager->buffer_size());
+}
