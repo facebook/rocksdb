@@ -129,7 +129,8 @@ class Directories {
 class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname,
-         const bool seq_per_batch = false, const bool batch_per_txn = true);
+         const bool seq_per_batch = false, const bool batch_per_txn = true,
+         bool read_only = false);
   // No copying allowed
   DBImpl(const DBImpl&) = delete;
   void operator=(const DBImpl&) = delete;
@@ -469,7 +470,7 @@ class DBImpl : public DB {
   Status EndBlockCacheTrace() override;
 
   using DB::StartIOTrace;
-  Status StartIOTrace(Env* env, const TraceOptions& options,
+  Status StartIOTrace(const TraceOptions& options,
                       std::unique_ptr<TraceWriter>&& trace_writer) override;
 
   using DB::EndIOTrace;
@@ -1236,7 +1237,7 @@ class DBImpl : public DB {
   virtual bool OwnTablesAndLogs() const { return true; }
 
   // Set DB identity file, and write DB ID to manifest if necessary.
-  Status SetDBId();
+  Status SetDBId(bool read_only);
 
   // REQUIRES: db mutex held when calling this function, but the db mutex can
   // be released and re-acquired. Db mutex will be held when the function
@@ -1414,6 +1415,7 @@ class DBImpl : public DB {
     DBImpl* db;
     // background compaction takes ownership of `prepicked_compaction`.
     PrepickedCompaction* prepicked_compaction;
+    Env::Priority compaction_pri_;
   };
 
   // Initialize the built-in column family for persistent stats. Depending on
@@ -1603,7 +1605,7 @@ class DBImpl : public DB {
   Status SwitchWAL(WriteContext* write_context);
 
   // REQUIRES: mutex locked and in write thread.
-  Status HandleWriteBufferFull(WriteContext* write_context);
+  Status HandleWriteBufferManagerFlush(WriteContext* write_context);
 
   // REQUIRES: mutex locked
   Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
@@ -2230,9 +2232,11 @@ class DBImpl : public DB {
   BlobFileCompletionCallback blob_callback_;
 };
 
-extern Options SanitizeOptions(const std::string& db, const Options& src);
+extern Options SanitizeOptions(const std::string& db, const Options& src,
+                               bool read_only = false);
 
-extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
+extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src,
+                                 bool read_only = false);
 
 extern CompressionType GetCompressionFlush(
     const ImmutableCFOptions& ioptions,

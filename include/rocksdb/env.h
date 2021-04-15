@@ -546,6 +546,13 @@ class Env {
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const;
 
+  // OptimizeForBlobFileRead will create a new EnvOptions object that
+  // is a copy of the EnvOptions in the parameters, but is optimized for reading
+  // blob files.
+  virtual EnvOptions OptimizeForBlobFileRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const;
+
   // Returns the status of all threads that belong to the current Env.
   virtual Status GetThreadList(std::vector<ThreadStatus>* /*thread_list*/) {
     return Status::NotSupported("Env::GetThreadList() not supported.");
@@ -1494,6 +1501,11 @@ class EnvWrapper : public Env {
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const override {
     return target_->OptimizeForCompactionTableRead(env_options, db_options);
+  }
+  EnvOptions OptimizeForBlobFileRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const override {
+    return target_->OptimizeForBlobFileRead(env_options, db_options);
   }
   Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override {
     return target_->GetFreeSpace(path, diskfree);

@@ -24,15 +24,17 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
-Options SanitizeOptions(const std::string& dbname, const Options& src) {
-  auto db_options = SanitizeOptions(dbname, DBOptions(src));
+Options SanitizeOptions(const std::string& dbname, const Options& src,
+                        bool read_only) {
+  auto db_options = SanitizeOptions(dbname, DBOptions(src), read_only);
   ImmutableDBOptions immutable_db_options(db_options);
   auto cf_options =
       SanitizeOptions(immutable_db_options, ColumnFamilyOptions(src));
   return Options(db_options, cf_options);
 }
 
-DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
+DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
+                          bool read_only) {
   DBOptions result(src);
 
   if (result.env == nullptr) {
@@ -50,7 +52,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
                              &result.max_open_files);
   }
 
-  if (result.info_log == nullptr) {
+  if (result.info_log == nullptr && !read_only) {
     Status s = CreateLoggerFromOptions(dbname, result, &result.info_log);
     if (!s.ok()) {
       // No place suitable for logging
@@ -488,7 +490,7 @@ Status DBImpl::Recover(
   if (!s.ok()) {
     return s;
   }
-  s = SetDBId();
+  s = SetDBId(read_only);
   if (s.ok() && !read_only) {
     s = DeleteUnreferencedSstFiles();
   }
@@ -1381,7 +1383,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           mutable_cf_options.compression_opts, paranoid_file_checks,
           cfd->internal_stats(), TableFileCreationReason::kRecovery, &io_s,
           io_tracer_, &event_logger_, job_id, Env::IO_HIGH,
-          nullptr /* table_properties */, -1 /* level */, current_time,
+          nullptr /* table_properties */, 0 /* level */, current_time,
           0 /* oldest_key_time */, write_hint, 0 /* file_creation_time */,
           db_id_, db_session_id_, nullptr /*full_history_ts_low*/,
           &blob_callback_);

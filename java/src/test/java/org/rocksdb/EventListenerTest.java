@@ -244,9 +244,10 @@ public class EventListenerTest {
         TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL,
         TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL,
         TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL, TEST_LONG_VAL,
-        "columnFamilyName".getBytes(), "filterPolicyName", "comparatorName", "mergeOperatorName",
-        "prefixExtractorName", "propertyCollectorsNames", "compressionName",
-        userCollectedPropertiesTestData, readablePropertiesTestData, propertiesOffsetsTestData);
+        TEST_LONG_VAL, TEST_LONG_VAL, "columnFamilyName".getBytes(), "filterPolicyName",
+        "comparatorName", "mergeOperatorName", "prefixExtractorName", "propertyCollectorsNames",
+        "compressionName", userCollectedPropertiesTestData, readablePropertiesTestData,
+        propertiesOffsetsTestData);
     final FlushJobInfo flushJobInfoTestData = new FlushJobInfo(Integer.MAX_VALUE,
         "testColumnFamily", "/file/path", TEST_LONG_VAL, Integer.MAX_VALUE, true, true,
         TEST_LONG_VAL, TEST_LONG_VAL, tablePropertiesTestData, (byte) 0x0a);

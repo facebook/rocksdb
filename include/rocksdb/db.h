@@ -1368,7 +1368,7 @@ class DB {
   virtual void GetLiveFilesMetaData(
       std::vector<LiveFileMetaData>* /*metadata*/) {}
 
-  // Return a list of all table file checksum info.
+  // Return a list of all table and blob files checksum info.
   // Note: This function might be of limited use because it cannot be
   // synchronized with GetLiveFiles.
   virtual Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) = 0;
@@ -1612,7 +1612,7 @@ class DB {
   }
 
   // IO Tracing operations. Use EndIOTrace() to stop tracing.
-  virtual Status StartIOTrace(Env* /*env*/, const TraceOptions& /*options*/,
+  virtual Status StartIOTrace(const TraceOptions& /*options*/,
                               std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
     return Status::NotSupported("StartIOTrace() is not implemented.");
   }

@@ -146,10 +146,11 @@ void DumpSupportInfo(Logger* logger) {
 }  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
-               const bool seq_per_batch, const bool batch_per_txn)
+               const bool seq_per_batch, const bool batch_per_txn,
+               bool read_only)
     : dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
-      initial_db_options_(SanitizeOptions(dbname, options)),
+      initial_db_options_(SanitizeOptions(dbname, options, read_only)),
       env_(initial_db_options_.env),
       io_tracer_(std::make_shared<IOTracer>()),
       immutable_db_options_(initial_db_options_),
@@ -522,15 +523,11 @@ Status DBImpl::CloseHelper() {
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
   CancelAllBackgroundWork(false);
-  int bottom_compactions_unscheduled =
-      env_->UnSchedule(this, Env::Priority::BOTTOM);
-  int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
-  int flushes_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);
-  Status ret = Status::OK();
   mutex_.Lock();
-  bg_bottom_compaction_scheduled_ -= bottom_compactions_unscheduled;
-  bg_compaction_scheduled_ -= compactions_unscheduled;
-  bg_flush_scheduled_ -= flushes_unscheduled;
+  env_->UnSchedule(this, Env::Priority::BOTTOM);
+  env_->UnSchedule(this, Env::Priority::LOW);
+  env_->UnSchedule(this, Env::Priority::HIGH);
+  Status ret = Status::OK();
 
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
@@ -3149,7 +3146,7 @@ SystemClock* DBImpl::GetSystemClock() const {
 
 #ifndef ROCKSDB_LITE
 
-Status DBImpl::StartIOTrace(Env* /*env*/, const TraceOptions& trace_options,
+Status DBImpl::StartIOTrace(const TraceOptions& trace_options,
                             std::unique_ptr<TraceWriter>&& trace_writer) {
   assert(trace_writer != nullptr);
   return io_tracer_->StartIOTrace(GetSystemClock(), trace_options,
