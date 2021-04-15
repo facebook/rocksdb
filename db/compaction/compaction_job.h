@@ -157,11 +157,9 @@ class CompactionJob {
       const std::atomic<int>* manual_compaction_paused = nullptr,
       const std::string& db_id = "", const std::string& db_session_id = "",
       std::string full_history_ts_low = "",
-      BlobFileCompletionCallback* blob_callback = nullptr,
-      const CompactionServiceInput* compaction_service_input = nullptr,
-      const std::string& output_path = "");
+      BlobFileCompletionCallback* blob_callback = nullptr);
 
-  ~CompactionJob();
+  virtual ~CompactionJob();
 
   // no copy/move
   CompactionJob(CompactionJob&& job) = delete;
@@ -188,7 +186,7 @@ class CompactionJob {
 
   void CleanupCompaction();
 
- private:
+ protected:
   struct SubcompactionState;
 
   void AggregateStatistics();
@@ -225,10 +223,6 @@ class CompactionJob {
       int* num_files, uint64_t* bytes_read, int input_level);
 
   void LogCompaction();
-
-  bool IsCompactionServiceWorker() {
-    return compaction_service_input_ != nullptr;
-  }
 
   int job_id_;
 
@@ -292,13 +286,50 @@ class CompactionJob {
   std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
 
-  // Only set if the compaction job is built for compaction service.
-  const CompactionServiceInput* compaction_service_input_;
+ private:
+  virtual std::string GetTableFileName(uint64_t file_number);
+
+};
+
+class ReadOnlyCompactionJob : private CompactionJob {
+ public:
+  ReadOnlyCompactionJob(int job_id,
+                        Compaction* compaction,
+                        const ImmutableDBOptions& db_options,
+                        const FileOptions& file_options,
+                        VersionSet* versions,
+                        const std::atomic<bool>* shutting_down,
+                        LogBuffer* log_buffer,
+                        FSDirectory* output_directory,
+                        Statistics* stats,
+                        InstrumentedMutex* db_mutex,
+                        ErrorHandler* db_error_handler,
+                        std::vector<SequenceNumber> existing_snapshots,
+                        std::shared_ptr<Cache> table_cache,
+                        EventLogger* event_logger,
+                        const std::string& dbname,
+                        const std::shared_ptr<IOTracer>& io_tracer,
+                        const std::string& db_id,
+                        const std::string& db_session_id,
+                        const std::string& output_path,
+                        const CompactionServiceInput& compaction_service_input,
+                        CompactionServiceResult* compaction_service_result);
+  Status Run();
+
+  void CleanupCompaction();
+
+  IOStatus io_status() const { return io_status_; }
+
+ private:
+  std::string GetTableFileName(uint64_t file_number) override;
   // Specific the compaction output path, otherwise it uses default DB path
   const std::string output_path_;
-  // The basic statistics for this compaction job
-  uint64_t bytes_written_;
-  uint64_t bytes_read_;
+
+  // Compaction job input
+  const CompactionServiceInput& compaction_service_input_;
+
+  // Compaction job result
+  CompactionServiceResult* compaction_service_result_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

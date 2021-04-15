@@ -731,30 +731,29 @@ Status DBImplSecondary::CompactWithoutInstallation(
   // not supported, default to 0
   const SequenceNumber preserve_deletes_seqnum = 0;
 
-  CompactionJob compaction_job(
+//  ReadOnlyCompactionJob compaction_job();
+
+  ReadOnlyCompactionJob compaction_job(
       job_id, c.get(), immutable_db_options_, file_options_for_compaction_,
-      versions_.get(), &shutting_down, preserve_deletes_seqnum, &log_buffer,
-      nullptr, output_dir.get(), nullptr, stats_, &mutex_, &error_handler_,
-      input.snapshots, kMaxSequenceNumber, nullptr, table_cache_,
-      &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
-      c->mutable_cf_options()->report_bg_io_stats, dbname_, &(result->stats),
-      Env::Priority::USER, io_tracer_, &manual_compaction_paused, db_id_,
-      db_session_id_, c->column_family_data()->GetFullHistoryTsLow(), nullptr,
-      &input, secondary_path_);
+      versions_.get(), &shutting_down, &log_buffer,
+      output_dir.get(), stats_, &mutex_, &error_handler_,
+      input.snapshots, table_cache_,
+      &event_logger_, dbname_,
+      io_tracer_, db_id_,
+      db_session_id_, secondary_path_,
+      input, result);
 
   // The prepare here just setup the subcomption information from
   // CompactionService input.
-  compaction_job.Prepare();
+//  compaction_job.Prepare();
 
   mutex_.Unlock();
-  compaction_job.Run().PermitUncheckedError();
+  s = compaction_job.Run();
   mutex_.Lock();
 
-  s = compaction_job.BuildCompactionResult(result);
-
   // clean up
-  compaction_job.CleanupCompaction();
   compaction_job.io_status().PermitUncheckedError();
+  compaction_job.CleanupCompaction();
   c->ReleaseCompactionFiles(s);
   c.reset();
 
