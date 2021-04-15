@@ -72,7 +72,7 @@ class LogReaderContainer {
 class DBImplSecondary : public DBImpl {
  public:
   DBImplSecondary(const DBOptions& options, const std::string& dbname,
-                  const std::string& secondary_path);
+                  std::string secondary_path);
   ~DBImplSecondary() override;
 
   // Recover by replaying MANIFEST and WAL. Also initialize manifest_reader_
