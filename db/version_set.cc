@@ -4192,8 +4192,10 @@ Status VersionSet::ProcessManifestWrites(
 
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
-    if (s.ok() && new_descriptor_log) {
+    if (s.ok()) {
       assert(manifest_io_status.ok());
+    }
+    if (s.ok() && new_descriptor_log) {
       io_s = SetCurrentFile(fs_.get(), dbname_, pending_manifest_file_number_,
                             db_directory);
       if (!io_s.ok()) {
