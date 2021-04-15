@@ -1030,7 +1030,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     return;
   }
 
-  if (is_data_block) {
+  if (is_data_block && r->table_options.prepopulate_block_cache) {
     handle->set_offset(r->get_offset());
     handle->set_size(block_contents.size());
     InsertBlockInCache(raw_block_contents, kNoCompression, handle);
@@ -1319,9 +1319,12 @@ void BlockBasedTableBuilder::BGWorkWriteRawBlock() {
 
     r->pc_rep->file_size_estimator.SetCurrBlockRawSize(block_rep->data->size());
 
-    r->pending_handle.set_offset(r->get_offset());
-    r->pending_handle.set_size(block_rep->compressed_contents.size());
-    InsertBlockInCache(block_rep->contents, kNoCompression, &r->pending_handle);
+    if (r->table_options.prepopulate_block_cache) {
+      r->pending_handle.set_offset(r->get_offset());
+      r->pending_handle.set_size(block_rep->compressed_contents.size());
+      InsertBlockInCache(block_rep->contents, kNoCompression,
+                         &r->pending_handle);
+    }
 
     WriteRawBlock(block_rep->compressed_contents, block_rep->compression_type,
                   &r->pending_handle, true /* is_data_block*/);
