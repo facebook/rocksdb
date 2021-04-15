@@ -1004,6 +1004,7 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
   // any currently-existing files.
   for (auto file_num : *input_files) {
     bool found = false;
+    int input_file_level = -1;
     for (const auto& level_meta : cf_meta.levels) {
       for (const auto& file_meta : level_meta.files) {
         if (file_num == TableFileNameToNumber(file_meta.name)) {
@@ -1013,6 +1014,7 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
                                    " is already being compacted.");
           }
           found = true;
+          input_file_level = level_meta.level;
           break;
         }
       }
@@ -1024,6 +1026,13 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
       return Status::InvalidArgument(
           "Specified compaction input file " + MakeTableFileName("", file_num) +
           " does not exist in column family " + cf_meta.name + ".");
+    }
+    if (input_file_level > output_level) {
+      return Status::InvalidArgument(
+          "Cannot compact file to up level, input file: " +
+          MakeTableFileName("", file_num) + " level " +
+          ToString(input_file_level) + " > output level " +
+          ToString(output_level));
     }
   }
 

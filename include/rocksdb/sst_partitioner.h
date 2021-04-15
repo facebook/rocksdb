@@ -51,12 +51,12 @@ class SstPartitioner {
   // It is called for all keys in compaction. When partitioner want to create
   // new SST file it needs to return true. It means compaction job will finish
   // current SST file where last key is "prev_user_key" parameter and start new
-  // SST file where first key is "current_user_key". Returns decission if
+  // SST file where first key is "current_user_key". Returns decision if
   // partition boundary was detected and compaction should create new file.
   virtual PartitionerResult ShouldPartition(
       const PartitionerRequest& request) = 0;
 
-  // Called with smallest and largest keys in SST file when compation try to do
+  // Called with smallest and largest keys in SST file when compaction try to do
   // trivial move. Returns true is partitioner allows to do trivial move.
   virtual bool CanDoTrivialMove(const Slice& smallest_user_key,
                                 const Slice& largest_user_key) = 0;

@@ -35,6 +35,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "strsafe.h"
+#include "util/string_util.h"
 
 // Undefine the functions  windows might use (again)...
 #undef GetCurrentTime
@@ -61,7 +62,8 @@ typedef std::unique_ptr<void, decltype(FindCloseFunc)> UniqueFindClosePtr;
 
 void WinthreadCall(const char* label, std::error_code result) {
   if (0 != result.value()) {
-    fprintf(stderr, "pthread %s: %s\n", label, strerror(result.value()));
+    fprintf(stderr, "Winthread %s: %s\n", label,
+            errnoStr(result.value()).c_str());
     abort();
   }
 }

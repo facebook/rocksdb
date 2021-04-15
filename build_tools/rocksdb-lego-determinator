@@ -548,6 +548,36 @@ STRESS_CRASH_TEST_WITH_TXN_COMMANDS="[
     }
 ]"
 
+#
+# RocksDB stress/crash test with timestamp
+#
+STRESS_CRASH_TEST_WITH_TS_COMMANDS="[
+    {
+        'name':'Rocksdb Stress and Crash Test with ts',
+        'oncall':'$ONCALL',
+        'executeLocal': 'true',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB debug stress tests',
+                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 db_stress || $CONTRUN_NAME=db_stress $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            {
+                'name':'Build and run RocksDB debug crash tests with ts',
+                'timeout': 86400,
+                'shell':'cd $WORKING_DIR; $SHM $DEBUG $NON_TSAN_CRASH make J=1 crash_test_with_ts || $CONTRUN_NAME=crash_test_with_ts $TASK_CREATION_TOOL',
+                'user':'root',
+                $PARSER
+            },
+            $UPLOAD_DB_DIR,
+        ],
+        $REPORT
+    }
+]"
+
 # RocksDB write stress test.
 # We run on disk device on purpose (i.e. no $SHM)
 # because we want to add some randomness to fsync commands
@@ -1219,6 +1249,9 @@ case $1 in
     ;;
   stress_crash_with_txn)
     echo $STRESS_CRASH_TEST_WITH_TXN_COMMANDS
+    ;;
+  stress_crash_with_ts)
+    echo $STRESS_CRASH_TEST_WITH_TS_COMMANDS
     ;;
   write_stress)
     echo $WRITE_STRESS_COMMANDS

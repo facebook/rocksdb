@@ -14,6 +14,14 @@
 namespace ROCKSDB_NAMESPACE {
 namespace test {
 
+#ifdef OS_WIN
+#include <windows.h>
+
+std::string GetPidStr() { return std::to_string(GetCurrentProcessId()); }
+#else
+std::string GetPidStr() { return std::to_string(getpid()); }
+#endif
+
 ::testing::AssertionResult AssertStatus(const char* s_expr, const Status& s) {
   if (s.ok()) {
     return ::testing::AssertionSuccess();
@@ -32,7 +40,7 @@ std::string TmpDir(Env* env) {
 
 std::string PerThreadDBPath(std::string dir, std::string name) {
   size_t tid = std::hash<std::thread::id>()(std::this_thread::get_id());
-  return dir + "/" + name + "_" + std::to_string(tid);
+  return dir + "/" + name + "_" + GetPidStr() + "_" + std::to_string(tid);
 }
 
 std::string PerThreadDBPath(std::string name) {

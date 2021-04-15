@@ -30,6 +30,9 @@ int main() {
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
+// The test is not fully designed for bits_per_key other than 10, but with
+// this parameter you can easily explore the behavior of other bits_per_key.
+// See also filter_bench.
 DEFINE_int32(bits_per_key, 10, "");
 
 namespace ROCKSDB_NAMESPACE {
@@ -158,7 +161,8 @@ TEST_F(BlockBasedBloomTest, VaryingLengths) {
     }
     Build();
 
-    ASSERT_LE(FilterSize(), (size_t)((length * 10 / 8) + 40)) << length;
+    ASSERT_LE(FilterSize(), (size_t)((length * FLAGS_bits_per_key / 8) + 40))
+        << length;
 
     // All added keys must match
     for (int i = 0; i < length; i++) {
@@ -172,11 +176,16 @@ TEST_F(BlockBasedBloomTest, VaryingLengths) {
       fprintf(stderr, "False positives: %5.2f%% @ length = %6d ; bytes = %6d\n",
               rate*100.0, length, static_cast<int>(FilterSize()));
     }
-    ASSERT_LE(rate, 0.02);   // Must not be over 2%
-    if (rate > 0.0125) mediocre_filters++;  // Allowed, but not too often
-    else good_filters++;
+    if (FLAGS_bits_per_key == 10) {
+      ASSERT_LE(rate, 0.02);  // Must not be over 2%
+      if (rate > 0.0125) {
+        mediocre_filters++;  // Allowed, but not too often
+      } else {
+        good_filters++;
+      }
+    }
   }
-  if (kVerbose >= 1) {
+  if (FLAGS_bits_per_key == 10 && kVerbose >= 1) {
     fprintf(stderr, "Filters: %d good, %d mediocre\n",
             good_filters, mediocre_filters);
   }
@@ -481,8 +490,8 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
     }
     Build();
 
-    EXPECT_LE(FilterSize(),
-              (size_t)((length * 10 / 8) + CACHE_LINE_SIZE * 2 + 5));
+    EXPECT_LE(FilterSize(), (size_t)((length * FLAGS_bits_per_key / 8) +
+                                     CACHE_LINE_SIZE * 2 + 5));
 
     // All added keys must match
     for (int i = 0; i < length; i++) {
@@ -496,11 +505,14 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
       fprintf(stderr, "False positives: %5.2f%% @ length = %6d ; bytes = %6d\n",
               rate*100.0, length, static_cast<int>(FilterSize()));
     }
-    EXPECT_LE(rate, 0.02);  // Must not be over 2%
-    if (rate > 0.0125)
-      mediocre_filters++;  // Allowed, but not too often
-    else
-      good_filters++;
+    if (FLAGS_bits_per_key == 10) {
+      EXPECT_LE(rate, 0.02);  // Must not be over 2%
+      if (rate > 0.0125) {
+        mediocre_filters++;  // Allowed, but not too often
+      } else {
+        good_filters++;
+      }
+    }
   }
   if (kVerbose >= 1) {
     fprintf(stderr, "Filters: %d good, %d mediocre\n",
@@ -538,8 +550,10 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
       total_keys += nkeys;
       total_fp_rate += FalsePositiveRate();
     }
-    EXPECT_LE(total_fp_rate / double{nfilters}, 0.011);
-    EXPECT_GE(total_fp_rate / double{nfilters}, 0.008);
+    if (FLAGS_bits_per_key == 10) {
+      EXPECT_LE(total_fp_rate / double{nfilters}, 0.011);
+      EXPECT_GE(total_fp_rate / double{nfilters}, 0.008);
+    }
 
     int64_t ex_min_total_size = int64_t{FLAGS_bits_per_key} * total_keys / 8;
     if (GetParam() == BloomFilterPolicy::kStandard128Ribbon) {

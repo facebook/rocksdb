@@ -23,6 +23,9 @@
 #include <mach/mach_host.h>
 #include <sys/sysctl.h>
 #endif
+#ifdef __FreeBSD__
+#include <sys/sysctl.h>
+#endif
 #include <atomic>
 #include <cinttypes>
 #include <condition_variable>
@@ -1008,8 +1011,8 @@ DEFINE_uint64(compression_max_dict_buffer_bytes,
 
 static bool ValidateTableCacheNumshardbits(const char* flagname,
                                            int32_t value) {
-  if (0 >= value || value > 20) {
-    fprintf(stderr, "Invalid value for --%s: %d, must be  0 < val <= 20\n",
+  if (0 >= value || value >= 20) {
+    fprintf(stderr, "Invalid value for --%s: %d, must be  0 < val < 20\n",
             flagname, value);
     return false;
   }
@@ -2638,7 +2641,7 @@ class Benchmark {
     fprintf(stderr, "RocksDB:    version %d.%d\n",
             kMajorVersion, kMinorVersion);
 
-#if defined(__linux) || defined(__APPLE__)
+#if defined(__linux) || defined(__APPLE__) || defined(__FreeBSD__)
     time_t now = time(nullptr);
     char buf[52];
     // Lint complains about ctime() usage, so replace it with ctime_r(). The
@@ -2695,6 +2698,19 @@ class Benchmark {
       }
       fprintf(stderr, "CPU:        %d * %s\n", h.max_cpus, cpu_type.c_str());
       fprintf(stderr, "CPUCache:   %s\n", cache_size.c_str());
+    }
+#elif defined(__FreeBSD__)
+    int ncpus;
+    size_t len = sizeof(ncpus);
+    int mib[2] = {CTL_HW, HW_NCPU};
+    if (sysctl(mib, 2, &ncpus, &len, nullptr, 0) == 0) {
+      char cpu_type[16];
+      len = sizeof(cpu_type) - 1;
+      mib[1] = HW_MACHINE;
+      if (sysctl(mib, 2, cpu_type, &len, nullptr, 0) == 0) cpu_type[len] = 0;
+
+      fprintf(stderr, "CPU:        %d * %s\n", ncpus, cpu_type);
+      // no programmatic way to get the cache line size except on PPC
     }
 #endif
 #endif
@@ -5287,11 +5303,11 @@ class Benchmark {
         ts_ptr = &ts_ret;
       }
       Status s;
+      pinnable_val.Reset();
       if (FLAGS_num_column_families > 1) {
         s = db_with_cfh->db->Get(options, db_with_cfh->GetCfh(key_rand), key,
                                  &pinnable_val, ts_ptr);
       } else {
-        pinnable_val.Reset();
         s = db_with_cfh->db->Get(options,
                                  db_with_cfh->db->DefaultColumnFamily(), key,
                                  &pinnable_val, ts_ptr);
@@ -5677,12 +5693,12 @@ class Benchmark {
     }
   };
 
-  // The social graph wokrload mixed with Get, Put, Iterator queries.
+  // The social graph workload mixed with Get, Put, Iterator queries.
   // The value size and iterator length follow Pareto distribution.
   // The overall key access follow power distribution. If user models the
   // workload based on different key-ranges (or different prefixes), user
   // can use two-term-exponential distribution to fit the workload. User
-  // needs to decides the ratio between Get, Put, Iterator queries before
+  // needs to decide the ratio between Get, Put, Iterator queries before
   // starting the benchmark.
   void MixGraph(ThreadState* thread) {
     int64_t read = 0;  // including single gets and Next of iterators

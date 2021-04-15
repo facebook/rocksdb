@@ -55,8 +55,7 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
   builder->reset(NewTableBuilder(
       ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
       kTestColumnFamilyId, kTestColumnFamilyName, writable->get(),
-      options.compression, options.sample_for_compression,
-      options.compression_opts, unknown_level));
+      options.compression, options.compression_opts, unknown_level));
 }
 }  // namespace
 
@@ -176,9 +175,9 @@ class RegularKeysStartWithAInternal : public IntTblPropCollector {
     return Status::OK();
   }
 
-  void BlockAdd(uint64_t /* blockRawBytes */,
-                uint64_t /* blockCompressedBytesFast */,
-                uint64_t /* blockCompressedBytesSlow */) override {
+  void BlockAdd(uint64_t /* block_raw_bytes */,
+                uint64_t /* block_compressed_bytes_fast */,
+                uint64_t /* block_compressed_bytes_slow */) override {
     // Nothing to do.
     return;
   }

@@ -4165,6 +4165,10 @@ void rocksdb_cache_destroy(rocksdb_cache_t* cache) {
   delete cache;
 }
 
+void rocksdb_cache_disown_data(rocksdb_cache_t* cache) {
+  cache->rep->DisownData();
+}
+
 void rocksdb_cache_set_capacity(rocksdb_cache_t* cache, size_t capacity) {
   cache->rep->SetCapacity(capacity);
 }
@@ -4843,7 +4847,10 @@ void rocksdb_transaction_destroy(rocksdb_transaction_t* txn) {
 
 const rocksdb_snapshot_t* rocksdb_transaction_get_snapshot(
     rocksdb_transaction_t* txn) {
-  rocksdb_snapshot_t* result = new rocksdb_snapshot_t;
+  // This will be freed later on using free, so use malloc here to avoid a
+  // mismatch
+  rocksdb_snapshot_t* result =
+      (rocksdb_snapshot_t*)malloc(sizeof(rocksdb_snapshot_t));
   result->rep = txn->rep->GetSnapshot();
   return result;
 }

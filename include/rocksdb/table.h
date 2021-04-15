@@ -555,7 +555,7 @@ struct PlainTableOptions {
 
   // @store_index_in_file: compute plain table index and bloom filter during
   //                       file building and store it in file. When reading
-  //                       file, index will be mmaped instead of recomputation.
+  //                       file, index will be mapped instead of recomputation.
   bool store_index_in_file = false;
 };
 

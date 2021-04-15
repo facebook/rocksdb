@@ -751,10 +751,11 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
 }
 
 class DBWALTestWithParam
-    : public DBSSTTest,
+    : public DBTestBase,
       public testing::WithParamInterface<std::tuple<std::string, bool>> {
  public:
-  DBWALTestWithParam() {
+  explicit DBWALTestWithParam()
+      : DBTestBase("/db_wal_test_with_params", /*env_do_fsync=*/true) {
     wal_dir_ = std::get<0>(GetParam());
     wal_dir_same_as_dbname_ = std::get<1>(GetParam());
   }
@@ -1088,6 +1089,12 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedWithBlobFiles) {
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->SetCallBack(
       "BuildTable::AfterDeleteFile",
       [&](void* /*arg*/) { delete_blob_file = true; });
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency({
+      {
+          "BuildTable::AfterDeleteFile",
+          "DBSSTTest::DBWithMaxSpaceAllowedWithBlobFiles:1",
+      },
+  });
 
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -1095,6 +1102,8 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedWithBlobFiles) {
   // This flush will fail
   ASSERT_NOK(Flush());
   ASSERT_TRUE(max_allowed_space_reached);
+
+  TEST_SYNC_POINT("DBSSTTest::DBWithMaxSpaceAllowedWithBlobFiles:1");
   ASSERT_TRUE(delete_blob_file);
   ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
 }

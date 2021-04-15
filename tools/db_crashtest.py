@@ -142,6 +142,7 @@ default_params = {
     "paranoid_file_checks": lambda: random.choice([0, 1, 1, 1]),
     "max_write_buffer_size_to_maintain": lambda: random.choice(
         [0, 1024 * 1024, 2 * 1024 * 1024, 4 * 1024 * 1024, 8 * 1024 * 1024]),
+    "user_timestamp_size": 0,
 }
 
 _TEST_DIR_ENV_VAR = 'TEST_TMPDIR'
@@ -278,7 +279,6 @@ blob_params = {
     "blob_garbage_collection_age_cutoff": lambda: random.choice([0.0, 0.25, 0.5, 0.75, 1.0]),
     # The following are currently incompatible with the integrated BlobDB
     "use_merge": 0,
-    "backup_one_in": 0,
 }
 
 ts_params = {

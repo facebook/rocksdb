@@ -427,6 +427,7 @@ Status Replayer::Replay() {
       ops++;
     } else if (trace.type == kTraceGet) {
       GetPayload get_payload;
+      get_payload.cf_id = 0;
       get_payload.get_key = 0;
       if (trace_file_version_ < 2) {
         DecodeCFAndKey(trace.payload, &get_payload.cf_id, &get_payload.get_key);

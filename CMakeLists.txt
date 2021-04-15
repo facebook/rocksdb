@@ -326,10 +326,21 @@ CHECK_CXX_SOURCE_COMPILES("
 #endif
 int main() {
   static __thread int tls;
+  (void)tls;
 }
 " HAVE_THREAD_LOCAL)
 if(HAVE_THREAD_LOCAL)
   add_definitions(-DROCKSDB_SUPPORT_THREAD_LOCAL)
+endif()
+
+option(WITH_IOSTATS_CONTEXT "Enable IO stats context" ON)
+if (NOT WITH_IOSTATS_CONTEXT)
+  add_definitions(-DNIOSTATS_CONTEXT)
+endif()
+
+option(WITH_PERF_CONTEXT "Enable perf context" ON)
+if (NOT WITH_PERF_CONTEXT)
+  add_definitions(-DNPERF_CONTEXT)
 endif()
 
 option(FAIL_ON_WARNINGS "Treat compile warnings as errors" ON)
@@ -583,7 +594,6 @@ set(SOURCES
         db/builder.cc
         db/c.cc
         db/column_family.cc
-        db/compacted_db_impl.cc
         db/compaction/compaction.cc
         db/compaction/compaction_iterator.cc
         db/compaction/compaction_picker.cc
@@ -594,6 +604,7 @@ set(SOURCES
         db/compaction/sst_partitioner.cc
         db/convenience.cc
         db/db_filesnapshot.cc
+        db/db_impl/compacted_db_impl.cc
         db/db_impl/db_impl.cc
         db/db_impl/db_impl_write.cc
         db/db_impl/db_impl_compaction_flush.cc
@@ -651,6 +662,7 @@ set(SOURCES
         env/env_hdfs.cc
         env/file_system.cc
         env/file_system_tracer.cc
+        env/fs_remap.cc
         env/mock_env.cc
         file/delete_scheduler.cc
         file/file_prefetch_buffer.cc

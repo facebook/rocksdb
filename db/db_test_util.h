@@ -761,6 +761,17 @@ class OnFileDeletionListener : public EventListener {
   size_t matched_count_;
   std::string expected_file_name_;
 };
+
+class FlushCounterListener : public EventListener {
+ public:
+  std::atomic<int> count{0};
+  std::atomic<FlushReason> expected_flush_reason{FlushReason::kOthers};
+
+  void OnFlushBegin(DB* /*db*/, const FlushJobInfo& flush_job_info) override {
+    count++;
+    ASSERT_EQ(expected_flush_reason.load(), flush_job_info.flush_reason);
+  }
+};
 #endif
 
 // A test merge operator mimics put but also fails if one of merge operands is

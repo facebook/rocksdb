@@ -73,7 +73,7 @@ class BlockCipher {
   //   - ROT13         Create a ROT13 Cipher
   //   - ROT13:nn      Create a ROT13 Cipher with block size of nn
   // @param result The new cipher object
-  // @return OK if the cipher was sucessfully created
+  // @return OK if the cipher was successfully created
   // @return NotFound if an invalid name was specified in the value
   // @return InvalidArgument if either the options were not valid
   static Status CreateFromString(const ConfigOptions& config_options,
@@ -118,7 +118,7 @@ class EncryptionProvider {
   //   - CTR         Create a CTR provider
   //   - test://CTR Create a CTR provider and initialize it for tests.
   // @param result The new provider object
-  // @return OK if the provider was sucessfully created
+  // @return OK if the provider was successfully created
   // @return NotFound if an invalid name was specified in the value
   // @return InvalidArgument if either the options were not valid
   static Status CreateFromString(const ConfigOptions& config_options,
