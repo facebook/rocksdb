@@ -724,21 +724,12 @@ Status DBImplSecondary::CompactWithoutInstallation(
 
   const int job_id = next_job_id_.fetch_add(1);
 
-  std::atomic<bool> shutting_down(false);        // not used
-  std::atomic<int> manual_compaction_paused(0);  // not used
-  // not supported, default to 0
-  const SequenceNumber preserve_deletes_seqnum = 0;
-
   CompactionServiceCompactionJob compaction_job(
       job_id, c.get(), immutable_db_options_, file_options_for_compaction_,
-      versions_.get(), &shutting_down, &log_buffer, output_dir.get(), stats_,
+      versions_.get(), &shutting_down_, &log_buffer, output_dir.get(), stats_,
       &mutex_, &error_handler_, input.snapshots, table_cache_, &event_logger_,
       dbname_, io_tracer_, db_id_, db_session_id_, secondary_path_, input,
       result);
-
-  // The prepare here just setup the subcomption information from
-  // CompactionService input.
-  //  compaction_job.Prepare();
 
   mutex_.Unlock();
   s = compaction_job.Run();

@@ -1983,9 +1983,9 @@ Status CompactionServiceCompactionJob::Run() {
       c->column_family_data()->CalculateSSTWriteHint(c->output_level());
   bottommost_level_ = c->bottommost_level();
 
-  compact_->sub_compact_states.emplace_back(
-      c, compaction_input_.begin, compaction_input_.end,
-      compaction_input_.approx_size);
+  compact_->sub_compact_states.emplace_back(c, compaction_input_.begin,
+                                            compaction_input_.end,
+                                            compaction_input_.approx_size);
 
   log_buffer_->FlushBufferToLog();
   LogCompaction();
@@ -2037,10 +2037,9 @@ Status CompactionServiceCompactionJob::Run() {
   compact_->status = status;
   compact_->status.PermitUncheckedError();
 
-  compaction_result_->output_level =
-      compact_->compaction->output_level();
+  // Build compaction result
+  compaction_result_->output_level = compact_->compaction->output_level();
   compaction_result_->output_path = output_path_;
-
   for (const auto& output_file : sub_compact->outputs) {
     auto& meta = output_file.meta;
     compaction_result_->output_files.emplace_back(
@@ -2049,8 +2048,7 @@ Status CompactionServiceCompactionJob::Run() {
         meta.oldest_ancester_time, meta.file_creation_time,
         output_file.validator.GetHash(), meta.marked_for_compaction);
   }
-  compaction_result_->num_output_records =
-      sub_compact->num_output_records;
+  compaction_result_->num_output_records = sub_compact->num_output_records;
   compaction_result_->total_bytes = sub_compact->total_bytes;
 
   return status;

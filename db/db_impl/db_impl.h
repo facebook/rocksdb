@@ -1172,6 +1172,8 @@ class DBImpl : public DB {
   // they're unique
   std::atomic<int> next_job_id_;
 
+  std::atomic<bool> shutting_down_;
+
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.
   // If need_mutex_lock = false, the method will lock DB mutex.
@@ -1964,8 +1966,6 @@ class DBImpl : public DB {
   // Note: to avoid dealock, if needed to acquire both log_write_mutex_ and
   // mutex_, the order should be first mutex_ and then log_write_mutex_.
   InstrumentedMutex log_write_mutex_;
-
-  std::atomic<bool> shutting_down_;
 
   // If zero, manual compactions are allowed to proceed. If non-zero, manual
   // compactions may still be running, but will quickly fail with
