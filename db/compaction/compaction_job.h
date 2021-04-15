@@ -322,10 +322,10 @@ class CompactionServiceCompactionJob : private CompactionJob {
   const std::string output_path_;
 
   // Compaction job input
-  const CompactionServiceInput& compaction_service_input_;
+  const CompactionServiceInput& compaction_input_;
 
   // Compaction job result
-  CompactionServiceResult* compaction_service_result_;
+  CompactionServiceResult* compaction_result_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

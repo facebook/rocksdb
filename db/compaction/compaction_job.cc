@@ -1967,8 +1967,8 @@ CompactionServiceCompactionJob::CompactionServiceCompactionJob(
           nullptr, db_id, db_session_id,
           compaction->column_family_data()->GetFullHistoryTsLow()),
       output_path_(output_path),
-      compaction_service_input_(compaction_service_input),
-      compaction_service_result_(compaction_service_result) {}
+      compaction_input_(compaction_service_input),
+      compaction_result_(compaction_service_result) {}
 
 Status CompactionServiceCompactionJob::Run() {
   AutoThreadOperationStageUpdater stage_updater(
@@ -1984,8 +1984,8 @@ Status CompactionServiceCompactionJob::Run() {
   bottommost_level_ = c->bottommost_level();
 
   compact_->sub_compact_states.emplace_back(
-      c, compaction_service_input_.begin, compaction_service_input_.end,
-      compaction_service_input_.approx_size);
+      c, compaction_input_.begin, compaction_input_.end,
+      compaction_input_.approx_size);
 
   log_buffer_->FlushBufferToLog();
   LogCompaction();
@@ -2029,29 +2029,29 @@ Status CompactionServiceCompactionJob::Run() {
   AggregateStatistics();
   UpdateCompactionStats();
 
-  compaction_service_result_->bytes_written = IOSTATS(bytes_written);
-  compaction_service_result_->bytes_read = IOSTATS(bytes_read);
+  compaction_result_->bytes_written = IOSTATS(bytes_written);
+  compaction_result_->bytes_read = IOSTATS(bytes_read);
   RecordCompactionIOStats();
 
   LogFlush(db_options_.info_log);
   compact_->status = status;
   compact_->status.PermitUncheckedError();
 
-  compaction_service_result_->output_level =
+  compaction_result_->output_level =
       compact_->compaction->output_level();
-  compaction_service_result_->output_path = output_path_;
+  compaction_result_->output_path = output_path_;
 
   for (const auto& output_file : sub_compact->outputs) {
     auto& meta = output_file.meta;
-    compaction_service_result_->output_files.emplace_back(
+    compaction_result_->output_files.emplace_back(
         MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
         meta.fd.largest_seqno, meta.smallest, meta.largest,
         meta.oldest_ancester_time, meta.file_creation_time,
         output_file.validator.GetHash(), meta.marked_for_compaction);
   }
-  compaction_service_result_->num_output_records =
+  compaction_result_->num_output_records =
       sub_compact->num_output_records;
-  compaction_service_result_->total_bytes = sub_compact->total_bytes;
+  compaction_result_->total_bytes = sub_compact->total_bytes;
 
   return status;
 }
