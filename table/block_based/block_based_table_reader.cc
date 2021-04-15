@@ -12,6 +12,7 @@
 #include <array>
 #include <limits>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -60,6 +61,7 @@
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
+#include "util/tiered_cache_helper.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -424,8 +426,11 @@ void BlockBasedTable::UpdateCacheInsertionMetrics(BlockType block_type,
 
 Cache::Handle* BlockBasedTable::GetEntryFromCache(
     Cache* block_cache, const Slice& key, BlockType block_type,
-    GetContext* get_context) const {
-  auto cache_handle = block_cache->Lookup(key, rep_->ioptions.statistics);
+    GetContext* get_context, Cache::CacheItemHelperCallback helper_cb,
+    const Cache::CreateCallback& create_cb) const {
+  auto cache_handle =
+      block_cache->Lookup(key, helper_cb, create_cb, Cache::Priority::LOW, true,
+                          rep_->ioptions.statistics);
 
   if (cache_handle != nullptr) {
     UpdateCacheHitMetrics(block_type, get_context,
@@ -1182,11 +1187,61 @@ Status BlockBasedTable::GetDataBlockFromCache(
   Status s;
   BlockContents* compressed_block = nullptr;
   Cache::Handle* block_cache_compressed_handle = nullptr;
+  Cache::CreateCallback create_cb;
+  Cache::CacheItemHelperCallback helper_cb;
+  if (std::is_same<TBlocklike, BlockContents>::value) {
+    create_cb = [](void* buf, size_t size, void** out_obj,
+                   size_t* charge) -> Status {
+      return CreateBlockContentsBuffCB(buf, size, out_obj, charge);
+    };
+    helper_cb = [](Cache::SizeCallback* size_cb,
+                   Cache::SaveToCallback* saveto_cb,
+                   Cache::DeletionCallback* del_cb) -> void {
+      return CacheBlockContentsHelperCB(size_cb, saveto_cb, del_cb);
+    };
+  } else if (std::is_same<TBlocklike, Block>::value) {
+    create_cb = [](void* buf, size_t size, void** out_obj,
+                   size_t* charge) -> Status {
+      return CreateBlockBuffCB(buf, size, out_obj, charge);
+    };
+    helper_cb = [](Cache::SizeCallback* size_cb,
+                   Cache::SaveToCallback* saveto_cb,
+                   Cache::DeletionCallback* del_cb) -> void {
+      return CacheBlockHelperCB(size_cb, saveto_cb, del_cb);
+    };
+  } else if (std::is_same<TBlocklike, UncompressionDict>::value) {
+    bool using_zstd = rep_->blocks_definitely_zstd_compressed;
+    create_cb = [using_zstd](void* buf, size_t size, void** out_obj,
+                             size_t* charge) -> Status {
+      return CreateUncompressionDictBuffCB(buf, size, out_obj, charge,
+                                           using_zstd);
+    };
+    helper_cb = [](Cache::SizeCallback* size_cb,
+                   Cache::SaveToCallback* saveto_cb,
+                   Cache::DeletionCallback* del_cb) -> void {
+      return CacheUncompressionDictHelperCB(size_cb, saveto_cb, del_cb);
+    };
+  } else if (std::is_same<TBlocklike, ParsedFullFilterBlock>::value) {
+    const FilterPolicy* filter_policy = rep_->filter_policy;
+    create_cb = [filter_policy](void* buf, size_t size, void** out_obj,
+                                size_t* charge) -> Status {
+      return CreateParsedFullFilterBlockBuffCB(buf, size, out_obj, charge,
+                                               filter_policy);
+    };
+    helper_cb = [](Cache::SizeCallback* size_cb,
+                   Cache::SaveToCallback* saveto_cb,
+                   Cache::DeletionCallback* del_cb) -> void {
+      return CacheParsedFullFilterBlockHelperCB(size_cb, saveto_cb, del_cb);
+    };
+  } else {
+    assert(false);
+  }
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
-    auto cache_handle = GetEntryFromCache(block_cache, block_cache_key,
-                                          block_type, get_context);
+    auto cache_handle =
+        GetEntryFromCache(block_cache, block_cache_key, block_type, get_context,
+                          helper_cb, create_cb);
     if (cache_handle != nullptr) {
       block->SetCachedValue(
           reinterpret_cast<TBlocklike*>(block_cache->Value(cache_handle)),
@@ -1204,7 +1259,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   assert(!compressed_block_cache_key.empty());
   block_cache_compressed_handle =
-      block_cache_compressed->Lookup(compressed_block_cache_key);
+      block_cache_compressed->Lookup(compressed_block_cache_key, helper_cb,
+                                     create_cb, Cache::Priority::LOW, true);
 
   Statistics* statistics = rep_->ioptions.statistics;
 
@@ -1243,8 +1299,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
         read_options.fill_cache) {
       size_t charge = block_holder->ApproximateMemoryUsage();
       Cache::Handle* cache_handle = nullptr;
-      s = block_cache->Insert(block_cache_key, block_holder.get(), charge,
-                              &DeleteCachedEntry<TBlocklike>, &cache_handle);
+      s = block_cache->Insert(block_cache_key, block_holder.get(), helper_cb,
+                              charge, &cache_handle);
       if (s.ok()) {
         assert(cache_handle != nullptr);
         block->SetCachedValue(block_holder.release(), block_cache,
@@ -1292,6 +1348,34 @@ Status BlockBasedTable::PutDataBlockToCache(
 
   Status s;
   Statistics* statistics = ioptions.statistics;
+  Cache::CacheItemHelperCallback helper_cb;
+  if (std::is_same<TBlocklike, BlockContents>::value) {
+    helper_cb = [](Cache::SizeCallback* size_cb,
+                   Cache::SaveToCallback* saveto_cb,
+                   Cache::DeletionCallback* del_cb) -> void {
+      return CacheBlockContentsHelperCB(size_cb, saveto_cb, del_cb);
+    };
+  } else if (std::is_same<TBlocklike, Block>::value) {
+    helper_cb = [](Cache::SizeCallback* size_cb,
+                   Cache::SaveToCallback* saveto_cb,
+                   Cache::DeletionCallback* del_cb) -> void {
+      return CacheBlockHelperCB(size_cb, saveto_cb, del_cb);
+    };
+  } else if (std::is_same<TBlocklike, UncompressionDict>::value) {
+    helper_cb = [](Cache::SizeCallback* size_cb,
+                   Cache::SaveToCallback* saveto_cb,
+                   Cache::DeletionCallback* del_cb) -> void {
+      return CacheUncompressionDictHelperCB(size_cb, saveto_cb, del_cb);
+    };
+  } else if (std::is_same<TBlocklike, ParsedFullFilterBlock>::value) {
+    helper_cb = [](Cache::SizeCallback* size_cb,
+                   Cache::SaveToCallback* saveto_cb,
+                   Cache::DeletionCallback* del_cb) -> void {
+      return CacheParsedFullFilterBlockHelperCB(size_cb, saveto_cb, del_cb);
+    };
+  } else {
+    assert(false);
+  }
 
   std::unique_ptr<TBlocklike> block_holder;
   if (raw_block_comp_type != kNoCompression) {
@@ -1332,9 +1416,8 @@ Status BlockBasedTable::PutDataBlockToCache(
     BlockContents* block_cont_for_comp_cache =
         new BlockContents(std::move(*raw_block_contents));
     s = block_cache_compressed->Insert(
-        compressed_block_cache_key, block_cont_for_comp_cache,
-        block_cont_for_comp_cache->ApproximateMemoryUsage(),
-        &DeleteCachedEntry<BlockContents>);
+        compressed_block_cache_key, block_cont_for_comp_cache, helper_cb,
+        block_cont_for_comp_cache->ApproximateMemoryUsage());
     if (s.ok()) {
       // Avoid the following code to delete this cached block.
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD);
@@ -1348,9 +1431,8 @@ Status BlockBasedTable::PutDataBlockToCache(
   if (block_cache != nullptr && block_holder->own_bytes()) {
     size_t charge = block_holder->ApproximateMemoryUsage();
     Cache::Handle* cache_handle = nullptr;
-    s = block_cache->Insert(block_cache_key, block_holder.get(), charge,
-                            &DeleteCachedEntry<TBlocklike>, &cache_handle,
-                            priority);
+    s = block_cache->Insert(block_cache_key, block_holder.get(), helper_cb,
+                            charge, &cache_handle, priority);
     if (s.ok()) {
       assert(cache_handle != nullptr);
       cached_block->SetCachedValue(block_holder.release(), block_cache,
