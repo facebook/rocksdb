@@ -312,14 +312,19 @@ CompactionJob::CompactionJob(
     const std::atomic<int>* manual_compaction_paused, const std::string& db_id,
     const std::string& db_session_id, std::string full_history_ts_low,
     BlobFileCompletionCallback* blob_callback)
-    : job_id_(job_id),
-      compact_(new CompactionState(compaction)),
-      compaction_job_stats_(compaction_job_stats),
+    : compact_(new CompactionState(compaction)),
       compaction_stats_(compaction->compaction_reason(), 1),
+      db_options_(db_options),
+      log_buffer_(log_buffer),
+      output_directory_(output_directory),
+      stats_(stats),
+      bottommost_level_(false),
+      write_hint_(Env::WLTH_NOT_SET),
+      job_id_(job_id),
+      compaction_job_stats_(compaction_job_stats),
       dbname_(dbname),
       db_id_(db_id),
       db_session_id_(db_session_id),
-      db_options_(db_options),
       file_options_(file_options),
       env_(db_options.env),
       io_tracer_(io_tracer),
@@ -330,11 +335,8 @@ CompactionJob::CompactionJob(
       shutting_down_(shutting_down),
       manual_compaction_paused_(manual_compaction_paused),
       preserve_deletes_seqnum_(preserve_deletes_seqnum),
-      log_buffer_(log_buffer),
       db_directory_(db_directory),
-      output_directory_(output_directory),
       blob_output_directory_(blob_output_directory),
-      stats_(stats),
       db_mutex_(db_mutex),
       db_error_handler_(db_error_handler),
       existing_snapshots_(std::move(existing_snapshots)),
@@ -342,10 +344,8 @@ CompactionJob::CompactionJob(
       snapshot_checker_(snapshot_checker),
       table_cache_(std::move(table_cache)),
       event_logger_(event_logger),
-      bottommost_level_(false),
       paranoid_file_checks_(paranoid_file_checks),
       measure_io_stats_(measure_io_stats),
-      write_hint_(Env::WLTH_NOT_SET),
       thread_pri_(thread_pri),
       full_history_ts_low_(std::move(full_history_ts_low)),
       blob_callback_(blob_callback) {
@@ -1938,41 +1938,46 @@ std::string CompactionJob::GetTableFileName(uint64_t file_number) {
                        file_number, compact_->compaction->output_path_id());
 }
 
-std::string ReadOnlyCompactionJob::GetTableFileName(uint64_t file_number) {
+std::string CompactionServiceCompactionJob::GetTableFileName(
+    uint64_t file_number) {
   return MakeTableFileName(output_path_, file_number);
 }
 
-ReadOnlyCompactionJob::ReadOnlyCompactionJob(
+CompactionServiceCompactionJob::CompactionServiceCompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
-    const FileOptions& file_options, VersionSet* versions, const std::atomic<bool>* shutting_down,
-    LogBuffer* log_buffer, FSDirectory* output_directory, Statistics* stats,
+    const FileOptions& file_options, VersionSet* versions,
+    const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
+    FSDirectory* output_directory, Statistics* stats,
     InstrumentedMutex* db_mutex, ErrorHandler* db_error_handler,
-    std::vector<SequenceNumber> existing_snapshots, std::shared_ptr<Cache> table_cache,
-    EventLogger* event_logger, const std::string& dbname,
-    const std::shared_ptr<IOTracer>& io_tracer, const std::string& db_id,
-    const std::string& db_session_id, const std::string& output_path,
+    std::vector<SequenceNumber> existing_snapshots,
+    std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
+    const std::string& dbname, const std::shared_ptr<IOTracer>& io_tracer,
+    const std::string& db_id, const std::string& db_session_id,
+    const std::string& output_path,
     const CompactionServiceInput& compaction_service_input,
-    CompactionServiceResult* compaction_service_result) : CompactionJob(
-        job_id, compaction, db_options, file_options, versions, shutting_down,
-        0, log_buffer, nullptr, output_directory, nullptr, stats, db_mutex,
-        db_error_handler, existing_snapshots, kMaxSequenceNumber, nullptr,
-        table_cache, event_logger, compaction->mutable_cf_options()->paranoid_file_checks,
-        compaction->mutable_cf_options()->report_bg_io_stats, dbname,
-        &(compaction_service_result->stats), Env::Priority::USER, io_tracer,
-        nullptr, db_id, db_session_id,
-        compaction->column_family_data()->GetFullHistoryTsLow()),
-        output_path_(output_path),
-        compaction_service_input_(compaction_service_input),
-        compaction_service_result_(compaction_service_result) { }
+    CompactionServiceResult* compaction_service_result)
+    : CompactionJob(
+          job_id, compaction, db_options, file_options, versions, shutting_down,
+          0, log_buffer, nullptr, output_directory, nullptr, stats, db_mutex,
+          db_error_handler, existing_snapshots, kMaxSequenceNumber, nullptr,
+          table_cache, event_logger,
+          compaction->mutable_cf_options()->paranoid_file_checks,
+          compaction->mutable_cf_options()->report_bg_io_stats, dbname,
+          &(compaction_service_result->stats), Env::Priority::USER, io_tracer,
+          nullptr, db_id, db_session_id,
+          compaction->column_family_data()->GetFullHistoryTsLow()),
+      output_path_(output_path),
+      compaction_service_input_(compaction_service_input),
+      compaction_service_result_(compaction_service_result) {}
 
-Status ReadOnlyCompactionJob::Run() {
+Status CompactionServiceCompactionJob::Run() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
 
   auto* c = compact_->compaction;
   assert(c->column_family_data() != nullptr);
   assert(c->column_family_data()->current()->storage_info()->NumLevelFiles(
-      compact_->compaction->level()) > 0);
+             compact_->compaction->level()) > 0);
 
   write_hint_ =
       c->column_family_data()->CalculateSSTWriteHint(c->output_level());
@@ -2032,7 +2037,8 @@ Status ReadOnlyCompactionJob::Run() {
   compact_->status = status;
   compact_->status.PermitUncheckedError();
 
-  compaction_service_result_->output_level = compact_->compaction->output_level();
+  compaction_service_result_->output_level =
+      compact_->compaction->output_level();
   compaction_service_result_->output_path = output_path_;
 
   for (const auto& output_file : sub_compact->outputs) {
@@ -2043,13 +2049,14 @@ Status ReadOnlyCompactionJob::Run() {
         meta.oldest_ancester_time, meta.file_creation_time,
         output_file.validator.GetHash(), meta.marked_for_compaction);
   }
-  compaction_service_result_->num_output_records = sub_compact->num_output_records;
+  compaction_service_result_->num_output_records =
+      sub_compact->num_output_records;
   compaction_service_result_->total_bytes = sub_compact->total_bytes;
 
   return status;
 }
 
-void ReadOnlyCompactionJob::CleanupCompaction() {
+void CompactionServiceCompactionJob::CleanupCompaction() {
   CompactionJob::CleanupCompaction();
 }
 

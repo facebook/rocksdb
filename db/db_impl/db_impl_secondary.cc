@@ -19,7 +19,7 @@ namespace ROCKSDB_NAMESPACE {
 DBImplSecondary::DBImplSecondary(const DBOptions& db_options,
                                  const std::string& dbname,
                                  const std::string& secondary_path)
-    : DBImpl(db_options, dbname), secondary_path_(secondary_path) {
+    : DBImpl(db_options, dbname), secondary_path_(std::move(secondary_path)) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log,
                  "Opening the db in secondary mode");
   LogFlush(immutable_db_options_.info_log);
@@ -722,30 +722,23 @@ Status DBImplSecondary::CompactWithoutInstallation(
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
 
-  // TODO: there's only 1 job could be run per DB secondary instance, add
-  // validation for that.
-  const int job_id = 1;
+  const int job_id = next_job_id_.fetch_add(1);
 
   std::atomic<bool> shutting_down(false);        // not used
   std::atomic<int> manual_compaction_paused(0);  // not used
   // not supported, default to 0
   const SequenceNumber preserve_deletes_seqnum = 0;
 
-//  ReadOnlyCompactionJob compaction_job();
-
-  ReadOnlyCompactionJob compaction_job(
+  CompactionServiceCompactionJob compaction_job(
       job_id, c.get(), immutable_db_options_, file_options_for_compaction_,
-      versions_.get(), &shutting_down, &log_buffer,
-      output_dir.get(), stats_, &mutex_, &error_handler_,
-      input.snapshots, table_cache_,
-      &event_logger_, dbname_,
-      io_tracer_, db_id_,
-      db_session_id_, secondary_path_,
-      input, result);
+      versions_.get(), &shutting_down, &log_buffer, output_dir.get(), stats_,
+      &mutex_, &error_handler_, input.snapshots, table_cache_, &event_logger_,
+      dbname_, io_tracer_, db_id_, db_session_id_, secondary_path_, input,
+      result);
 
   // The prepare here just setup the subcomption information from
   // CompactionService input.
-//  compaction_job.Prepare();
+  //  compaction_job.Prepare();
 
   mutex_.Unlock();
   s = compaction_job.Run();

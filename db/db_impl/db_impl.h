@@ -1168,6 +1168,10 @@ class DBImpl : public DB {
   // Default: true
   const bool batch_per_txn_;
 
+  // Each flush or compaction gets its own job id. this counter makes sure
+  // they're unique
+  std::atomic<int> next_job_id_;
+
   // Except in DB::Open(), WriteOptionsFile can only be called when:
   // Persist options to options file.
   // If need_mutex_lock = false, the method will lock DB mutex.
@@ -2170,10 +2174,6 @@ class DBImpl : public DB {
   std::mutex switch_mutex_;
   // Number of threads intending to write to memtable
   std::atomic<size_t> pending_memtable_writes_ = {};
-
-  // Each flush or compaction gets its own job id. this counter makes sure
-  // they're unique
-  std::atomic<int> next_job_id_;
 
   // A flag indicating whether the current rocksdb database has any
   // data that is not yet persisted into either WAL or SST file.
