@@ -285,6 +285,9 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
   ROCKS_LOG_INFO(immutable_db_options_.info_log, "Creating manifest 1 \n");
   const std::string manifest = DescriptorFileName(dbname_, 1);
   {
+    if (fs_->FileExists(manifest, IOOptions(), nullptr).ok()) {
+      fs_->DeleteFile(manifest, IOOptions(), nullptr).PermitUncheckedError();
+    }
     std::unique_ptr<FSWritableFile> file;
     FileOptions file_options = fs_->OptimizeForManifestWrite(file_options_);
     s = NewWritableFile(fs_.get(), manifest, &file, file_options);
@@ -313,11 +316,8 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
       new_filenames->emplace_back(
           manifest.substr(manifest.find_last_of("/\\") + 1));
     }
-  }
-  if (!s.ok()) {
+  } else {
     fs_->DeleteFile(manifest, IOOptions(), nullptr).PermitUncheckedError();
-    fs_->DeleteFile(CurrentFileName(dbname_), IOOptions(), nullptr)
-        .PermitUncheckedError();
   }
   return s;
 }
