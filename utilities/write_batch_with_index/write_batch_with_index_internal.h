@@ -19,6 +19,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "utilities/write_batch_with_index/write_batch_with_index_deleted_range_map.h"
 
 namespace ROCKSDB_NAMESPACE {
 

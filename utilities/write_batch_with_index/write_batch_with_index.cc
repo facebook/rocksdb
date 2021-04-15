@@ -29,6 +29,7 @@ struct WriteBatchWithIndex::Rep {
       : write_batch(reserved_bytes, max_bytes),
         comparator(index_comparator, &write_batch),
         skip_list(comparator, &arena),
+        deleted_range_map(comparator, &arena),
         overwrite_key(_overwrite_key),
         last_entry_offset(0),
         last_sub_batch_offset(0),
@@ -37,6 +38,7 @@ struct WriteBatchWithIndex::Rep {
   WriteBatchEntryComparator comparator;
   Arena arena;
   WriteBatchEntrySkipList skip_list;
+  DeletedRangeMap deleted_range_map;
   bool overwrite_key;
   size_t last_entry_offset;
   // The starting offset of the last sub-batch. A sub-batch starts right before
@@ -164,6 +166,9 @@ bool WriteBatchWithIndex::Rep::DeleteIndexRange(
   uint32_t cf_id = GetColumnFamilyID(column_family);
   WBWIIteratorImpl iter(cf_id, &skip_list, &write_batch, &comparator);
 
+  // TODO most of the below can be simplified when we allow (restricted)
+  // skiplist deletion
+
   iter.Seek(from_key);
   if (!iter.Valid()) {
     return false;
@@ -179,6 +184,10 @@ bool WriteBatchWithIndex::Rep::DeleteIndexRange(
     if (!iter.Valid()) break;
     entry = iter.Entry();
   }
+
+  // Add explicitly-deleted-range check entry
+  deleted_range_map.AddInterval(from_key, to_key);
+
   return (count > 0);
 }
 
