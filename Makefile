@@ -55,49 +55,24 @@ DEBUG_LEVEL?=1
 # Set the default LIB_MODE to static
 LIB_MODE?=static
 
-ifeq ($(MAKECMDGOALS),dbg)
+# OBJ_DIR is where the object files reside.  Default to the current directory
+OBJ_DIR?=.
+
+# Check the MAKECMDGOALS to set the DEBUG_LEVEL and LIB_MODE appropriately
+
+ifneq ($(filter clean release install, $(MAKECMDGOALS)),)
+	DEBUG_LEVEL=0
+endif
+ifneq ($(filter dbg, $(MAKECMDGOALS)),)
 	DEBUG_LEVEL=2
-endif
-
-ifeq ($(MAKECMDGOALS),clean)
+else ifneq ($(filter shared_lib install-shared, $(MAKECMDGOALS)),)
 	DEBUG_LEVEL=0
-endif
-
-ifeq ($(MAKECMDGOALS),release)
-	DEBUG_LEVEL=0
-endif
-
-ifeq ($(MAKECMDGOALS),shared_lib)
 	LIB_MODE=shared
-	DEBUG_LEVEL=0
-endif
-
-ifeq ($(MAKECMDGOALS),install-shared)
-	LIB_MODE=shared
-	DEBUG_LEVEL=0
-endif
-
-ifeq ($(MAKECMDGOALS),static_lib)
+else ifneq ($(filter static_lib install-static, $(MAKECMDGOALS)),)
 	DEBUG_LEVEL=0
 	LIB_MODE=static
-endif
-
-ifeq ($(MAKECMDGOALS),install-static)
-	DEBUG_LEVEL=0
-	LIB_MODE=static
-endif
-
-ifeq ($(MAKECMDGOALS),install)
-	DEBUG_LEVEL=0
-endif
-
-
-ifneq ($(findstring jtest, $(MAKECMDGOALS)),)
+else ifneq ($(filter jtest rocksdbjava%, $(MAKECMDGOALS)),)
 	OBJ_DIR=jl
-	LIB_MODE=shared
-endif
-
-ifneq ($(findstring rocksdbjava, $(MAKECMDGOALS)),)
 	LIB_MODE=shared
 	ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
 		OBJ_DIR=jls
@@ -107,8 +82,6 @@ ifneq ($(findstring rocksdbjava, $(MAKECMDGOALS)),)
 		ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
 			DEBUG_LEVEL=0
 		endif
-	else
-		OBJ_DIR=jl
 	endif
 endif
 
@@ -491,7 +464,6 @@ CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverl
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
 
-OBJ_DIR?=.
 LIB_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(LIB_SOURCES))
 LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ROCKSDB_PLUGIN_SOURCES))
 ifeq ($(HAVE_POWER8),1)
@@ -651,8 +623,8 @@ else
 LIBRARY=$(STATIC_LIBRARY)
 TEST_LIBRARY=$(STATIC_TEST_LIBRARY)
 TOOLS_LIBRARY=$(STATIC_TOOLS_LIBRARY)
-STRESS_LIBRARY=$(STATIC_STRESS_LIBRARY)
 endif
+STRESS_LIBRARY=$(STATIC_STRESS_LIBRARY)
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -1246,7 +1218,7 @@ $(STATIC_TOOLS_LIBRARY): $(TOOL_OBJECTS)
 	$(AM_V_AR)rm -f $@ $(SHARED_TOOLS_LIBRARY)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
-$(STATIC_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS)
+$(STATIC_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(TESTUTIL)
 	$(AM_V_AR)rm -f $@ $(SHARED_STRESS_LIBRARY)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
@@ -1258,7 +1230,7 @@ $(SHARED_TOOLS_LIBRARY): $(TOOL_OBJECTS) $(SHARED1)
 	$(AM_V_AR)rm -f $@ $(STATIC_TOOLS_LIBRARY)
 	$(AM_SHARE)
 
-$(SHARED_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(SHARED_TOOLS_LIBRARY) $(SHARED1)
+$(SHARED_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(TESTUTIL) $(SHARED_TOOLS_LIBRARY) $(SHARED1)
 	$(AM_V_AR)rm -f $@ $(STATIC_STRESS_LIBRARY)
 	$(AM_SHARE)
 
@@ -1292,7 +1264,7 @@ memtablerep_bench: $(OBJ_DIR)/memtable/memtablerep_bench.o $(LIBRARY)
 filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
 	$(AM_LINK)
 
-db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(TESTUTIL) $(LIBRARY)
+db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
