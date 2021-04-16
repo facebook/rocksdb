@@ -29,6 +29,20 @@ jlong Java_org_rocksdb_WriteBufferManager_newWriteBufferManager(
 
 /*
  * Class:     org_rocksdb_WriteBufferManager
+ * Method:    newWriteBufferManager
+ * Signature: (JJ)J
+ */
+jlong Java_org_rocksdb_WriteBufferManager_newWriteBufferManager(
+    JNIEnv* /*env*/, jclass /*jclazz*/, jlong jbuffer_size) {
+  auto* write_buffer_manager =
+      new std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>(
+          std::make_shared<ROCKSDB_NAMESPACE::WriteBufferManager>(jbuffer_size,
+                                                                  nullptr));
+  return reinterpret_cast<jlong>(write_buffer_manager);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBufferManager
  * Method:    disposeInternal
  * Signature: (J)V
  */
@@ -47,8 +61,11 @@ void Java_org_rocksdb_WriteBufferManager_disposeInternal(
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_WriteBufferManager_getMemoryUsage(JNIEnv* /*env*/,
-                                                         jclass,
+                                                         jobject,
                                                          jlong jhandle) {
+  auto* write_buffer_manager =
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
   auto* write_buffer_manager =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
           jhandle);
@@ -61,10 +78,10 @@ jlong Java_org_rocksdb_WriteBufferManager_getMemoryUsage(JNIEnv* /*env*/,
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_WriteBufferManager_getMutableMemtableMemoryUsage(
-    JNIEnv* /*env*/, jclass, jlong jhandle) {
+    JNIEnv* /*env*/, jobject, jlong jhandle) {
   auto* write_buffer_manager =
-      reinterpret_cast <
-      std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>(jhandle);
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
   return static_cast<jlong>(
       write_buffer_manager->mutable_memtable_memory_usage());
 }
@@ -74,10 +91,10 @@ jlong Java_org_rocksdb_WriteBufferManager_getMutableMemtableMemoryUsage(
  * Method:    getBufferSize
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_WriteBufferManager_getBufferSize(JNIEnv*, jclass,
+jlong Java_org_rocksdb_WriteBufferManager_getBufferSize(JNIEnv*, jobject,
                                                         jlong jhandle) {
   auto* write_buffer_manager =
-      reinterpret_cast <
-      std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>(jhandle);
+      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
+          jhandle);
   return static_cast<jlong>(write_buffer_manager->buffer_size());
 }
