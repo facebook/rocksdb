@@ -622,7 +622,10 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     if (key.sequence != 0) {
       return Status::Corruption("External file has non zero sequence number");
     }
-    file_to_ingest->smallest_internal_key.SetFrom(key);
+
+    SequenceNumber assigned_seqno = versions_->LastSequence();
+
+    file_to_ingest->smallest_internal_key.Set(key.user_key, assigned_seqno, ValueType::kTypeValue);
 
     iter->SeekToLast();
     pik_status = ParseInternalKey(iter->key(), &key, allow_data_in_errors);
@@ -633,7 +636,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     if (key.sequence != 0) {
       return Status::Corruption("External file has non zero sequence number");
     }
-    file_to_ingest->largest_internal_key.SetFrom(key);
+
+    file_to_ingest->largest_internal_key.Set(key.user_key, assigned_seqno, ValueType::kTypeValue);
 
     bounds_set = true;
   }
