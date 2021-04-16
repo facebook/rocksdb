@@ -333,7 +333,7 @@ int main() {
 }
 " BUILTIN_ATOMIC)
 if (NOT BUILTIN_ATOMIC)
-  #TODO: Check if -latomic exists 
+  #TODO: Check if -latomic exists
   list(APPEND THIRDPARTY_LIBS atomic)
 endif()
 endif()
