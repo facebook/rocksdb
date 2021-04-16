@@ -16,6 +16,14 @@ namespace ROCKSDB_NAMESPACE {
 
 class BlobFileCompletionCallback {
  public:
+#ifdef ROCKSDB_LITE
+  BlobFileCompletionCallback(SstFileManager* /*sst_file_manager*/,
+                             InstrumentedMutex* /*mutex*/,
+                             ErrorHandler* /*error_handler*/) {}
+  Status OnBlobFileCompleted(const std::string& /*file_name*/) {
+    return Status::OK();
+  }
+#else
   BlobFileCompletionCallback(SstFileManager* sst_file_manager,
                              InstrumentedMutex* mutex,
                              ErrorHandler* error_handler)
@@ -25,8 +33,6 @@ class BlobFileCompletionCallback {
 
   Status OnBlobFileCompleted(const std::string& file_name) {
     Status s;
-
-#ifndef ROCKSDB_LITE
     auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager_);
     if (sfm) {
       // Report new blob files to SstFileManagerImpl
@@ -39,9 +45,6 @@ class BlobFileCompletionCallback {
         error_handler_->SetBGError(s, BackgroundErrorReason::kFlush);
       }
     }
-#else
-    (void)file_name;
-#endif  // ROCKSDB_LITE
     return s;
   }
 
@@ -49,5 +52,6 @@ class BlobFileCompletionCallback {
   SstFileManager* sst_file_manager_;
   InstrumentedMutex* mutex_;
   ErrorHandler* error_handler_;
+#endif  // ROCKSDB_LITE
 };
 }  // namespace ROCKSDB_NAMESPACE

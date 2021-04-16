@@ -371,6 +371,21 @@ class BackupEngineReadOnlyBase {
  public:
   virtual ~BackupEngineReadOnlyBase() {}
 
+  // Returns info about the latest good backup in backup_info, or NotFound
+  // no good backup exists.
+  // Setting include_file_details=true provides information about each
+  // backed-up file in BackupInfo::file_details and more.
+  virtual Status GetLatestBackupInfo(
+      BackupInfo* backup_info, bool include_file_details = false) const = 0;
+
+  // Returns info about a specific backup in backup_info, or NotFound
+  // or Corruption status if the requested backup id does not exist or is
+  // known corrupt.
+  // Setting include_file_details=true provides information about each
+  // backed-up file in BackupInfo::file_details and more.
+  virtual Status GetBackupInfo(BackupID backup_id, BackupInfo* backup_info,
+                               bool include_file_details = false) const = 0;
+
   // Returns info about backups in backup_info
   // Setting include_file_details=true provides information about each
   // backed-up file in BackupInfo::file_details and more.
@@ -439,7 +454,7 @@ class BackupEngineAppendOnlyBase {
   // same as CreateNewBackup, but stores extra application metadata.
   virtual Status CreateNewBackupWithMetadata(
       const CreateBackupOptions& options, DB* db,
-      const std::string& app_metadata) = 0;
+      const std::string& app_metadata, BackupID* new_backup_id = nullptr) = 0;
 
   // keep here for backward compatibility.
   virtual Status CreateNewBackupWithMetadata(
@@ -451,9 +466,12 @@ class BackupEngineAppendOnlyBase {
     return CreateNewBackupWithMetadata(options, db, app_metadata);
   }
 
-  // Captures the state of the database by creating a new (latest) backup
-  virtual Status CreateNewBackup(const CreateBackupOptions& options, DB* db) {
-    return CreateNewBackupWithMetadata(options, db, "");
+  // Captures the state of the database by creating a new (latest) backup.
+  // On success (OK status), the BackupID of the new backup is saved to
+  // *new_backup_id when not nullptr.
+  virtual Status CreateNewBackup(const CreateBackupOptions& options, DB* db,
+                                 BackupID* new_backup_id = nullptr) {
+    return CreateNewBackupWithMetadata(options, db, "", new_backup_id);
   }
 
   // keep here for backward compatibility.
