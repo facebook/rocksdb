@@ -5440,27 +5440,22 @@ TEST_F(DBTest2, AutoPrefixMode1) {
   }
 }
 
-class TestEnvWrapper : public EnvWrapper {
- public:
-  TestEnvWrapper(Env* _target) : EnvWrapper(_target) {}
-  Status NewWritableFile(const std::string& fname,
-                         std::unique_ptr<WritableFile>* result,
-                         const EnvOptions& env_opts) override {
-    Status s = target()->FileExists(fname);
-    EXPECT_TRUE(s.IsNotFound()) << fname << " already exists.";
-    return target()->NewWritableFile(fname, result, env_opts);
-  }
-};
-
 class RenameCurrentTest : public DBTestBase,
                           public testing::WithParamInterface<std::string> {
  public:
   RenameCurrentTest()
       : DBTestBase("rename_current_test", /*env_do_fsync=*/true),
-        sync_point_(GetParam()),
-        test_env_(new TestEnvWrapper(env_)) {}
+        sync_point_(GetParam()) {}
 
-  ~RenameCurrentTest() override { Close(); }
+  ~RenameCurrentTest() override {}
+
+  void SetUp() override {
+    env_->no_file_overwrite_.store(true, std::memory_order_release);
+  }
+
+  void TearDown() override {
+    env_->no_file_overwrite_.store(false, std::memory_order_release);
+  }
 
   void SetupSyncPoints() {
     SyncPoint::GetInstance()->DisableProcessing();
@@ -5472,7 +5467,6 @@ class RenameCurrentTest : public DBTestBase,
   }
 
   const std::string sync_point_;
-  std::unique_ptr<Env> test_env_;
 };
 
 INSTANTIATE_TEST_CASE_P(DistributedFS, RenameCurrentTest,
@@ -5481,8 +5475,8 @@ INSTANTIATE_TEST_CASE_P(DistributedFS, RenameCurrentTest,
 
 TEST_P(RenameCurrentTest, Open) {
   Destroy(last_options_);
-  Options options = CurrentOptions();
-  options.env = test_env_.get();
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
   SetupSyncPoints();
   SyncPoint::GetInstance()->EnableProcessing();
   Status s = TryReopen(options);
@@ -5494,9 +5488,9 @@ TEST_P(RenameCurrentTest, Open) {
 
 TEST_P(RenameCurrentTest, Flush) {
   Destroy(last_options_);
-  Options options = CurrentOptions();
+  Options options = GetDefaultOptions();
   options.max_manifest_file_size = 1;
-  options.env = test_env_.get();
+  options.create_if_missing = true;
   Reopen(options);
   ASSERT_OK(Put("key", "value"));
   SetupSyncPoints();
@@ -5513,9 +5507,9 @@ TEST_P(RenameCurrentTest, Flush) {
 
 TEST_P(RenameCurrentTest, Compaction) {
   Destroy(last_options_);
-  Options options = CurrentOptions();
+  Options options = GetDefaultOptions();
   options.max_manifest_file_size = 1;
-  options.env = test_env_.get();
+  options.create_if_missing = true;
   Reopen(options);
   ASSERT_OK(Put("a", "a_value"));
   ASSERT_OK(Put("c", "c_value"));
