@@ -23,6 +23,7 @@
 #include "util/hash.h"
 #include "util/ribbon_config.h"
 #include "util/ribbon_impl.h"
+#include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -1054,7 +1055,7 @@ BloomFilterPolicy::BloomFilterPolicy(double bits_per_key, Mode mode)
 
 BloomFilterPolicy::~BloomFilterPolicy() {}
 
-const char* BloomFilterPolicy::Name() const {
+const char* BuiltinFilterPolicy::Name() const {
   return "rocksdb.BuiltinBloomFilter";
 }
 
@@ -1087,8 +1088,8 @@ void BloomFilterPolicy::CreateFilter(const Slice* keys, int n,
   }
 }
 
-bool BloomFilterPolicy::KeyMayMatch(const Slice& key,
-                                    const Slice& bloom_filter) const {
+bool BuiltinFilterPolicy::KeyMayMatch(const Slice& key,
+                                      const Slice& bloom_filter) const {
   const size_t len = bloom_filter.size();
   if (len < 2 || len > 0xffffffffU) {
     return false;
@@ -1110,7 +1111,7 @@ bool BloomFilterPolicy::KeyMayMatch(const Slice& key,
                                                  array);
 }
 
-FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilder() const {
+FilterBitsBuilder* BuiltinFilterPolicy::GetFilterBitsBuilder() const {
   // This code path should no longer be used, for the built-in
   // BloomFilterPolicy. Internal to RocksDB and outside
   // BloomFilterPolicy, only get a FilterBitsBuilder with
@@ -1184,7 +1185,7 @@ FilterBitsBuilder* BloomFilterPolicy::GetBuilderFromContext(
 
 // Read metadata to determine what kind of FilterBitsReader is needed
 // and return a new one.
-FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
+FilterBitsReader* BuiltinFilterPolicy::GetFilterBitsReader(
     const Slice& contents) const {
   uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
   if (len_with_meta <= kMetadataLen) {
@@ -1265,7 +1266,7 @@ FilterBitsReader* BloomFilterPolicy::GetFilterBitsReader(
                                    log2_cache_line_size);
 }
 
-FilterBitsReader* BloomFilterPolicy::GetRibbonBitsReader(
+FilterBitsReader* BuiltinFilterPolicy::GetRibbonBitsReader(
     const Slice& contents) const {
   uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
   uint32_t len = len_with_meta - kMetadataLen;
@@ -1289,7 +1290,7 @@ FilterBitsReader* BloomFilterPolicy::GetRibbonBitsReader(
 }
 
 // For newer Bloom filter implementations
-FilterBitsReader* BloomFilterPolicy::GetBloomBitsReader(
+FilterBitsReader* BuiltinFilterPolicy::GetBloomBitsReader(
     const Slice& contents) const {
   uint32_t len_with_meta = static_cast<uint32_t>(contents.size());
   uint32_t len = len_with_meta - kMetadataLen;
@@ -1362,10 +1363,50 @@ const FilterPolicy* NewBloomFilterPolicy(double bits_per_key,
   return new BloomFilterPolicy(bits_per_key, m);
 }
 
+// Chooses between two filter policies based on LSM level
+class LevelThresholdFilterPolicy : public BuiltinFilterPolicy {
+ public:
+  LevelThresholdFilterPolicy(std::unique_ptr<const FilterPolicy>&& a,
+                             std::unique_ptr<const FilterPolicy>&& b,
+                             int starting_level_for_b)
+      : policy_a_(std::move(a)),
+        policy_b_(std::move(b)),
+        starting_level_for_b_(starting_level_for_b) {
+    assert(starting_level_for_b_ >= 0);
+  }
+
+  // Deprecated block-based filter only
+  void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
+    policy_a_->CreateFilter(keys, n, dst);
+  }
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext& context) const override {
+    if (context.level_at_creation >= starting_level_for_b_) {
+      return policy_b_->GetBuilderWithContext(context);
+    } else {
+      return policy_a_->GetBuilderWithContext(context);
+    }
+  }
+
+ private:
+  const std::unique_ptr<const FilterPolicy> policy_a_;
+  const std::unique_ptr<const FilterPolicy> policy_b_;
+  int starting_level_for_b_;
+};
+
 extern const FilterPolicy* NewExperimentalRibbonFilterPolicy(
-    double bloom_equivalent_bits_per_key) {
-  return new BloomFilterPolicy(bloom_equivalent_bits_per_key,
-                               BloomFilterPolicy::kStandard128Ribbon);
+    double bloom_equivalent_bits_per_key, int ribbon_starting_level) {
+  std::unique_ptr<const FilterPolicy> ribbon_only{new BloomFilterPolicy(
+      bloom_equivalent_bits_per_key, BloomFilterPolicy::kStandard128Ribbon)};
+  if (ribbon_starting_level > 0) {
+    std::unique_ptr<const FilterPolicy> bloom_only{new BloomFilterPolicy(
+        bloom_equivalent_bits_per_key, BloomFilterPolicy::kFastLocalBloom)};
+    return new LevelThresholdFilterPolicy(
+        std::move(bloom_only), std::move(ribbon_only), ribbon_starting_level);
+  } else {
+    return ribbon_only.release();
+  }
 }
 
 FilterBuildingContext::FilterBuildingContext(
@@ -1396,10 +1437,18 @@ Status FilterPolicy::CreateFromString(
           NewBloomFilterPolicy(bits_per_key, use_block_based_builder));
     }
   } else if (value.compare(0, kExpRibbonName.size(), kExpRibbonName) == 0) {
+    size_t pos = value.find(':', kExpRibbonName.size());
+    int ribbon_starting_level;
+    if (pos == std::string::npos) {
+      pos = value.size();
+      ribbon_starting_level = 1;
+    } else {
+      ribbon_starting_level = ParseInt(trim(value.substr(pos + 1)));
+    }
     double bloom_equivalent_bits_per_key =
-        ParseDouble(trim(value.substr(kExpRibbonName.size())));
-    policy->reset(
-        NewExperimentalRibbonFilterPolicy(bloom_equivalent_bits_per_key));
+        ParseDouble(trim(value.substr(kExpRibbonName.size(), pos)));
+    policy->reset(NewExperimentalRibbonFilterPolicy(
+        bloom_equivalent_bits_per_key, ribbon_starting_level));
   } else {
     return Status::NotFound("Invalid filter policy name ", value);
 #else

@@ -1195,6 +1195,51 @@ INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
                                         BloomFilterPolicy::kFastLocalBloom,
                                         BloomFilterPolicy::kStandard128Ribbon));
 
+static double GetEffectiveBitsPerKey(FilterBitsBuilder* builder) {
+  union {
+    uint64_t key_value;
+    char key_bytes[8];
+  };
+
+  const unsigned kNumKeys = 1000;
+
+  Slice key_slice{key_bytes, 8};
+  for (key_value = 0; key_value < kNumKeys; ++key_value) {
+    builder->AddKey(key_slice);
+  }
+
+  std::unique_ptr<const char[]> buf;
+  auto filter = builder->Finish(&buf);
+  return filter.size() * /*bits per byte*/ 8 / (1.0 * kNumKeys);
+}
+
+TEST(RibbonTest, RibbonTestLevelThreshold) {
+  BlockBasedTableOptions opts;
+  FilterBuildingContext ctx(opts);
+  // A few settings
+  for (int ribbon_starting_level : {0, 1, 10}) {
+    std::unique_ptr<const FilterPolicy> policy{
+        NewExperimentalRibbonFilterPolicy(8, ribbon_starting_level)};
+
+    // Claim to be generating filter for this level
+    ctx.level_at_creation = ribbon_starting_level;
+    std::unique_ptr<FilterBitsBuilder> builder{
+        policy->GetBuilderWithContext(ctx)};
+
+    // Must be Ribbon (more space efficient than 8 bits per key)
+    ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 7.5);
+
+    if (ribbon_starting_level > 0) {
+      // Claim to be generating filter for this level
+      ctx.level_at_creation = ribbon_starting_level - 1;
+      builder.reset(policy->GetBuilderWithContext(ctx));
+
+      // Must be Bloom (~ 8 bits per key)
+      ASSERT_GT(GetEffectiveBitsPerKey(builder.get()), 7.5);
+    }
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {
