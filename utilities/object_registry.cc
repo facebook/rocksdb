@@ -59,7 +59,7 @@ void ObjectLibrary::Dump(Logger *logger) const {
 // This instance will contain most of the "standard" registered objects
 std::shared_ptr<ObjectLibrary> &ObjectLibrary::Default() {
   static std::shared_ptr<ObjectLibrary> instance =
-      std::make_shared<ObjectLibrary>();
+      std::make_shared<ObjectLibrary>("default");
   return instance;
 }
 

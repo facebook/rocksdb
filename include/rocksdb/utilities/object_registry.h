@@ -72,11 +72,12 @@ class ObjectLibrary {
     FactoryFunc<T> factory_;
   };  // End class FactoryEntry
  public:
-  explicit ObjectLibrary() {}
+  explicit ObjectLibrary(const std::string& id) { id_ = id; }
   ObjectLibrary(const RegistrarFunc& registrar, const std::string& arg) {
     Register(registrar, arg);
   }
 
+  const std::string& GetID() const { return id_; }
   // Finds the entry matching the input name and type
   const Entry* FindEntry(const std::string& type,
                          const std::string& name) const;
@@ -111,6 +112,9 @@ class ObjectLibrary {
 
   // ** FactoryFunctions for this loader, organized by type
   std::unordered_map<std::string, std::vector<std::unique_ptr<Entry>>> entries_;
+
+  // The name for this library
+  std::string id_;
 };
 
 // The ObjectRegistry is used to register objects that can be created by a

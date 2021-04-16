@@ -62,7 +62,8 @@ TEST_F(EnvRegistryTest, LocalRegistry) {
   std::string msg;
   std::unique_ptr<Env> guard;
   auto registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
+  std::shared_ptr<ObjectLibrary> library =
+      std::make_shared<ObjectLibrary>("local");
   registry->AddLibrary(library);
   library->Register<Env>(
       "test-local",
@@ -87,7 +88,8 @@ TEST_F(EnvRegistryTest, LocalRegistry) {
 TEST_F(EnvRegistryTest, CheckShared) {
   std::shared_ptr<Env> shared;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
+  std::shared_ptr<ObjectLibrary> library =
+      std::make_shared<ObjectLibrary>("shared");
   registry->AddLibrary(library);
   library->Register<Env>(
       "unguarded",
@@ -111,7 +113,8 @@ TEST_F(EnvRegistryTest, CheckShared) {
 TEST_F(EnvRegistryTest, CheckStatic) {
   Env* env = nullptr;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
+  std::shared_ptr<ObjectLibrary> library =
+      std::make_shared<ObjectLibrary>("static");
   registry->AddLibrary(library);
   library->Register<Env>(
       "unguarded",
@@ -135,7 +138,8 @@ TEST_F(EnvRegistryTest, CheckStatic) {
 TEST_F(EnvRegistryTest, CheckUnique) {
   std::unique_ptr<Env> unique;
   std::shared_ptr<ObjectRegistry> registry = ObjectRegistry::NewInstance();
-  std::shared_ptr<ObjectLibrary> library = std::make_shared<ObjectLibrary>();
+  std::shared_ptr<ObjectLibrary> library =
+      std::make_shared<ObjectLibrary>("unique");
   registry->AddLibrary(library);
   library->Register<Env>(
       "unguarded",
