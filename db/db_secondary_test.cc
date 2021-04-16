@@ -115,6 +115,18 @@ void DBSecondaryTest::CheckFileTypeCounts(const std::string& dir,
   ASSERT_EQ(expected_manifest, manifest_cnt);
 }
 
+TEST_F(DBSecondaryTest, NonExistingDb) {
+  Destroy(last_options_);
+
+  Options options = GetDefaultOptions();
+  options.env = env_;
+  options.max_open_files = -1;
+  const std::string dbname = "/doesnt/exist";
+  Status s =
+      DB::OpenAsSecondary(options, dbname, secondary_path_, &db_secondary_);
+  ASSERT_TRUE(s.IsIOError());
+}
+
 TEST_F(DBSecondaryTest, ReopenAsSecondary) {
   Options options;
   options.env = env_;

@@ -5716,6 +5716,9 @@ Status ReactiveVersionSet::Recover(
   static_cast_with_check<LogReporter>(manifest_reporter->get())->status =
       manifest_reader_status->get();
   Status s = MaybeSwitchManifest(manifest_reporter->get(), manifest_reader);
+  if (!s.ok()) {
+    return s;
+  }
   log::Reader* reader = manifest_reader->get();
   assert(reader);
 
@@ -5765,6 +5768,10 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
     if (s.ok()) {
       if (nullptr == manifest_reader->get() ||
           manifest_reader->get()->file()->file_name() != manifest_path) {
+        s = fs_->FileExists(manifest_path, IOOptions(), nullptr);
+        if (!s.ok()) {
+          break;
+        }
         TEST_SYNC_POINT(
             "ReactiveVersionSet::MaybeSwitchManifest:"
             "AfterGetCurrentManifestPath:0");
@@ -5778,6 +5785,8 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
         // No need to switch manifest.
         break;
       }
+    } else {
+      break;
     }
     std::unique_ptr<SequentialFileReader> manifest_file_reader;
     if (s.ok()) {
