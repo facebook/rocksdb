@@ -5457,7 +5457,10 @@ class RenameCurrentTest : public DBTestBase,
  public:
   RenameCurrentTest()
       : DBTestBase("rename_current_test", /*env_do_fsync=*/true),
-        sync_point_(GetParam()) {}
+        sync_point_(GetParam()),
+        test_env_(new TestEnvWrapper(env_)) {}
+
+  ~RenameCurrentTest() override { Close(); }
 
   void SetupSyncPoints() {
     SyncPoint::GetInstance()->DisableProcessing();
@@ -5469,6 +5472,7 @@ class RenameCurrentTest : public DBTestBase,
   }
 
   const std::string sync_point_;
+  std::unique_ptr<Env> test_env_;
 };
 
 INSTANTIATE_TEST_CASE_P(DistributedFS, RenameCurrentTest,
@@ -5478,8 +5482,7 @@ INSTANTIATE_TEST_CASE_P(DistributedFS, RenameCurrentTest,
 TEST_P(RenameCurrentTest, Open) {
   Destroy(last_options_);
   Options options = CurrentOptions();
-  TestEnvWrapper env_wrapper(env_);
-  options.env = static_cast_with_check<Env>(&env_wrapper);
+  options.env = test_env_.get();
   SetupSyncPoints();
   SyncPoint::GetInstance()->EnableProcessing();
   Status s = TryReopen(options);
@@ -5487,15 +5490,13 @@ TEST_P(RenameCurrentTest, Open) {
 
   SyncPoint::GetInstance()->DisableProcessing();
   Reopen(options);
-  Close();
 }
 
 TEST_P(RenameCurrentTest, Flush) {
   Destroy(last_options_);
   Options options = CurrentOptions();
   options.max_manifest_file_size = 1;
-  TestEnvWrapper env_wrapper(env_);
-  options.env = static_cast_with_check<Env>(&env_wrapper);
+  options.env = test_env_.get();
   Reopen(options);
   ASSERT_OK(Put("key", "value"));
   SetupSyncPoints();
@@ -5508,16 +5509,13 @@ TEST_P(RenameCurrentTest, Flush) {
   Reopen(options);
   ASSERT_EQ("value", Get("key"));
   ASSERT_EQ("NOT_FOUND", Get("foo"));
-
-  Close();
 }
 
 TEST_P(RenameCurrentTest, Compaction) {
   Destroy(last_options_);
   Options options = CurrentOptions();
   options.max_manifest_file_size = 1;
-  TestEnvWrapper env_wrapper(env_);
-  options.env = static_cast_with_check<Env>(&env_wrapper);
+  options.env = test_env_.get();
   Reopen(options);
   ASSERT_OK(Put("a", "a_value"));
   ASSERT_OK(Put("c", "c_value"));
@@ -5538,8 +5536,6 @@ TEST_P(RenameCurrentTest, Compaction) {
   Reopen(options);
   ASSERT_EQ("NOT_FOUND", Get("foo"));
   ASSERT_EQ("d_value", Get("d"));
-
-  Close();
 }
 #endif  // ROCKSDB_LITE
 
