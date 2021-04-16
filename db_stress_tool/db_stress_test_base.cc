@@ -29,9 +29,9 @@ StressTest::StressTest()
               ? FLAGS_ribbon_starting_level < FLAGS_num_levels
                     ? NewExperimentalRibbonFilterPolicy(
                           FLAGS_bloom_bits, FLAGS_ribbon_starting_level)
-                : FLAGS_use_block_based_filter
-                    ? NewBloomFilterPolicy(FLAGS_bloom_bits, true)
-                    : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
+                    : FLAGS_use_block_based_filter
+                        ? NewBloomFilterPolicy(FLAGS_bloom_bits, true)
+                        : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
               : nullptr),
       db_(nullptr),
 #ifndef ROCKSDB_LITE
