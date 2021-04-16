@@ -2682,6 +2682,59 @@ unsigned char rocksdb_options_get_skip_checking_sst_file_sizes_on_db_open(
   return opt->rep.skip_checking_sst_file_sizes_on_db_open;
 }
 
+/* Blob Options Settings */
+void rocksdb_options_set_enable_blob_files(rocksdb_options_t* opt,
+                                           unsigned char val) {
+  opt->rep.enable_blob_files = val;
+}
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_enable_blob_files(
+    rocksdb_options_t* opt) {
+  return opt->rep.enable_blob_files;
+}
+
+void rocksdb_options_set_min_blob_size(rocksdb_options_t* opt, uint64_t val) {
+  opt->rep.min_blob_size = val;
+}
+
+uint64_t rocksdb_options_get_min_blob_size(rocksdb_options_t* opt) {
+  return opt->rep.min_blob_size;
+}
+
+void rocksdb_options_set_blob_file_size(rocksdb_options_t* opt, uint64_t val) {
+  opt->rep.blob_file_size = val;
+}
+
+uint64_t rocksdb_options_get_blob_file_size(rocksdb_options_t* opt) {
+  return opt->rep.blob_file_size;
+}
+
+void rocksdb_options_set_blob_compression_type(rocksdb_options_t* opt,
+                                               int val) {
+  opt->rep.blob_compression_type = static_cast<CompressionType>(val);
+}
+
+int rocksdb_options_get_blob_compression_type(rocksdb_options_t* opt) {
+  return opt->rep.blob_compression_type;
+}
+
+void rocksdb_options_set_enable_blob_gc(rocksdb_options_t* opt,
+                                        unsigned char val) {
+  opt->rep.enable_blob_garbage_collection = val;
+}
+
+unsigned char rocksdb_options_get_enable_blob_gc(rocksdb_options_t* opt) {
+  return opt->rep.enable_blob_garbage_collection;
+}
+
+void rocksdb_options_set_blob_gc_age_cutoff(rocksdb_options_t* opt,
+                                            double val) {
+  opt->rep.blob_garbage_collection_age_cutoff = val;
+}
+
+double rocksdb_options_get_blob_gc_age_cutoff(rocksdb_options_t* opt) {
+  return opt->rep.blob_garbage_collection_age_cutoff;
+}
+
 void rocksdb_options_set_num_levels(rocksdb_options_t* opt, int n) {
   opt->rep.num_levels = n;
 }
