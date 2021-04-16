@@ -275,7 +275,8 @@ TEST_F(DBBlobBasicTest, BestEffortsRecovery_MissingNewestBlobFile) {
   Reopen(options);
 
   ASSERT_OK(dbfull()->DisableFileDeletions());
-  for (int i = 0; i < Options().level0_file_num_compaction_trigger; ++i) {
+  constexpr int kNumTableFiles = 2;
+  for (int i = 0; i < kNumTableFiles; ++i) {
     for (char ch = 'a'; ch != 'c'; ++ch) {
       std::string key(1, ch);
       ASSERT_OK(Put(key, "value" + std::to_string(i)));
@@ -283,7 +284,6 @@ TEST_F(DBBlobBasicTest, BestEffortsRecovery_MissingNewestBlobFile) {
     ASSERT_OK(Flush());
   }
 
-  ASSERT_OK(dbfull()->TEST_WaitForCompact());
   Close();
 
   std::vector<std::string> files;
@@ -307,9 +307,7 @@ TEST_F(DBBlobBasicTest, BestEffortsRecovery_MissingNewestBlobFile) {
   Reopen(options);
   std::string value;
   ASSERT_OK(db_->Get(ReadOptions(), "a", &value));
-  ASSERT_EQ("value" + std::to_string(
-                          Options().level0_file_num_compaction_trigger - 2),
-            value);
+  ASSERT_EQ("value" + std::to_string(kNumTableFiles - 2), value);
 }
 
 class DBBlobBasicIOErrorTest : public DBBlobBasicTest,

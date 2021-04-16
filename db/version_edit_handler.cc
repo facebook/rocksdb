@@ -303,6 +303,14 @@ bool VersionEditHandler::HasMissingFiles() const {
       break;
     }
   }
+  if (!ret) {
+    for (const auto& elem : cf_to_missing_blob_files_high_) {
+      if (elem.second != kInvalidBlobFileNumber) {
+        ret = true;
+        break;
+      }
+    }
+  }
   return ret;
 }
 
