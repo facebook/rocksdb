@@ -28,6 +28,8 @@
 * Added BackupEngine support for integrated BlobDB, with blob files shared between backups when table files are shared. Because of current limitations, blob files always use the kLegacyCrc32cAndFileSize naming scheme, and incremental backups must read and checksum all blob files in a DB, even for files that are already backed up.
 * Added an optional output parameter to BackupEngine::CreateNewBackup(WithMetadata) to return the BackupID of the new backup.
 * Added BackupEngine::GetBackupInfo / GetLatestBackupInfo for querying individual backups.
+* Made the Ribbon filter a long-term supported feature in terms of the SST schema(compatible with version >= 6.15.0) though the API for enabling it is expected to change.
+* Added hybrid configuration of Ribbon filter and Bloom filter where some LSM levels use Ribbon for memory space efficiency and some use Bloom for speed. See NewExperimentalRibbonFilterPolicy. This also changes the default behavior of NewExperimentalRibbonFilterPolicy to use Bloom on level 0 and Ribbon on later levels.
 
 ## 6.19.0 (03/21/2021)
 ### Bug Fixes

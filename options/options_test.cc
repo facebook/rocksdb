@@ -940,6 +940,15 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
       &new_opt));
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
   bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  // Not a BloomFilterPolicy
+  EXPECT_FALSE(bfp);
+
+  ASSERT_OK(GetBlockBasedTableOptionsFromString(
+      config_options, table_opt, "filter_policy=experimental_ribbon:5.678:0;",
+      &new_opt));
+  ASSERT_TRUE(new_opt.filter_policy != nullptr);
+  bfp = dynamic_cast<const BloomFilterPolicy*>(new_opt.filter_policy.get());
+  // Pure Ribbon configuration is (oddly) BloomFilterPolicy
   EXPECT_EQ(bfp->GetMillibitsPerKey(), 5678);
   EXPECT_EQ(bfp->GetMode(), BloomFilterPolicy::kStandard128Ribbon);
 
