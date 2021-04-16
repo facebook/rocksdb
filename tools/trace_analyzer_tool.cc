@@ -26,7 +26,7 @@
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "env/composite_env_wrapper.h"
-#include "file/read_write_util.h"
+#include "file/line_file_reader.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"
@@ -1071,8 +1071,6 @@ Status TraceAnalyzer::ReProcessing() {
           FLAGS_key_space_dir + "/" + std::to_string(cf_id) + ".txt";
       std::string input_key, get_key;
       std::vector<std::string> prefix(kTaTypeNum);
-      std::istringstream iss;
-      bool has_data = true;
       std::unique_ptr<FSSequentialFile> file;
 
       s = env_->GetFileSystem()->NewSequentialFile(
@@ -1085,17 +1083,11 @@ Status TraceAnalyzer::ReProcessing() {
 
       if (file) {
         size_t kTraceFileReadaheadSize = 2 * 1024 * 1024;
-        SequentialFileReader sf_reader(
+        LineFileReader lf_reader(
             std::move(file), whole_key_path,
             kTraceFileReadaheadSize /* filereadahead_size */);
-        for (cfs_[cf_id].w_count = 0;
-             ReadOneLine(&iss, &sf_reader, &get_key, &has_data, &s);
+        for (cfs_[cf_id].w_count = 0; lf_reader.ReadLine(&get_key);
              ++cfs_[cf_id].w_count) {
-          if (!s.ok()) {
-            fprintf(stderr, "Read whole key space file failed\n");
-            return s;
-          }
-
           input_key = ROCKSDB_NAMESPACE::LDBCommand::HexToString(get_key);
           for (int type = 0; type < kTaTypeNum; type++) {
             if (!ta_[type].enabled) {
@@ -1151,6 +1143,11 @@ Status TraceAnalyzer::ReProcessing() {
               cfs_[cf_id].w_key_size_stats[input_key.size()]++;
             }
           }
+        }
+        s = lf_reader.GetStatus();
+        if (!s.ok()) {
+          fprintf(stderr, "Read whole key space file failed\n");
+          return s;
         }
       }
     }

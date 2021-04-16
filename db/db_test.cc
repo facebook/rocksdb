@@ -247,17 +247,21 @@ TEST_F(DBTest, SkipDelay) {
       wo.sync = sync;
       wo.disableWAL = disableWAL;
       wo.no_slowdown = true;
-      dbfull()->Put(wo, "foo", "bar");
+      // Large enough to exceed allowance for one time interval
+      std::string large_value(1024, 'x');
+      // Perhaps ideally this first write would fail because of delay, but
+      // the current implementation does not guarantee that.
+      dbfull()->Put(wo, "foo", large_value).PermitUncheckedError();
       // We need the 2nd write to trigger delay. This is because delay is
       // estimated based on the last write size which is 0 for the first write.
-      ASSERT_NOK(dbfull()->Put(wo, "foo2", "bar2"));
+      ASSERT_NOK(dbfull()->Put(wo, "foo2", large_value));
       ASSERT_GE(sleep_count.load(), 0);
       ASSERT_GE(wait_count.load(), 0);
       token.reset();
 
-      token = dbfull()->TEST_write_controler().GetDelayToken(1000000000);
+      token = dbfull()->TEST_write_controler().GetDelayToken(1000000);
       wo.no_slowdown = false;
-      ASSERT_OK(dbfull()->Put(wo, "foo3", "bar3"));
+      ASSERT_OK(dbfull()->Put(wo, "foo3", large_value));
       ASSERT_GE(sleep_count.load(), 1);
       token.reset();
     }
@@ -904,6 +908,9 @@ TEST_F(DBTest, FlushSchedule) {
       static_cast<int64_t>(options.write_buffer_size);
   options.max_write_buffer_number = 2;
   options.write_buffer_size = 120 * 1024;
+  auto flush_listener = std::make_shared<FlushCounterListener>();
+  flush_listener->expected_flush_reason = FlushReason::kWriteBufferFull;
+  options.listeners.push_back(flush_listener);
   CreateAndReopenWithCF({"pikachu"}, options);
   std::vector<port::Thread> threads;
 
@@ -2332,6 +2339,13 @@ TEST_F(DBTest, ReadonlyDBGetLiveManifestSize) {
 }
 
 TEST_F(DBTest, GetLiveBlobFiles) {
+  // Note: the following prevents an otherwise harmless data race between the
+  // test setup code (AddBlobFile) below and the periodic stat dumping thread.
+  Options options = CurrentOptions();
+  options.stats_dump_period_sec = 0;
+
+  Reopen(options);
+
   VersionSet* const versions = dbfull()->TEST_GetVersionSet();
   assert(versions);
   assert(versions->GetColumnFamilySet());
@@ -3493,17 +3507,21 @@ TEST_F(DBTest, FIFOCompactionStyleWithCompactionAndDelete) {
 }
 
 // Check that FIFO-with-TTL is not supported with max_open_files != -1.
+// Github issue #8014
 TEST_F(DBTest, FIFOCompactionWithTTLAndMaxOpenFilesTest) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleFIFO;
   options.create_if_missing = true;
   options.ttl = 600;  // seconds
 
-  // TTL is now supported with max_open_files != -1.
-  options.max_open_files = 100;
-  options = CurrentOptions(options);
-  ASSERT_OK(TryReopen(options));
+  // TTL is not supported with max_open_files != -1.
+  options.max_open_files = 0;
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
 
+  options.max_open_files = 100;
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+
+  // TTL is supported with unlimited max_open_files
   options.max_open_files = -1;
   ASSERT_OK(TryReopen(options));
 }

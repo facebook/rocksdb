@@ -123,7 +123,7 @@ class WritableFileWriter {
 
   std::string file_name_;
   FSWritableFilePtr writable_file_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   AlignedBuffer buf_;
   size_t max_buffer_size_;
   // Actually written data size can be used for truncate
@@ -148,8 +148,7 @@ class WritableFileWriter {
  public:
   WritableFileWriter(
       std::unique_ptr<FSWritableFile>&& file, const std::string& _file_name,
-      const FileOptions& options,
-      const std::shared_ptr<SystemClock>& clock = nullptr,
+      const FileOptions& options, SystemClock* clock = nullptr,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       Statistics* stats = nullptr,
       const std::vector<std::shared_ptr<EventListener>>& listeners = {},

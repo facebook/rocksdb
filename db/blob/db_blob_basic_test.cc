@@ -223,7 +223,7 @@ TEST_F(DBBlobBasicTest, GenerateIOTracing) {
     std::unique_ptr<TraceWriter> trace_writer;
     ASSERT_OK(
         NewFileTraceWriter(env_, EnvOptions(), trace_file, &trace_writer));
-    ASSERT_OK(db_->StartIOTrace(env_, TraceOptions(), std::move(trace_writer)));
+    ASSERT_OK(db_->StartIOTrace(TraceOptions(), std::move(trace_writer)));
 
     constexpr char key[] = "key";
     constexpr char blob_value[] = "blob_value";
@@ -236,7 +236,7 @@ TEST_F(DBBlobBasicTest, GenerateIOTracing) {
     ASSERT_OK(env_->FileExists(trace_file));
   }
   {
-    // Parse trace file to check file opertions related to blob files are
+    // Parse trace file to check file operations related to blob files are
     // recorded.
     std::unique_ptr<TraceReader> trace_reader;
     ASSERT_OK(

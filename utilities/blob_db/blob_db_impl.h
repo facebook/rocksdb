@@ -403,7 +403,7 @@ class BlobDBImpl : public BlobDB {
   // the base DB
   DBImpl* db_impl_;
   Env* env_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   // the options that govern the behavior of Blob Storage
   BlobDBOptions bdb_options_;
   DBOptions db_options_;

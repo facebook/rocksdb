@@ -118,8 +118,7 @@ Status BlobFileReader::OpenFile(
   }
 
   file_reader->reset(new RandomAccessFileReader(
-      std::move(file), blob_file_path,
-      immutable_cf_options.env->GetSystemClock(), io_tracer,
+      std::move(file), blob_file_path, immutable_cf_options.clock, io_tracer,
       immutable_cf_options.statistics, BLOB_DB_BLOB_FILE_READ_MICROS,
       blob_file_read_hist, immutable_cf_options.rate_limiter,
       immutable_cf_options.listeners));
@@ -271,7 +270,8 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
                                const Slice& user_key, uint64_t offset,
                                uint64_t value_size,
                                CompressionType compression_type,
-                               PinnableSlice* value) const {
+                               PinnableSlice* value,
+                               uint64_t* bytes_read) const {
   assert(value);
 
   const uint64_t key_size = user_key.size();
@@ -294,15 +294,15 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
           : 0;
   assert(offset >= adjustment);
 
+  const uint64_t record_offset = offset - adjustment;
+  const uint64_t record_size = value_size + adjustment;
+
   Slice record_slice;
   Buffer buf;
   AlignedBuf aligned_buf;
 
   {
     TEST_SYNC_POINT("BlobFileReader::GetBlob:ReadFromFile");
-
-    const uint64_t record_offset = offset - adjustment;
-    const uint64_t record_size = value_size + adjustment;
 
     const Status s = ReadFromFile(file_reader_.get(), record_offset,
                                   static_cast<size_t>(record_size),
@@ -330,6 +330,10 @@ Status BlobFileReader::GetBlob(const ReadOptions& read_options,
     if (!s.ok()) {
       return s;
     }
+  }
+
+  if (bytes_read) {
+    *bytes_read = record_size;
   }
 
   return Status::OK();

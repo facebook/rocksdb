@@ -23,6 +23,9 @@
 #include <mach/mach_host.h>
 #include <sys/sysctl.h>
 #endif
+#ifdef __FreeBSD__
+#include <sys/sysctl.h>
+#endif
 #include <atomic>
 #include <cinttypes>
 #include <condition_variable>
@@ -107,6 +110,12 @@ DEFINE_string(
     "readreverse,"
     "compact,"
     "compactall,"
+    "flush,"
+#ifndef ROCKSDB_LITE
+    "compact0,"
+    "compact1,"
+    "waitforcompaction,"
+#endif
     "multireadrandom,"
     "mixgraph,"
     "readseq,"
@@ -196,9 +205,16 @@ DEFINE_string(
     "Meta operations:\n"
     "\tcompact     -- Compact the entire DB; If multiple, randomly choose one\n"
     "\tcompactall  -- Compact the entire DB\n"
+#ifndef ROCKSDB_LITE
+    "\tcompact0  -- compact L0 into L1\n"
+    "\tcompact1  -- compact L1 into L2\n"
+    "\twaitforcompaction - pause until compaction is (probably) done\n"
+#endif
+    "\tflush - flush the memtable\n"
     "\tstats       -- Print DB stats\n"
     "\tresetstats  -- Reset DB stats\n"
     "\tlevelstats  -- Print the number of files and bytes per level\n"
+    "\tmemstats  -- Print memtable stats\n"
     "\tsstables    -- Print sstable info\n"
     "\theapprofile -- Dump a heap profile (if supported by this port)\n"
     "\treplay      -- replay the trace file specified with trace_file\n"
@@ -995,8 +1011,8 @@ DEFINE_uint64(compression_max_dict_buffer_bytes,
 
 static bool ValidateTableCacheNumshardbits(const char* flagname,
                                            int32_t value) {
-  if (0 >= value || value > 20) {
-    fprintf(stderr, "Invalid value for --%s: %d, must be  0 < val <= 20\n",
+  if (0 >= value || value >= 20) {
+    fprintf(stderr, "Invalid value for --%s: %d, must be  0 < val < 20\n",
             flagname, value);
     return false;
   }
@@ -1530,6 +1546,12 @@ class ReportFileOpEnv : public EnvWrapper {
         return rv;
       }
 
+      Status Append(
+          const Slice& data,
+          const DataVerificationInfo& /* verification_info */) override {
+        return Append(data);
+      }
+
       Status Truncate(uint64_t size) override { return target_->Truncate(size); }
       Status Close() override { return target_->Close(); }
       Status Flush() override { return target_->Flush(); }
@@ -1854,7 +1876,8 @@ class ReporterAgent {
  private:
   std::string Header() const { return "secs_elapsed,interval_qps"; }
   void SleepAndReport() {
-    auto time_started = env_->NowMicros();
+    auto* clock = env_->GetSystemClock().get();
+    auto time_started = clock->NowMicros();
     while (true) {
       {
         std::unique_lock<std::mutex> lk(mutex_);
@@ -1869,7 +1892,7 @@ class ReporterAgent {
       auto total_ops_done_snapshot = total_ops_done_.load();
       // round the seconds elapsed
       auto secs_elapsed =
-          (env_->NowMicros() - time_started + kMicrosInSecond / 2) /
+          (clock->NowMicros() - time_started + kMicrosInSecond / 2) /
           kMicrosInSecond;
       std::string report = ToString(secs_elapsed) + "," +
                            ToString(total_ops_done_snapshot - last_report_) +
@@ -1932,6 +1955,7 @@ static std::unordered_map<OperationType, std::string, std::hash<unsigned char>>
 class CombinedStats;
 class Stats {
  private:
+  SystemClock* clock_;
   int id_;
   uint64_t start_ = 0;
   uint64_t sine_interval_;
@@ -1951,7 +1975,7 @@ class Stats {
   friend class CombinedStats;
 
  public:
-  Stats() { Start(-1); }
+  Stats() : clock_(FLAGS_env->GetSystemClock().get()) { Start(-1); }
 
   void SetReporterAgent(ReporterAgent* reporter_agent) {
     reporter_agent_ = reporter_agent;
@@ -1966,8 +1990,8 @@ class Stats {
     last_report_done_ = 0;
     bytes_ = 0;
     seconds_ = 0;
-    start_ = FLAGS_env->NowMicros();
-    sine_interval_ = FLAGS_env->NowMicros();
+    start_ = clock_->NowMicros();
+    sine_interval_ = clock_->NowMicros();
     finish_ = start_;
     last_report_finish_ = start_;
     message_.clear();
@@ -1999,7 +2023,7 @@ class Stats {
   }
 
   void Stop() {
-    finish_ = FLAGS_env->NowMicros();
+    finish_ = clock_->NowMicros();
     seconds_ = (finish_ - start_) * 1e-6;
   }
 
@@ -2019,7 +2043,7 @@ class Stats {
         "ElapsedTime", "Stage", "State", "OperationProperties");
 
     int64_t current_time = 0;
-    FLAGS_env->GetCurrentTime(&current_time);
+    clock_->GetCurrentTime(&current_time).PermitUncheckedError();
     for (auto ts : thread_list) {
       fprintf(stderr, "%18" PRIu64 " %10s %12s %20s %13s %45s %12s",
           ts.thread_id,
@@ -2040,9 +2064,7 @@ class Stats {
     }
   }
 
-  void ResetSineInterval() {
-    sine_interval_ = FLAGS_env->NowMicros();
-  }
+  void ResetSineInterval() { sine_interval_ = clock_->NowMicros(); }
 
   uint64_t GetSineInterval() {
     return sine_interval_;
@@ -2054,7 +2076,7 @@ class Stats {
 
   void ResetLastOpTime() {
     // Set to now to avoid latency from calls to SleepForMicroseconds
-    last_op_finish_ = FLAGS_env->NowMicros();
+    last_op_finish_ = clock_->NowMicros();
   }
 
   void FinishedOps(DBWithColumnFamilies* db_with_cfh, DB* db, int64_t num_ops,
@@ -2063,7 +2085,7 @@ class Stats {
       reporter_agent_->ReportFinishedOps(num_ops);
     }
     if (FLAGS_histogram) {
-      uint64_t now = FLAGS_env->NowMicros();
+      uint64_t now = clock_->NowMicros();
       uint64_t micros = now - last_op_finish_;
 
       if (hist_.find(op_type) == hist_.end())
@@ -2092,7 +2114,7 @@ class Stats {
         else                            next_report_ += 100000;
         fprintf(stderr, "... finished %" PRIu64 " ops%30s\r", done_, "");
       } else {
-        uint64_t now = FLAGS_env->NowMicros();
+        uint64_t now = clock_->NowMicros();
         int64_t usecs_since_last = now - last_report_finish_;
 
         // Determine whether to print status where interval is either
@@ -2104,15 +2126,13 @@ class Stats {
           next_report_ += FLAGS_stats_interval;
 
         } else {
-
           fprintf(stderr,
-                  "%s ... thread %d: (%" PRIu64 ",%" PRIu64 ") ops and "
+                  "%s ... thread %d: (%" PRIu64 ",%" PRIu64
+                  ") ops and "
                   "(%.1f,%.1f) ops/second in (%.6f,%.6f) seconds\n",
-                  FLAGS_env->TimeToString(now/1000000).c_str(),
-                  id_,
+                  clock_->TimeToString(now / 1000000).c_str(), id_,
                   done_ - last_report_done_, done_,
-                  (done_ - last_report_done_) /
-                  (usecs_since_last / 1000000.0),
+                  (done_ - last_report_done_) / (usecs_since_last / 1000000.0),
                   done_ / ((now - start_) / 1000000.0),
                   (now - last_report_finish_) / 1000000.0,
                   (now - start_) / 1000000.0);
@@ -2621,7 +2641,7 @@ class Benchmark {
     fprintf(stderr, "RocksDB:    version %d.%d\n",
             kMajorVersion, kMinorVersion);
 
-#if defined(__linux) || defined(__APPLE__)
+#if defined(__linux) || defined(__APPLE__) || defined(__FreeBSD__)
     time_t now = time(nullptr);
     char buf[52];
     // Lint complains about ctime() usage, so replace it with ctime_r(). The
@@ -2678,6 +2698,19 @@ class Benchmark {
       }
       fprintf(stderr, "CPU:        %d * %s\n", h.max_cpus, cpu_type.c_str());
       fprintf(stderr, "CPUCache:   %s\n", cache_size.c_str());
+    }
+#elif defined(__FreeBSD__)
+    int ncpus;
+    size_t len = sizeof(ncpus);
+    int mib[2] = {CTL_HW, HW_NCPU};
+    if (sysctl(mib, 2, &ncpus, &len, nullptr, 0) == 0) {
+      char cpu_type[16];
+      len = sizeof(cpu_type) - 1;
+      mib[1] = HW_MACHINE;
+      if (sysctl(mib, 2, cpu_type, &len, nullptr, 0) == 0) cpu_type[len] = 0;
+
+      fprintf(stderr, "CPU:        %d * %s\n", ncpus, cpu_type);
+      // no programmatic way to get the cache line size except on PPC
     }
 #endif
 #endif
@@ -3212,6 +3245,16 @@ class Benchmark {
         method = &Benchmark::Compact;
       } else if (name == "compactall") {
         CompactAll();
+#ifndef ROCKSDB_LITE
+      } else if (name == "compact0") {
+        CompactLevel(0);
+      } else if (name == "compact1") {
+        CompactLevel(1);
+      } else if (name == "waitforcompaction") {
+        WaitForCompaction();
+#endif
+      } else if (name == "flush") {
+        Flush();
       } else if (name == "crc32c") {
         method = &Benchmark::Crc32c;
       } else if (name == "xxhash") {
@@ -3247,6 +3290,14 @@ class Benchmark {
         VerifyDBFromDB(FLAGS_truth_db);
       } else if (name == "levelstats") {
         PrintStats("rocksdb.levelstats");
+      } else if (name == "memstats") {
+        std::vector<std::string> keys{"rocksdb.num-immutable-mem-table",
+                                      "rocksdb.cur-size-active-mem-table",
+                                      "rocksdb.cur-size-all-mem-tables",
+                                      "rocksdb.size-all-mem-tables",
+                                      "rocksdb.num-entries-active-mem-table",
+                                      "rocksdb.num-entries-imm-mem-tables"};
+        PrintStats(keys);
       } else if (name == "sstables") {
         PrintStats("rocksdb.sstables");
       } else if (name == "stats_history") {
@@ -5252,11 +5303,11 @@ class Benchmark {
         ts_ptr = &ts_ret;
       }
       Status s;
+      pinnable_val.Reset();
       if (FLAGS_num_column_families > 1) {
         s = db_with_cfh->db->Get(options, db_with_cfh->GetCfh(key_rand), key,
                                  &pinnable_val, ts_ptr);
       } else {
-        pinnable_val.Reset();
         s = db_with_cfh->db->Get(options,
                                  db_with_cfh->db->DefaultColumnFamily(), key,
                                  &pinnable_val, ts_ptr);
@@ -5642,12 +5693,12 @@ class Benchmark {
     }
   };
 
-  // The social graph wokrload mixed with Get, Put, Iterator queries.
+  // The social graph workload mixed with Get, Put, Iterator queries.
   // The value size and iterator length follow Pareto distribution.
   // The overall key access follow power distribution. If user models the
   // workload based on different key-ranges (or different prefixes), user
   // can use two-term-exponential distribution to fit the workload. User
-  // needs to decides the ratio between Get, Put, Iterator queries before
+  // needs to decide the ratio between Get, Put, Iterator queries before
   // starting the benchmark.
   void MixGraph(ThreadState* thread) {
     int64_t read = 0;  // including single gets and Next of iterators
@@ -7261,6 +7312,167 @@ class Benchmark {
     }
   }
 
+#ifndef ROCKSDB_LITE
+  void WaitForCompactionHelper(DBWithColumnFamilies& db) {
+    // This is an imperfect way of waiting for compaction. The loop and sleep
+    // is done because a thread that finishes a compaction job should get a
+    // chance to pickup a new compaction job.
+
+    std::vector<std::string> keys = {DB::Properties::kMemTableFlushPending,
+                                     DB::Properties::kNumRunningFlushes,
+                                     DB::Properties::kCompactionPending,
+                                     DB::Properties::kNumRunningCompactions};
+
+    fprintf(stdout, "waitforcompaction(%s): started\n",
+            db.db->GetName().c_str());
+
+    while (true) {
+      bool retry = false;
+
+      for (const auto& k : keys) {
+        uint64_t v;
+        if (!db.db->GetIntProperty(k, &v)) {
+          fprintf(stderr, "waitforcompaction(%s): GetIntProperty(%s) failed\n",
+                  db.db->GetName().c_str(), k.c_str());
+          exit(1);
+        } else if (v > 0) {
+          fprintf(stdout,
+                  "waitforcompaction(%s): active(%s). Sleep 10 seconds\n",
+                  db.db->GetName().c_str(), k.c_str());
+          sleep(10);
+          retry = true;
+          break;
+        }
+      }
+
+      if (!retry) {
+        fprintf(stdout, "waitforcompaction(%s): finished\n",
+                db.db->GetName().c_str());
+        return;
+      }
+    }
+  }
+
+  void WaitForCompaction() {
+    // Give background threads a chance to wake
+    sleep(5);
+
+    // I am skeptical that this check race free. I hope that checking twice
+    // reduces the chance.
+    if (db_.db != nullptr) {
+      WaitForCompactionHelper(db_);
+      WaitForCompactionHelper(db_);
+    } else {
+      for (auto& db_with_cfh : multi_dbs_) {
+        WaitForCompactionHelper(db_with_cfh);
+        WaitForCompactionHelper(db_with_cfh);
+      }
+    }
+  }
+
+  bool CompactLevelHelper(DBWithColumnFamilies& db_with_cfh, int from_level) {
+    std::vector<LiveFileMetaData> files;
+    db_with_cfh.db->GetLiveFilesMetaData(&files);
+
+    assert(from_level == 0 || from_level == 1);
+
+    int real_from_level = from_level;
+    if (real_from_level > 0) {
+      // With dynamic leveled compaction the first level with data beyond L0
+      // might not be L1.
+      real_from_level = std::numeric_limits<int>::max();
+
+      for (auto& f : files) {
+        if (f.level > 0 && f.level < real_from_level) real_from_level = f.level;
+      }
+
+      if (real_from_level == std::numeric_limits<int>::max()) {
+        fprintf(stdout, "compact%d found 0 files to compact\n", from_level);
+        return true;
+      }
+    }
+
+    // The goal is to compact from from_level to the level that follows it,
+    // and with dynamic leveled compaction the next level might not be
+    // real_from_level+1
+    int next_level = std::numeric_limits<int>::max();
+
+    std::vector<std::string> files_to_compact;
+    for (auto& f : files) {
+      if (f.level == real_from_level)
+        files_to_compact.push_back(f.name);
+      else if (f.level > real_from_level && f.level < next_level)
+        next_level = f.level;
+    }
+
+    if (files_to_compact.empty()) {
+      fprintf(stdout, "compact%d found 0 files to compact\n", from_level);
+      return true;
+    } else if (next_level == std::numeric_limits<int>::max()) {
+      // There is no data beyond real_from_level. So we are done.
+      fprintf(stdout, "compact%d found no data beyond L%d\n", from_level,
+              real_from_level);
+      return true;
+    }
+
+    fprintf(stdout, "compact%d found %d files to compact from L%d to L%d\n",
+            from_level, static_cast<int>(files_to_compact.size()),
+            real_from_level, next_level);
+
+    ROCKSDB_NAMESPACE::CompactionOptions options;
+    // Lets RocksDB use the configured compression for this level
+    options.compression = ROCKSDB_NAMESPACE::kDisableCompressionOption;
+
+    ROCKSDB_NAMESPACE::ColumnFamilyDescriptor cfDesc;
+    db_with_cfh.db->DefaultColumnFamily()->GetDescriptor(&cfDesc);
+    options.output_file_size_limit = cfDesc.options.target_file_size_base;
+
+    Status status =
+        db_with_cfh.db->CompactFiles(options, files_to_compact, next_level);
+    if (!status.ok()) {
+      // This can fail for valid reasons including the operation was aborted
+      // or a filename is invalid because background compaction removed it.
+      // Having read the current cases for which an error is raised I prefer
+      // not to figure out whether an exception should be thrown here.
+      fprintf(stderr, "compact%d CompactFiles failed: %s\n", from_level,
+              status.ToString().c_str());
+      return false;
+    }
+    return true;
+  }
+
+  void CompactLevel(int from_level) {
+    if (db_.db != nullptr) {
+      while (!CompactLevelHelper(db_, from_level)) WaitForCompaction();
+    }
+    for (auto& db_with_cfh : multi_dbs_) {
+      while (!CompactLevelHelper(db_with_cfh, from_level)) WaitForCompaction();
+    }
+  }
+#endif
+
+  void Flush() {
+    FlushOptions flush_opt;
+    flush_opt.wait = true;
+
+    if (db_.db != nullptr) {
+      Status s = db_.db->Flush(flush_opt, db_.cfh);
+      if (!s.ok()) {
+        fprintf(stderr, "Flush failed: %s\n", s.ToString().c_str());
+        exit(1);
+      }
+    } else {
+      for (const auto& db_with_cfh : multi_dbs_) {
+        Status s = db_with_cfh.db->Flush(flush_opt, db_with_cfh.cfh);
+        if (!s.ok()) {
+          fprintf(stderr, "Flush failed: %s\n", s.ToString().c_str());
+          exit(1);
+        }
+      }
+    }
+    fprintf(stdout, "flush memtable\n");
+  }
+
   void ResetStats() {
     if (db_.db != nullptr) {
       db_.db->ResetStats();
@@ -7321,6 +7533,30 @@ class Benchmark {
       stats = "(failed)";
     }
     fprintf(stdout, "\n%s\n", stats.c_str());
+  }
+
+  void PrintStats(const std::vector<std::string>& keys) {
+    if (db_.db != nullptr) {
+      PrintStats(db_.db, keys);
+    }
+    for (const auto& db_with_cfh : multi_dbs_) {
+      PrintStats(db_with_cfh.db, keys, true);
+    }
+  }
+
+  void PrintStats(DB* db, const std::vector<std::string>& keys,
+                  bool print_header = false) {
+    if (print_header) {
+      fprintf(stdout, "\n==== DB: %s ===\n", db->GetName().c_str());
+    }
+
+    for (const auto& key : keys) {
+      std::string stats;
+      if (!db->GetProperty(key, &stats)) {
+        stats = "(failed)";
+      }
+      fprintf(stdout, "%s: %s\n", key.c_str(), stats.c_str());
+    }
   }
 
   void Replay(ThreadState* thread) {

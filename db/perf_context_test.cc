@@ -93,7 +93,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     std::string value;
 
     get_perf_context()->Reset();
-    StopWatchNano timer(SystemClock::Default());
+    StopWatchNano timer(SystemClock::Default().get());
     timer.Start();
     auto status = db->Get(read_options, key, &value);
     auto elapsed_nanos = timer.ElapsedNanos();
@@ -112,7 +112,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
 
     get_perf_context()->Reset();
-    StopWatchNano timer(SystemClock::Default(), true);
+    StopWatchNano timer(SystemClock::Default().get(), true);
     iter->SeekToFirst();
     hist_seek_to_first.Add(get_perf_context()->user_key_comparison_count);
     auto elapsed_nanos = timer.ElapsedNanos();
@@ -133,7 +133,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
     std::string key = "k" + ToString(i);
 
     get_perf_context()->Reset();
-    StopWatchNano timer(SystemClock::Default(), true);
+    StopWatchNano timer(SystemClock::Default().get(), true);
     iter->Seek(key);
     auto elapsed_nanos = timer.ElapsedNanos();
     hist_seek.Add(get_perf_context()->user_key_comparison_count);
@@ -147,7 +147,7 @@ TEST_F(PerfContextTest, SeekIntoDeletion) {
 
     get_perf_context()->Reset();
     ASSERT_TRUE(iter->Valid());
-    StopWatchNano timer2(SystemClock::Default(), true);
+    StopWatchNano timer2(SystemClock::Default().get(), true);
     iter->Next();
     auto elapsed_nanos2 = timer2.ElapsedNanos();
     if (FLAGS_verbose) {
@@ -166,7 +166,7 @@ TEST_F(PerfContextTest, StopWatchNanoOverhead) {
   const int kTotalIterations = 1000000;
   std::vector<uint64_t> timings(kTotalIterations);
 
-  StopWatchNano timer(SystemClock::Default(), true);
+  StopWatchNano timer(SystemClock::Default().get(), true);
   for (auto& timing : timings) {
     timing = timer.ElapsedNanos(true /* reset */);
   }
@@ -187,7 +187,7 @@ TEST_F(PerfContextTest, StopWatchOverhead) {
   uint64_t elapsed = 0;
   std::vector<uint64_t> timings(kTotalIterations);
 
-  StopWatch timer(SystemClock::Default(), nullptr, 0, &elapsed);
+  StopWatch timer(SystemClock::Default().get(), nullptr, 0, &elapsed);
   for (auto& timing : timings) {
     timing = elapsed;
   }
@@ -541,7 +541,7 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
   HistogramImpl hist_time_diff;
 
   SetPerfLevel(kEnableTime);
-  StopWatchNano timer(SystemClock::Default());
+  StopWatchNano timer(SystemClock::Default().get());
   for (const int i : keys) {
     std::string key = "k" + ToString(i);
     std::string value = "v" + ToString(i);
@@ -594,7 +594,8 @@ TEST_F(PerfContextTest, DBMutexLockCounter) {
   for (PerfLevel perf_level_test :
        {PerfLevel::kEnableTimeExceptForMutex, PerfLevel::kEnableTime}) {
     for (int c = 0; c < 2; ++c) {
-      InstrumentedMutex mutex(nullptr, SystemClock::Default(), stats_code[c]);
+      InstrumentedMutex mutex(nullptr, SystemClock::Default().get(),
+                              stats_code[c]);
       mutex.Lock();
       ROCKSDB_NAMESPACE::port::Thread child_thread([&] {
         SetPerfLevel(perf_level_test);
@@ -621,7 +622,8 @@ TEST_F(PerfContextTest, FalseDBMutexWait) {
   SetPerfLevel(kEnableTime);
   int stats_code[] = {0, static_cast<int>(DB_MUTEX_WAIT_MICROS)};
   for (int c = 0; c < 2; ++c) {
-    InstrumentedMutex mutex(nullptr, SystemClock::Default(), stats_code[c]);
+    InstrumentedMutex mutex(nullptr, SystemClock::Default().get(),
+                            stats_code[c]);
     InstrumentedCondVar lock(&mutex);
     get_perf_context()->Reset();
     mutex.Lock();

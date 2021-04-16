@@ -373,9 +373,9 @@ class StackableDB : public DB {
   Status EndBlockCacheTrace() override { return db_->EndBlockCacheTrace(); }
 
   using DB::StartIOTrace;
-  Status StartIOTrace(Env* env, const TraceOptions& options,
+  Status StartIOTrace(const TraceOptions& options,
                       std::unique_ptr<TraceWriter>&& trace_writer) override {
-    return db_->StartIOTrace(env, options, std::move(trace_writer));
+    return db_->StartIOTrace(options, std::move(trace_writer));
   }
 
   using DB::EndIOTrace;

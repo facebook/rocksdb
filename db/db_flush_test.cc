@@ -82,29 +82,16 @@ TEST_F(DBFlushTest, SyncFail) {
   options.env = fault_injection_env.get();
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBFlushTest::SyncFail:GetVersionRefCount:1",
-        "DBImpl::FlushMemTableToOutputFile:BeforePickMemtables"},
-       {"DBImpl::FlushMemTableToOutputFile:AfterPickMemtables",
-        "DBFlushTest::SyncFail:GetVersionRefCount:2"},
-       {"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedLogs:Start"},
+      {{"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedLogs:Start"},
        {"DBImpl::SyncClosedLogs:Failed", "DBFlushTest::SyncFail:2"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_OK(Put("key", "value"));
-  auto* cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
-          ->cfd();
   FlushOptions flush_options;
   flush_options.wait = false;
   ASSERT_OK(dbfull()->Flush(flush_options));
   // Flush installs a new super-version. Get the ref count after that.
-  auto current_before = cfd->current();
-  int refs_before = cfd->current()->TEST_refs();
-  TEST_SYNC_POINT("DBFlushTest::SyncFail:GetVersionRefCount:1");
-  TEST_SYNC_POINT("DBFlushTest::SyncFail:GetVersionRefCount:2");
-  int refs_after_picking_memtables = cfd->current()->TEST_refs();
-  ASSERT_EQ(refs_before + 1, refs_after_picking_memtables);
   fault_injection_env->SetFilesystemActive(false);
   TEST_SYNC_POINT("DBFlushTest::SyncFail:1");
   TEST_SYNC_POINT("DBFlushTest::SyncFail:2");
@@ -115,9 +102,6 @@ TEST_F(DBFlushTest, SyncFail) {
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("", FilesPerLevel());  // flush failed.
 #endif                             // ROCKSDB_LITE
-  // Backgroun flush job should release ref count to current version.
-  ASSERT_EQ(current_before, cfd->current());
-  ASSERT_EQ(refs_before, cfd->current()->TEST_refs());
   Destroy(options);
 }
 
@@ -180,6 +164,66 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(4, num_flushes);
   ASSERT_EQ(1, num_compactions);
+}
+
+// Test when flush job is submitted to low priority thread pool and when DB is
+// closed in the meanwhile, CloseHelper doesn't hang.
+TEST_F(DBFlushTest, CloseDBWhenFlushInLowPri) {
+  Options options = CurrentOptions();
+  options.max_background_flushes = 1;
+  options.max_total_wal_size = 8192;
+
+  DestroyAndReopen(options);
+  CreateColumnFamilies({"cf1", "cf2"}, options);
+
+  env_->SetBackgroundThreads(0, Env::HIGH);
+  env_->SetBackgroundThreads(1, Env::LOW);
+  test::SleepingBackgroundTask sleeping_task_low;
+  int num_flushes = 0;
+
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::BGWorkFlush",
+                                        [&](void* /*arg*/) { ++num_flushes; });
+
+  int num_low_flush_unscheduled = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::UnscheduleLowFlushCallback", [&](void* /*arg*/) {
+        num_low_flush_unscheduled++;
+        // There should be one flush job in low pool that needs to be
+        // unscheduled
+        ASSERT_EQ(num_low_flush_unscheduled, 1);
+      });
+
+  int num_high_flush_unscheduled = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::UnscheduleHighFlushCallback", [&](void* /*arg*/) {
+        num_high_flush_unscheduled++;
+        // There should be no flush job in high pool
+        ASSERT_EQ(num_high_flush_unscheduled, 0);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put(0, "key1", DummyString(8192)));
+  // Block thread so that flush cannot be run and can be removed from the queue
+  // when called Unschedule.
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+  sleeping_task_low.WaitUntilSleeping();
+
+  // Trigger flush and flush job will be scheduled to LOW priority thread.
+  ASSERT_OK(Put(0, "key2", DummyString(8192)));
+
+  // Close DB and flush job in low priority queue will be removed without
+  // running.
+  Close();
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+  ASSERT_EQ(0, num_flushes);
+
+  TryReopenWithColumnFamilies({"default", "cf1", "cf2"}, options);
+  ASSERT_OK(Put(0, "key3", DummyString(8192)));
+  ASSERT_OK(Flush(0));
+  ASSERT_EQ(1, num_flushes);
 }
 
 TEST_F(DBFlushTest, ManualFlushWithMinWriteBufferNumberToMerge) {

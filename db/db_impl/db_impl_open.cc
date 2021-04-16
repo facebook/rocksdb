@@ -24,15 +24,17 @@
 #include "util/rate_limiter.h"
 
 namespace ROCKSDB_NAMESPACE {
-Options SanitizeOptions(const std::string& dbname, const Options& src) {
-  auto db_options = SanitizeOptions(dbname, DBOptions(src));
+Options SanitizeOptions(const std::string& dbname, const Options& src,
+                        bool read_only) {
+  auto db_options = SanitizeOptions(dbname, DBOptions(src), read_only);
   ImmutableDBOptions immutable_db_options(db_options);
   auto cf_options =
       SanitizeOptions(immutable_db_options, ColumnFamilyOptions(src));
   return Options(db_options, cf_options);
 }
 
-DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
+DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src,
+                          bool read_only) {
   DBOptions result(src);
 
   if (result.env == nullptr) {
@@ -50,7 +52,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
                              &result.max_open_files);
   }
 
-  if (result.info_log == nullptr) {
+  if (result.info_log == nullptr && !read_only) {
     Status s = CreateLoggerFromOptions(dbname, result, &result.info_log);
     if (!s.ok()) {
       // No place suitable for logging
@@ -293,15 +295,15 @@ Status DBImpl::NewDB(std::vector<std::string>* new_filenames) {
     file->SetPreallocationBlockSize(
         immutable_db_options_.manifest_preallocation_size);
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        std::move(file), manifest, file_options, clock_, io_tracer_,
-        nullptr /* stats */, immutable_db_options_.listeners, nullptr,
-        tmp_set.Contains(FileType::kDescriptorFile)));
+        std::move(file), manifest, file_options, immutable_db_options_.clock,
+        io_tracer_, nullptr /* stats */, immutable_db_options_.listeners,
+        nullptr, tmp_set.Contains(FileType::kDescriptorFile)));
     log::Writer log(std::move(file_writer), 0, false);
     std::string record;
     new_db.EncodeTo(&record);
     s = log.AddRecord(record);
     if (s.ok()) {
-      s = SyncManifest(clock_, &immutable_db_options_, log.file());
+      s = SyncManifest(&immutable_db_options_, log.file());
     }
   }
   if (s.ok()) {
@@ -488,7 +490,7 @@ Status DBImpl::Recover(
   if (!s.ok()) {
     return s;
   }
-  s = SetDBId();
+  s = SetDBId(read_only);
   if (s.ok() && !read_only) {
     s = DeleteUnreferencedSstFiles();
   }
@@ -1229,14 +1231,56 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
     }
   }
 
-  if (status.ok() && data_seen && !flushed) {
-    status = RestoreAliveLogFiles(wal_numbers);
+  if (status.ok()) {
+    if (data_seen && !flushed) {
+      status = RestoreAliveLogFiles(wal_numbers);
+    } else {
+      // If there's no data in the WAL, or we flushed all the data, still
+      // truncate the log file. If the process goes into a crash loop before
+      // the file is deleted, the preallocated space will never get freed.
+      GetLogSizeAndMaybeTruncate(wal_numbers.back(), true, nullptr)
+          .PermitUncheckedError();
+    }
   }
 
   event_logger_.Log() << "job" << job_id << "event"
                       << "recovery_finished";
 
   return status;
+}
+
+Status DBImpl::GetLogSizeAndMaybeTruncate(uint64_t wal_number, bool truncate,
+                                          LogFileNumberSize* log_ptr) {
+  LogFileNumberSize log(wal_number);
+  std::string fname = LogFileName(immutable_db_options_.wal_dir, wal_number);
+  Status s;
+  // This gets the appear size of the wals, not including preallocated space.
+  s = env_->GetFileSize(fname, &log.size);
+  if (s.ok() && truncate) {
+    std::unique_ptr<FSWritableFile> last_log;
+    Status truncate_status = fs_->ReopenWritableFile(
+        fname,
+        fs_->OptimizeForLogWrite(
+            file_options_,
+            BuildDBOptions(immutable_db_options_, mutable_db_options_)),
+        &last_log, nullptr);
+    if (truncate_status.ok()) {
+      truncate_status = last_log->Truncate(log.size, IOOptions(), nullptr);
+    }
+    if (truncate_status.ok()) {
+      truncate_status = last_log->Close(IOOptions(), nullptr);
+    }
+    // Not a critical error if fail to truncate.
+    if (!truncate_status.ok()) {
+      ROCKS_LOG_WARN(immutable_db_options_.info_log,
+                     "Failed to truncate log #%" PRIu64 ": %s", wal_number,
+                     truncate_status.ToString().c_str());
+    }
+  }
+  if (log_ptr) {
+    *log_ptr = log;
+  }
+  return s;
 }
 
 Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
@@ -1254,39 +1298,17 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
   total_log_size_ = 0;
   log_empty_ = false;
   for (auto wal_number : wal_numbers) {
-    LogFileNumberSize log(wal_number);
-    std::string fname = LogFileName(immutable_db_options_.wal_dir, wal_number);
-    // This gets the appear size of the wals, not including preallocated space.
-    s = env_->GetFileSize(fname, &log.size);
+    // We preallocate space for wals, but then after a crash and restart, those
+    // preallocated space are not needed anymore. It is likely only the last
+    // log has such preallocated space, so we only truncate for the last log.
+    LogFileNumberSize log;
+    s = GetLogSizeAndMaybeTruncate(
+        wal_number, /*truncate=*/(wal_number == wal_numbers.back()), &log);
     if (!s.ok()) {
       break;
     }
     total_log_size_ += log.size;
     alive_log_files_.push_back(log);
-    // We preallocate space for wals, but then after a crash and restart, those
-    // preallocated space are not needed anymore. It is likely only the last
-    // log has such preallocated space, so we only truncate for the last log.
-    if (wal_number == wal_numbers.back()) {
-      std::unique_ptr<FSWritableFile> last_log;
-      Status truncate_status = fs_->ReopenWritableFile(
-          fname,
-          fs_->OptimizeForLogWrite(
-              file_options_,
-              BuildDBOptions(immutable_db_options_, mutable_db_options_)),
-          &last_log, nullptr);
-      if (truncate_status.ok()) {
-        truncate_status = last_log->Truncate(log.size, IOOptions(), nullptr);
-      }
-      if (truncate_status.ok()) {
-        truncate_status = last_log->Close(IOOptions(), nullptr);
-      }
-      // Not a critical error if fail to truncate.
-      if (!truncate_status.ok()) {
-        ROCKS_LOG_WARN(immutable_db_options_.info_log,
-                       "Failed to truncate log #%" PRIu64 ": %s", wal_number,
-                       truncate_status.ToString().c_str());
-      }
-    }
   }
   if (two_write_queues_) {
     log_write_mutex_.Unlock();
@@ -1297,7 +1319,7 @@ Status DBImpl::RestoreAliveLogFiles(const std::vector<uint64_t>& wal_numbers) {
 Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
                                            MemTable* mem, VersionEdit* edit) {
   mutex_.AssertHeld();
-  const uint64_t start_micros = clock_->NowMicros();
+  const uint64_t start_micros = immutable_db_options_.clock->NowMicros();
 
   FileMetaData meta;
   std::vector<BlobFileAddition> blob_file_additions;
@@ -1325,7 +1347,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         cfd->GetLatestMutableCFOptions()->paranoid_file_checks;
 
     int64_t _current_time = 0;
-    env_->GetCurrentTime(&_current_time)
+    immutable_db_options_.clock->GetCurrentTime(&_current_time)
         .PermitUncheckedError();  // ignore error
     const uint64_t current_time = static_cast<uint64_t>(_current_time);
     meta.oldest_ancester_time = current_time;
@@ -1358,13 +1380,13 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           cfd->GetID(), cfd->GetName(), snapshot_seqs,
           earliest_write_conflict_snapshot, snapshot_checker,
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
-          mutable_cf_options.sample_for_compression,
           mutable_cf_options.compression_opts, paranoid_file_checks,
           cfd->internal_stats(), TableFileCreationReason::kRecovery, &io_s,
           io_tracer_, &event_logger_, job_id, Env::IO_HIGH,
-          nullptr /* table_properties */, -1 /* level */, current_time,
+          nullptr /* table_properties */, 0 /* level */, current_time,
           0 /* oldest_key_time */, write_hint, 0 /* file_creation_time */,
-          db_id_, db_session_id_);
+          db_id_, db_session_id_, nullptr /*full_history_ts_low*/,
+          &blob_callback_);
       LogFlush(immutable_db_options_.info_log);
       ROCKS_LOG_DEBUG(immutable_db_options_.info_log,
                       "[%s] [WriteLevel0TableForRecovery]"
@@ -1399,7 +1421,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   }
 
   InternalStats::CompactionStats stats(CompactionReason::kFlush, 1);
-  stats.micros = clock_->NowMicros() - start_micros;
+  stats.micros = immutable_db_options_.clock->NowMicros() - start_micros;
 
   if (has_output) {
     stats.bytes_written = meta.fd.GetFileSize();
@@ -1492,9 +1514,9 @@ IOStatus DBImpl::CreateWAL(uint64_t log_file_num, uint64_t recycle_log_number,
     const auto& listeners = immutable_db_options_.listeners;
     FileTypeSet tmp_set = immutable_db_options_.checksum_handoff_file_types;
     std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        std::move(lfile), log_fname, opt_file_options, clock_, io_tracer_,
-        nullptr /* stats */, listeners, nullptr,
-        tmp_set.Contains(FileType::kWalFile)));
+        std::move(lfile), log_fname, opt_file_options,
+        immutable_db_options_.clock, io_tracer_, nullptr /* stats */, listeners,
+        nullptr, tmp_set.Contains(FileType::kWalFile)));
     *new_log = new log::Writer(std::move(file_writer), log_file_num,
                                immutable_db_options_.recycle_log_file_num > 0,
                                immutable_db_options_.manual_wal_flush);
@@ -1723,6 +1745,8 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
 
     std::vector<LiveFileMetaData> metadata;
 
+    // TODO: Once GetLiveFilesMetaData supports blob files, update the logic
+    // below to get known_file_sizes for blob files.
     impl->mutex_.Lock();
     impl->versions_->GetLiveFilesMetaData(&metadata);
     impl->mutex_.Unlock();
@@ -1755,13 +1779,12 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
         FileType file_type;
         std::string file_path = path + "/" + file_name;
         if (ParseFileName(file_name, &file_number, &file_type) &&
-            file_type == kTableFile) {
+            (file_type == kTableFile || file_type == kBlobFile)) {
           // TODO: Check for errors from OnAddFile?
           if (known_file_sizes.count(file_name)) {
             // We're assuming that each sst file name exists in at most one of
             // the paths.
-            sfm->OnAddFile(file_path, known_file_sizes.at(file_name),
-                           /* compaction */ false)
+            sfm->OnAddFile(file_path, known_file_sizes.at(file_name))
                 .PermitUncheckedError();
           } else {
             sfm->OnAddFile(file_path).PermitUncheckedError();

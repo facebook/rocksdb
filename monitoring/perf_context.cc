@@ -9,26 +9,22 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
+#if defined(NPERF_CONTEXT)
+// Should not be used because the counters are not thread-safe.
+// Put here just to make get_perf_context() simple without ifdef.
 PerfContext perf_context;
-#else
+#elif defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
 #if defined(OS_SOLARIS)
-__thread PerfContext perf_context_;
-#else
+__thread PerfContext perf_context;
+#else   // OS_SOLARIS
 thread_local PerfContext perf_context;
-#endif
+#endif  // OS_SOLARIS
+#else
+#error "No thread-local support. Disable perf context with -DNPERF_CONTEXT."
 #endif
 
 PerfContext* get_perf_context() {
-#if defined(NPERF_CONTEXT) || !defined(ROCKSDB_SUPPORT_THREAD_LOCAL)
   return &perf_context;
-#else
-#if defined(OS_SOLARIS)
-  return &perf_context_;
-#else
-  return &perf_context;
-#endif
-#endif
 }
 
 PerfContext::~PerfContext() {

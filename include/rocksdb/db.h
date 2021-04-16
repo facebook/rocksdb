@@ -112,7 +112,7 @@ struct RangePtr {
 };
 
 // It is valid that files_checksums and files_checksum_func_names are both
-// empty (no checksum informaiton is provided for ingestion). Otherwise,
+// empty (no checksum information is provided for ingestion). Otherwise,
 // their sizes should be the same as external_files. The file order should
 // be the same in three vectors and guaranteed by the caller.
 struct IngestExternalFileArg {
@@ -205,11 +205,11 @@ class DB {
   // to open the primary instance.
   // The secondary_path argument points to a directory where the secondary
   // instance stores its info log.
-  // The column_families argument specifieds a list of column families to open.
+  // The column_families argument specifies a list of column families to open.
   // If any of the column families does not exist, the function returns non-OK
   // status.
   // The handles is an out-arg corresponding to the opened database column
-  // familiy handles.
+  // family handles.
   // The dbptr is an out-arg corresponding to the opened secondary instance.
   // The pointer points to a heap-allocated database, and the caller should
   // delete it after use. Before deleting the dbptr, the user should also
@@ -745,7 +745,7 @@ class DB {
     static const std::string kCFStats;
 
     //  "rocksdb.cfstats-no-file-histogram" - returns a multi-line string with
-    //      general columm family stats per-level over db's lifetime ("L<n>"),
+    //      general column family stats per-level over db's lifetime ("L<n>"),
     //      aggregated over db's lifetime ("Sum"), and aggregated over the
     //      interval since the last retrieval ("Int").
     static const std::string kCFStatsNoFileHistogram;
@@ -1025,7 +1025,7 @@ class DB {
                                      uint64_t* sizes) = 0;
 
   // Simpler versions of the GetApproximateSizes() method above.
-  // The include_flags argumenbt must of type DB::SizeApproximationFlags
+  // The include_flags argument must of type DB::SizeApproximationFlags
   // and can not be NONE.
   virtual Status GetApproximateSizes(ColumnFamilyHandle* column_family,
                                      const Range* ranges, int n,
@@ -1368,7 +1368,7 @@ class DB {
   virtual void GetLiveFilesMetaData(
       std::vector<LiveFileMetaData>* /*metadata*/) {}
 
-  // Return a list of all table file checksum info.
+  // Return a list of all table and blob files checksum info.
   // Note: This function might be of limited use because it cannot be
   // synchronized with GetLiveFiles.
   virtual Status GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) = 0;
@@ -1612,7 +1612,7 @@ class DB {
   }
 
   // IO Tracing operations. Use EndIOTrace() to stop tracing.
-  virtual Status StartIOTrace(Env* /*env*/, const TraceOptions& /*options*/,
+  virtual Status StartIOTrace(const TraceOptions& /*options*/,
                               std::unique_ptr<TraceWriter>&& /*trace_writer*/) {
     return Status::NotSupported("StartIOTrace() is not implemented.");
   }

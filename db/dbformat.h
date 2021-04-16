@@ -122,7 +122,7 @@ struct ParsedInternalKey {
 
   void SetTimestamp(const Slice& ts) {
     assert(ts.size() <= user_key.size());
-    const char* addr = user_key.data() - ts.size();
+    const char* addr = user_key.data() + user_key.size() - ts.size();
     memcpy(const_cast<char*>(addr), ts.data(), ts.size());
   }
 };
@@ -512,6 +512,7 @@ class IterKey {
 
   bool IsKeyPinned() const { return (key_ != buf_); }
 
+  // user_key does not have timestamp.
   void SetInternalKey(const Slice& key_prefix, const Slice& user_key,
                       SequenceNumber s,
                       ValueType value_type = kValueTypeForSeek,
@@ -615,7 +616,7 @@ class IterKey {
   void EnlargeBuffer(size_t key_size);
 };
 
-// Convert from a SliceTranform of user keys, to a SliceTransform of
+// Convert from a SliceTransform of user keys, to a SliceTransform of
 // user keys.
 class InternalKeySliceTransform : public SliceTransform {
  public:

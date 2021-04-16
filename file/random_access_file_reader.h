@@ -38,7 +38,7 @@ FSReadRequest Align(const FSReadRequest& r, size_t alignment);
 // Otherwise, do nothing and return false.
 bool TryMerge(FSReadRequest* dest, const FSReadRequest& src);
 
-// RandomAccessFileReader is a wrapper on top of Env::RnadomAccessFile. It is
+// RandomAccessFileReader is a wrapper on top of Env::RandomAccessFile. It is
 // responsible for:
 // - Handling Buffered and Direct reads appropriately.
 // - Rate limiting compaction reads.
@@ -67,7 +67,7 @@ class RandomAccessFileReader {
 
   FSRandomAccessFilePtr file_;
   std::string file_name_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   Statistics* stats_;
   uint32_t hist_type_;
   HistogramImpl* file_read_hist_;
@@ -77,7 +77,7 @@ class RandomAccessFileReader {
  public:
   explicit RandomAccessFileReader(
       std::unique_ptr<FSRandomAccessFile>&& raf, const std::string& _file_name,
-      const std::shared_ptr<SystemClock>& clock = nullptr,
+      SystemClock* clock = nullptr,
       const std::shared_ptr<IOTracer>& io_tracer = nullptr,
       Statistics* stats = nullptr, uint32_t hist_type = 0,
       HistogramImpl* file_read_hist = nullptr,
@@ -103,10 +103,10 @@ class RandomAccessFileReader {
 #endif
   }
 
-  static Status Create(const std::shared_ptr<FileSystem>& fs,
-                       const std::string& fname, const FileOptions& file_opts,
-                       std::unique_ptr<RandomAccessFileReader>* reader,
-                       IODebugContext* dbg);
+  static IOStatus Create(const std::shared_ptr<FileSystem>& fs,
+                         const std::string& fname, const FileOptions& file_opts,
+                         std::unique_ptr<RandomAccessFileReader>* reader,
+                         IODebugContext* dbg);
   RandomAccessFileReader(const RandomAccessFileReader&) = delete;
   RandomAccessFileReader& operator=(const RandomAccessFileReader&) = delete;
 
@@ -120,19 +120,19 @@ class RandomAccessFileReader {
   // 2. Otherwise, scratch is not used and can be null, the aligned_buf owns
   // the internally allocated buffer on return, and the result refers to a
   // region in aligned_buf.
-  Status Read(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
-              char* scratch, AlignedBuf* aligned_buf,
-              bool for_compaction = false) const;
+  IOStatus Read(const IOOptions& opts, uint64_t offset, size_t n, Slice* result,
+                char* scratch, AlignedBuf* aligned_buf,
+                bool for_compaction = false) const;
 
   // REQUIRES:
   // num_reqs > 0, reqs do not overlap, and offsets in reqs are increasing.
   // In non-direct IO mode, aligned_buf should be null;
   // In direct IO mode, aligned_buf stores the aligned buffer allocated inside
   // MultiRead, the result Slices in reqs refer to aligned_buf.
-  Status MultiRead(const IOOptions& opts, FSReadRequest* reqs, size_t num_reqs,
-                   AlignedBuf* aligned_buf) const;
+  IOStatus MultiRead(const IOOptions& opts, FSReadRequest* reqs,
+                     size_t num_reqs, AlignedBuf* aligned_buf) const;
 
-  Status Prefetch(uint64_t offset, size_t n) const {
+  IOStatus Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n, IOOptions(), nullptr);
   }
 

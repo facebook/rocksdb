@@ -1119,9 +1119,8 @@ int main(int argc, char** argv) {
         // Essentially a fingerprint of the block-based Bloom schema
         CheckCondition(hits == 241);
       } else {
-        // Essentially a fingerprint of the full Bloom schema(s),
-        // format_version < 5, which vary for three different CACHE_LINE_SIZEs
-        CheckCondition(hits == 224 || hits == 180 || hits == 125);
+        // Essentially a fingerprint of full Bloom schema, format_version=5
+        CheckCondition(hits == 188);
       }
       CheckCondition(
           (keys_to_query - hits) ==
@@ -2870,6 +2869,7 @@ int main(int argc, char** argv) {
   rocksdb_readoptions_destroy(roptions);
   rocksdb_writeoptions_destroy(woptions);
   rocksdb_compactoptions_destroy(coptions);
+  rocksdb_cache_disown_data(cache);
   rocksdb_cache_destroy(cache);
   rocksdb_comparator_destroy(cmp);
   rocksdb_dbpath_destroy(dbpath);
@@ -2881,7 +2881,7 @@ int main(int argc, char** argv) {
 
 #else
 
-int main() {
+int main(void) {
   fprintf(stderr, "SKIPPED\n");
   return 0;
 }

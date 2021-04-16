@@ -23,11 +23,6 @@ class MockEnv : public CompositeEnvWrapper {
  public:
   explicit MockEnv(Env* base_env);
 
-  // Results of these can be affected by FakeSleepForMicroseconds()
-  Status GetCurrentTime(int64_t* unix_time) override;
-  uint64_t NowMicros() override;
-  uint64_t NowNanos() override;
-
   Status CorruptBuffer(const std::string& fname);
 
   // Doesn't really sleep, just affects output of GetCurrentTime(), NowMicros()
@@ -35,7 +30,6 @@ class MockEnv : public CompositeEnvWrapper {
   void FakeSleepForMicroseconds(int64_t micros);
 
  private:
-  std::atomic<int64_t> fake_sleep_micros_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

@@ -221,7 +221,7 @@ bool RandomAccessCacheFile::OpenImpl(const bool enable_direct_reads) {
     return false;
   }
   freader_.reset(new RandomAccessFileReader(std::move(file), Path(),
-                                            env_->GetSystemClock()));
+                                            env_->GetSystemClock().get()));
 
   return true;
 }

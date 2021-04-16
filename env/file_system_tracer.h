@@ -23,7 +23,7 @@ class FileSystemTracingWrapper : public FileSystemWrapper {
                            const std::shared_ptr<IOTracer>& io_tracer)
       : FileSystemWrapper(t),
         io_tracer_(io_tracer),
-        clock_(SystemClock::Default()) {}
+        clock_(SystemClock::Default().get()) {}
 
   ~FileSystemTracingWrapper() override {}
 
@@ -86,7 +86,7 @@ class FileSystemTracingWrapper : public FileSystemWrapper {
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
 };
 
 // The FileSystemPtr is a wrapper class that takes pointer to storage systems
@@ -138,7 +138,7 @@ class FSSequentialFileTracingWrapper : public FSSequentialFileWrapper {
                                  const std::string& file_name)
       : FSSequentialFileWrapper(t),
         io_tracer_(io_tracer),
-        clock_(SystemClock::Default()),
+        clock_(SystemClock::Default().get()),
         file_name_(file_name) {}
 
   ~FSSequentialFileTracingWrapper() override {}
@@ -154,7 +154,7 @@ class FSSequentialFileTracingWrapper : public FSSequentialFileWrapper {
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   std::string file_name_;
 };
 
@@ -210,7 +210,7 @@ class FSRandomAccessFileTracingWrapper : public FSRandomAccessFileWrapper {
                                    const std::string& file_name)
       : FSRandomAccessFileWrapper(t),
         io_tracer_(io_tracer),
-        clock_(SystemClock::Default()),
+        clock_(SystemClock::Default().get()),
         file_name_(file_name) {}
 
   ~FSRandomAccessFileTracingWrapper() override {}
@@ -229,7 +229,7 @@ class FSRandomAccessFileTracingWrapper : public FSRandomAccessFileWrapper {
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   // Stores file name instead of full path.
   std::string file_name_;
 };
@@ -285,7 +285,7 @@ class FSWritableFileTracingWrapper : public FSWritableFileWrapper {
                                const std::string& file_name)
       : FSWritableFileWrapper(t),
         io_tracer_(io_tracer),
-        clock_(SystemClock::Default()),
+        clock_(SystemClock::Default().get()),
         file_name_(file_name) {}
 
   ~FSWritableFileTracingWrapper() override {}
@@ -319,7 +319,7 @@ class FSWritableFileTracingWrapper : public FSWritableFileWrapper {
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   // Stores file name instead of full path.
   std::string file_name_;
 };
@@ -382,7 +382,7 @@ class FSRandomRWFileTracingWrapper : public FSRandomRWFileWrapper {
                                const std::string& file_name)
       : FSRandomRWFileWrapper(t),
         io_tracer_(io_tracer),
-        clock_(SystemClock::Default()),
+        clock_(SystemClock::Default().get()),
         file_name_(file_name) {}
 
   ~FSRandomRWFileTracingWrapper() override {}
@@ -404,7 +404,7 @@ class FSRandomRWFileTracingWrapper : public FSRandomRWFileWrapper {
 
  private:
   std::shared_ptr<IOTracer> io_tracer_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   // Stores file name instead of full path.
   std::string file_name_;
 };

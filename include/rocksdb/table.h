@@ -391,7 +391,7 @@ struct BlockBasedTableOptions {
   // 5 -- Can be read by RocksDB's versions since 6.6.0. Full and partitioned
   // filters use a generally faster and more accurate Bloom filter
   // implementation, with a different schema.
-  uint32_t format_version = 4;
+  uint32_t format_version = 5;
 
   // Store index blocks on disk in compressed format. Changing this option to
   // false  will avoid the overhead of decompression if index blocks are evicted
@@ -555,7 +555,7 @@ struct PlainTableOptions {
 
   // @store_index_in_file: compute plain table index and bloom filter during
   //                       file building and store it in file. When reading
-  //                       file, index will be mmaped instead of recomputation.
+  //                       file, index will be mapped instead of recomputation.
   bool store_index_in_file = false;
 };
 

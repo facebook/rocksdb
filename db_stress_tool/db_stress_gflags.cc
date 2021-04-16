@@ -804,4 +804,8 @@ DEFINE_string(file_checksum_impl, "none",
 DEFINE_int32(write_fault_one_in, 0,
              "On non-zero, enables fault injection on write");
 
+DEFINE_uint64(user_timestamp_size, 0,
+              "Number of bytes for a user-defined timestamp. Currently, only "
+              "8-byte is supported");
+
 #endif  // GFLAGS

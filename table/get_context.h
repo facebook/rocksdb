@@ -99,8 +99,7 @@ class GetContext {
              Logger* logger, Statistics* statistics, GetState init_state,
              const Slice& user_key, PinnableSlice* value, bool* value_found,
              MergeContext* merge_context, bool do_merge,
-             SequenceNumber* max_covering_tombstone_seq,
-             const std::shared_ptr<SystemClock>& clock,
+             SequenceNumber* max_covering_tombstone_seq, SystemClock* clock,
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
@@ -110,8 +109,7 @@ class GetContext {
              const Slice& user_key, PinnableSlice* value,
              std::string* timestamp, bool* value_found,
              MergeContext* merge_context, bool do_merge,
-             SequenceNumber* max_covering_tombstone_seq,
-             const std::shared_ptr<SystemClock>& clock,
+             SequenceNumber* max_covering_tombstone_seq, SystemClock* clock,
              SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr,
              ReadCallback* callback = nullptr, bool* is_blob_index = nullptr,
@@ -185,7 +183,7 @@ class GetContext {
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
   SequenceNumber* max_covering_tombstone_seq_;
-  std::shared_ptr<SystemClock> clock_;
+  SystemClock* clock_;
   // If a key is found, seq_ will be set to the SequenceNumber of most recent
   // write to the key or kMaxSequenceNumber if unknown
   SequenceNumber* seq_;
