@@ -78,6 +78,26 @@ std::atomic<uint64_t> BlockBasedTable::next_cache_key_id_(0);
 template <typename TBlocklike>
 class BlocklikeTraits;
 
+template <typename TBlocklike>
+Cache::CreateCallback GetCreateCallback(size_t read_amp_bytes_per_bit,
+                                        Statistics* statistics, bool using_zstd,
+                                        const FilterPolicy* filter_policy,
+                                        const TBlocklike& /*block*/) {
+  return [read_amp_bytes_per_bit, statistics, using_zstd, filter_policy](
+             void* buf, size_t size, void** out_obj, size_t* charge) -> Status {
+    assert(buf != nullptr);
+    std::unique_ptr<char[]> buf_data(new char[size]());
+    memcpy(buf_data.get(), buf, size);
+    BlockContents bc = BlockContents(std::move(buf_data), size);
+    TBlocklike* ucd_ptr = BlocklikeTraits<TBlocklike>::Create(
+        std::move(bc), read_amp_bytes_per_bit, statistics, using_zstd,
+        filter_policy);
+    *out_obj = reinterpret_cast<void*>(ucd_ptr);
+    *charge = size;
+    return Status::OK();
+  };
+}
+
 template <>
 class BlocklikeTraits<BlockContents> {
  public:
@@ -91,6 +111,14 @@ class BlocklikeTraits<BlockContents> {
 
   static uint32_t GetNumRestarts(const BlockContents& /* contents */) {
     return 0;
+  }
+
+  static Cache::CacheItemHelperCallback GetCacheItemHelperCallback(
+      const BlockContents& /* contents */) {
+    return [](Cache::SizeCallback* size_cb, Cache::SaveToCallback* saveto_cb,
+              Cache::DeletionCallback* del_cb) -> void {
+      return CacheBlockContentsHelperCB(size_cb, saveto_cb, del_cb);
+    };
   }
 };
 
@@ -108,6 +136,14 @@ class BlocklikeTraits<ParsedFullFilterBlock> {
   static uint32_t GetNumRestarts(const ParsedFullFilterBlock& /* block */) {
     return 0;
   }
+
+  static Cache::CacheItemHelperCallback GetCacheItemHelperCallback(
+      const ParsedFullFilterBlock& /* block */) {
+    return [](Cache::SizeCallback* size_cb, Cache::SaveToCallback* saveto_cb,
+              Cache::DeletionCallback* del_cb) -> void {
+      return CacheParsedFullFilterBlockHelperCB(size_cb, saveto_cb, del_cb);
+    };
+  }
 };
 
 template <>
@@ -121,6 +157,14 @@ class BlocklikeTraits<Block> {
 
   static uint32_t GetNumRestarts(const Block& block) {
     return block.NumRestarts();
+  }
+
+  static Cache::CacheItemHelperCallback GetCacheItemHelperCallback(
+      const Block& /* block */) {
+    return [](Cache::SizeCallback* size_cb, Cache::SaveToCallback* saveto_cb,
+              Cache::DeletionCallback* del_cb) -> void {
+      return CacheBlockHelperCB(size_cb, saveto_cb, del_cb);
+    };
   }
 };
 
@@ -138,6 +182,14 @@ class BlocklikeTraits<UncompressionDict> {
 
   static uint32_t GetNumRestarts(const UncompressionDict& /* dict */) {
     return 0;
+  }
+
+  static Cache::CacheItemHelperCallback GetCacheItemHelperCallback(
+      const UncompressionDict& /* dict */) {
+    return [](Cache::SizeCallback* size_cb, Cache::SaveToCallback* saveto_cb,
+              Cache::DeletionCallback* del_cb) -> void {
+      return CacheUncompressionDictHelperCB(size_cb, saveto_cb, del_cb);
+    };
   }
 };
 
@@ -1187,55 +1239,15 @@ Status BlockBasedTable::GetDataBlockFromCache(
   Status s;
   BlockContents* compressed_block = nullptr;
   Cache::Handle* block_cache_compressed_handle = nullptr;
-  Cache::CreateCallback create_cb;
-  Cache::CacheItemHelperCallback helper_cb;
-  if (std::is_same<TBlocklike, BlockContents>::value) {
-    create_cb = [](void* buf, size_t size, void** out_obj,
-                   size_t* charge) -> Status {
-      return CreateBlockContentsBuffCB(buf, size, out_obj, charge);
-    };
-    helper_cb = [](Cache::SizeCallback* size_cb,
-                   Cache::SaveToCallback* saveto_cb,
-                   Cache::DeletionCallback* del_cb) -> void {
-      return CacheBlockContentsHelperCB(size_cb, saveto_cb, del_cb);
-    };
-  } else if (std::is_same<TBlocklike, Block>::value) {
-    create_cb = [](void* buf, size_t size, void** out_obj,
-                   size_t* charge) -> Status {
-      return CreateBlockBuffCB(buf, size, out_obj, charge);
-    };
-    helper_cb = [](Cache::SizeCallback* size_cb,
-                   Cache::SaveToCallback* saveto_cb,
-                   Cache::DeletionCallback* del_cb) -> void {
-      return CacheBlockHelperCB(size_cb, saveto_cb, del_cb);
-    };
-  } else if (std::is_same<TBlocklike, UncompressionDict>::value) {
-    bool using_zstd = rep_->blocks_definitely_zstd_compressed;
-    create_cb = [using_zstd](void* buf, size_t size, void** out_obj,
-                             size_t* charge) -> Status {
-      return CreateUncompressionDictBuffCB(buf, size, out_obj, charge,
-                                           using_zstd);
-    };
-    helper_cb = [](Cache::SizeCallback* size_cb,
-                   Cache::SaveToCallback* saveto_cb,
-                   Cache::DeletionCallback* del_cb) -> void {
-      return CacheUncompressionDictHelperCB(size_cb, saveto_cb, del_cb);
-    };
-  } else if (std::is_same<TBlocklike, ParsedFullFilterBlock>::value) {
-    const FilterPolicy* filter_policy = rep_->filter_policy;
-    create_cb = [filter_policy](void* buf, size_t size, void** out_obj,
-                                size_t* charge) -> Status {
-      return CreateParsedFullFilterBlockBuffCB(buf, size, out_obj, charge,
-                                               filter_policy);
-    };
-    helper_cb = [](Cache::SizeCallback* size_cb,
-                   Cache::SaveToCallback* saveto_cb,
-                   Cache::DeletionCallback* del_cb) -> void {
-      return CacheParsedFullFilterBlockHelperCB(size_cb, saveto_cb, del_cb);
-    };
-  } else {
-    assert(false);
-  }
+  Statistics* statistics = rep_->ioptions.statistics;
+  bool using_zstd = rep_->blocks_definitely_zstd_compressed;
+  const FilterPolicy* filter_policy = rep_->filter_policy;
+  Cache::CreateCallback create_cb =
+      GetCreateCallback(read_amp_bytes_per_bit, statistics, using_zstd,
+                        filter_policy, *block->GetValue());
+  Cache::CacheItemHelperCallback helper_cb =
+      BlocklikeTraits<TBlocklike>::GetCacheItemHelperCallback(
+          *block->GetValue());
 
   // Lookup uncompressed cache first
   if (block_cache != nullptr) {
@@ -1261,8 +1273,6 @@ Status BlockBasedTable::GetDataBlockFromCache(
   block_cache_compressed_handle =
       block_cache_compressed->Lookup(compressed_block_cache_key, helper_cb,
                                      create_cb, Cache::Priority::LOW, true);
-
-  Statistics* statistics = rep_->ioptions.statistics;
 
   // if we found in the compressed cache, then uncompress and insert into
   // uncompressed cache
@@ -1348,34 +1358,9 @@ Status BlockBasedTable::PutDataBlockToCache(
 
   Status s;
   Statistics* statistics = ioptions.statistics;
-  Cache::CacheItemHelperCallback helper_cb;
-  if (std::is_same<TBlocklike, BlockContents>::value) {
-    helper_cb = [](Cache::SizeCallback* size_cb,
-                   Cache::SaveToCallback* saveto_cb,
-                   Cache::DeletionCallback* del_cb) -> void {
-      return CacheBlockContentsHelperCB(size_cb, saveto_cb, del_cb);
-    };
-  } else if (std::is_same<TBlocklike, Block>::value) {
-    helper_cb = [](Cache::SizeCallback* size_cb,
-                   Cache::SaveToCallback* saveto_cb,
-                   Cache::DeletionCallback* del_cb) -> void {
-      return CacheBlockHelperCB(size_cb, saveto_cb, del_cb);
-    };
-  } else if (std::is_same<TBlocklike, UncompressionDict>::value) {
-    helper_cb = [](Cache::SizeCallback* size_cb,
-                   Cache::SaveToCallback* saveto_cb,
-                   Cache::DeletionCallback* del_cb) -> void {
-      return CacheUncompressionDictHelperCB(size_cb, saveto_cb, del_cb);
-    };
-  } else if (std::is_same<TBlocklike, ParsedFullFilterBlock>::value) {
-    helper_cb = [](Cache::SizeCallback* size_cb,
-                   Cache::SaveToCallback* saveto_cb,
-                   Cache::DeletionCallback* del_cb) -> void {
-      return CacheParsedFullFilterBlockHelperCB(size_cb, saveto_cb, del_cb);
-    };
-  } else {
-    assert(false);
-  }
+  Cache::CacheItemHelperCallback helper_cb =
+      BlocklikeTraits<TBlocklike>::GetCacheItemHelperCallback(
+          *cached_block->GetValue());
 
   std::unique_ptr<TBlocklike> block_holder;
   if (raw_block_comp_type != kNoCompression) {
