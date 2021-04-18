@@ -1064,12 +1064,16 @@ class DBImpl : public DB {
       state_ = State::RUNNING;
     }
 
+    void SetState(State state) {
+      MutexLock lock(&state_mutex_);
+      state_ = state;
+    }
+
     // Change the state_ to State::BLOCKED and wait until its state is
     // changed by WriteBufferManager. When stall is cleared, Signal() is
     // called to change the state and unblock the DB.
     void Block() override {
       MutexLock lock(&state_mutex_);
-      state_ = State::BLOCKED;
       while (state_ == State::BLOCKED) {
         TEST_SYNC_POINT("WBMStallInterface::BlockDB");
         state_cv_.Wait();

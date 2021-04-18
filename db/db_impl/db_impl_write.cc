@@ -1557,16 +1557,17 @@ void DBImpl::WriteBufferManagerStallWrites() {
   // First block future writer threads who want to add themselves to the queue
   // of WriteThread.
   write_thread_.BeginWriteStall();
+  mutex_.Unlock();
+
+  // Change the state to State::Blocked.
+  static_cast<WBMStallInterface*>(wbm_stall_)
+      ->SetState(WBMStallInterface::State::BLOCKED);
   // Then WriteBufferManager will add DB instance to its queue
   // and block this thread by calling WBMStallInterface::Block().
   write_buffer_manager_->BeginWriteStall(wbm_stall_);
-
-  // Release mutex for flush jobs to complete and update.
-  mutex_.Unlock();
-  // Block the DB.
   wbm_stall_->Block();
-  mutex_.Lock();
 
+  mutex_.Lock();
   // Stall has ended. Signal writer threads so that they can add
   // themselves to the WriteThread queue for writes.
   write_thread_.EndWriteStall();

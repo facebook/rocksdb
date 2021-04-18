@@ -194,24 +194,20 @@ void WriteBufferManager::BeginWriteStall(StallInterface* wbm_stall) {
 
 // Called when memory is freed in FreeMem.
 void WriteBufferManager::EndWriteStall() {
-  if (enabled()) {
-    {
-      std::unique_lock<std::mutex> lock(mu_);
-      if (!IsStallThresholdExceeded()) {
-        stall_active_.store(false, std::memory_order_relaxed);
-        if (queue_.empty()) {
-          return;
-        }
+  if (enabled() && !IsStallThresholdExceeded()) {
+    std::unique_lock<std::mutex> lock(mu_);
+    stall_active_.store(false, std::memory_order_relaxed);
+    if (queue_.empty()) {
+      return;
+    }
 
-        // Get the instances from the list and call WBMStallInterface::Signal to
-        // change the state to running and unblock the DB instances.
-        // Check ShouldStall() incase stall got active by other DBs.
-        while (!ShouldStall() && !queue_.empty()) {
-          StallInterface* wbm_stall = queue_.front();
-          queue_.pop_front();
-          wbm_stall->Signal();
-        }
-      }
+    // Get the instances from the list and call WBMStallInterface::Signal to
+    // change the state to running and unblock the DB instances.
+    // Check ShouldStall() incase stall got active by other DBs.
+    while (!ShouldStall() && !queue_.empty()) {
+      StallInterface* wbm_stall = queue_.front();
+      queue_.pop_front();
+      wbm_stall->Signal();
     }
   }
 }
