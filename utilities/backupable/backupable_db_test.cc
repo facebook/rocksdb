@@ -2168,6 +2168,7 @@ TEST_F(BackupableDBTest, TableFileCorruptionBeforeIncremental) {
 // between incremental backups
 TEST_F(BackupableDBTest, FileSizeForIncremental) {
   const auto share_no_checksum = static_cast<ShareFilesNaming>(0);
+  // TODO: enable blob files once Integrated BlobDB supports DB session id.
   options_.enable_blob_files = false;
 
   for (ShareFilesNaming option : {share_no_checksum, kLegacyCrc32cAndFileSize,
