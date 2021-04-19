@@ -29,10 +29,10 @@ jlong Java_org_rocksdb_WriteBufferManager_newWriteBufferManager(
 
 /*
  * Class:     org_rocksdb_WriteBufferManager
- * Method:    newWriteBufferManager
+ * Method:    newWriteBufferManagerWithoutCache
  * Signature: (JJ)J
  */
-jlong Java_org_rocksdb_WriteBufferManager_newWriteBufferManager(
+jlong Java_org_rocksdb_WriteBufferManager_newWriteBufferManagerWithoutCache(
     JNIEnv* /*env*/, jclass /*jclazz*/, jlong jbuffer_size) {
   auto* write_buffer_manager =
       new std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>(

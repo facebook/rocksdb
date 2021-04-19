@@ -105,7 +105,7 @@ ARCH := $(shell getconf LONG_BIT)
 SHA256_CMD ?= sha256sum
 
 JAVA_TESTS = \
-	org.rocksdb.BackupableDBOptionsTest\
+org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.BackupEngineTest\
 	org.rocksdb.BlockBasedTableConfigTest\
 	org.rocksdb.BuiltinComparatorTest\
@@ -189,7 +189,8 @@ JAVA_TESTS = \
 	org.rocksdb.WriteBatchTest\
 	org.rocksdb.WriteBatchThreadedTest\
 	org.rocksdb.WriteOptionsTest\
-	org.rocksdb.WriteBatchWithIndexTest
+	org.rocksdb.WriteBatchWithIndexTest\
+	org.rocksdb.WriteBufferManagerTest
 
 MAIN_SRC = src/main/java
 TEST_SRC = src/test/java
@@ -282,7 +283,7 @@ ifeq ($(shell java -version 2>&1 | grep 1.7.0 > /dev/null; printf $$?), 0)
 endif
 
 sample: java
-	$(AM_V_GEN)mkdir -p $(SAMPLES_MAIN_CLASSES)
+	$(AM_V_GEN)mkdir -p $(SAMPLES_MAIN_CLASSE
 	$(AM_V_at)javac $(JAVAC_ARGS) -cp $(MAIN_CLASSES) -d $(SAMPLES_MAIN_CLASSES) $(SAMPLES_MAIN_SRC)/RocksDBSample.java
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni_not_found
