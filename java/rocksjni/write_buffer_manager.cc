@@ -66,10 +66,8 @@ jlong Java_org_rocksdb_WriteBufferManager_getMemoryUsage(JNIEnv* /*env*/,
   auto* write_buffer_manager =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
           jhandle);
-  auto* write_buffer_manager =
-      reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
-          jhandle);
-  return static_cast<jlong>(write_buffer_manager->memory_usage());
+  assert(write_buffer_manager != nullptr);
+  return static_cast<jlong>(write_buffer_manager->get()->memory_usage());
 }
 
 /*
@@ -82,8 +80,9 @@ jlong Java_org_rocksdb_WriteBufferManager_getMutableMemtableMemoryUsage(
   auto* write_buffer_manager =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
           jhandle);
+  assert(write_buffer_manager != nullptr);
   return static_cast<jlong>(
-      write_buffer_manager->mutable_memtable_memory_usage());
+      write_buffer_manager->get()->mutable_memtable_memory_usage());
 }
 
 /*
@@ -96,5 +95,6 @@ jlong Java_org_rocksdb_WriteBufferManager_getBufferSize(JNIEnv*, jobject,
   auto* write_buffer_manager =
       reinterpret_cast<std::shared_ptr<ROCKSDB_NAMESPACE::WriteBufferManager>*>(
           jhandle);
-  return static_cast<jlong>(write_buffer_manager->buffer_size());
+  assert(write_buffer_manager != nullptr);
+  return static_cast<jlong>(write_buffer_manager->get()->buffer_size());
 }
