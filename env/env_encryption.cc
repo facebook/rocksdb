@@ -362,6 +362,10 @@ void EncryptedWritableFile::PrepareWrite(size_t offset, size_t len,
   file_->PrepareWrite(offset + prefixLength_, len, options, dbg);
 }
 
+void EncryptedWritableFile::SetPreallocationBlockSize(size_t size) {
+  file_->SetPreallocationBlockSize(size);
+}
+
 // Pre-allocates space for a file.
 IOStatus EncryptedWritableFile::Allocate(uint64_t offset, uint64_t len,
                                          const IOOptions& options,

@@ -366,6 +366,8 @@ class EncryptedWritableFile : public FSWritableFile {
   void PrepareWrite(size_t offset, size_t len, const IOOptions& options,
                     IODebugContext* dbg) override;
 
+  void SetPreallocationBlockSize(size_t size) override;
+
   // Pre-allocates space for a file.
   IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& options,
                     IODebugContext* dbg) override;
