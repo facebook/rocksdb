@@ -663,7 +663,7 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
   // MANIFEST. We check whether we have any missing table and blob files.
   const bool prev_has_missing_files =
       !missing_files.empty() ||
-      (builder &&
+      (prev_missing_blob_file_high != kInvalidBlobFileNumber &&
        prev_missing_blob_file_high >= builder->GetMinOldestBlobFileNumber());
 
   for (const auto& file : edit.GetDeletedFiles()) {
