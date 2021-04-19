@@ -610,7 +610,7 @@ jobs:
             rm -rf build
             mkdir build
             cd build
-            cmake -DJNI=1 .. -DCMAKE_BUILD_TYPE=Release
+            cmake -DJNI=1 -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=0 ..
             make -j4 rocksdb rocksdbjni
 
   build-format-compatible:

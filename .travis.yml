@@ -64,7 +64,7 @@ matrix:
   - if: type = pull_request AND commit_message !~ /FULL_CI/
     os: linux
     arch: arm64
-    env: TEST_GROUP=0
+    env: TEST_GROUP=platform_dependent
   - if: type = pull_request AND commit_message !~ /FULL_CI/
     os : linux
     arch: arm64
