@@ -6701,20 +6701,19 @@ TEST_F(DBTest, MemoryUsageWithMaxWriteBufferSizeToMaintain) {
   Reopen(options);
   Random rnd(301);
   bool memory_limit_exceeded = false;
-  uint64_t size_all_mem_table = 0;
-  uint64_t cur_active_mem = 0;
+
+  ColumnFamilyData* cfd =
+      static_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())->cfd();
+
   for (int i = 0; i < 1000; i++) {
     std::string value = rnd.RandomString(1000);
     ASSERT_OK(Put("keykey_" + std::to_string(i), value));
 
     dbfull()->TEST_WaitForFlushMemTable();
 
-    ASSERT_TRUE(db_->GetIntProperty(db_->DefaultColumnFamily(),
-                                    DB::Properties::kSizeAllMemTables,
-                                    &size_all_mem_table));
-    ASSERT_TRUE(db_->GetIntProperty(db_->DefaultColumnFamily(),
-                                    DB::Properties::kCurSizeActiveMemTable,
-                                    &cur_active_mem));
+    const uint64_t cur_active_mem = cfd->mem()->ApproximateMemoryUsage();
+    const uint64_t size_all_mem_table =
+        cur_active_mem + cfd->imm()->ApproximateMemoryUsage();
 
     // Errors out if memory usage keeps on increasing beyond the limit.
     // Once memory limit exceeds,  memory_limit_exceeded  is set and if
