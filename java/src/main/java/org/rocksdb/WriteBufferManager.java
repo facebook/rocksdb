@@ -9,9 +9,6 @@ package org.rocksdb;
  * Java wrapper over native write_buffer_manager class
  */
 public class WriteBufferManager extends RocksObject {
-  static {
-    RocksDB.loadLibrary();
-  }
 
   /**
    * Construct a new instance of WriteBufferManager.
@@ -42,7 +39,7 @@ public class WriteBufferManager extends RocksObject {
    *                        write_buffer_manager
    */
   public WriteBufferManager(final long bufferSizeBytes) {
-    super(newWriteBufferManager(bufferSizeBytes));
+    super(newWriteBufferManagerWithoutCache(bufferSizeBytes));
   }
 
   /**
@@ -80,7 +77,7 @@ public class WriteBufferManager extends RocksObject {
 
   private native static long newWriteBufferManager(final long bufferSizeBytes, final long cacheHandle);
 
-  private native static long newWriteBufferManager(final long bufferSizeBytes);
+  private native static long newWriteBufferManagerWithoutCache(final long bufferSizeBytes);
 
   private native static long getMemoryUsage(final long handle);
 

@@ -19,7 +19,7 @@ public class WriteBufferManagerTest {
   public void newWriteBufferManagerWithCache() {
     final long capacity = 1000;
     try (final Cache lruCache = new LRUCache(capacity);
-        final WriteBufferManager wbm = new WriteBufferManager(capacity, lruCache)) {
+         final WriteBufferManager wbm = new WriteBufferManager(capacity, lruCache)) {
       assertThat(wbm.getBufferSize()).isEqualTo(capacity);
       assertThat(wbm.getMemoryUsage()).isEqualTo(0);
       assertThat(wbm.getMutableMemtableMemoryUsage()).isEqualTo(0);
