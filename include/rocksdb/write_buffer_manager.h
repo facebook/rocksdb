@@ -155,6 +155,8 @@ class WriteBufferManager {
   // Remove DB instances from queue and signal them to continue.
   void EndWriteStall();
 
+  void RemoveDBFromQueue(StallInterface* wbm_stall);
+
  private:
   std::atomic<size_t> buffer_size_;
   std::atomic<size_t> mutable_limit_;

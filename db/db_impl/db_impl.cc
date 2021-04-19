@@ -665,7 +665,8 @@ Status DBImpl::CloseHelper() {
     }
   }
 
-  if (wbm_stall_) {
+  if (write_buffer_manager_ && wbm_stall_) {
+    write_buffer_manager_->RemoveDBFromQueue(wbm_stall_);
     delete wbm_stall_;
     wbm_stall_ = nullptr;
   }

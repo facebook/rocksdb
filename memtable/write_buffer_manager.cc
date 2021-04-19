@@ -212,4 +212,13 @@ void WriteBufferManager::EndWriteStall() {
   }
 }
 
+void WriteBufferManager::RemoveDBFromQueue(StallInterface* wbm_stall) {
+  assert(wbm_stall != nullptr);
+  if (enabled() && allow_stall_) {
+    std::unique_lock<std::mutex> lock(mu_);
+    queue_.remove(wbm_stall);
+    wbm_stall->Signal();
+  }
+}
+
 }  // namespace ROCKSDB_NAMESPACE
