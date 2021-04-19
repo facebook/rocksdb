@@ -381,6 +381,9 @@ class SpecialEnv : public EnvWrapper {
       void PrepareWrite(size_t offset, size_t len) override {
         base_->PrepareWrite(offset, len);
       }
+      void SetPreallocationBlockSize(size_t size) override {
+        base_->SetPreallocationBlockSize(size);
+      }
       Status Close() override {
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
