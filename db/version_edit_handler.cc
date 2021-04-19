@@ -11,6 +11,8 @@
 
 #include <cinttypes>
 
+#include "db/blob/blob_file_cache.h"
+#include "db/blob/blob_file_reader.h"
 #include "monitoring/persistent_stats_history.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -129,14 +131,14 @@ Status FileChecksumRetriever::ApplyVersionEdit(VersionEdit& edit,
 VersionEditHandler::VersionEditHandler(
     bool read_only, std::vector<ColumnFamilyDescriptor> column_families,
     VersionSet* version_set, bool track_missing_files,
-    bool no_error_if_table_files_missing,
-    const std::shared_ptr<IOTracer>& io_tracer, bool skip_load_table_files)
+    bool no_error_if_files_missing, const std::shared_ptr<IOTracer>& io_tracer,
+    bool skip_load_table_files)
     : VersionEditHandlerBase(),
       read_only_(read_only),
       column_families_(std::move(column_families)),
       version_set_(version_set),
       track_missing_files_(track_missing_files),
-      no_error_if_table_files_missing_(no_error_if_table_files_missing),
+      no_error_if_files_missing_(no_error_if_files_missing),
       io_tracer_(io_tracer),
       skip_load_table_files_(skip_load_table_files),
       initialized_(false) {
@@ -301,6 +303,14 @@ bool VersionEditHandler::HasMissingFiles() const {
       break;
     }
   }
+  if (!ret) {
+    for (const auto& elem : cf_to_missing_blob_files_high_) {
+      if (elem.second != kInvalidBlobFileNumber) {
+        ret = true;
+        break;
+      }
+    }
+  }
   return ret;
 }
 
@@ -437,6 +447,8 @@ ColumnFamilyData* VersionEditHandler::CreateCfAndInit(
   if (track_missing_files_) {
     cf_to_missing_files_.emplace(edit.column_family_,
                                  std::unordered_set<uint64_t>());
+    cf_to_missing_blob_files_high_.emplace(edit.column_family_,
+                                           kInvalidBlobFileNumber);
   }
   return cfd;
 }
@@ -450,6 +462,12 @@ ColumnFamilyData* VersionEditHandler::DestroyCfAndCleanup(
     auto missing_files_iter = cf_to_missing_files_.find(edit.column_family_);
     assert(missing_files_iter != cf_to_missing_files_.end());
     cf_to_missing_files_.erase(missing_files_iter);
+
+    auto missing_blob_files_high_iter =
+        cf_to_missing_blob_files_high_.find(edit.column_family_);
+    assert(missing_blob_files_high_iter !=
+           cf_to_missing_blob_files_high_.end());
+    cf_to_missing_blob_files_high_.erase(missing_blob_files_high_iter);
   }
   ColumnFamilyData* ret =
       version_set_->GetColumnFamilySet()->GetColumnFamily(edit.column_family_);
@@ -505,8 +523,7 @@ Status VersionEditHandler::LoadTables(ColumnFamilyData* cfd,
       prefetch_index_and_filter_in_cache, is_initial_load,
       cfd->GetLatestMutableCFOptions()->prefix_extractor.get(),
       MaxFileSizeForL0MetaPin(*cfd->GetLatestMutableCFOptions()));
-  if ((s.IsPathNotFound() || s.IsCorruption()) &&
-      no_error_if_table_files_missing_) {
+  if ((s.IsPathNotFound() || s.IsCorruption()) && no_error_if_files_missing_) {
     s = Status::OK();
   }
   if (!s.ok() && !version_set_->db_options_->paranoid_checks) {
@@ -576,7 +593,7 @@ VersionEditHandlerPointInTime::VersionEditHandlerPointInTime(
     VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer)
     : VersionEditHandler(read_only, column_families, version_set,
                          /*track_missing_files=*/true,
-                         /*no_error_if_table_files_missing=*/true, io_tracer) {}
+                         /*no_error_if_files_missing=*/true, io_tracer) {}
 
 VersionEditHandlerPointInTime::~VersionEditHandlerPointInTime() {
   for (const auto& elem : versions_) {
@@ -626,7 +643,29 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
   auto missing_files_iter = cf_to_missing_files_.find(cfd->GetID());
   assert(missing_files_iter != cf_to_missing_files_.end());
   std::unordered_set<uint64_t>& missing_files = missing_files_iter->second;
-  const bool prev_has_missing_files = !missing_files.empty();
+
+  auto missing_blob_files_high_iter =
+      cf_to_missing_blob_files_high_.find(cfd->GetID());
+  assert(missing_blob_files_high_iter != cf_to_missing_blob_files_high_.end());
+  const uint64_t prev_missing_blob_file_high =
+      missing_blob_files_high_iter->second;
+
+  VersionBuilder* builder = nullptr;
+
+  if (prev_missing_blob_file_high != kInvalidBlobFileNumber) {
+    auto builder_iter = builders_.find(cfd->GetID());
+    assert(builder_iter != builders_.end());
+    builder = builder_iter->second->version_builder();
+    assert(builder != nullptr);
+  }
+
+  // At this point, we have not yet applied the new version edits read from the
+  // MANIFEST. We check whether we have any missing table and blob files.
+  const bool prev_has_missing_files =
+      !missing_files.empty() ||
+      (prev_missing_blob_file_high != kInvalidBlobFileNumber &&
+       prev_missing_blob_file_high >= builder->GetMinOldestBlobFileNumber());
+
   for (const auto& file : edit.GetDeletedFiles()) {
     uint64_t file_num = file.second;
     auto fiter = missing_files.find(file_num);
@@ -634,6 +673,8 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
       missing_files.erase(fiter);
     }
   }
+
+  assert(!cfd->ioptions()->cf_paths.empty());
   Status s;
   for (const auto& elem : edit.GetNewFiles()) {
     const FileMetaData& meta = elem.second;
@@ -649,17 +690,60 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
       break;
     }
   }
+
+  uint64_t missing_blob_file_num = prev_missing_blob_file_high;
+  for (const auto& elem : edit.GetBlobFileAdditions()) {
+    uint64_t file_num = elem.GetBlobFileNumber();
+    s = VerifyBlobFile(cfd, file_num, elem);
+    if (s.IsPathNotFound() || s.IsNotFound() || s.IsCorruption()) {
+      missing_blob_file_num = std::max(missing_blob_file_num, file_num);
+      s = Status::OK();
+    } else if (!s.ok()) {
+      break;
+    }
+  }
+
+  bool has_missing_blob_files = false;
+  if (missing_blob_file_num != kInvalidBlobFileNumber &&
+      missing_blob_file_num >= prev_missing_blob_file_high) {
+    missing_blob_files_high_iter->second = missing_blob_file_num;
+    has_missing_blob_files = true;
+  } else if (missing_blob_file_num < prev_missing_blob_file_high) {
+    assert(false);
+  }
+
+  // We still have not applied the new version edit, but have tried to add new
+  // table and blob files after verifying their presence and consistency.
+  // Therefore, we know whether we will see new missing table and blob files
+  // later after actually applying the version edit. We perform the check here
+  // and record the result.
+  const bool has_missing_files =
+      !missing_files.empty() || has_missing_blob_files;
+
   bool missing_info = !version_edit_params_.has_log_number_ ||
                       !version_edit_params_.has_next_file_number_ ||
                       !version_edit_params_.has_last_sequence_;
 
-  // Create version before apply edit
+  // Create version before apply edit. The version will represent the state
+  // before applying the version edit.
+  // A new version will created if:
+  // 1) no error has occurred so far, and
+  // 2) log_number_, next_file_number_ and last_sequence_ are known, and
+  // 3) any of the following:
+  //   a) no missing file before, but will have missing file(s) after applying
+  //      this version edit.
+  //   b) no missing file after applying the version edit, and the caller
+  //      explicitly request that a new version be created.
   if (s.ok() && !missing_info &&
-      ((!missing_files.empty() && !prev_has_missing_files) ||
-       (missing_files.empty() && force_create_version))) {
-    auto builder_iter = builders_.find(cfd->GetID());
-    assert(builder_iter != builders_.end());
-    auto* builder = builder_iter->second->version_builder();
+      ((has_missing_files && !prev_has_missing_files) ||
+       (!has_missing_files && force_create_version))) {
+    if (!builder) {
+      auto builder_iter = builders_.find(cfd->GetID());
+      assert(builder_iter != builders_.end());
+      builder = builder_iter->second->version_builder();
+      assert(builder);
+    }
+
     auto* version = new Version(cfd, version_set_, version_set_->file_options_,
                                 *cfd->GetLatestMutableCFOptions(), io_tracer_,
                                 version_set_->current_version_number_++);
@@ -685,6 +769,22 @@ Status VersionEditHandlerPointInTime::MaybeCreateVersion(
 Status VersionEditHandlerPointInTime::VerifyFile(const std::string& fpath,
                                                  const FileMetaData& fmeta) {
   return version_set_->VerifyFileMetadata(fpath, fmeta);
+}
+
+Status VersionEditHandlerPointInTime::VerifyBlobFile(
+    ColumnFamilyData* cfd, uint64_t blob_file_num,
+    const BlobFileAddition& blob_addition) {
+  BlobFileCache* blob_file_cache = cfd->blob_file_cache();
+  assert(blob_file_cache);
+  CacheHandleGuard<BlobFileReader> blob_file_reader;
+  Status s =
+      blob_file_cache->GetBlobFileReader(blob_file_num, &blob_file_reader);
+  if (!s.ok()) {
+    return s;
+  }
+  // TODO: verify checksum
+  (void)blob_addition;
+  return s;
 }
 
 Status ManifestTailer::Initialize() {

@@ -4490,60 +4490,6 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   return builder ? builder->Apply(edit) : Status::OK();
 }
 
-Status VersionSet::ExtractInfoFromVersionEdit(
-    ColumnFamilyData* cfd, const VersionEdit& from_edit,
-    VersionEditParams* version_edit_params) {
-  if (cfd != nullptr) {
-    if (from_edit.has_db_id_) {
-      version_edit_params->SetDBId(from_edit.db_id_);
-    }
-    if (from_edit.has_log_number_) {
-      if (cfd->GetLogNumber() > from_edit.log_number_) {
-        ROCKS_LOG_WARN(
-            db_options_->info_log,
-            "MANIFEST corruption detected, but ignored - Log numbers in "
-            "records NOT monotonically increasing");
-      } else {
-        cfd->SetLogNumber(from_edit.log_number_);
-        version_edit_params->SetLogNumber(from_edit.log_number_);
-      }
-    }
-    if (from_edit.has_comparator_ &&
-        from_edit.comparator_ != cfd->user_comparator()->Name()) {
-      return Status::InvalidArgument(
-          cfd->user_comparator()->Name(),
-          "does not match existing comparator " + from_edit.comparator_);
-    }
-    if (from_edit.HasFullHistoryTsLow()) {
-      const std::string& new_ts = from_edit.GetFullHistoryTsLow();
-      cfd->SetFullHistoryTsLow(new_ts);
-    }
-  }
-
-  if (from_edit.has_prev_log_number_) {
-    version_edit_params->SetPrevLogNumber(from_edit.prev_log_number_);
-  }
-
-  if (from_edit.has_next_file_number_) {
-    version_edit_params->SetNextFile(from_edit.next_file_number_);
-  }
-
-  if (from_edit.has_max_column_family_) {
-    version_edit_params->SetMaxColumnFamily(from_edit.max_column_family_);
-  }
-
-  if (from_edit.has_min_log_number_to_keep_) {
-    version_edit_params->min_log_number_to_keep_ =
-        std::max(version_edit_params->min_log_number_to_keep_,
-                 from_edit.min_log_number_to_keep_);
-  }
-
-  if (from_edit.has_last_sequence_) {
-    version_edit_params->SetLastSequence(from_edit.last_sequence_);
-  }
-  return Status::OK();
-}
-
 Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
                                           FileSystem* fs,
                                           std::string* manifest_path,
@@ -4610,10 +4556,10 @@ Status VersionSet::Recover(
     reporter.status = &log_read_status;
     log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                        true /* checksum */, 0 /* log_number */);
-    VersionEditHandler handler(
-        read_only, column_families, const_cast<VersionSet*>(this),
-        /*track_missing_files=*/false,
-        /*no_error_if_table_files_missing=*/false, io_tracer_);
+    VersionEditHandler handler(read_only, column_families,
+                               const_cast<VersionSet*>(this),
+                               /*track_missing_files=*/false,
+                               /*no_error_if_files_missing=*/false, io_tracer_);
     handler.Iterate(reader, &log_read_status);
     s = handler.status();
     if (s.ok()) {
