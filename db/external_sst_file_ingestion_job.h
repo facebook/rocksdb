@@ -158,6 +158,10 @@ class ExternalSstFileIngestionJob {
   // Set the file global sequence number to `seqno`
   Status AssignGlobalSeqnoForIngestedFile(IngestedFileInfo* file_to_ingest,
                                           SequenceNumber seqno);
+  // Get assigned seqno
+  Status GetAssignedSeqno(IngestedFileInfo* f, SuperVersion* super_version,
+                          bool force_global_seqno, SequenceNumber last_seqno,
+                          SequenceNumber* assigned_seqno);
   // Generate the file checksum and store in the IngestedFileInfo
   IOStatus GenerateChecksumForIngestedFile(IngestedFileInfo* file_to_ingest);
 
@@ -165,6 +169,8 @@ class ExternalSstFileIngestionJob {
   // REQUIRES: Mutex held
   bool IngestedFileFitInLevel(const IngestedFileInfo* file_to_ingest,
                               int level);
+  // return if global seqno is enforced
+  bool IsForceGlobalSeqno();
 
   // Helper method to sync given file.
   template <typename TWritableFile>

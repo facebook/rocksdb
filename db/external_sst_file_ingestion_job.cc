@@ -326,6 +326,31 @@ Status ExternalSstFileIngestionJob::NeedsFlush(bool* flush_needed,
   return status;
 }
 
+bool ExternalSstFileIngestionJob::IsForceGlobalSeqno() {
+  bool force_global_seqno = false;
+
+  if (ingestion_options_.snapshot_consistency && !db_snapshots_->empty()) {
+    // We need to assign a global sequence number to all the files even
+    // if the don't overlap with any ranges since we have snapshots
+    force_global_seqno = true;
+  }
+  return force_global_seqno;
+}
+
+Status ExternalSstFileIngestionJob::GetAssignedSeqno(
+    IngestedFileInfo* f, SuperVersion* super_version, bool force_global_seqno,
+    SequenceNumber last_seqno, SequenceNumber* assigned_seqno) {
+  Status status;
+  if (ingestion_options_.ingest_behind) {
+    status = CheckLevelForIngestedBehindFile(f);
+  } else {
+    status = AssignLevelAndSeqnoForIngestedFile(
+        super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
+        last_seqno, f, assigned_seqno);
+  }
+  return status;
+}
+
 // REQUIRES: we have become the only writer by entering both write_thread_ and
 // nonmem_write_thread_
 Status ExternalSstFileIngestionJob::Run() {
@@ -345,28 +370,19 @@ Status ExternalSstFileIngestionJob::Run() {
   assert(status.ok() && need_flush == false);
 #endif
 
-  bool force_global_seqno = false;
+  bool force_global_seqno = IsForceGlobalSeqno();
 
-  if (ingestion_options_.snapshot_consistency && !db_snapshots_->empty()) {
-    // We need to assign a global sequence number to all the files even
-    // if the don't overlap with any ranges since we have snapshots
-    force_global_seqno = true;
-  }
   // It is safe to use this instead of LastAllocatedSequence since we are
   // the only active writer, and hence they are equal
   SequenceNumber last_seqno = versions_->LastSequence();
+
   edit_.SetColumnFamily(cfd_->GetID());
   // The levels that the files will be ingested into
 
   for (IngestedFileInfo& f : files_to_ingest_) {
     SequenceNumber assigned_seqno = 0;
-    if (ingestion_options_.ingest_behind) {
-      status = CheckLevelForIngestedBehindFile(&f);
-    } else {
-      status = AssignLevelAndSeqnoForIngestedFile(
-          super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
-          last_seqno, &f, &assigned_seqno);
-    }
+    status = GetAssignedSeqno(&f, super_version, force_global_seqno, last_seqno,
+                              &assigned_seqno);
     if (!status.ok()) {
       return status;
     }
@@ -623,9 +639,19 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
       return Status::Corruption("External file has non zero sequence number");
     }
 
-    SequenceNumber assigned_seqno = versions_->LastSequence();
+    SequenceNumber last_seqno = versions_->LastSequence();
+    bool force_global_seqno = IsForceGlobalSeqno();
 
-    file_to_ingest->smallest_internal_key.Set(key.user_key, assigned_seqno, ValueType::kTypeValue);
+    SequenceNumber assigned_seqno = 0;
+    status = GetAssignedSeqno(file_to_ingest, sv, force_global_seqno,
+                              last_seqno, &assigned_seqno);
+
+    if (!status.ok()) {
+      return status;
+    }
+
+    file_to_ingest->smallest_internal_key.Set(key.user_key, assigned_seqno,
+                                              ValueType::kTypeValue);
 
     iter->SeekToLast();
     pik_status = ParseInternalKey(iter->key(), &key, allow_data_in_errors);
@@ -637,7 +663,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
       return Status::Corruption("External file has non zero sequence number");
     }
 
-    file_to_ingest->largest_internal_key.Set(key.user_key, assigned_seqno, ValueType::kTypeValue);
+    file_to_ingest->largest_internal_key.Set(key.user_key, assigned_seqno,
+                                             ValueType::kTypeValue);
 
     bounds_set = true;
   }
