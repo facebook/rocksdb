@@ -13,6 +13,7 @@
 * Fixed crash (divide by zero) when compression dictionary is applied to a file containing only range tombstones.
 * Fixed a backward iteration bug with partitioned filter enabled: not including the prefix of the last key of the previous filter partition in current filter partition can cause wrong iteration result.
 * Fixed a bug that allowed `DBOptions::max_open_files` to be set with a non-negative integer with `ColumnFamilyOptions::compaction_style = kCompactionStyleFIFO`.
+* Fix a bug that prevents newly ingested files from being written with incorrect smallest/largest key metadata. Reading from a DB with pre-existing ingested files could still be problematic. 
 
 ### Performance Improvements
 * On ARM platform, use `yield` instead of `wfe` to relax cpu to gain better performance.
