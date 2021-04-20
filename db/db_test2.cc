@@ -5439,6 +5439,98 @@ TEST_F(DBTest2, AutoPrefixMode1) {
     ASSERT_EQ("a1", iterator->key().ToString());
   }
 }
+
+class RenameCurrentTest : public DBTestBase,
+                          public testing::WithParamInterface<std::string> {
+ public:
+  RenameCurrentTest()
+      : DBTestBase("rename_current_test", /*env_do_fsync=*/true),
+        sync_point_(GetParam()) {}
+
+  ~RenameCurrentTest() override {}
+
+  void SetUp() override {
+    env_->no_file_overwrite_.store(true, std::memory_order_release);
+  }
+
+  void TearDown() override {
+    env_->no_file_overwrite_.store(false, std::memory_order_release);
+  }
+
+  void SetupSyncPoints() {
+    SyncPoint::GetInstance()->DisableProcessing();
+    SyncPoint::GetInstance()->SetCallBack(sync_point_, [&](void* arg) {
+      Status* s = reinterpret_cast<Status*>(arg);
+      assert(s);
+      *s = Status::IOError("Injected IO error.");
+    });
+  }
+
+  const std::string sync_point_;
+};
+
+INSTANTIATE_TEST_CASE_P(DistributedFS, RenameCurrentTest,
+                        ::testing::Values("SetCurrentFile:BeforeRename",
+                                          "SetCurrentFile:AfterRename"));
+
+TEST_P(RenameCurrentTest, Open) {
+  Destroy(last_options_);
+  Options options = GetDefaultOptions();
+  options.create_if_missing = true;
+  SetupSyncPoints();
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = TryReopen(options);
+  ASSERT_NOK(s);
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  Reopen(options);
+}
+
+TEST_P(RenameCurrentTest, Flush) {
+  Destroy(last_options_);
+  Options options = GetDefaultOptions();
+  options.max_manifest_file_size = 1;
+  options.create_if_missing = true;
+  Reopen(options);
+  ASSERT_OK(Put("key", "value"));
+  SetupSyncPoints();
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NOK(Flush());
+
+  ASSERT_NOK(Put("foo", "value"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  Reopen(options);
+  ASSERT_EQ("value", Get("key"));
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+}
+
+TEST_P(RenameCurrentTest, Compaction) {
+  Destroy(last_options_);
+  Options options = GetDefaultOptions();
+  options.max_manifest_file_size = 1;
+  options.create_if_missing = true;
+  Reopen(options);
+  ASSERT_OK(Put("a", "a_value"));
+  ASSERT_OK(Put("c", "c_value"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("b", "b_value"));
+  ASSERT_OK(Put("d", "d_value"));
+  ASSERT_OK(Flush());
+
+  SetupSyncPoints();
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_NOK(db_->CompactRange(CompactRangeOptions(), /*begin=*/nullptr,
+                               /*end=*/nullptr));
+
+  ASSERT_NOK(Put("foo", "value"));
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  Reopen(options);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  ASSERT_EQ("d_value", Get("d"));
+}
 #endif  // ROCKSDB_LITE
 
 // WAL recovery mode is WALRecoveryMode::kPointInTimeRecovery.
