@@ -29,7 +29,7 @@ struct WriteBatchWithIndex::Rep {
       : write_batch(reserved_bytes, max_bytes),
         comparator(index_comparator, &write_batch),
         skip_list(comparator, &arena),
-        deleted_range_map(comparator, &arena),
+        deleted_range_map(comparator, &arena, &write_batch),
         overwrite_key(_overwrite_key),
         last_entry_offset(0),
         last_sub_batch_offset(0),
@@ -66,6 +66,11 @@ struct WriteBatchWithIndex::Rep {
   // Allocate an index entry pointing to the last entry in the write batch and
   // put it to skip list.
   void AddNewEntry(uint32_t column_family_id);
+
+  // Extract references to the keys in the last entry in the write batch
+  // Assume the entry is a delete range, so contains 2 keys
+  void ReadRangeKeysFromWriteBatchEntry(uint32_t column_family_id,
+                                        Slice& from_key, Slice& to_key);
 
   // Find all entries in a range of keys and remove from the index
   bool DeleteIndexRange(const Slice& from_key, const Slice& to_key);
@@ -155,6 +160,20 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
   skip_list.Insert(index_entry);
 }
 
+void WriteBatchWithIndex::Rep::ReadRangeKeysFromWriteBatchEntry(
+    uint32_t column_family_id, Slice& from_key, Slice& to_key) {
+  const std::string& wb_data = write_batch.Data();
+  Slice entry_ptr = Slice(wb_data.data() + last_entry_offset,
+                          wb_data.size() - last_entry_offset);
+  // Extract keys
+  bool success __attribute__((__unused__));
+  success =
+      ReadKeyFromWriteBatchEntry(&entry_ptr, &from_key, column_family_id != 0);
+  assert(success);
+  success = GetLengthPrefixedSlice(&entry_ptr, &to_key);
+  assert(success);
+}
+
 bool WriteBatchWithIndex::Rep::DeleteIndexRange(const Slice& from_key,
                                                 const Slice& to_key) {
   return Rep::DeleteIndexRange(nullptr, from_key, to_key);
@@ -169,24 +188,25 @@ bool WriteBatchWithIndex::Rep::DeleteIndexRange(
   // TODO most of the below can be simplified when we allow (restricted)
   // skiplist deletion
 
-  iter.Seek(from_key);
-  if (!iter.Valid()) {
-    return false;
-  }
   auto count = 0;
-  auto entry = iter.Entry();
-  while (comparator.CompareKey(cf_id, entry.key, to_key) < 0) {
-    WriteBatchIndexEntry* non_const_entry =
-        const_cast<WriteBatchIndexEntry*>(iter.GetRawEntry());
-    non_const_entry->is_in_deleted_range = true;
-    count++;
-    iter.Next();
-    if (!iter.Valid()) break;
-    entry = iter.Entry();
+  iter.Seek(from_key);
+  if (iter.Valid()) {
+    auto entry = iter.Entry();
+    while (comparator.CompareKey(cf_id, entry.key, to_key) < 0) {
+      WriteBatchIndexEntry* non_const_entry =
+          const_cast<WriteBatchIndexEntry*>(iter.GetRawEntry());
+      non_const_entry->is_in_deleted_range = true;
+      count++;
+      iter.Next();
+      if (!iter.Valid()) break;
+      entry = iter.Entry();
+    }
   }
 
-  // Add explicitly-deleted-range check entry
-  deleted_range_map.AddInterval(from_key, to_key);
+  // Add a record that this range has been deleted
+  Slice batch_from_key, batch_to_key;
+  ReadRangeKeysFromWriteBatchEntry(cf_id, batch_from_key, batch_to_key);
+  deleted_range_map.AddInterval(cf_id, batch_from_key, batch_to_key);
 
   return (count > 0);
 }
@@ -198,9 +218,11 @@ void WriteBatchWithIndex::Rep::Clear() {
 
 void WriteBatchWithIndex::Rep::ClearIndex() {
   skip_list.~WriteBatchEntrySkipList();
+  deleted_range_map.~DeletedRangeMap();
   arena.~Arena();
   new (&arena) Arena();
   new (&skip_list) WriteBatchEntrySkipList(comparator, &arena);
+  new (&deleted_range_map) DeletedRangeMap(comparator, &arena, &write_batch);
   last_entry_offset = 0;
   last_sub_batch_offset = 0;
   sub_batch_cnt = 1;
@@ -442,7 +464,8 @@ Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
                                          const Slice& key, std::string* value) {
   Status s;
   WriteBatchWithIndexInternal wbwii(&options, column_family);
-  auto result = wbwii.GetFromBatch(this, key, value, rep->overwrite_key, &s);
+  auto result = wbwii.GetFromBatch(this, key, rep->deleted_range_map, value,
+                                   rep->overwrite_key, &s);
 
   switch (result) {
     case WriteBatchWithIndexInternal::Result::kFound:
@@ -521,8 +544,8 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(
   // transaction we cannot pin it as otherwise the returned value will not be
   // available after the transaction finishes.
   std::string& batch_value = *pinnable_val->GetSelf();
-  auto result =
-      wbwii.GetFromBatch(this, key, &batch_value, rep->overwrite_key, &s);
+  auto result = wbwii.GetFromBatch(this, key, rep->deleted_range_map,
+                                   &batch_value, rep->overwrite_key, &s);
 
   if (result == WriteBatchWithIndexInternal::Result::kFound) {
     pinnable_val->PinSelf();
@@ -605,8 +628,9 @@ void WriteBatchWithIndex::MultiGetFromBatchAndDB(
     PinnableSlice* pinnable_val = &values[i];
     std::string& batch_value = *pinnable_val->GetSelf();
     Status* s = &statuses[i];
-    auto result = wbwii.GetFromBatch(this, keys[i], &merge_context,
-                                     &batch_value, rep->overwrite_key, s);
+    auto result =
+        wbwii.GetFromBatch(this, keys[i], rep->deleted_range_map,
+                           &merge_context, &batch_value, rep->overwrite_key, s);
 
     if (result == WriteBatchWithIndexInternal::Result::kFound) {
       pinnable_val->PinSelf();

@@ -24,19 +24,25 @@ namespace ROCKSDB_NAMESPACE {
 //
 template <class PointKey, class Comparator>
 class IntervalMap {
- private:
+ public:
   enum Marker { Start, Stop };
-
   class PointData {
+   public:
     Marker marker;
+    PointData(Marker marker) : marker(marker) {}
   };
 
+ private:
   class PointEntry {
    public:
+    uint32_t flagStart = 0xDEADBEEF;
     PointKey pointKey;
     PointData pointData;
+    uint32_t flagEnd = 0xBADDCAFE;
 
-    PointEntry(PointKey& key) : pointKey(key) {}
+    PointEntry(PointKey& key) : pointKey(key), pointData(Start) {}
+    PointEntry(PointKey& key, Marker marker)
+        : pointKey(key), pointData(marker) {}
   };
 
   class PointEntryComparator {
@@ -68,12 +74,16 @@ class IntervalMap {
   // Check whether the key is in any of the intervals
   bool IsInInterval(const PointKey& key);
 
+ public:
   void Clear();
 
  private:
   PointEntryComparator const comparator_;
   Allocator* const allocator_;  // Allocator used for allocations of nodes
   PointEntrySkipList skip_list;
+
+  void FixIntervalFrom(const PointKey& from_key);
+  void FixIntervalTo(const PointKey& to_key);
 };
 
 template <class PointKey, class Comparator>
@@ -86,23 +96,105 @@ IntervalMap<PointKey, Comparator>::IntervalMap(Comparator cmp,
 template <class PointKey, class Comparator>
 void IntervalMap<PointKey, Comparator>::AddInterval(const PointKey& from_key,
                                                     const PointKey& to_key) {
-  // TODO implement
+  FixIntervalFrom(from_key);
+  FixIntervalTo(to_key);
+
+  // Clear range
+  // TODO check the underlying iter.Remove() is implemented
   typename PointEntrySkipList::Iterator iter(&skip_list);
-  PointEntry fromEntry(from_key);
-  iter.Seek(&fromEntry);
-  PointEntry toEntry(to_key);
-  iter.Seek(&toEntry);
+  PointEntry from_entry(from_key, Start);
+  PointEntry to_entry(to_key, Stop);
+  iter.Seek(&from_entry);
+  while (iter.Valid()) {
+    if (comparator_(&from_entry, iter.key()) == 0) {
+      iter.Next();
+      continue;
+    }
+    if (comparator_(&to_entry, iter.key()) <= 0) {
+      break;
+    }
+    // TODO semantic should be to do a Next() when we remove
+    iter.Remove();
+  }
+}
+
+template <class PointKey, class Comparator>
+void IntervalMap<PointKey, Comparator>::FixIntervalFrom(
+    const PointKey& from_key) {
+  typename PointEntrySkipList::Iterator iter(&skip_list);
+  PointEntry from_entry(from_key, Start);
+  iter.SeekForPrev(&from_entry);
+  if (iter.Valid()) {
+    Marker marker = iter.key()->pointData.marker;
+    if (marker == Start) return;  // an earlier start exists, so no start to add
+
+    if (comparator_(&from_entry, iter.key()) == 0) {
+      // There is a Stop where we want to have a start
+      // Simply remove the Stop, and the preceding Start will cover ours
+      iter.Remove();
+      return;
+    }
+  }
+
+  // We need a new Start marker in the index
+  auto* mem = allocator_->Allocate(sizeof(PointEntry));
+  auto* index_entry = new (mem) PointEntry(from_entry);
+  skip_list.Insert(index_entry);
+}
+
+template <class PointKey, class Comparator>
+void IntervalMap<PointKey, Comparator>::FixIntervalTo(const PointKey& to_key) {
+  typename PointEntrySkipList::Iterator iter(&skip_list);
+  PointEntry to_entry(to_key, Stop);
+  iter.Seek(&to_entry);
+  if (iter.Valid()) {
+    Marker marker = iter.key()->pointData.marker;
+    if (marker == Stop) return;  // a later stop exists, so no stop to add
+
+    if (comparator_(&to_entry, iter.key()) == 0) {
+      // There is a Start where we want to have a Stop
+      // Simply remove the Start, and the succeeding Stop will cover ours
+      iter.Remove();
+      return;
+    }
+  }
+
+  // We need a new Stop marker in the index
+  auto* mem = allocator_->Allocate(sizeof(PointEntry));
+  auto* index_entry = new (mem) PointEntry(to_entry);
+  skip_list.Insert(index_entry);
 }
 
 template <class PointKey, class Comparator>
 bool IntervalMap<PointKey, Comparator>::IsInInterval(const PointKey& key) {
-  // TODO implement
   typename PointEntrySkipList::Iterator iter(&skip_list);
-  PointEntry keyEntry(key);
-  iter.Seek(&keyEntry);
+  PointEntry key_entry(key);
+  iter.Seek(&key_entry);
+  if (!iter.Valid()) {
+    // No equal or greater entry exists, so key is outside any range
+    return false;
+  }
+  Marker marker = iter.key()->pointData.marker;
 
-  // TODO replace this placeholder
-  return false;
+  // Marker is strictly after this key
+  if (comparator_(&key_entry, iter.key()) < 0) {
+    if (marker == Stop) {
+      return true;
+    } else {
+      assert(marker == Start);
+      return false;
+    }
+  }
+
+  // Marker at exactly this key
+  if (marker == Start) {
+    // the interval is always closed at Start
+    return true;
+  } else {
+    assert(marker == Stop);
+    // the interval is always open at Stop
+    return false;
+  }
 }
 
 template <class PointKey, class Comparator>

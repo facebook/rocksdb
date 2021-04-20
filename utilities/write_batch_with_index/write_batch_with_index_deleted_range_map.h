@@ -13,12 +13,14 @@
 
 namespace ROCKSDB_NAMESPACE {
 
+// We use write batch index entries as our keys, but will only ever need the
+// concrete ones i.e. not the special "smallest in cf_id" search keys, etc.
 class DeletedRangeMap : IntervalMap<const struct WriteBatchIndexEntry,
                                     const class WriteBatchEntryComparator&> {
  public:
   DeletedRangeMap(const class WriteBatchEntryComparator& cmp,
-                  Allocator* allocator)
-      : IntervalMap(cmp, allocator) {}
+                  Allocator* allocator, WriteBatch* write_batch)
+      : IntervalMap(cmp, allocator), write_batch(write_batch) {}
 
   void AddInterval(const Slice& from_key, const Slice& to_key);
 
@@ -28,6 +30,9 @@ class DeletedRangeMap : IntervalMap<const struct WriteBatchIndexEntry,
   bool IsInInterval(const Slice& key);
 
   bool IsInInterval(const uint32_t cf_id, const Slice& key);
+
+ private:
+  WriteBatch* write_batch;
 };
 
 };  // namespace ROCKSDB_NAMESPACE

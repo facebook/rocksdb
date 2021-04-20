@@ -474,7 +474,7 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMap) {
   ASSERT_TRUE(s.IsNotFound());
   s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
 
-  // TODO this fails without a range map to record explicit deletion
+  // This checks the range map recording explicit deletion
   // TODO implement the range map
   ASSERT_TRUE(s.IsNotFound());
   s = batch.GetFromBatch(db_options, "D", &value);
@@ -484,6 +484,51 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMap) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
   s = batch.GetFromBatch(db_options, "F", &value);
+  ASSERT_TRUE(s.IsNotFound());
+}
+
+TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMultipleRanges) {
+  DB* db;
+  Options options;
+
+  options.create_if_missing = true;
+  std::string dbname = test::PerThreadDBPath(
+      "write_batch_with_index_deleted_range_multiple_range_test");
+
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  EXPECT_OK(DestroyDB(dbname, options));
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+
+  ReadOptions read_options;
+  WriteOptions write_options;
+
+  //
+  // Set up the underlying DB
+  //
+  s = db->Put(write_options, "D", "d0");
+  ASSERT_OK(s);
+
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+  std::string value;
+  DBOptions db_options;
+
+  //
+  // Range deletion using the batch
+  // Check get with batch and underlying database
+  //
+  batch.Clear();
+  ASSERT_OK(batch.DeleteRange("B", "C"));
+  ASSERT_OK(batch.DeleteRange("F", "G"));
+
+  s = batch.GetFromBatchAndDB(db, read_options, "D", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("d0", value);
+
+  ASSERT_OK(batch.DeleteRange("A", "H"));
+
+  s = batch.GetFromBatchAndDB(db, read_options, "D", &value);
   ASSERT_TRUE(s.IsNotFound());
 }
 

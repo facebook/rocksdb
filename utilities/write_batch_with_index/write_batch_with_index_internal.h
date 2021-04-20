@@ -25,6 +25,7 @@ namespace ROCKSDB_NAMESPACE {
 
 class MergeContext;
 struct Options;
+class DeletedRangeMap;
 
 // when direction == forward
 // * current_at_base_ <=> base_iterator > delta_iterator
@@ -276,10 +277,13 @@ class WriteBatchWithIndexInternal {
   // If batch does not contain this key, return kNotFound
   // Else, return kError on error with error Status stored in *s.
   Result GetFromBatch(WriteBatchWithIndex* batch, const Slice& key,
-                      std::string* value, bool overwrite_key, Status* s) {
-    return GetFromBatch(batch, key, &merge_context_, value, overwrite_key, s);
+                      DeletedRangeMap& deleted_ranges, std::string* value,
+                      bool overwrite_key, Status* s) {
+    return GetFromBatch(batch, key, deleted_ranges, &merge_context_, value,
+                        overwrite_key, s);
   }
   Result GetFromBatch(WriteBatchWithIndex* batch, const Slice& key,
+                      DeletedRangeMap& deleted_ranges,
                       MergeContext* merge_context, std::string* value,
                       bool overwrite_key, Status* s);
   Status MergeKey(const Slice& key, const Slice* value, std::string* result,
