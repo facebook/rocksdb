@@ -572,6 +572,47 @@ jobs:
             gtest-parallel $(</tmp/test_list) --output_dir=/tmp | cat  # pipe to cat to continuously output status on circleci UI. Otherwise, no status will be printed while the job is running.
       - post-steps
 
+  build-linux-arm:
+    machine:
+      image: ubuntu-2004:202101-01
+    resource_class: arm.large
+    steps:
+      - pre-steps
+      - install-gflags
+      - run: ROCKSDBTESTS_PLATFORM_DEPENDENT=only make V=1 J=4 -j4 all_but_some_tests check_some | .circleci/cat_ignore_eagain
+      - post-steps
+
+  build-linux-arm-cmake-no_test_run:
+    machine:
+      image: ubuntu-2004:202101-01
+    resource_class: arm.large
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-8-openjdk-arm64
+    steps:
+      - pre-steps
+      - run:
+          name: "Set Java Environment"
+          command: |
+            echo "JAVA_HOME=${JAVA_HOME}"
+            echo 'export PATH=$JAVA_HOME/bin:$PATH' >> $BASH_ENV
+            which java && java -version
+            which javac && javac -version
+      - run:
+          name: "Build with cmake"
+          command: |
+            mkdir build
+            cd build
+            cmake -DCMAKE_BUILD_TYPE=Release -DWITH_TESTS=0 -DWITH_GFLAGS=0 -DWITH_BENCHMARK_TOOLS=0 -DWITH_TOOLS=0 -DWITH_CORE_TOOLS=1 ..
+            make -j4
+      - run:
+          name: "Build Java with cmake"
+          command: |
+            rm -rf build
+            mkdir build
+            cd build
+            cmake -DJNI=1 -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=0 ..
+            make -j4 rocksdb rocksdbjni
+
   build-format-compatible:
     machine:
       image: ubuntu-1604:202007-01
@@ -682,6 +723,7 @@ workflows:
       - build-linux-gcc-8-no_test_run
       - build-linux-gcc-9-no_test_run
       - build-linux-gcc-10-cxx20-no_test_run
+      - build-linux-arm-cmake-no_test_run
   build-macos:
     jobs:
       - build-macos
@@ -691,6 +733,9 @@ workflows:
   build-cmake-mingw:
     jobs:
       - build-cmake-mingw
+  build-linux-arm:
+    jobs:
+      - build-linux-arm
   nightly:
     triggers:
       - schedule:
