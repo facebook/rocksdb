@@ -256,8 +256,7 @@ class ChrootEnv : public EnvWrapper {
     *path = buf;
 
     // Directory may already exist, so ignore return
-    CreateDir(*path);
-    return Status::OK();
+    return CreateDirIfMissing(*path);
   }
 
   Status NewLogger(const std::string& fname,

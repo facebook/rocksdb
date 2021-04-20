@@ -141,7 +141,7 @@ class RandomGenerator {
   RandomGenerator() {
     Random rnd(301);
     auto size = (unsigned)std::max(1048576, FLAGS_item_size);
-    test::RandomString(&rnd, size, &data_);
+    data_ = rnd.RandomString(size);
     pos_ = 0;
   }
 

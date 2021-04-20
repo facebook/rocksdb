@@ -29,8 +29,7 @@ const size_t kFadviseTrigger = 1024 * 1024; // 1MB
 struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
       Env::IOPriority _io_priority, const Comparator* _user_comparator,
-      ColumnFamilyHandle* _cfh, bool _invalidate_page_cache, bool _skip_filters,
-      bool _unsafe_add)
+      ColumnFamilyHandle* _cfh, bool _invalidate_page_cache, bool _skip_filters)
       : env_options(_env_options),
         ioptions(options),
         mutable_cf_options(options),
@@ -39,8 +38,7 @@ struct SstFileWriter::Rep {
         cfh(_cfh),
         invalidate_page_cache(_invalidate_page_cache),
         last_fadvise_size(0),
-        skip_filters(_skip_filters),
-        unsafe_add(_unsafe_add) {}
+        skip_filters(_skip_filters) {}
 
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
@@ -60,7 +58,6 @@ struct SstFileWriter::Rep {
   // cached pages from page cache.
   uint64_t last_fadvise_size;
   bool skip_filters;
-  bool unsafe_add;
   Status Add(const Slice& user_key, const Slice& value,
              const ValueType value_type) {
     if (!builder) {
@@ -69,7 +66,7 @@ struct SstFileWriter::Rep {
 
     if (file_info.num_entries == 0) {
       file_info.smallest_key.assign(user_key.data(), user_key.size());
-    } else if (!unsafe_add) {
+    } else {
       if (internal_comparator.user_comparator()->Compare(
               user_key, file_info.largest_key) <= 0) {
         // Make sure that keys are added in order
@@ -102,9 +99,7 @@ struct SstFileWriter::Rep {
     file_info.largest_key.assign(user_key.data(), user_key.size());
     file_info.file_size = builder->FileSize();
 
-    InvalidatePageCache(false /* closing */);
-
-    return Status::OK();
+    return InvalidatePageCache(false /* closing */);
   }
 
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
@@ -138,15 +133,14 @@ struct SstFileWriter::Rep {
     file_info.num_range_del_entries++;
     file_info.file_size = builder->FileSize();
 
-    InvalidatePageCache(false /* closing */);
-
-    return Status::OK();
+    return InvalidatePageCache(false /* closing */);
   }
 
-  void InvalidatePageCache(bool closing) {
+  Status InvalidatePageCache(bool closing) {
+    Status s = Status::OK();
     if (invalidate_page_cache == false) {
       // Fadvise disabled
-      return;
+      return s;
     }
     uint64_t bytes_since_last_fadvise =
       builder->FileSize() - last_fadvise_size;
@@ -154,11 +148,16 @@ struct SstFileWriter::Rep {
       TEST_SYNC_POINT_CALLBACK("SstFileWriter::Rep::InvalidatePageCache",
                                &(bytes_since_last_fadvise));
       // Tell the OS that we don't need this file in page cache
-      file_writer->InvalidateCache(0, 0);
+      s = file_writer->InvalidateCache(0, 0);
+      if (s.IsNotSupported()) {
+        // NotSupported is fine as it could be a file type that doesn't use page
+        // cache.
+        s = Status::OK();
+      }
       last_fadvise_size = builder->FileSize();
     }
+    return s;
   }
-
 };
 
 SstFileWriter::SstFileWriter(const EnvOptions& env_options,
@@ -166,11 +165,9 @@ SstFileWriter::SstFileWriter(const EnvOptions& env_options,
                              const Comparator* user_comparator,
                              ColumnFamilyHandle* column_family,
                              bool invalidate_page_cache,
-                             Env::IOPriority io_priority, bool skip_filters,
-                             bool unsafe_add)
+                             Env::IOPriority io_priority, bool skip_filters)
     : rep_(new Rep(env_options, options, io_priority, user_comparator,
-                   column_family, invalidate_page_cache, skip_filters,
-                   unsafe_add)) {
+                   column_family, invalidate_page_cache, skip_filters)) {
   rep_->file_info.file_size = 0;
 }
 
@@ -242,16 +239,27 @@ Status SstFileWriter::Open(const std::string& file_path) {
     r->column_family_name = "";
     cf_id = TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
   }
-
+  // SstFileWriter is used to create sst files that can be added to database
+  // later. Therefore, no real db_id and db_session_id are associated with it.
+  // Here we mimic the way db_session_id behaves by resetting the db_session_id
+  // every time SstFileWriter is used, and in this case db_id is set to be "SST
+  // Writer".
+  std::string db_session_id = r->ioptions.env->GenerateUniqueId();
+  if (!db_session_id.empty() && db_session_id.back() == '\n') {
+    db_session_id.pop_back();
+  }
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, r->internal_comparator,
       &int_tbl_prop_collector_factories, compression_type,
       sample_for_compression, compression_opts, r->skip_filters,
-      r->column_family_name, unknown_level);
+      r->column_family_name, unknown_level, 0 /* creation_time */,
+      0 /* oldest_key_time */, 0 /* target_file_size */,
+      0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id);
   r->file_writer.reset(new WritableFileWriter(
       NewLegacyWritableFileWrapper(std::move(sst_file)), file_path,
-      r->env_options, r->ioptions.env, nullptr /* stats */,
-      r->ioptions.listeners, r->ioptions.file_checksum_gen_factory));
+      r->env_options, r->ioptions.env, nullptr /* io_tracer */,
+      nullptr /* stats */, r->ioptions.listeners,
+      r->ioptions.file_checksum_gen_factory));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.
@@ -300,7 +308,9 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
 
   if (s.ok()) {
     s = r->file_writer->Sync(r->ioptions.use_fsync);
-    r->InvalidatePageCache(true /* closing */);
+    if (s.ok()) {
+      s = r->InvalidatePageCache(true /* closing */);
+    }
     if (s.ok()) {
       s = r->file_writer->Close();
     }

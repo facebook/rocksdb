@@ -4,11 +4,13 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #include <iostream>
+
 #include "db/db_impl/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "test_util/testharness.h"
+#include "util/cast_util.h"
 #include "util/random.h"
 #include "utilities/cassandra/cassandra_compaction_filter.h"
 #include "utilities/cassandra/merge_operator.h"
@@ -89,7 +91,7 @@ class CassandraStore {
   WriteOptions write_option_;
   ReadOptions get_option_;
 
-  DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_.get()); }
+  DBImpl* dbfull() { return static_cast_with_check<DBImpl>(db_.get()); }
 };
 
 class TestCompactionFilterFactory : public CompactionFilterFactory {

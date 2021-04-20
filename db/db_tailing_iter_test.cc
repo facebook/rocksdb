@@ -20,7 +20,8 @@ namespace ROCKSDB_NAMESPACE {
 
 class DBTestTailingIterator : public DBTestBase {
  public:
-  DBTestTailingIterator() : DBTestBase("/db_tailing_iterator_test") {}
+  DBTestTailingIterator()
+      : DBTestBase("/db_tailing_iterator_test", /*env_do_fsync=*/true) {}
 };
 
 TEST_F(DBTestTailingIterator, TailingIteratorSingle) {

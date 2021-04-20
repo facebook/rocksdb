@@ -172,7 +172,8 @@ Status CuckooTableReader::Get(const ReadOptions& /*readOptions*/,
         } else {
           Slice full_key(bucket, key_length_);
           ParsedInternalKey found_ikey;
-          ParseInternalKey(full_key, &found_ikey);
+          Status s = ParseInternalKey(full_key, &found_ikey);
+          if (!s.ok()) return s;
           bool dont_care __attribute__((__unused__));
           get_context->SaveValue(found_ikey, value, &dont_care);
         }

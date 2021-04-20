@@ -36,7 +36,7 @@ class VersionEditHandler {
       bool read_only,
       const std::vector<ColumnFamilyDescriptor>& column_families,
       VersionSet* version_set, bool track_missing_files,
-      bool ignore_missing_files);
+      bool ignore_missing_files, const std::shared_ptr<IOTracer>& io_tracer);
 
   virtual ~VersionEditHandler() {}
 
@@ -95,6 +95,7 @@ class VersionEditHandler {
                                     const VersionEdit& edit);
 
   bool initialized_;
+  std::shared_ptr<IOTracer> io_tracer_;
 };
 
 // A class similar to its base class, i.e. VersionEditHandler.
@@ -108,7 +109,7 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
   VersionEditHandlerPointInTime(
       bool read_only,
       const std::vector<ColumnFamilyDescriptor>& column_families,
-      VersionSet* version_set);
+      VersionSet* version_set, const std::shared_ptr<IOTracer>& io_tracer);
   ~VersionEditHandlerPointInTime() override;
 
  protected:
@@ -119,6 +120,7 @@ class VersionEditHandlerPointInTime : public VersionEditHandler {
 
  private:
   std::unordered_map<uint32_t, Version*> versions_;
+  std::shared_ptr<IOTracer> io_tracer_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

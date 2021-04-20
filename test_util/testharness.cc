@@ -26,7 +26,7 @@ namespace test {
 std::string TmpDir(Env* env) {
   std::string dir;
   Status s = env->GetTestDirectory(&dir);
-  EXPECT_TRUE(s.ok()) << s.ToString();
+  EXPECT_OK(s);
   return dir;
 }
 

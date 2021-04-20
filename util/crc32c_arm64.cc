@@ -14,6 +14,9 @@
 #ifndef HWCAP_CRC32
 #define HWCAP_CRC32 (1 << 7)
 #endif
+#ifndef HWCAP_PMULL
+#define HWCAP_PMULL (1 << 4)
+#endif
 
 #ifdef HAVE_ARM64_CRYPTO
 /* unfolding to compute 8 * 3 = 24 bytes parallelly */
@@ -35,12 +38,23 @@
   } while (0)
 #endif
 
+extern bool pmull_runtime_flag;
+
 uint32_t crc32c_runtime_check(void) {
 #ifdef ROCKSDB_AUXV_GETAUXVAL_PRESENT
   uint64_t auxv = getauxval(AT_HWCAP);
   return (auxv & HWCAP_CRC32) != 0;
 #else
   return 0;
+#endif
+}
+
+bool crc32c_pmull_runtime_check(void) {
+#ifdef ROCKSDB_AUXV_GETAUXVAL_PRESENT
+  uint64_t auxv = getauxval(AT_HWCAP);
+  return (auxv & HWCAP_PMULL) != 0;
+#else
+  return false;
 #endif
 }
 
@@ -58,6 +72,13 @@ uint32_t crc32c_arm64(uint32_t crc, unsigned char const *data,
   int length = (int)len;
   crc ^= 0xffffffff;
 
+  /*
+   * Pmull runtime check here.
+   * Raspberry Pi supports crc32 but doesn't support pmull.
+   * Skip Crc32c Parallel computation if no crypto extension available.
+   */
+  if (pmull_runtime_flag) {
+/* Macro (HAVE_ARM64_CRYPTO) is used for compiling check  */
 #ifdef HAVE_ARM64_CRYPTO
 /* Crc32c Parallel computation
  *   Algorithm comes from Intel whitepaper:
@@ -68,51 +89,53 @@ uint32_t crc32c_arm64(uint32_t crc, unsigned char const *data,
  *   One Block: 42(BLK_LENGTH) * 8(step length: crc32c_u64) bytes
  */
 #define BLK_LENGTH 42
-  while (length >= 1024) {
-    uint64_t t0, t1;
-    uint32_t crc0 = 0, crc1 = 0, crc2 = 0;
+    while (length >= 1024) {
+      uint64_t t0, t1;
+      uint32_t crc0 = 0, crc1 = 0, crc2 = 0;
 
-    /* Parallel Param:
-     *   k0 = CRC32(x ^ (42 * 8 * 8 * 2 - 1));
-     *   k1 = CRC32(x ^ (42 * 8 * 8 - 1));
-     */
-    uint32_t k0 = 0xe417f38a, k1 = 0x8f158014;
+      /* Parallel Param:
+       *   k0 = CRC32(x ^ (42 * 8 * 8 * 2 - 1));
+       *   k1 = CRC32(x ^ (42 * 8 * 8 - 1));
+       */
+      uint32_t k0 = 0xe417f38a, k1 = 0x8f158014;
 
-    /* Prefetch data for following block to avoid cache miss */
-    PREF1KL1((uint8_t *)buf64, 1024);
+      /* Prefetch data for following block to avoid cache miss */
+      PREF1KL1((uint8_t *)buf64, 1024);
 
-    /* First 8 byte for better pipelining */
-    crc0 = crc32c_u64(crc, *buf64++);
+      /* First 8 byte for better pipelining */
+      crc0 = crc32c_u64(crc, *buf64++);
 
-    /* 3 blocks crc32c parallel computation
-     * Macro unfolding to compute parallelly
-     * 168 * 6 = 1008 (bytes)
-     */
-    CRC32C7X24BYTES(0);
-    CRC32C7X24BYTES(1);
-    CRC32C7X24BYTES(2);
-    CRC32C7X24BYTES(3);
-    CRC32C7X24BYTES(4);
-    CRC32C7X24BYTES(5);
-    buf64 += (BLK_LENGTH * 3);
+      /* 3 blocks crc32c parallel computation
+       * Macro unfolding to compute parallelly
+       * 168 * 6 = 1008 (bytes)
+       */
+      CRC32C7X24BYTES(0);
+      CRC32C7X24BYTES(1);
+      CRC32C7X24BYTES(2);
+      CRC32C7X24BYTES(3);
+      CRC32C7X24BYTES(4);
+      CRC32C7X24BYTES(5);
+      buf64 += (BLK_LENGTH * 3);
 
-    /* Last 8 bytes */
-    crc = crc32c_u64(crc2, *buf64++);
+      /* Last 8 bytes */
+      crc = crc32c_u64(crc2, *buf64++);
 
-    t0 = (uint64_t)vmull_p64(crc0, k0);
-    t1 = (uint64_t)vmull_p64(crc1, k1);
+      t0 = (uint64_t)vmull_p64(crc0, k0);
+      t1 = (uint64_t)vmull_p64(crc1, k1);
 
-    /* Merge (crc0, crc1, crc2) -> crc */
-    crc1 = crc32c_u64(0, t1);
-    crc ^= crc1;
-    crc0 = crc32c_u64(0, t0);
-    crc ^= crc0;
+      /* Merge (crc0, crc1, crc2) -> crc */
+      crc1 = crc32c_u64(0, t1);
+      crc ^= crc1;
+      crc0 = crc32c_u64(0, t0);
+      crc ^= crc0;
 
-    length -= 1024;
-  }
+      length -= 1024;
+    }
 
-  if (length == 0) return crc ^ (0xffffffffU);
+    if (length == 0) return crc ^ (0xffffffffU);
 #endif
+  }  // if Pmull runtime check here
+
   buf8 = (const uint8_t *)buf64;
   while (length >= 8) {
     crc = crc32c_u64(crc, *(const uint64_t *)buf8);

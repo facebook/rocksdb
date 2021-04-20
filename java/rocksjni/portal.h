@@ -4949,6 +4949,18 @@ class TickerTypeJni {
         return -0x0E;
       case ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY:
         return -0X0F;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_MARKED:
+        return -0x10;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_PERIODIC:
+        return -0x11;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_TTL:
+        return -0x12;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_MARKED:
+        return -0x13;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_PERIODIC:
+        return -0x14;
+      case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL:
+        return -0x15;
 
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F for backwards compatibility on current minor version.
@@ -5249,6 +5261,18 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::FILES_MARKED_TRASH;
       case -0x0F:
         return ROCKSDB_NAMESPACE::Tickers::FILES_DELETED_IMMEDIATELY;
+      case -0x10:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_MARKED;
+      case -0x11:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_PERIODIC;
+      case -0x12:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_READ_BYTES_TTL;
+      case -0x13:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_MARKED;
+      case -0x14:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_PERIODIC;
+      case -0x15:
+        return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL;
       case 0x5F:
         // 0x5F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX;
@@ -5361,6 +5385,13 @@ class HistogramTypeJni {
         return 0x2D;
       case ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS:
         return 0x2E;
+      case ROCKSDB_NAMESPACE::Histograms::
+          NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL:
+        return 0x2F;
+      case ROCKSDB_NAMESPACE::Histograms::NUM_DATA_BLOCKS_READ_PER_LEVEL:
+        return 0x30;
+      case ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL:
+        return 0x31;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5468,6 +5499,13 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_COMPRESSION_MICROS;
       case 0x2E:
         return ROCKSDB_NAMESPACE::Histograms::BLOB_DB_DECOMPRESSION_MICROS;
+      case 0x2F:
+        return ROCKSDB_NAMESPACE::Histograms::
+            NUM_INDEX_AND_FILTER_BLOCKS_READ_PER_LEVEL;
+      case 0x30:
+        return ROCKSDB_NAMESPACE::Histograms::NUM_DATA_BLOCKS_READ_PER_LEVEL;
+      case 0x31:
+        return ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;
@@ -6371,6 +6409,51 @@ class ChecksumTypeJni {
       default:
         // undefined/default
         return ROCKSDB_NAMESPACE::ChecksumType::kCRC32c;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.IndexShorteningMode
+class IndexShorteningModeJni {
+ public:
+  // Returns the equivalent org.rocksdb.IndexShorteningMode for the provided
+  // C++ ROCKSDB_NAMESPACE::IndexShorteningMode enum
+  static jbyte toJavaIndexShorteningMode(
+      const ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode&
+          index_shortening_mode) {
+    switch (index_shortening_mode) {
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+          kNoShortening:
+        return 0x0;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+          kShortenSeparators:
+        return 0x1;
+      case ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+          kShortenSeparatorsAndSuccessor:
+        return 0x2;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ ROCKSDB_NAMESPACE::IndexShorteningMode enum for
+  // the provided Java org.rocksdb.IndexShorteningMode
+  static ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode
+  toCppIndexShorteningMode(jbyte jindex_shortening_mode) {
+    switch (jindex_shortening_mode) {
+      case 0x0:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+            kNoShortening;
+      case 0x1:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+            kShortenSeparators;
+      case 0x2:
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+            kShortenSeparatorsAndSuccessor;
+      default:
+        // undefined/default
+        return ROCKSDB_NAMESPACE::BlockBasedTableOptions::IndexShorteningMode::
+            kShortenSeparators;
     }
   }
 };

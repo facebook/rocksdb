@@ -7,8 +7,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
-
 #include <memory>
 #include <utility>
 
@@ -18,7 +16,6 @@
 #include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
-namespace blob_db {
 
 constexpr uint32_t kMagicNumber = 2395959;  // 0x00248f37
 constexpr uint32_t kVersion1 = 1;
@@ -107,6 +104,11 @@ struct BlobLogRecord {
   // header include fields up to blob CRC
   static constexpr size_t kHeaderSize = 32;
 
+  // Note that the offset field of BlobIndex actually points to the blob value
+  // as opposed to the start of the blob record. The following method can
+  // be used to calculate the adjustment needed to read the blob record header.
+  static uint64_t CalculateAdjustmentForRecordHeader(uint64_t key_size);
+
   uint64_t key_size = 0;
   uint64_t value_size = 0;
   uint64_t expiration = 0;
@@ -126,6 +128,19 @@ struct BlobLogRecord {
   Status CheckBlobCRC() const;
 };
 
-}  // namespace blob_db
+// Checks whether a blob offset is potentially valid or not.
+inline bool IsValidBlobOffset(uint64_t value_offset, uint64_t key_size,
+                              uint64_t value_size, uint64_t file_size) {
+  if (value_offset <
+      BlobLogHeader::kSize + BlobLogRecord::kHeaderSize + key_size) {
+    return false;
+  }
+
+  if (value_offset + value_size + BlobLogFooter::kSize > file_size) {
+    return false;
+  }
+
+  return true;
+}
+
 }  // namespace ROCKSDB_NAMESPACE
-#endif  // ROCKSDB_LITE

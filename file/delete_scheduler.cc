@@ -65,12 +65,13 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
     TEST_SYNC_POINT("DeleteScheduler::DeleteFile");
     s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
     if (s.ok()) {
-      sst_file_manager_->OnDeleteFile(file_path);
+      s = sst_file_manager_->OnDeleteFile(file_path);
       ROCKS_LOG_INFO(info_log_,
                      "Deleted file %s immediately, rate_bytes_per_sec %" PRIi64
                      ", total_trash_size %" PRIu64 " max_trash_db_ratio %lf",
                      file_path.c_str(), rate_bytes_per_sec_.load(),
                      total_trash_size_.load(), max_trash_db_ratio_.load());
+      InstrumentedMutexLock l(&mu_);
       RecordTick(stats_.get(), FILES_DELETED_IMMEDIATELY);
     }
     return s;
@@ -87,15 +88,15 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
                     file_path.c_str(), s.ToString().c_str());
     s = fs_->DeleteFile(file_path, IOOptions(), nullptr);
     if (s.ok()) {
-      sst_file_manager_->OnDeleteFile(file_path);
+      s = sst_file_manager_->OnDeleteFile(file_path);
       ROCKS_LOG_INFO(info_log_, "Deleted file %s immediately",
                      trash_file.c_str());
+      InstrumentedMutexLock l(&mu_);
       RecordTick(stats_.get(), FILES_DELETED_IMMEDIATELY);
     }
     return s;
   }
 
-  RecordTick(stats_.get(), FILES_MARKED_TRASH);
   // Update the total trash size
   uint64_t trash_file_size = 0;
   fs_->GetFileSize(trash_file, IOOptions(), &trash_file_size, nullptr);
@@ -104,6 +105,7 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path,
   // Add file to delete queue
   {
     InstrumentedMutexLock l(&mu_);
+    RecordTick(stats_.get(), FILES_MARKED_TRASH);
     queue_.emplace(trash_file, dir_to_sync);
     pending_files_++;
     if (pending_files_ == 1) {
@@ -144,7 +146,7 @@ Status DeleteScheduler::CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
     std::string trash_file = path + "/" + current_file;
     if (sfm) {
       // We have an SstFileManager that will schedule the file delete
-      sfm->OnAddFile(trash_file);
+      s = sfm->OnAddFile(trash_file);
       file_delete = sfm->ScheduleFileDeletion(trash_file, path);
     } else {
       // Delete the file immediately
@@ -256,7 +258,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
             ((total_deleted_bytes * kMicrosInSecond) / current_delete_rate);
         ROCKS_LOG_INFO(info_log_,
                        "Rate limiting is enabled with penalty %" PRIu64
-                       "after deleting file %s",
+                       " after deleting file %s",
                        total_penalty, path_in_trash.c_str());
         while (!closing_ && !cv_.TimedWait(start_time + total_penalty)) {
         }
@@ -352,8 +354,10 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
               reinterpret_cast<void*>(const_cast<std::string*>(&dir_to_sync)));
         }
       }
-      *deleted_bytes = file_size;
-      sst_file_manager_->OnDeleteFile(path_in_trash);
+      if (s.ok()) {
+        *deleted_bytes = file_size;
+        s = sst_file_manager_->OnDeleteFile(path_in_trash);
+      }
     }
   }
   if (!s.ok()) {

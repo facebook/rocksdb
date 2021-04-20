@@ -7,22 +7,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "db/db_impl/db_impl.h"
-
 #include <cinttypes>
 #include <vector>
 
 #include "db/column_family.h"
+#include "db/db_impl/db_impl.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
 #include "rocksdb/status.h"
+#include "util/cast_util.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 #ifndef ROCKSDB_LITE
 Status DBImpl::SuggestCompactRange(ColumnFamilyHandle* column_family,
                                    const Slice* begin, const Slice* end) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family);
   auto cfd = cfh->cfd();
   InternalKey start_key, end_key;
   if (begin != nullptr) {

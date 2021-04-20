@@ -41,12 +41,13 @@ class DBBlobIndexTest : public DBTestBase {
                                        Tier::kImmutableMemtables,
                                        Tier::kL0SstFile, Tier::kLnSstFile};
 
-  DBBlobIndexTest() : DBTestBase("/db_blob_index_test") {}
+  DBBlobIndexTest()
+      : DBTestBase("/db_blob_index_test", /*env_do_fsync=*/true) {}
 
   ColumnFamilyHandle* cfh() { return dbfull()->DefaultColumnFamily(); }
 
   ColumnFamilyData* cfd() {
-    return reinterpret_cast<ColumnFamilyHandleImpl*>(cfh())->cfd();
+    return static_cast_with_check<ColumnFamilyHandleImpl>(cfh())->cfd();
   }
 
   Status PutBlobIndex(WriteBatch* batch, const Slice& key,

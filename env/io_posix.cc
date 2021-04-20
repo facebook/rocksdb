@@ -150,11 +150,11 @@ bool PosixPositionedWrite(int fd, const char* buf, size_t nbyte, off_t offset) {
 #endif
 
 bool IsSyncFileRangeSupported(int fd) {
-  // The approach taken in this function is to build a blacklist of cases where
-  // we know `sync_file_range` definitely will not work properly despite passing
-  // the compile-time check (`ROCKSDB_RANGESYNC_PRESENT`). If we are unsure, or
-  // if any of the checks fail in unexpected ways, we allow `sync_file_range` to
-  // be used. This way should minimize risk of impacting existing use cases.
+  // This function tracks and checks for cases where we know `sync_file_range`
+  // definitely will not work properly despite passing the compile-time check
+  // (`ROCKSDB_RANGESYNC_PRESENT`). If we are unsure, or if any of the checks
+  // fail in unexpected ways, we allow `sync_file_range` to be used. This way
+  // should minimize risk of impacting existing use cases.
   struct statfs buf;
   int ret = fstatfs(fd, &buf);
   assert(ret == 0);
@@ -176,7 +176,7 @@ bool IsSyncFileRangeSupported(int fd) {
     // ("Function not implemented").
     return false;
   }
-  // None of the cases on the blacklist matched, so allow `sync_file_range` use.
+  // None of the known cases matched, so allow `sync_file_range` use.
   return true;
 }
 
@@ -990,7 +990,8 @@ PosixMmapFile::PosixMmapFile(const std::string& fname, int fd, size_t page_size,
 
 PosixMmapFile::~PosixMmapFile() {
   if (fd_ >= 0) {
-    PosixMmapFile::Close(IOOptions(), nullptr);
+    IOStatus s = PosixMmapFile::Close(IOOptions(), nullptr);
+    s.PermitUncheckedError();
   }
 }
 
@@ -1152,7 +1153,8 @@ PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
 
 PosixWritableFile::~PosixWritableFile() {
   if (fd_ >= 0) {
-    PosixWritableFile::Close(IOOptions(), nullptr);
+    IOStatus s = PosixWritableFile::Close(IOOptions(), nullptr);
+    s.PermitUncheckedError();
   }
 }
 
@@ -1394,7 +1396,8 @@ PosixRandomRWFile::PosixRandomRWFile(const std::string& fname, int fd,
 
 PosixRandomRWFile::~PosixRandomRWFile() {
   if (fd_ >= 0) {
-    Close(IOOptions(), nullptr);
+    IOStatus s = Close(IOOptions(), nullptr);
+    s.PermitUncheckedError();
   }
 }
 

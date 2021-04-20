@@ -60,8 +60,16 @@ if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
       source "$PWD/build_tools/fbcode_config4.8.1.sh"
     elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_5xx" ]; then
       source "$PWD/build_tools/fbcode_config.sh"
-    else
+    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM007" ]; then
       source "$PWD/build_tools/fbcode_config_platform007.sh"
+    elif [ -n "$ROCKSDB_FBCODE_BUILD_WITH_PLATFORM009" ]; then
+      source "$PWD/build_tools/fbcode_config_platform009.sh"
+    elif [ -z "$USE_CLANG" ]; then
+        # Still use platform007 for gcc by default for build break on
+        # some hosts.
+      source "$PWD/build_tools/fbcode_config_platform007.sh"
+    else
+      source "$PWD/build_tools/fbcode_config_platform009.sh"
     fi
 fi
 
@@ -86,6 +94,16 @@ if test -z "$CXX"; then
         CXX=clang++
     else
         CXX=g++
+    fi
+fi
+
+if test -z "$AR"; then
+    if [ -x "$(command -v gcc-ar)" ]; then
+        AR=gcc-ar
+    elif [ -x "$(command -v llvm-ar)" ]; then
+        AR=llvm-ar
+    else
+        AR=ar
     fi
 fi
 
@@ -151,7 +169,7 @@ case "$TARGET_OS" in
         else
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
         fi
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt -ldl"
         if test $ROCKSDB_USE_IO_URING; then
             # check for liburing
             $CXX $CFLAGS -x c++ - -luring -o /dev/null 2>/dev/null  <<EOF
@@ -191,6 +209,17 @@ EOF
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_FREEBSD"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
         # PORT_FILES=port/freebsd/freebsd_specific.cc
+        ;;
+    GNU/kFreeBSD)
+        PLATFORM=OS_GNU_KFREEBSD
+        COMMON_FLAGS="$COMMON_FLAGS -DOS_GNU_KFREEBSD"
+        if [ -z "$USE_CLANG" ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
+        else
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -latomic"
+        fi
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        # PORT_FILES=port/gnu_kfreebsd/gnu_kfreebsd_specific.cc
         ;;
     NetBSD)
         PLATFORM=OS_NETBSD
@@ -285,24 +314,32 @@ EOF
         # Test whether gflags library is installed
         # http://gflags.github.io/gflags/
         # check if the namespace is gflags
-        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+        if $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
           #include <gflags/gflags.h>
+          using namespace GFLAGS_NAMESPACE;
           int main() {}
 EOF
-        if [ "$?" = 0 ]; then
-            COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1"
-            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-        else
-          # check if namespace is google
-          $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+        then
+          COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1"
+          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+        # check if namespace is gflags
+        elif $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+            #include <gflags/gflags.h>
+            using namespace gflags;
+            int main() {}
+EOF
+        then
+          COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1 -DGFLAGS_NAMESPACE=gflags"
+          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+        # check if namespace is google
+        elif $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
             #include <gflags/gflags.h>
             using namespace google;
             int main() {}
 EOF
-          if [ "$?" = 0 ]; then
-              COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=google"
-              PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-          fi
+        then
+          COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=1 -DGFLAGS_NAMESPACE=google"
+          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
         fi
     fi
 
@@ -430,7 +467,7 @@ EOF
             COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_MALLOC_USABLE_SIZE"
         fi
     fi
-    
+
     if ! test $ROCKSDB_DISABLE_MEMKIND; then
         # Test whether memkind library is installed
         $CXX $CFLAGS $COMMON_FLAGS -lmemkind -x c++ - -o /dev/null 2>/dev/null  <<EOF
@@ -446,7 +483,7 @@ EOF
             JAVA_LDFLAGS="$JAVA_LDFLAGS -lmemkind"
         fi
     fi
-    
+
     if ! test $ROCKSDB_DISABLE_PTHREAD_MUTEX_ADAPTIVE_NP; then
         # Test whether PTHREAD_MUTEX_ADAPTIVE_NP mutex type is available
         $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
@@ -635,6 +672,13 @@ else
   if test "$USE_SSE"; then
     TRY_SSE_ETC="1"
   fi
+
+  if [[ "${PLATFORM}" == "OS_MACOSX" ]]; then
+    # For portability compile for macOS 10.12 (2016) or newer
+    COMMON_FLAGS="$COMMON_FLAGS -mmacosx-version-min=10.12"
+    PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -mmacosx-version-min=10.12"
+    PLATFORM_SHARED_LDFLAGS="$PLATFORM_SHARED_LDFLAGS -mmacosx-version-min=10.12"
+  fi
 fi
 
 if test "$TRY_SSE_ETC"; then
@@ -644,11 +688,18 @@ if test "$TRY_SSE_ETC"; then
   # It doesn't even really check that your current CPU is compatible.
   #
   # SSE4.2 available since nehalem, ca. 2008-2010
+  # Includes POPCNT for BitsSetToOne, BitParity
   TRY_SSE42="-msse4.2"
   # PCLMUL available since westmere, ca. 2010-2011
   TRY_PCLMUL="-mpclmul"
   # AVX2 available since haswell, ca. 2013-2015
   TRY_AVX2="-mavx2"
+  # BMI available since haswell, ca. 2013-2015
+  # Primarily for TZCNT for CountTrailingZeroBits
+  TRY_BMI="-mbmi"
+  # LZCNT available since haswell, ca. 2013-2015
+  # For FloorLog2
+  TRY_LZCNT="-mlzcnt"
 fi
 
 $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_SSE42 -x c++ - -o /dev/null 2>/dev/null <<EOF
@@ -695,6 +746,34 @@ if [ "$?" = 0 ]; then
   COMMON_FLAGS="$COMMON_FLAGS $TRY_AVX2 -DHAVE_AVX2"
 elif test "$USE_SSE"; then
   echo "warning: USE_SSE specified but compiler could not use AVX2 intrinsics, disabling" >&2
+fi
+
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_BMI -x c++ - -o /dev/null 2>/dev/null <<EOF
+  #include <cstdint>
+  #include <immintrin.h>
+  int main(int argc, char *argv[]) {
+    (void)argv;
+    return (int)_tzcnt_u64((uint64_t)argc);
+  }
+EOF
+if [ "$?" = 0 ]; then
+  COMMON_FLAGS="$COMMON_FLAGS $TRY_BMI -DHAVE_BMI"
+elif test "$USE_SSE"; then
+  echo "warning: USE_SSE specified but compiler could not use BMI intrinsics, disabling" >&2
+fi
+
+$CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS $TRY_LZCNT -x c++ - -o /dev/null 2>/dev/null <<EOF
+  #include <cstdint>
+  #include <immintrin.h>
+  int main(int argc, char *argv[]) {
+    (void)argv;
+    return (int)_lzcnt_u64((uint64_t)argc);
+  }
+EOF
+if [ "$?" = 0 ]; then
+  COMMON_FLAGS="$COMMON_FLAGS $TRY_LZCNT -DHAVE_LZCNT"
+elif test "$USE_SSE"; then
+  echo "warning: USE_SSE specified but compiler could not use LZCNT intrinsics, disabling" >&2
 fi
 
 $CXX $PLATFORM_CXXFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
@@ -753,6 +832,7 @@ ROCKSDB_PATCH=`build_tools/version.sh patch`
 
 echo "CC=$CC" >> "$OUTPUT"
 echo "CXX=$CXX" >> "$OUTPUT"
+echo "AR=$AR" >> "$OUTPUT"
 echo "PLATFORM=$PLATFORM" >> "$OUTPUT"
 echo "PLATFORM_LDFLAGS=$PLATFORM_LDFLAGS" >> "$OUTPUT"
 echo "JAVA_LDFLAGS=$JAVA_LDFLAGS" >> "$OUTPUT"

@@ -127,19 +127,15 @@ struct DecodeKeyV4 {
   }
 };
 
-void DataBlockIter::Next() {
-  ParseNextDataKey<DecodeEntry>();
-}
+void DataBlockIter::NextImpl() { ParseNextDataKey<DecodeEntry>(); }
 
-void DataBlockIter::NextOrReport() {
+void DataBlockIter::NextOrReportImpl() {
   ParseNextDataKey<CheckAndDecodeEntry>();
 }
 
-void IndexBlockIter::Next() {
-  ParseNextIndexKey();
-}
+void IndexBlockIter::NextImpl() { ParseNextIndexKey(); }
 
-void IndexBlockIter::Prev() {
+void IndexBlockIter::PrevImpl() {
   assert(Valid());
   // Scan backwards to a restart point before current_
   const uint32_t original = current_;
@@ -158,8 +154,8 @@ void IndexBlockIter::Prev() {
   }
 }
 
-// Similar to IndexBlockIter::Prev but also caches the prev entries
-void DataBlockIter::Prev() {
+// Similar to IndexBlockIter::PrevImpl but also caches the prev entries
+void DataBlockIter::PrevImpl() {
   assert(Valid());
 
   assert(prev_entries_idx_ == -1 ||
@@ -173,25 +169,26 @@ void DataBlockIter::Prev() {
         prev_entries_[prev_entries_idx_];
 
     const char* key_ptr = nullptr;
+    bool raw_key_cached;
     if (current_prev_entry.key_ptr != nullptr) {
       // The key is not delta encoded and stored in the data block
       key_ptr = current_prev_entry.key_ptr;
-      key_pinned_ = true;
+      raw_key_cached = false;
     } else {
       // The key is delta encoded and stored in prev_entries_keys_buff_
       key_ptr = prev_entries_keys_buff_.data() + current_prev_entry.key_offset;
-      key_pinned_ = false;
+      raw_key_cached = true;
     }
     const Slice current_key(key_ptr, current_prev_entry.key_size);
 
     current_ = current_prev_entry.offset;
-    raw_key_.SetKey(current_key, false /* copy */);
+    // TODO(ajkr): the copy when `raw_key_cached` is done here for convenience,
+    // not necessity. It is convenient since this class treats keys as pinned
+    // when `raw_key_` points to an outside buffer. So we cannot allow
+    // `raw_key_` point into Prev cache as it is a transient outside buffer
+    // (i.e., keys in it are not actually pinned).
+    raw_key_.SetKey(current_key, raw_key_cached /* copy */);
     value_ = current_prev_entry.value;
-    key_ = applied_key_.UpdateAndGetKey();
-    // This is kind of odd in that applied_key_ may say the key is pinned while
-    // key_pinned_ ends up being false. That'll only happen when the key resides
-    // in a transient caching buffer.
-    key_pinned_ = key_pinned_ && applied_key_.IsKeyPinned();
 
     return;
   }
@@ -238,7 +235,7 @@ void DataBlockIter::Prev() {
   prev_entries_idx_ = static_cast<int32_t>(prev_entries_.size()) - 1;
 }
 
-void DataBlockIter::Seek(const Slice& target) {
+void DataBlockIter::SeekImpl(const Slice& target) {
   Slice seek_key = target;
   PERF_TIMER_GUARD(block_seek_nanos);
   if (data_ == nullptr) {  // Not init yet
@@ -246,13 +243,12 @@ void DataBlockIter::Seek(const Slice& target) {
   }
   uint32_t index = 0;
   bool skip_linear_scan = false;
-  bool ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                                  &skip_linear_scan, comparator_);
+  bool ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
 
   if (!ok) {
     return;
   }
-  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan, comparator_);
+  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
 }
 
 // Optimized Seek for point lookup for an internal key `target`
@@ -286,7 +282,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
 
   if (entry == kCollision) {
     // HashSeek not effective, falling back
-    Seek(target);
+    SeekImpl(target);
     return true;
   }
 
@@ -295,7 +291,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     // exist in the next block. Consider this example:
     //
     // Block N:    [aab@100, ... , app@120]
-    // bounary key: axy@50 (we make minimal assumption about a boundary key)
+    // boundary key: axy@50 (we make minimal assumption about a boundary key)
     // Block N+1:  [axy@10, ...   ]
     //
     // If seek_key = axy@60, the search will starts from Block N.
@@ -330,7 +326,7 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     // TODO(fwu): check the left and write boundary of the restart interval
     // to avoid linear seek a target key that is out of range.
     if (!ParseNextDataKey<DecodeEntry>(limit) ||
-        comparator_->Compare(applied_key_.UpdateAndGetKey(), target) >= 0) {
+        CompareCurrentKey(target) >= 0) {
       // we stop at the first potential matching user key.
       break;
     }
@@ -355,18 +351,18 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
     return true;
   }
 
-  if (user_comparator_->Compare(raw_key_.GetUserKey(), target_user_key) != 0) {
+  if (ucmp().Compare(raw_key_.GetUserKey(), target_user_key) != 0) {
     // the key is not in this block and cannot be at the next block either.
     return false;
   }
 
   // Here we are conservative and only support a limited set of cases
-  ValueType value_type = ExtractValueType(applied_key_.UpdateAndGetKey());
+  ValueType value_type = ExtractValueType(raw_key_.GetInternalKey());
   if (value_type != ValueType::kTypeValue &&
       value_type != ValueType::kTypeDeletion &&
       value_type != ValueType::kTypeSingleDeletion &&
       value_type != ValueType::kTypeBlobIndex) {
-    Seek(target);
+    SeekImpl(target);
     return true;
   }
 
@@ -374,14 +370,14 @@ bool DataBlockIter::SeekForGetImpl(const Slice& target) {
   return true;
 }
 
-void IndexBlockIter::Seek(const Slice& target) {
+void IndexBlockIter::SeekImpl(const Slice& target) {
   TEST_SYNC_POINT("IndexBlockIter::Seek:0");
   PERF_TIMER_GUARD(block_seek_nanos);
   if (data_ == nullptr) {  // Not init yet
     return;
   }
   Slice seek_key = target;
-  if (!key_includes_seq_) {
+  if (raw_key_.IsUserKey()) {
     seek_key = ExtractUserKey(target);
   }
   status_ = Status::OK();
@@ -402,20 +398,18 @@ void IndexBlockIter::Seek(const Slice& target) {
     // search simply lands at the right place.
     skip_linear_scan = true;
   } else if (value_delta_encoded_) {
-    ok = BinarySeek<DecodeKeyV4>(seek_key, 0, num_restarts_ - 1, &index,
-                                 &skip_linear_scan, comparator_);
+    ok = BinarySeek<DecodeKeyV4>(seek_key, &index, &skip_linear_scan);
   } else {
-    ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                               &skip_linear_scan, comparator_);
+    ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
   }
 
   if (!ok) {
     return;
   }
-  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan, comparator_);
+  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
 }
 
-void DataBlockIter::SeekForPrev(const Slice& target) {
+void DataBlockIter::SeekForPrevImpl(const Slice& target) {
   PERF_TIMER_GUARD(block_seek_nanos);
   Slice seek_key = target;
   if (data_ == nullptr) {  // Not init yet
@@ -423,25 +417,23 @@ void DataBlockIter::SeekForPrev(const Slice& target) {
   }
   uint32_t index = 0;
   bool skip_linear_scan = false;
-  bool ok = BinarySeek<DecodeKey>(seek_key, 0, num_restarts_ - 1, &index,
-                                  &skip_linear_scan, comparator_);
+  bool ok = BinarySeek<DecodeKey>(seek_key, &index, &skip_linear_scan);
 
   if (!ok) {
     return;
   }
-  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan, comparator_);
+  FindKeyAfterBinarySeek(seek_key, index, skip_linear_scan);
 
   if (!Valid()) {
-    SeekToLast();
+    SeekToLastImpl();
   } else {
-    while (Valid() &&
-           comparator_->Compare(applied_key_.UpdateAndGetKey(), seek_key) > 0) {
-      Prev();
+    while (Valid() && CompareCurrentKey(seek_key) > 0) {
+      PrevImpl();
     }
   }
 }
 
-void DataBlockIter::SeekToFirst() {
+void DataBlockIter::SeekToFirstImpl() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
@@ -449,7 +441,7 @@ void DataBlockIter::SeekToFirst() {
   ParseNextDataKey<DecodeEntry>();
 }
 
-void DataBlockIter::SeekToFirstOrReport() {
+void DataBlockIter::SeekToFirstOrReportImpl() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
@@ -457,7 +449,7 @@ void DataBlockIter::SeekToFirstOrReport() {
   ParseNextDataKey<CheckAndDecodeEntry>();
 }
 
-void IndexBlockIter::SeekToFirst() {
+void IndexBlockIter::SeekToFirstImpl() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
@@ -466,7 +458,7 @@ void IndexBlockIter::SeekToFirst() {
   ParseNextIndexKey();
 }
 
-void DataBlockIter::SeekToLast() {
+void DataBlockIter::SeekToLastImpl() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
@@ -476,7 +468,7 @@ void DataBlockIter::SeekToLast() {
   }
 }
 
-void IndexBlockIter::SeekToLast() {
+void IndexBlockIter::SeekToLastImpl() {
   if (data_ == nullptr) {  // Not init yet
     return;
   }
@@ -526,8 +518,6 @@ bool DataBlockIter::ParseNextDataKey(const char* limit) {
       // This key share `shared` bytes with prev key, we need to decode it
       raw_key_.TrimAppend(shared, p, non_shared);
     }
-    key_ = applied_key_.UpdateAndGetKey();
-    key_pinned_ = applied_key_.IsKeyPinned();
 
 #ifndef NDEBUG
     if (global_seqno_ != kDisableGlobalSequenceNumber) {
@@ -590,8 +580,6 @@ bool IndexBlockIter::ParseNextIndexKey() {
     // This key share `shared` bytes with prev key, we need to decode it
     raw_key_.TrimAppend(shared, p, non_shared);
   }
-  key_ = applied_key_.UpdateAndGetKey();
-  key_pinned_ = applied_key_.IsKeyPinned();
   value_ = Slice(p + non_shared, value_length);
   if (shared == 0) {
     while (restart_index_ + 1 < num_restarts_ &&
@@ -651,12 +639,12 @@ void IndexBlockIter::DecodeCurrentValue(uint32_t shared) {
 template <class TValue>
 void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
                                                uint32_t index,
-                                               bool skip_linear_scan,
-                                               const Comparator* comp) {
+                                               bool skip_linear_scan) {
   // SeekToRestartPoint() only does the lookup in the restart block. We need
-  // to follow it up with Next() to position the iterator at the restart key.
+  // to follow it up with NextImpl() to position the iterator at the restart
+  // key.
   SeekToRestartPoint(index);
-  Next();
+  NextImpl();
 
   if (!skip_linear_scan) {
     // Linear search (within restart block) for first key >= target
@@ -672,14 +660,14 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
       max_offset = port::kMaxUint32;
     }
     while (true) {
-      Next();
+      NextImpl();
       if (!Valid()) {
         break;
       }
       if (current_ == max_offset) {
-        assert(comp->Compare(applied_key_.UpdateAndGetKey(), target) > 0);
+        assert(CompareCurrentKey(target) > 0);
         break;
-      } else if (comp->Compare(applied_key_.UpdateAndGetKey(), target) >= 0) {
+      } else if (CompareCurrentKey(target) >= 0) {
         break;
       }
     }
@@ -696,11 +684,8 @@ void BlockIter<TValue>::FindKeyAfterBinarySeek(const Slice& target,
 // compared again later.
 template <class TValue>
 template <typename DecodeKeyFunc>
-bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
-                                   uint32_t right, uint32_t* index,
-                                   bool* skip_linear_scan,
-                                   const Comparator* comp) {
-  assert(left <= right);
+bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t* index,
+                                   bool* skip_linear_scan) {
   if (restarts_ == 0) {
     // SST files dedicated to range tombstones are written with index blocks
     // that have no keys while also having `num_restarts_ == 1`. This would
@@ -712,9 +697,17 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
   }
 
   *skip_linear_scan = false;
-  while (left < right) {
-    uint32_t mid = (left + right + 1) / 2;
-    uint32_t region_offset = GetRestartPoint(mid);
+  // Loop invariants:
+  // - Restart key at index `left` is less than or equal to the target key. The
+  //   sentinel index `-1` is considered to have a key that is less than all
+  //   keys.
+  // - Any restart keys after index `right` are strictly greater than the target
+  //   key.
+  int64_t left = -1, right = num_restarts_ - 1;
+  while (left != right) {
+    // The `mid` is computed by rounding up so it lands in (`left`, `right`].
+    int64_t mid = left + (right - left + 1) / 2;
+    uint32_t region_offset = GetRestartPoint(static_cast<uint32_t>(mid));
     uint32_t shared, non_shared;
     const char* key_ptr = DecodeKeyFunc()(
         data_ + region_offset, data_ + restarts_, &shared, &non_shared);
@@ -724,7 +717,7 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
     }
     Slice mid_key(key_ptr, non_shared);
     raw_key_.SetKey(mid_key, false /* copy */);
-    int cmp = comp->Compare(applied_key_.UpdateAndGetKey(), target);
+    int cmp = CompareCurrentKey(target);
     if (cmp < 0) {
       // Key at "mid" is smaller than "target". Therefore all
       // blocks before "mid" are uninteresting.
@@ -739,26 +732,13 @@ bool BlockIter<TValue>::BinarySeek(const Slice& target, uint32_t left,
     }
   }
 
-  assert(left == right);
-  *index = left;
-  if (*index == 0) {
-    // Special case as we land at zero as long as restart key at index 1 is >
-    // "target". We need to compare the restart key at index 0 so we can set
-    // `*skip_linear_scan` when the 0th restart key is >= "target".
-    //
-    // GetRestartPoint() is always zero for restart key zero; skip the restart
-    // block access.
-    uint32_t shared, non_shared;
-    const char* key_ptr =
-        DecodeKeyFunc()(data_, data_ + restarts_, &shared, &non_shared);
-    if (key_ptr == nullptr || (shared != 0)) {
-      CorruptionError();
-      return false;
-    }
-    Slice first_key(key_ptr, non_shared);
-    raw_key_.SetKey(first_key, false /* copy */);
-    int cmp = comp->Compare(applied_key_.UpdateAndGetKey(), target);
-    *skip_linear_scan = cmp >= 0;
+  if (left == -1) {
+    // All keys in the block were strictly greater than `target`. So the very
+    // first key in the block is the final seek result.
+    *skip_linear_scan = true;
+    *index = 0;
+  } else {
+    *index = static_cast<uint32_t>(left);
   }
   return true;
 }
@@ -780,7 +760,7 @@ int IndexBlockIter::CompareBlockKey(uint32_t block_index, const Slice& target) {
   }
   Slice block_key(key_ptr, non_shared);
   raw_key_.SetKey(block_key, false /* copy */);
-  return comparator_->Compare(applied_key_.UpdateAndGetKey(), target);
+  return CompareCurrentKey(target);
 }
 
 // Binary search in block_ids to find the first block
@@ -874,7 +854,7 @@ bool IndexBlockIter::PrefixSeek(const Slice& target, uint32_t* index,
   assert(prefix_index_);
   *prefix_may_exist = true;
   Slice seek_key = target;
-  if (!key_includes_seq_) {
+  if (raw_key_.IsUserKey()) {
     seek_key = ExtractUserKey(target);
   }
   uint32_t* block_ids = nullptr;
@@ -989,8 +969,7 @@ Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
   }
 }
 
-DataBlockIter* Block::NewDataIterator(const Comparator* cmp,
-                                      const Comparator* ucmp,
+DataBlockIter* Block::NewDataIterator(const Comparator* raw_ucmp,
                                       SequenceNumber global_seqno,
                                       DataBlockIter* iter, Statistics* stats,
                                       bool block_contents_pinned) {
@@ -1010,7 +989,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* cmp,
     return ret_iter;
   } else {
     ret_iter->Initialize(
-        cmp, ucmp, data_, restart_offset_, num_restarts_, global_seqno,
+        raw_ucmp, data_, restart_offset_, num_restarts_, global_seqno,
         read_amp_bitmap_.get(), block_contents_pinned,
         data_block_hash_index_.Valid() ? &data_block_hash_index_ : nullptr);
     if (read_amp_bitmap_) {
@@ -1025,7 +1004,7 @@ DataBlockIter* Block::NewDataIterator(const Comparator* cmp,
 }
 
 IndexBlockIter* Block::NewIndexIterator(
-    const Comparator* cmp, const Comparator* ucmp, SequenceNumber global_seqno,
+    const Comparator* raw_ucmp, SequenceNumber global_seqno,
     IndexBlockIter* iter, Statistics* /*stats*/, bool total_order_seek,
     bool have_first_key, bool key_includes_seq, bool value_is_full,
     bool block_contents_pinned, BlockPrefixIndex* prefix_index) {
@@ -1046,7 +1025,7 @@ IndexBlockIter* Block::NewIndexIterator(
   } else {
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index;
-    ret_iter->Initialize(cmp, ucmp, data_, restart_offset_, num_restarts_,
+    ret_iter->Initialize(raw_ucmp, data_, restart_offset_, num_restarts_,
                          global_seqno, prefix_index_ptr, have_first_key,
                          key_includes_seq, value_is_full,
                          block_contents_pinned);

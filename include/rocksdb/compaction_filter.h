@@ -45,6 +45,8 @@ class CompactionFilter {
     kRemove,
     kChangeValue,
     kRemoveAndSkipUntil,
+    kChangeBlobIndex,  // used internally by BlobDB.
+    kIOError,          // used internally by BlobDB.
   };
 
   enum class BlobDecision { kKeep, kChangeValue, kCorruption, kIOError };

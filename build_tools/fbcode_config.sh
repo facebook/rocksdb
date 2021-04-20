@@ -109,6 +109,7 @@ if [ -z "$USE_CLANG" ]; then
   # gcc
   CC="$GCC_BASE/bin/gcc"
   CXX="$GCC_BASE/bin/g++"
+  AR="$GCC_BASE/bin/gcc-ar"
 
   CFLAGS+=" -B$BINUTILS/gold"
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
@@ -119,6 +120,7 @@ else
   CLANG_INCLUDE="$CLANG_LIB/clang/stable/include"
   CC="$CLANG_BIN/clang"
   CXX="$CLANG_BIN/clang++"
+  AR="$CLANG_BIN/llvm-ar"
 
   KERNEL_HEADERS_INCLUDE="$KERNEL_HEADERS_BASE/include"
 

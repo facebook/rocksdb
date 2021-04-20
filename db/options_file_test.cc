@@ -25,7 +25,7 @@ void UpdateOptionsFiles(DB* db,
                         std::unordered_set<std::string>* filename_history,
                         int* options_files_count) {
   std::vector<std::string> filenames;
-  db->GetEnv()->GetChildren(db->GetName(), &filenames);
+  EXPECT_OK(db->GetEnv()->GetChildren(db->GetName(), &filenames));
   uint64_t number;
   FileType type;
   *options_files_count = 0;
@@ -42,7 +42,7 @@ void VerifyOptionsFileName(
     DB* db, const std::unordered_set<std::string>& past_filenames) {
   std::vector<std::string> filenames;
   std::unordered_set<std::string> current_filenames;
-  db->GetEnv()->GetChildren(db->GetName(), &filenames);
+  EXPECT_OK(db->GetEnv()->GetChildren(db->GetName(), &filenames));
   uint64_t number;
   FileType type;
   for (auto filename : filenames) {

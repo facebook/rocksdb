@@ -138,27 +138,27 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   // orig_ikey is backed by original_key if keys_.empty()
   // orig_ikey is backed by keys_.back() if !keys_.empty()
   ParsedInternalKey orig_ikey;
-  bool succ = ParseInternalKey(original_key, &orig_ikey);
-  assert(succ);
-  if (!succ) {
-    return Status::Corruption("Cannot parse key in MergeUntil");
-  }
 
-  Status s;
+  Status s = ParseInternalKey(original_key, &orig_ikey);
+  assert(s.ok());
+  if (!s.ok()) return s;
+
   bool hit_the_next_user_key = false;
   for (; iter->Valid(); iter->Next(), original_key_is_iter = false) {
     if (IsShuttingDown()) {
-      return Status::ShutdownInProgress();
+      s = Status::ShutdownInProgress();
+      return s;
     }
 
     ParsedInternalKey ikey;
     assert(keys_.size() == merge_context_.GetNumOperands());
 
-    if (!ParseInternalKey(iter->key(), &ikey)) {
+    if (ParseInternalKey(iter->key(), &ikey) != Status::OK()) {
       // stop at corrupted key
       if (assert_valid_internal_key_) {
         assert(!"Corrupted internal key not expected.");
-        return Status::Corruption("Corrupted internal key not expected.");
+        s = Status::Corruption("Corrupted internal key not expected.");
+        return s;
       }
       break;
     } else if (first_key) {
@@ -193,7 +193,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // the compaction iterator to write out the key we're currently at, which
       // is the put/delete we just encountered.
       if (keys_.empty()) {
-        return Status::OK();
+        return s;
       }
 
       // TODO(noetzli) If the merge operator returns false, we are currently
@@ -268,7 +268,9 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         if (keys_.size() == 1) {
           // we need to re-anchor the orig_ikey because it was anchored by
           // original_key before
-          ParseInternalKey(keys_.back(), &orig_ikey);
+          Status pikStatus = ParseInternalKey(keys_.back(), &orig_ikey);
+          pikStatus.PermitUncheckedError();
+          assert(pikStatus.ok());
         }
         if (filter == CompactionFilter::Decision::kKeep) {
           merge_context_.PushOperand(
@@ -284,14 +286,14 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
         keys_.clear();
         merge_context_.Clear();
         has_compaction_filter_skip_until_ = true;
-        return Status::OK();
+        return s;
       }
     }
   }
 
   if (merge_context_.GetNumOperands() == 0) {
     // we filtered out all the merge operands
-    return Status::OK();
+    return s;
   }
 
   // We are sure we have seen this key's entire history if:

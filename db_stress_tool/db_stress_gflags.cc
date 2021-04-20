@@ -361,6 +361,11 @@ DEFINE_bool(partition_filters, false,
             "use partitioned filters "
             "for block-based table");
 
+DEFINE_bool(
+    optimize_filters_for_memory,
+    ROCKSDB_NAMESPACE::BlockBasedTableOptions().optimize_filters_for_memory,
+    "Minimize memory footprint of filters");
+
 DEFINE_int32(
     index_type,
     static_cast<int32_t>(
@@ -414,10 +419,10 @@ static const bool FLAGS_kill_random_test_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_kill_random_test, &ValidateInt32Positive);
 extern int rocksdb_kill_odds;
 
-DEFINE_string(kill_prefix_blacklist, "",
+DEFINE_string(kill_exclude_prefixes, "",
               "If non-empty, kill points with prefix in the list given will be"
               " skipped. Items are comma-separated.");
-extern std::vector<std::string> rocksdb_kill_prefix_blacklist;
+extern std::vector<std::string> rocksdb_kill_exclude_prefixes;
 
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 
@@ -474,6 +479,10 @@ DEFINE_int32(backup_one_in, 0,
              "every N operations on average.  0 indicates CreateNewBackup() "
              "is disabled.");
 
+DEFINE_uint64(backup_max_size, 100 * 1024 * 1024,
+              "If non-zero, skip checking backup/restore when DB size in "
+              "bytes exceeds this setting.");
+
 DEFINE_int32(checkpoint_one_in, 0,
              "If non-zero, then CreateCheckpoint() will be called once for "
              "every N operations on average.  0 indicates CreateCheckpoint() "
@@ -494,6 +503,12 @@ DEFINE_int32(compact_files_one_in, 0,
 DEFINE_int32(compact_range_one_in, 0,
              "If non-zero, then CompactRange() will be called once for every N "
              "operations on average.  0 indicates CompactRange() is disabled.");
+
+DEFINE_int32(mark_for_compaction_one_file_in, 0,
+             "A `TablePropertiesCollectorFactory` will be registered, which "
+             "creates a `TablePropertiesCollector` with `NeedCompact()` "
+             "returning true once for every N files on average. 0 or negative "
+             "mean `NeedCompact()` always returns false.");
 
 DEFINE_int32(flush_one_in, 0,
              "If non-zero, then Flush() will be called once for every N ops "
@@ -596,10 +611,18 @@ DEFINE_string(bottommost_compression_type, "disable",
 
 DEFINE_string(checksum_type, "kCRC32c", "Algorithm to use to checksum blocks");
 
-DEFINE_string(hdfs, "", "Name of hdfs environment");
+DEFINE_string(hdfs, "",
+              "Name of hdfs environment. Mutually exclusive with"
+              " --env_uri and --fs_uri.");
 
-DEFINE_string(env_uri, "",
-              "URI for env lookup. Mutually exclusive with --hdfs");
+DEFINE_string(
+    env_uri, "",
+    "URI for env lookup. Mutually exclusive with --hdfs and --fs_uri");
+
+DEFINE_string(fs_uri, "",
+              "URI for registry Filesystem lookup. Mutually exclusive"
+              " with --hdfs and --env_uri."
+              " Creates a default environment with the specified filesystem.");
 
 DEFINE_uint64(ops_per_thread, 1200000, "Number of operations per thread.");
 static const bool FLAGS_ops_per_thread_dummy __attribute__((__unused__)) =
@@ -688,7 +711,29 @@ DEFINE_int32(approximate_size_one_in, 64,
 DEFINE_int32(read_fault_one_in, 1000,
             "On non-zero, enables fault injection on read");
 
+DEFINE_int32(get_property_one_in, 1000,
+             "If non-zero, then DB::GetProperty() will be called to get various"
+             " properties for every N ops on average. 0 indicates that"
+             " GetProperty() will be not be called.");
+
 DEFINE_bool(sync_fault_injection, false,
             "If true, FaultInjectionTestFS will be used for write operations, "
             " and unsynced data in DB will lost after crash.");
+
+DEFINE_bool(best_efforts_recovery, false,
+            "If true, use best efforts recovery.");
+DEFINE_bool(skip_verifydb, false, "If true, skip VerifyDb() calls.");
+
+DEFINE_bool(enable_compaction_filter, false,
+            "If true, configures a compaction filter that returns a kRemove "
+            "decision for deleted keys.");
+
+DEFINE_bool(paranoid_file_checks, true,
+            "After writing every SST file, reopen it and read all the keys "
+            "and validate checksums");
+
+DEFINE_string(file_checksum_impl, "none",
+              "Name of an implementation for file_checksum_gen_factory, or "
+              "\"none\" for null.");
+
 #endif  // GFLAGS

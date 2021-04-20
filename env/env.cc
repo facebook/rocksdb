@@ -44,7 +44,7 @@ Status Env::LoadEnv(const std::string& value, Env** result) {
 #ifndef ROCKSDB_LITE
   s = ObjectRegistry::NewInstance()->NewStaticObject<Env>(value, &env);
 #else
-  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
+  s = Status::NotSupported("Cannot load environment in LITE mode", value);
 #endif
   if (s.ok()) {
     *result = env;
@@ -77,7 +77,7 @@ Status Env::LoadEnv(const std::string& value, Env** result,
 #else
   (void)result;
   (void)guard;
-  s = Status::NotSupported("Cannot load environment in LITE mode: ", value);
+  s = Status::NotSupported("Cannot load environment in LITE mode", value);
 #endif
   return s;
 }
@@ -207,6 +207,14 @@ void Logger::Logv(const InfoLogLevel log_level, const char* format, va_list ap) 
     snprintf(new_format, sizeof(new_format) - 1, "[%s] %s",
       kInfoLogLevelNames[log_level], format);
     Logv(new_format, ap);
+  }
+
+  if (log_level >= InfoLogLevel::WARN_LEVEL &&
+      log_level != InfoLogLevel::HEADER_LEVEL) {
+    // Log messages with severity of warning or higher should be rare and are
+    // sometimes followed by an unclean crash. We want to be sure important
+    // messages are not lost in an application buffer when that happens.
+    Flush();
   }
 }
 

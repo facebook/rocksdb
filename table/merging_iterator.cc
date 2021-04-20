@@ -79,6 +79,7 @@ class MergingIterator : public InternalIterator {
     for (auto& child : children_) {
       child.DeleteIter(is_arena_mode_);
     }
+    status_.PermitUncheckedError();
   }
 
   bool Valid() const override { return current_ != nullptr && status_.ok(); }
@@ -194,7 +195,7 @@ class MergingIterator : public InternalIterator {
     bool is_valid = Valid();
     if (is_valid) {
       result->key = key();
-      result->may_be_out_of_upper_bound = MayBeOutOfUpperBound();
+      result->bound_check_result = UpperBoundCheckResult();
       result->value_prepared = current_->IsValuePrepared();
     }
     return is_valid;
@@ -261,9 +262,9 @@ class MergingIterator : public InternalIterator {
     return current_->MayBeOutOfLowerBound();
   }
 
-  bool MayBeOutOfUpperBound() override {
+  IterBoundCheck UpperBoundCheckResult() override {
     assert(Valid());
-    return current_->MayBeOutOfUpperBound();
+    return current_->UpperBoundCheckResult();
   }
 
   void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) override {

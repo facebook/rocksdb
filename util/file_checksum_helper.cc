@@ -9,6 +9,12 @@
 
 #include "util/file_checksum_helper.h"
 
+#include <unordered_set>
+
+#include "db/log_reader.h"
+#include "db/version_edit.h"
+#include "file/sequence_file_reader.h"
+
 namespace ROCKSDB_NAMESPACE {
 
 void FileChecksumListImpl::reset() { checksum_map_.clear(); }
@@ -81,6 +87,68 @@ std::shared_ptr<FileChecksumGenFactory> GetFileChecksumGenCrc32cFactory() {
   static std::shared_ptr<FileChecksumGenFactory> default_crc32c_gen_factory(
       new FileChecksumGenCrc32cFactory());
   return default_crc32c_gen_factory;
+}
+
+Status GetFileChecksumsFromManifest(Env* src_env, const std::string& abs_path,
+                                    uint64_t manifest_file_size,
+                                    FileChecksumList* checksum_list) {
+  if (checksum_list == nullptr) {
+    return Status::InvalidArgument("checksum_list is nullptr");
+  }
+
+  checksum_list->reset();
+  Status s;
+
+  std::unique_ptr<SequentialFileReader> file_reader;
+  {
+    std::unique_ptr<FSSequentialFile> file;
+    const std::shared_ptr<FileSystem>& fs = src_env->GetFileSystem();
+    s = fs->NewSequentialFile(abs_path,
+                              fs->OptimizeForManifestRead(FileOptions()), &file,
+                              nullptr /* dbg */);
+    if (!s.ok()) {
+      return s;
+    }
+    file_reader.reset(new SequentialFileReader(std::move(file), abs_path));
+  }
+
+  struct LogReporter : public log::Reader::Reporter {
+    Status* status_ptr;
+    virtual void Corruption(size_t /*bytes*/, const Status& st) override {
+      if (status_ptr->ok()) {
+        *status_ptr = st;
+      }
+    }
+  } reporter;
+  reporter.status_ptr = &s;
+  log::Reader reader(nullptr, std::move(file_reader), &reporter,
+                     true /* checksum */, 0 /* log_number */);
+  Slice record;
+  std::string scratch;
+  while (reader.LastRecordEnd() < manifest_file_size &&
+         reader.ReadRecord(&record, &scratch) && s.ok()) {
+    VersionEdit edit;
+    s = edit.DecodeFrom(record);
+    if (!s.ok()) {
+      break;
+    }
+
+    // Remove the deleted files from the checksum_list
+    for (const auto& deleted_file : edit.GetDeletedFiles()) {
+      checksum_list->RemoveOneFileChecksum(deleted_file.second);
+    }
+
+    // Add the new files to the checksum_list
+    for (const auto& new_file : edit.GetNewFiles()) {
+      checksum_list->InsertOneFileChecksum(
+          new_file.second.fd.GetNumber(), new_file.second.file_checksum,
+          new_file.second.file_checksum_func_name);
+    }
+  }
+  assert(!s.ok() ||
+         manifest_file_size == std::numeric_limits<uint64_t>::max() ||
+         reader.LastRecordEnd() == manifest_file_size);
+  return s;
 }
 
 }  // namespace ROCKSDB_NAMESPACE

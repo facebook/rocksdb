@@ -87,9 +87,9 @@ struct KeyContext {
 class MultiGetContext {
  public:
   // Limit the number of keys in a batch to this number. Benchmarks show that
-  // there is negligible benefit for batches exceeding this. Keeping this < 64
+  // there is negligible benefit for batches exceeding this. Keeping this < 32
   // simplifies iteration, as well as reduces the amount of stack allocations
-  // htat need to be performed
+  // that need to be performed
   static const int MAX_BATCH_SIZE = 32;
 
   MultiGetContext(autovector<KeyContext*, MAX_BATCH_SIZE>* sorted_keys,

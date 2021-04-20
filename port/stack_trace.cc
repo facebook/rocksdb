@@ -5,8 +5,9 @@
 //
 #include "port/stack_trace.h"
 
-#if defined(ROCKSDB_LITE) || !(defined(ROCKSDB_BACKTRACE) || defined(OS_MACOSX)) || \
-    defined(CYGWIN) || defined(OS_FREEBSD) || defined(OS_SOLARIS)
+#if defined(ROCKSDB_LITE) ||                                                  \
+    !(defined(ROCKSDB_BACKTRACE) || defined(OS_MACOSX)) || defined(CYGWIN) || \
+    defined(OS_FREEBSD) || defined(OS_SOLARIS) || defined(OS_WIN)
 
 // noop
 
@@ -36,7 +37,7 @@ namespace port {
 
 namespace {
 
-#if defined(OS_LINUX) || defined(OS_FREEBSD)
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_GNU_KFREEBSD)
 const char* GetExecutableName() {
   static char name[1024];
 

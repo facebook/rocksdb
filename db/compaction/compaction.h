@@ -11,6 +11,7 @@
 #include "db/version_set.h"
 #include "memory/arena.h"
 #include "options/cf_options.h"
+#include "rocksdb/sst_partitioner.h"
 #include "util/autovector.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -71,6 +72,7 @@ class Compaction {
   Compaction(VersionStorageInfo* input_version,
              const ImmutableCFOptions& immutable_cf_options,
              const MutableCFOptions& mutable_cf_options,
+             const MutableDBOptions& mutable_db_options,
              std::vector<CompactionInputFiles> inputs, int output_level,
              uint64_t target_file_size, uint64_t max_compaction_bytes,
              uint32_t output_path_id, CompressionType compression,
@@ -254,6 +256,9 @@ class Compaction {
 
   // Create a CompactionFilter from compaction_filter_factory
   std::unique_ptr<CompactionFilter> CreateCompactionFilter() const;
+
+  // Create a SstPartitioner from sst_partitioner_factory
+  std::unique_ptr<SstPartitioner> CreateSstPartitioner() const;
 
   // Is the input level corresponding to output_level_ empty?
   bool IsOutputLevelEmpty() const;

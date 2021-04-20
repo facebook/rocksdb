@@ -76,6 +76,7 @@ class WriteThread {
   struct Writer;
 
   struct WriteGroup {
+    ~WriteGroup() { status.PermitUncheckedError(); }
     Writer* leader = nullptr;
     Writer* last_writer = nullptr;
     SequenceNumber last_sequence;
@@ -180,6 +181,8 @@ class WriteThread {
         StateMutex().~mutex();
         StateCV().~condition_variable();
       }
+      status.PermitUncheckedError();
+      callback_status.PermitUncheckedError();
     }
 
     bool CheckCallback(DB* db) {
@@ -290,7 +293,7 @@ class WriteThread {
   //
   // WriteGroup* write_group: the write group
   // Status status:           Status of write operation
-  void ExitAsBatchGroupLeader(WriteGroup& write_group, Status status);
+  void ExitAsBatchGroupLeader(WriteGroup& write_group, Status& status);
 
   // Exit batch group on behalf of batch group leader.
   void ExitAsBatchGroupFollower(Writer* w);
