@@ -1,8 +1,4 @@
 # Rocksdb Change Log
-## Unreleased
-### Bug Fixes
-* Fixed a bug in handling file rename error in distributed/network file systems when the server succeeds but client returns error. The bug can cause CURRENT file to point to non-existing MANIFEST file, thus DB cannot be opened.
-
 ## 6.20.0 (04/16/2021)
 ### Behavior Changes
 * `ColumnFamilyOptions::sample_for_compression` now takes effect for creation of all block-based tables. Previously it only took effect for block-based tables created by flush.
@@ -17,6 +13,7 @@
 * Fixed crash (divide by zero) when compression dictionary is applied to a file containing only range tombstones.
 * Fixed a backward iteration bug with partitioned filter enabled: not including the prefix of the last key of the previous filter partition in current filter partition can cause wrong iteration result.
 * Fixed a bug that allowed `DBOptions::max_open_files` to be set with a non-negative integer with `ColumnFamilyOptions::compaction_style = kCompactionStyleFIFO`.
+* Fixed a bug in handling file rename error in distributed/network file systems when the server succeeds but client returns error. The bug can cause CURRENT file to point to non-existing MANIFEST file, thus DB cannot be opened.
 
 ### Performance Improvements
 * On ARM platform, use `yield` instead of `wfe` to relax cpu to gain better performance.
