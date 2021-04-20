@@ -440,6 +440,11 @@ class SpecialEnv : public EnvWrapper {
       std::unique_ptr<WritableFile> base_;
     };
 
+    if (no_file_overwrite_.load(std::memory_order_acquire) &&
+        target()->FileExists(f).ok()) {
+      return Status::NotSupported("SpecialEnv::no_file_overwrite_ is true.");
+    }
+
     if (non_writeable_rate_.load(std::memory_order_acquire) > 0) {
       uint32_t random_number;
       {
@@ -686,6 +691,9 @@ class SpecialEnv : public EnvWrapper {
 
   // Slow down every log write, in micro-seconds.
   std::atomic<int> log_write_slowdown_;
+
+  // If true, returns Status::NotSupported for file overwrite.
+  std::atomic<bool> no_file_overwrite_;
 
   // Number of WAL files that are still open for write.
   std::atomic<int> num_open_wal_file_;

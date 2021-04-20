@@ -4083,6 +4083,7 @@ Status VersionSet::ProcessManifestWrites(
   uint64_t new_manifest_file_size = 0;
   Status s;
   IOStatus io_s;
+  IOStatus manifest_io_status;
   {
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
     mu->Unlock();
@@ -4134,6 +4135,7 @@ Status VersionSet::ProcessManifestWrites(
         s = WriteCurrentStateToManifest(curr_state, wal_additions,
                                         descriptor_log_.get(), io_s);
       } else {
+        manifest_io_status = io_s;
         s = io_s;
       }
     }
@@ -4171,11 +4173,13 @@ Status VersionSet::ProcessManifestWrites(
         io_s = descriptor_log_->AddRecord(record);
         if (!io_s.ok()) {
           s = io_s;
+          manifest_io_status = io_s;
           break;
         }
       }
       if (s.ok()) {
         io_s = SyncManifest(db_options_, descriptor_log_->file());
+        manifest_io_status = io_s;
         TEST_SYNC_POINT_CALLBACK(
             "VersionSet::ProcessManifestWrites:AfterSyncManifest", &io_s);
       }
@@ -4188,6 +4192,9 @@ Status VersionSet::ProcessManifestWrites(
 
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
+    if (s.ok()) {
+      assert(manifest_io_status.ok());
+    }
     if (s.ok() && new_descriptor_log) {
       io_s = SetCurrentFile(fs_.get(), dbname_, pending_manifest_file_number_,
                             db_directory);
@@ -4303,11 +4310,41 @@ Status VersionSet::ProcessManifestWrites(
     for (auto v : versions) {
       delete v;
     }
+    if (manifest_io_status.ok()) {
+      manifest_file_number_ = pending_manifest_file_number_;
+      manifest_file_size_ = new_manifest_file_size;
+    }
     // If manifest append failed for whatever reason, the file could be
     // corrupted. So we need to force the next version update to start a
     // new manifest file.
     descriptor_log_.reset();
-    if (new_descriptor_log) {
+    // If manifest operations failed, then we know the CURRENT file still
+    // points to the original MANIFEST. Therefore, we can safely delete the
+    // new MANIFEST.
+    // If manifest operations succeeded, and we are here, then it is possible
+    // that renaming tmp file to CURRENT failed.
+    //
+    // On local POSIX-compliant FS, the CURRENT must point to the original
+    // MANIFEST. We can delete the new MANIFEST for simplicity, but we can also
+    // keep it. Future recovery will ignore this MANIFEST. It's also ok for the
+    // process not to crash and continue using the db. Any future LogAndApply()
+    // call will switch to a new MANIFEST and update CURRENT, still ignoring
+    // this one.
+    //
+    // On non-local FS, it is
+    // possible that the rename operation succeeded on the server (remote)
+    // side, but the client somehow returns a non-ok status to RocksDB. Note
+    // that this does not violate atomicity. Should we delete the new MANIFEST
+    // successfully, a subsequent recovery attempt will likely see the CURRENT
+    // pointing to the new MANIFEST, thus fail. We will not be able to open the
+    // DB again. Therefore, if manifest operations succeed, we should keep the
+    // the new MANIFEST. If the process proceeds, any future LogAndApply() call
+    // will switch to a new MANIFEST and update CURRENT. If user tries to
+    // re-open the DB,
+    // a) CURRENT points to the new MANIFEST, and the new MANIFEST is present.
+    // b) CURRENT points to the original MANIFEST, and the original MANIFEST
+    //    also exists.
+    if (new_descriptor_log && !manifest_io_status.ok()) {
       ROCKS_LOG_INFO(db_options_->info_log,
                      "Deleting manifest %" PRIu64 " current manifest %" PRIu64
                      "\n",
