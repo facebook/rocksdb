@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 6.19.3 (04/19/2021)
+### Bug Fixes
+* Fixed a bug in handling file rename error in distributed/network file systems when the server succeeds but client returns error. The bug can cause CURRENT file to point to non-existing MANIFEST file, thus DB cannot be opened.
+
 ## 6.19.2 (04/08/2021)
 ### Bug Fixes
 * Fixed a backward iteration bug with partitioned filter enabled: not including the prefix of the last key of the previous filter partition in current filter partition can cause wrong iteration result.

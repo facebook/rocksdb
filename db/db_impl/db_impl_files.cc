@@ -937,7 +937,7 @@ Status DBImpl::DeleteUnreferencedSstFiles() {
     return s;
   }
 
-  if (largest_file_number > next_file_number) {
+  if (largest_file_number >= next_file_number) {
     versions_->next_file_number_.store(largest_file_number + 1);
   }
 
