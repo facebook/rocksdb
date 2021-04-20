@@ -144,7 +144,7 @@ DECLARE_bool(enable_write_thread_adaptive_yield);
 DECLARE_int32(reopen);
 DECLARE_double(bloom_bits);
 DECLARE_bool(use_block_based_filter);
-DECLARE_int32(ribbon_starting_level);
+DECLARE_bool(use_ribbon_filter);
 DECLARE_bool(partition_filters);
 DECLARE_bool(optimize_filters_for_memory);
 DECLARE_int32(index_type);
