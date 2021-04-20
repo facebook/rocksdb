@@ -572,6 +572,16 @@ jobs:
             gtest-parallel $(</tmp/test_list) --output_dir=/tmp | cat  # pipe to cat to continuously output status on circleci UI. Otherwise, no status will be printed while the job is running.
       - post-steps
 
+  build-linux-arm-test-full:
+    machine:
+      image: ubuntu-2004:202101-01
+    resource_class: arm.large
+    steps:
+      - pre-steps
+      - install-gflags
+      - run: make V=1 J=4 -j4 check | .circleci/cat_ignore_eagain
+      - post-steps
+
   build-linux-arm:
     machine:
       image: ubuntu-2004:202101-01
@@ -612,6 +622,7 @@ jobs:
             cd build
             cmake -DJNI=1 -DCMAKE_BUILD_TYPE=Release -DWITH_GFLAGS=0 ..
             make -j4 rocksdb rocksdbjni
+      - post-steps
 
   build-format-compatible:
     machine:
@@ -746,3 +757,4 @@ workflows:
                 - master
     jobs:
       - build-format-compatible
+      - build-linux-arm-test-full
