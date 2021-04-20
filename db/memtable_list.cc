@@ -113,10 +113,10 @@ bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
 }
 
 void MemTableListVersion::MultiGet(const ReadOptions& read_options,
-                                   MultiGetRange* range, ReadCallback* callback,
-                                   bool* is_blob) {
+                                   MultiGetRange* range,
+                                   ReadCallback* callback) {
   for (auto memtable : memlist_) {
-    memtable->MultiGet(read_options, range, callback, is_blob);
+    memtable->MultiGet(read_options, range, callback);
     if (range->empty()) {
       return;
     }
@@ -481,16 +481,16 @@ Status MemTableList::TryInstallMemtableFlushResults(
         // We piggyback the information of  earliest log file to keep in the
         // manifest entry for the last file flushed.
         edit_list.back()->SetMinLogNumberToKeep(min_wal_number_to_keep);
-      } else {
-        min_wal_number_to_keep =
-            PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
       }
 
       std::unique_ptr<VersionEdit> wal_deletion;
       if (vset->db_options()->track_and_verify_wals_in_manifest) {
-        vset->SetMinWalNumberToKeepInWalSet(min_wal_number_to_keep);
-        const auto& wals = vset->GetWalSet().GetWals();
-        if (!wals.empty() && min_wal_number_to_keep > wals.begin()->first) {
+        if (!vset->db_options()->allow_2pc) {
+          min_wal_number_to_keep =
+              PrecomputeMinLogNumberToKeepNon2PC(vset, *cfd, edit_list);
+        }
+        if (min_wal_number_to_keep >
+            vset->GetWalSet().GetMinWalNumberToKeep()) {
           wal_deletion.reset(new VersionEdit);
           wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
           edit_list.push_back(wal_deletion.get());
@@ -521,7 +521,7 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   InstallNewVersion();
   // this method is used to move mutable memtable into an immutable list.
   // since mutable memtable is already refcounted by the DBImpl,
-  // and when moving to the imutable list we don't unref it,
+  // and when moving to the immutable list we don't unref it,
   // we don't have to ref the memtable here. we just take over the
   // reference from the DBImpl.
   current_->Add(m, to_delete);
@@ -758,9 +758,7 @@ Status InstallMemtableAtomicFlushResults(
       min_wal_number_to_keep =
           PrecomputeMinLogNumberToKeepNon2PC(vset, cfds, edit_lists);
     }
-    vset->SetMinWalNumberToKeepInWalSet(min_wal_number_to_keep);
-    const auto& wals = vset->GetWalSet().GetWals();
-    if (!wals.empty() && min_wal_number_to_keep > wals.begin()->first) {
+    if (min_wal_number_to_keep > vset->GetWalSet().GetMinWalNumberToKeep()) {
       wal_deletion.reset(new VersionEdit);
       wal_deletion->DeleteWalsBefore(min_wal_number_to_keep);
       edit_lists.back().push_back(wal_deletion.get());

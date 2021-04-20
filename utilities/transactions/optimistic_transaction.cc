@@ -177,8 +177,6 @@ Status OptimisticTransaction::TryLock(ColumnFamilyHandle* column_family,
 // Should only be called on writer thread in order to avoid any race conditions
 // in detecting write conflicts.
 Status OptimisticTransaction::CheckTransactionForConflicts(DB* db) {
-  Status result;
-
   auto db_impl = static_cast_with_check<DBImpl>(db);
 
   // Since we are on the write thread and do not want to block other writers,

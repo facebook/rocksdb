@@ -297,15 +297,14 @@ class CompactionJobStatsTest : public testing::Test,
     return result;
   }
 
-  uint64_t Size(const Slice& start, const Slice& limit, int cf = 0) {
+  Status Size(uint64_t* size, const Slice& start, const Slice& limit,
+              int cf = 0) {
     Range r(start, limit);
-    uint64_t size;
     if (cf == 0) {
-      db_->GetApproximateSizes(&r, 1, &size);
+      return db_->GetApproximateSizes(&r, 1, size);
     } else {
-      db_->GetApproximateSizes(handles_[1], &r, 1, &size);
+      return db_->GetApproximateSizes(handles_[1], &r, 1, size);
     }
-    return size;
   }
 
   void Compact(int cf, const Slice& start, const Slice& limit,

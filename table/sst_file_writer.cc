@@ -8,8 +8,8 @@
 #include <vector>
 
 #include "db/dbformat.h"
-#include "env/composite_env_wrapper.h"
 #include "file/writable_file_writer.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block_based_table_builder.h"
 #include "table/sst_file_writer_collectors.h"
@@ -99,7 +99,8 @@ struct SstFileWriter::Rep {
     file_info.largest_key.assign(user_key.data(), user_key.size());
     file_info.file_size = builder->FileSize();
 
-    return InvalidatePageCache(false /* closing */);
+    InvalidatePageCache(false /* closing */).PermitUncheckedError();
+    return Status::OK();
   }
 
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
@@ -133,7 +134,8 @@ struct SstFileWriter::Rep {
     file_info.num_range_del_entries++;
     file_info.file_size = builder->FileSize();
 
-    return InvalidatePageCache(false /* closing */);
+    InvalidatePageCache(false /* closing */).PermitUncheckedError();
+    return Status::OK();
   }
 
   Status InvalidatePageCache(bool closing) {
@@ -182,8 +184,10 @@ SstFileWriter::~SstFileWriter() {
 Status SstFileWriter::Open(const std::string& file_path) {
   Rep* r = rep_.get();
   Status s;
-  std::unique_ptr<WritableFile> sst_file;
-  s = r->ioptions.env->NewWritableFile(file_path, &sst_file, r->env_options);
+  std::unique_ptr<FSWritableFile> sst_file;
+  FileOptions cur_file_opts(r->env_options);
+  s = r->ioptions.env->GetFileSystem()->NewWritableFile(
+      file_path, cur_file_opts, &sst_file, nullptr);
   if (!s.ok()) {
     return s;
   }
@@ -208,8 +212,6 @@ Status SstFileWriter::Open(const std::string& file_path) {
     compression_type = r->mutable_cf_options.compression;
     compression_opts = r->mutable_cf_options.compression_opts;
   }
-  uint64_t sample_for_compression =
-      r->mutable_cf_options.sample_for_compression;
 
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
@@ -250,16 +252,16 @@ Status SstFileWriter::Open(const std::string& file_path) {
   }
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, r->internal_comparator,
-      &int_tbl_prop_collector_factories, compression_type,
-      sample_for_compression, compression_opts, r->skip_filters,
-      r->column_family_name, unknown_level, 0 /* creation_time */,
-      0 /* oldest_key_time */, 0 /* target_file_size */,
+      &int_tbl_prop_collector_factories, compression_type, compression_opts,
+      r->skip_filters, r->column_family_name, unknown_level,
+      0 /* creation_time */, 0 /* oldest_key_time */, 0 /* target_file_size */,
       0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id);
+  FileTypeSet tmp_set = r->ioptions.checksum_handoff_file_types;
   r->file_writer.reset(new WritableFileWriter(
-      NewLegacyWritableFileWrapper(std::move(sst_file)), file_path,
-      r->env_options, r->ioptions.env, nullptr /* io_tracer */,
-      nullptr /* stats */, r->ioptions.listeners,
-      r->ioptions.file_checksum_gen_factory));
+      std::move(sst_file), file_path, r->env_options, r->ioptions.clock,
+      nullptr /* io_tracer */, nullptr /* stats */, r->ioptions.listeners,
+      r->ioptions.file_checksum_gen_factory,
+      tmp_set.Contains(FileType::kTableFile)));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.
@@ -308,9 +310,7 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
 
   if (s.ok()) {
     s = r->file_writer->Sync(r->ioptions.use_fsync);
-    if (s.ok()) {
-      s = r->InvalidatePageCache(true /* closing */);
-    }
+    r->InvalidatePageCache(true /* closing */).PermitUncheckedError();
     if (s.ok()) {
       s = r->file_writer->Close();
     }

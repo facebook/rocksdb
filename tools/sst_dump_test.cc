@@ -94,29 +94,27 @@ class SSTDumpToolTest : public testing::Test {
 
   void createSST(const Options& opts, const std::string& file_name) {
     Env* test_env = opts.env;
-    EnvOptions env_options(opts);
+    FileOptions file_options(opts);
     ReadOptions read_options;
     const ImmutableCFOptions imoptions(opts);
     const MutableCFOptions moptions(opts);
     ROCKSDB_NAMESPACE::InternalKeyComparator ikc(opts.comparator);
     std::unique_ptr<TableBuilder> tb;
 
-    std::unique_ptr<WritableFile> file;
-    ASSERT_OK(test_env->NewWritableFile(file_name, &file, env_options));
 
     std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
         int_tbl_prop_collector_factories;
-    std::unique_ptr<WritableFileWriter> file_writer(
-        new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
-                               file_name, EnvOptions()));
+    std::unique_ptr<WritableFileWriter> file_writer;
+    ASSERT_OK(WritableFileWriter::Create(test_env->GetFileSystem(), file_name,
+                                         file_options, &file_writer, nullptr));
+
     std::string column_family_name;
     int unknown_level = -1;
     tb.reset(opts.table_factory->NewTableBuilder(
         TableBuilderOptions(
             imoptions, moptions, ikc, &int_tbl_prop_collector_factories,
-            CompressionType::kNoCompression, 0 /* sample_for_compression */,
-            CompressionOptions(), false /* skip_filters */, column_family_name,
-            unknown_level),
+            CompressionType::kNoCompression, CompressionOptions(),
+            false /* skip_filters */, column_family_name, unknown_level),
         TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
         file_writer.get()));
 
@@ -126,7 +124,7 @@ class SSTDumpToolTest : public testing::Test {
       tb->Add(MakeKey(i), MakeValue(i));
     }
     ASSERT_OK(tb->Finish());
-    file_writer->Close();
+    ASSERT_OK(file_writer->Close());
   }
 
  protected:
@@ -392,6 +390,8 @@ TEST_F(SSTDumpToolTest, RawOutput) {
   }
 
   ASSERT_EQ(kNumKey, key_count);
+
+  raw_file.close();
 
   cleanup(opts, file_path);
   for (int i = 0; i < 3; i++) {

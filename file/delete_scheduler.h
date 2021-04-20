@@ -15,26 +15,28 @@
 #include "monitoring/instrumented_mutex.h"
 #include "port/port.h"
 
-#include "rocksdb/file_system.h"
 #include "rocksdb/status.h"
 
 namespace ROCKSDB_NAMESPACE {
 
 class Env;
+class FileSystem;
 class Logger;
 class SstFileManagerImpl;
+class SystemClock;
 
 // DeleteScheduler allows the DB to enforce a rate limit on file deletion,
 // Instead of deleteing files immediately, files are marked as trash
-// and deleted in a background thread that apply sleep penlty between deletes
+// and deleted in a background thread that apply sleep penalty between deletes
 // if they are happening in a rate faster than rate_bytes_per_sec,
 //
 // Rate limiting can be turned off by setting rate_bytes_per_sec = 0, In this
 // case DeleteScheduler will delete files immediately.
 class DeleteScheduler {
  public:
-  DeleteScheduler(Env* env, FileSystem* fs, int64_t rate_bytes_per_sec,
-                  Logger* info_log, SstFileManagerImpl* sst_file_manager,
+  DeleteScheduler(SystemClock* clock, FileSystem* fs,
+                  int64_t rate_bytes_per_sec, Logger* info_log,
+                  SstFileManagerImpl* sst_file_manager,
                   double max_trash_db_ratio, uint64_t bytes_max_delete_chunk);
 
   ~DeleteScheduler();
@@ -48,7 +50,7 @@ class DeleteScheduler {
     MaybeCreateBackgroundThread();
   }
 
-  // Mark file as trash directory and schedule it's deletion. If force_bg is
+  // Mark file as trash directory and schedule its deletion. If force_bg is
   // set, it forces the file to always be deleted in the background thread,
   // except when rate limiting is disabled
   Status DeleteFile(const std::string& fname, const std::string& dir_to_sync,
@@ -78,7 +80,7 @@ class DeleteScheduler {
   static const std::string kTrashExtension;
   static bool IsTrashFile(const std::string& file_path);
 
-  // Check if there are any .trash filse in path, and schedule their deletion
+  // Check if there are any .trash files in path, and schedule their deletion
   // Or delete immediately if sst_file_manager is nullptr
   static Status CleanupDirectory(Env* env, SstFileManagerImpl* sfm,
                                  const std::string& path);
@@ -99,7 +101,7 @@ class DeleteScheduler {
 
   void MaybeCreateBackgroundThread();
 
-  Env* env_;
+  SystemClock* clock_;
   FileSystem* fs_;
 
   // total size of trash files

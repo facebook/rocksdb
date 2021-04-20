@@ -945,6 +945,7 @@ rocksdb_convert_cf_paths_from_java_helper(JNIEnv* env, jobjectArray path_array,
   jlong* size_array_ptr = env->GetLongArrayElements(size_array, nullptr);
   if (nullptr == size_array_ptr) {
     // exception thrown: OutOfMemoryError
+    *has_exception = JNI_TRUE;
     return {};
   }
   std::vector<ROCKSDB_NAMESPACE::DbPath> cf_paths;
@@ -977,7 +978,7 @@ void Java_org_rocksdb_Options_setCfPaths(JNIEnv* env, jclass, jlong jhandle,
                                          jobjectArray path_array,
                                          jlongArray size_array) {
   auto* options = reinterpret_cast<ROCKSDB_NAMESPACE::Options*>(jhandle);
-  jboolean has_exception;
+  jboolean has_exception = JNI_FALSE;
   std::vector<ROCKSDB_NAMESPACE::DbPath> cf_paths =
       rocksdb_convert_cf_paths_from_java_helper(env, path_array, size_array,
                                                 &has_exception);
@@ -4142,7 +4143,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setCfPaths(JNIEnv* env, jclass,
                                                      jlongArray size_array) {
   auto* options =
       reinterpret_cast<ROCKSDB_NAMESPACE::ColumnFamilyOptions*>(jhandle);
-  jboolean has_exception;
+  jboolean has_exception = JNI_FALSE;
   std::vector<ROCKSDB_NAMESPACE::DbPath> cf_paths =
       rocksdb_convert_cf_paths_from_java_helper(env, path_array, size_array,
                                                 &has_exception);

@@ -5,6 +5,8 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "db/compaction/compaction_job.h"
+
 #include <algorithm>
 #include <array>
 #include <cinttypes>
@@ -14,13 +16,13 @@
 
 #include "db/blob/blob_index.h"
 #include "db/column_family.h"
-#include "db/compaction/compaction_job.h"
 #include "db/db_impl/db_impl.h"
 #include "db/error_handler.h"
 #include "db/version_set.h"
 #include "file/writable_file_writer.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
+#include "rocksdb/file_system.h"
 #include "rocksdb/options.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/mock_table.h"
@@ -72,7 +74,7 @@ class CompactionJobTestBase : public testing::Test {
   CompactionJobTestBase(std::string dbname, const Comparator* ucmp,
                         std::function<std::string(uint64_t)> encode_u64_ts)
       : env_(Env::Default()),
-        fs_(std::make_shared<LegacyFileSystemWrapper>(env_)),
+        fs_(env_->GetFileSystem()),
         dbname_(std::move(dbname)),
         ucmp_(ucmp),
         db_options_(),
@@ -269,7 +271,7 @@ class CompactionJobTestBase : public testing::Test {
                        &write_buffer_manager_, &write_controller_,
                        /*block_cache_tracer=*/nullptr, /*io_tracer=*/nullptr));
     compaction_job_stats_.Reset();
-    SetIdentityFile(env_, dbname_);
+    ASSERT_OK(SetIdentityFile(env_, dbname_));
 
     VersionEdit new_db;
     new_db.SetLogNumber(0);
@@ -277,12 +279,13 @@ class CompactionJobTestBase : public testing::Test {
     new_db.SetLastSequence(0);
 
     const std::string manifest = DescriptorFileName(dbname_, 1);
-    std::unique_ptr<WritableFile> file;
-    Status s = env_->NewWritableFile(
-        manifest, &file, env_->OptimizeForManifestWrite(env_options_));
+    std::unique_ptr<WritableFileWriter> file_writer;
+    const auto& fs = env_->GetFileSystem();
+    Status s = WritableFileWriter::Create(
+        fs, manifest, fs->OptimizeForManifestWrite(env_options_), &file_writer,
+        nullptr);
+
     ASSERT_OK(s);
-    std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
-        NewLegacyWritableFileWrapper(std::move(file)), manifest, env_options_));
     {
       log::Writer log(std::move(file_writer), 0, false);
       std::string record;

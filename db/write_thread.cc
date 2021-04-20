@@ -208,6 +208,7 @@ uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
 }
 
 void WriteThread::SetState(Writer* w, uint8_t new_state) {
+  assert(w);
   auto state = w->state.load(std::memory_order_acquire);
   if (state == STATE_LOCKED_WAITING ||
       !w->state.compare_exchange_strong(state, new_state)) {
@@ -461,6 +462,11 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
     if (w->disable_wal != leader->disable_wal) {
       // Do not mix writes that enable WAL with the ones whose
       // WAL disabled.
+      break;
+    }
+
+    if (w->protection_bytes_per_key != leader->protection_bytes_per_key) {
+      // Do not mix writes with different levels of integrity protection.
       break;
     }
 

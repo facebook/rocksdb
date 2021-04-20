@@ -85,20 +85,19 @@ TEST(WalSet, AddObsoleteWal) {
   constexpr WalNumber kNumber = 100;
   WalSet wals;
   ASSERT_OK(wals.DeleteWalsBefore(kNumber + 1));
-  Status s = wals.AddWal(WalAddition(kNumber));
-  ASSERT_TRUE(s.IsCorruption());
-  ASSERT_TRUE(s.ToString().find("WAL 100 is obsolete") != std::string::npos);
+  ASSERT_OK(wals.AddWal(WalAddition(kNumber)));
+  ASSERT_TRUE(wals.GetWals().empty());
 }
 
 TEST(WalSet, MinWalNumberToKeep) {
   constexpr WalNumber kNumber = 100;
   WalSet wals;
   ASSERT_EQ(wals.GetMinWalNumberToKeep(), 0);
-  wals.SetMinWalNumberToKeep(kNumber);
+  ASSERT_OK(wals.DeleteWalsBefore(kNumber));
   ASSERT_EQ(wals.GetMinWalNumberToKeep(), kNumber);
-  wals.SetMinWalNumberToKeep(kNumber - 1);
+  ASSERT_OK(wals.DeleteWalsBefore(kNumber - 1));
   ASSERT_EQ(wals.GetMinWalNumberToKeep(), kNumber);
-  wals.SetMinWalNumberToKeep(kNumber + 1);
+  ASSERT_OK(wals.DeleteWalsBefore(kNumber + 1));
   ASSERT_EQ(wals.GetMinWalNumberToKeep(), kNumber + 1);
 }
 

@@ -345,8 +345,9 @@ class TableConstructor : public Constructor {
                     const stl_wrappers::KVMap& kv_map) override {
     Reset();
     soptions.use_mmap_reads = ioptions.allow_mmap_reads;
-    file_writer_.reset(test::GetWritableFileWriter(new test::StringSink(),
-                                                   "" /* don't care */));
+    std::unique_ptr<FSWritableFile> sink(new test::StringSink());
+    file_writer_.reset(new WritableFileWriter(
+        std::move(sink), "" /* don't care */, FileOptions()));
     std::unique_ptr<TableBuilder> builder;
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
         int_tbl_prop_collector_factories;
@@ -362,9 +363,9 @@ class TableConstructor : public Constructor {
     builder.reset(ioptions.table_factory->NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, internal_comparator,
                             &int_tbl_prop_collector_factories,
-                            options.compression, options.sample_for_compression,
-                            options.compression_opts, false /* skip_filters */,
-                            column_family_name, level_),
+                            options.compression, options.compression_opts,
+                            false /* skip_filters */, column_family_name,
+                            level_),
         TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
         file_writer_.get()));
 
@@ -377,18 +378,20 @@ class TableConstructor : public Constructor {
       } else {
         builder->Add(kv.first, kv.second);
       }
-      EXPECT_TRUE(builder->status().ok());
+      EXPECT_OK(builder->status());
     }
     Status s = builder->Finish();
-    file_writer_->Flush();
+    EXPECT_OK(file_writer_->Flush());
     EXPECT_TRUE(s.ok()) << s.ToString();
 
     EXPECT_EQ(TEST_GetSink()->contents().size(), builder->FileSize());
 
     // Open the table
     uniq_id_ = cur_uniq_id_++;
-    file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
-        TEST_GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
+    std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
+        TEST_GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads));
+
+    file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
     const bool kSkipFilters = true;
     const bool kImmortal = true;
     return ioptions.table_factory->NewTableReader(
@@ -425,8 +428,10 @@ class TableConstructor : public Constructor {
 
   virtual Status Reopen(const ImmutableCFOptions& ioptions,
                         const MutableCFOptions& moptions) {
-    file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
-        TEST_GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
+    std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
+        TEST_GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads));
+
+    file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
     return ioptions.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(), soptions,
                            *last_internal_key_),
@@ -445,8 +450,7 @@ class TableConstructor : public Constructor {
   bool ConvertToInternalKey() { return convert_to_internal_key_; }
 
   test::StringSink* TEST_GetSink() {
-    return ROCKSDB_NAMESPACE::test::GetStringSinkFromLegacyWriter(
-        file_writer_.get());
+    return static_cast<test::StringSink*>(file_writer_->writable_file());
   }
 
   BlockCacheTracer block_cache_tracer_;
@@ -504,7 +508,8 @@ class MemTableConstructor: public Constructor {
     memtable_->Ref();
     int seq = 1;
     for (const auto& kv : kv_map) {
-      Status s = memtable_->Add(seq, kTypeValue, kv.first, kv.second);
+      Status s = memtable_->Add(seq, kTypeValue, kv.first, kv.second,
+                                nullptr /* kv_prot_info */);
       if (!s.ok()) {
         return s;
       }
@@ -1135,7 +1140,8 @@ class BlockBasedTableTest
                                  &trace_writer));
     // Always return Status::OK().
     assert(c->block_cache_tracer_
-               .StartTrace(env_, trace_opt, std::move(trace_writer))
+               .StartTrace(env_->GetSystemClock().get(), trace_opt,
+                           std::move(trace_writer))
                .ok());
     {
       std::string user_key = "k01";
@@ -1230,7 +1236,9 @@ class FileChecksumTestHelper {
 
   void CreateWriteableFile() {
     sink_ = new test::StringSink();
-    file_writer_.reset(test::GetWritableFileWriter(sink_, "" /* don't care */));
+    std::unique_ptr<FSWritableFile> holder(sink_);
+    file_writer_.reset(new WritableFileWriter(
+        std::move(holder), "" /* don't care */, FileOptions()));
   }
 
   void SetFileChecksumGenerator(FileChecksumGenerator* checksum_generator) {
@@ -1270,15 +1278,15 @@ class FileChecksumTestHelper {
       EXPECT_TRUE(table_builder_->status().ok());
     }
     Status s = table_builder_->Finish();
-    file_writer_->Flush();
-    EXPECT_TRUE(s.ok());
+    EXPECT_OK(file_writer_->Flush());
+    EXPECT_OK(s);
 
     EXPECT_EQ(sink_->contents().size(), table_builder_->FileSize());
     return s;
   }
 
   std::string GetFileChecksum() {
-    file_writer_->Close();
+    EXPECT_OK(file_writer_->Close());
     return table_builder_->GetFileChecksum();
   }
 
@@ -1291,10 +1299,11 @@ class FileChecksumTestHelper {
     assert(file_checksum_generator != nullptr);
     cur_uniq_id_ = checksum_uniq_id_++;
     test::StringSink* ss_rw =
-        ROCKSDB_NAMESPACE::test::GetStringSinkFromLegacyWriter(
-            file_writer_.get());
-    file_reader_.reset(test::GetRandomAccessFileReader(
-        new test::StringSource(ss_rw->contents())));
+        static_cast<test::StringSink*>(file_writer_->writable_file());
+    std::unique_ptr<FSRandomAccessFile> source(
+        new test::StringSource(ss_rw->contents()));
+    file_reader_.reset(new RandomAccessFileReader(std::move(source), "test"));
+
     std::unique_ptr<char[]> scratch(new char[2048]);
     Slice result;
     uint64_t offset = 0;
@@ -3316,14 +3325,13 @@ TEST_P(BlockBasedTableTest, NoFileChecksum) {
   builder.reset(ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, *comparator,
                           &int_tbl_prop_collector_factories,
-                          options.compression, options.sample_for_compression,
-                          options.compression_opts, false /* skip_filters */,
-                          column_family_name, level),
+                          options.compression, options.compression_opts,
+                          false /* skip_filters */, column_family_name, level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
-  f.WriteKVAndFlushTable();
+  ASSERT_OK(f.WriteKVAndFlushTable());
   ASSERT_STREQ(f.GetFileChecksumFuncName(), kUnknownFileChecksumFuncName);
   ASSERT_STREQ(f.GetFileChecksum().c_str(), kUnknownFileChecksum);
 }
@@ -3355,14 +3363,13 @@ TEST_P(BlockBasedTableTest, Crc32cFileChecksum) {
   builder.reset(ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, *comparator,
                           &int_tbl_prop_collector_factories,
-                          options.compression, options.sample_for_compression,
-                          options.compression_opts, false /* skip_filters */,
-                          column_family_name, level),
+                          options.compression, options.compression_opts,
+                          false /* skip_filters */, column_family_name, level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
-  f.WriteKVAndFlushTable();
+  ASSERT_OK(f.WriteKVAndFlushTable());
   ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
 
   std::unique_ptr<FileChecksumGenerator> checksum_crc32c_gen2 =
@@ -3392,9 +3399,9 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   plain_table_options.hash_table_ratio = 0;
 
   PlainTableFactory factory(plain_table_options);
-  test::StringSink sink;
-  std::unique_ptr<WritableFileWriter> file_writer(
-      test::GetWritableFileWriter(new test::StringSink(), "" /* don't care */));
+  std::unique_ptr<FSWritableFile> sink(new test::StringSink());
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(sink), "" /* don't care */, FileOptions()));
   Options options;
   const ImmutableCFOptions ioptions(options);
   const MutableCFOptions moptions(options);
@@ -3404,10 +3411,10 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   std::string column_family_name;
   int unknown_level = -1;
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
-      TableBuilderOptions(
-          ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
-          kNoCompression, 0 /* sample_for_compression */, CompressionOptions(),
-          false /* skip_filters */, column_family_name, unknown_level),
+      TableBuilderOptions(ioptions, moptions, ikc,
+                          &int_tbl_prop_collector_factories, kNoCompression,
+                          CompressionOptions(), false /* skip_filters */,
+                          column_family_name, unknown_level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
@@ -3418,13 +3425,14 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
     builder->Add(key, value);
   }
   ASSERT_OK(builder->Finish());
-  file_writer->Flush();
+  ASSERT_OK(file_writer->Flush());
 
   test::StringSink* ss =
-      ROCKSDB_NAMESPACE::test::GetStringSinkFromLegacyWriter(file_writer.get());
+      static_cast<test::StringSink*>(file_writer->writable_file());
+  std::unique_ptr<FSRandomAccessFile> source(
+      new test::StringSource(ss->contents(), 72242, true));
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      test::GetRandomAccessFileReader(
-          new test::StringSource(ss->contents(), 72242, true)));
+      new RandomAccessFileReader(std::move(source), "test"));
 
   TableProperties* props = nullptr;
   auto s = ReadTableProperties(file_reader.get(), ss->contents().size(),
@@ -3460,15 +3468,15 @@ TEST_F(PlainTableTest, NoFileChecksum) {
   f.CreateWriteableFile();
 
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
-      TableBuilderOptions(
-          ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
-          kNoCompression, 0 /* sample_for_compression */, CompressionOptions(),
-          false /* skip_filters */, column_family_name, unknown_level),
+      TableBuilderOptions(ioptions, moptions, ikc,
+                          &int_tbl_prop_collector_factories, kNoCompression,
+                          CompressionOptions(), false /* skip_filters */,
+                          column_family_name, unknown_level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
-  f.WriteKVAndFlushTable();
+  ASSERT_OK(f.WriteKVAndFlushTable());
   ASSERT_STREQ(f.GetFileChecksumFuncName(), kUnknownFileChecksumFuncName);
   EXPECT_EQ(f.GetFileChecksum(), kUnknownFileChecksum);
 }
@@ -3502,15 +3510,15 @@ TEST_F(PlainTableTest, Crc32cFileChecksum) {
   f.SetFileChecksumGenerator(checksum_crc32c_gen1.release());
 
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
-      TableBuilderOptions(
-          ioptions, moptions, ikc, &int_tbl_prop_collector_factories,
-          kNoCompression, 0 /* sample_for_compression */, CompressionOptions(),
-          false /* skip_filters */, column_family_name, unknown_level),
+      TableBuilderOptions(ioptions, moptions, ikc,
+                          &int_tbl_prop_collector_factories, kNoCompression,
+                          CompressionOptions(), false /* skip_filters */,
+                          column_family_name, unknown_level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       f.GetFileWriter()));
   ASSERT_OK(f.ResetTableBuilder(std::move(builder)));
   f.AddKVtoKVMap(1000);
-  f.WriteKVAndFlushTable();
+  ASSERT_OK(f.WriteKVAndFlushTable());
   ASSERT_STREQ(f.GetFileChecksumFuncName(), "FileChecksumCrc32c");
 
   std::unique_ptr<FileChecksumGenerator> checksum_crc32c_gen2 =
@@ -3912,6 +3920,8 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
   table_options.index_block_restart_interval = index_block_restart_interval;
   if (value_delta_encoding) {
     table_options.format_version = 4;
+  } else {
+    table_options.format_version = 3;
   }
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
 
@@ -3978,8 +3988,7 @@ class TestPrefixExtractor : public ROCKSDB_NAMESPACE::SliceTransform {
   }
 
   bool InDomain(const ROCKSDB_NAMESPACE::Slice& src) const override {
-    assert(IsValid(src));
-    return true;
+    return IsValid(src);
   }
 
   bool InRange(const ROCKSDB_NAMESPACE::Slice& /*dst*/) const override {
@@ -4022,7 +4031,7 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
 
   const std::string kDBPath = test::PerThreadDBPath("table_prefix_test");
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  DestroyDB(kDBPath, options);
+  ASSERT_OK(DestroyDB(kDBPath, options));
   ROCKSDB_NAMESPACE::DB* db;
   ASSERT_OK(ROCKSDB_NAMESPACE::DB::Open(options, kDBPath, &db));
 
@@ -4052,8 +4061,9 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
 TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   test::StringSink* sink = new test::StringSink();
-  std::unique_ptr<WritableFileWriter> file_writer(
-      test::GetWritableFileWriter(sink, "" /* don't care */));
+  std::unique_ptr<FSWritableFile> holder(sink);
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(holder), "" /* don't care */, FileOptions()));
   Options options;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   const ImmutableCFOptions ioptions(options);
@@ -4068,8 +4078,8 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
   std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, ikc,
                           &int_tbl_prop_collector_factories, kNoCompression,
-                          0 /* sample_for_compression */, CompressionOptions(),
-                          false /* skip_filters */, column_family_name, -1),
+                          CompressionOptions(), false /* skip_filters */,
+                          column_family_name, -1),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
@@ -4081,7 +4091,7 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
     builder->Add(ik.Encode(), value);
   }
   ASSERT_OK(builder->Finish());
-  file_writer->Flush();
+  ASSERT_OK(file_writer->Flush());
 
   test::RandomRWStringSink ss_rw(sink);
   uint32_t version;
@@ -4090,9 +4100,10 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
 
   // Helper function to get version, global_seqno, global_seqno_offset
   std::function<void()> GetVersionAndGlobalSeqno = [&]() {
+    std::unique_ptr<FSRandomAccessFile> source(
+        new test::StringSource(ss_rw.contents(), 73342, true));
     std::unique_ptr<RandomAccessFileReader> file_reader(
-        test::GetRandomAccessFileReader(
-            new test::StringSource(ss_rw.contents(), 73342, true)));
+        new RandomAccessFileReader(std::move(source), ""));
 
     TableProperties* props = nullptr;
     ASSERT_OK(ReadTableProperties(file_reader.get(), ss_rw.contents().size(),
@@ -4115,16 +4126,18 @@ TEST_P(BlockBasedTableTest, DISABLED_TableWithGlobalSeqno) {
     std::string new_global_seqno;
     PutFixed64(&new_global_seqno, val);
 
-    ASSERT_OK(ss_rw.Write(global_seqno_offset, new_global_seqno));
+    ASSERT_OK(ss_rw.Write(global_seqno_offset, new_global_seqno, IOOptions(),
+                          nullptr));
   };
 
   // Helper function to get the contents of the table InternalIterator
   std::unique_ptr<TableReader> table_reader;
   const ReadOptions read_options;
   std::function<InternalIterator*()> GetTableInternalIter = [&]() {
+    std::unique_ptr<FSRandomAccessFile> source(
+        new test::StringSource(ss_rw.contents(), 73342, true));
     std::unique_ptr<RandomAccessFileReader> file_reader(
-        test::GetRandomAccessFileReader(
-            new test::StringSource(ss_rw.contents(), 73342, true)));
+        new RandomAccessFileReader(std::move(source), ""));
 
     options.table_factory->NewTableReader(
         TableReaderOptions(ioptions, moptions.prefix_extractor.get(),
@@ -4236,8 +4249,9 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   bbto.block_align = true;
   test::StringSink* sink = new test::StringSink();
-  std::unique_ptr<WritableFileWriter> file_writer(
-      test::GetWritableFileWriter(sink, "" /* don't care */));
+  std::unique_ptr<FSWritableFile> holder(sink);
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(holder), "" /* don't care */, FileOptions()));
   Options options;
   options.compression = kNoCompression;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
@@ -4250,8 +4264,8 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
   std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, ikc,
                           &int_tbl_prop_collector_factories, kNoCompression,
-                          0 /* sample_for_compression */, CompressionOptions(),
-                          false /* skip_filters */, column_family_name, -1),
+                          CompressionOptions(), false /* skip_filters */,
+                          column_family_name, -1),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
@@ -4265,19 +4279,18 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
     builder->Add(ik.Encode(), value);
   }
   ASSERT_OK(builder->Finish());
-  file_writer->Flush();
+  ASSERT_OK(file_writer->Flush());
 
-  test::RandomRWStringSink ss_rw(sink);
+  std::unique_ptr<FSRandomAccessFile> source(
+      new test::StringSource(sink->contents(), 73342, false));
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      test::GetRandomAccessFileReader(
-          new test::StringSource(ss_rw.contents(), 73342, true)));
-
+      new RandomAccessFileReader(std::move(source), "test"));
   // Helper function to get version, global_seqno, global_seqno_offset
   std::function<void()> VerifyBlockAlignment = [&]() {
     TableProperties* props = nullptr;
-    ASSERT_OK(ReadTableProperties(file_reader.get(), ss_rw.contents().size(),
-                                  kBlockBasedTableMagicNumber, ioptions,
-                                  &props, true /* compression_type_missing */));
+    ASSERT_OK(ReadTableProperties(file_reader.get(), sink->contents().size(),
+                                  kBlockBasedTableMagicNumber, ioptions, &props,
+                                  true /* compression_type_missing */));
 
     uint64_t data_block_size = props->data_size / props->num_data_blocks;
     ASSERT_EQ(data_block_size, 4096);
@@ -4301,7 +4314,7 @@ TEST_P(BlockBasedTableTest, BlockAlignTest) {
       TableReaderOptions(ioptions2, moptions2.prefix_extractor.get(),
                          EnvOptions(),
                          GetPlainInternalComparator(options2.comparator)),
-      std::move(file_reader), ss_rw.contents().size(), &table_reader));
+      std::move(file_reader), sink->contents().size(), &table_reader));
 
   ReadOptions read_options;
   std::unique_ptr<InternalIterator> db_iter(table_reader->NewIterator(
@@ -4328,8 +4341,9 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
   BlockBasedTableOptions bbto = GetBlockBasedTableOptions();
   bbto.block_align = true;
   test::StringSink* sink = new test::StringSink();
-  std::unique_ptr<WritableFileWriter> file_writer(
-      test::GetWritableFileWriter(sink, "" /* don't care */));
+  std::unique_ptr<FSWritableFile> holder(sink);
+  std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
+      std::move(holder), "" /* don't care */, FileOptions()));
 
   Options options;
   options.compression = kNoCompression;
@@ -4345,8 +4359,8 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
   std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, moptions, ikc,
                           &int_tbl_prop_collector_factories, kNoCompression,
-                          0 /* sample_for_compression */, CompressionOptions(),
-                          false /* skip_filters */, column_family_name, -1),
+                          CompressionOptions(), false /* skip_filters */,
+                          column_family_name, -1),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
@@ -4360,16 +4374,16 @@ TEST_P(BlockBasedTableTest, PropertiesBlockRestartPointTest) {
     builder->Add(ik.Encode(), value);
   }
   ASSERT_OK(builder->Finish());
-  file_writer->Flush();
+  ASSERT_OK(file_writer->Flush());
 
-  test::RandomRWStringSink ss_rw(sink);
+  std::unique_ptr<FSRandomAccessFile> source(
+      new test::StringSource(sink->contents(), 73342, true));
   std::unique_ptr<RandomAccessFileReader> file_reader(
-      test::GetRandomAccessFileReader(
-          new test::StringSource(ss_rw.contents(), 73342, true)));
+      new RandomAccessFileReader(std::move(source), "test"));
 
   {
     RandomAccessFileReader* file = file_reader.get();
-    uint64_t file_size = ss_rw.contents().size();
+    uint64_t file_size = sink->contents().size();
 
     Footer footer;
     IOOptions opts;
@@ -4452,10 +4466,11 @@ TEST_P(BlockBasedTableTest, PropertiesMetaBlockLast) {
 
   // get file reader
   test::StringSink* table_sink = c.TEST_GetSink();
-  std::unique_ptr<RandomAccessFileReader> table_reader{
-      test::GetRandomAccessFileReader(
-          new test::StringSource(table_sink->contents(), 0 /* unique_id */,
-                                 false /* allow_mmap_reads */))};
+  std::unique_ptr<FSRandomAccessFile> source(new test::StringSource(
+      table_sink->contents(), 0 /* unique_id */, false /* allow_mmap_reads */));
+
+  std::unique_ptr<RandomAccessFileReader> table_reader(
+      new RandomAccessFileReader(std::move(source), "test"));
   size_t table_size = table_sink->contents().size();
 
   // read footer
@@ -4511,7 +4526,7 @@ TEST_P(BlockBasedTableTest, BadOptions) {
   const std::string kDBPath =
       test::PerThreadDBPath("block_based_table_bad_options_test");
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  DestroyDB(kDBPath, options);
+  ASSERT_OK(DestroyDB(kDBPath, options));
   ROCKSDB_NAMESPACE::DB* db;
   ASSERT_NOK(ROCKSDB_NAMESPACE::DB::Open(options, kDBPath, &db));
 
@@ -4559,9 +4574,9 @@ TEST_F(BBTTailPrefetchTest, FilePrefetchBufferMinOffset) {
   TailPrefetchStats tpstats;
   FilePrefetchBuffer buffer(nullptr, 0, 0, false, true);
   IOOptions opts;
-  buffer.TryReadFromCache(opts, 500, 10, nullptr);
-  buffer.TryReadFromCache(opts, 480, 10, nullptr);
-  buffer.TryReadFromCache(opts, 490, 10, nullptr);
+  buffer.TryReadFromCache(opts, 500, 10, nullptr, nullptr);
+  buffer.TryReadFromCache(opts, 480, 10, nullptr, nullptr);
+  buffer.TryReadFromCache(opts, 490, 10, nullptr, nullptr);
   ASSERT_EQ(480, buffer.min_offset_read());
 }
 

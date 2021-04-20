@@ -59,10 +59,10 @@ struct LRUCacheOptions {
 
   // Percentage of cache reserved for high priority entries.
   // If greater than zero, the LRU list will be split into a high-pri
-  // list and a low-pri list. High-pri entries will be insert to the
+  // list and a low-pri list. High-pri entries will be inserted to the
   // tail of high-pri list, while low-pri entries will be first inserted to
-  // the low-pri list (the midpoint). This is refered to as
-  // midpoint insertion strategy to make entries never get hit in cache
+  // the low-pri list (the midpoint). This is referred to as
+  // midpoint insertion strategy to make entries that never get hit in cache
   // age out faster.
   //
   // See also
@@ -151,7 +151,7 @@ class Cache {
   //   - Name-value option pairs -- "capacity=1M; num_shard_bits=4;
   //     For the LRUCache, the values are defined in LRUCacheOptions.
   // @param result The new Cache object
-  // @return OK if the cache was sucessfully created
+  // @return OK if the cache was successfully created
   // @return NotFound if an invalid name was specified in the value
   // @return InvalidArgument if either the options were not valid
   static Status CreateFromString(const ConfigOptions& config_options,

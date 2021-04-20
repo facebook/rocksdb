@@ -167,7 +167,10 @@ Status WriteUnpreparedTxnDB::RollbackRecoveredTransaction(
     }
 
     // The Rollback marker will be used as a batch separator
-    WriteBatchInternal::MarkRollback(&rollback_batch, rtxn->name_);
+    s = WriteBatchInternal::MarkRollback(&rollback_batch, rtxn->name_);
+    if (!s.ok()) {
+      return s;
+    }
 
     const uint64_t kNoLogRef = 0;
     const bool kDisableMemtable = true;

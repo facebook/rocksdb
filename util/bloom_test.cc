@@ -30,6 +30,9 @@ int main() {
 
 using GFLAGS_NAMESPACE::ParseCommandLineFlags;
 
+// The test is not fully designed for bits_per_key other than 10, but with
+// this parameter you can easily explore the behavior of other bits_per_key.
+// See also filter_bench.
 DEFINE_int32(bits_per_key, 10, "");
 
 namespace ROCKSDB_NAMESPACE {
@@ -158,7 +161,8 @@ TEST_F(BlockBasedBloomTest, VaryingLengths) {
     }
     Build();
 
-    ASSERT_LE(FilterSize(), (size_t)((length * 10 / 8) + 40)) << length;
+    ASSERT_LE(FilterSize(), (size_t)((length * FLAGS_bits_per_key / 8) + 40))
+        << length;
 
     // All added keys must match
     for (int i = 0; i < length; i++) {
@@ -172,11 +176,16 @@ TEST_F(BlockBasedBloomTest, VaryingLengths) {
       fprintf(stderr, "False positives: %5.2f%% @ length = %6d ; bytes = %6d\n",
               rate*100.0, length, static_cast<int>(FilterSize()));
     }
-    ASSERT_LE(rate, 0.02);   // Must not be over 2%
-    if (rate > 0.0125) mediocre_filters++;  // Allowed, but not too often
-    else good_filters++;
+    if (FLAGS_bits_per_key == 10) {
+      ASSERT_LE(rate, 0.02);  // Must not be over 2%
+      if (rate > 0.0125) {
+        mediocre_filters++;  // Allowed, but not too often
+      } else {
+        good_filters++;
+      }
+    }
   }
-  if (kVerbose >= 1) {
+  if (FLAGS_bits_per_key == 10 && kVerbose >= 1) {
     fprintf(stderr, "Filters: %d good, %d mediocre\n",
             good_filters, mediocre_filters);
   }
@@ -422,12 +431,29 @@ TEST_P(FullBloomTest, FilterSize) {
     EXPECT_EQ((bpk.second + 500) / 1000, bfp->GetWholeBitsPerKey());
 
     auto bits_builder = GetBuiltinFilterBitsBuilder();
-    for (int n = 1; n < 100; n++) {
-      auto space = bits_builder->CalculateSpace(n);
-      auto n2 = bits_builder->CalculateNumEntry(space);
+
+    size_t n = 1;
+    size_t space = 0;
+    for (; n < 1000000; n += 1 + n / 1000) {
+      // Ensure consistency between CalculateSpace and ApproximateNumEntries
+      space = bits_builder->CalculateSpace(n);
+      size_t n2 = bits_builder->ApproximateNumEntries(space);
       EXPECT_GE(n2, n);
-      auto space2 = bits_builder->CalculateSpace(n2);
-      EXPECT_EQ(space, space2);
+      size_t space2 = bits_builder->CalculateSpace(n2);
+      if (n > 12000 && GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
+        // TODO(peterd): better approximation?
+        EXPECT_GE(space2, space);
+        EXPECT_LE(space2 * 0.998, space * 1.0);
+      } else {
+        EXPECT_EQ(space2, space);
+      }
+    }
+    // Until size_t overflow
+    for (; n < (n + n / 3); n += n / 3) {
+      // Ensure space computation is not overflowing; capped is OK
+      size_t space2 = bits_builder->CalculateSpace(n);
+      EXPECT_GE(space2, space);
+      space = space2;
     }
   }
   // Check that the compiler hasn't optimized our computation into nothing
@@ -464,8 +490,8 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
     }
     Build();
 
-    EXPECT_LE(FilterSize(),
-              (size_t)((length * 10 / 8) + CACHE_LINE_SIZE * 2 + 5));
+    EXPECT_LE(FilterSize(), (size_t)((length * FLAGS_bits_per_key / 8) +
+                                     CACHE_LINE_SIZE * 2 + 5));
 
     // All added keys must match
     for (int i = 0; i < length; i++) {
@@ -479,11 +505,14 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
       fprintf(stderr, "False positives: %5.2f%% @ length = %6d ; bytes = %6d\n",
               rate*100.0, length, static_cast<int>(FilterSize()));
     }
-    EXPECT_LE(rate, 0.02);  // Must not be over 2%
-    if (rate > 0.0125)
-      mediocre_filters++;  // Allowed, but not too often
-    else
-      good_filters++;
+    if (FLAGS_bits_per_key == 10) {
+      EXPECT_LE(rate, 0.02);  // Must not be over 2%
+      if (rate > 0.0125) {
+        mediocre_filters++;  // Allowed, but not too often
+      } else {
+        good_filters++;
+      }
+    }
   }
   if (kVerbose >= 1) {
     fprintf(stderr, "Filters: %d good, %d mediocre\n",
@@ -493,10 +522,6 @@ TEST_P(FullBloomTest, FullVaryingLengths) {
 }
 
 TEST_P(FullBloomTest, OptimizeForMemory) {
-  if (GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
-    // TODO Not yet implemented
-    return;
-  }
   char buffer[sizeof(int)];
   for (bool offm : {true, false}) {
     table_options_.optimize_filters_for_memory = offm;
@@ -525,10 +550,16 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
       total_keys += nkeys;
       total_fp_rate += FalsePositiveRate();
     }
-    EXPECT_LE(total_fp_rate / double{nfilters}, 0.011);
-    EXPECT_GE(total_fp_rate / double{nfilters}, 0.008);
+    if (FLAGS_bits_per_key == 10) {
+      EXPECT_LE(total_fp_rate / double{nfilters}, 0.011);
+      EXPECT_GE(total_fp_rate / double{nfilters}, 0.008);
+    }
 
     int64_t ex_min_total_size = int64_t{FLAGS_bits_per_key} * total_keys / 8;
+    if (GetParam() == BloomFilterPolicy::kStandard128Ribbon) {
+      // ~ 30% savings vs. Bloom filter
+      ex_min_total_size = 7 * ex_min_total_size / 10;
+    }
     EXPECT_GE(static_cast<int64_t>(total_size), ex_min_total_size);
 
     int64_t blocked_bloom_overhead = nfilters * (CACHE_LINE_SIZE + 5);
@@ -556,8 +587,10 @@ TEST_P(FullBloomTest, OptimizeForMemory) {
 #ifdef ROCKSDB_JEMALLOC
       fprintf(stderr, "Jemalloc detected? %d\n", HasJemalloc());
       if (HasJemalloc()) {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
         // More than 5% internal fragmentation
         EXPECT_GE(total_mem, total_size * 105 / 100);
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
       }
 #endif  // ROCKSDB_JEMALLOC
       // No storage penalty, just usual overhead
@@ -1161,6 +1194,51 @@ INSTANTIATE_TEST_CASE_P(Full, FullBloomTest,
                         testing::Values(BloomFilterPolicy::kLegacyBloom,
                                         BloomFilterPolicy::kFastLocalBloom,
                                         BloomFilterPolicy::kStandard128Ribbon));
+
+static double GetEffectiveBitsPerKey(FilterBitsBuilder* builder) {
+  union {
+    uint64_t key_value;
+    char key_bytes[8];
+  };
+
+  const unsigned kNumKeys = 1000;
+
+  Slice key_slice{key_bytes, 8};
+  for (key_value = 0; key_value < kNumKeys; ++key_value) {
+    builder->AddKey(key_slice);
+  }
+
+  std::unique_ptr<const char[]> buf;
+  auto filter = builder->Finish(&buf);
+  return filter.size() * /*bits per byte*/ 8 / (1.0 * kNumKeys);
+}
+
+TEST(RibbonTest, RibbonTestLevelThreshold) {
+  BlockBasedTableOptions opts;
+  FilterBuildingContext ctx(opts);
+  // A few settings
+  for (int ribbon_starting_level : {0, 1, 10}) {
+    std::unique_ptr<const FilterPolicy> policy{
+        NewExperimentalRibbonFilterPolicy(8, ribbon_starting_level)};
+
+    // Claim to be generating filter for this level
+    ctx.level_at_creation = ribbon_starting_level;
+    std::unique_ptr<FilterBitsBuilder> builder{
+        policy->GetBuilderWithContext(ctx)};
+
+    // Must be Ribbon (more space efficient than 8 bits per key)
+    ASSERT_LT(GetEffectiveBitsPerKey(builder.get()), 7.5);
+
+    if (ribbon_starting_level > 0) {
+      // Claim to be generating filter for this level
+      ctx.level_at_creation = ribbon_starting_level - 1;
+      builder.reset(policy->GetBuilderWithContext(ctx));
+
+      // Must be Bloom (~ 8 bits per key)
+      ASSERT_GT(GetEffectiveBitsPerKey(builder.get()), 7.5);
+    }
+  }
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 

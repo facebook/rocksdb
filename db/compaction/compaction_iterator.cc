@@ -80,6 +80,7 @@ CompactionIterator::CompactionIterator(
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       snapshot_checker_(snapshot_checker),
       env_(env),
+      clock_(env_->GetSystemClock().get()),
       report_detailed_time_(report_detailed_time),
       expect_valid_internal_key_(expect_valid_internal_key),
       range_del_agg_(range_del_agg),
@@ -134,7 +135,7 @@ CompactionIterator::CompactionIterator(
 }
 
 CompactionIterator::~CompactionIterator() {
-  // input_ Iteartor lifetime is longer than pinned_iters_mgr_ lifetime
+  // input_ Iterator lifetime is longer than pinned_iters_mgr_ lifetime
   input_->SetPinnedItersMgr(nullptr);
 }
 
@@ -203,72 +204,146 @@ void CompactionIterator::Next() {
 
 bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
                                               Slice* skip_until) {
-  if (compaction_filter_ != nullptr &&
-      (ikey_.type == kTypeValue || ikey_.type == kTypeBlobIndex)) {
-    // If the user has specified a compaction filter and the sequence
-    // number is greater than any external snapshot, then invoke the
-    // filter. If the return value of the compaction filter is true,
-    // replace the entry with a deletion marker.
-    CompactionFilter::Decision filter;
-    compaction_filter_value_.clear();
-    compaction_filter_skip_until_.Clear();
-    CompactionFilter::ValueType value_type =
-        ikey_.type == kTypeValue ? CompactionFilter::ValueType::kValue
-                                 : CompactionFilter::ValueType::kBlobIndex;
-    // Hack: pass internal key to BlobIndexCompactionFilter since it needs
-    // to get sequence number.
-    Slice& filter_key = ikey_.type == kTypeValue ? ikey_.user_key : key_;
-    {
-      StopWatchNano timer(env_, report_detailed_time_);
+  if (!compaction_filter_ ||
+      (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex)) {
+    return true;
+  }
+  bool error = false;
+  // If the user has specified a compaction filter and the sequence
+  // number is greater than any external snapshot, then invoke the
+  // filter. If the return value of the compaction filter is true,
+  // replace the entry with a deletion marker.
+  CompactionFilter::Decision filter = CompactionFilter::Decision::kUndetermined;
+  compaction_filter_value_.clear();
+  compaction_filter_skip_until_.Clear();
+  CompactionFilter::ValueType value_type =
+      ikey_.type == kTypeValue ? CompactionFilter::ValueType::kValue
+                               : CompactionFilter::ValueType::kBlobIndex;
+  // Hack: pass internal key to BlobIndexCompactionFilter since it needs
+  // to get sequence number.
+  assert(compaction_filter_);
+  Slice& filter_key =
+      (ikey_.type == kTypeValue ||
+       !compaction_filter_->IsStackedBlobDbInternalCompactionFilter())
+          ? ikey_.user_key
+          : key_;
+  {
+    StopWatchNano timer(clock_, report_detailed_time_);
+    if (kTypeBlobIndex == ikey_.type) {
+      blob_value_.Reset();
+      filter = compaction_filter_->FilterBlobByKey(
+          compaction_->level(), filter_key, &compaction_filter_value_,
+          compaction_filter_skip_until_.rep());
+      if (CompactionFilter::Decision::kUndetermined == filter &&
+          !compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
+        // For integrated BlobDB impl, CompactionIterator reads blob value.
+        // For Stacked BlobDB impl, the corresponding CompactionFilter's
+        // FilterV2 method should read the blob value.
+        BlobIndex blob_index;
+        Status s = blob_index.DecodeFrom(value_);
+        if (!s.ok()) {
+          status_ = s;
+          valid_ = false;
+          return false;
+        }
+        if (blob_index.HasTTL() || blob_index.IsInlined()) {
+          status_ = Status::Corruption("Unexpected TTL/inlined blob index");
+          valid_ = false;
+          return false;
+        }
+        const Version* const version = compaction_->input_version();
+        assert(version);
+
+        uint64_t bytes_read = 0;
+        s = version->GetBlob(ReadOptions(), ikey_.user_key, blob_index,
+                             &blob_value_, &bytes_read);
+        if (!s.ok()) {
+          status_ = s;
+          valid_ = false;
+          return false;
+        }
+
+        ++iter_stats_.num_blobs_read;
+        iter_stats_.total_blob_bytes_read += bytes_read;
+
+        value_type = CompactionFilter::ValueType::kValue;
+      }
+    }
+    if (CompactionFilter::Decision::kUndetermined == filter) {
       filter = compaction_filter_->FilterV2(
-          compaction_->level(), filter_key, value_type, value_,
-          &compaction_filter_value_, compaction_filter_skip_until_.rep());
-      iter_stats_.total_filter_time +=
-          env_ != nullptr && report_detailed_time_ ? timer.ElapsedNanos() : 0;
+          compaction_->level(), filter_key, value_type,
+          blob_value_.empty() ? value_ : blob_value_, &compaction_filter_value_,
+          compaction_filter_skip_until_.rep());
     }
+    iter_stats_.total_filter_time +=
+        env_ != nullptr && report_detailed_time_ ? timer.ElapsedNanos() : 0;
+  }
 
-    if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil &&
-        cmp_->Compare(*compaction_filter_skip_until_.rep(), ikey_.user_key) <=
-            0) {
-      // Can't skip to a key smaller than the current one.
-      // Keep the key as per FilterV2 documentation.
-      filter = CompactionFilter::Decision::kKeep;
+  if (CompactionFilter::Decision::kUndetermined == filter) {
+    // Should not reach here, since FilterV2 should never return kUndetermined.
+    status_ =
+        Status::NotSupported("FilterV2() should never return kUndetermined");
+    valid_ = false;
+    return false;
+  }
+
+  if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil &&
+      cmp_->Compare(*compaction_filter_skip_until_.rep(), ikey_.user_key) <=
+          0) {
+    // Can't skip to a key smaller than the current one.
+    // Keep the key as per FilterV2 documentation.
+    filter = CompactionFilter::Decision::kKeep;
+  }
+
+  if (filter == CompactionFilter::Decision::kRemove) {
+    // convert the current key to a delete; key_ is pointing into
+    // current_key_ at this point, so updating current_key_ updates key()
+    ikey_.type = kTypeDeletion;
+    current_key_.UpdateInternalKey(ikey_.sequence, kTypeDeletion);
+    // no value associated with delete
+    value_.clear();
+    iter_stats_.num_record_drop_user++;
+  } else if (filter == CompactionFilter::Decision::kChangeValue) {
+    if (ikey_.type == kTypeBlobIndex) {
+      // value transfer from blob file to inlined data
+      ikey_.type = kTypeValue;
+      current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
     }
-
-    if (filter == CompactionFilter::Decision::kRemove) {
-      // convert the current key to a delete; key_ is pointing into
-      // current_key_ at this point, so updating current_key_ updates key()
-      ikey_.type = kTypeDeletion;
-      current_key_.UpdateInternalKey(ikey_.sequence, kTypeDeletion);
-      // no value associated with delete
-      value_.clear();
-      iter_stats_.num_record_drop_user++;
-    } else if (filter == CompactionFilter::Decision::kChangeValue) {
-      if (ikey_.type == kTypeBlobIndex) {
-        // value transfer from blob file to inlined data
-        ikey_.type = kTypeValue;
-        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
-      }
-      value_ = compaction_filter_value_;
-    } else if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil) {
-      *need_skip = true;
-      compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,
-                                                       kValueTypeForSeek);
-      *skip_until = compaction_filter_skip_until_.Encode();
-    } else if (filter == CompactionFilter::Decision::kChangeBlobIndex) {
-      if (ikey_.type == kTypeValue) {
-        // value transfer from inlined data to blob file
-        ikey_.type = kTypeBlobIndex;
-        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
-      }
-      value_ = compaction_filter_value_;
-    } else if (filter == CompactionFilter::Decision::kIOError) {
-      status_ =
-          Status::IOError("Failed to access blob during compaction filter");
+    value_ = compaction_filter_value_;
+  } else if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil) {
+    *need_skip = true;
+    compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,
+                                                     kValueTypeForSeek);
+    *skip_until = compaction_filter_skip_until_.Encode();
+  } else if (filter == CompactionFilter::Decision::kChangeBlobIndex) {
+    // Only the StackableDB-based BlobDB impl's compaction filter should return
+    // kChangeBlobIndex. Decision about rewriting blob and changing blob index
+    // in the integrated BlobDB impl is made in subsequent call to
+    // PrepareOutput() and its callees.
+    if (!compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
+      status_ = Status::NotSupported(
+          "Only stacked BlobDB's internal compaction filter can return "
+          "kChangeBlobIndex.");
+      valid_ = false;
       return false;
     }
+    if (ikey_.type == kTypeValue) {
+      // value transfer from inlined data to blob file
+      ikey_.type = kTypeBlobIndex;
+      current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+    }
+    value_ = compaction_filter_value_;
+  } else if (filter == CompactionFilter::Decision::kIOError) {
+    if (!compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
+      status_ = Status::NotSupported(
+          "CompactionFilter for integrated BlobDB should not return kIOError");
+      valid_ = false;
+      return false;
+    }
+    status_ = Status::IOError("Failed to access blob during compaction filter");
+    error = true;
   }
-  return true;
+  return !error;
 }
 
 void CompactionIterator::NextFromInput() {
@@ -315,13 +390,11 @@ void CompactionIterator::NextFromInput() {
     // merge_helper_->compaction_filter_skip_until_.
     Slice skip_until;
 
-    int cmp_user_key_without_ts = 0;
+    bool user_key_equal_without_ts = false;
     int cmp_ts = 0;
     if (has_current_user_key_) {
-      cmp_user_key_without_ts =
-          timestamp_size_
-              ? cmp_->CompareWithoutTimestamp(ikey_.user_key, current_user_key_)
-              : cmp_->Compare(ikey_.user_key, current_user_key_);
+      user_key_equal_without_ts =
+          cmp_->EqualWithoutTimestamp(ikey_.user_key, current_user_key_);
       // if timestamp_size_ > 0, then curr_ts_ has been initialized by a
       // previous key.
       cmp_ts = timestamp_size_ ? cmp_->CompareTimestamp(
@@ -334,7 +407,7 @@ void CompactionIterator::NextFromInput() {
     // Check whether the user key changed. After this if statement current_key_
     // is a copy of the current input key (maybe converted to a delete by the
     // compaction filter). ikey_.user_key is pointing to the copy.
-    if (!has_current_user_key_ || cmp_user_key_without_ts != 0 || cmp_ts != 0) {
+    if (!has_current_user_key_ || !user_key_equal_without_ts || cmp_ts != 0) {
       // First occurrence of this user key
       // Copy key for output
       key_ = current_key_.SetInternalKey(key_, &ikey_);
@@ -355,7 +428,7 @@ void CompactionIterator::NextFromInput() {
       // consider this key for GC, e.g. it may be dropped if certain conditions
       // match.
       if (!has_current_user_key_ || !timestamp_size_ || !full_history_ts_low_ ||
-          0 != cmp_user_key_without_ts || cmp_with_history_ts_low_ >= 0) {
+          !user_key_equal_without_ts || cmp_with_history_ts_low_ >= 0) {
         // Initialize for future comparison for rule (A) and etc.
         current_user_key_sequence_ = kMaxSequenceNumber;
         current_user_key_snapshot_ = 0;
@@ -422,8 +495,8 @@ void CompactionIterator::NextFromInput() {
       // In the previous iteration we encountered a single delete that we could
       // not compact out.  We will keep this Put, but can drop it's data.
       // (See Optimization 3, below.)
-      assert(ikey_.type == kTypeValue);
-      if (ikey_.type != kTypeValue) {
+      assert(ikey_.type == kTypeValue || ikey_.type == kTypeBlobIndex);
+      if (ikey_.type != kTypeValue && ikey_.type != kTypeBlobIndex) {
         ROCKS_LOG_FATAL(info_log_,
                         "Unexpected key type %d for compaction output",
                         ikey_.type);
@@ -434,6 +507,11 @@ void CompactionIterator::NextFromInput() {
                         "current_user_key_snapshot_ (%" PRIu64
                         ") != last_snapshot (%" PRIu64 ")",
                         current_user_key_snapshot_, last_snapshot);
+      }
+
+      if (ikey_.type == kTypeBlobIndex) {
+        ikey_.type = kTypeValue;
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       }
 
       value_.clear();
@@ -644,8 +722,7 @@ void CompactionIterator::NextFromInput() {
              input_->Valid() &&
              (ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_)
                   .ok()) &&
-             0 == cmp_->CompareWithoutTimestamp(ikey_.user_key,
-                                                next_ikey.user_key) &&
+             cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key) &&
              (prev_snapshot == 0 ||
               DEFINITELY_NOT_IN_SNAPSHOT(next_ikey.sequence, prev_snapshot))) {
         input_->Next();
@@ -655,8 +732,7 @@ void CompactionIterator::NextFromInput() {
       if (input_->Valid() &&
           (ParseInternalKey(input_->key(), &next_ikey, allow_data_in_errors_)
                .ok()) &&
-          0 == cmp_->CompareWithoutTimestamp(ikey_.user_key,
-                                             next_ikey.user_key)) {
+          cmp_->EqualWithoutTimestamp(ikey_.user_key, next_ikey.user_key)) {
         valid_ = true;
         at_next_ = true;
       }
@@ -809,9 +885,11 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
     const Version* const version = compaction_->input_version();
     assert(version);
 
+    uint64_t bytes_read = 0;
+
     {
-      const Status s =
-          version->GetBlob(ReadOptions(), user_key(), blob_index, &blob_value_);
+      const Status s = version->GetBlob(ReadOptions(), user_key(), blob_index,
+                                        &blob_value_, &bytes_read);
 
       if (!s.ok()) {
         status_ = s;
@@ -820,6 +898,9 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
         return;
       }
     }
+
+    ++iter_stats_.num_blobs_read;
+    iter_stats_.total_blob_bytes_read += bytes_read;
 
     value_ = blob_value_;
 
@@ -834,7 +915,8 @@ void CompactionIterator::GarbageCollectBlobIfNeeded() {
   }
 
   // GC for stacked BlobDB
-  if (compaction_filter_) {
+  if (compaction_filter_ &&
+      compaction_filter_->IsStackedBlobDbInternalCompactionFilter()) {
     const auto blob_decision = compaction_filter_->PrepareBlobOutput(
         user_key(), value_, &compaction_filter_value_);
 

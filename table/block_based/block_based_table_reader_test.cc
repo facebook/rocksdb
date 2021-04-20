@@ -66,9 +66,9 @@ class BlockBasedTableReaderTest
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>> factories;
     std::unique_ptr<TableBuilder> table_builder(table_factory_->NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, comparator, &factories,
-                            compression_type, 0 /* sample_for_compression */,
-                            CompressionOptions(), false /* skip_filters */,
-                            kDefaultColumnFamilyName, -1 /* level */),
+                            compression_type, CompressionOptions(),
+                            false /* skip_filters */, kDefaultColumnFamilyName,
+                            -1 /* level */),
         0 /* column_family_id */, writer.get()));
 
     // Build table.
@@ -135,7 +135,8 @@ class BlockBasedTableReaderTest
     std::string path = Path(filename);
     std::unique_ptr<FSRandomAccessFile> f;
     ASSERT_OK(fs_->NewRandomAccessFile(path, opt, &f, nullptr));
-    reader->reset(new RandomAccessFileReader(std::move(f), path, env_));
+    reader->reset(new RandomAccessFileReader(std::move(f), path,
+                                             env_->GetSystemClock().get()));
   }
 
   std::string ToInternalKey(const std::string& key) {

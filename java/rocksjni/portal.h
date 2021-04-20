@@ -4982,7 +4982,20 @@ class TickerTypeJni {
         return -0x14;
       case ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL:
         return -0x15;
-
+      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_ERROR_COUNT:
+        return -0x16;
+      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_IO_ERROR_COUNT:
+        return -0x17;
+      case ROCKSDB_NAMESPACE::Tickers::
+          ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT:
+        return -0x18;
+      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_COUNT:
+        return -0x19;
+      case ROCKSDB_NAMESPACE::Tickers::
+          ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT:
+        return -0x1A;
+      case ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT:
+        return -0x1B;
       case ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX:
         // 0x5F for backwards compatibility on current minor version.
         return 0x5F;
@@ -5294,6 +5307,21 @@ class TickerTypeJni {
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_PERIODIC;
       case -0x15:
         return ROCKSDB_NAMESPACE::Tickers::COMPACT_WRITE_BYTES_TTL;
+      case -0x16:
+        return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_ERROR_COUNT;
+      case -0x17:
+        return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_BG_IO_ERROR_COUNT;
+      case -0x18:
+        return ROCKSDB_NAMESPACE::Tickers::
+            ERROR_HANDLER_BG_RETRYABLE_IO_ERROR_COUNT;
+      case -0x19:
+        return ROCKSDB_NAMESPACE::Tickers::ERROR_HANDLER_AUTORESUME_COUNT;
+      case -0x1A:
+        return ROCKSDB_NAMESPACE::Tickers::
+            ERROR_HANDLER_AUTORESUME_RETRY_TOTAL_COUNT;
+      case -0x1B:
+        return ROCKSDB_NAMESPACE::Tickers::
+            ERROR_HANDLER_AUTORESUME_SUCCESS_COUNT;
       case 0x5F:
         // 0x5F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Tickers::TICKER_ENUM_MAX;
@@ -5413,6 +5441,8 @@ class HistogramTypeJni {
         return 0x30;
       case ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL:
         return 0x31;
+      case ROCKSDB_NAMESPACE::Histograms::ERROR_HANDLER_AUTORESUME_RETRY_COUNT:
+        return 0x31;
       case ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX:
         // 0x1F for backwards compatibility on current minor version.
         return 0x1F;
@@ -5527,6 +5557,9 @@ class HistogramTypeJni {
         return ROCKSDB_NAMESPACE::Histograms::NUM_DATA_BLOCKS_READ_PER_LEVEL;
       case 0x31:
         return ROCKSDB_NAMESPACE::Histograms::NUM_SST_READ_PER_LEVEL;
+      case 0x32:
+        return ROCKSDB_NAMESPACE::Histograms::
+            ERROR_HANDLER_AUTORESUME_RETRY_COUNT;
       case 0x1F:
         // 0x1F for backwards compatibility on current minor version.
         return ROCKSDB_NAMESPACE::Histograms::HISTOGRAM_ENUM_MAX;
@@ -6042,7 +6075,11 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(JJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)V");
+    jmethodID mid = env->GetMethodID(
+        jclazz, "<init>",
+        "(JJJJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/"
+        "lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/"
+        "String;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -6168,8 +6205,8 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jobject jtable_properties = env->NewObject(jclazz, mid,
-        static_cast<jlong>(table_properties.data_size),
+    jobject jtable_properties = env->NewObject(
+        jclazz, mid, static_cast<jlong>(table_properties.data_size),
         static_cast<jlong>(table_properties.index_size),
         static_cast<jlong>(table_properties.index_partitions),
         static_cast<jlong>(table_properties.top_level_index_size),
@@ -6188,17 +6225,14 @@ class TablePropertiesJni : public JavaClass {
         static_cast<jlong>(table_properties.column_family_id),
         static_cast<jlong>(table_properties.creation_time),
         static_cast<jlong>(table_properties.oldest_key_time),
-        jcolumn_family_name,
-        jfilter_policy_name,
-        jcomparator_name,
-        jmerge_operator_name,
-        jprefix_extractor_name,
-        jproperty_collectors_names,
-        jcompression_name,
-        juser_collected_properties,
-        jreadable_properties,
-        jproperties_offsets
-    );
+        static_cast<jlong>(
+            table_properties.slow_compression_estimated_data_size),
+        static_cast<jlong>(
+            table_properties.fast_compression_estimated_data_size),
+        jcolumn_family_name, jfilter_policy_name, jcomparator_name,
+        jmerge_operator_name, jprefix_extractor_name,
+        jproperty_collectors_names, jcompression_name,
+        juser_collected_properties, jreadable_properties, jproperties_offsets);
 
     if (env->ExceptionCheck()) {
       return nullptr;
@@ -7955,7 +7989,7 @@ class AbstractEventListenerJni
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileFlushFinish
+   * Get the Java Method: AbstractEventListener#onFileFlushFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -7965,13 +7999,13 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileFlushFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileFlushFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileSyncFinish
+   * Get the Java Method: AbstractEventListener#onFileSyncFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -7981,13 +8015,13 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileRangeSyncFinish
+   * Get the Java Method: AbstractEventListener#onFileRangeSyncFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -7997,13 +8031,13 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileRangeSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileRangeSyncFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileTruncateFinish
+   * Get the Java Method: AbstractEventListener#onFileTruncateFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -8013,13 +8047,13 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileTruncateFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileTruncateFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }
 
   /**
-   * Get the Java Method: AbstractEventListener#OnFileCloseFinish
+   * Get the Java Method: AbstractEventListener#onFileCloseFinish
    *
    * @param env A pointer to the Java environment
    *
@@ -8029,7 +8063,7 @@ class AbstractEventListenerJni
     jclass jclazz = getJClass(env);
     assert(jclazz != nullptr);
     static jmethodID mid = env->GetMethodID(
-        jclazz, "OnFileCloseFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
+        jclazz, "onFileCloseFinish", "(Lorg/rocksdb/FileOperationInfo;)V");
     assert(mid != nullptr);
     return mid;
   }

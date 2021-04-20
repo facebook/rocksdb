@@ -17,6 +17,7 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <chrono>
 #include <cstdarg>
 #include <functional>
@@ -25,9 +26,11 @@
 #include <sstream>
 #include <string>
 #include <vector>
+
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
 #include "rocksdb/options.h"
+#include "rocksdb/table.h"
 #include "rocksdb/thread_status.h"
 
 namespace ROCKSDB_NAMESPACE {
@@ -97,16 +100,22 @@ struct FileOptions : EnvOptions {
   // to be issued for the file open/creation
   IOOptions io_options;
 
-  FileOptions() : EnvOptions() {}
+  // The checksum type that is used to calculate the checksum value for
+  // handoff during file writes.
+  ChecksumType handoff_checksum_type;
+
+  FileOptions() : EnvOptions(), handoff_checksum_type(ChecksumType::kCRC32c) {}
 
   FileOptions(const DBOptions& opts)
-    : EnvOptions(opts) {}
+      : EnvOptions(opts), handoff_checksum_type(ChecksumType::kCRC32c) {}
 
   FileOptions(const EnvOptions& opts)
-    : EnvOptions(opts) {}
+      : EnvOptions(opts), handoff_checksum_type(ChecksumType::kCRC32c) {}
 
   FileOptions(const FileOptions& opts)
-    : EnvOptions(opts), io_options(opts.io_options) {}
+      : EnvOptions(opts),
+        io_options(opts.io_options),
+        handoff_checksum_type(opts.handoff_checksum_type) {}
 
   FileOptions& operator=(const FileOptions& opts) = default;
 };
@@ -123,10 +132,34 @@ struct IODebugContext {
   // To be set by the FileSystem implementation
   std::string msg;
 
+  // To be set by the underlying FileSystem implementation.
+  std::string request_id;
+
+  // In order to log required information in IO tracing for different
+  // operations, Each bit in trace_data stores which corresponding info from
+  // IODebugContext will be added in the trace. Foreg, if trace_data = 1, it
+  // means bit at position 0 is set so TraceData::kRequestID (request_id) will
+  // be logged in the trace record.
+  //
+  enum TraceData : char {
+    // The value of each enum represents the bitwise position for
+    // that information in trace_data which will be used by IOTracer for
+    // tracing. Make sure to add them sequentially.
+    kRequestID = 0,
+  };
+  uint64_t trace_data = 0;
+
   IODebugContext() {}
 
   void AddCounter(std::string& name, uint64_t value) {
     counters.emplace(name, value);
+  }
+
+  // Called by underlying file system to set request_id and log request_id in
+  // IOTracing.
+  void SetRequestId(const std::string& _request_id) {
+    request_id = _request_id;
+    trace_data |= (1 << TraceData::kRequestID);
   }
 
   std::string ToString() {
@@ -366,6 +399,10 @@ class FileSystem {
     return IOStatus::OK();
   }
 
+// This seems to clash with a macro on Windows, so #undef it here
+#ifdef DeleteFile
+#undef DeleteFile
+#endif
   // Delete the named file.
   virtual IOStatus DeleteFile(const std::string& fname,
                               const IOOptions& options,
@@ -460,7 +497,7 @@ class FileSystem {
                                     IODebugContext* dbg) = 0;
 
   // Create and returns a default logger (an instance of EnvLogger) for storing
-  // informational messages. Derived classes can overide to provide custom
+  // informational messages. Derived classes can override to provide custom
   // logger.
   virtual IOStatus NewLogger(const std::string& fname, const IOOptions& io_opts,
                              std::shared_ptr<Logger>* result,
@@ -513,6 +550,13 @@ class FileSystem {
       const FileOptions& file_options,
       const ImmutableDBOptions& db_options) const;
 
+  // OptimizeForBlobFileRead will create a new FileOptions object that
+  // is a copy of the FileOptions in the parameters, but is optimized for
+  // reading blob files.
+  virtual FileOptions OptimizeForBlobFileRead(
+      const FileOptions& file_options,
+      const ImmutableDBOptions& db_options) const;
+
 // This seems to clash with a macro on Windows, so #undef it here
 #ifdef GetFreeSpace
 #undef GetFreeSpace
@@ -549,6 +593,10 @@ class FSSequentialFile {
   // May set "*result" to point at data in "scratch[0..n-1]", so
   // "scratch[0..n-1]" must be live when "*result" is used.
   // If an error was encountered, returns a non-OK status.
+  //
+  // After call, result->size() < n only if end of file has been
+  // reached (or non-OK status). Read might fail if called again after
+  // first result->size() < n.
   //
   // REQUIRES: External synchronization
   virtual IOStatus Read(size_t n, const IOOptions& options, Slice* result,
@@ -596,7 +644,8 @@ struct FSReadRequest {
   // File offset in bytes
   uint64_t offset;
 
-  // Length to read in bytes
+  // Length to read in bytes. `result` only returns fewer bytes if end of file
+  // is hit (or `status` is not OK).
   size_t len;
 
   // A buffer that MultiRead()  can optionally place data in. It can
@@ -625,6 +674,10 @@ class FSRandomAccessFile {
   // "scratch[0..n-1]", so "scratch[0..n-1]" must be live when
   // "*result" is used.  If an error was encountered, returns a non-OK
   // status.
+  //
+  // After call, result->size() < n only if end of file has been
+  // reached (or non-OK status). Read might fail if called again after
+  // first result->size() < n.
   //
   // Safe for concurrent use by multiple threads.
   // If Direct I/O enabled, offset, n, and scratch should be aligned properly.
@@ -703,7 +756,7 @@ class FSRandomAccessFile {
 };
 
 // A data structure brings the data verification information, which is
-// used togther with data being written to a file.
+// used together with data being written to a file.
 struct DataVerificationInfo {
   // checksum of the data being written.
   Slice checksum;
@@ -731,15 +784,19 @@ class FSWritableFile {
   virtual ~FSWritableFile() {}
 
   // Append data to the end of the file
-  // Note: A WriteabelFile object must support either Append or
+  // Note: A WriteableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;
 
-  // EXPERIMENTAL / CURRENTLY UNUSED
-  // Append data with verification information
+  // Append data with verification information.
   // Note that this API change is experimental and it might be changed in
-  // the future. Currently, RocksDB does not use this API.
+  // the future. Currently, RocksDB only generates crc32c based checksum for
+  // the file writes when the checksum handoff option is set.
+  // Expected behavior: if the handoff_checksum_type in FileOptions (currently,
+  // ChecksumType::kCRC32C is set as default) is not supported by this
+  // FSWritableFile, the information in DataVerificationInfo can be ignored
+  // (i.e. does not perform checksum verification).
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           const DataVerificationInfo& /* verification_info */,
                           IODebugContext* dbg) {
@@ -773,10 +830,14 @@ class FSWritableFile {
     return IOStatus::NotSupported("PositionedAppend");
   }
 
-  // EXPERIMENTAL / CURRENTLY UNUSED
   // PositionedAppend data with verification information.
   // Note that this API change is experimental and it might be changed in
-  // the future. Currently, RocksDB does not use this API.
+  // the future. Currently, RocksDB only generates crc32c based checksum for
+  // the file writes when the checksum handoff option is set.
+  // Expected behavior: if the handoff_checksum_type in FileOptions (currently,
+  // ChecksumType::kCRC32C is set as default) is not supported by this
+  // FSWritableFile, the information in DataVerificationInfo can be ignored
+  // (i.e. does not perform checksum verification).
   virtual IOStatus PositionedAppend(
       const Slice& /* data */, uint64_t /* offset */,
       const IOOptions& /*options*/,
@@ -954,6 +1015,11 @@ class FSRandomRWFile {
 
   // Read up to `n` bytes starting from offset `offset` and store them in
   // result, provided `scratch` size should be at least `n`.
+  //
+  // After call, result->size() < n only if end of file has been
+  // reached (or non-OK status). Read might fail if called again after
+  // first result->size() < n.
+  //
   // Returns Status::OK() on success.
   virtual IOStatus Read(uint64_t offset, size_t n, const IOOptions& options,
                         Slice* result, char* scratch,
@@ -1048,7 +1114,8 @@ class FSDirectory {
 class FileSystemWrapper : public FileSystem {
  public:
   // Initialize an EnvWrapper that delegates all calls to *t
-  explicit FileSystemWrapper(std::shared_ptr<FileSystem> t) : target_(t) {}
+  explicit FileSystemWrapper(const std::shared_ptr<FileSystem>& t)
+      : target_(t) {}
   ~FileSystemWrapper() override {}
 
   const char* Name() const override { return target_->Name(); }
@@ -1228,6 +1295,11 @@ class FileSystemWrapper : public FileSystem {
       const FileOptions& file_options,
       const ImmutableDBOptions& db_options) const override {
     return target_->OptimizeForCompactionTableRead(file_options, db_options);
+  }
+  FileOptions OptimizeForBlobFileRead(
+      const FileOptions& file_options,
+      const ImmutableDBOptions& db_options) const override {
+    return target_->OptimizeForBlobFileRead(file_options, db_options);
   }
   IOStatus GetFreeSpace(const std::string& path, const IOOptions& options,
                         uint64_t* diskfree, IODebugContext* dbg) override {

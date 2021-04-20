@@ -35,10 +35,12 @@
 #include "port/malloc.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "test_util/testharness.h"
 #include "test_util/testutil.h"
 #include "util/coding.h"
+#include "util/crc32c.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/string_util.h"
@@ -913,7 +915,7 @@ class IoctlFriendlyTmpdir {
       } else {
         // mkdtemp failed: diagnose it, but don't give up.
         fprintf(stderr, "mkdtemp(%s/...) failed: %s\n", d.c_str(),
-                strerror(errno));
+                errnoStr(errno).c_str());
       }
     }
 
@@ -1038,7 +1040,8 @@ TEST_P(EnvPosixTestWithParam, AllocateTest) {
     int err_number = 0;
     if (alloc_status != 0) {
       err_number = errno;
-      fprintf(stderr, "Warning: fallocate() fails, %s\n", strerror(err_number));
+      fprintf(stderr, "Warning: fallocate() fails, %s\n",
+              errnoStr(err_number).c_str());
     }
     close(fd);
     ASSERT_OK(env_->DeleteFile(fname_test_fallocate));
@@ -1667,8 +1670,22 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
       return Status::OK();
     }
 
+    Status Append(
+        const Slice& /*data*/,
+        const DataVerificationInfo& /* verification_info */) override {
+      inc(1);
+      return Status::OK();
+    }
+
     Status PositionedAppend(const Slice& /*data*/,
                             uint64_t /*offset*/) override {
+      inc(2);
+      return Status::OK();
+    }
+
+    Status PositionedAppend(
+        const Slice& /*data*/, uint64_t /*offset*/,
+        const DataVerificationInfo& /* verification_info */) override {
       inc(2);
       return Status::OK();
     }
@@ -2166,7 +2183,7 @@ TEST_P(EnvFSTestWithParam, OptionsTest) {
 
     ASSERT_OK(db->Close());
     delete db;
-    DestroyDB(dbname, opts);
+    ASSERT_OK(DestroyDB(dbname, opts));
 
     dbname = dbname2_;
   }
@@ -2213,13 +2230,36 @@ TEST_F(EnvTest, IsDirectory) {
     ASSERT_OK(s);
     std::unique_ptr<WritableFileWriter> fwriter;
     fwriter.reset(new WritableFileWriter(std::move(wfile), test_file_path,
-                                         FileOptions(), Env::Default()));
+                                         FileOptions(),
+                                         SystemClock::Default().get()));
     constexpr char buf[] = "test";
     s = fwriter->Append(buf);
     ASSERT_OK(s);
   }
   ASSERT_OK(Env::Default()->IsDirectory(test_file_path, &is_dir));
   ASSERT_FALSE(is_dir);
+}
+
+TEST_F(EnvTest, EnvWriteVerificationTest) {
+  Status s = Env::Default()->CreateDirIfMissing(test_directory_);
+  const std::string test_file_path = test_directory_ + "file1";
+  ASSERT_OK(s);
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  std::unique_ptr<WritableFile> file;
+  s = fault_fs_env->NewWritableFile(test_file_path, &file, EnvOptions());
+  ASSERT_OK(s);
+
+  DataVerificationInfo v_info;
+  std::string test_data = "test";
+  std::string checksum;
+  uint32_t v_crc32c = crc32c::Extend(0, test_data.c_str(), test_data.size());
+  PutFixed32(&checksum, v_crc32c);
+  v_info.checksum = Slice(checksum);
+  s = file->Append(Slice(test_data), v_info);
+  ASSERT_OK(s);
 }
 
 }  // namespace ROCKSDB_NAMESPACE

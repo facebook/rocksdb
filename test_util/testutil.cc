@@ -24,6 +24,7 @@
 #include "file/writable_file_writer.h"
 #include "port/port.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/system_clock.h"
 #include "test_util/sync_point.h"
 #include "util/random.h"
 
@@ -171,25 +172,6 @@ const Comparator* ComparatorWithU64Ts() {
   return &comp_with_u64_ts;
 }
 
-WritableFileWriter* GetWritableFileWriter(WritableFile* wf,
-                                          const std::string& fname) {
-  std::unique_ptr<WritableFile> file(wf);
-  return new WritableFileWriter(NewLegacyWritableFileWrapper(std::move(file)),
-                                fname, EnvOptions());
-}
-
-RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
-  std::unique_ptr<RandomAccessFile> file(raf);
-  return new RandomAccessFileReader(NewLegacyRandomAccessFileWrapper(file),
-                                    "[test RandomAccessFileReader]");
-}
-
-SequentialFileReader* GetSequentialFileReader(SequentialFile* se,
-                                              const std::string& fname) {
-  std::unique_ptr<SequentialFile> file(se);
-  return new SequentialFileReader(NewLegacySequentialFileWrapper(file), fname);
-}
-
 void CorruptKeyType(InternalKey* ikey) {
   std::string keystr = ikey->Encode().ToString();
   keystr[keystr.size() - 8] = kTypeLogData;
@@ -213,6 +195,28 @@ std::string KeyStr(uint64_t ts, const std::string& user_key,
   PutFixed64(&ts_str, ts);
   user_key_with_ts.append(ts_str);
   return KeyStr(user_key_with_ts, seq, t, corrupt);
+}
+
+bool SleepingBackgroundTask::TimedWaitUntilSleeping(uint64_t wait_time) {
+  auto abs_time = SystemClock::Default()->NowMicros() + wait_time;
+  MutexLock l(&mutex_);
+  while (!sleeping_ || !should_sleep_) {
+    if (bg_cv_.TimedWait(abs_time)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool SleepingBackgroundTask::TimedWaitUntilDone(uint64_t wait_time) {
+  auto abs_time = SystemClock::Default()->NowMicros() + wait_time;
+  MutexLock l(&mutex_);
+  while (!done_with_sleep_) {
+    if (bg_cv_.TimedWait(abs_time)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 std::string RandomName(Random* rnd, const size_t len) {
@@ -471,6 +475,26 @@ bool IsDirectIOSupported(Env* env, const std::string& dir) {
   return s.ok();
 }
 
+bool IsPrefetchSupported(const std::shared_ptr<FileSystem>& fs,
+                         const std::string& dir) {
+  bool supported = false;
+  std::string tmp = TempFileName(dir, 999);
+  Random rnd(301);
+  std::string test_string = rnd.RandomString(4096);
+  Slice data(test_string);
+  Status s = WriteStringToFile(fs.get(), data, tmp, true);
+  if (s.ok()) {
+    std::unique_ptr<FSRandomAccessFile> file;
+    auto io_s = fs->NewRandomAccessFile(tmp, FileOptions(), &file, nullptr);
+    if (io_s.ok()) {
+      supported = !(file->Prefetch(0, data.size(), IOOptions(), nullptr)
+                        .IsNotSupported());
+    }
+    s = fs->DeleteFile(tmp, IOOptions(), nullptr);
+  }
+  return s.ok() && supported;
+}
+
 size_t GetLinesCount(const std::string& fname, const std::string& pattern) {
   std::stringstream ssbuf;
   std::string line;
@@ -544,6 +568,21 @@ Status TruncateFile(Env* env, const std::string& fname, uint64_t new_length) {
     s = WriteStringToFile(env, contents, fname);
   }
   return s;
+}
+
+// Try and delete a directory if it exists
+Status TryDeleteDir(Env* env, const std::string& dirname) {
+  bool is_dir = false;
+  Status s = env->IsDirectory(dirname, &is_dir);
+  if (s.ok() && is_dir) {
+    s = env->DeleteDir(dirname);
+  }
+  return s;
+}
+
+// Delete a directory if it exists
+void DeleteDir(Env* env, const std::string& dirname) {
+  TryDeleteDir(env, dirname).PermitUncheckedError();
 }
 
 }  // namespace test

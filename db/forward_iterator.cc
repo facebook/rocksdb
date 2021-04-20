@@ -47,11 +47,7 @@ class ForwardLevelIterator : public InternalIterator {
         pinned_iters_mgr_(nullptr),
         prefix_extractor_(prefix_extractor),
         allow_unprepared_value_(allow_unprepared_value) {
-    /*
-    NOTE needed for ASSERT_STATUS_CHECKED
-    in MergeOperatorPinningTest/MergeOperatorPinningTest.TailingIterator
-    */
-    status_.PermitUncheckedError();
+    status_.PermitUncheckedError();  // Allow uninitialized status through
   }
 
   ~ForwardLevelIterator() override {
@@ -244,6 +240,12 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
   if (sv_) {
     RebuildIterators(false);
   }
+
+  // immutable_status_ is a local aggregation of the
+  // status of the immutable Iterators.
+  // We have to PermitUncheckedError in case it is never
+  // used, otherwise it will fail ASSERT_STATUS_CHECKED.
+  immutable_status_.PermitUncheckedError();
 }
 
 ForwardIterator::~ForwardIterator() {
@@ -424,7 +426,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       if (seek_to_first) {
         l0_iters_[i]->SeekToFirst();
       } else {
-        // If the target key passes over the larget key, we are sure Next()
+        // If the target key passes over the largest key, we are sure Next()
         // won't go over this file.
         if (user_comparator_->Compare(target_user_key,
                                       l0[i]->largest.user_key()) > 0) {
@@ -991,9 +993,9 @@ bool ForwardIterator::TEST_CheckDeletedIters(int* pdeleted_iters,
 uint32_t ForwardIterator::FindFileInRange(
     const std::vector<FileMetaData*>& files, const Slice& internal_key,
     uint32_t left, uint32_t right) {
-  auto cmp = [&](const FileMetaData* f, const Slice& key) -> bool {
+  auto cmp = [&](const FileMetaData* f, const Slice& k) -> bool {
     return cfd_->internal_comparator().InternalKeyComparator::Compare(
-            f->largest.Encode(), key) < 0;
+            f->largest.Encode(), k) < 0;
   };
   const auto &b = files.begin();
   return static_cast<uint32_t>(std::lower_bound(b + left,

@@ -11,6 +11,7 @@
 
 #include "db/db_impl/db_impl.h"
 #include "db/db_test_util.h"
+#include "env/mock_env.h"
 #include "file/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -19,6 +20,7 @@
 #include "util/cast_util.h"
 #include "util/mutexlock.h"
 #include "utilities/fault_injection_env.h"
+#include "utilities/fault_injection_fs.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -80,29 +82,16 @@ TEST_F(DBFlushTest, SyncFail) {
   options.env = fault_injection_env.get();
 
   SyncPoint::GetInstance()->LoadDependency(
-      {{"DBFlushTest::SyncFail:GetVersionRefCount:1",
-        "DBImpl::FlushMemTableToOutputFile:BeforePickMemtables"},
-       {"DBImpl::FlushMemTableToOutputFile:AfterPickMemtables",
-        "DBFlushTest::SyncFail:GetVersionRefCount:2"},
-       {"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedLogs:Start"},
+      {{"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedLogs:Start"},
        {"DBImpl::SyncClosedLogs:Failed", "DBFlushTest::SyncFail:2"}});
   SyncPoint::GetInstance()->EnableProcessing();
 
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_OK(Put("key", "value"));
-  auto* cfd =
-      static_cast_with_check<ColumnFamilyHandleImpl>(db_->DefaultColumnFamily())
-          ->cfd();
   FlushOptions flush_options;
   flush_options.wait = false;
   ASSERT_OK(dbfull()->Flush(flush_options));
   // Flush installs a new super-version. Get the ref count after that.
-  auto current_before = cfd->current();
-  int refs_before = cfd->current()->TEST_refs();
-  TEST_SYNC_POINT("DBFlushTest::SyncFail:GetVersionRefCount:1");
-  TEST_SYNC_POINT("DBFlushTest::SyncFail:GetVersionRefCount:2");
-  int refs_after_picking_memtables = cfd->current()->TEST_refs();
-  ASSERT_EQ(refs_before + 1, refs_after_picking_memtables);
   fault_injection_env->SetFilesystemActive(false);
   TEST_SYNC_POINT("DBFlushTest::SyncFail:1");
   TEST_SYNC_POINT("DBFlushTest::SyncFail:2");
@@ -113,9 +102,6 @@ TEST_F(DBFlushTest, SyncFail) {
 #ifndef ROCKSDB_LITE
   ASSERT_EQ("", FilesPerLevel());  // flush failed.
 #endif                             // ROCKSDB_LITE
-  // Backgroun flush job should release ref count to current version.
-  ASSERT_EQ(current_before, cfd->current());
-  ASSERT_EQ(refs_before, cfd->current()->TEST_refs());
   Destroy(options);
 }
 
@@ -178,6 +164,66 @@ TEST_F(DBFlushTest, FlushInLowPriThreadPool) {
   ASSERT_OK(dbfull()->TEST_WaitForCompact());
   ASSERT_EQ(4, num_flushes);
   ASSERT_EQ(1, num_compactions);
+}
+
+// Test when flush job is submitted to low priority thread pool and when DB is
+// closed in the meanwhile, CloseHelper doesn't hang.
+TEST_F(DBFlushTest, CloseDBWhenFlushInLowPri) {
+  Options options = CurrentOptions();
+  options.max_background_flushes = 1;
+  options.max_total_wal_size = 8192;
+
+  DestroyAndReopen(options);
+  CreateColumnFamilies({"cf1", "cf2"}, options);
+
+  env_->SetBackgroundThreads(0, Env::HIGH);
+  env_->SetBackgroundThreads(1, Env::LOW);
+  test::SleepingBackgroundTask sleeping_task_low;
+  int num_flushes = 0;
+
+  SyncPoint::GetInstance()->SetCallBack("DBImpl::BGWorkFlush",
+                                        [&](void* /*arg*/) { ++num_flushes; });
+
+  int num_low_flush_unscheduled = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::UnscheduleLowFlushCallback", [&](void* /*arg*/) {
+        num_low_flush_unscheduled++;
+        // There should be one flush job in low pool that needs to be
+        // unscheduled
+        ASSERT_EQ(num_low_flush_unscheduled, 1);
+      });
+
+  int num_high_flush_unscheduled = 0;
+  SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::UnscheduleHighFlushCallback", [&](void* /*arg*/) {
+        num_high_flush_unscheduled++;
+        // There should be no flush job in high pool
+        ASSERT_EQ(num_high_flush_unscheduled, 0);
+      });
+
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  ASSERT_OK(Put(0, "key1", DummyString(8192)));
+  // Block thread so that flush cannot be run and can be removed from the queue
+  // when called Unschedule.
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+  sleeping_task_low.WaitUntilSleeping();
+
+  // Trigger flush and flush job will be scheduled to LOW priority thread.
+  ASSERT_OK(Put(0, "key2", DummyString(8192)));
+
+  // Close DB and flush job in low priority queue will be removed without
+  // running.
+  Close();
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+  ASSERT_EQ(0, num_flushes);
+
+  TryReopenWithColumnFamilies({"default", "cf1", "cf2"}, options);
+  ASSERT_OK(Put(0, "key3", DummyString(8192)));
+  ASSERT_OK(Flush(0));
+  ASSERT_EQ(1, num_flushes);
 }
 
 TEST_F(DBFlushTest, ManualFlushWithMinWriteBufferNumberToMerge) {
@@ -451,7 +497,6 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   constexpr uint64_t min_blob_size = 10;
 
   Options options;
-  options.env = CurrentOptions().env;
   options.enable_blob_files = true;
   options.min_blob_size = min_blob_size;
   options.disable_auto_compactions = true;
@@ -512,27 +557,224 @@ TEST_F(DBFlushTest, FlushWithBlob) {
   const InternalStats* const internal_stats = cfd->internal_stats();
   assert(internal_stats);
 
-  const uint64_t expected_bytes =
-      table_file->fd.GetFileSize() + blob_file->GetTotalBlobBytes();
-
   const auto& compaction_stats = internal_stats->TEST_GetCompactionStats();
   ASSERT_FALSE(compaction_stats.empty());
-  ASSERT_EQ(compaction_stats[0].bytes_written, expected_bytes);
-  ASSERT_EQ(compaction_stats[0].num_output_files, 2);
+  ASSERT_EQ(compaction_stats[0].bytes_written, table_file->fd.GetFileSize());
+  ASSERT_EQ(compaction_stats[0].bytes_written_blob,
+            blob_file->GetTotalBlobBytes());
+  ASSERT_EQ(compaction_stats[0].num_output_files, 1);
+  ASSERT_EQ(compaction_stats[0].num_output_files_blob, 1);
 
   const uint64_t* const cf_stats_value = internal_stats->TEST_GetCFStatsValue();
-  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED], expected_bytes);
+  ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
+            compaction_stats[0].bytes_written +
+                compaction_stats[0].bytes_written_blob);
 #endif  // ROCKSDB_LITE
+}
+
+TEST_F(DBFlushTest, FlushWithChecksumHandoff1) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_fs_env.get();
+  options.checksum_handoff_file_types.Add(FileType::kTableFile);
+  Reopen(options);
+
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  // The hash does not match, write fails
+  // fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+  // Since the file system returns IOStatus::Corruption, it is an
+  // unrecoverable error.
+  SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+  });
+  ASSERT_OK(Put("key3", "value3"));
+  ASSERT_OK(Put("key4", "value4"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = Flush();
+  ASSERT_EQ(s.severity(),
+            ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  Destroy(options);
+  Reopen(options);
+
+  // The file system does not support checksum handoff. The check
+  // will be ignored.
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
+  ASSERT_OK(Put("key5", "value5"));
+  ASSERT_OK(Put("key6", "value6"));
+  ASSERT_OK(dbfull()->TEST_SwitchMemtable());
+
+  // Each write will be similated as corrupted.
+  // Since the file system returns IOStatus::Corruption, it is an
+  // unrecoverable error.
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
+    fault_fs->IngestDataCorruptionBeforeWrite();
+  });
+  ASSERT_OK(Put("key7", "value7"));
+  ASSERT_OK(Put("key8", "value8"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  s = Flush();
+  ASSERT_EQ(s.severity(),
+            ROCKSDB_NAMESPACE::Status::Severity::kUnrecoverableError);
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  Destroy(options);
+}
+
+TEST_F(DBFlushTest, FlushWithChecksumHandoff2) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_fs_env.get();
+  Reopen(options);
+
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(Flush());
+
+  // options is not set, the checksum handoff will not be triggered
+  SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
+    fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+  });
+  ASSERT_OK(Put("key3", "value3"));
+  ASSERT_OK(Put("key4", "value4"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+  Destroy(options);
+  Reopen(options);
+
+  // The file system does not support checksum handoff. The check
+  // will be ignored.
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
+  ASSERT_OK(Put("key5", "value5"));
+  ASSERT_OK(Put("key6", "value6"));
+  ASSERT_OK(Flush());
+
+  // options is not set, the checksum handoff will not be triggered
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  SyncPoint::GetInstance()->SetCallBack("FlushJob::Start", [&](void*) {
+    fault_fs->IngestDataCorruptionBeforeWrite();
+  });
+  ASSERT_OK(Put("key7", "value7"));
+  ASSERT_OK(Put("key8", "value8"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(Flush());
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  Destroy(options);
+}
+
+TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest1) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_fs_env.get();
+  options.checksum_handoff_file_types.Add(FileType::kDescriptorFile);
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  Reopen(options);
+
+  ASSERT_OK(Put("key1", "value1"));
+  ASSERT_OK(Put("key2", "value2"));
+  ASSERT_OK(Flush());
+
+  // The hash does not match, write fails
+  // fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+  // Since the file system returns IOStatus::Corruption, it is mapped to
+  // kFatalError error.
+  ASSERT_OK(Put("key3", "value3"));
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void*) {
+        fault_fs->SetChecksumHandoffFuncType(ChecksumType::kxxHash);
+      });
+  ASSERT_OK(Put("key3", "value3"));
+  ASSERT_OK(Put("key4", "value4"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
+  SyncPoint::GetInstance()->DisableProcessing();
+  Destroy(options);
+}
+
+TEST_F(DBFlushTest, FlushWithChecksumHandoffManifest2) {
+  if (mem_env_ || encrypted_env_) {
+    ROCKSDB_GTEST_SKIP("Test requires non-mem or non-encrypted environment");
+    return;
+  }
+  std::shared_ptr<FaultInjectionTestFS> fault_fs(
+      new FaultInjectionTestFS(FileSystem::Default()));
+  std::unique_ptr<Env> fault_fs_env(NewCompositeEnv(fault_fs));
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100;
+  options.max_write_buffer_number = 4;
+  options.min_write_buffer_number_to_merge = 3;
+  options.disable_auto_compactions = true;
+  options.env = fault_fs_env.get();
+  options.checksum_handoff_file_types.Add(FileType::kDescriptorFile);
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kNoChecksum);
+  Reopen(options);
+  // The file system does not support checksum handoff. The check
+  // will be ignored.
+  ASSERT_OK(Put("key5", "value5"));
+  ASSERT_OK(Put("key6", "value6"));
+  ASSERT_OK(Flush());
+
+  // Each write will be similated as corrupted.
+  // Since the file system returns IOStatus::Corruption, it is mapped to
+  // kFatalError error.
+  fault_fs->SetChecksumHandoffFuncType(ChecksumType::kCRC32c);
+  SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest",
+      [&](void*) { fault_fs->IngestDataCorruptionBeforeWrite(); });
+  ASSERT_OK(Put("key7", "value7"));
+  ASSERT_OK(Put("key8", "value8"));
+  SyncPoint::GetInstance()->EnableProcessing();
+  Status s = Flush();
+  ASSERT_EQ(s.severity(), ROCKSDB_NAMESPACE::Status::Severity::kFatalError);
+  SyncPoint::GetInstance()->DisableProcessing();
+
+  Destroy(options);
 }
 
 class DBFlushTestBlobError : public DBFlushTest,
                              public testing::WithParamInterface<std::string> {
  public:
-  DBFlushTestBlobError()
-      : fault_injection_env_(env_), sync_point_(GetParam()) {}
-  ~DBFlushTestBlobError() { Close(); }
+  DBFlushTestBlobError() : sync_point_(GetParam()) {}
 
-  FaultInjectionTestEnv fault_injection_env_;
   std::string sync_point_;
 };
 
@@ -545,20 +787,18 @@ TEST_P(DBFlushTestBlobError, FlushError) {
   Options options;
   options.enable_blob_files = true;
   options.disable_auto_compactions = true;
-  options.env = &fault_injection_env_;
+  options.env = env_;
 
   Reopen(options);
 
   ASSERT_OK(Put("key", "blob"));
 
-  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* /* arg */) {
-    fault_injection_env_.SetFilesystemActive(false,
-                                             Status::IOError(sync_point_));
+  SyncPoint::GetInstance()->SetCallBack(sync_point_, [this](void* arg) {
+    Status* const s = static_cast<Status*>(arg);
+    assert(s);
+
+    (*s) = Status::IOError(sync_point_);
   });
-  SyncPoint::GetInstance()->SetCallBack(
-      "BuildTable:BeforeDeleteFile", [this](void* /* arg */) {
-        fault_injection_env_.SetFilesystemActive(true);
-      });
   SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_NOK(Flush());
@@ -608,16 +848,21 @@ TEST_P(DBFlushTestBlobError, FlushError) {
 
   if (sync_point_ == "BlobFileBuilder::WriteBlobToFile:AddRecord") {
     ASSERT_EQ(compaction_stats[0].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[0].bytes_written_blob, 0);
     ASSERT_EQ(compaction_stats[0].num_output_files, 0);
+    ASSERT_EQ(compaction_stats[0].num_output_files_blob, 0);
   } else {
     // SST file writing succeeded; blob file writing failed (during Finish)
     ASSERT_GT(compaction_stats[0].bytes_written, 0);
+    ASSERT_EQ(compaction_stats[0].bytes_written_blob, 0);
     ASSERT_EQ(compaction_stats[0].num_output_files, 1);
+    ASSERT_EQ(compaction_stats[0].num_output_files_blob, 0);
   }
 
   const uint64_t* const cf_stats_value = internal_stats->TEST_GetCFStatsValue();
   ASSERT_EQ(cf_stats_value[InternalStats::BYTES_FLUSHED],
-            compaction_stats[0].bytes_written);
+            compaction_stats[0].bytes_written +
+                compaction_stats[0].bytes_written_blob);
 #endif  // ROCKSDB_LITE
 }
 

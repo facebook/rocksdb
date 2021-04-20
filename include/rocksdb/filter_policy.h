@@ -21,6 +21,7 @@
 
 #include <stdlib.h>
 
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -50,23 +51,25 @@ class FilterBitsBuilder {
   // The ownership of actual data is set to buf
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
 
-  // Calculate num of keys that can be added and generate a filter
-  // <= the specified number of bytes.
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable : 4702)  // unreachable code
-#endif
-  virtual int CalculateNumEntry(const uint32_t /*bytes*/) {
-#ifndef ROCKSDB_LITE
-    throw std::runtime_error("CalculateNumEntry not Implemented");
-#else
-    abort();
-#endif
-    return 0;
+  // Approximate the number of keys that can be added and generate a filter
+  // <= the specified number of bytes. Callers (including RocksDB) should
+  // only use this result for optimizing performance and not as a guarantee.
+  // This default implementation is for compatibility with older custom
+  // FilterBitsBuilders only implementing deprecated CalculateNumEntry.
+  virtual size_t ApproximateNumEntries(size_t bytes) {
+    bytes = std::min(bytes, size_t{0xffffffff});
+    return static_cast<size_t>(CalculateNumEntry(static_cast<uint32_t>(bytes)));
   }
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
+
+  // Old, DEPRECATED version of ApproximateNumEntries. This is not
+  // called by RocksDB except as the default implementation of
+  // ApproximateNumEntries for API compatibility.
+  virtual int CalculateNumEntry(const uint32_t bytes) {
+    // DEBUG: ideally should not rely on this implementation
+    assert(false);
+    // RELEASE: something reasonably conservative: 2 bytes per entry
+    return static_cast<int>(bytes / 2);
+  }
 };
 
 // A class that checks if a key can be in filter
@@ -213,23 +216,33 @@ class FilterPolicy {
 extern const FilterPolicy* NewBloomFilterPolicy(
     double bits_per_key, bool use_block_based_builder = false);
 
-// An EXPERIMENTAL new Bloom alternative that saves about 30% space
-// compared to Bloom filters, with about 3-4x construction time and
-// similar query times. For example, if you pass in 10 for
+// An new Bloom alternative that saves about 30% space compared to
+// Bloom filters, with about 3-4x construction time and similar
+// query times. For example, if you pass in 10 for
 // bloom_equivalent_bits_per_key, you'll get the same 0.95% FP rate
 // as Bloom filter but only using about 7 bits per key. (This
 // way of configuring the new filter is considered experimental
-// and/or transitional, so is expected to go away.)
+// and/or transitional, so is expected to be replaced with a new API.
+// The constructed filters will be given long-term support.)
 //
-// Ribbon filters are ignored by previous versions of RocksDB, as if
-// no filter was used.
+// The space savings of Ribbon filters makes sense for lower (higher
+// numbered; larger; longer-lived) levels of LSM, whereas the speed of
+// Bloom filters make sense for highest levels of LSM. Setting
+// ribbon_starting_level allows for this design. For example,
+// ribbon_starting_level=1 means that Bloom filters will be used in
+// level 0, including flushes, and Ribbon filters elsewhere.
+// ribbon_starting_level=0 means (almost) always use Ribbon.
 //
-// Note: this policy can generate Bloom filters in some cases.
-// For very small filters (well under 1KB), Bloom fallback is by
-// design, as the current Ribbon schema is not optimized to save vs.
-// Bloom for such small filters. Other cases of Bloom fallback should
-// be exceptional and log an appropriate warning.
+// Ribbon filters are compatible with RocksDB >= 6.15.0. Earlier
+// versions reading the data will behave as if no filter was used
+// (degraded performance until compaction rebuilds filters).
+//
+// Note: even with ribbon_starting_level=0, this policy can generate
+// Bloom filters in some cases. For very small filters (well under 1KB),
+// Bloom fallback is by design, as the current Ribbon schema is not
+// optimized to save vs. Bloom for such small filters. Other cases of
+// Bloom fallback should be exceptional and log an appropriate warning.
 extern const FilterPolicy* NewExperimentalRibbonFilterPolicy(
-    double bloom_equivalent_bits_per_key);
+    double bloom_equivalent_bits_per_key, int ribbon_starting_level = 1);
 
 }  // namespace ROCKSDB_NAMESPACE
