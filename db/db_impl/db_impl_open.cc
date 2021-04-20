@@ -1141,7 +1141,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& wal_numbers,
         ROCKS_LOG_ERROR(immutable_db_options_.info_log,
                         "Column family inconsistency: SST file contains data"
                         " beyond the point of corruption.");
-        return Status::Corruption("SST file is ahead of WALs");
+        return Status::Corruption("SST file is ahead of WALs in CF " +
+                                  cfd->GetName());
       }
     }
   }
