@@ -1351,7 +1351,7 @@ block_cache_trace_analyzer: $(OBJ_DIR)/tools/block_cache_analyzer/block_cache_tr
 	$(AM_LINK)
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-folly_synchronization_distributed_mutex ioooooook_test: $(OBJ_DIR)/third-party/folly/folly/synchronization/test/DistributedMutexTest.o $(TEST_LIBRARY) $(LIBRARY)
+folly_synchronization_distributed_mutex_test: $(OBJ_DIR)/third-party/folly/folly/synchronization/test/DistributedMutexTest.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 endif
 
