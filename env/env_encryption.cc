@@ -363,6 +363,8 @@ void EncryptedWritableFile::PrepareWrite(size_t offset, size_t len,
 }
 
 void EncryptedWritableFile::SetPreallocationBlockSize(size_t size) {
+  // the size here doesn't need to include prefixLength_, as it's a
+  // configuration will be use for `PrepareWrite()`.
   file_->SetPreallocationBlockSize(size);
 }
 
