@@ -26,12 +26,11 @@ StressTest::StressTest()
       compressed_cache_(NewLRUCache(FLAGS_compressed_cache_size)),
       filter_policy_(
           FLAGS_bloom_bits >= 0
-              ? FLAGS_ribbon_starting_level < FLAGS_num_levels
-                    ? NewExperimentalRibbonFilterPolicy(
-                          FLAGS_bloom_bits, FLAGS_ribbon_starting_level)
+              ? FLAGS_use_ribbon_filter
+                    ? NewExperimentalRibbonFilterPolicy(FLAGS_bloom_bits)
                     : FLAGS_use_block_based_filter
-                        ? NewBloomFilterPolicy(FLAGS_bloom_bits, true)
-                        : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
+                          ? NewBloomFilterPolicy(FLAGS_bloom_bits, true)
+                          : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
               : nullptr),
       db_(nullptr),
 #ifndef ROCKSDB_LITE
