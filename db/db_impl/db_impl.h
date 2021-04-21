@@ -1048,6 +1048,56 @@ class DBImpl : public DB {
   // flush LOG out of application buffer
   void FlushInfoLog();
 
+  // Interface to block and signal the DB in case of stalling writes by
+  // WriteBufferManager. Each DBImpl object contains ptr to WBMStallInterface.
+  // When DB needs to be blocked or signalled by WriteBufferManager,
+  // state_ is changed accordingly.
+  class WBMStallInterface : public StallInterface {
+   public:
+    enum State {
+      BLOCKED = 0,
+      RUNNING,
+    };
+
+    WBMStallInterface() : state_cv_(&state_mutex_) {
+      MutexLock lock(&state_mutex_);
+      state_ = State::RUNNING;
+    }
+
+    void SetState(State state) {
+      MutexLock lock(&state_mutex_);
+      state_ = state;
+    }
+
+    // Change the state_ to State::BLOCKED and wait until its state is
+    // changed by WriteBufferManager. When stall is cleared, Signal() is
+    // called to change the state and unblock the DB.
+    void Block() override {
+      MutexLock lock(&state_mutex_);
+      while (state_ == State::BLOCKED) {
+        TEST_SYNC_POINT("WBMStallInterface::BlockDB");
+        state_cv_.Wait();
+      }
+    }
+
+    // Called from WriteBufferManager. This function changes the state_
+    // to State::RUNNING indicating the stall is cleared and DB can proceed.
+    void Signal() override {
+      MutexLock lock(&state_mutex_);
+      state_ = State::RUNNING;
+      state_cv_.Signal();
+    }
+
+   private:
+    // Conditional variable and mutex to block and
+    // signal the DB during stalling process.
+    port::Mutex state_mutex_;
+    port::CondVar state_cv_;
+    // state represting whether DB is running or blocked because of stall by
+    // WriteBufferManager.
+    State state_;
+  };
+
  protected:
   const std::string dbname_;
   std::string db_id_;
@@ -1525,6 +1575,10 @@ class DBImpl : public DB {
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.
   Status DelayWrite(uint64_t num_bytes, const WriteOptions& write_options);
+
+  // Begin stalling of writes when memory usage increases beyond a certain
+  // threshold.
+  void WriteBufferManagerStallWrites();
 
   Status ThrottleLowPriWritesIfNeeded(const WriteOptions& write_options,
                                       WriteBatch* my_batch);
@@ -2230,6 +2284,9 @@ class DBImpl : public DB {
   bool wal_in_db_path_;
 
   BlobFileCompletionCallback blob_callback_;
+
+  // Pointer to WriteBufferManager stalling interface.
+  std::unique_ptr<StallInterface> wbm_stall_;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,

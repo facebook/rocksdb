@@ -270,6 +270,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
   // is called by client and this seqnum is advanced.
   preserve_deletes_seqnum_.store(0);
+
+  if (write_buffer_manager_) {
+    wbm_stall_.reset(new WBMStallInterface());
+  }
 }
 
 Status DBImpl::Resume() {
@@ -658,6 +662,10 @@ Status DBImpl::CloseHelper() {
     if (!s.ok() && !s.IsNotSupported() && ret.ok()) {
       ret = s;
     }
+  }
+
+  if (write_buffer_manager_ && wbm_stall_) {
+    write_buffer_manager_->RemoveDBFromQueue(wbm_stall_.get());
   }
 
   if (ret.IsAborted()) {

@@ -1412,6 +1412,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "db_write_buffer_manager_test",
+        "db/db_write_buffer_manager_test.cc",
+        "parallel",
+        [],
+        [],
+    ],
+    [
         "db_write_test",
         "db/db_write_test.cc",
         "parallel",
