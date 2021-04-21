@@ -2286,7 +2286,7 @@ class DBImpl : public DB {
   BlobFileCompletionCallback blob_callback_;
 
   // Pointer to WriteBufferManager stalling interface.
-  StallInterface* wbm_stall_;
+  std::unique_ptr<StallInterface> wbm_stall_;
 };
 
 extern Options SanitizeOptions(const std::string& db, const Options& src,

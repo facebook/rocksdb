@@ -1560,11 +1560,11 @@ void DBImpl::WriteBufferManagerStallWrites() {
   mutex_.Unlock();
 
   // Change the state to State::Blocked.
-  static_cast<WBMStallInterface*>(wbm_stall_)
+  static_cast<WBMStallInterface*>(wbm_stall_.get())
       ->SetState(WBMStallInterface::State::BLOCKED);
   // Then WriteBufferManager will add DB instance to its queue
   // and block this thread by calling WBMStallInterface::Block().
-  write_buffer_manager_->BeginWriteStall(wbm_stall_);
+  write_buffer_manager_->BeginWriteStall(wbm_stall_.get());
   wbm_stall_->Block();
 
   mutex_.Lock();

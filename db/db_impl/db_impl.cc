@@ -234,8 +234,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       error_handler_(this, immutable_db_options_, &mutex_),
       atomic_flush_install_cv_(&mutex_),
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
-                     &error_handler_),
-      wbm_stall_(nullptr) {
+                     &error_handler_) {
   // !batch_per_trx_ implies seq_per_batch_ because it is only unset for
   // WriteUnprepared, which should use seq_per_batch_.
   assert(batch_per_txn_ || seq_per_batch_);
@@ -273,7 +272,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   preserve_deletes_seqnum_.store(0);
 
   if (write_buffer_manager_) {
-    wbm_stall_ = new WBMStallInterface();
+    wbm_stall_.reset(new WBMStallInterface());
   }
 }
 
@@ -666,9 +665,7 @@ Status DBImpl::CloseHelper() {
   }
 
   if (write_buffer_manager_ && wbm_stall_) {
-    write_buffer_manager_->RemoveDBFromQueue(wbm_stall_);
-    delete wbm_stall_;
-    wbm_stall_ = nullptr;
+    write_buffer_manager_->RemoveDBFromQueue(wbm_stall_.get());
   }
 
   if (ret.IsAborted()) {
