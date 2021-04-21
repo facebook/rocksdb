@@ -243,27 +243,24 @@ struct CompactionServiceOutputFile {
   std::string file_name;
   SequenceNumber smallest_seqno;
   SequenceNumber largest_seqno;
-  InternalKey smallest_internal_key;
-  InternalKey largest_internal_key;
+  std::string smallest_internal_key;
+  std::string largest_internal_key;
   uint64_t oldest_ancester_time;
   uint64_t file_creation_time;
   uint64_t paranoid_hash;
   bool marked_for_compaction;
 
   CompactionServiceOutputFile() = default;
-  CompactionServiceOutputFile(const std::string& name, SequenceNumber smallest,
-                              SequenceNumber largest,
-                              const InternalKey& _smallest_internal_key,
-                              const InternalKey& _largest_internal_key,
-                              uint64_t _oldest_ancester_time,
-                              uint64_t _file_creation_time,
-                              uint64_t _paranoid_hash,
-                              bool _marked_for_compaction)
+  CompactionServiceOutputFile(
+      const std::string& name, SequenceNumber smallest, SequenceNumber largest,
+      std::string _smallest_internal_key, std::string _largest_internal_key,
+      uint64_t _oldest_ancester_time, uint64_t _file_creation_time,
+      uint64_t _paranoid_hash, bool _marked_for_compaction)
       : file_name(name),
         smallest_seqno(smallest),
         largest_seqno(largest),
-        smallest_internal_key(_smallest_internal_key),
-        largest_internal_key(_largest_internal_key),
+        smallest_internal_key(std::move(_smallest_internal_key)),
+        largest_internal_key(std::move(_largest_internal_key)),
         oldest_ancester_time(_oldest_ancester_time),
         file_creation_time(_file_creation_time),
         paranoid_hash(_paranoid_hash),

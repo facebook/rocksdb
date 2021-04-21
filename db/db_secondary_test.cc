@@ -178,10 +178,11 @@ TEST_F(DBSecondaryTest, SimpleInternalCompaction) {
                                                                  &result));
 
   ASSERT_EQ(result.output_files.size(), 1);
-  ASSERT_EQ(result.output_files[0].smallest_internal_key.user_key().ToString(),
-            "bar");
-  ASSERT_EQ(result.output_files[0].largest_internal_key.user_key().ToString(),
-            "foo");
+  InternalKey smallest, largest;
+  smallest.DecodeFrom(result.output_files[0].smallest_internal_key);
+  largest.DecodeFrom(result.output_files[0].largest_internal_key);
+  ASSERT_EQ(smallest.user_key().ToString(), "bar");
+  ASSERT_EQ(largest.user_key().ToString(), "foo");
   ASSERT_EQ(result.output_level, 1);
   ASSERT_EQ(result.output_path, this->secondary_path_);
   ASSERT_EQ(result.num_output_records, 2);

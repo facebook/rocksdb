@@ -2046,9 +2046,10 @@ Status CompactionServiceCompactionJob::Run() {
     auto& meta = output_file.meta;
     compaction_result_->output_files.emplace_back(
         MakeTableFileName(meta.fd.GetNumber()), meta.fd.smallest_seqno,
-        meta.fd.largest_seqno, meta.smallest, meta.largest,
-        meta.oldest_ancester_time, meta.file_creation_time,
-        output_file.validator.GetHash(), meta.marked_for_compaction);
+        meta.fd.largest_seqno, meta.smallest.Encode().ToString(),
+        meta.largest.Encode().ToString(), meta.oldest_ancester_time,
+        meta.file_creation_time, output_file.validator.GetHash(),
+        meta.marked_for_compaction);
   }
   compaction_result_->num_output_records = sub_compact->num_output_records;
   compaction_result_->total_bytes = sub_compact->total_bytes;
