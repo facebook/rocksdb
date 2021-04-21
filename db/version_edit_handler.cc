@@ -903,7 +903,7 @@ void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
     auto it = cf_to_cmp_names_->find(cfd->GetID());
     if (it != cf_to_cmp_names_->end()) {
       fprintf(stdout,
-              "comparator: <%s>, but the comparator object is not avaiable.\n",
+              "comparator: <%s>, but the comparator object is not available.\n",
               it->second.c_str());
     } else {
       fprintf(stdout, "comparator: %s\n", cfd->user_comparator()->Name());
