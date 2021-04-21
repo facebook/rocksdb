@@ -487,6 +487,7 @@ Options DBTestBase::GetOptions(
     }
     case kFIFOCompaction: {
       options.compaction_style = kCompactionStyleFIFO;
+      options.max_open_files = -1;
       break;
     }
     case kBlockBasedTableWithPrefixHashIndex: {
