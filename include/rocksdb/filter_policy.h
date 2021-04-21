@@ -217,7 +217,7 @@ extern const FilterPolicy* NewBloomFilterPolicy(
     double bits_per_key, bool use_block_based_builder = false);
 
 // An new Bloom alternative that saves about 30% space compared to
-// Bloom filters, with about 3-4x construction time and similar
+// Bloom filters, with about 3-4x construction CPU time and similar
 // query times. For example, if you pass in 10 for
 // bloom_equivalent_bits_per_key, you'll get the same 0.95% FP rate
 // as Bloom filter but only using about 7 bits per key. (This
@@ -225,24 +225,16 @@ extern const FilterPolicy* NewBloomFilterPolicy(
 // and/or transitional, so is expected to be replaced with a new API.
 // The constructed filters will be given long-term support.)
 //
-// The space savings of Ribbon filters makes sense for lower (higher
-// numbered; larger; longer-lived) levels of LSM, whereas the speed of
-// Bloom filters make sense for highest levels of LSM. Setting
-// ribbon_starting_level allows for this design. For example,
-// ribbon_starting_level=1 means that Bloom filters will be used in
-// level 0, including flushes, and Ribbon filters elsewhere.
-// ribbon_starting_level=0 means (almost) always use Ribbon.
-//
 // Ribbon filters are compatible with RocksDB >= 6.15.0. Earlier
 // versions reading the data will behave as if no filter was used
 // (degraded performance until compaction rebuilds filters).
 //
-// Note: even with ribbon_starting_level=0, this policy can generate
-// Bloom filters in some cases. For very small filters (well under 1KB),
-// Bloom fallback is by design, as the current Ribbon schema is not
-// optimized to save vs. Bloom for such small filters. Other cases of
-// Bloom fallback should be exceptional and log an appropriate warning.
+// Note: this policy can generate Bloom filters in some cases.
+// For very small filters (well under 1KB), Bloom fallback is by
+// design, as the current Ribbon schema is not optimized to save vs.
+// Bloom for such small filters. Other cases of Bloom fallback should
+// be exceptional and log an appropriate warning.
 extern const FilterPolicy* NewExperimentalRibbonFilterPolicy(
-    double bloom_equivalent_bits_per_key, int ribbon_starting_level = 1);
+    double bloom_equivalent_bits_per_key);
 
 }  // namespace ROCKSDB_NAMESPACE

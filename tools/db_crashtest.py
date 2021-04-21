@@ -102,7 +102,7 @@ default_params = {
     "mock_direct_io": False,
     "use_full_merge_v1": lambda: random.randint(0, 1),
     "use_merge": lambda: random.randint(0, 1),
-    "ribbon_starting_level": lambda: random.randint(0, 10),
+    "use_ribbon_filter": lambda: random.randint(0, 1),
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
