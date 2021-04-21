@@ -803,6 +803,10 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                             ColumnFamilyHandle* column_family,
                             const Slice* begin_without_ts,
                             const Slice* end_without_ts) {
+  if (manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
+    return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+  }
+
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
   size_t ts_sz = ucmp->timestamp_size();
