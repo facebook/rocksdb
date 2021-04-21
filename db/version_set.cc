@@ -5775,7 +5775,11 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
   assert(nullptr == manifest_reader->get() ||
          manifest_reader->get()->file()->file_name() != manifest_path);
   s = fs_->FileExists(manifest_path, IOOptions(), nullptr);
-  if (!s.ok()) {
+  if (s.IsNotFound()) {
+    return Status::TryAgain(
+        "The primary may have switched to a new MANIFEST and deleted the old "
+        "one.");
+  } else if (!s.ok()) {
     return s;
   }
   TEST_SYNC_POINT(
@@ -5784,6 +5788,9 @@ Status ReactiveVersionSet::MaybeSwitchManifest(
   TEST_SYNC_POINT(
       "ReactiveVersionSet::MaybeSwitchManifest:"
       "AfterGetCurrentManifestPath:1");
+  // The primary can also delete the MANIFEST while the secondary is reading
+  // it. This is OK on POSIX. For other file systems, maybe create a hard link
+  // to MANIFEST. The hard link should be cleaned up later by the secondary.
   s = fs_->NewSequentialFile(manifest_path,
                              fs_->OptimizeForManifestRead(file_options_),
                              &manifest_file, nullptr);
