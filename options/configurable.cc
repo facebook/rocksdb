@@ -31,6 +31,12 @@ void ConfigurableHelper::RegisterOptions(
   configurable.options_.emplace_back(opts);
 }
 
+void RegisterConfigurableOptions(
+    Configurable& configurable, const std::string& name, void* opt_ptr,
+    const std::unordered_map<std::string, OptionTypeInfo>* type_map) {
+  ConfigurableHelper::RegisterOptions(configurable, name, opt_ptr, type_map);
+}
+
 //*************************************************************************
 //
 //       Methods for Initializing and Validating Configurable Objects

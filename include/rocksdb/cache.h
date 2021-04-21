@@ -248,38 +248,6 @@ class Cache {
                         Handle** handle = nullptr,
                         Priority priority = Priority::LOW) = 0;
 
-  // Insert a mapping from key->value into the volatile cache and assign it
-  // the specified charge against the total cache capacity.
-  // If strict_capacity_limit is true and cache reaches its full capacity,
-  // return Status::Incomplete.
-  //
-  // If handle is not nullptr, returns a handle that corresponds to the
-  // mapping. The caller must call this->Release(handle) when the returned
-  // mapping is no longer needed. In case of error caller is responsible to
-  // cleanup the value (i.e. calling "deleter").
-  //
-  // If handle is nullptr, it is as if Release is called immediately after
-  // insert. In case of error value will be cleanup.
-  //
-  // Regardless of whether the item was inserted into the volatile cache,
-  // it will attempt to insert it into the NVM cache if one is configured.
-  // The block cache implementation must support the NVM tier, otherwise
-  // the item is only inserted into the volatile tier. It may
-  // defer the insertion to NVM as it sees fit. The NVM
-  // cache may or may not write it to NVM depending on its admission
-  // policy.
-  //
-  // When the inserted entry is no longer needed, the key and
-  // value will be passed to "deleter".
-  virtual Status Insert(const Slice& key, void* value,
-                        CacheItemHelperCallback helper_cb, size_t charge,
-                        Handle** handle = nullptr,
-                        Priority priority = Priority::LOW) {
-    DeletionCallback delete_cb = nullptr;
-    (*helper_cb)(nullptr, nullptr, &delete_cb);
-    return Insert(key, value, charge, delete_cb, handle, priority);
-  }
-
   // If the cache has no mapping for "key", returns nullptr.
   //
   // Else return a handle that corresponds to the mapping.  The caller
@@ -288,25 +256,6 @@ class Cache {
   // If stats is not nullptr, relative tickers could be used inside the
   // function.
   virtual Handle* Lookup(const Slice& key, Statistics* stats = nullptr) = 0;
-
-  // Lookup the key in the volatile and NVM tiers (if one is configured).
-  // The create_cb callback function object will be used to contruct the
-  // cached object.
-  // If none of the tiers have the mapping for the key, rturns nullptr.
-  // Else, returns a handle that corresponds to the mapping.
-  //
-  // The handle returned may not be ready. The caller should call isReady()
-  // to check if the item value is ready, and call Wait() or WaitAll() if
-  // its not ready. The caller should then call Value() to check if the
-  // item was successfully retrieved. If unsuccessful (perhaps due to an
-  // IO error), Value() will return nullptr.
-  virtual Handle* Lookup(const Slice& key,
-                         CacheItemHelperCallback /*helper_cb*/,
-                         const CreateCallback& /*create_cb*/,
-                         Priority /*priority*/, bool /*wait*/,
-                         Statistics* stats = nullptr) {
-    return Lookup(key, stats);
-  }
 
   // Increments the reference count for the handle if it refers to an entry in
   // the cache. Returns true if refcount was incremented; otherwise, returns
@@ -327,27 +276,6 @@ class Cache {
   // REQUIRES: handle must not have been released yet.
   // REQUIRES: handle must have been returned by a method on *this.
   virtual bool Release(Handle* handle, bool force_erase = false) = 0;
-
-  // Release a mapping returned by a previous Lookup(). The "useful"
-  // parameter specifies whether the data was actually used or not,
-  // which may be used by the cache implementation to decide whether
-  // to consider it as a hit for retention purposes.
-  virtual bool Release(Handle* handle, bool /*useful*/, bool force_erase) {
-    return Release(handle, force_erase);
-  }
-
-  // Determines if the handle returned by Lookup() has a valid value yet.
-  virtual bool isReady(Handle* /*handle*/) { return true; }
-
-  // If the handle returned by Lookup() is not ready yet, wait till it
-  // becomes ready.
-  // Note: A ready handle doesn't necessarily mean it has a valid value. The
-  // user should call Value() and check for nullptr.
-  virtual void Wait(Handle* /*handle*/) {}
-
-  // Wait for a vector of handles to become ready. As with Wait(), the user
-  // should check the Value() of each handle for nullptr
-  virtual void WaitAll(std::vector<Handle*>& /*handles*/) {}
 
   // Return the value encapsulated in a handle returned by a
   // successful Lookup().
@@ -416,6 +344,78 @@ class Cache {
   virtual std::string GetPrintableOptions() const { return ""; }
 
   MemoryAllocator* memory_allocator() const { return memory_allocator_.get(); }
+
+  // Insert a mapping from key->value into the volatile cache and assign it
+  // the specified charge against the total cache capacity.
+  // If strict_capacity_limit is true and cache reaches its full capacity,
+  // return Status::Incomplete.
+  //
+  // If handle is not nullptr, returns a handle that corresponds to the
+  // mapping. The caller must call this->Release(handle) when the returned
+  // mapping is no longer needed. In case of error caller is responsible to
+  // cleanup the value (i.e. calling "deleter").
+  //
+  // If handle is nullptr, it is as if Release is called immediately after
+  // insert. In case of error value will be cleanup.
+  //
+  // Regardless of whether the item was inserted into the volatile cache,
+  // it will attempt to insert it into the NVM cache if one is configured.
+  // The block cache implementation must support the NVM tier, otherwise
+  // the item is only inserted into the volatile tier. It may
+  // defer the insertion to NVM as it sees fit. The NVM
+  // cache may or may not write it to NVM depending on its admission
+  // policy.
+  //
+  // When the inserted entry is no longer needed, the key and
+  // value will be passed to "deleter".
+  virtual Status Insert(const Slice& key, void* value,
+                        CacheItemHelperCallback helper_cb, size_t charge,
+                        Handle** handle = nullptr,
+                        Priority priority = Priority::LOW) {
+    DeletionCallback delete_cb = nullptr;
+    (*helper_cb)(nullptr, nullptr, &delete_cb);
+    return Insert(key, value, charge, delete_cb, handle, priority);
+  }
+
+  // Lookup the key in the volatile and NVM tiers (if one is configured).
+  // The create_cb callback function object will be used to contruct the
+  // cached object.
+  // If none of the tiers have the mapping for the key, rturns nullptr.
+  // Else, returns a handle that corresponds to the mapping.
+  //
+  // The handle returned may not be ready. The caller should call isReady()
+  // to check if the item value is ready, and call Wait() or WaitAll() if
+  // its not ready. The caller should then call Value() to check if the
+  // item was successfully retrieved. If unsuccessful (perhaps due to an
+  // IO error), Value() will return nullptr.
+  virtual Handle* Lookup(const Slice& key,
+                         CacheItemHelperCallback /*helper_cb*/,
+                         const CreateCallback& /*create_cb*/,
+                         Priority /*priority*/, bool /*wait*/,
+                         Statistics* stats = nullptr) {
+    return Lookup(key, stats);
+  }
+
+  // Release a mapping returned by a previous Lookup(). The "useful"
+  // parameter specifies whether the data was actually used or not,
+  // which may be used by the cache implementation to decide whether
+  // to consider it as a hit for retention purposes.
+  virtual bool Release(Handle* handle, bool /*useful*/, bool force_erase) {
+    return Release(handle, force_erase);
+  }
+
+  // Determines if the handle returned by Lookup() has a valid value yet.
+  virtual bool isReady(Handle* /*handle*/) { return true; }
+
+  // If the handle returned by Lookup() is not ready yet, wait till it
+  // becomes ready.
+  // Note: A ready handle doesn't necessarily mean it has a valid value. The
+  // user should call Value() and check for nullptr.
+  virtual void Wait(Handle* /*handle*/) {}
+
+  // Wait for a vector of handles to become ready. As with Wait(), the user
+  // should check the Value() of each handle for nullptr
+  virtual void WaitAll(std::vector<Handle*>& /*handles*/) {}
 
  private:
   std::shared_ptr<MemoryAllocator> memory_allocator_;

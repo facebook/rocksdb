@@ -48,6 +48,8 @@ class TieredCache {
 
   virtual std::string Name() = 0;
 
+  static const char* Type() { return "TieredCache"; }
+
   // Insert the given value into this tier. The value is not written
   // directly. Rather, the SaveToCallback provided by helper_cb will be
   // used to extract the persistable data in value, which will be written

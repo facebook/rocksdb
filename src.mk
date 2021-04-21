@@ -320,6 +320,9 @@ MOCK_LIB_SOURCES =                                              \
 BENCH_LIB_SOURCES =                                             \
   tools/db_bench_tool.cc                                        \
 
+CACHE_BENCH_LIB_SOURCES =					\
+  cache/cache_bench_tool.cc                                     \
+
 STRESS_LIB_SOURCES =                                            \
   db_stress_tool/batched_ops_stress.cc                         \
   db_stress_tool/cf_consistency_stress.cc                      \

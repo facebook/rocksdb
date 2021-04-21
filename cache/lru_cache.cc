@@ -377,7 +377,6 @@ Cache::Handle* LRUCacheShard::Lookup(
       e->SetPromoted(true);
       e->SetTieredCacheCompatible(true);
       e->info_.helper_cb = helper_cb;
-      e->charge = tiered_handle->Size();
       e->key_length = key.size();
       e->hash = hash;
       e->refs = 0;
