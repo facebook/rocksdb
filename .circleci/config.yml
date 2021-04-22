@@ -378,7 +378,7 @@ jobs:
               powershell .circleci/vs2017_install.ps1
             elif [[ "${VS_YEAR}" == "2015" ]]; then
               echo "Installing VS2015..."
-              powershell .circleci/vs2015_install.ps1
+              choco install visualstudio2015community
             fi
       - run:
           name: "Install thirdparty dependencies"
