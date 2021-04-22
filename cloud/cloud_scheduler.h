@@ -37,6 +37,9 @@ class CloudScheduler {
   // was canceled, false otherwise.
   virtual bool CancelJob(long handle) = 0;
 
+  // Returns true if the job represented by handle has not completed,
+  // meaning that it is either currently schedule or actively running
+  virtual bool IsScheduled(long handle) = 0;
   // Returns a new instance of a cloud scheduler.  The caller is responsible
   // for freeing the scheduler when it is no longer required.
   static std::shared_ptr<CloudScheduler> Get();

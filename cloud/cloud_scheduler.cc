@@ -46,6 +46,7 @@ class CloudSchedulerImpl : public CloudScheduler {
                             std::function<void(void*)> callback,
                             void* arg) override;
   bool CancelJob(long handle) override;
+  bool IsScheduled(long handle) override;
 
  private:
   void DoWork();
@@ -70,8 +71,14 @@ class LocalCloudScheduler : public CloudScheduler {
  public:
   LocalCloudScheduler(const std::shared_ptr<CloudScheduler>& scheduler,
                       long local_id)
-      : scheduler_(scheduler), next_local_id_(local_id) {}
+      : scheduler_(scheduler),
+        next_local_id_(local_id),
+        shutting_down_(false) {}
   ~LocalCloudScheduler() override {
+    {
+      std::lock_guard<std::mutex> lk(job_mutex_);
+      shutting_down_ = true;
+    }
     for (const auto& job : jobs_) {
       scheduler_->CancelJob(job.second);
     }
@@ -80,6 +87,9 @@ class LocalCloudScheduler : public CloudScheduler {
 
   long ScheduleJob(std::chrono::microseconds when,
                    std::function<void(void*)> callback, void* arg) override {
+    if (shutting_down_) {
+      return -1;
+    }
     std::lock_guard<std::mutex> lk(job_mutex_);
     long local_id = next_local_id_++;
     auto job = [this, local_id, callback](void* a) {
@@ -95,12 +105,37 @@ class LocalCloudScheduler : public CloudScheduler {
                             std::chrono::microseconds frequency,
                             std::function<void(void*)> callback,
                             void* arg) override {
+    if (shutting_down_) {
+      return -1;
+    }
     auto job = scheduler_->ScheduleRecurringJob(when, frequency, callback, arg);
     std::lock_guard<std::mutex> lk(job_mutex_);
     long local_id = next_local_id_++;
     jobs_[local_id] = job;
     return local_id;
   }
+
+  bool IsScheduled(long handle) override {
+    if (shutting_down_) {
+      return false;
+    } else {
+      std::lock_guard<std::mutex> lk(job_mutex_);
+      const auto& it = jobs_.find(handle);
+      if (it == jobs_.end()) {
+        // We do not have the job in our queue.  Return false
+        return false;
+      } else if (scheduler_->IsScheduled(it->second)) {
+        // The job is still scheduled.  Return false
+        return true;
+      } else {
+        // We have the job in our queue but it has already
+        // completed.  Erase from our queue and return false
+        jobs_.erase(it);
+        return false;
+      }
+    }
+  }
+
   // Cancels the job referred to by handle if it is active and associated with
   // this scheduler
   bool CancelJob(long handle) override {
@@ -123,6 +158,7 @@ class LocalCloudScheduler : public CloudScheduler {
   std::mutex job_mutex_;
   std::shared_ptr<CloudScheduler> scheduler_;
   long next_local_id_;
+  bool shutting_down_;
   std::unordered_map<long, long> jobs_;
 };
 
@@ -185,6 +221,22 @@ long CloudSchedulerImpl::ScheduleRecurringJob(
     jobs_changed_cv_.notify_all();
   }
   return id;
+}
+
+bool CloudSchedulerImpl::IsScheduled(long id) {
+  if (id < 0) {
+    return false;
+  } else {
+    std::unique_lock<std::mutex> lk(mutex_);
+    if (!scheduled_jobs_.empty()) {
+      for (const auto& job : scheduled_jobs_) {
+        if (job.id == id) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
 }
 
 bool CloudSchedulerImpl::CancelJob(long id) {
