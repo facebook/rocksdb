@@ -378,14 +378,20 @@ class SpecialEnv : public EnvWrapper {
         return Append(data);
       }
       Status Truncate(uint64_t size) override { return base_->Truncate(size); }
+      void PrepareWrite(size_t offset, size_t len) override {
+        base_->PrepareWrite(offset, len);
+      }
+      void SetPreallocationBlockSize(size_t size) override {
+        base_->SetPreallocationBlockSize(size);
+      }
       Status Close() override {
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
         // Check preallocation size
-        // preallocation size is never passed to base file.
-        size_t preallocation_size = preallocation_block_size();
+        size_t block_size, last_allocated_block;
+        base_->GetPreallocationStatus(&block_size, &last_allocated_block);
         TEST_SYNC_POINT_CALLBACK("DBTestWalFile.GetPreallocationStatus",
-                                 &preallocation_size);
+                                 &block_size);
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
         return base_->Close();
@@ -439,6 +445,11 @@ class SpecialEnv : public EnvWrapper {
       SpecialEnv* env_;
       std::unique_ptr<WritableFile> base_;
     };
+
+    if (no_file_overwrite_.load(std::memory_order_acquire) &&
+        target()->FileExists(f).ok()) {
+      return Status::NotSupported("SpecialEnv::no_file_overwrite_ is true.");
+    }
 
     if (non_writeable_rate_.load(std::memory_order_acquire) > 0) {
       uint32_t random_number;
@@ -686,6 +697,9 @@ class SpecialEnv : public EnvWrapper {
 
   // Slow down every log write, in micro-seconds.
   std::atomic<int> log_write_slowdown_;
+
+  // If true, returns Status::NotSupported for file overwrite.
+  std::atomic<bool> no_file_overwrite_;
 
   // Number of WAL files that are still open for write.
   std::atomic<int> num_open_wal_file_;

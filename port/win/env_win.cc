@@ -682,7 +682,8 @@ IOStatus WinFileSystem::GetChildren(const std::string& dir,
     // which appear only on some platforms
     const bool ignore =
         ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) &&
-        (strcmp(data.cFileName, ".") == 0 || strcmp(data.cFileName, "..") == 0);
+        (RX_FNCMP(data.cFileName, ".") == 0 ||
+         RX_FNCMP(data.cFileName, "..") == 0);
     if (!ignore) {
       auto x = RX_FILESTRING(data.cFileName, RX_FNLEN(data.cFileName));
       result->push_back(FN_TO_RX(x));

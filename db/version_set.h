@@ -1331,10 +1331,6 @@ class VersionSet {
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        const VersionEdit* edit);
 
-  Status ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
-                                    const VersionEdit& from_edit,
-                                    VersionEditParams* version_edit_params);
-
   Status VerifyFileMetadata(const std::string& fpath,
                             const FileMetaData& meta) const;
 

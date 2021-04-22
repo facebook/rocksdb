@@ -2168,6 +2168,8 @@ TEST_F(BackupableDBTest, TableFileCorruptionBeforeIncremental) {
 // between incremental backups
 TEST_F(BackupableDBTest, FileSizeForIncremental) {
   const auto share_no_checksum = static_cast<ShareFilesNaming>(0);
+  // TODO: enable blob files once Integrated BlobDB supports DB session id.
+  options_.enable_blob_files = false;
 
   for (ShareFilesNaming option : {share_no_checksum, kLegacyCrc32cAndFileSize,
                                   kNamingDefault, kUseDbSessionId}) {
@@ -2192,9 +2194,9 @@ TEST_F(BackupableDBTest, FileSizeForIncremental) {
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true /*flush*/));
     CloseDBAndBackupEngine();
 
-    // Corrupt backup SST and blob file
+    // Corrupt backup SST file
     ASSERT_OK(file_manager_->GetChildrenFileAttributes(shared_dir, &children));
-    ASSERT_EQ(children.size(), 2U);  // one sst and one blob file
+    ASSERT_EQ(children.size(), 1U);  // one sst
     for (const auto& child : children) {
       if (child.name.size() > 4 && child.size_bytes > 0) {
         ASSERT_OK(
@@ -2251,10 +2253,10 @@ TEST_F(BackupableDBTest, FileSizeForIncremental) {
     OpenDBAndBackupEngine(false, false, share);
     ASSERT_OK(db_->Put(WriteOptions(), "y", Random(42).RandomString(500)));
 
-    // Count backup SSTs and blob files.
+    // Count backup SSTs files.
     children.clear();
     ASSERT_OK(file_manager_->GetChildrenFileAttributes(shared_dir, &children));
-    ASSERT_EQ(children.size(), 4U);  // two sst and two blob files
+    ASSERT_EQ(children.size(), 2U);  // two sst files
 
     // Try create backup 3
     s = backup_engine_->CreateNewBackup(db_.get(), true /*flush*/);
@@ -2267,18 +2269,18 @@ TEST_F(BackupableDBTest, FileSizeForIncremental) {
       // Acceptable to call it corruption if size is not in name and
       // db session id collision is practically impossible.
       EXPECT_TRUE(s.IsCorruption());
-      EXPECT_EQ(children.size(), 4U);  // no SST/Blob file added
+      EXPECT_EQ(children.size(), 2U);  // no SST file added
     } else if (option == share_no_checksum) {
       // Good to call it corruption if both backups cannot be
       // accommodated.
       EXPECT_TRUE(s.IsCorruption());
-      EXPECT_EQ(children.size(), 4U);  // no SST/Blob file added
+      EXPECT_EQ(children.size(), 2U);  // no SST file added
     } else {
       // Since opening a DB seems sufficient for detecting size corruption
       // on the DB side, this should be a good thing, ...
       EXPECT_OK(s);
       // ... as long as we did actually treat it as a distinct SST file.
-      EXPECT_EQ(children.size(), 6U);  // Another SST and blob added
+      EXPECT_EQ(children.size(), 3U);  // Another SST added
     }
     CloseDBAndBackupEngine();
     ASSERT_OK(DestroyDB(dbname_, options_));
@@ -2716,19 +2718,19 @@ TEST_F(BackupableDBTest, GarbageCollectionBeforeBackup) {
   OpenDBAndBackupEngine(true);
 
   ASSERT_OK(backup_chroot_env_->CreateDirIfMissing(backupdir_ + "/shared"));
-  std::string file_five = backupdir_ + "/shared/000008.sst";
+  std::string file_five = backupdir_ + "/shared/000009.sst";
   std::string file_five_contents = "I'm not really a sst file";
-  // this depends on the fact that 00008.sst is the first file created by the DB
+  // this depends on the fact that 00009.sst is the first file created by the DB
   ASSERT_OK(file_manager_->WriteToFile(file_five, file_five_contents));
 
   FillDB(db_.get(), 0, 100);
-  // backup overwrites file 000008.sst
+  // backup overwrites file 000009.sst
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
 
   std::string new_file_five_contents;
   ASSERT_OK(ReadFileToString(backup_chroot_env_.get(), file_five,
                              &new_file_five_contents));
-  // file 000008.sst was overwritten
+  // file 000009.sst was overwritten
   ASSERT_TRUE(new_file_five_contents != file_five_contents);
 
   CloseDBAndBackupEngine();

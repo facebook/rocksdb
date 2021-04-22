@@ -362,6 +362,17 @@ void EncryptedWritableFile::PrepareWrite(size_t offset, size_t len,
   file_->PrepareWrite(offset + prefixLength_, len, options, dbg);
 }
 
+void EncryptedWritableFile::SetPreallocationBlockSize(size_t size) {
+  // the size here doesn't need to include prefixLength_, as it's a
+  // configuration will be use for `PrepareWrite()`.
+  file_->SetPreallocationBlockSize(size);
+}
+
+void EncryptedWritableFile::GetPreallocationStatus(
+    size_t* block_size, size_t* last_allocated_block) {
+  file_->GetPreallocationStatus(block_size, last_allocated_block);
+}
+
 // Pre-allocates space for a file.
 IOStatus EncryptedWritableFile::Allocate(uint64_t offset, uint64_t len,
                                          const IOOptions& options,

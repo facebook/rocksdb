@@ -424,6 +424,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_universal_compaction_test.cc                                    \
   db/db_wal_test.cc                                                     \
   db/db_with_timestamp_compaction_test.cc                               \
+  db/db_write_buffer_manager_test.cc                                    \
   db/db_write_test.cc                                                   \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
