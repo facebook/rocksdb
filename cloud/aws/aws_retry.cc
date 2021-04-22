@@ -31,7 +31,7 @@ class AwsRetryStrategy : public Aws::Client::RetryStrategy {
     default_strategy_ =
         std::make_shared<Aws::Client::SpecifiedRetryableErrorsRetryStrategy>(
             retryableErrors);
-    Log(InfoLogLevel::INFO_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::INFO_LEVEL, env_->GetLogger(),
         "[aws] Configured custom retry policy");
   }
 
@@ -78,7 +78,7 @@ bool AwsRetryStrategy::ShouldRetry(
       ce == Aws::Client::CoreErrors::UNKNOWN ||
       err.find("try again") != std::string::npos) {
     if (attemptedRetries <= internal_failure_num_retries_) {
-      Log(InfoLogLevel::INFO_LEVEL, env_->info_log_,
+      Log(InfoLogLevel::INFO_LEVEL, env_->GetLogger(),
           "[aws] Encountered retriable failure: %s (code %d, http %d). "
           "Exception %s. retry attempt %ld is lesser than max retries %d. "
           "Retrying...",
@@ -87,7 +87,7 @@ bool AwsRetryStrategy::ShouldRetry(
           attemptedRetries, internal_failure_num_retries_);
       return true;
     }
-    Log(InfoLogLevel::INFO_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::INFO_LEVEL, env_->GetLogger(),
         "[aws] Encountered retriable failure: %s (code %d, http %d). Exception "
         "%s. retry attempt %ld exceeds max retries %d. Aborting...",
         err.c_str(), static_cast<int>(ce),
@@ -95,7 +95,7 @@ bool AwsRetryStrategy::ShouldRetry(
         attemptedRetries, internal_failure_num_retries_);
     return false;
   }
-  Log(InfoLogLevel::WARN_LEVEL, env_->info_log_,
+  Log(InfoLogLevel::WARN_LEVEL, env_->GetLogger(),
       "[aws] Encountered S3 failure %s (code %d, http %d). Exception %s."
       " retry attempt %ld max retries %d. Using default retry policy...",
       err.c_str(), static_cast<int>(ce),

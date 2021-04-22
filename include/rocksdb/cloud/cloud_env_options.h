@@ -369,9 +369,9 @@ class CloudEnv : public Env {
 
   CloudEnv(const CloudEnvOptions& options, Env* base,
            const std::shared_ptr<Logger>& logger);
-
  public:
   std::shared_ptr<Logger> info_log_;  // informational messages
+
   virtual ~CloudEnv();
   // Returns the underlying env
   Env* GetBaseEnv() { return base_env_; }
@@ -397,6 +397,10 @@ class CloudEnv : public Env {
   virtual Status DeleteDbid(const std::string& bucket_prefix,
                             const std::string& dbid) = 0;
 
+  Logger* GetLogger() const { return info_log_.get(); }
+  std::shared_ptr<CloudStorageProvider> GetStorageProvider() const {
+    return cloud_env_options.storage_provider;
+  }
   // The SrcBucketName identifies the cloud storage bucket and
   // GetSrcObjectPath specifies the path inside that bucket
   // where data files reside. The specified bucket is used in

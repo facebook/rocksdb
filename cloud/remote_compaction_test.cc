@@ -8,8 +8,6 @@
 #include <chrono>
 #include <cinttypes>
 
-#include "cloud/aws/aws_env.h"
-#include "cloud/aws/aws_file.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
@@ -65,8 +63,8 @@ class RemoteCompactionTest : public testing::Test {
                                   options_.info_log, &aenv));
     aenv_.reset(aenv);
     // delete all pre-existing contents from the bucket
-    Status st = aenv_->GetCloudEnvOptions().storage_provider->EmptyBucket(
-        aenv_->GetSrcBucketName(), "");
+    Status st =
+        aenv_->GetStorageProvider()->EmptyBucket(aenv_->GetSrcBucketName(), "");
     ASSERT_TRUE(st.ok() || st.IsNotFound());
     aenv_.reset();
 
@@ -95,22 +93,23 @@ class RemoteCompactionTest : public testing::Test {
 
   virtual ~RemoteCompactionTest() { CloseDB(); }
 
-  void CreateAwsEnv() {
-    CloudEnv* aenv;
+  void CreateCloudEnv() {
+    CloudEnv* cenv;
     ASSERT_OK(CloudEnv::NewAwsEnv(base_env_, cloud_env_options_,
-                                  options_.info_log, &aenv));
+                                  options_.info_log, &cenv));
     // To catch any possible file deletion bugs, we set file deletion delay to
     // smallest possible
-    ((AwsEnv*)aenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
-    aenv_.reset(aenv);
+    CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(cenv);
+    cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
+    aenv_.reset(cenv);
   }
 
   // Open database via the cloud interface
   void OpenDB() {
     ASSERT_TRUE(cloud_env_options_.credentials.HasValid().ok());
 
-    // Create new AWS env
-    CreateAwsEnv();
+    // Create new cloud env
+    CreateCloudEnv();
     options_.env = aenv_.get();
 
     // default column family
@@ -163,7 +162,8 @@ class RemoteCompactionTest : public testing::Test {
     ASSERT_OK(CloudEnv::NewAwsEnv(base_env_, copt, options_.info_log, &cenv));
     // To catch any possible file deletion bugs, we set file deletion delay to
     // smallest possible
-    ((AwsEnv*)cenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
+    CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(cenv);
+    cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
     // sets the cloud env to be used by the env wrapper
     options_.env = cenv;
 
@@ -228,7 +228,7 @@ class RemoteCompactionTest : public testing::Test {
    public:
     TestPluggableCompactionService(CloudEnv* _cloud_env, DB* _clone) {
       clone = _clone;
-      cloud_env = (CloudEnvImpl*)_cloud_env;
+      cloud_env = static_cast<CloudEnvImpl*>(_cloud_env);
     }
     ~TestPluggableCompactionService() {}
 

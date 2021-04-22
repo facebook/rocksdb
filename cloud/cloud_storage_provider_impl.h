@@ -9,8 +9,7 @@
 namespace ROCKSDB_NAMESPACE {
 class CloudStorageReadableFileImpl : public CloudStorageReadableFile {
  public:
-  CloudStorageReadableFileImpl(const std::shared_ptr<Logger>& info_log,
-                               const std::string& bucket,
+  CloudStorageReadableFileImpl(Logger* info_log, const std::string& bucket,
                                const std::string& fname, uint64_t size);
   // sequential access, read data at current offset in file
   virtual Status Read(size_t n, Slice* result, char* scratch) override;
@@ -25,7 +24,7 @@ class CloudStorageReadableFileImpl : public CloudStorageReadableFile {
   virtual Status DoCloudRead(uint64_t offset, size_t n, char* scratch,
                              uint64_t* bytes_read) const = 0;
 
-  std::shared_ptr<Logger> info_log_;
+  Logger* info_log_;
   std::string bucket_;
   std::string fname_;
   uint64_t offset_;

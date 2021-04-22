@@ -36,7 +36,7 @@ class KafkaWritableFile : public CloudLogWritableFile {
         producer_(producer),
         topic_(topic),
         current_offset_(0) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
         "[kafka] WritableFile opened file %s", fname_.c_str());
   }
 
@@ -72,20 +72,20 @@ Status KafkaWritableFile::ProduceRaw(const std::string& operation_name,
       message.size(), &fname_ /* Partitioning key */, nullptr);
 
   if (resp == RdKafka::ERR_NO_ERROR) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
         "[kafka] WritableFile %s file %s %ld", fname_.c_str(),
         operation_name.c_str(), message.size());
     return Status::OK();
   } else if (resp == RdKafka::ERR__QUEUE_FULL) {
     const std::string formatted_err = RdKafka::err2str(resp);
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
         "[kafka] WritableFile src %s %s error %s", fname_.c_str(),
         operation_name.c_str(), formatted_err.c_str());
 
     return Status::Busy(topic_->name().c_str(), RdKafka::err2str(resp).c_str());
   } else {
     const std::string formatted_err = RdKafka::err2str(resp);
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
         "[kafka] WritableFile src %s %s error %s", fname_.c_str(),
         operation_name.c_str(), formatted_err.c_str());
 
@@ -106,7 +106,7 @@ Status KafkaWritableFile::Append(const Slice& data) {
 }
 
 Status KafkaWritableFile::Close() {
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+  Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
       "[kafka] S3WritableFile closing %s", fname_.c_str());
 
   std::string serialized_data;
@@ -128,7 +128,7 @@ Status KafkaWritableFile::Flush() {
   while (status_.ok() && !(done = (producer_->outq_len() == 0)) &&
          !(timeout = (std::chrono::microseconds(env_->NowMicros()) - start >
                       kFlushTimeout))) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
         "[kafka] WritableFile src %s "
         "Waiting on flush: Output queue length: %d",
         fname_.c_str(), producer_->outq_len());
@@ -137,15 +137,15 @@ Status KafkaWritableFile::Flush() {
   }
 
   if (done) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
         "[kafka] WritableFile src %s Flushed", fname_.c_str());
   } else if (timeout) {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
         "[kafka] WritableFile src %s Flushing timed out after %" PRId64 "us",
         fname_.c_str(), kFlushTimeout.count());
     status_ = Status::TimedOut();
   } else {
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
         "[kafka] WritableFile src %s Flush interrupted", fname_.c_str());
   }
 
@@ -153,7 +153,7 @@ Status KafkaWritableFile::Flush() {
 }
 
 Status KafkaWritableFile::LogDelete() {
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_, "[kafka] LogDelete %s",
+  Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(), "[kafka] LogDelete %s",
       fname_.c_str());
 
   std::string serialized_data;
@@ -176,7 +176,7 @@ class KafkaController : public CloudLogControllerImpl {
       consumer_->stop(consumer_topic_.get(), partitions_[i]->partition());
     }
 
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
         "[%s] KafkaController closed.", Name());
   }
 
@@ -237,7 +237,7 @@ Status KafkaController::Initialize(CloudEnv* env) {
       s = Status::InvalidArgument("Failed adding specified conf to Kafka conf",
                                   conf_errstr.c_str());
 
-      Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+      Log(InfoLogLevel::ERROR_LEVEL, env->GetLogger(),
           "[aws] NewAwsEnv Kafka conf set error: %s", s.ToString().c_str());
       return s;
     }
@@ -250,18 +250,18 @@ Status KafkaController::Initialize(CloudEnv* env) {
     s = Status::InvalidArgument("Failed creating Kafka producer",
                                 producer_errstr.c_str());
 
-    Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, env->GetLogger(),
         "[%s] Kafka producer error: %s", Name(), s.ToString().c_str());
   } else if (!consumer_) {
     s = Status::InvalidArgument("Failed creating Kafka consumer",
                                 consumer_errstr.c_str());
 
-    Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, env->GetLogger(),
         "[%s] Kafka consumer error: %s", Name(), s.ToString().c_str());
   } else {
     const std::string topic_name = env->GetSrcBucketName();
 
-    Log(InfoLogLevel::DEBUG_LEVEL, env->info_log_,
+    Log(InfoLogLevel::DEBUG_LEVEL, env->GetLogger(),
         "[%s] KafkaController opening stream %s using cachedir '%s'", Name(),
         topic_name.c_str(), cache_dir_.c_str());
 
@@ -288,8 +288,9 @@ Status KafkaController::TailStream() {
     return status_;
   }
 
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_, "[%s] TailStream topic %s %s",
-      Name(), consumer_topic_->name().c_str(), status_.ToString().c_str());
+  Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
+      "[%s] TailStream topic %s %s", Name(), consumer_topic_->name().c_str(),
+      status_.ToString().c_str());
 
   Status lastErrorStatus;
   int retryAttempt = 0;
@@ -311,13 +312,13 @@ Status KafkaController::TailStream() {
         // Apply the payload to local filesystem
         status_ = Apply(sl);
         if (!status_.ok()) {
-          Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
+          Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
               "[%s] error processing message size %ld "
               "extracted from stream %s %s",
               Name(), message->len(), consumer_topic_->name().c_str(),
               status_.ToString().c_str());
         } else {
-          Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+          Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
               "[%s] successfully processed message size %ld "
               "extracted from stream %s %s",
               Name(), message->len(), consumer_topic_->name().c_str(),
@@ -338,7 +339,7 @@ Status KafkaController::TailStream() {
             Status::IOError(consumer_topic_->name().c_str(),
                             RdKafka::err2str(message->err()).c_str());
 
-        Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
             "[%s] error reading %s %s", Name(), consumer_topic_->name().c_str(),
             RdKafka::err2str(message->err()).c_str());
 
@@ -347,7 +348,7 @@ Status KafkaController::TailStream() {
       }
     }
   }
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+  Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
       "[%s] TailStream topic %s finished: %s", Name(),
       consumer_topic_->name().c_str(), status_.ToString().c_str());
 
@@ -369,7 +370,7 @@ Status KafkaController::InitializePartitions() {
     status_ = Status::IOError(consumer_topic_->name().c_str(),
                               RdKafka::err2str(err).c_str());
 
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
         "[%s] S3ReadableFile file %s Unable to find shards %s", Name(),
         consumer_topic_->name().c_str(), status_.ToString().c_str());
 

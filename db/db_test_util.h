@@ -21,7 +21,6 @@
 #include <utility>
 #include <vector>
 
-#include "cloud/aws/aws_env.h"
 #include "db/db_impl/db_impl.h"
 #include "db/dbformat.h"
 #include "env/mock_env.h"

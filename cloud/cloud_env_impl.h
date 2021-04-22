@@ -143,6 +143,21 @@ class CloudEnvImpl : public CloudEnv {
     return base_env_->GetThreadID();
   }
 
+  virtual Status LockFile(const std::string& fname, FileLock** lock) override;
+
+  virtual Status UnlockFile(FileLock* lock) override;
+
+  std::string GetWALCacheDir();
+
+  // Saves and retrieves the dbid->dirname mapping in S3
+  Status SaveDbid(const std::string& bucket_name, const std::string& dbid,
+                  const std::string& dirname) override;
+  Status GetPathForDbid(const std::string& bucket, const std::string& dbid,
+                        std::string* dirname) override;
+  Status GetDbidList(const std::string& bucket, DbidList* dblist) override;
+  Status DeleteDbid(const std::string& bucket,
+                    const std::string& dbid) override;
+
   Status SanitizeDirectory(const DBOptions& options,
                            const std::string& clone_name, bool read_only);
   Status LoadCloudManifest(const std::string& local_dbname, bool read_only);
@@ -233,6 +248,13 @@ class CloudEnvImpl : public CloudEnv {
   }
 
  protected:
+  // The pathname that contains a list of all db's inside a bucket.
+  virtual const char* kDbIdRegistry() const { return "/.rockset/dbid/"; }
+
+  std::string GetDbIdKey(const std::string& dbid) {
+    return kDbIdRegistry() + dbid;
+  }
+
   // Checks to see if the input fname exists in the dest or src bucket
   Status ExistsCloudObject(const std::string& fname);
 

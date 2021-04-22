@@ -5,7 +5,6 @@
 
 #include <cinttypes>
 
-#include "cloud/aws/aws_env.h"
 #include "cloud/filename.h"
 #include "cloud/manifest_reader.h"
 #include "env/composite_env_wrapper.h"
@@ -97,7 +96,6 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
   if (!cenv->info_log_) {
     cenv->info_log_ = options.info_log;
   }
-
   // Use a constant sized SST File Manager if necesary.
   // NOTE: if user already passes in an SST File Manager, we will respect user's
   // SST File Manager instead.
@@ -215,7 +213,7 @@ Status DBCloudImpl::Savepoint() {
   std::vector<LiveFileMetaData> live_files;
   GetLiveFilesMetaData(&live_files);
 
-  auto& provider = cenv->GetCloudEnvOptions().storage_provider;
+  auto provider = cenv->GetStorageProvider();
   // If an sst file does not exist in the destination path, then remember it
   std::vector<std::string> to_copy;
   for (auto onefile : live_files) {
@@ -338,7 +336,7 @@ Status DBCloudImpl::DoCheckpointToCloud(
   thread_statuses.resize(thread_count);
 
   auto do_copy = [&](size_t threadId) {
-    auto& provider = cenv->GetCloudEnvOptions().storage_provider;
+    auto provider = cenv->GetStorageProvider();
     while (true) {
       size_t idx = next_file_to_copy.fetch_add(1);
       if (idx >= files_to_copy.size()) {

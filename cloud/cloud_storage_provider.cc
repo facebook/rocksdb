@@ -23,8 +23,8 @@ namespace ROCKSDB_NAMESPACE {
 #ifndef ROCKSDB_LITE
 /******************** Readablefile ******************/
 CloudStorageReadableFileImpl::CloudStorageReadableFileImpl(
-    const std::shared_ptr<Logger>& info_log, const std::string& bucket,
-    const std::string& fname, uint64_t file_size)
+    Logger* info_log, const std::string& bucket, const std::string& fname,
+    uint64_t file_size)
     : info_log_(info_log),
       bucket_(bucket),
       fname_(fname),
@@ -113,7 +113,7 @@ CloudStorageWritableFileImpl::CloudStorageWritableFileImpl(
   is_manifest_ = IsManifestFile(fname_no_epoch);
   assert(IsSstFile(fname_no_epoch) || is_manifest_);
 
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+  Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
       "[%s] CloudWritableFile bucket %s opened local file %s "
       "cloud file %s manifest %d",
       Name(), bucket.c_str(), fname_.c_str(), cloud_fname.c_str(),
@@ -140,7 +140,7 @@ CloudStorageWritableFileImpl::CloudStorageWritableFileImpl(
 
   s = local_env->NewWritableFile(*file_to_open, &local_file_, options);
   if (!s.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[%s] CloudWritableFile src %s %s", Name(), fname_.c_str(),
         s.ToString().c_str());
     status_ = s;
@@ -157,14 +157,14 @@ Status CloudStorageWritableFileImpl::Close() {
   if (local_file_ == nullptr) {  // already closed
     return status_;
   }
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+  Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
       "[%s] CloudWritableFile closing %s", Name(), fname_.c_str());
   assert(status_.ok());
 
   // close local file
   Status st = local_file_->Close();
   if (!st.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[%s] CloudWritableFile closing error on local %s\n", Name(),
         fname_.c_str());
     return st;
@@ -174,7 +174,7 @@ Status CloudStorageWritableFileImpl::Close() {
   if (!is_manifest_) {
     status_ = env_->CopyLocalFileToDest(fname_, cloud_fname_);
     if (!status_.ok()) {
-      Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
+      Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
           "[%s] CloudWritableFile closing PutObject failed on local file %s",
           Name(), fname_.c_str());
       return status_;
@@ -184,13 +184,13 @@ Status CloudStorageWritableFileImpl::Close() {
     if (!env_->GetCloudEnvOptions().keep_local_sst_files) {
       status_ = env_->GetBaseEnv()->DeleteFile(fname_);
       if (!status_.ok()) {
-        Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
+        Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
             "[%s] CloudWritableFile closing delete failed on local file %s",
             Name(), fname_.c_str());
         return status_;
       }
     }
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
         "[%s] CloudWritableFile closed file %s", Name(), fname_.c_str());
   }
   return Status::OK();
@@ -220,12 +220,12 @@ Status CloudStorageWritableFileImpl::Sync() {
   if (is_manifest_ && stat.ok()) {
     stat = env_->CopyLocalFileToDest(fname_, cloud_fname_);
     if (stat.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+      Log(InfoLogLevel::DEBUG_LEVEL, env_->GetLogger(),
           "[%s] CloudWritableFile made manifest %s durable to "
           "bucket %s bucketpath %s.",
           Name(), fname_.c_str(), bucket_.c_str(), cloud_fname_.c_str());
     } else {
-      Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
+      Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
           "[%s] CloudWritableFile failed to make manifest %s durable to "
           "bucket %s bucketpath %s: %s",
           Name(), fname_.c_str(), bucket_.c_str(), cloud_fname_.c_str(),
@@ -242,11 +242,11 @@ Status CloudStorageProvider::Prepare(CloudEnv* env) {
   if (env->HasDestBucket()) {
     // create dest bucket if specified
     if (ExistsBucket(env->GetDestBucketName()).ok()) {
-      Log(InfoLogLevel::INFO_LEVEL, env->info_log_,
+      Log(InfoLogLevel::INFO_LEVEL, env->GetLogger(),
           "[%s] Bucket %s already exists", Name(),
           env->GetDestBucketName().c_str());
     } else if (env->GetCloudEnvOptions().create_bucket_if_missing) {
-      Log(InfoLogLevel::INFO_LEVEL, env->info_log_,
+      Log(InfoLogLevel::INFO_LEVEL, env->GetLogger(),
           "[%s] Going to create bucket %s", Name(),
           env->GetDestBucketName().c_str());
       st = CreateBucket(env->GetDestBucketName());
@@ -255,7 +255,7 @@ Status CloudStorageProvider::Prepare(CloudEnv* env) {
           "Bucket not found and create_bucket_if_missing is false");
     }
     if (!st.ok()) {
-      Log(InfoLogLevel::ERROR_LEVEL, env->info_log_,
+      Log(InfoLogLevel::ERROR_LEVEL, env->GetLogger(),
           "[%s] Unable to create bucket %s %s", Name(),
           env->GetDestBucketName().c_str(), st.ToString().c_str());
       return st;
@@ -322,7 +322,7 @@ Status CloudStorageProviderImpl::GetCloudObject(
   if (local_size != remote_size) {
     localenv->DeleteFile(tmp_destination);
     s = Status::IOError("Partial download of a file " + local_destination);
-    Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[%s] GetCloudObject %s/%s local size %" PRIu64
         " != cloud size "
         "%" PRIu64 ". %s",
@@ -333,7 +333,7 @@ Status CloudStorageProviderImpl::GetCloudObject(
   if (s.ok()) {
     s = localenv->RenameFile(tmp_destination, local_destination);
   }
-  Log(InfoLogLevel::INFO_LEVEL, env_->info_log_,
+  Log(InfoLogLevel::INFO_LEVEL, env_->GetLogger(),
       "[%s] GetCloudObject %s/%s size %" PRIu64 ". %s", bucket_name.c_str(),
       Name(), object_path.c_str(), local_size, s.ToString().c_str());
   return s;
@@ -346,13 +346,13 @@ Status CloudStorageProviderImpl::PutCloudObject(
   // debugging paranoia. Files uploaded to Cloud can never be zero size.
   auto st = env_->GetBaseEnv()->GetFileSize(local_file, &fsize);
   if (!st.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[%s] PutCloudObject localpath %s error getting size %s", Name(),
         local_file.c_str(), st.ToString().c_str());
     return st;
   }
   if (fsize == 0) {
-    Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
+    Log(InfoLogLevel::ERROR_LEVEL, env_->GetLogger(),
         "[%s] PutCloudObject localpath %s error zero size", Name(),
         local_file.c_str());
     return Status::IOError(local_file + " Zero size.");

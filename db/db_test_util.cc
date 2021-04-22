@@ -145,9 +145,9 @@ DBTestBase::~DBTestBase() {
 
 #ifndef ROCKSDB_LITE
 #ifdef USE_AWS
-  auto aenv = dynamic_cast<CloudEnv*>(s3_env_);
-  aenv->GetCloudEnvOptions().storage_provider->EmptyBucket(
-      aenv->GetSrcBucketName(), aenv->GetSrcObjectPath());
+  auto cenv = static_cast<CloudEnv*>(s3_env_);
+  cenv->GetStorageProvider()->EmptyBucket(cenv->GetSrcBucketName(),
+                                          cenv->GetSrcObjectPath());
 #endif
 #endif  // !ROCKSDB_LITE
   delete s3_env_;
@@ -653,17 +653,18 @@ Options DBTestBase::GetOptions(
 #ifdef USE_AWS
 Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix, Env* parent) {
   if (!prefix.empty()) {
-    fprintf(stderr, "Creating new AWS env with prefix %s\n", prefix.c_str());
+    fprintf(stderr, "Creating new cloud env with prefix %s\n", prefix.c_str());
   }
 
-  // get AWS credentials
+  // get credentials
   CloudEnvOptions coptions;
   CloudEnv* cenv = nullptr;
   std::string region;
   coptions.TEST_Initialize("dbtest.", prefix, region);
-  Status st = AwsEnv::NewAwsEnv(parent, coptions, info_log_, &cenv);
-  ((CloudEnvImpl*)cenv)->TEST_DisableCloudManifest();
-  ((AwsEnv*)cenv)->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
+  Status st = CloudEnv::NewAwsEnv(parent, coptions, info_log_, &cenv);
+  CloudEnvImpl* cimpl = static_cast<CloudEnvImpl*>(cenv);
+  cimpl->TEST_DisableCloudManifest();
+  cimpl->TEST_SetFileDeletionDelay(std::chrono::seconds(0));
   ROCKS_LOG_INFO(info_log_, "Created new aws env with path %s", prefix.c_str());
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_, "%s", st.ToString().c_str());
@@ -790,14 +791,14 @@ void DBTestBase::Destroy(const Options& options, bool delete_cf_paths) {
   ASSERT_OK(DestroyDB(dbname_, options, column_families));
 #ifdef USE_AWS
   if (s3_env_) {
-    AwsEnv* aenv = static_cast<AwsEnv*>(s3_env_);
-    Status st = aenv->GetCloudEnvOptions().storage_provider->EmptyBucket(
-        aenv->GetSrcBucketName(), dbname_);
+    CloudEnv* cenv = static_cast<CloudEnv*>(s3_env_);
+    Status st = cenv->GetStorageProvider()->EmptyBucket(
+        cenv->GetSrcBucketName(), dbname_);
     ASSERT_TRUE(st.ok() || st.IsNotFound());
     for (int r = 0; r < 10; ++r) {
-      // The existance is not propagated atomically in S3, so wait until
+      // The existance is not propagated atomically, so wait until
       // IDENTITY file no longer exists.
-      if (aenv->FileExists(dbname_ + "/IDENTITY").ok()) {
+      if (cenv->FileExists(dbname_ + "/IDENTITY").ok()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10 * (r + 1)));
         continue;
       }
