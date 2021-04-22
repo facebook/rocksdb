@@ -553,9 +553,13 @@ Status VersionEditHandler::ExtractInfoFromVersionEdit(ColumnFamilyData* cfd,
     }
     if (edit.has_comparator_ &&
         edit.comparator_ != cfd->user_comparator()->Name()) {
-      s = Status::InvalidArgument(
-          cfd->user_comparator()->Name(),
-          "does not match existing comparator " + edit.comparator_);
+      if (!cf_to_cmp_names_) {
+        s = Status::InvalidArgument(
+            cfd->user_comparator()->Name(),
+            "does not match existing comparator " + edit.comparator_);
+      } else {
+        cf_to_cmp_names_->emplace(cfd->GetID(), edit.comparator_);
+      }
     }
     if (edit.HasFullHistoryTsLow()) {
       const std::string& new_ts = edit.GetFullHistoryTsLow();
@@ -889,13 +893,21 @@ void DumpManifestHandler::CheckIterationResult(const log::Reader& reader,
     fprintf(stdout, "%s\n", s->ToString().c_str());
     return;
   }
+  assert(cf_to_cmp_names_);
   for (auto* cfd : *(version_set_->column_family_set_)) {
     fprintf(stdout,
             "--------------- Column family \"%s\"  (ID %" PRIu32
             ") --------------\n",
             cfd->GetName().c_str(), cfd->GetID());
     fprintf(stdout, "log number: %" PRIu64 "\n", cfd->GetLogNumber());
-    fprintf(stdout, "comparator: %s\n", cfd->user_comparator()->Name());
+    auto it = cf_to_cmp_names_->find(cfd->GetID());
+    if (it != cf_to_cmp_names_->end()) {
+      fprintf(stdout,
+              "comparator: <%s>, but the comparator object is not available.\n",
+              it->second.c_str());
+    } else {
+      fprintf(stdout, "comparator: %s\n", cfd->user_comparator()->Name());
+    }
     assert(cfd->current());
     fprintf(stdout, "%s \n", cfd->current()->DebugString(hex_).c_str());
   }
