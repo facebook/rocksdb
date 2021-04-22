@@ -268,10 +268,12 @@ class BlockBasedTable : public TableReader {
   void UpdateCacheInsertionMetrics(BlockType block_type,
                                    GetContext* get_context, size_t usage,
                                    bool redundant) const;
-  Cache::Handle* GetEntryFromCache(
-      Cache* block_cache, const Slice& key, BlockType block_type,
-      GetContext* get_context, Cache::CacheItemHelperCallback helper_cb,
-      const Cache::CreateCallback& create_cb) const;
+  Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
+                                   BlockType block_type,
+                                   GetContext* get_context,
+                                   Cache::CacheItemHelperCallback helper_cb,
+                                   const Cache::CreateCallback& create_cb,
+                                   Cache::Priority priority) const;
 
   // Either Block::NewDataIterator() or Block::NewIndexIterator().
   template <typename TBlockIter>
