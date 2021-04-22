@@ -5558,6 +5558,35 @@ TEST_F(DBTest2, PointInTimeRecoveryWithIOErrorWhileReadingWal) {
   Status s = TryReopen(options);
   ASSERT_TRUE(s.IsIOError());
 }
+
+TEST_F(DBTest2, PointInTimeRecoveryWithSyncFailureInCFCreation) {
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCallFlush:Start:1",
+        "PointInTimeRecoveryWithSyncFailureInCFCreation:1"},
+       {"PointInTimeRecoveryWithSyncFailureInCFCreation:2",
+        "DBImpl::BackgroundCallFlush:Start:2"}});
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateColumnFamilies({"test1"}, Options());
+  ASSERT_OK(Put("foo", "bar"));
+
+  // Creating a CF when a flush is going on, log is synced but the
+  // closed log file is not synced and corrupted.
+  port::Thread flush_thread([&]() { ASSERT_NOK(Flush()); });
+  TEST_SYNC_POINT("PointInTimeRecoveryWithSyncFailureInCFCreation:1");
+  CreateColumnFamilies({"test2"}, Options());
+  env_->corrupt_in_sync_ = true;
+  TEST_SYNC_POINT("PointInTimeRecoveryWithSyncFailureInCFCreation:2");
+  flush_thread.join();
+  env_->corrupt_in_sync_ = false;
+  ROCKSDB_NAMESPACE::SyncPoint::GetInstance()->DisableProcessing();
+
+  // Reopening the DB should not corrupt anything
+  Options options = CurrentOptions();
+  options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+  ReopenWithColumnFamilies({"default", "test1", "test2"}, options);
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 #ifdef ROCKSDB_UNITTESTS_WITH_CUSTOM_OBJECTS_FROM_STATIC_LIBS
