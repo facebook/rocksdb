@@ -1559,7 +1559,7 @@ int main(int, char**) {
 
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int, char** ) {
   fprintf(stderr, "SKIPPED as DBCloud is not supported in ROCKSDB_LITE\n");
   return 0;
 }

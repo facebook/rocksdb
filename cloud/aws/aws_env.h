@@ -9,8 +9,6 @@
 #include <iostream>
 
 #include "cloud/cloud_env_impl.h"
-#include "port/sys_time.h"
-#include "util/random.h"
 
 #ifdef USE_AWS
 
@@ -93,8 +91,6 @@ class AwsEnv : public CloudEnvImpl {
 
   // The pathname that contains a list of all db's inside a bucket.
   static constexpr const char* dbid_registry_ = "/.rockset/dbid/";
-
-  Random64 rng_;
 };
 
 }  // namespace ROCKSDB_NAMESPACE

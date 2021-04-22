@@ -20,7 +20,7 @@
 #include "util/string_util.h"
 
 namespace ROCKSDB_NAMESPACE {
-
+#ifndef ROCKSDB_LITE
 /******************** Readablefile ******************/
 CloudStorageReadableFileImpl::CloudStorageReadableFileImpl(
     const std::shared_ptr<Logger>& info_log, const std::string& bucket,
@@ -361,4 +361,5 @@ Status CloudStorageProviderImpl::PutCloudObject(
   return DoPutCloudObject(local_file, bucket_name, object_path, fsize);
 }
 
+#endif //ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

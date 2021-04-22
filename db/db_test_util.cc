@@ -95,6 +95,7 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
 #endif  // !ROCKSDB_LITE
   env_ = new SpecialEnv(encrypted_env_ ? encrypted_env_
                                        : (mem_env_ ? mem_env_ : base_env));
+#ifndef ROCKSDB_LITE
 #ifdef USE_AWS
   // Randomize the test path so that multiple tests can run in parallel
   srand(static_cast<unsigned int>(time(nullptr)));
@@ -104,6 +105,7 @@ DBTestBase::DBTestBase(const std::string path, bool env_do_fsync)
   info_log_->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
   s3_env_ = CreateNewAwsEnv(mypath, env_);
 #endif
+#endif  // !ROCKSDB_LITE
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->skip_fsync_ = !env_do_fsync;
@@ -141,11 +143,13 @@ DBTestBase::~DBTestBase() {
   }
   delete env_;
 
+#ifndef ROCKSDB_LITE
 #ifdef USE_AWS
   auto aenv = dynamic_cast<CloudEnv*>(s3_env_);
   aenv->GetCloudEnvOptions().storage_provider->EmptyBucket(
       aenv->GetSrcBucketName(), aenv->GetSrcObjectPath());
 #endif
+#endif  // !ROCKSDB_LITE
   delete s3_env_;
 }
 
@@ -645,6 +649,7 @@ Options DBTestBase::GetOptions(
   return options;
 }
 
+#ifndef ROCKSDB_LITE
 #ifdef USE_AWS
 Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix, Env* parent) {
   if (!prefix.empty()) {
@@ -666,7 +671,8 @@ Env* DBTestBase::CreateNewAwsEnv(const std::string& prefix, Env* parent) {
   assert(st.ok() && cenv);
   return cenv;
 }
-#endif
+#endif // USE_AWS
+#endif // ROCKSDB_LITE
 
 void DBTestBase::CreateColumnFamilies(const std::vector<std::string>& cfs,
                                       const Options& options) {

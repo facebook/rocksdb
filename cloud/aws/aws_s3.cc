@@ -4,6 +4,7 @@
 // A directory maps to an an zero-size object in an S3 bucket
 // A sst file maps to an object in that S3 bucket.
 //
+#ifndef ROCKSDB_LITE
 #ifdef USE_AWS
 #include <aws/core/Aws.h>
 #include <aws/core/utils/Outcome.h>
@@ -903,7 +904,7 @@ Status S3StorageProvider::DoPutCloudObject(const std::string& local_file,
 }
 
 #endif /* USE_AWS */
-
+  
 Status CloudStorageProviderImpl::CreateS3Provider(
     std::shared_ptr<CloudStorageProvider>* provider) {
 #ifndef USE_AWS
@@ -916,3 +917,4 @@ Status CloudStorageProviderImpl::CreateS3Provider(
 #endif /* USE_AWS */
 }
 }  // namespace ROCKSDB_NAMESPACE
+#endif // ROCKSDB_LITE

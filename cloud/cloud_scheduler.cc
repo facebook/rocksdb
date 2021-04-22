@@ -72,7 +72,7 @@ class LocalCloudScheduler : public CloudScheduler {
                       long local_id)
       : scheduler_(scheduler), next_local_id_(local_id) {}
   ~LocalCloudScheduler() override {
-    for (const auto job : jobs_) {
+    for (const auto& job : jobs_) {
       scheduler_->CancelJob(job.second);
     }
     jobs_.clear();

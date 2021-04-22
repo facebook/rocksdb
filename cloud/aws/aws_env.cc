@@ -1,5 +1,6 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 //
+#ifndef ROCKSDB_LITE
 #include "cloud/aws/aws_env.h"
 
 #include <chrono>
@@ -18,7 +19,7 @@
 #include "rocksdb/cloud/cloud_storage_provider.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
-#include "util/stderr_logger.h"
+#include "rocksdb/utilities/options_type.h"
 #include "util/string_util.h"
 
 #ifdef USE_AWS
@@ -41,16 +42,6 @@ static const std::unordered_map<std::string, AwsAccessType> AwsAccessTypeMap = {
     {"anonymous", AwsAccessType::kAnonymous},
 };
 
-template <typename T>
-bool ParseEnum(const std::unordered_map<std::string, T>& type_map,
-               const std::string& type, T* value) {
-  auto iter = type_map.find(type);
-  if (iter != type_map.end()) {
-    *value = iter->second;
-    return true;
-  }
-  return false;
-}
 
 AwsAccessType AwsCloudAccessCredentials::GetAccessType() const {
   if (type != AwsAccessType::kUndefined) {
@@ -177,8 +168,7 @@ Status AwsCloudAccessCredentials::GetCredentialsProvider(
 //
 AwsEnv::AwsEnv(Env* underlying_env, const CloudEnvOptions& _cloud_env_options,
                const std::shared_ptr<Logger>& info_log)
-    : CloudEnvImpl(_cloud_env_options, underlying_env, info_log),
-      rng_(time(nullptr)) {
+    : CloudEnvImpl(_cloud_env_options, underlying_env, info_log) {
   Aws::InitAPI(Aws::SDKOptions());
   if (cloud_env_options.src_bucket.GetRegion().empty() ||
       cloud_env_options.dest_bucket.GetRegion().empty()) {
@@ -370,3 +360,4 @@ std::string AwsEnv::GetWALCacheDir() {
 
 #endif  // USE_AWS
 }  // namespace ROCKSDB_NAMESPACE
+#endif // ROCKSDB_LITE
