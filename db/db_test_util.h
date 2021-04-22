@@ -399,6 +399,10 @@ class SpecialEnv : public EnvWrapper {
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
         ++env_->sync_counter_;
+        if (env_->corrupt_in_sync_) {
+          Append(std::string(33000, ' '));
+          return Status::IOError("Ingested Sync Failure");
+        }
         if (env_->skip_fsync_) {
           return Status::OK();
         } else {
@@ -722,6 +726,9 @@ class SpecialEnv : public EnvWrapper {
 
   // If true, all fsync to files and directories are skipped.
   bool skip_fsync_ = false;
+
+  // If true, ingest the corruption to file during sync.
+  bool corrupt_in_sync_ = false;
 
   std::atomic<uint32_t> non_writeable_rate_;
 
