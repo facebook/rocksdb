@@ -212,6 +212,8 @@ class CompactionJob {
   std::string full_history_ts_low_;
   BlobFileCompletionCallback* blob_callback_;
 
+  // Get table file name in where it's outputting to, which should also be in
+  // `output_directory_`.
   virtual std::string GetTableFileName(uint64_t file_number);
 };
 
@@ -280,7 +282,6 @@ struct CompactionServiceResult {
   // some statistics about the compaction
   uint64_t num_output_records;
   uint64_t total_bytes;
-  uint64_t approx_size;
   uint64_t bytes_read;
   uint64_t bytes_written;
   CompactionJobStats stats;
