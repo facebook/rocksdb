@@ -267,6 +267,49 @@ TEST_F(DBBlobBasicTest, GenerateIOTracing) {
 }
 #endif  // !ROCKSDB_LITE
 
+TEST_F(DBBlobBasicTest, BestEffortsRecovery_MissingNewestBlobFile) {
+  Options options = GetDefaultOptions();
+  options.enable_blob_files = true;
+  options.min_blob_size = 0;
+  options.create_if_missing = true;
+  Reopen(options);
+
+  ASSERT_OK(dbfull()->DisableFileDeletions());
+  constexpr int kNumTableFiles = 2;
+  for (int i = 0; i < kNumTableFiles; ++i) {
+    for (char ch = 'a'; ch != 'c'; ++ch) {
+      std::string key(1, ch);
+      ASSERT_OK(Put(key, "value" + std::to_string(i)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  Close();
+
+  std::vector<std::string> files;
+  ASSERT_OK(env_->GetChildren(dbname_, &files));
+  std::string blob_file_path;
+  uint64_t max_blob_file_num = kInvalidBlobFileNumber;
+  for (const auto& fname : files) {
+    uint64_t file_num = 0;
+    FileType type;
+    if (ParseFileName(fname, &file_num, /*info_log_name_prefix=*/"", &type) &&
+        type == kBlobFile) {
+      if (file_num > max_blob_file_num) {
+        max_blob_file_num = file_num;
+        blob_file_path = dbname_ + "/" + fname;
+      }
+    }
+  }
+  ASSERT_OK(env_->DeleteFile(blob_file_path));
+
+  options.best_efforts_recovery = true;
+  Reopen(options);
+  std::string value;
+  ASSERT_OK(db_->Get(ReadOptions(), "a", &value));
+  ASSERT_EQ("value" + std::to_string(kNumTableFiles - 2), value);
+}
+
 class DBBlobBasicIOErrorTest : public DBBlobBasicTest,
                                public testing::WithParamInterface<std::string> {
  protected:

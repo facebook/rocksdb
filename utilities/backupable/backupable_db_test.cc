@@ -2168,6 +2168,8 @@ TEST_F(BackupableDBTest, TableFileCorruptionBeforeIncremental) {
 // between incremental backups
 TEST_F(BackupableDBTest, FileSizeForIncremental) {
   const auto share_no_checksum = static_cast<ShareFilesNaming>(0);
+  // TODO: enable blob files once Integrated BlobDB supports DB session id.
+  options_.enable_blob_files = false;
 
   for (ShareFilesNaming option : {share_no_checksum, kLegacyCrc32cAndFileSize,
                                   kNamingDefault, kUseDbSessionId}) {
@@ -2192,9 +2194,9 @@ TEST_F(BackupableDBTest, FileSizeForIncremental) {
     ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true /*flush*/));
     CloseDBAndBackupEngine();
 
-    // Corrupt backup SST and blob file
+    // Corrupt backup SST file
     ASSERT_OK(file_manager_->GetChildrenFileAttributes(shared_dir, &children));
-    ASSERT_EQ(children.size(), 2U);  // one sst and one blob file
+    ASSERT_EQ(children.size(), 1U);  // one sst
     for (const auto& child : children) {
       if (child.name.size() > 4 && child.size_bytes > 0) {
         ASSERT_OK(
@@ -2251,10 +2253,10 @@ TEST_F(BackupableDBTest, FileSizeForIncremental) {
     OpenDBAndBackupEngine(false, false, share);
     ASSERT_OK(db_->Put(WriteOptions(), "y", Random(42).RandomString(500)));
 
-    // Count backup SSTs and blob files.
+    // Count backup SSTs files.
     children.clear();
     ASSERT_OK(file_manager_->GetChildrenFileAttributes(shared_dir, &children));
-    ASSERT_EQ(children.size(), 4U);  // two sst and two blob files
+    ASSERT_EQ(children.size(), 2U);  // two sst files
 
     // Try create backup 3
     s = backup_engine_->CreateNewBackup(db_.get(), true /*flush*/);
@@ -2267,18 +2269,18 @@ TEST_F(BackupableDBTest, FileSizeForIncremental) {
       // Acceptable to call it corruption if size is not in name and
       // db session id collision is practically impossible.
       EXPECT_TRUE(s.IsCorruption());
-      EXPECT_EQ(children.size(), 4U);  // no SST/Blob file added
+      EXPECT_EQ(children.size(), 2U);  // no SST file added
     } else if (option == share_no_checksum) {
       // Good to call it corruption if both backups cannot be
       // accommodated.
       EXPECT_TRUE(s.IsCorruption());
-      EXPECT_EQ(children.size(), 4U);  // no SST/Blob file added
+      EXPECT_EQ(children.size(), 2U);  // no SST file added
     } else {
       // Since opening a DB seems sufficient for detecting size corruption
       // on the DB side, this should be a good thing, ...
       EXPECT_OK(s);
       // ... as long as we did actually treat it as a distinct SST file.
-      EXPECT_EQ(children.size(), 6U);  // Another SST and blob added
+      EXPECT_EQ(children.size(), 3U);  // Another SST added
     }
     CloseDBAndBackupEngine();
     ASSERT_OK(DestroyDB(dbname_, options_));
@@ -2646,17 +2648,17 @@ TEST_F(BackupableDBTest, OpenBackupAsReadOnlyDB) {
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), /*flush*/ false));
   db_.reset();  // CloseDB
   DestroyDB(dbname_, options_);
-  std::vector<BackupInfo> backup_info;
+  BackupInfo backup_info;
   // First, check that we get empty fields without include_file_details
-  backup_engine_->GetBackupInfo(&backup_info, /*with file details*/ false);
-  ASSERT_EQ(backup_info.size(), 2);
-  ASSERT_EQ(backup_info[0].name_for_open, "");
-  ASSERT_FALSE(backup_info[0].env_for_open);
+  ASSERT_OK(backup_engine_->GetBackupInfo(/*id*/ 1U, &backup_info,
+                                          /*with file details*/ false));
+  ASSERT_EQ(backup_info.name_for_open, "");
+  ASSERT_FALSE(backup_info.env_for_open);
 
   // Now for the real test
-  backup_info.clear();
-  backup_engine_->GetBackupInfo(&backup_info, /*with file details*/ true);
-  ASSERT_EQ(backup_info.size(), 2);
+  backup_info = BackupInfo();
+  ASSERT_OK(backup_engine_->GetBackupInfo(/*id*/ 1U, &backup_info,
+                                          /*with file details*/ true));
 
   // Caution: DBOptions only holds a raw pointer to Env, so something else
   // must keep it alive.
@@ -2668,9 +2670,9 @@ TEST_F(BackupableDBTest, OpenBackupAsReadOnlyDB) {
   opts.create_if_missing = false;
   opts.info_log.reset();
 
-  opts.env = backup_info[0].env_for_open.get();
-  std::string name = backup_info[0].name_for_open;
-  backup_info.clear();
+  opts.env = backup_info.env_for_open.get();
+  std::string name = backup_info.name_for_open;
+  backup_info = BackupInfo();
   ASSERT_OK(DB::OpenForReadOnly(opts, name, &db));
 
   AssertExists(db, 0, 100);
@@ -2680,13 +2682,13 @@ TEST_F(BackupableDBTest, OpenBackupAsReadOnlyDB) {
   db = nullptr;
 
   // Case 2: Keeping BackupInfo alive rather than BackupEngine also suffices
-  backup_engine_->GetBackupInfo(&backup_info, /*with file details*/ true);
-  ASSERT_EQ(backup_info.size(), 2);
+  ASSERT_OK(backup_engine_->GetBackupInfo(/*id*/ 2U, &backup_info,
+                                          /*with file details*/ true));
   CloseBackupEngine();
   opts.create_if_missing = true;  // check also OK (though pointless)
-  opts.env = backup_info[1].env_for_open.get();
-  name = backup_info[1].name_for_open;
-  // Note: keeping backup_info[1] alive
+  opts.env = backup_info.env_for_open.get();
+  name = backup_info.name_for_open;
+  // Note: keeping backup_info alive
   ASSERT_OK(DB::OpenForReadOnly(opts, name, &db));
 
   AssertExists(db, 0, 200);
@@ -2716,19 +2718,19 @@ TEST_F(BackupableDBTest, GarbageCollectionBeforeBackup) {
   OpenDBAndBackupEngine(true);
 
   ASSERT_OK(backup_chroot_env_->CreateDirIfMissing(backupdir_ + "/shared"));
-  std::string file_five = backupdir_ + "/shared/000008.sst";
+  std::string file_five = backupdir_ + "/shared/000009.sst";
   std::string file_five_contents = "I'm not really a sst file";
-  // this depends on the fact that 00008.sst is the first file created by the DB
+  // this depends on the fact that 00009.sst is the first file created by the DB
   ASSERT_OK(file_manager_->WriteToFile(file_five, file_five_contents));
 
   FillDB(db_.get(), 0, 100);
-  // backup overwrites file 000008.sst
+  // backup overwrites file 000009.sst
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
 
   std::string new_file_five_contents;
   ASSERT_OK(ReadFileToString(backup_chroot_env_.get(), file_five,
                              &new_file_five_contents));
-  // file 000008.sst was overwritten
+  // file 000009.sst was overwritten
   ASSERT_TRUE(new_file_five_contents != file_five_contents);
 
   CloseDBAndBackupEngine();
@@ -2848,17 +2850,32 @@ TEST_F(BackupableDBTest, BackupWithMetadata) {
   for (int i = 0; i < 5; ++i) {
     const std::string metadata = std::to_string(i);
     FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
-    ASSERT_OK(
-        backup_engine_->CreateNewBackupWithMetadata(db_.get(), metadata, true));
+    // Here also test CreateNewBackupWithMetadata with CreateBackupOptions
+    // and outputting saved BackupID.
+    CreateBackupOptions opts;
+    opts.flush_before_backup = true;
+    BackupID new_id = 0;
+    ASSERT_OK(backup_engine_->CreateNewBackupWithMetadata(opts, db_.get(),
+                                                          metadata, &new_id));
+    ASSERT_EQ(new_id, static_cast<BackupID>(i + 1));
   }
   CloseDBAndBackupEngine();
 
   OpenDBAndBackupEngine();
-  std::vector<BackupInfo> backup_infos;
-  backup_engine_->GetBackupInfo(&backup_infos);
-  ASSERT_EQ(5, backup_infos.size());
+  {  // Verify in bulk BackupInfo
+    std::vector<BackupInfo> backup_infos;
+    backup_engine_->GetBackupInfo(&backup_infos);
+    ASSERT_EQ(5, backup_infos.size());
+    for (int i = 0; i < 5; i++) {
+      ASSERT_EQ(std::to_string(i), backup_infos[i].app_metadata);
+    }
+  }
+  // Also verify in individual BackupInfo
   for (int i = 0; i < 5; i++) {
-    ASSERT_EQ(std::to_string(i), backup_infos[i].app_metadata);
+    BackupInfo backup_info;
+    ASSERT_OK(backup_engine_->GetBackupInfo(static_cast<BackupID>(i + 1),
+                                            &backup_info));
+    ASSERT_EQ(std::to_string(i), backup_info.app_metadata);
   }
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, options_);
@@ -3285,6 +3302,8 @@ TEST_F(BackupableDBTest, CreateWhenLatestBackupCorrupted) {
   // succeed even when latest backup is corrupted.
   const int kNumKeys = 5000;
   OpenDBAndBackupEngine(true /* destroy_old_data */);
+  BackupInfo backup_info;
+  ASSERT_TRUE(backup_engine_->GetLatestBackupInfo(&backup_info).IsNotFound());
   FillDB(db_.get(), 0 /* from */, kNumKeys);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
                                             true /* flush_before_backup */));
@@ -3293,12 +3312,26 @@ TEST_F(BackupableDBTest, CreateWhenLatestBackupCorrupted) {
   CloseDBAndBackupEngine();
 
   OpenDBAndBackupEngine();
+  ASSERT_TRUE(backup_engine_->GetLatestBackupInfo(&backup_info).IsNotFound());
+
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(),
                                             true /* flush_before_backup */));
+
+  ASSERT_TRUE(backup_engine_->GetLatestBackupInfo(&backup_info).ok());
+  ASSERT_EQ(2, backup_info.backup_id);
+
   std::vector<BackupInfo> backup_infos;
   backup_engine_->GetBackupInfo(&backup_infos);
   ASSERT_EQ(1, backup_infos.size());
   ASSERT_EQ(2, backup_infos[0].backup_id);
+
+  // Verify individual GetBackupInfo by ID
+  ASSERT_TRUE(backup_engine_->GetBackupInfo(0U, &backup_info).IsNotFound());
+  ASSERT_TRUE(backup_engine_->GetBackupInfo(1U, &backup_info).IsCorruption());
+  ASSERT_TRUE(backup_engine_->GetBackupInfo(2U, &backup_info).ok());
+  ASSERT_TRUE(backup_engine_->GetBackupInfo(3U, &backup_info).IsNotFound());
+  ASSERT_TRUE(
+      backup_engine_->GetBackupInfo(999999U, &backup_info).IsNotFound());
 }
 
 TEST_F(BackupableDBTest, WriteOnlyEngineNoSharedFileDeletion) {
@@ -3456,7 +3489,11 @@ TEST_F(BackupableDBTest, BackgroundThreadCpuPriority) {
     CreateBackupOptions options;
     options.decrease_background_thread_cpu_priority = true;
     options.background_thread_cpu_priority = CpuPriority::kIdle;
-    ASSERT_OK(backup_engine_->CreateNewBackup(options, db_.get()));
+
+    // Also check output backup_id with CreateNewBackup
+    BackupID new_id = 0;
+    ASSERT_OK(backup_engine_->CreateNewBackup(options, db_.get(), &new_id));
+    ASSERT_EQ(new_id, 5U);
 
     ASSERT_EQ(priority, CpuPriority::kNormal);
   }

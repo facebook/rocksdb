@@ -33,11 +33,13 @@ class OutputValidator {
     return GetHash() == other_validator.GetHash();
   }
 
- private:
   // Not (yet) intended to be persisted, so subject to change
   // without notice between releases.
   uint64_t GetHash() const { return paranoid_hash_; }
 
+  void SetHash(uint64_t hash) { paranoid_hash_ = hash; }
+
+ private:
   const InternalKeyComparator& icmp_;
   std::string prev_key_;
   uint64_t paranoid_hash_ = 0;

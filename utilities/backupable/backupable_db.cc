@@ -129,7 +129,8 @@ class BackupEngineImpl {
   ~BackupEngineImpl();
 
   Status CreateNewBackupWithMetadata(const CreateBackupOptions& options, DB* db,
-                                     const std::string& app_metadata);
+                                     const std::string& app_metadata,
+                                     BackupID* new_backup_id_ptr);
 
   Status PurgeOldBackups(uint32_t num_backups_to_keep);
 
@@ -143,6 +144,9 @@ class BackupEngineImpl {
   // latest backup comes last.
   void GetBackupInfo(std::vector<BackupInfo>* backup_info,
                      bool include_file_details) const;
+
+  Status GetBackupInfo(BackupID backup_id, BackupInfo* backup_info,
+                       bool include_file_details = false) const;
 
   void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) const;
 
@@ -459,6 +463,10 @@ class BackupEngineImpl {
     Env* env_;
     mutable std::shared_ptr<Env> env_for_open_;
   };  // BackupMeta
+
+  void SetBackupInfoFromBackupMeta(BackupID id, const BackupMeta& meta,
+                                   BackupInfo* backup_info,
+                                   bool include_file_details) const;
 
   inline std::string GetAbsolutePath(
       const std::string &relative_path = "") const {
@@ -802,9 +810,11 @@ class BackupEngineImplThreadSafe : public BackupEngine,
 
   using BackupEngine::CreateNewBackupWithMetadata;
   Status CreateNewBackupWithMetadata(const CreateBackupOptions& options, DB* db,
-                                     const std::string& app_metadata) override {
+                                     const std::string& app_metadata,
+                                     BackupID* new_backup_id) override {
     WriteLock lock(&mutex_);
-    return impl_.CreateNewBackupWithMetadata(options, db, app_metadata);
+    return impl_.CreateNewBackupWithMetadata(options, db, app_metadata,
+                                             new_backup_id);
   }
 
   Status PurgeOldBackups(uint32_t num_backups_to_keep) override {
@@ -825,6 +835,19 @@ class BackupEngineImplThreadSafe : public BackupEngine,
   Status GarbageCollect() override {
     WriteLock lock(&mutex_);
     return impl_.GarbageCollect();
+  }
+
+  Status GetLatestBackupInfo(BackupInfo* backup_info,
+                             bool include_file_details = false) const override {
+    ReadLock lock(&mutex_);
+    return impl_.GetBackupInfo(kLatestBackupIDMarker, backup_info,
+                               include_file_details);
+  }
+
+  Status GetBackupInfo(BackupID backup_id, BackupInfo* backup_info,
+                       bool include_file_details = false) const override {
+    ReadLock lock(&mutex_);
+    return impl_.GetBackupInfo(backup_id, backup_info, include_file_details);
   }
 
   void GetBackupInfo(std::vector<BackupInfo>* backup_info,
@@ -1181,8 +1204,8 @@ Status BackupEngineImpl::Initialize() {
 }
 
 Status BackupEngineImpl::CreateNewBackupWithMetadata(
-    const CreateBackupOptions& options, DB* db,
-    const std::string& app_metadata) {
+    const CreateBackupOptions& options, DB* db, const std::string& app_metadata,
+    BackupID* new_backup_id_ptr) {
   assert(initialized_);
   assert(!read_only_);
   if (app_metadata.size() > kMaxAppMetaSize) {
@@ -1417,6 +1440,9 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   // in the LATEST_BACKUP file
   latest_backup_id_ = new_backup_id;
   latest_valid_backup_id_ = new_backup_id;
+  if (new_backup_id_ptr) {
+    *new_backup_id_ptr = new_backup_id;
+  }
   ROCKS_LOG_INFO(options_.info_log, "Backup DONE. All is good");
 
   // backup_speed is in byte/second
@@ -1546,30 +1572,61 @@ Status BackupEngineImpl::DeleteBackupNoGC(BackupID backup_id) {
   return Status::OK();
 }
 
+void BackupEngineImpl::SetBackupInfoFromBackupMeta(
+    BackupID id, const BackupMeta& meta, BackupInfo* backup_info,
+    bool include_file_details) const {
+  *backup_info = BackupInfo(id, meta.GetTimestamp(), meta.GetSize(),
+                            meta.GetNumberFiles(), meta.GetAppMetadata());
+  if (include_file_details) {
+    auto& file_details = backup_info->file_details;
+    file_details.reserve(meta.GetFiles().size());
+    for (auto& file_ptr : meta.GetFiles()) {
+      BackupFileInfo& finfo = *file_details.emplace(file_details.end());
+      finfo.relative_filename = file_ptr->filename;
+      finfo.size = file_ptr->size;
+    }
+    backup_info->name_for_open = GetAbsolutePath(GetPrivateFileRel(id));
+    backup_info->name_for_open.pop_back();  // remove trailing '/'
+    backup_info->env_for_open = meta.GetEnvForOpen();
+  }
+}
+
+Status BackupEngineImpl::GetBackupInfo(BackupID backup_id,
+                                       BackupInfo* backup_info,
+                                       bool include_file_details) const {
+  assert(initialized_);
+  if (backup_id == kLatestBackupIDMarker) {
+    // Note: Read latest_valid_backup_id_ inside of lock
+    backup_id = latest_valid_backup_id_;
+  }
+  auto corrupt_itr = corrupt_backups_.find(backup_id);
+  if (corrupt_itr != corrupt_backups_.end()) {
+    return Status::Corruption(corrupt_itr->second.first.ToString());
+  }
+  auto backup_itr = backups_.find(backup_id);
+  if (backup_itr == backups_.end()) {
+    return Status::NotFound("Backup not found");
+  }
+  auto& backup = backup_itr->second;
+  if (backup->Empty()) {
+    return Status::NotFound("Backup not found");
+  }
+
+  SetBackupInfoFromBackupMeta(backup_id, *backup, backup_info,
+                              include_file_details);
+  return Status::OK();
+}
+
 void BackupEngineImpl::GetBackupInfo(std::vector<BackupInfo>* backup_info,
                                      bool include_file_details) const {
   assert(initialized_);
-  backup_info->reserve(backups_.size());
+  backup_info->resize(backups_.size());
+  size_t i = 0;
   for (auto& backup : backups_) {
     const BackupMeta& meta = *backup.second;
     if (!meta.Empty()) {
-      backup_info->push_back(BackupInfo(backup.first, meta.GetTimestamp(),
-                                        meta.GetSize(), meta.GetNumberFiles(),
-                                        meta.GetAppMetadata()));
-      BackupInfo& binfo = backup_info->back();
-      if (include_file_details) {
-        auto& file_details = binfo.file_details;
-        file_details.reserve(meta.GetFiles().size());
-        for (auto& file_ptr : meta.GetFiles()) {
-          BackupFileInfo& finfo = *file_details.emplace(file_details.end());
-          finfo.relative_filename = file_ptr->filename;
-          finfo.size = file_ptr->size;
-        }
-        binfo.name_for_open =
-            GetAbsolutePath(GetPrivateFileRel(binfo.backup_id));
-        binfo.name_for_open.pop_back();  // remove trailing '/'
-        binfo.env_for_open = meta.GetEnvForOpen();
-      }
+      SetBackupInfoFromBackupMeta(backup.first, meta, &backup_info->at(i++),
+                                  include_file_details);
     }
   }
 }

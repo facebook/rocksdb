@@ -810,6 +810,7 @@ class TestingContextCustomFilterPolicy
 TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
   for (bool fifo : {true, false}) {
     Options options = CurrentOptions();
+    options.max_open_files = fifo ? -1 : options.max_open_files;
     options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
     options.compaction_style =
         fifo ? kCompactionStyleFIFO : kCompactionStyleLevel;
@@ -820,6 +821,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
     table_options.format_version = 5;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
+    TryReopen(options);
     CreateAndReopenWithCF({fifo ? "abe" : "bob"}, options);
 
     const int maxKey = 10000;

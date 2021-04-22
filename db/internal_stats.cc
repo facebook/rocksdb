@@ -751,21 +751,24 @@ bool InternalStats::HandleBackgroundErrors(uint64_t* value, DBImpl* /*db*/,
 bool InternalStats::HandleCurSizeActiveMemTable(uint64_t* value, DBImpl* /*db*/,
                                                 Version* /*version*/) {
   // Current size of the active memtable
-  *value = cfd_->mem()->ApproximateMemoryUsage();
+  // Using ApproximateMemoryUsageFast to avoid the need for synchronization
+  *value = cfd_->mem()->ApproximateMemoryUsageFast();
   return true;
 }
 
 bool InternalStats::HandleCurSizeAllMemTables(uint64_t* value, DBImpl* /*db*/,
                                               Version* /*version*/) {
   // Current size of the active memtable + immutable memtables
-  *value = cfd_->mem()->ApproximateMemoryUsage() +
+  // Using ApproximateMemoryUsageFast to avoid the need for synchronization
+  *value = cfd_->mem()->ApproximateMemoryUsageFast() +
            cfd_->imm()->ApproximateUnflushedMemTablesMemoryUsage();
   return true;
 }
 
 bool InternalStats::HandleSizeAllMemTables(uint64_t* value, DBImpl* /*db*/,
                                            Version* /*version*/) {
-  *value = cfd_->mem()->ApproximateMemoryUsage() +
+  // Using ApproximateMemoryUsageFast to avoid the need for synchronization
+  *value = cfd_->mem()->ApproximateMemoryUsageFast() +
            cfd_->imm()->ApproximateMemoryUsage();
   return true;
 }

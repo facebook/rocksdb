@@ -7,7 +7,7 @@
 #include "monitoring/perf_step_timer.h"
 #include "rocksdb/iostats_context.h"
 
-#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
+#if defined(ROCKSDB_SUPPORT_THREAD_LOCAL) && !defined(NIOSTATS_CONTEXT)
 namespace ROCKSDB_NAMESPACE {
 extern __thread IOStatsContext iostats_context;
 }  // namespace ROCKSDB_NAMESPACE
@@ -44,7 +44,7 @@ extern __thread IOStatsContext iostats_context;
       PerfLevel::kEnableTimeAndCPUTimeExceptForMutex); \
   iostats_step_timer_##metric.Start();
 
-#else  // ROCKSDB_SUPPORT_THREAD_LOCAL
+#else  // ROCKSDB_SUPPORT_THREAD_LOCAL && !NIOSTATS_CONTEXT
 
 #define IOSTATS_ADD(metric, value)
 #define IOSTATS_ADD_IF_POSITIVE(metric, value)
@@ -57,4 +57,4 @@ extern __thread IOStatsContext iostats_context;
 #define IOSTATS_TIMER_GUARD(metric)
 #define IOSTATS_CPU_TIMER_GUARD(metric, clock) static_cast<void>(clock)
 
-#endif  // ROCKSDB_SUPPORT_THREAD_LOCAL
+#endif  // ROCKSDB_SUPPORT_THREAD_LOCAL && !NIOSTATS_CONTEXT

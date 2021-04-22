@@ -22,7 +22,7 @@
 #include <string>
 
 #include "file/filename.h"
-#include "include/rocksdb/file_system.h"
+#include "rocksdb/file_system.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/thread_local.h"
