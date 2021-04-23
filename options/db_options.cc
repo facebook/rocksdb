@@ -435,7 +435,7 @@ const std::string OptionsHelper::kDBOptionsName = "DBOptions";
 
 class MutableDBConfigurable : public Configurable {
  public:
-  MutableDBConfigurable(const MutableDBOptions& mdb) {
+  explicit MutableDBConfigurable(const MutableDBOptions& mdb) {
     mutable_ = mdb;
     RegisterOptions(&mutable_, &db_mutable_options_type_info);
   }
@@ -446,7 +446,7 @@ class MutableDBConfigurable : public Configurable {
 
 class DBOptionsConfigurable : public MutableDBConfigurable {
  public:
-  DBOptionsConfigurable(const DBOptions& opts)
+  explicit DBOptionsConfigurable(const DBOptions& opts)
       : MutableDBConfigurable(MutableDBOptions(opts)), db_options_(opts) {
     // The ImmutableDBOptions currently requires the env to be non-null.  Make
     // sure it is

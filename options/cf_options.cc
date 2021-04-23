@@ -690,7 +690,7 @@ const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
 
 class ConfigurableMutableCFOptions : public Configurable {
  public:
-  ConfigurableMutableCFOptions(const MutableCFOptions& mcf) {
+  explicit ConfigurableMutableCFOptions(const MutableCFOptions& mcf) {
     mutable_ = mcf;
     RegisterOptions(&mutable_, &cf_mutable_options_type_info);
   }

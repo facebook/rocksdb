@@ -98,7 +98,8 @@ static std::unordered_map<std::string, OptionTypeInfo> a_option_info = {
 };
 class ACustomizable : public TestCustomizable {
  public:
-  ACustomizable(const std::string& id) : TestCustomizable("A"), id_(id) {
+  explicit ACustomizable(const std::string& id)
+      : TestCustomizable("A"), id_(id) {
     RegisterOptions("A", &opts_, &a_option_info);
   }
   std::string GetId() const override { return id_; }
@@ -141,7 +142,7 @@ static std::unordered_map<std::string, OptionTypeInfo> b_option_info = {
 class BCustomizable : public TestCustomizable {
  private:
  public:
-  BCustomizable(const std::string& name) : TestCustomizable(name) {
+  explicit BCustomizable(const std::string& name) : TestCustomizable(name) {
     RegisterOptions(name, &opts_, &b_option_info);
   }
   static const char* kClassName() { return "B"; }
@@ -249,7 +250,7 @@ class SimpleConfigurable : public Configurable {
     RegisterOptions("simple", &simple_, &simple_option_info);
   }
 
-  SimpleConfigurable(
+  explicit SimpleConfigurable(
       const std::unordered_map<std::string, OptionTypeInfo>* map) {
     RegisterOptions("simple", &simple_, map);
   }
