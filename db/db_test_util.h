@@ -877,6 +877,13 @@ class CacheWrapper : public Cache {
     target_->ApplyToAllCacheEntries(callback, thread_safe);
   }
 
+  void ApplyToAllEntries(
+      const std::function<void(const Slice& key, void* value, size_t charge,
+                               DeleterFn deleter)>& callback,
+      size_t average_entries_per_lock) override {
+    target_->ApplyToAllEntries(callback, average_entries_per_lock);
+  }
+
   void EraseUnRefEntries() override { target_->EraseUnRefEntries(); }
 
  protected:

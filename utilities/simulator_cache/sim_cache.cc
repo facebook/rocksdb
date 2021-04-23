@@ -255,6 +255,13 @@ class SimCacheImpl : public SimCache {
     cache_->ApplyToAllCacheEntries(callback, thread_safe);
   }
 
+  void ApplyToAllEntries(
+      const std::function<void(const Slice& key, void* value, size_t charge,
+                               DeleterFn deleter)>& callback,
+      size_t average_entries_per_lock) override {
+    cache_->ApplyToAllEntries(callback, average_entries_per_lock);
+  }
+
   void EraseUnRefEntries() override {
     cache_->EraseUnRefEntries();
     key_only_cache_->EraseUnRefEntries();

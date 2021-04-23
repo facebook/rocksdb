@@ -10,6 +10,7 @@
 #include "cache/lru_cache.h"
 
 #include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <string>
 
@@ -17,16 +18,19 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-LRUHandleTable::LRUHandleTable() : list_(nullptr), length_(0), elems_(0) {
-  Resize();
-}
+LRUHandleTable::LRUHandleTable()
+    : length_bits_(4),
+      list_(new LRUHandle* [1U << length_bits_] {}),
+      elems_(0) {}
 
 LRUHandleTable::~LRUHandleTable() {
-  ApplyToAllCacheEntries([](LRUHandle* h) {
-    if (!h->HasRefs()) {
-      h->Free();
-    }
-  });
+  ApplyToEntriesRange(
+      [](LRUHandle* h) {
+        if (!h->HasRefs()) {
+          h->Free();
+        }
+      },
+      0, uint32_t{1} << length_bits_);
   delete[] list_;
 }
 
@@ -41,7 +45,7 @@ LRUHandle* LRUHandleTable::Insert(LRUHandle* h) {
   *ptr = h;
   if (old == nullptr) {
     ++elems_;
-    if (elems_ > length_) {
+    if ((elems_ >> length_bits_) > 0) {  // elems_ >= length
       // Since each cache entry is fairly large, we aim for a small
       // average linked list length (<= 1).
       Resize();
@@ -61,7 +65,7 @@ LRUHandle* LRUHandleTable::Remove(const Slice& key, uint32_t hash) {
 }
 
 LRUHandle** LRUHandleTable::FindPointer(const Slice& key, uint32_t hash) {
-  LRUHandle** ptr = &list_[hash & (length_ - 1)];
+  LRUHandle** ptr = &list_[hash >> (32 - length_bits_)];
   while (*ptr != nullptr && ((*ptr)->hash != hash || key != (*ptr)->key())) {
     ptr = &(*ptr)->next_hash;
   }
@@ -69,19 +73,16 @@ LRUHandle** LRUHandleTable::FindPointer(const Slice& key, uint32_t hash) {
 }
 
 void LRUHandleTable::Resize() {
-  uint32_t new_length = 16;
-  while (new_length < elems_ * 1.5) {
-    new_length *= 2;
-  }
-  LRUHandle** new_list = new LRUHandle*[new_length];
-  memset(new_list, 0, sizeof(new_list[0]) * new_length);
+  int old_length_bits = length_bits_;
+  int new_length_bits = length_bits_ + 1;
+  LRUHandle** new_list = new LRUHandle* [1U << new_length_bits] {};
   uint32_t count = 0;
-  for (uint32_t i = 0; i < length_; i++) {
+  for (uint32_t i = 0; (i >> old_length_bits) == 0; i++) {
     LRUHandle* h = list_[i];
     while (h != nullptr) {
       LRUHandle* next = h->next_hash;
       uint32_t hash = h->hash;
-      LRUHandle** ptr = &new_list[hash & (new_length - 1)];
+      LRUHandle** ptr = &new_list[hash >> (32 - new_length_bits)];
       h->next_hash = *ptr;
       *ptr = h;
       h = next;
@@ -91,7 +92,7 @@ void LRUHandleTable::Resize() {
   assert(elems_ == count);
   delete[] list_;
   list_ = new_list;
-  length_ = new_length;
+  length_bits_ = new_length_bits;
 }
 
 LRUCacheShard::LRUCacheShard(size_t capacity, bool strict_capacity_limit,
@@ -137,19 +138,37 @@ void LRUCacheShard::EraseUnRefEntries() {
   }
 }
 
-void LRUCacheShard::ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                                           bool thread_safe) {
-  const auto applyCallback = [&]() {
-    table_.ApplyToAllCacheEntries(
-        [callback](LRUHandle* h) { callback(h->value, h->charge); });
-  };
+void LRUCacheShard::ApplyToSomeEntries(
+    const std::function<void(const Slice& key, void* value, size_t charge,
+                             DeleterFn deleter)>& callback,
+    uint32_t average_entries_per_lock, uint32_t* state) {
+  // The state is essentially going to be the starting hash, which works
+  // nicely even if we resize between calls because we use upper-most
+  // hash bits for table indexes.
+  MutexLock l(&mutex_);
+  uint32_t length_bits = table_.GetLengthBits();
+  uint32_t length = uint32_t{1} << length_bits;
 
-  if (thread_safe) {
-    MutexLock l(&mutex_);
-    applyCallback();
+  assert(average_entries_per_lock > 0);
+  // Assuming we are called with same average_entries_per_lock repeatedly,
+  // this simplifies some logic (index_end will not overflow)
+  assert(average_entries_per_lock < length || *state == 0);
+
+  uint32_t index_begin = *state >> (32 - length_bits);
+  uint32_t index_end = index_begin + average_entries_per_lock;
+  if (index_end >= length) {
+    // Going to end
+    index_end = length;
+    *state = UINT32_MAX;
   } else {
-    applyCallback();
+    *state = index_end << (32 - length_bits);
   }
+
+  table_.ApplyToEntriesRange(
+      [callback](LRUHandle* h) {
+        callback(h->key(), h->value, h->charge, h->deleter);
+      },
+      index_begin, index_end);
 }
 
 void LRUCacheShard::TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri) {
@@ -492,11 +511,11 @@ LRUCache::~LRUCache() {
   }
 }
 
-CacheShard* LRUCache::GetShard(int shard) {
+CacheShard* LRUCache::GetShard(uint32_t shard) {
   return reinterpret_cast<CacheShard*>(&shards_[shard]);
 }
 
-const CacheShard* LRUCache::GetShard(int shard) const {
+const CacheShard* LRUCache::GetShard(uint32_t shard) const {
   return reinterpret_cast<CacheShard*>(&shards_[shard]);
 }
 

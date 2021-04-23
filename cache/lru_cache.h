@@ -11,7 +11,6 @@
 #include <string>
 
 #include "cache/sharded_cache.h"
-
 #include "port/malloc.h"
 #include "port/port.h"
 #include "util/autovector.h"
@@ -161,8 +160,8 @@ class LRUHandleTable {
   LRUHandle* Remove(const Slice& key, uint32_t hash);
 
   template <typename T>
-  void ApplyToAllCacheEntries(T func) {
-    for (uint32_t i = 0; i < length_; i++) {
+  void ApplyToEntriesRange(T func, uint32_t index_begin, uint32_t index_end) {
+    for (uint32_t i = index_begin; i < index_end; i++) {
       LRUHandle* h = list_[i];
       while (h != nullptr) {
         auto n = h->next_hash;
@@ -173,6 +172,8 @@ class LRUHandleTable {
     }
   }
 
+  int GetLengthBits() { return length_bits_; }
+
  private:
   // Return a pointer to slot that points to a cache entry that
   // matches key/hash.  If there is no such cache entry, return a
@@ -181,10 +182,15 @@ class LRUHandleTable {
 
   void Resize();
 
+  // Number of hash bits (upper because lower bits used for sharding)
+  // used for table index. Length == 1 << length_bits_
+  int length_bits_;
+
   // The table consists of an array of buckets where each bucket is
   // a linked list of cache entries that hash into the bucket.
   LRUHandle** list_;
-  uint32_t length_;
+
+  // Number of elements currently in the table
   uint32_t elems_;
 };
 
@@ -226,8 +232,10 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   virtual size_t GetUsage() const override;
   virtual size_t GetPinnedUsage() const override;
 
-  virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                                      bool thread_safe) override;
+  virtual void ApplyToSomeEntries(
+      const std::function<void(const Slice& key, void* value, size_t charge,
+                               DeleterFn deleter)>& callback,
+      uint32_t average_entries_per_lock, uint32_t* state) override;
 
   virtual void EraseUnRefEntries() override;
 
@@ -319,8 +327,8 @@ class LRUCache
                kDontChargeCacheMetadata);
   virtual ~LRUCache();
   virtual const char* Name() const override { return "LRUCache"; }
-  virtual CacheShard* GetShard(int shard) override;
-  virtual const CacheShard* GetShard(int shard) const override;
+  virtual CacheShard* GetShard(uint32_t shard) override;
+  virtual const CacheShard* GetShard(uint32_t shard) const override;
   virtual void* Value(Handle* handle) override;
   virtual size_t GetCharge(Handle* handle) const override;
   virtual uint32_t GetHash(Handle* handle) const override;

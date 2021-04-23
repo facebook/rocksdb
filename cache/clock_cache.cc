@@ -284,8 +284,10 @@ class ClockCacheShard final : public CacheShard {
   size_t GetUsage() const override;
   size_t GetPinnedUsage() const override;
   void EraseUnRefEntries() override;
-  void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                              bool thread_safe) override;
+  void ApplyToSomeEntries(
+      const std::function<void(const Slice& key, void* value, size_t charge,
+                               DeleterFn deleter)>& callback,
+      uint32_t average_entries_per_lock, uint32_t* state);
 
  private:
   static const uint32_t kInCacheBit = 1;
@@ -404,22 +406,22 @@ size_t ClockCacheShard::GetPinnedUsage() const {
   return pinned_usage_.load(std::memory_order_relaxed);
 }
 
-void ClockCacheShard::ApplyToAllCacheEntries(void (*callback)(void*, size_t),
-                                             bool thread_safe) {
-  if (thread_safe) {
-    mutex_.Lock();
-  }
+void ClockCacheShard::ApplyToSomeEntries(
+    const std::function<void(const Slice& key, void* value, size_t charge,
+                             DeleterFn deleter)>& callback,
+    uint32_t /*average_entries_per_lock*/, uint32_t* state) {
+  MutexLock lock(&mutex_);
   for (auto& handle : list_) {
     // Use relaxed semantics instead of acquire semantics since we are either
     // holding mutex, or don't have thread safe requirement.
     uint32_t flags = handle.flags.load(std::memory_order_relaxed);
     if (InCache(flags)) {
-      callback(handle.value, handle.charge);
+      callback(handle.key, handle.value, handle.charge, handle.deleter);
     }
   }
-  if (thread_safe) {
-    mutex_.Unlock();
-  }
+  // TODO: average_entries_per_lock
+  // Mark finished with all
+  *state = UINT32_MAX;
 }
 
 void ClockCacheShard::RecycleHandle(CacheHandle* handle,
@@ -726,11 +728,11 @@ class ClockCache final : public ShardedCache {
 
   const char* Name() const override { return "ClockCache"; }
 
-  CacheShard* GetShard(int shard) override {
+  CacheShard* GetShard(uint32_t shard) override {
     return reinterpret_cast<CacheShard*>(&shards_[shard]);
   }
 
-  const CacheShard* GetShard(int shard) const override {
+  const CacheShard* GetShard(uint32_t shard) const override {
     return reinterpret_cast<CacheShard*>(&shards_[shard]);
   }
 
