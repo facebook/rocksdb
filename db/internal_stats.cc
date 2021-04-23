@@ -961,7 +961,7 @@ bool InternalStats::HandleEstimateOldestKeyTime(uint64_t* value, DBImpl* /*db*/,
 
 bool InternalStats::HandleBlockCacheStat(Cache** block_cache) {
   assert(block_cache != nullptr);
-  auto* table_factory = cfd_->ioptions()->table_factory;
+  auto* table_factory = cfd_->ioptions()->table_factory.get();
   assert(table_factory != nullptr);
   *block_cache =
       table_factory->GetOptions<Cache>(TableFactory::kBlockCacheOpts());

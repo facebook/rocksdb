@@ -270,8 +270,8 @@ struct FilterBench : public MockBlockBasedTableTester {
   Random32 random_;
   std::ostringstream fp_rate_report_;
   Arena arena_;
-  StderrLogger stderr_logger_;
   double m_queries_;
+  StderrLogger stderr_logger_;
 
   FilterBench()
       : MockBlockBasedTableTester(new BloomFilterPolicy(

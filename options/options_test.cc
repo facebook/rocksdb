@@ -1298,6 +1298,36 @@ TEST_F(OptionsTest, OptionsComposeDecompose) {
   delete new_cf_opts.compaction_filter;
 }
 
+TEST_F(OptionsTest, DBOptionsComposeImmutable) {
+  // Build a DBOptions from an Immutable/Mutable one and verify that
+  // we get same constituent options.
+  ConfigOptions config_options;
+  Random rnd(301);
+  DBOptions base_opts, new_opts;
+  test::RandomInitDBOptions(&base_opts, &rnd);
+  MutableDBOptions m_opts(base_opts);
+  ImmutableDBOptions i_opts(base_opts);
+  new_opts = BuildDBOptions(i_opts, m_opts);
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(config_options, base_opts,
+                                                  new_opts));
+}
+
+TEST_F(OptionsTest, CFOptionsComposeImmutable) {
+  // Build a DBOptions from an Immutable/Mutable one and verify that
+  // we get same constituent options.
+  ConfigOptions config_options;
+  Random rnd(301);
+  ColumnFamilyOptions base_opts, new_opts;
+  DBOptions dummy;  // Needed to create ImmutableCFOptions
+  test::RandomInitCFOptions(&base_opts, dummy, &rnd);
+  MutableCFOptions m_opts(base_opts);
+  ImmutableCFOptions i_opts(ImmutableDBOptions(dummy), base_opts);
+  new_opts = BuildColumnFamilyOptions(i_opts, m_opts);
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base_opts,
+                                                  new_opts));
+  delete new_opts.compaction_filter;
+}
+
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
   Options options;
   ColumnFamilyOptions base_opt, new_opt;

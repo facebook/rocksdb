@@ -558,8 +558,8 @@ void DBImpl::PurgeObsoleteFiles(JobContext& state, bool schedule_only) {
     }
 
 #ifndef ROCKSDB_LITE
-    if (type == kWalFile && (immutable_db_options_.wal_ttl_seconds > 0 ||
-                             immutable_db_options_.wal_size_limit_mb > 0)) {
+    if (type == kWalFile && (immutable_db_options_.WAL_ttl_seconds > 0 ||
+                             immutable_db_options_.WAL_size_limit_MB > 0)) {
       wal_manager_.ArchiveWALFile(fname, number);
       continue;
     }

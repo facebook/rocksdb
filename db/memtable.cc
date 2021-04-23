@@ -59,7 +59,7 @@ ImmutableMemTableOptions::ImmutableMemTableOptions(
       inplace_callback(ioptions.inplace_callback),
       max_successive_merges(mutable_cf_options.max_successive_merges),
       statistics(ioptions.statistics),
-      merge_operator(ioptions.merge_operator),
+      merge_operator(ioptions.merge_operator.get()),
       info_log(ioptions.info_log),
       allow_data_in_errors(ioptions.allow_data_in_errors) {}
 
@@ -106,7 +106,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       flush_state_(FLUSH_NOT_REQUESTED),
       clock_(ioptions.clock),
       insert_with_hint_prefix_extractor_(
-          ioptions.memtable_insert_with_hint_prefix_extractor),
+          ioptions.memtable_insert_with_hint_prefix_extractor.get()),
       oldest_key_time_(std::numeric_limits<uint64_t>::max()),
       atomic_flush_seqno_(kMaxSequenceNumber),
       approximate_memory_usage_(0) {
