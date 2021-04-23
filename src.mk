@@ -317,8 +317,8 @@ MOCK_LIB_SOURCES =                                              \
   table/mock_table.cc                                           \
 
 BENCH_LIB_SOURCES =                                             \
-  env/simulated_hybrid_file_system.cc                           \
   tools/db_bench_tool.cc                                        \
+  tools/simulated_hybrid_file_system.cc                         \
 
 STRESS_LIB_SOURCES =                                            \
   db_stress_tool/batched_ops_stress.cc                         \

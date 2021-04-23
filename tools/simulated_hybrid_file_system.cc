@@ -5,7 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "env/simulated_hybrid_file_system.h"
+#include "tools/simulated_hybrid_file_system.h"
 
 #include <sstream>
 #include <string>
@@ -28,7 +28,8 @@ SimulatedHybridFileSystem::SimulatedHybridFileSystem(
       rate_limiter_(NewGenericRateLimiter(
           kDummyBytesPerRequest * kRequestPerSec /* rate_bytes_per_sec */,
           1000 /* refill_period_us */)),
-      metadata_file_name_(metadata_file_name) {
+      metadata_file_name_(metadata_file_name),
+      name_("SimulatedHybridFileSystem: " + std::string(target()->Name())) {
   IOStatus s = base->FileExists(metadata_file_name, IOOptions(), nullptr);
   if (s.IsNotFound()) {
     return;
@@ -38,6 +39,8 @@ SimulatedHybridFileSystem::SimulatedHybridFileSystem(
   if (!s.ok()) {
     fprintf(stderr, "Error reading from file %s: %s",
             metadata_file_name.c_str(), s.ToString().c_str());
+    // Exit rather than assert as this file system is built to run with
+    // benchmarks, which usually run on release mode.
     std::exit(1);
   }
   std::istringstream input;

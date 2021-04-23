@@ -45,6 +45,8 @@ class SimulatedHybridFileSystem : public FileSystemWrapper {
   IOStatus DeleteFile(const std::string& fname, const IOOptions& options,
                       IODebugContext* dbg) override;
 
+  const char* Name() const override { return name_.c_str(); }
+
  private:
   // Limit 100 requests per second. Rate limiter is designed to byte but
   // we use it as fixed bytes is one request.
@@ -52,6 +54,7 @@ class SimulatedHybridFileSystem : public FileSystemWrapper {
   std::mutex mutex_;
   std::unordered_set<std::string> warm_file_set_;
   std::string metadata_file_name_;
+  std::string name_;
 };
 
 // Simulated random access file that can control IOPs and latency to simulate

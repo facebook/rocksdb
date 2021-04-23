@@ -770,7 +770,7 @@ struct AdvancedColumnFamilyOptions {
 
   // EXPERIMENTAL
   // The feature is still in development and is incomplete.
-  // If this option is set, when creating botommost files, pass this
+  // If this option is set, when creating bottommost files, pass this
   // temperature to FileSystem used. Should be no-op for default FileSystem
   // and users need to plug in their own FileSystem to take advantage of it.
   Temperature bottommost_temperature = Temperature::kUnknown;
