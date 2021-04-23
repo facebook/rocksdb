@@ -1280,7 +1280,7 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_destroy(wb);
 
     rocksdb_flush_wal(db, 1, &err);
-    CheckNoError(err)
+    CheckNoError(err);
 
     const char* keys[3] = { "box", "box", "barfooxx" };
     const rocksdb_column_family_handle_t* get_handles[3] = { handles[0], handles[1], handles[1] };
