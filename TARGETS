@@ -777,10 +777,10 @@ cpp_library(
 cpp_library(
     name = "rocksdb_tools_lib",
     srcs = [
-        "env/simulated_hybrid_file_system.cc",
         "test_util/testutil.cc",
         "tools/block_cache_analyzer/block_cache_trace_analyzer.cc",
         "tools/db_bench_tool.cc",
+        "tools/simulated_hybrid_file_system.cc",
         "tools/trace_analyzer_tool.cc",
     ],
     auto_headers = AutoHeaders.RECURSIVE_GLOB,
