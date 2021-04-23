@@ -156,7 +156,7 @@ Status BuildTable(
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, ioptions.clock, io_tracer,
           ioptions.statistics, ioptions.listeners,
-          ioptions.file_checksum_gen_factory,
+          ioptions.file_checksum_gen_factory.get(),
           tmp_set.Contains(FileType::kTableFile)));
 
       builder = NewTableBuilder(
@@ -168,7 +168,7 @@ Status BuildTable(
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
-                      ioptions.merge_operator, nullptr, ioptions.info_log,
+                      ioptions.merge_operator.get(), nullptr, ioptions.info_log,
                       true /* internal key corruption is not ok */,
                       snapshots.empty() ? 0 : snapshots.back(),
                       snapshot_checker);

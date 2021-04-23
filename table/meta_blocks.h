@@ -70,8 +70,8 @@ class PropertyBlockBuilder {
 
 // Were we encounter any error occurs during user-defined statistics collection,
 // we'll write the warning message to info log.
-void LogPropertiesCollectionError(
-    Logger* info_log, const std::string& method, const std::string& name);
+void LogPropertiesCollectionError(Logger* info_log, const std::string& method,
+                                  const std::string& name);
 
 // Utility functions help table builder to trigger batch events for user
 // defined property collectors.
