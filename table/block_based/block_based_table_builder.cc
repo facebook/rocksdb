@@ -1792,7 +1792,6 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
                                                r->get_offset());
       r->pc_rep->EmitBlock(block_rep);
     } else {
-      std::string last_key;
       for (; iter->Valid(); iter->Next()) {
         Slice key = iter->key();
         if (r->filter_builder != nullptr) {
@@ -1801,8 +1800,6 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
           r->filter_builder->Add(ExtractUserKeyAndStripTimestamp(key, ts_sz));
         }
         r->index_builder->OnKeyAdded(key);
-
-        last_key = key.ToString();
       }
       WriteBlock(Slice(data_block), &r->pending_handle,
                  true /* is_data_block */);
@@ -1812,6 +1809,8 @@ void BlockBasedTableBuilder::EnterUnbuffered() {
 
         Slice* first_key_in_next_block_ptr = &first_key_in_next_block;
 
+        iter->SeekToLast();
+        std::string last_key = iter->key().ToString();
         r->index_builder->AddIndexEntry(&last_key, first_key_in_next_block_ptr,
                                         r->pending_handle);
       }
