@@ -260,7 +260,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
   r->file_writer.reset(new WritableFileWriter(
       std::move(sst_file), file_path, r->env_options, r->ioptions.clock,
       nullptr /* io_tracer */, nullptr /* stats */, r->ioptions.listeners,
-      r->ioptions.file_checksum_gen_factory,
+      r->ioptions.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile)));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will

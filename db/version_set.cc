@@ -1768,8 +1768,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
                                        : cfd_->ioptions()->statistics),
       table_cache_((cfd_ == nullptr) ? nullptr : cfd_->table_cache()),
       blob_file_cache_(cfd_ ? cfd_->blob_file_cache() : nullptr),
-      merge_operator_((cfd_ == nullptr) ? nullptr
-                                        : cfd_->ioptions()->merge_operator),
+      merge_operator_(
+          (cfd_ == nullptr) ? nullptr : cfd_->ioptions()->merge_operator.get()),
       storage_info_(
           (cfd_ == nullptr) ? nullptr : &cfd_->internal_comparator(),
           (cfd_ == nullptr) ? nullptr : cfd_->user_comparator(),

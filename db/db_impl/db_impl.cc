@@ -697,8 +697,8 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
 }
 
 const Status DBImpl::CreateArchivalDirectory() {
-  if (immutable_db_options_.wal_ttl_seconds > 0 ||
-      immutable_db_options_.wal_size_limit_mb > 0) {
+  if (immutable_db_options_.WAL_ttl_seconds > 0 ||
+      immutable_db_options_.WAL_size_limit_MB > 0) {
     std::string archivalPath = ArchivalDirectory(immutable_db_options_.wal_dir);
     return env_->CreateDirIfMissing(archivalPath);
   }

@@ -199,7 +199,7 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
                                              Slice* result_operand) {
   if (column_family_ != nullptr) {
     auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family_);
-    const auto merge_operator = cfh->cfd()->ioptions()->merge_operator;
+    const auto merge_operator = cfh->cfd()->ioptions()->merge_operator.get();
     if (merge_operator == nullptr) {
       return Status::InvalidArgument(
           "Merge_operator must be set for column_family");
