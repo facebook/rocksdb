@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 6.20.2 (04/23/2021)
 ### Bug Fixes
 * Fixed a bug in handling file rename error in distributed/network file systems when the server succeeds but client returns error. The bug can cause CURRENT file to point to non-existing MANIFEST file, thus DB cannot be opened.
 * Fixed a bug where ingested files were written with incorrect boundary key metadata. In rare cases this could have led to a level's files being wrongly ordered and queries for the boundary keys returning wrong results.
