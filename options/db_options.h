@@ -97,6 +97,8 @@ struct ImmutableDBOptions {
   // Convenience/Helper objects that are not part of the base DBOptions
   std::shared_ptr<FileSystem> fs;
   SystemClock* clock;
+  Statistics* stats;
+  Logger* logger;
 };
 
 struct MutableDBOptions {

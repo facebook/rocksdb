@@ -155,7 +155,7 @@ Status BuildTable(
       file->SetWriteLifeTimeHint(write_hint);
       file_writer.reset(new WritableFileWriter(
           std::move(file), fname, file_options, ioptions.clock, io_tracer,
-          ioptions.statistics, ioptions.listeners,
+          ioptions.stats, ioptions.listeners,
           ioptions.file_checksum_gen_factory.get(),
           tmp_set.Contains(FileType::kTableFile)));
 
@@ -168,7 +168,7 @@ Status BuildTable(
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
-                      ioptions.merge_operator.get(), nullptr, ioptions.info_log,
+                      ioptions.merge_operator.get(), nullptr, ioptions.logger,
                       true /* internal key corruption is not ok */,
                       snapshots.empty() ? 0 : snapshots.back(),
                       snapshot_checker);
@@ -185,7 +185,7 @@ Status BuildTable(
     CompactionIterator c_iter(
         iter, internal_comparator.user_comparator(), &merge, kMaxSequenceNumber,
         &snapshots, earliest_write_conflict_snapshot, snapshot_checker, env,
-        ShouldReportDetailedTime(env, ioptions.statistics),
+        ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
         /*compaction=*/nullptr,
@@ -257,7 +257,7 @@ Status BuildTable(
     // Finish and check for file errors
     TEST_SYNC_POINT("BuildTable:BeforeSyncTable");
     if (s.ok() && !empty) {
-      StopWatch sw(ioptions.clock, ioptions.statistics, TABLE_SYNC_MICROS);
+      StopWatch sw(ioptions.clock, ioptions.stats, TABLE_SYNC_MICROS);
       *io_status = file_writer->Sync(ioptions.use_fsync);
     }
     TEST_SYNC_POINT("BuildTable:BeforeCloseTableFile");

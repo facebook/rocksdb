@@ -486,7 +486,7 @@ Compaction* UniversalCompactionBuilder::PickCompaction() {
   }
 #endif
   // update statistics
-  RecordInHistogram(ioptions_.statistics, NUM_FILES_IN_SINGLE_COMPACTION,
+  RecordInHistogram(ioptions_.stats, NUM_FILES_IN_SINGLE_COMPACTION,
                     c->inputs(0)->size());
 
   picker_->RegisterCompaction(c);

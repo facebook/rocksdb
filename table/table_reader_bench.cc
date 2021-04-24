@@ -177,7 +177,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             SequenceNumber max_covering_tombstone_seq = 0;
             GetContext get_context(
                 ioptions.user_comparator, ioptions.merge_operator.get(),
-                ioptions.info_log, ioptions.statistics, GetContext::kNotFound,
+                ioptions.logger, ioptions.stats, GetContext::kNotFound,
                 Slice(key), &value, nullptr, &merge_context, true,
                 &max_covering_tombstone_seq, clock);
             s = table_reader->Get(read_options, key, &get_context, nullptr);
