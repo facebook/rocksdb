@@ -642,7 +642,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
     }
 
     if (result == kNotFound) {
-      if (deleted_ranges.IsInInterval(key)) {
+      if (deleted_ranges.IsInInterval(cf_id, key)) {
         result = WriteBatchWithIndexInternal::Result::kDeleted;
       }
     }
