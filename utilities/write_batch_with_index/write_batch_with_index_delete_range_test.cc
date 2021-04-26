@@ -131,67 +131,6 @@ void AssertValue(std::string value, WBWIIterator* iter) {
   ASSERT_EQ(value, iter->Entry().value.ToString());
 }
 
-// Tests that we can write to the WBWI while we iterate (from a single thread).
-// iteration should see the newest writes
-// same thing as above, but testing IteratorWithBase
-// stress testing mutations with IteratorWithBase
-static void PrintContents(WriteBatchWithIndex* batch,
-                          ColumnFamilyHandle* column_family,
-                          std::string* result) {
-  WBWIIterator* iter;
-  if (column_family == nullptr) {
-    iter = batch->NewIterator();
-  } else {
-    iter = batch->NewIterator(column_family);
-  }
-
-  iter->SeekToFirst();
-  while (iter->Valid()) {
-    ASSERT_OK(iter->status());
-
-    WriteEntry e = iter->Entry();
-
-    if (e.type == kPutRecord) {
-      result->append("PUT(");
-      result->append(e.key.ToString());
-      result->append("):");
-      result->append(e.value.ToString());
-    } else if (e.type == kMergeRecord) {
-      result->append("MERGE(");
-      result->append(e.key.ToString());
-      result->append("):");
-      result->append(e.value.ToString());
-    } else if (e.type == kSingleDeleteRecord) {
-      result->append("SINGLE-DEL(");
-      result->append(e.key.ToString());
-      result->append(")");
-    } else if (e.type == kDeleteRecord) {
-      result->append("DEL(");
-      result->append(e.key.ToString());
-      result->append(")");
-    } else {
-      assert(e.type == kDeleteRangeRecord);
-    }
-    result->append("RANGE-DEL(");
-    result->append(e.key.ToString());
-    result->append(")");
-
-    result->append(",");
-    iter->Next();
-  }
-
-  ASSERT_OK(iter->status());
-
-  delete iter;
-}
-
-static std::string PrintContents(WriteBatchWithIndex* batch,
-                                 ColumnFamilyHandle* column_family) {
-  std::string result;
-  PrintContents(batch, column_family, &result);
-  return result;
-}
-
 TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchUnsupportedOption) {
   WriteBatchWithIndex batch(BytewiseComparator(), 20, false);
   Status s;
@@ -880,68 +819,6 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestMultipleCF) {
   ASSERT_EQ("b_cf2", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf2, "Z", &value);
   ASSERT_TRUE(s.IsNotFound());
-}
-
-//
-// TODO mine this for tests we need to do, then get rid of it
-// TODO it is not a systematic part of what we need to test.
-//
-TEST_F(WriteBatchWithIndexTest, DeleteRangeTestXXX) {
-  WriteBatchWithIndex batch;
-  Status s;
-  std::string value;
-  DBOptions db_options;
-
-  value = PrintContents(&batch, nullptr);
-  ASSERT_EQ("PUT(A):a,PUT(A):a2,SINGLE-DEL(A),PUT(B):b,", value);
-
-  ASSERT_OK(batch.Put("C", "c"));
-  ASSERT_OK(batch.Put("A", "a3"));
-  ASSERT_OK(batch.Delete("B"));
-  ASSERT_OK(batch.SingleDelete("B"));
-  ASSERT_OK(batch.SingleDelete("C"));
-
-  s = batch.GetFromBatch(db_options, "A", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ("a3", value);
-  s = batch.GetFromBatch(db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
-  s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
-  s = batch.GetFromBatch(db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
-
-  value = PrintContents(&batch, nullptr);
-  ASSERT_EQ(
-      "PUT(A):a,PUT(A):a2,SINGLE-DEL(A),PUT(A):a3,PUT(B):b,DEL(B),SINGLE-DEL("
-      "B)"
-      ",PUT(C):c,SINGLE-DEL(C),",
-      value);
-
-  ASSERT_OK(batch.Put("B", "b4"));
-  ASSERT_OK(batch.Put("C", "c4"));
-  ASSERT_OK(batch.Put("D", "d4"));
-  ASSERT_OK(batch.SingleDelete("D"));
-  ASSERT_OK(batch.SingleDelete("D"));
-  ASSERT_OK(batch.Delete("A"));
-
-  s = batch.GetFromBatch(db_options, "A", &value);
-  ASSERT_TRUE(s.IsNotFound());
-  s = batch.GetFromBatch(db_options, "B", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ("b4", value);
-  s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ("c4", value);
-  s = batch.GetFromBatch(db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
-
-  value = PrintContents(&batch, nullptr);
-  ASSERT_EQ(
-      "PUT(A):a,PUT(A):a2,SINGLE-DEL(A),PUT(A):a3,DEL(A),PUT(B):b,DEL(B),"
-      "SINGLE-DEL(B),PUT(B):b4,PUT(C):c,SINGLE-DEL(C),PUT(C):c4,PUT(D):d4,"
-      "SINGLE-DEL(D),SINGLE-DEL(D),",
-      value);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
