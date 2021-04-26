@@ -539,8 +539,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_flush_cf(
     rocksdb_t* db, const rocksdb_flushoptions_t* options,
     rocksdb_column_family_handle_t* column_family, char** errptr);
 
-extern ROCKSDB_LIBRARY_API void rocksdb_flush_wal(
-    rocksdb_t* db, unsigned char sync, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_flush_wal(rocksdb_t* db,
+                                                  unsigned char sync,
+                                                  char** errptr);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_disable_file_deletions(rocksdb_t* db,
                                                                char** errptr);

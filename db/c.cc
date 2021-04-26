@@ -1512,10 +1512,7 @@ void rocksdb_flush_cf(
   SaveError(errptr, db->rep->Flush(options->rep, column_family->rep));
 }
 
-void rocksdb_flush_wal(
-    rocksdb_t* db,
-    unsigned char sync,
-    char** errptr) {
+void rocksdb_flush_wal(rocksdb_t* db, unsigned char sync, char** errptr) {
   SaveError(errptr, db->rep->FlushWAL(sync));
 }
 
