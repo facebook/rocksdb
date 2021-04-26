@@ -491,7 +491,7 @@ struct BlockBasedTableBuilder::Rep {
       context.column_family_name = column_family_name;
       context.compaction_style = ioptions.compaction_style;
       context.level_at_creation = level_at_creation;
-      context.info_log = ioptions.info_log;
+      context.info_log = ioptions.logger;
       filter_builder.reset(CreateFilterBlockBuilder(
           ioptions, moptions, context, use_delta_encoding_for_index_values,
           p_index_builder_));
@@ -512,7 +512,7 @@ struct BlockBasedTableBuilder::Rep {
     }
 
     if (!ReifyDbHostIdProperty(ioptions.env, &db_host_id).ok()) {
-      ROCKS_LOG_INFO(ioptions.info_log, "db_host_id property will not be set");
+      ROCKS_LOG_INFO(ioptions.logger, "db_host_id property will not be set");
     }
   }
 
@@ -855,7 +855,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
     ROCKS_LOG_WARN(
-        ioptions.info_log,
+        ioptions.logger,
         "Silently converting format_version to 1 because checksum is "
         "non-default");
     // silently convert format_version to 1 to keep consistent with current
@@ -959,14 +959,14 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     // TODO offset passed in is not accurate for parallel compression case
     NotifyCollectTableCollectorsOnAdd(key, value, r->get_offset(),
                                       r->table_properties_collectors,
-                                      r->ioptions.info_log);
+                                      r->ioptions.logger);
 
   } else if (value_type == kTypeRangeDeletion) {
     r->range_del_block.Add(key, value);
     // TODO offset passed in is not accurate for parallel compression case
     NotifyCollectTableCollectorsOnAdd(key, value, r->get_offset(),
                                       r->table_properties_collectors,
-                                      r->ioptions.info_log);
+                                      r->ioptions.logger);
   } else {
     assert(false);
   }
@@ -1081,7 +1081,7 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
 
   StopWatchNano timer(
       r->ioptions.clock,
-      ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics));
+      ShouldReportDetailedTime(r->ioptions.env, r->ioptions.stats));
 
   if (is_status_ok && raw_block_contents.size() < kCompressionSizeLimit) {
     if (is_data_block) {
@@ -1145,7 +1145,7 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
         if (!compressed_ok) {
           // The result of the compression was invalid. abort.
           abort_compression = true;
-          ROCKS_LOG_ERROR(r->ioptions.info_log,
+          ROCKS_LOG_ERROR(r->ioptions.logger,
                           "Decompressed block did not match raw block");
           *out_status =
               Status::Corruption("Decompressed block did not match raw block");
@@ -1173,19 +1173,19 @@ void BlockBasedTableBuilder::CompressAndVerifyBlock(
   // Abort compression if the block is too big, or did not pass
   // verification.
   if (abort_compression) {
-    RecordTick(r->ioptions.statistics, NUMBER_BLOCK_NOT_COMPRESSED);
+    RecordTick(r->ioptions.stats, NUMBER_BLOCK_NOT_COMPRESSED);
     *type = kNoCompression;
     *block_contents = raw_block_contents;
   } else if (*type != kNoCompression) {
-    if (ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics)) {
-      RecordTimeToHistogram(r->ioptions.statistics, COMPRESSION_TIMES_NANOS,
+    if (ShouldReportDetailedTime(r->ioptions.env, r->ioptions.stats)) {
+      RecordTimeToHistogram(r->ioptions.stats, COMPRESSION_TIMES_NANOS,
                             timer.ElapsedNanos());
     }
-    RecordInHistogram(r->ioptions.statistics, BYTES_COMPRESSED,
+    RecordInHistogram(r->ioptions.stats, BYTES_COMPRESSED,
                       raw_block_contents.size());
-    RecordTick(r->ioptions.statistics, NUMBER_BLOCK_COMPRESSED);
+    RecordTick(r->ioptions.stats, NUMBER_BLOCK_COMPRESSED);
   } else if (*type != r->compression_type) {
-    RecordTick(r->ioptions.statistics, NUMBER_BLOCK_NOT_COMPRESSED);
+    RecordTick(r->ioptions.stats, NUMBER_BLOCK_NOT_COMPRESSED);
   }
 }
 
@@ -1196,8 +1196,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
   Rep* r = rep_;
   Status s = Status::OK();
   IOStatus io_s = IOStatus::OK();
-  StopWatch sw(r->ioptions.clock, r->ioptions.statistics,
-               WRITE_RAW_BLOCK_MICROS);
+  StopWatch sw(r->ioptions.clock, r->ioptions.stats, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->get_offset());
   handle->set_size(block_contents.size());
   assert(status().ok());
@@ -1590,7 +1589,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
 
     // Add use collected properties
     NotifyCollectTableCollectorsOnFinish(rep_->table_properties_collectors,
-                                         rep_->ioptions.info_log,
+                                         rep_->ioptions.logger,
                                          &property_block_builder);
 
     WriteRawBlock(property_block_builder.Finish(), kNoCompression,

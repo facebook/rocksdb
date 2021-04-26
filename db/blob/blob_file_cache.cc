@@ -64,7 +64,7 @@ Status BlobFileCache::GetBlobFileReader(
   }
 
   assert(immutable_cf_options_);
-  Statistics* const statistics = immutable_cf_options_->statistics;
+  Statistics* const statistics = immutable_cf_options_->stats;
 
   RecordTick(statistics, NO_FILE_OPENS);
 

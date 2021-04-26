@@ -283,7 +283,7 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   }
 
   if (result.level0_file_num_compaction_trigger == 0) {
-    ROCKS_LOG_WARN(db_options.info_log.get(),
+    ROCKS_LOG_WARN(db_options.logger,
                    "level0_file_num_compaction_trigger cannot be 0");
     result.level0_file_num_compaction_trigger = 1;
   }
@@ -292,7 +292,7 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
           result.level0_slowdown_writes_trigger ||
       result.level0_slowdown_writes_trigger <
           result.level0_file_num_compaction_trigger) {
-    ROCKS_LOG_WARN(db_options.info_log.get(),
+    ROCKS_LOG_WARN(db_options.logger,
                    "This condition must be satisfied: "
                    "level0_stop_writes_trigger(%d) >= "
                    "level0_slowdown_writes_trigger(%d) >= "
@@ -309,7 +309,7 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
         result.level0_slowdown_writes_trigger) {
       result.level0_stop_writes_trigger = result.level0_slowdown_writes_trigger;
     }
-    ROCKS_LOG_WARN(db_options.info_log.get(),
+    ROCKS_LOG_WARN(db_options.logger,
                    "Adjust the value to "
                    "level0_stop_writes_trigger(%d)"
                    "level0_slowdown_writes_trigger(%d)"
@@ -545,7 +545,7 @@ ColumnFamilyData::ColumnFamilyData(
       db_paths_registered_ = true;
     } else {
       ROCKS_LOG_ERROR(
-          ioptions_.info_log,
+          ioptions_.logger,
           "Failed to register data paths of column family (id: %d, name: %s)",
           id_, name_.c_str());
     }
@@ -578,13 +578,13 @@ ColumnFamilyData::ColumnFamilyData(
     } else if (ioptions_.compaction_style == kCompactionStyleNone) {
       compaction_picker_.reset(new NullCompactionPicker(
           ioptions_, &internal_comparator_));
-      ROCKS_LOG_WARN(ioptions_.info_log,
+      ROCKS_LOG_WARN(ioptions_.logger,
                      "Column family %s does not use any background compaction. "
                      "Compactions can only be done via CompactFiles\n",
                      GetName().c_str());
 #endif  // !ROCKSDB_LITE
     } else {
-      ROCKS_LOG_ERROR(ioptions_.info_log,
+      ROCKS_LOG_ERROR(ioptions_.logger,
                       "Unable to recognize the specified compaction style %d. "
                       "Column family %s will use kCompactionStyleLevel.\n",
                       ioptions_.compaction_style, GetName().c_str());
@@ -593,12 +593,12 @@ ColumnFamilyData::ColumnFamilyData(
     }
 
     if (column_family_set_->NumberOfColumnFamilies() < 10) {
-      ROCKS_LOG_INFO(ioptions_.info_log,
+      ROCKS_LOG_INFO(ioptions_.logger,
                      "--------------- Options for column family [%s]:\n",
                      name.c_str());
-      initial_cf_options_.Dump(ioptions_.info_log);
+      initial_cf_options_.Dump(ioptions_.logger);
     } else {
-      ROCKS_LOG_INFO(ioptions_.info_log, "\t(skipping printing options)\n");
+      ROCKS_LOG_INFO(ioptions_.logger, "\t(skipping printing options)\n");
     }
   }
 
@@ -654,7 +654,7 @@ ColumnFamilyData::~ColumnFamilyData() {
     Status s = ioptions_.env->UnregisterDbPaths(GetDbPaths());
     if (!s.ok()) {
       ROCKS_LOG_ERROR(
-          ioptions_.info_log,
+          ioptions_.logger,
           "Failed to unregister data paths of column family (id: %d, name: %s)",
           id_, name_.c_str());
     }
@@ -893,7 +893,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_LIMIT_STOPS, 1);
       ROCKS_LOG_WARN(
-          ioptions_.info_log,
+          ioptions_.logger,
           "[%s] Stopping writes because we have %d immutable memtables "
           "(waiting for flush), max_write_buffer_number is set to %d",
           name_.c_str(), imm()->NumNotFlushed(),
@@ -906,7 +906,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
         internal_stats_->AddCFStats(
             InternalStats::LOCKED_L0_FILE_COUNT_LIMIT_STOPS, 1);
       }
-      ROCKS_LOG_WARN(ioptions_.info_log,
+      ROCKS_LOG_WARN(ioptions_.logger,
                      "[%s] Stopping writes because we have %d level-0 files",
                      name_.c_str(), vstorage->l0_delay_trigger_count());
     } else if (write_stall_condition == WriteStallCondition::kStopped &&
@@ -915,7 +915,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
       internal_stats_->AddCFStats(
           InternalStats::PENDING_COMPACTION_BYTES_LIMIT_STOPS, 1);
       ROCKS_LOG_WARN(
-          ioptions_.info_log,
+          ioptions_.logger,
           "[%s] Stopping writes because of estimated pending compaction "
           "bytes %" PRIu64,
           name_.c_str(), compaction_needed_bytes);
@@ -927,7 +927,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_LIMIT_SLOWDOWNS, 1);
       ROCKS_LOG_WARN(
-          ioptions_.info_log,
+          ioptions_.logger,
           "[%s] Stalling writes because we have %d immutable memtables "
           "(waiting for flush), max_write_buffer_number is set to %d "
           "rate %" PRIu64,
@@ -949,7 +949,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
         internal_stats_->AddCFStats(
             InternalStats::LOCKED_L0_FILE_COUNT_LIMIT_SLOWDOWNS, 1);
       }
-      ROCKS_LOG_WARN(ioptions_.info_log,
+      ROCKS_LOG_WARN(ioptions_.logger,
                      "[%s] Stalling writes because we have %d level-0 files "
                      "rate %" PRIu64,
                      name_.c_str(), vstorage->l0_delay_trigger_count(),
@@ -974,7 +974,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
       internal_stats_->AddCFStats(
           InternalStats::PENDING_COMPACTION_BYTES_LIMIT_SLOWDOWNS, 1);
       ROCKS_LOG_WARN(
-          ioptions_.info_log,
+          ioptions_.logger,
           "[%s] Stalling writes because of estimated pending compaction "
           "bytes %" PRIu64 " rate %" PRIu64,
           name_.c_str(), vstorage->estimated_compaction_needed_bytes(),
@@ -988,7 +988,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
         write_controller_token_ =
             write_controller->GetCompactionPressureToken();
         ROCKS_LOG_INFO(
-            ioptions_.info_log,
+            ioptions_.logger,
             "[%s] Increasing compaction threads because we have %d level-0 "
             "files ",
             name_.c_str(), vstorage->l0_delay_trigger_count());
@@ -1002,7 +1002,7 @@ WriteStallCondition ColumnFamilyData::RecalculateWriteStallConditions(
             write_controller->GetCompactionPressureToken();
         if (mutable_cf_options.soft_pending_compaction_bytes_limit > 0) {
           ROCKS_LOG_INFO(
-              ioptions_.info_log,
+              ioptions_.logger,
               "[%s] Increasing compaction threads because of estimated pending "
               "compaction "
               "bytes %" PRIu64,
@@ -1203,11 +1203,11 @@ SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(DBImpl* db) {
   SuperVersion* sv = static_cast<SuperVersion*>(ptr);
   if (sv == SuperVersion::kSVObsolete ||
       sv->version_number != super_version_number_.load()) {
-    RecordTick(ioptions_.statistics, NUMBER_SUPERVERSION_ACQUIRES);
+    RecordTick(ioptions_.stats, NUMBER_SUPERVERSION_ACQUIRES);
     SuperVersion* sv_to_delete = nullptr;
 
     if (sv && sv->Unref()) {
-      RecordTick(ioptions_.statistics, NUMBER_SUPERVERSION_CLEANUPS);
+      RecordTick(ioptions_.stats, NUMBER_SUPERVERSION_CLEANUPS);
       db->mutex()->Lock();
       // NOTE: underlying resources held by superversion (sst files) might
       // not be released until the next background job.

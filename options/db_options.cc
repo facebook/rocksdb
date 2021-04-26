@@ -586,6 +586,8 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
   } else {
     clock = SystemClock::Default().get();
   }
+  logger = info_log.get();
+  stats = statistics.get();
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {

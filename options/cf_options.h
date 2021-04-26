@@ -20,9 +20,6 @@ namespace ROCKSDB_NAMESPACE {
 // of DB. Raw pointers defined in this struct do not have ownership to the data
 // they point to. Options contains std::shared_ptr to these data.
 struct ImmutableCFOptions {
- private:
-  std::shared_ptr<Logger> logger;     // ImmutableDBOptions
-  std::shared_ptr<Statistics> stats;  // ImmutableDBOptions
  public:
   static const char* kName() { return "ImmutableCFOptions"; }
   explicit ImmutableCFOptions();
@@ -57,9 +54,9 @@ struct ImmutableCFOptions {
                                    Slice delta_value,
                                    std::string* merged_value);
 
-  Logger* info_log;  // ImmutableDBOptions
+  Logger* logger;  // ImmutableDBOptions
 
-  Statistics* statistics;  // ImmutableDBOptions
+  Statistics* stats;  // ImmutableDBOptions
 
   std::shared_ptr<RateLimiter> rate_limiter;  // ImmutableDBOptions
 

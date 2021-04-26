@@ -1412,7 +1412,6 @@ TEST_P(BlockBasedTableTest, BasicBlockBasedTableProperties) {
 
   ImmutableCFOptions ioptions(options);
   MutableCFOptions moptions(options);
-  ioptions.statistics = options.statistics.get();
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_NOT_COMPRESSED), 0);
@@ -1461,7 +1460,6 @@ uint64_t BlockBasedTableTest::IndexUncompressedHelper(bool compressed) {
 
   ImmutableCFOptions ioptions(options);
   MutableCFOptions moptions(options);
-  ioptions.statistics = options.statistics.get();
   c.Finish(options, ioptions, moptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   c.ResetTableReader();
