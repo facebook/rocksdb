@@ -87,6 +87,12 @@ IOStatus TestFSDirectory::Fsync(const IOOptions& options, IODebugContext* dbg) {
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
+  {
+    IOStatus in_s = fs_->InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
   fs_->SyncDir(dirname_);
   return dir_->Fsync(options, dbg);
 }
@@ -159,6 +165,12 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
   if (!fs_->IsFilesystemActive()) {
     return fs_->GetError();
   }
+  {
+    IOStatus in_s = fs_->InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
   writable_file_opened_ = false;
   IOStatus io_s;
   io_s = target_->Append(state_.buffer_, options, dbg);
@@ -170,6 +182,10 @@ IOStatus TestFSWritableFile::Close(const IOOptions& options,
   }
   if (io_s.ok()) {
     fs_->WritableFileClosed(state_);
+    IOStatus in_s = fs_->InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
   }
   return io_s;
 }
@@ -294,6 +310,12 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
   if (!IsFilesystemActive()) {
     return GetError();
   }
+  {
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
   if (IsFilesystemDirectWritable()) {
     return target()->NewWritableFile(fname, file_opts, result, dbg);
   }
@@ -310,6 +332,12 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
     auto dir_and_name = TestFSGetDirAndName(fname);
     auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
     list.insert(dir_and_name.second);
+    {
+      IOStatus in_s = InjectMetadataWriteError();
+      if (!in_s.ok()) {
+        return in_s;
+      }
+    }
   }
   return io_s;
 }
@@ -323,6 +351,12 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
   if (IsFilesystemDirectWritable()) {
     return target()->ReopenWritableFile(fname, file_opts, result, dbg);
   }
+  {
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
   IOStatus io_s = target()->ReopenWritableFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
     result->reset(
@@ -335,6 +369,12 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
     auto dir_and_name = TestFSGetDirAndName(fname);
     auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
     list.insert(dir_and_name.second);
+    {
+      IOStatus in_s = InjectMetadataWriteError();
+      if (!in_s.ok()) {
+        return in_s;
+      }
+    }
   }
   return io_s;
 }
@@ -348,6 +388,12 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
   if (IsFilesystemDirectWritable()) {
     return target()->NewRandomRWFile(fname, file_opts, result, dbg);
   }
+  {
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
   IOStatus io_s = target()->NewRandomRWFile(fname, file_opts, result, dbg);
   if (io_s.ok()) {
     result->reset(new TestFSRandomRWFile(fname, std::move(*result), this));
@@ -359,6 +405,12 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
     auto dir_and_name = TestFSGetDirAndName(fname);
     auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
     list.insert(dir_and_name.second);
+    {
+      IOStatus in_s = InjectMetadataWriteError();
+      if (!in_s.ok()) {
+        return in_s;
+      }
+    }
   }
   return io_s;
 }
@@ -385,9 +437,21 @@ IOStatus FaultInjectionTestFS::DeleteFile(const std::string& f,
   if (!IsFilesystemActive()) {
     return GetError();
   }
+  {
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
   IOStatus io_s = FileSystemWrapper::DeleteFile(f, options, dbg);
   if (io_s.ok()) {
     UntrackFile(f);
+    {
+      IOStatus in_s = InjectMetadataWriteError();
+      if (!in_s.ok()) {
+        return in_s;
+      }
+    }
   }
   return io_s;
 }
@@ -399,21 +463,33 @@ IOStatus FaultInjectionTestFS::RenameFile(const std::string& s,
   if (!IsFilesystemActive()) {
     return GetError();
   }
+  {
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
   IOStatus io_s = FileSystemWrapper::RenameFile(s, t, options, dbg);
 
   if (io_s.ok()) {
-    MutexLock l(&mutex_);
-    if (db_file_state_.find(s) != db_file_state_.end()) {
-      db_file_state_[t] = db_file_state_[s];
-      db_file_state_.erase(s);
-    }
+    {
+      MutexLock l(&mutex_);
+      if (db_file_state_.find(s) != db_file_state_.end()) {
+        db_file_state_[t] = db_file_state_[s];
+        db_file_state_.erase(s);
+      }
 
-    auto sdn = TestFSGetDirAndName(s);
-    auto tdn = TestFSGetDirAndName(t);
-    if (dir_to_new_files_since_last_sync_[sdn.first].erase(sdn.second) != 0) {
-      auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
-      assert(tlist.find(tdn.second) == tlist.end());
-      tlist.insert(tdn.second);
+      auto sdn = TestFSGetDirAndName(s);
+      auto tdn = TestFSGetDirAndName(t);
+      if (dir_to_new_files_since_last_sync_[sdn.first].erase(sdn.second) != 0) {
+        auto& tlist = dir_to_new_files_since_last_sync_[tdn.first];
+        assert(tlist.find(tdn.second) == tlist.end());
+        tlist.insert(tdn.second);
+      }
+    }
+    IOStatus in_s = InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
     }
   }
 
@@ -616,6 +692,16 @@ IOStatus FaultInjectionTestFS::InjectWriteError(const std::string& file_name) {
     }
   }
   return IOStatus::OK();
+}
+
+IOStatus FaultInjectionTestFS::InjectMetadataWriteError() {
+  MutexLock l(&mutex_);
+  if (!enable_metadata_write_error_injection_ ||
+      !metadata_write_error_one_in_ ||
+      !write_error_rand_.OneIn(metadata_write_error_one_in_)) {
+    return IOStatus::OK();
+  }
+  return IOStatus::IOError();
 }
 
 void FaultInjectionTestFS::PrintFaultBacktrace() {
