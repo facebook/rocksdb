@@ -385,8 +385,4 @@ class Configurable {
   // Configurable option via
   std::vector<RegisteredOptions> options_;
 };
-
-extern void RegisterConfigurableOptions(
-    Configurable& configurable, const std::string& name, void* opt_ptr,
-    const std::unordered_map<std::string, OptionTypeInfo>* opt_map);
 }  // namespace ROCKSDB_NAMESPACE
