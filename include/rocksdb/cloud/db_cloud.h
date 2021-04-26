@@ -62,6 +62,14 @@ class DBCloud : public StackableDB {
       const PluggableCompactionParam& inputParams,
       PluggableCompactionResult* result, bool sanitize) = 0;
 
+  // ListColumnFamilies will open the DB specified by argument name
+  // and return the list of all column families in that DB
+  // through column_families argument. The ordering of
+  // column families in column_families is unspecified.
+  static Status ListColumnFamilies(const DBOptions& db_options,
+                                   const std::string& name,
+                                   std::vector<std::string>* column_families);
+
   virtual ~DBCloud() {}
 
  protected:

@@ -120,13 +120,17 @@ Status DBCloud::Open(const Options& opt, const std::string& local_dbname,
         local_dbname);  // MJR: TODO: Move into sanitize
   }
 
-  st = cenv->SanitizeDirectory(options, local_dbname, read_only);
+  // If cloud manifest is already loaded, this means the directory has been
+  // sanitized (possibly by the call to ListColumnFamilies())
+  if (cenv->GetCloudManifest() == nullptr) {
+    st = cenv->SanitizeDirectory(options, local_dbname, read_only);
 
-  if (st.ok()) {
-    st = cenv->LoadCloudManifest(local_dbname, read_only);
-  }
-  if (!st.ok()) {
-    return st;
+    if (st.ok()) {
+      st = cenv->LoadCloudManifest(local_dbname, read_only);
+    }
+    if (!st.ok()) {
+      return st;
+    }
   }
   // If a persistent cache path is specified, then we set it in the options.
   if (!persistent_cache_path.empty() && persistent_cache_size_gb) {
@@ -401,6 +405,26 @@ Status DBCloudImpl::ExecuteRemoteCompactionRequest(
     outfile->pathname = cenv->RemapFilename(outfile->pathname);
   }
   return Status::OK();
+}
+
+Status DBCloud::ListColumnFamilies(const DBOptions& db_options,
+                                   const std::string& name,
+                                   std::vector<std::string>* column_families) {
+  CloudEnvImpl* cenv = static_cast<CloudEnvImpl*>(db_options.env);
+
+  Env* local_env = cenv->GetBaseEnv();
+  local_env->CreateDirIfMissing(name);
+
+  Status st;
+  st = cenv->SanitizeDirectory(db_options, name, false);
+  if (st.ok()) {
+    st = cenv->LoadCloudManifest(name, false);
+  }
+  if (st.ok()) {
+    st = DB::ListColumnFamilies(db_options, name, column_families);
+  }
+
+  return st;
 }
 
 }  // namespace ROCKSDB_NAMESPACE
