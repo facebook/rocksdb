@@ -119,23 +119,6 @@ class KVIter : public Iterator {
   KVMap::const_iterator iter_;
 };
 
-void AssertIterValue(std::unique_ptr<WBWIIterator>& iter,
-                     const std::string& key, const std::string& value) {
-  ASSERT_OK(iter->status());
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(key, iter->Entry().key.ToString());
-  ASSERT_EQ(kPutRecord, iter->Entry().type);
-  ASSERT_EQ(value, iter->Entry().value.ToString());
-}
-
-void AssertIterType(std::unique_ptr<WBWIIterator>& iter, const std::string& key,
-                    WriteType writeType) {
-  ASSERT_OK(iter->status());
-  ASSERT_TRUE(iter->Valid());
-  ASSERT_EQ(key, iter->Entry().key.ToString());
-  ASSERT_EQ(writeType, iter->Entry().type);
-}
-
 }  // namespace
 
 void AssertKey(std::string key, WBWIIterator* iter) {
@@ -207,194 +190,6 @@ static std::string PrintContents(WriteBatchWithIndex* batch,
   std::string result;
   PrintContents(batch, column_family, &result);
   return result;
-}
-
-TEST_F(WriteBatchWithIndexTest, TestIteraratorOverwriteKeyTrue) {
-  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
-  ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
-  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
-
-  ASSERT_OK(batch.Put(&cf1, "A", "ab"));
-  ASSERT_OK(batch.Put(&cf1, "A", "ac"));
-  ASSERT_OK(batch.Put(&cf1, "A", "ad"));
-  {
-    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
-
-    iter->Seek("A");
-    AssertIterValue(iter, "A", "ad");
-
-    iter->SeekToLast();
-    AssertIterValue(iter, "A", "ad");
-  }
-
-  ASSERT_OK(batch.Delete(&cf1, "A"));
-  {
-    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
-
-    iter->Seek("A");
-    AssertIterType(iter, "A", kDeleteRecord);
-
-    iter->Next();
-    ASSERT_OK(iter->status());
-    ASSERT_FALSE(iter->Valid());
-  }
-}
-
-TEST_F(WriteBatchWithIndexTest, TestIteraratorOverwriteKeyFalse) {
-  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
-  ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
-  WriteBatchWithIndex batch(BytewiseComparator(), 20, false);
-
-  ASSERT_OK(batch.Put(&cf1, "A", "ab"));
-  ASSERT_OK(batch.Put(&cf1, "A", "ac"));
-  ASSERT_OK(batch.Put(&cf1, "A", "ad"));
-  {
-    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
-
-    iter->Seek("A");
-    AssertIterValue(iter, "A", "ab");
-    iter->Next();
-    AssertIterValue(iter, "A", "ac");
-    iter->Next();
-    AssertIterValue(iter, "A", "ad");
-
-    iter->Seek("A");
-    AssertIterValue(iter, "A", "ab");
-
-    iter->SeekToLast();
-    AssertIterValue(iter, "A", "ad");
-  }
-
-  ASSERT_OK(batch.Delete(&cf1, "A"));
-  {
-    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
-
-    iter->Seek("A");
-    AssertIterValue(iter, "A", "ab");
-    iter->Next();
-    AssertIterValue(iter, "A", "ac");
-    iter->Next();
-    AssertIterValue(iter, "A", "ad");
-    iter->Next();
-    AssertIterType(iter, "A", kDeleteRecord);
-
-    iter->SeekToLast();
-    AssertIterType(iter, "A", kDeleteRecord);
-    iter->Prev();
-    AssertIterValue(iter, "A", "ad");
-  }
-}
-
-TEST_F(WriteBatchWithIndexTest, TestIteraratorRemindMyselfHowItWorks) {
-  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
-  ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
-  WriteBatchWithIndex batch(BytewiseComparator(), 20, false);
-
-  ASSERT_OK(batch.Put(&cf1, "L", "l0"));
-  ASSERT_OK(batch.Put(&cf1, "M", "m0"));
-  ASSERT_OK(batch.Put(&cf1, "N", "n0"));
-  {
-    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
-
-    iter->Seek("M");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("M", iter->Entry().key.ToString());
-    ASSERT_EQ("m0", iter->Entry().value.ToString());
-
-    // M exists, so that is what we get (even though L is last prior)
-    iter->SeekForPrev("M");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("M", iter->Entry().key.ToString());
-    ASSERT_EQ("m0", iter->Entry().value.ToString());
-
-    // MM doesn't exist, we get 1st after (N)
-    iter->Seek("MM");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("N", iter->Entry().key.ToString());
-    ASSERT_EQ("n0", iter->Entry().value.ToString());
-
-    // MM doesn't exist, we get last before (M)
-    iter->SeekForPrev("MM");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("M", iter->Entry().key.ToString());
-    ASSERT_EQ("m0", iter->Entry().value.ToString());
-
-    // KK doesn't exist, we get 1st after (L)
-    iter->Seek("KK");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("L", iter->Entry().key.ToString());
-    ASSERT_EQ("l0", iter->Entry().value.ToString());
-
-    // KK doesn't exist, nothing before, so !Valid
-    iter->SeekForPrev("KK");
-    ASSERT_FALSE(iter->Valid());
-
-    // Nothing prior, but ==exists, return ==
-    iter->SeekForPrev("L");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("L", iter->Entry().key.ToString());
-    ASSERT_EQ("l0", iter->Entry().value.ToString());
-
-    // NN doesn't exist, there's nothing after, so !Valid
-    iter->Seek("NN");
-    ASSERT_FALSE(iter->Valid());
-
-    // NN doesn't exist, last extant entry please
-    iter->SeekForPrev("NN");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("N", iter->Entry().key.ToString());
-    ASSERT_EQ("n0", iter->Entry().value.ToString());
-  }
-
-  batch.Clear();
-  {
-    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
-
-    iter->Seek("M");
-    ASSERT_FALSE(iter->Valid());
-
-    // M exists, so that is what we get (even though L is last prior)
-    iter->SeekForPrev("M");
-    ASSERT_FALSE(iter->Valid());
-  }
-
-  batch.Clear();
-  ASSERT_OK(batch.Put(&cf1, "M", "m0"));
-  {
-    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
-
-    // >= M exists
-    iter->Seek("M");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("M", iter->Entry().key.ToString());
-    ASSERT_EQ("m0", iter->Entry().value.ToString());
-
-    // <= M exists
-    iter->SeekForPrev("M");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("M", iter->Entry().key.ToString());
-    ASSERT_EQ("m0", iter->Entry().value.ToString());
-
-    // >= L exists
-    iter->Seek("L");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("M", iter->Entry().key.ToString());
-    ASSERT_EQ("m0", iter->Entry().value.ToString());
-
-    // >= N does not exist
-    iter->Seek("N");
-    ASSERT_FALSE(iter->Valid());
-
-    // <= N exists
-    iter->SeekForPrev("N");
-    ASSERT_TRUE(iter->Valid());
-    ASSERT_EQ("M", iter->Entry().key.ToString());
-    ASSERT_EQ("m0", iter->Entry().value.ToString());
-
-    // <= L does not exist
-    iter->SeekForPrev("L");
-    ASSERT_FALSE(iter->Valid());
-  }
 }
 
 TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchUnsupportedOption) {
@@ -529,6 +324,9 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchAndDB) {
   ASSERT_TRUE(s.IsNotFound());
   s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
   ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "E", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e", value);
   s = batch.GetFromBatch(db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d", value);
@@ -933,6 +731,124 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchX2AndDB) {
   s = batch.GetFromBatch(db_options, "E", &value);
   ASSERT_TRUE(s.IsNotFound());
   s = batch.GetFromBatch(db_options, "F", &value);
+  ASSERT_TRUE(s.IsNotFound());
+}
+
+TEST_F(WriteBatchWithIndexTest, DeleteRangeTestMultipleCF) {
+  DB* db;
+  Options options;
+
+  options.create_if_missing = true;
+  std::string dbname =
+      test::PerThreadDBPath("write_batch_with_index_deleted_range_multiple_cf");
+
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  EXPECT_OK(DestroyDB(dbname, options));
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+
+  ColumnFamilyHandle* cf1;
+  ColumnFamilyHandle* cf2;
+
+  ASSERT_OK(db->CreateColumnFamily(ColumnFamilyOptions(), "FirstFamily", &cf1));
+  ASSERT_OK(
+      db->CreateColumnFamily(ColumnFamilyOptions(), "SecondFamily", &cf2));
+
+  ReadOptions read_options;
+  WriteOptions write_options;
+
+  std::string value;
+  DBOptions db_options;
+
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+
+  //
+  // Set up the underlying DB
+  //
+  ASSERT_OK(batch.Put(cf1, "A", "a_cf1_0"));
+  ASSERT_OK(batch.Put(cf2, "A", "a_cf2_0"));
+  ASSERT_OK(batch.Put("A", "a_cf0_0"));
+  ASSERT_OK(batch.Put(cf1, "Z", "z_cf1_0"));
+  ASSERT_OK(batch.Put(cf2, "Z", "z_cf2_0"));
+  ASSERT_OK(batch.Put("Z", "z_cf0_0"));
+  s = db->Write(write_options, batch.GetWriteBatch());
+  ASSERT_OK(s);
+  batch.Clear();
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a_cf0_0", value);
+
+  ASSERT_OK(batch.Put(cf1, "A", "a_cf1"));
+  ASSERT_OK(batch.Put(cf2, "A", "a_cf2"));
+  ASSERT_OK(batch.Put("A", "a_cf0"));
+  ASSERT_OK(batch.Put(cf1, "B", "b_cf1"));
+  ASSERT_OK(batch.Put(cf2, "B", "b_cf2"));
+  ASSERT_OK(batch.Put("B", "b_cf0"));
+
+  ASSERT_OK(batch.DeleteRange("A", "M"));
+  ASSERT_OK(batch.DeleteRange(cf2, "N", "ZZ"));
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("z_cf0_0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf1, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a_cf1", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf1, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b_cf1", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf1, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("z_cf1_0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf2, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a_cf2", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf2, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b_cf2", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf2, "Z", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  batch.SetSavePoint();
+
+  ASSERT_OK(batch.Put(cf1, "A", "a_cf1_2"));
+  ASSERT_OK(batch.Put(cf2, "A", "a_cf2_2"));
+  ASSERT_OK(batch.Put("A", "a_cf0_2"));
+  ASSERT_OK(batch.Put(cf1, "B", "b_cf1_2"));
+  ASSERT_OK(batch.Put(cf2, "B", "b_cf2_2"));
+  ASSERT_OK(batch.Put("B", "b_cf0_2"));
+
+  ASSERT_OK(batch.DeleteRange("A", "M"));
+  ASSERT_OK(batch.DeleteRange(cf1, "N", "ZZ"));
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("z_cf0_0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf1, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a_cf1", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf1, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b_cf1", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf1, "Z", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, cf2, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a_cf2", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf2, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b_cf2", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf2, "Z", &value);
   ASSERT_TRUE(s.IsNotFound());
 }
 
