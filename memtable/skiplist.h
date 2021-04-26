@@ -64,6 +64,9 @@ class SkipList {
   // Returns true iff an entry that compares equal to key is in the list.
   bool Contains(const Key& key) const;
 
+  // Returns true iff such an entry is removed
+  bool Remove(const Key& key);
+
   // Return estimated number of entries smaller than `key`.
   uint64_t EstimateCount(const Key& key) const;
 
@@ -150,6 +153,8 @@ class SkipList {
   bool LessThan(const Key& a, const Key& b) const {
     return (compare_(a, b) < 0);
   }
+
+  bool RemoveNode(Node* victim);
 
   // Return true if key is greater than the data stored in "n"
   bool KeyIsAfterNode(const Key& key, Node* n) const;
@@ -256,9 +261,11 @@ inline void SkipList<Key, Comparator>::Iterator::Prev() {
 template <typename Key, class Comparator>
 inline void SkipList<Key, Comparator>::Iterator::Remove() {
   assert(Valid());
-  // Node* remove = node_;
+  Node* remove = node_;
   node_ = node_->Next(0);
-  // TODO unlink the removed node
+
+  // list_->RemoveNode(remove);
+  const_cast<SkipList*>(list_)->RemoveNode(remove);
 }
 
 template <typename Key, class Comparator>
@@ -395,6 +402,37 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLast()
 }
 
 template <typename Key, class Comparator>
+bool SkipList<Key, Comparator>::RemoveNode(Node* victim) {
+  Node* fix = head_;
+  int level = GetMaxHeight() - 1;
+  bool deleted = false;
+
+  while (level >= 0) {
+    Node* next = fix->Next(level);
+    if (next == nullptr) {
+      level -= 1;
+      continue;
+    }
+
+    int order = compare_(next->key, victim->key);
+
+    if (order > 0) {
+      // next points beyond victim, so not linked at this level, go down a level
+      level -= 1;
+    } else if (order < 0) {
+      // next is still before victim, continue to the right at this level
+      fix = next;
+    } else {
+      // next is the victim, unlink it, and then go down a level
+      fix->SetNext(level, victim->Next(level));
+      deleted = true;
+      level -= 1;
+    }
+  }
+  return deleted;
+}
+
+template <typename Key, class Comparator>
 uint64_t SkipList<Key, Comparator>::EstimateCount(const Key& key) const {
   uint64_t count = 0;
 
@@ -502,6 +540,16 @@ bool SkipList<Key, Comparator>::Contains(const Key& key) const {
   Node* x = FindGreaterOrEqual(key);
   if (x != nullptr && Equal(key, x->key)) {
     return true;
+  } else {
+    return false;
+  }
+}
+
+template <typename Key, class Comparator>
+bool SkipList<Key, Comparator>::Remove(const Key& key) {
+  Node* x = FindGreaterOrEqual(key);
+  if (x != nullptr && Equal(key, x->key)) {
+    return RemoveNode(x);
   } else {
     return false;
   }

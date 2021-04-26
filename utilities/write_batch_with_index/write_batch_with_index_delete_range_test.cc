@@ -13,6 +13,7 @@
 #include <memory>
 
 #include "db/column_family.h"
+#include "memtable/skiplist.h"
 #include "port/stack_trace.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "test_util/testharness.h"
@@ -284,6 +285,118 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorOverwriteKeyFalse) {
   }
 }
 
+TEST_F(WriteBatchWithIndexTest, TestIteraratorRemindMyselfHowItWorks) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, false);
+
+  ASSERT_OK(batch.Put(&cf1, "L", "l0"));
+  ASSERT_OK(batch.Put(&cf1, "M", "m0"));
+  ASSERT_OK(batch.Put(&cf1, "N", "n0"));
+  {
+    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
+
+    iter->Seek("M");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("M", iter->Entry().key.ToString());
+    ASSERT_EQ("m0", iter->Entry().value.ToString());
+
+    // M exists, so that is what we get (even though L is last prior)
+    iter->SeekForPrev("M");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("M", iter->Entry().key.ToString());
+    ASSERT_EQ("m0", iter->Entry().value.ToString());
+
+    // MM doesn't exist, we get 1st after (N)
+    iter->Seek("MM");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("N", iter->Entry().key.ToString());
+    ASSERT_EQ("n0", iter->Entry().value.ToString());
+
+    // MM doesn't exist, we get last before (M)
+    iter->SeekForPrev("MM");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("M", iter->Entry().key.ToString());
+    ASSERT_EQ("m0", iter->Entry().value.ToString());
+
+    // KK doesn't exist, we get 1st after (L)
+    iter->Seek("KK");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("L", iter->Entry().key.ToString());
+    ASSERT_EQ("l0", iter->Entry().value.ToString());
+
+    // KK doesn't exist, nothing before, so !Valid
+    iter->SeekForPrev("KK");
+    ASSERT_FALSE(iter->Valid());
+
+    // Nothing prior, but ==exists, return ==
+    iter->SeekForPrev("L");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("L", iter->Entry().key.ToString());
+    ASSERT_EQ("l0", iter->Entry().value.ToString());
+
+    // NN doesn't exist, there's nothing after, so !Valid
+    iter->Seek("NN");
+    ASSERT_FALSE(iter->Valid());
+
+    // NN doesn't exist, last extant entry please
+    iter->SeekForPrev("NN");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("N", iter->Entry().key.ToString());
+    ASSERT_EQ("n0", iter->Entry().value.ToString());
+  }
+
+  batch.Clear();
+  {
+    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
+
+    iter->Seek("M");
+    ASSERT_FALSE(iter->Valid());
+
+    // M exists, so that is what we get (even though L is last prior)
+    iter->SeekForPrev("M");
+    ASSERT_FALSE(iter->Valid());
+  }
+
+  batch.Clear();
+  ASSERT_OK(batch.Put(&cf1, "M", "m0"));
+  {
+    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
+
+    // >= M exists
+    iter->Seek("M");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("M", iter->Entry().key.ToString());
+    ASSERT_EQ("m0", iter->Entry().value.ToString());
+
+    // <= M exists
+    iter->SeekForPrev("M");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("M", iter->Entry().key.ToString());
+    ASSERT_EQ("m0", iter->Entry().value.ToString());
+
+    // >= L exists
+    iter->Seek("L");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("M", iter->Entry().key.ToString());
+    ASSERT_EQ("m0", iter->Entry().value.ToString());
+
+    // >= N does not exist
+    iter->Seek("N");
+    ASSERT_FALSE(iter->Valid());
+
+    // <= N exists
+    iter->SeekForPrev("N");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("M", iter->Entry().key.ToString());
+    ASSERT_EQ("m0", iter->Entry().value.ToString());
+
+    // <= L does not exist
+    iter->SeekForPrev("L");
+    ASSERT_FALSE(iter->Valid());
+  }
+}
+
 TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchUnsupportedOption) {
   WriteBatchWithIndex batch(BytewiseComparator(), 20, false);
   Status s;
@@ -472,10 +585,106 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMap) {
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
   ASSERT_TRUE(s.IsNotFound());
-  s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
 
   // This checks the range map recording explicit deletion
-  // TODO implement the range map
+  // "deletes" the C in the underlying database
+  s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("d", value);
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e", value);
+  s = batch.GetFromBatch(db_options, "F", &value);
+  ASSERT_TRUE(s.IsNotFound());
+}
+
+TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMapRollback) {
+  DB* db;
+  Options options;
+
+  options.create_if_missing = true;
+  std::string dbname = test::PerThreadDBPath(
+      "write_batch_with_index_deleted_range_map_rollback_test");
+
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  EXPECT_OK(DestroyDB(dbname, options));
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+
+  ReadOptions read_options;
+  WriteOptions write_options;
+
+  //
+  // Set up the underlying DB
+  //
+  s = db->Put(write_options, "A", "a0");
+  ASSERT_OK(s);
+  s = db->Put(write_options, "B", "b0");
+  ASSERT_OK(s);
+  s = db->Put(write_options, "C", "c0");
+  ASSERT_OK(s);
+
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+  std::string value;
+  DBOptions db_options;
+
+  //
+  // Range deletion using the batch
+  // Check get with batch and underlying database
+  //
+  batch.Clear();
+  ASSERT_OK(batch.Put("B", "b"));
+  ASSERT_OK(batch.Put("D", "d"));
+  ASSERT_OK(batch.Put("E", "e"));
+
+  batch.SetSavePoint();
+  ASSERT_OK(batch.Put("B", "b2"));
+  ASSERT_OK(batch.Put("CC", "cc2"));
+  ASSERT_OK(batch.Put("D", "d2"));
+  ASSERT_OK(batch.Put("E", "e2"));
+  ASSERT_OK(batch.DeleteRange("B", "D"));
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // This checks the range map recording explicit deletion
+  // "deletes" the C in the underlying database
+  s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = batch.GetFromBatchAndDB(db, read_options, "CC", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("d2", value);
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e2", value);
+  s = batch.GetFromBatch(db_options, "F", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+
+  // Check the deleted range [B,D) is no longer deleted
+  // along with everything else being rolled back to the SP
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b", value);
+  s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, "CC", &value);
   ASSERT_TRUE(s.IsNotFound());
   s = batch.GetFromBatch(db_options, "D", &value);
   ASSERT_OK(s);
@@ -485,6 +694,104 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMap) {
   ASSERT_EQ("e", value);
   s = batch.GetFromBatch(db_options, "F", &value);
   ASSERT_TRUE(s.IsNotFound());
+}
+
+TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMapRedo) {
+  DB* db;
+  Options options;
+
+  options.create_if_missing = true;
+  std::string dbname = test::PerThreadDBPath(
+      "write_batch_with_index_deleted_range_map_rollback_redo_test");
+
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  EXPECT_OK(DestroyDB(dbname, options));
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+
+  ReadOptions read_options;
+  WriteOptions write_options;
+
+  //
+  // Set up the underlying DB
+  //
+  s = db->Put(write_options, "A", "a0");
+  ASSERT_OK(s);
+  s = db->Put(write_options, "B", "b0");
+  ASSERT_OK(s);
+  s = db->Put(write_options, "C", "c0");
+  ASSERT_OK(s);
+
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+  std::string value;
+  DBOptions db_options;
+
+  //
+  // Range deletion using the batch
+  // Check get with batch and underlying database
+  //
+  batch.Clear();
+  ASSERT_OK(batch.Put("B", "b2"));
+  ASSERT_OK(batch.Put("CC", "cc2"));
+  ASSERT_OK(batch.Put("D", "d2"));
+  ASSERT_OK(batch.Put("E", "e2"));
+  ASSERT_OK(batch.DeleteRange("B", "D"));
+  ASSERT_OK(batch.Put("CCC", "ccc2"));
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // This checks the range map recording explicit deletion
+  // "deletes" the C in the underlying database
+  s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "CC", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("d2", value);
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e2", value);
+  s = batch.GetFromBatch(db_options, "F", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  // Check the write *after* the Delete Range is still there
+  s = batch.GetFromBatchAndDB(db, read_options, "CCC", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("ccc2", value);
+
+  // We check that redo rolls the delete range forward to here
+  batch.SetSavePoint();
+  ASSERT_OK(batch.Put("CC", "cc3"));
+
+  // Check the deleted range [B,D) is deleted again
+  // along with everything else being rolled back to the SP
+  ASSERT_OK(batch.RollbackToSavePoint());
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "CC", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("d2", value);
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e2", value);
+  s = batch.GetFromBatch(db_options, "F", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "CCC", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("ccc2", value);
 }
 
 TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMultipleRanges) {

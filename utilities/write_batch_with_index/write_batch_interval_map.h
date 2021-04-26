@@ -104,16 +104,15 @@ void IntervalMap<PointKey, Comparator>::AddInterval(const PointKey& from_key,
   typename PointEntrySkipList::Iterator iter(&skip_list);
   PointEntry from_entry(from_key, Start);
   PointEntry to_entry(to_key, Stop);
-  iter.Seek(&from_entry);
+
+  // <= from_entry, meaning exactly the first entry we want to keep
+  iter.SeekForPrev(&from_entry);
+  iter.Next();
   while (iter.Valid()) {
-    if (comparator_(&from_entry, iter.key()) == 0) {
-      iter.Next();
-      continue;
-    }
     if (comparator_(&to_entry, iter.key()) <= 0) {
       break;
     }
-    // TODO semantic should be to do a Next() when we remove
+    // iter should move on to Next() when we remove
     iter.Remove();
   }
 }

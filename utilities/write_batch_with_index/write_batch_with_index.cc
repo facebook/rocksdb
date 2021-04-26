@@ -67,17 +67,19 @@ struct WriteBatchWithIndex::Rep {
   // put it to skip list.
   void AddNewEntry(uint32_t column_family_id);
 
+  // Create and insert in the deleted range map,
+  // a deleted range map entry defined by the last entry in the write batch
+  // which must be a DeleteRange entry
+  void AddDeletedRangeToMap(ColumnFamilyHandle* column_family);
+  void AddDeletedRangeToMap(uint32_t column_family_id);
+
+  void MarkRangeDeletedIndexEntries(uint32_t cf_id, const Slice& from_key,
+                                    const Slice& to_key);
+
   // Extract references to the keys in the last entry in the write batch
   // Assume the entry is a delete range, so contains 2 keys
   void ReadRangeKeysFromWriteBatchEntry(uint32_t column_family_id,
                                         Slice& from_key, Slice& to_key);
-
-  // Find all entries in a range of keys and remove from the index
-  bool DeleteIndexRange(const Slice& from_key, const Slice& to_key);
-
-  // Find all entries in a range of keys and remove from the index
-  bool DeleteIndexRange(ColumnFamilyHandle* column_family,
-                        const Slice& from_key, const Slice& to_key);
 
   // Clear all updates buffered in this batch.
   void Clear();
@@ -174,15 +176,8 @@ void WriteBatchWithIndex::Rep::ReadRangeKeysFromWriteBatchEntry(
   assert(success);
 }
 
-bool WriteBatchWithIndex::Rep::DeleteIndexRange(const Slice& from_key,
-                                                const Slice& to_key) {
-  return Rep::DeleteIndexRange(nullptr, from_key, to_key);
-}
-
-bool WriteBatchWithIndex::Rep::DeleteIndexRange(
-    ColumnFamilyHandle* column_family, const Slice& from_key,
-    const Slice& to_key) {
-  uint32_t cf_id = GetColumnFamilyID(column_family);
+void WriteBatchWithIndex::Rep::MarkRangeDeletedIndexEntries(
+    uint32_t cf_id, const Slice& from_key, const Slice& to_key) {
   WBWIIteratorImpl iter(cf_id, &skip_list, &write_batch, &comparator);
 
   // TODO most of the below can be simplified when we allow (restricted)
@@ -202,13 +197,20 @@ bool WriteBatchWithIndex::Rep::DeleteIndexRange(
       entry = iter.Entry();
     }
   }
+}
 
+void WriteBatchWithIndex::Rep::AddDeletedRangeToMap(
+    ColumnFamilyHandle* column_family) {
+  uint32_t cf_id = GetColumnFamilyID(column_family);
+  AddDeletedRangeToMap(cf_id);
+}
+
+void WriteBatchWithIndex::Rep::AddDeletedRangeToMap(uint32_t cf_id) {
   // Add a record that this range has been deleted
   Slice batch_from_key, batch_to_key;
   ReadRangeKeysFromWriteBatchEntry(cf_id, batch_from_key, batch_to_key);
+  MarkRangeDeletedIndexEntries(cf_id, batch_from_key, batch_to_key);
   deleted_range_map.AddInterval(cf_id, batch_from_key, batch_to_key);
-
-  return (count > 0);
 }
 
 void WriteBatchWithIndex::Rep::Clear() {
@@ -272,6 +274,10 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
         if (!UpdateExistingEntryWithCfId(column_family_id, key)) {
           AddNewEntry(column_family_id);
         }
+        break;
+      case kTypeRangeDeletion:
+        found++;
+        AddDeletedRangeToMap(column_family_id);
         break;
       case kTypeLogData:
       case kTypeBeginPrepareXID:
@@ -389,13 +395,14 @@ Status WriteBatchWithIndex::DeleteRange(ColumnFamilyHandle* column_family,
                                         const Slice& end_key) {
   if (rep->overwrite_key == false) {
     return Status::NotSupported(
-        "DeleteRange unsupported in WriteBatchWithIndex with overwrite_key == "
+        "DeleteRange unsupported in WriteBatchWithIndex with overwrite_key "
+        "== "
         "false");
   }
   rep->SetLastEntryOffset();
   auto s = rep->write_batch.DeleteRange(column_family, begin_key, end_key);
   if (s.ok()) {
-    rep->DeleteIndexRange(column_family, begin_key, end_key);
+    rep->AddDeletedRangeToMap(column_family);
   }
   return s;
 }
@@ -404,13 +411,14 @@ Status WriteBatchWithIndex::DeleteRange(const Slice& begin_key,
                                         const Slice& end_key) {
   if (rep->overwrite_key == false) {
     return Status::NotSupported(
-        "DeleteRange unsupported in WriteBatchWithIndex with overwrite_key == "
+        "DeleteRange unsupported in WriteBatchWithIndex with overwrite_key "
+        "== "
         "false");
   }
   rep->SetLastEntryOffset();
   auto s = rep->write_batch.DeleteRange(begin_key, end_key);
   if (s.ok()) {
-    rep->DeleteIndexRange(begin_key, end_key);
+    rep->AddDeletedRangeToMap(nullptr);
   }
   return s;
 }
