@@ -2466,9 +2466,8 @@ void StressTest::Open() {
             ingest_meta_error = false;
             continue;
           }
-
-          break;
         }
+        break;
       }
     } else {
 #ifndef ROCKSDB_LITE
