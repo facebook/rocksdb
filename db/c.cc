@@ -79,6 +79,8 @@ using ROCKSDB_NAMESPACE::IngestExternalFileOptions;
 using ROCKSDB_NAMESPACE::Iterator;
 using ROCKSDB_NAMESPACE::LiveFileMetaData;
 using ROCKSDB_NAMESPACE::Logger;
+using ROCKSDB_NAMESPACE::LRUCacheOptions;
+using ROCKSDB_NAMESPACE::MemoryAllocator;
 using ROCKSDB_NAMESPACE::MemoryUtil;
 using ROCKSDB_NAMESPACE::MergeOperator;
 using ROCKSDB_NAMESPACE::NewBloomFilterPolicy;
@@ -149,6 +151,12 @@ struct rocksdb_wal_readoptions_t { TransactionLogIterator::ReadOptions rep; };
 struct rocksdb_filelock_t        { FileLock*         rep; };
 struct rocksdb_logger_t {
   std::shared_ptr<Logger> rep;
+};
+struct rocksdb_lru_cache_options_t {
+  LRUCacheOptions rep;
+};
+struct rocksdb_memory_allocator_t {
+  std::shared_ptr<MemoryAllocator> rep;
 };
 struct rocksdb_cache_t {
   std::shared_ptr<Cache> rep;
@@ -2682,6 +2690,59 @@ unsigned char rocksdb_options_get_skip_checking_sst_file_sizes_on_db_open(
   return opt->rep.skip_checking_sst_file_sizes_on_db_open;
 }
 
+/* Blob Options Settings */
+void rocksdb_options_set_enable_blob_files(rocksdb_options_t* opt,
+                                           unsigned char val) {
+  opt->rep.enable_blob_files = val;
+}
+extern ROCKSDB_LIBRARY_API unsigned char rocksdb_options_get_enable_blob_files(
+    rocksdb_options_t* opt) {
+  return opt->rep.enable_blob_files;
+}
+
+void rocksdb_options_set_min_blob_size(rocksdb_options_t* opt, uint64_t val) {
+  opt->rep.min_blob_size = val;
+}
+
+uint64_t rocksdb_options_get_min_blob_size(rocksdb_options_t* opt) {
+  return opt->rep.min_blob_size;
+}
+
+void rocksdb_options_set_blob_file_size(rocksdb_options_t* opt, uint64_t val) {
+  opt->rep.blob_file_size = val;
+}
+
+uint64_t rocksdb_options_get_blob_file_size(rocksdb_options_t* opt) {
+  return opt->rep.blob_file_size;
+}
+
+void rocksdb_options_set_blob_compression_type(rocksdb_options_t* opt,
+                                               int val) {
+  opt->rep.blob_compression_type = static_cast<CompressionType>(val);
+}
+
+int rocksdb_options_get_blob_compression_type(rocksdb_options_t* opt) {
+  return opt->rep.blob_compression_type;
+}
+
+void rocksdb_options_set_enable_blob_gc(rocksdb_options_t* opt,
+                                        unsigned char val) {
+  opt->rep.enable_blob_garbage_collection = val;
+}
+
+unsigned char rocksdb_options_get_enable_blob_gc(rocksdb_options_t* opt) {
+  return opt->rep.enable_blob_garbage_collection;
+}
+
+void rocksdb_options_set_blob_gc_age_cutoff(rocksdb_options_t* opt,
+                                            double val) {
+  opt->rep.blob_garbage_collection_age_cutoff = val;
+}
+
+double rocksdb_options_get_blob_gc_age_cutoff(rocksdb_options_t* opt) {
+  return opt->rep.blob_garbage_collection_age_cutoff;
+}
+
 void rocksdb_options_set_num_levels(rocksdb_options_t* opt, int n) {
   opt->rep.num_levels = n;
 }
@@ -4102,14 +4163,56 @@ unsigned char rocksdb_flushoptions_get_wait(rocksdb_flushoptions_t* opt) {
   return opt->rep.wait;
 }
 
+rocksdb_memory_allocator_t* rocksdb_jemalloc_nodump_allocator_create(
+    char** errptr) {
+  rocksdb_memory_allocator_t* allocator = new rocksdb_memory_allocator_t;
+  ROCKSDB_NAMESPACE::JemallocAllocatorOptions options;
+  SaveError(errptr, ROCKSDB_NAMESPACE::NewJemallocNodumpAllocator(
+                        options, &allocator->rep));
+  return allocator;
+}
+
+void rocksdb_memory_allocator_destroy(rocksdb_memory_allocator_t* allocator) {
+  delete allocator;
+}
+
+rocksdb_lru_cache_options_t* rocksdb_lru_cache_options_create() {
+  return new rocksdb_lru_cache_options_t;
+}
+
+void rocksdb_lru_cache_options_destroy(rocksdb_lru_cache_options_t* opt) {
+  delete opt;
+}
+
+void rocksdb_lru_cache_options_set_capacity(rocksdb_lru_cache_options_t* opt,
+                                            size_t capacity) {
+  opt->rep.capacity = capacity;
+}
+
+void rocksdb_lru_cache_options_set_memory_allocator(
+    rocksdb_lru_cache_options_t* opt, rocksdb_memory_allocator_t* allocator) {
+  opt->rep.memory_allocator = allocator->rep;
+}
+
 rocksdb_cache_t* rocksdb_cache_create_lru(size_t capacity) {
   rocksdb_cache_t* c = new rocksdb_cache_t;
   c->rep = NewLRUCache(capacity);
   return c;
 }
 
+rocksdb_cache_t* rocksdb_cache_create_lru_opts(
+    rocksdb_lru_cache_options_t* opt) {
+  rocksdb_cache_t* c = new rocksdb_cache_t;
+  c->rep = NewLRUCache(opt->rep);
+  return c;
+}
+
 void rocksdb_cache_destroy(rocksdb_cache_t* cache) {
   delete cache;
+}
+
+void rocksdb_cache_disown_data(rocksdb_cache_t* cache) {
+  cache->rep->DisownData();
 }
 
 void rocksdb_cache_set_capacity(rocksdb_cache_t* cache, size_t capacity) {
@@ -4790,7 +4893,10 @@ void rocksdb_transaction_destroy(rocksdb_transaction_t* txn) {
 
 const rocksdb_snapshot_t* rocksdb_transaction_get_snapshot(
     rocksdb_transaction_t* txn) {
-  rocksdb_snapshot_t* result = new rocksdb_snapshot_t;
+  // This will be freed later on using free, so use malloc here to avoid a
+  // mismatch
+  rocksdb_snapshot_t* result =
+      (rocksdb_snapshot_t*)malloc(sizeof(rocksdb_snapshot_t));
   result->rep = txn->rep->GetSnapshot();
   return result;
 }

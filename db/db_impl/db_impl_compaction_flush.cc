@@ -260,18 +260,16 @@ Status DBImpl::FlushMemTableToOutputFile(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
-        if (total_log_size_ > 0) {
-          // If the WAL is empty, we use different error reason
-          error_handler_.SetBGError(io_s,
-                                    BackgroundErrorReason::kManifestWrite);
-        } else {
-          error_handler_.SetBGError(io_s,
-                                    BackgroundErrorReason::kManifestWriteNoWAL);
-        }
-      } else if (total_log_size_ > 0 || !log_io_s.ok()) {
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+        // If WAL sync is successful (either WAL size is 0 or there is no IO
+        // error), all the Manifest write will be map to soft error.
+        // TODO: kManifestWriteNoWAL and kFlushNoWAL are misleading. Refactor is
+        // needed.
+        error_handler_.SetBGError(io_s,
+                                  BackgroundErrorReason::kManifestWriteNoWAL);
       } else {
-        // If the WAL is empty, we use different error reason
+        // If WAL sync is successful (either WAL size is 0 or there is no IO
+        // error), all the other SST file write errors will be set as
+        // kFlushNoWAL.
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
@@ -687,18 +685,16 @@ Status DBImpl::AtomicFlushMemTablesToOutputFiles(
       // be pessimistic and try write to a new MANIFEST.
       // TODO: distinguish between MANIFEST write and CURRENT renaming
       if (!versions_->io_status().ok()) {
-        if (total_log_size_ > 0) {
-          // If the WAL is empty, we use different error reason
-          error_handler_.SetBGError(io_s,
-                                    BackgroundErrorReason::kManifestWrite);
-        } else {
-          error_handler_.SetBGError(io_s,
-                                    BackgroundErrorReason::kManifestWriteNoWAL);
-        }
-      } else if (total_log_size_ > 0) {
-        error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlush);
+        // If WAL sync is successful (either WAL size is 0 or there is no IO
+        // error), all the Manifest write will be map to soft error.
+        // TODO: kManifestWriteNoWAL and kFlushNoWAL are misleading. Refactor
+        // is needed.
+        error_handler_.SetBGError(io_s,
+                                  BackgroundErrorReason::kManifestWriteNoWAL);
       } else {
-        // If the WAL is empty, we use different error reason
+        // If WAL sync is successful (either WAL size is 0 or there is no IO
+        // error), all the other SST file write errors will be set as
+        // kFlushNoWAL.
         error_handler_.SetBGError(io_s, BackgroundErrorReason::kFlushNoWAL);
       }
     } else {
@@ -807,6 +803,10 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                             ColumnFamilyHandle* column_family,
                             const Slice* begin_without_ts,
                             const Slice* end_without_ts) {
+  if (manual_compaction_paused_.load(std::memory_order_acquire) > 0) {
+    return Status::Incomplete(Status::SubCode::kManualCompactionPaused);
+  }
+
   const Comparator* const ucmp = column_family->GetComparator();
   assert(ucmp);
   size_t ts_sz = ucmp->timestamp_size();
@@ -1745,6 +1745,7 @@ Status DBImpl::RunManualCompaction(
       }
       ca = new CompactionArg;
       ca->db = this;
+      ca->compaction_pri_ = Env::Priority::LOW;
       ca->prepicked_compaction = new PrepickedCompaction;
       ca->prepicked_compaction->manual_compaction_state = &manual;
       ca->prepicked_compaction->compaction = compaction;
@@ -2276,6 +2277,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
          unscheduled_compactions_ > 0) {
     CompactionArg* ca = new CompactionArg;
     ca->db = this;
+    ca->compaction_pri_ = Env::Priority::LOW;
     ca->prepicked_compaction = nullptr;
     bg_compaction_scheduled_++;
     unscheduled_compactions_--;
@@ -2463,7 +2465,16 @@ void DBImpl::BGWorkPurge(void* db) {
 }
 
 void DBImpl::UnscheduleCompactionCallback(void* arg) {
-  CompactionArg ca = *(reinterpret_cast<CompactionArg*>(arg));
+  CompactionArg* ca_ptr = reinterpret_cast<CompactionArg*>(arg);
+  Env::Priority compaction_pri = ca_ptr->compaction_pri_;
+  if (Env::Priority::BOTTOM == compaction_pri) {
+    // Decrement bg_bottom_compaction_scheduled_ if priority is BOTTOM
+    ca_ptr->db->bg_bottom_compaction_scheduled_--;
+  } else if (Env::Priority::LOW == compaction_pri) {
+    // Decrement bg_compaction_scheduled_ if priority is LOW
+    ca_ptr->db->bg_compaction_scheduled_--;
+  }
+  CompactionArg ca = *(ca_ptr);
   delete reinterpret_cast<CompactionArg*>(arg);
   if (ca.prepicked_compaction != nullptr) {
     if (ca.prepicked_compaction->compaction != nullptr) {
@@ -2475,6 +2486,14 @@ void DBImpl::UnscheduleCompactionCallback(void* arg) {
 }
 
 void DBImpl::UnscheduleFlushCallback(void* arg) {
+  // Decrement bg_flush_scheduled_ in flush callback
+  reinterpret_cast<FlushThreadArg*>(arg)->db_->bg_flush_scheduled_--;
+  Env::Priority flush_pri = reinterpret_cast<FlushThreadArg*>(arg)->thread_pri_;
+  if (Env::Priority::LOW == flush_pri) {
+    TEST_SYNC_POINT("DBImpl::UnscheduleLowFlushCallback");
+  } else if (Env::Priority::HIGH == flush_pri) {
+    TEST_SYNC_POINT("DBImpl::UnscheduleHighFlushCallback");
+  }
   delete reinterpret_cast<FlushThreadArg*>(arg);
   TEST_SYNC_POINT("DBImpl::UnscheduleFlushCallback");
 }
@@ -2567,6 +2586,8 @@ void DBImpl::BackgroundCallFlush(Env::Priority thread_pri) {
 
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
+  TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:Start:1");
+  TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:Start:2");
   {
     InstrumentedMutexLock l(&mutex_);
     assert(bg_flush_scheduled_);
@@ -3077,6 +3098,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:ForwardToBottomPriPool");
     CompactionArg* ca = new CompactionArg;
     ca->db = this;
+    ca->compaction_pri_ = Env::Priority::BOTTOM;
     ca->prepicked_compaction = new PrepickedCompaction;
     ca->prepicked_compaction->compaction = c.release();
     ca->prepicked_compaction->manual_compaction_state = nullptr;

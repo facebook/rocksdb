@@ -9,8 +9,6 @@
 
 #if defined(OS_WIN)
 
-#include "port/win/env_win.h"
-
 #include <direct.h>  // _rmdir, _mkdir, _getcwd
 #include <errno.h>
 #include <io.h>   // _access
@@ -29,12 +27,14 @@
 #include "monitoring/thread_status_util.h"
 #include "port/port.h"
 #include "port/port_dirent.h"
+#include "port/win/env_win.h"
 #include "port/win/io_win.h"
 #include "port/win/win_logger.h"
 #include "port/win/win_thread.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "strsafe.h"
+#include "util/string_util.h"
 
 // Undefine the functions  windows might use (again)...
 #undef GetCurrentTime
@@ -61,7 +61,8 @@ typedef std::unique_ptr<void, decltype(FindCloseFunc)> UniqueFindClosePtr;
 
 void WinthreadCall(const char* label, std::error_code result) {
   if (0 != result.value()) {
-    fprintf(stderr, "pthread %s: %s\n", label, strerror(result.value()));
+    fprintf(stderr, "Winthread %s: %s\n", label,
+            errnoStr(result.value()).c_str());
     abort();
   }
 }
@@ -87,9 +88,8 @@ WinClock::WinClock()
 
   HMODULE module = GetModuleHandle("kernel32.dll");
   if (module != NULL) {
-    GetSystemTimePreciseAsFileTime_ =
-        (FnGetSystemTimePreciseAsFileTime)GetProcAddress(
-            module, "GetSystemTimePreciseAsFileTime");
+    GetSystemTimePreciseAsFileTime_ = (FnGetSystemTimePreciseAsFileTime)(
+        void*)GetProcAddress(module, "GetSystemTimePreciseAsFileTime");
   }
 }
 
@@ -680,7 +680,8 @@ IOStatus WinFileSystem::GetChildren(const std::string& dir,
     // which appear only on some platforms
     const bool ignore =
         ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) &&
-        (strcmp(data.cFileName, ".") == 0 || strcmp(data.cFileName, "..") == 0);
+        (RX_FNCMP(data.cFileName, ".") == 0 ||
+         RX_FNCMP(data.cFileName, "..") == 0);
     if (!ignore) {
       auto x = RX_FILESTRING(data.cFileName, RX_FNLEN(data.cFileName));
       result->push_back(FN_TO_RX(x));

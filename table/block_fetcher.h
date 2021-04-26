@@ -64,7 +64,7 @@ class BlockFetcher {
         memory_allocator_compressed_(memory_allocator_compressed),
         for_compaction_(for_compaction) {}
 
-  Status ReadBlockContents();
+  IOStatus ReadBlockContents();
   CompressionType get_compression_type() const { return compression_type_; }
 
 #ifndef NDEBUG
@@ -100,7 +100,7 @@ class BlockFetcher {
   const PersistentCacheOptions& cache_options_;
   MemoryAllocator* memory_allocator_;
   MemoryAllocator* memory_allocator_compressed_;
-  Status status_;
+  IOStatus io_status_;
   Slice slice_;
   char* used_buf_ = nullptr;
   AlignedBuf direct_io_buf_;

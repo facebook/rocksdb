@@ -310,7 +310,7 @@ class ALIGN_AS(CACHE_LINE_SIZE) LRUCacheShard final : public CacheShard {
   //  not threadsafe
   size_t TEST_GetLRUSize();
 
-  //  Retrives high pri pool ratio
+  //  Retrieves high pri pool ratio
   double GetHighPriPoolRatio();
 
  private:
@@ -408,7 +408,7 @@ class LRUCache
 
   //  Retrieves number of elements in LRU, for unit test purpose only
   size_t TEST_GetLRUSize();
-  //  Retrives high pri pool ratio
+  //  Retrieves high pri pool ratio
   double GetHighPriPoolRatio();
 
  private:

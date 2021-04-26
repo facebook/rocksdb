@@ -65,7 +65,7 @@ class IOTracerParserTest : public testing::Test {
     ASSERT_OK(NewFileTraceWriter(env_, env_options_, trace_file_path_,
                                  &trace_writer));
 
-    ASSERT_OK(db_->StartIOTrace(env_, trace_opt, std::move(trace_writer)));
+    ASSERT_OK(db_->StartIOTrace(trace_opt, std::move(trace_writer)));
 
     for (int i = 0; i < 10; i++) {
       ASSERT_OK(db_->Put(write_opt, "key_" + std::to_string(i),

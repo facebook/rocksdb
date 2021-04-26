@@ -1759,6 +1759,25 @@ int main(int argc, char** argv) {
     rocksdb_options_set_atomic_flush(o, 1);
     CheckCondition(1 == rocksdb_options_get_atomic_flush(o));
 
+    /* Blob Options */
+    rocksdb_options_set_enable_blob_files(o, 1);
+    CheckCondition(1 == rocksdb_options_get_enable_blob_files(o));
+
+    rocksdb_options_set_min_blob_size(o, 29);
+    CheckCondition(29 == rocksdb_options_get_min_blob_size(o));
+
+    rocksdb_options_set_blob_file_size(o, 30);
+    CheckCondition(30 == rocksdb_options_get_blob_file_size(o));
+
+    rocksdb_options_set_blob_compression_type(o, 4);
+    CheckCondition(4 == rocksdb_options_get_blob_compression_type(o));
+
+    rocksdb_options_set_enable_blob_gc(o, 1);
+    CheckCondition(1 == rocksdb_options_get_enable_blob_gc(o));
+
+    rocksdb_options_set_blob_gc_age_cutoff(o, 0.75);
+    CheckCondition(0.75 == rocksdb_options_get_blob_gc_age_cutoff(o));
+
     // Create a copy that should be equal to the original.
     rocksdb_options_t* copy;
     copy = rocksdb_options_create_copy(o);
@@ -2362,6 +2381,37 @@ int main(int argc, char** argv) {
     rocksdb_cache_destroy(co);
   }
 
+  StartPhase("jemalloc_nodump_allocator");
+  {
+    rocksdb_memory_allocator_t* allocator;
+    allocator = rocksdb_jemalloc_nodump_allocator_create(&err);
+    if (err != NULL) {
+      // not supported on all platforms, allow unsupported error
+      const char* ni = "Not implemented: ";
+      size_t ni_len = strlen(ni);
+      size_t err_len = strlen(err);
+
+      CheckCondition(err_len >= ni_len);
+      CheckCondition(memcmp(ni, err, ni_len) == 0);
+      Free(&err);
+    } else {
+      rocksdb_cache_t* co;
+      rocksdb_lru_cache_options_t* copts;
+
+      copts = rocksdb_lru_cache_options_create();
+
+      rocksdb_lru_cache_options_set_capacity(copts, 100);
+      rocksdb_lru_cache_options_set_memory_allocator(copts, allocator);
+
+      co = rocksdb_cache_create_lru_opts(copts);
+      CheckCondition(100 == rocksdb_cache_get_capacity(co));
+
+      rocksdb_cache_destroy(co);
+      rocksdb_lru_cache_options_destroy(copts);
+    }
+    rocksdb_memory_allocator_destroy(allocator);
+  }
+
   StartPhase("env");
   {
     rocksdb_env_t* e;
@@ -2869,6 +2919,7 @@ int main(int argc, char** argv) {
   rocksdb_readoptions_destroy(roptions);
   rocksdb_writeoptions_destroy(woptions);
   rocksdb_compactoptions_destroy(coptions);
+  rocksdb_cache_disown_data(cache);
   rocksdb_cache_destroy(cache);
   rocksdb_comparator_destroy(cmp);
   rocksdb_dbpath_destroy(dbpath);

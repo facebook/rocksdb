@@ -2428,14 +2428,13 @@ jlongArray Java_org_rocksdb_RocksDB_getApproximateMemTableStats(
       static_cast<jlong>(count),
       static_cast<jlong>(sizes)};
 
-  const jsize jcount = static_cast<jsize>(count);
-  jlongArray jsizes = env->NewLongArray(jcount);
+  jlongArray jsizes = env->NewLongArray(2);
   if (jsizes == nullptr) {
     // exception thrown: OutOfMemoryError
     return nullptr;
   }
 
-  env->SetLongArrayRegion(jsizes, 0, jcount, results);
+  env->SetLongArrayRegion(jsizes, 0, 2, results);
   if (env->ExceptionCheck()) {
     // exception thrown: ArrayIndexOutOfBoundsException
     env->DeleteLocalRef(jsizes);

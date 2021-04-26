@@ -378,14 +378,20 @@ class SpecialEnv : public EnvWrapper {
         return Append(data);
       }
       Status Truncate(uint64_t size) override { return base_->Truncate(size); }
+      void PrepareWrite(size_t offset, size_t len) override {
+        base_->PrepareWrite(offset, len);
+      }
+      void SetPreallocationBlockSize(size_t size) override {
+        base_->SetPreallocationBlockSize(size);
+      }
       Status Close() override {
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
         // Check preallocation size
-        // preallocation size is never passed to base file.
-        size_t preallocation_size = preallocation_block_size();
+        size_t block_size, last_allocated_block;
+        base_->GetPreallocationStatus(&block_size, &last_allocated_block);
         TEST_SYNC_POINT_CALLBACK("DBTestWalFile.GetPreallocationStatus",
-                                 &preallocation_size);
+                                 &block_size);
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
         return base_->Close();
@@ -393,6 +399,10 @@ class SpecialEnv : public EnvWrapper {
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
         ++env_->sync_counter_;
+        if (env_->corrupt_in_sync_) {
+          Append(std::string(33000, ' '));
+          return Status::IOError("Ingested Sync Failure");
+        }
         if (env_->skip_fsync_) {
           return Status::OK();
         } else {
@@ -439,6 +449,11 @@ class SpecialEnv : public EnvWrapper {
       SpecialEnv* env_;
       std::unique_ptr<WritableFile> base_;
     };
+
+    if (no_file_overwrite_.load(std::memory_order_acquire) &&
+        target()->FileExists(f).ok()) {
+      return Status::NotSupported("SpecialEnv::no_file_overwrite_ is true.");
+    }
 
     if (non_writeable_rate_.load(std::memory_order_acquire) > 0) {
       uint32_t random_number;
@@ -687,6 +702,9 @@ class SpecialEnv : public EnvWrapper {
   // Slow down every log write, in micro-seconds.
   std::atomic<int> log_write_slowdown_;
 
+  // If true, returns Status::NotSupported for file overwrite.
+  std::atomic<bool> no_file_overwrite_;
+
   // Number of WAL files that are still open for write.
   std::atomic<int> num_open_wal_file_;
 
@@ -708,6 +726,9 @@ class SpecialEnv : public EnvWrapper {
 
   // If true, all fsync to files and directories are skipped.
   bool skip_fsync_ = false;
+
+  // If true, ingest the corruption to file during sync.
+  bool corrupt_in_sync_ = false;
 
   std::atomic<uint32_t> non_writeable_rate_;
 
@@ -760,6 +781,17 @@ class OnFileDeletionListener : public EventListener {
  private:
   size_t matched_count_;
   std::string expected_file_name_;
+};
+
+class FlushCounterListener : public EventListener {
+ public:
+  std::atomic<int> count{0};
+  std::atomic<FlushReason> expected_flush_reason{FlushReason::kOthers};
+
+  void OnFlushBegin(DB* /*db*/, const FlushJobInfo& flush_job_info) override {
+    count++;
+    ASSERT_EQ(expected_flush_reason.load(), flush_job_info.flush_reason);
+  }
 };
 #endif
 

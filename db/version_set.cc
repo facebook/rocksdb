@@ -408,7 +408,7 @@ class FilePickerMultiGet {
   int GetCurrentLevel() const { return curr_level_; }
 
   // Iterates through files in the current level until it finds a file that
-  // contains atleast one key from the MultiGet batch
+  // contains at least one key from the MultiGet batch
   bool GetNextFileInLevelWithKeys(MultiGetRange* next_file_range,
                                   size_t* file_index, FdWithKeyRange** fd,
                                   bool* is_last_key_in_file) {
@@ -1768,8 +1768,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
                                        : cfd_->ioptions()->statistics),
       table_cache_((cfd_ == nullptr) ? nullptr : cfd_->table_cache()),
       blob_file_cache_(cfd_ ? cfd_->blob_file_cache() : nullptr),
-      merge_operator_((cfd_ == nullptr) ? nullptr
-                                        : cfd_->ioptions()->merge_operator),
+      merge_operator_(
+          (cfd_ == nullptr) ? nullptr : cfd_->ioptions()->merge_operator.get()),
       storage_info_(
           (cfd_ == nullptr) ? nullptr : &cfd_->internal_comparator(),
           (cfd_ == nullptr) ? nullptr : cfd_->user_comparator(),
@@ -2786,7 +2786,7 @@ struct Fsize {
   FileMetaData* file;
 };
 
-// Compator that is used to sort files based on their size
+// Comparator that is used to sort files based on their size
 // In normal mode: descending size
 bool CompareCompensatedSizeDescending(const Fsize& first, const Fsize& second) {
   return (first.file->compensated_file_size >
@@ -3206,7 +3206,7 @@ void VersionStorageInfo::GetCleanInputsWithinInterval(
 // specified range. From that file, iterate backwards and
 // forwards to find all overlapping files.
 // if within_range is set, then only store the maximum clean inputs
-// within range [begin, end]. "clean" means there is a boudnary
+// within range [begin, end]. "clean" means there is a boundary
 // between the files in "*inputs" and the surrounding files
 void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
     int level, const InternalKey* begin, const InternalKey* end,
@@ -3517,7 +3517,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
         //   1. the L0 size is larger than level size base, or
         //   2. number of L0 files reaches twice the L0->L1 compaction trigger
         // We don't do this otherwise to keep the LSM-tree structure stable
-        // unless the L0 compation is backlogged.
+        // unless the L0 compaction is backlogged.
         base_level_size = l0_size;
         if (base_level_ == num_levels_ - 1) {
           level_multiplier_ = 1.0;
@@ -4083,6 +4083,7 @@ Status VersionSet::ProcessManifestWrites(
   uint64_t new_manifest_file_size = 0;
   Status s;
   IOStatus io_s;
+  IOStatus manifest_io_status;
   {
     FileOptions opt_file_opts = fs_->OptimizeForManifestWrite(file_options_);
     mu->Unlock();
@@ -4134,6 +4135,7 @@ Status VersionSet::ProcessManifestWrites(
         s = WriteCurrentStateToManifest(curr_state, wal_additions,
                                         descriptor_log_.get(), io_s);
       } else {
+        manifest_io_status = io_s;
         s = io_s;
       }
     }
@@ -4171,11 +4173,13 @@ Status VersionSet::ProcessManifestWrites(
         io_s = descriptor_log_->AddRecord(record);
         if (!io_s.ok()) {
           s = io_s;
+          manifest_io_status = io_s;
           break;
         }
       }
       if (s.ok()) {
         io_s = SyncManifest(db_options_, descriptor_log_->file());
+        manifest_io_status = io_s;
         TEST_SYNC_POINT_CALLBACK(
             "VersionSet::ProcessManifestWrites:AfterSyncManifest", &io_s);
       }
@@ -4188,6 +4192,9 @@ Status VersionSet::ProcessManifestWrites(
 
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
+    if (s.ok()) {
+      assert(manifest_io_status.ok());
+    }
     if (s.ok() && new_descriptor_log) {
       io_s = SetCurrentFile(fs_.get(), dbname_, pending_manifest_file_number_,
                             db_directory);
@@ -4303,11 +4310,41 @@ Status VersionSet::ProcessManifestWrites(
     for (auto v : versions) {
       delete v;
     }
+    if (manifest_io_status.ok()) {
+      manifest_file_number_ = pending_manifest_file_number_;
+      manifest_file_size_ = new_manifest_file_size;
+    }
     // If manifest append failed for whatever reason, the file could be
     // corrupted. So we need to force the next version update to start a
     // new manifest file.
     descriptor_log_.reset();
-    if (new_descriptor_log) {
+    // If manifest operations failed, then we know the CURRENT file still
+    // points to the original MANIFEST. Therefore, we can safely delete the
+    // new MANIFEST.
+    // If manifest operations succeeded, and we are here, then it is possible
+    // that renaming tmp file to CURRENT failed.
+    //
+    // On local POSIX-compliant FS, the CURRENT must point to the original
+    // MANIFEST. We can delete the new MANIFEST for simplicity, but we can also
+    // keep it. Future recovery will ignore this MANIFEST. It's also ok for the
+    // process not to crash and continue using the db. Any future LogAndApply()
+    // call will switch to a new MANIFEST and update CURRENT, still ignoring
+    // this one.
+    //
+    // On non-local FS, it is
+    // possible that the rename operation succeeded on the server (remote)
+    // side, but the client somehow returns a non-ok status to RocksDB. Note
+    // that this does not violate atomicity. Should we delete the new MANIFEST
+    // successfully, a subsequent recovery attempt will likely see the CURRENT
+    // pointing to the new MANIFEST, thus fail. We will not be able to open the
+    // DB again. Therefore, if manifest operations succeed, we should keep the
+    // the new MANIFEST. If the process proceeds, any future LogAndApply() call
+    // will switch to a new MANIFEST and update CURRENT. If user tries to
+    // re-open the DB,
+    // a) CURRENT points to the new MANIFEST, and the new MANIFEST is present.
+    // b) CURRENT points to the original MANIFEST, and the original MANIFEST
+    //    also exists.
+    if (new_descriptor_log && !manifest_io_status.ok()) {
       ROCKS_LOG_INFO(db_options_->info_log,
                      "Deleting manifest %" PRIu64 " current manifest %" PRIu64
                      "\n",
@@ -4354,7 +4391,7 @@ Status VersionSet::ProcessManifestWrites(
   return s;
 }
 
-// 'datas' is gramatically incorrect. We still use this notation to indicate
+// 'datas' is grammatically incorrect. We still use this notation to indicate
 // that this variable represents a collection of column_family_data.
 Status VersionSet::LogAndApply(
     const autovector<ColumnFamilyData*>& column_family_datas,
@@ -4490,60 +4527,6 @@ Status VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
   return builder ? builder->Apply(edit) : Status::OK();
 }
 
-Status VersionSet::ExtractInfoFromVersionEdit(
-    ColumnFamilyData* cfd, const VersionEdit& from_edit,
-    VersionEditParams* version_edit_params) {
-  if (cfd != nullptr) {
-    if (from_edit.has_db_id_) {
-      version_edit_params->SetDBId(from_edit.db_id_);
-    }
-    if (from_edit.has_log_number_) {
-      if (cfd->GetLogNumber() > from_edit.log_number_) {
-        ROCKS_LOG_WARN(
-            db_options_->info_log,
-            "MANIFEST corruption detected, but ignored - Log numbers in "
-            "records NOT monotonically increasing");
-      } else {
-        cfd->SetLogNumber(from_edit.log_number_);
-        version_edit_params->SetLogNumber(from_edit.log_number_);
-      }
-    }
-    if (from_edit.has_comparator_ &&
-        from_edit.comparator_ != cfd->user_comparator()->Name()) {
-      return Status::InvalidArgument(
-          cfd->user_comparator()->Name(),
-          "does not match existing comparator " + from_edit.comparator_);
-    }
-    if (from_edit.HasFullHistoryTsLow()) {
-      const std::string& new_ts = from_edit.GetFullHistoryTsLow();
-      cfd->SetFullHistoryTsLow(new_ts);
-    }
-  }
-
-  if (from_edit.has_prev_log_number_) {
-    version_edit_params->SetPrevLogNumber(from_edit.prev_log_number_);
-  }
-
-  if (from_edit.has_next_file_number_) {
-    version_edit_params->SetNextFile(from_edit.next_file_number_);
-  }
-
-  if (from_edit.has_max_column_family_) {
-    version_edit_params->SetMaxColumnFamily(from_edit.max_column_family_);
-  }
-
-  if (from_edit.has_min_log_number_to_keep_) {
-    version_edit_params->min_log_number_to_keep_ =
-        std::max(version_edit_params->min_log_number_to_keep_,
-                 from_edit.min_log_number_to_keep_);
-  }
-
-  if (from_edit.has_last_sequence_) {
-    version_edit_params->SetLastSequence(from_edit.last_sequence_);
-  }
-  return Status::OK();
-}
-
 Status VersionSet::GetCurrentManifestPath(const std::string& dbname,
                                           FileSystem* fs,
                                           std::string* manifest_path,
@@ -4610,10 +4593,10 @@ Status VersionSet::Recover(
     reporter.status = &log_read_status;
     log::Reader reader(nullptr, std::move(manifest_file_reader), &reporter,
                        true /* checksum */, 0 /* log_number */);
-    VersionEditHandler handler(
-        read_only, column_families, const_cast<VersionSet*>(this),
-        /*track_missing_files=*/false,
-        /*no_error_if_table_files_missing=*/false, io_tracer_);
+    VersionEditHandler handler(read_only, column_families,
+                               const_cast<VersionSet*>(this),
+                               /*track_missing_files=*/false,
+                               /*no_error_if_files_missing=*/false, io_tracer_);
     handler.Iterate(reader, &log_read_status);
     s = handler.status();
     if (s.ok()) {
@@ -4796,7 +4779,7 @@ Status VersionSet::TryRecoverFromOneManifest(
 Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
                                       const std::string& dbname,
                                       FileSystem* fs) {
-  // these are just for performance reasons, not correcntes,
+  // these are just for performance reasons, not correctness,
   // so we're fine using the defaults
   FileOptions soptions;
   // Read "CURRENT" file, which contains a pointer to the current manifest file
@@ -4937,7 +4920,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 }
 
 // Get the checksum information including the checksum and checksum function
-// name of all SST files in VersionSet. Store the information in
+// name of all SST and blob files in VersionSet. Store the information in
 // FileChecksumList which contains a map from file number to its checksum info.
 // If DB is not running, make sure call VersionSet::Recover() to load the file
 // metadata from Manifest to VersionSet before calling this function.
@@ -4954,6 +4937,7 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
     if (cfd->IsDropped() || !cfd->initialized()) {
       continue;
     }
+    /* SST files */
     for (int level = 0; level < cfd->NumberLevels(); level++) {
       for (const auto& file :
            cfd->current()->storage_info()->LevelFiles(level)) {
@@ -4961,17 +4945,36 @@ Status VersionSet::GetLiveFilesChecksumInfo(FileChecksumList* checksum_list) {
                                                  file->file_checksum,
                                                  file->file_checksum_func_name);
         if (!s.ok()) {
-          break;
+          return s;
         }
       }
+    }
+
+    /* Blob files */
+    const auto& blob_files = cfd->current()->storage_info()->GetBlobFiles();
+    for (const auto& pair : blob_files) {
+      const uint64_t blob_file_number = pair.first;
+      const auto& meta = pair.second;
+
+      assert(meta);
+      assert(blob_file_number == meta->GetBlobFileNumber());
+
+      std::string checksum_value = meta->GetChecksumValue();
+      std::string checksum_method = meta->GetChecksumMethod();
+      assert(checksum_value.empty() == checksum_method.empty());
+      if (meta->GetChecksumMethod().empty()) {
+        checksum_value = kUnknownFileChecksum;
+        checksum_method = kUnknownFileChecksumFuncName;
+      }
+
+      s = checksum_list->InsertOneFileChecksum(blob_file_number, checksum_value,
+                                               checksum_method);
       if (!s.ok()) {
-        break;
+        return s;
       }
     }
-    if (!s.ok()) {
-      break;
-    }
   }
+
   return s;
 }
 
@@ -5499,20 +5502,6 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
         "[%s] compaction output being applied to a different base version from"
         " input version",
         c->column_family_data()->GetName().c_str());
-
-    if (vstorage->compaction_style_ == kCompactionStyleLevel &&
-        c->start_level() == 0 && c->num_input_levels() > 2U) {
-      // We are doing a L0->base_level compaction. The assumption is if
-      // base level is not L1, levels from L1 to base_level - 1 is empty.
-      // This is ensured by having one compaction from L0 going on at the
-      // same time in level-based compaction. So that during the time, no
-      // compaction/flush can put files to those levels.
-      for (int l = c->start_level() + 1; l < c->output_level(); l++) {
-        if (vstorage->NumLevelFiles(l) != 0) {
-          return false;
-        }
-      }
-    }
   }
 
   for (size_t input = 0; input < c->num_input_levels(); ++input) {

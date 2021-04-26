@@ -428,8 +428,7 @@ BlockBasedTableFactory::BlockBasedTableFactory(
     const BlockBasedTableOptions& _table_options)
     : table_options_(_table_options) {
   InitializeOptions();
-  ConfigurableHelper::RegisterOptions(*this, &table_options_,
-                                      &block_based_table_type_info);
+  RegisterOptions(&table_options_, &block_based_table_type_info);
 }
 
 void BlockBasedTableFactory::InitializeOptions() {
@@ -500,7 +499,6 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_options_, table_builder_options.internal_comparator,
       table_builder_options.int_tbl_prop_collector_factories, column_family_id,
       file, table_builder_options.compression_type,
-      table_builder_options.sample_for_compression,
       table_builder_options.compression_opts,
       table_builder_options.skip_filters,
       table_builder_options.column_family_name, table_builder_options.level,

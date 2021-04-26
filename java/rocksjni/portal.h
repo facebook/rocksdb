@@ -6075,7 +6075,11 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jmethodID mid = env->GetMethodID(jclazz, "<init>", "(JJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)V");
+    jmethodID mid = env->GetMethodID(
+        jclazz, "<init>",
+        "(JJJJJJJJJJJJJJJJJJJJJ[BLjava/lang/String;Ljava/lang/String;Ljava/"
+        "lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/"
+        "String;Ljava/util/Map;Ljava/util/Map;Ljava/util/Map;)V");
     if (mid == nullptr) {
       // exception thrown: NoSuchMethodException or OutOfMemoryError
       return nullptr;
@@ -6201,8 +6205,8 @@ class TablePropertiesJni : public JavaClass {
       return nullptr;
     }
 
-    jobject jtable_properties = env->NewObject(jclazz, mid,
-        static_cast<jlong>(table_properties.data_size),
+    jobject jtable_properties = env->NewObject(
+        jclazz, mid, static_cast<jlong>(table_properties.data_size),
         static_cast<jlong>(table_properties.index_size),
         static_cast<jlong>(table_properties.index_partitions),
         static_cast<jlong>(table_properties.top_level_index_size),
@@ -6221,17 +6225,14 @@ class TablePropertiesJni : public JavaClass {
         static_cast<jlong>(table_properties.column_family_id),
         static_cast<jlong>(table_properties.creation_time),
         static_cast<jlong>(table_properties.oldest_key_time),
-        jcolumn_family_name,
-        jfilter_policy_name,
-        jcomparator_name,
-        jmerge_operator_name,
-        jprefix_extractor_name,
-        jproperty_collectors_names,
-        jcompression_name,
-        juser_collected_properties,
-        jreadable_properties,
-        jproperties_offsets
-    );
+        static_cast<jlong>(
+            table_properties.slow_compression_estimated_data_size),
+        static_cast<jlong>(
+            table_properties.fast_compression_estimated_data_size),
+        jcolumn_family_name, jfilter_policy_name, jcomparator_name,
+        jmerge_operator_name, jprefix_extractor_name,
+        jproperty_collectors_names, jcompression_name,
+        juser_collected_properties, jreadable_properties, jproperties_offsets);
 
     if (env->ExceptionCheck()) {
       return nullptr;

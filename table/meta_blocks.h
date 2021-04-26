@@ -70,8 +70,8 @@ class PropertyBlockBuilder {
 
 // Were we encounter any error occurs during user-defined statistics collection,
 // we'll write the warning message to info log.
-void LogPropertiesCollectionError(
-    Logger* info_log, const std::string& method, const std::string& name);
+void LogPropertiesCollectionError(Logger* info_log, const std::string& method,
+                                  const std::string& name);
 
 // Utility functions help table builder to trigger batch events for user
 // defined property collectors.
@@ -86,8 +86,8 @@ bool NotifyCollectTableCollectorsOnAdd(
 
 void NotifyCollectTableCollectorsOnBlockAdd(
     const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
-    uint64_t blockRawBytes, uint64_t blockCompressedBytesFast,
-    uint64_t blockCompressedBytesSlow);
+    uint64_t block_raw_bytes, uint64_t block_compressed_bytes_fast,
+    uint64_t block_compressed_bytes_slow);
 
 // NotifyCollectTableCollectorsOnFinish() triggers the `Finish` event for all
 // property collectors. The collected properties will be added to `builder`.

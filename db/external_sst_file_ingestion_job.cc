@@ -40,16 +40,25 @@ Status ExternalSstFileIngestionJob::Prepare(
     if (!status.ok()) {
       return status;
     }
-    files_to_ingest_.push_back(file_to_ingest);
-  }
 
-  for (const IngestedFileInfo& f : files_to_ingest_) {
-    if (f.cf_id !=
+    if (file_to_ingest.cf_id !=
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily &&
-        f.cf_id != cfd_->GetID()) {
+        file_to_ingest.cf_id != cfd_->GetID()) {
       return Status::InvalidArgument(
           "External file column family id don't match");
     }
+
+    if (file_to_ingest.num_entries == 0 &&
+        file_to_ingest.num_range_deletions == 0) {
+      return Status::InvalidArgument("File contain no entries");
+    }
+
+    if (!file_to_ingest.smallest_internal_key.Valid() ||
+        !file_to_ingest.largest_internal_key.Valid()) {
+      return Status::Corruption("Generated table have corrupted keys");
+    }
+
+    files_to_ingest_.emplace_back(std::move(file_to_ingest));
   }
 
   const Comparator* ucmp = cfd_->internal_comparator().user_comparator();
@@ -81,16 +90,6 @@ Status ExternalSstFileIngestionJob::Prepare(
 
   if (ingestion_options_.ingest_behind && files_overlap_) {
     return Status::NotSupported("Files have overlapping ranges");
-  }
-
-  for (IngestedFileInfo& f : files_to_ingest_) {
-    if (f.num_entries == 0 && f.num_range_deletions == 0) {
-      return Status::InvalidArgument("File contain no entries");
-    }
-
-    if (!f.smallest_internal_key.Valid() || !f.largest_internal_key.Valid()) {
-      return Status::Corruption("Generated table have corrupted keys");
-    }
   }
 
   // Copy/Move external files into DB
@@ -368,9 +367,32 @@ Status ExternalSstFileIngestionJob::Run() {
           super_version, force_global_seqno, cfd_->ioptions()->compaction_style,
           last_seqno, &f, &assigned_seqno);
     }
+
+    // Modify the smallest/largest internal key to include the sequence number
+    // that we just learned. Only overwrite sequence number zero. There could
+    // be a nonzero sequence number already to indicate a range tombstone's
+    // exclusive endpoint.
+    ParsedInternalKey smallest_parsed, largest_parsed;
+    if (status.ok()) {
+      status = ParseInternalKey(*f.smallest_internal_key.rep(),
+                                &smallest_parsed, false /* log_err_key */);
+    }
+    if (status.ok()) {
+      status = ParseInternalKey(*f.largest_internal_key.rep(), &largest_parsed,
+                                false /* log_err_key */);
+    }
     if (!status.ok()) {
       return status;
     }
+    if (smallest_parsed.sequence == 0) {
+      UpdateInternalKey(f.smallest_internal_key.rep(), assigned_seqno,
+                        smallest_parsed.type);
+    }
+    if (largest_parsed.sequence == 0) {
+      UpdateInternalKey(f.largest_internal_key.rep(), assigned_seqno,
+                        largest_parsed.type);
+    }
+
     status = AssignGlobalSeqnoForIngestedFile(&f, assigned_seqno);
     TEST_SYNC_POINT_CALLBACK("ExternalSstFileIngestionJob::Run",
                              &assigned_seqno);

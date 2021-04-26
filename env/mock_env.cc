@@ -724,11 +724,12 @@ IOStatus MockFileSystem::ReopenWritableFile(
   MemFile* file = nullptr;
   if (file_map_.find(fn) == file_map_.end()) {
     file = new MemFile(env_, fn, false);
+    // Only take a reference when we create the file objectt
+    file->Ref();
     file_map_[fn] = file;
   } else {
     file = file_map_[fn];
   }
-  file->Ref();
   if (file_opts.use_direct_writes && !supports_direct_io_) {
     return IOStatus::NotSupported("Direct I/O Not Supported");
   } else {

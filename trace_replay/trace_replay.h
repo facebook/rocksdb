@@ -105,12 +105,12 @@ struct WritePayload {
 };
 
 struct GetPayload {
-  uint32_t cf_id;
+  uint32_t cf_id = 0;
   Slice get_key;
 };
 
 struct IterPayload {
-  uint32_t cf_id;
+  uint32_t cf_id = 0;
   Slice iter_key;
   Slice lower_bound;
   Slice upper_bound;
