@@ -687,10 +687,9 @@ const std::string OptionsHelper::kCFOptionsName = "ColumnFamilyOptions";
 
 class ConfigurableMutableCFOptions : public Configurable {
  public:
-  ConfigurableMutableCFOptions(const MutableCFOptions& mcf) {
+  explicit ConfigurableMutableCFOptions(const MutableCFOptions& mcf) {
     mutable_ = mcf;
-    ConfigurableHelper::RegisterOptions(*this, &mutable_,
-                                        &cf_mutable_options_type_info);
+    RegisterOptions(&mutable_, &cf_mutable_options_type_info);
   }
 
  protected:
@@ -705,8 +704,7 @@ class ConfigurableCFOptions : public ConfigurableMutableCFOptions {
         immutable_(ImmutableDBOptions(), opts),
         cf_options_(opts),
         opt_map_(map) {
-    ConfigurableHelper::RegisterOptions(*this, &immutable_,
-                                        &cf_immutable_options_type_info);
+    RegisterOptions(&immutable_, &cf_immutable_options_type_info);
   }
 
  protected:

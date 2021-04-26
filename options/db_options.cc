@@ -435,10 +435,9 @@ const std::string OptionsHelper::kDBOptionsName = "DBOptions";
 
 class MutableDBConfigurable : public Configurable {
  public:
-  MutableDBConfigurable(const MutableDBOptions& mdb) {
+  explicit MutableDBConfigurable(const MutableDBOptions& mdb) {
     mutable_ = mdb;
-    ConfigurableHelper::RegisterOptions(*this, &mutable_,
-                                        &db_mutable_options_type_info);
+    RegisterOptions(&mutable_, &db_mutable_options_type_info);
   }
 
  protected:
@@ -447,7 +446,7 @@ class MutableDBConfigurable : public Configurable {
 
 class DBOptionsConfigurable : public MutableDBConfigurable {
  public:
-  DBOptionsConfigurable(const DBOptions& opts)
+  explicit DBOptionsConfigurable(const DBOptions& opts)
       : MutableDBConfigurable(MutableDBOptions(opts)), db_options_(opts) {
     // The ImmutableDBOptions currently requires the env to be non-null.  Make
     // sure it is
@@ -458,8 +457,7 @@ class DBOptionsConfigurable : public MutableDBConfigurable {
       copy.env = Env::Default();
       immutable_ = ImmutableDBOptions(copy);
     }
-    ConfigurableHelper::RegisterOptions(*this, &immutable_,
-                                        &db_immutable_options_type_info);
+    RegisterOptions(&immutable_, &db_immutable_options_type_info);
   }
 
  protected:
