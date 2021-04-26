@@ -276,6 +276,7 @@ Status WriteBatchWithIndex::Rep::ReBuildIndex() {
         }
         break;
       case kTypeRangeDeletion:
+      case kTypeColumnFamilyRangeDeletion:
         found++;
         AddDeletedRangeToMap(column_family_id);
         break;

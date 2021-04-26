@@ -815,8 +815,10 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestMultipleCF) {
   s = batch.GetFromBatchAndDB(db, read_options, cf2, "Z", &value);
   ASSERT_TRUE(s.IsNotFound());
 
+  // We will re-check these values when we roll back
   batch.SetSavePoint();
 
+  // Make some changes on top of the savepoint
   ASSERT_OK(batch.Put(cf1, "A", "a_cf1_2"));
   ASSERT_OK(batch.Put(cf2, "A", "a_cf2_2"));
   ASSERT_OK(batch.Put("A", "a_cf0_2"));
@@ -836,12 +838,40 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestMultipleCF) {
   ASSERT_EQ("z_cf0_0", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "A", &value);
   ASSERT_OK(s);
+  ASSERT_EQ("a_cf1_2", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf1, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b_cf1_2", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf1, "Z", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, cf2, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a_cf2_2", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf2, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b_cf2_2", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf2, "Z", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // Roll back, and do the original checks
+  batch.RollbackToSavePoint();
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatchAndDB(db, read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("z_cf0_0", value);
+  s = batch.GetFromBatchAndDB(db, read_options, cf1, "A", &value);
+  ASSERT_OK(s);
   ASSERT_EQ("a_cf1", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "B", &value);
   ASSERT_OK(s);
   ASSERT_EQ("b_cf1", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "Z", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_OK(s);
+  ASSERT_EQ("z_cf1_0", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf2, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("a_cf2", value);

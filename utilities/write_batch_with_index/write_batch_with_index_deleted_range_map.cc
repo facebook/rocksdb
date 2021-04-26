@@ -16,10 +16,6 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-void DeletedRangeMap::AddInterval(const Slice& from_key, const Slice& to_key) {
-  AddInterval(0, from_key, to_key);
-}
-
 void DeletedRangeMap::AddInterval(const uint32_t cf_id, const Slice& from_key,
                                   const Slice& to_key) {
   const auto batch_data = write_batch->Data().data();
@@ -36,10 +32,6 @@ void DeletedRangeMap::AddInterval(const uint32_t cf_id, const Slice& from_key,
                                 to_key.size());
 
   IntervalMap::AddInterval(from, to);
-}
-
-bool DeletedRangeMap::IsInInterval(const Slice& key) {
-  return IsInInterval(0, key);
 }
 
 bool DeletedRangeMap::IsInInterval(const uint32_t cf_id, const Slice& key) {

@@ -22,12 +22,8 @@ class DeletedRangeMap : IntervalMap<const struct WriteBatchIndexEntry,
                   Allocator* allocator, WriteBatch* write_batch)
       : IntervalMap(cmp, allocator), write_batch(write_batch) {}
 
-  void AddInterval(const Slice& from_key, const Slice& to_key);
-
   void AddInterval(const uint32_t cf_id, const Slice& from_key,
                    const Slice& to_key);
-
-  bool IsInInterval(const Slice& key);
 
   bool IsInInterval(const uint32_t cf_id, const Slice& key);
 
