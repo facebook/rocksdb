@@ -923,6 +923,13 @@ class DB {
     //      entries being pinned.
     static const std::string kBlockCachePinnedUsage;
 
+    //  "rocksdb.table-cache-capacity" - returns table cache capacity.
+    static const std::string kTableCacheCapacity;
+
+    //  "rocksdb.table-cache-usage" - returns the memory size for the entries
+    //      residing in table cache.
+    static const std::string kTableCacheUsage;
+
     // "rocksdb.options-statistics" - returns multi-line string
     //      of options.statistics
     static const std::string kOptionsStatistics;
@@ -986,6 +993,8 @@ class DB {
   //  "rocksdb.block-cache-capacity"
   //  "rocksdb.block-cache-usage"
   //  "rocksdb.block-cache-pinned-usage"
+  //  "rocksdb.table-cache-capacity"
+  //  "rocksdb.table-cache-usage"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
