@@ -35,10 +35,8 @@ class IntervalMap {
  private:
   class PointEntry {
    public:
-    uint32_t flagStart = 0xDEADBEEF;
     PointKey pointKey;
     PointData pointData;
-    uint32_t flagEnd = 0xBADDCAFE;
 
     PointEntry(PointKey& key) : pointKey(key), pointData(Start) {}
     PointEntry(PointKey& key, Marker marker)

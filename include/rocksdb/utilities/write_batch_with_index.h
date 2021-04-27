@@ -47,7 +47,6 @@ enum WriteType {
 // Used in WBWIIterator.
 struct WriteEntry {
   WriteType type = kUnknownRecord;
-  bool is_in_deleted_range;
   Slice key;
   Slice value;
 };
@@ -66,6 +65,8 @@ class WBWIIterator {
   virtual void Seek(const Slice& key) = 0;
 
   virtual void SeekForPrev(const Slice& key) = 0;
+
+  virtual void Remove() = 0;
 
   virtual void Next() = 0;
 

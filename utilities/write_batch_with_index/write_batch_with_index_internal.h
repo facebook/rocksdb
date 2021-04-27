@@ -79,8 +79,7 @@ struct WriteBatchIndexEntry {
         key_offset(ko),
         key_size(ksz),
         search_key(nullptr),
-        column_family(c),
-        is_in_deleted_range(false) {}
+        column_family(c) {}
   // Create a dummy entry as the search key. This index entry won't be backed
   // by an entry from the write batch, but a pointer to the search key. Or a
   // special flag of offset can indicate we are seek to first.
@@ -97,8 +96,7 @@ struct WriteBatchIndexEntry {
         key_offset(0),
         key_size(is_seek_to_first ? kFlagMinInCf : 0),
         search_key(_search_key),
-        column_family(_column_family),
-        is_in_deleted_range(false) {
+        column_family(_column_family) {
     assert(_search_key != nullptr || is_seek_to_first);
   }
 
@@ -128,11 +126,10 @@ struct WriteBatchIndexEntry {
                       // family. We use the flag here to save a boolean
                       // in the struct.
 
-  const Slice* search_key;   // if not null, instead of reading keys from
-                             // write batch, use it to compare. This is used
-                             // for lookup key
-  uint32_t column_family;    // column family of the entry.
-  bool is_in_deleted_range;  // because we cannot delete from the skiplist.
+  const Slice* search_key;  // if not null, instead of reading keys from
+                            // write batch, use it to compare. This is used
+                            // for lookup key
+  uint32_t column_family;   // column family of the entry.
 };
 
 class ReadableWriteBatch : public WriteBatch {
@@ -231,6 +228,8 @@ class WBWIIteratorImpl : public WBWIIterator {
                                       false /* is_seek_to_first */);
     skip_list_iter_.SeekForPrev(&search_entry);
   }
+
+  void Remove() override { skip_list_iter_.Remove(); }
 
   void Next() override { skip_list_iter_.Next(); }
 

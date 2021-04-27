@@ -73,8 +73,8 @@ struct WriteBatchWithIndex::Rep {
   void AddDeletedRangeToMap(ColumnFamilyHandle* column_family);
   void AddDeletedRangeToMap(uint32_t column_family_id);
 
-  void MarkRangeDeletedIndexEntries(uint32_t cf_id, const Slice& from_key,
-                                    const Slice& to_key);
+  void RemoveRangeDeletedIndexEntries(uint32_t cf_id, const Slice& from_key,
+                                      const Slice& to_key);
 
   // Extract references to the keys in the last entry in the write batch
   // Assume the entry is a delete range, so contains 2 keys
@@ -120,10 +120,6 @@ bool WriteBatchWithIndex::Rep::UpdateExistingEntryWithCfId(
   }
   non_const_entry->offset = last_entry_offset;
 
-  // in the case Put(K,v1) DeleteRange(K_left <= K, K < K_right) Put(K,v2)
-  // we have marked up K with is_in_deleted_range
-  // so we make sure we always overwrite this
-  non_const_entry->is_in_deleted_range = false;
   return true;
 }
 
@@ -176,26 +172,16 @@ void WriteBatchWithIndex::Rep::ReadRangeKeysFromWriteBatchEntry(
   assert(success);
 }
 
-void WriteBatchWithIndex::Rep::MarkRangeDeletedIndexEntries(
+void WriteBatchWithIndex::Rep::RemoveRangeDeletedIndexEntries(
     uint32_t cf_id, const Slice& from_key, const Slice& to_key) {
   WBWIIteratorImpl iter(cf_id, &skip_list, &write_batch, &comparator);
 
-  // TODO most of the below can be simplified when we allow (restricted)
-  // skiplist deletion
-
-  auto count = 0;
   iter.Seek(from_key);
-  if (iter.Valid()) {
+
+  while (iter.Valid()) {
     auto entry = iter.Entry();
-    while (comparator.CompareKey(cf_id, entry.key, to_key) < 0) {
-      WriteBatchIndexEntry* non_const_entry =
-          const_cast<WriteBatchIndexEntry*>(iter.GetRawEntry());
-      non_const_entry->is_in_deleted_range = true;
-      count++;
-      iter.Next();
-      if (!iter.Valid()) break;
-      entry = iter.Entry();
-    }
+    if (comparator.CompareKey(cf_id, entry.key, to_key) >= 0) break;
+    iter.Remove();
   }
 }
 
@@ -209,7 +195,7 @@ void WriteBatchWithIndex::Rep::AddDeletedRangeToMap(uint32_t cf_id) {
   // Add a record that this range has been deleted
   Slice batch_from_key, batch_to_key;
   ReadRangeKeysFromWriteBatchEntry(cf_id, batch_from_key, batch_to_key);
-  MarkRangeDeletedIndexEntries(cf_id, batch_from_key, batch_to_key);
+  RemoveRangeDeletedIndexEntries(cf_id, batch_from_key, batch_to_key);
   deleted_range_map.AddInterval(cf_id, batch_from_key, batch_to_key);
 }
 

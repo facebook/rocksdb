@@ -468,7 +468,6 @@ WriteEntry WBWIIteratorImpl::Entry() const {
   assert(ret.type == kPutRecord || ret.type == kDeleteRecord ||
          ret.type == kSingleDeleteRecord || ret.type == kDeleteRangeRecord ||
          ret.type == kMergeRecord);
-  ret.is_in_deleted_range = iter_entry->is_in_deleted_range;
   return ret;
 }
 
@@ -572,12 +571,8 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
     const WriteEntry entry = iter->Entry();
     switch (entry.type) {
       case kPutRecord: {
-        if (!entry.is_in_deleted_range) {
-          result = WriteBatchWithIndexInternal::Result::kFound;
-          entry_value = entry.value;
-        } else {
-          result = WriteBatchWithIndexInternal::Result::kDeleted;
-        }
+        result = WriteBatchWithIndexInternal::Result::kFound;
+        entry_value = entry.value;
         break;
       }
       case kMergeRecord: {
