@@ -66,6 +66,7 @@ option(WITH_SNAPPY "build with SNAPPY" OFF)
 option(WITH_LZ4 "build with lz4" OFF)
 option(WITH_ZLIB "build with zlib" OFF)
 option(WITH_ZSTD "build with zstd" OFF)
+option(WITH_AWS "build with AWS" OFF)
 option(WITH_WINDOWS_UTF8_FILENAMES "use UTF8 as characterset for opening files, regardles of the system code page" OFF)
 if (WITH_WINDOWS_UTF8_FILENAMES)
   add_definitions(-DROCKSDB_WINDOWS_UTF8_FILENAMES)
@@ -168,6 +169,13 @@ else()
     include_directories(${ZSTD_INCLUDE_DIR})
     list(APPEND THIRDPARTY_LIBS zstd::zstd)
   endif()
+endif()
+
+if(WITH_AWS)
+  find_package(AWSSDK REQUIRED COMPONENTS s3 transfer kinesis)
+  add_definitions(-DUSE_AWS)
+  include_directories(${AWS_INCLUDE_DIR})
+  list(APPEND THIRDPARTY_LIBS ${AWSSDK_LINK_LIBRARIES})
 endif()
 
 string(TIMESTAMP TS "%Y/%m/%d %H:%M:%S" UTC)
@@ -827,6 +835,22 @@ set(SOURCES
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
+        cloud/aws/aws_env.cc
+        cloud/aws/aws_kafka.cc
+        cloud/aws/aws_kinesis.cc
+        cloud/aws/aws_retry.cc
+        cloud/aws/aws_s3.cc
+        cloud/db_cloud_impl.cc
+        cloud/cloud_env.cc
+        cloud/cloud_env_impl.cc
+        cloud/cloud_env_options.cc
+        cloud/cloud_log_controller.cc
+        cloud/manifest_reader.cc
+        cloud/purge.cc
+        cloud/cloud_manifest.cc
+        cloud/cloud_scheduler.cc
+        cloud/cloud_storage_provider.cc
+        db/db_impl/db_impl_remote_compaction.cc
         $<TARGET_OBJECTS:build_version>)
 
 if(HAVE_SSE42 AND NOT MSVC)
@@ -1042,6 +1066,10 @@ if(WITH_TESTS)
     list(APPEND TESTS
         cache/cache_test.cc
         cache/lru_cache_test.cc
+        cloud/db_cloud_test.cc
+        cloud/cloud_manifest_test.cc
+        cloud/cloud_scheduler_test.cc
+        cloud/remote_compaction_test.cc
         db/blob/blob_file_addition_test.cc
         db/blob/blob_file_builder_test.cc
         db/blob/blob_file_garbage_test.cc
