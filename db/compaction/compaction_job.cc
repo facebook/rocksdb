@@ -1598,9 +1598,19 @@ uint64_t CompactionJob::CalculateOldestAncesterTime(
   uint64_t max_valid_oldest_ancester_time = 0;
   SequenceNumber seqno = sub_compact->current_output()->meta.fd.smallest_seqno;
 
+  std::string msg = "";
   for (const auto& level_files : *sub_compact->compaction->inputs()) {
     for (const auto& file : level_files.files) {
       uint64_t oldest_ancester_time = file->TryGetOldestAncesterTime();
+
+      msg.append("{");
+      msg.append(ToString(file->fd.GetNumber()));
+      msg.append(" : ");
+      msg.append(ToString(oldest_ancester_time));
+      msg.append(", ");
+      msg.append(ToString(file->fd.smallest_seqno));
+      msg.append("}, ");
+
       if (oldest_ancester_time == kUnknownOldestAncesterTime) {
         continue;
       }
@@ -1617,6 +1627,15 @@ uint64_t CompactionJob::CalculateOldestAncesterTime(
       }
     }
   }
+
+  ROCKS_LOG_INFO(
+      db_options_.info_log,
+      "YYY1: [%s] [Job %d] [file: %" PRIu64 "] max_ts: %" PRIu64 ", min_ts: %" PRIu64 ", seq: %" PRIu64 ": %s",
+      compact_->compaction->column_family_data()->GetName().c_str(),
+      job_id_, sub_compact->current_output()->meta.fd.GetNumber(),
+      max_valid_oldest_ancester_time, min_oldest_ancester_time, seqno, msg.c_str()
+  );
+
   // If we find a valid oldest_ancester_time, return it
   if (max_valid_oldest_ancester_time != 0 &&
       max_valid_oldest_ancester_time != port::kMaxUint64) {
