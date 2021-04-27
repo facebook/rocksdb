@@ -2094,6 +2094,13 @@ ROCKS_TESTS = [
         [],
     ],
     [
+        "write_batch_with_index_delete_range_test",
+        "utilities/write_batch_with_index/write_batch_with_index_delete_range_test.cc",
+        "serial",
+        [],
+        [],
+    ],
+    [
         "write_buffer_manager_test",
         "memtable/write_buffer_manager_test.cc",
         "parallel",
