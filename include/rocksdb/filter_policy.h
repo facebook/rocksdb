@@ -216,16 +216,18 @@ class FilterPolicy {
 extern const FilterPolicy* NewBloomFilterPolicy(
     double bits_per_key, bool use_block_based_builder = false);
 
-// An EXPERIMENTAL new Bloom alternative that saves about 30% space
-// compared to Bloom filters, with about 3-4x construction time and
-// similar query times. For example, if you pass in 10 for
+// An new Bloom alternative that saves about 30% space compared to
+// Bloom filters, with about 3-4x construction CPU time and similar
+// query times. For example, if you pass in 10 for
 // bloom_equivalent_bits_per_key, you'll get the same 0.95% FP rate
 // as Bloom filter but only using about 7 bits per key. (This
 // way of configuring the new filter is considered experimental
-// and/or transitional, so is expected to go away.)
+// and/or transitional, so is expected to be replaced with a new API.
+// The constructed filters will be given long-term support.)
 //
-// Ribbon filters are ignored by previous versions of RocksDB, as if
-// no filter was used.
+// Ribbon filters are compatible with RocksDB >= 6.15.0. Earlier
+// versions reading the data will behave as if no filter was used
+// (degraded performance until compaction rebuilds filters).
 //
 // Note: this policy can generate Bloom filters in some cases.
 // For very small filters (well under 1KB), Bloom fallback is by

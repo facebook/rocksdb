@@ -185,12 +185,12 @@ Status BlobFileBuilder::OpenBlobFileIfNeeded() {
   file->SetIOPriority(io_priority_);
   file->SetWriteLifeTimeHint(write_hint_);
   FileTypeSet tmp_set = immutable_cf_options_->checksum_handoff_file_types;
-  Statistics* const statistics = immutable_cf_options_->statistics;
+  Statistics* const statistics = immutable_cf_options_->stats;
   std::unique_ptr<WritableFileWriter> file_writer(new WritableFileWriter(
       std::move(file), blob_file_paths_->back(), *file_options_,
       immutable_cf_options_->clock, io_tracer_, statistics,
       immutable_cf_options_->listeners,
-      immutable_cf_options_->file_checksum_gen_factory,
+      immutable_cf_options_->file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kBlobFile)));
 
   constexpr bool do_flush = false;
@@ -301,12 +301,11 @@ Status BlobFileBuilder::CloseBlobFile() {
                                      std::move(checksum_value));
 
   assert(immutable_cf_options_);
-  ROCKS_LOG_INFO(immutable_cf_options_->info_log,
+  ROCKS_LOG_INFO(immutable_cf_options_->logger,
                  "[%s] [JOB %d] Generated blob file #%" PRIu64 ": %" PRIu64
                  " total blobs, %" PRIu64 " total bytes",
                  column_family_name_.c_str(), job_id_, blob_file_number,
                  blob_count_, blob_bytes_);
-
   if (blob_callback_) {
     s = blob_callback_->OnBlobFileCompleted(blob_file_paths_->back());
   }

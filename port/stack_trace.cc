@@ -7,7 +7,7 @@
 
 #if defined(ROCKSDB_LITE) ||                                                  \
     !(defined(ROCKSDB_BACKTRACE) || defined(OS_MACOSX)) || defined(CYGWIN) || \
-    defined(OS_FREEBSD) || defined(OS_SOLARIS) || defined(OS_WIN)
+    defined(OS_SOLARIS) || defined(OS_WIN)
 
 // noop
 
@@ -32,6 +32,10 @@ void* SaveStack(int* /*num_frames*/, int /*first_frames_to_skip*/) {
 #include <unistd.h>
 #include <cxxabi.h>
 
+#if defined(OS_FREEBSD)
+#include <sys/sysctl.h>
+#endif
+
 namespace ROCKSDB_NAMESPACE {
 namespace port {
 
@@ -41,6 +45,7 @@ namespace {
 const char* GetExecutableName() {
   static char name[1024];
 
+#if !defined(OS_FREEBSD)
   char link[1024];
   snprintf(link, sizeof(link), "/proc/%d/exe", getpid());
   auto read = readlink(link, name, sizeof(name) - 1);
@@ -50,6 +55,17 @@ const char* GetExecutableName() {
     name[read] = 0;
     return name;
   }
+#else
+  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
+  size_t namesz = sizeof(name);
+
+  auto ret = sysctl(mib, 4, name, &namesz, nullptr, 0);
+  if (-1 == ret) {
+    return nullptr;
+  } else {
+    return name;
+  }
+#endif
 }
 
 void PrintStackTraceLine(const char* symbol, void* frame) {

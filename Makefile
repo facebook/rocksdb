@@ -55,49 +55,24 @@ DEBUG_LEVEL?=1
 # Set the default LIB_MODE to static
 LIB_MODE?=static
 
-ifeq ($(MAKECMDGOALS),dbg)
+# OBJ_DIR is where the object files reside.  Default to the current directory
+OBJ_DIR?=.
+
+# Check the MAKECMDGOALS to set the DEBUG_LEVEL and LIB_MODE appropriately
+
+ifneq ($(filter clean release install, $(MAKECMDGOALS)),)
+	DEBUG_LEVEL=0
+endif
+ifneq ($(filter dbg, $(MAKECMDGOALS)),)
 	DEBUG_LEVEL=2
-endif
-
-ifeq ($(MAKECMDGOALS),clean)
+else ifneq ($(filter shared_lib install-shared, $(MAKECMDGOALS)),)
 	DEBUG_LEVEL=0
-endif
-
-ifeq ($(MAKECMDGOALS),release)
-	DEBUG_LEVEL=0
-endif
-
-ifeq ($(MAKECMDGOALS),shared_lib)
 	LIB_MODE=shared
-	DEBUG_LEVEL=0
-endif
-
-ifeq ($(MAKECMDGOALS),install-shared)
-	LIB_MODE=shared
-	DEBUG_LEVEL=0
-endif
-
-ifeq ($(MAKECMDGOALS),static_lib)
+else ifneq ($(filter static_lib install-static, $(MAKECMDGOALS)),)
 	DEBUG_LEVEL=0
 	LIB_MODE=static
-endif
-
-ifeq ($(MAKECMDGOALS),install-static)
-	DEBUG_LEVEL=0
-	LIB_MODE=static
-endif
-
-ifeq ($(MAKECMDGOALS),install)
-	DEBUG_LEVEL=0
-endif
-
-
-ifneq ($(findstring jtest, $(MAKECMDGOALS)),)
+else ifneq ($(filter jtest rocksdbjava%, $(MAKECMDGOALS)),)
 	OBJ_DIR=jl
-	LIB_MODE=shared
-endif
-
-ifneq ($(findstring rocksdbjava, $(MAKECMDGOALS)),)
 	LIB_MODE=shared
 	ifneq ($(findstring rocksdbjavastatic, $(MAKECMDGOALS)),)
 		OBJ_DIR=jls
@@ -107,8 +82,6 @@ ifneq ($(findstring rocksdbjava, $(MAKECMDGOALS)),)
 		ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
 			DEBUG_LEVEL=0
 		endif
-	else
-		OBJ_DIR=jl
 	endif
 endif
 
@@ -259,6 +232,8 @@ AM_SHARE = $(AM_V_CCLD) $(CXX) $(PLATFORM_SHARED_LDFLAGS)$@ -L. $(patsubst lib%.
 # Export some common variables that might have been passed as Make variables
 # instead of environment variables.
 dummy := $(shell (export ROCKSDB_ROOT="$(CURDIR)"; \
+                  export CXXFLAGS="$(EXTRA_CXXFLAGS)"; \
+                  export LDFLAGS="$(EXTRA_LDFLAGS)"; \
                   export COMPILE_WITH_ASAN="$(COMPILE_WITH_ASAN)"; \
                   export COMPILE_WITH_TSAN="$(COMPILE_WITH_TSAN)"; \
                   export COMPILE_WITH_UBSAN="$(COMPILE_WITH_UBSAN)"; \
@@ -489,7 +464,6 @@ CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverl
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
 
-OBJ_DIR?=.
 LIB_OBJECTS = $(patsubst %.cc, $(OBJ_DIR)/%.o, $(LIB_SOURCES))
 LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(ROCKSDB_PLUGIN_SOURCES))
 ifeq ($(HAVE_POWER8),1)
@@ -499,6 +473,12 @@ endif
 
 ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
   LIB_OBJECTS += $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(FOLLY_SOURCES))
+endif
+
+# range_tree is not compatible with non GNU libc on ppc64
+# see https://jira.percona.com/browse/PS-7559
+ifneq ($(PPC_LIBC_IS_GNU),0)
+  LIB_OBJECTS += $(patsubst %.cc, $(OBJ_DIR)/%.o, $(RANGE_TREE_SOURCES))
 endif
 
 GTEST = $(OBJ_DIR)/$(GTEST_DIR)/gtest/gtest-all.o
@@ -528,237 +508,34 @@ ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
 	ALL_SOURCES += third-party/folly/folly/synchronization/test/DistributedMutexTest.cc
 endif
 
-PARALLEL_TEST = \
-	backupable_db_test \
-	db_bloom_filter_test \
-	db_compaction_filter_test \
-	db_compaction_test \
-	db_merge_operator_test \
-	db_sst_test \
-	db_test \
-	db_test2 \
-	db_universal_compaction_test \
-	db_wal_test \
-	column_family_test \
-	external_sst_file_test \
-	import_column_family_test \
-	fault_injection_test \
-	file_reader_writer_test \
-	inlineskiplist_test \
-	manual_compaction_test \
-	persistent_cache_test \
-	table_test \
-	transaction_test \
-	point_lock_manager_test \
-	range_locking_test \
-	write_prepared_transaction_test \
-	write_unprepared_transaction_test \
-
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-	TESTS += folly_synchronization_distributed_mutex_test
-	PARALLEL_TEST += folly_synchronization_distributed_mutex_test
-	TESTS_PASSING_ASC = folly_synchronization_distributed_mutex_test
-endif
-
 # options_settable_test doesn't pass with UBSAN as we use hack in the test
 ifdef COMPILE_WITH_UBSAN
         TESTS := $(shell echo $(TESTS) | sed 's/\boptions_settable_test\b//g')
 endif
 ifdef ASSERT_STATUS_CHECKED
-# This is a new check for which we will add support incrementally. This
-# list can be removed once support is fully added.
-	TESTS_PASSING_ASC = \
-		arena_test \
-		autovector_test \
-		cache_test \
-		lru_cache_test \
-		blob_file_addition_test \
-		blob_file_builder_test \
-		blob_file_cache_test \
-		blob_file_garbage_test \
-		blob_file_reader_test \
-		bloom_test \
-		cassandra_format_test \
-		cassandra_functional_test \
-		cassandra_row_merge_test \
-		cassandra_serialize_test \
-		cleanable_test \
-		checkpoint_test \
-		coding_test \
-		crc32c_test \
-		dbformat_test \
-		db_basic_test \
-		compact_files_test \
-		compaction_picker_test \
-		comparator_db_test \
-		db_encryption_test \
-		db_iter_test \
-		db_iter_stress_test \
-		db_log_iter_test \
-		db_bloom_filter_test \
-		db_blob_basic_test \
-		db_blob_compaction_test \
-		db_blob_corruption_test \
-		db_blob_index_test \
-		db_block_cache_test \
-		db_compaction_test \
-		db_compaction_filter_test \
-		db_dynamic_level_test \
-		db_flush_test \
-		db_inplace_update_test \
-		db_io_failure_test \
-		db_iterator_test \
-		db_kv_checksum_test \
-		db_logical_block_size_cache_test \
-		db_memtable_test \
-		db_merge_operand_test \
-		db_merge_operator_test \
-		db_wal_test \
-		db_with_timestamp_basic_test \
-		db_with_timestamp_compaction_test \
-		db_write_test \
-		db_options_test \
-		db_properties_test \
-		db_range_del_test \
-		db_secondary_test \
-		deletefile_test \
-		external_sst_file_test \
-		options_file_test \
-		db_sst_test \
-		db_statistics_test \
-		db_table_properties_test \
-		db_tailing_iter_test \
-		fault_injection_test \
-		listener_test \
-		log_test \
-		manual_compaction_test \
-		obsolete_files_test \
-		perf_context_test \
-		periodic_work_scheduler_test \
-		perf_context_test \
-		version_set_test \
-		wal_manager_test \
-		defer_test \
-		filename_test \
-		dynamic_bloom_test \
-		env_basic_test \
-		env_test \
-		env_logger_test \
-		event_logger_test \
-		error_handler_fs_test \
-		external_sst_file_basic_test \
-		auto_roll_logger_test \
-		file_indexer_test \
-		delete_scheduler_test \
-		flush_job_test \
-		hash_table_test \
-		hash_test \
-		heap_test \
-		histogram_test \
-		inlineskiplist_test \
-		io_posix_test \
-		iostats_context_test \
-		ldb_cmd_test \
-		memkind_kmem_allocator_test \
-		merge_test \
-		merger_test \
-		mock_env_test \
-		object_registry_test \
-		optimistic_transaction_test \
-		prefix_test \
-		plain_table_db_test \
-		repair_test \
-		configurable_test \
-		customizable_test \
-		options_settable_test \
-		options_test \
-		point_lock_manager_test \
-		random_access_file_reader_test \
-		random_test \
-		range_del_aggregator_test \
-		sst_file_reader_test \
-		range_tombstone_fragmenter_test \
-		repeatable_thread_test \
-		ribbon_test \
-		skiplist_test \
-		slice_test \
-		slice_transform_test \
-		sst_dump_test \
-		statistics_test \
-		stats_history_test \
-		stringappend_test \
-		thread_local_test \
-		trace_analyzer_test \
-		transaction_test \
-		env_timed_test \
-		filelock_test \
-		timer_queue_test \
-		timer_test \
-		options_util_test \
-		persistent_cache_test \
-		util_merge_operators_test \
-		block_cache_trace_analyzer_test \
-		block_cache_tracer_test \
-		cache_simulator_test \
-		sim_cache_test \
-		version_builder_test \
-		version_edit_test \
-		work_queue_test \
-		write_buffer_manager_test \
-		write_controller_test \
-		write_prepared_transaction_test \
-		write_unprepared_transaction_test \
-		compaction_iterator_test \
-		compaction_job_test \
-		compaction_job_stats_test \
-		io_tracer_test \
-		io_tracer_parser_test \
-		prefetch_test \
-		merge_helper_test \
-		memtable_list_test \
-		flush_job_test \
-		block_based_filter_block_test \
-		block_fetcher_test \
-		block_test \
-		data_block_hash_index_test \
-		full_filter_block_test \
-		partitioned_filter_block_test \
-		column_family_test \
-		file_reader_writer_test \
-		rate_limiter_test \
-		corruption_test \
-		reduce_levels_test \
-		thread_list_test \
-		compact_on_deletion_collector_test \
-		db_universal_compaction_test \
-		import_column_family_test \
-		option_change_migration_test \
-		cuckoo_table_builder_test \
-		cuckoo_table_db_test \
-		cuckoo_table_reader_test \
-		memory_test \
-		table_test \
-		backupable_db_test \
-		blob_db_test \
-		ttl_test \
-		write_batch_test \
-		write_batch_with_index_test \
-		write_batch_with_index_delete_range_test \
+	# TODO: finish fixing all tests to pass this check
+	TESTS_FAILING_ASC = \
+		db_test \
+		db_test2 \
+		range_locking_test \
+		testutil_test \
 
-ifeq ($(USE_FOLLY_DISTRIBUTED_MUTEX),1)
-TESTS_PASSING_ASC += folly_synchronization_distributed_mutex_test
+	# Since we have very few ASC exclusions left, excluding them from
+	# the build is the most convenient way to exclude them from testing
+	TESTS := $(filter-out $(TESTS_FAILING_ASC),$(TESTS))
 endif
 
-	# Enable building all unit tests, but use check_some to run only tests
-	# known to pass ASC (ASSERT_STATUS_CHECKED)
-	ROCKSDBTESTS_SUBSET ?= $(TESTS_PASSING_ASC)
-	# Alternate: only build unit tests known to pass ASC, and run them
-	# with make check
-	#TESTS := $(filter $(TESTS_PASSING_ASC),$(TESTS))
-	#PARALLEL_TEST := $(filter $(TESTS_PASSING_ASC),$(PARALLEL_TEST))
-else
-	ROCKSDBTESTS_SUBSET ?= $(TESTS)
-endif
+ROCKSDBTESTS_SUBSET ?= $(TESTS)
+
+# env_test - suspicious use of test::TmpDir
+# deletefile_test - serial because it generates giant temporary files in
+#   its various tests. Parallel can fill up your /dev/shm
+NON_PARALLEL_TEST = \
+	env_test \
+	deletefile_test \
+
+PARALLEL_TEST = $(filter-out $(NON_PARALLEL_TEST), $(TESTS))
+
 # Not necessarily well thought out or up-to-date, but matches old list
 TESTS_PLATFORM_DEPENDENT := \
 	db_basic_test \
@@ -846,8 +623,8 @@ else
 LIBRARY=$(STATIC_LIBRARY)
 TEST_LIBRARY=$(STATIC_TEST_LIBRARY)
 TOOLS_LIBRARY=$(STATIC_TOOLS_LIBRARY)
-STRESS_LIBRARY=$(STATIC_STRESS_LIBRARY)
 endif
+STRESS_LIBRARY=$(STATIC_STRESS_LIBRARY)
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -1441,7 +1218,7 @@ $(STATIC_TOOLS_LIBRARY): $(TOOL_OBJECTS)
 	$(AM_V_AR)rm -f $@ $(SHARED_TOOLS_LIBRARY)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
-$(STATIC_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS)
+$(STATIC_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(TESTUTIL)
 	$(AM_V_AR)rm -f $@ $(SHARED_STRESS_LIBRARY)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
@@ -1453,7 +1230,7 @@ $(SHARED_TOOLS_LIBRARY): $(TOOL_OBJECTS) $(SHARED1)
 	$(AM_V_AR)rm -f $@ $(STATIC_TOOLS_LIBRARY)
 	$(AM_SHARE)
 
-$(SHARED_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(SHARED_TOOLS_LIBRARY) $(SHARED1)
+$(SHARED_STRESS_LIBRARY): $(ANALYZE_OBJECTS) $(STRESS_OBJECTS) $(TESTUTIL) $(SHARED_TOOLS_LIBRARY) $(SHARED1)
 	$(AM_V_AR)rm -f $@ $(STATIC_STRESS_LIBRARY)
 	$(AM_SHARE)
 
@@ -1487,7 +1264,7 @@ memtablerep_bench: $(OBJ_DIR)/memtable/memtablerep_bench.o $(LIBRARY)
 filter_bench: $(OBJ_DIR)/util/filter_bench.o $(LIBRARY)
 	$(AM_LINK)
 
-db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(TESTUTIL) $(LIBRARY)
+db_stress: $(OBJ_DIR)/db_stress_tool/db_stress.o $(STRESS_LIBRARY) $(TOOLS_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
 
 write_stress: $(OBJ_DIR)/tools/write_stress.o $(LIBRARY)
@@ -2085,6 +1862,9 @@ io_tracer_parser: $(OBJ_DIR)/tools/io_tracer_parser.o $(TOOLS_LIBRARY) $(LIBRARY
 
 db_blob_corruption_test: $(OBJ_DIR)/db/blob/db_blob_corruption_test.o $(TEST_LIBRARY) $(LIBRARY)
 	$(AM_LINK)
+
+db_write_buffer_manager_test: $(OBJ_DIR)/db/db_write_buffer_manager_test.o $(TEST_LIBRARY) $(LIBRARY)
+	$(AM_LINK)
 #-------------------------------------------------
 # make install related stuff
 PREFIX ?= /usr/local
@@ -2199,8 +1979,8 @@ SNAPPY_DOWNLOAD_BASE ?= https://github.com/google/snappy/archive
 LZ4_VER ?= 1.9.3
 LZ4_SHA256 ?= 030644df4611007ff7dc962d981f390361e6c97a34e5cbc393ddfbe019ffe2c1
 LZ4_DOWNLOAD_BASE ?= https://github.com/lz4/lz4/archive
-ZSTD_VER ?= 1.4.7
-ZSTD_SHA256 ?= 085500c8d0b9c83afbc1dc0d8b4889336ad019eba930c5d6a9c6c86c20c769c8
+ZSTD_VER ?= 1.4.9
+ZSTD_SHA256 ?= acf714d98e3db7b876e5b540cbf6dee298f60eb3c0723104f6d3f065cd60d6a8
 ZSTD_DOWNLOAD_BASE ?= https://github.com/facebook/zstd/archive
 CURL_SSL_OPTS ?= --tlsv1
 

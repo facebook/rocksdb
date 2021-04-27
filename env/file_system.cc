@@ -83,6 +83,14 @@ FileOptions FileSystem::OptimizeForCompactionTableRead(
   return optimized_file_options;
 }
 
+FileOptions FileSystem::OptimizeForBlobFileRead(
+    const FileOptions& file_options,
+    const ImmutableDBOptions& db_options) const {
+  FileOptions optimized_file_options(file_options);
+  optimized_file_options.use_direct_reads = db_options.use_direct_reads;
+  return optimized_file_options;
+}
+
 IOStatus WriteStringToFile(FileSystem* fs, const Slice& data,
                            const std::string& fname, bool should_sync) {
   std::unique_ptr<FSWritableFile> file;

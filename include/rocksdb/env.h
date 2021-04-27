@@ -437,7 +437,7 @@ class Env {
   virtual Status GetTestDirectory(std::string* path) = 0;
 
   // Create and returns a default logger (an instance of EnvLogger) for storing
-  // informational messages. Derived classes can overide to provide custom
+  // informational messages. Derived classes can override to provide custom
   // logger.
   virtual Status NewLogger(const std::string& fname,
                            std::shared_ptr<Logger>* result);
@@ -543,6 +543,13 @@ class Env {
   // is a copy of the EnvOptions in the parameters, but is optimized for reading
   // table files.
   virtual EnvOptions OptimizeForCompactionTableRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const;
+
+  // OptimizeForBlobFileRead will create a new EnvOptions object that
+  // is a copy of the EnvOptions in the parameters, but is optimized for reading
+  // blob files.
+  virtual EnvOptions OptimizeForBlobFileRead(
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const;
 
@@ -798,7 +805,7 @@ class WritableFile {
   virtual ~WritableFile();
 
   // Append data to the end of the file
-  // Note: A WriteabelFile object must support either Append or
+  // Note: A WriteableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   virtual Status Append(const Slice& data) = 0;
 
@@ -1494,6 +1501,11 @@ class EnvWrapper : public Env {
       const EnvOptions& env_options,
       const ImmutableDBOptions& db_options) const override {
     return target_->OptimizeForCompactionTableRead(env_options, db_options);
+  }
+  EnvOptions OptimizeForBlobFileRead(
+      const EnvOptions& env_options,
+      const ImmutableDBOptions& db_options) const override {
+    return target_->OptimizeForBlobFileRead(env_options, db_options);
   }
   Status GetFreeSpace(const std::string& path, uint64_t* diskfree) override {
     return target_->GetFreeSpace(path, diskfree);

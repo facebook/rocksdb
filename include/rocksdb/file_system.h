@@ -132,10 +132,34 @@ struct IODebugContext {
   // To be set by the FileSystem implementation
   std::string msg;
 
+  // To be set by the underlying FileSystem implementation.
+  std::string request_id;
+
+  // In order to log required information in IO tracing for different
+  // operations, Each bit in trace_data stores which corresponding info from
+  // IODebugContext will be added in the trace. Foreg, if trace_data = 1, it
+  // means bit at position 0 is set so TraceData::kRequestID (request_id) will
+  // be logged in the trace record.
+  //
+  enum TraceData : char {
+    // The value of each enum represents the bitwise position for
+    // that information in trace_data which will be used by IOTracer for
+    // tracing. Make sure to add them sequentially.
+    kRequestID = 0,
+  };
+  uint64_t trace_data = 0;
+
   IODebugContext() {}
 
   void AddCounter(std::string& name, uint64_t value) {
     counters.emplace(name, value);
+  }
+
+  // Called by underlying file system to set request_id and log request_id in
+  // IOTracing.
+  void SetRequestId(const std::string& _request_id) {
+    request_id = _request_id;
+    trace_data |= (1 << TraceData::kRequestID);
   }
 
   std::string ToString() {
@@ -473,7 +497,7 @@ class FileSystem {
                                     IODebugContext* dbg) = 0;
 
   // Create and returns a default logger (an instance of EnvLogger) for storing
-  // informational messages. Derived classes can overide to provide custom
+  // informational messages. Derived classes can override to provide custom
   // logger.
   virtual IOStatus NewLogger(const std::string& fname, const IOOptions& io_opts,
                              std::shared_ptr<Logger>* result,
@@ -523,6 +547,13 @@ class FileSystem {
   // is a copy of the FileOptions in the parameters, but is optimized for
   // reading table files.
   virtual FileOptions OptimizeForCompactionTableRead(
+      const FileOptions& file_options,
+      const ImmutableDBOptions& db_options) const;
+
+  // OptimizeForBlobFileRead will create a new FileOptions object that
+  // is a copy of the FileOptions in the parameters, but is optimized for
+  // reading blob files.
+  virtual FileOptions OptimizeForBlobFileRead(
       const FileOptions& file_options,
       const ImmutableDBOptions& db_options) const;
 
@@ -725,7 +756,7 @@ class FSRandomAccessFile {
 };
 
 // A data structure brings the data verification information, which is
-// used togther with data being written to a file.
+// used together with data being written to a file.
 struct DataVerificationInfo {
   // checksum of the data being written.
   Slice checksum;
@@ -753,7 +784,7 @@ class FSWritableFile {
   virtual ~FSWritableFile() {}
 
   // Append data to the end of the file
-  // Note: A WriteabelFile object must support either Append or
+  // Note: A WriteableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   virtual IOStatus Append(const Slice& data, const IOOptions& options,
                           IODebugContext* dbg) = 0;
@@ -1264,6 +1295,11 @@ class FileSystemWrapper : public FileSystem {
       const FileOptions& file_options,
       const ImmutableDBOptions& db_options) const override {
     return target_->OptimizeForCompactionTableRead(file_options, db_options);
+  }
+  FileOptions OptimizeForBlobFileRead(
+      const FileOptions& file_options,
+      const ImmutableDBOptions& db_options) const override {
+    return target_->OptimizeForBlobFileRead(file_options, db_options);
   }
   IOStatus GetFreeSpace(const std::string& path, const IOOptions& options,
                         uint64_t* diskfree, IODebugContext* dbg) override {

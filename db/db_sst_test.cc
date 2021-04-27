@@ -561,6 +561,7 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFilesWithGC) {
   constexpr Slice* end = nullptr;
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), begin, end));
+  sfm->WaitForEmptyTrash();
 
   ASSERT_EQ(Get(first_key), first_value);
   ASSERT_EQ(Get(second_key), second_value);
@@ -593,6 +594,7 @@ TEST_F(DBSSTTest, DBWithSstFileManagerForBlobFilesWithGC) {
 
   Close();
   ASSERT_OK(DestroyDB(dbname_, options));
+  sfm->WaitForEmptyTrash();
   ASSERT_EQ(files_deleted, 5);
   ASSERT_EQ(files_scheduled_to_delete, 5);
 
@@ -751,10 +753,11 @@ TEST_F(DBSSTTest, RateLimitedWALDelete) {
 }
 
 class DBWALTestWithParam
-    : public DBSSTTest,
+    : public DBTestBase,
       public testing::WithParamInterface<std::tuple<std::string, bool>> {
  public:
-  DBWALTestWithParam() {
+  explicit DBWALTestWithParam()
+      : DBTestBase("/db_wal_test_with_params", /*env_do_fsync=*/true) {
     wal_dir_ = std::get<0>(GetParam());
     wal_dir_same_as_dbname_ = std::get<1>(GetParam());
   }

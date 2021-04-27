@@ -86,6 +86,7 @@ LIB_SOURCES =                                                   \
   env/env_posix.cc                                              \
   env/file_system.cc                                            \
   env/fs_posix.cc                                               \
+  env/fs_remap.cc                                               \
   env/file_system_tracer.cc                                     \
   env/io_posix.cc                                               \
   env/mock_env.cc                                               \
@@ -204,6 +205,7 @@ LIB_SOURCES =                                                   \
   util/compression_context_cache.cc                             \
   util/concurrent_task_limiter_impl.cc                          \
   util/crc32c.cc                                                \
+  util/crc32c_arm64.cc                                          \
   util/dynamic_bloom.cc                                         \
   util/hash.cc                                                  \
   util/murmurhash.cc                                            \
@@ -258,20 +260,6 @@ LIB_SOURCES =                                                   \
   utilities/transactions/lock/lock_manager.cc                   \
   utilities/transactions/lock/point/point_lock_tracker.cc       \
   utilities/transactions/lock/point/point_lock_manager.cc       \
-  utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc \
-  utilities/transactions/lock/range/range_tree/lib/locktree/keyrange.cc        \
-  utilities/transactions/lock/range/range_tree/lib/locktree/lock_request.cc    \
-  utilities/transactions/lock/range/range_tree/lib/locktree/locktree.cc        \
-  utilities/transactions/lock/range/range_tree/lib/locktree/manager.cc         \
-  utilities/transactions/lock/range/range_tree/lib/locktree/range_buffer.cc    \
-  utilities/transactions/lock/range/range_tree/lib/locktree/treenode.cc        \
-  utilities/transactions/lock/range/range_tree/lib/locktree/txnid_set.cc       \
-  utilities/transactions/lock/range/range_tree/lib/locktree/wfg.cc             \
-  utilities/transactions/lock/range/range_tree/lib/standalone_port.cc          \
-  utilities/transactions/lock/range/range_tree/lib/util/dbt.cc                 \
-  utilities/transactions/lock/range/range_tree/lib/util/memarena.cc            \
-  utilities/transactions/lock/range/range_tree/range_tree_lock_manager.cc      \
-  utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc      \
   utilities/transactions/optimistic_transaction.cc              \
   utilities/transactions/optimistic_transaction_db_impl.cc      \
   utilities/transactions/pessimistic_transaction.cc             \
@@ -288,11 +276,6 @@ LIB_SOURCES =                                                   \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
 
-ifeq ($(ARMCRC_SOURCE),1)
-LIB_SOURCES +=\
-  util/crc32c_arm64.cc
-endif
-
 ifeq (,$(shell $(CXX) -fsyntax-only -maltivec -xc /dev/null 2>&1))
 LIB_SOURCES_ASM =\
   util/crc32c_ppc_asm.S
@@ -302,6 +285,22 @@ else
 LIB_SOURCES_ASM =
 LIB_SOURCES_C =
 endif
+
+RANGE_TREE_SOURCES =\
+  utilities/transactions/lock/range/range_tree/lib/locktree/concurrent_tree.cc \
+  utilities/transactions/lock/range/range_tree/lib/locktree/keyrange.cc        \
+  utilities/transactions/lock/range/range_tree/lib/locktree/lock_request.cc    \
+  utilities/transactions/lock/range/range_tree/lib/locktree/locktree.cc        \
+  utilities/transactions/lock/range/range_tree/lib/locktree/manager.cc         \
+  utilities/transactions/lock/range/range_tree/lib/locktree/range_buffer.cc    \
+  utilities/transactions/lock/range/range_tree/lib/locktree/treenode.cc        \
+  utilities/transactions/lock/range/range_tree/lib/locktree/txnid_set.cc       \
+  utilities/transactions/lock/range/range_tree/lib/locktree/wfg.cc             \
+  utilities/transactions/lock/range/range_tree/lib/standalone_port.cc          \
+  utilities/transactions/lock/range/range_tree/lib/util/dbt.cc                 \
+  utilities/transactions/lock/range/range_tree/lib/util/memarena.cc            \
+  utilities/transactions/lock/range/range_tree/range_tree_lock_manager.cc      \
+  utilities/transactions/lock/range/range_tree/range_tree_lock_tracker.cc
 
 TOOL_LIB_SOURCES =                                              \
   tools/io_tracer_parser_tool.cc                                \
@@ -425,6 +424,7 @@ TEST_MAIN_SOURCES =                                                     \
   db/db_universal_compaction_test.cc                                    \
   db/db_wal_test.cc                                                     \
   db/db_with_timestamp_compaction_test.cc                               \
+  db/db_write_buffer_manager_test.cc                                    \
   db/db_write_test.cc                                                   \
   db/dbformat_test.cc                                                   \
   db/deletefile_test.cc                                                 \
@@ -433,7 +433,6 @@ TEST_MAIN_SOURCES =                                                     \
   db/external_sst_file_test.cc                                          \
   db/fault_injection_test.cc                                            \
   db/file_indexer_test.cc                                               \
-  db/file_reader_writer_test.cc                                         \
   db/filename_test.cc                                                   \
   db/flush_job_test.cc                                                  \
   db/listener_test.cc                                                   \

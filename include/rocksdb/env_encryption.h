@@ -73,7 +73,7 @@ class BlockCipher {
   //   - ROT13         Create a ROT13 Cipher
   //   - ROT13:nn      Create a ROT13 Cipher with block size of nn
   // @param result The new cipher object
-  // @return OK if the cipher was sucessfully created
+  // @return OK if the cipher was successfully created
   // @return NotFound if an invalid name was specified in the value
   // @return InvalidArgument if either the options were not valid
   static Status CreateFromString(const ConfigOptions& config_options,
@@ -118,7 +118,7 @@ class EncryptionProvider {
   //   - CTR         Create a CTR provider
   //   - test://CTR Create a CTR provider and initialize it for tests.
   // @param result The new provider object
-  // @return OK if the provider was sucessfully created
+  // @return OK if the provider was successfully created
   // @return NotFound if an invalid name was specified in the value
   // @return InvalidArgument if either the options were not valid
   static Status CreateFromString(const ConfigOptions& config_options,
@@ -365,6 +365,11 @@ class EncryptedWritableFile : public FSWritableFile {
   // pre-allocation.
   void PrepareWrite(size_t offset, size_t len, const IOOptions& options,
                     IODebugContext* dbg) override;
+
+  void SetPreallocationBlockSize(size_t size) override;
+
+  void GetPreallocationStatus(size_t* block_size,
+                              size_t* last_allocated_block) override;
 
   // Pre-allocates space for a file.
   IOStatus Allocate(uint64_t offset, uint64_t len, const IOOptions& options,

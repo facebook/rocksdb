@@ -73,6 +73,15 @@ TEST_F(DBRangeDelTest, FlushOutputHasOnlyRangeTombstones) {
   } while (ChangeOptions(kRangeDelSkipConfigs));
 }
 
+TEST_F(DBRangeDelTest, DictionaryCompressionWithOnlyRangeTombstones) {
+  Options opts = CurrentOptions();
+  opts.compression_opts.max_dict_bytes = 16384;
+  Reopen(opts);
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "dr1",
+                             "dr2"));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+}
+
 TEST_F(DBRangeDelTest, CompactionOutputHasOnlyRangeTombstone) {
   do {
     Options opts = CurrentOptions();

@@ -2793,11 +2793,9 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
       s = fs_->GetFileSize(fname, IOOptions(), &file_size, nullptr);
       ASSERT_OK(s);
       ASSERT_NE(0, file_size);
-      FileMetaData meta;
-      meta = FileMetaData(file_num, /*file_path_id=*/0, file_size, ikey, ikey,
-                          0, 0, false, 0, 0, 0, kUnknownFileChecksum,
-                          kUnknownFileChecksumFuncName);
-      file_metas->emplace_back(meta);
+      file_metas->emplace_back(file_num, /*file_path_id=*/0, file_size, ikey,
+                               ikey, 0, 0, false, 0, 0, 0, kUnknownFileChecksum,
+                               kUnknownFileChecksumFuncName);
     }
   }
 

@@ -146,10 +146,11 @@ void DumpSupportInfo(Logger* logger) {
 }  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
-               const bool seq_per_batch, const bool batch_per_txn)
+               const bool seq_per_batch, const bool batch_per_txn,
+               bool read_only)
     : dbname_(dbname),
       own_info_log_(options.info_log == nullptr),
-      initial_db_options_(SanitizeOptions(dbname, options)),
+      initial_db_options_(SanitizeOptions(dbname, options, read_only)),
       env_(initial_db_options_.env),
       io_tracer_(std::make_shared<IOTracer>()),
       immutable_db_options_(initial_db_options_),
@@ -159,14 +160,17 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       mutex_(stats_, immutable_db_options_.clock, DB_MUTEX_WAIT_MICROS,
              immutable_db_options_.use_adaptive_mutex),
       default_cf_handle_(nullptr),
+      error_handler_(this, immutable_db_options_, &mutex_),
+      event_logger_(immutable_db_options_.info_log.get()),
       max_total_in_memory_state_(0),
       file_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
       file_options_for_compaction_(fs_->OptimizeForCompactionTableWrite(
           file_options_, immutable_db_options_)),
       seq_per_batch_(seq_per_batch),
       batch_per_txn_(batch_per_txn),
-      db_lock_(nullptr),
+      next_job_id_(1),
       shutting_down_(false),
+      db_lock_(nullptr),
       manual_compaction_paused_(false),
       bg_cv_(&mutex_),
       logfile_number_(0),
@@ -193,7 +197,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       pending_purge_obsolete_files_(0),
       delete_obsolete_files_last_run_(immutable_db_options_.clock->NowMicros()),
       last_stats_dump_time_microsec_(0),
-      next_job_id_(1),
       has_unpersisted_data_(false),
       unable_to_release_oldest_log_(false),
       num_running_ingest_file_(0),
@@ -201,7 +204,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       wal_manager_(immutable_db_options_, file_options_, io_tracer_,
                    seq_per_batch),
 #endif  // ROCKSDB_LITE
-      event_logger_(immutable_db_options_.info_log.get()),
       bg_work_paused_(0),
       bg_compaction_paused_(0),
       refitting_level_(false),
@@ -230,7 +232,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
       own_sfm_(options.sst_file_manager == nullptr),
       preserve_deletes_(options.preserve_deletes),
       closed_(false),
-      error_handler_(this, immutable_db_options_, &mutex_),
       atomic_flush_install_cv_(&mutex_),
       blob_callback_(immutable_db_options_.sst_file_manager.get(), &mutex_,
                      &error_handler_) {
@@ -269,6 +270,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname,
   // we won't drop any deletion markers until SetPreserveDeletesSequenceNumber()
   // is called by client and this seqnum is advanced.
   preserve_deletes_seqnum_.store(0);
+
+  if (write_buffer_manager_) {
+    wbm_stall_.reset(new WBMStallInterface());
+  }
 }
 
 Status DBImpl::Resume() {
@@ -522,15 +527,11 @@ Status DBImpl::CloseHelper() {
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
   CancelAllBackgroundWork(false);
-  int bottom_compactions_unscheduled =
-      env_->UnSchedule(this, Env::Priority::BOTTOM);
-  int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
-  int flushes_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);
-  Status ret = Status::OK();
   mutex_.Lock();
-  bg_bottom_compaction_scheduled_ -= bottom_compactions_unscheduled;
-  bg_compaction_scheduled_ -= compactions_unscheduled;
-  bg_flush_scheduled_ -= flushes_unscheduled;
+  env_->UnSchedule(this, Env::Priority::BOTTOM);
+  env_->UnSchedule(this, Env::Priority::LOW);
+  env_->UnSchedule(this, Env::Priority::HIGH);
+  Status ret = Status::OK();
 
   // Wait for background work to finish
   while (bg_bottom_compaction_scheduled_ || bg_compaction_scheduled_ ||
@@ -663,6 +664,10 @@ Status DBImpl::CloseHelper() {
     }
   }
 
+  if (write_buffer_manager_ && wbm_stall_) {
+    write_buffer_manager_->RemoveDBFromQueue(wbm_stall_.get());
+  }
+
   if (ret.IsAborted()) {
     // Reserve IsAborted() error for those where users didn't release
     // certain resource and they can release them and come back and
@@ -692,8 +697,8 @@ void DBImpl::MaybeIgnoreError(Status* s) const {
 }
 
 const Status DBImpl::CreateArchivalDirectory() {
-  if (immutable_db_options_.wal_ttl_seconds > 0 ||
-      immutable_db_options_.wal_size_limit_mb > 0) {
+  if (immutable_db_options_.WAL_ttl_seconds > 0 ||
+      immutable_db_options_.WAL_size_limit_MB > 0) {
     std::string archivalPath = ArchivalDirectory(immutable_db_options_.wal_dir);
     return env_->CreateDirIfMissing(archivalPath);
   }
@@ -3149,7 +3154,7 @@ SystemClock* DBImpl::GetSystemClock() const {
 
 #ifndef ROCKSDB_LITE
 
-Status DBImpl::StartIOTrace(Env* /*env*/, const TraceOptions& trace_options,
+Status DBImpl::StartIOTrace(const TraceOptions& trace_options,
                             std::unique_ptr<TraceWriter>&& trace_writer) {
   assert(trace_writer != nullptr);
   return io_tracer_->StartIOTrace(GetSystemClock(), trace_options,

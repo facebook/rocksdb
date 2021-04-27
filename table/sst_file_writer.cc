@@ -99,7 +99,8 @@ struct SstFileWriter::Rep {
     file_info.largest_key.assign(user_key.data(), user_key.size());
     file_info.file_size = builder->FileSize();
 
-    return InvalidatePageCache(false /* closing */);
+    InvalidatePageCache(false /* closing */).PermitUncheckedError();
+    return Status::OK();
   }
 
   Status DeleteRange(const Slice& begin_key, const Slice& end_key) {
@@ -133,7 +134,8 @@ struct SstFileWriter::Rep {
     file_info.num_range_del_entries++;
     file_info.file_size = builder->FileSize();
 
-    return InvalidatePageCache(false /* closing */);
+    InvalidatePageCache(false /* closing */).PermitUncheckedError();
+    return Status::OK();
   }
 
   Status InvalidatePageCache(bool closing) {
@@ -258,7 +260,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
   r->file_writer.reset(new WritableFileWriter(
       std::move(sst_file), file_path, r->env_options, r->ioptions.clock,
       nullptr /* io_tracer */, nullptr /* stats */, r->ioptions.listeners,
-      r->ioptions.file_checksum_gen_factory,
+      r->ioptions.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile)));
 
   // TODO(tec) : If table_factory is using compressed block cache, we will
@@ -308,9 +310,7 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
 
   if (s.ok()) {
     s = r->file_writer->Sync(r->ioptions.use_fsync);
-    if (s.ok()) {
-      s = r->InvalidatePageCache(true /* closing */);
-    }
+    r->InvalidatePageCache(true /* closing */).PermitUncheckedError();
     if (s.ok()) {
       s = r->file_writer->Close();
     }

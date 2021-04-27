@@ -1801,19 +1801,8 @@ TEST_P(DBWALTestWithParamsVaryingRecoveryMode,
 // avoid_flush_during_recovery=true.
 // Flush should trigger if max_total_wal_size is reached.
 TEST_F(DBWALTest, RestoreTotalLogSizeAfterRecoverWithoutFlush) {
-  class TestFlushListener : public EventListener {
-   public:
-    std::atomic<int> count{0};
-
-    TestFlushListener() = default;
-
-    void OnFlushBegin(DB* /*db*/, const FlushJobInfo& flush_job_info) override {
-      count++;
-      ASSERT_EQ(FlushReason::kWriteBufferManager, flush_job_info.flush_reason);
-    }
-  };
-  std::shared_ptr<TestFlushListener> test_listener =
-      std::make_shared<TestFlushListener>();
+  auto test_listener = std::make_shared<FlushCounterListener>();
+  test_listener->expected_flush_reason = FlushReason::kWalFull;
 
   constexpr size_t kKB = 1024;
   constexpr size_t kMB = 1024 * 1024;

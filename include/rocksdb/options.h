@@ -836,7 +836,7 @@ struct DBOptions {
   // Allows OS to incrementally sync files to disk while they are being
   // written, asynchronously, in the background. This operation can be used
   // to smooth out write I/Os over time. Users shouldn't rely on it for
-  // persistency guarantee.
+  // persistence guarantee.
   // Issue one request for every bytes_per_sync written. 0 turns it off.
   //
   // You may consider using rate_limiter to regulate write rate to device.
@@ -1190,7 +1190,7 @@ struct DBOptions {
   // writing a file, by tracing back to the writing host. These corruptions
   // may not be caught by the checksum since they happen before checksumming.
   // If left as default, the table writer will substitute it with the actual
-  // hostname when writing the SST file. If set to an empty stirng, the
+  // hostname when writing the SST file. If set to an empty string, the
   // property will not be written to the SST file.
   //
   // Default: hostname
@@ -1279,7 +1279,7 @@ struct ReadOptions {
   // Default: nullptr
   const Slice* iterate_lower_bound;
 
-  // "iterate_upper_bound" defines the extent upto which the forward iterator
+  // "iterate_upper_bound" defines the extent up to which the forward iterator
   // can returns entries. Once the bound is reached, Valid() will be false.
   // "iterate_upper_bound" is exclusive ie the bound value is
   // not a valid entry. If prefix_extractor is not null, the Seek target
@@ -1291,7 +1291,7 @@ struct ReadOptions {
 
   // RocksDB does auto-readahead for iterators on noticing more than two reads
   // for a table file. The readahead starts at 8KB and doubles on every
-  // additional read upto 256KB.
+  // additional read up to 256KB.
   // This option can help if most of the range scans are large, and if it is
   // determined that a larger readahead than that enabled by auto-readahead is
   // needed.
@@ -1349,7 +1349,7 @@ struct ReadOptions {
   // When true, by default use total_order_seek = true, and RocksDB can
   // selectively enable prefix seek mode if won't generate a different result
   // from total_order_seek, based on seek key, and iterator upper bound.
-  // Not suppported in ROCKSDB_LITE mode, in the way that even with value true
+  // Not supported in ROCKSDB_LITE mode, in the way that even with value true
   // prefix mode is not used.
   // Default: false
   bool auto_prefix_mode;
@@ -1425,7 +1425,7 @@ struct ReadOptions {
   // A timeout in microseconds to be passed to the underlying FileSystem for
   // reads. As opposed to deadline, this determines the timeout for each
   // individual file read request. If a MultiGet/Get/Seek/Next etc call
-  // results in multiple reads, each read can last upto io_timeout us.
+  // results in multiple reads, each read can last up to io_timeout us.
   std::chrono::microseconds io_timeout;
 
   // It limits the maximum cumulative value size of the keys in batch while
@@ -1479,7 +1479,7 @@ struct WriteOptions {
   bool no_slowdown;
 
   // If true, this write request is of lower priority if compaction is
-  // behind. In this case, no_slowdown = true, the request will be cancelled
+  // behind. In this case, no_slowdown = true, the request will be canceled
   // immediately with Status::Incomplete() returned. Otherwise, it will be
   // slowed down. The slowdown value is determined by RocksDB to guarantee
   // it introduces minimum impacts to high priority writes.
@@ -1616,7 +1616,7 @@ struct IngestExternalFileOptions {
   bool allow_blocking_flush = true;
   // Set to true if you would like duplicate keys in the file being ingested
   // to be skipped rather than overwriting existing data under that key.
-  // Usecase: back-fill of some historical data in the database without
+  // Use case: back-fill of some historical data in the database without
   // over-writing existing newer version of data.
   // This option could only be used if the DB has been running
   // with allow_ingest_behind=true since the dawn of time.
@@ -1656,7 +1656,7 @@ struct IngestExternalFileOptions {
   // will be ignored; 2) If DB enable the checksum function, we calculate the
   // sst file checksum after the file is moved or copied and compare the
   // checksum and checksum name. If checksum or checksum function name does
-  // not match, ingestion will be failed. If the verification is sucessful,
+  // not match, ingestion will be failed. If the verification is successful,
   // checksum and checksum function name will be stored in Manifest.
   // If this option is set to FALSE, 1) if DB does not enable checksum,
   // the ingested checksum information will be ignored; 2) if DB enable the
