@@ -94,7 +94,14 @@ IOStatus TestFSDirectory::Fsync(const IOOptions& options, IODebugContext* dbg) {
     }
   }
   fs_->SyncDir(dirname_);
-  return dir_->Fsync(options, dbg);
+  IOStatus s = dir_->Fsync(options, dbg);
+  {
+    IOStatus in_s = fs_->InjectMetadataWriteError();
+    if (!in_s.ok()) {
+      return in_s;
+    }
+  }
+  return s;
 }
 
 TestFSWritableFile::TestFSWritableFile(const std::string& fname,
