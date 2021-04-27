@@ -40,6 +40,7 @@
 #include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/utilities/memory_util.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksdb/utilities/table_properties_collectors.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
@@ -84,6 +85,7 @@ using ROCKSDB_NAMESPACE::MemoryAllocator;
 using ROCKSDB_NAMESPACE::MemoryUtil;
 using ROCKSDB_NAMESPACE::MergeOperator;
 using ROCKSDB_NAMESPACE::NewBloomFilterPolicy;
+using ROCKSDB_NAMESPACE::NewCompactOnDeletionCollectorFactory;
 using ROCKSDB_NAMESPACE::NewGenericRateLimiter;
 using ROCKSDB_NAMESPACE::NewLRUCache;
 using ROCKSDB_NAMESPACE::OptimisticTransactionDB;
@@ -104,6 +106,7 @@ using ROCKSDB_NAMESPACE::SliceTransform;
 using ROCKSDB_NAMESPACE::Snapshot;
 using ROCKSDB_NAMESPACE::SstFileWriter;
 using ROCKSDB_NAMESPACE::Status;
+using ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory;
 using ROCKSDB_NAMESPACE::Transaction;
 using ROCKSDB_NAMESPACE::TransactionDB;
 using ROCKSDB_NAMESPACE::TransactionDBOptions;
@@ -3495,6 +3498,14 @@ void rocksdb_options_set_row_cache(rocksdb_options_t* opt, rocksdb_cache_t* cach
   if(cache) {
     opt->rep.row_cache = cache->rep;
   }
+}
+
+void rocksdb_options_add_compact_on_deletion_collector_factory(
+    rocksdb_options_t* opt, size_t window_size, size_t num_dels_trigger) {
+  std::shared_ptr<ROCKSDB_NAMESPACE::TablePropertiesCollectorFactory>
+      compact_on_del =
+          NewCompactOnDeletionCollectorFactory(window_size, num_dels_trigger);
+  opt->rep.table_properties_collector_factories.emplace_back(compact_on_del);
 }
 
 void rocksdb_set_perf_level(int v) {

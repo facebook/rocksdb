@@ -517,6 +517,9 @@ int main(int argc, char** argv) {
   coptions = rocksdb_compactoptions_create();
   rocksdb_compactoptions_set_exclusive_manual_compaction(coptions, 1);
 
+  rocksdb_options_add_compact_on_deletion_collector_factory(options, 10000,
+                                                            10001);
+
   StartPhase("destroy");
   rocksdb_destroy_db(options, dbname, &err);
   Free(&err);
