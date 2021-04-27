@@ -42,16 +42,16 @@ void BlockPrefetcher::PrefetchIfNeeded(const BlockBasedTable::Rep* rep,
   // If FS supports prefetching (readahead_limit_ will be non zero in that case)
   // and current block exists in prefetch buffer then return.
   if (offset + len <= readahead_limit_) {
-    UpdatePrevBlock(offset, len);
+    UpdateReadPattern(offset, len);
     return;
   }
 
   if (!IsBlockSequential(offset)) {
-    UpdatePrevBlock(offset, len);
+    UpdateReadPattern(offset, len);
     ResetValues();
     return;
   }
-  UpdatePrevBlock(offset, len);
+  UpdateReadPattern(offset, len);
 
   // Implicit auto readahead, which will be enabled if the number of reads
   // reached `kMinNumFileReadsToStartAutoReadahead` (default: 2)  and scans are

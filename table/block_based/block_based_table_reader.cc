@@ -1485,7 +1485,11 @@ Status BlockBasedTable::MaybeReadBlockAndLoadToCache(
         // compressed block cache.
         is_cache_hit = true;
         if (prefetch_buffer) {
-          prefetch_buffer->UpdatePrevBlock(handle.offset(), block_size(handle));
+          // Update the block details so that PrefetchBuffer can use the read
+          // pattern to determine if reads are sequential or not for
+          // prefetching. It should also take in account blocks read from cache.
+          prefetch_buffer->UpdateReadPattern(handle.offset(),
+                                             block_size(handle));
         }
       }
     }

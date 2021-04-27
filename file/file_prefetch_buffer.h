@@ -90,14 +90,13 @@ class FilePrefetchBuffer {
   // tracked if track_min_offset = true.
   size_t min_offset_read() const { return min_offset_read_; }
 
-  void UpdatePrevBlock(const size_t& offset, const size_t& len) {
+  void UpdateReadPattern(const size_t& offset, const size_t& len) {
     prev_offset_ = offset;
     prev_len_ = len;
   }
 
   bool IsBlockSequential(const size_t& offset) {
-    return (prev_len_ == 0 ||
-            (prev_offset_ < offset && prev_offset_ + prev_len_ == offset));
+    return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
   }
 
   void ResetValues() {

@@ -19,14 +19,13 @@ class BlockPrefetcher {
                         bool is_for_compaction);
   FilePrefetchBuffer* prefetch_buffer() { return prefetch_buffer_.get(); }
 
-  void UpdatePrevBlock(const size_t& offset, const size_t& len) {
+  void UpdateReadPattern(const size_t& offset, const size_t& len) {
     prev_offset_ = offset;
     prev_len_ = len;
   }
 
   bool IsBlockSequential(const size_t& offset) {
-    return (prev_len_ == 0 ||
-            (prev_offset_ < offset && prev_offset_ + prev_len_ == offset));
+    return (prev_len_ == 0 || (prev_offset_ + prev_len_ == offset));
   }
 
   void ResetValues() {

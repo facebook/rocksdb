@@ -135,7 +135,7 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
           // Prefetch only if this read is sequential otherwise reset
           // readahead_size_ to initial value.
           if (!IsBlockSequential(offset)) {
-            UpdatePrevBlock(offset, n);
+            UpdateReadPattern(offset, n);
             ResetValues();
             // Ignore status as Prefetch is not called.
             s.PermitUncheckedError();
@@ -143,7 +143,7 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
           }
           num_file_reads_++;
           if (num_file_reads_ <= kMinNumFileReadsToStartAutoReadahead) {
-            UpdatePrevBlock(offset, n);
+            UpdateReadPattern(offset, n);
             // Ignore status as Prefetch is not called.
             s.PermitUncheckedError();
             return false;
@@ -166,7 +166,7 @@ bool FilePrefetchBuffer::TryReadFromCache(const IOOptions& opts,
       return false;
     }
   }
-  UpdatePrevBlock(offset, n);
+  UpdateReadPattern(offset, n);
   uint64_t offset_in_buffer = offset - buffer_offset_;
   *result = Slice(buffer_.BufferStart() + offset_in_buffer, n);
   return true;

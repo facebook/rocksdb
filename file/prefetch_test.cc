@@ -391,7 +391,7 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
      * Reseek keys from sequential Data Blocks within same partitioned
      * index. After 2 sequential reads it will prefetch the data block.
      * Data Block size is nearly 4076 so readahead will fetch 8 * 1024 data more
-     * intially (2 more data blocks).
+     * initially (2 more data blocks).
      */
     iter->Seek(BuildKey(0));
     iter->Seek(BuildKey(1000));
@@ -459,8 +459,9 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
     iter->Seek(BuildKey(1000));
     iter->Seek(BuildKey(1004));  // This iteration will prefetch buffer
     iter->Seek(BuildKey(1008));
-    iter->Seek(BuildKey(996));  // Reseek won't prefetch any data and
-                                // readahead_size will be intiallized to 8*1024.
+    iter->Seek(
+        BuildKey(996));  // Reseek won't prefetch any data and
+                         // readahead_size will be initiallized to 8*1024.
     iter->Seek(BuildKey(992));
     iter->Seek(BuildKey(989));
     if (support_prefetch && !use_direct_io) {
@@ -471,7 +472,7 @@ TEST_P(PrefetchTest, PrefetchWhenReseek) {
       buff_prefetch_count = 0;
     }
 
-    // Read sequentially to confirm readahead_size is reset to intial value (2
+    // Read sequentially to confirm readahead_size is reset to initial value (2
     // more data blocks)
     iter->Seek(BuildKey(1011));
     iter->Seek(BuildKey(1015));
@@ -620,7 +621,7 @@ TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
      * Reseek keys from sequential Data Blocks within same partitioned
      * index. After 2 sequential reads it will prefetch the data block.
      * Data Block size is nearly 4076 so readahead will fetch 8 * 1024 data more
-     * intially (2 more data blocks).
+     * initially (2 more data blocks).
      */
     auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
     // Warm up the cache
