@@ -55,7 +55,8 @@ void BaseDeltaIterator::SeekToLast() {
       if (base_iterator_->Valid()) {
         base_iterator_->Prev();  // upper bound should be exclusive!
       } else {
-        // the base_upper_bound is beyond the base_iterator, so just SeekToLast()
+        // the base_upper_bound is beyond the base_iterator, so just
+        // SeekToLast()
         base_iterator_->SeekToLast();
       }
     } else {
@@ -68,9 +69,8 @@ void BaseDeltaIterator::SeekToLast() {
   }
 
   // is there an upper bound constraint on delta_iterator_?
-  if (read_options_ != nullptr
-      && read_options_->iterate_upper_bound != nullptr) {
-
+  if (read_options_ != nullptr &&
+      read_options_->iterate_upper_bound != nullptr) {
     // delta iterator does not itself support iterate_upper_bound,
     // so we have to seek it to before iterate_upper_bound
     delta_iterator_->Seek(*(read_options_->iterate_upper_bound));
@@ -127,7 +127,6 @@ void BaseDeltaIterator::Next() {
         delta_iterator_->SeekToFirst();
       }
     } else {
-
       progress_ = Progress::FORWARD;
       if (current_at_base_) {
         // Change delta from larger than base to smaller
@@ -139,7 +138,7 @@ void BaseDeltaIterator::Next() {
 
       if (DeltaValid() && BaseValid()) {
         if (comparator_->Equal(delta_iterator_->Entry().key,
-                              base_iterator_->key())) {
+                               base_iterator_->key())) {
           equal_keys_ = true;
         }
       }
@@ -176,16 +175,15 @@ void BaseDeltaIterator::Prev() {
         delta_iterator_->SeekToLast();
       }
     } else {
-
       progress_ = Progress::BACKWARD;
 
       if (current_at_base_) {
-          // Change delta from less advanced than base to more advanced
-          AdvanceDelta();
-        } else {
-          // Change base from less advanced than delta to more advanced
-          AdvanceBase();
-        }
+        // Change delta from less advanced than base to more advanced
+        AdvanceDelta();
+      } else {
+        // Change base from less advanced than delta to more advanced
+        AdvanceBase();
+      }
     }
 
     if (DeltaValid() && BaseValid()) {
@@ -322,12 +320,11 @@ bool BaseDeltaIterator::BaseValid() const {
   // base_iterator if the base iterator has an
   // upper_bounds_check already
   return base_iterator_->Valid() &&
-      (base_iterator_->ChecksUpperBound() ? true : BaseIsWithinBounds());
+         (base_iterator_->ChecksUpperBound() ? true : BaseIsWithinBounds());
 }
 
 bool BaseDeltaIterator::DeltaValid() const {
-  return delta_iterator_->Valid() &&
-      DeltaIsWithinBounds();
+  return delta_iterator_->Valid() && DeltaIsWithinBounds();
 }
 
 void BaseDeltaIterator::UpdateCurrent() {
@@ -360,8 +357,10 @@ void BaseDeltaIterator::UpdateCurrent() {
         return;
       }
 
-      if (read_options_ != nullptr && read_options_->iterate_upper_bound != nullptr) {
-        if (comparator_->Compare(delta_entry.key, *(read_options_->iterate_upper_bound)) >= 0) {
+      if (read_options_ != nullptr &&
+          read_options_->iterate_upper_bound != nullptr) {
+        if (comparator_->Compare(delta_entry.key,
+                                 *(read_options_->iterate_upper_bound)) >= 0) {
           // out of upper bound -> finished.
           return;
         }
@@ -380,7 +379,6 @@ void BaseDeltaIterator::UpdateCurrent() {
       return;
 
     } else {
-
       // Base and Delta are both unfinished
 
       int compare =
@@ -433,7 +431,7 @@ bool BaseDeltaIterator::BaseIsWithinBounds() const {
   if (IsMovingBackward()) {
     const Slice* lower = base_iterator_lower_bound();
     if (lower != nullptr) {
-        return comparator_->Compare(base_iterator_->key(), *lower) >= 0;
+      return comparator_->Compare(base_iterator_->key(), *lower) >= 0;
     }
   }
 
@@ -451,12 +449,12 @@ bool BaseDeltaIterator::DeltaIsWithinBounds() const {
   if (read_options_ != nullptr) {
     if (IsMovingBackward() && read_options_->iterate_lower_bound != nullptr) {
       return comparator_->Compare(delta_iterator_->Entry().key,
-          *(read_options_->iterate_lower_bound)) >= 0;
+                                  *(read_options_->iterate_lower_bound)) >= 0;
     }
 
     if (IsMovingForward() && read_options_->iterate_upper_bound != nullptr) {
       return comparator_->Compare(delta_iterator_->Entry().key,
-          *(read_options_->iterate_upper_bound)) < 0;
+                                  *(read_options_->iterate_upper_bound)) < 0;
     }
   }
   return true;

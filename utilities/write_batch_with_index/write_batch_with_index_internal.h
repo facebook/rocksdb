@@ -86,13 +86,9 @@ class BaseDeltaIterator : public Iterator {
   bool BaseIsWithinBounds() const;
   bool DeltaIsWithinBounds() const;
 
-  inline bool IsMovingForward() const {
-    return progress_ < Progress::BACKWARD;
-  }
+  inline bool IsMovingForward() const { return progress_ < Progress::BACKWARD; }
 
-  inline bool IsMovingBackward() const {
-    return progress_ > Progress::FORWARD;
-  }
+  inline bool IsMovingBackward() const { return progress_ > Progress::FORWARD; }
 
   /**
    * Indicates the progression of the BaseDeltaIterator.
