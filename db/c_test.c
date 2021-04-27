@@ -1279,6 +1279,9 @@ int main(int argc, char** argv) {
     CheckPinGetCF(db, roptions, handles[1], "box", "c");
     rocksdb_writebatch_destroy(wb);
 
+    rocksdb_flush_wal(db, 1, &err);
+    CheckNoError(err);
+
     const char* keys[3] = { "box", "box", "barfooxx" };
     const rocksdb_column_family_handle_t* get_handles[3] = { handles[0], handles[1], handles[1] };
     const size_t keys_sizes[3] = { 3, 3, 8 };
@@ -1761,6 +1764,9 @@ int main(int argc, char** argv) {
 
     rocksdb_options_set_atomic_flush(o, 1);
     CheckCondition(1 == rocksdb_options_get_atomic_flush(o));
+
+    rocksdb_options_set_manual_wal_flush(o, 1);
+    CheckCondition(1 == rocksdb_options_get_manual_wal_flush(o));
 
     /* Blob Options */
     rocksdb_options_set_enable_blob_files(o, 1);

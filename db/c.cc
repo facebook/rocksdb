@@ -1512,6 +1512,10 @@ void rocksdb_flush_cf(
   SaveError(errptr, db->rep->Flush(options->rep, column_family->rep));
 }
 
+void rocksdb_flush_wal(rocksdb_t* db, unsigned char sync, char** errptr) {
+  SaveError(errptr, db->rep->FlushWAL(sync));
+}
+
 void rocksdb_disable_file_deletions(
     rocksdb_t* db,
     char** errptr) {
@@ -3477,6 +3481,15 @@ void rocksdb_options_set_atomic_flush(rocksdb_options_t* opt,
 
 unsigned char rocksdb_options_get_atomic_flush(rocksdb_options_t* opt) {
   return opt->rep.atomic_flush;
+}
+
+void rocksdb_options_set_manual_wal_flush(rocksdb_options_t* opt,
+                                          unsigned char manual_wal_flush) {
+  opt->rep.manual_wal_flush = manual_wal_flush;
+}
+
+unsigned char rocksdb_options_get_manual_wal_flush(rocksdb_options_t* opt) {
+  return opt->rep.manual_wal_flush;
 }
 
 rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
