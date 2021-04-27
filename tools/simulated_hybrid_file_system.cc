@@ -22,7 +22,7 @@ const int64_t kDummyBytesPerRequest = 1024 * 1024;
 // warm
 SimulatedHybridFileSystem::SimulatedHybridFileSystem(
     const std::shared_ptr<FileSystem>& base,
-    const std::string metadata_file_name)
+    const std::string& metadata_file_name)
     : FileSystemWrapper(base),
       // Limit to 100 requests per second.
       rate_limiter_(NewGenericRateLimiter(

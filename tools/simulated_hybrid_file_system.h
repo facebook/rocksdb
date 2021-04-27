@@ -29,7 +29,7 @@ class SimulatedHybridFileSystem : public FileSystemWrapper {
   // loaded after process restarts. If the file doesn't exist, create
   // one. The file is written when the class is destroyed.
   explicit SimulatedHybridFileSystem(const std::shared_ptr<FileSystem>& base,
-                                     const std::string metadata_file_name);
+                                     const std::string& metadata_file_name);
 
   ~SimulatedHybridFileSystem() override;
 
