@@ -188,6 +188,67 @@ TEST_F(SkipTest, RemoveTest) {
   ASSERT_FALSE(iter.Valid());
 }
 
+TEST_F(SkipTest, InsertOptimizationBreaksRemove) {
+  Arena arena;
+  TestComparator cmp;
+  SkipList<Key, TestComparator> list(cmp, &arena);
+
+  list.Insert(101);
+  {
+    SkipList<Key, TestComparator>::Iterator iter(&list);
+    iter.SeekToFirst();
+    ASSERT_TRUE(iter.Valid());
+    iter.Remove();
+  }
+  list.Insert(201);
+  {
+    SkipList<Key, TestComparator>::Iterator iter(&list);
+    iter.SeekToFirst();
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(201, iter.key());
+  }
+
+  auto counts = list.GetInsertCounts();
+  ASSERT_EQ(1, counts.fast);
+  ASSERT_EQ(1, counts.slow);
+}
+
+TEST_F(SkipTest, InsertOptimizationAndRemove) {
+  Arena arena;
+  TestComparator cmp;
+  SkipList<Key, TestComparator> list(cmp, &arena);
+
+  for (int i = 0; i < 100000; i += 10) {
+    list.Insert(i);
+  }
+  auto counts = list.GetInsertCounts();
+  ASSERT_EQ(10000, counts.fast);
+  ASSERT_EQ(0, counts.slow);
+
+  SkipList<Key, TestComparator>::Iterator iter(&list);
+  iter.SeekToFirst();
+  for (int i = 0; i < 5000; i++) {
+    ASSERT_TRUE(iter.Valid());
+    iter.Remove();
+  }
+
+  for (int i = 0; i < 50000; i += 10) {
+    list.Insert(i);
+  }
+  counts = list.GetInsertCounts();
+  ASSERT_EQ(14999, counts.fast);
+  ASSERT_EQ(1, counts.slow);
+
+  for (int i = 50000; i < 100000; i += 10) {
+    for (int j = 1; j < 10; j++) {
+      list.Insert(i + j);
+    }
+  }
+  counts = list.GetInsertCounts();
+  ASSERT_EQ(54999, counts.fast);
+  ASSERT_EQ(5001, counts.slow);
+}
+
 TEST_F(SkipTest, BulkRemoveTest) {
   const int32_t LIMIT = 1000000;
 
@@ -247,6 +308,12 @@ TEST_F(SkipTest, BulkRemoveTest) {
     // Check there's nothing when we try again
     iter->SeekToFirst();
     ASSERT_FALSE(iter->Valid());
+
+    // Probabilistic based on the random number generator,
+    // but highly unlikely to be outside range
+    auto counts = list.GetInsertCounts();
+    ASSERT_TRUE(counts.fast > 5 && counts.fast < 50);
+    ASSERT_TRUE(counts.slow > 500000 && counts.slow < 1000000);
   }
 }
 

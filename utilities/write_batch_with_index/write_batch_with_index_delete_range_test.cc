@@ -77,7 +77,7 @@ struct TestHandler : public WriteBatch::Handler {
 };
 }  // namespace
 
-class WriteBatchWithIndexTest : public testing::Test {};
+class WriteBatchWithIndexDeleteRangeTest : public testing::Test {};
 
 namespace {
 typedef std::map<std::string, std::string> KVMap;
@@ -131,7 +131,8 @@ void AssertValue(std::string value, WBWIIterator* iter) {
   ASSERT_EQ(value, iter->Entry().value.ToString());
 }
 
-TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchUnsupportedOption) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest,
+       DeleteRangeTestBatchUnsupportedOption) {
   WriteBatchWithIndex batch(BytewiseComparator(), 20, false);
   Status s;
   std::string value;
@@ -146,7 +147,7 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchUnsupportedOption) {
   ASSERT_TRUE(s.IsNotSupported());
 }
 
-TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatch) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteSingleRange) {
   WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
   Status s;
   std::string value;
@@ -193,14 +194,14 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatch) {
   ASSERT_TRUE(s.IsNotFound());
 }
 
-TEST_F(WriteBatchWithIndexTest, PutDeleteRangePutAgainTest) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, PutDeleteRangePutAgain) {
   WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
   Status s;
   std::string value;
   DBOptions db_options;
 
   //
-  // Test for a deleted flag being properly cleared on subsequent Put
+  // Test for a deleted value being properly set by subsequent Put
   //
 
   ASSERT_OK(batch.Put("C", "c0"));
@@ -216,7 +217,104 @@ TEST_F(WriteBatchWithIndexTest, PutDeleteRangePutAgainTest) {
   ASSERT_EQ("c1", value);
 }
 
-TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchAndDB) {
+static void PrintContents(WriteBatchWithIndex* batch,
+                          ColumnFamilyHandle* column_family,
+                          std::string* result) {
+  WBWIIterator* iter;
+  if (column_family == nullptr) {
+    iter = batch->NewIterator();
+  } else {
+    iter = batch->NewIterator(column_family);
+  }
+
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    ASSERT_OK(iter->status());
+
+    WriteEntry e = iter->Entry();
+
+    if (e.type == kPutRecord) {
+      result->append("PUT(");
+      result->append(e.key.ToString());
+      result->append("):");
+      result->append(e.value.ToString());
+    } else if (e.type == kMergeRecord) {
+      result->append("MERGE(");
+      result->append(e.key.ToString());
+      result->append("):");
+      result->append(e.value.ToString());
+    } else if (e.type == kSingleDeleteRecord) {
+      result->append("SINGLE-DEL(");
+      result->append(e.key.ToString());
+      result->append(")");
+    } else {
+      assert(e.type == kDeleteRecord);
+      result->append("DEL(");
+      result->append(e.key.ToString());
+      result->append(")");
+    }
+
+    result->append(",");
+    iter->Next();
+  }
+
+  ASSERT_OK(iter->status());
+
+  delete iter;
+}
+
+static std::string PrintContents(WriteBatchWithIndex* batch,
+                                 ColumnFamilyHandle* column_family) {
+  std::string result;
+  PrintContents(batch, column_family, &result);
+  return result;
+}
+
+TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteDeleteRangeInteraction) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+  Status s;
+  std::string value;
+  DBOptions db_options;
+
+  //
+  // Test mixing delete and delete range
+  //
+
+  std::string contents;
+  ASSERT_OK(batch.Put("C", "c0"));
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c0", value);
+  contents = PrintContents(&batch, nullptr);
+  ASSERT_OK(batch.DeleteRange("A", "M"));
+  contents = PrintContents(&batch, nullptr);
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_OK(batch.Put("E", "e1"));
+  contents = PrintContents(&batch, nullptr);
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e1", value);
+  ASSERT_OK(batch.Delete("C"));
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e1", value);
+  ASSERT_OK(batch.Delete("E"));
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_OK(batch.Put("E", "e2"));
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e2", value);
+  ASSERT_OK(batch.Put("C", "c2"));
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c2", value);
+}
+
+TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDB) {
   DB* db;
   Options options;
 
@@ -276,7 +374,7 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchAndDB) {
   ASSERT_TRUE(s.IsNotFound());
 }
 
-TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMap) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, DeletedRangeRemembered) {
   DB* db;
   Options options;
 
@@ -338,7 +436,7 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMap) {
   ASSERT_TRUE(s.IsNotFound());
 }
 
-TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMapRollback) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, RollbackDeleteRange) {
   DB* db;
   Options options;
 
@@ -433,7 +531,7 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMapRollback) {
   ASSERT_TRUE(s.IsNotFound());
 }
 
-TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMapRedo) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, RedoDeletedRange) {
   DB* db;
   Options options;
 
@@ -531,7 +629,7 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMapRedo) {
   ASSERT_EQ("ccc2", value);
 }
 
-TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMultipleRanges) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleRanges) {
   DB* db;
   Options options;
 
@@ -576,7 +674,7 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestDeletedRangeMultipleRanges) {
   ASSERT_TRUE(s.IsNotFound());
 }
 
-TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchX2AndDB) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBRead) {
   DB* db;
   Options options;
 
@@ -673,7 +771,7 @@ TEST_F(WriteBatchWithIndexTest, DeleteRangeTestBatchX2AndDB) {
   ASSERT_TRUE(s.IsNotFound());
 }
 
-TEST_F(WriteBatchWithIndexTest, DeleteRangeTestMultipleCF) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleColumnFamilies) {
   DB* db;
   Options options;
 

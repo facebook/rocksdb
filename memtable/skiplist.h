@@ -11,6 +11,7 @@
 // -------------
 //
 // Writes require external synchronization, most likely a mutex.
+// Removes require the same synchronization against writes.
 // Reads require a guarantee that the SkipList will not be destroyed
 // while the read is in progress.  Apart from that, reads progress
 // without any internal locking or synchronization.
@@ -48,9 +49,12 @@ class SkipList {
   struct Node;
 
  public:
+  struct InsertCounts;
+
   // Create a new SkipList object that will use "cmp" for comparing keys,
   // and will allocate memory using "*allocator".  Objects allocated in the
-  // allocator must remain allocated for the lifetime of the skiplist object.
+  // allocator must remain allocated for the lifetime of the skiplist
+  // object.
   explicit SkipList(Comparator cmp, Allocator* allocator,
                     int32_t max_height = 12, int32_t branching_factor = 4);
   // No copying allowed
@@ -69,6 +73,8 @@ class SkipList {
 
   // Return estimated number of entries smaller than `key`.
   uint64_t EstimateCount(const Key& key) const;
+
+  InsertCounts GetInsertCounts() const;
 
   // Iteration over the contents of a skip list
   class Iterator {
@@ -143,6 +149,12 @@ class SkipList {
   Node** prev_;
   int32_t prev_height_;
 
+  // The optimization above breaks in the presence of removal
+  // So we switch it off after a Remove(), and back on after a first Insert()
+  // allowing a stream of sequential inserts to work as advertised.
+  bool can_optimize_next_sequential_insert_ = true;
+  InsertCounts insert_counts_;
+
   inline int GetMaxHeight() const {
     return max_height_.load(std::memory_order_relaxed);
   }
@@ -154,6 +166,8 @@ class SkipList {
     return (compare_(a, b) < 0);
   }
 
+  // Remove this node from the skiplist
+  // Return true if it exists to be removed
   bool RemoveNode(Node* victim);
 
   // Return true if key is greater than the data stored in "n"
@@ -212,6 +226,12 @@ struct SkipList<Key, Comparator>::Node {
 };
 
 template <typename Key, class Comparator>
+struct SkipList<Key, Comparator>::InsertCounts {
+  uint64_t fast = 0;
+  uint64_t slow = 0;
+};
+
+template <typename Key, class Comparator>
 typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(
     const Key& key, int height) {
   char* mem = allocator_->AllocateAligned(
@@ -264,7 +284,6 @@ inline void SkipList<Key, Comparator>::Iterator::Remove() {
   Node* remove = node_;
   node_ = node_->Next(0);
 
-  // list_->RemoveNode(remove);
   const_cast<SkipList*>(list_)->RemoveNode(remove);
 }
 
@@ -403,12 +422,12 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLast()
 
 template <typename Key, class Comparator>
 bool SkipList<Key, Comparator>::RemoveNode(Node* victim) {
-  Node* fix = head_;
+  Node* before = head_;
   int level = GetMaxHeight() - 1;
   bool deleted = false;
 
   while (level >= 0) {
-    Node* next = fix->Next(level);
+    Node* next = before->Next(level);
     if (next == nullptr) {
       level -= 1;
       continue;
@@ -417,18 +436,31 @@ bool SkipList<Key, Comparator>::RemoveNode(Node* victim) {
     int order = compare_(next->key, victim->key);
 
     if (order > 0) {
-      // next points beyond victim, so not linked at this level, go down a level
+      // next points beyond victim, so not linked at this level, go down a
+      // level
       level -= 1;
     } else if (order < 0) {
       // next is still before victim, continue to the right at this level
-      fix = next;
+      before = next;
     } else {
       // next is the victim, unlink it, and then go down a level
-      fix->SetNext(level, victim->Next(level));
+      before->SetNext(level, victim->Next(level));
+
       deleted = true;
       level -= 1;
     }
   }
+
+  if (deleted) {
+    // make the next insert take the slow path
+    // we could try to be clever with
+    // if (prev_[level] == victim) { prev_[level] = victim->Next(level) }
+    // but this fails the assert on Insert() if we remove the last element of
+    // the skiplist and may have other subtle flaws which hurt our timy brains
+    // - a sequence of uninterrupted serial inserts is still optimized.
+    can_optimize_next_sequential_insert_ = false;
+  }
+
   return deleted;
 }
 
@@ -454,6 +486,12 @@ uint64_t SkipList<Key, Comparator>::EstimateCount(const Key& key) const {
       count++;
     }
   }
+}
+
+template <typename Key, class Comparator>
+typename SkipList<Key, Comparator>::InsertCounts
+SkipList<Key, Comparator>::GetInsertCounts() const {
+  return insert_counts_;
 }
 
 template <typename Key, class Comparator>
@@ -486,7 +524,8 @@ SkipList<Key, Comparator>::SkipList(const Comparator cmp, Allocator* allocator,
 template <typename Key, class Comparator>
 void SkipList<Key, Comparator>::Insert(const Key& key) {
   // fast path for sequential insertion
-  if (!KeyIsAfterNode(key, prev_[0]->NoBarrier_Next(0)) &&
+  if (can_optimize_next_sequential_insert_ &&
+      !KeyIsAfterNode(key, prev_[0]->NoBarrier_Next(0)) &&
       (prev_[0] == head_ || KeyIsAfterNode(key, prev_[0]))) {
     assert(prev_[0] != head_ || (prev_height_ == 1 && GetMaxHeight() == 1));
 
@@ -497,11 +536,13 @@ void SkipList<Key, Comparator>::Insert(const Key& key) {
     for (int i = 1; i < prev_height_; i++) {
       prev_[i] = prev_[0];
     }
+    insert_counts_.fast++;
   } else {
     // TODO(opt): we could use a NoBarrier predecessor search as an
     // optimization for architectures where memory_order_acquire needs
     // a synchronization instruction.  Doesn't matter on x86
     FindLessThan(key, prev_);
+    insert_counts_.slow++;
   }
 
   // Our data structure does not allow duplicate insertion
@@ -533,6 +574,7 @@ void SkipList<Key, Comparator>::Insert(const Key& key) {
   }
   prev_[0] = x;
   prev_height_ = height;
+  can_optimize_next_sequential_insert_ = true;
 }
 
 template <typename Key, class Comparator>
