@@ -327,11 +327,13 @@ IOStatus FaultInjectionTestFS::NewWritableFile(
     // WritableFileWriter* file is opened
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
-    MutexLock l(&mutex_);
-    open_files_.insert(fname);
-    auto dir_and_name = TestFSGetDirAndName(fname);
-    auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-    list.insert(dir_and_name.second);
+    {
+      MutexLock l(&mutex_);
+      open_files_.insert(fname);
+      auto dir_and_name = TestFSGetDirAndName(fname);
+      auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+      list.insert(dir_and_name.second);
+    }
     {
       IOStatus in_s = InjectMetadataWriteError();
       if (!in_s.ok()) {
@@ -364,11 +366,13 @@ IOStatus FaultInjectionTestFS::ReopenWritableFile(
     // WritableFileWriter* file is opened
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
-    MutexLock l(&mutex_);
-    open_files_.insert(fname);
-    auto dir_and_name = TestFSGetDirAndName(fname);
-    auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-    list.insert(dir_and_name.second);
+    {
+      MutexLock l(&mutex_);
+      open_files_.insert(fname);
+      auto dir_and_name = TestFSGetDirAndName(fname);
+      auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+      list.insert(dir_and_name.second);
+    }
     {
       IOStatus in_s = InjectMetadataWriteError();
       if (!in_s.ok()) {
@@ -400,11 +404,13 @@ IOStatus FaultInjectionTestFS::NewRandomRWFile(
     // WritableFileWriter* file is opened
     // again then it will be truncated - so forget our saved state.
     UntrackFile(fname);
-    MutexLock l(&mutex_);
-    open_files_.insert(fname);
-    auto dir_and_name = TestFSGetDirAndName(fname);
-    auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
-    list.insert(dir_and_name.second);
+    {
+      MutexLock l(&mutex_);
+      open_files_.insert(fname);
+      auto dir_and_name = TestFSGetDirAndName(fname);
+      auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
+      list.insert(dir_and_name.second);
+    }
     {
       IOStatus in_s = InjectMetadataWriteError();
       if (!in_s.ok()) {
