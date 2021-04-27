@@ -2412,6 +2412,7 @@ void StressTest::Open() {
         new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
     options_.create_missing_column_families = true;
     if (!FLAGS_use_txn) {
+#ifndef NDEBUG
       // Determine whether we need to ingest file metadata write failures
       // during DB reopen. If it does, enable it.
       // Only ingest metadata error if it is reopening, as initial open
@@ -2428,6 +2429,7 @@ void StressTest::Open() {
             FLAGS_open_metadata_write_fault_one_in);
       }
       while (true) {
+#endif  // NDEBUG
 #ifndef ROCKSDB_LITE
         // StackableDB-based BlobDB
         if (FLAGS_use_blob_db) {
@@ -2457,6 +2459,7 @@ void StressTest::Open() {
           }
         }
 
+#ifndef NDEBUG
         if (ingest_meta_error) {
           fault_fs_guard->DisableMetadataWriteErrorInjection();
           if (!s.ok()) {
@@ -2469,6 +2472,7 @@ void StressTest::Open() {
         }
         break;
       }
+#endif  // NDEBUG
     } else {
 #ifndef ROCKSDB_LITE
       TransactionDBOptions txn_db_options;
