@@ -1310,6 +1310,7 @@ enum RepFactory {
 };
 
 // create Factory for creating S3 Envs
+#ifndef ROCKSDB_LITE
 #ifdef USE_AWS
 ROCKSDB_NAMESPACE::Env* CreateAwsEnv(
     const std::string& dbpath,
@@ -1352,6 +1353,7 @@ static const auto& s3_reg __attribute__((__unused__)) =
               return guard->get();
             });
 #endif /* USE_AWS */
+#endif // ROCKSDB_LITE
 
 static enum RepFactory StringToRepFactory(const char* ctype) {
   assert(ctype);

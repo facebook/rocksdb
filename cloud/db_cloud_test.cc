@@ -64,8 +64,9 @@ class CloudTest : public testing::Test {
 
     CloudEnv* aenv;
     // create a dummy aws env
-    CloudEnv::NewAwsEnv(base_env_, cloud_env_options_, options_.info_log,
-                        &aenv);
+    ASSERT_OK(CloudEnv::NewAwsEnv(base_env_, cloud_env_options_,
+                                  options_.info_log, &aenv));
+    ASSERT_NE(aenv, nullptr);
     aenv_.reset(aenv);
     // delete all pre-existing contents from the bucket
     Status st = aenv_->GetCloudEnvOptions().storage_provider->EmptyBucket(
@@ -1559,7 +1560,7 @@ int main(int, char**) {
 
 #include <stdio.h>
 
-int main(int argc, char** argv) {
+int main(int, char** ) {
   fprintf(stderr, "SKIPPED as DBCloud is not supported in ROCKSDB_LITE\n");
   return 0;
 }

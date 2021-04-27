@@ -1,5 +1,6 @@
 // Copyright (c) 2017 Rockset
 
+#ifndef ROCKSDB_LITE
 #include "cloud/cloud_scheduler.h"
 
 #include <gtest/gtest.h>
@@ -22,6 +23,21 @@ class CloudSchedulerTest : public testing::Test {
   ~CloudSchedulerTest() {}
 
   std::shared_ptr<CloudScheduler> scheduler_;
+  void WaitForJobs(const std::vector<long> &jobs, uint32_t delay) {
+    bool running = true;
+    while (running) {
+      running = false;
+      for (const auto &job : jobs) {
+        if (scheduler_->IsScheduled(job)) {
+          running = true;
+          break;
+        }
+      }
+      if (running) {
+        usleep(delay);
+      }
+    }
+  }
 };
 
 // This test tests basic scheduling function. There are 2 jobs, job2 is
@@ -33,10 +49,13 @@ TEST_F(CloudSchedulerTest, TestSchedule) {
   auto job1 = [&p1](void *) { p1 = std::chrono::steady_clock::now(); };
   auto job2 = [&p2](void *) { p2 = std::chrono::steady_clock::now(); };
 
-  scheduler_->ScheduleJob(std::chrono::milliseconds(300), job1, nullptr);
-  scheduler_->ScheduleJob(std::chrono::milliseconds(100), job2, nullptr);
-
-  std::this_thread::sleep_for(std::chrono::milliseconds(400));
+  auto h1 =
+      scheduler_->ScheduleJob(std::chrono::milliseconds(300), job1, nullptr);
+  auto h2 =
+      scheduler_->ScheduleJob(std::chrono::milliseconds(100), job2, nullptr);
+  while (scheduler_->IsScheduled(h1) && scheduler_->IsScheduled(h2)) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(400));
+  }
   ASSERT_LT(p2, p1);
 }
 
@@ -50,7 +69,7 @@ TEST_F(CloudSchedulerTest, TestCancel) {
   auto handle2 =
       scheduler_->ScheduleJob(std::chrono::microseconds(200), doJob, &job2);
   ASSERT_TRUE(scheduler_->CancelJob(handle2));
-  usleep(300);
+  WaitForJobs({handle1, handle2}, 300);
   ASSERT_EQ(job1, 2);
   ASSERT_EQ(job2, 0);
   ASSERT_FALSE(scheduler_->CancelJob(handle1));
@@ -58,8 +77,8 @@ TEST_F(CloudSchedulerTest, TestCancel) {
 }
 
 TEST_F(CloudSchedulerTest, TestRecurring) {
-  int job1 = 1;
-  int job2 = 1;
+  std::atomic<int> job1(1);
+  std::atomic<int> job2(1);
   auto doJob1 = [&job1](void *) { job1++; };
   auto doJob2 = [&job2](void *) { job2++; };
 
@@ -69,22 +88,24 @@ TEST_F(CloudSchedulerTest, TestRecurring) {
   scheduler_->ScheduleRecurringJob(std::chrono::microseconds(120),
                                    std::chrono::microseconds(100), doJob2,
                                    nullptr);
-  usleep(700);
-  ASSERT_GE(job2, 4);
-  ASSERT_GT(job1, job2);
+  while (job2 <= 4) {
+    usleep(100);
+  }
+  ASSERT_GE(job2.load(), 4);
+  ASSERT_GT(job1.load(), job2);
   ASSERT_TRUE(scheduler_->CancelJob(handle1));
-  auto old1 = job1;
-  auto old2 = job2;
+  auto old1 = job1.load();
+  auto old2 = job2.load();
   usleep(200);
-  ASSERT_EQ(job1, old1);
-  ASSERT_GT(job2, old2);
+  ASSERT_EQ(job1.load(), old1);
+  ASSERT_GT(job2.load(), old2);
 }
 
 TEST_F(CloudSchedulerTest, TestMultipleSchedulers) {
   auto scheduler2 = CloudScheduler::Get();
 
-  int job1 = 1;
-  int job2 = 1;
+  std::atomic<int> job1(1);
+  std::atomic<int> job2(1);
   auto doJob1 = [&job1](void *) { job1++; };
   auto doJob2 = [&job2](void *) { job2++; };
 
@@ -107,8 +128,8 @@ TEST_F(CloudSchedulerTest, TestMultipleSchedulers) {
                                    std::chrono::microseconds(20), doJob2,
                                    nullptr);
   scheduler2.reset();
-  auto old1 = job1;
-  auto old2 = job2;
+  auto old1 = job1.load();
+  auto old2 = job2.load();
   usleep(200);
   ASSERT_EQ(job2, old2);
   ASSERT_GT(job1, old1);
@@ -159,3 +180,12 @@ int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+#else
+#include <stdio.h>
+
+int main(int /*argc*/, char** /*argv*/) {
+  fprintf(stderr, "SKIPPED as CloudSchedulerTest is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // ROCKSDB_LITE
