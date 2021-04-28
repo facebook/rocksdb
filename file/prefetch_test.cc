@@ -57,6 +57,10 @@ class MockFS : public FileSystemWrapper {
 
   bool IsPrefetchCalled() { return prefetch_count_ > 0; }
 
+  int GetPrefetchCount() {
+    return prefetch_count_.load(std::memory_order_relaxed);
+  }
+
  private:
   const bool support_prefetch_;
   std::atomic_int prefetch_count_{0};
@@ -68,6 +72,10 @@ class PrefetchTest
  public:
   PrefetchTest() : DBTestBase("/prefetch_test", true) {}
 };
+
+INSTANTIATE_TEST_CASE_P(PrefetchTest, PrefetchTest,
+                        ::testing::Combine(::testing::Bool(),
+                                           ::testing::Bool()));
 
 std::string BuildKey(int num, std::string postfix = "") {
   return "my_key_" + std::to_string(num) + postfix;
@@ -312,17 +320,354 @@ TEST_P(PrefetchTest, ConfigureAutoMaxReadaheadSize) {
   SyncPoint::GetInstance()->ClearAllCallBacks();
   Close();
 }
-
-INSTANTIATE_TEST_CASE_P(PrefetchTest, PrefetchTest,
-                        ::testing::Combine(::testing::Bool(),
-                                           ::testing::Bool()));
 #endif  // !ROCKSDB_LITE
 
-class PrefetchTest1 : public DBTestBase,
-                      public ::testing::WithParamInterface<bool> {
- public:
-  PrefetchTest1() : DBTestBase("/prefetch_test1", true) {}
-};
+TEST_P(PrefetchTest, PrefetchWhenReseek) {
+  // First param is if the mockFS support_prefetch or not
+  bool support_prefetch =
+      std::get<0>(GetParam()) &&
+      test::IsPrefetchSupported(env_->GetFileSystem(), dbname_);
+
+  const int kNumKeys = 2000;
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(env_->GetFileSystem(), support_prefetch);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  // Second param is if directIO is enabled or not
+  bool use_direct_io = std::get<1>(GetParam());
+
+  Options options = CurrentOptions();
+  options.write_buffer_size = 1024;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.env = env.get();
+
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.metadata_block_size = 1024;
+  table_options.index_type =
+      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  if (use_direct_io) {
+    options.use_direct_reads = true;
+    options.use_direct_io_for_flush_and_compaction = true;
+  }
+
+  int buff_prefetch_count = 0;
+  SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
+                                        [&](void*) { buff_prefetch_count++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = TryReopen(options);
+  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  WriteBatch batch;
+  Random rnd(309);
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  std::string start_key = BuildKey(0);
+  std::string end_key = BuildKey(kNumKeys - 1);
+  Slice least(start_key.data(), start_key.size());
+  Slice greatest(end_key.data(), end_key.size());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  fs->ClearPrefetchCount();
+  buff_prefetch_count = 0;
+
+  {
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+    /*
+     * Reseek keys from sequential Data Blocks within same partitioned
+     * index. After 2 sequential reads it will prefetch the data block.
+     * Data Block size is nearly 4076 so readahead will fetch 8 * 1024 data more
+     * initially (2 more data blocks).
+     */
+    iter->Seek(BuildKey(0));
+    iter->Seek(BuildKey(1000));
+    iter->Seek(BuildKey(1004));  // Prefetch Data
+    iter->Seek(BuildKey(1008));
+    iter->Seek(BuildKey(1011));
+    iter->Seek(BuildKey(1015));  // Prefetch Data
+    iter->Seek(BuildKey(1019));
+    // Missed 2 blocks but they are already in buffer so no reset.
+    iter->Seek(BuildKey(103));   // Already in buffer.
+    iter->Seek(BuildKey(1033));  // Prefetch Data
+    if (support_prefetch && !use_direct_io) {
+      ASSERT_EQ(fs->GetPrefetchCount(), 3);
+      fs->ClearPrefetchCount();
+    } else {
+      ASSERT_EQ(buff_prefetch_count, 3);
+      buff_prefetch_count = 0;
+    }
+  }
+  {
+    /*
+     * Reseek keys from  non sequential data blocks within same partitioned
+     * index. buff_prefetch_count will be 0 in that case.
+     */
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+    iter->Seek(BuildKey(0));
+    iter->Seek(BuildKey(1008));
+    iter->Seek(BuildKey(1019));
+    iter->Seek(BuildKey(1033));
+    iter->Seek(BuildKey(1048));
+    if (support_prefetch && !use_direct_io) {
+      ASSERT_EQ(fs->GetPrefetchCount(), 0);
+      fs->ClearPrefetchCount();
+    } else {
+      ASSERT_EQ(buff_prefetch_count, 0);
+      buff_prefetch_count = 0;
+    }
+  }
+  {
+    /*
+     * Reesek keys from Single Data Block.
+     */
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+    iter->Seek(BuildKey(0));
+    iter->Seek(BuildKey(1));
+    iter->Seek(BuildKey(10));
+    iter->Seek(BuildKey(100));
+    if (support_prefetch && !use_direct_io) {
+      ASSERT_EQ(fs->GetPrefetchCount(), 0);
+      fs->ClearPrefetchCount();
+    } else {
+      ASSERT_EQ(buff_prefetch_count, 0);
+      buff_prefetch_count = 0;
+    }
+  }
+  {
+    /*
+     * Reseek keys from  sequential data blocks to set implicit auto readahead
+     * and prefetch data but after that iterate over different (non sequential)
+     * data blocks which won't prefetch any data further. So buff_prefetch_count
+     * will be 1 for the first one.
+     */
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+    iter->Seek(BuildKey(0));
+    iter->Seek(BuildKey(1000));
+    iter->Seek(BuildKey(1004));  // This iteration will prefetch buffer
+    iter->Seek(BuildKey(1008));
+    iter->Seek(
+        BuildKey(996));  // Reseek won't prefetch any data and
+                         // readahead_size will be initiallized to 8*1024.
+    iter->Seek(BuildKey(992));
+    iter->Seek(BuildKey(989));
+    if (support_prefetch && !use_direct_io) {
+      ASSERT_EQ(fs->GetPrefetchCount(), 1);
+      fs->ClearPrefetchCount();
+    } else {
+      ASSERT_EQ(buff_prefetch_count, 1);
+      buff_prefetch_count = 0;
+    }
+
+    // Read sequentially to confirm readahead_size is reset to initial value (2
+    // more data blocks)
+    iter->Seek(BuildKey(1011));
+    iter->Seek(BuildKey(1015));
+    iter->Seek(BuildKey(1019));  // Prefetch Data
+    iter->Seek(BuildKey(1022));
+    iter->Seek(BuildKey(1026));
+    iter->Seek(BuildKey(103));  // Prefetch Data
+    if (support_prefetch && !use_direct_io) {
+      ASSERT_EQ(fs->GetPrefetchCount(), 2);
+      fs->ClearPrefetchCount();
+    } else {
+      ASSERT_EQ(buff_prefetch_count, 2);
+      buff_prefetch_count = 0;
+    }
+  }
+  {
+    /* Reseek keys from sequential partitioned index block. Since partitioned
+     * index fetch are sequential, buff_prefetch_count will be 1.
+     */
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+    iter->Seek(BuildKey(0));
+    iter->Seek(BuildKey(1167));
+    iter->Seek(BuildKey(1334));  // This iteration will prefetch buffer
+    iter->Seek(BuildKey(1499));
+    iter->Seek(BuildKey(1667));
+    iter->Seek(BuildKey(1847));
+    iter->Seek(BuildKey(1999));
+    if (support_prefetch && !use_direct_io) {
+      ASSERT_EQ(fs->GetPrefetchCount(), 1);
+      fs->ClearPrefetchCount();
+    } else {
+      ASSERT_EQ(buff_prefetch_count, 1);
+      buff_prefetch_count = 0;
+    }
+  }
+  {
+    /*
+     * Reseek over different keys from different blocks. buff_prefetch_count is
+     * set 0.
+     */
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+    int i = 0;
+    int j = 1000;
+    do {
+      iter->Seek(BuildKey(i));
+      if (!iter->Valid()) {
+        break;
+      }
+      i = i + 100;
+      iter->Seek(BuildKey(j));
+      j = j + 100;
+    } while (i < 1000 && j < kNumKeys && iter->Valid());
+    if (support_prefetch && !use_direct_io) {
+      ASSERT_EQ(fs->GetPrefetchCount(), 0);
+      fs->ClearPrefetchCount();
+    } else {
+      ASSERT_EQ(buff_prefetch_count, 0);
+      buff_prefetch_count = 0;
+    }
+  }
+  {
+    /* Iterates sequentially over all keys. It will prefetch the buffer.*/
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    }
+    if (support_prefetch && !use_direct_io) {
+      ASSERT_EQ(fs->GetPrefetchCount(), 13);
+      fs->ClearPrefetchCount();
+    } else {
+      ASSERT_EQ(buff_prefetch_count, 13);
+      buff_prefetch_count = 0;
+    }
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+}
+
+TEST_P(PrefetchTest, PrefetchWhenReseekwithCache) {
+  // First param is if the mockFS support_prefetch or not
+  bool support_prefetch =
+      std::get<0>(GetParam()) &&
+      test::IsPrefetchSupported(env_->GetFileSystem(), dbname_);
+
+  const int kNumKeys = 2000;
+  std::shared_ptr<MockFS> fs =
+      std::make_shared<MockFS>(env_->GetFileSystem(), support_prefetch);
+  std::unique_ptr<Env> env(new CompositeEnvWrapper(env_, fs));
+
+  // Second param is if directIO is enabled or not
+  bool use_direct_io = std::get<1>(GetParam());
+
+  Options options = CurrentOptions();
+  options.write_buffer_size = 1024;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.env = env.get();
+
+  BlockBasedTableOptions table_options;
+  std::shared_ptr<Cache> cache = NewLRUCache(4 * 1024 * 1024, 2);  // 8MB
+  table_options.block_cache = cache;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.metadata_block_size = 1024;
+  table_options.index_type =
+      BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  if (use_direct_io) {
+    options.use_direct_reads = true;
+    options.use_direct_io_for_flush_and_compaction = true;
+  }
+
+  int buff_prefetch_count = 0;
+  SyncPoint::GetInstance()->SetCallBack("FilePrefetchBuffer::Prefetch:Start",
+                                        [&](void*) { buff_prefetch_count++; });
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Status s = TryReopen(options);
+  if (use_direct_io && (s.IsNotSupported() || s.IsInvalidArgument())) {
+    // If direct IO is not supported, skip the test
+    return;
+  } else {
+    ASSERT_OK(s);
+  }
+
+  WriteBatch batch;
+  Random rnd(309);
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(batch.Put(BuildKey(i), rnd.RandomString(1000)));
+  }
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+
+  std::string start_key = BuildKey(0);
+  std::string end_key = BuildKey(kNumKeys - 1);
+  Slice least(start_key.data(), start_key.size());
+  Slice greatest(end_key.data(), end_key.size());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &least, &greatest));
+
+  fs->ClearPrefetchCount();
+  buff_prefetch_count = 0;
+
+  {
+    /*
+     * Reseek keys from sequential Data Blocks within same partitioned
+     * index. After 2 sequential reads it will prefetch the data block.
+     * Data Block size is nearly 4076 so readahead will fetch 8 * 1024 data more
+     * initially (2 more data blocks).
+     */
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+    // Warm up the cache
+    iter->Seek(BuildKey(1011));
+    iter->Seek(BuildKey(1015));
+    iter->Seek(BuildKey(1019));
+    if (support_prefetch && !use_direct_io) {
+      ASSERT_EQ(fs->GetPrefetchCount(), 1);
+      fs->ClearPrefetchCount();
+    } else {
+      ASSERT_EQ(buff_prefetch_count, 1);
+      buff_prefetch_count = 0;
+    }
+  }
+  {
+    // After caching, blocks will be read from cache (Sequential blocks)
+    auto iter = std::unique_ptr<Iterator>(db_->NewIterator(ReadOptions()));
+    iter->Seek(BuildKey(0));
+    iter->Seek(BuildKey(1000));
+    iter->Seek(BuildKey(1004));  // Prefetch data (not in cache).
+    // Missed one sequential block but next is in already in buffer so readahead
+    // will not be reset.
+    iter->Seek(BuildKey(1011));
+    // Prefetch data but blocks are in cache so no prefetch and reset.
+    iter->Seek(BuildKey(1015));
+    iter->Seek(BuildKey(1019));
+    iter->Seek(BuildKey(1022));
+    // Prefetch data with readahead_size = 4 blocks.
+    iter->Seek(BuildKey(1026));
+    iter->Seek(BuildKey(103));
+    iter->Seek(BuildKey(1033));
+    iter->Seek(BuildKey(1037));
+
+    if (support_prefetch && !use_direct_io) {
+      ASSERT_EQ(fs->GetPrefetchCount(), 3);
+      fs->ClearPrefetchCount();
+    } else {
+      ASSERT_EQ(buff_prefetch_count, 2);
+      buff_prefetch_count = 0;
+    }
+  }
+
+  SyncPoint::GetInstance()->DisableProcessing();
+  SyncPoint::GetInstance()->ClearAllCallBacks();
+  Close();
+}
 
 }  // namespace ROCKSDB_NAMESPACE
 
