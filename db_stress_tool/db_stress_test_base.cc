@@ -2083,13 +2083,16 @@ void StressTest::PrintEnv() const {
 
   fprintf(stdout, "Memtablerep               : %s\n", memtablerep);
 
-  fprintf(stdout, "Test kill odd             : %d\n", rocksdb_kill_odds);
-  if (!rocksdb_kill_exclude_prefixes.empty()) {
+#ifndef NDEBUG
+  fprintf(stdout, "Test kill odd             : %d\n",
+          program_killer.rocksdb_kill_odds);
+  if (!program_killer.rocksdb_kill_exclude_prefixes.empty()) {
     fprintf(stdout, "Skipping kill points prefixes:\n");
-    for (auto& p : rocksdb_kill_exclude_prefixes) {
+    for (auto& p : program_killer.rocksdb_kill_exclude_prefixes) {
       fprintf(stdout, "  %s\n", p.c_str());
     }
   }
+#endif
   fprintf(stdout, "Periodic Compaction Secs  : %" PRIu64 "\n",
           FLAGS_periodic_compaction_seconds);
   fprintf(stdout, "Compaction TTL            : %" PRIu64 "\n",

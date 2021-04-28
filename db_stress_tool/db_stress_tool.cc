@@ -98,7 +98,7 @@ int db_stress_tool(int argc, char** argv) {
 
 #ifndef NDEBUG
   if (FLAGS_read_fault_one_in || FLAGS_sync_fault_injection ||
-      FLAGS_write_fault_one_in || FLAGS_open_metadata_write_fault_one_in) {
+      FLAGS_write_fault_one_in) {
     FaultInjectionTestFS* fs =
         new FaultInjectionTestFS(raw_env->GetFileSystem());
     fault_fs_guard.reset(fs);
@@ -299,8 +299,11 @@ int db_stress_tool(int argc, char** argv) {
     exit(1);
   }
 
-  rocksdb_kill_odds = FLAGS_kill_random_test;
-  rocksdb_kill_exclude_prefixes = SplitString(FLAGS_kill_exclude_prefixes);
+#ifndef NDEBUG
+  program_killer.rocksdb_kill_odds = FLAGS_kill_random_test;
+  program_killer.rocksdb_kill_exclude_prefixes =
+      SplitString(FLAGS_kill_exclude_prefixes);
+#endif
 
   unsigned int levels = FLAGS_max_key_len;
   std::vector<std::string> weights;

@@ -7,9 +7,13 @@
 
 #ifndef NDEBUG
 namespace ROCKSDB_NAMESPACE {
-
-void TestKillRandom(std::string kill_point, int odds,
-                    const std::string& srcfile, int srcline) {
+ProgramKiller program_killer;
+void ProgramKiller::TestKillRandom(std::string kill_point, int odds_weight,
+                                   const std::string& srcfile, int srcline) {
+  if (rocksdb_kill_odds <= 0) {
+    return;
+  }
+  int odds = rocksdb_kill_odds * odds_weight;
   for (auto& p : rocksdb_kill_exclude_prefixes) {
     if (kill_point.substr(0, p.length()) == p) {
       return;
@@ -28,7 +32,6 @@ void TestKillRandom(std::string kill_point, int odds,
     port::Crash(srcfile, srcline);
   }
 }
-
 
 void SyncPoint::Data::LoadDependency(const std::vector<SyncPointPair>& dependencies) {
   std::lock_guard<std::mutex> lock(mutex_);
