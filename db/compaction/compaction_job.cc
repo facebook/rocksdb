@@ -1761,16 +1761,16 @@ Status CompactionJob::OpenCompactionOutputFile(
   bool skip_filters =
       cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
 
-  sub_compact->builder.reset(NewTableBuilder(
+  TableBuilderOptions tboptions(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
-      cfd->GetID(), cfd->GetName(), sub_compact->outfile.get(),
       sub_compact->compaction->output_compression(),
-      sub_compact->compaction->output_compression_opts(),
-      sub_compact->compaction->output_level(), skip_filters,
-      oldest_ancester_time, 0 /* oldest_key_time */,
-      sub_compact->compaction->max_output_file_size(), current_time, db_id_,
-      db_session_id_));
+      sub_compact->compaction->output_compression_opts(), skip_filters,
+      cfd->GetID(), cfd->GetName(), sub_compact->compaction->output_level(),
+      oldest_ancester_time, 0 /* oldest_key_time */, current_time, db_id_,
+      db_session_id_, sub_compact->compaction->max_output_file_size());
+  sub_compact->builder.reset(
+      NewTableBuilder(tboptions, sub_compact->outfile.get()));
   LogFlush(db_options_.info_log);
   return s;
 }

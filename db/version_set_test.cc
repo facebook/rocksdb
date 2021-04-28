@@ -2782,8 +2782,9 @@ class VersionSetTestMissingFiles : public VersionSetTestBase,
               immutable_cf_options_, mutable_cf_options_, *internal_comparator_,
               &int_tbl_prop_collector_factories, kNoCompression,
               CompressionOptions(),
-              /*_skip_filters=*/false, info.column_family, info.level),
-          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+              /*_skip_filters=*/false,
+              TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+              info.column_family, info.level),
           fwriter.get()));
       InternalKey ikey(info.key, 0, ValueType::kTypeValue);
       builder->Add(ikey.Encode(), "value");

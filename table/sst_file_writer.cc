@@ -253,9 +253,10 @@ Status SstFileWriter::Open(const std::string& file_path) {
   TableBuilderOptions table_builder_options(
       r->ioptions, r->mutable_cf_options, r->internal_comparator,
       &int_tbl_prop_collector_factories, compression_type, compression_opts,
-      r->skip_filters, r->column_family_name, unknown_level,
-      0 /* creation_time */, 0 /* oldest_key_time */, 0 /* target_file_size */,
-      0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id);
+      r->skip_filters, cf_id, r->column_family_name, unknown_level,
+      0 /* creation_time */, 0 /* oldest_key_time */,
+      0 /* file_creation_time */, "SST Writer" /* db_id */, db_session_id,
+      0 /* target_file_size */);
   FileTypeSet tmp_set = r->ioptions.checksum_handoff_file_types;
   r->file_writer.reset(new WritableFileWriter(
       std::move(sst_file), file_path, r->env_options, r->ioptions.clock,
@@ -266,7 +267,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.
   r->builder.reset(r->ioptions.table_factory->NewTableBuilder(
-      table_builder_options, cf_id, r->file_writer.get()));
+      table_builder_options, r->file_writer.get()));
 
   r->file_info = ExternalSstFileInfo();
   r->file_info.file_path = file_path;

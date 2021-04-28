@@ -52,10 +52,11 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
   writable->reset(
       new WritableFileWriter(std::move(wf), "" /* don't care */, EnvOptions()));
   int unknown_level = -1;
-  builder->reset(NewTableBuilder(
+  TableBuilderOptions tboptions(
       ioptions, moptions, internal_comparator, int_tbl_prop_collector_factories,
-      kTestColumnFamilyId, kTestColumnFamilyName, writable->get(),
-      options.compression, options.compression_opts, unknown_level));
+      options.compression, options.compression_opts, false /*skip_filters*/,
+      kTestColumnFamilyId, kTestColumnFamilyName, unknown_level);
+  builder->reset(NewTableBuilder(tboptions, writable->get()));
 }
 }  // namespace
 
