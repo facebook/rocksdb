@@ -3,6 +3,9 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
+#ifdef GFLAGS
+#include "rocksdb/cache_bench_tool.h"
+
 #include <sys/types.h>
 
 #include <cinttypes>
@@ -12,7 +15,6 @@
 #include "options/configurable_helper.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
-#include "rocksdb/cache_bench_tool.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/system_clock.h"
@@ -59,9 +61,11 @@ DEFINE_uint32(erase_percent, 1,
 DEFINE_bool(use_clock_cache, false, "");
 
 DEFINE_bool(skewed, false, "If true, skew the key access distribution");
+#ifndef ROCKSDB_LITE
 DEFINE_string(tiered_cache_uri, "",
               "Full URI for creating a custom NVM cache object");
 static class std::shared_ptr<ROCKSDB_NAMESPACE::TieredCache> tiered_cache;
+#endif
 
 namespace ROCKSDB_NAMESPACE {
 class CacheBench;
@@ -129,8 +133,9 @@ class Stats {
     insert_us += other.insert_us;
   }
   void Report() {
-    fprintf(stdout, "%lu hits, %lu misses, %lu lookup_us, %lu insert_us\n",
-            hits, misses, lookup_us, insert_us);
+    fprintf(stdout, "%llu hits, %llu misses, %llu lookup_us, %llu insert_us\n",
+            (unsigned long long)hits, (unsigned long long)misses,
+            (unsigned long long)lookup_us, (unsigned long long)insert_us);
     fflush(stdout);
   }
 };
@@ -189,7 +194,7 @@ void helperCallback(Cache::SizeCallback* size_cb,
                     Cache::SaveToCallback* save_cb,
                     Cache::DeletionCallback* del_cb) {
   if (size_cb) {
-    *size_cb = [](void * /*obj*/) -> size_t { return FLAGS_value_bytes; };
+    *size_cb = [](void* /*obj*/) -> size_t { return FLAGS_value_bytes; };
   }
   if (save_cb) {
     *save_cb = [](void* obj, size_t /*offset*/, size_t size,
@@ -243,6 +248,7 @@ class CacheBench {
       }
     } else {
       LRUCacheOptions opts(FLAGS_cache_size, FLAGS_num_shard_bits, false, 0.5);
+#ifndef ROCKSDB_LITE
       if (!FLAGS_tiered_cache_uri.empty()) {
         Status s = ObjectRegistry::NewInstance()->NewSharedObject<TieredCache>(
             FLAGS_tiered_cache_uri, &tiered_cache);
@@ -254,6 +260,7 @@ class CacheBench {
         }
         opts.tiered_cache = tiered_cache;
       }
+#endif
 
       cache_ = NewLRUCache(opts);
     }
@@ -494,4 +501,4 @@ int cache_bench_tool(int argc, char** argv) {
   }
 }
 }  // namespace ROCKSDB_NAMESPACE
-
+#endif
