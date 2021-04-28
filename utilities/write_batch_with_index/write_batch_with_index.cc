@@ -386,6 +386,10 @@ Status WriteBatchWithIndex::DeleteRange(ColumnFamilyHandle* column_family,
         "== "
         "false");
   }
+  uint32_t cf_id = GetColumnFamilyID(column_family);
+  if (rep->comparator.CompareKey(cf_id, begin_key, end_key) >= 0) {
+    return Status::InvalidArgument("start key must come before end key");
+  }
   rep->SetLastEntryOffset();
   auto s = rep->write_batch.DeleteRange(column_family, begin_key, end_key);
   if (s.ok()) {
@@ -401,6 +405,9 @@ Status WriteBatchWithIndex::DeleteRange(const Slice& begin_key,
         "DeleteRange unsupported in WriteBatchWithIndex with overwrite_key "
         "== "
         "false");
+  }
+  if (rep->comparator.CompareKey(0, begin_key, end_key) >= 0) {
+    return Status::InvalidArgument("start key must come before end key");
   }
   rep->SetLastEntryOffset();
   auto s = rep->write_batch.DeleteRange(begin_key, end_key);
