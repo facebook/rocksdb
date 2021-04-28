@@ -19,8 +19,6 @@
 #include "test_util/testharness.h"
 #include "util/random.h"
 #include "util/string_util.h"
-#include "utilities/merge_operators.h"
-#include "utilities/merge_operators/string_append/stringappend.h"
 
 namespace ROCKSDB_NAMESPACE {
 
@@ -132,8 +130,6 @@ class TestDB {
  public:
   TestDB(std::string dbname) : dbname_(test::PerThreadDBPath(dbname)) {
     options.create_if_missing = true;
-
-    options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
 
     EXPECT_OK(DestroyDB(dbname_, options));
     Status s = DB::Open(options, dbname_, &db);
