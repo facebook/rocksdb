@@ -3,14 +3,6 @@
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
 
-#ifndef GFLAGS
-#include <cstdio>
-int main() {
-  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
-  return 1;
-}
-#else
-
 #include <sys/types.h>
 
 #include <cinttypes>
@@ -197,7 +189,7 @@ void helperCallback(Cache::SizeCallback* size_cb,
                     Cache::SaveToCallback* save_cb,
                     Cache::DeletionCallback* del_cb) {
   if (size_cb) {
-    *size_cb = [](void* /*obj*/) -> size_t { return FLAGS_value_bytes; };
+    *size_cb = [](void * /*obj*/) -> size_t { return FLAGS_value_bytes; };
   }
   if (save_cb) {
     *save_cb = [](void* obj, size_t /*offset*/, size_t size,
@@ -236,9 +228,9 @@ class CacheBench {
       exit(1);
     }
 
+    max_log_ = 0;
     if (skewed_) {
       uint64_t max_key = max_key_;
-      max_log_ = 0;
       while (max_key >>= 1) max_log_++;
       if (max_key > (1u << max_log_)) max_log_++;
     }
@@ -503,4 +495,3 @@ int cache_bench_tool(int argc, char** argv) {
 }
 }  // namespace ROCKSDB_NAMESPACE
 
-#endif  // GFLAGS
