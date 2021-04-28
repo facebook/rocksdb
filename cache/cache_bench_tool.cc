@@ -137,7 +137,7 @@ class Stats {
     insert_us += other.insert_us;
   }
   void Report() {
-    fprintf(stdout, "%lu hits, %lu misses, %lu lookup_ns, %lu insert_ns\n",
+    fprintf(stdout, "%lu hits, %lu misses, %lu lookup_us, %lu insert_us\n",
             hits, misses, lookup_us, insert_us);
     fflush(stdout);
   }

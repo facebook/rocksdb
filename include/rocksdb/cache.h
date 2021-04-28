@@ -373,6 +373,7 @@ class Cache {
                         Handle** handle = nullptr,
                         Priority priority = Priority::LOW) {
     DeletionCallback delete_cb = nullptr;
+    assert(helper_cb != nullptr);
     (*helper_cb)(nullptr, nullptr, &delete_cb);
     return Insert(key, value, charge, delete_cb, handle, priority);
   }

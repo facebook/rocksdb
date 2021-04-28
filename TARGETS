@@ -803,6 +803,7 @@ cpp_library(
     os_deps = ROCKSDB_OS_DEPS,
     os_preprocessor_flags = ROCKSDB_OS_PREPROCESSOR_FLAGS,
     preprocessor_flags = ROCKSDB_PREPROCESSOR_FLAGS,
+    include_paths = ROCKSDB_INCLUDE_PATHS,
     deps = [":rocksdb_lib"],
     external_deps = ROCKSDB_EXTERNAL_DEPS,
     link_whole = False,
