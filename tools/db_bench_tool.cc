@@ -56,8 +56,10 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/stats_history.h"
+#include "rocksdb/tiered_cache.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksdb/utilities/options_type.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/sim_cache.h"
 #include "rocksdb/utilities/transaction.h"
@@ -1411,6 +1413,12 @@ DEFINE_int32(readahead_size, 0, "Iterator readahead size");
 DEFINE_bool(read_with_latest_user_timestamp, true,
             "If true, always use the current latest timestamp for read. If "
             "false, choose a random timestamp from the past.");
+
+#ifndef ROCKSDB_LITE
+DEFINE_string(tiered_cache_uri, "",
+              "Full URI for creating a custom tiered cache object");
+static class std::shared_ptr<ROCKSDB_NAMESPACE::TieredCache> tiered_cache;
+#endif
 
 static const bool FLAGS_soft_rate_limit_dummy __attribute__((__unused__)) =
     RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
@@ -2773,22 +2781,37 @@ class Benchmark {
       }
       return cache;
     } else {
-      if (FLAGS_use_cache_memkind_kmem_allocator) {
+      LRUCacheOptions opts(
+          static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
+          false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio,
 #ifdef MEMKIND
-        return NewLRUCache(
-            static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
-            false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio,
-            std::make_shared<MemkindKmemAllocator>());
-
+          FLAGS_use_cache_memkind_kmem_allocator
+              ? std::make_shared<MemkindKmemAllocator>()
+              : nullptr
 #else
+          nullptr
+#endif
+      );
+      if (FLAGS_use_cache_memkind_kmem_allocator) {
+#ifndef MEMKIND
         fprintf(stderr, "Memkind library is not linked with the binary.");
         exit(1);
 #endif
-      } else {
-        return NewLRUCache(
-            static_cast<size_t>(capacity), FLAGS_cache_numshardbits,
-            false /*strict_capacity_limit*/, FLAGS_cache_high_pri_pool_ratio);
       }
+#ifndef ROCKSDB_LITE
+      if (!FLAGS_tiered_cache_uri.empty()) {
+        Status s = ObjectRegistry::NewInstance()->NewSharedObject<TieredCache>(
+            FLAGS_tiered_cache_uri, &tiered_cache);
+        if (tiered_cache == nullptr) {
+          fprintf(stderr,
+                  "No tiered cache registered matching string: %s status=%s\n",
+                  FLAGS_tiered_cache_uri.c_str(), s.ToString().c_str());
+          exit(1);
+        }
+        opts.tiered_cache = tiered_cache;
+      }
+#endif
+      return NewLRUCache(opts);
     }
   }
 
