@@ -118,6 +118,7 @@ class BlocklikeTraits<BlockContents> {
               Cache::DeletionCallback* del_cb) -> void {
       if (size_cb != nullptr) {
         *size_cb = [](void* obj) -> size_t {
+          assert(obj != nullptr);
           BlockContents* ptr = reinterpret_cast<BlockContents*>(obj);
           return ptr->data.size();
         };
@@ -126,6 +127,7 @@ class BlocklikeTraits<BlockContents> {
       if (saveto_cb != nullptr) {
         *saveto_cb = [](void* obj, size_t offset, size_t size,
                         void* out) -> Status {
+          assert(obj != nullptr);
           BlockContents* ptr = reinterpret_cast<BlockContents*>(obj);
           const char* buf = ptr->data.data();
           assert(size == ptr->data.size());
@@ -166,6 +168,7 @@ class BlocklikeTraits<ParsedFullFilterBlock> {
               Cache::DeletionCallback* del_cb) -> void {
       if (size_cb != nullptr) {
         *size_cb = [](void* obj) -> size_t {
+          assert(obj != nullptr);
           ParsedFullFilterBlock* ptr =
               reinterpret_cast<ParsedFullFilterBlock*>(obj);
           return ptr->GetBlockContentsData().size();
@@ -175,6 +178,7 @@ class BlocklikeTraits<ParsedFullFilterBlock> {
       if (saveto_cb != nullptr) {
         *saveto_cb = [](void* obj, size_t offset, size_t size,
                         void* out) -> Status {
+          assert(obj != nullptr);
           ParsedFullFilterBlock* ptr =
               reinterpret_cast<ParsedFullFilterBlock*>(obj);
           const char* buf = ptr->GetBlockContentsData().data();
@@ -214,6 +218,7 @@ class BlocklikeTraits<Block> {
               Cache::DeletionCallback* del_cb) -> void {
       if (size_cb != nullptr) {
         *size_cb = [](void* obj) -> size_t {
+          assert(obj != nullptr);
           Block* ptr = reinterpret_cast<Block*>(obj);
           return ptr->size();
         };
@@ -222,6 +227,7 @@ class BlocklikeTraits<Block> {
       if (saveto_cb != nullptr) {
         *saveto_cb = [](void* obj, size_t offset, size_t size,
                         void* out) -> Status {
+          assert(obj != nullptr);
           Block* ptr = reinterpret_cast<Block*>(obj);
           const char* buf = ptr->data();
           assert(size == ptr->size());
@@ -263,6 +269,7 @@ class BlocklikeTraits<UncompressionDict> {
               Cache::DeletionCallback* del_cb) -> void {
       if (size_cb != nullptr) {
         *size_cb = [](void* obj) -> size_t {
+          assert(obj != nullptr);
           UncompressionDict* ptr = reinterpret_cast<UncompressionDict*>(obj);
           return ptr->slice_.size();
         };
@@ -271,6 +278,7 @@ class BlocklikeTraits<UncompressionDict> {
       if (saveto_cb != nullptr) {
         *saveto_cb = [](void* obj, size_t offset, size_t size,
                         void* out) -> Status {
+          assert(obj != nullptr);
           UncompressionDict* ptr = reinterpret_cast<UncompressionDict*>(obj);
           const char* buf = ptr->slice_.data();
           assert(size == ptr->slice_.size());
@@ -1373,8 +1381,14 @@ Status BlockBasedTable::GetDataBlockFromCache(
   }
 
   assert(!compressed_block_cache_key.empty());
+  BlockContents contents;
+  Cache::CacheItemHelperCallback helper_cb_special =
+      BlocklikeTraits<BlockContents>::GetCacheItemHelperCallback(contents);
+  Cache::CreateCallback create_cb_special = GetCreateCallback(
+      read_amp_bytes_per_bit, statistics, using_zstd, filter_policy, contents);
   block_cache_compressed_handle = block_cache_compressed->Lookup(
-      compressed_block_cache_key, helper_cb, create_cb, priority, true);
+      compressed_block_cache_key, helper_cb_special, create_cb_special,
+      priority, true);
 
   // if we found in the compressed cache, then uncompress and insert into
   // uncompressed cache
@@ -1391,7 +1405,6 @@ Status BlockBasedTable::GetDataBlockFromCache(
   assert(compression_type != kNoCompression);
 
   // Retrieve the uncompressed contents into a new buffer
-  BlockContents contents;
   UncompressionContext context(compression_type);
   UncompressionInfo info(context, uncompression_dict, compression_type);
   s = UncompressBlockContents(
@@ -1415,10 +1428,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
       s = block_cache->Insert(block_cache_key, block_holder.get(), helper_cb,
                               charge, &cache_handle);
-      /*
-      s = block_cache->Insert(block_cache_key, block_holder.get(), charge,
-                              &DeleteCachedEntry<TBlocklike>, &cache_handle);
-      */
+
       if (s.ok()) {
         assert(cache_handle != nullptr);
         block->SetCachedValue(block_holder.release(), block_cache,
@@ -1509,19 +1519,16 @@ Status BlockBasedTable::PutDataBlockToCache(
     // an object in the stack.
     BlockContents* block_cont_for_comp_cache =
         new BlockContents(std::move(*raw_block_contents));
+    Cache::CacheItemHelperCallback helper_cb_special =
+        BlocklikeTraits<BlockContents>::GetCacheItemHelperCallback(
+            *block_cont_for_comp_cache);
+    s = block_cache_compressed->Insert(
+        compressed_block_cache_key, block_cont_for_comp_cache,
+        helper_cb_special, block_cont_for_comp_cache->ApproximateMemoryUsage());
 
-        s = block_cache_compressed->Insert(
-            compressed_block_cache_key, block_cont_for_comp_cache, helper_cb,
-            block_cont_for_comp_cache->ApproximateMemoryUsage());
-        /*
-        s = block_cache_compressed->Insert(
-            compressed_block_cache_key, block_cont_for_comp_cache,
-            block_cont_for_comp_cache->ApproximateMemoryUsage(),
-            &DeleteCachedEntry<BlockContents>);
-        */
-        if (s.ok()) {
-          // Avoid the following code to delete this cached block.
-          RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD);
+    if (s.ok()) {
+      // Avoid the following code to delete this cached block.
+      RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD);
     } else {
       RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD_FAILURES);
       delete block_cont_for_comp_cache;
