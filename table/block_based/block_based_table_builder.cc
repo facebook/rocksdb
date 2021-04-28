@@ -29,6 +29,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block.h"
@@ -473,15 +474,29 @@ struct BlockBasedTableBuilder::Rep {
           &this->internal_prefix_transform, use_delta_encoding_for_index_values,
           table_options));
     }
-    if (tbo.skip_filters) {
+    if (ioptions.optimize_filters_for_hits && tbo.is_bottommost) {
+      // Apply optimize_filters_for_hits setting here when applicable by
+      // skipping filter generation
+      filter_builder = nullptr;
+    } else if (tbo.skip_filters) {
+      // For SstFileWriter skip_filters
       filter_builder = nullptr;
     } else {
       FilterBuildingContext filter_context(table_options);
 
-      filter_context.level_at_creation = tbo.level;
-      filter_context.column_family_name = column_family_name;
-      filter_context.compaction_style = ioptions.compaction_style;
       filter_context.info_log = ioptions.logger;
+      filter_context.column_family_name = tbo.column_family_name;
+      filter_context.reason = tbo.reason;
+
+      // Only populate other fields if known to be in LSM rather than
+      // generating external SST file
+      if (tbo.reason != TableFileCreationReason::kMisc) {
+        filter_context.compaction_style = ioptions.compaction_style;
+        filter_context.num_levels = ioptions.num_levels;
+        filter_context.level_at_creation = tbo.level_at_creation;
+        filter_context.is_bottommost = tbo.is_bottommost;
+        assert(filter_context.level_at_creation < filter_context.num_levels);
+      }
 
       filter_builder.reset(CreateFilterBlockBuilder(
           ioptions, moptions, filter_context,

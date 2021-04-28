@@ -86,6 +86,9 @@ class SstFileWriter {
   // hint that this file pages is not needed every time we write 1MB to the
   // file. To use the rate limiter an io_priority smaller than IO_TOTAL can be
   // passed.
+  // The `skip_filters` option is DEPRECATED and could be removed in the
+  // future. Use `BlockBasedTableOptions::filter_policy` to control filter
+  // generation.
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true,

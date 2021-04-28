@@ -275,7 +275,7 @@ Status SstFileDumper::ShowCompressionSize(
   int unknown_level = -1;
   TableBuilderOptions tb_opts(
       imoptions, moptions, ikc, &block_based_table_factories, compress_type,
-      compress_opt, false /* skip_filters */,
+      compress_opt,
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       column_family_name, unknown_level);
   uint64_t num_data_blocks = 0;
