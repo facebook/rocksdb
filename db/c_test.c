@@ -2928,7 +2928,6 @@ int main(int argc, char** argv) {
   rocksdb_readoptions_destroy(roptions);
   rocksdb_writeoptions_destroy(woptions);
   rocksdb_compactoptions_destroy(coptions);
-  rocksdb_cache_disown_data(cache);
   rocksdb_cache_destroy(cache);
   rocksdb_comparator_destroy(cmp);
   rocksdb_dbpath_destroy(dbpath);
