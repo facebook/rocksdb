@@ -121,6 +121,33 @@ class KVIter : public Iterator {
 
 }  // namespace
 
+class TestDB {
+ public:
+  DB* db;
+
+ private:
+  Options options;
+  std::string dbname_;
+
+ public:
+  TestDB(std::string dbname) : dbname_(test::PerThreadDBPath(dbname)) {
+    options.create_if_missing = true;
+
+    options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+    EXPECT_OK(DestroyDB(dbname_, options));
+    Status s = DB::Open(options, dbname_, &db);
+    EXPECT_OK(s);
+  }
+
+ public:
+  ColumnFamilyHandle* newCF(std::string familyName) {
+    ColumnFamilyHandle* cf;
+    EXPECT_OK(db->CreateColumnFamily(ColumnFamilyOptions(), familyName, &cf));
+    return cf;
+  }
+};
+
 void AssertKey(std::string key, WBWIIterator* iter) {
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(key, iter->Entry().key.ToString());
@@ -148,6 +175,62 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
 }
 
 TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteSingleRange) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+  Status s;
+  std::string value;
+  DBOptions db_options;
+
+  // Delete range with nothing in the range is OK,
+  ASSERT_OK(batch.DeleteRange("B", "C"));
+
+  // Read a bunch of values, ensure it's all not there OK
+  s = batch.GetFromBatch(db_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  //
+  // Simple range deletion in centre of A-E
+  //
+  batch.Clear();
+  ASSERT_OK(batch.Put("A", "a"));
+  ASSERT_OK(batch.Put("B", "b"));
+  ASSERT_OK(batch.Put("C", "c"));
+  ASSERT_OK(batch.Put("D", "d"));
+  ASSERT_OK(batch.Put("E", "e"));
+  ASSERT_OK(batch.DeleteRange("B", "D"));
+
+  s = batch.GetFromBatch(db_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a", value);
+  s = batch.GetFromBatch(db_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("d", value);
+  s = batch.GetFromBatch(db_options, "E", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e", value);
+  s = batch.GetFromBatch(db_options, "F", &value);
+  ASSERT_TRUE(s.IsNotFound());
+}
+
+TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteSingleRangeCF) {
+  TestDB testDB("delete_single_range_cf");
+  DB* db = testDB.db;
+  ColumnFamilyHandle* cf1 = testDB.newCF("First Family");
+  ColumnFamilyHandle* cf2 = testDB.newCF("Second Family");
+
+  ASSERT_OK(db->CreateColumnFamily(ColumnFamilyOptions(), "FirstFamily", &cf1));
+  ASSERT_OK(
+      db->CreateColumnFamily(ColumnFamilyOptions(), "SecondFamily", &cf2));
+
   WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
   Status s;
   std::string value;
@@ -270,7 +353,7 @@ static std::string PrintContents(WriteBatchWithIndex* batch,
   return result;
 }
 
-TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteDeleteRangeInteraction) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteSingleDeleteRangeInteraction) {
   WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
   Status s;
   std::string value;
@@ -772,25 +855,12 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBRead) {
 }
 
 TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleColumnFamilies) {
-  DB* db;
-  Options options;
+  TestDB testDB("multiple_column_families");
+  DB* db = testDB.db;
+  ColumnFamilyHandle* cf1 = testDB.newCF("First Family");
+  ColumnFamilyHandle* cf2 = testDB.newCF("Second Family");
 
-  options.create_if_missing = true;
-  std::string dbname =
-      test::PerThreadDBPath("write_batch_with_index_deleted_range_multiple_cf");
-
-  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
-
-  EXPECT_OK(DestroyDB(dbname, options));
-  Status s = DB::Open(options, dbname, &db);
-  ASSERT_OK(s);
-
-  ColumnFamilyHandle* cf1;
-  ColumnFamilyHandle* cf2;
-
-  ASSERT_OK(db->CreateColumnFamily(ColumnFamilyOptions(), "FirstFamily", &cf1));
-  ASSERT_OK(
-      db->CreateColumnFamily(ColumnFamilyOptions(), "SecondFamily", &cf2));
+  Status s;
 
   ReadOptions read_options;
   WriteOptions write_options;
