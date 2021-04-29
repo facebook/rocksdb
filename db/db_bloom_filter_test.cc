@@ -898,6 +898,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
         EXPECT_LE(useful_count, maxKey * 0.91);
       }
     } else {
+#ifndef ROCKSDB_LITE
       // Also try external SST file
       {
         std::string file_path = dbname_ + "/external.sst";
@@ -909,6 +910,7 @@ TEST_F(DBBloomFilterTest, ContextCustomFilterPolicy) {
       // Note: kCompactionStyleLevel is default, ignored if num_levels == -1
       EXPECT_EQ(policy->DumpTestReport(),
                 "cf=abe,s=kCompactionStyleLevel,n=-1,l=-1,b=0,r=kMisc\n");
+#endif
     }
 
     // Destroy
