@@ -195,19 +195,25 @@ class KeepFilterFactory : public CompactionFilterFactory {
   bool compaction_filter_created_;
 };
 
+// This filter factory is configured with a `TableFileCreationReason`. Only
+// table files created for that reason will undergo filtering. This
+// configurability makes it useful to tests for filtering non-compaction table
+// files, such as "CompactionFilterFlush" and "CompactionFilterRecovery".
 class DeleteFilterFactory : public CompactionFilterFactory {
  public:
-  DeleteFilterFactory(TableFileCreationReason reason) : reason_(reason) {}
+  explicit DeleteFilterFactory(TableFileCreationReason reason)
+      : reason_(reason) {}
 
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
     EXPECT_EQ(reason_, context.reason);
-    if (context.is_manual_compaction ||
-        context.reason != TableFileCreationReason::kCompaction) {
-      return std::unique_ptr<CompactionFilter>(new DeleteFilter());
-    } else {
+    if (context.reason == TableFileCreationReason::kCompaction &&
+        !context.is_manual_compaction) {
+      // Table files created by automatic compaction do not undergo filtering.
+      // Presumably some tests rely on this.
       return std::unique_ptr<CompactionFilter>(nullptr);
     }
+    return std::unique_ptr<CompactionFilter>(new DeleteFilter());
   }
 
   bool ShouldFilterTableFileCreation(
