@@ -116,7 +116,7 @@ Status BuildTable(
       CompactionFilter::Context context;
       context.is_full_compaction = false;
       context.is_manual_compaction = false;
-      context.column_family_id = column_family_id;
+      context.column_family_id = tboptions.column_family_id;
       context.reason = reason;
       compaction_filter =
           ioptions.compaction_filter_factory->CreateCompactionFilter(context);
@@ -160,25 +160,6 @@ Status BuildTable(
           tmp_set.Contains(FileType::kTableFile)));
 
       builder = NewTableBuilder(tboptions, file_writer.get());
-    }
-
-    std::unique_ptr<CompactionFilter> compaction_filter;
-    if (ioptions.compaction_filter_factory != nullptr &&
-        ioptions.compaction_filter_factory->ShouldFilterTableFileCreation(
-            reason)) {
-      CompactionFilter::Context context;
-      context.is_full_compaction = false;
-      context.is_manual_compaction = false;
-      context.column_family_id = column_family_id;
-      context.reason = reason;
-      compaction_filter =
-          ioptions.compaction_filter_factory->CreateCompactionFilter(context);
-      if (compaction_filter != nullptr &&
-          !compaction_filter->IgnoreSnapshots()) {
-        return Status::NotSupported(
-            "CompactionFilter::IgnoreSnapshots() = false is not supported "
-            "anymore.");
-      }
     }
 
     MergeHelper merge(env, tboptions.internal_comparator.user_comparator(),
