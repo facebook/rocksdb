@@ -143,6 +143,19 @@ Status BuildTable(
       builder = NewTableBuilder(tboptions, file_writer.get());
     }
 
+    std::unique_ptr<CompactionFilter> compaction_filter;
+    if (ioptions.compaction_filter_factory != nullptr &&
+        ioptions.compaction_filter_factory->ShouldFilterTableFileCreation(
+            reason)) {
+      CompactionFilter::Context context;
+      context.is_full_compaction = false;
+      context.is_manual_compaction = false;
+      context.column_family_id = column_family_id;
+      context.reason = reason;
+      compaction_filter =
+          ioptions.compaction_filter_factory->CreateCompactionFilter(context);
+    }
+
     MergeHelper merge(env, tboptions.internal_comparator.user_comparator(),
                       ioptions.merge_operator.get(), nullptr, ioptions.logger,
                       true /* internal key corruption is not ok */,
@@ -165,8 +178,8 @@ Status BuildTable(
         snapshot_checker, env, ShouldReportDetailedTime(env, ioptions.stats),
         true /* internal key corruption is not ok */, range_del_agg.get(),
         blob_file_builder.get(), ioptions.allow_data_in_errors,
-        /*compaction=*/nullptr,
-        /*compaction_filter=*/nullptr, /*shutting_down=*/nullptr,
+        /*compaction=*/nullptr, compaction_filter.get(),
+        /*shutting_down=*/nullptr,
         /*preserve_deletes_seqnum=*/0, /*manual_compaction_paused=*/nullptr,
         db_options.info_log, full_history_ts_low);
 
