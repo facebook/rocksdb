@@ -380,6 +380,8 @@ jobs:
               echo "Installing VS2015..."
               powershell .circleci/vs2015_install.ps1
             fi
+      - store_artifacts:
+          path: \Users\circleci\AppData\Local\Temp\vslogs.zip
       - run:
           name: "Install thirdparty dependencies"
           command: |
@@ -697,12 +699,12 @@ workflows:
           name: "build-windows-vs2017"
           vs_year: "2017"
           cmake_generator: "Visual Studio 15 Win64"
-  build-windows-vs2015:
-    jobs:
-      - build-windows:
-          name: "build-windows-vs2015"
-          vs_year: "2015"
-          cmake_generator: "Visual Studio 14 Win64"
+#  build-windows-vs2015:
+#    jobs:
+#      - build-windows:
+#          name: "build-windows-vs2015"
+#          vs_year: "2015"
+#          cmake_generator: "Visual Studio 14 Win64"
   build-java:
     jobs:
       - build-linux-java

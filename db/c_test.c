@@ -517,6 +517,9 @@ int main(int argc, char** argv) {
   coptions = rocksdb_compactoptions_create();
   rocksdb_compactoptions_set_exclusive_manual_compaction(coptions, 1);
 
+  rocksdb_options_add_compact_on_deletion_collector_factory(options, 10000,
+                                                            10001);
+
   StartPhase("destroy");
   rocksdb_destroy_db(options, dbname, &err);
   Free(&err);
@@ -1276,6 +1279,9 @@ int main(int argc, char** argv) {
     CheckPinGetCF(db, roptions, handles[1], "box", "c");
     rocksdb_writebatch_destroy(wb);
 
+    rocksdb_flush_wal(db, 1, &err);
+    CheckNoError(err);
+
     const char* keys[3] = { "box", "box", "barfooxx" };
     const rocksdb_column_family_handle_t* get_handles[3] = { handles[0], handles[1], handles[1] };
     const size_t keys_sizes[3] = { 3, 3, 8 };
@@ -1758,6 +1764,9 @@ int main(int argc, char** argv) {
 
     rocksdb_options_set_atomic_flush(o, 1);
     CheckCondition(1 == rocksdb_options_get_atomic_flush(o));
+
+    rocksdb_options_set_manual_wal_flush(o, 1);
+    CheckCondition(1 == rocksdb_options_get_manual_wal_flush(o));
 
     /* Blob Options */
     rocksdb_options_set_enable_blob_files(o, 1);
@@ -2919,7 +2928,6 @@ int main(int argc, char** argv) {
   rocksdb_readoptions_destroy(roptions);
   rocksdb_writeoptions_destroy(woptions);
   rocksdb_compactoptions_destroy(coptions);
-  rocksdb_cache_disown_data(cache);
   rocksdb_cache_destroy(cache);
   rocksdb_comparator_destroy(cmp);
   rocksdb_dbpath_destroy(dbpath);
