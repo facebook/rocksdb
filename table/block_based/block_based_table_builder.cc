@@ -322,12 +322,10 @@ struct BlockBasedTableBuilder::Rep {
   std::string compressed_output;
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
   uint32_t column_family_id;
+  std::string column_family_name;
   uint64_t creation_time = 0;
   uint64_t oldest_key_time = 0;
   uint64_t file_creation_time = 0;
-
-  // Includes level and colum_family_name
-  FilterBuildingContext filter_context;
 
   // DB IDs
   const std::string db_id;
@@ -443,20 +441,15 @@ struct BlockBasedTableBuilder::Rep {
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
         column_family_id(tbo.column_family_id),
+        column_family_name(tbo.column_family_name),
         creation_time(tbo.creation_time),
         oldest_key_time(tbo.oldest_key_time),
         file_creation_time(tbo.file_creation_time),
-        filter_context(table_options),
         db_id(tbo.db_id),
         db_session_id(tbo.db_session_id),
         db_host_id(ioptions.db_host_id),
         status_ok(true),
         io_status_ok(true) {
-    filter_context.level_at_creation = tbo.level;
-    filter_context.column_family_name = tbo.column_family_name;
-    filter_context.compaction_style = ioptions.compaction_style;
-    filter_context.info_log = ioptions.logger;
-
     if (tbo.target_file_size == 0) {
       buffer_limit = compression_opts.max_dict_buffer_bytes;
     } else if (compression_opts.max_dict_buffer_bytes == 0) {
@@ -483,6 +476,13 @@ struct BlockBasedTableBuilder::Rep {
     if (tbo.skip_filters) {
       filter_builder = nullptr;
     } else {
+      FilterBuildingContext filter_context(table_options);
+
+      filter_context.level_at_creation = tbo.level;
+      filter_context.column_family_name = column_family_name;
+      filter_context.compaction_style = ioptions.compaction_style;
+      filter_context.info_log = ioptions.logger;
+
       filter_builder.reset(CreateFilterBlockBuilder(
           ioptions, moptions, filter_context,
           use_delta_encoding_for_index_values, p_index_builder_));
@@ -1487,7 +1487,7 @@ void BlockBasedTableBuilder::WritePropertiesBlock(
   if (ok()) {
     PropertyBlockBuilder property_block_builder;
     rep_->props.column_family_id = rep_->column_family_id;
-    rep_->props.column_family_name = rep_->filter_context.column_family_name;
+    rep_->props.column_family_name = rep_->column_family_name;
     rep_->props.filter_policy_name =
         rep_->table_options.filter_policy != nullptr
             ? rep_->table_options.filter_policy->Name()
