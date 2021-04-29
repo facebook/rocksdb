@@ -73,6 +73,7 @@ struct WriteBatchWithIndex::Rep {
   void AddDeletedRangeToMap(ColumnFamilyHandle* column_family);
   void AddDeletedRangeToMap(uint32_t column_family_id);
 
+  // Remove index entries which are "overwritten" by a DeleteRange
   void RemoveRangeDeletedIndexEntries(uint32_t cf_id, const Slice& from_key,
                                       const Slice& to_key);
 
@@ -181,7 +182,7 @@ void WriteBatchWithIndex::Rep::RemoveRangeDeletedIndexEntries(
   while (iter.Valid()) {
     auto entry = iter.Entry();
     if (comparator.CompareKey(cf_id, entry.key, to_key) >= 0) break;
-    iter.Remove();
+    iter.Remove();  // implicit Next()
   }
 }
 
@@ -193,6 +194,7 @@ void WriteBatchWithIndex::Rep::AddDeletedRangeToMap(
 
 void WriteBatchWithIndex::Rep::AddDeletedRangeToMap(uint32_t cf_id) {
   // Add a record that this range has been deleted
+  // and remove records affecting individual values within the range
   Slice batch_from_key, batch_to_key;
   ReadRangeKeysFromWriteBatchEntry(cf_id, batch_from_key, batch_to_key);
   RemoveRangeDeletedIndexEntries(cf_id, batch_from_key, batch_to_key);

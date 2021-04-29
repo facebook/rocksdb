@@ -15,17 +15,41 @@
 namespace ROCKSDB_NAMESPACE {
 
 //
-// Range of values set or not set. Query or add ranges, but not delete them.
+// This class represents a number of ranges (we call them intervals) where a
+// boolean value is true; outside the ranges it is false. The intervals are
+// mathematically semi-open, that is to say that the starting value is within
+// the interval, but the ending value is outside the interval.
 //
-// Concurrency is guaranteed by the underlying skiplist.
+// Intervals (potentially overlapping) can be added to the map, and they will be
+// efficiently merged with existing intervals at the time they are added.
+// For example, if [A,C) and [D,F) are already stored, adding [B,E) will result
+// in the map holding the single [A,F) range.
+// So intervals cannot be removed from the map, as the merge process forgets the
+// internal endpoints of overlapping ranges.
 //
-// TODO how do we order and arrange updates so that concurrent readers always
-// get a consistent view ?
+// The intervals are represented using a skiplist which contains alternating
+// START and STOP markers. The first entry will always be a START marker, and
+// the last entry will always be a STOP marker.
+//
+// An implementation of an interval tree efficiently retaining all intervals
+// is beyond scope here, and would required a different underlying data
+// structure, (such as an augmented R-B-Tree, see Cormen, Lieserson and Rivest).
+//
+// The interval map can be queried for whether a key is inside our outside a
+// range. The design use case of the data structure is to record deleted key
+// ranges in support of the DeleteRange() method on indexed write batches.
+//
+// Concurrency is not enforced, an external mutex (or similar) on insert would
+// be required to maintain the correct interval semantics in multithreaded use.
+// Concurrent readers is in principle supported, as the underlying skiplist is
+// safe for concurrent reads.
 //
 template <class PointKey, class Comparator>
 class IntervalMap {
  public:
+  // The end of an interval
   enum Marker { Start, Stop };
+
   class PointData {
    public:
     Marker marker;
@@ -59,7 +83,7 @@ class IntervalMap {
   // memory using "*allocator".  Objects allocated in the allocator must
   // remain allocated for the lifetime of the range map object. The
   // IntervalMap is expected to share a lifetime with the write batch index,
-  // and to share its allocator too.
+  // and to share its allocator also.
   explicit IntervalMap(Comparator cmp, Allocator* allocator);
 
   // No copying allowed
@@ -69,7 +93,7 @@ class IntervalMap {
   // Merge the semi-open interval [from_key, to_key) with the other intervals
   void AddInterval(const PointKey& from_key, const PointKey& to_key);
 
-  // Check whether the key is in any of the intervals
+  // Check whether the supplied key is in any of the added intervals
   bool IsInInterval(const PointKey& key);
 
  public:
@@ -98,7 +122,6 @@ void IntervalMap<PointKey, Comparator>::AddInterval(const PointKey& from_key,
   FixIntervalTo(to_key);
 
   // Clear range
-  // TODO check the underlying iter.Remove() is implemented
   typename PointEntrySkipList::Iterator iter(&skip_list);
   PointEntry from_entry(from_key, Start);
   PointEntry to_entry(to_key, Stop);
@@ -110,11 +133,13 @@ void IntervalMap<PointKey, Comparator>::AddInterval(const PointKey& from_key,
     if (comparator_(&to_entry, iter.key()) <= 0) {
       break;
     }
-    // iter should move on to Next() when we remove
+    // iter moves on to Next() when we remove
     iter.Remove();
   }
 }
 
+// Add a start marker at the start of our range
+// Or tack the start of our range onto an overlapping one that starts earlier
 template <class PointKey, class Comparator>
 void IntervalMap<PointKey, Comparator>::FixIntervalFrom(
     const PointKey& from_key) {
@@ -123,7 +148,8 @@ void IntervalMap<PointKey, Comparator>::FixIntervalFrom(
   iter.SeekForPrev(&from_entry);
   if (iter.Valid()) {
     Marker marker = iter.key()->pointData.marker;
-    if (marker == Start) return;  // an earlier start exists, so no start to add
+    if (marker == Start)
+      return;  // an earlier start exists, so no start marker to add
 
     if (comparator_(&from_entry, iter.key()) == 0) {
       // There is a Stop where we want to have a start
@@ -139,6 +165,8 @@ void IntervalMap<PointKey, Comparator>::FixIntervalFrom(
   skip_list.Insert(index_entry);
 }
 
+// Add a stop marker to the end of our range
+// Or tack the end of our range into an overlapping one that ends later
 template <class PointKey, class Comparator>
 void IntervalMap<PointKey, Comparator>::FixIntervalTo(const PointKey& to_key) {
   typename PointEntrySkipList::Iterator iter(&skip_list);

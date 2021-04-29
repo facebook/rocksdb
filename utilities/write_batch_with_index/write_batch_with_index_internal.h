@@ -76,10 +76,10 @@ class BaseDeltaIterator : public Iterator {
 struct WriteBatchIndexEntry {
   WriteBatchIndexEntry(size_t o, uint32_t c, size_t ko, size_t ksz)
       : offset(o),
+        column_family(c),
         key_offset(ko),
         key_size(ksz),
-        search_key(nullptr),
-        column_family(c) {}
+        search_key(nullptr) {}
   // Create a dummy entry as the search key. This index entry won't be backed
   // by an entry from the write batch, but a pointer to the search key. Or a
   // special flag of offset can indicate we are seek to first.
@@ -93,10 +93,10 @@ struct WriteBatchIndexEntry {
       // For SeekForPrev(), we need to make the dummy entry larger than any
       // entry who has the same search key. Otherwise, we'll miss those entries.
       : offset(is_forward_direction ? 0 : port::kMaxSizet),
+        column_family(_column_family),
         key_offset(0),
         key_size(is_seek_to_first ? kFlagMinInCf : 0),
-        search_key(_search_key),
-        column_family(_column_family) {
+        search_key(_search_key) {
     assert(_search_key != nullptr || is_seek_to_first);
   }
 
@@ -119,17 +119,17 @@ struct WriteBatchIndexEntry {
   // make the entry just larger than all entries with the search key so
   // SeekForPrev() will see all the keys with the same key.
   size_t offset;
-  size_t key_offset;  // offset of the key in write batch's string buffer.
-  size_t key_size;    // size of the key. kFlagMinInCf indicates
-                      // that this is a dummy look up entry for
-                      // SeekToFirst() to the beginning of the column
-                      // family. We use the flag here to save a boolean
-                      // in the struct.
+  uint32_t column_family;  // column family of the entry.
+  size_t key_offset;       // offset of the key in write batch's string buffer.
+  size_t key_size;         // size of the key. kFlagMinInCf indicates
+                           // that this is a dummy look up entry for
+                           // SeekToFirst() to the beginning of the column
+                           // family. We use the flag here to save a boolean
+                           // in the struct.
 
   const Slice* search_key;  // if not null, instead of reading keys from
                             // write batch, use it to compare. This is used
-                            // for lookup key
-  uint32_t column_family;   // column family of the entry.
+                            // for lookup key.
 };
 
 class ReadableWriteBatch : public WriteBatch {

@@ -74,6 +74,7 @@ class SkipList {
   // Return estimated number of entries smaller than `key`.
   uint64_t EstimateCount(const Key& key) const;
 
+  // Counts which validate success/fail of the sequential insert optimization
   InsertCounts GetInsertCounts() const;
 
   // Iteration over the contents of a skip list
@@ -149,9 +150,12 @@ class SkipList {
   Node** prev_;
   int32_t prev_height_;
 
-  // The optimization above breaks in the presence of removal
-  // So we switch it off after a Remove(), and back on after a first Insert()
-  // allowing a stream of sequential inserts to work as advertised.
+  // The sequential insertion optimization breaks if we Remove() the last
+  // inserted element, and then perform an insertion which would have been
+  // sequential. So we flag that the optimization is not valid after a Remove(),
+  // and we allow it again after a first "slow" Insert() - which correctly
+  // resets the prev_[] optimisation pointers. This allows a stream of
+  // sequential inserts to work optimized, as advertised.
   bool can_optimize_next_sequential_insert_ = true;
   InsertCounts insert_counts_;
 
@@ -452,11 +456,10 @@ bool SkipList<Key, Comparator>::RemoveNode(Node* victim) {
   }
 
   if (deleted) {
-    // make the next insert take the slow path
-    // we could try to be clever with
-    // if (prev_[level] == victim) { prev_[level] = victim->Next(level) }
-    // but this fails the assert on Insert() if we remove the last element of
-    // the skiplist and may have other subtle flaws which hurt our timy brains
+    // turn of the sequential optimization of insert for the next insert
+    // Our removal of the node may have invalidated some of the prev_[]
+    // pointers, and while patching it up is possible, it's tricksy and error
+    // prone
     // - a sequence of uninterrupted serial inserts is still optimized.
     can_optimize_next_sequential_insert_ = false;
   }

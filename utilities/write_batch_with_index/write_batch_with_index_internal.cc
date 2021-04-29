@@ -636,6 +636,8 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
       }
     }
 
+    // If we simply did not find the key in the index,
+    // we need to check if it is part of an explicitly deleted range.
     if (result == kNotFound) {
       if (deleted_ranges.IsInInterval(cf_id, key)) {
         result = WriteBatchWithIndexInternal::Result::kDeleted;

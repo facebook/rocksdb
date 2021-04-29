@@ -13,8 +13,11 @@
 
 namespace ROCKSDB_NAMESPACE {
 
-// We use write batch index entries as our keys, but will only ever need the
-// concrete ones i.e. not the special "smallest in cf_id" search keys, etc.
+// Implement a record of the deleted ranges within an indexed write batch.
+// Holds a reference to the write batch where the key parts of the
+// index entries are stored.
+// Use these write batch index entries as our keys when we store intervals.
+// The class is otherwise just a concrete instance of an interval map.
 class DeletedRangeMap : IntervalMap<const struct WriteBatchIndexEntry,
                                     const class WriteBatchEntryComparator&> {
  public:
@@ -22,6 +25,7 @@ class DeletedRangeMap : IntervalMap<const struct WriteBatchIndexEntry,
                   Allocator* allocator, WriteBatch* write_batch)
       : IntervalMap(cmp, allocator), write_batch(write_batch) {}
 
+  // key parameters should refer to slices within the write batch
   void AddInterval(const uint32_t cf_id, const Slice& from_key,
                    const Slice& to_key);
 
