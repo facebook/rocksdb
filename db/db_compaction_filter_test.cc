@@ -82,6 +82,11 @@ class DeleteFilter : public CompactionFilter {
     return true;
   }
 
+  bool FilterMergeOperand(int /*level*/, const Slice& /*key*/,
+                          const Slice& /*operand*/) const override {
+    return true;
+  }
+
   const char* Name() const override { return "DeleteFilter"; }
 };
 
@@ -192,16 +197,28 @@ class KeepFilterFactory : public CompactionFilterFactory {
 
 class DeleteFilterFactory : public CompactionFilterFactory {
  public:
+  DeleteFilterFactory(TableFileCreationReason reason) : reason_(reason) {}
+
   std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
-    if (context.is_manual_compaction) {
+    EXPECT_EQ(reason_, context.reason);
+    if (context.is_manual_compaction ||
+        context.reason != TableFileCreationReason::kCompaction) {
       return std::unique_ptr<CompactionFilter>(new DeleteFilter());
     } else {
       return std::unique_ptr<CompactionFilter>(nullptr);
     }
   }
 
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason_ == reason;
+  }
+
   const char* Name() const override { return "DeleteFilterFactory"; }
+
+ private:
+  const TableFileCreationReason reason_;
 };
 
 // Delete Filter Factory which ignores snapshots
@@ -349,7 +366,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
 
   // create a new database with the compaction
   // filter in such a way that it deletes all keys
-  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
+  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>(
+      TableFileCreationReason::kCompaction);
   options.create_if_missing = true;
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -421,7 +439,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
 // entries in VersionEdit, but none of the 'AddFile's.
 TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
   Options options = CurrentOptions();
-  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
+  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>(
+      TableFileCreationReason::kCompaction);
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
   DestroyAndReopen(options);
@@ -449,6 +468,64 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
   delete itr;
 }
 #endif  // ROCKSDB_LITE
+
+TEST_F(DBTestCompactionFilter, CompactionFilterFlush) {
+  // Tests a `CompactionFilterFactory` that filters when table file is created
+  // by flush.
+  Options options = CurrentOptions();
+  options.compaction_filter_factory =
+      std::make_shared<DeleteFilterFactory>(TableFileCreationReason::kFlush);
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Reopen(options);
+
+  // Puts and Merges are purged in flush.
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Merge("b", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("NOT_FOUND", Get("a"));
+  ASSERT_EQ("NOT_FOUND", Get("b"));
+
+  // However, Puts and Merges are preserved by recovery.
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Merge("b", "v"));
+  Reopen(options);
+  ASSERT_EQ("v", Get("a"));
+  ASSERT_EQ("v", Get("b"));
+
+  // Likewise, compaction does not apply filtering.
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("v", Get("a"));
+  ASSERT_EQ("v", Get("b"));
+}
+
+TEST_F(DBTestCompactionFilter, CompactionFilterRecovery) {
+  // Tests a `CompactionFilterFactory` that filters when table file is created
+  // by recovery.
+  Options options = CurrentOptions();
+  options.compaction_filter_factory =
+      std::make_shared<DeleteFilterFactory>(TableFileCreationReason::kRecovery);
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Reopen(options);
+
+  // Puts and Merges are purged in recovery.
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Merge("b", "v"));
+  Reopen(options);
+  ASSERT_EQ("NOT_FOUND", Get("a"));
+  ASSERT_EQ("NOT_FOUND", Get("b"));
+
+  // However, Puts and Merges are preserved by flush.
+  ASSERT_OK(Put("a", "v"));
+  ASSERT_OK(Merge("b", "v"));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("v", Get("a"));
+  ASSERT_EQ("v", Get("b"));
+
+  // Likewise, compaction does not apply filtering.
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("v", Get("a"));
+  ASSERT_EQ("v", Get("b"));
+}
 
 TEST_P(DBTestCompactionFilterWithCompactParam,
        CompactionFilterWithValueChange) {
