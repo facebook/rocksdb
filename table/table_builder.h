@@ -19,7 +19,6 @@
 #include "db/table_properties_collector.h"
 #include "file/writable_file_writer.h"
 #include "options/cf_options.h"
-#include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
 #include "trace_replay/block_cache_tracer.h"

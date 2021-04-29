@@ -29,7 +29,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
-#include "rocksdb/listener.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/table.h"
 #include "table/block_based/block.h"
@@ -67,7 +66,7 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
     const bool use_delta_encoding_for_index_values,
     PartitionedIndexBuilder* const p_index_builder) {
   const BlockBasedTableOptions& table_opt = context.table_options;
-  if (table_opt.filter_policy == nullptr) return nullptr;
+  assert(table_opt.filter_policy);  // precondition
 
   FilterBitsBuilder* filter_bits_builder =
       BloomFilterPolicy::GetBuilderFromContext(context);
@@ -477,10 +476,13 @@ struct BlockBasedTableBuilder::Rep {
     if (ioptions.optimize_filters_for_hits && tbo.is_bottommost) {
       // Apply optimize_filters_for_hits setting here when applicable by
       // skipping filter generation
-      filter_builder = nullptr;
+      filter_builder.reset();
     } else if (tbo.skip_filters) {
       // For SstFileWriter skip_filters
-      filter_builder = nullptr;
+      filter_builder.reset();
+    } else if (!table_options.filter_policy) {
+      // Null filter_policy -> no filter
+      filter_builder.reset();
     } else {
       FilterBuildingContext filter_context(table_options);
 

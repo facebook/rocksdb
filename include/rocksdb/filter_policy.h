@@ -28,8 +28,8 @@
 #include <vector>
 
 #include "rocksdb/advanced_options.h"
-#include "rocksdb/listener.h"
 #include "rocksdb/status.h"
+#include "rocksdb/types.h"
 
 namespace ROCKSDB_NAMESPACE {
 

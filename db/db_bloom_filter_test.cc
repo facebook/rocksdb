@@ -13,7 +13,6 @@
 #include "db/db_test_util.h"
 #include "options/options_helper.h"
 #include "port/stack_trace.h"
-#include "rocksdb/listener.h"
 #include "rocksdb/perf_context.h"
 #include "table/block_based/filter_policy_internal.h"
 

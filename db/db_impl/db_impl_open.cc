@@ -18,7 +18,6 @@
 #include "file/writable_file_writer.h"
 #include "monitoring/persistent_stats_history.h"
 #include "options/options_helper.h"
-#include "rocksdb/listener.h"
 #include "rocksdb/table.h"
 #include "rocksdb/wal_filter.h"
 #include "test_util/sync_point.h"
