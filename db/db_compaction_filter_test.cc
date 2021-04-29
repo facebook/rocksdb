@@ -842,6 +842,49 @@ TEST_F(DBTestCompactionFilter, IgnoreSnapshotsFalse) {
   delete options.compaction_filter;
 }
 
+class TestNotSupportedFilterFactory : public CompactionFilterFactory {
+ public:
+  TestNotSupportedFilterFactory(TableFileCreationReason reason)
+      : reason_(reason) {}
+
+  bool ShouldFilterTableFileCreation(
+      TableFileCreationReason reason) const override {
+    return reason_ == reason;
+  }
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& /* context */) override {
+    return std::unique_ptr<CompactionFilter>(new TestNotSupportedFilter());
+  }
+
+  const char* Name() const override { return "TestNotSupportedFilterFactory"; }
+
+ private:
+  const TableFileCreationReason reason_;
+};
+
+TEST_F(DBTestCompactionFilter, IgnoreSnapshotsFalseDuringFlush) {
+  Options options = CurrentOptions();
+  options.compaction_filter_factory =
+      std::make_shared<TestNotSupportedFilterFactory>(
+          TableFileCreationReason::kFlush);
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "v10"));
+  ASSERT_TRUE(Flush().IsNotSupported());
+}
+
+TEST_F(DBTestCompactionFilter, IgnoreSnapshotsFalseRecovery) {
+  Options options = CurrentOptions();
+  options.compaction_filter_factory =
+      std::make_shared<TestNotSupportedFilterFactory>(
+          TableFileCreationReason::kRecovery);
+  Reopen(options);
+
+  ASSERT_OK(Put("a", "v10"));
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+}
+
 }  // namespace ROCKSDB_NAMESPACE
 
 int main(int argc, char** argv) {

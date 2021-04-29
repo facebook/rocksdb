@@ -154,6 +154,12 @@ Status BuildTable(
       context.reason = reason;
       compaction_filter =
           ioptions.compaction_filter_factory->CreateCompactionFilter(context);
+      if (compaction_filter != nullptr &&
+          !compaction_filter->IgnoreSnapshots()) {
+        return Status::NotSupported(
+            "CompactionFilter::IgnoreSnapshots() = false is not supported "
+            "anymore.");
+      }
     }
 
     MergeHelper merge(env, tboptions.internal_comparator.user_comparator(),
