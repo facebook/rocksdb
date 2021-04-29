@@ -406,19 +406,22 @@ Status FlushJob::WriteLevel0Table() {
       IOStatus io_s;
       const std::string* const full_history_ts_low =
           (full_history_ts_low_.empty()) ? nullptr : &full_history_ts_low_;
+      TableBuilderOptions tboptions(
+          *cfd_->ioptions(), mutable_cf_options_, cfd_->internal_comparator(),
+          cfd_->int_tbl_prop_collector_factories(), output_compression_,
+          mutable_cf_options_.compression_opts, false /* skip_filters */,
+          cfd_->GetID(), cfd_->GetName(), 0 /* level */, creation_time,
+          oldest_key_time, current_time, db_id_, db_session_id_,
+          0 /* target_file_size */);
       s = BuildTable(
-          dbname_, versions_, db_options_, *cfd_->ioptions(),
-          mutable_cf_options_, file_options_, cfd_->table_cache(), iter.get(),
-          std::move(range_del_iters), &meta_, &blob_file_additions,
-          cfd_->internal_comparator(), cfd_->int_tbl_prop_collector_factories(),
-          cfd_->GetID(), cfd_->GetName(), existing_snapshots_,
+          dbname_, versions_, db_options_, tboptions, file_options_,
+          cfd_->table_cache(), iter.get(), std::move(range_del_iters), &meta_,
+          &blob_file_additions, existing_snapshots_,
           earliest_write_conflict_snapshot_, snapshot_checker_,
-          output_compression_, mutable_cf_options_.compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           TableFileCreationReason::kFlush, &io_s, io_tracer_, event_logger_,
-          job_context_->job_id, Env::IO_HIGH, &table_properties_, 0 /* level */,
-          creation_time, oldest_key_time, write_hint, current_time, db_id_,
-          db_session_id_, full_history_ts_low, blob_callback_);
+          job_context_->job_id, Env::IO_HIGH, &table_properties_, write_hint,
+          full_history_ts_low, blob_callback_);
       if (!io_s.ok()) {
         io_status_ = io_s;
       }

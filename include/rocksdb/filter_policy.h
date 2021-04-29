@@ -100,6 +100,7 @@ struct FilterBuildingContext {
   const BlockBasedTableOptions& table_options;
 
   // Name of the column family for the table (or empty string if unknown)
+  // TODO: consider changing to Slice
   std::string column_family_name;
 
   // The compactions style in effect for the table

@@ -67,9 +67,9 @@ class BlockBasedTableReaderTest
     std::unique_ptr<TableBuilder> table_builder(table_factory_->NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, comparator, &factories,
                             compression_type, CompressionOptions(),
-                            false /* skip_filters */, kDefaultColumnFamilyName,
-                            -1 /* level */),
-        0 /* column_family_id */, writer.get()));
+                            false /* skip_filters */, 0 /* column_family_id */,
+                            kDefaultColumnFamilyName, -1 /* level */),
+        writer.get()));
 
     // Build table.
     for (auto it = kv.begin(); it != kv.end(); it++) {

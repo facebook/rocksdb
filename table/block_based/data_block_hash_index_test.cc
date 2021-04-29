@@ -555,11 +555,12 @@ void TestBoundary(InternalKey& ik1, std::string& v1, InternalKey& ik2,
       int_tbl_prop_collector_factories;
   std::string column_family_name;
   builder.reset(ioptions.table_factory->NewTableBuilder(
-      TableBuilderOptions(ioptions, moptions, internal_comparator,
-                          &int_tbl_prop_collector_factories,
-                          options.compression, CompressionOptions(),
-                          false /* skip_filters */, column_family_name, level_),
-      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      TableBuilderOptions(
+          ioptions, moptions, internal_comparator,
+          &int_tbl_prop_collector_factories, options.compression,
+          CompressionOptions(), false /* skip_filters */,
+          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+          column_family_name, level_),
       file_writer.get()));
 
   builder->Add(ik1.Encode().ToString(), v1);

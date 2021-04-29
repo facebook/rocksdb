@@ -94,11 +94,12 @@ struct TableBuilderOptions {
           _int_tbl_prop_collector_factories,
       CompressionType _compression_type,
       const CompressionOptions& _compression_opts, bool _skip_filters,
-      const std::string& _column_family_name, int _level,
-      const uint64_t _creation_time = 0, const int64_t _oldest_key_time = 0,
-      const uint64_t _target_file_size = 0,
+      uint32_t _column_family_id, const std::string& _column_family_name,
+      int _level, const uint64_t _creation_time = 0,
+      const int64_t _oldest_key_time = 0,
       const uint64_t _file_creation_time = 0, const std::string& _db_id = "",
-      const std::string& _db_session_id = "")
+      const std::string& _db_session_id = "",
+      const uint64_t _target_file_size = 0)
       : ioptions(_ioptions),
         moptions(_moptions),
         internal_comparator(_internal_comparator),
@@ -106,6 +107,7 @@ struct TableBuilderOptions {
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         skip_filters(_skip_filters),
+        column_family_id(_column_family_id),
         column_family_name(_column_family_name),
         level(_level),
         creation_time(_creation_time),
@@ -120,11 +122,13 @@ struct TableBuilderOptions {
   const InternalKeyComparator& internal_comparator;
   const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
       int_tbl_prop_collector_factories;
-  CompressionType compression_type;
+  const CompressionType compression_type;
   const CompressionOptions& compression_opts;
-  bool skip_filters;  // only used by BlockBasedTableBuilder
+  const bool skip_filters;  // only used by BlockBasedTableBuilder
+  const uint32_t column_family_id;
   const std::string& column_family_name;
-  int level; // what level this table/file is on, -1 for "not set, don't know"
+  // what level this table/file is on, -1 for "not set, don't know"
+  const int level;
   const uint64_t creation_time;
   const int64_t oldest_key_time;
   const uint64_t target_file_size;

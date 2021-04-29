@@ -162,7 +162,7 @@ class Compaction {
   CompressionType output_compression() const { return output_compression_; }
 
   // What compression options for output
-  CompressionOptions output_compression_opts() const {
+  const CompressionOptions& output_compression_opts() const {
     return output_compression_opts_;
   }
 

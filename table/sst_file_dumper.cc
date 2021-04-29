@@ -207,7 +207,6 @@ Status SstFileDumper::CalculateCompressedTableSize(
   std::unique_ptr<TableBuilder> table_builder;
   table_builder.reset(block_based_tf.NewTableBuilder(
       tb_options,
-      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       dest_writer.get()));
   std::unique_ptr<InternalIterator> iter(table_reader_->NewIterator(
       read_options_, moptions_.prefix_extractor.get(), /*arena=*/nullptr,
@@ -274,10 +273,11 @@ Status SstFileDumper::ShowCompressionSize(
 
   std::string column_family_name;
   int unknown_level = -1;
-  TableBuilderOptions tb_opts(imoptions, moptions, ikc,
-                              &block_based_table_factories, compress_type,
-                              compress_opt, false /* skip_filters */,
-                              column_family_name, unknown_level);
+  TableBuilderOptions tb_opts(
+      imoptions, moptions, ikc, &block_based_table_factories, compress_type,
+      compress_opt, false /* skip_filters */,
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      column_family_name, unknown_level);
   uint64_t num_data_blocks = 0;
   std::chrono::steady_clock::time_point start =
       std::chrono::steady_clock::now();
