@@ -122,6 +122,7 @@ Status BuildTable(
           ioptions.compaction_filter_factory->CreateCompactionFilter(context);
       if (compaction_filter != nullptr &&
           !compaction_filter->IgnoreSnapshots()) {
+        s.PermitUncheckedError();
         return Status::NotSupported(
             "CompactionFilter::IgnoreSnapshots() = false is not supported "
             "anymore.");
