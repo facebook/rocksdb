@@ -251,8 +251,12 @@ bool CompactionIterator::InvokeFilterIfNeeded(bool* need_skip,
           valid_ = false;
           return false;
         }
-        // TODO(ajkr): What happens when this runs in flush/recovery, i.e., when
-        // `compaction_ == nullptr`?
+        if (compaction_ == nullptr) {
+          status_ =
+              Status::Corruption("Unexpected blob index outside of compaction");
+          valid_ = false;
+          return false;
+        }
         const Version* const version = compaction_->input_version();
         assert(version);
 
