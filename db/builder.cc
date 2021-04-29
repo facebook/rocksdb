@@ -162,11 +162,11 @@ Status BuildTable(
       builder = NewTableBuilder(tboptions, file_writer.get());
     }
 
-    MergeHelper merge(env, tboptions.internal_comparator.user_comparator(),
-                      ioptions.merge_operator.get(), nullptr, ioptions.logger,
-                      true /* internal key corruption is not ok */,
-                      snapshots.empty() ? 0 : snapshots.back(),
-                      snapshot_checker);
+    MergeHelper merge(
+        env, tboptions.internal_comparator.user_comparator(),
+        ioptions.merge_operator.get(), compaction_filter.get(), ioptions.logger,
+        true /* internal key corruption is not ok */,
+        snapshots.empty() ? 0 : snapshots.back(), snapshot_checker);
 
     std::unique_ptr<BlobFileBuilder> blob_file_builder(
         (mutable_cf_options.enable_blob_files && blob_file_additions)
