@@ -1026,4 +1026,27 @@ void MutableCFOptions::Dump(Logger* log) const {
 MutableCFOptions::MutableCFOptions(const Options& options)
     : MutableCFOptions(ColumnFamilyOptions(options)) {}
 
+Status GetMutableOptionsFromStrings(
+    const MutableCFOptions& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    Logger* /*info_log*/, MutableCFOptions* new_options) {
+  assert(new_options);
+  *new_options = base_options;
+  ConfigOptions config_options;
+  Status s = OptionTypeInfo::ParseType(
+      config_options, options_map, cf_mutable_options_type_info, new_options);
+  if (!s.ok()) {
+    *new_options = base_options;
+  }
+  return s;
+}
+
+Status GetStringFromMutableCFOptions(const ConfigOptions& config_options,
+                                     const MutableCFOptions& mutable_opts,
+                                     std::string* opt_string) {
+  assert(opt_string);
+  opt_string->clear();
+  return OptionTypeInfo::SerializeType(
+      config_options, cf_mutable_options_type_info, &mutable_opts, opt_string);
+}
 }  // namespace ROCKSDB_NAMESPACE
