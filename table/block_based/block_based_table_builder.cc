@@ -68,11 +68,14 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
   const BlockBasedTableOptions& table_opt = context.table_options;
   if (table_opt.filter_policy == nullptr) return nullptr;
 
-  FilterBitsBuilder* filter_bits_builder =
-      BloomFilterPolicy::GetBuilderFromContext(context);
+  std::unique_ptr<FilterBitsBuilder> filter_bits_builder{
+      BloomFilterPolicy::GetBuilderFromContext(context)};
   if (filter_bits_builder == nullptr) {
     return new BlockBasedFilterBlockBuilder(mopt.prefix_extractor.get(),
                                             table_opt);
+  } else if (filter_bits_builder->ShouldSkipFilter()) {
+    // FilterPolicy decided to skip based on context
+    return nullptr;
   } else {
     if (table_opt.partition_filters) {
       assert(p_index_builder != nullptr);
@@ -89,12 +92,12 @@ FilterBlockBuilder* CreateFilterBlockBuilder(
       partition_size = std::max(partition_size, static_cast<uint32_t>(1));
       return new PartitionedFilterBlockBuilder(
           mopt.prefix_extractor.get(), table_opt.whole_key_filtering,
-          filter_bits_builder, table_opt.index_block_restart_interval,
+          filter_bits_builder.release(), table_opt.index_block_restart_interval,
           use_delta_encoding_for_index_values, p_index_builder, partition_size);
     } else {
       return new FullFilterBlockBuilder(mopt.prefix_extractor.get(),
                                         table_opt.whole_key_filtering,
-                                        filter_bits_builder);
+                                        filter_bits_builder.release());
     }
   }
 }

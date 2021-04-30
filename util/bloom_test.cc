@@ -397,21 +397,22 @@ TEST_P(FullBloomTest, FilterSize) {
   bool some_computed_less_than_denoted = false;
   // Note: enforced minimum is 1 bit per key (1000 millibits), and enforced
   // maximum is 100 bits per key (100000 millibits).
-  for (auto bpk :
-       std::vector<std::pair<double, int> >{{-HUGE_VAL, 1000},
-                                            {-INFINITY, 1000},
-                                            {0.0, 1000},
-                                            {1.234, 1234},
-                                            {3.456, 3456},
-                                            {9.5, 9500},
-                                            {10.0, 10000},
-                                            {10.499, 10499},
-                                            {21.345, 21345},
-                                            {99.999, 99999},
-                                            {1234.0, 100000},
-                                            {HUGE_VAL, 100000},
-                                            {INFINITY, 100000},
-                                            {NAN, 100000}}) {
+  for (auto bpk : std::vector<std::pair<double, int> >{{-HUGE_VAL, 0},
+                                                       {-INFINITY, 0},
+                                                       {0.0, 0},
+                                                       {0.499, 0},
+                                                       {0.5, 1000},
+                                                       {1.234, 1234},
+                                                       {3.456, 3456},
+                                                       {9.5, 9500},
+                                                       {10.0, 10000},
+                                                       {10.499, 10499},
+                                                       {21.345, 21345},
+                                                       {99.999, 99999},
+                                                       {1234.0, 100000},
+                                                       {HUGE_VAL, 100000},
+                                                       {INFINITY, 100000},
+                                                       {NAN, 100000}}) {
     ResetPolicy(bpk.first);
     auto bfp = GetBloomFilterPolicy();
     EXPECT_EQ(bpk.second, bfp->GetMillibitsPerKey());

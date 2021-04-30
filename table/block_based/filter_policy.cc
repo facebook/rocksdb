@@ -1026,30 +1026,37 @@ const std::vector<BloomFilterPolicy::Mode> BloomFilterPolicy::kAllUserModes = {
 BloomFilterPolicy::BloomFilterPolicy(double bits_per_key, Mode mode)
     : mode_(mode), warned_(false), aggregate_rounding_balance_(0) {
   // Sanitize bits_per_key
-  if (bits_per_key < 1.0) {
-    bits_per_key = 1.0;
-  } else if (!(bits_per_key < 100.0)) {  // including NaN
-    bits_per_key = 100.0;
+  if (bits_per_key < 0.5) {
+    // Treat as 0 (skip filter, equivalent to "always true")
+    millibits_per_key_ = 0;
+    desired_one_in_fp_rate_ = 1.0;
+    whole_bits_per_key_ = 0;
+  } else {
+    if (bits_per_key < 1.0) {
+      bits_per_key = 1.0;
+    } else if (!(bits_per_key < 100.0)) {  // including NaN
+      bits_per_key = 100.0;
+    }
+
+    // Includes a nudge toward rounding up, to ensure on all platforms
+    // that doubles specified with three decimal digits after the decimal
+    // point are interpreted accurately.
+    millibits_per_key_ = static_cast<int>(bits_per_key * 1000.0 + 0.500001);
+
+    // For now configure Ribbon filter to match Bloom FP rate and save
+    // memory. (Ribbon bits per key will be ~30% less than Bloom bits per key
+    // for same FP rate.)
+    desired_one_in_fp_rate_ =
+        1.0 / BloomMath::CacheLocalFpRate(
+                  bits_per_key,
+                  FastLocalBloomImpl::ChooseNumProbes(millibits_per_key_),
+                  /*cache_line_bits*/ 512);
+
+    // For better or worse, this is a rounding up of a nudged rounding up,
+    // e.g. 7.4999999999999 will round up to 8, but that provides more
+    // predictability against small arithmetic errors in floating point.
+    whole_bits_per_key_ = (millibits_per_key_ + 500) / 1000;
   }
-
-  // Includes a nudge toward rounding up, to ensure on all platforms
-  // that doubles specified with three decimal digits after the decimal
-  // point are interpreted accurately.
-  millibits_per_key_ = static_cast<int>(bits_per_key * 1000.0 + 0.500001);
-
-  // For now configure Ribbon filter to match Bloom FP rate and save
-  // memory. (Ribbon bits per key will be ~30% less than Bloom bits per key
-  // for same FP rate.)
-  desired_one_in_fp_rate_ =
-      1.0 / BloomMath::CacheLocalFpRate(
-                bits_per_key,
-                FastLocalBloomImpl::ChooseNumProbes(millibits_per_key_),
-                /*cache_line_bits*/ 512);
-
-  // For better or worse, this is a rounding up of a nudged rounding up,
-  // e.g. 7.4999999999999 will round up to 8, but that provides more
-  // predictability against small arithmetic errors in floating point.
-  whole_bits_per_key_ = (millibits_per_key_ + 500) / 1000;
 }
 
 BloomFilterPolicy::~BloomFilterPolicy() {}
@@ -1124,6 +1131,10 @@ FilterBitsBuilder* BloomFilterPolicy::GetFilterBitsBuilder() const {
 
 FilterBitsBuilder* BloomFilterPolicy::GetBuilderWithContext(
     const FilterBuildingContext& context) const {
+  if (millibits_per_key_ == 0) {
+    // Special case
+    return new SkipFilterBitsBuilder();
+  }
   Mode cur = mode_;
   bool offm = context.table_options.optimize_filters_for_memory;
   // Unusual code construction so that we can have just

@@ -9,6 +9,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -36,6 +37,31 @@ class BuiltinFilterBitsBuilder : public FilterBitsBuilder {
   // `num_entries` keys are added and the filter returned by Finish
   // is `bytes` bytes.
   virtual double EstimatedFpRate(size_t num_entries, size_t bytes) = 0;
+};
+
+// Used for testing, and as a base class for SkipFilterBitsBuilder
+class AlwaysTrueBitsBuilder : public BuiltinFilterBitsBuilder {
+ public:
+  size_t CalculateSpace(size_t) override { return 6U; }
+  double EstimatedFpRate(size_t, size_t) override { return 1.0; }
+  size_t ApproximateNumEntries(size_t) override { return SIZE_MAX; }
+  void AddKey(const Slice&) override {}
+  Slice Finish(std::unique_ptr<const char[]>* buf) override {
+    // Interpreted as "always true" filter (0 probes over 1 byte of
+    // payload, 5 bytes metadata)
+    buf->reset(new char[6]{});
+    return Slice(buf->get(), 6);
+  }
+};
+
+// See FilterBitsBuilder::ShouldSkipFilter
+class SkipFilterBitsBuilder : public AlwaysTrueBitsBuilder {
+ public:
+  Slice Finish(std::unique_ptr<const char[]>* buf) override {
+    assert(false);
+    return AlwaysTrueBitsBuilder::Finish(buf);
+  }
+  bool ShouldSkipFilter() override { return true; }
 };
 
 // RocksDB built-in filter policy for Bloom or Bloom-like filters.

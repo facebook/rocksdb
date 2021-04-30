@@ -511,6 +511,108 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
   } while (ChangeCompactOptions());
 }
 
+namespace {
+
+class AlwaysTrueFilterPolicy : public BloomFilterPolicy {
+ public:
+  AlwaysTrueFilterPolicy(bool skip)
+      : BloomFilterPolicy(/* ignored */ 10, /* ignored */ BFP::kAutoBloom),
+        skip_(skip) {}
+
+  FilterBitsBuilder* GetBuilderWithContext(
+      const FilterBuildingContext&) const override {
+    if (skip_) {
+      return new SkipFilterBitsBuilder();
+    } else {
+      return new AlwaysTrueBitsBuilder();
+    }
+  }
+
+ private:
+  bool skip_;
+};
+
+}  // namespace
+
+TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
+  constexpr int maxKey = 10;
+  auto PutAndGetFn = [this] {
+    int i;
+    // Put
+    for (i = 0; i < maxKey; i++) {
+      ASSERT_OK(Put(Key(i), Key(i)));
+    }
+    Flush();
+
+    // Get OK
+    for (i = 0; i < maxKey; i++) {
+      ASSERT_EQ(Key(i), Get(Key(i)));
+    }
+    // Get NotFound
+    for (; i < maxKey * 2; i++) {
+      ASSERT_EQ(Get(Key(i)), "NOT_FOUND");
+    }
+  };
+  std::map<std::string, std::string> props;
+  const auto& kAggTableProps = DB::Properties::kAggregatedTableProperties;
+
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.partition_filters = partition_filters_;
+  if (partition_filters_) {
+    table_options.index_type =
+        BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  }
+  table_options.format_version = format_version_;
+
+  // Test 1: bits per key < 0.5 means skip filters -> no filter
+  // constructed or read.
+  table_options.filter_policy.reset(new BFP(0.4, bfp_impl_));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  PutAndGetFn();
+
+  // Verify no filter access nor contruction
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
+  props.clear();
+  ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
+  EXPECT_EQ(props["filter_size"], "0");
+
+  // Test 2: use custom API to skip filters -> no filter constructed
+  // or read.
+  table_options.filter_policy.reset(
+      new AlwaysTrueFilterPolicy(/* skip */ true));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  PutAndGetFn();
+
+  // Verify no filter access nor construction
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
+  props.clear();
+  ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
+  EXPECT_EQ(props["filter_size"], "0");
+
+  // Control test: using an actual filter with 100% FP rate -> the filter
+  // is constructed and checked on read.
+  table_options.filter_policy.reset(
+      new AlwaysTrueFilterPolicy(/* skip */ false));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+  PutAndGetFn();
+
+  // Verify filter is accessed (and constructed)
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE),
+            maxKey * 2);
+  EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE),
+            maxKey);
+  props.clear();
+  ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
+  EXPECT_NE(props["filter_size"], "0");
+}
+
 #ifndef ROCKSDB_VALGRIND_RUN
 INSTANTIATE_TEST_CASE_P(
     FormatDef, DBBloomFilterTestDefFormatVersion,

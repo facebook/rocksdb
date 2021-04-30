@@ -36,7 +36,8 @@ class Slice;
 struct BlockBasedTableOptions;
 struct ConfigOptions;
 
-// A class that takes a bunch of keys, then generates filter
+// A class that takes a bunch of keys, then generates filter, and
+// can be reused to generate more filters.
 class FilterBitsBuilder {
  public:
   virtual ~FilterBitsBuilder() {}
@@ -46,9 +47,11 @@ class FilterBitsBuilder {
   // Keys are in sorted order and duplicated keys are possible.
   virtual void AddKey(const Slice& key) = 0;
 
-  // Generate the filter using the keys that are added
-  // The return value of this function would be the filter bits,
-  // The ownership of actual data is set to buf
+  // Generate the filter using the keys that have been added.
+  // The return value is the byte sequence for the filter, while
+  // `buf` is set to own the buffer containing those bytes.
+  // After a call to Finish, the builder should be in an
+  // "empty" state ready to construct another filter.
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) = 0;
 
   // Approximate the number of keys that can be added and generate a filter
@@ -70,6 +73,14 @@ class FilterBitsBuilder {
     // RELEASE: something reasonably conservative: 2 bytes per entry
     return static_cast<int>(bytes / 2);
   }
+
+  // API quirk: because a nullptr FilterBitsBuilder already means
+  // "use deprecated block-based filter" we need another way for
+  // FilterPolicy::GetBuilderWithContext to say that no filter should
+  // be generated in some case. To indicate that case, the FilterPolicy
+  // should return a trivial FilterBitsBuilder that returns true for
+  // this function.
+  virtual bool ShouldSkipFilter() { return false; }
 };
 
 // A class that checks if a key can be in filter
