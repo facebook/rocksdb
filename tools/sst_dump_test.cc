@@ -114,7 +114,6 @@ class SSTDumpToolTest : public testing::Test {
         TableBuilderOptions(
             imoptions, moptions, ikc, &int_tbl_prop_collector_factories,
             CompressionType::kNoCompression, CompressionOptions(),
-            false /* skip_filters */,
             TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
             column_family_name, unknown_level),
         file_writer.get()));

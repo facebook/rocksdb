@@ -444,8 +444,9 @@ class Repairer {
       TableBuilderOptions tboptions(
           *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
           cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
-          kNoCompression, default_compression, false /* skip_filters */,
-          cfd->GetID(), cfd->GetName(), -1 /* level */, current_time,
+          kNoCompression, default_compression, cfd->GetID(), cfd->GetName(),
+          -1 /* level */, false /* is_bottommost */,
+          TableFileCreationReason::kRecovery, current_time,
           0 /* oldest_key_time */, 0 /* file_creation_time */,
           "DB Repairer" /* db_id */, db_session_id_, 0 /*target_file_size*/);
       status = BuildTable(
@@ -453,10 +454,9 @@ class Repairer {
           env_options_, table_cache_.get(), iter.get(),
           std::move(range_del_iters), &meta, nullptr /* blob_file_additions */,
           {}, kMaxSequenceNumber, snapshot_checker,
-          false /* paranoid_file_checks*/, nullptr /* internal_stats */,
-          TableFileCreationReason::kRecovery, &io_s, nullptr /*IOTracer*/,
-          nullptr /* event_logger */, 0 /* job_id */, Env::IO_HIGH,
-          nullptr /* table_properties */, write_hint);
+          false /* paranoid_file_checks*/, nullptr /* internal_stats */, &io_s,
+          nullptr /*IOTracer*/, nullptr /* event_logger */, 0 /* job_id */,
+          Env::IO_HIGH, nullptr /* table_properties */, write_hint);
       ROCKS_LOG_INFO(db_options_.info_log,
                      "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
                      log, counter, meta.fd.GetNumber(),

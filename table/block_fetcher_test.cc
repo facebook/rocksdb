@@ -101,8 +101,8 @@ class BlockFetcherTest : public testing::Test {
     std::unique_ptr<TableBuilder> table_builder(table_factory_.NewTableBuilder(
         TableBuilderOptions(ioptions, moptions, comparator, &factories,
                             compression_type, CompressionOptions(),
-                            false /* skip_filters */, 0 /* column_family_id */,
-                            kDefaultColumnFamilyName, -1 /* level */),
+                            0 /* column_family_id */, kDefaultColumnFamilyName,
+                            -1 /* level */),
         writer.get()));
 
     // Build table.
