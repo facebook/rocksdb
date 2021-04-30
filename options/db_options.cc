@@ -839,6 +839,7 @@ void MutableDBOptions::Dump(Logger* log) const {
                           max_background_flushes);
 }
 
+#ifndef ROCKSDB_LITE
 Status GetMutableDBOptionsFromStrings(
     const MutableDBOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
@@ -860,4 +861,5 @@ Status GetStringFromMutableDBOptions(const ConfigOptions& config_options,
   return OptionTypeInfo::SerializeType(
       config_options, db_mutable_options_type_info, &mutable_opts, opt_string);
 }
+#endif  // ROCKSDB_LITE
 }  // namespace ROCKSDB_NAMESPACE

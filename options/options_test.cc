@@ -3982,25 +3982,29 @@ TEST_F(OptionTypeInfoTest, TestVectorType) {
 }
 
 TEST_F(OptionTypeInfoTest, TestStaticType) {
-  static std::unordered_map<std::string, OptionTypeInfo> ro_type_map = {
-      {"readahead_size",
-       {offsetof(struct ReadOptions, readahead_size), OptionType::kSizeT}},
-      {"verify_checksum",
-       {offsetof(struct ReadOptions, verify_checksums), OptionType::kBoolean}},
+  struct SimpleOptions {
+    size_t size = 0;
+    bool verify = true;
+  };
+
+  static std::unordered_map<std::string, OptionTypeInfo> type_map = {
+      {"size", {offsetof(struct SimpleOptions, size), OptionType::kSizeT}},
+      {"verify",
+       {offsetof(struct SimpleOptions, verify), OptionType::kBoolean}},
   };
 
   ConfigOptions config_options;
-  ReadOptions opts, copy;
-  opts.readahead_size = 12345;
-  opts.verify_checksums = false;
+  SimpleOptions opts, copy;
+  opts.size = 12345;
+  opts.verify = false;
   std::string str, mismatch;
 
   ASSERT_OK(
-      OptionTypeInfo::SerializeType(config_options, ro_type_map, &opts, &str));
-  ASSERT_FALSE(OptionTypeInfo::TypesAreEqual(config_options, ro_type_map, &opts,
+      OptionTypeInfo::SerializeType(config_options, type_map, &opts, &str));
+  ASSERT_FALSE(OptionTypeInfo::TypesAreEqual(config_options, type_map, &opts,
                                              &copy, &mismatch));
-  ASSERT_OK(OptionTypeInfo::ParseType(config_options, str, ro_type_map, &copy));
-  ASSERT_TRUE(OptionTypeInfo::TypesAreEqual(config_options, ro_type_map, &opts,
+  ASSERT_OK(OptionTypeInfo::ParseType(config_options, str, type_map, &copy));
+  ASSERT_TRUE(OptionTypeInfo::TypesAreEqual(config_options, type_map, &opts,
                                             &copy, &mismatch));
 }
 
