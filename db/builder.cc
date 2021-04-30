@@ -112,12 +112,12 @@ Status BuildTable(
     std::unique_ptr<CompactionFilter> compaction_filter;
     if (ioptions.compaction_filter_factory != nullptr &&
         ioptions.compaction_filter_factory->ShouldFilterTableFileCreation(
-            reason)) {
+            tboptions.reason)) {
       CompactionFilter::Context context;
       context.is_full_compaction = false;
       context.is_manual_compaction = false;
       context.column_family_id = tboptions.column_family_id;
-      context.reason = reason;
+      context.reason = tboptions.reason;
       compaction_filter =
           ioptions.compaction_filter_factory->CreateCompactionFilter(context);
       if (compaction_filter != nullptr &&

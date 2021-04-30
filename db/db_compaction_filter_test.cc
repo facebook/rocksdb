@@ -927,7 +927,7 @@ TEST_F(DBTestCompactionFilter, IgnoreSnapshotsFalse) {
 
 class TestNotSupportedFilterFactory : public CompactionFilterFactory {
  public:
-  TestNotSupportedFilterFactory(TableFileCreationReason reason)
+  explicit TestNotSupportedFilterFactory(TableFileCreationReason reason)
       : reason_(reason) {}
 
   bool ShouldFilterTableFileCreation(
