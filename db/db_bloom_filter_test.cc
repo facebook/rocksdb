@@ -536,7 +536,7 @@ class AlwaysTrueFilterPolicy : public BloomFilterPolicy {
 
 TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
   constexpr int maxKey = 10;
-  auto PutAndGetFn = [this] {
+  auto PutAndGetFn = [&]() {
     int i;
     // Put
     for (i = 0; i < maxKey; i++) {
@@ -553,8 +553,10 @@ TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
       ASSERT_EQ(Get(Key(i)), "NOT_FOUND");
     }
   };
+#ifndef ROCKSDB_LITE
   std::map<std::string, std::string> props;
   const auto& kAggTableProps = DB::Properties::kAggregatedTableProperties;
+#endif  // ROCKSDB_LITE
 
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -576,9 +578,11 @@ TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
   // Verify no filter access nor contruction
   EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
   EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
+#ifndef ROCKSDB_LITE
   props.clear();
   ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
   EXPECT_EQ(props["filter_size"], "0");
+#endif  // ROCKSDB_LITE
 
   // Test 2: use custom API to skip filters -> no filter constructed
   // or read.
@@ -591,9 +595,11 @@ TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
   // Verify no filter access nor construction
   EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
   EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_POSITIVE), 0);
+#ifndef ROCKSDB_LITE
   props.clear();
   ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
   EXPECT_EQ(props["filter_size"], "0");
+#endif  // ROCKSDB_LITE
 
   // Control test: using an actual filter with 100% FP rate -> the filter
   // is constructed and checked on read.
@@ -608,9 +614,11 @@ TEST_P(DBBloomFilterTestWithParam, SkipFilterOnEssentiallyZeroBpk) {
             maxKey * 2);
   EXPECT_EQ(TestGetTickerCount(options, BLOOM_FILTER_FULL_TRUE_POSITIVE),
             maxKey);
+#ifndef ROCKSDB_LITE
   props.clear();
   ASSERT_TRUE(db_->GetMapProperty(kAggTableProps, &props));
   EXPECT_NE(props["filter_size"], "0");
+#endif  // ROCKSDB_LITE
 }
 
 #ifndef ROCKSDB_VALGRIND_RUN
