@@ -1755,18 +1755,13 @@ Status CompactionJob::OpenCompactionOutputFile(
       db_options_.file_checksum_gen_factory.get(),
       tmp_set.Contains(FileType::kTableFile)));
 
-  // If the Column family flag is to only optimize filters for hits,
-  // we can skip creating filters if this is the bottommost_level where
-  // data is going to be found
-  bool skip_filters =
-      cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
-
   TableBuilderOptions tboptions(
       *cfd->ioptions(), *(sub_compact->compaction->mutable_cf_options()),
       cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
       sub_compact->compaction->output_compression(),
-      sub_compact->compaction->output_compression_opts(), skip_filters,
-      cfd->GetID(), cfd->GetName(), sub_compact->compaction->output_level(),
+      sub_compact->compaction->output_compression_opts(), cfd->GetID(),
+      cfd->GetName(), sub_compact->compaction->output_level(),
+      bottommost_level_, TableFileCreationReason::kCompaction,
       oldest_ancester_time, 0 /* oldest_key_time */, current_time, db_id_,
       db_session_id_, sub_compact->compaction->max_output_file_size());
   sub_compact->builder.reset(
