@@ -99,6 +99,7 @@ struct ImmutableDBOptions {
   SystemClock* clock;
   Statistics* stats;
   Logger* logger;
+  std::shared_ptr<CompactionService> compaction_service;
 };
 
 struct MutableDBOptions {

@@ -66,6 +66,7 @@ class CompactionJob {
  public:
   CompactionJob(
       int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
+      const MutableDBOptions& mutable_db_options,
       const FileOptions& file_options, VersionSet* versions,
       const std::atomic<bool>* shutting_down,
       const SequenceNumber preserve_deletes_seqnum, LogBuffer* log_buffer,
@@ -125,6 +126,7 @@ class CompactionJob {
   CompactionState* compact_;
   InternalStats::CompactionStats compaction_stats_;
   const ImmutableDBOptions& db_options_;
+  const MutableDBOptions& mutable_db_options_;
   LogBuffer* log_buffer_;
   FSDirectory* output_directory_;
   Statistics* stats_;
@@ -142,6 +144,9 @@ class CompactionJob {
   // each consecutive pair of slices. Then it divides these ranges into
   // consecutive groups such that each group has a similar size.
   void GenSubcompactionBoundaries();
+
+  void ProcessKeyValueCompactionWithCompactionService(
+      SubcompactionState* sub_compact);
 
   // update the thread status for starting a compaction.
   void ReportStartedCompaction(Compaction* compaction);
@@ -317,6 +322,7 @@ class CompactionServiceCompactionJob : private CompactionJob {
  public:
   CompactionServiceCompactionJob(
       int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
+      const MutableDBOptions& mutable_db_options,
       const FileOptions& file_options, VersionSet* versions,
       const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
       FSDirectory* output_directory, Statistics* stats,
