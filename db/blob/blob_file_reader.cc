@@ -21,7 +21,7 @@
 namespace ROCKSDB_NAMESPACE {
 
 Status BlobFileReader::Create(
-    const ImmutableCFOptions& immutable_cf_options,
+    const ImmutableOptions& immutable_cf_options,
     const FileOptions& file_options, uint32_t column_family_id,
     HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
     const std::shared_ptr<IOTracer>& io_tracer,
@@ -67,10 +67,10 @@ Status BlobFileReader::Create(
 }
 
 Status BlobFileReader::OpenFile(
-    const ImmutableCFOptions& immutable_cf_options,
-    const FileOptions& file_opts, HistogramImpl* blob_file_read_hist,
-    uint64_t blob_file_number, const std::shared_ptr<IOTracer>& io_tracer,
-    uint64_t* file_size, std::unique_ptr<RandomAccessFileReader>* file_reader) {
+    const ImmutableOptions& immutable_cf_options, const FileOptions& file_opts,
+    HistogramImpl* blob_file_read_hist, uint64_t blob_file_number,
+    const std::shared_ptr<IOTracer>& io_tracer, uint64_t* file_size,
+    std::unique_ptr<RandomAccessFileReader>* file_reader) {
   assert(file_size);
   assert(file_reader);
 

@@ -316,7 +316,7 @@ class ColumnFamilyData {
   FlushReason GetFlushReason() const { return flush_reason_; }
   // thread-safe
   const FileOptions* soptions() const;
-  const ImmutableCFOptions* ioptions() const { return &ioptions_; }
+  const ImmutableOptions* ioptions() const { return &ioptions_; }
   // REQUIRES: DB mutex held
   // This returns the MutableCFOptions used by current SuperVersion
   // You should use this API to reference MutableCFOptions most of the time.
@@ -552,7 +552,7 @@ class ColumnFamilyData {
       int_tbl_prop_collector_factories_;
 
   const ColumnFamilyOptions initial_cf_options_;
-  const ImmutableCFOptions ioptions_;
+  const ImmutableOptions ioptions_;
   MutableCFOptions mutable_cf_options_;
 
   const bool is_delete_range_supported_;

@@ -68,6 +68,49 @@ struct ImmutableCFOptions {
 
   SystemClock* clock;  // ImmutableDBOptions
 
+  std::shared_ptr<MemTableRepFactory> memtable_factory;
+
+  std::shared_ptr<TableFactory> table_factory;
+
+  Options::TablePropertiesCollectorFactories
+      table_properties_collector_factories;
+
+  // This options is required by PlainTableReader. May need to move it
+  // to PlainTableOptions just like bloom_bits_per_key
+  uint32_t bloom_locality;
+
+  bool purge_redundant_kvs_while_flush;
+
+  std::vector<CompressionType> compression_per_level;
+
+  bool level_compaction_dynamic_level_bytes;
+
+  int num_levels;
+
+  bool optimize_filters_for_hits;
+
+  bool force_consistency_checks;
+
+  std::shared_ptr<const SliceTransform>
+      memtable_insert_with_hint_prefix_extractor;
+
+  std::vector<DbPath> cf_paths;
+
+  std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter;
+
+  std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory;
+};
+
+struct ImmutableOptions : public ImmutableCFOptions {
+  explicit ImmutableOptions();
+  explicit ImmutableOptions(const Options& options);
+
+  ImmutableOptions(const DBOptions& db_options,
+                   const ColumnFamilyOptions& cf_options);
+
+  //**TODO: Should be ImmutableCFOptions...
+  ImmutableOptions(const ImmutableDBOptions& db_options,
+                   const ColumnFamilyOptions& cf_options);
   // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;  // ImmutableDBOptions
 
@@ -76,36 +119,13 @@ struct ImmutableCFOptions {
 
   std::vector<DbPath> db_paths;  // ImmutableDBOptions
 
-  std::shared_ptr<MemTableRepFactory> memtable_factory;
-
-  std::shared_ptr<TableFactory> table_factory;
-
-  Options::TablePropertiesCollectorFactories
-      table_properties_collector_factories;
-
   bool advise_random_on_open;  // ImmutableDBOptions
 
-  // This options is required by PlainTableReader. May need to move it
-  // to PlainTableOptions just like bloom_bits_per_key
-  uint32_t bloom_locality;
-
-  bool purge_redundant_kvs_while_flush;
-
   bool use_fsync;  // ImmutableDBOptions
-
-  std::vector<CompressionType> compression_per_level;
-
-  bool level_compaction_dynamic_level_bytes;
 
   Options::AccessHint access_hint_on_compaction_start;  // ImmutableDBOptions
 
   bool new_table_reader_for_compaction_inputs;  // ImmutableDBOptions
-
-  int num_levels;
-
-  bool optimize_filters_for_hits;
-
-  bool force_consistency_checks;
 
   bool allow_ingest_behind;  // ImmutableDBOptions
 
@@ -117,17 +137,8 @@ struct ImmutableCFOptions {
 
   std::shared_ptr<Cache> row_cache;  // ImmutableDBOptions
 
-  std::shared_ptr<const SliceTransform>
-      memtable_insert_with_hint_prefix_extractor;
-
-  std::vector<DbPath> cf_paths;
-
-  std::shared_ptr<ConcurrentTaskLimiter> compaction_thread_limiter;
-
   std::shared_ptr<FileChecksumGenFactory>
       file_checksum_gen_factory;  // ImmutableDBOptions
-
-  std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory;
 
   bool allow_data_in_errors;  // ImmutableDBOptions
 

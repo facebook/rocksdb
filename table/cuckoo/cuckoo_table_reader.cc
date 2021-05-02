@@ -15,7 +15,9 @@
 #include <string>
 #include <utility>
 #include <vector>
+
 #include "memory/arena.h"
+#include "options/cf_options.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/table.h"
 #include "table/cuckoo/cuckoo_table_factory.h"
@@ -33,7 +35,7 @@ const uint32_t kInvalidIndex = std::numeric_limits<uint32_t>::max();
 extern const uint64_t kCuckooTableMagicNumber;
 
 CuckooTableReader::CuckooTableReader(
-    const ImmutableCFOptions& ioptions,
+    const ImmutableOptions& ioptions,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     const Comparator* comparator,
     uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t))

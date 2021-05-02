@@ -41,7 +41,7 @@ namespace {
 static const uint32_t kTestColumnFamilyId = 66;
 static const std::string kTestColumnFamilyName = "test_column_fam";
 
-void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
+void MakeBuilder(const Options& options, const ImmutableOptions& ioptions,
                  const MutableCFOptions& moptions,
                  const InternalKeyComparator& internal_comparator,
                  const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
@@ -262,7 +262,7 @@ void TestCustomizedTablePropertiesCollector(
   // -- Step 1: build table
   std::unique_ptr<TableBuilder> builder;
   std::unique_ptr<WritableFileWriter> writer;
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   const MutableCFOptions moptions(options);
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
@@ -409,11 +409,11 @@ void TestInternalKeyPropertiesCollector(
     options.info_log = std::make_shared<test::NullLogger>();
     options = SanitizeOptions("db",            // just a place holder
                               options);
-    ImmutableCFOptions ioptions(options);
+    ImmutableOptions ioptions(options);
     GetIntTblPropCollectorFactory(ioptions, &int_tbl_prop_collector_factories);
     options.comparator = comparator;
   }
-  const ImmutableCFOptions ioptions(options);
+  const ImmutableOptions ioptions(options);
   MutableCFOptions moptions(options);
 
   for (int iter = 0; iter < 2; ++iter) {

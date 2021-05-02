@@ -150,7 +150,7 @@ template <typename TBlocklike>
 Status ReadBlockFromFile(
     RandomAccessFileReader* file, FilePrefetchBuffer* prefetch_buffer,
     const Footer& footer, const ReadOptions& options, const BlockHandle& handle,
-    std::unique_ptr<TBlocklike>* result, const ImmutableCFOptions& ioptions,
+    std::unique_ptr<TBlocklike>* result, const ImmutableOptions& ioptions,
     bool do_uncompress, bool maybe_compressed, BlockType block_type,
     const UncompressionDict& uncompression_dict,
     const PersistentCacheOptions& cache_options, size_t read_amp_bytes_per_bit,
@@ -568,7 +568,7 @@ Slice BlockBasedTable::GetCacheKey(const char* cache_key_prefix,
 }
 
 Status BlockBasedTable::Open(
-    const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
+    const ReadOptions& read_options, const ImmutableOptions& ioptions,
     const EnvOptions& env_options, const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator,
     std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
@@ -1273,7 +1273,7 @@ Status BlockBasedTable::PutDataBlockToCache(
     const UncompressionDict& uncompression_dict,
     MemoryAllocator* memory_allocator, BlockType block_type,
     GetContext* get_context) const {
-  const ImmutableCFOptions& ioptions = rep_->ioptions;
+  const ImmutableOptions& ioptions = rep_->ioptions;
   const uint32_t format_version = rep_->table_options.format_version;
   const size_t read_amp_bytes_per_bit =
       block_type == BlockType::kData
@@ -1640,7 +1640,7 @@ void BlockBasedTable::RetrieveMultipleBlocks(
     char* scratch, const UncompressionDict& uncompression_dict) const {
   RandomAccessFileReader* file = rep_->file.get();
   const Footer& footer = rep_->footer;
-  const ImmutableCFOptions& ioptions = rep_->ioptions;
+  const ImmutableOptions& ioptions = rep_->ioptions;
   size_t read_amp_bytes_per_bit = rep_->table_options.read_amp_bytes_per_bit;
   MemoryAllocator* memory_allocator = GetMemoryAllocator(rep_->table_options);
 

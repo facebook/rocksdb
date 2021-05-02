@@ -815,38 +815,51 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       env(db_options.env),
       fs(db_options.fs.get()),
       clock(db_options.clock),
-      allow_mmap_reads(db_options.allow_mmap_reads),
-      allow_mmap_writes(db_options.allow_mmap_writes),
-      db_paths(db_options.db_paths),
       memtable_factory(cf_options.memtable_factory),
       table_factory(cf_options.table_factory),
       table_properties_collector_factories(
           cf_options.table_properties_collector_factories),
-      advise_random_on_open(db_options.advise_random_on_open),
       bloom_locality(cf_options.bloom_locality),
       purge_redundant_kvs_while_flush(
           cf_options.purge_redundant_kvs_while_flush),
-      use_fsync(db_options.use_fsync),
       compression_per_level(cf_options.compression_per_level),
       level_compaction_dynamic_level_bytes(
           cf_options.level_compaction_dynamic_level_bytes),
-      access_hint_on_compaction_start(
-          db_options.access_hint_on_compaction_start),
-      new_table_reader_for_compaction_inputs(
-          db_options.new_table_reader_for_compaction_inputs),
       num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),
-      allow_ingest_behind(db_options.allow_ingest_behind),
-      preserve_deletes(db_options.preserve_deletes),
-      listeners(db_options.listeners),
-      row_cache(db_options.row_cache),
       memtable_insert_with_hint_prefix_extractor(
           cf_options.memtable_insert_with_hint_prefix_extractor),
       cf_paths(cf_options.cf_paths),
       compaction_thread_limiter(cf_options.compaction_thread_limiter),
+      sst_partitioner_factory(cf_options.sst_partitioner_factory) {}
+
+ImmutableOptions::ImmutableOptions() : ImmutableOptions(Options()) {}
+
+ImmutableOptions::ImmutableOptions(const Options& options)
+    : ImmutableOptions(options, options) {}
+
+ImmutableOptions::ImmutableOptions(const DBOptions& db_options,
+                                   const ColumnFamilyOptions& cf_options)
+    : ImmutableOptions(ImmutableDBOptions(db_options), cf_options) {}
+
+ImmutableOptions::ImmutableOptions(const ImmutableDBOptions& db_options,
+                                   const ColumnFamilyOptions& cf_options)
+    : ImmutableCFOptions(db_options, cf_options),
+      allow_mmap_reads(db_options.allow_mmap_reads),
+      allow_mmap_writes(db_options.allow_mmap_writes),
+      db_paths(db_options.db_paths),
+      advise_random_on_open(db_options.advise_random_on_open),
+      use_fsync(db_options.use_fsync),
+      access_hint_on_compaction_start(
+          db_options.access_hint_on_compaction_start),
+      new_table_reader_for_compaction_inputs(
+          db_options.new_table_reader_for_compaction_inputs),
+      allow_ingest_behind(db_options.allow_ingest_behind),
+      preserve_deletes(db_options.preserve_deletes),
+      listeners(db_options.listeners),
+      row_cache(db_options.row_cache),
       file_checksum_gen_factory(db_options.file_checksum_gen_factory),
-      sst_partitioner_factory(cf_options.sst_partitioner_factory),
       allow_data_in_errors(db_options.allow_data_in_errors),
       db_host_id(db_options.db_host_id),
       checksum_handoff_file_types(db_options.checksum_handoff_file_types) {}
