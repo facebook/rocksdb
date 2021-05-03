@@ -96,7 +96,7 @@ class PlainTableBuilder: public TableBuilder {
 
  private:
   Arena arena_;
-  const ImmutableCFOptions& ioptions_;
+  const ImmutableOptions& ioptions_;
   const MutableCFOptions& moptions_;
   std::vector<std::unique_ptr<IntTblPropCollector>>
       table_properties_collectors_;

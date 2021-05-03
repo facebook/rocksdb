@@ -54,20 +54,6 @@ struct ImmutableCFOptions {
                                    Slice delta_value,
                                    std::string* merged_value);
 
-  Logger* logger;  // ImmutableDBOptions
-
-  Statistics* stats;  // ImmutableDBOptions
-
-  std::shared_ptr<RateLimiter> rate_limiter;  // ImmutableDBOptions
-
-  InfoLogLevel info_log_level;  // ImmutableDBOptions
-
-  Env* env;  // ImmutableDBOptions
-
-  FileSystem* fs;  // ImmutableDBOptions
-
-  SystemClock* clock;  // ImmutableDBOptions
-
   std::shared_ptr<MemTableRepFactory> memtable_factory;
 
   std::shared_ptr<TableFactory> table_factory;
@@ -111,6 +97,20 @@ struct ImmutableOptions : public ImmutableCFOptions {
   //**TODO: Should be ImmutableCFOptions...
   ImmutableOptions(const ImmutableDBOptions& db_options,
                    const ColumnFamilyOptions& cf_options);
+  Logger* logger;  // ImmutableDBOptions
+
+  Statistics* stats;  // ImmutableDBOptions
+
+  std::shared_ptr<RateLimiter> rate_limiter;  // ImmutableDBOptions
+
+  InfoLogLevel info_log_level;  // ImmutableDBOptions
+
+  Env* env;  // ImmutableDBOptions
+
+  FileSystem* fs;  // ImmutableDBOptions
+
+  SystemClock* clock;  // ImmutableDBOptions
+
   // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;  // ImmutableDBOptions
 

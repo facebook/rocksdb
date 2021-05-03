@@ -791,7 +791,7 @@ ImmutableCFOptions::ImmutableCFOptions() : ImmutableCFOptions(Options()) {}
 ImmutableCFOptions::ImmutableCFOptions(const Options& options)
     : ImmutableCFOptions(ImmutableDBOptions(options), options) {}
 
-ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
+ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& /*db_options*/,
                                        const ColumnFamilyOptions& cf_options)
     : compaction_style(cf_options.compaction_style),
       compaction_pri(cf_options.compaction_pri),
@@ -808,13 +808,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
           cf_options.max_write_buffer_size_to_maintain),
       inplace_update_support(cf_options.inplace_update_support),
       inplace_callback(cf_options.inplace_callback),
-      logger(db_options.logger),
-      stats(db_options.stats),
-      rate_limiter(db_options.rate_limiter),
-      info_log_level(db_options.info_log_level),
-      env(db_options.env),
-      fs(db_options.fs.get()),
-      clock(db_options.clock),
       memtable_factory(cf_options.memtable_factory),
       table_factory(cf_options.table_factory),
       table_properties_collector_factories(
@@ -846,6 +839,13 @@ ImmutableOptions::ImmutableOptions(const DBOptions& db_options,
 ImmutableOptions::ImmutableOptions(const ImmutableDBOptions& db_options,
                                    const ColumnFamilyOptions& cf_options)
     : ImmutableCFOptions(db_options, cf_options),
+      logger(db_options.logger),
+      stats(db_options.stats),
+      rate_limiter(db_options.rate_limiter),
+      info_log_level(db_options.info_log_level),
+      env(db_options.env),
+      fs(db_options.fs.get()),
+      clock(db_options.clock),
       allow_mmap_reads(db_options.allow_mmap_reads),
       allow_mmap_writes(db_options.allow_mmap_writes),
       db_paths(db_options.db_paths),
