@@ -36,88 +36,9 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
   uint32_t id_;
   const Comparator* comparator_;
 };
-
-struct Entry {
-  std::string key;
-  std::string value;
-  WriteType type;
-};
-
-struct TestHandler : public WriteBatch::Handler {
-  std::map<uint32_t, std::vector<Entry>> seen;
-  Status PutCF(uint32_t column_family_id, const Slice& key,
-               const Slice& value) override {
-    Entry e;
-    e.key = key.ToString();
-    e.value = value.ToString();
-    e.type = kPutRecord;
-    seen[column_family_id].push_back(e);
-    return Status::OK();
-  }
-  Status MergeCF(uint32_t column_family_id, const Slice& key,
-                 const Slice& value) override {
-    Entry e;
-    e.key = key.ToString();
-    e.value = value.ToString();
-    e.type = kMergeRecord;
-    seen[column_family_id].push_back(e);
-    return Status::OK();
-  }
-  void LogData(const Slice& /*blob*/) override {}
-  Status DeleteCF(uint32_t column_family_id, const Slice& key) override {
-    Entry e;
-    e.key = key.ToString();
-    e.value = "";
-    e.type = kDeleteRecord;
-    seen[column_family_id].push_back(e);
-    return Status::OK();
-  }
-};
 }  // namespace
 
 class WriteBatchWithIndexDeleteRangeTest : public testing::Test {};
-
-namespace {
-typedef std::map<std::string, std::string> KVMap;
-
-class KVIter : public Iterator {
- public:
-  explicit KVIter(const KVMap* map) : map_(map), iter_(map_->end()) {}
-  bool Valid() const override { return iter_ != map_->end(); }
-  void SeekToFirst() override { iter_ = map_->begin(); }
-  void SeekToLast() override {
-    if (map_->empty()) {
-      iter_ = map_->end();
-    } else {
-      iter_ = map_->find(map_->rbegin()->first);
-    }
-  }
-  void Seek(const Slice& k) override {
-    iter_ = map_->lower_bound(k.ToString());
-  }
-  void SeekForPrev(const Slice& k) override {
-    iter_ = map_->upper_bound(k.ToString());
-    Prev();
-  }
-  void Next() override { ++iter_; }
-  void Prev() override {
-    if (iter_ == map_->begin()) {
-      iter_ = map_->end();
-      return;
-    }
-    --iter_;
-  }
-
-  Slice key() const override { return iter_->first; }
-  Slice value() const override { return iter_->second; }
-  Status status() const override { return Status::OK(); }
-
- private:
-  const KVMap* const map_;
-  KVMap::const_iterator iter_;
-};
-
-}  // namespace
 
 class TestDB {
  public:
