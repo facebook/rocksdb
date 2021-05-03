@@ -214,7 +214,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchBadRange) {
   s = batch.DeleteRange("E", "EEEE");
   ASSERT_OK(s);
   s = batch.GetFromBatch(db_options, "EE", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Test that writing the batch to the db,
   // writes only those that are not in DeleteRange
@@ -225,7 +225,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchBadRange) {
   ASSERT_OK(s);
 
   s = db->Get(read_options, "EE", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   s = db->Get(read_options, "G", &value);
   ASSERT_OK(s);
@@ -268,7 +268,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchBadRangeCF) {
   s = batch.DeleteRange(cf1, "E", "EEEE");
   ASSERT_OK(s);
   s = batch.GetFromBatch(cf1, db_options, "EE", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Test that writing the batch to the db,
   // writes only those that are not in DeleteRange
@@ -279,7 +279,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchBadRangeCF) {
   ASSERT_OK(s);
 
   s = db->Get(read_options, cf1, "EE", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   s = db->Get(read_options, cf1, "G", &value);
   ASSERT_OK(s);
@@ -303,15 +303,15 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteSingleRange) {
 
   // Read a bunch of values, ensure it's all not there OK
   s = batch.GetFromBatch(db_options, "A", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Simple range deletion in centre of A-E
   batch.Clear();
@@ -327,9 +327,9 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteSingleRange) {
   ASSERT_OK(s);
   ASSERT_EQ("a", value);
   s = batch.GetFromBatch(db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d", value);
@@ -337,7 +337,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteSingleRange) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
   s = batch.GetFromBatch(db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 /**
@@ -360,15 +360,15 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteSingleRangeCF) {
 
   // Read a bunch of values, ensure it's all not there OK
   s = batch.GetFromBatch(cf1, db_options, "A", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Simple range deletion in centre of A-E
   batch.Clear();
@@ -384,9 +384,9 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteSingleRangeCF) {
   ASSERT_OK(s);
   ASSERT_EQ("a", value);
   s = batch.GetFromBatch(cf1, db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d", value);
@@ -394,7 +394,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteSingleRangeCF) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
   s = batch.GetFromBatch(cf1, db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 /**
@@ -417,7 +417,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, PutDeleteRangePutAgain) {
   // Delete B..D (i.e. C), and make sure C does not exist
   ASSERT_OK(batch.DeleteRange("B", "D"));
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   
   // Put C again, and check it exists
   ASSERT_OK(batch.Put("C", "c1"));
@@ -449,7 +449,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, PutDeleteRangePutAgainCF) {
   // Delete B..D (i.e. C), and make sure C does not exist
   ASSERT_OK(batch.DeleteRange(cf1, "B", "D"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   
   // Put C again, and check it exists
   ASSERT_OK(batch.Put(cf1, "C", "c1"));
@@ -481,7 +481,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteRangeThenDelete) {
   contents = PrintContents(&batch, nullptr);
   ASSERT_EQ(std::string::npos, contents.find("PUT(C):c0"));
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   
   // Put E
   ASSERT_OK(batch.Put("E", "e0"));
@@ -494,7 +494,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteRangeThenDelete) {
   // Delete C
   ASSERT_OK(batch.Delete("C"));
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
   ASSERT_OK(s);
   ASSERT_EQ("e0", value);
@@ -502,14 +502,14 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteRangeThenDelete) {
   // Delete E
   ASSERT_OK(batch.Delete("E"));
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Put E again
   ASSERT_OK(batch.Put("E", "e1"));
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
   ASSERT_OK(s);
   ASSERT_EQ("e1", value);
@@ -552,7 +552,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   contents = PrintContents(&batch, cf1);
   ASSERT_EQ(std::string::npos, contents.find("PUT(C):c0"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Put E
   ASSERT_OK(batch.Put(cf1, "E", "e0"));
@@ -563,7 +563,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   // Delete C
   ASSERT_OK(batch.Delete(cf1, "C"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
   ASSERT_OK(s);
   ASSERT_EQ("e0", value);
@@ -571,14 +571,14 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   // Delete E
   ASSERT_OK(batch.Delete(cf1, "E"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Put E again
   ASSERT_OK(batch.Put(cf1, "E", "e1"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
   ASSERT_OK(s);
   ASSERT_EQ("e1", value);
@@ -625,27 +625,27 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteThenDeleteRange) {
   ASSERT_OK(batch.Delete("B"));
   ASSERT_OK(batch.Delete("C"));
   s = batch.GetFromBatch(db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Delete Range C..E  
   ASSERT_OK(batch.DeleteRange("C", "E"));
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Check only A exists
   s = batch.GetFromBatch(db_options, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatch(db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   
   // Put C again
   ASSERT_OK(batch.Put("C", "c1"));
@@ -655,14 +655,14 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteThenDeleteRange) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatch(db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "C", &value);
   ASSERT_OK(s);
   ASSERT_EQ("c1", value);
   s = batch.GetFromBatch(db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Put B again
   ASSERT_OK(batch.Put("B", "b1"));
@@ -678,9 +678,9 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteThenDeleteRange) {
   ASSERT_OK(s);
   ASSERT_EQ("c1", value);
   s = batch.GetFromBatch(db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 /**
@@ -720,27 +720,27 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   ASSERT_OK(batch.Delete(cf1, "B"));
   ASSERT_OK(batch.Delete(cf1, "C"));
   s = batch.GetFromBatch(cf1, db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Delete Range C..E  
   ASSERT_OK(batch.DeleteRange(cf1, "C", "E"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Check only A exists
   s = batch.GetFromBatch(cf1, db_options, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatch(cf1, db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Put C again
   ASSERT_OK(batch.Put(cf1, "C", "c1"));
@@ -750,14 +750,14 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatch(cf1, db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
   ASSERT_OK(s);
   ASSERT_EQ("c1", value);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Put B again
   ASSERT_OK(batch.Put(cf1, "B", "b1"));
@@ -773,9 +773,9 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   ASSERT_OK(s);
   ASSERT_EQ("c1", value);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 /**
@@ -801,7 +801,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteRangeThenSingleDelete) {
   contents = PrintContents(&batch, nullptr);
   ASSERT_EQ(std::string::npos, contents.find("PUT(C):c0"));
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   
   // Put E
   ASSERT_OK(batch.Put("E", "e0"));
@@ -814,7 +814,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteRangeThenSingleDelete) {
   // Single Delete C
   ASSERT_OK(batch.SingleDelete("C"));
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
   ASSERT_OK(s);
   ASSERT_EQ("e0", value);
@@ -822,14 +822,14 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteRangeThenSingleDelete) {
   // Single Delete E
   ASSERT_OK(batch.SingleDelete("E"));
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Put E again
   ASSERT_OK(batch.Put("E", "e1"));
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
   ASSERT_OK(s);
   ASSERT_EQ("e1", value);
@@ -872,7 +872,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   contents = PrintContents(&batch, cf1);
   ASSERT_EQ(std::string::npos, contents.find("PUT(C):c0"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Put E
   ASSERT_OK(batch.Put(cf1, "E", "e0"));
@@ -883,7 +883,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   // Single Delete C
   ASSERT_OK(batch.SingleDelete(cf1, "C"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
   ASSERT_OK(s);
   ASSERT_EQ("e0", value);
@@ -891,14 +891,14 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   // Single Delete E
   ASSERT_OK(batch.SingleDelete(cf1, "E"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Put E again
   ASSERT_OK(batch.Put(cf1, "E", "e1"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
   ASSERT_OK(s);
   ASSERT_EQ("e1", value);
@@ -945,27 +945,27 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, SingleDeleteThenDeleteRange) {
   ASSERT_OK(batch.SingleDelete("B"));
   ASSERT_OK(batch.SingleDelete("C"));
   s = batch.GetFromBatch(db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Delete Range C..E  
   ASSERT_OK(batch.DeleteRange("C", "E"));
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Check only A exists
   s = batch.GetFromBatch(db_options, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatch(db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   
   // Put C again
   ASSERT_OK(batch.Put("C", "c1"));
@@ -975,14 +975,14 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, SingleDeleteThenDeleteRange) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatch(db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "C", &value);
   ASSERT_OK(s);
   ASSERT_EQ("c1", value);
   s = batch.GetFromBatch(db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Put B again
   ASSERT_OK(batch.Put("B", "b1"));
@@ -998,9 +998,9 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, SingleDeleteThenDeleteRange) {
   ASSERT_OK(s);
   ASSERT_EQ("c1", value);
   s = batch.GetFromBatch(db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 /**
@@ -1040,27 +1040,27 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   ASSERT_OK(batch.SingleDelete(cf1, "B"));
   ASSERT_OK(batch.SingleDelete(cf1, "C"));
   s = batch.GetFromBatch(cf1, db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Delete Range C..E  
   ASSERT_OK(batch.DeleteRange(cf1, "C", "E"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Check only A exists
   s = batch.GetFromBatch(cf1, db_options, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatch(cf1, db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Put C again
   ASSERT_OK(batch.Put(cf1, "C", "c1"));
@@ -1070,14 +1070,14 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatch(cf1, db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
   ASSERT_OK(s);
   ASSERT_EQ("c1", value);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Put B again
   ASSERT_OK(batch.Put(cf1, "B", "b1"));
@@ -1093,9 +1093,9 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   ASSERT_OK(s);
   ASSERT_EQ("c1", value);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 // TODO(AR) do the above need to be repeated for BatchAndDB?
@@ -1161,11 +1161,11 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDB) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "BB", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d", value);
@@ -1181,11 +1181,11 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDB) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = db->Get(read_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = db->Get(read_options, "BB", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = db->Get(read_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = db->Get(read_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d", value);
@@ -1193,7 +1193,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDB) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
   s = db->Get(read_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Check that WBWI hasn't changed since db->Write
   // So... Check that only A, D and E, are visible
@@ -1201,11 +1201,11 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDB) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "BB", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d", value);
@@ -1213,7 +1213,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDB) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
   s = batch.GetFromBatchAndDB(db, read_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 /**
@@ -1277,11 +1277,11 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDBCF) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "BB", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d", value);
@@ -1297,11 +1297,11 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDBCF) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = db->Get(read_options, cf1, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = db->Get(read_options, cf1, "BB", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = db->Get(read_options, cf1, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = db->Get(read_options, cf1, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d", value);
@@ -1309,7 +1309,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDBCF) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
   s = db->Get(read_options, cf1, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Check that WBWI hasn't changed since db->Write
   // So... Check that only A, D and E, are visible
@@ -1317,11 +1317,11 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDBCF) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "BB", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d", value);
@@ -1329,7 +1329,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDBCF) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 /**
@@ -1369,12 +1369,12 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeletedRangeRemembered) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // This checks the range map recording explicit deletion
   // "deletes" the C in the underlying database
   s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   s = batch.GetFromBatch(db_options, "D", &value);
   ASSERT_OK(s);
@@ -1383,7 +1383,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeletedRangeRemembered) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
   s = batch.GetFromBatch(db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 /**
@@ -1425,12 +1425,12 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeletedRangeRememberedCF) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // This checks the range map recording explicit deletion
   // "deletes" the C in the underlying database
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
   ASSERT_OK(s);
@@ -1439,7 +1439,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeletedRangeRememberedCF) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
   s = batch.GetFromBatch(cf1, db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 TEST_F(WriteBatchWithIndexDeleteRangeTest, RollbackDeleteRange) {
@@ -1484,15 +1484,15 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RollbackDeleteRange) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // This checks the range map recording explicit deletion
   // "deletes" the C in the underlying database
   s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   s = batch.GetFromBatchAndDB(db, read_options, "CC", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d2", value);
@@ -1500,7 +1500,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RollbackDeleteRange) {
   ASSERT_OK(s);
   ASSERT_EQ("e2", value);
   s = batch.GetFromBatch(db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // ROLLBACK SAVE POINT
   ASSERT_OK(batch.RollbackToSavePoint());
@@ -1518,7 +1518,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RollbackDeleteRange) {
   ASSERT_OK(s);
   ASSERT_EQ("c0", value);
   s = batch.GetFromBatchAndDB(db, read_options, "CC", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d", value);
@@ -1526,7 +1526,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RollbackDeleteRange) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
   s = batch.GetFromBatch(db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 TEST_F(WriteBatchWithIndexDeleteRangeTest, RollbackDeleteRangeCF) {
@@ -1572,15 +1572,15 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RollbackDeleteRangeCF) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // This checks the range map recording explicit deletion
   // "deletes" the C in the underlying database
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "CC", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d2", value);
@@ -1588,7 +1588,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RollbackDeleteRangeCF) {
   ASSERT_OK(s);
   ASSERT_EQ("e2", value);
   s = batch.GetFromBatch(cf1, db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // ROLLBACK SAVE POINT
   ASSERT_OK(batch.RollbackToSavePoint());
@@ -1606,7 +1606,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RollbackDeleteRangeCF) {
   ASSERT_OK(s);
   ASSERT_EQ("c0", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "CC", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d", value);
@@ -1614,7 +1614,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RollbackDeleteRangeCF) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
   s = batch.GetFromBatch(cf1, db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 TEST_F(WriteBatchWithIndexDeleteRangeTest, RedoDeleteRange) {
@@ -1654,14 +1654,14 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RedoDeleteRange) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // This checks the range map recording explicit deletion
   // "deletes" the C in the underlying database
   s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "CC", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d2", value);
@@ -1669,7 +1669,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RedoDeleteRange) {
   ASSERT_OK(s);
   ASSERT_EQ("e2", value);
   s = batch.GetFromBatch(db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   // Check the write *after* the Delete Range is still there
   s = batch.GetFromBatchAndDB(db, read_options, "CCC", &value);
   ASSERT_OK(s);
@@ -1689,11 +1689,11 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RedoDeleteRange) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "CC", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d2", value);
@@ -1701,7 +1701,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RedoDeleteRange) {
   ASSERT_OK(s);
   ASSERT_EQ("e2", value);
   s = batch.GetFromBatch(db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "CCC", &value);
   ASSERT_OK(s);
   ASSERT_EQ("ccc2", value);
@@ -1745,14 +1745,14 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RedoDeleteRangeCF) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // This checks the range map recording explicit deletion
   // "deletes" the C in the underlying database
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "CC", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d2", value);
@@ -1760,7 +1760,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RedoDeleteRangeCF) {
   ASSERT_OK(s);
   ASSERT_EQ("e2", value);
   s = batch.GetFromBatch(cf1, db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   // Check the write *after* the Delete Range is still there
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "CCC", &value);
   ASSERT_OK(s);
@@ -1780,11 +1780,11 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RedoDeleteRangeCF) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "CC", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d2", value);
@@ -1792,7 +1792,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, RedoDeleteRangeCF) {
   ASSERT_OK(s);
   ASSERT_EQ("e2", value);
   s = batch.GetFromBatch(cf1, db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "CCC", &value);
   ASSERT_OK(s);
   ASSERT_EQ("ccc2", value);
@@ -1826,7 +1826,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleRanges) {
   ASSERT_OK(batch.DeleteRange("A", "H"));
 
   s = batch.GetFromBatchAndDB(db, read_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleRangesCF) {
@@ -1858,7 +1858,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleRangesCF) {
   ASSERT_OK(batch.DeleteRange(cf1, "A", "H"));
 
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 TEST_F(WriteBatchWithIndexDeleteRangeTest, MoreRanges) {
@@ -2090,11 +2090,11 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBRead) {
   //
   batch.Clear();
   s = batch.GetFromBatch(db_options, "A", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   //
   // Check the Put(s) and DeleteRange(s) got into the DB
@@ -2103,9 +2103,9 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBRead) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   //
   // Start a new batch
@@ -2125,9 +2125,9 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBRead) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d", value);
@@ -2135,7 +2135,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBRead) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
   s = batch.GetFromBatch(db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   batch.Clear();
 
@@ -2143,15 +2143,15 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBRead) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBReadCF) {
@@ -2183,11 +2183,11 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBReadCF) {
   //
   batch.Clear();
   s = batch.GetFromBatch(cf1, db_options, "A", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   //
   // Check the Put(s) and DeleteRange(s) got into the DB
@@ -2196,9 +2196,9 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBReadCF) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   //
   // Start a new batch
@@ -2218,9 +2218,9 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBReadCF) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d", value);
@@ -2228,7 +2228,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBReadCF) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
   s = batch.GetFromBatch(cf1, db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   batch.Clear();
 
@@ -2236,15 +2236,15 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBReadCF) {
   ASSERT_OK(s);
   ASSERT_EQ("a0", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "C", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "D", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "E", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(cf1, db_options, "F", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleColumnFamilies) {
@@ -2289,9 +2289,9 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleColumnFamilies) {
   ASSERT_OK(batch.DeleteRange(cf2, "N", "ZZ"));
 
   s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "Z", &value);
   ASSERT_OK(s);
   ASSERT_EQ("z_cf0_0", value);
@@ -2311,7 +2311,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleColumnFamilies) {
   ASSERT_OK(s);
   ASSERT_EQ("b_cf2", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf2, "Z", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // We will re-check these values when we roll back
   batch.SetSavePoint();
@@ -2328,9 +2328,9 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleColumnFamilies) {
   ASSERT_OK(batch.DeleteRange(cf1, "N", "ZZ"));
 
   s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "Z", &value);
   ASSERT_OK(s);
   ASSERT_EQ("z_cf0_0", value);
@@ -2341,7 +2341,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleColumnFamilies) {
   ASSERT_OK(s);
   ASSERT_EQ("b_cf1_2", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf1, "Z", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, cf2, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("a_cf2_2", value);
@@ -2349,15 +2349,15 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleColumnFamilies) {
   ASSERT_OK(s);
   ASSERT_EQ("b_cf2_2", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf2, "Z", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 
   // Roll back, and do the original checks
   batch.RollbackToSavePoint();
 
   s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "B", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatchAndDB(db, read_options, "Z", &value);
   ASSERT_OK(s);
   ASSERT_EQ("z_cf0_0", value);
@@ -2377,7 +2377,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, MultipleColumnFamilies) {
   ASSERT_OK(s);
   ASSERT_EQ("b_cf2", value);
   s = batch.GetFromBatchAndDB(db, read_options, cf2, "Z", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_NOT_FOUND(s);
 }
 
 }  // namespace ROCKSDB_NAMESPACE
