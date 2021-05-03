@@ -19,7 +19,9 @@ namespace ROCKSDB_NAMESPACE {
 void DeletedRangeMap::AddInterval(const uint32_t cf_id, const Slice& from_key,
                                   const Slice& to_key) {
   const auto batch_data = write_batch->Data().data();
+#if (DEBUG_LEVEL > 0)
   const auto batch_size = write_batch->GetDataSize();
+#endif
 
   assert(from_key.data() + from_key.size() <= batch_data + batch_size);
   assert(from_key.data() >= batch_data);
