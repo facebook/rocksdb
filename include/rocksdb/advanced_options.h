@@ -186,6 +186,16 @@ struct CompressionOptions {
         max_dict_buffer_bytes(_max_dict_buffer_bytes) {}
 };
 
+// Temperature of a file. Used to pass to FileSystem for a different
+// placement and/or coding.
+enum class Temperature : uint8_t {
+  kHot,
+  kWarm,
+  kCold,
+  kTotal,
+  kUnknown = kTotal,
+};
+
 enum UpdateStatus {    // Return status For inplace update callback
   UPDATE_FAILED   = 0, // Nothing to update
   UPDATED_INPLACE = 1, // Value updated inplace
@@ -757,6 +767,13 @@ struct AdvancedColumnFamilyOptions {
   // The compressibility is reported as stats and the stored
   // data is left uncompressed (unless compression is also requested).
   uint64_t sample_for_compression = 0;
+
+  // EXPERIMENTAL
+  // The feature is still in development and is incomplete.
+  // If this option is set, when creating bottommost files, pass this
+  // temperature to FileSystem used. Should be no-op for default FileSystem
+  // and users need to plug in their own FileSystem to take advantage of it.
+  Temperature bottommost_temperature = Temperature::kUnknown;
 
   // When set, large values (blobs) are written to separate blob files, and
   // only pointers to them are stored in SST files. This can reduce write

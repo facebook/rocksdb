@@ -65,6 +65,7 @@
 #include "rocksdb/write_batch.h"
 #include "test_util/testutil.h"
 #include "test_util/transaction_test_util.h"
+#include "tools/simulated_hybrid_file_system.h"
 #include "util/cast_util.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -1032,6 +1033,10 @@ DEFINE_string(fs_uri, "",
 DEFINE_string(hdfs, "",
               "Name of hdfs environment. Mutually exclusive with"
               " --env_uri and --fs_uri");
+DEFINE_string(simulate_hybrid_fs_file, "",
+              "File for Store Metadata for Simulate hybrid FS. Empty means "
+              "disable the feature. Now, if it is set, "
+              "bottommost_temperature is set to kWarm.");
 
 static std::shared_ptr<ROCKSDB_NAMESPACE::Env> env_guard;
 
@@ -4050,6 +4055,9 @@ class Benchmark {
     options.level0_slowdown_writes_trigger =
       FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type_e;
+    if (FLAGS_simulate_hybrid_fs_file != "") {
+      options.bottommost_temperature = Temperature::kWarm;
+    }
     options.sample_for_compression = FLAGS_sample_for_compression;
     options.WAL_ttl_seconds = FLAGS_wal_ttl_seconds;
     options.WAL_size_limit_MB = FLAGS_wal_size_limit_MB;
@@ -7672,6 +7680,9 @@ int db_bench_tool(int argc, char** argv) {
       exit(1);
     }
     FLAGS_env = GetCompositeEnv(fs);
+  } else if (FLAGS_simulate_hybrid_fs_file != "") {
+    FLAGS_env = GetCompositeEnv(std::make_shared<SimulatedHybridFileSystem>(
+        FileSystem::Default(), FLAGS_simulate_hybrid_fs_file));
   }
 #endif  // ROCKSDB_LITE
   if (FLAGS_use_existing_keys && !FLAGS_use_existing_db) {

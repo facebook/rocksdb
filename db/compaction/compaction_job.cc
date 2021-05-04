@@ -1685,9 +1685,16 @@ Status CompactionJob::OpenCompactionOutputFile(
   TEST_SYNC_POINT_CALLBACK("CompactionJob::OpenCompactionOutputFile",
                            &syncpoint_arg);
 #endif
+
+  // Pass temperature of botommost files to FileSystem.
+  FileOptions fo_copy = file_options_;
+  if (bottommost_level_) {
+    fo_copy.temperature =
+        sub_compact->compaction->mutable_cf_options()->bottommost_temperature;
+  }
+
   Status s;
-  IOStatus io_s =
-      NewWritableFile(fs_.get(), fname, &writable_file, file_options_);
+  IOStatus io_s = NewWritableFile(fs_.get(), fname, &writable_file, fo_copy);
   s = io_s;
   if (sub_compact->io_status.ok()) {
     sub_compact->io_status = io_s;
