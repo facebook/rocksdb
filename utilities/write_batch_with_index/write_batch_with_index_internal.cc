@@ -649,10 +649,9 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
                                          statistics, clock, result_operand);
     } else {
       const auto cf_opts = cfh->cfd()->ioptions();
-      return MergeHelper::TimedFullMerge(merge_operator, key, value,
-                                         context.GetOperands(), result,
-                                         cf_opts->info_log, cf_opts->statistics,
-                                         cf_opts->clock, result_operand);
+      return MergeHelper::TimedFullMerge(
+          merge_operator, key, value, context.GetOperands(), result,
+          cf_opts->logger, cf_opts->stats, cf_opts->clock, result_operand);
     }
   } else {
     return Status::InvalidArgument("Must provide a column_family");
