@@ -175,7 +175,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
 
   const bool overwrite_key = false;
   WriteBatchWithIndex batch(BytewiseComparator(), 20, overwrite_key);
-  
+
   Status s = batch.DeleteRange(&cf1, "B", "C");
   ASSERT_TRUE(s.IsNotSupported());
 }
@@ -418,7 +418,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, PutDeleteRangePutAgain) {
   ASSERT_OK(batch.DeleteRange("B", "D"));
   s = batch.GetFromBatch(db_options, "C", &value);
   ASSERT_NOT_FOUND(s);
-  
+
   // Put C again, and check it exists
   ASSERT_OK(batch.Put("C", "c1"));
   s = batch.GetFromBatch(db_options, "C", &value);
@@ -450,7 +450,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, PutDeleteRangePutAgainCF) {
   ASSERT_OK(batch.DeleteRange(cf1, "B", "D"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
   ASSERT_NOT_FOUND(s);
-  
+
   // Put C again, and check it exists
   ASSERT_OK(batch.Put(cf1, "C", "c1"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
@@ -482,7 +482,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteRangeThenDelete) {
   ASSERT_EQ(std::string::npos, contents.find("PUT(C):c0"));
   s = batch.GetFromBatch(db_options, "C", &value);
   ASSERT_NOT_FOUND(s);
-  
+
   // Put E
   ASSERT_OK(batch.Put("E", "e0"));
   contents = PrintContents(&batch, nullptr);
@@ -528,8 +528,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteRangeThenDelete) {
  * Tests Delete Range followed by Delete
  * on a Column Family.
  */
-TEST_F(WriteBatchWithIndexDeleteRangeTest,
-       DeleteRangeThenDeleteCF) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteRangeThenDeleteCF) {
   TestDB test_db("delete_range_then_delete_cf");
   ColumnFamilyHandle* cf1 = test_db.newCF("First Family");
 
@@ -620,7 +619,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteThenDeleteRange) {
   s = batch.GetFromBatch(db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d0", value);
-  
+
   // Delete B and C
   ASSERT_OK(batch.Delete("B"));
   ASSERT_OK(batch.Delete("C"));
@@ -629,7 +628,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteThenDeleteRange) {
   s = batch.GetFromBatch(db_options, "C", &value);
   ASSERT_NOT_FOUND(s);
 
-  // Delete Range C..E  
+  // Delete Range C..E
   ASSERT_OK(batch.DeleteRange("C", "E"));
   s = batch.GetFromBatch(db_options, "C", &value);
   ASSERT_NOT_FOUND(s);
@@ -646,10 +645,10 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteThenDeleteRange) {
   ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
   ASSERT_NOT_FOUND(s);
-  
+
   // Put C again
   ASSERT_OK(batch.Put("C", "c1"));
-  
+
   // Check only A and C exist
   s = batch.GetFromBatch(db_options, "A", &value);
   ASSERT_OK(s);
@@ -666,7 +665,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteThenDeleteRange) {
 
   // Put B again
   ASSERT_OK(batch.Put("B", "b1"));
-  
+
   // Check only A, B and C exist
   s = batch.GetFromBatch(db_options, "A", &value);
   ASSERT_OK(s);
@@ -687,8 +686,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteThenDeleteRange) {
  * Tests Delete followed by Delete Range
  * on a Column Family.
  */
-TEST_F(WriteBatchWithIndexDeleteRangeTest,
-       DeleteThenDeleteRangeCF) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteThenDeleteRangeCF) {
   TestDB test_db("delete_then_delete_range_cf");
   ColumnFamilyHandle* cf1 = test_db.newCF("First Family");
 
@@ -724,7 +722,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
   ASSERT_NOT_FOUND(s);
 
-  // Delete Range C..E  
+  // Delete Range C..E
   ASSERT_OK(batch.DeleteRange(cf1, "C", "E"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
   ASSERT_NOT_FOUND(s);
@@ -761,7 +759,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
 
   // Put B again
   ASSERT_OK(batch.Put(cf1, "B", "b1"));
-  
+
   // Check only A, B and C exist
   s = batch.GetFromBatch(cf1, db_options, "A", &value);
   ASSERT_OK(s);
@@ -802,7 +800,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteRangeThenSingleDelete) {
   ASSERT_EQ(std::string::npos, contents.find("PUT(C):c0"));
   s = batch.GetFromBatch(db_options, "C", &value);
   ASSERT_NOT_FOUND(s);
-  
+
   // Put E
   ASSERT_OK(batch.Put("E", "e0"));
   contents = PrintContents(&batch, nullptr);
@@ -848,8 +846,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteRangeThenSingleDelete) {
  * Tests Delete Range followed by Single Delete
  * on a Column Family.
  */
-TEST_F(WriteBatchWithIndexDeleteRangeTest,
-       DeleteRangeThenSingleDeleteCF) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, DeleteRangeThenSingleDeleteCF) {
   TestDB test_db("delete_range_then_single_delete_cf");
   ColumnFamilyHandle* cf1 = test_db.newCF("First Family");
 
@@ -940,7 +937,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, SingleDeleteThenDeleteRange) {
   s = batch.GetFromBatch(db_options, "D", &value);
   ASSERT_OK(s);
   ASSERT_EQ("d0", value);
-  
+
   // Single Delete B and C
   ASSERT_OK(batch.SingleDelete("B"));
   ASSERT_OK(batch.SingleDelete("C"));
@@ -949,7 +946,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, SingleDeleteThenDeleteRange) {
   s = batch.GetFromBatch(db_options, "C", &value);
   ASSERT_NOT_FOUND(s);
 
-  // Delete Range C..E  
+  // Delete Range C..E
   ASSERT_OK(batch.DeleteRange("C", "E"));
   s = batch.GetFromBatch(db_options, "C", &value);
   ASSERT_NOT_FOUND(s);
@@ -966,10 +963,10 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, SingleDeleteThenDeleteRange) {
   ASSERT_NOT_FOUND(s);
   s = batch.GetFromBatch(db_options, "E", &value);
   ASSERT_NOT_FOUND(s);
-  
+
   // Put C again
   ASSERT_OK(batch.Put("C", "c1"));
-  
+
   // Check only A and C exist
   s = batch.GetFromBatch(db_options, "A", &value);
   ASSERT_OK(s);
@@ -986,7 +983,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, SingleDeleteThenDeleteRange) {
 
   // Put B again
   ASSERT_OK(batch.Put("B", "b1"));
-  
+
   // Check only A, B and C exist
   s = batch.GetFromBatch(db_options, "A", &value);
   ASSERT_OK(s);
@@ -1007,8 +1004,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, SingleDeleteThenDeleteRange) {
  * Tests Single Delete followed by Delete Range
  * on a Column Family.
  */
-TEST_F(WriteBatchWithIndexDeleteRangeTest,
-       SingleDeleteThenDeleteRangeCF) {
+TEST_F(WriteBatchWithIndexDeleteRangeTest, SingleDeleteThenDeleteRangeCF) {
   TestDB test_db("single_delete_then_delete_range_cf");
   ColumnFamilyHandle* cf1 = test_db.newCF("First Family");
 
@@ -1044,7 +1040,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
   ASSERT_NOT_FOUND(s);
 
-  // Delete Range C..E  
+  // Delete Range C..E
   ASSERT_OK(batch.DeleteRange(cf1, "C", "E"));
   s = batch.GetFromBatch(cf1, db_options, "C", &value);
   ASSERT_NOT_FOUND(s);
@@ -1081,7 +1077,7 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
 
   // Put B again
   ASSERT_OK(batch.Put(cf1, "B", "b1"));
-  
+
   // Check only A, B and C exist
   s = batch.GetFromBatch(cf1, db_options, "A", &value);
   ASSERT_OK(s);
@@ -1099,7 +1095,6 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest,
 }
 
 // TODO(AR) do the above need to be repeated for BatchAndDB?
-
 
 /**
  * Checks that DeleteRange on a WBWI works correctly
@@ -1153,7 +1148,8 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDB) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
 
-  // Delete B..D for the WBWI (i.e. B in the WBWI, and hides B, BB, and C from the db)
+  // Delete B..D for the WBWI (i.e. B in the WBWI, and hides B, BB, and C from
+  // the db)
   ASSERT_OK(batch.DeleteRange("B", "D"));
 
   // Check that only A, D and E, are visible
@@ -1269,7 +1265,8 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchAndDBCF) {
   ASSERT_OK(s);
   ASSERT_EQ("e", value);
 
-  // Delete B..D for the WBWI (i.e. B in the WBWI, and hides B, BB, and C from the db)
+  // Delete B..D for the WBWI (i.e. B in the WBWI, and hides B, BB, and C from
+  // the db)
   ASSERT_OK(batch.DeleteRange(cf1, "B", "D"));
 
   // Check that only A, D and E, are visible
@@ -1356,12 +1353,12 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, DeletedRangeRemembered) {
   WriteBatchWithIndex batch(BytewiseComparator(), 0, overwrite_key);
   std::string value;
   DBOptions db_options;
-  
+
   // Put B, D, E into the WBWI
   ASSERT_OK(batch.Put("B", "b"));
   ASSERT_OK(batch.Put("D", "d"));
   ASSERT_OK(batch.Put("E", "e"));
-  
+
   // Delete B..D
   ASSERT_OK(batch.DeleteRange("B", "D"));
 
@@ -2172,10 +2169,10 @@ TEST_F(WriteBatchWithIndexDeleteRangeTest, BatchFlushDBReadCF) {
   ASSERT_OK(batch.Put(cf1, "A", "a0"));
   ASSERT_OK(batch.Put(cf1, "B", "b0"));
   ASSERT_OK(batch.Put(cf1, "C", "c0"));
-  
+
   // Delete B..D
   ASSERT_OK(batch.DeleteRange(cf1, "B", "D"));
-  
+
   db->Write(write_options, batch.GetWriteBatch());
 
   //
