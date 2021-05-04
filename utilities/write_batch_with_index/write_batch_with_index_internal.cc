@@ -35,6 +35,10 @@ BaseDeltaIterator::BaseDeltaIterator(ColumnFamilyHandle* column_family,
                                         : nullptr) {
   wbwii_.reset(new WriteBatchWithIndexInternal(column_family));
 }
+  
+bool BaseDeltaIterator::Valid() const {
+  return status_.ok() ? (current_at_base_ ? BaseValid() : DeltaValid()) : false;
+}
 
 void BaseDeltaIterator::SeekToFirst() {
   forward_ = true;
@@ -180,6 +184,8 @@ Status BaseDeltaIterator::status() const {
   }
   return delta_iterator_->status();
 }
+
+void BaseDeltaIterator::Invalidate(Status s) { status_ = s; }
 
 void BaseDeltaIterator::AssertInvariants() {
 #ifndef NDEBUG
@@ -619,7 +625,7 @@ Status WriteBatchWithIndexInternal::MergeKey(const Slice& key,
                                              Slice* result_operand) const {
   if (column_family_ != nullptr) {
     auto cfh = static_cast_with_check<ColumnFamilyHandleImpl>(column_family_);
-    const auto merge_operator = cfh->cfd()->ioptions()->merge_operator;
+    const auto merge_operator = cfh->cfd()->ioptions()->merge_operator.get();
     if (merge_operator == nullptr) {
       return Status::InvalidArgument(
           "Merge_operator must be set for column_family");

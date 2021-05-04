@@ -277,7 +277,7 @@ void PlainTableReader::AllocateBloom(int bloom_bits_per_key, int num_keys,
   if (bloom_total_bits > 0) {
     enable_bloom_ = true;
     bloom_.SetTotalBits(&arena_, bloom_total_bits, ioptions_.bloom_locality,
-                        huge_page_tlb_size, ioptions_.info_log);
+                        huge_page_tlb_size, ioptions_.logger);
   }
 }
 

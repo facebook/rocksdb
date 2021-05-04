@@ -42,36 +42,23 @@ class BaseDeltaIterator : public Iterator {
 
   ~BaseDeltaIterator() override {}
 
-  bool Valid() const override {
-    return status_.ok() ? (current_at_base_ ? BaseValid() : DeltaValid())
-                        : false;
-  }
-
+  bool Valid() const override;
   void SeekToFirst() override;
   void SeekToLast() override;
   void Seek(const Slice& k) override;
   void SeekForPrev(const Slice& k) override;
-
   void Next() override;
-
   void Prev() override;
-
   Slice key() const override;
-
   Slice value() const override;
-
   Status status() const override;
-
-  void Invalidate(Status s) { status_ = s; }
+  void Invalidate(Status s);
 
  private:
   void AssertInvariants();
-
   void Advance();
-
   void AdvanceDelta();
   void AdvanceBase();
-
   bool BaseValid() const;
   bool DeltaValid() const;
   void UpdateCurrent();

@@ -27,13 +27,6 @@ class ColumnFamilyHandle;
 class Status;
 struct CompactionJobStats;
 
-enum class TableFileCreationReason {
-  kFlush,
-  kCompaction,
-  kRecovery,
-  kMisc,
-};
-
 struct TableFileCreationBriefInfo {
   // the name of the database where the file was created
   std::string db_name;

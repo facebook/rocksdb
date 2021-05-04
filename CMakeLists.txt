@@ -296,6 +296,7 @@ else()
 endif()
 
 include(CheckCXXSourceCompiles)
+set(OLD_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
 if(NOT MSVC)
   set(CMAKE_REQUIRED_FLAGS "-msse4.2 -mpclmul")
 endif()
@@ -312,13 +313,33 @@ int main() {
   auto d = _mm_cvtsi128_si64(c);
 }
 " HAVE_SSE42)
-unset(CMAKE_REQUIRED_FLAGS)
 if(HAVE_SSE42)
   add_definitions(-DHAVE_SSE42)
   add_definitions(-DHAVE_PCLMUL)
 elseif(FORCE_SSE42)
   message(FATAL_ERROR "FORCE_SSE42=ON but unable to compile with SSE4.2 enabled")
 endif()
+
+# Check if -latomic is required or not
+if (NOT MSVC)
+  set(CMAKE_REQUIRED_FLAGS "--std=c++11")
+  CHECK_CXX_SOURCE_COMPILES("
+#include <atomic>
+std::atomic<uint64_t> x(0);
+int main() {
+  uint64_t i = x.load(std::memory_order_relaxed);
+  bool b = x.is_lock_free();
+  return 0;
+}
+" BUILTIN_ATOMIC)
+if (NOT BUILTIN_ATOMIC)
+  #TODO: Check if -latomic exists
+  list(APPEND THIRDPARTY_LIBS atomic)
+endif()
+endif()
+
+# Reset the required flags
+set(CMAKE_REQUIRED_FLAGS ${OLD_CMAKE_REQUIRED_FLAGS})
 
 CHECK_CXX_SOURCE_COMPILES("
 #if defined(_MSC_VER) && !defined(__thread)
