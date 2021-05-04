@@ -35,7 +35,7 @@ BaseDeltaIterator::BaseDeltaIterator(ColumnFamilyHandle* column_family,
                                         : nullptr) {
   wbwii_.reset(new WriteBatchWithIndexInternal(column_family));
 }
-  
+
 bool BaseDeltaIterator::Valid() const {
   return status_.ok() ? (current_at_base_ ? BaseValid() : DeltaValid()) : false;
 }

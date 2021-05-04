@@ -76,12 +76,20 @@ class MergeContext {
   }
 
   // Same as GetOperandsDirectionForward
+  //
+  // Note that the returned reference is only good until another call
+  // to this MergeContext.  If the returned value is needed for longer,
+  // a copy must be made.
   const std::vector<Slice>& GetOperands() const {
     return GetOperandsDirectionForward();
   }
 
   // Return all the operands in the order as they were merged (passed to
   // FullMerge or FullMergeV2)
+  //
+  // Note that the returned reference is only good until another call
+  // to this MergeContext.  If the returned value is needed for longer,
+  // a copy must be made.
   const std::vector<Slice>& GetOperandsDirectionForward() const {
     if (!operand_list_) {
       return empty_operand_list;
@@ -93,6 +101,10 @@ class MergeContext {
 
   // Return all the operands in the reversed order relative to how they were
   // merged (passed to FullMerge or FullMergeV2)
+  //
+  // Note that the returned reference is only good until another call
+  // to this MergeContext.  If the returned value is needed for longer,
+  // a copy must be made.
   const std::vector<Slice>& GetOperandsDirectionBackward() const {
     if (!operand_list_) {
       return empty_operand_list;
