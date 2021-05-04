@@ -209,8 +209,7 @@ struct CacheHandle {
   }
 
   inline static uint32_t CalcMetadataCharge(
-      Slice key,
-      CacheMetadataChargePolicy metadata_charge_policy) {
+      Slice key, CacheMetadataChargePolicy metadata_charge_policy) {
     size_t meta_charge = 0;
     if (metadata_charge_policy == kFullChargeCacheMetadata) {
       meta_charge += sizeof(CacheHandle);
@@ -225,9 +224,7 @@ struct CacheHandle {
     return static_cast<uint32_t>(meta_charge);
   }
 
-  inline size_t GetTotalCharge() {
-    return charge + meta_charge;
-  }
+  inline size_t GetTotalCharge() { return charge + meta_charge; }
 };
 
 // Key of hash map. We store hash value with the key for convenience.
@@ -756,11 +753,11 @@ class ClockCache final : public ShardedCache {
   void DisownData() override {
 #if defined(__clang__)
 #if !defined(__has_feature) || !__has_feature(address_sanitizer)
-  shards_ = nullptr;
+    shards_ = nullptr;
 #endif
 #else  // __clang__
 #ifndef __SANITIZE_ADDRESS__
-  shards_ = nullptr;
+    shards_ = nullptr;
 #endif  // !__SANITIZE_ADDRESS__
 #endif  // __clang__
   }
