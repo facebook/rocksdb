@@ -273,19 +273,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
-          state_ = kFound;
-          if (do_merge_) {
-            if (LIKELY(pinnable_val_ != nullptr)) {
-              Status merge_status = MergeHelper::TimedFullMerge(
-                  merge_operator_, user_key_, &value,
-                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                  logger_, statistics_, clock_);
-              pinnable_val_->PinSelf();
-              if (!merge_status.ok()) {
-                state_ = kCorrupt;
-              }
-            }
-          } else {
+          Merge(&value);
+          if (do_merge_ == false) {
             // It means this function is called as part of DB GetMergeOperands
             // API and the current value should be part of
             // merge_context_->operand_list
@@ -314,21 +303,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         if (kNotFound == state_) {
           state_ = kDeleted;
         } else if (kMerge == state_) {
-          state_ = kFound;
-          if (LIKELY(pinnable_val_ != nullptr)) {
-            if (do_merge_) {
-              Status merge_status = MergeHelper::TimedFullMerge(
-                  merge_operator_, user_key_, nullptr,
-                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                  logger_, statistics_, clock_);
-              pinnable_val_->PinSelf();
-              if (!merge_status.ok()) {
-                state_ = kCorrupt;
-              }
-            }
-            // If do_merge_ = false then the current value shouldn't be part of
-            // merge_context_->operand_list
-          }
+          Merge(nullptr);
+          // If do_merge_ = false then the current value shouldn't be part of
+          // merge_context_->operand_list
         }
         return false;
 
@@ -340,21 +317,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         if (do_merge_ && merge_operator_ != nullptr &&
             merge_operator_->ShouldMerge(
                 merge_context_->GetOperandsDirectionBackward())) {
-          state_ = kFound;
-          if (LIKELY(pinnable_val_ != nullptr)) {
-            // do_merge_ = true this is the case where this function is called
-            // as part of DB Get API hence merge operators should be merged.
-            if (do_merge_) {
-              Status merge_status = MergeHelper::TimedFullMerge(
-                  merge_operator_, user_key_, nullptr,
-                  merge_context_->GetOperands(), pinnable_val_->GetSelf(),
-                  logger_, statistics_, clock_);
-              pinnable_val_->PinSelf();
-              if (!merge_status.ok()) {
-                state_ = kCorrupt;
-              }
-            }
-          }
+          Merge(nullptr);
           return false;
         }
         return true;
@@ -367,6 +330,21 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
   // state_ could be Corrupt, merge or notfound
   return false;
+}
+
+void GetContext::Merge(const Slice* value) {
+  state_ = kFound;
+  if (LIKELY(pinnable_val_ != nullptr)) {
+    if (do_merge_) {
+      Status merge_status = MergeHelper::TimedFullMerge(
+          merge_operator_, user_key_, value, merge_context_->GetOperands(),
+          pinnable_val_->GetSelf(), logger_, statistics_, clock_);
+      pinnable_val_->PinSelf();
+      if (!merge_status.ok()) {
+        state_ = kCorrupt;
+      }
+    }
+  }
 }
 
 void GetContext::push_operand(const Slice& value, Cleanable* value_pinner) {

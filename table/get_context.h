@@ -170,6 +170,8 @@ class GetContext {
   void push_operand(const Slice& value, Cleanable* value_pinner);
 
  private:
+  void Merge(const Slice* value);
+
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
   // the merge operations encountered;
