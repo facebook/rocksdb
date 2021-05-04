@@ -5328,7 +5328,7 @@ TEST_F(DBTest, L0L1L2AndUpHitCounter) {
       ASSERT_OK(Put(Key(i * kNumKeysPerLevel + j), "val"));
     }
     ASSERT_OK(Flush());
-    for (int l = 0; l < kNumLevels - i; ++l) {
+    for (int l = 0; l < kNumLevels - 1 - i; ++l) {
       ASSERT_OK(dbfull()->TEST_CompactRange(l, nullptr, nullptr));
     }
   }
