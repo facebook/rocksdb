@@ -581,7 +581,7 @@ jobs:
     steps:
       - pre-steps
       - install-gflags
-      - run: make V=1 J=4 -j4 check | .circleci/cat_ignore_eagain
+      - run: make LITE=1 V=1 J=4 -j4 check | .circleci/cat_ignore_eagain
       - post-steps
 
   build-linux-arm:
