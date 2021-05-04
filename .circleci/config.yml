@@ -22,7 +22,7 @@ commands:
       - run:
           name: Install cmake on macos
           command: |
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake
+            HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 HOMEBREW_NO_AUTO_UPDATE=1 brew install cmake
 
   increase-max-open-files-on-macos:
     steps:
@@ -93,7 +93,7 @@ commands:
       - run:
           name: Install gflags on macos
           command: |
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install gflags
+            HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 HOMEBREW_NO_AUTO_UPDATE=1 brew install gflags
 
   install-gtest-parallel:
     steps:
