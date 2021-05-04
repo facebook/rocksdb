@@ -15,7 +15,7 @@ commands:
       - run:
           name: Install pyenv on macos
           command: |
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install pyenv
+            HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1 HOMEBREW_NO_AUTO_UPDATE=1 brew install pyenv
 
   install-cmake-on-macos:
     steps:
