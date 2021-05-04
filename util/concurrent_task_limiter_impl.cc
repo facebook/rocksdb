@@ -67,8 +67,6 @@ void TaskLimiterToken::ReleaseOnce() {
   assert(limiter_->outstanding_tasks_ >= 0);
 }
 
-TaskLimiterToken::~TaskLimiterToken() {
-  ReleaseOnce();
-}
+TaskLimiterToken::~TaskLimiterToken() { ReleaseOnce(); }
 
 }  // namespace ROCKSDB_NAMESPACE
