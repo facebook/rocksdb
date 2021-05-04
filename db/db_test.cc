@@ -5314,9 +5314,9 @@ TEST_F(DBTest, DynamicMiscOptions) {
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, L0L1L2AndUpHitCounter) {
-  const int kNumKeys = 30000;
+  const int kNumKeysPerDb = 30000;
   const int kNumLevels = 3;
-  const int kNumKeysPerLevel = kNumKeys / kNumLevels;
+  const int kNumKeysPerLevel = kNumKeysPerDb / kNumLevels;
 
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
@@ -5337,7 +5337,7 @@ TEST_F(DBTest, L0L1L2AndUpHitCounter) {
   ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L1));
   ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L2_AND_UP));
 
-  for (int i = 0; i < kNumKeys; i++) {
+  for (int i = 0; i < kNumKeysPerDb; i++) {
     ASSERT_EQ(Get(Key(i)), "val");
   }
 
@@ -5345,9 +5345,9 @@ TEST_F(DBTest, L0L1L2AndUpHitCounter) {
   ASSERT_EQ(kNumKeysPerLevel, TestGetTickerCount(options, GET_HIT_L1));
   ASSERT_EQ(kNumKeysPerLevel, TestGetTickerCount(options, GET_HIT_L2_AND_UP));
 
-  ASSERT_EQ(kNumKeys, TestGetTickerCount(options, GET_HIT_L0) +
-                          TestGetTickerCount(options, GET_HIT_L1) +
-                          TestGetTickerCount(options, GET_HIT_L2_AND_UP));
+  ASSERT_EQ(kNumKeysPerDb, TestGetTickerCount(options, GET_HIT_L0) +
+                               TestGetTickerCount(options, GET_HIT_L1) +
+                               TestGetTickerCount(options, GET_HIT_L2_AND_UP));
 }
 
 TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
