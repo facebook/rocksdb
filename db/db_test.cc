@@ -5314,24 +5314,29 @@ TEST_F(DBTest, DynamicMiscOptions) {
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, L0L1L2AndUpHitCounter) {
-  const int kNumKeysPerDb = 30000;
   const int kNumLevels = 3;
-  const int kNumKeysPerLevel = kNumKeysPerDb / kNumLevels;
+  const int kNumKeysPerLevel = 10000;
+  const int kNumKeysPerDb = kNumLevels * kNumKeysPerLevel;
 
   Options options = CurrentOptions();
   options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
   Reopen(options);
 
-  // Place one file on each of L0, L1, and L2.
-  for (int i = 0; i < kNumLevels; ++i) {
-    for (int j = 0; j < kNumKeysPerLevel; ++j) {
-      ASSERT_OK(Put(Key(i * kNumKeysPerLevel + j), "val"));
+  // After the below loop there will be one file on each of L0, L1, and L2.
+  int key = 0;
+  for (int output_level = kNumLevels - 1; output_level >= 0; --output_level) {
+    for (int i = 0; i < kNumKeysPerLevel; ++i) {
+      ASSERT_OK(Put(Key(key), "val"));
+      key++;
     }
     ASSERT_OK(Flush());
-    for (int l = 0; l < kNumLevels - 1 - i; ++l) {
-      ASSERT_OK(dbfull()->TEST_CompactRange(l, nullptr, nullptr));
+    for (int input_level = 0; input_level < output_level; ++input_level) {
+      // `TEST_CompactRange(input_level, ...)` compacts from `input_level` to
+      // `input_level + 1`.
+      ASSERT_OK(dbfull()->TEST_CompactRange(input_level, nullptr, nullptr));
     }
   }
+  assert(key == kNumKeysPerDb);
 
   ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L0));
   ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L1));
