@@ -463,7 +463,7 @@ jobs:
       xcode: 11.3.0
     resource_class: medium
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/jdk1.8.0_172.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
@@ -489,7 +489,7 @@ jobs:
       xcode: 11.3.0
     resource_class: medium
     environment:
-      JAVA_HOME: /Library/Java/JavaVirtualMachines/jdk1.8.0_172.jdk/Contents/Home
+      JAVA_HOME: /Library/Java/JavaVirtualMachines/adoptopenjdk-8.jdk/Contents/Home
     steps:
       - increase-max-open-files-on-macos
       - install-pyenv-on-macos
