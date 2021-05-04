@@ -5314,41 +5314,40 @@ TEST_F(DBTest, DynamicMiscOptions) {
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, L0L1L2AndUpHitCounter) {
-  Options options = CurrentOptions();
-  options.write_buffer_size = 32 * 1024;
-  options.target_file_size_base = 32 * 1024;
-  options.level0_file_num_compaction_trigger = 2;
-  options.level0_slowdown_writes_trigger = 2;
-  options.level0_stop_writes_trigger = 4;
-  options.max_bytes_for_level_base = 64 * 1024;
-  options.max_write_buffer_number = 2;
-  options.max_background_compactions = 8;
-  options.max_background_flushes = 8;
-  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
-  CreateAndReopenWithCF({"mypikachu"}, options);
+  const int kNumKeys = 30000;
+  const int kNumLevels = 3;
+  const int kNumKeysPerLevel = kNumKeys / kNumLevels;
 
-  int numkeys = 20000;
-  for (int i = 0; i < numkeys; i++) {
-    ASSERT_OK(Put(1, Key(i), "val"));
+  Options options = CurrentOptions();
+  options.statistics = ROCKSDB_NAMESPACE::CreateDBStatistics();
+  Reopen(options);
+
+  // Place one file on each of L0, L1, and L2.
+  for (int i = 0; i < kNumLevels; ++i) {
+    for (int j = 0; j < kNumKeysPerLevel; ++j) {
+      ASSERT_OK(Put(Key(i * kNumKeysPerLevel + j), "val"));
+    }
+    ASSERT_OK(Flush());
+    for (int l = 0; l < kNumLevels - i; ++l) {
+      ASSERT_OK(dbfull()->TEST_CompactRange(l, nullptr, nullptr));
+    }
   }
+
   ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L0));
   ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L1));
   ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L2_AND_UP));
 
-  ASSERT_OK(Flush(1));
-  dbfull()->TEST_WaitForCompact();
-
-  for (int i = 0; i < numkeys; i++) {
-    ASSERT_EQ(Get(1, Key(i)), "val");
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_EQ(Get(Key(i)), "val");
   }
 
-  ASSERT_GT(TestGetTickerCount(options, GET_HIT_L0), 100);
-  ASSERT_GT(TestGetTickerCount(options, GET_HIT_L1), 100);
-  ASSERT_GT(TestGetTickerCount(options, GET_HIT_L2_AND_UP), 100);
+  ASSERT_EQ(kNumKeysPerLevel, TestGetTickerCount(options, GET_HIT_L0));
+  ASSERT_EQ(kNumKeysPerLevel, TestGetTickerCount(options, GET_HIT_L1));
+  ASSERT_EQ(kNumKeysPerLevel, TestGetTickerCount(options, GET_HIT_L2_AND_UP));
 
-  ASSERT_EQ(numkeys, TestGetTickerCount(options, GET_HIT_L0) +
-                         TestGetTickerCount(options, GET_HIT_L1) +
-                         TestGetTickerCount(options, GET_HIT_L2_AND_UP));
+  ASSERT_EQ(kNumKeys, TestGetTickerCount(options, GET_HIT_L0) +
+                          TestGetTickerCount(options, GET_HIT_L1) +
+                          TestGetTickerCount(options, GET_HIT_L2_AND_UP));
 }
 
 TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
