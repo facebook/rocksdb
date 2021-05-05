@@ -701,7 +701,7 @@ class ConfigurableCFOptions : public ConfigurableMutableCFOptions {
   ConfigurableCFOptions(const ColumnFamilyOptions& opts,
                         const std::unordered_map<std::string, std::string>* map)
       : ConfigurableMutableCFOptions(MutableCFOptions(opts)),
-        immutable_(ImmutableDBOptions(), opts),
+        immutable_(opts),
         cf_options_(opts),
         opt_map_(map) {
     RegisterOptions(&immutable_, &cf_immutable_options_type_info);
@@ -788,11 +788,7 @@ std::unique_ptr<Configurable> CFOptionsAsConfigurable(
 
 ImmutableCFOptions::ImmutableCFOptions() : ImmutableCFOptions(Options()) {}
 
-ImmutableCFOptions::ImmutableCFOptions(const Options& options)
-    : ImmutableCFOptions(ImmutableDBOptions(options), options) {}
-
-ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& /*db_options*/,
-                                       const ColumnFamilyOptions& cf_options)
+ImmutableCFOptions::ImmutableCFOptions(const ColumnFamilyOptions& cf_options)
     : compaction_style(cf_options.compaction_style),
       compaction_pri(cf_options.compaction_pri),
       user_comparator(cf_options.comparator),
@@ -834,35 +830,11 @@ ImmutableOptions::ImmutableOptions(const Options& options)
 
 ImmutableOptions::ImmutableOptions(const DBOptions& db_options,
                                    const ColumnFamilyOptions& cf_options)
-    : ImmutableOptions(ImmutableDBOptions(db_options), cf_options) {}
+    : ImmutableDBOptions(db_options), ImmutableCFOptions(cf_options) {}
 
 ImmutableOptions::ImmutableOptions(const ImmutableDBOptions& db_options,
-                                   const ColumnFamilyOptions& cf_options)
-    : ImmutableCFOptions(db_options, cf_options),
-      logger(db_options.logger),
-      stats(db_options.stats),
-      rate_limiter(db_options.rate_limiter),
-      info_log_level(db_options.info_log_level),
-      env(db_options.env),
-      fs(db_options.fs.get()),
-      clock(db_options.clock),
-      allow_mmap_reads(db_options.allow_mmap_reads),
-      allow_mmap_writes(db_options.allow_mmap_writes),
-      db_paths(db_options.db_paths),
-      advise_random_on_open(db_options.advise_random_on_open),
-      use_fsync(db_options.use_fsync),
-      access_hint_on_compaction_start(
-          db_options.access_hint_on_compaction_start),
-      new_table_reader_for_compaction_inputs(
-          db_options.new_table_reader_for_compaction_inputs),
-      allow_ingest_behind(db_options.allow_ingest_behind),
-      preserve_deletes(db_options.preserve_deletes),
-      listeners(db_options.listeners),
-      row_cache(db_options.row_cache),
-      file_checksum_gen_factory(db_options.file_checksum_gen_factory),
-      allow_data_in_errors(db_options.allow_data_in_errors),
-      db_host_id(db_options.db_host_id),
-      checksum_handoff_file_types(db_options.checksum_handoff_file_types) {}
+                                   const ImmutableCFOptions& cf_options)
+    : ImmutableDBOptions(db_options), ImmutableCFOptions(cf_options) {}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {

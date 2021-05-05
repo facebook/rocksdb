@@ -23,10 +23,7 @@ struct ImmutableCFOptions {
  public:
   static const char* kName() { return "ImmutableCFOptions"; }
   explicit ImmutableCFOptions();
-  explicit ImmutableCFOptions(const Options& options);
-
-  ImmutableCFOptions(const ImmutableDBOptions& db_options,
-                     const ColumnFamilyOptions& cf_options);
+  ImmutableCFOptions(const ColumnFamilyOptions& cf_options);
 
   CompactionStyle compaction_style;
 
@@ -87,7 +84,7 @@ struct ImmutableCFOptions {
   std::shared_ptr<SstPartitionerFactory> sst_partitioner_factory;
 };
 
-struct ImmutableOptions : public ImmutableCFOptions {
+struct ImmutableOptions : public ImmutableDBOptions, public ImmutableCFOptions {
   explicit ImmutableOptions();
   explicit ImmutableOptions(const Options& options);
 
@@ -96,55 +93,7 @@ struct ImmutableOptions : public ImmutableCFOptions {
 
   //**TODO: Should be ImmutableCFOptions...
   ImmutableOptions(const ImmutableDBOptions& db_options,
-                   const ColumnFamilyOptions& cf_options);
-  Logger* logger;  // ImmutableDBOptions
-
-  Statistics* stats;  // ImmutableDBOptions
-
-  std::shared_ptr<RateLimiter> rate_limiter;  // ImmutableDBOptions
-
-  InfoLogLevel info_log_level;  // ImmutableDBOptions
-
-  Env* env;  // ImmutableDBOptions
-
-  FileSystem* fs;  // ImmutableDBOptions
-
-  SystemClock* clock;  // ImmutableDBOptions
-
-  // Allow the OS to mmap file for reading sst tables. Default: false
-  bool allow_mmap_reads;  // ImmutableDBOptions
-
-  // Allow the OS to mmap file for writing. Default: false
-  bool allow_mmap_writes;  // ImmutableDBOptions
-
-  std::vector<DbPath> db_paths;  // ImmutableDBOptions
-
-  bool advise_random_on_open;  // ImmutableDBOptions
-
-  bool use_fsync;  // ImmutableDBOptions
-
-  Options::AccessHint access_hint_on_compaction_start;  // ImmutableDBOptions
-
-  bool new_table_reader_for_compaction_inputs;  // ImmutableDBOptions
-
-  bool allow_ingest_behind;  // ImmutableDBOptions
-
-  bool preserve_deletes;  // ImmutableDBOptions
-
-  // A vector of EventListeners which callback functions will be called
-  // when specific RocksDB event happens.
-  std::vector<std::shared_ptr<EventListener>> listeners;  // ImmutableDBOptions
-
-  std::shared_ptr<Cache> row_cache;  // ImmutableDBOptions
-
-  std::shared_ptr<FileChecksumGenFactory>
-      file_checksum_gen_factory;  // ImmutableDBOptions
-
-  bool allow_data_in_errors;  // ImmutableDBOptions
-
-  std::string db_host_id;  // ImmutableDBOptions
-
-  FileTypeSet checksum_handoff_file_types;  // ImmutableDBOptions
+                   const ImmutableCFOptions& cf_options);
 };
 
 struct MutableCFOptions {

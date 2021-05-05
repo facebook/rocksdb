@@ -1321,7 +1321,7 @@ TEST_F(OptionsTest, CFOptionsComposeImmutable) {
   DBOptions dummy;  // Needed to create ImmutableCFOptions
   test::RandomInitCFOptions(&base_opts, dummy, &rnd);
   MutableCFOptions m_opts(base_opts);
-  ImmutableCFOptions i_opts(ImmutableDBOptions(dummy), base_opts);
+  ImmutableCFOptions i_opts(base_opts);
   new_opts = BuildColumnFamilyOptions(i_opts, m_opts);
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(config_options, base_opts,
                                                   new_opts));

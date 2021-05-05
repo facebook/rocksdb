@@ -80,7 +80,7 @@ Status BlobFileReader::OpenFile(
   const std::string blob_file_path =
       BlobFileName(cf_paths.front().path, blob_file_number);
 
-  FileSystem* const fs = immutable_cf_options.fs;
+  FileSystem* const fs = immutable_cf_options.fs.get();
   assert(fs);
 
   constexpr IODebugContext* dbg = nullptr;

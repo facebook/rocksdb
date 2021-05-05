@@ -45,8 +45,8 @@ void WriteBlobFile(const ImmutableOptions& immutable_cf_options,
       immutable_cf_options.cf_paths.front().path, blob_file_number);
 
   std::unique_ptr<FSWritableFile> file;
-  ASSERT_OK(NewWritableFile(immutable_cf_options.fs, blob_file_path, &file,
-                            FileOptions()));
+  ASSERT_OK(NewWritableFile(immutable_cf_options.fs.get(), blob_file_path,
+                            &file, FileOptions()));
 
   std::unique_ptr<WritableFileWriter> file_writer(
       new WritableFileWriter(std::move(file), blob_file_path, FileOptions(),
@@ -275,8 +275,8 @@ TEST_F(BlobFileReaderTest, Malformed) {
         immutable_cf_options.cf_paths.front().path, blob_file_number);
 
     std::unique_ptr<FSWritableFile> file;
-    ASSERT_OK(NewWritableFile(immutable_cf_options.fs, blob_file_path, &file,
-                              FileOptions()));
+    ASSERT_OK(NewWritableFile(immutable_cf_options.fs.get(), blob_file_path,
+                              &file, FileOptions()));
 
     std::unique_ptr<WritableFileWriter> file_writer(
         new WritableFileWriter(std::move(file), blob_file_path, FileOptions(),

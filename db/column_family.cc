@@ -1417,7 +1417,8 @@ Status ColumnFamilyData::AddDirectories(
 
     if (existing_dir == created_dirs->end()) {
       std::unique_ptr<FSDirectory> path_directory;
-      s = DBImpl::CreateAndNewDirectory(ioptions_.fs, p.path, &path_directory);
+      s = DBImpl::CreateAndNewDirectory(ioptions_.fs.get(), p.path,
+                                        &path_directory);
       if (!s.ok()) {
         return s;
       }

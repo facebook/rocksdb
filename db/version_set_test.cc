@@ -723,7 +723,8 @@ class VersionSetTestBase {
     db_options_.env = env_;
     db_options_.fs = fs_;
     immutable_cf_options_.env = env_;
-    immutable_cf_options_.fs = fs_.get();
+    immutable_cf_options_.fs = fs_;
+    immutable_cf_options_.clock = env_->GetSystemClock().get();
 
     versions_.reset(
         new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get(),
